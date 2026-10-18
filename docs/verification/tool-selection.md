@@ -8,7 +8,7 @@ not read the user's later.dog data or connect a real mail account.
 ```sh
 pnpm exec vitest run shared/tool-scope.test.ts server/mcp-gate.test.ts server/mcp-gate-config.test.ts server/mcp-remote-proxy.test.ts
 pnpm exec vitest run server/store.test.ts server/tool-scope.e2e.test.ts server/drivers/tool-scope-coverage.test.ts server/drivers/acp/tool-scope.test.ts
-pnpm exec vitest run server/drivers/pi.test.ts server/drivers/pi-mcp-extension.test.ts server/drivers/chat-mcp-tools.test.ts server/drivers/openai-chat.test.ts server/openai-tools.e2e.test.ts
+pnpm exec vitest run server/drivers/chat-mcp-tools.test.ts server/drivers/openai-chat.test.ts server/openai-tools.e2e.test.ts
 pnpm exec vitest run src/state/store.test.ts
 ```
 
@@ -38,22 +38,18 @@ the transcript is unchanged and no provider is launched.
 
 ## Official CLI contract checks
 
-Install the official Pi CLI into a disposable prefix, then supply its absolute
-path. The scripts configure their own loopback synthetic provider:
+Supply the absolute path of an installed official Grok CLI. The script
+configures its own loopback synthetic provider:
 
 ```sh
-node --experimental-strip-types scripts/verify-pi-tool-scope.ts /absolute/path/to/pi
 node --experimental-strip-types scripts/verify-tool-scope.ts /absolute/path/to/grok
-pnpm build:server
-node --experimental-strip-types scripts/verify-pi-tool-scope.ts /absolute/path/to/pi dist-server/drivers/pi-mcp-extension.ts
 ```
 
-Verified contracts: **Pi 0.99.1**, **Grok 1.0.41**. Pi checks late package tool
-activation as well as native/custom tools. Grok checks inherited profiles,
+Verified contract: **Grok 1.0.41**. Grok checks inherited profiles,
 model-specific harness changes, resumed selections, explicit MCP helpers,
 managed gateway suppression and refusal of unexpected native MCP servers.
-These scripts intentionally request withheld tools through the synthetic
-provider and check that they never execute. They do not benchmark a model.
+The script intentionally requests withheld tools through the synthetic
+provider and checks that they never execute. It does not benchmark a model.
 
 Grok's restricted profile is established on the requested model, with the
 default harness pinned before spawn. The session must acknowledge the selected
@@ -80,10 +76,9 @@ no real Codex account or paid model.
 
 Load a tool-capable local model separately with an **8192-token context**, one
 parallel request, and an explicit temporary identifier. Confirm those values
-with the runtime's loaded-model report, then run Pi and Grok sequentially:
+with the runtime's loaded-model report, then run Grok:
 
 ```sh
-node --experimental-strip-types scripts/verify-local-tool-selection.ts pi /absolute/path/to/pi http://127.0.0.1:1234/v1 MODEL_ID
 node --experimental-strip-types scripts/verify-local-tool-selection.ts grok /absolute/path/to/grok http://127.0.0.1:1234/v1 MODEL_ID
 ```
 
@@ -94,6 +89,9 @@ checks the file and MCP execution receipts. Unload only the test model when
 finished; leave other projects and the local-model service running.
 
 ### Physical Mac evidence, 2026-09-30
+
+Pi is no longer offered in later.dog; its rows below are kept as the record of
+that run.
 
 Executed on arm64 macOS **26.6.2 (25G83)**, **24 GiB RAM**. Runtime: LM Studio
 CLI commit `1017bcb`, llama.cpp Metal backend **2.48.0**. Model:

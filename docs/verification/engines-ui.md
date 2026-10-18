@@ -7,13 +7,12 @@ node --experimental-strip-types scripts/verify-engines-ui.ts
 ```
 
 Open its printed `previewUrl`. The bottom toolbar switches between the real
-Settings modal, which opens on General with its Accounts list, and onboarding,
-applies the app's Midnight/Atelier skins, and toggles a synthetic Antigravity
-connection. **Onboarding preview** opens the welcome flow directly at the
-engines beat. Provider install, sign-in and account-management requests are
-rejected by fixture-only middleware; no real provider login or user
-configuration is involved. A rejected request is useful for checking error
-presentation, not evidence that provider auth works.
+Settings modal, which opens on General with its AI accounts list, and the
+welcome flow, applies the app's light and dark looks, and toggles a synthetic
+connection and a sample ChatGPT plan. Provider install, sign-in and
+account-management requests are rejected by fixture-only middleware; no real
+provider login or user configuration is involved. A rejected request is useful
+for checking error presentation, not evidence that provider auth works.
 **Toggle sample ChatGPT plan** changes only the synthetic account state; it
 does not sign in or contact OpenAI.
 Vite's generated source cache stays in the checkout's ignored
@@ -21,28 +20,28 @@ Vite's generated source cache stays in the checkout's ignored
 remain disposable. Keeping these separate prevents late cache writes from
 recreating a removed fixture directory.
 
-Settings has no Engines page, so this preview no longer shows engine cards,
-CLI paths, provider icons or server installs; onboarding's engines beat is the
-remaining engine list.
+Settings has no Engines page and the welcome flow has no engine step: it is
+**Welcome to later.dog** (your name) and then **Meet your first dog**. AI
+accounts are added from Settings or when a dog first needs one.
 
 ## Checks
 
-1. Onboarding lists Claude, Codex and Cursor with status pills, then the other
-   engines that already work (Grok and OpenCode); the rest are named once under
-   **Coming soon**. Rows that need setup start collapsed. Provider marks keep
-   the selected skin's colors. At 390px there is no horizontal page overflow
-   and **Continue** stays reachable while the list scrolls.
-2. Toggle the sample connection. Antigravity moves from **Coming soon** into
-   the list as Ready without reopening onboarding or changing focus.
-3. Expand Cursor. Its setup opens inline under the row with this platform's
-   install command.
-4. Open **Settings preview**. Settings → General → Accounts lists Claude
-   (`personal@example.test`), Codex (`work@example.test`) and ChatGPT plan,
-   which reads **Not signed in** and offers **Sign in**. Toggle the sample
-   ChatGPT plan: its row shows `preview@example.test`. **Sign out** asks for
-   confirmation, and the fixture's refusal appears under the row with
-   **Sign out** usable again. Check Midnight and Atelier; no horizontal
-   overflow.
+1. **Onboarding preview** opens **Welcome to later.dog** with a name field,
+   **Continue** and **Maybe later**; the next step is **Meet your first dog**
+   (breed, color, name, **Start chatting**, **Back**). No engine list appears.
+2. Open **Settings preview**. Settings → General → AI accounts lists Claude
+   (`personal@example.test`), Codex (`work@example.test`) and Grok
+   (Signed in), with **Add account** and the **Keep going when an account runs
+   out** switch. The sections are General, Computer, Usage & Billing and
+   Updates.
+3. Toggle the sample ChatGPT plan: a **ChatGPT plan** row appears with
+   `preview@example.test`. Its remove button asks **Remove ChatGPT plan?**
+   with Cancel and Remove; confirming shows the fixture's refusal ("Preview
+   only, no real account or installation is changed.") under the row, which
+   stays usable. Check light and dark; no horizontal overflow.
+
+Steps 1 to 3 were walked on 2026-10-18 against `finalize/integration`, in the
+dark look at desktop width only; the screenshots are outside the repository.
 
 Automated coverage:
 

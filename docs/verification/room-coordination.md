@@ -1,7 +1,7 @@
 # In-chat team coordination
 
 Independent bot conversations now dispatch as soon as a handoff is accepted;
-speakers in the same group chat still serialize. A Chief waiting for returned
+speakers in the same group chat still serialize. A dog waiting for returned
 results exposes `waitingForTeammates: true`, not a fake active `busy` turn.
 The chat header shows **Teammates working**, leaves the composer usable and
 retains Stop. Explicit command-line `wait` still waits for the whole result.
@@ -16,16 +16,14 @@ pnpm exec vitest run server/room-handoffs.test.ts server/direct-coordination.e2e
 LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/direct-coordination-ui.e2e.test.ts
 ```
 
-Gated fake-model turns prove a teammate starts before the Chief settles,
-the Chief becomes available while results are pending, failure of the source
+Gated fake-model turns prove a teammate starts before the lead settles,
+the lead becomes available while results are pending, failure of the source
 does not discard accepted work, and exactly one final answer returns to the
 original thread. These tests verify orchestration, not live-model planning.
 
 In an ordinary bot chat or group conversation, ask the lead to consult named
 teammates or have them build and review a concrete artifact. No new dashboard,
-incoming-route panel or mandatory discussion. The existing **Finish together** goal loop
-remains unchanged and owns its own teammate turns; it does not run a competing
-handoff loop inside those turns.
+incoming-route panel or mandatory discussion.
 
 The tools are `list_room_targets` and `coordinate_bots`. Discovery includes
 reachable bots as well as rooms. The latter addresses 1–4 existing bots in this
@@ -39,7 +37,7 @@ in direct conversations keep their individual messages.
 Recipients run sequentially per room, with their own models, permissions and
 working environments. Busy recipients queue. Once all requested results arrive,
 the sender resumes in the original conversation. A lead can consult its own
-specialists; it never inherits the parent Chief's cross-team access or permissions.
+specialists; it never inherits the parent's access or permissions.
 Advice is not a verification
 receipt: the lead must ask the reviewer to run the requested checks.
 
@@ -48,7 +46,7 @@ the first request, a follow-up, a change of plan and rework all land there, so
 the recipient has the earlier work in its own history. If the recipient is
 already working in that conversation, the request waits and runs next; the same
 work never runs twice in parallel. The recipient works at its own model and
-permission level; a Chief's level is never applied to it. Each receipt names the
+permission level; the sender's level is never applied to it. Each receipt names the
 recipient's conversation. Within the
 sending turn and the turns that resume it, the same text to the same
 recipient and place is one request: a repeat while it is live is not sent
@@ -72,9 +70,9 @@ resumes it. That turn's context names what is still outstanding, so the bot
 answers the new instruction without assuming its fan-out died or sending the
 same work again.
 
-Direct-chat parking is a per-bot opt-in. When it is on, a message that arrives
-while teammates are still working waits in the composer queue — the same
-pending chip a busy thread shows — and runs as its own follow-up turn once
+Direct-chat parking is a per-bot opt-in (`parkDirectMessages`). When it is on,
+a message that arrives while teammates are still working waits on the server
+and runs as its own follow-up turn once
 every outstanding assignment has settled and the resumed coordination has
 finished. Steering stays the default; Stop keeps its conversation-scoped
 behavior either way.
@@ -96,32 +94,10 @@ conversation.
 
 ## Repeatable checks
 
-### Rooms containing a supervising Chief
-
-A section bot can work in its room when an out-of-section Chief in
-that room has an owner-reviewed `managedSections` grant for the bot's section.
-This includes a Chief in General (no section). In that same conversation,
-`list_room_targets` advertises the Chief and section peers, and `coordinate_bots`
-can address them by ID. The exception does not grant direct-chat access or
-access to the Chief in another room. Other cross-section members, unmanaged
-Chiefs, and peer restrictions still block work. Revoking supervision before
-queued work starts prevents dispatch.
-
-```sh
-pnpm exec vitest run server/peer-roster.test.ts server/room-coordination.e2e.test.ts server/direct-coordination.e2e.test.ts server/room-handoffs.test.ts server/peer-allowlist.e2e.test.ts
-```
-
-The coordination suites use `launchVerificationServer`, `control-laterdog`, and the
-actual agents MCP proxy with a scripted provider and disposable HOME/data.
-They assert discovered targets, accepted or refused tool calls, durable
-handoff state, the destination conversation, and absence of dispatch after
-revocation. They cover both named-section and sectionless Chiefs. These are
-server workflow checks, not UI or live-model verification.
-
 ### Broader coordination checks
 
 ```sh
-pnpm exec vitest run server/room-handoffs.test.ts server/room-coordination.e2e.test.ts src/components/GroupView.test.ts src/lib/room-activity.test.ts --maxWorkers=2
+pnpm exec vitest run server/peer-roster.test.ts server/room-handoffs.test.ts server/room-coordination.e2e.test.ts src/components/GroupView.test.ts src/lib/room-activity.test.ts --maxWorkers=2
 pnpm exec vitest run server/drivers/agents-proxy.test.ts --maxWorkers=2
 pnpm exec vitest run server/room-recovery.e2e.test.ts server/testing/room-handoff-agent.test.ts
 pnpm exec vitest run server/direct-coordination.e2e.test.ts --maxWorkers=1
@@ -163,8 +139,8 @@ work runs as if the id had been sent; a name nobody has is refused with the
 argument echoed and `list_bots` named (`No bot with id or name "…"`); a hidden
 teammate's id is refused as no longer available; a name two reachable teammates
 share is refused with the count and the way to the ids, never guessed. The same
-resolution serves `ask_bot` and `delegate_bot`, and every roster line the Chief
-and its peers read carries the teammate's `[id: …]`, so the tools can be called
+resolution serves `ask_bot` and `delegate_bot`, and every roster line a dog
+reads carries the teammate's `[id: …]`, so the tools can be called
 straight from the prompt.
 Unit checks cover bounded depth/fan-out, idempotent retry, original request
 retention, automatic return, cancellation and restart without replay, and the
@@ -217,7 +193,7 @@ conversation and no tool to open separate work on itself.
 Direct routines, webhooks and legacy peer delivery
 retain their existing lifecycle: their completion is not claimed early by this
 new loop, and a turn of theirs that lands in a conversation cancels no
-coordination there. Finish together remains separate too. Cancelling a request
+coordination there. Cancelling a request
 stops the descendants it is still waiting on, except a teammate whose turn had
 already started when the person stopped the conversation above it: that process
 is left alone and reports its result. Restart records interruption without
@@ -262,7 +238,7 @@ final summary. These live results do not establish every provider's quality.
 
 ## How long coordinated work may take, and how it ends
 
-A tree of handed-off work (a Chief, its teammates, and whoever they pass work to) is not on a short clock. It stays alive for as long as anything in it shows real progress: a teammate's turn that keeps producing events, a teammate waiting on a card for you or on a computer or helpers, or a request waiting its turn behind a teammate who is busy. The tree ends for time in two cases, both measured by `server/laterdog/handoff-budget.ts`:
+A tree of handed-off work (the dog that asked, its teammates, and whoever they pass work to) is not on a short clock. It stays alive for as long as anything in it shows real progress: a teammate's turn that keeps producing events, a teammate waiting on a card for you or on a computer or helpers, or a request waiting its turn behind a teammate who is busy. The tree ends for time in two cases, both measured by `server/laterdog/handoff-budget.ts`:
 
 - **Nothing moved for 20 minutes** (`rooms.handoffIdleMinutes`): no node showed progress and nothing was waiting on you.
 - **4 hours in total** since the tree began (`rooms.handoffHardCapMinutes`), so a runaway loop cannot go on forever. A parent that only owes its final summary gets a short runway past the cap.
@@ -271,7 +247,7 @@ New teammate work is refused with a plain message once less than 10 minutes of t
 
 Each ended request records why in `endedBy` in `room-handoffs.json`, and the words every reader sees follow it:
 
-| `endedBy` | Teammate chip | Text the Chief reads |
+| `endedBy` | Teammate chip | Text the asking dog reads |
 | --- | --- | --- |
 | `person` | "Scout stopped" | The person stopped this work. |
 | `idle`, `capped` | "Scout ran out of time" | Nothing moved for 20 minutes… / Ran out of time after 4 hours. |
@@ -282,7 +258,7 @@ Each ended request records why in `endedBy` in `room-handoffs.json`, and the wor
 
 Only the Stop buttons (a conversation, a room, or a guarded request) say it was stopped by the person. A change that interrupts a dog's turn (switching its engine, tightening its permissions) now says "interrupted".
 
-When a tree ends for time, its Chief's conversation gets one line, "Ran out of time after 4 hours. Continue?", with a **Continue** button. Continue (`POST /api/handoffs/:id/continue`) starts a fresh tree from the same request: answers that already came back are kept, and each request that did not finish goes out again to the same teammate in the same thread, told to check what is already done and carry on. When they all return, the Chief resumes and answers you. A tree can be continued once; the button turns into "Picking the work back up where it stopped."
+When a tree ends for time, the asking dog's conversation gets one line, "Ran out of time after 4 hours. Continue?", with a **Continue** button. Continue (`POST /api/handoffs/:id/continue`) starts a fresh tree from the same request: answers that already came back are kept, and each request that did not finish goes out again to the same teammate in the same thread, told to check what is already done and carry on. When they all return, the asking dog resumes and answers you. A tree can be continued once; the button turns into "Picking the work back up where it stopped."
 
 A handoff turn that times out (a room turn past its deadline, or a turn the stall watchdog stops) is tried once more, told to check what is already done and carry on. A second timeout ends it as `timeout`. The stall watchdog counts a tool call that is still running as alive, up to 4 hours for one call.
 
@@ -295,12 +271,12 @@ When every dog in a tree is the owner's own dog in Off-leash (`auto`) or Full ac
 - when nothing moved for 20 minutes, later.dog continues the tree by itself instead of asking "Continue?";
 - after a restart, the requests that were running go out again with a note that later.dog restarted.
 
-Everyone else keeps the 4-hour cap, the Continue button, and no replay after a restart; the Chief's conversation gets one line naming each request to send again.
+Everyone else keeps the 4-hour cap, the Continue button, and no replay after a restart; the asking dog's conversation gets one line naming each request to send again.
 
 Checks: `server/room-handoffs.test.ts` (idle, hard cap, honest endings, Continue, long work, retries, restart), `server/laterdog/handoff-budget.test.ts`, `server/laterdog/long-work.test.ts`, `server/turn-watchdog.test.ts`, `src/components/StatusActivityRow.test.ts`.
 
 ## One open thread per teammate
 
-When a dog sends work to a teammate through `send_to_bot`, later.dog first looks for a thread that dog already opened on that teammate from the same conversation and that is still open: not archived, and not closed unless it is the teammate's `@Chief · work` thread, which reopens when new work arrives. If there is one, the request goes into it and runs after anything still running there. The chat says "Added to thread #… on …" instead of "Opened thread", and the dog is told it was added to an open thread instead of opening another. 
+When a dog sends work to a teammate through `send_to_bot`, later.dog first looks for a thread that dog already opened on that teammate from the same conversation and that is still open: not archived, and not closed unless it is a work thread, which reopens when new work arrives. If there is one, the request goes into it and runs after anything still running there. The chat says "Added to thread #… on …" instead of "Opened thread", and the dog is told it was added to an open thread instead of opening another. 
 
 New threads are counted per turn only when one is really created, and only to stop a runaway loop: in the owner's own conversations, 40 with teammates; where a guest drives the conversation or the workspace is shared, 15 with teammates and 5 in all. A dog runs up to 10 threads at once by default (`threads.maxConcurrentPerBot`). At the limit the dog is told to finish and say plainly which threads it still wanted, and the conversation gets one line, "This dog opened 40 new threads in one go, so later.dog paused new ones to stop a runaway. Ask again if you want more." (shown once per turn, however many more it tries). The code is in `server/laterdog/work-thread-reuse.ts`; `server/thread-aware-bots.e2e.test.ts` proves the reuse and the chips on a fixture.

@@ -167,7 +167,7 @@ gates. A peer waits on a real approval-broker card. That card keeps fresh
 coordinated work queued even when the peer still has a free thread slot. A
 spare slot admits work only beside a sibling that is actually running.
 Approving the card releases the queued work, and one attributed result
-returns to the Chief without another user prompt. Exact
+returns to the asking dog without another user prompt. Exact
 control commands, waits, transcripts and the server log path are retained in
 the fixture's `.log.json` evidence, without capability tokens. Queue-unit
 tests cover expiry, multi-job restart recovery, repeated busy periods and
@@ -197,8 +197,9 @@ The fixture prints its server log and a retained `.log.json` evidence path with
 the exact control commands, wait results, and bounded transcripts. Its temporary
 home is removed after the test.
 
-See the [Threads renderer recipe](threads.md) for the real sidebar, composer,
-optional folders, and group-history navigation checks.
+These extra tasks are server-side only. The desktop and the phone show one
+conversation per dog and per group chat; [the sidebar recipe](sidebar.md#one-row-per-dog-and-per-group-chat)
+checks that extra tasks never add rows, folders or unread dots.
 
 ## CLI Stop regression
 

@@ -50,7 +50,7 @@ Use only mapped, tested commands:
 - [Bot setup, model scope, and file continuity](bot-continuity.md)
 - [The main dog](main-dog.md)
 - [Profile proposal and credential-card lifecycle](proposal-cards.md)
-- [Desktop progress, thread receipts and teammate names](desktop-polish.md)
+- [Desktop progress and teammate names](desktop-polish.md)
 - [Full Access without duplicate approvals](full-access.md)
 - [Exact command allowlist UI and saved rules](command-allowlist.md)
 - [Peer approval denial, expiry, and cancellation](peer-approvals.md)
@@ -64,7 +64,6 @@ Use only mapped, tested commands:
 - [Codex bot instructions](codex-instructions.md)
 - [Codex browser routing and native search](codex-browser-routing.md)
 - [Codex helper event isolation](codex-helpers.md)
-- [Qwen model route selection](qwen-models.md)
 - [Team backups](team-backups.md)
 - [Sharing one dog](team-sharing.md)
 - [The organization library](org-library.md)
@@ -85,8 +84,8 @@ Use only mapped, tested commands:
 `control-laterdog ui` ([Chat UI, driven headlessly](chat-ui.md)) drives the real
 renderer in a headless Chrome by accessible name, so composer sends, transcript
 rows, tool chips and server feature flags are provable from the command line.
-Other renderer-only behavior—Settings, sidebar drag-and-drop, the VM modal, the
-built-in browser panel, and updater UI—is still not proven by the harness. Use
+Other renderer-only behavior—Settings, sidebar drag-and-drop, the VM rows and
+updater UI—is still not proven by the harness. Use
 the relevant Electron/package smoke test and state that limitation. Add a map
 entry only after the shared control surface can really drive it.
 
@@ -155,24 +154,21 @@ service, and the `laterdog access` command. The app has no People page.
 The [sidebar fixture](sidebar.md) checks archive and delete confirmations, their
 default focus, keyboard wrapping and focus return against two disposable bots.
 
-The [independent threads fixture](threads.md) checks nested sidebar navigation,
-per-thread models, simultaneous direct conversations and thread-scoped Stop.
-
 The [mobile generated-image checks](mobile-generated-images.md) cover native image
 attachments and message-scoped download authorization using isolated fixtures.
 
 The [guarded external messages fixture](guarded-messages.md) checks atomic
 branch and approval preconditions, retry receipts, and refusal to queue or
 steer messages from external interfaces. It also verifies bounded request
-lineage snapshots, Chief continuations and exact-execution Stop without
+lineage snapshots, teammate continuations and exact-execution Stop without
 interrupting a newer request.
 
 The [right-to-left fixture](bidi.md) checks per-block direction in bot replies
 and per-line direction in sent turns, with code pinned left-to-right.
 
 The [routines fixture](routines.md) checks confirmed proposals, manual and
-scheduled runs, central run logs, List/Calendar views, and bot-scoped routines
-using the real renderer and an isolated fake-engine server.
+scheduled runs in the dog's one conversation, and the routine rows in dog
+settings using the real renderer and an isolated fake-engine server.
 
 The [interval restrictions recipe](interval-restrictions.md) checks weekday and
 time-window limits on scheduled routines in that same disposable fixture.
@@ -180,24 +176,23 @@ time-window limits on scheduled routines in that same disposable fixture.
 The [server settings recipe](server-settings.md) checks browser provider sign-in
 with an offline CLI and custom-domain validation without touching live accounts.
 
-The [engine setup preview](engines-ui.md) checks onboarding's engine list and
-the Accounts list with sample statuses, responsive layouts, theme contrast and
-status refreshes.
+The [engine setup preview](engines-ui.md) checks the welcome flow and the AI
+accounts list with sample statuses, including a refused sign-out.
 
 The [Claude account recipe](claude-account.md) checks sign-out, cancellation and
 retry against an offline Claude CLI confined to a disposable home.
 
 The [provider recovery recipe](provider-recovery.md) verifies real Grok image
-transport and Claude authentication against loopback APIs, plus scoped thread
-approvals and provider safety errors in an isolated desktop UI.
+transport and Claude authentication against loopback APIs, plus private
+approval grants for Claude, Codex and Grok through Electron's server channel.
 
 The [automatic recovery fixture](automatic-recovery.md) checks opt-in, one-shot
 backup model dispatch after proven pre-prompt ACP failures, preserving the
 conversation, approval level and Stop/new-message precedence.
 
-The [skill approval lifecycle recipe](skill-approval-lifecycle.md) checks Deny,
-missing staged records and active-thread deletion in two isolated app windows,
-including the surviving conversation and sending again without deleting the bot.
+The [skill approval lifecycle recipe](skill-approval-lifecycle.md) checks a
+trick a dog learns for itself, its Undo in two isolated app windows, proposing
+the same name again and sending again without deleting the bot.
 
 The [Codex account recipe](codex-account.md) checks account switching against an
 offline Codex CLI whose identity is synthetic and whose credential directory is empty.

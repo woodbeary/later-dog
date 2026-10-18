@@ -31,6 +31,13 @@ changes models and back, checks that the bot default and the thread moved
 together without changing the approval level, and sends a message through the
 composer.
 
+Known gap (2026-10-18): the `--model-ui-only` smoke fails its first picker
+check, which expects the models pane (`[data-simple-model-pane]`) as soon as
+the picker opens (`scripts/testing/model-switch-ui-smoke.cjs`). Reading the
+code, the picker now opens on its accounts page first; this was not confirmed
+with a screenshot. The server recipe and the renderer recipe above are
+unaffected.
+
 The picker has no scope choice: an owner's pick is also the bot default, and
 every thread that uses the bot's model moves with it. The desktop model-switch
 recipe uses the real picker and private approval channel against offline

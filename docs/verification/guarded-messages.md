@@ -87,9 +87,8 @@ The execution ID fences even the setup interval when the provider turn ID is
 still null. A settled request is not reported as stopped, and an uncertain or
 replayed stop is not reported as successful.
 
-Provider messages carry server-authored `requestMessageId`. Chief coordination
-returns inherit the original coordinator generation; reviewed team-setup
-returns bind to the original card's user ancestor, not the latest human turn.
+Provider messages carry server-authored `requestMessageId`. Coordination
+returns inherit the original coordinator generation, not the latest human turn.
 Unknown continuation paths remain `untracked`. A final requires the latest
 provider execution's successful terminal reply, never an earlier delegation
 acknowledgment. `turnSucceeded` persists that distinction; `requestCancelled`
@@ -100,7 +99,7 @@ while awaiting teammates, or a failed coordination root that never resumed,
 cannot reinterpret its old handoff as completion.
 Display-only activity receipts need not carry provider provenance.
 
-Pending permission, question, connection, credential, or team-setup cards and
+Pending permission, question, connection or credential cards and
 outstanding coordination report `waiting`, including while the provider itself
 is idle. This is not a full approval-data API: tool summaries may be incomplete,
 and authoritative review still belongs in the workspace. Stop cancels future
@@ -111,13 +110,13 @@ tools.
 Run the isolated request/continuation checks:
 
 ```sh
-pnpm exec vitest run server/guarded-requests.test.ts server/guarded-messages-api.test.ts server/direct-coordination.e2e.test.ts server/team-setup.e2e.test.ts server/turn-dispatch-guard.test.ts server/request-auth.test.ts
+pnpm exec vitest run server/guarded-requests.test.ts server/guarded-messages-api.test.ts server/direct-coordination.e2e.test.ts server/turn-dispatch-guard.test.ts server/request-auth.test.ts
 pnpm exec tsc -p tsconfig.server.json --noEmit
 ```
 
 These checks include immutable Stop targets, the null-provider-ID setup race,
-detached final/card ancestry, foreign human turns, real gated Chief delegation,
-reviewed bot creation and continuation, and refusal to reuse an initial handoff
+detached final/card ancestry, foreign human turns, real gated teammate
+delegation and continuation, and refusal to reuse an initial handoff
 after a failed resumed turn or failed coordination root. All providers are
 isolated fakes.
 

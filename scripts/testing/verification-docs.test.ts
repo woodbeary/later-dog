@@ -22,9 +22,8 @@ const target = (hit: string) => hit.slice(hit.indexOf(": ") + 2);
 const helpVerbs = new Set([...HELP.matchAll(/^ {2}([a-z][\w-]*)(?= |$)/gm)].map((match) => match[1]!).filter((verb) => verb !== "node"));
 helpVerbs.add("help");
 
-const ROUTES_DIR = join(ROOT, "server", "routes");
-const routeModules = readdirSync(ROUTES_DIR).filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts")).sort();
-const serverSource = [join(ROOT, "server", "index.ts"), ...routeModules.map((name) => join(ROUTES_DIR, name))]
+const sourceModules = (dir: string) => readdirSync(dir).filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts")).sort().map((name) => join(dir, name));
+const serverSource = [join(ROOT, "server", "index.ts"), ...sourceModules(join(ROOT, "server", "routes")), ...sourceModules(join(ROOT, "server", "laterdog"))]
   .map((file) => readFileSync(file, "utf8")).join("\n");
 const hooksSource = readFileSync(join(ROOT, "server", "webhook-ingress.ts"), "utf8");
 const routePatterns = [...serverSource.matchAll(/\/(\^\\\/api\\\/(?:\[(?:[^\]\\]|\\.)*\]|[^/\\\n[]|\\.)*)\/[a-z]*/g)].map((match) => new RegExp(match[1]!));

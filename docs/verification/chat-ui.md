@@ -118,8 +118,8 @@ the lasting choice says how far it reaches, and the dog's sidebar line reads
 `Waiting for you: <action>`. Don't allow always hands the engine the same fixed
 denial (`server/laterdog/person-denied.ts`), whatever text the client sent. Only
 the Claude, Codex and ACP drivers pass that text on; the OpenAI-compatible chat
-drivers (`server/drivers/chat-tool-approval.ts`, used by Grok, Mistral, MiniMax,
-Cerebras and other OpenAI-compatible engines) drop it, so those engines see a bare
+drivers (`server/drivers/chat-tool-approval.ts`, used by the Grok API and
+OpenAI-compatible key connections) drop it, so those engines see a bare
 refusal. Always allow on a dog's own chat counts for that chat only; from a group
 chat it is saved on the dog, so it counts in group chats and in new chats. A card
 is labelled Always allowed only once the grant is really on the dog.
@@ -142,32 +142,25 @@ plan that has one dog call `send_to_bot`, `propose_routine` and
 approval panel. `scripts/testing/exchange-preview.tsx` mounts the real chat
 against fixed data, including an older channel exchange, for the read-only view.
 
-## Thinking timer across thread switches
+## Thinking timer across chat switches
 
 `scripts/testing/thinking-timer-ui.e2e.test.ts` holds the working row's
 elapsed readout to the server's `turnStartedAt` stamp. It launches the full
 app with the fake engine in `hang` mode, so a sent turn stays officially in
-flight and the bot stays busy with no reply arriving. A second thread is
-created through the same `POST /api/bots/:id/tasks` the sidebar's
-**New thread** dispatches, the bot's thread list is expanded through its
-chevron, and the test switches to the idle thread and back mid-turn. The
-readout before the switch, the readout after the return, and the stamp on
-the wire are compared: the count must resume from the stamp (13+ seconds
-in), never from the moment of re-selection, and the stamp itself must not
-move while the turn runs. A screenshot of the anchored readout is kept as
-evidence.
+flight and the dog stays busy with no reply arriving. The test sends to Pepper
+from the composer, switches to another dog's row and back mid-turn, and
+compares the readout before the switch, the readout after the return, and the
+stamp on the wire: the count must resume from the stamp (10+ seconds in),
+never from the moment of re-selection, and the stamp itself must not move
+while the turn runs. A screenshot of the anchored readout is kept as evidence.
 
-Groups never showed the readout at all — their turns run on the group's
-busy slot, not on a member's task, so there was no stamp to count from.
-The second test in the same file gives groups their own: a one-member
-group is created through the same `POST /api/groups` the sidebar's group
-creation dispatches (with setup completed, so the composer is live at
-once), a message routes to the default responder, and the group's claim
-of its speaker — the `busyBotId` transition the server stamps as
-`turnStartedAt` on the group, cleared again when the group goes idle —
-must appear in the readout. The test switches to the member's 1:1 thread
-and back mid-turn and holds the resumed readout to the same claim stamp,
-keeping a second screenshot.
+The second test gives group chats the same readout: a one-member group is
+created through `POST /api/groups`, a message routes to its responder, and the
+group's claim of its speaker (the `busyBotId` transition the server stamps as
+`turnStartedAt` on the group, cleared again when the group goes idle) must
+appear in the readout. The test switches to the member's own chat and back
+mid-turn and holds the resumed readout to the same claim stamp, keeping a
+second screenshot.
 
 ```sh
 LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/thinking-timer-ui.e2e.test.ts
@@ -220,10 +213,8 @@ transcript, presses Escape and checks that the earlier text is back exactly and
 listening stopped. Reload the preview afterwards. Neither script opens the
 microphone or proves real-audio acceptance.
 
-## Queued edits and Claude update recovery
+## Claude update recovery
 
-The queued-message Edit action must remove the server's held send before
-returning its text to the same thread's draft, ahead of any existing text.
 To exercise the desktop Claude update card without an actual provider,
 launch an isolated UI with `FAKE_CLAUDE_MODE=api-error` and
 `FAKE_CLAUDE_API_ERROR="API Error: 400 Claude Code 2.1.268 does not support this model; version 2.1.280 or newer is required."`.
@@ -240,8 +231,6 @@ reply, and a server-side feature flag reaches the renderer live — all in a
 Chromium page, through accessibility names, with no mouse coordinates.
 
 Not proven: the Electron shell (menus, preload bridge, screen capture,
-dictation), a real provider, Settings, sidebar drag-and-drop, the VM modal, the
-browser panel and updater UI, and anything `Show threads` gates (that toggle is
-renderer localStorage, outside `ui flag`). `AGENT_BROWSER_HEADLESS=1` is set
+dictation), a real provider, Settings, sidebar drag-and-drop and updater UI. `AGENT_BROWSER_HEADLESS=1` is set
 for consistency with the harness, but agent-browser 0.37.0 is headless by
 default and reads `AGENT_BROWSER_HEADED` to opt out.

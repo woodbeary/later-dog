@@ -28,7 +28,7 @@ prompt or dialog: visibility is access control and the log is a record.
   - rooms need every bot visible; teams need a visible bot or room;
   - bots reach teammates only with exactly the same audience
     (`peerAllowed` in `server/peer-roster.ts`, used by rosters, `list_bots`,
-    asks, delegations, @mentions and the Chief's team);
+    asks, delegations and @mentions);
   - admins, the owner on this machine and a session-less local service see
     everything; members never receive a bot's audience list.
 - **Admin activity log.** `server/admin-activity.ts`. Each successful admin
@@ -101,7 +101,7 @@ above passed. Before that rebase (main `0bb37982` plus #1708),
 `server/direct-coordination.e2e.test.ts`, `server/request-auth.test.ts`,
 `server/decision-log.test.ts`, `server/decision-log-wiring.test.ts`,
 `server/card-answerers.e2e.test.ts`, `server/peer-allowlist.e2e.test.ts`,
-`server/delegations.test.ts`, `server/chief-of-staff.test.ts`,
+`server/delegations.test.ts`,
 `server/thread-capacity-api.test.ts`, `server/cli-service-trust.e2e.test.ts`
 and the Settings/People/session UI tests passed on macOS.
 `server/hosted-access.test.ts` passed except once for its 8-second licence
@@ -175,9 +175,9 @@ above; not production qualification.
   such a room (`/api/internal/memory*` answers 403). The e2e recall test now
   uses `session_search`'s default scope and counts the log's lines around a
   post-restriction room turn.
-- **Chief-made bots.** `/api/internal/create-bot` and reviewed team setup
-  give the new bot the Chief's audience ("gives a bot a restricted Chief
-  creates the Chief's own audience").
+- **Dog-made bots.** `/api/internal/create-bot` gives the new bot its
+  creator's audience ("gives a bot a restricted dog creates that dog's own
+  audience").
 - **Room floors.** Each room keeps `audienceFloor`, the narrowest audience it
   has had (settled at start, and on every bot or room change); a member
   needs to pass it too, and it feeds the recall rule. Only

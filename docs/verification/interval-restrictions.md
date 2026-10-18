@@ -17,17 +17,13 @@ fixture described in [routines](routines.md); never test on a live workspace.
 - Tests cover spring-forward/fall-back windows, queued work outside allowed
   hours, expiration, import/export, and rejecting malformed agent proposals.
 
-## Renderer
+## In the app
 
-In the isolated app, open Automations, New, Scheduled task, More options, then
-choose Every X minutes. Select Weekdays, Custom hours (09:00–17:00), and an end
-date. Save, reopen, and confirm that the restrictions are retained.
-
-The before (main-equivalent renderer: the original interval editor) and after
-(day, hour and end-date restrictions) screenshots were removed from the
-repository on 2026-10-08.
+There is no schedule editor: a dog proposes a restricted interval with
+`propose_routine` and the person confirms the card. Dog settings → Routines
+shows the saved schedule line. The earlier editor screenshots were removed from
+the repository on 2026-10-08.
 
 Restrictions follow the scheduler computer's local timezone, matching existing
 daily schedules. Time windows must end on the same day; overnight windows are
-rejected. Native iOS/Android editors preserve these fields but do not yet expose
-the new selectors. No paid provider or live user workspace was used.
+rejected. No paid provider or live user workspace was used.

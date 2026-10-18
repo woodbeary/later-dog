@@ -7,22 +7,22 @@ pnpm exec electron scripts/smoke-approval-modes.cjs --skill-ui-only
 ```
 
 The harness creates a temporary home, runs the real server with fake provider
-CLIs, and mounts the real ChatView, task picker, composer and StoreProvider in
-two hidden Electron windows. It never touches the running app or user data.
-No skill is enabled, no real provider is called, and no cleanup instruction
-from the reported screenshot is executed.
+CLIs, and mounts the real ChatView, composer and StoreProvider in two hidden
+Electron windows. It never touches the running app or user data. No real
+provider is called.
 
-The recipe asserts:
+A dog that learns a trick for itself in its own conversation applies it at
+once and shows "added a trick" with **Undo**; a confirmation card with
+**Deny** appears only when a Cloud guest drives the conversation. The recipe
+asserts:
 
-1. Clicking **Deny** settles a staged skill card in both windows.
-2. Deny also works when the temporary staged record has already disappeared.
-3. A denied skill name can be proposed again; it is not silently reserved.
-4. Deleting the active thread through the real task picker removes its pending
-   card in both windows. The second window receives only server events, not
-   the delete request's response.
-5. The surviving thread retains its exact messages; the bot remains present.
-6. The staged skill is removed, and a new message sent through the composer
-   receives a fake-provider reply in both windows without reopening the app.
+1. A trick the dog proposes in its one conversation is applied and its line
+   appears in both windows.
+2. Clicking **Undo** in one window removes the trick and marks the line
+   Undone in both windows.
+3. The same trick name can be proposed again; it is not silently reserved.
+4. A new message sent through the composer receives a fake-provider reply in
+   both windows without reopening the app, and the dog remains present.
 
 Screenshots and assertion results are saved in
 `.laterdog-scratch/verify-evidence/skill-approval/`. Windows, server and temporary

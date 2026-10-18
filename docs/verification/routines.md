@@ -2,13 +2,11 @@
 
 ## Monthly and custom cron
 
-See [schedule behavior and examples](../routine-schedules.md). In the isolated
-renderer below, create a monthly routine for day 1 at 09:00 in Asia/Kolkata.
-Check that the next three dates are all on the 1st, then save, reload and edit
-the title without changing its expression or zone. Switch to Custom cron and
-try `0 9 31 2 *`: the inline error must disable Save and leave the stored rule
-untouched. Check `0 9 L * *` and `0 9 * * MON#2` for real month-end/nth-weekday
-previews. Calendar calls deliberately retain their existing scheduling choices.
+See [schedule behavior and examples](../routine-schedules.md). Routines are
+made in chat: a dog proposes one with `propose_routine` and the person confirms
+the card. There is no schedule editor or custom cron field in the app, so
+monthly, month-end and nth-weekday rules are checked through the tool and the
+API below.
 
 The automated cron tool fixture calls the real MCP proxy through a disposable
 server, confirms the resulting card, and verifies list/update/pause/resume,
@@ -21,7 +19,7 @@ neither a second approval card nor a second schedule. The proposal-service
 tests cover competing confirmations, Full Access, per-bot ownership, explicit
 interval starts, meaningful punctuation and differing execution settings.
 This guard only applies to agent creation proposals; intentional duplicates
-in the manual editor remain possible. Existing routines are never removed.
+made through the API remain possible. Existing routines are never removed.
 
 ```sh
 pnpm exec vitest run shared/routine-schedule.test.ts server/routine-cron.e2e.test.ts server/routine-requests.test.ts server/routines.test.ts server/routines-startup.test.ts src/lib/schedule-label.test.ts server/bot-package.test.ts server/package-export.test.ts
@@ -65,44 +63,32 @@ persistent `logPath`.
 1. In Pepper's source chat, inspect the pending routine card. Confirm it once;
    the card must become settled and exactly one matching routine must appear.
    Reloading must preserve both the routine and the card's settled state.
-   Open that routine and run it. The run, its lifecycle receipt and any
-   approval it asks for all land in Pepper's one conversation, not the source
-   chat or a new thread.
-2. Open **Automations → Schedule**. Toggle **List / Calendar**. The list must
-   show paused and finished schedules as well as active ones; changing views
-   must not change a routine or start a run. Filter by Pepper and Miso and
-   confirm that routine ownership stays correct.
-3. Use **New → Scheduled task** to create a distinctly named Pepper routine.
-   Check its saved schedule and prompt, edit it, then pause and resume it.
-   **Run now** should create one run and show its eventual saved result.
-   For the agent-created interval, compare `/api/routines` before and after a
-   title-only edit: `schedule.anchorAt` and `nextRunAt` must not shift. An
-   unchanged one-time schedule must likewise retain its exact `schedule.at`,
-   including seconds and milliseconds omitted by the editor's time field.
-4. Open **Run logs**. Verify the successful manual run, the Miso failure and its
-   error, and the automatic run. Open the automatic receipt and verify it was
-   **Scheduled**, not **Manual**. A finished one-shot schedule must not be
-   described as a successful run merely because its date has passed.
-5. Exercise bot and status filters, search by name or result/error text, and
-   open a routine's scoped **Run logs** link. **Show all routines** removes that
-   routine-only filter. Opening a run must show its own saved details. A run
-   from an older version opens its old execution thread, read-only history.
-6. Return to Pepper and open its Computer side panel. The **Routines** tab next
-   to Computer and the compact entry below the computer section must reach the
-   same bot-scoped list. Check next-run dates, latest results and log links.
-   Switch to Miso and back; never show Pepper's routines under Miso. Each bot's
-   selected side-panel tab should survive closing and reopening the panel.
-7. Open bot settings → Routines. It must use the same routine editor and central
-   logs, without creating a second definition or competing history page.
-   Confirm that the chat's model header and Ask composer retain their positions.
-8. Pepper still has one conversation. Both manual runs, their dated reports and
+   Run it with `POST /api/routines/:id/run`. The run, its lifecycle receipt and
+   any approval it asks for all land in Pepper's one conversation, not the
+   source chat or a new thread.
+2. Open Pepper's settings. **Routines** lists each of Pepper's routines as one
+   row with its name, its schedule line (or "Paused") and a pause switch, plus
+   the last run when there is one. Miso's routine never appears under Pepper.
+3. Click the last-run line: the chat scrolls to that run's message in Pepper's
+   conversation.
+4. Click a routine row to open its menu: **Pause**/**Resume**, **Edit** and
+   **Delete**. Pause and Resume match the switch and survive a reload. **Edit**
+   closes settings and puts a prefilled draft naming the routine in Pepper's
+   composer; it does not change the routine by itself. **Delete** asks first.
+   Escape closes the menu.
+5. For the agent-created interval, compare `/api/routines` before and after a
+   title-only `PATCH`: `schedule.anchorAt` and `nextRunAt` must not shift. An
+   unchanged one-time schedule must likewise retain its exact `schedule.at`.
+6. Pepper still has one conversation. Both manual runs, their dated reports and
    their prompts are in it, in order; the sidebar shows no extra entry per run.
-9. Send Pepper a message while she is busy, then press **Run now**. The run
-   waits behind the person's turn (its receipt says it was deferred) and then
-   runs in the same conversation.
+   Miso's failed run shows its error in Miso's conversation, and the automatic
+   run is recorded as **Scheduled**, not **Manual**, in `/api/routines`.
+7. Send Pepper a message while she is busy, then run a routine. The run waits
+   behind the person's turn (its receipt says it was deferred) and then runs in
+   the same conversation.
 
 Every routine runs in its dog's one conversation, whether it was made in a
-chat, the editor or the API, and whether a teammate asked for it. A routine
+chat or the API, and whether a teammate asked for it. A routine
 for a group runs in that group's one conversation. A run waits while that
 conversation is busy. Older routines that pointed at a "· Results" thread, and
 older runs that opened their own execution thread, keep that history: it stays
@@ -187,14 +173,13 @@ never kill processes by name or delete a broad temporary root.
 
 ## Automated regressions
 
-In the editor's Advanced section, recurring routines offer **Skip this
-occurrence** (the default) or **Queue one run**. The queued scheduled run waits
+Recurring routines take an overlap policy: **Skip this occurrence** (the
+default) or **Queue one run**, set through the routine tool or API. The queued scheduled run waits
 for the same routine to finish, including delegated work; extra occurrences
 are skipped, not accumulated. Manual runs and webhook deliveries remain
-independent. Pausing still cancels queued work. The cron renderer test changes
-this option, saves it, opens the editor again and switches it back.
+independent. Pausing still cancels queued work.
 
-The List view and `list_routines` expose saved skipped-occurrence counts and
+`list_routines` exposes saved skipped-occurrence counts and
 recent consecutive failures. Skips count occurrences observed by the scheduler
 while busy, not every interval elapsed while offline. Failure streaks are
 derived from retained terminal receipts (up to the existing history limit),
