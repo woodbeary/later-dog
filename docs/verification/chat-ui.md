@@ -121,7 +121,12 @@ or `Denied` with the tool's short name; the open card offers Allow once
 exact command shows open in a mono block of capped height, one plain line under
 the lasting choice says how far it reaches, and the dog's sidebar line reads
 `Waiting for you: <action>`. Don't allow always hands the engine the same fixed
-denial (`server/laterdog/person-denied.ts`), whatever text the client sent. A card
+denial (`server/laterdog/person-denied.ts`), whatever text the client sent. Only
+the Claude, Codex and ACP drivers pass that text on; the OpenAI-compatible chat
+drivers (`server/drivers/chat-tool-approval.ts`, used by Grok, Mistral, MiniMax,
+Cerebras and other OpenAI-compatible engines) drop it, so those engines see a bare
+refusal. Always allow on a dog's own chat counts for that chat only; from a group
+chat it is saved on the dog, so it counts in group chats and in new chats. A card
 is labelled Always allowed only once the grant is really on the dog.
 
 Names are read by dog id, and the server keeps a dog's earlier names

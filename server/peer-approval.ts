@@ -125,7 +125,8 @@ export function requestPeerApproval(
   action: PeerAction,
   sourceThreadId = from.threadId,
 ): Promise<PeerApprovalOutcome> {
-  if (bus.autoApply?.(from.id, sourceThreadId) || allowKeyAllowed(from, peerAllowKey(action, target.id))) {
+  const grants = bus.store.projectBotForTask(from.id, sourceThreadId) ?? from;
+  if (bus.autoApply?.(from.id, sourceThreadId) || allowKeyAllowed(grants, peerAllowKey(action, target.id))) {
     return Promise.resolve("allow");
   }
   return new Promise((resolve) => {
