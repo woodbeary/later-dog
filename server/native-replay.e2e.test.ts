@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { writeFileSync } from "node:fs";
 import { expect, it } from "vitest";
-import { launchVerificationServer, runControlLaterDog } from "../scripts/control-laterdog.ts";
+import { launchVerificationServer, runControlLaterDog, VERIFICATION_COMPAT_INSTANCE } from "../scripts/control-laterdog.ts";
 import { fixtureApi } from "../scripts/testing/preview-fixture.ts";
 
 it("sends history once through the real OpenAI-compatible server route after a rewind", async () => {
@@ -24,7 +24,7 @@ it("sends history once through the real OpenAI-compatible server route after a r
   let fixture: Awaited<ReturnType<typeof launchVerificationServer>> | undefined;
   const evidence: unknown[] = [];
   try {
-    fixture = await launchVerificationServer();
+    fixture = await launchVerificationServer(process.env, undefined, undefined, undefined, undefined, undefined, ["openai-compat"]);
     const api = fixtureApi(fixture.info.url);
     const cli = async (...args: string[]) => {
       const result = await runControlLaterDog([...args, "--url", fixture!.info.url]) as any;
@@ -34,9 +34,9 @@ it("sends history once through the real OpenAI-compatible server route after a r
     await api("PUT", "/api/config", { openaiCompat: {
       url: `http://127.0.0.1:${address.port}/v1`, key: "synthetic-fixture-key", model: "fixture-model",
     } });
-    await api("PATCH", "/api/instances/openaiCompat", { tools: false });
+    await api("PATCH", `/api/instances/${VERIFICATION_COMPAT_INSTANCE}`, { tools: false });
     const { bot } = await cli("new-bot", "--name", "Native replay fixture");
-    await cli("set-model", "--bot", bot.id, "--instance", "openaiCompat", "--model", "fixture-model");
+    await cli("set-model", "--bot", bot.id, "--instance", VERIFICATION_COMPAT_INSTANCE, "--model", "fixture-model");
     const wait = async () => expect((await cli("wait", "--bot", bot.id, "--task", bot.activeTaskId, "--timeout", "20")).status).toBe("settled");
     for (const text of ["NATIVE_REPLAY_SENTINEL", "Second request"]) {
       await cli("send", "--bot", bot.id, "--task", bot.activeTaskId, "--text", text);

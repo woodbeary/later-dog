@@ -19544,8 +19544,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (!renamable.ok) return json(res, 400, { error: renamable.error });
         }
         if (body.tools !== undefined) {
-          if (!["openai-compat", "grok", "minimax", "mistral", "cerebras"].includes(entry.driver)) {
-            return json(res, 400, { error: "The tools setting is available for OpenAI-compatible, Grok API, MiniMax API, Mistral API and Cerebras API instances only." });
+          if (!["openai-compat", "grok"].includes(entry.driver)) {
+            return json(res, 400, { error: "The tools setting is available for OpenAI-compatible and Grok API instances only." });
           }
           entry.config = { ...entry.config as Record<string, unknown>, tools: body.tools };
         }

@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { expect, it } from "vitest";
-import { launchVerificationServer, runControlLaterDog } from "../scripts/control-laterdog.ts";
+import { launchVerificationServer, runControlLaterDog, VERIFICATION_COMPAT_INSTANCE } from "../scripts/control-laterdog.ts";
 
 it("keeps the selected API model for direct, group and scheduled Boat turns and preserves human control", async () => {
   const rows: Array<{ id: string; name: string; state: string }> = [];
@@ -57,7 +57,7 @@ it("keeps the selected API model for direct, group and scheduled Boat turns and 
   const address = upstream.address();
   if (!address || typeof address === "string") throw new Error("fixture failed to bind");
   const origin = `http://127.0.0.1:${address.port}`;
-  const fixture = await launchVerificationServer(process.env, undefined, undefined, undefined, undefined, undefined, [], origin).catch(async error => {
+  const fixture = await launchVerificationServer(process.env, undefined, undefined, undefined, undefined, undefined, ["openai-compat"], origin).catch(async error => {
     upstream.closeAllConnections(); await new Promise<void>(resolve => upstream.close(() => resolve())); throw error;
   });
   const api = async (method: string, path: string, body?: unknown) => {
@@ -70,7 +70,7 @@ it("keeps the selected API model for direct, group and scheduled Boat turns and 
   try {
     await api("PATCH", "/api/config", { openaiCompat: { key: "synthetic-model-key", url: origin + "/v1", model: "other-default" } });
     const { bot } = await control(["new-bot", "--name", "Boat API fixture"]);
-    await control(["set-model", "--bot", bot.id, "--instance", "openaiCompat", "--model", "chosen-vision-model"]);
+    await control(["set-model", "--bot", bot.id, "--instance", VERIFICATION_COMPAT_INSTANCE, "--model", "chosen-vision-model"]);
     await api("PATCH", `/api/bots/${bot.id}`, { computer: "cloud", browser: false });
     let group: any;
     for (const scenario of ["direct", "held", "group"]) {

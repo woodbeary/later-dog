@@ -315,7 +315,7 @@ describe("removing the Computer engine", () => {
     writeFileSync(teams, "not json");
 
     await server.start();
-    expect(server.log()).toContain("[engines] moving bots off the removed Computer engine failed");
+    expect(server.log()).toContain("[engines] moving bots off removed engines failed");
     expect((await server.bot(starter.id)).modelSelection.instanceId).toBe("computer");
     expect(await server.moveLines(starter.threadId)).toEqual([]);
 

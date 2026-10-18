@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { expect, it } from "vitest";
-import { launchVerificationServer, runControlLaterDog } from "../scripts/control-laterdog.ts";
+import { launchVerificationServer, runControlLaterDog, VERIFICATION_COMPAT_INSTANCE } from "../scripts/control-laterdog.ts";
 import { fixtureApi } from "../scripts/testing/preview-fixture.ts";
 import { openSse } from "./testing/sse.ts";
 
@@ -32,20 +32,19 @@ it("a key the provider rejects stops showing Ready until it changes or works aga
   await new Promise<void>((resolve) => provider.listen(0, "127.0.0.1", resolve));
   const address = provider.address();
   if (!address || typeof address === "string") throw new Error("fixture provider has no port");
-  const fixture = await launchVerificationServer();
+  const fixture = await launchVerificationServer(process.env, undefined, undefined, undefined, undefined, undefined, ["openai-compat"]);
   const api = fixtureApi(fixture.info.url);
   const sse = await openSse(`${fixture.info.url}/api/events`);
   const control = (args: string[]) => runControlLaterDog([...args, "--url", fixture.info.url]) as Promise<any>;
   const snapshot = async () => (await api("GET", "/api/instances")).instances
-    .find((instance: { instanceId: string }) => instance.instanceId === "openaiCompat").snapshot;
+    .find((instance: { instanceId: string }) => instance.instanceId === VERIFICATION_COMPAT_INSTANCE).snapshot;
   try {
     await api("PUT", "/api/config", {
       openaiCompat: { url: `http://127.0.0.1:${address.port}/v1`, key: BAD, model: "fixture-model" },
-      instances: { openaiCompat: { driver: "openai-compat" } },
     });
     expect(await snapshot()).toMatchObject({ state: "available", authenticated: true });
     const { bot } = await control(["new-bot", "--name", "Rejected key fixture"]);
-    await control(["set-model", "--bot", bot.id, "--instance", "openaiCompat", "--model", "fixture-model"]);
+    await control(["set-model", "--bot", bot.id, "--instance", VERIFICATION_COMPAT_INSTANCE, "--model", "fixture-model"]);
     const turn = async () => {
       await control(["send", "--bot", bot.id, "--text", "Reply briefly."]);
       return control(["wait", "--bot", bot.id, "--timeout", "30"]);

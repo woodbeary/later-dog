@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { launchVerificationServer, runControlLaterDog } from "../scripts/control-laterdog.ts";
+import { launchVerificationServer, runControlLaterDog, VERIFICATION_COMPAT_INSTANCE } from "../scripts/control-laterdog.ts";
 
 const BOAT_TOKEN = "box_verification_fixture";
 const JPEG = Buffer.from("/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD8qqKKKAP/2Q==", "base64");
@@ -86,7 +86,7 @@ it("keeps the bot's own engine on the cloud computer, and a failed place never b
   const origin = `http://127.0.0.1:${address.port}`;
   const gate = join(await import("node:os").then(os => os.tmpdir()), `laterdog-hosted-desktop-gate-${process.pid}-${Date.now()}`);
   const fixture = await launchVerificationServer({ FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: gate, FAKE_CLAUDE_USES_CLOUD_COMPUTER: "1" },
-    undefined, undefined, undefined, undefined, undefined, [], origin).catch(async error => {
+    undefined, undefined, undefined, undefined, undefined, ["openai-compat"], origin).catch(async error => {
     upstream.closeAllConnections(); await new Promise<void>(resolve => upstream.close(() => resolve())); throw error;
   });
   const api = async (method: string, path: string, body?: unknown) => {
@@ -208,9 +208,9 @@ it("keeps the bot's own engine on the cloud computer, and a failed place never b
     expect(boxesCreated).toBe(2);
 
     await apiOk("PUT", "/api/config", { openaiCompat: { url: `${origin}/v1`, key: "synthetic-fixture-key", model: "tools-off-model" } });
-    await apiOk("PATCH", "/api/instances/openaiCompat", { tools: false });
+    await apiOk("PATCH", `/api/instances/${VERIFICATION_COMPAT_INSTANCE}`, { tools: false });
     const { bot: plain } = await control(["new-bot", "--name", "Tools-off fixture"]);
-    await control(["set-model", "--bot", plain.id, "--instance", "openaiCompat", "--model", "tools-off-model"]);
+    await control(["set-model", "--bot", plain.id, "--instance", VERIFICATION_COMPAT_INSTANCE, "--model", "tools-off-model"]);
     await apiOk("PATCH", `/api/bots/${plain.id}`, { computer: "cloud" });
     await control(["send", "--bot", plain.id, "--task", plain.activeTaskId, "--text", "hello"]);
     expect((await control(["wait", "--bot", plain.id, "--task", plain.activeTaskId, "--timeout", "30"])).status).toBe("failed");

@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { launchVerificationServer, runControlLaterDog } from "../scripts/control-laterdog.ts";
+import { launchVerificationServer, runControlLaterDog, VERIFICATION_COMPAT_INSTANCE } from "../scripts/control-laterdog.ts";
 
 const MCP_FIXTURE = `
 import { createInterface } from 'node:readline';
@@ -81,7 +81,7 @@ it("runs structured MCP calls through real harness approval and continuation, pr
   await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
   const address = upstream.address();
   if (!address || typeof address === "string") throw new Error("fixture provider address missing");
-  const fixture = await launchVerificationServer().catch(async (error) => {
+  const fixture = await launchVerificationServer(process.env, undefined, undefined, undefined, undefined, undefined, ["openai-compat"]).catch(async (error) => {
     upstream.closeAllConnections();
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
     throw error;
@@ -112,15 +112,15 @@ it("runs structured MCP calls through real harness approval and continuation, pr
       const startupMarker = join(fixture.info.dataDir, `${mode}-mcp-started.txt`);
       await api("POST", "/api/mcp/servers", { name: mode, command: process.execPath, args: [mcpScript], env: { FIXTURE_ARTIFACT: artifact, FIXTURE_STARTED: startupMarker }, enabled: true });
       if (mode === "tools-off") {
-        await api("PATCH", "/api/instances/openaiCompat", { tools: "false" }, 400);
+        await api("PATCH", `/api/instances/${VERIFICATION_COMPAT_INSTANCE}`, { tools: "false" }, 400);
         await api("PATCH", "/api/instances/claude", { tools: false }, 400);
-        const changed = await api("PATCH", "/api/instances/openaiCompat", { tools: false });
-        const instance = changed.instances.find((item: any) => item.instanceId === "openaiCompat");
+        const changed = await api("PATCH", `/api/instances/${VERIFICATION_COMPAT_INSTANCE}`, { tools: false });
+        const instance = changed.instances.find((item: any) => item.instanceId === VERIFICATION_COMPAT_INSTANCE);
         expect(instance.capabilities).toMatchObject({ agentsMcp: false, composioMcp: false });
       }
       await api("PATCH", `/api/mcp/servers/${mode}`, { enabled: true });
       const { bot } = await control(["new-bot", "--name", `API tool ${mode}`]);
-      await control(["set-model", "--bot", bot.id, "--instance", "openaiCompat", "--model", "fixture-model"]);
+      await control(["set-model", "--bot", bot.id, "--instance", VERIFICATION_COMPAT_INSTANCE, "--model", "fixture-model"]);
       await api("PATCH", `/api/bots/${bot.id}`, { mcpServers: [mode], description: "Verification assistant", soul: "Use structured tools when an operation is requested." });
       if (mode === "selected" || mode === "scope-empty") {
         await api("PATCH", `/api/bots/${bot.id}`, { toolScope: { allow: mode === "selected" ? [`mcp:${mode}:write_file`] : [] } });

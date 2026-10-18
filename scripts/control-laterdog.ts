@@ -362,6 +362,8 @@ export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, data
   return childEnv;
 }
 
+export const VERIFICATION_COMPAT_INSTANCE = "compatFixture";
+
 export async function launchVerificationServer(
   parentEnv: NodeJS.ProcessEnv = process.env,
   signal?: AbortSignal,
@@ -369,7 +371,7 @@ export async function launchVerificationServer(
   browser?: { binaryPath: string; executablePath: string },
   enterprise?: { dir: string; licenseKey: string },
   room?: { scripted: boolean },
-  extraProviders: Array<"codex"> = [],
+  extraProviders: Array<"codex" | "openai-compat"> = [],
   boatFixtureApi?: string,
   laterdogFixture?: { origin: string; token: string; wakeupPullMs?: number },
 ): Promise<VerificationServer> {
@@ -402,6 +404,9 @@ export async function launchVerificationServer(
     instances: {
       ...(extraProviders.includes("codex") ? { codex: {
         driver: "codex", displayName: "Verification Codex", config: { cli: fileURLToPath(new URL("../server/testing/fake-codex-app-server.ts", import.meta.url)) },
+      } } : {}),
+      ...(extraProviders.includes("openai-compat") ? { [VERIFICATION_COMPAT_INSTANCE]: {
+        driver: "openai-compat", displayName: "Verification OpenAI-compatible",
       } } : {}),
       claude: {
         driver: "claudeAgent",
