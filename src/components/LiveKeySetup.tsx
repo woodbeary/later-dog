@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { api, useStore, type ConfigStatus } from "@/state/store";
-import { liveDisclosure } from "@/lib/call-mode";
+import { liveDisclosure } from "@/lib/live-disclosure";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 

@@ -162,14 +162,14 @@ describe("thread control placement", () => {
     fixture.computerOpen = false;
   });
 
-  it("always offers a call from the composer, never from the header", () => {
+  it("always offers one voice button in the composer, never in the header, with no mode menu", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
     const header = markup.slice(markup.indexOf("data-chathead-controls"), markup.indexOf("data-composer-row"));
     expect(header).not.toContain("data-call-button");
-    expect(markup).not.toContain('data-call-button="header"');
     const actions = markup.slice(markup.indexOf("data-composer-actions"));
-    expect(actions).toContain('data-call-button="composer"');
+    expect(actions).toContain("data-call-button");
     expect(markup.match(/data-call-button=/g)).toHaveLength(1);
+    expect(markup).not.toContain('aria-label="Call mode"');
   });
 
   it("gives the editor its own row in a narrow chat", () => {

@@ -24,7 +24,6 @@ export interface LiveMediaState {
   caption: string;
   heard: string;
   notice: string | null;
-  needsKey: boolean;
   busyWith: LiveCallState | null;
   action: LiveCallAction | null;
   hangingUp: boolean;
@@ -44,7 +43,7 @@ export interface LiveMediaDeps {
 
 const IDLE: LiveMediaState = {
   phase: "idle", callId: null, botId: null, threadId: null, startedAt: null, muted: false,
-  caption: "", heard: "", notice: null, needsKey: false, busyWith: null, action: null, hangingUp: false,
+  caption: "", heard: "", notice: null, busyWith: null, action: null, hangingUp: false,
 };
 const CAPTION_CHARS = 240;
 const HEARD_CHARS = 160;
@@ -239,9 +238,9 @@ export async function startLiveCall(target: { botId: string; threadId: string })
     const body = error instanceof ApiError ? (error.body as { needsKey?: boolean; activeCall?: LiveCallState } | undefined) : undefined;
     if (state.callId) void endOnServer(state.callId);
     release();
-    if (body?.needsKey) return set({ ...IDLE, needsKey: true, botId: target.botId, threadId: target.threadId });
     if (body?.activeCall) return set({ ...IDLE, phase: "failed", botId: target.botId, threadId: target.threadId, busyWith: body.activeCall, notice: busyText(body.activeCall) });
     const failed = { ...IDLE, phase: "failed" as const, botId: target.botId, threadId: target.threadId };
+    if (body?.needsKey) return set({ ...failed, notice: t("call.unavailable.title") });
     if (error instanceof DOMException && error.name === "NotFoundError") return set({ ...failed, notice: t("call.live.micMissing"), action: "retry" });
     if (error instanceof DOMException && error.name === "NotAllowedError") {
       const pageMic = await deps.pageMicrophone();
@@ -296,10 +295,6 @@ export function handleLiveCallKey(event: ChordEvent, isMac: boolean): boolean {
   return true;
 }
 
-export function dismissKeyPrompt(botId: string): void {
-  if (state.needsKey && state.botId === botId) dismissLiveNotice();
-}
-
 export function takeLiveCallAction(): void {
   const { action, botId, threadId, phase } = state;
   if (phase !== "failed") return;
@@ -310,7 +305,7 @@ export function takeLiveCallAction(): void {
 export function dismissLiveNotice(): void {
   if (noticeTimer) clearTimeout(noticeTimer);
   noticeTimer = null;
-  if (state.phase === "ended" || state.phase === "failed" || state.needsKey) set({ ...IDLE });
+  if (state.phase === "ended" || state.phase === "failed") set({ ...IDLE });
 }
 
 export function endSignedOut(): void {

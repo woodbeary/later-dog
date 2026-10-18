@@ -44,7 +44,13 @@ and the client fetches the next while the current one plays. One request per
 utterance rather than the streaming-input WebSocket: same perceived latency, far
 fewer moving parts, and no socket to leak when a turn is interrupted.
 
-## Call mode
+## Voice calls
+
+A one-to-one chat has one voice button next to the composer, always shown.
+It picks the call itself (`src/lib/call-route.ts`): take turns with the
+included voice whenever the window can listen, a Live call only when it can't
+and a Live key is already saved, and otherwise "Voice call unavailable" with a
+plain reason. There is no mode menu and no key prompt.
 
 **Half-duplex, on purpose.** The dictation helper is `SFSpeechRecognizer` on raw
 `AVAudioEngine` input with no acoustic echo cancellation. A microphone left open
@@ -88,8 +94,10 @@ Sharper dictation is on by default and Settings has no switch for it; an
 opt-out saved by an earlier build is still honoured. Apple Speech is quick but
 loose with names, numbers and accents. On a Mac
 the composer still shows Apple's live text, and once you stop — the
-mic button or Escape — the app swaps it for a cloud transcription of the same
-recording:
+mic button — the app shows "Transcribing…" above the composer and swaps the
+text for a cloud transcription of the same recording. Escape cancels instead:
+nothing heard is kept, the text from before dictation comes back, and no audio
+is sent:
 
 1. The native helper already keeps each dictation as a voice note
    (`electron/speech.mjs`); `speech:stop` and a finished `speech:end` now

@@ -31,8 +31,9 @@ function showUpdateState(state) {
   if (state?.status === "downloaded") shownUpdateVersion = typeof state.version === "string" ? state.version : undefined;
   return state;
 }
+const REMOTE_SPEECH = ["speechStart", "speechStop", "speechFinish", "speechAudio", "onSpeechTranscript", "onSpeechEnd"];
 const remoteKeys = isLocalPage ? REMOTE_SAFE
-  : new Set([...REMOTE_SAFE, ...(updaterOffered() ? ["updater"] : [])]);
+  : new Set([...REMOTE_SAFE, ...REMOTE_SPEECH, ...(updaterOffered() ? ["updater"] : [])]);
 
 const COMPANY_BACKUP_CLIENT_KEYS = [
   "laterdog-drafts", "laterdog-draft-attachments", "laterdog-draft-send-ids", "laterdog-draft-channel-modes",

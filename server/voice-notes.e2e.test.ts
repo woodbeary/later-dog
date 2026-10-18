@@ -5,7 +5,10 @@ import { expect, it } from "vitest";
 import { launchVerificationServer, runControlLaterDog } from "../scripts/control-laterdog.ts";
 import { request } from "../scripts/mcp-server.ts";
 
-const MP3 = Buffer.from("ID3 fake mp3 for the voice note fixture");
+const FRAME = Buffer.alloc(417);
+FRAME.set([0xff, 0xfb, 0x90, 0x00]);
+const MP3 = Buffer.concat([Buffer.from([0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0, 0]), ...Array.from({ length: 40 }, () => FRAME)]);
+const MP3_MS = 1045;
 
 async function withVoiceFixture(test: (f: any) => Promise<void>) {
   const session = await launchVerificationServer(
@@ -109,6 +112,7 @@ it("advertises send_voice_note to a ready bot and attaches the clip to the settl
   expect(withAudio[0].text).toBe("The summary you can also listen to.\n\n" + note);
   const audio = withAudio[0].attachments.find((a: any) => a.kind === "audio");
   expect(audio.mime).toBe("audio/mpeg");
+  expect(audio.durationMs).toBe(MP3_MS);
 
   const files = f.mp3Files();
   expect(files).toHaveLength(1);
@@ -226,3 +230,30 @@ it("leaves no file and no later-turn attachment when the turn dies mid-synthesis
   expect(messages.some((m: any) => (m.attachments ?? []).some((a: any) => a.kind === "audio"))).toBe(false);
   expect(f.mp3Files()).toEqual([]);
 }), 90_000);
+
+it("speaks the same words in the same voice once, and again for a different voice", async () => withVoiceFixture(async (f) => {
+  const baseUrl = await f.serveTts();
+  await f.api("/api/config", { tts: { provider: "chatterbox", baseUrl, voice: "voice-a" } }, "PUT");
+  const speak = (body: Record<string, unknown>) => fetch(f.session.info.url + "/api/tts/speak", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const first = await speak({ text: "Plan on about 1.5 liters." });
+  expect(first.status).toBe(200);
+  expect(first.headers.get("content-type")).toBe("audio/mpeg");
+  expect(Buffer.from(await first.arrayBuffer()).equals(MP3)).toBe(true);
+  const second = await speak({ text: "Plan on about 1.5 liters." });
+  expect(Buffer.from(await second.arrayBuffer()).equals(MP3)).toBe(true);
+  expect(f.seen).toEqual([{ input: "Plan on about 1.5 liters.", voice: "voice-a" }]);
+  await (await speak({ text: "Plan on about 1.5 liters.", voiceId: "voice-b" })).arrayBuffer();
+  await (await speak({ text: "Bring a rain shell." })).arrayBuffer();
+  expect(f.seen).toEqual([
+    { input: "Plan on about 1.5 liters.", voice: "voice-a" },
+    { input: "Plan on about 1.5 liters.", voice: "voice-b" },
+    { input: "Bring a rain shell.", voice: "voice-a" },
+  ]);
+  await f.api("/api/config", { tts: { provider: "chatterbox", baseUrl, voice: "voice-c" } }, "PUT");
+  await (await speak({ text: "Plan on about 1.5 liters." })).arrayBuffer();
+  expect(f.seen.at(-1)).toEqual({ input: "Plan on about 1.5 liters.", voice: "voice-c" });
+}), 60_000);

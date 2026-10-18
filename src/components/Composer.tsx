@@ -249,6 +249,8 @@ export function Composer({
   }, [replyToId]);
   const mentionListRef = useRef<HTMLDivElement>(null);
   const baseText = useRef("");
+  const textBeforeDictation = useRef("");
+  const dictationCancelled = useRef(false);
   const textNow = useRef(text);
   textNow.current = text;
   const mounted = useRef(true);
@@ -607,6 +609,7 @@ export function Composer({
     sharpenOnStop.current = false;
     setSpeechError(null);
     const offTranscript = bridge.onSpeechTranscript((line) => {
+      if (dictationCancelled.current) return;
       if (typeof line.text === "string") {
         const base = baseText.current;
         editText(base ? `${base} ${line.text}` : line.text);
@@ -616,6 +619,7 @@ export function Composer({
       setRecording(false);
       setRetryingNote(null);
       retryFile.current = null;
+      if (dictationCancelled.current) return;
       const keep = () => {
         setVoiceNote(code === 1 && saved ? saved : null);
         if (code === 2) {
@@ -650,6 +654,7 @@ export function Composer({
 
   const retryVoiceNote = () => {
     if (!voiceNote || listening) return;
+    dictationCancelled.current = false;
     retryFile.current = voiceNote;
     setVoiceNote(null);
     setRetryingNote(voiceNote);
@@ -660,18 +665,45 @@ export function Composer({
     setRecording(false);
   };
 
+  const cancelDictation = useCallback(() => {
+    dictationCancelled.current = true;
+    sharpenOnStop.current = false;
+    setRecording(false);
+    editText(textBeforeDictation.current);
+  }, [editText]);
+
+  useEffect(() => {
+    if (!recording) return;
+    const cancelOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing) return;
+      event.preventDefault();
+      event.stopPropagation();
+      cancelDictation();
+    };
+    window.addEventListener("keydown", cancelOnEscape, true);
+    return () => window.removeEventListener("keydown", cancelOnEscape, true);
+  }, [recording, cancelDictation]);
+
   const toggleMic = () => {
     if (!capabilities.dictation.available || !window.laterdog) {
       setSpeechError(t("composer.dictation.unavailable"));
       return;
     }
     if (recording) return stopDictation();
+    dictationCancelled.current = false;
+    textBeforeDictation.current = text;
     baseText.current = text.trim();
     setRecording(true);
   };
 
   return (
     <div className="pointer-events-none relative px-5 pb-3">
+      {sharpening > 0 && !recording && !retryingNote && (
+        <div data-dictation-status role="status" className="pointer-events-auto mb-2 flex w-full items-center gap-2 rounded-lg border border-hairline/40 bg-raised px-3 py-2 text-[12px] text-ink-secondary">
+          <Loader2 size={12} className="shrink-0 animate-spin" aria-hidden="true" />
+          <span className="min-w-0 flex-1">{t("composer.dictation.transcribing")}</span>
+        </div>
+      )}
       {(speechError || retryingNote) && (
         <div data-voice-note className="pointer-events-auto mb-2 flex w-full items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
           <span className="min-w-0 flex-1">
@@ -930,7 +962,6 @@ export function Composer({
               e.preventDefault();
               send();
             }
-            if (e.key === "Escape" && recording) stopDictation();
           }}
           disabled={Boolean(approval) || locked}
           aria-busy={bot?.awaitingThreadSnapshot || undefined}
@@ -941,6 +972,8 @@ export function Composer({
               ? t("composer.placeholder.attaching")
               : recording
               ? t("composer.placeholder.listening")
+              : sharpening > 0
+              ? t("composer.dictation.transcribing")
               : group
                 ? t("composer.placeholder.group", {
                     name: group.name,
@@ -984,7 +1017,7 @@ export function Composer({
             {sharpening > 0 && !recording ? <Loader2 size={18} className="animate-spin" /> : <Mic size={18} />}
           </button>
         )}
-        {bot && !group && <CallButton bot={bot} placement="composer" />}
+        {bot && !group && <CallButton bot={bot} />}
         {!locked && (hasContent || !busy) && (
           <button
             type="button"

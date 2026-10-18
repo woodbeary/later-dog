@@ -6,18 +6,16 @@ import { t } from "@/lib/i18n";
 import { isLiveCallRunning, useLiveMedia } from "@/lib/live-call-media";
 import { speaker } from "@/lib/tts";
 import { cn } from "@/lib/cn";
+import { evenLevels, voiceNoteClock, voiceNoteLevels } from "@/lib/voice-note-levels";
+import { whenSeen } from "@/lib/when-seen";
+
+const SEEK_STEP_SECONDS = 5;
 
 export interface VoiceNoteAttachment {
   kind: "audio";
   path: string;
   mime: string;
   durationMs?: number;
-}
-
-function clock(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "0:00";
-  const whole = Math.floor(seconds);
-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
 export function VoiceNoteBubble({
@@ -28,6 +26,7 @@ export function VoiceNoteBubble({
   className?: string;
 }) {
   const url = attachmentAudioUrl(attachment.path);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const releaseRef = useRef<(() => void) | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -37,9 +36,23 @@ export function VoiceNoteBubble({
       : null,
   );
   const [time, setTime] = useState(0);
+  const [levels, setLevels] = useState<number[]>(evenLevels);
   const onLiveCall = isLiveCallRunning(useLiveMedia().phase);
 
   useEffect(() => () => releaseRef.current?.(), []);
+  useEffect(() => {
+    if (!url) return;
+    let current = true;
+    const release = whenSeen(rootRef.current, () => {
+      void voiceNoteLevels(url).then((measured) => {
+        if (current && measured?.length) setLevels(measured);
+      });
+    });
+    return () => {
+      current = false;
+      release();
+    };
+  }, [url]);
 
   if (!url) return null;
 
@@ -64,13 +77,18 @@ export function VoiceNoteBubble({
   };
 
   const seek = (next: number) => {
+    if (!duration || !Number.isFinite(next)) return;
+    const clamped = Math.max(0, Math.min(duration, next));
     const audio = audioRef.current;
-    if (audio && Number.isFinite(next)) audio.currentTime = next;
-    setTime(next);
+    if (audio) audio.currentTime = clamped;
+    setTime(clamped);
   };
+  const progress = duration ? Math.min(1, time / duration) : 0;
+  const started = playing || time > 0;
 
   return (
     <div
+      ref={rootRef}
       className={cn("flex w-full items-center gap-3 rounded-xl bg-inset/60 px-3 py-2", className)}
       data-test-voice-note=""
     >
@@ -100,23 +118,43 @@ export function VoiceNoteBubble({
         disabled={onLiveCall && !playing}
         aria-label={playing ? t("chat.voiceNote.pause") : onLiveCall ? t("chat.voiceNote.onLiveCall") : t("chat.voiceNote.play")}
         title={playing ? t("chat.voiceNote.pause") : onLiveCall ? t("chat.voiceNote.onLiveCall") : t("chat.voiceNote.play")}
-        className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+        className="flex size-7 shrink-0 items-center justify-center rounded-full bg-ink text-app transition-opacity hover:opacity-90 disabled:opacity-40"
       >
         {playing ? <Pause size={13} className="fill-current" /> : <Play size={13} className="translate-x-px fill-current" />}
       </button>
-      <input
-        type="range"
+      <div
+        role="slider"
+        tabIndex={duration ? 0 : -1}
         aria-label={t("chat.voiceNote.seek")}
-        min={0}
-        max={duration ?? 0}
-        step={0.1}
-        value={Math.min(time, duration ?? time)}
-        onChange={(event) => seek(Number(event.currentTarget.value))}
-        disabled={!duration}
-        className="h-1 flex-1 accent-accent"
-      />
-      <span className="shrink-0 text-[11px] tabular-nums text-ink-secondary">
-        {clock(time)} / {duration === null ? "--:--" : clock(duration)}
+        aria-valuemin={0}
+        aria-valuemax={Math.round(duration ?? 0)}
+        aria-valuenow={Math.round(Math.min(time, duration ?? time))}
+        aria-valuetext={voiceNoteClock(time)}
+        aria-disabled={!duration || undefined}
+        data-voice-note-bars=""
+        onClick={(event) => {
+          const box = event.currentTarget.getBoundingClientRect();
+          if (duration && box.width > 0) seek(((event.clientX - box.left) / box.width) * duration);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+            event.preventDefault();
+            seek(time + (event.key === "ArrowRight" ? SEEK_STEP_SECONDS : -SEEK_STEP_SECONDS));
+          }
+        }}
+        className="flex h-6 min-w-0 flex-1 cursor-pointer items-center gap-[2px] outline-none focus-visible:ring-1 focus-visible:ring-ink-tertiary aria-disabled:cursor-default"
+      >
+        {levels.map((level, index) => (
+          <span
+            key={index}
+            aria-hidden="true"
+            className={cn("w-[2px] shrink-0 grow rounded-full", (index + 0.5) / levels.length <= progress ? "bg-ink" : "bg-ink-tertiary/60")}
+            style={{ height: `${Math.round(level * 100)}%` }}
+          />
+        ))}
+      </div>
+      <span className="shrink-0 text-[11px] tabular-nums text-ink-secondary" data-voice-note-clock="">
+        {voiceNoteClock(started ? time : duration ?? 0)}
       </span>
     </div>
   );

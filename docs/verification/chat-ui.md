@@ -200,21 +200,25 @@ and removes only its data directory; the server log stays at the printed path
 and the tools directory keeps the downloads. Every verb refuses a handle whose
 launch has stopped.
 
-## Live key prompt cancellation
+## Voice button and dictation cancel
 
-With a fresh `ui launch` handle in `$H`, run the delayed-key-save regression:
+With a fresh `ui launch` handle in `$H`, run:
 
 ```sh
-pnpm control:laterdog ui eval --ui "$H" --js "$(cat scripts/testing/live-key-lifecycle.js)"
+pnpm control:laterdog ui eval --ui "$H" --js "$(cat scripts/testing/voice-button.js)"
+pnpm control:laterdog ui eval --ui "$H" --js "$(cat scripts/testing/dictation-escape.js)"
 ```
 
-It submits the real key form, then dismisses it or switches chats by keyboard-style
-activation before the synthetic save resolves. Both results must show
-`oldPromptDetached: true`, `microphoneStarts: 0`, and `phase: "idle"`. The script
-clears only the disposable fixture's Live key, stubs credential saving and media,
-and restores the bridge and call mode in `finally`. It never saves a real key or
-opens the microphone; it does not prove real-audio acceptance. Stop the launcher
-as described above.
+`voice-button.js` opens Pepper and checks that the composer shows exactly one
+voice button with no mode menu, that pressing it in the browser preview (which
+has no Mac speech recognition) shows "Voice call unavailable" with a plain
+reason, and that no key field appears and no Live request is sent.
+
+`dictation-escape.js` stubs a Mac speech bridge, remounts the app in the same
+page so it sees dictation, types text, starts dictation, feeds a partial
+transcript, presses Escape and checks that the earlier text is back exactly and
+listening stopped. Reload the preview afterwards. Neither script opens the
+microphone or proves real-audio acceptance.
 
 ## Queued edits and Claude update recovery
 

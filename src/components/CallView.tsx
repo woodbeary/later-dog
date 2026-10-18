@@ -1,174 +1,73 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { AudioLines, Check, ChevronDown, Loader2, Phone, PhoneOff, X } from "lucide-react";
+import { AudioLines, Loader2, PhoneOff, X } from "lucide-react";
 
 import { useStore, visibleMessages, type Bot } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { currentCall, deferCallCleanup, endCall, startCall, useOnCall } from "@/lib/call";
-import { CALL_MODES, callModeHint, effectiveCallMode, setCallMode, useCallMode, type CallMode } from "@/lib/call-mode";
+import { callRoute, callVoiceReady } from "@/lib/call-route";
 import { NO, YES } from "../../shared/call-consent";
-import { dismissKeyPrompt, hangUpLiveCall, isLiveCallRunning, startLiveCall, useLiveMedia } from "@/lib/live-call-media";
+import { hangUpLiveCall, isLiveCallRunning, startLiveCall, useLiveMedia } from "@/lib/live-call-media";
 import { t } from "@/lib/i18n";
 import { speaker } from "@/lib/tts";
 import { useSpeech } from "@/lib/tts/useSpeech";
 import { usePushToTalk } from "@/lib/push-to-talk";
 import { BotAvatar } from "./Avatar";
-import { navigateMenu } from "@/lib/menu-keys";
-import { LiveKeySetup } from "./LiveKeySetup";
 import { liveLineHeldElsewhere } from "./LiveCallBar";
 import { isRoutineApproval, isSkillApproval, pendingApprovals, spokenApprovalPrompt } from "./PendingApproval";
 import { track } from "@/lib/analytics";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
-import { callCapabilityHelp, type CallCapabilityHelp } from "@/lib/call-capability";
+import { callSpeechMissing } from "@/lib/call-capability";
 import { VoiceSetupDialog } from "./VoiceSetupDialog";
 
 type Phase = "listening" | "sending" | "working" | "speaking";
 const CALL_ENDPOINT_MS = 850;
 
-export type CallButtonPlacement = "header" | "composer";
-
-export function CallButton({ bot, placement = "header" }: { bot: Bot; placement?: CallButtonPlacement }) {
-  return (
-    <CallTargetButton
-      placement={placement}
-      targetId={bot.id}
-      targetName={bot.name}
-      threadId={bot.threadId}
-      voices={[bot.voice]}
-      setupBotId={bot.id}
-      requireExplicitVoices={false}
-      liveCapable
-      onStart={(mode) => track("call_started", { driver: bot.modelSelection?.instanceId, mode })}
-    />
-  );
-}
-
-export function CallTargetButton({
-  targetId,
-  targetName,
-  threadId,
-  voices,
-  setupBotId,
-  requireExplicitVoices,
-  liveCapable = false,
-  onStart,
-  placement = "header",
-}: {
-  placement?: CallButtonPlacement;
-  targetId: string;
-  targetName: string;
-  threadId?: string;
-  voices: Array<string | undefined>;
-  setupBotId?: string;
-  requireExplicitVoices: boolean;
-  liveCapable?: boolean;
-  onStart: (mode: CallMode) => void;
-}) {
+export function CallButton({ bot }: { bot: Bot }) {
   const { state } = useStore();
   const { capabilities, ready: capabilitiesReady } = useDesktopCapabilities();
   const media = useLiveMedia();
-  const liveThreadId = liveCapable ? threadId : undefined;
-  const canLive = liveThreadId !== undefined;
   const liveRunning = isLiveCallRunning(media.phase);
-  const onLiveCall = canLive && liveRunning && media.botId === targetId;
-  const liveElsewhere = liveRunning && media.botId !== targetId;
-  const onCall = useOnCall() === targetId;
+  const onLiveCall = liveRunning && media.botId === bot.id;
+  const liveElsewhere = liveRunning && media.botId !== bot.id;
+  const onCall = useOnCall() === bot.id;
   const active = onCall || onLiveCall;
-  const capabilityHelp = capabilitiesReady
-    ? callCapabilityHelp(capabilities, Boolean(window.laterdog?.speechStart))
-    : null;
-  const supported = capabilitiesReady && !capabilityHelp;
-  const configured = Boolean(state.config?.tts?.configured);
-  const everyTargetHasVoice = voices.length > 0 && voices.every((voice) => Boolean(voice));
-  const voiceReady =
-    configured && (requireExplicitVoices ? everyTargetHasVoice : Boolean(state.config?.tts?.ready || everyTargetHasVoice));
-  const turnsHere = !capabilitiesReady || capabilities.dictation.available;
-  const mode = effectiveCallMode(useCallMode(), { turnsHere, canLive });
-  const liveMode = canLive && mode === "live";
-  const turnsReady = capabilitiesReady && supported && voiceReady;
-  const unavailable = !active && !liveElsewhere && !liveMode && !turnsReady;
-  const voiceSetupRequired = capabilitiesReady && supported && !voiceReady;
-  const cloudHome = state.config?.cloudHome === true;
+  const voiceReady = callVoiceReady(state.config?.tts, bot.voice);
+  const route = callRoute({
+    capabilitiesReady,
+    speechMissing: capabilitiesReady ? callSpeechMissing(capabilities, Boolean(window.laterdog?.speechStart)) : null,
+    voiceReady,
+    liveConfigured: state.config?.live?.configured === true,
+    name: bot.name,
+  });
+  const lineHeld = route.kind === "live" && !active && liveLineHeldElsewhere(media, state.liveCall);
+  const blocked = liveElsewhere || lineHeld;
+  const unavailable = !active && !blocked && (route.kind === "unavailable" || route.kind === "checking");
   const [helpOpen, setHelpOpen] = useState(false);
   const [voiceSetupOpen, setVoiceSetupOpen] = useState(false);
-  const [voiceSetupBotId, setVoiceSetupBotId] = useState(setupBotId);
-  if (voiceSetupRequired && setupBotId !== voiceSetupBotId) setVoiceSetupBotId(setupBotId);
-  const shownSetupBotId = voiceSetupRequired ? setupBotId : voiceSetupBotId;
-  const setupBot = shownSetupBotId ? state.bots.find((candidate) => candidate.id === shownSetupBotId) : undefined;
-  const helpMotion = useMenuMotion(Boolean(unavailable && helpOpen));
-  const [menuOpen, setMenuOpen] = useState(false);
-  const keyPopover = canLive && !active && media.needsKey && media.botId === targetId;
+  const helpMotion = useMenuMotion(unavailable && helpOpen);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const chevronRef = useRef<HTMLButtonElement>(null);
-  const keyRef = useRef<HTMLDivElement>(null);
   const helpId = useId();
-  const menuId = useId();
-  const keyId = useId();
   const elsewhereName = liveElsewhere ? state.bots.find((candidate) => candidate.id === media.botId)?.name : undefined;
-  const composer = placement === "composer";
   const label = active
-    ? t("call.hangUpOn", { name: targetName })
-    : liveElsewhere
+    ? t("call.hangUpOn", { name: bot.name })
+    : blocked
       ? elsewhereName ? t("call.live.pill", { name: elsewhereName }) : t("call.live.badge")
-      : liveMode
-      ? t("call.live.callWith", { name: targetName })
-      : !capabilitiesReady
-      ? "Checking call availability"
-      : !supported
-        ? capabilityHelp?.label ?? "Call unavailable"
-        : !configured
-          ? "Set up a voice in an agent profile to make calls"
-          : !voiceReady
-            ? "Pick a voice in an agent profile to make calls"
-            : `Call ${targetName}`;
+      : unavailable
+        ? t("call.unavailable.title")
+        : t("call.start");
+  const reason = route.kind === "unavailable" ? route.reason : t("call.unavailable.checking");
 
-  const reason = !capabilitiesReady
-    ? "Checking whether this device can make calls."
-    : capabilityHelp
-      ? capabilityHelp.reason
-        : !configured
-          ? "Set up ElevenLabs, Fish Audio, Chatterbox, or a built-in Mac voice so the dog can speak during calls."
-          : !voiceReady
-            ? voices.length > 1
-              ? "Give every group member a voice before starting a group call."
-              : "Choose a voice before starting a call."
-            : "";
-
-  const closePopovers = useCallback(() => {
-    setHelpOpen(false);
-    setMenuOpen(false);
-    dismissKeyPrompt(targetId);
-  }, [targetId]);
-
-  useEffect(() => () => dismissKeyPrompt(targetId), [targetId]);
-
-  const start = (next: CallMode) => {
-    setHelpOpen(false);
-    setMenuOpen(false);
-    if (next === "live" && liveThreadId !== undefined) {
-      onStart("live");
-      void startLiveCall({ botId: targetId, threadId: liveThreadId });
-      return;
-    }
-    if (!turnsReady) {
-      setHelpOpen(true);
-      return;
-    }
-    onStart("turns");
-    startCall(targetId);
-  };
-
-  const popoverOpen = helpOpen || menuOpen || keyPopover;
   useEffect(() => {
-    if (!popoverOpen) return;
+    if (!helpOpen) return;
     const closeOnOutsideClick = (event: PointerEvent) => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) closePopovers();
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setHelpOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      closePopovers();
-      (menuOpen ? chevronRef : buttonRef).current?.focus();
+      setHelpOpen(false);
+      buttonRef.current?.focus();
     };
     document.addEventListener("pointerdown", closeOnOutsideClick);
     document.addEventListener("keydown", closeOnEscape);
@@ -176,146 +75,69 @@ export function CallTargetButton({
       document.removeEventListener("pointerdown", closeOnOutsideClick);
       document.removeEventListener("keydown", closeOnEscape);
     };
-  }, [popoverOpen, menuOpen, closePopovers]);
+  }, [helpOpen]);
 
-  const keyShown = useRef(keyPopover);
-  useEffect(() => {
-    const opened = keyPopover && !keyShown.current;
-    keyShown.current = keyPopover;
-    if (opened) keyRef.current?.querySelector<HTMLInputElement>("input")?.focus();
-  }, [keyPopover]);
+  const startTurns = () => {
+    track("call_started", { driver: bot.modelSelection?.instanceId, mode: "turns" });
+    startCall(bot.id);
+  };
 
-  if (liveMode && !onCall && liveLineHeldElsewhere(media, state.liveCall)) return null;
+  const press = () => {
+    if (onLiveCall) return void hangUpLiveCall();
+    if (onCall) return endCall(bot.id);
+    if (route.kind === "live") {
+      track("call_started", { driver: bot.modelSelection?.instanceId, mode: "live" });
+      return void startLiveCall({ botId: bot.id, threadId: bot.threadId });
+    }
+    if (route.kind === "turns") return startTurns();
+    setHelpOpen((open) => !open);
+  };
+
   return (
     <div ref={rootRef} className="relative flex items-center">
       <button
         ref={buttonRef}
-        disabled={liveElsewhere || (onLiveCall && media.phase === "ending")}
-        onClick={() => {
-          if (onLiveCall) {
-            void hangUpLiveCall();
-            return;
-          }
-          if (onCall) return endCall(targetId);
-          if (keyPopover) {
-            closePopovers();
-            return;
-          }
-          if (unavailable) {
-            setMenuOpen(false);
-            setHelpOpen((open) => !open);
-            return;
-          }
-          start(liveMode ? "live" : "turns");
-        }}
-        aria-expanded={unavailable ? helpOpen : keyPopover ? true : undefined}
-        aria-controls={unavailable ? helpId : keyPopover ? keyId : undefined}
+        type="button"
+        disabled={blocked || (onLiveCall && media.phase === "ending")}
+        onClick={press}
+        aria-expanded={unavailable ? helpOpen : undefined}
+        aria-controls={unavailable ? helpId : undefined}
         aria-label={label}
         title={label}
-        data-call-button={placement}
+        data-call-button=""
+        data-call-route={route.kind}
         className={cn(
-          "relative flex shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-60",
-          composer ? "size-8" : "size-9",
+          "relative flex size-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-60",
           active
             ? "bg-danger text-white hover:brightness-110"
-            : composer
-              ? unavailable
-                ? "bg-control text-ink-tertiary hover:text-ink-secondary"
-                : "bg-control text-ink hover:bg-raised"
-              : unavailable
-                ? "text-ink-tertiary hover:bg-raised hover:text-ink-secondary"
-                : "text-ink-secondary hover:bg-raised hover:text-ink",
+            : unavailable
+              ? "bg-control text-ink-tertiary hover:text-ink-secondary"
+              : "bg-control text-ink hover:bg-raised",
         )}
       >
-        {active
-          ? <PhoneOff size={composer ? 15 : 17} />
-          : composer ? <AudioLines size={16} aria-hidden="true" /> : <Phone size={17} />}
-        {unavailable && (
-          <span className="absolute right-1 top-1 size-1.5 rounded-full bg-warning ring-2 ring-app" aria-hidden="true" />
-        )}
+        {active ? <PhoneOff size={15} /> : <AudioLines size={16} aria-hidden="true" />}
       </button>
-      {canLive && !composer && (
-        <button
-          ref={chevronRef}
-          type="button"
-          disabled={active || liveElsewhere}
-          onClick={() => {
-            const opening = !menuOpen;
-            closePopovers();
-            setMenuOpen(opening);
-          }}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          aria-controls={menuOpen ? menuId : undefined}
-          aria-label={t("call.mode.menu")}
-          title={t("call.mode.menu")}
-          className={cn("-ml-1 flex w-4 items-center justify-center rounded-full text-ink-secondary transition-colors hover:text-ink disabled:opacity-40", composer ? "h-8" : "h-9")}
-        >
-          <ChevronDown size={13} className={cn("transition-transform", menuOpen && "rotate-180")} />
-        </button>
-      )}
-
-      {menuOpen && (
-        <CallModeMenu
-          id={menuId}
-          mode={mode}
-          turnsUnavailable={turnsHere ? null : capabilityHelp}
-          placement={placement}
-          cloudHome={cloudHome}
-          onClose={closePopovers}
-          onChoose={(next) => {
-            setCallMode(next);
-            start(next);
-          }}
-        />
-      )}
-
-      {keyPopover && liveThreadId !== undefined && (
-        <div
-          ref={keyRef}
-          id={keyId}
-          className={cn("animate-pop-in absolute right-0 z-30 w-[340px] max-w-[90vw] rounded-menu shadow-popover", composer ? "bottom-full mb-1.5 origin-bottom-right" : "top-full mt-1.5 origin-top-right")}
-        >
-          <LiveKeySetup
-            key={`${targetId}:${liveThreadId}`}
-            compact
-            onSaved={() => void startLiveCall({ botId: targetId, threadId: liveThreadId })}
-          />
-        </div>
-      )}
 
       {helpMotion.shown && (
         <div
           id={helpId}
           role="group"
-          aria-label="Call unavailable"
-          className={cn("absolute right-0 z-30 w-[280px]", composer ? "bottom-full mb-1.5 origin-bottom-right" : "mt-1.5 origin-top-right", "rounded-menu border border-hairline bg-panel p-3 text-left shadow-popover", helpMotion.className)} {...helpMotion.exitProps}
+          aria-label={t("call.unavailable.title")}
+          data-call-unavailable=""
+          className={cn("absolute bottom-full right-0 z-30 mb-1.5 w-[280px] origin-bottom-right rounded-menu border border-hairline bg-panel p-3 text-left shadow-popover", helpMotion.className)} {...helpMotion.exitProps}
         >
-          <div className="text-[13px] font-medium text-ink">Call unavailable</div>
+          <div className="text-[13px] font-medium text-ink">{t("call.unavailable.title")}</div>
           <div className="mt-1 text-[12px] leading-[1.45] text-ink-secondary">{reason}</div>
-          {canLive && (
-            <button
-              type="button"
-              onClick={() => {
-                setCallMode("live");
-                start("live");
-              }}
-              className="mt-2.5 mr-2 rounded-lg border border-hairline px-3 py-1.5 text-[12px] font-medium text-ink hover:bg-raised"
-              title={callModeHint("live", { cloudHome })}
-            >
-              {t("call.live.startInstead")}
-            </button>
-          )}
-          {voiceSetupRequired && setupBot && (
+          {route.kind === "unavailable" && route.needsVoice && (
             <button
               type="button"
               aria-haspopup="dialog"
-              data-voice-setup-open
+              data-voice-setup-open=""
               onClick={() => {
                 setHelpOpen(false);
                 setVoiceSetupOpen(true);
               }}
-              className="mt-2.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-medium text-accent-ink hover:brightness-110"
+              className="mt-2.5 rounded-lg border border-hairline px-3 py-1.5 text-[12px] font-medium text-ink hover:bg-raised"
             >
               {t("call.voiceSetup.open")}
             </button>
@@ -323,75 +145,19 @@ export function CallTargetButton({
         </div>
       )}
 
-      {voiceSetupOpen && setupBot && (
+      {voiceSetupOpen && (
         <VoiceSetupDialog
-          bot={setupBot}
-          callName={targetName}
-          ready={supported && voiceReady}
+          bot={bot}
+          callName={bot.name}
+          ready={route.kind === "turns"}
           returnFocusRef={buttonRef}
           onClose={() => setVoiceSetupOpen(false)}
           onStartCall={() => {
             setVoiceSetupOpen(false);
-            start("turns");
+            if (route.kind === "turns") startTurns();
           }}
         />
       )}
-    </div>
-  );
-}
-
-export function CallModeMenu({ id, mode, onChoose, onClose, placement = "header", cloudHome = false, turnsUnavailable = null }: {
-  id: string;
-  mode: CallMode;
-  turnsUnavailable?: CallCapabilityHelp | null;
-  placement?: CallButtonPlacement;
-  cloudHome?: boolean;
-  onChoose: (mode: CallMode) => void;
-  onClose: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    ref.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
-  }, []);
-  return (
-    <div
-      ref={ref}
-      id={id}
-      role="menu"
-      aria-label={t("call.mode.menu")}
-      onKeyDown={(event) => {
-        if (event.key === "Tab") onClose();
-        else navigateMenu(event);
-      }}
-      className={cn("animate-pop-in absolute right-0 z-30 w-[280px] rounded-menu border border-hairline bg-panel p-1.5 text-left shadow-popover", placement === "composer" ? "bottom-full mb-1.5 origin-bottom-right" : "top-full mt-1.5 origin-top-right")}
-    >
-      {CALL_MODES.map((entry) => {
-        const unavailable = entry.id === "turns" ? turnsUnavailable : null;
-        return (
-          <button
-            key={entry.id}
-            type="button"
-            role="menuitemradio"
-            aria-checked={mode === entry.id}
-            aria-disabled={unavailable ? true : undefined}
-            onClick={() => {
-              if (!unavailable) onChoose(entry.id);
-            }}
-            className={cn(
-              "flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none hover:bg-raised focus-visible:bg-raised aria-disabled:cursor-default aria-disabled:hover:bg-transparent",
-              mode === entry.id && "bg-raised/60",
-            )}
-          >
-            <span className="min-w-0 flex-1">
-              <span className={cn("block text-[13px] font-medium", unavailable ? "text-ink-tertiary" : "text-ink")}>{t(entry.label)}</span>
-              <span className="mt-0.5 block text-[11.5px] leading-[1.4] text-ink-secondary">
-                {unavailable ? `${unavailable.label}. ${unavailable.reason}` : callModeHint(entry.id, { cloudHome })}
-              </span>
-            </span>
-            {mode === entry.id && <Check size={14} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />}
-          </button>
-        );
-      })}
     </div>
   );
 }

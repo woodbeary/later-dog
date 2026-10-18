@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { currentCall } from "./call";
 import {
-  applyCaption, checkLiveSignIn, configureLiveMedia, dismissKeyPrompt, endNotice, handleLiveCallKey, hangUpLiveCall, isLiveCallRunning, liveCallShortcut,
+  applyCaption, checkLiveSignIn, configureLiveMedia, endNotice, handleLiveCallKey, hangUpLiveCall, isLiveCallRunning, liveCallShortcut,
   liveMedia, onLiveStreamConnected, onServerCall, resetLiveMedia, setLiveMuted, startLiveCall, subscribeLiveMedia, takeLiveCallAction,
 } from "./live-call-media";
 import { ApiError } from "@/state/store";
@@ -104,10 +104,11 @@ describe("live call media", () => {
     expect(JSON.parse(String(request.mock.calls[0][1].body)).client).toBe("web");
   });
 
-  it("asks for a key and releases the microphone", async () => {
+  it("says Voice call unavailable with no key prompt when the server has no Live key, and releases the microphone", async () => {
     request.mockRejectedValueOnce(new ApiError("Add an OpenAI API key to use Live calls.", 409, { needsKey: true }));
     await startLiveCall({ botId: "b1", threadId: "t1" });
-    expect(liveMedia()).toMatchObject({ phase: "idle", needsKey: true });
+    expect(liveMedia()).toMatchObject({ phase: "failed", botId: "b1", notice: "Voice call unavailable", action: null });
+    expect(liveMedia()).not.toHaveProperty("needsKey");
     expect(track.stopped).toBe(true);
     expect(currentCall()).toBeNull();
   });
@@ -479,15 +480,6 @@ describe("live call media", () => {
     unsubscribe();
     setLiveMuted(false);
     expect(watcher).toHaveBeenCalledTimes(1);
-  });
-
-  it("drops the key prompt only for the bot it was left for", async () => {
-    request.mockRejectedValueOnce(new ApiError("Add an OpenAI API key to use Live calls.", 409, { needsKey: true }));
-    await startLiveCall({ botId: "b1", threadId: "t1" });
-    dismissKeyPrompt("b2");
-    expect(liveMedia()).toMatchObject({ needsKey: true, botId: "b1" });
-    dismissKeyPrompt("b1");
-    expect(liveMedia()).toMatchObject({ phase: "idle", needsKey: false, botId: null });
   });
 
   it("plays blocked audio on the next click and clears the hint", async () => {

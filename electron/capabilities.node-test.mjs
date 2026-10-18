@@ -22,6 +22,16 @@ test("a remote server's page is told this computer offers no screen, voice or lo
   assert.notEqual(local.host.homeDir, "");
 });
 
+test("the person's Cloud home page keeps this Mac's speech recognition and nothing else local", () => {
+  const home = desktopCapabilities({ platform: "darwin", env: {}, packaged: true, localConnection: { status: "ready", enabled: true }, remote: true, remoteSpeech: true });
+  assert.deepEqual(home.dictation, { available: true, engine: "apple-speech", onDevice: true });
+  assert.equal(home.screenPreview.available, false);
+  assert.equal(home.localComputer.available, false);
+  const windows = desktopCapabilities({ platform: "win32", env: {}, packaged: true, remote: true, remoteSpeech: true });
+  assert.equal(windows.dictation.available, false);
+  assert.equal(windows.dictation.reasonCode, "unsupported-platform");
+});
+
 test("this computer's page learns whether saved sign-ins unlocked; a remote page and an unknown answer get nothing", () => {
   const base = { platform: "darwin", env: {}, packaged: true, localConnection: { status: "ready", enabled: true } };
   assert.equal(desktopCapabilities({ ...base, credentialStore: "unavailable" }).credentialStore, "unavailable");

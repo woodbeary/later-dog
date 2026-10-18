@@ -315,10 +315,16 @@ the Cloud's address.
   browser's call shows in other windows' call bars as "Ada is on a Live call
   from a web browser". The phone apps show a client they don't know as
   "another device".
-- **Take turns stays on the Mac.** Take-turns calls listen with the Mac app's
-  on-device speech recognition, which a Cloud's page can't use. On a Cloud,
-  the call with one bot is a Live call, and a room has no call
-  (`effectiveCallMode` in `src/lib/call-mode.ts`, `GroupCallButton`).
+- **One voice button, with the included voice.** A one-to-one chat always
+  shows one voice button. It takes turns with the included voice and the Mac
+  app's on-device speech recognition, which the Mac app also lends to the
+  person's own Cloud page (`electron/speech-sender.mjs`, `remoteSpeech` in
+  `electron/capabilities.cjs`, kept on every capabilities change by
+  `electron/page-capabilities.mjs`). Dictation stops when that page navigates
+  away. Only when taking turns can't work in that
+  window and a Live key is already saved does it make a Live call. Otherwise
+  it says "Voice call unavailable" with one plain reason; it never asks for a
+  key (`callRoute` in `src/lib/call-route.ts`). A room has no call.
 
 ### Open in the app: `laterdog://cloud`
 

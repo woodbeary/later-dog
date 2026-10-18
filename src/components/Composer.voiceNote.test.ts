@@ -154,6 +154,68 @@ describe("the mic and the send button", () => {
   });
 });
 
+describe("Escape during dictation", () => {
+  let threads = 0;
+  let talker: Bot;
+  beforeEach(() => { talker = { ...bot, threadId: `thread-esc-${++threads}` }; });
+  const mic = () => host.querySelector<HTMLButtonElement>("[data-composer-mic]")!;
+  const box = () => host.querySelector("textarea")!;
+  const escape = (target: EventTarget) => act(async () => {
+    target.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  });
+  const type = async (value: string) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box(), value);
+      box().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+
+  it("says Esc cancels while listening", async () => {
+    await act(async () => root.render(createElement(Composer, { bot: talker })));
+    await act(async () => mic().click());
+    expect(mic().title).toBe("Stop dictation · Esc cancels");
+    expect(box().placeholder).toBe("Listening…");
+  });
+
+  it("cancels from the mic button: nothing heard is kept, the earlier text comes back exactly, and listening stops", async () => {
+    await act(async () => root.render(createElement(Composer, { bot: talker })));
+    await type("Hi team,  ");
+    await act(async () => mic().click());
+    await act(async () => speech.transcript!({ partial: true, text: "remind me to pack sunscreen" }));
+    expect(box().value).toBe("Hi team, remind me to pack sunscreen");
+    mic().focus();
+    await escape(mic());
+    expect(box().value).toBe("Hi team,  ");
+    expect(speech.stop).toHaveBeenCalled();
+    expect(speech.transcript).toBeNull();
+    expect(mic().getAttribute("aria-pressed")).toBe("false");
+    expect(mic().getAttribute("aria-label")).toBe("Start dictation");
+    expect(fixture.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: "send" }));
+  });
+
+  it("cancels from the text box too, and never sends audio off to be transcribed", async () => {
+    const speechAudio = vi.fn(async () => new Uint8Array([1]));
+    vi.stubGlobal("laterdog", { ...(globalThis as unknown as { laterdog: object }).laterdog, speechAudio });
+    speech.stop.mockImplementation(async () => ({ recording: "/notes/esc.caf" }));
+    await act(async () => root.render(createElement(Composer, { bot: talker })));
+    await act(async () => mic().click());
+    await act(async () => speech.transcript!({ partial: true, text: "what is a good snack" }));
+    await escape(box());
+    await act(async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(box().value).toBe("");
+    expect(speechAudio).not.toHaveBeenCalled();
+    expect(host.querySelector("[data-dictation-status]")).toBeNull();
+  });
+
+  it("leaves Escape alone when nobody is dictating", async () => {
+    await act(async () => root.render(createElement(Composer, { bot: talker })));
+    await type("keep me");
+    await escape(box());
+    expect(box().value).toBe("keep me");
+    expect(speech.stop).not.toHaveBeenCalled();
+  });
+});
+
 describe("sharper dictation", () => {
   const WAV = new Uint8Array([82, 73, 70, 70, 1, 2]);
   const HEARD = "Draft the launch post for Friday.";
@@ -218,6 +280,8 @@ describe("sharper dictation", () => {
     await stopWithRecording();
     expect(mic().getAttribute("aria-busy")).toBe("true");
     expect(mic().title).toBe("Transcribing…");
+    expect(host.querySelector("[data-dictation-status]")!.textContent).toBe("Transcribing…");
+    expect(host.querySelector("[data-dictation-status]")!.getAttribute("role")).toBe("status");
     const textarea = box();
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "never mind, I'll write it");
@@ -227,6 +291,7 @@ describe("sharper dictation", () => {
     await settle();
     expect(box().value).toBe("never mind, I'll write it");
     expect(mic().getAttribute("aria-busy")).toBeNull();
+    expect(host.querySelector("[data-dictation-status]")).toBeNull();
   });
 
   it("doesn't refill the box after the message was already sent", async () => {

@@ -2,7 +2,7 @@ import { useCallback, useId, useState } from "react";
 
 import { LIVE_VOICE_OPTIONS } from "../../shared/live-call";
 import { t } from "@/lib/i18n";
-import { liveDisclosure } from "@/lib/call-mode";
+import { liveDisclosure } from "@/lib/live-disclosure";
 import { api, useStore, type ConfigStatus } from "@/state/store";
 import type { LiveSettings } from "../../shared/wire";
 import { LiveKeySetup } from "./LiveKeySetup";

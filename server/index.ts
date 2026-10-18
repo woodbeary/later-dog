@@ -119,6 +119,8 @@ import { roomTurnEnd, type RoomClaimEnd } from "./room-turn-end.ts";
 import { pickComputer } from "./computer-selection.ts";
 import { isMacOffline, macOfflineResult, macOptions, macSelectReply, type KnownMac } from "./laterdog/mac-computer.ts";
 import { requestGone } from "./laterdog/request-gone.ts";
+import { configuredSpeechKey, SpeechCache } from "./laterdog/speech-cache.ts";
+import { mp3DurationMs } from "./laterdog/mp3-duration.ts";
 import { startHomeHealthLog } from "./laterdog/home-health-log.ts";
 import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
@@ -2586,6 +2588,7 @@ const pendingCancelledProviderHandshakes = new PendingTurnCancellations();
 type ParkedTurnAttachment = NonNullable<Message["attachments"]>[number] & { text?: string };
 
 const turnAttachmentsByTurn = new Map<string, Array<ParkedTurnAttachment>>();
+const speechCache = new SpeechCache();
 
 function turnAttachmentKey(threadId: string, turnId?: string): string {
   return `${threadId}:${turnId ?? "active"}`;
@@ -6762,7 +6765,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           .join("\n\n");
         const staged = settled.map((attachment) =>
           attachment.kind === "audio"
-            ? { kind: "audio" as const, path: attachment.path, mime: attachment.mime }
+            ? { kind: "audio" as const, path: attachment.path, mime: attachment.mime, ...(attachment.durationMs ? { durationMs: attachment.durationMs } : {}) }
             : attachment,
         );
         if (response) {
@@ -14922,7 +14925,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const saved = saveAudio(Buffer.from(audio.bytes), audio.mime);
           const key = turnAttachmentKey(internalCapability.threadId, turnId);
           const current = turnAttachmentsByTurn.get(key) ?? [];
-          current.push({ kind: "audio", path: saved.path, mime: saved.mime, text });
+          const durationMs = mp3DurationMs(audio.bytes);
+          current.push({ kind: "audio", path: saved.path, mime: saved.mime, ...(durationMs ? { durationMs } : {}), text });
           turnAttachmentsByTurn.set(key, current);
           return json(res, 201, { attached: true });
         } catch (error) {
@@ -20254,7 +20258,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!text) return json(res, 400, { error: "text required" });
       if (text.length > 500) return json(res, 413, { error: "voice utterances are limited to 500 characters" });
       try {
-        const audio = await tts.speak(cfg, text, typeof body.voiceId === "string" ? body.voiceId : undefined);
+        const voiceId = typeof body.voiceId === "string" ? body.voiceId : undefined;
+        const audio = await speechCache.speak(
+          configuredSpeechKey(tts.voiceProvider(cfg), cfg.tts, text, voiceId),
+          () => tts.speak(cfg, text, voiceId),
+        );
         res.writeHead(200, {
           "content-type": audio.mime,
           "content-length": String(audio.bytes.byteLength),

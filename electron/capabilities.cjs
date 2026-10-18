@@ -89,6 +89,7 @@ function desktopCapabilities({
   localConnection = null,
   homeDir = require("node:os").homedir(),
   remote = false,
+  remoteSpeech = false,
   credentialStore = null,
   computerName = null,
 } = {}) {
@@ -162,7 +163,7 @@ function desktopCapabilities({
   if (remote) {
     const unavailable = { reasonCode: "remote-server" };
     Object.assign(screenPreview, { available: false, interaction: "none" }, unavailable);
-    Object.assign(dictation, { available: false, engine: "none", onDevice: false }, unavailable);
+    if (!remoteSpeech) Object.assign(dictation, { available: false, engine: "none", onDevice: false }, unavailable);
     Object.assign(localComputer, {
       available: false,
       support: "unsupported",

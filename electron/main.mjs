@@ -65,6 +65,8 @@ import { readSecureCredentials } from "./secure-credentials.mjs";
 import capabilitiesModule from "./capabilities.cjs";
 import environmentsModule from "./environments.cjs";
 import localOriginModule from "./local-origin.cjs";
+import { speechSender, stopSpeechWhenPageLeaves } from "./speech-sender.mjs";
+import { pageCapabilities, windowPage } from "./page-capabilities.mjs";
 import { buildApplicationMenu } from "./menu.mjs";
 import { computerName as sharedComputerName, createComputerSharing, validateSharedFolders } from "./computer-sharing.mjs";
 import { primeHomeFolders } from "./shared-computer-access.mjs";
@@ -2118,20 +2120,22 @@ ipcMain.handle("desktop:relaunch", localOnly("desktop:relaunch", (event) => {
   return true;
 }));
 
-ipcMain.handle("speech:start", localOnly("speech:start", (event, options) => {
+const speechPage = (channel, handler) => speechSender(channel, handler, { isLocal: senderIsLocal, isCloudPage: (event) => cloudPageAsking(event) === "cloud" });
+ipcMain.handle("speech:start", speechPage("speech:start", (event, options) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) return;
   if (!nativeActions.appleSpeech) {
     win.webContents.send("speech:end", { code: 2, reason: "unsupported-platform" });
     return;
   }
+  stopSpeechWhenPageLeaves(win.webContents, stopSpeech);
   startSpeech(win, options && typeof options === "object"
     ? { endpointMs: options.endpointMs, ...(typeof options.file === "string" ? { file: options.file } : {}) }
     : undefined);
 }));
-ipcMain.handle("speech:stop", localOnly("speech:stop", () => (nativeActions.appleSpeech ? stopSpeech() : {})));
-ipcMain.handle("speech:audio", localOnly("speech:audio", (_event, file) => (nativeActions.appleSpeech ? voiceNoteAudio(file) : null)));
-ipcMain.handle("speech:finish", localOnly("speech:finish", () => {
+ipcMain.handle("speech:stop", speechPage("speech:stop", () => (nativeActions.appleSpeech ? stopSpeech() : {})));
+ipcMain.handle("speech:audio", speechPage("speech:audio", (_event, file) => (nativeActions.appleSpeech ? voiceNoteAudio(file) : null)));
+ipcMain.handle("speech:finish", speechPage("speech:finish", () => {
   if (nativeActions.appleSpeech) finishSpeech();
 }));
 
@@ -2637,17 +2641,23 @@ const macNameFor = async (event) => {
   }
   return thisMacName.name;
 };
-ipcMain.handle("desktop:capabilities", async (event) => {
-  return desktopCapabilities({
-    remote: !senderIsLocal(event),
-    platform: process.platform,
-    env: process.env,
-    packaged: app.isPackaged,
-    localConnection: await cuaReady,
-    credentialStore: credentialStoreCapability(),
-    computerName: await macNameFor(event),
+const capabilitiesFor = async (page, isLocal) => {
+  const localConnection = await cuaReady;
+  return pageCapabilities(page, {
+    isLocal,
+    isCloudPage: (asking) => cloudPageAsking(asking) === "cloud",
+    computerName: macNameFor,
+    build: (forPage) => desktopCapabilities({
+      ...forPage,
+      platform: process.platform,
+      env: process.env,
+      packaged: app.isPackaged,
+      localConnection,
+      credentialStore: credentialStoreCapability(),
+    }),
   });
-});
+};
+ipcMain.handle("desktop:capabilities", (event) => capabilitiesFor(event, senderIsLocal));
 
 const CREDENTIAL_PATCH = {
   composioApiKey: (value) => ({ composio: { apiKey: value } }),
@@ -2735,26 +2745,18 @@ ipcMain.handle("approvals:set-trusted-mode", localOnly("approvals:set-trusted-mo
   return trustedApprovalMode.request(proc, botId, mode, options);
 }));
 
+const windowIsLocal = ({ sender }) => {
+  try {
+    return new URL(sender.getURL()).origin === rendererOrigin();
+  } catch {
+    return false;
+  }
+};
 async function broadcastDesktopCapabilities() {
-  const localConnection = await cuaReady;
-  const build = (remote, computerName) =>
-    desktopCapabilities({
-      remote,
-      platform: process.platform,
-      env: process.env,
-      packaged: app.isPackaged,
-      localConnection,
-      credentialStore: credentialStoreCapability(),
-      computerName,
-    });
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed()) continue;
-    let isLocal = false;
-    try {
-      isLocal = new URL(window.webContents.getURL()).origin === rendererOrigin();
-    } catch {}
-    const computerName = await macNameFor({ sender: window.webContents, senderFrame: window.webContents.mainFrame });
-    window.webContents.send("desktop:capabilities-changed", build(!isLocal, computerName));
+    const capabilities = await capabilitiesFor(windowPage(window.webContents), windowIsLocal);
+    if (!window.isDestroyed()) window.webContents.send("desktop:capabilities-changed", capabilities);
   }
 }
 
