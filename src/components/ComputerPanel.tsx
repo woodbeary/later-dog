@@ -923,7 +923,7 @@ export function ComputerPanel({
               </>}
               {currentTeamComputer && placeActionButton(autoView)}
               {bot.computer === "cloud" && (phase === "unconfigured" || phase === "error") && placeActionButton(cloudView)}
-              {(phase === "local" || phase === "local-unavailable") && livePlace !== "cloud" && !askingForGrants && (
+              {(phase === "local" || phase === "local-unavailable") && livePlace !== "cloud" && !askingForGrants && !state.config?.cloudHome && (
                 <div className="min-h-[52px]">
                   <CloudTrialOffer className="mt-1" onUse={takeFreeCloud} />
                 </div>
@@ -939,7 +939,7 @@ export function ComputerPanel({
                   onRelaunch={() => void window.laterdog?.relaunch?.()}
                 />
               )}
-              {phase === "off" && livePlace !== "off" && <CloudTrialOffer onUse={takeFreeCloud} />}
+              {phase === "off" && livePlace !== "off" && !state.config?.cloudHome && <CloudTrialOffer onUse={takeFreeCloud} />}
               {(phase === "show-ready-boat" || phase === "show-sleeping-boat" || phase === "show-pending-boat") && (
                 <button
                   type="button"

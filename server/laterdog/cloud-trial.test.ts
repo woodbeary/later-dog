@@ -250,6 +250,18 @@ describe("a running free trial", () => {
     expect(saved()).toEqual({ api: API, confirmed: true });
   });
 
+  it("never ends or sells a plan over the key of a later.dog Cloud home", async () => {
+    const trial = await running();
+    const home = { ...options, cloudHome: true };
+    const calls = service.calls.length;
+    expect(await rejection(endTrial(home))).toMatchObject({ status: 409, message: "This computer is part of your later.dog Cloud." });
+    expect(await rejection(startPlan(home))).toMatchObject({ status: 409 });
+    expect(service.calls).toHaveLength(calls);
+    expect(trial.ended).toBe(false);
+    expect(existsSync(keyFile())).toBe(true);
+    expect(trialInUse()).toBe(true);
+  });
+
   it("ends here when the service had already ended it", async () => {
     const trial = await running();
     trial.ended = true;
@@ -368,21 +380,33 @@ describe("the free trial a new installation claims by itself", () => {
       posts.push({ url: String(input), claim: JSON.parse(String(init?.body)).claim });
       return new Response(JSON.stringify({ trial: { state: "active" }, included: ["decisions", "voice", "ai", "nope"] }), { status: 201 });
     }) as typeof fetch;
-    expect(await autoStartTrial({ otherComputers: () => false, fetch: accept })).toBe(true);
+    expect(await autoStartTrial({ otherComputers: () => false, fetch: accept, cloudHome: false })).toBe(true);
     expect(posts).toHaveLength(1);
     expect(posts[0]!.url).toBe(`${API}/trials/start`);
     expect(posts[0]!.claim).toBe(createHash("sha256").update(savedKey()).digest("hex"));
     expect(saved()).toEqual({ api: API, confirmed: true, included: ["decisions", "voice", "ai"] });
     expect(mode(keyFile())).toBe(0o600);
-    expect(await autoStartTrial({ otherComputers: () => false, fetch: accept })).toBe(false);
+    expect(await autoStartTrial({ otherComputers: () => false, fetch: accept, cloudHome: false })).toBe(false);
     expect(posts).toHaveLength(1);
+  });
+
+  it("never starts a public free trial on a later.dog Cloud home, which gets its own key", async () => {
+    let asked = 0;
+    const accept = (async () => {
+      asked += 1;
+      return new Response(JSON.stringify({ trial: { state: "active" } }), { status: 201 });
+    }) as typeof fetch;
+    expect(await autoStartTrial({ otherComputers: () => false, fetch: accept, cloudHome: true })).toBe(false);
+    expect(asked).toBe(0);
+    expect(existsSync(stateFile())).toBe(false);
+    expect(existsSync(keyFile())).toBe(false);
   });
 
   it("leaves nothing behind when the service refuses or cloud computers are set up", async () => {
     const refuse = (async () => new Response(JSON.stringify({ error: { code: "trial_network_used" } }), { status: 429 })) as typeof fetch;
-    expect(await autoStartTrial({ otherComputers: () => false, fetch: refuse })).toBe(false);
+    expect(await autoStartTrial({ otherComputers: () => false, fetch: refuse, cloudHome: false })).toBe(false);
     expect(existsSync(stateFile())).toBe(false);
     expect(existsSync(keyFile())).toBe(false);
-    expect(await autoStartTrial({ otherComputers: () => true, fetch: refuse })).toBe(false);
+    expect(await autoStartTrial({ otherComputers: () => true, fetch: refuse, cloudHome: false })).toBe(false);
   });
 });

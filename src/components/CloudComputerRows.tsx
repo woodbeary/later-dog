@@ -144,7 +144,7 @@ export function CloudComputerRows() {
   return (
     <div data-cloud-computer-rows="" className="rounded-xl bg-card px-4">
       <CloudComputersRow />
-      <CloudTrialRow fallback={soon} />
+      {!state.config?.cloudHome && <CloudTrialRow fallback={soon} />}
       {loading && computers.length === 0 ? (
         <div className="flex items-center gap-2 border-t border-hairline/40 py-4 text-[13px] text-ink-secondary">
           <Loader2 size={13} className="animate-spin" /> {t("vm.cloud.checkingList")}

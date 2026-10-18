@@ -11,14 +11,18 @@ export const INCLUDED_GROK_INSTANCE = "laterdogGrok";
 export const INCLUDED_AI_INSTANCES: readonly string[] = [INCLUDED_AI_INSTANCE, INCLUDED_GROK_INSTANCE];
 const FALLBACK_URL = "https://cloud.later.dog/v1/ai";
 const KIMI_MODELS = { default: "kimi-k2.6", options: [{ id: "kimi-k2.6", label: "Kimi K2.6", contextWindow: 256_000 }] };
-const GROK_MODELS = { default: "grok-4.3", options: [{ id: "grok-4.3", label: "Grok 4.3", contextWindow: 256_000 }] };
+const GROK_MODELS = { default: "grok-4.3", options: [{ id: "grok-4.3", label: "Grok (free)", contextWindow: 256_000 }] };
+const ACCOUNTS = "Claude, ChatGPT, Grok or Cursor";
+const onCloudHome = () => process.env.LATERDOG_CLOUD_ROLE === "home";
 const NOT_STARTED = "Start the free trial to use the free models.";
-const ENDED = "Your free trial has ended. Sign in to Claude or ChatGPT to keep going.";
-const ENDED_WITH_PLAN = "Your free trial has ended. Sign in to Claude or ChatGPT, or keep going on later.dog Cloud in Settings, Computer.";
-const ended = () => (planOfferedNow() ? ENDED_WITH_PLAN : ENDED);
-const DAILY = "You've used today's free messages. They come back tomorrow, or sign in to Claude or ChatGPT to keep going now.";
-const BUSY = "The free model is busy right now. Try again in a minute, or sign in to Claude or ChatGPT.";
-const FULL_TODAY = "The free models are at today's limit for everyone. They're back tomorrow, or sign in to Claude or ChatGPT to keep going now.";
+const HOME_SETTING_UP = `The free models are still being set up on your later.dog Cloud. Try again in a minute, or sign in to ${ACCOUNTS}.`;
+const ENDED = `Your free trial has ended. Sign in to ${ACCOUNTS} to keep going.`;
+const ENDED_WITH_PLAN = `Your free trial has ended. Sign in to ${ACCOUNTS}, or keep going on later.dog Cloud in Settings → Computer.`;
+const HOME_LAPSED = `The free models on your later.dog Cloud are renewing. Try again a little later, or sign in to ${ACCOUNTS}.`;
+const ended = () => (onCloudHome() ? HOME_LAPSED : planOfferedNow() ? ENDED_WITH_PLAN : ENDED);
+const DAILY = `You've used today's free messages. They come back tomorrow, or sign in to ${ACCOUNTS} to keep going now.`;
+const BUSY = `The free model is busy right now. Try again in a minute, or sign in to ${ACCOUNTS}.`;
+const FULL_TODAY = `The free models are at today's limit for everyone. They're back tomorrow, or sign in to ${ACCOUNTS} to keep going now.`;
 const TOO_LARGE = "That was too much for the free model to take in at once, most likely a large screenshot. Try again, or start a new chat.";
 
 export function includedAiError(status: number, body: string): string | undefined {
@@ -32,7 +36,7 @@ export function includedAiError(status: number, body: string): string | undefine
   return undefined;
 }
 
-const notReady = () => (savedTrial()?.ended ? ended() : NOT_STARTED);
+const notReady = () => (savedTrial()?.ended ? ended() : onCloudHome() ? HOME_SETTING_UP : NOT_STARTED);
 
 function includedDriver(driverKind: string, displayName: string, models: typeof KIMI_MODELS, reasonsInContent: boolean): ProviderDriver<Record<string, never>> {
   return {

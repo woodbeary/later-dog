@@ -326,6 +326,19 @@ What a trial may do:
   computer tries again every five minutes. Ten minutes after the end it is stopped without a snapshot and shows `error`.
 - When the trial expires, its computers are deleted. If a deletion fails, `TrialRegistry` tries again an hour later.
 
+Home and plan keys use the same `ldt_` form and the same metered minutes, but none of the trial limits above:
+
+- A later.dog Cloud home's key comes from `POST /v1/homes/grant`, which only the service binding answers. Each dog on
+  the home gets its own computer, of any size, and creating or waking one works even while `TRIALS_ENABLED` is off.
+  Its computers sleep after `IDLE_SLEEP_MINUTES`, not `TRIAL_IDLE_SLEEP_MINUTES`. The grant lasts 90 days; asking again
+  with the same claim pushes the end out to 90 days from now and refills the minutes, so the key and its computers
+  carry on. The answer carries `home: true`; a home keeps asking with the same key until it sees that, so homes granted
+  before this change become home grants on their next upkeep. A home that is never renewed ends like a trial and its
+  computers are deleted.
+- A key with a paid later.dog Cloud plan (active, or canceled and still in its paid period plus `PLAN_GRACE_DAYS`) gets
+  the same: a computer for every dog, any size, the deployment's idle time.
+- A computer made before its key was a home or plan key moves to the deployment's idle time the next time it wakes.
+
 Who gets one:
 
 - One trial per network per `TRIAL_DAYS`: per IPv4 address, or per IPv6 /64. The Worker keeps an HMAC-SHA256 of the

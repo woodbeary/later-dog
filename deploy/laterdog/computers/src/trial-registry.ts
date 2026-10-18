@@ -79,6 +79,7 @@ export class TrialRegistry extends DurableObject<Env> {
       created_at INTEGER NOT NULL
     )`);
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS usage (key_sha256 TEXT NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, used INTEGER NOT NULL, PRIMARY KEY (key_sha256, day, kind))");
+    ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS homes (key_sha256 TEXT PRIMARY KEY)");
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS usage_totals (day TEXT NOT NULL, kind TEXT NOT NULL, used INTEGER NOT NULL, PRIMARY KEY (day, kind))");
   }
 
@@ -214,6 +215,50 @@ export class TrialRegistry extends DurableObject<Env> {
     return { ok: true, trial, replayed: false };
   }
 
+  async grantHome(input: { keySha256: string; limitMs: number; windowMs: number }): Promise<Activation> {
+    const sql = this.ctx.storage.sql;
+    const now = Date.now();
+    sql.exec("INSERT INTO homes (key_sha256) VALUES (?) ON CONFLICT (key_sha256) DO NOTHING", input.keySha256);
+    const prior = sql.exec<Row>("SELECT * FROM trials WHERE key_sha256 = ?", input.keySha256).toArray()[0];
+    if (!prior) {
+      const trial = this.insert(input.keySha256, now, input.limitMs, input.windowMs);
+      await this.wakeBy(trial.expiresAt);
+      console.log(`laterdog computers: home ${trial.id} granted`);
+      return { ok: true, trial, replayed: false };
+    }
+    const until = Math.max(prior.expires_at, now + input.windowMs);
+    const usedMs = until > prior.expires_at ? 0 : prior.used_ms;
+    sql.exec("UPDATE trials SET expires_at = ?, limit_ms = ?, used_ms = ? WHERE id = ?", until, input.limitMs, usedMs, prior.id);
+    console.log(`laterdog computers: home ${prior.id} renewed until ${new Date(until).toISOString()}`);
+    return { ok: true, trial: { id: prior.id, createdAt: prior.created_at, expiresAt: until, limitMs: input.limitMs, usedMs }, replayed: true };
+  }
+
+  holder(keySha256: string): { trial: TrialRecord; fullAllowance: boolean; home: boolean } | null {
+    const trial = this.find(keySha256);
+    if (!trial) return null;
+    const home = this.homeGrant(keySha256);
+    return { trial, fullAllowance: home || this.planPaid(keySha256), home };
+  }
+
+  private renewed(id: string): boolean {
+    const row = this.ctx.storage.sql.exec<{ expires_at: number }>("SELECT expires_at FROM trials WHERE id = ?", id).toArray()[0];
+    if (row && row.expires_at > Date.now()) {
+      console.log(`laterdog computers: trial ${id} was renewed while it was ending, so it stays`);
+      return true;
+    }
+    return false;
+  }
+
+  private homeGrant(keySha256: string): boolean {
+    return this.ctx.storage.sql.exec("SELECT 1 FROM homes WHERE key_sha256 = ?", keySha256).toArray().length > 0;
+  }
+
+  private planPaid(keySha256: string): boolean {
+    const plan = this.planFor(keySha256);
+    if (!plan || (plan.status !== "active" && plan.status !== "canceled") || plan.period_end === null) return false;
+    return Date.now() < plan.period_end + planPolicy(this.env).graceMs;
+  }
+
   private insert(keySha256: string, now: number, limitMs: number, windowMs: number): TrialRecord {
     const sql = this.ctx.storage.sql;
     let id = newTrialId();
@@ -265,13 +310,16 @@ export class TrialRegistry extends DurableObject<Env> {
     return true;
   }
 
-  async end(id: string): Promise<void> {
+  async end(id: string, options: { expiredOnly?: boolean } = {}): Promise<void> {
+    if (options.expiredOnly && this.renewed(id)) return;
     const listing = this.env.REGISTRY.get(this.env.REGISTRY.idFromName(trialListing(id)));
     for (const computer of await listing.list()) {
       const removed = await this.env.COMPUTER.get(this.env.COMPUTER.idFromName(computer.id)).remove();
       if (!removed.ok && removed.refusal.status !== 404) throw new Error(`${computer.id}: ${removed.refusal.message}`);
       await listing.remove(computer.id);
     }
+    if (options.expiredOnly && this.renewed(id)) return;
+    this.ctx.storage.sql.exec("DELETE FROM homes WHERE key_sha256 IN (SELECT key_sha256 FROM trials WHERE id = ?)", id);
     this.ctx.storage.sql.exec("DELETE FROM trials WHERE id = ?", id);
     console.log(`laterdog computers: trial ${id} ended`);
   }
@@ -283,7 +331,7 @@ export class TrialRegistry extends DurableObject<Env> {
     for (const { id, key_sha256 } of sql.exec<{ id: string; key_sha256: string }>("SELECT id, key_sha256 FROM trials WHERE expires_at <= ? ORDER BY expires_at", now).toArray()) {
       try {
         if (await this.renewedPlan(key_sha256)) continue;
-        await this.end(id);
+        await this.end(id, { expiredOnly: true });
       } catch (error) {
         failed = true;
         console.error(`laterdog computers: ending trial ${id} failed: ${describeError(error)}`);

@@ -53,6 +53,7 @@ interface ComputerRecord {
   error?: string;
   registry?: string;
   trial?: string;
+  fullAllowance?: boolean;
   budgetEndsAt?: number;
   chargedUntil?: number;
   unchargedMs?: number;
@@ -155,7 +156,7 @@ export class DogComputer extends DurableObject<Env> {
     }
   }
 
-  async init(input: { id: string; name: string; size: Size; registry?: string; trial?: string }): Promise<Result<ComputerView>> {
+  async init(input: { id: string; name: string; size: Size; registry?: string; trial?: string; fullAllowance?: boolean }): Promise<Result<ComputerView>> {
     return this.serially(async () => {
       const existing = this.load();
       if (existing) return ok(view(existing));
@@ -170,6 +171,7 @@ export class DogComputer extends DurableObject<Env> {
         generation: 0,
         ...(input.registry === undefined ? {} : { registry: input.registry }),
         ...(input.trial === undefined ? {} : { trial: input.trial }),
+        ...(input.fullAllowance ? { fullAllowance: true } : {}),
       });
       const booted = await this.boot();
       return booted.ok ? ok(view(this.load()!)) : booted;
@@ -192,10 +194,12 @@ export class DogComputer extends DurableObject<Env> {
     return ok(view(record));
   }
 
-  async wake(): Promise<Result<ComputerView>> {
+  async wake(input: { fullAllowance?: boolean } = {}): Promise<Result<ComputerView>> {
     return this.serially(async () => {
-      const record = this.load();
-      if (!record) return notFound();
+      const found = this.load();
+      if (!found) return notFound();
+      const record = input.fullAllowance === undefined || input.fullAllowance === Boolean(found.fullAllowance) ? found
+        : this.update((r) => { if (input.fullAllowance) r.fullAllowance = true; else delete r.fullAllowance; })!;
       if ((record.state === "running" || record.state === "starting") && this.ctx.container?.running) {
         return ok(view(this.markActive()!));
       }
@@ -562,6 +566,7 @@ export class DogComputer extends DurableObject<Env> {
   private async watch(): Promise<void> {
     if (await this.reconcile()) return;
     await this.charge();
+    await this.refreshBudget();
     const record = this.load();
     if (!record || record.state !== "running") return;
     const decision = this.idleDecision(record);
@@ -590,7 +595,7 @@ export class DogComputer extends DurableObject<Env> {
   }
 
   private policyFor(record: ComputerRecord | undefined): IdlePolicy {
-    return record?.trial ? this.trialIdle : this.policy;
+    return record?.trial && !record.fullAllowance ? this.trialIdle : this.policy;
   }
 
   private async scheduleWatch(): Promise<void> {
@@ -629,6 +634,24 @@ export class DogComputer extends DurableObject<Env> {
     const usable = left - (this.load()?.unchargedMs ?? 0);
     if (usable < MINUTE) return fail(409, "trial_used_up", "This free trial has no minutes left.");
     return ok(usable);
+  }
+
+  private async refreshBudget(): Promise<void> {
+    const record = this.load();
+    if (!record?.trial || record.budgetEndsAt === undefined) return;
+    let left: number | null;
+    try {
+      left = await trials(this.env).budgetLeft(record.trial);
+    } catch (error) {
+      console.error(`laterdog computers: ${record.id} could not re-read its trial: ${describeError(error)}`);
+      return;
+    }
+    const now = Date.now();
+    const usable = (left ?? 0) - (record.unchargedMs ?? 0);
+    this.update((r) => {
+      if (r.budgetEndsAt === undefined) return;
+      r.budgetEndsAt = usable > 0 ? now + usable : Math.min(r.budgetEndsAt, now);
+    });
   }
 
   private async charge(stop = false): Promise<void> {

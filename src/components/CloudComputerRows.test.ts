@@ -11,10 +11,11 @@ const fixture = vi.hoisted(() => ({
   postReply: null as { status: number; body: Record<string, unknown> } | null,
   confirm: true,
   bots: [] as Array<{ id: string; name: string; color: string }>,
+  cloudHome: false,
 }));
-vi.mock("@/state/store", () => ({ useStore: () => ({ state: { config: { box: { configured: true } }, bots: fixture.bots } }) }));
+vi.mock("@/state/store", () => ({ useStore: () => ({ state: { config: { box: { configured: true }, cloudHome: fixture.cloudHome }, bots: fixture.bots } }) }));
 vi.mock("./ApiKeys", () => ({ CloudComputersRow: () => createElement("div", { "data-key-row": "" }) }));
-vi.mock("./CloudTrial", () => ({ CloudTrialRow: () => null }));
+vi.mock("./CloudTrial", () => ({ CloudTrialRow: () => createElement("div", { "data-trial-row": "" }) }));
 
 const { CloudComputerRows, cloudComputerState, mergeCloudComputers } = await import("./CloudComputerRows");
 
@@ -50,6 +51,7 @@ beforeEach(() => {
   fixture.postReply = null;
   fixture.confirm = true;
   fixture.bots = [];
+  fixture.cloudHome = false;
   vi.stubGlobal("confirm", () => fixture.confirm);
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === "POST") {
@@ -79,6 +81,19 @@ describe("a cloud computer's state", () => {
     expect(["idle", "ready", "running"].map((state) => cloudComputerState(computer({ state })))).toEqual(["Running", "Running", "Running"]);
     expect(cloudComputerState(computer({ state: "provisioning" }))).toBe("Starting");
     expect(cloudComputerState(computer({ state: "error" }))).toBe("Needs attention");
+  });
+});
+
+describe("the free trial row", () => {
+  it("shows on a Mac and never on a later.dog Cloud home, whose key is not a trial to end or buy", async () => {
+    await mount();
+    expect(document.querySelector("[data-trial-row]")).not.toBeNull();
+    root?.unmount();
+    document.body.innerHTML = "";
+    fixture.cloudHome = true;
+    await mount();
+    expect(document.querySelector("[data-trial-row]")).toBeNull();
+    expect(document.querySelector("[data-key-row]")).not.toBeNull();
   });
 });
 

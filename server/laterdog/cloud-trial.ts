@@ -16,13 +16,14 @@ export type TrialStatus =
   | { state: "used_up"; minutes: number; expiresAt: string; plan?: PlanInfo; planOffered?: true; ai?: true }
   | { state: "ended"; planOffered?: true };
 
-export interface TrialOptions { otherComputers: () => boolean; fetch?: typeof fetch }
+export interface TrialOptions { otherComputers: () => boolean; cloudHome?: boolean; fetch?: typeof fetch }
 
 const OFFER_TIMEOUT_MS = 15_000;
 const MAX_OFFER_BYTES = 64 * 1024;
 const offerBody = z.object({ offered: z.boolean(), minutes: z.number().int().min(1).max(600), days: z.number().int().min(1).max(90), included: z.array(z.string().max(32)).max(16).optional() });
 
 const refused = (message: string) => Object.assign(new Error(message), { status: 409 });
+const HOME_KEY = "This computer is part of your later.dog Cloud.";
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const trialPage = (api: string, key: string) => `${new URL(api).origin}/trial?claim=${sha256(key)}`;
 
@@ -159,7 +160,7 @@ const startBody = z.object({ included: z.array(z.string().max(32)).max(16).optio
 
 export function autoStartTrial(options: TrialOptions): Promise<boolean> {
   return serial(async () => {
-    if (savedTrial() || options.otherComputers()) return false;
+    if (options.cloudHome || savedTrial() || options.otherComputers()) return false;
     const api = trialApi();
     if (!api) return false;
     const key = `ldt_${randomBytes(32).toString("base64url")}`;
@@ -189,6 +190,7 @@ export function autoStartTrial(options: TrialOptions): Promise<boolean> {
 
 export function endTrial(options: TrialOptions): Promise<TrialStatus> {
   return serial(async () => {
+    if (options.cloudHome) throw refused(HOME_KEY);
     const saved = savedTrial();
     if (saved && !saved.confirmed) forget();
     else if (saved && !saved.ended) {
@@ -203,6 +205,7 @@ export type PlanCheckout = { state: "checkout"; url: string } | TrialStatus;
 
 export function startPlan(options: TrialOptions): Promise<PlanCheckout> {
   return serial(async () => {
+    if (options.cloudHome) throw refused(HOME_KEY);
     const api = savedTrial()?.api ?? trialApi();
     if (!api) throw refused("later.dog Cloud is not offered by this version of later.dog");
     let key = readKey();

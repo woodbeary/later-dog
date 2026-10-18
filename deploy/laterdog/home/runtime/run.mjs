@@ -48,7 +48,7 @@ async function main() {
     log("no state store: this home keeps nothing across restarts");
   }
   const included = await seedIncluded(process.env.LATERDOG_HOME || join(DATA, ".laterdog"), { key: process.env.LATERDOG_INCLUDED_KEY, api: process.env.LATERDOG_INCLUDED_API }, dogOwner());
-  if (included === "seeded") log("included later.dog AI, voice and decisions are ready");
+  if (included === "seeded" || included === "replaced") log("included later.dog AI, voice and decisions are ready");
   const environment = { ...process.env };
   delete environment.LATERDOG_STATE_URL;
   delete environment.LATERDOG_STATE_TOKEN;

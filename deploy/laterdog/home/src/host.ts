@@ -1,6 +1,6 @@
 import { Container, type OutboundHandlerContext } from "@cloudflare/containers";
 import { parseActivity, signedActivityRequest, sleepDecision, type HomeActivity } from "./activity.ts";
-import { includedKeyDue } from "./included.ts";
+import { grantedAsHome, includedKeyDue } from "./included.ts";
 import { hex, randomToken, sha256 } from "./encoding.ts";
 import { bootstrapSecret, type HomeIdentity } from "./identity.ts";
 import { parsePairingGrant, signedPairingRequest, type PairingGrant } from "./pairing.ts";
@@ -39,6 +39,7 @@ export interface HomeRecord extends HomeIdentity {
   emailToken?: string;
   includedKey?: string;
   includedAt?: number;
+  includedHome?: true;
   readyAt?: number;
 }
 
@@ -176,7 +177,8 @@ export class CloudHomeHost extends Container<Env> {
 
   private async grantIncluded(record: HomeRecord): Promise<HomeRecord> {
     if (!includedKeyDue(record, Date.now())) return record;
-    const key = `ldt_${randomToken(32)}`;
+    const key = record.includedKey ?? `ldt_${randomToken(32)}`;
+    let asHome: boolean;
     try {
       const response = await this.env.COMPUTERS.fetch(new Request("https://computers.internal/v1/homes/grant", {
         method: "POST",
@@ -184,11 +186,12 @@ export class CloudHomeHost extends Container<Env> {
         body: JSON.stringify({ claim: hex(await sha256(key)) }),
       }));
       if (!response.ok) throw new Error(`grant answered ${response.status}`);
+      asHome = await grantedAsHome(response);
     } catch (error) {
       console.error(`laterdog home ${record.machineId}: included services not granted yet: ${error instanceof Error ? error.message : String(error)}`);
       return record;
     }
-    const next = { ...record, includedKey: key, includedAt: Date.now() };
+    const next: HomeRecord = { ...record, includedKey: key, includedAt: Date.now(), ...(asHome ? { includedHome: true as const } : {}) };
     await this.ctx.storage.put(RECORD_KEY, next);
     this.record = next;
     this.envVars = await this.environment(next);

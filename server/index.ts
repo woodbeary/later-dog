@@ -714,6 +714,8 @@ import { createHandoffContinueRoutes } from "./routes/handoff-continue.ts";
 import { createMacAccessRoutes } from "./routes/mac-access.ts";
 import { createCloudTrialRoutes } from "./routes/cloud-trial.ts";
 import { autoStartTrial } from "./laterdog/cloud-trial.ts";
+import { newDogComputer } from "./laterdog/new-dog-computer.ts";
+import { homeCloudPlan, type HomeCloudReadiness } from "./laterdog/home-cloud-computer.ts";
 import { isStorageFailure, plainFailure, tooBigMessage } from "./laterdog/plain-error.ts";
 import { retryUntilDone } from "./laterdog/retry-until.ts";
 import { guardTurnEnd } from "./laterdog/turn-end-guard.ts";
@@ -3344,6 +3346,7 @@ const store = new Store(
   () => bootSelection,
   (selection) => withNewBotEffort(selection, cfg.newBots?.effort, offeredEffortLevels(registry.get(selection.instanceId), selection.model)),
   (instanceId) => registry.cliTarget(instanceId)?.driverKind,
+  () => newDogComputer(Boolean(CLOUD_HOME)),
 );
 const teamComputers = new TeamComputers(join(DATA_DIR, "team-computers.json"), ENVIRONMENT_ID);
 let followupsReady = false;
@@ -6190,14 +6193,23 @@ function providerOperationConflict(provider: RemoteComputerProvider): string | n
   return null;
 }
 
+function homeCloudReadiness(bot: BotRecord, instance: ReturnType<typeof registry.get>): HomeCloudReadiness {
+  if (bot.cloudBackend === "vps") return "ready";
+  if (!canWorkOnCloud(cloudEngine(instance))) return "model-cannot";
+  if (!canUseMcpServer(bot.toolScope, "computer")) return "tools-off";
+  return boat.boatConfigured(cfg) ? "ready" : "not-ready";
+}
+
 function turnSurfacePlan(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string) {
   const instance = registry.get(bot.modelSelection.instanceId);
   const forcedBoat = runOn === "cloud" || Boolean(inheritedTeamComputer(bot));
-  return resolveSurface({
+  const browserOn = builtInBrowserEnabled(cfg) && bot.browser !== false && instance?.adapter.capabilities.browserMcp === true;
+  const plan = resolveSurface({
     destination: forcedBoat ? "cloud" : bot.computer,
     pinnedSurface: forcedBoat || !threadId ? null : store.taskByThread(bot.id, threadId)?.surface,
-    browserOn: builtInBrowserEnabled(cfg) && bot.browser !== false && instance?.adapter.capabilities.browserMcp === true,
+    browserOn,
   });
+  return homeCloudPlan(plan, { cloudHome: Boolean(CLOUD_HOME), forced: forcedBoat, browserOn, readiness: () => homeCloudReadiness(bot, instance) });
 }
 
 function turnProvider(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string): RemoteComputerProvider | null {
@@ -10985,13 +10997,11 @@ async function runGroupMemberTurn(
   watchdog.watch(threadId, bot.id);
 
   const roomTeamComputer = inheritedTeamComputer(readyBot);
-  const roomPlan = resolveSurface({
+  const roomBrowserOn = builtInBrowserEnabled(cfg) && readyBot.browser !== false && instance.adapter.capabilities.browserMcp === true;
+  const roomPlan = homeCloudPlan(resolveSurface({
     destination: roomTeamComputer ? "cloud" : readyBot.computer,
-    browserOn:
-      builtInBrowserEnabled(cfg) &&
-      readyBot.browser !== false &&
-      instance.adapter.capabilities.browserMcp === true,
-  });
+    browserOn: roomBrowserOn,
+  }), { cloudHome: Boolean(CLOUD_HOME), forced: Boolean(roomTeamComputer), browserOn: roomBrowserOn, readiness: () => homeCloudReadiness(readyBot, instance) });
   const roomKind = roomTeamComputer ? "box" : roomPlan.computer === "local" ? "thisComputer" : readyBot.computer === "vm" ? "localVm"
     : roomPlan.computer === "cloud" ? (turnProvider(readyBot) === "vps" ? "vps" : "box") : undefined;
   const roomPlaceRefusal = roomKind && computerPlaceRefusal(roomKind);
@@ -13979,6 +13989,7 @@ ROUTES.push(createAntigravityLeftoverRoutes({
 ROUTES.push(desktopViewer.route);
 ROUTES.push(createCloudTrialRoutes({
   otherComputers: () => boat.otherComputersConfigured(cfg),
+  cloudHome: Boolean(CLOUD_HOME),
   changed: () => {
     broadcast({ kind: "config", ...configStatus() });
     void reloadIncludedAi().catch((error) => console.warn(`[included-ai] reload failed: ${(error as Error).message}`));
@@ -13990,7 +14001,7 @@ if (!process.env.VITEST) setTimeout(() => {
     const own = (await describeInstances()).some((instance) => !INCLUDED_AI_INSTANCES.includes(instance.instanceId)
       && instance.snapshot.state === "available" && instance.snapshot.authenticated !== false);
     if (own) return;
-    if (await autoStartTrial({ otherComputers: () => boat.otherComputersConfigured(cfg) })) {
+    if (await autoStartTrial({ otherComputers: () => boat.otherComputersConfigured(cfg), cloudHome: Boolean(CLOUD_HOME) })) {
       broadcast({ kind: "config", ...configStatus() });
       await reloadIncludedAi();
     }
@@ -18431,7 +18442,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ...ordinary, name: bot.name, section, modelSelection: bot.modelSelection,
           mascotExpression: ordinary.mascotExpression ?? undefined,
           avatarUrl: ordinary.avatarUrl || undefined,
-          computer: ordinary.computer ?? undefined, cwd: checkedCwd.cwd ?? undefined,
+          computer: ordinary.computer === undefined ? bot.computer : ordinary.computer ?? undefined, cwd: checkedCwd.cwd ?? undefined,
           peers: ordinary.peers ?? undefined, mcpServers: ordinary.mcpServers ?? undefined,
           browserProfile: ordinary.browserProfile || undefined,
           autoApprove: ordinary.approvalMode === "auto",

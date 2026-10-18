@@ -54,7 +54,9 @@ declare global {
   }
 }
 
-type Caller = { registry: DurableObjectStub<ComputerRegistry>; trial?: TrialRecord; keySha256?: string };
+type Caller = { registry: DurableObjectStub<ComputerRegistry>; trial?: TrialRecord; keySha256?: string; fullAllowance?: boolean; home?: boolean };
+
+const trialLimited = (caller: Caller): boolean => Boolean(caller.trial && !caller.fullAllowance);
 
 type Identified = { ok: true; caller: Caller } | { ok: false; response: Response };
 
@@ -103,9 +105,10 @@ async function identify(request: Request, env: Env, via: Via): Promise<Identifie
   if (token !== null && TRIAL_TOKEN.test(token) && !request.headers.has("origin")) {
     if (!(await allowed(env.TRIAL_API_LIMIT, networkKey(request)))) return { ok: false, response: apiError(TOO_MANY) };
     const keySha256 = await sha256Hex(token);
-    const trial = await trials(env).find(keySha256);
-    if (!trial) return { ok: false, response: apiError(NO_TRIAL, CHALLENGE) };
-    return { ok: true, caller: { registry: registry(env, trialListing(trial.id)), trial, keySha256 } };
+    const holder = await trials(env).holder(keySha256);
+    if (!holder) return { ok: false, response: apiError(NO_TRIAL, CHALLENGE) };
+    const { trial, fullAllowance, home } = holder;
+    return { ok: true, caller: { registry: registry(env, trialListing(trial.id)), trial, keySha256, ...(fullAllowance ? { fullAllowance } : {}), ...(home ? { home } : {}) } };
   }
   const refusal = await refuseApiRequest(request.headers, env.COMPUTERS_KEY_SHA256);
   if (refusal) return { ok: false, response: apiError(refusal, refusal.status === 401 ? CHALLENGE : {}) };
@@ -135,23 +138,24 @@ async function listComputers(caller: Caller): Promise<Response> {
 }
 
 async function createComputer(request: Request, env: Env, caller: Caller): Promise<Response> {
-  if (caller.trial && !trialPolicy(env).enabled) return apiError(TRIALS_OFF);
+  const limited = trialLimited(caller);
+  if (limited && !trialPolicy(env).enabled) return apiError(TRIALS_OFF);
   const key = parseIdempotencyKey(request.headers.get("idempotency-key"));
   if (!key.ok) return apiError(key.refusal);
   const body = await readJson(request);
   if (!body.ok) return body.response;
   const input = parseCreate(body.value);
   if (!input.ok) return apiError(input.refusal);
-  if (caller.trial && input.value.size !== "standard") {
+  if (limited && input.value.size !== "standard") {
     return apiError({ status: 403, code: "trial_size", message: "A free trial computer is the standard size." });
   }
   const reservation = await caller.registry.reserve({
     ...input.value,
     ...(key.value === undefined ? {} : { idempotencyKey: key.value }),
-    ...(caller.trial ? { max: 1 } : {}),
+    ...(limited ? { max: 1 } : {}),
   });
   if (!reservation.ok) {
-    if (caller.trial && reservation.refusal.code === "limit_reached") {
+    if (limited && reservation.refusal.code === "limit_reached") {
       return apiError({ status: 409, code: "trial_one_computer", message: "The free trial includes one cloud computer. later.dog Cloud gives every dog its own." });
     }
     return apiError(reservation.refusal);
@@ -164,6 +168,7 @@ async function createComputer(request: Request, env: Env, caller: Caller): Promi
       name: reservation.name,
       size: reservation.size,
       ...(caller.trial ? { registry: trialListing(caller.trial.id), trial: caller.trial.id } : {}),
+      ...(caller.fullAllowance ? { fullAllowance: true } : {}),
     });
   } catch (error) {
     result = { ok: false, refusal: { status: 502, code: "start_failed", message: error instanceof Error ? error.message : String(error) } };
@@ -198,8 +203,8 @@ async function computerRequest(op: ComputerOp, id: string, request: Request, env
       return json({ deleted: true });
     }
     case "wake":
-      if (caller.trial && !trialPolicy(env).enabled) return apiError(TRIALS_OFF);
-      return answer(await stub.wake(), (value) => json({ computer: value }));
+      if (trialLimited(caller) && !trialPolicy(env).enabled) return apiError(TRIALS_OFF);
+      return answer(await stub.wake({ fullAllowance: Boolean(caller.fullAllowance) }), (value) => json({ computer: value }));
     case "sleep":
       return answer(await stub.sleep("request"), (value) => json({ computer: value }));
     case "exec": {
@@ -236,11 +241,14 @@ async function computerRequest(op: ComputerOp, id: string, request: Request, env
   }
 }
 
+const HOME_KEY: Refusal = { status: 409, code: "home_grant", message: "This computer is part of your later.dog Cloud." };
+
 async function trialRequest(op: TrialOp, env: Env, caller: Caller): Promise<Response> {
   const trial = caller.trial;
   if (!trial) return apiError({ status: 404, code: "no_trial", message: "This key is not a free trial key." });
   const plan = caller.keySha256 ? await trials(env).planFor(caller.keySha256) : null;
   if (op === "end") {
+    if (caller.home) return apiError(HOME_KEY);
     if (plan && (plan.status === "active" || plan.status === "canceled")) {
       return apiError({ status: 409, code: "plan_active", message: "This computer is on later.dog Cloud. Cancel the plan to stop it." });
     }
@@ -388,9 +396,9 @@ async function grantHome(request: Request, env: Env): Promise<Response> {
   if (typeof claim !== "string" || !TRIAL_CLAIM.test(claim)) {
     return apiError({ status: 400, code: "invalid_claim", message: "Send { \"claim\": \"<the home key's 64-character SHA-256>\" }." });
   }
-  const granted = await trials(env).grant({ keySha256: claim, limitMs: planPolicy(env).limitMs, windowMs: HOME_GRANT_DAYS * DAY });
+  const granted = await trials(env).grantHome({ keySha256: claim, limitMs: planPolicy(env).limitMs, windowMs: HOME_GRANT_DAYS * DAY });
   if (!granted.ok) return apiError(granted.refusal);
-  return json({ trial: trialView(granted.trial) }, granted.replayed ? 200 : 201);
+  return json({ trial: trialView(granted.trial), home: true }, granted.replayed ? 200 : 201);
 }
 
 async function grantTrial(request: Request, env: Env, caller: Caller): Promise<Response> {

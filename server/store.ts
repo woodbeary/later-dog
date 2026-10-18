@@ -482,6 +482,7 @@ export class Store {
   private defaultSelection: () => ModelSelection;
   private completeNewBotSelection: (selection: ModelSelection) => ModelSelection;
   private driverKindOf: (instanceId: string) => string | undefined;
+  private newDogComputer: () => BotRecord["computer"];
   private listeners = new Set<(change: StoreChange) => void>();
   private registeringInitialSections = true;
   private legacyActivities = new Map<string, BotActivity>();
@@ -490,10 +491,12 @@ export class Store {
     defaultSelection: () => ModelSelection,
     completeNewBotSelection: (selection: ModelSelection) => ModelSelection = (selection) => selection,
     driverKindOf: (instanceId: string) => string | undefined = () => undefined,
+    newDogComputer: () => BotRecord["computer"] = () => undefined,
   ) {
     this.defaultSelection = defaultSelection;
     this.completeNewBotSelection = completeNewBotSelection;
     this.driverKindOf = driverKindOf;
+    this.newDogComputer = newDogComputer;
     mkdirSync(DATA_DIR, { recursive: true });
     for (const file of [BOTS_FILE, GROUPS_FILE]) tightenRegistryFile(file);
     let botsLoaded = false;
@@ -1486,6 +1489,8 @@ export class Store {
     };
     if (section) bot.section = section;
     if (profile.cwd) bot.cwd = profile.cwd;
+    const computer = this.newDogComputer();
+    if (computer) bot.computer = computer;
     bot.tasks = [{
       threadId: bot.threadId,
       title: UNTITLED_THREAD,
