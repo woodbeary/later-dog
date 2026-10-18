@@ -31,6 +31,7 @@ vi.mock("./SavedApiKeys", async (importOriginal) => ({
 }));
 vi.mock("./UsageSection", () => ({ UsageSection: marker("usage") }));
 vi.mock("./CloudComputerRows", () => ({ CloudComputerRows: marker("cloud-computers") }));
+vi.mock("./CloudLending", () => ({ CloudLending: marker("lending") }));
 vi.mock("./PermissionChecklist", () => ({
   PermissionChecklist: ({ permissions }: { permissions: readonly string[] }) => `MARKER:permissions=${permissions.join("+")};`,
 }));
@@ -206,6 +207,37 @@ describe("Computer", () => {
     expect(markers(linux)).toEqual(["cloud-computers"]);
   });
 
+});
+
+describe("Settings in the Cloud's window", () => {
+  const pending = () => new Promise<never>(() => {});
+  const CLOUD = { laterdog: {
+    platform: "darwin",
+    cloudPermissions: { status: vi.fn(), request: vi.fn(), openSettings: vi.fn() },
+    cloudPlan: { state: vi.fn(pending), manage: vi.fn(), signOut: vi.fn() },
+    cloudLending: { state: vi.fn(pending), setHome: vi.fn() },
+  } };
+
+  it("is the same Settings: the account card, and this Mac's permission rows on General and on Computer", () => {
+    vi.stubGlobal("window", CLOUD);
+    const general = render();
+    expect(groups(general)).toEqual(["later-dog-cloud", "accounts", "profile", "appearance", "system", "help"]);
+    expect(general).toContain('data-cloud-account="on-cloud"');
+    expect(markers(general)).toEqual(["accounts", "permissions=microphone"]);
+    expect(general).not.toContain("You&#x27;re on My Cloud");
+    fixture.section = "computer";
+    const computer = render();
+    expect(groups(computer)).toEqual(["your-computer", "cloud-computers"]);
+    expect(markers(computer)).toEqual(["lending", "permissions=accessibility+screen", "cloud-computers"]);
+  });
+
+  it("leaves the lending switch out when an older desktop app gives the Cloud only the old open call", () => {
+    vi.stubGlobal("window", { laterdog: { ...CLOUD.laterdog, cloudLending: { open: vi.fn() } } });
+    fixture.section = "computer";
+    const computer = render();
+    expect(groups(computer)).toEqual(["your-computer", "cloud-computers"]);
+    expect(markers(computer)).toEqual(["permissions=accessibility+screen", "cloud-computers"]);
+  });
 });
 
 describe("Usage & Billing", () => {

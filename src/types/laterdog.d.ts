@@ -24,9 +24,11 @@ const __APP_VERSION__: string;
   type DesktopLendingActivity = import("../../electron/computer-sharing.mjs").LendingActivityEntry;
 
   type DesktopCapabilities = {
+    remote?: boolean;
     host: {
       platform: "darwin" | "linux" | "win32" | "other";
       homeDir?: string;
+      name?: string;
       label: string;
       session: "x11" | "wayland" | "headless" | "unknown";
       packaged: boolean;
@@ -103,7 +105,8 @@ const __APP_VERSION__: string;
       organization?: import("../../electron/managed-desktop.mjs").ManagedDesktopBridge;
       cloudAccount?: import("../../electron/cloud-account.mjs").CloudAccountBridge;
       cloudMove?: import("../../electron/cloud-move.mjs").CloudMoveBridge;
-      cloudLending?: { open(): Promise<void> };
+      cloudLending?: import("../../electron/computer-sharing.mjs").CloudLendingBridge;
+      cloudPermissions?: import("../lib/desktop-permissions").DesktopPermissionsBridge;
       cloudPlan?: import("../../electron/cloud-account.mjs").CloudPlanBridge;
       companyBackups?: {
         state(): Promise<CompanyBackupState>;
@@ -195,7 +198,7 @@ const __APP_VERSION__: string;
         onMaximizedChanged(cb: (maximized: boolean) => void): () => void;
       };
       onPackageInstall?(cb: (url: string) => void): () => void;
-      onOpenAppSettings?(cb: (section?: "organization" | "cloud" | "cloud-settings") => void): () => void;
+      onOpenAppSettings?(cb: (section?: "organization" | "cloud" | "cloud-settings" | "lending") => void): () => void;
       setUnreadCount?(count: number): void;
       desktopViewer?: {
         open(url: string, title: string, contextId: string, pill?: { label: string; done: string }): Promise<boolean>;

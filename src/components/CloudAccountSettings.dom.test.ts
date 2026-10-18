@@ -6,6 +6,7 @@ import type { CloudAccountBridge, CloudAccountState } from "../../electron/cloud
 import type { CloudLendingBridge, CloudLendingSnapshot } from "../../electron/computer-sharing.mjs";
 import { setLocale } from "@/lib/i18n";
 import { CloudAccountSettings } from "./CloudAccountSettings";
+import { CloudLending } from "./CloudLending";
 
 const account = { id: "user-1", email: "jo@example.test" };
 const beta = { plan: "pro" as const, tier: "beta", status: "active" as const, expiresAt: 1_900_000_000_000, version: 1 };
@@ -36,9 +37,14 @@ function makeBridge(initial: CloudAccountState): CloudAccountBridge {
   };
 }
 
-async function show(laterdog: Record<string, unknown>, onOpenComputer?: () => void) {
+async function show(laterdog: Record<string, unknown>) {
   (window as unknown as { laterdog?: unknown }).laterdog = laterdog;
-  await act(async () => { root.render(createElement(CloudAccountSettings, { onOpenComputer })); });
+  await act(async () => { root.render(createElement(CloudAccountSettings)); });
+  await act(async () => { await Promise.resolve(); });
+}
+
+async function showLending(lending: CloudLendingBridge) {
+  await act(async () => { root.render(createElement(CloudLending, { bridge: lending })); });
   await act(async () => { await Promise.resolve(); });
 }
 
@@ -203,6 +209,8 @@ describe("Settings, later.dog Cloud on this Mac", () => {
     await show({ cloudAccount: bridge });
     expect(text()).toContain("jo@example.test");
     expect(text()).toContain("free during the beta");
+    expect(button("Manage"), "billing is on Usage & Billing").toBeUndefined();
+    expect(host.querySelector("[data-cloud-lending]"), "the lending switch is on the Computer page").toBeNull();
     expect(host.querySelector("[data-cloud-home]")?.getAttribute("data-cloud-home")).toBe("ready");
     await click("Open My Cloud");
     expect(bridge.connectHome).toHaveBeenCalledOnce();
@@ -287,6 +295,9 @@ describe("Settings, later.dog Cloud on this Mac", () => {
     expect(host.querySelector("[data-cloud-home]")).toBeNull();
   });
 
+});
+
+describe("Settings → Computer, the lending switch", () => {
   it("connects this Mac by itself once signed in, with one switch to turn it off", async () => {
     let snapshot: CloudLendingSnapshot = { available: true, screenAvailable: false, state: { on: true, name: "Jo's MacBook Air", enabled: true, busy: false, connected: true }, activity: [] };
     const lending: CloudLendingBridge = {
@@ -296,16 +307,13 @@ describe("Settings, later.dog Cloud on this Mac", () => {
         return snapshot;
       }),
     };
-    const onOpenComputer = vi.fn();
-    bridge = { ...makeBridge(ready), lending };
-    await show({ cloudAccount: bridge }, onOpenComputer);
+    await showLending(lending);
     expect(text()).toContain("Let My Cloud use this Mac");
     expect(text()).toContain("On. My Cloud can use Jo's MacBook Air when you ask.");
     expect(host.querySelector("[role=switch]")?.getAttribute("aria-checked")).toBe("true");
     expect(host.querySelector("[data-lent-folder]")).toBeNull();
-    expect(text()).toContain("To use apps on this Mac too, allow later.dog in Computer settings.");
-    await click("Open");
-    expect(onOpenComputer).toHaveBeenCalledOnce();
+    expect(text()).toContain("To use apps on this Mac too, allow later.dog below.");
+    expect(button("Open")).toBeUndefined();
     await act(async () => { host.querySelector<HTMLButtonElement>("[role=switch]")!.click(); });
     await act(async () => { await Promise.resolve(); });
     expect(lending.setHome).toHaveBeenCalledWith(false);
@@ -319,22 +327,28 @@ describe("Settings, later.dog Cloud on this Mac", () => {
       state: vi.fn(async () => ({ available: true, screenAvailable: true, state: { on: true, enabled: true, busy: true, connected: true }, activity: [] })),
       setHome: vi.fn(),
     };
-    bridge = { ...makeBridge(ready), lending };
-    await show({ cloudAccount: bridge });
+    await showLending(lending);
     expect(text()).toContain("My Cloud is using this Mac now.");
     expect(host.querySelector("[data-lending-apps-off]")).toBeNull();
+  });
+
+  it("shows nothing until there is a home to lend this Mac to", async () => {
+    const lending: CloudLendingBridge = { state: vi.fn(async () => ({ available: false, screenAvailable: true, state: { on: true, enabled: false, busy: false } })), setHome: vi.fn() };
+    await showLending(lending);
+    expect(host.querySelector("[data-cloud-lending]")).toBeNull();
   });
 });
 
 describe("Settings, later.dog Cloud while the window shows My Cloud", () => {
-  it("offers no server switching, asks before signing out, and opens lending, without touching the sign-in", async () => {
-    const cloudPlan = { state: vi.fn(), manage: vi.fn(), signOut: vi.fn(async () => {}) };
-    const cloudLending = { open: vi.fn(async () => {}) };
-    await show({ cloudPlan, cloudLending });
-    expect(text()).toContain("You're on My Cloud");
+  it("shows the email and the plan, asks before signing out, and never sends the window back to this Mac", async () => {
+    const cloudPlan = { state: vi.fn(async () => ({ status: "paid" as const, tier: "beta", email: "jo@example.test" })), manage: vi.fn(), signOut: vi.fn(async () => {}) };
+    await show({ cloudPlan });
+    expect(text()).toContain("jo@example.test");
+    expect(text()).toContain("later.dog Cloud · free during the beta");
+    expect(host.querySelector("[data-cloud-account]")?.getAttribute("data-cloud-plan")).toBe("beta");
+    expect(text()).not.toContain("You're on My Cloud");
     expect(text()).not.toContain("Switch to this Mac");
-    await click("Manage");
-    expect(cloudLending.open).toHaveBeenCalledOnce();
+    expect(button("Manage")).toBeUndefined();
     await click("Sign out");
     expect(cloudPlan.signOut).not.toHaveBeenCalled();
     expect(text()).toContain("Your dogs and chats stay in My Cloud");
@@ -343,6 +357,20 @@ describe("Settings, later.dog Cloud while the window shows My Cloud", () => {
     await click("Sign out");
     await click("Sign out");
     expect(cloudPlan.signOut).toHaveBeenCalledOnce();
+  });
+
+  it("says plainly when the plan can't be read, and asks to sign in again when the sign-in ended", async () => {
+    await show({ cloudPlan: { state: vi.fn(async () => { throw new Error("offline"); }), manage: vi.fn(), signOut: vi.fn() } });
+    expect(text()).toContain("later.dog Cloud can't be reached right now.");
+    await show({ cloudPlan: { state: vi.fn(async () => ({ status: "signin" as const, email: "jo@example.test" })), manage: vi.fn(), signOut: vi.fn() } });
+    expect(text()).toContain("Sign in again to keep using My Cloud");
+  });
+
+  it("says the plan isn't active when the account has none, instead of naming the paid plan", async () => {
+    await show({ cloudPlan: { state: vi.fn(async () => ({ status: "none" as const, email: "jo@example.test" })), manage: vi.fn(), signOut: vi.fn() } });
+    expect(text()).toContain("jo@example.test");
+    expect(text()).toContain("Your later.dog Cloud plan isn't active right now.");
+    expect(host.querySelector("[data-cloud-account]")?.getAttribute("data-cloud-plan")).toBe("inactive");
   });
 
   it("shows nothing in a plain browser", async () => {

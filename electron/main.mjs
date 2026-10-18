@@ -66,7 +66,7 @@ import capabilitiesModule from "./capabilities.cjs";
 import environmentsModule from "./environments.cjs";
 import localOriginModule from "./local-origin.cjs";
 import { buildApplicationMenu } from "./menu.mjs";
-import { createComputerSharing, validateSharedFolders } from "./computer-sharing.mjs";
+import { computerName as sharedComputerName, createComputerSharing, validateSharedFolders } from "./computer-sharing.mjs";
 import { primeHomeFolders } from "./shared-computer-access.mjs";
 import { acquireDataDirLease } from "./data-dir-lease.mjs";
 import { createManagedDesktopClient, createManagedDesktopRelay, createManagedDesktopStore, managedPortalOrigin } from "./managed-desktop.mjs";
@@ -1358,14 +1358,25 @@ function stopLending() {
   void computerSharing?.setHome(false);
 }
 
-async function openLendingSettings() {
+function windowOnMyCloud() {
+  const home = myCloud();
+  return Boolean(home) && activeEnvironment(environmentsState)?.origin === home;
+}
+
+async function openLendingSettings(section = "cloud-settings") {
+  if (section === "lending" && windowOnMyCloud()) {
+    const onCloud = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow({ deferNavigation: false });
+    if (!desktopTray?.show()) activateExistingWindow(BrowserWindow.getAllWindows());
+    openLendingInPlace(onCloud.webContents);
+    return;
+  }
   if (!app.isPackaged || !serverReady) return;
   if (activeEnvironment(environmentsState)) persistEnvironments(withActive(environmentsState, LOCAL_ID));
   const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow({ deferNavigation: true });
   if (!desktopTray?.show()) activateExistingWindow(BrowserWindow.getAllWindows());
-  if (!win.webContents.isLoadingMainFrame() && senderIsLocal({ sender: win.webContents })) win.webContents.send("app:open-settings", "cloud-settings");
+  if (!win.webContents.isLoadingMainFrame() && senderIsLocal({ sender: win.webContents })) win.webContents.send("app:open-settings", section);
   else {
-    await win.loadURL(`${rendererOrigin()}/?desktop-settings=cloud-settings`);
+    await win.loadURL(`${rendererOrigin()}/?desktop-settings=${section}`);
   }
 }
 
@@ -1375,7 +1386,7 @@ function lendingIndicator() {
     Tray, Menu, nativeImage, iconPath: APP_ICON,
     device: process.platform === "darwin" ? "Mac" : "computer",
     onStop: stopLending,
-    onOpen: () => void openLendingSettings().catch(error => slog(`lending settings: ${error?.message ?? error}`)),
+    onOpen: () => void openLendingSettings("lending").catch(error => slog(`lending settings: ${error?.message ?? error}`)),
   });
   return lendingTray;
 }
@@ -2087,7 +2098,7 @@ async function lendingCua() {
 ipcMain.handle("perm:checklist", localOnly("perm:checklist", () => startCuaWhenGranted(permissionChecklist(macPermissionHost()))));
 ipcMain.handle("perm:request", localOnly("perm:request", async (_event, permission) => startCuaWhenGranted(await requestPermission(permission, macPermissionHost()))));
 
-ipcMain.handle("perm:open-settings", localOnly("perm:open-settings", (_event, pane) => {
+function openPrivacyPane(pane) {
   if (!nativeActions.applePrivacySettings) return false;
   const panes = {
     mic: "Privacy_Microphone",
@@ -2098,7 +2109,8 @@ ipcMain.handle("perm:open-settings", localOnly("perm:open-settings", (_event, pa
   };
   const anchor = Object.hasOwn(panes, pane) ? panes[pane] : "Privacy";
   return shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${anchor}`);
-}));
+}
+ipcMain.handle("perm:open-settings", localOnly("perm:open-settings", (_event, pane) => openPrivacyPane(pane)));
 
 ipcMain.handle("desktop:relaunch", localOnly("desktop:relaunch", (event) => {
   requireMainWindowSender(event);
@@ -2482,10 +2494,10 @@ const cloudPageAsking = (event) => {
   if (cloudPageSenderAllowed(event, { contents, homeOrigin: myCloud(), activeOrigin: activeEnvironment(environmentsState)?.origin })) return "cloud";
   return null;
 };
-const cloudPageSender = (channel, handler) => (event) => {
+const cloudPageSender = (channel, handler) => (event, ...args) => {
   const asking = cloudPageAsking(event);
   if (!asking) throw new Error(`${channel} is only available in this app's window`);
-  return handler(asking === "cloud");
+  return handler(asking === "cloud", ...args);
 };
 const updaterPageAllowed = event => cloudPageAsking(event) !== null;
 const updaterPageOffered = event => {
@@ -2497,7 +2509,37 @@ const updaterPageOffered = event => {
 ipcMain.on("update:offered", event => {
   try { event.returnValue = updaterPageOffered(event) === true; } catch { event.returnValue = false; }
 });
-ipcMain.handle("cloud-lending:open", cloudPageSender("cloud-lending:open", () => openLendingSettings()));
+const lendingOpensWaiting = new WeakSet();
+function openLendingInPlace(contents) {
+  if (!contents.isLoadingMainFrame()) {
+    contents.send("app:open-settings", "lending");
+    return;
+  }
+  if (lendingOpensWaiting.has(contents)) return;
+  lendingOpensWaiting.add(contents);
+  const settle = (open) => {
+    lendingOpensWaiting.delete(contents);
+    contents.removeListener("did-finish-load", loaded);
+    contents.removeListener("did-fail-load", failed);
+    if (open) contents.send("app:open-settings", "lending");
+  };
+  const loaded = () => settle(true);
+  const failed = (_event, errorCode, _description, _url, isMainFrame) => {
+    if (isMainFrame !== false && errorCode !== -3) settle(false);
+  };
+  contents.on("did-finish-load", loaded);
+  contents.on("did-fail-load", failed);
+}
+
+ipcMain.handle("cloud-lending:open", cloudPageSender("cloud-lending:open", () => { openLendingInPlace(mainWindow.webContents); }));
+ipcMain.handle("cloud-lending:state", cloudPageSender("cloud-lending:state", () => lendingSnapshot()));
+ipcMain.handle("cloud-lending:home", cloudPageSender("cloud-lending:home", async (_cloud, on) => {
+  await sharingController().setHome(on === true);
+  return lendingSnapshot();
+}));
+ipcMain.handle("cloud-permissions:status", cloudPageSender("cloud-permissions:status", () => startCuaWhenGranted(permissionChecklist(macPermissionHost()))));
+ipcMain.handle("cloud-permissions:request", cloudPageSender("cloud-permissions:request", async (_cloud, permission) => startCuaWhenGranted(await requestPermission(permission, macPermissionHost()))));
+ipcMain.handle("cloud-permissions:open-settings", cloudPageSender("cloud-permissions:open-settings", (_cloud, permission) => openPrivacyPane(permission)));
 ipcMain.handle("cloud-plan:state", cloudPageSender("cloud-plan:state", () => cloudPlanSnapshot(cloudAccount?.state())));
 ipcMain.handle("cloud-plan:manage", cloudPageSender("cloud-plan:manage", async () => { await ensureCloudAccount().openDashboard(); }));
 ipcMain.handle("cloud-plan:signOut", cloudPageSender("cloud-plan:signOut", async () => { await ensureCloudAccount().signOut(); }));
@@ -2584,6 +2626,17 @@ ipcMain.handle("environments:add-from-link", localWorkspaceOnly("environments:ad
 }));
 
 ipcMain.handle("workspaces:state", workspaceOnly(() => workspaceSummary(environmentsState)));
+const MAC_NAME_FRESH_MS = 60_000;
+let thisMacName = null;
+const macNameFor = async (event) => {
+  if (!cloudPageAsking(event)) return null;
+  if (!thisMacName || Date.now() - thisMacName.at > MAC_NAME_FRESH_MS) {
+    const name = sharedComputerName().catch(() => null);
+    thisMacName = { at: Date.now(), name };
+    void name.then(value => { if (!value && thisMacName?.name === name) thisMacName = null; });
+  }
+  return thisMacName.name;
+};
 ipcMain.handle("desktop:capabilities", async (event) => {
   return desktopCapabilities({
     remote: !senderIsLocal(event),
@@ -2592,6 +2645,7 @@ ipcMain.handle("desktop:capabilities", async (event) => {
     packaged: app.isPackaged,
     localConnection: await cuaReady,
     credentialStore: credentialStoreCapability(),
+    computerName: await macNameFor(event),
   });
 });
 
@@ -2683,7 +2737,7 @@ ipcMain.handle("approvals:set-trusted-mode", localOnly("approvals:set-trusted-mo
 
 async function broadcastDesktopCapabilities() {
   const localConnection = await cuaReady;
-  const build = (remote) =>
+  const build = (remote, computerName) =>
     desktopCapabilities({
       remote,
       platform: process.platform,
@@ -2691,17 +2745,16 @@ async function broadcastDesktopCapabilities() {
       packaged: app.isPackaged,
       localConnection,
       credentialStore: credentialStoreCapability(),
+      computerName,
     });
-  const local = build(false);
-  let redacted = null;
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed()) continue;
     let isLocal = false;
     try {
       isLocal = new URL(window.webContents.getURL()).origin === rendererOrigin();
     } catch {}
-    if (!isLocal) redacted ??= build(true);
-    window.webContents.send("desktop:capabilities-changed", isLocal ? local : redacted);
+    const computerName = await macNameFor({ sender: window.webContents, senderFrame: window.webContents.mainFrame });
+    window.webContents.send("desktop:capabilities-changed", build(!isLocal, computerName));
   }
 }
 

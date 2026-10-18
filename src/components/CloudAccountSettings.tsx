@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
-import type { CloudAccountBridge, CloudAccountState } from "../../electron/cloud-account.mjs";
+import type { CloudAccountBridge, CloudAccountState, CloudPlanBridge } from "../../electron/cloud-account.mjs";
 import { cloudAccountBridge, cloudCard, homeStatusKey, useCloudAccount, type CloudCard, type CloudPlanLine } from "@/lib/cloud-account-view";
 import { activeLocale, t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
-import { CloudLending } from "./CloudLending";
+import { useCloudPagePlan, type CloudPlanSummary } from "@/lib/cloud-plan-summary";
 import { CloudSignInForm } from "./CloudSignInForm";
 import { SettingRow } from "./SettingsPrimitives";
 
@@ -18,39 +18,43 @@ const time = (value: number) => new Intl.DateTimeFormat(activeLocale(), { timeSt
 const OPEN_ATTEMPTS = 5;
 const OPEN_RETRY_MS = 5_000;
 
-function OnMyCloud() {
-  const plan = window.laterdog?.cloudPlan, lending = window.laterdog?.cloudLending;
+export function planSubtitle(summary: CloudPlanSummary | null, failed: boolean): string {
+  if (!summary) return t(failed ? "cloudAccount.unreachable" : "cloudAccount.loading");
+  if (summary.signIn) return t("cloudAccount.reauth");
+  if (!summary.line) return t(summary.checking ? "cloudAccount.checking" : "cloudAccount.plan.inactive");
+  const line = t(PLAN_LINE[summary.line]);
+  return summary.checking ? `${line} · ${t("cloudAccount.checking")}` : line;
+}
+
+function CloudPageAccount({ plan }: { plan: CloudPlanBridge }) {
+  const { summary, failed: loadFailed } = useCloudPagePlan(plan);
   const [failed, setFailed] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const act = (action: () => Promise<void>) => { setFailed(false); void action().catch(() => setFailed(true)); };
-  const confirm = confirming && plan && <div role="group" aria-label={t("cloudAccount.signOut")} data-cloud-signout-confirm className="rounded-lg bg-inset p-3">
+  const confirm = confirming && <div role="group" aria-label={t("cloudAccount.signOut")} data-cloud-signout-confirm className="rounded-lg bg-inset p-3">
     <p className="text-[13px] leading-relaxed text-ink">{t("cloudAccount.signOutConfirm")}</p>
     <div className="mt-3 flex flex-wrap gap-2">
       <button type="button" autoFocus className="ui-button" onClick={() => setConfirming(false)}>{t("cloudAccount.keep")}</button>
-      <button type="button" className="ui-button text-danger" onClick={() => act(() => plan.signOut())}>{t("cloudAccount.signOut")}</button>
+      <button type="button" className="ui-button text-danger" onClick={() => { setFailed(false); void plan.signOut().catch(() => setFailed(true)); }}>{t("cloudAccount.signOut")}</button>
     </div>
   </div>;
-  return <div data-cloud-account="on-cloud">
-    <SettingRow title={t("cloudSetup.myCloud")} subtitle={t("cloudAccount.onCloud")}
+  return <div data-cloud-account="on-cloud" data-cloud-plan={summary?.line ?? undefined}>
+    <SettingRow title={summary?.email ?? t("settings.section.cloudAccount")} subtitle={planSubtitle(summary, loadFailed)}
       message={confirm || (failed ? <p role="alert" className="text-danger">{t("cloudAccount.actionFailed")}</p> : undefined)}>
-      {plan && !confirming && <button type="button" className="ui-button" onClick={() => setConfirming(true)}>{t("cloudAccount.signOut")}</button>}
+      {!confirming && <button type="button" className="ui-button" onClick={() => setConfirming(true)}>{t("cloudAccount.signOut")}</button>}
     </SettingRow>
-    {lending && <SettingRow title={t("lending.title")} subtitle={t("cloudAccount.macFromCloud")}>
-      <button type="button" className="ui-button" onClick={() => act(() => lending.open())}>{t("cloudAccount.manage")}</button>
-    </SettingRow>}
   </div>;
 }
 
-export function CloudAccountSettings({ onOpenComputer }: { onOpenComputer?: () => void }) {
+export function CloudAccountSettings() {
   const bridge = cloudAccountBridge();
   if (!bridge) {
-    if (window.laterdog?.cloudPlan || window.laterdog?.cloudLending) return <OnMyCloud />;
-    return null;
+    const plan = window.laterdog?.cloudPlan;
+    return plan ? <CloudPageAccount plan={plan} /> : null;
   }
-  return <SignedInCard bridge={bridge} onOpenComputer={onOpenComputer} />;
+  return <SignedInCard bridge={bridge} />;
 }
 
-function SignedInCard({ bridge, onOpenComputer }: { bridge: CloudAccountBridge; onOpenComputer?: () => void }) {
+function SignedInCard({ bridge }: { bridge: CloudAccountBridge }) {
   const { account, failed: loadFailed, accept } = useCloudAccount(bridge);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -131,16 +135,12 @@ function SignedInCard({ bridge, onOpenComputer }: { bridge: CloudAccountBridge; 
   const home = card.home;
   return <div data-cloud-account="signed-in" data-cloud-plan={card.plan}>
     <SettingRow title={card.email} subtitle={<>{t(PLAN_LINE[card.plan])}{card.checking && <span className="ms-2">{t("cloudAccount.checking")}</span>}</>} message={confirm || error}>
-      <div className="flex flex-wrap gap-2 sm:justify-end">
-        <button type="button" disabled={busy} className="ui-button" onClick={() => perform(() => bridge.openDashboard())}>{t("cloudAccount.manage")}</button>
-        {!confirming && signOut}
-      </div>
+      {!confirming && signOut}
     </SettingRow>
     {home && <SettingRow title={t("cloudSetup.myCloud")}
       subtitle={<span role="status" data-cloud-home={waking ? "waking" : home.status}>{waking ? t("cloudAccount.home.waking") : t(homeStatusKey(home), { time: home.retryAt ? time(home.retryAt) : "" })}</span>}
       message={openFailed ? <p role="alert" className="text-danger">{t("cloudAccount.openFailed")}</p> : undefined}>
       {home.status === "ready" && <button type="button" disabled={busy} className="ui-button" onClick={openHome}>{t("cloudHome.connect")}</button>}
     </SettingRow>}
-    {home && bridge.lending && <CloudLending bridge={bridge.lending} onOpenComputer={onOpenComputer} />}
   </div>;
 }

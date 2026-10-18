@@ -49,7 +49,7 @@ function LendingActivity({ entries }: { entries: LendingActivityEntry[] }) {
   </div>;
 }
 
-export function CloudLending({ bridge, onOpenComputer }: { bridge: CloudLendingBridge; onOpenComputer?: () => void }) {
+export function CloudLending({ bridge }: { bridge: CloudLendingBridge }) {
   const [snapshot, setSnapshot] = useState<CloudLendingSnapshot | null>(null);
   const [working, setWorking] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -72,7 +72,7 @@ export function CloudLending({ bridge, onOpenComputer }: { bridge: CloudLendingB
       .catch(() => { if (mounted.current) setFailed(true); })
       .finally(() => { pending.current = false; if (mounted.current) setWorking(false); });
   };
-  if (!snapshot) return null;
+  if (!snapshot?.available) return null;
   const status = lendingStatusKey(snapshot);
   const activity = snapshot.activity ?? [];
   return <div data-cloud-lending={on ? "on" : "off"} className="flex flex-col gap-3 border-t border-hairline/40 py-4">
@@ -89,7 +89,6 @@ export function CloudLending({ bridge, onOpenComputer }: { bridge: CloudLendingB
     </p>}
     {on && !snapshot.screenAvailable && <p data-lending-apps-off className="text-[12px] leading-relaxed text-ink-secondary">
       {t("lending.mac.appsOff")}
-      {onOpenComputer && <button type="button" className="ms-1.5 underline underline-offset-2 transition-colors hover:text-ink" onClick={onOpenComputer}>{t("lending.mac.openComputer")}</button>}
     </p>}
     {failed && <p role="alert" className="text-[13px] text-danger">{t("lending.failed")}</p>}
     {(on || activity.length > 0) && <LendingActivity entries={activity} />}

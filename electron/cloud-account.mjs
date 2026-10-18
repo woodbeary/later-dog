@@ -333,9 +333,10 @@ export function createCloudAccountClient({ store, openBrowser, platform, deviceN
 
 export function cloudPlanSnapshot(state) {
   const tier = state?.status === "connected" ? state.entitlement?.tier : state?.lastPlan?.tier;
-  const named = typeof tier === "string" ? { tier } : {};
+  const email = state?.status !== "signed-out" && typeof state?.account?.email === "string" && state.account.email ? { email: state.account.email } : {};
+  const named = { ...(typeof tier === "string" ? { tier } : {}), ...email };
   if (state?.status === "connected" && state.entitlement?.plan === "pro") return { status: state.entitlement.status === "active" ? "paid" : "attention", ...named };
-  if (state?.status === "reauth-required") return { status: "signin", ...(state.lastPlan ? { tier: state.lastPlan.tier ?? "pro" } : {}) };
+  if (state?.status === "reauth-required") return { status: "signin", ...(state.lastPlan ? { tier: state.lastPlan.tier ?? "pro" } : {}), ...email };
   if (state?.status !== "connected" && state?.lastPlan) return { status: "checking", ...named };
-  return { status: "none" };
+  return { status: "none", ...email };
 }

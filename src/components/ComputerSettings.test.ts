@@ -3,6 +3,12 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const desktop = vi.hoisted(() => ({ value: null as null | { capabilities: { remote?: boolean; host: { name?: string } }; ready: boolean } }));
+vi.mock("./DesktopCapabilities", async (original) => {
+  const actual = await original<typeof import("./DesktopCapabilities")>();
+  return { ...actual, useDesktopCapabilities: () => desktop.value ?? actual.useDesktopCapabilities() };
+});
+
 const { ThisComputerRow, computerName } = await import("./ComputerSettings");
 
 let root: Root;
@@ -16,6 +22,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  desktop.value = null;
   await act(async () => root.unmount());
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
@@ -50,6 +57,36 @@ describe("the computer's name", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
     await act(async () => root.render(createElement(ThisComputerRow)));
     await settle();
+    expect(host.textContent).toBe("This computer");
+  });
+
+  it("takes this Mac's own name from the app, so the Cloud's window never shows the home's host name", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ label: "home-7f3a9c" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    desktop.value = { capabilities: { remote: true, host: { name: "Jo's MacBook Air" } }, ready: true };
+    await act(async () => root.render(createElement(ThisComputerRow)));
+    await settle();
+    expect(host.textContent).toBe("Jo's MacBook Air");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("says This computer on a remote page the app gave no name, without asking that server", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ label: "home-7f3a9c" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    desktop.value = { capabilities: { remote: true, host: {} }, ready: true };
+    await act(async () => root.render(createElement(ThisComputerRow)));
+    await settle();
+    expect(host.textContent).toBe("This computer");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("waits for the app's answer before asking the server", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ label: "home-7f3a9c" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    desktop.value = { capabilities: { host: {} }, ready: false };
+    await act(async () => root.render(createElement(ThisComputerRow)));
+    await settle();
+    expect(fetch).not.toHaveBeenCalled();
     expect(host.textContent).toBe("This computer");
   });
 });

@@ -1,4 +1,4 @@
-import { useId, type ComponentProps } from "react";
+import { useId, type ComponentProps, type ReactNode } from "react";
 import { Check, Copy, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useCopyFeedback } from "@/lib/copy-text";
@@ -98,4 +98,17 @@ export function CommandLine({ command, copyLabel = "Copy command" }: { command: 
       </button>
     </div>
   );
+}
+
+export function SettingsGroup({ label, children, testId, action }: { label: string; children: ReactNode; testId?: string; action?: ReactNode }) {
+  return (
+    <section data-settings-group={testId} className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between px-4 text-[12px] font-medium text-ink-secondary"><div>{label}</div>{action}</div>
+      {children}
+    </section>
+  );
+}
+
+export function SettingsRows({ children, className, ...rest }: { children: ReactNode; className?: string } & Record<`data-${string}`, string | boolean | undefined>) {
+  return <div {...rest} className={cn("rounded-xl bg-card px-4", className)}>{children}</div>;
 }

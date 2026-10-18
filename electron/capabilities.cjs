@@ -90,6 +90,7 @@ function desktopCapabilities({
   homeDir = require("node:os").homedir(),
   remote = false,
   credentialStore = null,
+  computerName = null,
 } = {}) {
   const hostPlatform = normalizedPlatform(platform);
   const isMac = hostPlatform === "darwin";
@@ -191,6 +192,7 @@ function desktopCapabilities({
       session: hostSession,
       packaged: Boolean(packaged),
       homeDir: remote ? "" : homeDir,
+      ...(typeof computerName === "string" && computerName.trim() ? { name: computerName.trim().slice(0, 200) } : {}),
     },
     windowChrome:
       isMac ? "mac-inset" : hostPlatform === "win32" ? "win-caption" : "native",

@@ -4,6 +4,7 @@ import {
   api,
   ApiError,
   CLOUD_LINK_SETTINGS,
+  LENDING_SETTINGS,
   configStatusFromFrame,
   currentTaskBot,
   initialState,
@@ -287,6 +288,9 @@ describe("Settings opened by the Cloud link", () => {
     expect(opened).toMatchObject({ appSettingsOpen: true, appSettingsSection: "general" });
     expect(reducer(opened, { type: "toggleAppSettings", open: false })).toMatchObject({ appSettingsOpen: false, appSettingsSection: "general" });
     expect(reducer({ ...opened, appSettingsSection: "computer" }, { type: "toggleAppSettings", open: true }).appSettingsSection).toBe("computer");
+  });
+  it("opens the lending switch on Computer, from the menu-bar item in either window", () => {
+    expect(reducer(initialState, LENDING_SETTINGS)).toMatchObject({ appSettingsOpen: true, appSettingsSection: "computer" });
   });
 });
 

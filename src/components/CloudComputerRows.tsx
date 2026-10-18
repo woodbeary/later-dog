@@ -4,7 +4,6 @@ import { useStore, type Bot } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { SleepingDog } from "./AccountCharge";
 import { BotAvatar } from "./Avatar";
-import { CloudTrialRow } from "./CloudTrial";
 import { pillButton } from "./LocalVmRows";
 
 export interface CloudComputer {
@@ -138,13 +137,12 @@ export function CloudComputerRows() {
 
   return (
     <div data-cloud-computer-rows="" className="rounded-xl bg-card px-4">
-      {!state.config?.cloudHome && <CloudTrialRow />}
       {loading && computers.length === 0 ? (
-        <div className="flex items-center gap-2 border-t border-hairline/40 py-4 text-[13px] text-ink-secondary">
+        <div className="flex items-center gap-2 border-t border-hairline/40 py-4 text-[13px] text-ink-secondary first:border-t-0">
           <Loader2 size={13} className="animate-spin" /> {t("vm.cloud.checkingList")}
         </div>
       ) : problem ? (
-        <p className="border-t border-hairline/40 py-4 text-[12px] text-ink-secondary">{problem}</p>
+        <p className="border-t border-hairline/40 py-4 text-[12px] text-ink-secondary first:border-t-0">{problem}</p>
       ) : computers.length === 0 ? (
         <p className="border-t border-hairline/40 py-4 text-[12px] text-ink-secondary first:border-t-0">{t("vm.cloud.noneFound")}</p>
       ) : computers.map((computer) => {

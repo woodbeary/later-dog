@@ -30,3 +30,10 @@ test("this computer's page learns whether saved sign-ins unlocked; a remote page
   assert.equal(Object.hasOwn(desktopCapabilities({ ...base, credentialStore: "weird" }), "credentialStore"), false);
   assert.equal(Object.hasOwn(desktopCapabilities({ ...base, credentialStore: "unavailable", remote: true }), "credentialStore"), false);
 });
+
+test("the page gets this computer's own name only when main hands it one, which it does for its own window or the person's Cloud", () => {
+  const base = { platform: "darwin", env: {}, packaged: true, localConnection: { status: "ready", enabled: true } };
+  assert.equal(desktopCapabilities({ ...base, remote: true, computerName: "Jo's MacBook Air" }).host.name, "Jo's MacBook Air");
+  assert.equal(desktopCapabilities({ ...base, computerName: "  Studio  " }).host.name, "Studio");
+  for (const computerName of [null, undefined, "", "   ", 42]) assert.equal(Object.hasOwn(desktopCapabilities({ ...base, remote: true, computerName }).host, "name"), false);
+});

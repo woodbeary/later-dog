@@ -34,7 +34,7 @@ export interface CloudAccountBridge {
   onState(callback: (state: CloudAccountState) => void): () => void;
   lending?: import("./computer-sharing.mjs").CloudLendingBridge;
 }
-export interface CloudPlanSnapshot { status: "paid" | "attention" | "checking" | "signin" | "none"; tier?: string }
+export interface CloudPlanSnapshot { status: "paid" | "attention" | "checking" | "signin" | "none"; tier?: string; email?: string }
 export interface CloudPlanBridge {
   state(): Promise<CloudPlanSnapshot>;
   manage(): Promise<void>;

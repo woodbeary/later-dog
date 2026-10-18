@@ -8,7 +8,7 @@ ipcRenderer.on("package:install", (_event, url) => {
   for (const listener of packageInstallListeners) listener(url);
 });
 
-const FIXED_SETTINGS_ACTIONS = new Set(["organization", "cloud", "cloud-settings"]);
+const FIXED_SETTINGS_ACTIONS = new Set(["organization", "cloud", "cloud-settings", "lending"]);
 let pendingSettingsAction = null;
 const appSettingsListeners = new Set();
 ipcRenderer.on("app:open-settings", (_event, section) => {
@@ -22,7 +22,7 @@ ipcRenderer.on("app:open-settings", (_event, section) => {
 const localOrigin = process.argv.find((arg) => arg.startsWith("--laterdog-local-origin="))?.slice("--laterdog-local-origin=".length) ?? null;
 const isLocalPage = !localOrigin || location.origin === localOrigin;
 const savedServer = id => isLocalPage && typeof id === "string" && /^[\w-]{1,64}$/.test(id) ? [id] : [];
-const REMOTE_SAFE = new Set(["platform", "getCapabilities", "onCapabilitiesChanged", "applySkin", "setUnreadCount", "permStatus", "workspaces", "cloudMove", "cloudLending", "cloudPlan"]);
+const REMOTE_SAFE = new Set(["platform", "getCapabilities", "onCapabilitiesChanged", "applySkin", "setUnreadCount", "permStatus", "workspaces", "cloudMove", "cloudLending", "cloudPlan", "cloudPermissions", "onOpenAppSettings"]);
 function updaterOffered() {
   try { return ipcRenderer.sendSync("update:offered") === true; } catch { return false; }
 }
@@ -264,6 +264,16 @@ const bridge = {
   } : undefined,
   cloudLending: process.argv.includes("--laterdog-company-desktop=1") && process.argv.includes("--laterdog-cloud-account=1") ? {
     open: () => ipcRenderer.invoke("cloud-lending:open"),
+    state: () => ipcRenderer.invoke("cloud-lending:state"),
+    setHome: on => isLocalPage || navigator.userActivation?.isActive === true
+      ? ipcRenderer.invoke("cloud-lending:home", on === true) : Promise.reject(new Error("Choose the switch to change this.")),
+  } : undefined,
+  cloudPermissions: process.argv.includes("--laterdog-company-desktop=1") && process.argv.includes("--laterdog-cloud-account=1") ? {
+    status: () => ipcRenderer.invoke("cloud-permissions:status"),
+    request: permission => isLocalPage || navigator.userActivation?.isActive === true
+      ? ipcRenderer.invoke("cloud-permissions:request", permission) : Promise.reject(new Error("Choose Allow to ask macOS.")),
+    openSettings: permission => isLocalPage || navigator.userActivation?.isActive === true
+      ? ipcRenderer.invoke("cloud-permissions:open-settings", permission) : Promise.reject(new Error("Choose Open Settings to open System Settings.")),
   } : undefined,
   cloudPlan: process.argv.includes("--laterdog-company-desktop=1") && process.argv.includes("--laterdog-cloud-account=1") ? {
     state: () => ipcRenderer.invoke("cloud-plan:state"),

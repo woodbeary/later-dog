@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Menu } from "lucide-react";
-import { CLOUD_LINK_SETTINGS, StoreProvider, useStore } from "@/state/store";
+import { CLOUD_LINK_SETTINGS, LENDING_SETTINGS, StoreProvider, useStore } from "@/state/store";
 import { CloudQuietLine } from "@/components/CloudQuietLine";
 import { CloudSignInGate, useCloudSignInGate } from "@/components/CloudSignInGate";
 import { useWelcomeViewer, WelcomeGate } from "@/components/onboarding/WelcomeGate";
@@ -53,11 +53,11 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     const url = new URL(window.location.href);
     const requestedSettings = url.searchParams.get("desktop-settings");
     if (requestedSettings === "workspaces" || (requestedSettings === "organization" && window.laterdog.organization) ||
-      ((requestedSettings === "cloud" || requestedSettings === "cloud-settings") && window.laterdog.cloudAccount)) {
+      ((requestedSettings === "cloud" || requestedSettings === "cloud-settings" || requestedSettings === "lending") && window.laterdog.cloudAccount)) {
       url.searchParams.delete("desktop-settings");
       window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
       if (requestedSettings === "workspaces") open();
-      else dispatch(CLOUD_LINK_SETTINGS);
+      else dispatch(requestedSettings === "lending" ? LENDING_SETTINGS : CLOUD_LINK_SETTINGS);
       acknowledgeOrganizationSettings(requestedSettings, window.laterdog.organization);
     }
     return window.laterdog.environments.onOpenSettings?.(open);
@@ -133,7 +133,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
 
   useEffect(() => {
     return window.laterdog?.onOpenAppSettings?.(section => {
-      dispatch(section ? CLOUD_LINK_SETTINGS : { type: "toggleAppSettings", open: true });
+      dispatch(section === "lending" ? LENDING_SETTINGS : section ? CLOUD_LINK_SETTINGS : { type: "toggleAppSettings", open: true });
       acknowledgeOrganizationSettings(section, window.laterdog?.organization);
     });
   }, [dispatch]);

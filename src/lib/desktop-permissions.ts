@@ -23,10 +23,10 @@ export const UNAVAILABLE_CHECKLIST: DesktopPermissionChecklist = Object.freeze({
   screen: "unavailable",
 }) as DesktopPermissionChecklist;
 
-export function permissionBridge(
-  laterdog: { permissions?: Partial<DesktopPermissionsBridge> } | undefined,
-): DesktopPermissionsBridge | undefined {
-  const bridge = laterdog?.permissions;
+type PermissionHost = { permissions?: Partial<DesktopPermissionsBridge>; cloudPermissions?: Partial<DesktopPermissionsBridge> };
+
+export function permissionBridge(laterdog: PermissionHost | undefined): DesktopPermissionsBridge | undefined {
+  const bridge = laterdog?.permissions ?? laterdog?.cloudPermissions;
   return bridge && typeof bridge.status === "function" && typeof bridge.request === "function" && typeof bridge.openSettings === "function"
     ? (bridge as DesktopPermissionsBridge)
     : undefined;
@@ -38,7 +38,7 @@ export type ChecklistHost =
   | "browser";
 
 export function checklistHost(
-  laterdog: { platform?: string; permissions?: Partial<DesktopPermissionsBridge> } | undefined,
+  laterdog: (PermissionHost & { platform?: string }) | undefined,
 ): ChecklistHost {
   if (!permissionBridge(laterdog)) return "browser";
   return laterdog?.platform === "darwin" ? "mac" : "other";

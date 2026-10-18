@@ -233,11 +233,13 @@ box the person ticks:
    stopped one) in a bot's conversation or a room. The onboarding record never
    travels with a copy, so copied-in chats do not count.
 4. **Optional: Let your Cloud use this Mac**: only in the desktop app on
-   macOS. **Choose what to lend** opens Settings → later.dog Cloud on this Mac,
-   leaving the Cloud's page as the menu-bar item's **Lending settings…** does
-   (`cloudLending.open()`: no arguments, answered only for the verified Cloud
-   page or the app's own window). Done when `GET /api/shared-computers` lists
-   a computer.
+   macOS. The switch is in Settings → Computer, in the Cloud's window too: the
+   page reads and flips it through `cloudLending.state()` and
+   `cloudLending.setHome(on)` (a click is required, and main answers only the
+   verified Cloud page or the app's own window), and the macOS permission rows
+   under it use `cloudPermissions`. The menu-bar item's **Lending settings…**
+   opens the same page without leaving the Cloud. Done when
+   `GET /api/shared-computers` lists a computer.
 
 **Hide setup** is the only dismiss. The Cloud keeps it (`cloud-setup-hidden`
 in its onboarding record), so it holds on every device and after browser

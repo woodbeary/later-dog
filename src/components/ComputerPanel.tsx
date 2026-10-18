@@ -183,7 +183,7 @@ export function ComputerPanel({
     busy: permissionBusy,
     request: requestPermission,
     openSettings: openPermissionSettings,
-  } = useDesktopPermissions({ active: capabilities.host.platform === "darwin" && !localAvailable });
+  } = useDesktopPermissions({ active: !capabilities.remote && capabilities.host.platform === "darwin" && !localAvailable });
   const permissionHost = checklistHost(typeof window === "undefined" ? undefined : window.laterdog);
   const localPermissionGap = localComputerPermissionGap({ capabilities, permissions: desktopPermissions });
   const providerSupportsLocal = instanceSupportsLocalComputer(state.instances, bot);

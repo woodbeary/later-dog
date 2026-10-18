@@ -84,12 +84,7 @@ describe("a cloud computer's state", () => {
 });
 
 describe("the free trial row", () => {
-  it("shows on a Mac and never on a later.dog Cloud home, whose key is not a trial to end or buy", async () => {
-    await mount();
-    expect(document.querySelector("[data-trial-row]")).not.toBeNull();
-    root?.unmount();
-    document.body.innerHTML = "";
-    fixture.cloudHome = true;
+  it("is not in Computer: it moved to Usage & Billing", async () => {
     await mount();
     expect(document.querySelector("[data-trial-row]")).toBeNull();
   });

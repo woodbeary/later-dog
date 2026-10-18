@@ -3,7 +3,14 @@ import { useStore } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { realAccount, signedIn, subscriptionAccounts } from "./AccountsPanel";
-import { AccountUsage, usePlanUsage } from "./PlanUsage";
+import { AccountUsage, usageLines, usePlanUsage, type PlanProvider } from "./PlanUsage";
+import type { AccountRest } from "./AccountCharge";
+
+export function usageShown(provider: PlanProvider | undefined, now: number, loading: boolean, resting: AccountRest | undefined): boolean {
+  if (resting && Date.parse(resting.until) > now) return true;
+  if (!provider) return loading;
+  return usageLines(provider, now).length > 0;
+}
 
 export function UsageAccounts() {
   const { state } = useStore();
@@ -36,9 +43,11 @@ export function UsageAccounts() {
                 <span className="truncate text-[13px] font-medium text-ink">{account.displayName}</span>
                 {provider?.plan && <span className="truncate text-[12px] text-ink-secondary">{provider.plan}</span>}
               </div>
-              {signedIn(account)
-                ? <AccountUsage provider={provider} loading={loading} now={now} resting={battery?.resting?.[account.instanceId]} />
-                : <p className="text-[12px] text-ink-secondary">{t("accounts.signedOut")}</p>}
+              {!signedIn(account)
+                ? <p className="text-[12px] text-ink-secondary">{t("accounts.signedOut")}</p>
+                : usageShown(provider, now, loading, battery?.resting?.[account.instanceId])
+                  ? <AccountUsage provider={provider} loading={loading} now={now} resting={battery?.resting?.[account.instanceId]} />
+                  : <p data-usage-unavailable="" className="text-[12px] text-ink-secondary">{t("planUsage.unavailable")}</p>}
             </div>
           );
         })}

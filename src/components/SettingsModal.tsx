@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentType } from "react";
 import { Coins, Download, Monitor, SlidersHorizontal, X } from "lucide-react";
 import { useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
@@ -19,7 +19,9 @@ import { CloudComputerRows } from "./CloudComputerRows";
 import { CloudAccountSettings } from "./CloudAccountSettings";
 import { ThisComputerRow } from "./ComputerSettings";
 import { PermissionChecklist } from "./PermissionChecklist";
-import { SettingRow, Switch } from "./SettingsPrimitives";
+import { SettingRow, SettingsGroup, SettingsRows, Switch } from "./SettingsPrimitives";
+import { CloudLending } from "./CloudLending";
+import { cloudLendingBridge } from "@/lib/cloud-plan-summary";
 import { shortcutLabel } from "./ShortcutHint";
 import { UsageSection } from "./UsageSection";
 import { ThemeRow } from "./ThemeRow";
@@ -34,19 +36,6 @@ export const SETTINGS_PAGES: ReadonlyArray<{ id: AppSettingsSection; labelKey: "
   { id: "usage", labelKey: "settings.section.usage", icon: Coins },
   { id: "updates", labelKey: "settings.updates.title", icon: Download },
 ];
-
-export function SettingsGroup({ label, children, testId, action }: { label: string; children: ReactNode; testId?: string; action?: ReactNode }) {
-  return (
-    <section data-settings-group={testId} className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between px-4 text-[12px] font-medium text-ink-secondary"><div>{label}</div>{action}</div>
-      {children}
-    </section>
-  );
-}
-
-export function SettingsRows({ children, ...rest }: { children: ReactNode } & Record<`data-${string}`, string | boolean | undefined>) {
-  return <div {...rest} className="rounded-xl bg-card px-4">{children}</div>;
-}
 
 function NameRow() {
   const { state, dispatch } = useStore();
@@ -227,14 +216,14 @@ function MacPermissions({ permissions, intro }: { permissions: readonly DesktopP
 }
 
 function GeneralPage({ mac }: { mac: boolean }) {
-  const { state, dispatch } = useStore();
+  const { state } = useStore();
   const keyed = savedKeyEngines(state.instances);
   const analytics = analyticsConfigured();
   return (
     <>
       <SettingsGroup label={t("settings.section.cloudAccount")} testId="later-dog-cloud">
         <SettingsRows>
-          <CloudAccountSettings onOpenComputer={() => dispatch({ type: "toggleAppSettings", open: true, section: "computer" })} />
+          <CloudAccountSettings />
         </SettingsRows>
       </SettingsGroup>
       <SettingsGroup label={t("settings.group.accounts")} testId="accounts" action={<AccountsRefresh />}>
@@ -278,12 +267,14 @@ function GeneralPage({ mac }: { mac: boolean }) {
 
 function ComputerPage({ mac }: { mac: boolean }) {
   const desktop = Boolean(window.laterdog);
+  const lending = cloudLendingBridge();
   return (
     <>
       {desktop && (
         <SettingsGroup label={t("settings.group.yourComputer")} testId="your-computer">
           <SettingsRows>
             <ThisComputerRow />
+            {lending && <CloudLending bridge={lending} />}
           </SettingsRows>
           {mac && <MacPermissions permissions={COMPUTER_PERMISSIONS} intro={t("settings.computer.macIntro", { app: brand().name })} />}
         </SettingsGroup>

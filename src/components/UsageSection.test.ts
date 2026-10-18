@@ -19,6 +19,8 @@ vi.mock("./PlanUsage", async (original) => ({
   usePlanUsage: () => ({ report: { fetchedAt: "", providers: fixture.providers }, loading: false, error: "", now: Date.now(), reload: vi.fn() }),
 }));
 
+vi.mock("./CloudTrial", () => ({ CloudTrialRow: () => null }));
+
 const { initialState } = await import("@/state/store");
 const { setLocale } = await import("@/lib/i18n");
 const { UsageSection } = await import("./UsageSection");
@@ -86,7 +88,18 @@ describe("the Usage & Billing page", () => {
     expect(rows()[0]!.textContent).toContain("PersonalMax");
     expect(rows()[0]!.querySelector('[role="meter"]')).not.toBeNull();
     expect(rows()[1]!.textContent).toBe("WorkNot signed in");
-    expect(rows()[2]!.textContent).toBe("ChatGPT");
+    expect(rows()[2]!.textContent).toBe("ChatGPTUsage unavailable");
     expect(text()).not.toMatch(/API key|Codex|Sign in again/);
+  });
+
+  it("says Usage unavailable for a signed-in account whose usage is missing, once the check is done", async () => {
+    fixture.providers = [reading("claude", "Personal", { fiveHour: closed })];
+    await show([account("claude", "Personal"), account("claude-work", "Work")]);
+    expect(rows().map((row) => row.querySelector("[data-usage-unavailable]")?.textContent ?? null)).toEqual(["Usage unavailable", "Usage unavailable"]);
+  });
+
+  it("has no plan row outside the desktop app", async () => {
+    await show([account("claude", "Personal")]);
+    expect(host.querySelector("[data-plan-row]")).toBeNull();
   });
 });

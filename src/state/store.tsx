@@ -1082,6 +1082,7 @@ function showHeldSend(state: AppState, item: OutboxItem): AppState {
 }
 
 export const CLOUD_LINK_SETTINGS = { type: "toggleAppSettings", open: true, section: "general" } as const satisfies Action;
+export const LENDING_SETTINGS = { type: "toggleAppSettings", open: true, section: "computer" } as const satisfies Action;
 
 export function reducer(state: AppState, action: Action): AppState {
   if (action.type === "messageAdded" || action.type === "messagePatched" || action.type === "threadActive" || action.type === "optimisticMessageRemoved") {
