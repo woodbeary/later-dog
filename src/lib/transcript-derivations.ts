@@ -2,23 +2,13 @@ import type { Message } from "@/state/store";
 import { activeLocale, t } from "@/lib/i18n";
 
 export interface TranscriptLookups {
-  editVersions(message: Message): readonly Message[] | undefined;
   replyTarget(message: Message): Message | undefined;
   retryableId: string | undefined;
 }
 
 export function transcriptLookups(all: readonly Message[], branch: readonly Message[]): TranscriptLookups {
   const byId = new Map<string, Message>();
-  const forks = new Map<string | null, Message[]>();
-  for (const message of all) {
-    byId.set(message.id, message);
-    if (message.role !== "user" || message.kind !== "text") continue;
-    const parent = message.parentId ?? null;
-    const siblings = forks.get(parent);
-    if (siblings) siblings.push(message);
-    else forks.set(parent, [message]);
-  }
-  for (const siblings of forks.values()) siblings.sort((a, b) => a.at - b.at);
+  for (const message of all) byId.set(message.id, message);
   let retryableId: string | undefined;
   for (let i = branch.length - 1; i >= 0; i--) {
     const message = branch[i]!;
@@ -28,11 +18,6 @@ export function transcriptLookups(all: readonly Message[], branch: readonly Mess
     }
   }
   return {
-    editVersions(message) {
-      if (message.role !== "user" || message.kind !== "text") return undefined;
-      const versions = forks.get(message.parentId ?? null);
-      return versions && versions.length > 1 ? versions : undefined;
-    },
     replyTarget: (message) => (message.replyToId ? byId.get(message.replyToId) : undefined),
     retryableId,
   };

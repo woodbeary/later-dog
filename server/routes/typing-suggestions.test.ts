@@ -35,7 +35,7 @@ async function serve(cfg: AppConfig, fetcher: typeof fetch) {
   return Object.assign(post, { get: async (path: string) => answer(await fetch(`${base}${path}`)) });
 }
 
-const own: AppConfig = { features: { smarterSuggestions: true }, typing: { accountId: ACCOUNT, token: "cf-token" } };
+const own: AppConfig = { features: { typingSuggestions: true, smarterSuggestions: true }, typing: { accountId: ACCOUNT, token: "cf-token" } };
 
 describe("POST /api/typing/complete", () => {
   it("answers with the completion, never caching it in the browser", async () => {
@@ -50,13 +50,13 @@ describe("POST /api/typing/complete", () => {
   it("answers an empty completion with the reason when there is nothing to show", async () => {
     const post = await serve({ features: { typingSuggestions: false, smarterSuggestions: true } }, vi.fn() as unknown as typeof fetch);
     expect((await post("/api/typing/complete", { prefix: "Please fix" })).body).toEqual({ completion: "", reason: "off" });
-    const none = await serve({ features: { smarterSuggestions: true } }, vi.fn() as unknown as typeof fetch);
+    const none = await serve({ features: { typingSuggestions: true, smarterSuggestions: true } }, vi.fn() as unknown as typeof fetch);
     expect((await none("/api/typing/complete", { prefix: "Please fix" })).body).toEqual({ completion: "", reason: "no-service" });
   });
 
   it("makes no call and answers not-allowed until smarter suggestions are on", async () => {
     const fetcher = vi.fn();
-    const post = await serve({ typing: { accountId: ACCOUNT, token: "cf-token" } }, fetcher as unknown as typeof fetch);
+    const post = await serve({ features: { typingSuggestions: true }, typing: { accountId: ACCOUNT, token: "cf-token" } }, fetcher as unknown as typeof fetch);
     expect((await post("/api/typing/complete", { prefix: "Please fix" })).body).toEqual({ completion: "", reason: "not-allowed" });
     expect(fetcher).not.toHaveBeenCalled();
   });

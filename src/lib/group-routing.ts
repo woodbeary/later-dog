@@ -76,30 +76,6 @@ export function roomRespondersForComposer<T extends { id: string; name: string; 
   return [];
 }
 
-export function goalCoordinatorForComposer<
-  T extends { id: string; name: string; hidden?: boolean; chiefOfStaff?: boolean },
->(
-  text: string,
-  members: T[],
-  group: Pick<Group, "defaultResponder">,
-): T | null {
-  const available = members.filter((member) => !member.hidden);
-  const explicitlyMentioned = roomRespondersForComposer(
-    text,
-    available,
-    { defaultResponder: { kind: "mentions" } },
-  )[0];
-  if (explicitlyMentioned) return explicitlyMentioned;
-  const configuredResponder = group.defaultResponder;
-  const lead = configuredResponder?.kind === "member" ? configuredResponder.botId
-    : configuredResponder?.kind === "auto" ? configuredResponder.fallbackBotId : undefined;
-  if (lead) {
-    const configured = available.find((member) => member.id === lead);
-    if (configured) return configured;
-  }
-  return available.find((member) => member.chiefOfStaff) ?? available[0] ?? null;
-}
-
 function mentionedMembers<T extends { name: string; hidden?: boolean }>(text: string, peers: T[]): T[] {
   const candidates = peers
     .filter((p) => !p.hidden && p.name.trim())

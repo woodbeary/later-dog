@@ -4257,7 +4257,6 @@ function roomHandoffProblem(node: Pick<RoomHandoff, "groupId" | "threadId" | "bo
     return member && !sameAudience(speaker.visibility, member.visibility);
   });
   if (group && outsideAudience(group, bot)) return "Destination room is outside the agent's visibility scope";
-  if (group && roomSetupPending(group)) return "Destination room setup is unfinished";
   if (parent) {
     const from = store.bot(parent.botId);
     const source = parent.groupId ? store.group(parent.groupId) : undefined;
@@ -9468,7 +9467,6 @@ routines = new RoutineManager({
     if (
       !group ||
       group.dm ||
-      roomSetupPending(group) ||
       !coordinator ||
       coordinator.hidden ||
       !group.memberIds.includes(coordinator.id)
@@ -11611,9 +11609,6 @@ function startGroupTurn(
 ) {
   const group = store.group(groupId);
   if (!group) throw Object.assign(new Error("no such group"), { status: 404 });
-  if (roomSetupPending(group)) {
-    throw Object.assign(new Error("finish room setup before sending the first message"), { status: 409 });
-  }
   const threadId = options.threadId ?? group.threadId;
   const ownsThread = group.dm
     ? group.threadId === threadId
@@ -11907,9 +11902,7 @@ function sameCalendarRoster(group: GroupRecord, botIds: readonly string[]): bool
 
 function ensureCalendarCallRoom(call: CalendarCall): GroupRecord {
   const linked = call.roomId ? store.group(call.roomId) : undefined;
-  let group = linked && sameCalendarRoster(linked, call.botIds) && !roomSetupPending(linked)
-    ? linked
-    : undefined;
+  let group = linked && sameCalendarRoster(linked, call.botIds) ? linked : undefined;
   const conflict = group ? null : roomAudienceConflict(call.botIds);
   if (conflict) throw Object.assign(new Error(conflict), { status: 400 });
   group ??= store.createGroup(call.name, call.botIds, false, undefined, {
@@ -11941,19 +11934,6 @@ function deliverCalendarCall(call: CalendarCall, scheduledFor: number): void {
   const messages = [...threadIds].flatMap((threadId) => store.messagesFor(threadId));
   if (messages.some((message) => message.sendId === sendId)) return;
   startGroupTurn(group.id, text, undefined, sendId);
-}
-
-function roomSetupPending(group: GroupRecord): boolean {
-  const hasMarker =
-    Object.prototype.hasOwnProperty.call(group, "setupCompletedAt") ||
-    Object.prototype.hasOwnProperty.call(group, "setupSkippedAt");
-  return (
-    !group.dm &&
-    hasMarker &&
-    group.setupCompletedAt == null &&
-    group.setupSkippedAt == null &&
-    store.messagesFor(group.threadId).length === 0
-  );
 }
 
 function resolveReplyTarget(threadId: string, value: unknown): Message | undefined {
@@ -12048,9 +12028,6 @@ function roomPostEligibility(
       status: 403,
       error: "that room is outside your visibility scope — tell the person what you wanted to post there instead",
     };
-  }
-  if (roomSetupPending(group)) {
-    return { ok: false, status: 409, error: "that room is still being set up — it cannot receive messages yet" };
   }
   return { ok: true };
 }

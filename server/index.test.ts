@@ -1830,17 +1830,32 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("persists room setup and blocks the first message until it is finished", async () => {
+  it("accepts the first message in a room created without a setup step", async () => {
+    const bot = (await api("GET", "/api/bots")).body.bots[0];
+    const created = await api("POST", "/api/groups", { name: "No setup probe", memberIds: [bot.id] });
+    expect(created.status).toBe(201);
+    const group = created.body.group;
+    try {
+      expect(group).toMatchObject({ setupCompletedAt: null, setupSkippedAt: null, messages: [] });
+      const sent = await api("POST", `/api/groups/${group.id}/messages`, { text: "first words" });
+      expect(sent.status).toBe(202);
+      await expect.poll(async () =>
+        (await api("GET", "/api/bots")).body.groups
+          .find((candidate: { id: string }) => candidate.id === group.id)
+          .messages.some((message: { role: string; text: string }) => message.role === "user" && message.text === "first words"),
+      ).toBe(true);
+    } finally {
+      await api("POST", `/api/groups/${group.id}/interrupt`, {});
+      await api("DELETE", `/api/groups/${group.id}`);
+    }
+  });
+
+  it("still saves a room brief and responder through the setup route before the first message", async () => {
     const bot = (await api("GET", "/api/bots")).body.bots[0];
     const created = await api("POST", "/api/groups", { name: "Setup probe", memberIds: [bot.id] });
     expect(created.status).toBe(201);
     const group = created.body.group;
     try {
-      expect(group).toMatchObject({ setupCompletedAt: null, setupSkippedAt: null, messages: [] });
-      const blocked = await api("POST", `/api/groups/${group.id}/messages`, { text: "before setup" });
-      expect(blocked.status).toBe(409);
-      expect((await api("GET", "/api/bots")).body.groups.find((candidate: { id: string }) => candidate.id === group.id).messages).toHaveLength(0);
-
       const invalid = await api("PATCH", `/api/groups/${group.id}/setup`, {
         action: "complete",
         cwd: null,
@@ -8073,7 +8088,7 @@ describe("harness HTTP API", () => {
   it("keeps skill authoring on by default and persists an explicit opt-out", async () => {
     const before = await api("GET", "/api/config");
     expect(before.status).toBe(200);
-    expect(before.body.features).toEqual({ browser: false, skillAuthoring: true, skillsLibrary: false, showToolCalls: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: true, smarterSuggestions: false });
+    expect(before.body.features).toEqual({ browser: false, skillAuthoring: true, skillsLibrary: false, showToolCalls: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: false, smarterSuggestions: false });
     const untouched = JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8"));
     expect(untouched.features?.skillAuthoring).toBeUndefined();
     expect(untouched.features?.sharedComputers).toBeUndefined();
@@ -8082,14 +8097,14 @@ describe("harness HTTP API", () => {
       features: { skillAuthoring: false },
     });
     expect(saved.status).toBe(200);
-    expect(saved.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: true, smarterSuggestions: false });
+    expect(saved.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: false, smarterSuggestions: false });
 
     const disk = JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8"));
     expect(disk.features).toEqual({ ...untouched.features, skillAuthoring: false });
 
     const tools = await api("PATCH", "/api/config", { features: { showToolCalls: true } });
     expect(tools.status).toBe(200);
-    expect(tools.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: true, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: true, smarterSuggestions: false });
+    expect(tools.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: true, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: false, smarterSuggestions: false });
 
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     try {

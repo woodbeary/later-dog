@@ -1,14 +1,9 @@
 import { Loader2, Square } from "lucide-react";
 
 import { speaker } from "@/lib/tts";
-import type { ConfigStatus } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { messageActionClass } from "./MessageActions";
-
-export function canSpeak(tts: ConfigStatus["tts"], voiceId: string | undefined): boolean {
-  return Boolean(tts?.configured) && Boolean(voiceId || tts?.voice);
-}
 
 export function StopSpeakingButton({ preparing }: { preparing: boolean }) {
   return (

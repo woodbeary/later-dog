@@ -76,22 +76,6 @@ async function draw() {
   flushSync(() => root.render(createElement(BotEditorStore, { value, children })));
   await settle();
 }
-function moreMenus() {
-  const menus: Record<string, string[]> = {};
-  for (const trigger of document.querySelectorAll<HTMLButtonElement>(`[data-mid] button[aria-label="${t("chat.messageActions")}"]`)) {
-    flushSync(() => trigger.click());
-    const menu = document.getElementById(trigger.getAttribute("aria-controls") ?? "");
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(menu?.getAttribute("role")).toBe("menu");
-    expect(menu?.getAttribute("aria-label")).toBe(t("chat.messageActions"));
-    expect(trigger.closest("[data-mid]")!.contains(menu)).toBe(false);
-    const items = menu!.querySelectorAll('[role="menuitem"]');
-    menus[trigger.closest("[data-mid]")!.getAttribute("data-mid")!] = [...items].map((item) => item.textContent ?? "");
-    flushSync(() => trigger.click());
-  }
-  return menus;
-}
-const offering = (label: string) => Object.entries(moreMenus()).filter(([, items]) => items.includes(label)).map(([mid]) => mid);
 async function rowRendersAfter(change: (current: AppState) => AppState) {
   renders.botText = renders.userText = renders.toolChip = 0;
   state = change(state);
@@ -151,44 +135,11 @@ describe("chat transcript rows", () => {
     expect(document.body.textContent).not.toContain("Today");
   });
 
-  it("shows Copy, a treat and Reply on hover, with the rest under More", () => {
+  it("shows only Copy and Reply on hover, with no More menu or edit", () => {
     const row = (mid: string) => [...document.querySelectorAll(`[data-mid="${mid}"] [data-testid="message-actions"] > button`)]
       .map((button) => button.getAttribute("aria-label"));
-    expect(row("m5")).toEqual([t("chat.copyMessage"), t("chat.giveTreat", { name: "pepper" }), t("chat.replyToMessage")]);
-    expect(row("m3")).toEqual([t("chat.editMessage"), t("chat.copyMessage"), t("chat.replyToMessage")]);
-    expect(moreMenus()).toMatchObject({
-      m3: [t("chat.action.pin")],
-      m5: [t("chat.action.viewSource"), t("chat.retry"), t("chat.action.pin")],
-    });
-  });
-
-  it("offers Retry on the last answer only, and not during a turn", async () => {
-    const regenerate = () => offering(t("chat.retry"));
-    expect(regenerate()).toEqual(["m5"]);
-    const busy = (value: boolean) => (current: AppState) => {
-      const { messages: _transcript, ...frame } = current.bots.find((bot) => bot.id === "pepper")!;
-      const tasks = frame.tasks?.map((task) => ({ ...task, busy: value, activity: value ? "working" as const : "idle" as const }));
-      return reducer(current, { type: "botPatched", bot: { ...frame, busy: value, tasks } });
-    };
-    await rowRendersAfter(busy(true));
-    expect(regenerate()).toEqual([]);
-    await rowRendersAfter(busy(false));
-    expect(regenerate()).toEqual(["m5"]);
-  });
-
-  it("offers Read aloud only once the voice engine has a voice", async () => {
-    const speak = () => offering(t("chat.action.readAloud"));
-    const voice = (configured: boolean) => (current: AppState) => reducer(current, {
-      type: "configStatus",
-      config: { ...current.config, tts: { configured, provider: "elevenlabs", voice: "fixture-voice" } } as NonNullable<AppState["config"]>,
-    });
-    try {
-      await rowRendersAfter(voice(true));
-      expect(speak()).toEqual(["m2", "m5"]);
-      await rowRendersAfter(voice(false));
-      expect(speak()).toEqual([]);
-    } finally {
-      await rowRendersAfter((current) => reducer(current, { type: "configStatus", config: { features: { showToolCalls: true } } as NonNullable<AppState["config"]> }));
-    }
+    expect(row("m5")).toEqual([t("chat.copyMessage"), t("chat.replyToMessage")]);
+    expect(row("m3")).toEqual([t("chat.copyMessage"), t("chat.replyToMessage")]);
+    expect(document.querySelectorAll(`[data-mid] [aria-label="${t("chat.messageActions")}"]`)).toHaveLength(0);
   });
 });

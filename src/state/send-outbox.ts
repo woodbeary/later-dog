@@ -51,9 +51,7 @@ function pathFor(item: OutboxItem): string {
 
 function payloadFor(item: OutboxItem): Record<string, unknown> {
   const base = { text: item.text, replyToId: item.replyToId, threadId: item.threadId || undefined, sendId: item.sendId };
-  return item.target.kind === "bot"
-    ? { ...base, deliver: item.target.deliver }
-    : { ...base, mode: item.target.mode };
+  return item.target.kind === "bot" ? { ...base, deliver: item.target.deliver } : base;
 }
 
 export function sendIdsInQueues(queues: unknown): string[] {
@@ -124,7 +122,6 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
           requestText: item.text,
           replyToId: item.replyToId,
           threadId: item.threadId,
-          channelMode: item.recovery.channelMode,
         });
       }
     },

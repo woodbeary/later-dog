@@ -62,12 +62,6 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         winKeys: ["Shift", "Enter"],
       },
       {
-        id: "edit-last-message",
-        description: "Edit last message (when composer is empty)",
-        macKeys: ["↑"],
-        winKeys: ["↑"],
-      },
-      {
         id: "close-panel",
         description: "Close active drawer, modal, or find bar",
         macKeys: ["Esc"],

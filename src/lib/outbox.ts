@@ -4,12 +4,11 @@ const isSendDelivery = (value: unknown): value is SendDelivery => (SEND_DELIVERI
 
 export type OutboxTarget =
   | { kind: "bot"; botId: string; deliver?: SendDelivery }
-  | { kind: "group"; groupId: string; mode: "chat" | "goal" };
+  | { kind: "group"; groupId: string };
 
 export interface OutboxRecovery {
   draftId: string;
   text: string;
-  channelMode?: "chat" | "goal";
 }
 
 export interface OutboxItem {
@@ -209,18 +208,14 @@ function readTarget(value: unknown): OutboxTarget | null {
     return isSendDelivery(value.deliver) ? { kind: "bot", botId: value.botId, deliver: value.deliver } : { kind: "bot", botId: value.botId };
   }
   if (value.kind === "group" && isText(value.groupId)) {
-    return { kind: "group", groupId: value.groupId, mode: value.mode === "goal" ? "goal" : "chat" };
+    return { kind: "group", groupId: value.groupId };
   }
   return null;
 }
 
 function readRecovery(value: unknown): OutboxRecovery | undefined {
   if (!isRecord(value) || !isText(value.draftId) || typeof value.text !== "string") return undefined;
-  return {
-    draftId: value.draftId,
-    text: value.text,
-    ...(value.channelMode === "chat" || value.channelMode === "goal" ? { channelMode: value.channelMode } : {}),
-  };
+  return { draftId: value.draftId, text: value.text };
 }
 
 function readItem(value: unknown): OutboxItem | null {

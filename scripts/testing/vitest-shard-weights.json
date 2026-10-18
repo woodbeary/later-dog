@@ -13,7 +13,6 @@
   "scripts/testing/team-share-ui.e2e.test.ts": 1,
   "scripts/testing/team-template-ui.e2e.test.ts": 1,
   "scripts/testing/thinking-timer-ui.e2e.test.ts": 1,
-  "scripts/testing/usage-details-ui.e2e.test.ts": 1,
   "server/acp-recovery.e2e.test.ts": 12,
   "server/admin-activity.e2e.test.ts": 1,
   "server/automatic-recovery.e2e.test.ts": 65,

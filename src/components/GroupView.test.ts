@@ -131,3 +131,49 @@ describe("old stored thread links in a room", () => {
     expect(markup).not.toContain("bot=b1");
   });
 });
+
+describe("a group chat without the extras", () => {
+  const room: Group = {
+    id: "room", threadId: "room-thread", name: "Launch planning", memberIds: [],
+    defaultResponder: { kind: "auto" }, bulletin: "Ship on Friday", unread: false,
+    createdAt: 1, messages: [], pinnedMessageId: "gone", turnTimeoutMinutes: 30,
+  };
+
+  it("has no setup form, responder picker, folder, turn limit, bulletin, export, usage or call in its header", () => {
+    vi.stubGlobal("window", { laterdog: undefined });
+    let markup: string;
+    try {
+      markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(GroupView, { group: room })));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(markup).not.toContain('data-testid="room-setup"');
+    expect(markup).not.toContain("<select");
+    expect(markup).not.toContain("Ship on Friday");
+    expect(markup).not.toContain("data-call-button");
+    expect(markup).not.toContain("Download as .md");
+    expect(markup).toContain(`aria-label="Find in conversation"`);
+  });
+
+  it("shows an old fetch card as one plain line", () => {
+    const messages: Message[] = [{
+      id: "goal", role: "bot", kind: "goal.run", at: 1,
+      goalRun: { runId: "r", goal: "Write the launch post", status: "completed", coordinatorBotId: "a", coordinatorName: "Atlas", turnCount: 3, maxTurns: 12, startedAt: 1 },
+    }];
+    const markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(Transcript, {
+      group: { ...room, messages }, members: [], locale: "en", messages, transcript: messages, onReply: () => {},
+    })));
+    expect(markup).toContain('data-quiet-line="note"');
+    expect(markup).toContain("Completed: Write the launch post");
+    expect(markup).not.toContain("coordinating");
+  });
+
+  it("has no pin on a message", () => {
+    const messages: Message[] = [{ id: "m", role: "user", kind: "text", at: 1, text: "hello" }];
+    const markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(Transcript, {
+      group: { ...room, messages }, members: [], locale: "en", messages, transcript: messages, onReply: () => {},
+    })));
+    expect(markup).not.toContain("Pin message");
+    expect(markup).toContain(`aria-label="Reply to message"`);
+  });
+});

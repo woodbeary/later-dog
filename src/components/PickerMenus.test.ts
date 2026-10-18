@@ -153,42 +153,20 @@ describe("the composer's + menu", () => {
     vi.unstubAllGlobals();
   });
 
-  it("holds attach, connectors and permissions in one place", async () => {
+  it("holds attach and connectors in one place, with no permissions group", async () => {
     const onAttach = vi.fn();
     const onConnectors = vi.fn();
-    const onSelect = vi.fn();
-    await act(async () => root.render(createElement(ComposerPlusMenu, {
-      onAttach, onConnectors,
-      permissions: { approvalMode: "ask", driverKind: "claudeAgent", trustedModesAvailable: false, disabled: false, onSelect },
-    })));
+    await act(async () => root.render(createElement(ComposerPlusMenu, { onAttach, onConnectors })));
     const plus = host.querySelector<HTMLButtonElement>("[data-composer-plus]")!;
     await act(async () => plus.click());
     expect(host.textContent).toContain("Attach a file");
     expect(host.textContent).toContain("Connect apps");
-    expect(host.textContent).toContain("Permissions");
-    await act(async () => host.querySelector<HTMLButtonElement>("[data-plus-permission=auto]")!.click());
-    expect(onSelect).toHaveBeenCalledWith("auto");
-    await act(async () => plus.click());
+    expect(host.textContent).not.toContain("Permissions");
+    expect(host.querySelector("[data-plus-permission]")).toBeNull();
     await act(async () => [...host.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].find((item) => item.textContent === "Connect apps")!.click());
     expect(onConnectors).toHaveBeenCalled();
     await act(async () => plus.click());
     await act(async () => [...host.querySelectorAll<HTMLButtonElement>("[role=menuitem]")].find((item) => item.textContent === "Attach a file")!.click());
     expect(onAttach).toHaveBeenCalled();
-  });
-
-  it("offers the dog settings' two levels, plus the one in use if it's another", async () => {
-    const levels = async (approvalMode: "ask" | "full") => {
-      await act(async () => root.render(createElement(ComposerPlusMenu, {
-        onAttach: () => {},
-        permissions: { approvalMode, driverKind: "codex", trustedModesAvailable: true, disabled: false, onSelect: () => {} },
-      })));
-      const plus = host.querySelector<HTMLButtonElement>("[data-composer-plus]")!;
-      if (!host.querySelector("[data-composer-plus-menu]")) await act(async () => plus.click());
-      const found = [...host.querySelectorAll("[data-plus-permission]")].map((item) => item.getAttribute("data-plus-permission"));
-      await act(async () => plus.click());
-      return found;
-    };
-    expect(await levels("ask")).toEqual(["ask", "auto"]);
-    expect(await levels("full")).toEqual(["ask", "auto", "full"]);
   });
 });

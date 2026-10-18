@@ -7,7 +7,7 @@ import { createElement, useReducer, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AppState, Bot, Group } from "@/state/store";
+import type { AppState, Bot } from "@/state/store";
 
 type Desktop = { capabilities: DesktopCapabilities; ready: boolean };
 const fixture = vi.hoisted(() => ({ desktop: null as Desktop | null }));
@@ -32,7 +32,6 @@ const storage = {
 vi.stubGlobal("localStorage", storage);
 
 const { CallButton } = await import("./CallView");
-const { GroupCallButton } = await import("./GroupCallView");
 const { LiveCallBar } = await import("./LiveCallBar");
 const { BotEditorStore, initialState, reducer } = await import("@/state/store");
 const { callMode, setCallMode } = await import("@/lib/call-mode");
@@ -91,10 +90,6 @@ const ada: Bot = {
   notifications: true, unread: false, messages: [], voice: "voice-1",
   modelSelection: { instanceId: "claude", model: "m" },
 };
-const room = {
-  id: "room", threadId: "thread-room", name: "Standup", memberIds: ["ada"], defaultResponder: "everyone",
-  bulletin: "", unread: false, createdAt: 1, messages: [],
-} as unknown as Group;
 const noKey = { configured: false, voice: "marin", readTypedReplies: true, idleMinutes: 5 };
 const CLOUD = { cloudHome: true, tts: { configured: true, ready: true, voice: "preset" }, live: noKey } as AppState["config"];
 const SERVER = { tts: { configured: true, ready: true, voice: "preset" }, live: noKey } as AppState["config"];
@@ -127,9 +122,6 @@ function chat(config: AppState["config"]) {
       createElement(LiveCallBar, { key: "bar", bot: ada }),
     ],
   })));
-}
-function roomHeader(config: AppState["config"]) {
-  flushSync(() => root.render(createElement(Page, { config, children: createElement(GroupCallButton, { group: room, members: [ada] }) })));
 }
 const callButton = () => container.querySelector<HTMLButtonElement>("[data-call-button]");
 const press = (element: Element | null) => {
@@ -325,24 +317,5 @@ describe("calling a bot off the Mac", () => {
     setCallMode("turns");
     chat(THIS_COMPUTER);
     expect(callButton()?.getAttribute("aria-label")).toBe("Call Ada");
-  });
-
-  it("shows a room's call button only where taking turns can run: the Mac app's own page", () => {
-    roomHeader(CLOUD);
-    expect(callButton()).toBeNull();
-    for (const platform of ["darwin", "win32", "linux"] as const) {
-      open(desktopApp(platform, "my-cloud"));
-      roomHeader(CLOUD);
-      expect(callButton(), `${platform} on My Cloud`).toBeNull();
-    }
-    for (const platform of ["win32", "linux"] as const) {
-      open(desktopApp(platform, "this-computer"));
-      roomHeader(THIS_COMPUTER);
-      expect(callButton(), `${platform} on This computer`).toBeNull();
-    }
-
-    open(desktopApp("darwin", "this-computer"));
-    roomHeader(THIS_COMPUTER);
-    expect(callButton()?.getAttribute("aria-label")).toBe("Call Standup");
   });
 });

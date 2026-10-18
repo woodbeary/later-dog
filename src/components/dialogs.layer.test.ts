@@ -9,15 +9,11 @@ vi.mock("@/state/store", async (importOriginal) => {
 });
 
 const { AboutDialog } = await import("./AboutDialog");
-const { CommandAllowlistDialog } = await import("./CommandAllowlistDialog");
-const { FullAccessWarning } = await import("./FullAccessWarning");
 const { LocalComputerAutoWarning } = await import("./LocalComputerAutoWarning");
 
 const dialogs: Array<[string, () => ReactElement]> = [
   ["About", () => createElement(AboutDialog, { open: true, onClose: () => {} })],
-  ["the full access warning", () => createElement(FullAccessWarning, { open: true, onCancel: () => {}, onConfirm: () => {} })],
   ["the computer warning", () => createElement(LocalComputerAutoWarning, { open: true, onCancel: () => {}, onConfirm: () => {} })],
-  ["the allowed commands list", () => createElement(CommandAllowlistDialog, { botId: "pepper", botName: "Pepper", onClose: () => {} })],
 ];
 
 let bar: HTMLDivElement;

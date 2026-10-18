@@ -1,4 +1,4 @@
-import { Children, createElement, isValidElement, type ReactElement, type ReactNode } from "react";
+import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,7 +11,7 @@ vi.mock("@/state/store", async (original) => ({
 }));
 vi.mock("./DesktopCapabilities", () => ({ useDesktopCapabilities: () => ({}) }));
 
-import { DefaultResponderSelect, Transcript } from "./GroupView";
+import { Transcript } from "./GroupView";
 
 const members = [
   { id: "maya", name: "Maya" },
@@ -20,40 +20,9 @@ const members = [
 const room = (defaultResponder: Group["defaultResponder"]) => ({ id: "room", defaultResponder } as Group);
 const jev = (enabled: boolean): ConfigStatus => ({ decider: { provider: "jev", configured: enabled, enabled, jobs: { roomRouting: true } } } as ConfigStatus);
 
-type Node = ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-function nodes(value: ReactNode): Node[] {
-  return Children.toArray(value).flatMap((child) => {
-    if (!isValidElement(child)) return [];
-    const node = child as Node;
-    return [node, ...nodes(node.props.children)];
-  });
-}
-
 beforeEach(() => {
   fixture.config = jev(true);
   fixture.dispatch.mockReset();
-});
-
-describe("room responder selector", () => {
-  it("offers Auto and shows it selected on an Auto room", () => {
-    const markup = renderToStaticMarkup(createElement(DefaultResponderSelect, { group: room({ kind: "auto" }), members }));
-    expect(markup).toContain('<option value="auto" selected="">Auto</option>');
-    expect(markup).toContain("The best-fit dog answers each message");
-  });
-
-  it("reads plain Auto, and names who answers, while automatic routing is off", () => {
-    fixture.config = jev(false);
-    const markup = renderToStaticMarkup(createElement(DefaultResponderSelect, { group: room({ kind: "auto", fallbackBotId: "theo" }), members }));
-    expect(markup).toContain('<option value="auto" selected="">Auto</option>');
-    expect(markup).toContain("Theo answers plain messages");
-  });
-
-  it("switching a lead room to Auto keeps the lead as its fallback", () => {
-    const tree = DefaultResponderSelect({ group: room({ kind: "member", botId: "theo" }), members });
-    const select = nodes(tree).find((node) => node.type === "select")!;
-    (select.props.onChange as (event: { target: { value: string } }) => void)({ target: { value: "auto" } });
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "patchGroup", groupId: "room", patch: { defaultResponder: { kind: "auto", fallbackBotId: "theo" } } });
-  });
 });
 
 describe("a reply the decision model routed", () => {

@@ -2,14 +2,12 @@ import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import type { Bot, InstanceInfo, Message, Task } from "@/state/store";
-import type { ApprovalModeSelector } from "./ApprovalModeSelector";
 import type { ModelPicker } from "./ModelPicker";
 
 const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
   return { menus: [] as { ariaLabel: string; items: { key: string; disabled?: boolean; heading?: string; active?: boolean }[] }[], dispatch: vi.fn(), canWrite: null as boolean | null, showToolCalls: false, platform: "other", localReasonCode: "cua-driver-unavailable", localMessage: "", model: null as ComponentProps<typeof ModelPicker> | null,
-    approval: null as ComponentProps<typeof ApprovalModeSelector> | null,
     control: {} as Record<string, { held: boolean; helpReason: string | null }>, computerOpen: false };
 });
 vi.mock("@/state/store", async (importOriginal) => {
@@ -42,14 +40,7 @@ vi.mock("./ModelPicker", () => ({ ModelPicker: (props: ComponentProps<typeof Mod
   fixture.model = props;
   return createElement("span", { "data-test-model-control": true });
 } }));
-vi.mock("./ComposerPlusMenu", () => ({ ComposerPlusMenu: (props: { permissions?: ComponentProps<typeof ApprovalModeSelector> | null }) => {
-  if (props.permissions) fixture.approval = props.permissions as ComponentProps<typeof ApprovalModeSelector>;
-  return createElement("span", { "data-test-plus-menu": true, ...(props.permissions ? { "data-test-approval-control": true } : {}) });
-} }));
-vi.mock("./ApprovalModeSelector", async (importOriginal) => ({ ...await importOriginal<typeof import("./ApprovalModeSelector")>(), ApprovalModeSelector: (props: ComponentProps<typeof ApprovalModeSelector>) => {
-  fixture.approval = props;
-  return createElement("span", { "data-test-approval-control": true });
-} }));
+vi.mock("./ComposerPlusMenu", () => ({ ComposerPlusMenu: () => createElement("span", { "data-test-plus-menu": true }) }));
 
 const { ChatView, ErrorRow, FailedTurnRow, claudeUpdateTarget } = await import("./ChatView");
 const { activityPreview } = await import("@/lib/failed-turn");
@@ -63,12 +54,14 @@ const bot: Bot = {
     modelSelection: { instanceId: "test", model: "thread-model" }, approvalMode: "ask" }],
 };
 
-describe("the header menu", () => {
-  it("offers no inspector", () => {
+describe("the header", () => {
+  it("has no More menu, no export or usage, and no computer button", () => {
     fixture.menus = [];
-    renderToStaticMarkup(createElement(ChatView, { bot }));
-    const more = fixture.menus.find((menu) => menu.ariaLabel === "More")!;
-    expect(more.items.map((item) => item.key)).not.toContain("inspector");
+    const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
+    expect(fixture.menus.find((menu) => menu.ariaLabel === "More")).toBeUndefined();
+    expect(markup).not.toContain('data-tour="computer"');
+    expect(markup).not.toContain('data-testid="usage-chip"');
+    expect(markup).not.toContain("Download as .md");
   });
 });
 
@@ -153,7 +146,8 @@ describe("thread control placement", () => {
   it("leaves All threads to the sidebar", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
     expect(markup).not.toContain('aria-label="All threads"');
-    expect(markup).toContain('data-testid="chat-more"');
+    expect(markup).toContain('data-testid="chat-find"');
+    expect(markup).not.toContain('data-testid="chat-more"');
   });
 
   it("says in the chat when the dog needs your hands on its computer, with Open", () => {
@@ -190,18 +184,6 @@ describe("thread control placement", () => {
   it("keeps the composer inert until the deleted thread's replacement transcript arrives", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, awaitingThreadSnapshot: true } }));
     expect(markup).toMatch(/<textarea[^>]*disabled=""[^>]*aria-busy="true"/);
-    expect(markup).not.toContain("Finish group setup");
-  });
-  it("offers trusted modes in the composer without requiring a Full bot default", () => {
-    const fullBot = { ...bot, busy: false, approvalMode: "full" as const };
-    expect(renderToStaticMarkup(createElement(ChatView, { bot: fullBot }))).not.toContain("Use bot’s Full access for this thread");
-    window.laterdog = { approvals: { setMode: vi.fn() } } as unknown as NonNullable<Window["laterdog"]>;
-    expect(renderToStaticMarkup(createElement(ChatView, { bot: fullBot }))).not.toContain("Use bot’s Full access for this thread");
-    renderToStaticMarkup(createElement(ChatView, { bot }));
-    expect(fixture.approval?.trustedModesAvailable).toBe(true);
-    fixture.approval!.onSelect("custom");
-    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "updateTask", botId: "bot", threadId: "selected", patch: { approvalMode: "custom" } });
-    delete window.laterdog;
   });
 
   it("explains provider safety errors without offering an ineffective Retry", () => {
@@ -366,19 +348,16 @@ describe("thread control placement", () => {
     expect(badge[2].split(" ")).toContain("@max-4xl/chathead:sr-only");
   });
 
-  it("keeps the account in the header and puts the model and permissions inside the composer pill", () => {
+  it("keeps the account in the header and puts the model inside the composer pill, with no permissions there", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
     expect(markup.match(/data-test-model-control/g)).toHaveLength(2);
     expect(markup.indexOf("data-test-model-control")).toBeLessThan(markup.indexOf('role="log"'));
     expect(markup.lastIndexOf("data-test-model-control")).toBeGreaterThan(markup.indexOf("data-composer-actions"));
     expect(markup.indexOf('data-tour="composer"')).toBeGreaterThan(-1);
     expect(markup.indexOf("data-composer-actions")).toBeGreaterThan(markup.indexOf("<textarea"));
-    expect(markup.indexOf("data-test-approval-control")).toBeLessThan(markup.indexOf("<textarea"));
+    expect(markup).not.toContain("data-test-approval-control");
     expect(markup).not.toContain('aria-label="Thread settings"');
     expect(fixture.model).toMatchObject({ threadId: "selected", bot: { busy: false, modelSelection: { model: "thread-model" } } });
-    expect(fixture.approval).toMatchObject({ approvalMode: "ask", disabled: false, trustedModesAvailable: false });
-    fixture.approval!.onSelect("auto");
-    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "updateTask", botId: "bot", threadId: "selected", patch: { approvalMode: "auto" } });
   });
 
   it("pins no place per conversation: the chat follows the bot's Works on", () => {

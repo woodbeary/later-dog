@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { setLocale } from "./i18n";
-import { goalCoordinatorForComposer, groupComposerHint, roomRespondersForComposer } from "./group-routing";
+import { groupComposerHint, roomRespondersForComposer } from "./group-routing";
 import type { GroupDefaultResponder } from "@/state/store";
 
 describe("roomRespondersForComposer", () => {
@@ -49,38 +49,6 @@ describe("roomRespondersForComposer", () => {
     expect(roomRespondersForComposer("@everyone𐐀 hello", members, mentionsOnly)).toEqual([]);
     expect(roomRespondersForComposer("user@everyone /@everyone", members, mentionsOnly)).toEqual([]);
     expect(roomRespondersForComposer("İ @everyone", members, mentionsOnly)).toEqual(members);
-  });
-});
-
-describe("goalCoordinatorForComposer", () => {
-  const members = [
-    { id: "first", name: "First" },
-    { id: "chief", name: "Chief", chiefOfStaff: true },
-    { id: "writer", name: "Writer" },
-  ];
-
-  it("uses an explicit mention before the configured lead", () => {
-    expect(goalCoordinatorForComposer(
-      "@Writer finish this",
-      members,
-      { defaultResponder: { kind: "member", botId: "first" } },
-    )?.id).toBe("writer");
-  });
-
-  it("uses wrapped explicit mentions before the configured lead", () => {
-    expect(goalCoordinatorForComposer(
-      "**@Writer** finish this",
-      members,
-      { defaultResponder: { kind: "member", botId: "first" } },
-    )?.id).toBe("writer");
-  });
-
-  it("falls back to the in-room Chief for mentions-only goal channels", () => {
-    expect(goalCoordinatorForComposer(
-      "finish this",
-      members,
-      { defaultResponder: { kind: "mentions" } },
-    )?.id).toBe("chief");
   });
 });
 

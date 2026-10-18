@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { activeLocale, setLocale } from "./i18n";
 import { liveActivityLabel } from "./live-activity";
 import { replyAuthor, replySnippet } from "./replies";
-import { costCaption, usageChip, usageDetail } from "./usage";
 import type { Message } from "@/state/store";
 
 const activity = (name: string, extra: Record<string, unknown> = {}): Message =>
@@ -41,20 +40,6 @@ describe("the memo key the transcript uses", () => {
     expect(activeLocale()).toBe("de");
     setLocale("xx-YY");
     expect(activeLocale()).toBe("en");
-  });
-});
-
-describe("usage chip", () => {
-  const usage = { input: 2000, output: 500, costUsd: 0.02, turns: 2 };
-
-  it("translates the units and the cost caption", () => {
-    setLocale("pt-br");
-    expect(usageDetail(usage)).toContain("entrada");
-    expect(usageDetail(usage)).toContain("saída");
-    expect(usageChip(usage)).toBe("$0.02");
-    expect(usageChip({ ...usage, costUsd: null })).toContain("entrada");
-    expect(costCaption("subscription")).toBe("equivalente — está na sua assinatura, não é cobrado");
-    expect(costCaption(undefined)).toBe("conforme informado pelo provedor");
   });
 });
 

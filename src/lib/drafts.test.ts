@@ -17,20 +17,16 @@ import {
   failedComposerSends,
   getDraft,
   getDraftAttachments,
-  getDraftChannelMode,
   getDraftPosition,
   isDraftAttachmentPending,
   markDraftEdited,
   placeDraftPosition,
-  prependComposerDraft,
   recoverFailedComposerSend,
   replaceDraftAttachment,
   restoredSendId,
   setDraft,
   setDraftAttachments,
-  setDraftChannelMode,
   setDraftPosition,
-  useComposerChannelMode,
   useDraft,
 } from "./drafts";
 import { citationAttachment, createCitationTextSelector } from "./citations";
@@ -69,106 +65,49 @@ function copyStorage(store: Storage): Storage {
   return copy;
 }
 
-function renderedChannelMode(id: string): string {
-  function Mode() {
-    const [mode] = useComposerChannelMode(id);
-    return createElement("span", null, mode);
-  }
-  return renderToStaticMarkup(createElement(Mode));
-}
-
-describe("channel draft delivery mode", () => {
-  it("restores goal intent on remount and from persisted storage after restart", () => {
+describe("failed send recovery", () => {
+  it("restores a failed send after its original composer unmounted", () => {
     const store = memoryStorage();
     Object.defineProperty(globalThis, "localStorage", { configurable: true, value: store });
-    const draftId = "group:goal:task-a";
+    const draftId = "group:failed-send:task";
     setDraft(store, draftId, "Finish the release");
-    setDraftChannelMode(store, draftId, "goal");
-
-    expect(renderedChannelMode(draftId)).toBe("<span>goal</span>");
-    expect(renderedChannelMode("group:goal:task-b")).toBe("<span>chat</span>");
-    expect(renderedChannelMode(draftId)).toBe("<span>goal</span>");
-
-    leavePage();
-    const restarted = copyStorage(store);
-    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: restarted });
-    expect(renderedChannelMode(draftId)).toBe("<span>goal</span>");
-    expect(getDraft(restarted, draftId)).toBe("Finish the release");
-  });
-
-  it("keeps legacy drafts intact and defaults missing or invalid modes to chat", () => {
-    const store = memoryStorage();
-    const draftId = "group:legacy:task";
-    store.setItem("laterdog-drafts", JSON.stringify({ [draftId]: "/goal existing typed goal" }));
-    store.setItem("laterdog-draft-channel-modes", JSON.stringify({ "group:invalid:task": "unexpected" }));
-    expect(getDraftChannelMode(store, draftId)).toBe("chat");
-    expect(getDraftChannelMode(store, "group:invalid:task")).toBe("chat");
-    expect(getDraft(store, draftId)).toBe("/goal existing typed goal");
-  });
-
-  it("restores a failed goal send after its original composer unmounted", () => {
-    const store = memoryStorage();
-    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: store });
-    const draftId = "group:failed-goal:task";
-    setDraft(store, draftId, "Finish the release");
-    setDraftChannelMode(store, draftId, "goal");
     const sent = {
       draftId,
       revision: draftRevision(draftId),
-      sendId: "failed-goal-send",
+      sendId: "failed-send",
       threadId: "task",
       text: "Finish the release",
       requestText: "Finish the release",
       attachments: [],
-      channelMode: "goal" as const,
     };
     setDraft(store, draftId, "");
-    setDraftChannelMode(store, draftId, "chat");
-    expect(renderedChannelMode(draftId)).toBe("<span>chat</span>");
 
     expect(recoverFailedComposerSend(sent)).toBe("restored");
-    expect(renderedChannelMode(draftId)).toBe("<span>goal</span>");
     expect(getDraft(store, draftId)).toBe(sent.text);
     expect(restoredSendId(draftId)).toBe(sent.sendId);
   });
 
-  it("keeps a newer chat draft when an older goal send fails", () => {
+  it("keeps a newer draft when an older send fails", () => {
     const store = memoryStorage();
     Object.defineProperty(globalThis, "localStorage", { configurable: true, value: store });
-    const draftId = "group:older-goal:task";
+    const draftId = "group:older-send:task";
     const revision = draftRevision(draftId);
     markDraftEdited(draftId);
     setDraft(store, draftId, "Just discuss it first");
-    setDraftChannelMode(store, draftId, "chat");
 
     expect(recoverFailedComposerSend({
       draftId,
       revision,
-      sendId: "older-goal-send",
+      sendId: "older-send",
       threadId: "task",
       text: "Finish the release",
       requestText: "Finish the release",
       attachments: [],
-      channelMode: "goal",
     })).toBe("outbox");
-    expect(renderedChannelMode(draftId)).toBe("<span>chat</span>");
     expect(getDraft(store, draftId)).toBe("Just discuss it first");
     expect(failedComposerSends(draftId)).toEqual([
-      expect.objectContaining({ channelMode: "goal", sendId: "older-goal-send" }),
+      expect.objectContaining({ sendId: "older-send" }),
     ]);
-  });
-
-  it("keeps mode in memory when storage rejects writes and clears it after send", () => {
-    const store: Storage = {
-      ...memoryStorage(),
-      setItem: () => { throw new DOMException("quota exceeded", "QuotaExceededError"); },
-    };
-    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: store });
-    const draftId = "group:quota-mode:task";
-    setDraftChannelMode(store, draftId, "goal");
-    expect(renderedChannelMode(draftId)).toBe("<span>goal</span>");
-    setDraftChannelMode(store, draftId, "chat");
-    expect(renderedChannelMode(draftId)).toBe("<span>chat</span>");
   });
 });
 
@@ -363,49 +302,14 @@ describe("appendComposerDraft", () => {
     expect(getDraft(store, draftId)).toBe(`Keep the doctor step first.\n\n${prompt}`);
   });
 
-  it("leaves attachments and the channel mode as they were", () => {
+  it("leaves attachments as they were", () => {
     const store = memoryStorage();
     Object.defineProperty(globalThis, "localStorage", { configurable: true, value: store });
     const draftId = "group:save:thread-attached";
     const attachment = { kind: "file" as const, id: "file-1", path: "/private/attachments/log.txt", name: "log.txt", size: 12 };
     setDraftAttachments(store, draftId, [attachment]);
-    setDraftChannelMode(store, draftId, "goal");
     appendComposerDraft(draftId, prompt);
     expect(getDraft(store, draftId)).toBe(prompt);
-    expect(getDraftAttachments(store, draftId)).toEqual([attachment]);
-    expect(getDraftChannelMode(store, draftId)).toBe("goal");
-  });
-});
-
-describe("prependComposerDraft", () => {
-  it("puts a queued message into an empty draft and marks it edited", () => {
-    const store = memoryStorage();
-    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: store });
-    const draftId = "bot:edit-queued:empty";
-    const revision = draftRevision(draftId);
-    prependComposerDraft(draftId, "actually stop at 10");
-    expect(getDraft(store, draftId)).toBe("actually stop at 10");
-    expect(draftRevision(draftId)).toBe(revision + 1);
-  });
-
-  it("leads with the queued words and keeps what the person already typed below", () => {
-    const store = memoryStorage();
-    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: store });
-    const draftId = "bot:edit-queued:typed";
-    setDraft(store, draftId, "and use the smaller model");
-    prependComposerDraft(draftId, "actually stop at 10");
-    expect(getDraft(store, draftId)).toBe("actually stop at 10\n\nand use the smaller model");
-  });
-
-  it("treats a whitespace-only draft as empty and leaves attachments alone", () => {
-    const store = memoryStorage();
-    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: store });
-    const draftId = "group:edit-queued:attached";
-    const attachment = { kind: "file" as const, id: "file-1", path: "/private/attachments/log.txt", name: "log.txt", size: 12 };
-    setDraft(store, draftId, "  \n");
-    setDraftAttachments(store, draftId, [attachment]);
-    prependComposerDraft(draftId, "check the log");
-    expect(getDraft(store, draftId)).toBe("check the log");
     expect(getDraftAttachments(store, draftId)).toEqual([attachment]);
   });
 });
@@ -569,9 +473,6 @@ describe("keeping the composer's place in a long draft", () => {
     setDraft(store, draftId, "first part");
     setDraftPosition(store, draftId, { start: 2, end: 2, scrollTop: 0 });
     appendComposerDraft(draftId, "added by a button");
-    expect(getDraftPosition(store, draftId)).toBeNull();
-    setDraftPosition(store, draftId, { start: 3, end: 3, scrollTop: 0 });
-    prependComposerDraft(draftId, "edited from the queue");
     expect(getDraftPosition(store, draftId)).toBeNull();
     leavePage();
     expect(JSON.parse(store.getItem("laterdog-draft-positions")!)[draftId]).toBeUndefined();

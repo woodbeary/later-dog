@@ -50,7 +50,6 @@ import type { OnboardingStatus } from "@/lib/onboarding";
 import { openLiveEvents, publishLiveFrame, publishMissedFrames } from "@/lib/live-events";
 import { plainClientError, statusFallback } from "@/lib/plain-client-error";
 import { HOME_WAKE_WORDS, WAKE_LIMIT_MS, WAKE_TOO_LONG, homeWake, retryAfterMs, wakeDelayMs, type HomeWake } from "../../shared/home-wake";
-import { queuedSteerResult } from "@/lib/queued-steer";
 import type { OutboxItem, OutboxRecovery } from "@/lib/outbox";
 import { createSendOutbox, type SendOutbox } from "./send-outbox";
 import { receiveHelperEvent, receiveHelpersSnapshot, forgetHelpers } from "@/lib/helpers-state";
@@ -828,7 +827,6 @@ export type Action =
       sendId?: string;
       replyToId?: string;
       threadId?: string;
-      mode?: "chat" | "goal";
       recovery?: OutboxRecovery;
       onError?: () => void;
     }
@@ -838,7 +836,6 @@ export type Action =
       patch: Partial<Pick<Group, "name" | "bulletin" | "memberIds" | "defaultResponder" | "pinnedMessageId" | "section">>;
     }
   | { type: "deleteGroup"; groupId: string }
-  | { type: "setConversationTurnLimit"; groupId: string; threadId: string; minutes: number | null; dm: boolean }
   | { type: "interruptGroup"; groupId: string; threadId?: string; onError?: () => void }
   | { type: "instances"; instances: InstanceInfo[] }
   | { type: "configStatus"; config: ConfigStatus }
@@ -860,11 +857,7 @@ export type Action =
   | { type: "pendingQueued"; threadId: string; queueId: string; text: string; reason?: SteerQueueReason }
   | { type: "consumePendingQueued"; threadId: string; queueId: string }
   | { type: "cancelQueued"; botId: string; queueId: string; threadId?: string; onCancelled?: () => void }
-  | { type: "steerQueued"; botId: string; queueId: string; threadId?: string; onError?: () => void; onSettled?: () => void }
   | { type: "cancelGroupQueued"; groupId: string; threadId: string; queueId: string; onCancelled?: () => void }
-  | { type: "steerGroupQueued"; groupId: string; queueId: string; threadId?: string; onError?: () => void; onSettled?: () => void }
-  | { type: "editMessage"; botId: string; messageId: string; text: string; threadId?: string; sendId?: string }
-  | { type: "switchBranch"; botId: string; messageId: string; threadId?: string }
   | { type: "threadActive"; threadId: string; activeLeafId: string }
   | { type: "loadOlderMessages"; threadId: string }
   | { type: "olderMessages"; threadId: string; generation: number; messages: Message[]; hasMore: boolean }
@@ -896,7 +889,7 @@ export type Action =
   | { type: "botPatched"; bot: BotAnnouncement }
   | { type: "messageAdded"; threadId: string; message: Message }
   | { type: "messagePatched"; threadId: string; message: Message }
-  | { type: "optimisticMessageRemoved"; threadId: string; sendId: string; restoreLeafId?: string | null }
+  | { type: "optimisticMessageRemoved"; threadId: string; sendId: string }
   | { type: "outboxShown"; items: OutboxItem[] }
   | { type: "computerStart"; botId: string; start: ComputerStart | null }
   | { type: "computerControl"; botId: string; held: boolean; helpReason: string | null }
@@ -917,7 +910,6 @@ export type Action =
   | { type: "toggleAppSettings"; open?: boolean; section?: AppSettingsSection }
   | { type: "toggleShortcuts"; open?: boolean }
   | { type: "toggleWelcome"; open?: boolean }
-  | { type: "giveTreat"; botId: string }
   | {
       type: "updateBot";
       botId: string;
@@ -937,7 +929,7 @@ function reconcileModelVariantSessions(state: AppState): AppState {
 
 export function pinBotThreadAction(action: Action, bots: Bot[]): Action {
   if (!("botId" in action) || ("threadId" in action && action.threadId) ||
-      !["send", "interrupt", "editMessage", "switchBranch", "answerCard", "dismissCard", "cancelQueued", "steerQueued"].includes(action.type)) return action;
+      !["send", "interrupt", "answerCard", "dismissCard", "cancelQueued"].includes(action.type)) return action;
   const botId = action.botId;
   const threadId = bots.find((bot) => bot.id === botId)?.threadId;
   return { ...action, threadId } as Action;
@@ -1056,7 +1048,6 @@ function optimisticUserMessage(
   sendId: string,
   replyToId?: string,
   parentId?: string | null,
-  channelMode?: "chat" | "goal",
 ): Message {
   return {
     id: optimisticMessageId(sendId),
@@ -1067,7 +1058,6 @@ function optimisticUserMessage(
     parentId: parentId ?? null,
     replyToId,
     sendId,
-    channelMode,
   };
 }
 
@@ -1082,7 +1072,7 @@ function showHeldSend(state: AppState, item: OutboxItem): AppState {
   const group = state.groups.find((candidate) => candidate.threadId === item.threadId);
   if (!group || group.messages.some((message) => message.sendId === item.sendId)) return state;
   const message = {
-    ...optimisticUserMessage(item.text, item.sendId, item.replyToId, null, item.target.kind === "group" ? item.target.mode : "chat"),
+    ...optimisticUserMessage(item.text, item.sendId, item.replyToId, null),
     at: item.queuedAt,
   };
   return {
@@ -1265,8 +1255,6 @@ export function reducer(state: AppState, action: Action): AppState {
         (b) => ({ ...b, unread: Boolean(b.tasks?.some((task) => task.threadId !== b.threadId && task.unread)), tasks: b.tasks?.map((task) => task.threadId === b.threadId ? { ...task, unread: false } : task) }),
       );
     }
-    case "giveTreat":
-      return withMascotMotion(state, action.botId, "celebrate");
     case "answerCard": {
       if (action.groupId) return patchGroupCard(state, action.groupId, action.messageId, { answered: action.answer });
       const bot = state.bots.find((candidate) => candidate.id === action.botId);
@@ -1444,7 +1432,7 @@ export function reducer(state: AppState, action: Action): AppState {
         if (!optimistic) return state;
         const cleared = updateBot(state, bot.id, (current) => {
           const messages = current.messages.filter((message) => message.id !== id);
-          const restored = action.restoreLeafId !== undefined ? action.restoreLeafId : (optimistic.parentId ?? null);
+          const restored = optimistic.parentId ?? null;
           return {
             ...current,
             messages,
@@ -1693,17 +1681,6 @@ export function reducer(state: AppState, action: Action): AppState {
         activeLeafId: action.activeLeafId,
       }));
     }
-    case "switchBranch": {
-      const bot = state.bots.find((b) => b.id === action.botId);
-      if (!bot) return state;
-      let cur = action.messageId;
-      for (;;) {
-        const children = bot.messages.filter((m) => m.parentId === cur);
-        if (!children.length) break;
-        cur = children.reduce((a, b) => (b.at >= a.at ? b : a)).id;
-      }
-      return updateBot(bumpTranscriptGeneration(state, bot.threadId), action.botId, (b) => ({ ...b, activeLeafId: cur }));
-    }
     case "patchGroup":
       return {
         ...state,
@@ -1751,8 +1728,6 @@ export function reducer(state: AppState, action: Action): AppState {
       else delete pendingQueued[threadId];
       return { ...state, pendingQueued, consumedQueueIds: rememberConsumedQueueId(state.consumedQueueIds, action.queueId) };
     }
-    case "steerQueued":
-      return state;
     case "cancelGroupQueued": {
       const prev = state.pendingQueued[action.threadId] ?? [];
       const rest = prev.filter((entry) => entry.queueId !== action.queueId);
@@ -1785,43 +1760,6 @@ export function reducer(state: AppState, action: Action): AppState {
         activeLeafId: message.id,
       })), threadId, message.at);
     }
-    case "editMessage": {
-      const animated = withMascotMotion(state, action.botId, "working");
-      if (!action.sendId) return animated;
-      const bot = animated.bots.find((candidate) => candidate.id === action.botId);
-      const threadId = action.threadId ?? bot?.threadId;
-      if (!bot || threadId !== bot.threadId) return animated;
-      if (bot.messages.some((message) => message.sendId === action.sendId)) return animated;
-      const source = bot.messages.find((message) => message.id === action.messageId);
-      if (!source || source.role !== "user" || source.kind !== "text") return animated;
-      const message = optimisticUserMessage(
-        action.text.trim(),
-        action.sendId,
-        source.replyToId,
-        source.parentId ?? null,
-      );
-      return updateBot(animated, bot.id, (current) => ({
-        ...current,
-        messages: [...current.messages, message],
-        activeLeafId: message.id,
-      }));
-    }
-    case "setConversationTurnLimit":
-      return {
-        ...state,
-        groups: state.groups.map((group) => {
-          if (group.id !== action.groupId) return group;
-          if (action.dm) return { ...group, turnTimeoutMinutes: action.minutes ?? undefined };
-          return {
-            ...group,
-            tasks: (group.tasks ?? []).map((task) =>
-              task.threadId === action.threadId
-                ? { ...task, turnTimeoutMinutes: action.minutes ?? undefined }
-                : task,
-            ),
-          };
-        }),
-      };
     case "taskSwitched": {
       let switched = updateBot(bumpTranscriptGeneration(state, action.bot.threadId), action.bot.id, (bot) => ({
         ...bot,
@@ -1843,7 +1781,6 @@ export function reducer(state: AppState, action: Action): AppState {
     case "createGroup":
     case "deleteGroup":
     case "interruptGroup":
-    case "steerGroupQueued":
     case "createRoutine":
     case "updateRoutine":
     case "deleteRoutine":
@@ -1862,7 +1799,6 @@ export function reducer(state: AppState, action: Action): AppState {
         action.sendId,
         action.replyToId,
         null,
-        action.mode ?? "chat",
       );
       return bumpThreadUpdatedAt({
         ...state,
@@ -2291,13 +2227,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       rawDispatch({ type: "error", message: plainClientError(e) });
       setTimeout(() => rawDispatch({ type: "error", message: null }), 6000);
     };
-    const receiveQueuedSteer = (body: unknown) => {
-      const result = queuedSteerResult(body);
-      if (!result.delivered) throw new Error(result.line);
-      if (result.threadId === null) return;
-      for (const message of result.messages) rawDispatch({ type: "messageAdded", threadId: result.threadId, message });
-      for (const queueId of result.queueIds) rawDispatch({ type: "consumePendingQueued", threadId: result.threadId, queueId });
-    };
     const cardTarget = (action: { botId: string; messageId: string; groupId?: string }) => {
       const host = action.groupId
         ? stateRef.current.groups.find((g) => g.id === action.groupId)
@@ -2390,7 +2319,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       action = pinBotThreadAction(action, stateRef.current.bots);
       if (action.type === "taskSwitched") action = { ...action, bot: withTaskWrites(action.bot) as Bot };
       if (action.type === "botPatched") action = { ...action, bot: withTaskWrites(action.bot) };
-      if ((action.type === "send" || action.type === "sendGroup" || action.type === "editMessage") && !action.sendId) {
+      if ((action.type === "send" || action.type === "sendGroup") && !action.sendId) {
         action = { ...action, sendId: crypto.randomUUID() };
       }
       const botBeforeUpdate =
@@ -2401,12 +2330,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         action.type === "send"
           ? stateRef.current.bots.find((candidate) => candidate.id === action.botId)
           : undefined;
-      const leafBeforeEdit =
-        action.type === "editMessage"
-          ? stateRef.current.bots.find((candidate) => candidate.id === action.botId)?.activeLeafId ?? null
-          : null;
       const executionBotsBeforeAction = (() => {
-        if (action.type === "editMessage" || action.type === "answerCard") {
+        if (action.type === "answerCard") {
           const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
           return bot ? [bot] : [];
         }
@@ -2506,17 +2431,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             })
             .catch(showError);
           break;
-        case "steerQueued":
-          void api(`/api/bots/${action.botId}/queue/${action.queueId}/steer`, { method: "POST", body: JSON.stringify({ threadId: action.threadId }) })
-            .then((body) => {
-              receiveQueuedSteer(body);
-              action.onSettled?.();
-            })
-            .catch((error) => {
-              showError(error);
-              action.onError?.();
-            });
-          break;
         case "cancelGroupQueued":
           void api(`/api/groups/${action.groupId}/queue/${action.queueId}`, { method: "DELETE" })
             .then(() => {
@@ -2524,20 +2438,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               action.onCancelled?.();
             })
             .catch(showError);
-          break;
-        case "steerGroupQueued":
-          void api(`/api/groups/${action.groupId}/queue/${action.queueId}/steer`, {
-            method: "POST",
-            body: JSON.stringify({ threadId: action.threadId }),
-          })
-            .then((body) => {
-              receiveQueuedSteer(body);
-              action.onSettled?.();
-            })
-            .catch((error) => {
-              showError(error);
-              action.onError?.();
-            });
           break;
         case "send": {
           if (quizBeforeSend) persistCard(action.botId, quizBeforeSend.id, { dismissed: true });
@@ -2557,34 +2457,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           });
           break;
         }
-        case "editMessage": {
-          const threadId =
-            action.threadId ?? stateRef.current.bots.find((bot) => bot.id === action.botId)?.threadId;
-          const sendId = action.sendId ?? crypto.randomUUID();
-          void waitForExecutionSettings(executionBotsBeforeAction, threadId)
-            .then(() => api(`/api/bots/${action.botId}/messages/${action.messageId}/edit`, {
-              method: "POST",
-              body: JSON.stringify({ text: action.text.trim(), threadId, sendId }),
-            }))
-            .then((body) => {
-              if (body?.message && threadId) {
-                rawDispatch({ type: "messageAdded", threadId, message: body.message });
-              }
-            })
-            .catch((error) => {
-              if (threadId) {
-                rawDispatch({ type: "optimisticMessageRemoved", threadId, sendId, restoreLeafId: leafBeforeEdit });
-              }
-              showError(error);
-            });
-          break;
-        }
-        case "switchBranch":
-          api(`/api/bots/${action.botId}/active-branch`, {
-            method: "POST",
-            body: JSON.stringify({ messageId: action.messageId, threadId: action.threadId }),
-          }).catch(showError);
-          break;
         case "decideRequest": {
           const respond = (scope: typeof action.scope) =>
             api(`/api/threads/${action.threadId}/respond`, {
@@ -2768,7 +2640,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           sendOutbox().send({
             sendId: action.sendId ?? crypto.randomUUID(),
             threadId: threadId ?? "",
-            target: { kind: "group", groupId: action.groupId, mode: action.mode ?? "chat" },
+            target: { kind: "group", groupId: action.groupId },
             text: action.text,
             ...(action.replyToId ? { replyToId: action.replyToId } : {}),
             queuedAt: Date.now(),
@@ -2842,12 +2714,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             showError(error);
             action.onError?.();
           });
-          break;
-        case "setConversationTurnLimit":
-          api(action.dm ? `/api/groups/${action.groupId}` : `/api/groups/${action.groupId}/tasks/${action.threadId}`, {
-            method: "PATCH",
-            body: JSON.stringify({ turnTimeoutMinutes: action.minutes }),
-          }).catch(showError);
           break;
         case "interruptGroup":
           api(`/api/groups/${action.groupId}/interrupt`, {

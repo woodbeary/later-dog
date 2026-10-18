@@ -17,7 +17,7 @@ function Probe(props: { options: ComposerSuggestionOptions }) {
 }
 
 const base = (patch: Partial<ComposerSuggestionOptions> = {}): ComposerSuggestionOptions => ({
-  config: { features: {}, typing: { enabled: true, included: false, cloudflare: { configured: false }, ranking: false } },
+  config: { features: { typingSuggestions: true }, typing: { enabled: true, included: false, cloudflare: { configured: false }, ranking: false } },
   text: "Can you fi",
   caret: 10,
   field: null,
@@ -157,11 +157,11 @@ describe("smarter suggestions are opt-in", () => {
   it("never asks a model, or the decision model, until the person turns it on", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ completion: " at it", source: "cloud" })));
     vi.stubGlobal("fetch", fetcher);
-    await render(base({ ...noPhrase, config: { features: {}, typing: served } }));
+    await render(base({ ...noPhrase, config: { features: { typingSuggestions: true }, typing: served } }));
     await wait(MODEL_PAUSE_MS + 500);
     expect(fetcher).not.toHaveBeenCalled();
     expect(suggestion.ghost).toBe("");
-    await render(base({ ...noPhrase, config: { features: { smarterSuggestions: false }, typing: served } }));
+    await render(base({ ...noPhrase, config: { features: { typingSuggestions: true, smarterSuggestions: false }, typing: served } }));
     await wait(MODEL_PAUSE_MS + 500);
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -169,16 +169,24 @@ describe("smarter suggestions are opt-in", () => {
   it("asks once the switch is on", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ completion: " at it", source: "cloud", ms: 5 })));
     vi.stubGlobal("fetch", fetcher);
-    await render(base({ ...noPhrase, config: { features: { smarterSuggestions: true }, typing: served } }));
+    await render(base({ ...noPhrase, config: { features: { typingSuggestions: true, smarterSuggestions: true }, typing: served } }));
     await wait(MODEL_PAUSE_MS + 50);
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(suggestion.ghost).toBe(" at it");
   });
 
   it("still suggests the person's own phrases with the switch off", async () => {
-    await render(base({ config: { features: {}, typing: served } }));
+    await render(base({ config: { features: { typingSuggestions: true }, typing: served } }));
     await wait(FAST_PAUSE_MS + 1);
     expect(suggestion.ghost).toBe("x the failing tests");
+  });
+});
+
+describe("default", () => {
+  it("shows nothing until the switch is turned on", async () => {
+    await render(base({ config: { features: {} } }));
+    await wait(FAST_PAUSE_MS + 50);
+    expect(suggestion.ghost).toBe("");
   });
 });
 

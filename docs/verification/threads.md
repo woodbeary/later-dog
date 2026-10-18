@@ -128,7 +128,7 @@ This renderer fixture does not test a native mobile device or real computer use.
 ## Permanent regression checks
 
 ```sh
-pnpm exec vitest run server/independent-threads-api.test.ts server/paired-thread-targets-api.test.ts server/bot-projects-api.test.ts server/thread-capacity-api.test.ts src/components/BotProjects.test.ts src/components/ComposerQueuedMessages.test.ts src/state/store.test.ts
+pnpm exec vitest run server/independent-threads-api.test.ts server/paired-thread-targets-api.test.ts server/bot-projects-api.test.ts server/thread-capacity-api.test.ts src/components/BotProjects.test.ts src/state/store.test.ts
 ```
 
 These cover thread-pinned tools and permissions, stale legacy phone requests,

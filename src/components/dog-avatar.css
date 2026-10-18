@@ -167,12 +167,3 @@
 @media (prefers-reduced-motion: reduce) {
   .ld-dog, .ld-dog * { animation: none !important; transition-duration: 0.01ms !important; }
 }
-
-.treat-pop { translate: -50% 0; animation: ld-treat-pop 0.9s var(--ease-out-soft, ease-out) forwards; }
-@keyframes ld-treat-pop {
-  0% { opacity: 0; transform: translateY(2px) scale(0.8); }
-  25% { opacity: 1; transform: translateY(-6px) scale(1.1); }
-  100% { opacity: 0; transform: translateY(-18px) scale(1); }
-}
-@media (prefers-reduced-motion: reduce) { .treat-pop { animation: ld-treat-fade 0.9s linear forwards; } }
-@keyframes ld-treat-fade { 0%, 60% { opacity: 1; } 100% { opacity: 0; } }

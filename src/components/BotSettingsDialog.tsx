@@ -17,7 +17,6 @@ import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { ModelPicker } from "./ModelPicker";
 import { Switch } from "./SettingsPrimitives";
 import { SoulField } from "./SoulField";
-import { TreatCount } from "./TreatCount";
 import { useBotEditor } from "./bot-settings/BotEditorContext";
 import { botLibraryItems } from "./bot-settings/library";
 import { SimpleMemory } from "./bot-settings/SimpleMemory";
@@ -202,9 +201,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
               value={bot.title}
               onChange={(e) => patch({ title: e.target.value })}
             />
-            <div className="mt-1.5">
-              <TreatCount botId={bot.id} />
-            </div>
           </div>
 
           <div className="mt-4 flex justify-center">

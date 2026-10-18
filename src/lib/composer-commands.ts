@@ -1,4 +1,4 @@
-export type ComposerSlashCommandId = "goal" | "learn" | "setup";
+export type ComposerSlashCommandId = "learn";
 
 export interface ComposerSlashCommand {
   id: ComposerSlashCommandId;
@@ -18,11 +18,6 @@ export function composerSlashTrigger(text: string, caretInput: number): Composer
   const match = /^\/([a-z-]*)$/i.exec(prefix);
   if (!match) return null;
   return { query: match[1] ?? "", start: 0, end: caret };
-}
-
-export function goalTextFromComposer(text: string): string | null {
-  const match = /^\/goal(?:\s+([\s\S]*))?$/i.exec(text);
-  return match ? (match[1] ?? "").trimStart() : null;
 }
 
 export function replaceComposerSlashTrigger(

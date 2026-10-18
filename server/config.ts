@@ -705,7 +705,7 @@ export function skillsLibraryEnabled(cfg: AppConfig): boolean {
  }
 
 export function typingSuggestionsEnabled(cfg: AppConfig): boolean {
-  return cfg.features?.typingSuggestions !== false;
+  return cfg.features?.typingSuggestions === true;
 }
 
 export function smarterSuggestionsEnabled(cfg: AppConfig): boolean {

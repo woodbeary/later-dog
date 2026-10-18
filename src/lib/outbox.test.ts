@@ -198,7 +198,7 @@ describe("the saved outbox", () => {
       setItem: (key: string, value: string) => { values.set(key, value); },
       removeItem: (key: string) => { values.delete(key); },
     };
-    const group: OutboxItem = { sendId: "g", threadId: "room", target: { kind: "group", groupId: "team", mode: "goal" }, text: "hi all", queuedAt: 7, recovery: { draftId: "group:team:room", text: "hi all", channelMode: "goal" } };
+    const group: OutboxItem = { sendId: "g", threadId: "room", target: { kind: "group", groupId: "team" }, text: "hi all", queuedAt: 7, recovery: { draftId: "group:team:room", text: "hi all" } };
     writeOutbox(store, [item("a"), group]);
     expect(readOutbox(store)).toEqual([item("a"), group]);
     writeOutbox(store, []);

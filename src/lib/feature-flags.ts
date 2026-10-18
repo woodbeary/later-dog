@@ -29,7 +29,7 @@ export function cloudDictationEnabled(config: FeatureFlagConfig | null | undefin
 }
 
 export function typingSuggestionsEnabled(config: FeatureFlagConfig | null | undefined): boolean {
-  return config?.features?.typingSuggestions !== false;
+  return config?.features?.typingSuggestions === true;
 }
 
 export function smarterSuggestionsEnabled(config: FeatureFlagConfig | null | undefined): boolean {

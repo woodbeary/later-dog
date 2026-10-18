@@ -35,7 +35,7 @@ const startTrial = (included: string[] = ["decisions", "voice", "ai"]) => {
   writeFileSync(join(home, "computers-trial-key"), `${KEY}\n`);
 };
 
-const SMART = { features: { smarterSuggestions: true } } as AppConfig;
+const SMART = { features: { typingSuggestions: true, smarterSuggestions: true } } as AppConfig;
 
 const request = { prefix: "Please fix", dog: "Rex", messages: [{ role: "dog" as const, text: "Two tests fail." }], phrasing: [] as string[] };
 
@@ -83,7 +83,7 @@ describe("which service finishes the sentence", () => {
 
   it("tells Settings what is set up without ever returning the token", () => {
     startTrial();
-    const cfg = { typing: { accountId: ACCOUNT, token: "secret-token" } } as AppConfig;
+    const cfg = { features: { typingSuggestions: true }, typing: { accountId: ACCOUNT, token: "secret-token" } } as AppConfig;
     const described = describeTyping(cfg, includedCompletion(), true);
     expect(described).toEqual({ enabled: true, smarter: false, included: true, cloudflare: { configured: true, accountId: ACCOUNT, model: TYPING_DEFAULT_MODEL }, ranking: true });
     expect(JSON.stringify(described)).not.toContain("secret-token");
@@ -170,7 +170,7 @@ describe("the included service path", () => {
 });
 
 describe("the person's own Cloudflare account", () => {
-  const cfg = { features: { smarterSuggestions: true }, typing: { accountId: ACCOUNT, token: "cf-token" } } as AppConfig;
+  const cfg = { features: { typingSuggestions: true, smarterSuggestions: true }, typing: { accountId: ACCOUNT, token: "cf-token" } } as AppConfig;
 
   it("calls Workers AI directly with the person's token and a small chat", async () => {
     const fetcher = vi.fn(async () => reply({ result: { response: " the failing tests" }, success: true }));
@@ -201,12 +201,12 @@ describe("the person's own Cloudflare account", () => {
 });
 
 describe("smarter suggestions are opt-in", () => {
-  const ownAccount = { typing: { accountId: ACCOUNT, token: "cf-token" } } as AppConfig;
+  const ownAccount = { features: { typingSuggestions: true }, typing: { accountId: ACCOUNT, token: "cf-token" } } as AppConfig;
 
   it("sends nothing by default, with a trial, a plan or the person's own Cloudflare account", async () => {
     startTrial();
     const fetcher = vi.fn();
-    for (const cfg of [{} as AppConfig, ownAccount, { features: { typingSuggestions: true } } as AppConfig, { features: { smarterSuggestions: false } } as AppConfig]) {
+    for (const cfg of [ownAccount, { features: { typingSuggestions: true } } as AppConfig, { features: { typingSuggestions: true, smarterSuggestions: false } } as AppConfig]) {
       expect(await service(cfg, fetcher as unknown as typeof fetch).complete(request)).toEqual({ ok: false, reason: "not-allowed" });
     }
     expect(fetcher).not.toHaveBeenCalled();
@@ -221,7 +221,7 @@ describe("smarter suggestions are opt-in", () => {
   it("calls out once the person turns it on, and stops again when they turn it off", async () => {
     startTrial();
     const fetcher = vi.fn(async () => reply({ completion: " the failing tests" }));
-    const cfg = { features: { smarterSuggestions: false } } as AppConfig;
+    const cfg = { features: { typingSuggestions: true, smarterSuggestions: false } } as AppConfig;
     const svc = createTypingService({ config: () => cfg, fetch: fetcher as unknown as typeof fetch });
     expect(await svc.complete(request)).toEqual({ ok: false, reason: "not-allowed" });
     cfg.features!.smarterSuggestions = true;
@@ -235,6 +235,14 @@ describe("smarter suggestions are opt-in", () => {
 });
 
 describe("when nothing is sent", () => {
+  it("is off until the person turns it on", async () => {
+    startTrial();
+    const fetcher = vi.fn();
+    expect(describeTyping({} as AppConfig, null, false).enabled).toBe(false);
+    expect(await service({ features: { smarterSuggestions: true } } as AppConfig, fetcher as unknown as typeof fetch).complete(request)).toEqual({ ok: false, reason: "off" });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("is off after the person turns it off", async () => {
     startTrial();
     const fetcher = vi.fn();
