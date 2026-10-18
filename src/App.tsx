@@ -6,7 +6,6 @@ import { CloudSignInGate, useCloudSignInGate } from "@/components/CloudSignInGat
 import { useWelcomeViewer, WelcomeGate } from "@/components/onboarding/WelcomeGate";
 import { cloudSignInDue, type WelcomeViewer } from "@/lib/onboarding";
 import { LiveCallHost } from "@/components/LiveCallHost";
-import { ThreadRefsProvider } from "@/components/ThreadRefs";
 import { initAnalytics } from "@/lib/analytics";
 import { Sidebar } from "@/components/Sidebar";
 import { ChatView } from "@/components/ChatView";
@@ -256,9 +255,7 @@ export default function App() {
   return (
     <DesktopCapabilitiesProvider>
       <StoreProvider>
-        <ThreadRefsProvider>
-          <Shell viewer={viewer} />
-        </ThreadRefsProvider>
+        <Shell viewer={viewer} />
         <WelcomeGate viewer={viewer} hold={signInGate.holding} />
         <CloudSignInGate gate={signInGate} />
         <LiveCallHost />

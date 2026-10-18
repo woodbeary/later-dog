@@ -38,7 +38,6 @@ export function SimpleModelPane({
   onRefresh,
   refreshing = false,
   currentModelId,
-  botModelId,
   onPick,
   effort,
   variantsRow,
@@ -61,7 +60,6 @@ export function SimpleModelPane({
   onRefresh?: (() => void) | null;
   refreshing?: boolean;
   currentModelId?: string;
-  botModelId?: string;
   onPick: (modelId: string) => void;
   effort?: { levels: EffortLevel[]; current?: EffortLevel; driverKind?: string; onPick: (level: EffortLevel) => void } | null;
   variantsRow?: ReactNode;
@@ -172,9 +170,6 @@ export function SimpleModelPane({
                         <span className="min-w-0 flex-1 truncate">{option.label}</span>
                         {route && (
                           <span data-simple-route className="max-w-[45%] shrink-0 truncate text-[11.5px] font-normal text-ink-secondary">{route}</span>
-                        )}
-                        {option.id === botModelId && (
-                          <span data-bot-model className="shrink-0 text-[11.5px] font-normal text-ink-secondary">{t("model.botModelTag")}</span>
                         )}
                         {current && <Check size={14} className="shrink-0 text-accent-text" aria-hidden="true" />}
                       </button>

@@ -1,4 +1,4 @@
-import { createContext, memo, use, useContext, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import type { HighlighterCore } from "shiki/core";
 import Markdown, { defaultUrlTransform, type Components, type ExtraProps } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -21,9 +21,8 @@ import {
 import { repairMarkdownTables } from "../lib/markdown-tables";
 import { TRANSCRIPT_WINDOW_SIZE } from "../lib/transcript-window";
 import { windowsPathDestinations } from "../../shared/markdown-windows-paths";
-import { looksLikeThreadRefUrl, parseThreadRefUrl, resolveThreadRefAddress, remarkThreadRefs } from "../lib/thread-refs";
+import { looksLikeThreadRefUrl } from "../lib/thread-refs";
 import { MarkdownImagePreview, MessageFolderFiles, OutsideWorkspaceFile, useLocalFileSave, type MessageAttachmentContext } from "./AttachmentPreview";
-import { ThreadLink, ThreadRefsContext, threadLinkFromProps, type ThreadRefsValue } from "./ThreadRefs";
 import { MarkdownTable } from "./MarkdownTable";
 import { TableFileButton } from "./TableFilePreview";
 
@@ -758,11 +757,9 @@ function normalizeMessageMarkdown(text: string) {
 interface MessageScope {
   message?: MessageAttachmentContext;
   imageOffsets?: Map<number, number>;
-  threads: ThreadRefsValue["threads"];
-  currentBotId?: string;
 }
 
-const MessageScopeContext = createContext<MessageScope>({ threads: [] });
+const MessageScopeContext = createContext<MessageScope>({});
 
 function MarkdownCode({ children }: { children?: ReactNode }) {
   const child: any = Array.isArray(children) ? children[0] : children;
@@ -798,11 +795,8 @@ function MarkdownImage(props: ComponentProps<"img"> & ExtraProps) {
 }
 
 function MarkdownLink({ href, children }: { href?: string; children?: ReactNode }) {
-  const { threads, currentBotId, message } = useContext(MessageScopeContext);
-  const address = href ? parseThreadRefUrl(href) : null;
-  const ref = address ? resolveThreadRefAddress(threads, address, currentBotId) : null;
-  if (ref) return <ThreadLink target={ref} ambiguous={ref.ambiguous}>{children}</ThreadLink>;
-  if (address || (href && looksLikeThreadRefUrl(href))) return <span className="break-words">{children}</span>;
+  const { message } = useContext(MessageScopeContext);
+  if (href && looksLikeThreadRefUrl(href)) return <span className="break-words">{children}</span>;
   const localPath = localFilePath(href);
   if (localPath) return <LocalFileLink filePath={localPath} message={message}>{children}</LocalFileLink>;
   return (
@@ -827,8 +821,6 @@ const MARKDOWN_COMPONENTS: Components = {
     );
   },
   span(props) {
-    const link = threadLinkFromProps(props as Record<string, unknown>);
-    if (link) return <ThreadLink target={link.target} ambiguous={link.ambiguous}>{props.children}</ThreadLink>;
     const { node: _node, children, ...rest } = props;
     const { "data-mention-dog": dog, "data-mention-body": body, ...attributes } = rest as Record<string, unknown>;
     if (typeof dog === "string") {
@@ -888,20 +880,16 @@ const MARKDOWN_COMPONENTS: Components = {
   },
 };
 
-const MAY_LINK_THREAD = /#|laterdog/i;
-const NO_THREAD_REFS: ThreadRefsValue = { threads: [] };
-
 function ChatMarkdownComponent({ text, message, mentionPeers = NO_MENTION_PEERS, everyone = false }: {
   text: string; message?: MessageAttachmentContext;
   mentionPeers?: readonly MentionPeer[]; everyone?: boolean;
 }) {
-  const { threads, currentBotId } = MAY_LINK_THREAD.test(text) ? use(ThreadRefsContext) : NO_THREAD_REFS;
   const { source, imageOffsets } = normalizeMessageMarkdown(text);
   return (
-    <MessageScopeContext.Provider value={{ message, imageOffsets, threads, currentBotId }}>
+    <MessageScopeContext.Provider value={{ message, imageOffsets }}>
       <div className="chat-md min-w-0 [&>*+*]:mt-2">
         <Markdown
-          remarkPlugins={[remarkGfm, remarkMath, remarkWindowsPathDestinations, unwrapLinkedImages, [remarkMentions, { peers: mentionPeers, everyone }], remarkThreadRefs(threads, currentBotId)]}
+          remarkPlugins={[remarkGfm, remarkMath, remarkWindowsPathDestinations, unwrapLinkedImages, [remarkMentions, { peers: mentionPeers, everyone }]]}
           rehypePlugins={[rehypeKatex]}
           urlTransform={chatUrlTransform}
           components={MARKDOWN_COMPONENTS}

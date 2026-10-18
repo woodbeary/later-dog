@@ -1,6 +1,6 @@
 import type { Message } from "@/state/store";
 
-export type PeerDelivery = "ask_bot" | "delegate_bot" | "start_thread";
+export type PeerDelivery = "ask_bot" | "delegate_bot";
 
 export interface PeerLine {
   botId?: string;
@@ -16,7 +16,7 @@ const PROVENANCE_NOTE =
 const DELIVERY: Record<string, PeerDelivery> = {
   "Message from": "ask_bot",
   "Delegated by": "delegate_bot",
-  "Thread opened by": "start_thread",
+  "Thread opened by": "delegate_bot",
 };
 
 export function peerLine(message: Pick<Message, "role" | "text" | "peerAsk">): PeerLine | null {

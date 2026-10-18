@@ -51,3 +51,14 @@ describe("via call label", () => {
     expect(markup).not.toContain("via call");
   });
 });
+
+describe("old stored thread links in a 1:1 chat", () => {
+  it("shows a sent message saved with a thread link as plain #Title text", () => {
+    const markup = renderToStaticMarkup(createElement(ChatView, {
+      bot: bot([message("m1", "please finish [Fix login](laterdog://thread/abc?bot=b1) first")]),
+    }));
+    expect(markup).toContain("please finish #Fix login first");
+    expect(markup).not.toContain("laterdog://");
+    expect(markup).not.toContain("bot=b1");
+  });
+});

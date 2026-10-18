@@ -14,14 +14,14 @@ import { BotAvatar } from "./Avatar";
 import { PlaceIcon } from "./PlaceIcon";
 import { ScreenFrame } from "./ScreenFrame";
 import { effectivePlace, placeLabelKey } from "@/lib/place";
-import { ThreadChip } from "./ThreadChip";
 import { CloudTaskCard, CloudTaskUpdateRow } from "./CloudTaskCard";
 import { cloudWakeupOf } from "@/lib/cloud-tasks";
 import { ToolActivity } from "./ToolActivity";
-import { ThreadRefText } from "./ThreadRefs";
+import { MentionText } from "./MentionText";
+import { plainThreadLinks } from "@/lib/thread-refs";
 import { freshenDogName } from "@/lib/dog-refs";
-import { foldExchanges, singleExchange } from "@/lib/quiet-lines";
-import { ExchangeLine } from "./QuietLines";
+import { singleExchange } from "@/lib/quiet-lines";
+import { ExchangeLine, PlainNoteLine } from "./QuietLines";
 import { ExchangeViewHost } from "./ExchangeViewHost";
 import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
@@ -41,7 +41,6 @@ import { CitationSelectionToolbar, SentCitations } from "./CitationUI";
 import { Composer } from "./Composer";
 import { ChatFindBar } from "./ChatFindBar";
 import { ConversationTurnLimit } from "./ConversationTurnLimit";
-import { GroupTaskPicker } from "./TaskPicker";
 import { GroupUsageChip } from "./GroupUsageChip";
 import { ExportTranscriptMenu } from "./ExportTranscriptMenu";
 import { ReplyQuote } from "./ReplyQuote";
@@ -86,7 +85,7 @@ export function RoomToolChip({ message, roomId }: { message: Message; roomId?: s
   const tool = message.tool;
   if (!tool) return null;
   if (message.cloudTask) return <CloudTaskCard message={message} />;
-  if (message.threadRef) return <ThreadChip message={message} />;
+  if (message.threadRef) return <PlainNoteLine message={message} />;
   if (failedTurnCause(tool.name) !== null) {
     return <FailedTurnRow tool={tool} engine={botEngine(state.bots.find((b) => b.id === message.from?.botId), state.instances)} botId={message.from?.botId} />;
   }
@@ -99,13 +98,7 @@ export function RoomToolChip({ message, roomId }: { message: Message; roomId?: s
       <div className="flex justify-start">
         <button
           type="button"
-          onClick={() => {
-            dispatch({ type: "select", id: comm.groupId });
-            const destination = state.groups.find(g => g.id === comm.groupId);
-            if (comm.threadId && destination?.tasks?.some(task => task.threadId === comm.threadId)) {
-              dispatch({ type: "switchGroupTask", groupId: comm.groupId, threadId: comm.threadId });
-            }
-          }}
+          onClick={() => dispatch({ type: "select", id: comm.groupId })}
           title={t("room.openBot", { name: comm.withName })}
           className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
         >
@@ -196,8 +189,8 @@ export const Transcript = memo(function Transcript({
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
   const memberOf = (id?: string) => members.find((b) => b.id === id);
-  const items = useMemo(() => foldExchanges(groupActivityRuns(messages.filter(message =>
-    message.kind !== "activity" || roomActivityVisible(message, showToolCalls))), { openedOnly: true }), [messages, showToolCalls]);
+  const items = useMemo(() => groupActivityRuns(messages.filter(message =>
+    message.kind !== "activity" || roomActivityVisible(message, showToolCalls))), [messages, showToolCalls]);
   const newestMessageId = messages.at(-1)?.id;
   const newestUserMessageId = [...messages].reverse().find((message) => message.role === "user")?.id;
   const unreadSince = useUnreadBoundary(`room/${group.id}/${group.threadId}`, messages);
@@ -216,16 +209,9 @@ export const Transcript = memo(function Transcript({
         const prev = previous && (previous.kind === "message" ? previous.message : previous.messages.at(-1));
         const first = item.kind === "message" ? item.message : item.messages[0];
         const newDay = !prev || localDay(prev.at) !== localDay(first.at);
-        if (item.kind === "exchange") {
-          return <div key={item.id} className="contents" data-mid={item.rows.length === 1 ? item.messages[0]!.id : undefined}>
-            {newDay && <div className="py-3 text-center text-[13px] text-ink-secondary">{dayLabel(first.at)} {formatTime(first.at)}</div>}
-            {unreadDivider(item.messages)}
-            <ExchangeLine item={item} forceOpen={item.messages.some(message => message.id === focusedId)} />
-          </div>;
-        }
         if (item.kind === "run") {
           if (!showToolCalls) return null;
-          const cluster = previous?.kind === "exchange" || !prev || prev.role !== first.role || prev.from?.botId !== first.from?.botId || newDay;
+          const cluster = !prev || prev.role !== first.role || prev.from?.botId !== first.from?.botId || newDay;
           return (
             <div key={item.id} className="contents">
               {newDay && (
@@ -258,7 +244,7 @@ export const Transcript = memo(function Transcript({
         const sentWords = Boolean((attachments?.display ?? m.text ?? "").trim());
         const sentAbove = sentAttachments && sentWords;
         const sentOnly = sentAttachments && !sentWords && !m.replyToId;
-        const newCluster = previous?.kind === "exchange" || !prev || prev.role !== m.role || prev.from?.botId !== m.from?.botId || Boolean(prev.comm) || newDay;
+        const newCluster = !prev || prev.role !== m.role || prev.from?.botId !== m.from?.botId || Boolean(prev.comm) || newDay;
         const routineTarget = m.kind === "routine.run"
           ? ownerShowingElsewhere([...state.bots, ...state.groups], m.routineRun?.executionThreadId, group.id)
           : undefined;
@@ -361,7 +347,7 @@ export const Transcript = memo(function Transcript({
                         data-citation-owner={group.id}
                         data-citation-thread={group.threadId}
                       >
-                        <ThreadRefText text={attachments?.display ?? m.text ?? ""} peers={members} everyone={!group.dm} />
+                        <MentionText text={plainThreadLinks(attachments?.display ?? m.text ?? "")} peers={members} everyone={!group.dm} faces />
                       </div>
                       {cited && <SentCitations
                         citations={cited.citations}
@@ -1158,7 +1144,6 @@ export function GroupView({ group }: { group: Group }) {
         <div data-roomhead-row className="flex items-center justify-between @max-3xl/roomhead:flex-wrap @max-3xl/roomhead:gap-y-1">
         <div data-roomhead-identity className="flex min-w-0 items-center gap-2 @max-3xl/roomhead:basis-full" style={headerNoDragStyle}>
           <span className="truncate text-[15px] font-semibold text-ink">{group.name}</span>
-          {!setupPending && !group.dm && <GroupTaskPicker group={group} />}
         </div>
         <div
           data-roomhead-controls

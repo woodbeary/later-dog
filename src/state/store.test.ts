@@ -10,7 +10,6 @@ import {
   liveCallFromFrame,
   loadSnapshotBoundary,
   openNotificationTarget,
-  openThread,
   persistBotUpdate,
   persistTaskApproval,
   pinBotThreadAction,
@@ -229,7 +228,7 @@ describe("independent bot threads", () => {
   });
 
   it("folds background messages racing a switch snapshot without changing the original conversation", () => {
-    let state = reducer(start(), { type: "switchTask", botId: bot.id, threadId: "second" });
+    let state = start();
     const reply: Message = { id: "second-reply", role: "bot", kind: "text", text: "Second answer", at: 3, parentId: null };
     state = reducer(state, { type: "messageAdded", threadId: "second", message: reply });
     expect(state.bots[0]?.messages).toEqual(bot.messages);
@@ -240,32 +239,11 @@ describe("independent bot threads", () => {
     expect(currentTaskBot(state.bots[0]!).modelSelection.model).toBe("other-model");
   });
 
-  it("can start a new thread while another waits and cancels only the pinned queue", () => {
-    const opened = reducer(start(), { type: "newTask", botId: bot.id });
-    expect(opened.selectedId).toBe(bot.id);
-    expect(opened.bots[0]?.busy).toBe(true);
-    const queued = { ...opened, pendingQueued: { first: [{ queueId: "one", text: "First" }], second: [{ queueId: "two", text: "Second" }] } };
+  it("cancels only the pinned queue", () => {
+    const queued = { ...start(), pendingQueued: { first: [{ queueId: "one", text: "First" }], second: [{ queueId: "two", text: "Second" }] } };
     const cancelled = reducer(queued, { type: "cancelQueued", botId: bot.id, threadId: "second", queueId: "two" });
     expect(cancelled.pendingQueued.first).toEqual(queued.pendingQueued.first);
     expect(cancelled.pendingQueued.second).toBeUndefined();
-  });
-
-  it("waits for acknowledged folder writes and keeps them separate from every thread and bot default", () => {
-    const projectBot = { ...bot, projects: [{ id: "work", name: "Work" }, { id: "personal", name: "Personal" }] };
-    const original = { ...start(), bots: [projectBot] };
-    const pending = reducer(original, { type: "updateProject", botId: bot.id, projectId: "work", patch: { name: "Research", emoji: "🧪" } });
-    expect(pending).toBe(original);
-    expect(reducer(original, { type: "reorderProjects", botId: bot.id, projectIds: ["personal", "work"] })).toBe(original);
-    expect(reducer(original, { type: "createProject", botId: bot.id, name: "New", emoji: "📁" })).toBe(original);
-    expect(reducer(original, { type: "deleteProject", botId: bot.id, projectId: "work" })).toBe(original);
-    const projects = [{ id: "personal", name: "Personal" }, { id: "work", name: "Research", emoji: "🧪" }];
-    const state = reducer(pending, { type: "botPatched", bot: { ...projectBot, projects } });
-    expect(state.bots[0]?.projects).toEqual(projects);
-    expect(state.selectedId).toBe(original.selectedId);
-    expect(state.bots[0]?.threadId).toBe(bot.threadId);
-    expect(state.bots[0]?.tasks).toEqual(bot.tasks);
-    expect(state.bots[0]?.messages).toEqual(bot.messages);
-    expect(state.bots[0]?.modelSelection).toEqual(bot.modelSelection);
   });
 
   it("moves or ungroups a busy thread without changing its model, state, or selected conversation", () => {
@@ -764,45 +742,6 @@ describe("notification routing", () => {
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "bot-1" }]);
   });
 
-  describe("openThread", () => {
-    const named = bots.map((bot) => ({ ...bot, name: "Scout" }));
-
-    it("opens the dog that owns the thread on its one conversation", () => {
-      const dispatch = vi.fn();
-      expect(openThread(dispatch, { botId: "bot-1", threadId: "detached-thread" }, { bots: named, groups })).toBe(true);
-      expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "bot-1" }]);
-    });
-
-    it("opens a room thread through the room, not a bot switch", () => {
-      const dispatch = vi.fn();
-      openThread(dispatch, { botId: "bot-1", threadId: "older-room-thread" }, { bots: named, groups });
-      expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "room-1" }]);
-    });
-
-    it("falls back to the bot with a quiet notice when the thread is gone, never a switch that would 404", () => {
-      const dispatch = vi.fn();
-      expect(openThread(dispatch, { botId: "bot-1", threadId: "deleted-thread" }, { bots: named, groups })).toBe(false);
-      expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-        { type: "select", id: "bot-1" },
-        { type: "notice", notice: { kind: "thread-gone", botName: "Scout" } },
-      ]);
-    });
-
-    it("only notices when even the bot is gone", () => {
-      const dispatch = vi.fn();
-      expect(openThread(dispatch, { botId: "deleted-bot", threadId: "deleted-thread" }, { bots: named, groups })).toBe(false);
-      expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-        { type: "notice", notice: { kind: "thread-gone", botName: null } },
-      ]);
-    });
-
-    it("stores and clears the notice", () => {
-      const noticed = reducer(initialState, { type: "notice", notice: { kind: "thread-gone", botName: "Scout" } });
-      expect(noticed.notice).toEqual({ kind: "thread-gone", botName: "Scout" });
-      expect(reducer(noticed, { type: "notice", notice: null }).notice).toBeNull();
-    });
-  });
-
   it("identifies only the exact chat thread currently on screen", () => {
     expect(visibleNotificationThread({
       activeView: "chat",
@@ -867,57 +806,6 @@ describe("config status frames", () => {
       profile: { name: "Ian", email: "ian@example.test" },
       features: { skillAuthoring: true },
     });
-  });
-});
-
-describe("task rename", () => {
-  it("updates the task title in local state immediately", () => {
-    const bot = {
-      id: "echo",
-      threadId: "t1",
-      name: "Echo",
-      title: "",
-      description: "",
-      notifications: true,
-      color: "green",
-      unread: false,
-      modelSelection: { instanceId: "x", model: "y" },
-      messages: [],
-      tasks: [
-        { threadId: "t1", title: "New task", createdAt: 1 },
-        { threadId: "t2", title: "Other", createdAt: 2 },
-      ],
-    } satisfies Bot;
-    const next = reducer(
-      { ...initialState, bots: [bot] },
-      { type: "renameTask", botId: bot.id, threadId: "t1", title: "Renamed" },
-    );
-    expect(next.bots[0]?.tasks?.find((task) => task.threadId === "t1")?.title).toBe("Renamed");
-    expect(next.bots[0]?.tasks?.find((task) => task.threadId === "t2")?.title).toBe("Other");
-  });
-
-  it("updates a channel task title in local state immediately", () => {
-    const group = {
-      id: "room",
-      threadId: "room-task-1",
-      name: "Launch",
-      memberIds: [],
-      defaultResponder: { kind: "everyone" },
-      bulletin: "",
-      unread: false,
-      createdAt: 1,
-      messages: [],
-      tasks: [
-        { threadId: "room-task-1", title: "New task", createdAt: 1 },
-        { threadId: "room-task-2", title: "Other", createdAt: 2 },
-      ],
-    } satisfies Group;
-    const next = reducer(
-      { ...initialState, groups: [group] },
-      { type: "renameGroupTask", groupId: group.id, threadId: "room-task-1", title: "Renamed" },
-    );
-    expect(next.groups[0]?.tasks?.find((task) => task.threadId === "room-task-1")?.title).toBe("Renamed");
-    expect(next.groups[0]?.tasks?.find((task) => task.threadId === "room-task-2")?.title).toBe("Other");
   });
 });
 

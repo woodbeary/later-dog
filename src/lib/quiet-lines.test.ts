@@ -43,9 +43,9 @@ describe("dog-to-dog lines", () => {
     expect(exchangeRow(tool("Bash"))).toBeNull();
   });
 
-  it("treats a hand-off to a teammate's thread as a Messaged line that opens that thread", () => {
+  it("treats a hand-off to a teammate as a Messaged line that opens that dog", () => {
     const row = exchangeRow(sent("d5", "Engineer"));
-    expect(row).toMatchObject({ direction: "to", withBotId: "d5", withName: "Engineer", target: { kind: "thread", botId: "d5", threadId: "t-d5" } });
+    expect(row).toMatchObject({ direction: "to", withBotId: "d5", withName: "Engineer", target: { kind: "dog", botId: "d5", threadId: "t-d5" } });
     const room = sent("d5", "Engineer");
     room.tool = { name: "Sent to Engineer · Launch", ok: true };
     expect(exchangeRow(room)?.withName).toBe("Engineer");
@@ -58,23 +58,23 @@ describe("dog-to-dog lines", () => {
     expect(first.kind === "exchange" && exchangeWording(first)).toEqual({ key: "chat.exchange.messaged", count: 2 });
   });
 
-  it("reads the chips a dog's hand-off really leaves: opened a thread, added to a thread", () => {
+  it("leaves an old opened-thread row as a plain message and reads added-to-thread as Messaged", () => {
     const opened = sent("d5", "x");
     opened.tool = { name: "Opened thread #Colour question on Study Helper", ok: true };
     const added = sent("d5", "x");
     added.tool = { name: "Added to thread #Colour question on Study Helper", ok: true };
-    expect(exchangeRow(opened)).toMatchObject({ withName: "Study Helper", direction: "to" });
+    expect(exchangeRow(opened)).toBeNull();
     expect(exchangeRow(added)).toMatchObject({ withName: "Study Helper", direction: "to" });
     const items = fold([opened, added]);
-    expect(items).toHaveLength(2);
-    expect(items[0]!.kind === "exchange" && exchangeWording(items[0]!)).toEqual({ key: "chat.threads.openedOne", count: 1 });
+    expect(items.map((item) => item.kind)).toEqual(["message", "exchange"]);
     expect(items[1]!.kind === "exchange" && exchangeWording(items[1]!)).toEqual({ key: "chat.exchange.messaged", count: 1 });
   });
 
-  it("includes a thread a dog opened on itself in the opened-thread disclosure", () => {
+  it("keeps old opened-thread rows visible as plain messages even with tool calls hidden", () => {
     const own = sent("d1", "x");
     own.tool = { name: "Opened thread #Review PR 4", ok: true };
-    expect(exchangeRow(own)).toMatchObject({ action: "opened", target: { botId: "d1", threadId: "t-d1" } });
+    expect(exchangeRow(own)).toBeNull();
+    expect(fold([own, sent("d1", "x")], false).map((item) => item.kind)).toEqual(["message", "exchange"]);
   });
 
   it("does not call a teammate's result a sent message", () => {
@@ -166,83 +166,6 @@ describe("dog-to-dog lines", () => {
 });
 
 
-const opening = (id: string, botId = "d2", patch: Partial<Message> = {}): Message => ({
-  id, role: "bot", kind: "activity", at: new Date(2026, 9, 14, 10).getTime(), turnId: "turn-a",
-  tool: { name: `Opened thread #Work ${id} on Helper`, ok: true },
-  threadRef: { botId, threadId: `thread-${id}`, title: `Work ${id}` }, ...patch,
-});
-
-describe("opened-thread runs", () => {
-  it("groups consecutive opens across destinations while preserving every receipt and destination", () => {
-    const messages = [opening("a", "d2"), opening("b", "d3")];
-    const [item] = fold(messages);
-    expect(item!.kind).toBe("exchange");
-    if (item!.kind !== "exchange") return;
-    expect(exchangeWording(item)).toEqual({ key: "chat.threads.opened", count: 2 });
-    expect(item.rows.map(row => row.target)).toEqual([
-      { kind: "thread", botId: "d2", threadId: "thread-a", title: "Work a" },
-      { kind: "thread", botId: "d3", threadId: "thread-b", title: "Work b" },
-    ]);
-    expect(item.messages).toEqual(messages);
-  });
-
-  it("counts distinct receipt ids, including separate events for the same destination", () => {
-    const a = opening("a");
-    const b = { ...a, id: "b" };
-    const [item] = fold([a, a, b]);
-    expect(item!.kind === "exchange" && exchangeWording(item!)).toEqual({ key: "chat.threads.opened", count: 2 });
-  });
-
-  it("leaves failed or pending opens, replies and added-to-thread sends outside the opened run", () => {
-    for (const separator of [
-      opening("bad", "d2", { tool: { name: "Opened thread #bad on Helper", ok: false, output: "Permission denied" } }),
-      opening("pending", "d2", { tool: { name: "Opened thread #pending on Helper" } }),
-      opening("reply", "d2", { tool: { name: "Helper finished", ok: true, output: "All done" } }),
-      opening("added", "d2", { tool: { name: "Added to thread #Work on Helper", ok: true } }),
-      text("Visible progress"),
-    ]) {
-      const items = fold([opening("a"), separator, opening("b")]);
-      expect(items).toHaveLength(3);
-      expect(items[0]!.kind === "exchange" && exchangeWording(items[0]!)).toEqual({ key: "chat.threads.openedOne", count: 1 });
-      expect(items[2]!.kind === "exchange" && exchangeWording(items[2]!)).toEqual({ key: "chat.threads.openedOne", count: 1 });
-    }
-  });
-
-  it("keeps days, known turns and room speakers separate", () => {
-    const first = opening("a");
-    for (const patch of [
-      { turnId: "turn-b" },
-      { turnId: undefined },
-      { at: first.at + 86_400_000 },
-      { from: { botId: "other", name: "Other", color: "blue" as const } },
-    ]) expect(fold([first, opening("b", "d2", patch)])).toHaveLength(2);
-  });
-
-  it("bounds legacy runs without a turn id to one minute from the first event", () => {
-    const a = opening("a", "d2", { turnId: undefined });
-    const b = opening("b", "d2", { turnId: undefined, at: a.at + 40_000 });
-    const c = opening("c", "d2", { turnId: undefined, at: a.at + 80_000 });
-    const items = fold([a, b, c]);
-    expect(items).toHaveLength(2);
-    expect(items[0]!.kind === "exchange" && exchangeWording(items[0]!)).toEqual({ key: "chat.threads.opened", count: 2 });
-  });
-
-  it("groups across hidden tool calls and separates the same receipts when calls are visible", () => {
-    const messages = [opening("a"), tool("Bash"), tool("Read"), opening("b")];
-    const hidden = fold(messages, false);
-    expect(hidden.filter(item => item.kind === "exchange")).toHaveLength(1);
-    expect(hidden.some(item => item.kind === "run")).toBe(true);
-    const visible = fold(messages, true);
-    expect(visible.filter(item => item.kind === "exchange")).toHaveLength(2);
-  });
-
-  it("lets rooms fold only opened receipts without changing messages with teammates", () => {
-    const messages = [comm("to"), opening("a"), opening("b"), comm("from")];
-    const items = foldExchanges(groupTranscript(messages), { openedOnly: true });
-    expect(items.map(item => item.kind)).toEqual(["message", "exchange", "message"]);
-  });
-});
-
 const failed = (id: string, group = false, botId = "d2"): Message => ({
   id, role: "bot", kind: "activity", at: new Date(2026, 9, 14, 10).getTime(),
   roomRequest: { id: `request-${id}`, phase: "result" },
@@ -285,14 +208,14 @@ describe("repeated teammate status rows", () => {
     }
   });
 
-  it("retains every destination when repeated sends target different rooms or threads", () => {
+  it("retains every destination when repeated sends target different rooms or dogs' work", () => {
     const room = { ...comm(undefined), tool: { name: "Sent to Study Helper · Launch", ok: true } };
     const messages = [sent("d2", "Study Helper", "a"), room, sent("d2", "Study Helper", "b")].map((message, index) => ({ ...message, at: index + 1 }));
     const [item] = fold(messages);
     expect(item!.kind === "exchange" && item.rows.map(row => row.target)).toEqual([
-      { kind: "thread", botId: "d2", threadId: "a", title: "Teammate work" },
+      { kind: "dog", botId: "d2", threadId: "a" },
       { kind: "group", groupId: "g1" },
-      { kind: "thread", botId: "d2", threadId: "b", title: "Teammate work" },
+      { kind: "dog", botId: "d2", threadId: "b" },
     ]);
     expect(item!.kind === "exchange" && exchangeWording(item)).toEqual({ key: "chat.exchange.messaged", count: 3 });
   });

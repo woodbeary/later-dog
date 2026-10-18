@@ -31,7 +31,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { api, useStore, formatTime, visibleMessages, openThread, currentTaskBot, type Action, type AppState, type Bot, type Group, type InstanceInfo, type Message } from "@/state/store";
+import { api, useStore, formatTime, visibleMessages, openNotificationTarget, currentTaskBot, type Action, type AppState, type Bot, type Group, type InstanceInfo, type Message } from "@/state/store";
 import { avatarCropRadius, botAvatarProfile } from "../../shared/bot-avatar";
 import { peerLine } from "@/lib/peer-message";
 
@@ -1946,7 +1946,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
       <GlassBar edge="bottom">
       <LiveCallPill
         currentBotId={state.activeView === "chat" ? state.selectedId : null}
-        onOpen={(botId, threadId) => openThread(dispatch, { botId, threadId }, state)}
+        onOpen={(botId, threadId) => openNotificationTarget(dispatch, { botId, threadId }, state)}
         iconOnly={density === "icons"}
       />
 

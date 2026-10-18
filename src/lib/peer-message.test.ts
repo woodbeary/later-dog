@@ -29,7 +29,7 @@ describe("peerLine", () => {
       body: "Write the summary.\n\n[Reason: followup]",
     });
     expect(peerLine({ role: "user", text: `${NOTE("Thread opened by", "Pam", " — x")}\n\nJob.` })?.delivery).toBe(
-      "start_thread",
+      "delegate_bot",
     );
   });
 

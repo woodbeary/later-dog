@@ -9,7 +9,7 @@ export type ExchangeDirection = "to" | "from";
 
 export type ExchangeTarget =
   | { kind: "group"; groupId: string }
-  | { kind: "thread"; botId: string; threadId: string; title: string };
+  | { kind: "dog"; botId: string; threadId: string };
 
 export interface ExchangeRow {
   message: Message;
@@ -17,7 +17,7 @@ export interface ExchangeRow {
   withName: string;
   withColor: DogColor;
   direction: ExchangeDirection;
-  action?: "opened" | "failed";
+  action?: "failed";
   target: ExchangeTarget;
 }
 
@@ -55,16 +55,10 @@ export function exchangeRow(message: Message): ExchangeRow | null {
       withName: comm?.withName ?? message.from?.name ?? "", withColor: comm?.withColor ?? message.from?.color ?? "blue",
       direction: "from", action: "failed",
       target: comm ? { kind: "group", groupId: comm.groupId }
-        : { kind: "thread", botId: ref!.botId, threadId: ref!.threadId, title: ref!.title },
+        : { kind: "dog", botId: ref!.botId, threadId: ref!.threadId },
     };
   }
-  if (ref && tool.name.startsWith("Opened thread #")) {
-    if (tool.ok !== true || message.role !== "bot") return null;
-    return {
-      message, withBotId: ref.botId, withName: teammateName(tool.name) ?? "", withColor: "blue", direction: "to", action: "opened",
-      target: { kind: "thread", botId: ref.botId, threadId: ref.threadId, title: ref.title },
-    };
-  }
+  if (ref && tool.name.startsWith("Opened thread #")) return null;
   if (comm) {
     const direction = comm.direction
       ?? ((LEGACY_TO.test(tool.name) || (tool.ok === true && SENT_TO.test(tool.name))) ? "to" : LEGACY_FROM.test(tool.name) ? "from" : undefined);
@@ -76,7 +70,7 @@ export function exchangeRow(message: Message): ExchangeRow | null {
   if (ref && name) {
     return {
       message, withBotId: ref.botId, withName: name, withColor: "blue", direction: "to",
-      target: { kind: "thread", botId: ref.botId, threadId: ref.threadId, title: ref.title },
+      target: { kind: "dog", botId: ref.botId, threadId: ref.threadId },
     };
   }
   return null;
@@ -87,7 +81,7 @@ function sameTarget(a: ExchangeRow, b: ExchangeRow): boolean {
   const second = b.target;
   return first.kind === "group"
     ? second.kind === "group" && first.groupId === second.groupId && a.message.comm?.threadId === b.message.comm?.threadId
-    : second.kind === "thread" && first.botId === second.botId && first.threadId === second.threadId;
+    : second.kind === "dog" && first.botId === second.botId && first.threadId === second.threadId;
 }
 
 export function singleExchange(message: Message): ExchangeItem | null {
@@ -134,10 +128,9 @@ export function quietTranscriptItemShown(item: TranscriptItem, showToolCalls: bo
 
 export function foldExchanges<T extends TranscriptItem>(
   items: readonly T[],
-  { renders = () => true, hasGroup = () => false, openedOnly = false }: {
+  { renders = () => true, hasGroup = () => false }: {
     renders?: (item: TranscriptItem) => boolean;
     hasGroup?: (groupId: string) => boolean;
-    openedOnly?: boolean;
   } = {},
 ): Array<T | ExchangeItem> {
   const folded: Array<T | ExchangeItem> = [];
@@ -148,21 +141,13 @@ export function foldExchanges<T extends TranscriptItem>(
       last.folded.push(item.message);
       continue;
     }
-    const candidate = item.kind === "message" ? exchangeRow(item.message) : null;
-    const row = openedOnly && candidate?.action !== "opened" ? null : candidate;
+    const row = item.kind === "message" ? exchangeRow(item.message) : null;
     if (!row) {
       folded.push(item);
       continue;
     }
     if (last?.kind === "exchange") {
       const prior = last.rows.at(-1)!;
-      const opened = row.action === "opened";
-      const sameOpeningRun = opened && prior.action === "opened"
-        && localDay(prior.message.at) === localDay(row.message.at)
-        && prior.message.turnId === row.message.turnId
-        && row.message.at >= prior.message.at
-        && (Boolean(row.message.turnId) || row.message.at - last.rows[0]!.message.at <= 60_000)
-        && prior.message.from?.botId === row.message.from?.botId;
       const sameRun = localDay(prior.message.at) === localDay(row.message.at)
         && prior.message.turnId === row.message.turnId
         && row.message.at >= prior.message.at;
@@ -173,7 +158,7 @@ export function foldExchanges<T extends TranscriptItem>(
         && (last.rows.every(previous => sameTarget(previous, row))
           || (row.direction === "to" && last.folded.length === 0 && last.rows.every(previous => previous.direction === "to")))
         && prior.message.from?.botId === row.message.from?.botId;
-      if (sameOpeningRun || sameFailure || sameExchange) {
+      if (sameFailure || sameExchange) {
         if (!last.rows.some(previous => previous.message.id === row.message.id)) {
           last.messages.push(row.message);
           last.rows.push(row);
@@ -194,10 +179,6 @@ export function foldExchanges<T extends TranscriptItem>(
   return folded;
 }
 
-export function openedExchange(item: Pick<ExchangeItem, "rows">): boolean {
-  return item.rows[0]?.action === "opened";
-}
-
 export function failedExchange(item: Pick<ExchangeItem, "rows">): boolean {
   return item.rows[0]?.action === "failed";
 }
@@ -207,14 +188,13 @@ export function sentExchange(item: Pick<ExchangeItem, "rows">): boolean {
 }
 
 export function expandedExchange(item: Pick<ExchangeItem, "rows">): boolean {
-  return item.rows.length > 1 && (openedExchange(item) || failedExchange(item) || sentExchange(item));
+  return item.rows.length > 1 && (failedExchange(item) || sentExchange(item));
 }
 
-export type ExchangeWording = { key: "chat.exchange.messaged" | "chat.exchange.messageFrom" | "chat.exchange.messagesWith" | "chat.threads.opened" | "chat.threads.openedOne"; count: number };
+export type ExchangeWording = { key: "chat.exchange.messaged" | "chat.exchange.messageFrom" | "chat.exchange.messagesWith"; count: number };
 
 export function exchangeWording(item: Pick<ExchangeItem, "rows">): ExchangeWording {
   const count = item.rows.length;
-  if (openedExchange(item)) return { key: count === 1 ? "chat.threads.openedOne" : "chat.threads.opened", count };
   if (sentExchange(item)) return { key: "chat.exchange.messaged", count };
   if (count > 1) return { key: "chat.exchange.messagesWith", count };
   return { key: item.rows[0]!.direction === "to" ? "chat.exchange.messaged" : "chat.exchange.messageFrom", count };

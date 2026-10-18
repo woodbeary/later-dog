@@ -56,7 +56,7 @@ vi.mock("./PlanUsage", async (importOriginal) => ({
 }));
 
 const NOW = Date.UTC(2026, 9, 9, 12);
-const { FollowBotModelRow, ModelEngineRail, ModelPicker, ModelVariantRow, SIMPLE_POPOVER_WIDTH } = await import("./ModelPicker");
+const { ModelEngineRail, ModelPicker, ModelVariantRow, SIMPLE_POPOVER_WIDTH } = await import("./ModelPicker");
 const { AccountSwitcher, UsageRing } = await import("./AccountSwitcher");
 const { SimpleModelPane } = await import("./SimpleModelPane");
 const { InstanceProviderMark } = await import("./ProviderIcons");
@@ -507,13 +507,12 @@ describe("the model picker in Simple mode", () => {
     expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ updateBotDefault: true }));
   });
 
-  it("does not reuse the full picker's bot scope for a Cloud guest's Simple choice", () => {
+  it("keeps a Cloud guest's choice to their own conversation after the full picker", () => {
     fixture.cloudHome = true;
     fixture.ownerOrAdmin = false;
     const forBot = bot();
     pane(open(forBot))!.props.onSetUp();
     const full = render(forBot);
-    click(full.nodes.find((node) => node.type === "button" && node.props.children === "Thread + dog default"));
     click(full.nodes.find((node) => node.props["data-tour"] === "model"));
     pane(open(forBot))!.props.onPick("claude-sonnet-5-5");
     expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ updateBotDefault: false }));
@@ -534,12 +533,13 @@ describe("the model picker in Simple mode", () => {
     });
   });
 
-  it("keeps the full picker's own scope choice (this thread unless asked)", () => {
+  it("offers no thread scope choice in the full picker", () => {
     const forBot = bot();
     pane(open(forBot))!.props.onSetUp();
     const full = render(forBot);
     expect(pane(full)).toBeUndefined();
-    expect(full.html).toContain("Only this thread");
+    expect(full.html).not.toContain("Only this thread");
+    expect(full.html).not.toContain("Thread + dog default");
   });
 
   it("shows the Simple pane inline for the bot panel's Default model and edits the bot's default", () => {
@@ -936,77 +936,37 @@ describe("the model picker in Simple mode", () => {
   });
 });
 
-describe("a thread's picker and its bot's model", () => {
+describe("a dog's picker in its one conversation", () => {
   const opus = { instanceId: "claude", model: "claude-opus-5-5" };
   const haiku = { instanceId: "claude", model: "claude-haiku-4-5-20251001" };
-  function scout(threadModel: typeof opus | null, others: Array<{ threadId: string; model: typeof opus | null }> = []) {
+  function scout(threadModel: typeof opus | null) {
     const profile: Bot = { ...bot(), tasks: [
       { threadId: "thread-scout", title: "This one", createdAt: 1, modelSelection: threadModel ?? opus, followsBotModel: threadModel === null },
-      ...others.map(({ threadId, model }) => ({ threadId, title: threadId, createdAt: 1, modelSelection: model ?? opus, followsBotModel: model === null })),
     ] };
     fixture.bots = [profile];
     return { ...profile, modelSelection: threadModel ?? opus };
   }
-  const followRow = (rendered: ReturnType<typeof render>) => rendered.nodes.find((node) => node.type === FollowBotModelRow);
-  const pickFollow = (rendered: ReturnType<typeof render>) => (followRow(rendered)!.props.onPick as () => void)();
 
-  it("offers the bot's model to a thread on its own, and picking it is a thread-only pick of the bot's model", () => {
-    const opened = open(scout(haiku));
-    expect(followRow(opened)!.props.follows).toBe(false);
-    expect(menu(opened.html)).toContain("Use Scout&#x27;s model");
-    expect(menu(opened.html)).toContain("Claude · Opus 5.5");
-    expect(menu(opened.html)).toContain('data-follow-bot-model="true" aria-pressed="false"');
-    expect(inside(opened).some((node) => node.props["data-bot-model"] !== undefined)).toBe(true);
-    pickFollow(opened);
-    expect(fixture.dispatch).toHaveBeenLastCalledWith({
-      type: "setModel", botId: "scout", threadId: "thread-scout", updateBotDefault: false, selection: opus,
-    });
+  it("offers no follow-the-dog row or dog's-model tag, even for an old conversation with its own model", () => {
+    for (const forBot of [scout(haiku), scout(null)]) {
+      const opened = open(forBot);
+      expect(menu(opened.html)).not.toContain("data-follow-bot-model");
+      expect(menu(opened.html)).not.toContain("data-bot-model");
+      expect(menu(opened.html)).not.toContain("Use Scout&#x27;s model");
+      expect(menu(opened.html)).not.toContain("(dog&#x27;s model)");
+      const title = render(forBot).nodes.find((node) => node.props["data-tour"] === "model")!.props.title as string;
+      expect(title).not.toContain("Uses Scout's model");
+      expect(title).not.toContain("own model");
+    }
   });
 
-  it("shows a thread that follows its bot as following, with the bot's model marked", () => {
-    const opened = open(scout(null));
-    expect(followRow(opened)!.props.follows).toBe(true);
-    expect(pane(opened)!.props.botModelId).toBe("claude-opus-5-5");
-    expect(region(menu(opened.html), "data-simple-models")).toContain("(dog&#x27;s model)");
-    expect(render(scout(null)).nodes.find((node) => node.props["data-tour"] === "model")!.props.title).toContain("Uses Scout's model");
-    pickFollow(opened);
-    expect(fixture.dispatch).not.toHaveBeenCalled();
-  });
-
-  it("keeps the bot's model with the models, not on the accounts page", () => {
-    fixture.instances = [claude(), { ...claude(), instanceId: "claude-work", displayName: "Work" }];
-    const forBot = scout(haiku);
-    const accounts = openAccounts(forBot);
-    expect(switcher(accounts)).toBeDefined();
-    expect(followRow(accounts)).toBeUndefined();
-    click(marked(accounts, "data-model-line"));
-    expect(followRow(render(forBot))!.props.follows).toBe(false);
-  });
-
-  it("offers nothing a server too old to say whether a thread follows its bot could not do", () => {
-    fixture.bots = [];
-    const opened = open(bot());
-    expect(followRow(opened)).toBeUndefined();
-    expect(menu(opened.html)).not.toContain("(dog&#x27;s model)");
-  });
-
-  it("right after a pick changes the bot's model, says how many threads keep their own, until it opens again", () => {
-    const forBot = scout(null, [{ threadId: "kept", model: haiku }, { threadId: "follows", model: null }]);
-    const opened = open(forBot);
-    pane(opened)!.props.onPick("claude-sonnet-5-5");
-    expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ type: "setModel", updateBotDefault: true }));
-    const closed = render(forBot);
-    expect(closed.html).toContain("data-thread-models-notice");
-    expect(closed.html).toContain("1 thread uses its own model.");
-    expect(closed.html).toContain("Switch it too");
-    open(forBot);
-    expect(render(forBot).html).not.toContain("data-thread-models-notice");
-  });
-
-  it("says nothing after a bot model change when every thread follows the bot", () => {
-    const forBot = scout(null, [{ threadId: "follows", model: null }]);
+  it("changes the dog's model when a model is picked", () => {
+    const forBot = scout(null);
     pane(open(forBot))!.props.onPick("claude-sonnet-5-5");
-    expect(render(forBot).html).not.toContain("data-thread-models-notice");
+    expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ type: "setModel", updateBotDefault: true }));
+    const closed = render(forBot).html;
+    expect(closed).not.toContain("data-thread-models-notice");
+    expect(closed).not.toContain("own model.");
   });
 });
 

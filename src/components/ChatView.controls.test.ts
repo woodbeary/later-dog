@@ -9,7 +9,7 @@ import type { ModelPicker } from "./ModelPicker";
 const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
-  return { showThreads: true, menus: [] as { ariaLabel: string; items: { key: string; disabled?: boolean; heading?: string; active?: boolean }[] }[], dispatch: vi.fn(), canWrite: null as boolean | null, showToolCalls: false, platform: "other", localReasonCode: "cua-driver-unavailable", localMessage: "", model: null as ComponentProps<typeof ModelPicker> | null,
+  return { menus: [] as { ariaLabel: string; items: { key: string; disabled?: boolean; heading?: string; active?: boolean }[] }[], dispatch: vi.fn(), canWrite: null as boolean | null, showToolCalls: false, platform: "other", localReasonCode: "cua-driver-unavailable", localMessage: "", model: null as ComponentProps<typeof ModelPicker> | null,
     approval: null as ComponentProps<typeof ApprovalModeSelector> | null,
     control: {} as Record<string, { held: boolean; helpReason: string | null }>, computerOpen: false };
 });
@@ -27,10 +27,6 @@ vi.mock("./DesktopCapabilities", async (importOriginal) => ({
   useDesktopCapabilities: () => ({ capabilities: { dictation: { available: false }, host: { packaged: true, platform: fixture.platform }, localComputer: { available: false, reasonCode: fixture.localReasonCode, message: fixture.localMessage } }, ready: true }),
 }));
 vi.mock("@/lib/analytics", () => ({ track: vi.fn() }));
-vi.mock("@/lib/thread-preferences", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/thread-preferences")>(),
-  useShowThreads: () => fixture.showThreads,
-}));
 vi.mock("./SidebarPopoverMenu", async (importOriginal) => ({
   ...await importOriginal<typeof import("./SidebarPopoverMenu")>(),
   SidebarPopoverMenu: (props: { ariaLabel: string; items: never[]; renderTrigger: (state: { open: boolean }) => unknown }) => {
@@ -56,7 +52,7 @@ vi.mock("./ApprovalModeSelector", async (importOriginal) => ({ ...await importOr
   return createElement("span", { "data-test-approval-control": true });
 } }));
 
-const { ChatView, ErrorRow, FailedTurnRow, NewConversationInstead, claudeUpdateTarget } = await import("./ChatView");
+const { ChatView, ErrorRow, FailedTurnRow, claudeUpdateTarget } = await import("./ChatView");
 const { activityPreview } = await import("@/lib/failed-turn");
 afterAll(() => vi.unstubAllGlobals());
 
@@ -417,21 +413,12 @@ describe("screen reader announcements", () => {
 });
 
 describe("a guest's composer on a Cloud home", () => {
-  it("offers a new conversation in one click, with no dialog", () => {
-    const onNew = vi.fn();
-    const markup = renderToStaticMarkup(createElement(NewConversationInstead, { onNew }));
-    expect(markup).toContain("You can only write in conversations you started on this Cloud.");
-    expect(markup).toContain(">New conversation<");
-    expect(markup).not.toContain("<textarea");
-    const tree = NewConversationInstead({ onNew }) as { props: { children: Array<{ type: string; props: { onClick?: () => void } }> } };
-    tree.props.children.find((child) => child.type === "button")!.props.onClick!();
-    expect(onNew).toHaveBeenCalledOnce();
-  });
-
-  it("takes the composer's place only where the device may not write", () => {
+  it("takes the composer's place with one plain sentence only where the device may not write", () => {
     fixture.canWrite = false;
     const refused = renderToStaticMarkup(createElement(ChatView, { bot }));
     expect(refused).toContain('data-testid="cloud-guest-composer"');
+    expect(refused).toContain("You can only write in conversations you started on this Cloud.");
+    expect(refused).not.toContain("New conversation");
     expect(refused).not.toContain("<textarea");
     expect(refused).not.toContain('data-testid="citation-toolbar"');
     fixture.canWrite = true;

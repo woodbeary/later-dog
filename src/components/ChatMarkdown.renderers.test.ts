@@ -1,5 +1,4 @@
 import { createElement } from "react";
-import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,10 +7,6 @@ vi.mock("react-markdown", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react-markdown")>();
   return { ...actual, default: (props: Record<string, unknown>) => { captured.push(props); return null; } };
 });
-vi.mock("react", async (importOriginal) => {
-  const react = await importOriginal<typeof React>();
-  return { ...react, use: vi.fn(react.use), useContext: vi.fn(react.useContext) };
-});
 vi.mock("mdast-util-from-markdown", async (importOriginal) => {
   const actual = await importOriginal<typeof import("mdast-util-from-markdown")>();
   return { ...actual, fromMarkdown: vi.fn(actual.fromMarkdown) };
@@ -19,53 +14,19 @@ vi.mock("mdast-util-from-markdown", async (importOriginal) => {
 
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { ChatMarkdown } from "./ChatMarkdown";
-import { ThreadRefsContext, type ThreadRefsValue } from "./ThreadRefs";
 
-const qa = { botId: "scout", botName: "Scout", threadId: "qa-245", title: "QA PR 245", activeAt: 1 };
-const before: ThreadRefsValue = { threads: [qa], currentBotId: "scout" };
-const after: ThreadRefsValue = {
-  threads: [qa, { botId: "ada", botName: "Ada", threadId: "launch", title: "Launch plan", activeAt: 2 }],
-  currentBotId: "ada",
-};
-
-function markdownProps(refs: ThreadRefsValue, text: string): Record<string, unknown> {
+function markdownProps(text: string): Record<string, unknown> {
   captured.length = 0;
-  renderToStaticMarkup(createElement(ThreadRefsContext.Provider, { value: refs },
-    createElement(ChatMarkdown, { text, message: { threadId: "t", messageId: "m" } })));
+  renderToStaticMarkup(createElement(ChatMarkdown, { text, message: { threadId: "t", messageId: "m" } }));
   expect(captured).toHaveLength(1);
   return captured[0]!;
 }
 
-function threadListReads(): number {
-  const calls = [...vi.mocked(React.use).mock.calls, ...vi.mocked(React.useContext).mock.calls];
-  return calls.filter(([context]) => context === ThreadRefsContext).length;
-}
-
 describe("ChatMarkdown element renderers", () => {
-  beforeEach(() => {
-    vi.mocked(React.use).mockClear();
-    vi.mocked(React.useContext).mockClear();
-  });
-
-  it("hands react-markdown the same renderers whatever the thread list holds", () => {
-    const text = "Tracked in #QA PR 245.\n\n```ts\nconst kept = true;\n```";
-    const first = markdownProps(before, text);
-    const second = markdownProps(after, text);
-    expect(second.components).toBe(first.components);
-    expect(markdownProps(before, "Another message").components).toBe(first.components);
-  });
-
-  it("follows the thread list only for a message that can hold a thread link", () => {
-    markdownProps(before, "No thread links here: `code`, **bold** and a [site](https://example.test).");
-    expect(threadListReads()).toBe(0);
-
-    markdownProps(before, "Tracked in #QA PR 245.");
-    expect(threadListReads()).toBe(1);
-
-    vi.mocked(React.use).mockClear();
-    vi.mocked(React.useContext).mockClear();
-    markdownProps(before, "Done in [QA](LaterDog://thread/qa-245?bot=scout).");
-    expect(threadListReads()).toBe(1);
+  it("hands react-markdown the same renderers for every message", () => {
+    const first = markdownProps("Tracked in #QA PR 245.\n\n```ts\nconst kept = true;\n```");
+    expect(markdownProps("Done in [QA](LaterDog://thread/qa-245?bot=scout).").components).toBe(first.components);
+    expect(markdownProps("Another message").components).toBe(first.components);
   });
 });
 
@@ -74,24 +35,24 @@ describe("ChatMarkdown normalization", () => {
 
   it("parses a message for table repair and math once, however often it renders", () => {
     const text = "## Costs\n\n| Step | Cost |\n|---|\n| build | 5 |\n\nArea \\(x^2\\).";
-    const first = markdownProps(before, text);
+    const first = markdownProps(text);
     expect(first.children).toContain("$x^2$");
     expect(fromMarkdown).toHaveBeenCalledTimes(2);
 
-    const second = markdownProps(after, text);
+    const second = markdownProps(text);
     expect(second.children).toBe(first.children);
     expect(fromMarkdown).toHaveBeenCalledTimes(2);
   });
 
   it("remembers a bounded number of messages, newest kept", () => {
     const oldest = "The oldest message.";
-    markdownProps(before, oldest);
-    for (let i = 0; i < 1000; i++) markdownProps(before, `Message ${i}.`);
+    markdownProps(oldest);
+    for (let i = 0; i < 1000; i++) markdownProps(`Message ${i}.`);
 
     vi.mocked(fromMarkdown).mockClear();
-    markdownProps(before, "Message 999.");
+    markdownProps("Message 999.");
     expect(fromMarkdown).not.toHaveBeenCalled();
-    markdownProps(before, oldest);
+    markdownProps(oldest);
     expect(fromMarkdown).toHaveBeenCalledOnce();
   });
 });

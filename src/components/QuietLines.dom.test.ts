@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { BotEditorStore, initialState, type AppState, type Bot, type Message } from "@/state/store";
 import { foldExchanges, type ExchangeItem } from "@/lib/quiet-lines";
 import { groupTranscript } from "@/lib/activity-runs";
-import { ExchangeLine } from "./QuietLines";
+import { ExchangeLine, PlainNoteLine } from "./QuietLines";
 
 let host: HTMLDivElement;
 let root: Root;
@@ -49,66 +49,16 @@ afterEach(async () => {
   await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals();
 });
 
-it("shows a singleton's current title and bot immediately and navigates directly", async () => {
-  await draw([messages[0]]);
-  expect(host.textContent).toContain("#Current first title");
-  expect(host.textContent).toContain("Scout");
-  expect(host.querySelector("button[aria-expanded]")).toBeNull();
-  await act(async () => host.querySelector<HTMLButtonElement>('[data-thread-chip="a"]')!.click());
-  expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-    { type: "select", id: "scout" },
-  ]);
-});
-
-it("expands a multi-destination run and opens each recorded destination", async () => {
-  await draw();
-  const toggle = host.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
-  const details = document.getElementById(toggle.getAttribute("aria-controls")!)!;
-  expect(toggle.textContent).toBe("Opened 2 threads");
-  expect(details.hidden).toBe(true);
-  expect(host.querySelector("[data-thread-chip]")).toBeNull();
-  await act(async () => toggle.click());
-  expect(details.hidden).toBe(false);
-  expect(host.textContent).toContain("Current first title");
-  expect(host.textContent).toContain("Current second title");
-  expect(host.querySelector('[data-mid="receipt-1"]')).not.toBeNull();
-  for (const [threadId, botId] of [["a", "scout"], ["b", "writer"]]) {
-    dispatch.mockClear();
-    await act(async () => host.querySelector<HTMLButtonElement>(`[data-thread-chip="${threadId}"]`)!.click());
-    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-      { type: "select", id: botId },
-    ]);
-  }
-  await act(async () => toggle.click());
-  expect(details.hidden).toBe(true);
-});
-
-it("refreshes bot and thread names by id while old receipts stay mounted", async () => {
-  await draw(messages, bots, true);
-  await draw(messages, [{ ...bots[0], name: "Renamed Scout", tasks: [{ threadId: "a", title: "Renamed work", createdAt: 1 }] }, bots[1]], true);
-  const link = host.querySelector<HTMLButtonElement>('[data-thread-chip="a"]')!;
-  expect(link.textContent).toContain("Renamed work");
-  expect(link.textContent).toContain("Renamed Scout");
-  expect(link.getAttribute("aria-label")).toBe("Open #Renamed work on Renamed Scout");
-  expect(link.textContent).not.toContain("Old Scout");
-});
-
-it("retains stored names and titles for missing destinations and uses existing deleted-thread notices", async () => {
-  await draw(messages, [], true);
-  const link = host.querySelector<HTMLButtonElement>('[data-thread-chip="a"]')!;
-  expect(link.textContent).toContain("Original title");
-  expect(link.textContent).toContain("Old Scout");
-  await act(async () => link.click());
-  expect(dispatch).toHaveBeenCalledWith({ type: "notice", notice: { kind: "thread-gone", botName: null } });
-});
-
-it("opens a folded run when search focuses one of its receipts", async () => {
-  await draw();
-  expect(host.querySelector('[data-mid="receipt-1"]')).toBeNull();
-  await draw(messages, bots, true);
-  expect(focusedContent).toHaveBeenCalledWith(expect.stringContaining("Current first title"));
-  expect(host.querySelector("button[aria-expanded]")!.getAttribute("aria-expanded")).toBe("true");
-  expect(host.querySelector('[data-mid="receipt-1"]')).not.toBeNull();
+it("shows an old opened-thread receipt as plain text with nothing to open", async () => {
+  await act(async () => root.render(createElement(BotEditorStore, {
+    value: { state: { ...initialState, bots }, dispatch,
+      flushBotPatches: vi.fn(async () => null), refreshInstances: vi.fn(async () => {}), refreshModels: vi.fn(async () => {}),
+    },
+    children: createElement(PlainNoteLine, { message: messages[0] }),
+  })));
+  expect(host.textContent).toBe("Opened thread #Original title on Old Scout");
+  expect(host.querySelector("button")).toBeNull();
+  expect(foldExchanges(groupTranscript(messages)).map((entry) => entry.kind)).toEqual(["message", "message"]);
 });
 
 const failures: Message[] = Array.from({ length: 5 }, (_, index) => ({
@@ -174,9 +124,12 @@ it("shows one counted Messaged line and lets each recorded send open the dog", a
   expect(toggle.textContent).toBe("MessagedScout· 2");
   await act(async () => toggle.click());
   expect(host.querySelectorAll("li")).toHaveLength(2);
-  expect(host.textContent).toContain("First");
-  expect(host.textContent).toContain("Second");
-  for (const row of host.querySelectorAll("li")) expect(row.lastElementChild!.textContent).toContain("Messaged");
+  expect(host.textContent).not.toContain("First");
+  expect(host.textContent).not.toContain("Second");
+  for (const row of host.querySelectorAll("li")) {
+    expect(row.lastElementChild!.textContent).toContain("Messaged");
+    expect(row.lastElementChild!.textContent).toContain("Scout ·");
+  }
   for (const button of host.querySelectorAll<HTMLButtonElement>("li button")) {
     dispatch.mockClear();
     await act(async () => button.click());

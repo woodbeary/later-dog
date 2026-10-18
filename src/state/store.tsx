@@ -344,7 +344,6 @@ export interface BotProject {
   emoji?: string;
 }
 
-export type ProjectUpdatePatch = { name?: string; emoji?: string | null };
 
 export function currentTaskBot(bot: Bot, threadId = bot.threadId): Bot {
   const task = bot.tasks?.find((candidate) => candidate.threadId === threadId);
@@ -718,7 +717,6 @@ export interface AppState {
   connected: boolean;
   hydrated?: boolean;
   error: string | null;
-  notice: { kind: "thread-gone"; botName: string | null } | null;
   mascotMotion: {
     botId: string;
     nonce: number;
@@ -838,12 +836,7 @@ export type Action =
       patch: Partial<Pick<Group, "name" | "bulletin" | "memberIds" | "defaultResponder" | "pinnedMessageId" | "section">>;
     }
   | { type: "deleteGroup"; groupId: string }
-  | { type: "newGroupTask"; groupId: string }
-  | { type: "switchGroupTask"; groupId: string; threadId: string }
-  | { type: "renameGroupTask"; groupId: string; threadId: string; title: string }
-  | { type: "pinGroupTask"; groupId: string; threadId: string; pinned: boolean; title: string }
   | { type: "setConversationTurnLimit"; groupId: string; threadId: string; minutes: number | null; dm: boolean }
-  | { type: "deleteGroupTask"; groupId: string; threadId: string }
   | { type: "interruptGroup"; groupId: string; threadId?: string; onError?: () => void }
   | { type: "instances"; instances: InstanceInfo[] }
   | { type: "configStatus"; config: ConfigStatus }
@@ -887,21 +880,11 @@ export type Action =
       scope?: "once" | "always" | "chat";
       onError?: (message: string) => void;
     }
-  | { type: "newTask"; botId: string; projectId?: string }
-  | { type: "switchTask"; botId: string; threadId: string }
   | { type: "taskSwitched"; bot: Bot }
-  | { type: "renameTask"; botId: string; threadId: string; title: string }
-  | { type: "regenerateTaskTitle"; botId: string; threadId: string; onSettled?: (ok: boolean) => void }
-  | { type: "deleteTask"; botId: string; threadId: string }
   | { type: "newBot"; name?: string; title?: string; avatarUrl?: string | null; avatarCrop?: Bot["avatarCrop"]; modelSelection?: ModelSelection; visibility?: BotVisibility; section?: string; offLeash?: boolean; preserveSelection?: boolean; onCreated?: (bot: Bot) => void; onError?: (message: string) => void }
   | { type: "botCreationPending"; on: boolean }
   | { type: "updateTask"; botId: string; threadId: string; patch: TaskUpdatePatch }
   | { type: "refreshTaskPermissions"; botId: string; threadId: string; acknowledgeLocalAuto?: boolean }
-  | { type: "followBotModel"; botId: string }
-  | { type: "createProject"; botId: string; name: string; emoji?: string | null; onCreated?: (project: BotProject) => void; onError?: (message: string) => void }
-  | { type: "updateProject"; botId: string; projectId: string; patch: ProjectUpdatePatch; onSaved?: () => void; onError?: (message: string) => void }
-  | { type: "deleteProject"; botId: string; projectId: string; onDeleted?: () => void; onError?: (message: string) => void }
-  | { type: "reorderProjects"; botId: string; projectIds: string[]; onSaved?: () => void; onError?: (message: string) => void }
   | { type: "botAdded"; bot: Bot; preserveSelection?: boolean }
   | { type: "deleteBot"; botId: string }
   | { type: "botDeletionPending"; botId: string; on: boolean }
@@ -919,7 +902,6 @@ export type Action =
   | { type: "interrupt"; botId: string; threadId?: string; onError?: () => void }
   | { type: "connected"; value: boolean }
   | { type: "error"; message: string | null }
-  | { type: "notice"; notice: AppState["notice"] }
   | { type: "toggleSettings"; open?: boolean; section?: BotSettingsSection; botId?: string }
   | { type: "togglePlugins"; open?: boolean; surface?: "apps" | "mcp" }
   | { type: "toggleNewBot"; open?: boolean }
@@ -1002,27 +984,6 @@ export function openNotificationTarget(
 export interface ThreadTarget {
   botId: string;
   threadId: string;
-}
-
-interface ThreadOpeningState extends NotificationRoutingState {
-  bots: Array<NotificationThreadOwner & { name: string }>;
-}
-
-export function openThread(
-  dispatch: (action: Action) => void,
-  target: ThreadTarget,
-  state: ThreadOpeningState,
-): boolean {
-  const owns = (owner: NotificationThreadOwner) =>
-    owner.threadId === target.threadId || (owner.tasks ?? []).some((task) => task.threadId === target.threadId);
-  if (state.groups.some(owns) || state.bots.some(owns)) {
-    openNotificationTarget(dispatch, target, state);
-    return true;
-  }
-  const bot = state.bots.find((candidate) => candidate.id === target.botId);
-  if (bot) dispatch({ type: "select", id: bot.id });
-  dispatch({ type: "notice", notice: { kind: "thread-gone", botName: bot?.name ?? null } });
-  return false;
 }
 
 function bumpTranscriptGeneration(state: AppState, threadId: string | undefined | null): AppState {
@@ -1609,8 +1570,6 @@ export function reducer(state: AppState, action: Action): AppState {
         ...(open ? { settingsOpen: false, appSettingsOpen: false, pluginsOpen: false, shortcutsOpen: false } : {}),
       };
     }
-    case "notice":
-      return { ...state, notice: action.notice };
     case "focusMessage":
       return {
         ...state,
@@ -1831,53 +1790,6 @@ export function reducer(state: AppState, action: Action): AppState {
         activeLeafId: message.id,
       }));
     }
-    case "deleteTask":
-    case "newGroupTask":
-    case "switchGroupTask":
-    case "deleteGroupTask":
-    case "regenerateTaskTitle":
-      return state;
-    case "newTask":
-      return { ...state, selectedId: action.botId, activeView: "chat" };
-    case "switchTask": {
-      const { [action.threadId]: _old, ...backgroundThreadEvents } = state.backgroundThreadEvents;
-      return { ...state, backgroundThreadEvents, selectedId: action.botId, activeView: "chat" };
-    }
-    case "renameTask":
-      return updateBot(state, action.botId, (bot) => ({
-        ...bot,
-        tasks: (bot.tasks ?? []).map((task) =>
-          task.threadId === action.threadId ? { ...task, title: action.title } : task,
-        ),
-      }));
-    case "renameGroupTask":
-      return {
-        ...state,
-        groups: state.groups.map((group) =>
-          group.id === action.groupId
-            ? {
-                ...group,
-                tasks: (group.tasks ?? []).map((task) =>
-                  task.threadId === action.threadId ? { ...task, title: action.title } : task,
-                ),
-              }
-            : group,
-        ),
-      };
-    case "pinGroupTask":
-      return {
-        ...state,
-        groups: state.groups.map((group) =>
-          group.id === action.groupId
-            ? {
-                ...group,
-                tasks: (group.tasks ?? []).map((task) =>
-                  task.threadId === action.threadId ? { ...task, pinned: action.pinned ? true : undefined } : task,
-                ),
-              }
-            : group,
-        ),
-      };
     case "setConversationTurnLimit":
       return {
         ...state,
@@ -1911,10 +1823,6 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "newBot":
     case "duplicateBot":
-    case "createProject":
-    case "updateProject":
-    case "deleteProject":
-    case "reorderProjects":
     case "interrupt":
     case "createGroup":
     case "deleteGroup":
@@ -1926,7 +1834,6 @@ export function reducer(state: AppState, action: Action): AppState {
     case "runRoutine":
     case "cancelRoutineRun":
     case "refreshTaskPermissions":
-    case "followBotModel":
       return state;
     case "sendGroup": {
       if (!action.sendId) return state;
@@ -1989,7 +1896,6 @@ export const initialState: AppState = {
   focusMessage: null,
   connected: false,
   error: null,
-  notice: null,
   mascotMotion: null,
   pendingQueued: {},
   consumedQueueIds: {},
@@ -2304,7 +2210,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [botPatchQueue]);
 
   const dispatch = useMemo(() => {
-    const navigation = new Map<string, number>();
     const olderPagesInFlight = new Set<string>();
     let creatingBot = false;
     const showError = (e: unknown) => {
@@ -2502,9 +2407,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             });
           break;
         }
-        case "notice":
-          if (action.notice) setTimeout(() => rawDispatch({ type: "notice", notice: null }), 6000);
-          break;
         case "createRoutine":
           api("/api/routines", { method: "POST", body: JSON.stringify(action.input) }).catch(showError);
           break;
@@ -2925,33 +2827,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           }).catch(showError);
           break;
         }
-        case "followBotModel":
-          void api<{ bot: BotAnnouncement }>(`/api/bots/${action.botId}/threads/follow-model`, { method: "POST", body: "{}" })
-            .then(({ bot }) => rawDispatch({ type: "botPatched", bot: withTaskWrites(bot) }))
-            .catch(showError);
-          break;
-        case "createProject":
-          api(`/api/bots/${action.botId}/projects`, { method: "POST", body: JSON.stringify({ name: action.name, emoji: action.emoji }) })
-            .then(({ bot, project }) => {
-              dispatch({ type: "botPatched", bot });
-              action.onCreated?.(project);
-            }).catch((error) => { showError(error); action.onError?.(error instanceof Error ? error.message : String(error)); });
-          break;
-        case "updateProject":
-          api(`/api/bots/${action.botId}/projects/${action.projectId}`, { method: "PATCH", body: JSON.stringify(action.patch) })
-            .then(({ bot }) => { dispatch({ type: "botPatched", bot }); action.onSaved?.(); })
-            .catch((error) => { showError(error); action.onError?.(error instanceof Error ? error.message : String(error)); });
-          break;
-        case "deleteProject":
-          api(`/api/bots/${action.botId}/projects/${action.projectId}`, { method: "DELETE" })
-            .then(({ bot }) => { dispatch({ type: "botPatched", bot }); action.onDeleted?.(); })
-            .catch((error) => { showError(error); action.onError?.(error instanceof Error ? error.message : String(error)); });
-          break;
-        case "reorderProjects":
-          api(`/api/bots/${action.botId}/projects/order`, { method: "PATCH", body: JSON.stringify({ projectIds: action.projectIds }) })
-            .then(({ bot }) => { dispatch({ type: "botPatched", bot }); action.onSaved?.(); })
-            .catch((error) => { showError(error); action.onError?.(error instanceof Error ? error.message : String(error)); });
-          break;
         case "interrupt":
           api(`/api/bots/${action.botId}/interrupt`, {
             method: "POST",
@@ -2961,71 +2836,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             action.onError?.();
           });
           break;
-        case "newTask":
-        case "switchTask": {
-          const revision = (navigation.get(action.botId) ?? 0) + 1;
-          navigation.set(action.botId, revision);
-          const ready = action.type === "newTask"
-            ? botPatchQueue.flush(action.botId)
-            : Promise.resolve();
-          void ready.then(() => api<{ bot: Bot }>(action.type === "newTask"
-            ? `/api/bots/${action.botId}/tasks`
-            : `/api/bots/${action.botId}/tasks/${action.threadId}?messages=${MESSAGE_PAGE_SIZE}`, { method: "POST", body: JSON.stringify(action.type === "newTask" ? { projectId: action.projectId } : {}) }))
-            .then((r) => {
-              if (!r?.bot || navigation.get(action.botId) !== revision) return;
-              dispatch({ type: "taskSwitched", bot: r.bot });
-            })
-            .catch(showError);
-          break;
-        }
-        case "renameTask":
-          api(`/api/bots/${action.botId}/tasks/${action.threadId}`, {
-            method: "PATCH",
-            body: JSON.stringify({ title: action.title }),
-          }).catch(showError);
-          break;
-        case "regenerateTaskTitle":
-          api(`/api/bots/${action.botId}/tasks/${action.threadId}/title`, { method: "POST" })
-            .then(() => action.onSettled?.(true))
-            .catch((error) => { showError(error); action.onSettled?.(false); });
-          break;
-        case "deleteTask":
-          api<{ bot?: BotAnnouncement }>(`/api/bots/${action.botId}/tasks/${action.threadId}`, { method: "DELETE" })
-            .then((r) => r?.bot && dispatch({ type: "botPatched", bot: r.bot }))
-            .catch(showError);
-          break;
-        case "newGroupTask":
-          api<{ group?: Partial<Group> & { id: string } }>(`/api/groups/${action.groupId}/tasks`, { method: "POST", body: "{}" })
-            .then((r) => r?.group && dispatch({ type: "groupPatched", group: r.group }))
-            .catch(showError);
-          break;
-        case "switchGroupTask":
-          api<{ group?: Partial<Group> & { id: string } }>(`/api/groups/${action.groupId}/tasks/${action.threadId}?messages=${MESSAGE_PAGE_SIZE}`, { method: "POST" })
-            .then((r) => r?.group && dispatch({ type: "groupPatched", group: r.group }))
-            .catch(showError);
-          break;
-        case "renameGroupTask":
-          api(`/api/groups/${action.groupId}/tasks/${action.threadId}`, {
-            method: "PATCH",
-            body: JSON.stringify({ title: action.title }),
-          }).catch(showError);
-          break;
-        case "pinGroupTask":
-          api(`/api/groups/${action.groupId}/tasks/${action.threadId}`, {
-            method: "PATCH",
-            body: JSON.stringify({ pinned: action.pinned, title: action.title }),
-          }).catch(showError);
-          break;
         case "setConversationTurnLimit":
           api(action.dm ? `/api/groups/${action.groupId}` : `/api/groups/${action.groupId}/tasks/${action.threadId}`, {
             method: "PATCH",
             body: JSON.stringify({ turnTimeoutMinutes: action.minutes }),
           }).catch(showError);
-          break;
-        case "deleteGroupTask":
-          api<{ group?: Partial<Group> & { id: string } }>(`/api/groups/${action.groupId}/tasks/${action.threadId}`, { method: "DELETE" })
-            .then((r) => r?.group && dispatch({ type: "groupPatched", group: r.group }))
-            .catch(showError);
           break;
         case "interruptGroup":
           api(`/api/groups/${action.groupId}/interrupt`, {

@@ -72,7 +72,6 @@ import { needsCli, needsSignIn } from "./EngineSetup";
 import { signInFamily } from "@/lib/engine-rail";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { ReplyQuote } from "./ReplyQuote";
-import { useThreadRefs } from "./ThreadRefs";
 import {
   QueuedComposerMessages,
   composerCanSteerQueuedMessages,
@@ -84,7 +83,6 @@ import { sharperTranscript } from "@/lib/sharper-dictation";
 import { useComposerSuggestion } from "@/lib/use-composer-suggestion";
 import { TypingGhost, TypingGhostAnnouncement } from "./TypingGhost";
 import { mentionChoicesForQuery } from "@/lib/mentions";
-import { serializeThreadRefs, threadTokenFromPaste, threadTokenSpacing } from "@/lib/thread-refs";
 import {
   composerSlashTrigger,
   goalTextFromComposer,
@@ -132,7 +130,6 @@ export function Composer({
   const bot = profile ? currentTaskBot(profile) : undefined;
   const locked = setupLocked || Boolean(bot?.awaitingThreadSnapshot);
   const { state, dispatch } = useStore();
-  const { threads, currentBotId } = useThreadRefs();
   const { capabilities } = useDesktopCapabilities();
   const busy = group ? Boolean(group.working || group.busyBotId) : Boolean(bot?.busy);
   const asking = !group && waitingOnPerson(bot);
@@ -634,7 +631,7 @@ export function Composer({
       dispatch({ type: "error", message: t("composer.error.noImages") });
       return;
     }
-    const body = composeMessage(serializeThreadRefs(effectiveText, threads, currentBotId), attachments);
+    const body = composeMessage(effectiveText, attachments);
     if (!body) return;
     const account = !group && bot ? state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId) : undefined;
     if (!signedInNow && account?.snapshot && signInFamily(account) && (needsSignIn(account) || needsCli(account))) {
@@ -728,22 +725,6 @@ export function Composer({
       }
     }
     const pasted = e.clipboardData.getData("text/plain");
-    const reference = threadTokenFromPaste(pasted, threads, currentBotId);
-    if (reference) {
-      e.preventDefault();
-      const start = e.currentTarget.selectionStart ?? text.length;
-      const end = e.currentTarget.selectionEnd ?? start;
-      const { lead, trail } = threadTokenSpacing(text, start, end);
-      const token = lead + reference.token + trail;
-      editText(text.slice(0, start) + token + text.slice(end));
-      const at = start + token.length;
-      setCaret(at);
-      requestAnimationFrame(() => {
-        inputRef.current?.focus();
-        inputRef.current?.setSelectionRange(at, at);
-      });
-      return;
-    }
     if (!isLongPaste(pasted)) return;
     e.preventDefault();
     const start = e.currentTarget.selectionStart;

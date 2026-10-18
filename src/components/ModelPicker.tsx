@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, KeyRound, Loader2, RefreshCw, Search, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, KeyRound, Loader2, RefreshCw, Search } from "lucide-react";
 import { useStore, currentTaskBot, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
 import type { EffortLevel } from "../../shared/wire";
 import { fitEffort } from "../../shared/effort";
@@ -25,8 +25,6 @@ import { ModelMenu, type ModelMenuGroup } from "./ModelMenu";
 import { declaredEffort, effortLevelsFor, effortName, effortNote, simpleEffortLevels } from "@/lib/model-friendly";
 import { t } from "@/lib/i18n";
 import { COMPACT_SQUARE } from "@/lib/compact-chip";
-import { threadsOnOwnModel } from "../../shared/thread-model";
-import { ThreadModelsLine } from "./ThreadModelsLine";
 import { subscriptionAccounts, useCarryOn } from "./AccountsPanel";
 import { SleepingDog } from "./AccountCharge";
 import { AccountBadge, AccountSwitcher, accountUsageLines, activeRest, shownAccounts, UsageRing, usageRingFor } from "./AccountSwitcher";
@@ -248,13 +246,11 @@ function ModelRow({
   option,
   current,
   defaultId,
-  botModel = false,
   onPick,
 }: {
   option: ModelOption;
   current: boolean;
   defaultId: string;
-  botModel?: boolean;
   onPick: () => void;
 }) {
   return (
@@ -282,30 +278,8 @@ function ModelRow({
         {option.loaded && (
           <span className="shrink-0 rounded bg-accent/10 px-1.5 py-px text-[10px] text-accent">Loaded</span>
         )}
-        {botModel && <span data-bot-model className="shrink-0 text-[11px] text-ink-secondary">{t("model.botModelTag")}</span>}
       </span>
       {current && <Check size={14} className="shrink-0 text-accent" />}
-    </button>
-  );
-}
-
-export function FollowBotModelRow({ name, model, follows, onPick }: { name: string; model: string; follows: boolean; onPick: () => void }) {
-  return (
-    <button
-      type="button"
-      data-follow-bot-model
-      aria-pressed={follows}
-      onClick={onPick}
-      className={cn(
-        "flex w-full shrink-0 items-center justify-between gap-2 border-b border-hairline/40 px-4 py-2.5 text-left text-[13px] text-ink hover:bg-control/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
-        follows && "bg-control/40",
-      )}
-    >
-      <span className="flex min-w-0 items-baseline gap-2">
-        <span className="shrink-0 font-medium">{t("model.useBotModel", { name })}</span>
-        <span className="truncate text-[12px] text-ink-secondary">{model}</span>
-      </span>
-      {follows && <Check size={14} className="shrink-0 text-accent" aria-hidden="true" />}
     </button>
   );
 }
@@ -472,7 +446,6 @@ export function ModelPicker({
   const [showAll, setShowAll] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [probingLocal, setProbingLocal] = useState<string | null>(null);
-  const [scope, setScope] = useState<"bot" | "thread">("thread");
   const ownerOrAdmin = useOwnerOrAdmin();
   const simpleUpdatesBotDefault = !state.config?.cloudHome || ownerOrAdmin === true;
   const [fullView, setFullView] = useState(false);
@@ -482,7 +455,6 @@ export function ModelPicker({
     selection: ModelSelection; updateBotDefault: boolean; name: string } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [placement, setPlacement] = useState<{ left: number; maxHeight: number }>();
-  const [changedBotModel, setChangedBotModel] = useState(false);
   const refreshingRef = useRef(false);
   const lastClaudeIdRef = useRef<string | null>(null);
   const lastOpenaiIdRef = useRef<string | null>(null);
@@ -633,30 +605,10 @@ export function ModelPicker({
   };
 
   const profile = state.bots.find((candidate) => candidate.id === bot.id) ?? bot;
-  const follows = threadId ? profile.tasks?.find((task) => task.threadId === threadId)?.followsBotModel : undefined;
-  const botModelInstance = state.instances.find((instance) => instance.instanceId === profile.modelSelection.instanceId);
-  const botModelName = botModelInstance
-    ? `${botModelInstance.displayName} · ${modelLabel(botModelInstance, profile.modelSelection.model)}`
-    : profile.modelSelection.model;
-  const ownModelThreads = threadsOnOwnModel(profile.modelSelection, profile.tasks ?? []).length;
-
-  const pickBotModel = () => {
-    setOpen(false);
-    if (follows !== false) return;
-    const target = currentTaskBot(profile, threadId ?? bot.threadId);
-    if (modelSwitchNeedsAsk(approvalModeFor(target),
-      state.instances.find((candidate) => candidate.instanceId === target.modelSelection.instanceId)?.driverKind,
-      botModelInstance?.driverKind)) {
-      setPendingSwitch({ botId: bot.id, threadId: threadId ?? bot.threadId, selection: profile.modelSelection, updateBotDefault: false, name: botModelName });
-      return;
-    }
-    dispatch({ type: "setModel", botId: bot.id, threadId: threadId ?? bot.threadId, updateBotDefault: false, selection: profile.modelSelection });
-  };
-
   const pick = (instance: InstanceInfo, model: string, keepOpen = false) => {
     if (instance.policy) return;
     const nextSelection = modelSelectionForPick(selection, instance, model);
-    const updateBotDefault = !threadId || (simpleView ? simpleUpdatesBotDefault : scope === "bot");
+    const updateBotDefault = !threadId || simpleUpdatesBotDefault;
     const targets = updateBotDefault ? [currentTaskBot(profile, threadId ?? bot.threadId), profile] : [bot];
     if (targets.some((target) => modelSwitchNeedsAsk(approvalModeFor(target),
       state.instances.find((candidate) => candidate.instanceId === target.modelSelection.instanceId)?.driverKind,
@@ -673,7 +625,6 @@ export function ModelPicker({
       updateBotDefault,
       selection: nextSelection,
     });
-    if (updateBotDefault && threadId) setChangedBotModel(true);
     if (!keepOpen) setOpen(false);
   };
 
@@ -807,15 +758,12 @@ export function ModelPicker({
       ...(threadId && simpleUpdatesBotDefault ? { updateBotDefault: true } : {}), selection: { ...selection, effort: level } }),
   } : null;
 
-  const botModelId = follows !== undefined && profile.modelSelection.instanceId === railInstance?.instanceId
-    ? profile.modelSelection.model : undefined;
   const renderRow = (option: ModelOption) => (
     <ModelRow
       key={option.id}
       option={option}
       current={selection.instanceId === railInstance?.instanceId && selection.model === option.id}
       defaultId={railInstance?.models.default ?? ""}
-      botModel={option.id === botModelId}
       onPick={() => railInstance && pick(railInstance, option.id)}
     />
   );
@@ -827,7 +775,6 @@ export function ModelPicker({
       }${selectedVariantLabel ? ` · ${selectedVariantLabel}` : shownEffortName ? ` · ${shownEffortName} effort` : ""}`
     : shownModel;
   const chosenDepth = selectedVariantLabel ?? shownEffortName;
-  const followLine = follows === true ? `\n${t("model.followsBot", { name: profile.name })}` : follows === false ? `\n${t("model.ownModel")}` : "";
   const activeProvider = usage.report?.providers.find((provider) => provider.id === inUse?.instanceId);
   const activeRestNow = inUse ? activeRest(battery?.resting, inUse.instanceId, usage.now) : undefined;
   const ring = inUse && switcherAccounts.some((account) => account.instanceId === inUse.instanceId)
@@ -844,7 +791,6 @@ export function ModelPicker({
         if (active && signInFamily(active) === "openai") lastOpenaiIdRef.current = active.instanceId;
         const initial = pickerInstances.find((instance) => instance.instanceId === selection.instanceId) ?? pickerInstances[0];
         setRailId(initial?.instanceId ?? null);
-        setChangedBotModel(false);
         setOpen((wasOpen) => {
           const next = !wasOpen;
           if (next) {
@@ -863,7 +809,7 @@ export function ModelPicker({
         !contained && active && (!showActiveAccount || part === "account") && COMPACT_SQUARE,
         part === "model" && "border-transparent bg-transparent pl-2",
       )}
-      title={[routed && inUse ? t("accounts.runningOn", { name: inUse.displayName }) : `${summary}${followLine}`, ...activeUsage].join("\n")}
+      title={[routed && inUse ? t("accounts.runningOn", { name: inUse.displayName }) : summary, ...activeUsage].join("\n")}
     >
       {inUse && part === "account" && (namedAccount || routed) ? <AccountBadge instance={inUse} ring={ring} />
         : active && part !== "model" && (ring ? (
@@ -979,9 +925,6 @@ export function ModelPicker({
               {t("accounts.title")}
             </button>
           )}
-          {follows !== undefined && part !== "model" && (
-            <FollowBotModelRow name={profile.name} model={botModelName} follows={follows} onPick={pickBotModel} />
-          )}
           <div className="flex min-h-0 min-w-0 flex-1">
           {simpleView ? (
             <SimpleModelPane
@@ -1025,7 +968,6 @@ export function ModelPicker({
                 />
               ) : undefined}
               currentModelId={currentModel}
-              botModelId={part === "model" ? undefined : botModelId}
               onPick={(model) => railInstance && pick(railInstance, model)}
               variantsRow={active?.capabilities?.modelVariants ? (
                 <ModelVariantRow compact wide bot={bot} threadId={threadId} updateBotDefault={Boolean(threadId) && simpleUpdatesBotDefault}
@@ -1039,21 +981,6 @@ export function ModelPicker({
           {pickerInstances.length > 0 && <ModelEngineRail instances={pickerInstances} selectedInstance={railInstance} claudeInstance={claudeRailInstance} openaiInstance={openaiRailInstance} onSelect={selectRail} />}
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-            {threadId && (
-              <div className="shrink-0 border-b border-hairline/40 px-3 py-2">
-                <div role="group" aria-label="Apply model changes to" className="flex gap-1">
-                  {(["thread", "bot"] as const).map((value) => (
-                    <button key={value} type="button" aria-pressed={scope === value} onClick={() => setScope(value)}
-                      className={cn("rounded-lg px-2 py-1 text-[12px]", scope === value ? "bg-control text-ink" : "text-ink-secondary hover:bg-control/60")}>
-                      {value === "bot" ? "Thread + dog default" : "Only this thread"}
-                    </button>
-                  ))}
-                </div>
-                <p className="mt-1 text-[11px] text-ink-secondary">
-                  {scope === "bot" ? "The dog's model: this thread, groups, and every thread that uses the dog's model." : "This thread only. It keeps this model when the dog's model changes."}
-                </p>
-              </div>
-            )}
             {railInstance ? (
               <>
                 <div className="shrink-0 px-4 pb-2 pt-3.5">
@@ -1242,7 +1169,7 @@ export function ModelPicker({
                     compact
                     bot={bot}
                     threadId={threadId}
-                    updateBotDefault={Boolean(threadId && scope === "bot")}
+                    updateBotDefault={Boolean(threadId) && simpleUpdatesBotDefault}
                     className="shrink-0 border-t border-hairline/40 px-4 py-2"
                     label={<span className="text-[12.5px] font-medium text-ink">{active?.capabilities?.modelVariants ? "Reasoning" : "Effort"}</span>}
                   />
@@ -1292,16 +1219,6 @@ export function ModelPicker({
           )}
         </div>
       )}
-      {!contained && changedBotModel && !open && ownModelThreads > 0 && (
-        <div data-thread-models-notice role="status"
-          className="absolute right-0 top-full z-30 mt-2 flex max-w-[calc(100vw-2rem)] items-center gap-2 rounded-xl border border-hairline/50 bg-card py-2 pl-3 pr-2 shadow-xl shadow-black/30">
-          <ThreadModelsLine bot={profile} />
-          <button type="button" aria-label={t("common.close")} onClick={() => setChangedBotModel(false)}
-            className="shrink-0 rounded-md p-1 text-ink-secondary hover:bg-control/60 hover:text-ink">
-            <X size={13} aria-hidden="true" />
-          </button>
-        </div>
-      )}
       <ConfirmDialog
         open={pendingSwitch !== null}
         title={t("model.providerSwitch.title")}
@@ -1318,7 +1235,6 @@ export function ModelPicker({
           dispatch({ type: "setModel", botId: pendingSwitch.botId, threadId: pendingSwitch.threadId,
             selection: pendingSwitch.selection, updateBotDefault: pendingSwitch.updateBotDefault,
             resetApprovalToAsk: true });
-          if (pendingSwitch.updateBotDefault && threadId) setChangedBotModel(true);
           setPendingSwitch(null);
         }}
       />

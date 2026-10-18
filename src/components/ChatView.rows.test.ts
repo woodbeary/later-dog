@@ -13,10 +13,10 @@ vi.mock("./ChatMarkdown", async (importOriginal) => ({
     return createElement("p", null, text);
   },
 }));
-vi.mock("./ThreadRefs", async (importOriginal) => ({
-  ...await importOriginal<typeof import("./ThreadRefs")>(),
-  ThreadRefText: ({ text }: { text: string }) => {
-    renders.userText++;
+vi.mock("./MentionText", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./MentionText")>(),
+  MentionText: ({ text, faces }: { text: string; faces?: boolean }) => {
+    if (faces) renders.userText++;
     return createElement("span", null, text);
   },
 }));

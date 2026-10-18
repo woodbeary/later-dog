@@ -18,7 +18,6 @@ import {
   textDirection,
 } from "./ChatMarkdown";
 import { StoreProvider } from "@/state/store";
-import { ThreadRefsContext } from "./ThreadRefs";
 import * as AttachmentPreview from "./AttachmentPreview";
 
 vi.mock("react", async (importOriginal) => {
@@ -450,57 +449,19 @@ it("loads a curated grammar once and leaves an unbundled language plain", async 
   }
 });
 
-describe("#Title thread links in markdown", () => {
-  const threads = [
-    { botId: "scout", botName: "Scout", threadId: "qa-245", title: "QA PR 245", activeAt: 2 },
-    { botId: "scout", botName: "Scout", threadId: "short", title: "QA", activeAt: 1 },
-  ];
-  const render = (text: string) => renderToStaticMarkup(createElement(StoreProvider, null,
-    createElement(ThreadRefsContext.Provider, { value: { threads, currentBotId: "scout" } }, createElement(ChatMarkdown, { text }))));
+describe("old #Title thread references in markdown", () => {
+  const render = (text: string) => renderToStaticMarkup(createElement(StoreProvider, null, createElement(ChatMarkdown, { text })));
 
-  it("links a known title in prose as a button that opens the thread", () => {
+  it("shows an old #Title as plain text", () => {
     const markup = render("I opened #QA PR 245 for the review.");
-    expect(markup).toContain('<button type="button" data-thread-link="qa-245"');
-    expect(markup).toContain('title="Open #QA PR 245"');
-    expect(markup).toContain(">#QA PR 245</span></button>");
-    expect(markup).not.toContain('data-thread-link="short"');
+    expect(markup).toContain("I opened #QA PR 245 for the review.");
+    expect(markup).not.toContain("<button");
   });
 
-  it("keeps a thread title containing a bot mention in one chip", () => {
-    const thread = { botId: "coordinator", botName: "coordinator", threadId: "work", title: "@coordinator · work", activeAt: 3 };
-    const markup = renderToStaticMarkup(createElement(StoreProvider, null,
-      createElement(ThreadRefsContext.Provider, { value: { threads: [thread], currentBotId: "scout" } },
-        createElement(ChatMarkdown, { text: "See #@coordinator · work for the details.", mentionPeers: [{ name: "coordinator", color: "blue" }] }))));
-    expect(markup).toContain('data-thread-link="work"');
-    expect(markup).toContain('class="min-w-0 truncate">#@coordinator · work</span>');
-    expect(markup).toContain("lucide-messages-square");
-    expect(markup).not.toContain("data-mention-face");
-  });
-
-  it("leaves code, links, headings and issue numbers alone", () => {
-    const markup = render("`#QA PR 245` in code, [#QA PR 245](https://example.test) as a link, #123 an issue\n\n# QA PR 245\n\nplain");
-    expect(markup).not.toContain("data-thread-link");
-    expect(markup).toContain("<code");
-    expect(markup).toContain('font-semibold">QA PR 245</div>');
-  });
-
-  it("does nothing without any visible threads", () => {
-    const markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(ChatMarkdown, { text: "#QA PR 245" })));
-    expect(markup).not.toContain("data-thread-link");
-    expect(markup).toContain("#QA PR 245");
-  });
-
-  it("renders a sent canonical link as a chip that opens the thread", () => {
+  it("shows an old thread link as plain text, never an external anchor", () => {
     const markup = render("done in [QA PR 245](laterdog://thread/qa-245?bot=scout) today");
-    expect(markup).toContain('<button type="button" data-thread-link="qa-245"');
-    expect(markup).toContain(">QA PR 245</span></button>");
-    expect(markup).not.toContain('href="laterdog://');
-  });
-
-  it("keeps a dead thread link as plain text, never an external anchor", () => {
-    const markup = render("see [Gone](laterdog://thread/dead?bot=scout)");
-    expect(markup).toContain(">Gone<");
-    expect(markup).not.toContain("data-thread-link");
+    expect(markup).toContain(">QA PR 245<");
+    expect(markup).not.toContain("<button");
     expect(markup).not.toContain('href="laterdog://');
     expect(markup).not.toContain('target="_blank"');
   });

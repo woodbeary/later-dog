@@ -17,7 +17,6 @@ import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { ModelPicker } from "./ModelPicker";
 import { Switch } from "./SettingsPrimitives";
 import { SoulField } from "./SoulField";
-import { ThreadModelsLine } from "./ThreadModelsLine";
 import { TreatCount } from "./TreatCount";
 import { useBotEditor } from "./bot-settings/BotEditorContext";
 import { botLibraryItems } from "./bot-settings/library";
@@ -294,7 +293,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                 <div className={cardCls}>
                   <div className={rowCls} data-simple-default-model>
                     <ModelPicker bot={bot} contained label={<span className="text-[14px] text-ink">{t("botSettings.simple.runsOn")}</span>} />
-                    <ThreadModelsLine bot={bot} className="mt-2" />
                   </div>
                   <div className={dividedRowCls}>
                     <div className="flex items-center justify-between gap-3">

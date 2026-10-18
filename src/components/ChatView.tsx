@@ -35,7 +35,7 @@ import {
   currentTaskBot,
   useStore,
   formatTime,
-  openThread,
+  openNotificationTarget,
   visibleMessages,
   type Action,
   type Bot,
@@ -57,7 +57,7 @@ import type { PlaceRow } from "../../shared/place-view";
 import { isProviderSafetyBlock, PROVIDER_SAFETY_GUIDANCE, PROVIDER_SAFETY_HELP_URL } from "../../shared/provider-safety";
 import { isOpenTakeover } from "../../shared/takeover";
 import { BotAvatar } from "./Avatar";
-import { ExchangeLine } from "./QuietLines";
+import { ExchangeLine, PlainNoteLine } from "./QuietLines";
 import { ExchangeViewHost } from "./ExchangeViewHost";
 import { foldExchanges, expandedExchange, quietTranscriptItemShown } from "@/lib/quiet-lines";
 import { currentDogName, freshenDogName } from "@/lib/dog-refs";
@@ -76,11 +76,11 @@ import { liveActivity } from "@/lib/live-activity";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { VoiceNoteBubble, type VoiceNoteAttachment } from "./VoiceNoteBubble";
 import { RawMarkdownView, RawToggleAction } from "./RawMarkdownToggle";
-import { ThreadChip } from "./ThreadChip";
 import { CloudTaskCard, CloudTaskUpdateRow } from "./CloudTaskCard";
 import { cloudWakeupOf } from "@/lib/cloud-tasks";
 import { ToolActivity } from "./ToolActivity";
-import { ThreadRefText } from "./ThreadRefs";
+import { MentionText } from "./MentionText";
+import { plainThreadLinks } from "@/lib/thread-refs";
 import { OptionCard, shouldHideOnboardingCard } from "./OptionCard";
 import { ApprovalCard } from "./ApprovalCard";
 import { QuestionCard } from "./QuestionCard";
@@ -96,7 +96,6 @@ import { ownerShowingElsewhere } from "@/lib/open-elsewhere";
 import { AttachmentGallery, collectMessageFiles, splitMessageAttachments } from "./AttachmentGallery";
 import { ScreenFrame } from "./ScreenFrame";
 import { CompactionChip, DigestChip } from "./DigestChip";
-import { BotActivityPicker } from "./TaskPicker";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { ShortcutHint } from "./ShortcutHint";
 import {
@@ -591,7 +590,7 @@ const Bubble = memo(function Bubble({
                   data-citation-owner={botId}
                   data-citation-thread={threadId}
                 >
-                  <ThreadRefText text={visibleText} peers={mentionPeers} />
+                  <MentionText text={plainThreadLinks(visibleText)} peers={mentionPeers} faces />
                 </div>
               )}
               {cited && <SentCitations
@@ -699,11 +698,7 @@ function PeerLabel({ peer }: { peer: PeerLine }) {
   const author =
     bots.find((b) => b.id === peer.botId) ?? bots.find((b) => b.name === peer.name);
   const how =
-    peer.delivery === "delegate_bot"
-      ? t("chat.peer.delegated")
-      : peer.delivery === "start_thread"
-        ? t("chat.peer.openedThread")
-        : t("chat.peer.asked");
+    peer.delivery === "delegate_bot" ? t("chat.peer.delegated") : t("chat.peer.asked");
   return (
     <div className="mb-1 flex items-center gap-1.5 pl-0.5" data-testid="peer-label">
       <BotAvatar
@@ -725,7 +720,7 @@ const ActivityChip = memo(function ActivityChip({ message, place = "auto" }: { m
   const tool = message.tool;
   if (!tool) return null;
   if (message.cloudTask) return <CloudTaskCard message={message} />;
-  if (message.threadRef) return <ThreadChip message={message} />;
+  if (message.threadRef) return <PlainNoteLine message={message} />;
   const comm = message.comm;
   if (comm) {
     const withBot = bots.find((b) => b.id === comm.withBotId);
@@ -1273,7 +1268,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           style={controlsShiftStyle}
         >
           <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} part="account" />
-          <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openThread(dispatch, { botId, threadId }, state)} />
+          <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openNotificationTarget(dispatch, { botId, threadId }, state)} />
           <button
             data-tour="computer"
             onClick={() => dispatch({ type: "toggleComputer" })}
@@ -1290,7 +1285,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
         </div>
       </div>
 
-      <BotActivityPicker bot={bot} />
       {routineExecution && <div className="mx-5 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[11.5px] text-ink-secondary">
         <span className="min-w-0 flex-1 truncate">{t("routines.executionDetails", { name: routineExecution.routineName })}</span>
         {resultsOwner && <button type="button" onClick={() => dispatch({ type: "select", id: resultsOwner.id })} className="rounded px-2 py-1 text-accent hover:bg-raised">{t("routines.results.back")}</button>}
@@ -1301,13 +1295,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
         <div className="w-full px-5">
           <div className="mb-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">
             {state.error}
-          </div>
-        </div>
-      )}
-      {state.notice && (
-        <div className="w-full px-5">
-          <div role="status" className="mb-2 rounded-lg border border-hairline/40 bg-panel px-3 py-2 text-[13px] text-ink-secondary">
-            {state.notice.botName ? t("thread.goneShowing", { name: state.notice.botName }) : t("thread.gone")}
           </div>
         </div>
       )}
@@ -1466,7 +1453,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       <LiveCallBar bot={bot} />
       {!takeoverOpen && <NeedsYouRow botId={bot.id} name={bot.name} />}
       {canWrite === false ? (
-        <NewConversationInstead onNew={() => dispatch({ type: "newTask", botId: bot.id })} />
+        <p className="pointer-events-auto mx-5 mb-4 rounded-2xl border border-hairline/60 bg-raised px-4 py-3 text-[13px] text-ink-secondary" data-testid="cloud-guest-composer">{t("chat.cloudGuest.notYours")}</p>
       ) : (
       <Composer
         key={bot.threadId}
@@ -1494,17 +1481,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   );
 }
 
-export function NewConversationInstead({ onNew }: { onNew: () => void }) {
-  return (
-    <div className="pointer-events-auto mx-5 mb-4 flex items-center justify-between gap-3 rounded-2xl border border-hairline/60 bg-raised px-4 py-3" data-testid="cloud-guest-composer">
-      <p className="text-[13px] text-ink-secondary">{t("chat.cloudGuest.notYours")}</p>
-      <button type="button" onClick={onNew} className="shrink-0 rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white transition-[filter] enabled:hover:brightness-110">
-        {t("chat.cloudGuest.newConversation")}
-      </button>
-    </div>
-  );
-}
-
 function usageSummary(bot: Bot, instances: AppState["instances"]): { short: string; detail: string; tone?: "danger" | "warning" } | null {
   const usage = bot.tasks?.find((t) => t.threadId === bot.threadId)?.usage;
   if (!usage || !usageChip(usage)) return null;
@@ -1515,7 +1491,6 @@ function usageSummary(bot: Bot, instances: AppState["instances"]): { short: stri
     usageDetail(usage),
     lastTurnDetail(usage),
     contextDetail(usage),
-    share?.tone === "danger" ? t("chat.usage.contextNudge") : null,
     hasFiniteCost(usage.costUsd) ? `${formatUsd(usage.costUsd)} ${costCaption(billing)}` : null,
   ]
     .filter(Boolean)
