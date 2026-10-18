@@ -7,10 +7,11 @@ import { cn } from "@/lib/cn";
 import { requestAccountSignIn, requestAddAccount, type AddAccountKind } from "@/lib/add-account-request";
 import { useModalDialog } from "@/hooks/use-modal-dialog";
 import { Switch } from "./SettingsPrimitives";
-import { ClaudeMark, CodexMark, GrokMark } from "./ProviderIcons";
+import { ClaudeMark, CodexMark, CursorMark, GrokMark } from "./ProviderIcons";
 import { ClaudeSignIn } from "./ClaudeSignIn";
 import { EngineSetup } from "./EngineSetup";
 import { DeviceSignIn, deviceSignInProvider } from "./DeviceSignIn";
+import { IncludedAiAccount } from "./IncludedAiAccount";
 import { usageLines, usageReading, usePlanUsage, type PlanProvider, resetDistance } from "./PlanUsage";
 import { backAt, restSummary, SleepingDog, usageLeft } from "./AccountCharge";
 import { AccountCharge } from "./AccountBattery";
@@ -25,12 +26,13 @@ export const ACCOUNT_ENGINES: ReadonlyArray<{ kind: AccountKind; name: string; r
   { kind: "claudeAgent", name: "Claude", route: "/api/instances/claude-accounts", defaultId: "claude" },
   { kind: "codex", name: "ChatGPT", route: "/api/instances/chatgpt-accounts", defaultId: "chatgpt" },
   { kind: "grokAgent", name: "Grok", defaultId: "grok" },
+  { kind: "cursorAgent", name: "Cursor", defaultId: "cursor" },
 ];
 
 const CARRY_ON_KINDS: readonly AccountKind[] = ["claudeAgent", "codex"];
 const ALL_KINDS: readonly AccountKind[] = ACCOUNT_ENGINES.map((engine) => engine.kind);
 
-const DEFAULT_ACCOUNT_IDS = new Set(["claude", "chatgpt", "codex", "grok"]);
+const DEFAULT_ACCOUNT_IDS = new Set(["claude", "chatgpt", "codex", "grok", "cursor"]);
 
 const carriesOn = (instance: InstanceInfo) => (CARRY_ON_KINDS as readonly string[]).includes(instance.driverKind);
 
@@ -172,7 +174,10 @@ export function useCarryOn() {
 }
 
 function AccountMark({ kind, size = 20 }: { kind: string; size?: number }) {
-  return kind === "codex" ? <CodexMark size={size} /> : kind === "grokAgent" ? <GrokMark size={size} /> : <ClaudeMark size={size} />;
+  if (kind === "codex") return <CodexMark size={size} />;
+  if (kind === "grokAgent") return <GrokMark size={size} />;
+  if (kind === "cursorAgent") return <CursorMark size={size} />;
+  return <ClaudeMark size={size} />;
 }
 
 function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGone }: {
@@ -355,6 +360,18 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
   );
 }
 
+export type AccountTile = { kind: AccountKind; name: string; next: SheetStep | null };
+
+export function accountTiles(instances: readonly InstanceInfo[]): AccountTile[] {
+  return ACCOUNT_ENGINES.flatMap(({ kind, name, route, defaultId }): AccountTile[] => {
+    const unused = unusedDefault(instances, kind);
+    if (unused) return [{ kind, name, next: { step: "signIn", instanceId: unused.instanceId } }];
+    if (route) return [{ kind, name, next: { step: "name", kind } }];
+    const own = instances.find((instance) => instance.instanceId === defaultId && instance.driverKind === kind);
+    return own?.authentication && signedIn(own) ? [{ kind, name, next: null }] : [];
+  });
+}
+
 export type SheetStep =
   | { step: "pick"; more?: boolean }
   | { step: "name"; kind: AccountKind }
@@ -382,7 +399,7 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
   const engine = sheet.step === "name" ? ACCOUNT_ENGINES.find((candidate) => candidate.kind === sheet.kind) : undefined;
   const instance = sheet.step === "signIn" || sheet.step === "key" ? instances.find((candidate) => candidate.instanceId === sheet.instanceId) : undefined;
   const providers = keyProviders(instances);
-  const tiles = ACCOUNT_ENGINES.filter((candidate) => candidate.route || unusedDefault(instances, candidate.kind));
+  const tiles = accountTiles(instances);
 
   const create = async (event: FormEvent) => {
     event.preventDefault();
@@ -412,23 +429,23 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
         <h2 className="text-[15px] font-semibold">{title}</h2>
         {sheet.step === "pick" && (
           <div className="mt-4 flex flex-col gap-3">
-            <div className={cn("grid gap-3", tiles.length > 2 ? "grid-cols-3" : "grid-cols-2")}>
-              {tiles.map((candidate) => (
+            <div className="grid grid-cols-2 gap-3">
+              {tiles.map(({ kind, name: tileName, next }) => (
                 <button
-                  key={candidate.kind}
+                  key={kind}
                   type="button"
-                  data-account-engine={candidate.kind}
-                  onClick={() => {
-                    const unused = unusedDefault(instances, candidate.kind);
-                    onStep(unused ? { step: "signIn", instanceId: unused.instanceId } : { step: "name", kind: candidate.kind });
-                  }}
-                  className="flex flex-col items-center gap-2 rounded-xl bg-card px-3 py-4 text-[13px] font-medium text-ink ring-1 ring-inset ring-hairline/30 transition-colors hover:bg-raised-hover hover:ring-hairline/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus motion-reduce:transition-none"
+                  data-account-engine={kind}
+                  disabled={next === null}
+                  onClick={() => { if (next) onStep(next); }}
+                  className="flex flex-col items-center gap-1.5 rounded-xl bg-card px-3 py-4 text-[13px] font-medium text-ink ring-1 ring-inset ring-hairline/30 transition-colors enabled:hover:bg-raised-hover enabled:hover:ring-hairline/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-60 motion-reduce:transition-none"
                 >
-                  <AccountMark kind={candidate.kind} size={28} />
-                  {candidate.name}
+                  <AccountMark kind={kind} size={28} />
+                  {tileName}
+                  {next === null && <span className="text-[11.5px] font-normal text-ink-secondary">{t("accounts.signedIn")}</span>}
                 </button>
               ))}
             </div>
+            <IncludedAiAccount instances={instances} className="rounded-xl bg-card px-3" />
             {sheet.more && providers.length > 0 && (
               <MoreProviders providers={providers} onPick={(provider) => onStep({ step: "key", instanceId: provider.instanceId })} />
             )}
@@ -522,8 +539,10 @@ function InstallFirst({ instance, onCancel }: { instance: InstanceInfo; onCancel
   }, [instance.instanceId, installable, instance.displayName, dispatch]);
   return (
     <div className="space-y-3">
-      {error || !installable ? (
-        <p role="alert" className="text-[13px] text-danger">{error ?? t("onboarding.engines.unavailable")}</p>
+      {!installable ? (
+        <EngineSetup instance={instance} unframed />
+      ) : error ? (
+        <p role="alert" className="text-[13px] text-danger">{error}</p>
       ) : (
         <p role="status" className="flex items-center gap-1.5 text-[13px] text-ink-secondary">
           <Loader2 size={13} className="animate-spin" /> {t("accounts.sheet.gettingReady", { name: instance.displayName })}
@@ -587,6 +606,7 @@ export function AccountsPanel() {
             ))}
           </ul>
         )}
+        {loaded && <IncludedAiAccount instances={state.instances} className="border-t border-hairline/40" />}
         <div className="flex items-center gap-3 border-t border-hairline/40 px-4 py-3">
           <button type="button" data-accounts-add onClick={() => requestAddAccount()} className={pill}>{t("accounts.add")}</button>
         </div>

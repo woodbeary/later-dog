@@ -777,7 +777,6 @@
   "accounts.inWhen": "{when} में",
   "accounts.recharging": "चार्ज हो रहा है",
   "accounts.recharged": "{percent}% चार्ज हो गया",
-  "accounts.empty": "अभी कोई खाता नहीं है। अपना मौजूदा प्लान इस्तेमाल करने के लिए Claude या ChatGPT जोड़ें।",
   "accounts.usageDetails": "विवरण",
   "accounts.move": "{name} को ले जाएँ",
   "signOut.title": "साइन आउट करें?",

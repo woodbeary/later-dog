@@ -777,7 +777,6 @@
   "accounts.inWhen": "dans {when}",
   "accounts.recharging": "Recharge",
   "accounts.recharged": "Rechargé à {percent}%",
-  "accounts.empty": "Pas encore de comptes. Ajoute Claude ou ChatGPT pour utiliser le forfait que tu as déjà.",
   "accounts.usageDetails": "Détails",
   "accounts.move": "Déplacer {name}",
   "signOut.title": "Se déconnecter ?",

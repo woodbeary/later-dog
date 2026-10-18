@@ -122,12 +122,12 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("ModelPicker with a signed-out or missing Claude", () => {
-  it("keeps an empty ChatGPT plan catalog on the cloud rail so sign-in is reachable", () => {
+  it("keeps the dog's own signed-out ChatGPT plan on the rail with an empty catalog, so sign-in is reachable", () => {
     const plan: InstanceInfo = { ...codex, instanceId: "chatgpt", displayName: "ChatGPT plan", snapshot: { state: "available", authenticated: false, chatgptPlan: true }, models: { default: "", options: [] }, authentication: { method: "browser-pkce" }, install: { signInCommand: "codex login" } };
     fixture.instances = [codex, plan];
-    const forBot = bot("codex", "gpt-5.6");
+    const forBot = bot("chatgpt", "");
     const opened = open(forBot);
-    expect(rail(opened)!.props.instances.map((instance) => instance.instanceId)).toContain("chatgpt");
+    expect(rail(opened)!.props.instances.map((instance) => instance.instanceId)).toEqual(["codex", "chatgpt"]);
     rail(opened)!.props.onSelect(plan);
     const html = menu(render(forBot).html);
     expect(html).toContain("Continue with ChatGPT");
@@ -136,21 +136,11 @@ describe("ModelPicker with a signed-out or missing Claude", () => {
     expect(html).not.toContain("Local models will appear");
   });
 
-  it("keeps a signed-out Claude on the rail and shows its sign-in card instead of pickable cloud models", () => {
+  it("leaves a signed-out Claude the dog is not on out of the list", () => {
     fixture.instances = [codex, signedOut()];
-    const onCodex = bot("codex", "gpt-5.6");
-    const opened = open(onCodex);
-    expect(rail(opened)!.props.instances.map((instance) => instance.instanceId)).toEqual(["codex", "claude"]);
-    expect(opened.html).toContain('aria-label="Claude"');
-
-    (rail(opened)!.props.onSelect as (instance: InstanceInfo) => void)(fixture.instances[1]);
-    const browsing = menu(render(onCodex).html);
-    expect(browsing).toContain("Sign in to Claude");
-    expect(browsing).toContain("data-claude-sign-in");
-    expect(browsing).toContain("2 models will appear after setup.");
-    expect(browsing).not.toContain(">Opus 5.5<");
-    expect(browsing).not.toContain(">Sonnet 5<");
-    expect(browsing).not.toContain("No model providers are available.");
+    const opened = open(bot("codex", "gpt-5.6"));
+    expect(rail(opened)!.props.instances.map((instance) => instance.instanceId)).toEqual(["codex"]);
+    expect(opened.html).not.toContain('aria-label="Claude"');
     expect(fixture.dispatch).not.toHaveBeenCalled();
   });
 

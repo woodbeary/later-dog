@@ -199,7 +199,7 @@ export function SimpleModelPane({
                   <button
                     type="button"
                     data-simple-sign-in
-                    onClick={onSetUp}
+                    onClick={onSignIn ?? onSetUp}
                     className={cn(row, "mt-0.5 text-[12px] font-medium text-accent-text hover:bg-control/60")}
                   >
                     <span className="min-w-0 flex-1 truncate">{t("model.simple.signInForOwn", { name: signIn.name })}</span>

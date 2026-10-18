@@ -779,7 +779,6 @@
   "accounts.inWhen": "{when} 後",
   "accounts.recharging": "回復中",
   "accounts.recharged": "{percent}% 回復",
-  "accounts.empty": "アカウントがまだありません。Claude または ChatGPT を追加すると、お持ちのプランを使えます。",
   "accounts.usageDetails": "詳細",
   "accounts.move": "{name} を移動",
   "signOut.title": "サインアウトしますか？",

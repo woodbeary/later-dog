@@ -1,9 +1,16 @@
 import type { InstanceInfo } from "@/state/store";
+import { isShownEngine } from "../../shared/account-engines";
 
-export function configuredModelInstances(instances: readonly InstanceInfo[], selectedInstanceId?: string): InstanceInfo[] {
+export function pickableInstance(instance: InstanceInfo): boolean {
+  if (instance.snapshot.state !== "available") return false;
+  if (instance.access === "api") return instance.snapshot.authenticated === true;
+  return isShownEngine(instance.driverKind) && instance.snapshot.authenticated !== false;
+}
+
+export function signedInModelInstances(instances: readonly InstanceInfo[], selectedInstanceId?: string): InstanceInfo[] {
   return instances.filter((instance) =>
     instance.instanceId === selectedInstanceId
-      || (instance.snapshot.state === "available" && (instance.models.options.length > 0 || instance.snapshot.chatgptPlan === true)));
+      || (pickableInstance(instance) && (instance.models.options.length > 0 || instance.snapshot.chatgptPlan === true)));
 }
 
 export function isCustomOnly(instance: { access?: InstanceInfo["access"] } | undefined): boolean {

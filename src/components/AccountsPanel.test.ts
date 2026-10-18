@@ -55,7 +55,7 @@ vi.mock("./DeviceSignIn", () => ({
     fixture.signIns.push({ kind: "device", props });
     return createElement("div", { "data-sign-in": "device" });
   },
-  deviceSignInProvider: (driverKind: string) => (driverKind === "grokAgent" ? "grok" : "codex"),
+  deviceSignInProvider: (driverKind: string) => ({ grokAgent: "grok", cursorAgent: "cursor", codex: "codex" } as Record<string, string>)[driverKind] ?? null,
 }));
 
 const { AccountsPanel, AccountsRefresh, accountOrder, pollSignedIn, realAccount, removable, shownOrder, subscriptionAccounts, useCarryOn } = await import("./AccountsPanel");
@@ -87,6 +87,17 @@ const grokAccount = (snapshot: Partial<InstanceInfo["snapshot"]> = {}): Instance
   snapshot: { state: "available", authenticated: true, ...snapshot },
   models: { default: "grok-4.7", options: [] },
   authentication: { method: "device-code", signOut: true },
+});
+const cursorAccount = (snapshot: Partial<InstanceInfo["snapshot"]> = {}): InstanceInfo => ({
+  instanceId: "cursor", driverKind: "cursorAgent", displayName: "Cursor", access: "subscription",
+  snapshot: { state: "available", authenticated: true, ...snapshot },
+  models: { default: "auto", options: [] },
+  authentication: { method: "device-code", signOut: true },
+});
+const includedKimi = (snapshot: Partial<InstanceInfo["snapshot"]> = {}): InstanceInfo => ({
+  instanceId: "laterdogAi", driverKind: "laterdogAi", displayName: "Kimi", access: "subscription",
+  snapshot: { state: "available", authenticated: true, ...snapshot },
+  models: { default: "kimi-k2.6", options: [{ id: "kimi-k2.6", label: "Kimi K2.6" }] },
 });
 const claudeApi = (): InstanceInfo => ({ ...claude("claudeApi", "Claude API", { account: { method: "api-key" } }), access: "api" });
 const signedInAs = (instanceId: string, email: string) => fixture.state.instances.map((item) =>
@@ -289,7 +300,7 @@ describe("Accounts", () => {
       claudeApi(),
     ] });
     expect(ids()).toEqual([]);
-    expect(empty()?.textContent).toBe("No accounts yet. Add Claude or ChatGPT to use the plan you already have.");
+    expect(empty()?.textContent).toBe("No accounts yet. Add Claude, ChatGPT, Grok or Cursor to use a plan you already have.");
     expect(document.body.querySelector("[data-accounts-panel] [aria-label^='Remove']")).toBeNull();
     expect(button("Add account")).toBeDefined();
     expect(toggle()).toBeNull();
@@ -643,7 +654,10 @@ describe("Accounts", () => {
     expect(document.body.querySelector("[data-accounts-panel] [data-account-grip]")).toBeNull();
 
     await click(button("Add account"));
-    expect(all("[data-account-engine]").map((tile) => tile.dataset.accountEngine)).toEqual(["claudeAgent", "codex"]);
+    expect(all("[data-account-engine]").map((tile) => tile.dataset.accountEngine)).toEqual(["claudeAgent", "codex", "grokAgent"]);
+    const grokTile = sheet()!.querySelector<HTMLButtonElement>('[data-account-engine="grokAgent"]')!;
+    expect(grokTile.disabled).toBe(true);
+    expect(grokTile.textContent).toBe("GrokSigned in");
     await press(sheet()!, "Escape");
 
     fixture.api.mockResolvedValueOnce({ instances: signedOut("grok") });
@@ -651,6 +665,62 @@ describe("Accounts", () => {
     await click(button("Remove", row("grok")!));
     expect(fixture.api).toHaveBeenCalledWith("/api/instances/grok/auth/sign-out", { method: "POST" });
     expect(fixture.api).not.toHaveBeenCalledWith("/api/instances/grok", { method: "DELETE" });
+  });
+
+  it("adds Cursor from its own tile with Cursor's sign-in, lists it, and signs it out from its row", async () => {
+    await remount({ instances: [claude("claude", "Claude"), grokAccount({ authenticated: false }), cursorAccount({ authenticated: false })] });
+    await click(button("Add account"));
+    expect(all("[data-account-engine]").map((tile) => tile.dataset.accountEngine)).toEqual(["claudeAgent", "codex", "grokAgent", "cursorAgent"]);
+    await click(button("Cursor", sheet()!));
+    expect(sheet()?.getAttribute("aria-label")).toBe("Sign in to Cursor");
+    expect(lastSignIn()).toMatchObject({ kind: "device", props: { instanceId: "cursor", browserPkce: false, provider: "cursor", autoStart: true } });
+    await act(async () => publish({ instances: signedInAs("cursor", "me@cursor.test") }));
+    await act(async () => lastSignIn().props.onSignedIn!());
+    await settle();
+    expect(sheet()).toBeNull();
+    expect(ids()).toEqual(["claude", "cursor"]);
+    expect(line("cursor")).toBe("me@cursor.test");
+
+    fixture.api.mockResolvedValueOnce({ instances: signedOut("cursor") });
+    await click(removeButton("Cursor"));
+    await click(button("Remove", row("cursor")!));
+    expect(fixture.api).toHaveBeenCalledWith("/api/instances/cursor/auth/sign-out", { method: "POST" });
+    expect(fixture.api).not.toHaveBeenCalledWith("/api/instances/cursor", { method: "DELETE" });
+  });
+
+  it("opens the Add sheet straight on Cursor's sign-in when another screen asks for Cursor", async () => {
+    await remount({ instances: [claude("claude", "Claude"), cursorAccount({ authenticated: false })] });
+    await act(async () => requestAddAccount("cursorAgent"));
+    await settle();
+    expect(sheet()?.getAttribute("aria-label")).toBe("Sign in to Cursor");
+    expect(lastSignIn()).toMatchObject({ kind: "device", props: { instanceId: "cursor", provider: "cursor" } });
+  });
+
+  it("shows the included free AI with its daily allowance in the list and in the Add sheet, with nothing to remove", async () => {
+    await remount({ instances: [claude("claude", "Claude"), includedKimi()] });
+    const panelRow = document.body.querySelector<HTMLElement>('[data-accounts-panel] [data-included-ai="ready"]');
+    expect(panelRow?.textContent).toBe("Kimi and GrokFree · a daily allowance that resets at midnight UTCIncluded");
+    expect(panelRow?.querySelector("button")).toBeNull();
+    expect(ids()).toEqual(["claude"]);
+    await click(button("Add account"));
+    expect(sheet()!.querySelector('[data-included-ai="ready"]')?.textContent).toContain("daily allowance");
+    expect(fixture.api).not.toHaveBeenCalled();
+  });
+
+  it("says why the included free AI is off and offers the free trial when there is one", async () => {
+    fixture.api.mockImplementation(async (path: string) => {
+      if (path === "/api/computers/trial") return { state: "offered", minutes: 60, days: 7, ai: true };
+      throw new Error(`unexpected ${path}`);
+    });
+    await remount({ instances: [claude("claude", "Claude"), includedKimi({ state: "unavailable", authenticated: undefined, reason: "Start the free trial to use the free models." })] });
+    await settle();
+    const off = document.body.querySelector<HTMLElement>('[data-accounts-panel] [data-included-ai="off"]');
+    expect(off?.textContent).toContain("Start the free trial to use the free models.");
+    expect(button("Try free", off!)).toBeDefined();
+  });
+
+  it("leaves the included free AI out where the server has none", () => {
+    expect(document.body.querySelector("[data-included-ai]")).toBeNull();
   });
 
   it("fetches the list again when the sign-in's snapshot lags, and still ends signed in without a refresh press", async () => {

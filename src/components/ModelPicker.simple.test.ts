@@ -59,7 +59,6 @@ const NOW = Date.UTC(2026, 9, 9, 12);
 const { FollowBotModelRow, ModelEngineRail, ModelPicker, ModelVariantRow, SIMPLE_POPOVER_WIDTH } = await import("./ModelPicker");
 const { AccountSwitcher, UsageRing } = await import("./AccountSwitcher");
 const { SimpleModelPane } = await import("./SimpleModelPane");
-const { EngineSetup } = await import("./EngineSetup");
 const { InstanceProviderMark } = await import("./ProviderIcons");
 const { AccountMenu } = await import("./AccountMenu");
 const { ModelMenu } = await import("./ModelMenu");
@@ -231,13 +230,14 @@ describe("the model picker in Simple mode", () => {
     expect(bottom).toContain("Manage AI accounts");
   });
 
-  it("lists every provider it knows: sign-ins, then API keys, then local engines", () => {
+  it("lists every signed-in account, then saved API keys, and no engine outside the shown list", () => {
     fixture.instances = [claude(), codex, grok, cursor, openaiKey, claudeKey, local];
     const opened = open(bot());
     expect(pane(opened)!.props.providers.map((provider) => provider.label))
-      .toEqual(["Claude", "OpenAI", "Grok", "Cursor", "OpenAI", "Claude (API key)", "pi"]);
+      .toEqual(["Claude", "OpenAI", "Grok", "Cursor", "OpenAI", "Claude (API key)"]);
     const column = region(menu(opened.html), "data-simple-providers", "data-simple-models");
-    for (const name of ["Claude", "OpenAI", "Grok", "Cursor", "pi"]) expect(column).toContain(`>${name}</span>`);
+    for (const name of ["Claude", "OpenAI", "Grok", "Cursor"]) expect(column).toContain(`>${name}</span>`);
+    expect(column).not.toContain(">pi</span>");
     expect(column.match(/data-simple-key/g)).toHaveLength(2);
     expect(column).not.toContain("(API key)");
 
@@ -251,7 +251,6 @@ describe("the model picker in Simple mode", () => {
     expect(hasKey("claudeApi")).toBe(true);
     expect(byId("codex").props["aria-label"]).toBeUndefined();
     expect(hasKey("codex")).toBe(false);
-    expect(hasKey("pi")).toBe(false);
   });
 
   it("puts the key on the provider mark, so the name keeps the row's width", () => {
@@ -359,9 +358,9 @@ describe("the model picker in Simple mode", () => {
     expect(menu(all.html)).not.toContain("data-simple-model-search");
   });
 
-  it("lists a local engine's models the same way, loaded ones first", () => {
+  it("lists the dog's own local engine's models the same way, loaded ones first", () => {
     fixture.instances = [claude(), local];
-    const forBot = bot();
+    const forBot = bot(undefined, "pi", "llama");
     pane(open(forBot))!.props.onProvider(local);
     const browsed = render(forBot);
     expect(pane(browsed)!.props.needsSetup).toBeNull();
@@ -393,7 +392,7 @@ describe("the model picker in Simple mode", () => {
     expect(labels(opened)).toEqual(["qwen3 (Ollama)"]);
   });
 
-  it("keeps a signed-out engine's local list when its row is clicked again, with a way to sign in", () => {
+  it("keeps a signed-out engine's local list when its row is clicked again, with a way to sign in", async () => {
     const signedOut = claude(false, [...claudeModels, { id: "ollama::qwen3", label: "qwen3 (Ollama)", custom: true }]);
     fixture.instances = [signedOut, grok];
     const forBot = bot(undefined, "claude", "ollama::qwen3");
@@ -412,11 +411,28 @@ describe("the model picker in Simple mode", () => {
 
     const list = region(menu(back.html), "data-simple-models", "data-simple-effort-band");
     expect(list).toContain("Sign in for Claude&#x27;s own models");
+    const { subscribeAddAccount } = await import("@/lib/add-account-request");
+    const asked: unknown[] = [];
+    const stop = subscribeAddAccount((request) => asked.push(request));
     click(inside(back).find((node) => node.props["data-simple-sign-in"] !== undefined));
-    const full = render(forBot);
-    expect(pane(full)).toBeUndefined();
-    const setup = full.nodes.find((node) => node.type === EngineSetup);
-    expect(setup?.props).toMatchObject({ intent: "cloud" });
+    stop();
+    expect(asked).toEqual([{ instanceId: "claude" }]);
+  });
+
+  it("signs in to the dog's own signed-out Grok or Cursor from the picker", async () => {
+    const { subscribeAddAccount } = await import("@/lib/add-account-request");
+    for (const account of [grok, cursor]) {
+      fixture.values = [];
+      const signedOut: InstanceInfo = { ...account, snapshot: { ...account.snapshot, authenticated: false }, authentication: { method: "device-code", signOut: true } };
+      fixture.instances = [claude(), signedOut];
+      const opened = open(bot(undefined, signedOut.instanceId, signedOut.models.default));
+      expect(pane(opened)!.props.needsSetup).toEqual({ name: signedOut.displayName, signIn: true });
+      const asked: unknown[] = [];
+      const stop = subscribeAddAccount((request) => asked.push(request));
+      click(inside(opened).find((node) => node.props["data-simple-set-up"] !== undefined));
+      stop();
+      expect(asked).toEqual([{ instanceId: signedOut.instanceId }]);
+    }
   });
 
   it("offers no sign-in row on a signed-in engine", () => {
@@ -799,10 +815,8 @@ describe("the model picker in Simple mode", () => {
     expect(list).toContain("ChatGPT plan");
     expect(list).not.toContain("Codex");
     expect(list).not.toContain("Not signed in");
-    switcher(accounts)!.props.onPick(signedOutCodex);
+    expect(switcher(accounts)!.props.accounts.map((account) => account.instanceId)).not.toContain("codex");
     expect(fixture.dispatch).not.toHaveBeenCalled();
-    click(marked(render(forBot), "data-model-line"));
-    expect(pane(render(forBot))!.props.needsSetup).toEqual({ name: "Codex", signIn: true });
   });
 
   it("rings the chip with what the binding limit has left, refills it while the account rests, and adds every window to its tooltip", () => {
@@ -1031,6 +1045,24 @@ describe("the chat header's account chip and the message field's model menu", ()
     expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({
       type: "setModel", selection: expect.objectContaining({ instanceId: "claude-work", model: "claude-opus-5-5" }),
     }));
+  });
+
+  it("lists only signed-in accounts and the included AI in the header chip, keeps the dog's signed-out Grok with Sign in, and opens its sign-in", async () => {
+    const { subscribeAddAccount } = await import("@/lib/add-account-request");
+    const signedOutGrok: InstanceInfo = { ...grok, snapshot: { ...grok.snapshot, authenticated: false }, authentication: { method: "device-code", signOut: true } };
+    const signedOutCursor: InstanceInfo = { ...cursor, snapshot: { ...cursor.snapshot, authenticated: false }, authentication: { method: "device-code", signOut: true } };
+    const kimi = engine("laterdogAi", "laterdogAi", "Kimi", "subscription", [{ id: "kimi-k2.6", label: "Kimi K2.6" }]);
+    fixture.instances = [claude(), signedOutGrok, signedOutCursor, kimi, work(false)];
+    const opened = openPart(bot(undefined, "grok", "grok-5"), "account");
+    const rows = accountMenu(opened)!.props.rows;
+    expect(rows.map((row) => [row.instance.instanceId, row.signIn])).toEqual([["claude", false], ["grok", true], ["laterdogAi", false]]);
+    expect(menu(opened.html)).toContain(">Sign in</span>");
+    const asked: unknown[] = [];
+    const stop = subscribeAddAccount((request) => asked.push(request));
+    accountMenu(opened)!.props.onPick(signedOutGrok);
+    stop();
+    expect(asked).toEqual([{ instanceId: "grok" }]);
+    expect(fixture.dispatch).not.toHaveBeenCalled();
   });
 
   it("keeps the account in use even when it is signed out, instead of moving to a ready one", () => {

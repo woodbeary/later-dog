@@ -5,7 +5,7 @@ import { t } from "@/lib/i18n";
 import { openExternalLink } from "@/lib/app-links";
 import { useCopyFeedback } from "@/lib/copy-text";
 import type { LocaleKey } from "@/locales";
-import { deviceSignInLink, isDeviceSignInCode, type DeviceSignInProvider } from "../../shared/device-sign-in";
+import { cursorSignInLink, deviceSignInLink, isDeviceSignInCode, type DeviceSignInProvider } from "../../shared/device-sign-in";
 import { CodexMark } from "./ProviderIcons";
 
 export interface DeviceSignInStatus {
@@ -18,13 +18,25 @@ export interface DeviceSignInStatus {
   callbackUrl?: string;
 }
 
-const DEVICE_SIGN_IN_PROVIDERS: Partial<Record<string, DeviceSignInProvider>> = { codex: "codex", grokAgent: "grok" };
+export type SignInProvider = DeviceSignInProvider | "cursor";
 
-export function deviceSignInProvider(driverKind: string): DeviceSignInProvider | null {
+const DEVICE_SIGN_IN_PROVIDERS: Partial<Record<string, SignInProvider>> = { codex: "codex", grokAgent: "grok", cursorAgent: "cursor" };
+
+export function deviceSignInProvider(driverKind: string): SignInProvider | null {
   return DEVICE_SIGN_IN_PROVIDERS[driverKind] ?? null;
 }
 
-export const DEVICE_SIGN_IN_COPY: Record<DeviceSignInProvider, Record<"description" | "start" | "enterCode" | "open" | "security" | "connected" | "connectedAccount" | "failed" | "invalidChallenge", LocaleKey>> = {
+export function signInLink(provider: SignInProvider, value: string | null | undefined, userCode?: string): string | null {
+  return provider === "cursor" ? cursorSignInLink(value) : deviceSignInLink(provider, value, userCode);
+}
+
+function signInCodeShown(provider: SignInProvider, userCode: string | undefined): boolean {
+  return provider === "cursor" || isDeviceSignInCode(provider, userCode);
+}
+
+type SignInCopy = Record<"description" | "start" | "open" | "security" | "connected" | "failed" | "invalidChallenge", LocaleKey> & { enterCode?: LocaleKey };
+
+export const DEVICE_SIGN_IN_COPY: Record<SignInProvider, SignInCopy> = {
   codex: {
     description: "engineSetup.device.description",
     start: "engineSetup.device.start",
@@ -32,7 +44,6 @@ export const DEVICE_SIGN_IN_COPY: Record<DeviceSignInProvider, Record<"descripti
     open: "engineSetup.device.openChatGPT",
     security: "engineSetup.device.security",
     connected: "engineSetup.device.connected",
-    connectedAccount: "engineSetup.device.connectedAccount",
     failed: "engineSetup.device.failed",
     invalidChallenge: "engineSetup.device.invalidChallenge",
   },
@@ -43,9 +54,17 @@ export const DEVICE_SIGN_IN_COPY: Record<DeviceSignInProvider, Record<"descripti
     open: "engineSetup.grok.open",
     security: "engineSetup.grok.security",
     connected: "engineSetup.grok.connected",
-    connectedAccount: "engineSetup.grok.connectedAccount",
     failed: "engineSetup.grok.failed",
     invalidChallenge: "engineSetup.grok.invalidChallenge",
+  },
+  cursor: {
+    description: "engineSetup.cursor.description",
+    start: "engineSetup.cursor.start",
+    open: "engineSetup.cursor.open",
+    security: "engineSetup.cursor.security",
+    connected: "engineSetup.cursor.connected",
+    failed: "engineSetup.cursor.failed",
+    invalidChallenge: "engineSetup.cursor.invalidChallenge",
   },
 };
 
@@ -72,10 +91,11 @@ export function chatgptPlanLink(value: string | null): string | null {
 
 const chatgptButton = "flex w-full items-center justify-center gap-2 rounded-lg border border-black/20 bg-white px-3 py-2 text-[12.5px] font-semibold text-black hover:opacity-85 disabled:opacity-50";
 
-export function DeviceSignInProgress({ auth, browserPkce = false, provider = "codex" }: { auth: DeviceSignInStatus; browserPkce?: boolean; provider?: DeviceSignInProvider }) {
+export function DeviceSignInProgress({ auth, browserPkce = false, provider = "codex" }: { auth: DeviceSignInStatus; browserPkce?: boolean; provider?: SignInProvider }) {
   const { state: codeCopy, copy: copyCode } = useCopyFeedback(auth.userCode ?? "");
   const copy = DEVICE_SIGN_IN_COPY[provider];
-  const link = browserPkce ? chatgptPlanLink(auth.authorizationUrl) : deviceSignInLink(provider, auth.authorizationUrl, auth.userCode);
+  const link = browserPkce ? chatgptPlanLink(auth.authorizationUrl) : signInLink(provider, auth.authorizationUrl, auth.userCode);
+  const enterCode = browserPkce ? undefined : copy.enterCode;
   const copyLabel = t(codeCopy === "failed" ? "common.copyFailed" : "engineSetup.device.copyCode");
 
   if (auth.phase !== "waiting") {
@@ -86,13 +106,13 @@ export function DeviceSignInProgress({ auth, browserPkce = false, provider = "co
     return <p role="status" className={auth.phase === "succeeded" ? "text-[12px] text-success" : "text-[12px] text-ink-secondary"}>{label}</p>;
   }
 
-  if (!link || (!browserPkce && !isDeviceSignInCode(provider, auth.userCode))) {
+  if (!link || (!browserPkce && !signInCodeShown(provider, auth.userCode))) {
     return <p role="alert" className="text-[12px] text-danger">{t(browserPkce ? "engineSetup.chatgpt.invalidChallenge" : copy.invalidChallenge)}</p>;
   }
 
   return (
     <div className="space-y-2 rounded-lg border border-hairline/50 bg-app p-3">
-      {!browserPkce && <><p className="text-[12px] text-ink-secondary">{t(copy.enterCode)}</p>
+      {enterCode && <><p className="text-[12px] text-ink-secondary">{t(enterCode)}</p>
       <div className="flex items-center justify-between gap-2 rounded-lg bg-inset px-3 py-2">
         <code className="select-all font-mono text-lg font-semibold tracking-widest text-ink">{auth.userCode}</code>
         <button
@@ -125,7 +145,7 @@ export function DeviceSignInProgress({ auth, browserPkce = false, provider = "co
 export interface DeviceSignInProps {
   instanceId: string;
   browserPkce?: boolean;
-  provider?: DeviceSignInProvider;
+  provider?: SignInProvider;
   autoStart?: boolean;
   compact?: boolean;
   onSignedIn?: () => void;
@@ -156,8 +176,8 @@ export function DeviceSignIn({ instanceId, browserPkce = false, provider = "code
       const { auth: next }: { auth: DeviceSignInStatus } = await api(`${base}/start`, { method: "POST" });
       setAuth(next);
       if (next.phase === "succeeded") await refresh();
-      else if (browserPkce && next.phase === "waiting") {
-        const link = chatgptPlanLink(next.authorizationUrl);
+      else if (next.phase === "waiting" && (browserPkce || !copy.enterCode)) {
+        const link = browserPkce ? chatgptPlanLink(next.authorizationUrl) : signInLink(provider, next.authorizationUrl, next.userCode);
         if (link) await openExternalLink(link);
       }
     } catch (cause) {
@@ -232,7 +252,8 @@ export function DeviceSignIn({ instanceId, browserPkce = false, provider = "code
     : t(browserPkce ? "engineSetup.chatgpt.start" : copy.start);
 
   if (compact) {
-    const link = auth?.phase === "waiting" ? (browserPkce ? chatgptPlanLink(auth.authorizationUrl) : deviceSignInLink(provider, auth.authorizationUrl, auth.userCode)) : null;
+    const link = auth?.phase === "waiting" && (browserPkce || signInCodeShown(provider, auth.userCode))
+      ? (browserPkce ? chatgptPlanLink(auth.authorizationUrl) : signInLink(provider, auth.authorizationUrl, auth.userCode)) : null;
     const pill = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45";
     return (
       <div className="space-y-3" data-device-sign-in={provider} data-chatgpt-plan-sign-in={browserPkce || undefined}>
@@ -242,14 +263,14 @@ export function DeviceSignIn({ instanceId, browserPkce = false, provider = "code
         )}
         {auth?.phase === "waiting" && (link ? (
           <>
-            {!browserPkce && auth.userCode && (
+            {!browserPkce && copy.enterCode && auth.userCode && (
               <p className="text-[13px] text-ink-secondary">{t(copy.enterCode)} <code className="select-all font-mono font-semibold tracking-widest text-ink">{auth.userCode}</code></p>
             )}
             <p role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-secondary">
               <Loader2 size={13} className="animate-spin" /> {t("accounts.sheet.waiting")}
               <a href={link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-text hover:underline" onClick={(event) => {
                 if (window.laterdog?.openExternal) { event.preventDefault(); void openExternalLink(link); }
-              }}>{t("accounts.sheet.reopen")} <ExternalLink size={12} /></a>
+              }}>{browserPkce || !copy.enterCode ? t("accounts.sheet.reopen") : t(copy.open)} <ExternalLink size={12} /></a>
             </p>
           </>
         ) : (

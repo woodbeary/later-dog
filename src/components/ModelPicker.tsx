@@ -5,7 +5,7 @@ import type { EffortLevel } from "../../shared/wire";
 import { fitEffort } from "../../shared/effort";
 import type { ModelVariantOption } from "../../shared/runtime-events";
 import { filterCustomModels, partitionCustomModels, suggestedModels } from "@/lib/custom-models";
-import { configuredModelInstances, isClaudeAccount, isCustomOnly, SIGN_IN_FAMILY_LABEL, signInFamily, splitEngineRail, type SignInFamily } from "@/lib/engine-rail";
+import { signedInModelInstances, isClaudeAccount, isCustomOnly, SIGN_IN_FAMILY_LABEL, signInFamily, splitEngineRail, type SignInFamily } from "@/lib/engine-rail";
 import { InstanceProviderMark } from "./ProviderIcons";
 import { EngineSetup, EngineUpdateNotice, needsCli, needsSignIn } from "./EngineSetup";
 import { EngineGroupLabel } from "./EngineGroupLabel";
@@ -31,7 +31,6 @@ import { subscriptionAccounts, useCarryOn } from "./AccountsPanel";
 import { SleepingDog } from "./AccountCharge";
 import { AccountBadge, AccountSwitcher, accountUsageLines, activeRest, shownAccounts, UsageRing, usageRingFor } from "./AccountSwitcher";
 import { usePlanUsage, useRefreshAfterTurn } from "./PlanUsage";
-import { isIncludedEngine } from "../../shared/account-engines";
 
 type ModelOption = InstanceInfo["models"]["options"][number];
 const COMPACT_MODEL_COUNT = 5;
@@ -358,14 +357,9 @@ export function railProviders(instances: InstanceInfo[], selectedInstance: Insta
     openai: instances.find((instance) => signInFamily(instance) === "openai"),
   };
   const opensOn: Record<SignInFamily, InstanceInfo | undefined> = { claude: claudeInstance, openai: openaiInstance };
-  const ready = (instance: InstanceInfo) => !needsCli(instance) && !needsSignIn(instance);
-  const included = instances.filter((instance) => isIncludedEngine(instance.driverKind));
-  const twin = (instance: InstanceInfo) => (isIncludedEngine(instance.driverKind)
-    ? instances.find((other) => !isIncludedEngine(other.driverKind) && other.displayName === instance.displayName && ready(other))
-    : !ready(instance) ? included.find((free) => free.displayName === instance.displayName) : undefined);
   const providers = instances.filter((instance) => {
     const family = signInFamily(instance);
-    return (!family || instance === firstOf[family]) && !twin(instance);
+    return !family || instance === firstOf[family];
   });
   const entry = (instance: InstanceInfo): RailProvider => {
     const family = signInFamily(instance);
@@ -513,7 +507,7 @@ export function ModelPicker({
 
   const selection = bot.modelSelection;
   const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
-  const pickerInstances = configuredModelInstances(state.instances, selection.instanceId);
+  const pickerInstances = signedInModelInstances(state.instances, selection.instanceId);
   const battery = state.config?.accountBattery;
   const routed = battery?.routed?.[threadId ?? bot.threadId];
   const inUse = state.instances.find((instance) => instance.instanceId === routed?.on) ?? active;
@@ -722,6 +716,7 @@ export function ModelPicker({
   const simpleAccounts = simpleFamily === "claude" ? claudeAccounts : simpleFamily === "openai" ? openaiAccounts : [];
   const simpleLabel = simpleProviders.find((provider) => provider.selected)?.label ?? railInstance?.displayName ?? "";
   const simpleSignIn = !customOnly && needsSignIn(railInstance);
+  const railSignsIn = Boolean(railInstance?.authentication && !railInstance.policy);
   const simpleOfficial = customOnly || (simpleSignIn && part !== "model") ? [] : official;
   const simpleLocal = partitionCustomModels(custom);
   const simpleAll = [...simpleOfficial, ...simpleLocal.pinned, ...simpleLocal.rest];
@@ -748,6 +743,7 @@ export function ModelPicker({
     if (model) pick(account, model, true);
   };
   const signedInNow = (instance: InstanceInfo) => !instance.policy && !needsCli(instance) && !needsSignIn(instance);
+  const signsInFromPicker = (instance: InstanceInfo) => Boolean(instance.authentication) && !instance.policy && !signedInNow(instance);
   const familyMembers = (provider: (typeof simpleProviders)[number]) => {
     const family = signInFamily(provider.instance);
     return family === "claude" ? claudeAccounts : family === "openai" ? openaiAccounts : [provider.target];
@@ -764,10 +760,15 @@ export function ModelPicker({
       rest: activeRest(battery?.resting, member.instanceId, usage.now),
       movable: carryOn.canReorder && !carryOn.saving && ordered.includes(member)
         && switcherAccounts.length > 1,
+      signIn: signsInFromPicker(member),
     }));
   }).sort((a, b) => (accountRank.get(a.instance.instanceId) ?? accountRank.size) - (accountRank.get(b.instance.instanceId) ?? accountRank.size));
   const chooseAccount = (account: InstanceInfo) => {
     setOpen(false);
+    if (signsInFromPicker(account)) {
+      requestAccountSignIn(account.instanceId);
+      return;
+    }
     if (account.instanceId === selection.instanceId) return;
     const model = modelForAccount(selection, account);
     if (model) pick(account, model);
@@ -988,13 +989,12 @@ export function ModelPicker({
               onProvider={browseSimple}
               managedBy={railInstance?.policy?.organizationName ?? null}
               modelsOnly={part === "model"}
-              needsSetup={part !== "model" && railInstance && simpleSetup ? { name: simpleAccounts.length > 1 ? railInstance.displayName : simpleLabel, signIn: simpleFamily !== undefined && !railInstance.policy } : null}
+              needsSetup={part !== "model" && railInstance && simpleSetup ? { name: simpleAccounts.length > 1 ? railInstance.displayName : simpleLabel, signIn: railSignsIn } : null}
               signIn={part !== "model" && railInstance && simpleSignIn && !simpleSetup ? { name: simpleLabel } : null}
-              onSignIn={() => {
-                if (!simpleFamily || !railInstance) return;
+              onSignIn={railInstance && railSignsIn ? () => {
                 setOpen(false);
                 requestAccountSignIn(railInstance.instanceId);
-              }}
+              } : undefined}
               onSetUp={() => {
                 if (simpleSignIn && hasOfficialModels) setPane("main");
                 setFullView(true);

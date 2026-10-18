@@ -1,6 +1,6 @@
 import type { AccountEngine } from "../../shared/account-engines";
 
-export type AddAccountKind = Extract<AccountEngine, "claudeAgent" | "codex" | "grokAgent">;
+export type AddAccountKind = AccountEngine;
 export type AddAccountRequest = { kind?: AddAccountKind; instanceId?: undefined } | { instanceId: string; kind?: undefined };
 
 const listeners = new Set<() => void>();

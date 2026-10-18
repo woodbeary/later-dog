@@ -550,7 +550,7 @@ export function EngineSetup({
       {deviceSignIn || browserSignIn ? (
         <>
           <DeviceSignIn key={instance.instanceId} instanceId={instance.instanceId} browserPkce={browserSignIn} provider={provider ?? "codex"} />
-          {deviceSignIn && provider === "grok" && signInCommand && serverTerminal(cloudHome) && (
+          {deviceSignIn && provider !== "codex" && signInCommand && serverTerminal(cloudHome) && (
             <details className="mt-2 rounded-lg border border-hairline/50 bg-app px-2.5 py-2 text-[11.5px] text-ink-secondary">
               <summary className="cursor-pointer select-none">{t("engineSetup.preferTerminal")}</summary>
               <CommandRow command={signInCommand} actionLabel={t("engineSetup.openSignIn")} compact />

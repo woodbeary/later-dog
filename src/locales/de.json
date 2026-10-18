@@ -784,7 +784,6 @@
   "accounts.inWhen": "in {when}",
   "accounts.recharging": "Wird aufgeladen",
   "accounts.recharged": "Zu {percent}% aufgeladen",
-  "accounts.empty": "Noch keine Konten. Füge Claude oder ChatGPT hinzu, um dein bestehendes Abo zu nutzen.",
   "accounts.usageDetails": "Details",
   "accounts.move": "{name} verschieben",
   "signOut.title": "Abmelden?",

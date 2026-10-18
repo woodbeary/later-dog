@@ -19,6 +19,7 @@ export interface AccountMenuRow {
   provider?: PlanProvider;
   rest?: AccountRest;
   inUse?: boolean;
+  signIn?: boolean;
 }
 
 export const ACCOUNT_MENU_WIDTH = 384;
@@ -86,6 +87,7 @@ export function AccountMenu({ rows, onPick, onAdd, onReorder, onSettings, onMana
               <span data-account-name-line className="flex h-[1lh] min-w-0 flex-auto flex-wrap content-start items-center gap-x-2.5 overflow-hidden">
                 <span data-account-label title={row.label} className="min-w-0 flex-auto truncate">{row.label}</span>
                 {status && <span data-account-status title={status} className="shrink-0 whitespace-nowrap text-[11px] text-ink-secondary">{status}</span>}
+                {row.signIn && <span data-account-sign-in className="shrink-0 whitespace-nowrap text-[12px] font-medium text-accent-text">{t("accounts.signIn")}</span>}
               </span>
               <AccountChargeColumns used={reading?.used} rest={row.rest} now={now} />
               <span data-account-check={active ? "on" : "off"} className="flex w-4 shrink-0 items-center justify-center">

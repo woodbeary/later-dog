@@ -19,14 +19,16 @@ key.
 
    Windows (native): `irm 'https://cursor.com/install?win32=true' | iex`
 
-2. Sign in with `cursor-agent login`, or set `CURSOR_API_KEY` / `CURSOR_AUTH_TOKEN`
-   in the environment of the Cursor instance. The desktop's setup card shows that
-   command. The server also offers the instance auth routes
-   (`/api/instances/:id/auth/start`, `/auth/status`, `/auth/sign-out`): they run
-   `cursor-agent login` with `NO_OPEN_BROWSER=1`, return the cursor.com
-   `/loginDeepControl` link the CLI prints, confirm with `cursor-agent status`,
-   and sign out with `cursor-agent logout`. No desktop or phone button uses
-   those routes for Cursor yet.
+2. Sign in from Settings › AI accounts › Add account › Cursor, from the picker's
+   Sign in when a dog is on a signed-out Cursor, or from the setup card. These use
+   the instance auth routes (`/api/instances/:id/auth/start`, `/auth/status`,
+   `/auth/sign-out`): they run `cursor-agent login` with `NO_OPEN_BROWSER=1`,
+   return the cursor.com `/loginDeepControl` link the CLI prints, which the
+   desktop opens in the browser, confirm with `cursor-agent status`, and sign out
+   with `cursor-agent logout` from the account's row. In the desktop app's own
+   window the setup card keeps `cursor-agent login` under "Prefer a terminal?".
+   Setting `CURSOR_API_KEY` / `CURSOR_AUTH_TOKEN` in the environment of the
+   Cursor instance also works. The phone has no Cursor button yet.
 
 3. Confirm `cursor-agent --version` works. Cursor's docs call the command `agent`;
    the installer adds `cursor-agent` beside it, and later.dog runs that name,

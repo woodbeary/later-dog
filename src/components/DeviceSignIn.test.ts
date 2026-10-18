@@ -119,9 +119,9 @@ describe("Grok Build device sign-in UI", () => {
     expect(html).toContain("WDJB-MJHT");
     expect(html).toContain('href="https://accounts.x.ai/device"');
     expect(html).toContain('rel="noopener noreferrer"');
-    expect(html).toContain("Enter this one-time code on xAI&#x27;s sign-in page");
+    expect(html).toContain("Enter this code on the Grok sign-in page");
     expect(html).toContain("Open Grok sign-in");
-    expect(html).toContain("grok.com subscription");
+    expect(html).toContain("Your password stays with xAI");
     expect(html).not.toMatch(/ChatGPT|OpenAI/);
   });
 
@@ -140,7 +140,7 @@ describe("Grok Build device sign-in UI", () => {
   ])("does not expose an unexpected Grok sign-in URL: %s", (url) => {
     const html = renderGrok({ ...grok, authorizationUrl: url });
     expect(html).toContain('role="alert"');
-    expect(html).toContain("Grok did not return a valid xAI sign-in link and code");
+    expect(html).toContain("Grok didn&#x27;t send a sign-in link and code");
     expect(html).not.toContain("href=");
     expect(html).not.toContain(grok.userCode);
   });
@@ -149,11 +149,44 @@ describe("Grok Build device sign-in UI", () => {
     ["failed", { message: "Grok sign-in was declined in the browser. Start sign-in again to try once more." }, "declined in the browser"],
     ["expired", {}, "This code expired"],
     ["cancelled", {}, "Sign-in cancelled"],
-    ["succeeded", {}, "Grok connected"],
+    ["succeeded", {}, "Grok is signed in."],
   ] as const)("ends a %s sign-in with one plain line and no code", (phase, extra, line) => {
     const html = renderGrok({ ...grok, phase, ...extra });
     expect(html).toContain(line);
     expect(html).not.toContain(grok.userCode);
+    expect(html).not.toContain("href=");
+  });
+});
+
+describe("Cursor sign-in UI", () => {
+  const cursor: DeviceSignInStatus = { ...waiting, authorizationUrl: "https://cursor.com/loginDeepControl?challenge=abc&uuid=def&mode=login" };
+  const renderCursor = (auth: DeviceSignInStatus) => renderToStaticMarkup(createElement(DeviceSignInProgress, { auth, provider: "cursor" }));
+
+  it("links straight to cursor.com with no code to type, in Cursor's words", () => {
+    expect(deviceSignInProvider("cursorAgent")).toBe("cursor");
+    const html = renderCursor(cursor);
+    expect(html).toContain(`href="${cursor.authorizationUrl!.replaceAll("&", "&amp;")}"`);
+    expect(html).toContain("Open Cursor sign-in");
+    expect(html).toContain("Your password stays with Cursor");
+    expect(html).not.toContain("Enter this");
+    expect(html).not.toMatch(/ChatGPT|OpenAI|Grok|xAI/);
+  });
+
+  it.each([
+    "https://cursor.com.evil.test/loginDeepControl",
+    "https://cursor.com/settings",
+    "https://accounts.x.ai/device",
+    "javascript:alert(1)",
+  ])("does not expose an unexpected Cursor sign-in URL: %s", (url) => {
+    const html = renderCursor({ ...cursor, authorizationUrl: url });
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Cursor didn&#x27;t send a sign-in link");
+    expect(html).not.toContain("href=");
+  });
+
+  it("ends a succeeded sign-in with one plain line", () => {
+    const html = renderCursor({ ...cursor, phase: "succeeded" });
+    expect(html).toContain("Cursor is signed in.");
     expect(html).not.toContain("href=");
   });
 });

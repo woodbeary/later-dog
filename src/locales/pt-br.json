@@ -790,7 +790,6 @@
   "accounts.inWhen": "em {when}",
   "accounts.recharging": "Recarregando",
   "accounts.recharged": "{percent}% recarregado",
-  "accounts.empty": "Ainda não há contas. Adicione Claude ou ChatGPT para usar o plano que você já tem.",
   "accounts.usageDetails": "Detalhes",
   "accounts.move": "Mover {name}",
   "signOut.title": "Sair da conta?",
