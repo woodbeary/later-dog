@@ -291,7 +291,8 @@ describe("cloudHomePrompt", () => {
   });
 
   it("points to the person's Mac only when the turn has the shared-computer tools", () => {
-    expect(cloudHomePrompt(true)).toContain("use shared_computer: it reaches the Mac where later.dog is open and signed in to this account, and they approve it on a card");
+    expect(cloudHomePrompt(true)).toContain("use shared_computer: it reaches the Mac where later.dog is open and signed in to this account. It is their own Mac, so it needs no approval or card; just use it.");
+    expect(cloudHomePrompt(true)).not.toMatch(/approve it on a card/);
     expect(cloudHomePrompt(true)).toContain("they install later.dog on the Mac and sign in with the same email, and it connects by itself");
     expect(cloudHomePrompt(true)).not.toMatch(/Let My Cloud use this Mac|lend/);
     expect(cloudHomePrompt(false)).not.toMatch(/shared_computer|list_shared_computers/);

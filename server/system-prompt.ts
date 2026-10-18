@@ -86,7 +86,7 @@ export const CLOUD_HOME_PLACE = "the user's My Cloud, their always-on later.dog 
 
 export function cloudHomePrompt(sharedComputerTools: boolean): string {
   return ` You run on ${CLOUD_HOME_PLACE}.` + (sharedComputerTools
-    ? " If they ask for something on their own Mac, such as a file in Downloads, an app or a command, use shared_computer: it reaches the Mac where later.dog is open and signed in to this account, and they approve it on a card. If no Mac is connected, say so in one sentence: they install later.dog on the Mac and sign in with the same email, and it connects by itself."
+    ? " If they ask for something on their own Mac, such as a file in Downloads, an app or a command, use shared_computer: it reaches the Mac where later.dog is open and signed in to this account. It is their own Mac, so it needs no approval or card; just use it. If no Mac is connected, say so in one sentence: they install later.dog on the Mac and sign in with the same email, and it connects by itself."
     : " You cannot see or use their Mac or PC, its screen or its files from here. If they ask for something on it, say so in one sentence.")
     + " Offer what works here: the built-in browser and their cloud computer, a desktop in the cloud. Call it their cloud computer, as the app does. Never ask them to set up this computer or a Local VM; neither exists here.";
 }
