@@ -113,7 +113,7 @@ describe("German approval cards", () => {
     expect(markup).toContain("Nicht erlauben");
     expect(markup).toContain("Immer erlauben");
     expect(markup).toContain("Einmal erlauben");
-    expect(markup).toContain("Always allow lets Mochi do this same thing again without asking, in every chat.");
+    expect(markup).toContain("Always allow lets Mochi do this again without asking, here and in new chats.");
   });
 });
 
@@ -228,6 +228,6 @@ describe("Brazilian Portuguese approval cards", () => {
     expect(markup).toContain("Não permitir");
     expect(markup).toContain("Sempre permitir");
     expect(markup).toContain("Permitir uma vez");
-    expect(markup).toContain("Always allow lets Mochi do this same thing again without asking, in every chat.");
+    expect(markup).toContain("Always allow lets Mochi do this again without asking, here and in new chats.");
   });
 });

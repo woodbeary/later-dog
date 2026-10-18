@@ -227,7 +227,9 @@ export function PendingApprovalActions({
   const primary = "bg-accent font-medium text-white hover:brightness-110";
   const durable = "ml-3 border border-hairline bg-transparent text-ink hover:bg-control";
   const reach = !durableRequest && bot && pending.allowKey
-    ? pending.allowKey === MAC_ALLOW_KEY ? t("approval.reach.mac") : t("approval.reach.dog", { name: bot.name })
+    ? pending.allowKey === MAC_ALLOW_KEY
+      ? t("approval.reach.mac")
+      : t(bot.tasks?.some((task) => task.threadId === threadId) ? "approval.reach.chat" : "approval.reach.dog", { name: bot.name })
     : canRememberCommand && pending.commandAllowlist
       ? t("approval.reach.command", { name: bot?.name ?? t("approval.someone"), cwd: pending.commandAllowlist.cwd })
       : !durableRequest && !pending.allowKey && pending.allowSession ? t("approval.reach.session") : null;

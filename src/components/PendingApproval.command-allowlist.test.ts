@@ -27,9 +27,9 @@ function nodes(value: ReactNode): Node[] {
   const node = value as Node;
   return [node, ...Children.toArray(node.props.children).flatMap(nodes)];
 }
-function view(extra: Partial<NonNullable<Message["card"]>> = {}) {
+function view(extra: Partial<NonNullable<Message["card"]>> = {}, asker: Bot = bot) {
   const pending = pendingApprovals([message(extra)])[0]!;
-  const tree = PendingApprovalActions({ pending, bot, threadId: "thread-1" });
+  const tree = PendingApprovalActions({ pending, bot: asker, threadId: "thread-1" });
   return { html: renderToStaticMarkup(tree), buttons: nodes(tree).filter((node) => node.type === "button") };
 }
 
@@ -137,8 +137,10 @@ describe("remembering exact command approvals", () => {
     const line = (html: string) => html.match(/<p class="[^"]*text-ink-tertiary[^"]*">([^<]*)<\/p>/)?.[1];
     const command = view();
     expect(line(command.html)).toBe("Always allow lets Scout run this exact command in /work/project without asking, in any chat using that folder with this engine.");
-    expect(line(view({ commandAllowlist: undefined }).html)).toBe("Allow for this chat stops asks for this action until this chat&#x27;s session ends.");
-    expect(line(view({ allowKey: "ask_bot:kiwi" }).html)).toBe("Always allow lets Scout do this same thing again without asking, in every chat.");
+    expect(line(view({ commandAllowlist: undefined }).html)).toBe("Allow for this chat stops asking about this action until this chat&#x27;s session ends.");
+    const ownChat = { ...bot, tasks: [{ threadId: "thread-1" }] } as Bot;
+    expect(line(view({ allowKey: "ask_bot:kiwi" }, ownChat).html)).toBe("Always allow lets Scout do this again without asking in this chat.");
+    expect(line(view({ allowKey: "ask_bot:kiwi" }).html)).toBe("Always allow lets Scout do this again without asking, here and in new chats.");
     expect(line(view({ allowKey: "mac" }).html)).toBe("Always allow lets every dog use your Mac without asking.");
     for (const button of command.buttons) expect((button.props as { title?: string }).title).toBeUndefined();
     expect(line(view({ commandAllowlist: undefined, allowSession: false }).html)).toBeUndefined();
