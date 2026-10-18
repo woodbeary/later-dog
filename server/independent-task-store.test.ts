@@ -595,6 +595,7 @@ describe("independent bot task state", () => {
     const picked = { instanceId: "codex", model: "picked-in-chat" };
     store.patchTask(bot.id, bot.threadId, { modelSelection: picked });
     store.patchTask(bot.id, old.threadId, { modelSelection: { instanceId: "codex", model: "old-thread" } });
+    rmSync(join(DATA_DIR, "main-task-models-moved"), { force: true });
     const reloaded = new Store(selection);
     expect(reloaded.bot(bot.id)?.modelSelection).toEqual(picked);
     expect(reloaded.taskByThread(bot.id, bot.threadId)?.modelSelection).toBeUndefined();
