@@ -14,7 +14,6 @@ const fixture = vi.hoisted(() => ({
   cloudHome: false,
 }));
 vi.mock("@/state/store", () => ({ useStore: () => ({ state: { config: { box: { configured: true }, cloudHome: fixture.cloudHome }, bots: fixture.bots } }) }));
-vi.mock("./ApiKeys", () => ({ CloudComputersRow: () => createElement("div", { "data-key-row": "" }) }));
 vi.mock("./CloudTrial", () => ({ CloudTrialRow: () => createElement("div", { "data-trial-row": "" }) }));
 
 const { CloudComputerRows, cloudComputerState, mergeCloudComputers } = await import("./CloudComputerRows");
@@ -93,7 +92,6 @@ describe("the free trial row", () => {
     fixture.cloudHome = true;
     await mount();
     expect(document.querySelector("[data-trial-row]")).toBeNull();
-    expect(document.querySelector("[data-key-row]")).not.toBeNull();
   });
 });
 
@@ -126,7 +124,6 @@ describe("Settings → Computer → Cloud computers", () => {
     expect(text()).toContain("BoIn use · Stop this dog's work before changing its computer.");
     expect(deleteButton("box-1")!.disabled).toBe(false);
     expect(deleteButton("box-3")!.disabled).toBe(true);
-    expect(document.querySelector("[data-key-row]")).not.toBeNull();
   });
 
   it("says when there are none, and when Boat can't list them", async () => {
@@ -140,6 +137,13 @@ describe("Settings → Computer → Cloud computers", () => {
     await mount();
     expect(text()).toContain("Can't list your cloud computers right now.");
     expect(text()).not.toContain("No cloud computers yet.");
+  });
+
+  it("says there are none yet, with no Coming soon row, before any computer is set up", async () => {
+    fixture.lists = [list([], { configured: false, available: false, problem: null })];
+    await mount();
+    expect(text()).toContain("No cloud computers yet.");
+    expect(text()).not.toContain("Coming soon");
   });
 
   it("deletes after the person confirms, reads Removing, and drops the row once Boat's list does", async () => {

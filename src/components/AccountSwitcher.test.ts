@@ -7,9 +7,8 @@ import type { PlanProvider, PlanUsageReport } from "./PlanUsage";
 
 const fixture = vi.hoisted(() => ({
   carryOn: {
-    on: false, saving: false, error: null as string | null, canReorder: true,
+    on: false, saving: false, error: null as string | null,
     set: (async () => {}) as (on: boolean) => Promise<void>,
-    reorder: (async () => {}) as (shown: readonly string[]) => Promise<void>,
   },
 }));
 vi.mock("./AccountsPanel", async (importOriginal) => ({
@@ -17,7 +16,7 @@ vi.mock("./AccountsPanel", async (importOriginal) => ({
   useCarryOn: () => fixture.carryOn,
 }));
 
-const { ACCOUNT_DRAG_TYPE, AccountBadge, accountInitials, AccountSwitcher, movedTo, UsageRing, usageRingFor } = await import("./AccountSwitcher");
+const { AccountBadge, accountInitials, AccountSwitcher, UsageRing, usageRingFor } = await import("./AccountSwitcher");
 
 const NOW = Date.UTC(2026, 9, 9, 12);
 const account = (instanceId: string, displayName: string, driverKind = "claudeAgent", authenticated = true) => ({
@@ -48,27 +47,13 @@ const show = async (props: Partial<Parameters<typeof AccountSwitcher>[0]> = {}) 
   return onPick;
 };
 const row = (id: string) => document.querySelector<HTMLButtonElement>(`[data-account="${id}"]`);
-const item = (id: string) => document.querySelector<HTMLElement>(`[data-account-row="${id}"]`)!;
 const ring = (id: string) => row(id)!.querySelector("[data-usage-ring]");
 const order = () => [...document.querySelectorAll<HTMLElement>("[data-account]")].map((element) => element.dataset.account);
 const carryOnSwitch = () => document.querySelector<HTMLButtonElement>('[role="switch"]');
-const drag = async (element: Element, type: "dragstart" | "dragover" | "drop" | "dragend", transfer: DataTransfer) => {
-  const event = new Event(type, { bubbles: true, cancelable: true });
-  Object.defineProperty(event, "dataTransfer", { value: transfer });
-  await act(async () => {
-    element.dispatchEvent(event);
-  });
-  return event;
-};
-const press = async (element: Element, key: string, altKey = true) => {
-  await act(async () => {
-    element.dispatchEvent(new KeyboardEvent("keydown", { key, altKey, bubbles: true, cancelable: true }));
-  });
-};
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  fixture.carryOn = { on: false, saving: false, error: null, canReorder: true, set: vi.fn(async () => {}), reorder: vi.fn(async () => {}) };
+  fixture.carryOn = { on: false, saving: false, error: null, set: vi.fn(async () => {}) };
 });
 afterEach(async () => {
   await act(async () => root?.unmount());
@@ -145,83 +130,12 @@ describe("the account list", () => {
     expect(onPick).toHaveBeenCalledWith(work);
   });
 
-  it("leaves carry-on to Settings and always shows the drag handle", async () => {
+  it("leaves carry-on to Settings and has no drag handle or reordering", async () => {
     await show({ accounts: [personal, work] });
     expect(carryOnSwitch()).toBeNull();
-    expect(document.querySelector("[data-account-grip]")!.className).not.toContain("opacity-0");
-  });
-});
-
-describe("reordering accounts", () => {
-  it("drags an account onto another of its kind, shows the new order at once, and saves it on the drop", async () => {
-    await show();
-    expect(item("claude").getAttribute("draggable")).toBe("true");
-    expect(item("codex").getAttribute("draggable")).toBe("true");
-    const transfer = new DataTransfer();
-    await drag(item("claude-work"), "dragstart", transfer);
-    expect(transfer.getData(ACCOUNT_DRAG_TYPE)).toBe("claude-work");
-    expect(transfer.getData("text/plain")).toBe("");
-    const over = await drag(item("claude"), "dragover", transfer);
-    expect(over.defaultPrevented).toBe(true);
-    expect(order()).toEqual(["claude-work", "claude", "codex"]);
-    expect(fixture.carryOn.reorder).not.toHaveBeenCalled();
-    await drag(item("claude"), "drop", transfer);
-    await drag(item("claude-work"), "dragend", transfer);
-    expect(fixture.carryOn.reorder).toHaveBeenCalledTimes(1);
-    expect(fixture.carryOn.reorder).toHaveBeenCalledWith(["claude-work", "claude", "codex"]);
-  });
-
-  it("allows cross-provider priority changes and cancels a drag without saving", async () => {
-    await show();
-    const transfer = new DataTransfer();
-    await drag(item("claude"), "dragstart", transfer);
-    await drag(item("codex"), "dragover", transfer);
-    expect(order()).toEqual(["claude-work", "codex", "claude"]);
-    await drag(item("claude-work"), "dragover", transfer);
-    expect(order()).toEqual(["claude", "claude-work", "codex"]);
-    await drag(item("claude"), "dragend", transfer);
-    expect(order()).toEqual(["claude", "claude-work", "codex"]);
-    expect(fixture.carryOn.reorder).not.toHaveBeenCalled();
-  });
-
-  it("saves nothing when an account is dropped where it started", async () => {
-    await show();
-    const transfer = new DataTransfer();
-    await drag(item("claude"), "dragstart", transfer);
-    await drag(item("claude"), "drop", transfer);
-    expect(fixture.carryOn.reorder).not.toHaveBeenCalled();
-  });
-
-  it("moves accounts across providers with Alt and the arrow keys", async () => {
-    await show();
-    expect(row("claude")!.getAttribute("aria-keyshortcuts")).toBe("Alt+ArrowUp Alt+ArrowDown");
-    expect(row("codex")!.getAttribute("aria-keyshortcuts")).toBe("Alt+ArrowUp Alt+ArrowDown");
-    await press(row("claude")!, "ArrowUp");
-    await press(row("claude")!, "ArrowDown", false);
-    expect(fixture.carryOn.reorder).not.toHaveBeenCalled();
-    await press(row("claude")!, "ArrowDown");
-    expect(fixture.carryOn.reorder).toHaveBeenCalledWith(["claude-work", "claude", "codex"]);
-  });
-
-  it("shows a grip only on an account that has somewhere to go", async () => {
-    await show();
-    expect(item("claude").querySelector("[data-account-grip]")!.getAttribute("title")).toBe("Drag to reorder");
-    expect(item("codex").querySelector("[data-account-grip]")).not.toBeNull();
-  });
-
-  it("offers no reordering while the order cannot be saved", async () => {
-    fixture.carryOn = { ...fixture.carryOn, canReorder: false };
-    await show();
-    expect(document.querySelector("[draggable]")).toBeNull();
     expect(document.querySelector("[data-account-grip]")).toBeNull();
-    await press(row("claude")!, "ArrowDown");
-    expect(fixture.carryOn.reorder).not.toHaveBeenCalled();
-  });
-
-  it("works out where a moved account lands", () => {
-    expect(movedTo(["a", "b", "c"], "a", 2)).toEqual(["b", "c", "a"]);
-    expect(movedTo(["a", "b", "c"], "c", 0)).toEqual(["c", "a", "b"]);
-    expect(movedTo(["a", "b", "c"], "b", 1)).toEqual(["a", "b", "c"]);
+    expect(document.querySelector("[draggable]")).toBeNull();
+    expect(order()).toEqual(["claude", "claude-work"]);
   });
 });
 

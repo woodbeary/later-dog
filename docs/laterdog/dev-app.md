@@ -25,7 +25,7 @@ profile under its selected workspace, as described below.
 | --- | --- | --- |
 | App id / name | `dog.later.app` / later.dog | `dog.later.app.dev` / later.dog Dev |
 | Data folder | `~/.laterdog` | `~/.laterdog-dev` |
-| Profile data | `~/.laterdog-profiles` | `~/.laterdog-dev-profiles` |
+| Old profile data (kept on disk and protected; desktop profiles are gone) | `~/.laterdog-profiles` | `~/.laterdog-dev-profiles` |
 | `userData` (and so the single-instance lock) | `~/Library/Application Support/later.dog` | `~/Library/Application Support/later.dog Dev` |
 | Logs (macOS) | Electron's default | `~/Library/Logs/later.dog Dev` |
 | Keychain item (Electron safe storage) | later.dog Safe Storage | later.dog Dev Safe Storage |
@@ -34,7 +34,7 @@ profile under its selected workspace, as described below.
 | Server ports (webhook is +1) | 8799, 18799, 28799 | 8999, 18999, 28999 |
 | Remote-computer relay | 8798, 18798, 28798 | 8998, 18998, 28998 |
 | Supervisor | 9010 | 9110 |
-| Extra-profile servers | 8811 to 8899, even | 8911 to 8995, even |
+| Reserved, unused since desktop profiles were removed | 8811 to 8899, even | 8911 to 8995, even |
 | Updater feed | `latest-mac.yml`, cache `laterdog-updater` | `dev-mac.yml` on channel `dev`, cache `laterdog-dev-updater` |
 | GitHub release check | on | off |
 | Phone companion (control port) | 8810 (8811), `~/.laterdog-companion` | 8910 (8909), `~/.laterdog-dev/companion` |

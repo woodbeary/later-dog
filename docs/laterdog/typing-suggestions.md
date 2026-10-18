@@ -1,10 +1,10 @@
 # Typing suggestions
 
-Grey words appear after a short pause in the message box. Tab adds them, Escape dismisses them, and any other key cancels a pending or shown suggestion. Settings, General, Typing suggestions turns it off.
+Grey words appear after a short pause in the message box. Tab adds them, Escape dismisses them, and any other key cancels a pending or shown suggestion.
 
-## Two switches, and which is on by default
+## Two settings, and which is on by default
 
-Settings, General, Typing suggestions has two switches:
+Settings has no Typing suggestions rows. Two config features decide it:
 
 - **Typing suggestions**, on by default. The local fast path only: the person's own phrases, dog names and slash commands, matched on this computer. Nothing is sent anywhere.
 - **Smarter suggestions**, off by default. Turns on the model path. The note beside it reads: "What you type and the last few messages go to Cloudflare to suggest the rest. Nothing is kept." The model path covers both the included service (plan and trial) and the person's own Cloudflare account, and ranking with the decision model, because that also sends what the person typed. The setting is `features.smarterSuggestions` and only the exact value `true` turns it on. A config written before this switch existed, or one that has never touched it, stays off. Turning Typing suggestions off turns everything off.
@@ -47,7 +47,7 @@ Only the first is on by default. The other two need Smarter suggestions.
 2. **Ranking, optional, needs Smarter suggestions.** When two or more phrases tie for the longest match and the decision model is set up with the person's own Jev key, one `choice` question asks which is most likely. It has a 250 ms budget. When it does not answer in time, or is not set up, the most used phrase wins. The included relay only accepts room-routing questions, so ranking needs the person's own key.
 3. **Model path, needs Smarter suggestions.** When no phrase fits, after a 400 ms pause, the app server asks a small model for about 20 tokens at temperature 0.2:
    - **Plan and trial users:** `POST /v1/complete` on later.dog's computers Worker, called with the installation's included-services key (the same trial key the free AI uses, sent as a bearer token). It runs `TYPING_AI_MODEL` (default `@cf/meta/llama-3.2-3b-instruct`) on Workers AI through the AI Gateway. It is available whenever the trial's included list has `ai`.
-   - **Self-hosters:** Settings, Typing suggestions, Use your Cloudflare account. An account id and a Workers AI token. The token goes to the credential store (`cloudflareAiToken`, env `LATERDOG_CLOUDFLARE_AI_TOKEN`) like the other keys, and the app calls `api.cloudflare.com/client/v4/accounts/<id>/ai/run/<model>` itself. The model can be changed. The token is checked with one real call before it is saved and is never returned by `/api/config`.
+   - **Self-hosters:** an account id (`PATCH /api/config` with `typing.accountId`) and a Workers AI token. The token goes to the credential store (`cloudflareAiToken`, env `LATERDOG_CLOUDFLARE_AI_TOKEN`) like the other keys, and the app calls `api.cloudflare.com/client/v4/accounts/<id>/ai/run/<model>` itself. The model can be changed. The token is checked with one real call before it is saved and is never returned by `/api/config`.
 
 If the person has saved their own Cloudflare account it is used instead of the included service. When the included service answers 404, 401, 403 or 5xx, the app stops asking it for five minutes.
 

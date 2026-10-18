@@ -84,9 +84,10 @@ delegate real work to specialists over `ask_bot` — no new machinery required.
 
 ## Sharper dictation
 
-Apple Speech is quick but loose with names, numbers and accents. With the
-Sharper dictation switch on (Settings → General → System, Mac only, on by
-default), the composer still shows Apple's live text, and once you stop — the
+Sharper dictation is on by default and Settings has no switch for it; an
+opt-out saved by an earlier build is still honoured. Apple Speech is quick but
+loose with names, numbers and accents. On a Mac
+the composer still shows Apple's live text, and once you stop — the
 mic button or Escape — the app swaps it for a cloud transcription of the same
 recording:
 

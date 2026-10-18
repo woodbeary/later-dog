@@ -684,10 +684,6 @@ export function showToolCallsEnabled(cfg: AppConfig): boolean {
   return cfg.features?.showToolCalls === true;
 }
 
-export function stepUpdatesEnabled(cfg: AppConfig): boolean {
-  return cfg.features?.stepUpdates === true;
-}
-
 export function builtInBrowserEnabled(_cfg: AppConfig, _env: NodeJS.ProcessEnv = process.env): boolean {
   return false;
 }

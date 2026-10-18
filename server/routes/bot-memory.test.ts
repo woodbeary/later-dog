@@ -5,7 +5,6 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { json, onJsonBody, readBody } from "../harness/http.ts";
 import { recordMemoryChange } from "../memory-journal.ts";
-import { commitLearned, planLearned } from "../profile-learned.ts";
 import { requiredScope } from "../request-auth.ts";
 import { launchVerificationServer, type VerificationServer } from "../../scripts/control-laterdog.ts";
 import { createBotMemoryRoutes, type BotMemoryRouteDeps } from "./bot-memory.ts";
@@ -21,7 +20,6 @@ async function serve(deps: Partial<BotMemoryRouteDeps> = {}, beforeDispatch?: (r
   const routes = [createBotMemoryRoutes({
     bot: (id) => BOTS[id], taskByThread: () => undefined,
     upkeep: { status: () => ({ modelSteps: false }), tidy: async () => { throw new Error("unexpected tidy"); } },
-    aboutMe: () => "", saveAboutMe: () => { throw new Error("unexpected profile save"); },
     ...deps,
   })];
   const server = createServer(async (req, res) => {
@@ -110,49 +108,6 @@ describe("the bot-memory module through the route table", () => {
     expect(tidied).toEqual(["bot-123"]);
   });
 
-  it("removes learned facts through the current About me and save seams", async () => {
-    const facts = planLearned({ botId: "bot-123", botName: "Memo" }, ["Prefers tea"], "", "2026-09-28");
-    commitLearned(facts);
-    let aboutMe = `Handwritten note\n${facts[0]!.line}`;
-    const saved: string[] = [];
-    const base = await serve({ aboutMe: () => aboutMe, saveAboutMe: (text) => { aboutMe = text; saved.push(text); } });
-    expect(await (await fetch(`${base}/api/profile/learned`)).json()).toEqual({ learned: facts });
-    const remove = () => fetch(`${base}/api/profile/learned/${facts[0]!.id}/remove`, { method: "POST" });
-    const removed = await remove();
-    expect(removed.status).toBe(200);
-    expect(await removed.json()).toEqual({ ok: true, aboutMe: "Handwritten note", learned: [] });
-    expect((await remove()).status).toBe(404);
-    expect(saved).toEqual(["Handwritten note"]);
-  });
-
-  it("keeps a learned fact retryable when saving About me fails", async () => {
-    const from = { botId: "bot-123", botName: "Memo" };
-    const facts = planLearned(from, ["Prefers quiet cafes"], "", "2026-09-28");
-    commitLearned(facts);
-    const original = `Handwritten note\n${facts[0]!.line}`;
-    let aboutMe = original;
-    let failSave = true;
-    const base = await serve({
-      aboutMe: () => aboutMe,
-      saveAboutMe: (text) => {
-        if (failSave) throw new Error("synthetic profile write failure");
-        aboutMe = text;
-      },
-    });
-    const remove = () => fetch(`${base}/api/profile/learned/${facts[0]!.id}/remove`, { method: "POST" });
-    expect((await remove()).status).toBe(500);
-    expect(aboutMe).toBe(original);
-    expect(await (await fetch(`${base}/api/profile/learned`)).json()).toEqual({ learned: facts });
-    expect(planLearned(from, [facts[0]!.text], "", "2026-09-28")).toHaveLength(1);
-
-    failSave = false;
-    const retried = await remove();
-    expect(retried.status).toBe(200);
-    expect(await retried.json()).toEqual({ ok: true, aboutMe: "Handwritten note", learned: [] });
-    expect(planLearned(from, [facts[0]!.text], aboutMe, "2026-09-28")).toEqual([]);
-    expect((await remove()).status).toBe(404);
-  });
-
   it("passes wrong methods and near-miss paths to the next handler", async () => {
     const base = await serve();
     for (const [method, path] of [
@@ -162,9 +117,8 @@ describe("the bot-memory module through the route table", () => {
       ["GET", "/api/bots/bot-123/memory/open"],
       ["POST", "/api/bots/bot-123/memory/upkeep"],
       ["GET", "/api/bots/bot-123/memory/tidy"],
-      ["POST", "/api/profile/learned"],
-      ["GET", "/api/profile/learned/e1/remove"],
-      ["POST", "/api/profile/learned/e1/remove/extra"],
+      ["GET", "/api/profile/learned"],
+      ["POST", "/api/profile/learned/e1/remove"],
       ["GET", "/api/bots/bot-123/memory/file/extra"],
       ["GET", "/api/bots/bot-123/memory/journal/e/revert/extra"],
       ["GET", "/api/bots/bot-123/memory/topics/x.md"],
@@ -192,8 +146,6 @@ describe("the bot-memory module through the route table", () => {
       ["POST", "/api/bots/b1/memory/journal/e1/revert"],
       ["GET", "/api/bots/b1/memory/upkeep"],
       ["POST", "/api/bots/b1/memory/tidy"],
-      ["GET", "/api/profile/learned"],
-      ["POST", "/api/profile/learned/e1/remove"],
       ["POST", "/api/bots/b1/memory/open"],
     ] as const) {
       expect(requiredScope(method, path), `${method} ${path}`).toBe("admin");
@@ -213,8 +165,6 @@ describe("the bot-memory family behind the gate on a real server", () => {
     ["POST", "/api/bots/b1/memory/journal/e1/revert"],
     ["GET", "/api/bots/b1/memory/upkeep"],
     ["POST", "/api/bots/b1/memory/tidy"],
-    ["GET", "/api/profile/learned"],
-    ["POST", "/api/profile/learned/e1/remove"],
     ["POST", "/api/bots/b1/memory/open", { target: "folder" }],
   ];
   const call = async (method: string, path: string, body: unknown, headers: Record<string, string> = {}) => {

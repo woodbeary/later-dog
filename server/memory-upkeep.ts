@@ -38,7 +38,6 @@ export interface UpkeepDeps {
   bot: (id: string) => UpkeepBot | undefined;
   engine: (botId: string) => UpkeepEngine | null;
   busy: (botId: string) => boolean;
-  addToAboutMe: (from: { botId: string; botName: string }, texts: readonly string[]) => number;
   sourceLabel: (botId: string, threadId: string) => string;
   quietMs: () => number;
   tidyHour: () => number;
@@ -62,7 +61,6 @@ export interface CaptureReport {
   at: number;
   added: number;
   topics: number;
-  aboutMe: number;
   organized?: number;
   note?: string;
 }
@@ -158,11 +156,11 @@ export function createMemoryUpkeep(deps: UpkeepDeps): MemoryUpkeep {
   async function capture(batch: CaptureBatch): Promise<CaptureReport> {
     const bot = deps.bot(batch.botId);
     const at = now().getTime();
-    const off: CaptureReport = { at, added: 0, topics: 0, aboutMe: 0, note: "upkeep is off" };
+    const off: CaptureReport = { at, added: 0, topics: 0, note: "upkeep is off" };
     if (!upkeepEnabled(bot)) return off;
     const engine = deps.engine(bot.id);
     if (!engine?.generateText) {
-      const report = { at, added: 0, topics: 0, aboutMe: 0, note: NO_TEXT_ENGINE };
+      const report = { at, added: 0, topics: 0, note: NO_TEXT_ENGINE };
       record(bot.id, { lastCapture: report });
       return report;
     }
@@ -176,16 +174,16 @@ export function createMemoryUpkeep(deps: UpkeepDeps): MemoryUpkeep {
       topics: memoryTopicIndex(bot.id),
     }));
     if (answer === null) {
-      const report = { at, added: 0, topics: 0, aboutMe: 0, note: "The capture call did not answer in time." };
+      const report = { at, added: 0, topics: 0, note: "The capture call did not answer in time." };
       record(bot.id, { lastCapture: report });
       return report;
     }
     if (paused) {
       deferred.push(batch);
-      return { at, added: 0, topics: 0, aboutMe: 0, note: "deferred until the backup finishes" };
+      return { at, added: 0, topics: 0, note: "deferred until the backup finishes" };
     }
     if (!upkeepEnabled(deps.bot(bot.id))) return off;
-    const { parsed, added, topics } = writing(bot.id, () => {
+    const { added, topics } = writing(bot.id, () => {
       const before = readRaw(bot.id, "MEMORY.md");
       const archiveBefore = readRaw(bot.id, ARCHIVE_PATH);
       const parsed = parseCandidates(answer, today);
@@ -225,14 +223,12 @@ export function createMemoryUpkeep(deps: UpkeepDeps): MemoryUpkeep {
         existing.set(name.toLowerCase(), name);
         topics += lines.length;
       }
-      return { parsed, added, topics };
+      return { added, topics };
     });
-    const owner = batch.turns.every((turn) => turn.owner !== false);
-    const aboutMe = owner ? deps.addToAboutMe({ botId: bot.id, botName: bot.name }, parsed.filter((c) => c.aboutUser).map((c) => c.text)) : 0;
     const organized = await organize(bot.id);
-    const report: CaptureReport = { at, added, topics, aboutMe, organized };
+    const report: CaptureReport = { at, added, topics, organized };
     record(bot.id, { lastCapture: report });
-    if (added || topics || aboutMe) log(`memory upkeep: noticed ${added} fact(s) for MEMORY.md, ${topics} for topic files and ${aboutMe} for About me — ${bot.name} (${bot.id}) from ${batch.threadId}`);
+    if (added || topics) log(`memory upkeep: noticed ${added} fact(s) for MEMORY.md and ${topics} for topic files — ${bot.name} (${bot.id}) from ${batch.threadId}`);
     return report;
   }
 

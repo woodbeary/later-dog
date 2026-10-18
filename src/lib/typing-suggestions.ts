@@ -75,14 +75,6 @@ export function savePhrases(book: PhraseBook, storage: Pick<Storage, "setItem"> 
   }
 }
 
-export function forgetPhrases(storage: Pick<Storage, "removeItem"> | undefined = storageOf()): void {
-  try {
-    storage?.removeItem(PHRASE_STORE_KEY);
-  } catch {
-    return;
-  }
-}
-
 function worthKeeping(segment: string): boolean {
   if (segment.length > MAX_PHRASE_CHARS || /[<>]|:\/\/|`/.test(segment) || segment.startsWith("/")) return false;
   const words = segment.split(/\s+/).filter(Boolean).length;

@@ -1081,17 +1081,15 @@ describe("the chat header's account chip and the message field's model menu", ()
     expect(rows.map((row) => row.instance.instanceId)).toEqual(["codex", "claude"]);
     expect(rows[0]!.inUse).toBe(true);
     expect(rows[1]!.rest).toBeDefined();
-    expect(rows.every((row) => !row.movable)).toBe(true);
     expect(opened.html).toContain("Automatically managed");
   });
 
-  it("lets the header's account menu reorder accounts once the server keeps an order", () => {
+  it("lists the header's accounts in the server's order with nothing to reorder", () => {
     fixture.instances = [claude(), work(), codex];
-    const rows = () => accountMenu(renderPart(bot(), "account"))!.props.rows.map((row) => [row.instance.instanceId, row.movable]);
-    openPart(bot(), "account");
-    expect(rows()).toEqual([["claude", false], ["claude-work", false], ["codex", false]]);
     fixture.battery = { enabled: false, order: { claudeAgent: ["claude-work", "claude"], codex: ["codex"] }, resting: {} };
-    expect(rows()).toEqual([["claude-work", true], ["claude", true], ["codex", true]]);
-    expect(accountMenu(renderPart(bot(), "account"))!.props.onReorder).toBeTypeOf("function");
+    openPart(bot(), "account");
+    const menu = accountMenu(renderPart(bot(), "account"))!;
+    expect(menu.props.rows.map((row) => row.instance.instanceId)).toEqual(["claude-work", "claude", "codex"]);
+    expect("onReorder" in menu.props).toBe(false);
   });
 });

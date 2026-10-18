@@ -96,17 +96,6 @@ const __APP_VERSION__: string;
     at: number | null;
     onBattery: boolean;
   }
-  interface DesktopProfile {
-    id: string;
-    name: string;
-    main: boolean;
-    status: "starting" | "running" | "failed" | "stopped";
-  }
-  interface DesktopProfileList {
-    activeId: string;
-    canAdd: boolean;
-    profiles: DesktopProfile[];
-  }
 
   interface Window {
     laterdog?: {
@@ -130,14 +119,6 @@ const __APP_VERSION__: string;
       workspaces?: {
         state: () => Promise<{ local: boolean; name: string; origin?: string }>;
         menu: () => Promise<void>;
-      };
-      profiles?: {
-        list(): Promise<DesktopProfileList>;
-        add(name: string): Promise<DesktopProfileList & { added: { id: string; ready: boolean } }>;
-        switch(id: string): Promise<DesktopProfileList>;
-        rename(id: string, name: string): Promise<DesktopProfileList>;
-        remove(id: string): Promise<DesktopProfileList>;
-        onChanged(callback: (state: DesktopProfileList) => void): () => void;
       };
       environments?: {
         state: () => Promise<{

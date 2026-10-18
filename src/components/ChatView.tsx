@@ -127,7 +127,6 @@ import { useComposerDockPad } from "@/lib/composer-dock";
 import { GlassBar, GlassScrollFrame } from "./GlassScrollFrame";
 import { useTranscriptViewport } from "@/hooks/use-transcript-viewport";
 import { useNewBelow } from "@/lib/new-below";
-import { useShowEveryUpdate } from "@/lib/show-every-update";
 import { turnSteps, turnUpdates } from "@/lib/turn-details";
 import { dismissKey, useUnreadPosition, useVisitUnreadCount } from "@/lib/unread-pill";
 import { NewMessagesPill } from "./NewMessagesPill";
@@ -1072,12 +1071,11 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     [messages],
   );
   const showToolCalls = showToolCallsEnabled(state.config);
-  const everyUpdate = useShowEveryUpdate();
   const runningSince = bot.busy ? bot.turnStartedAt ?? null : null;
   const groupIds = useMemo(() => state.groups.map((group) => group.id).join("|"), [state.groups]);
   const plan = useMemo(
-    () => planTranscript(messages, { runningSince, quiet: !showToolCalls, foldAll: !everyUpdate && !showToolCalls }),
-    [messages, runningSince, showToolCalls, everyUpdate],
+    () => planTranscript(messages, { runningSince, quiet: !showToolCalls, foldAll: !showToolCalls }),
+    [messages, runningSince, showToolCalls],
   );
   const shownMessages = useMemo(
     () => plan.hiddenIds.size ? messages.filter((message) => !plan.hiddenIds.has(message.id)) : messages,

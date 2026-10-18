@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { botUsage, cachedInput, headlineTokens, tokensColumnLabel, contextChip, contextDetail, contextShare, costCaption, formatTokens, formatUsd, uncachedInput, lastTurnDetail, sumUsage, usageChip, usageDetail } from "./usage";
+import { cachedInput, headlineTokens, tokensColumnLabel, contextChip, contextDetail, contextShare, costCaption, formatTokens, formatUsd, uncachedInput, lastTurnDetail, sumUsage, usageChip, usageDetail } from "./usage";
 
 describe("usage formatting", () => {
   it("keeps output independent of the input headline, including a fully cached turn", () => {
@@ -78,22 +78,15 @@ describe("usage formatting", () => {
     expect(usageChip({ input: 10_000, output: 2_400, costUsd: 0.06, turns: 3 })).toBe("$0.06");
   });
 
-  it("sums across tasks and leaves cost null until one reports it", () => {
+  it("sums usage and leaves cost null until one reports it", () => {
     expect(sumUsage([{ input: 1, output: 1, costUsd: null, turns: 1 }, undefined, { input: 2, output: 2, costUsd: null, turns: 1 }])).toEqual({
       input: 3,
       output: 3,
       costUsd: null,
       turns: 2,
     });
-    expect(
-      botUsage({
-        tasks: [
-          { threadId: "a", title: "", createdAt: 0, usage: { input: 5, output: 5, costUsd: 0.01, turns: 1 } },
-          { threadId: "b", title: "", createdAt: 0 },
-          { threadId: "c", title: "", createdAt: 0, usage: { input: 5, output: 5, costUsd: null, turns: 2 } },
-        ],
-      }),
-    ).toEqual({ input: 10, output: 10, costUsd: 0.01, turns: 3 });
+    expect(sumUsage([{ input: 5, output: 5, costUsd: 0.01, turns: 1 }, undefined, { input: 5, output: 5, costUsd: null, turns: 2 }]))
+      .toEqual({ input: 10, output: 10, costUsd: 0.01, turns: 3 });
   });
 
   it("captions cost by billing", () => {

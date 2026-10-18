@@ -52,7 +52,7 @@ describe("the permissions checklist", () => {
     const rendered = render({});
     expect([...rendered.html.matchAll(/data-permission="([^"]+)"/g)].map((match) => match[1])).toEqual(["microphone", "accessibility", "screen"]);
     expect(rendered.html).toContain("Microphone &amp; speech");
-    expect(rendered.html).toContain("Talk instead of typing. With Sharper dictation on, finished voice notes go to a transcription service.");
+    expect(rendered.html).toContain("Talk instead of typing. Finished voice notes go to a transcription service.");
     expect(rendered.html).toContain("A dog can click and type on this Mac.");
     expect(rendered.html).toContain("A dog can see this Mac&#x27;s screen.");
     for (const permission of ["microphone", "accessibility", "screen"]) {

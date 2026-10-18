@@ -143,7 +143,6 @@ import { withMainDogRouting } from "./laterdog/main-dog-prompt.ts";
 import { MAIN_DOG_DELETE_REFUSAL, MAIN_DOG_REQUIRED } from "../shared/main-dog.ts";
 import { buildRecall } from "./recall.ts";
 import { createMemoryUpkeep, upkeepEnabled } from "./memory-upkeep.ts";
-import { appendAboutMe, commitLearned, planLearned } from "./profile-learned.ts";
 import { canAccessTeam, canReachPeer, livePeerRoster, livePeerRosterBlock, peerAllowed, peerName, peerRosterSystemPrompt, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomPeerRosterSystemPrompt, roomRosterLine, PEER_ACCESS_HELP } from "./peer-roster.ts";
 import {
   containerComputerAction,
@@ -182,7 +181,6 @@ import {
   threadEventLogRetentionDays,
   saveConfig,
   showToolCallsEnabled,
-  stepUpdatesEnabled,
   claudeUserMcpEnabled,
   skillAuthoringEnabled,
   autoRecallEnabled,
@@ -394,7 +392,7 @@ import {
   readMemoryOnlyFromRegularFiles,
   workspaceDir,
 } from "./workspace.ts";
-import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
+import { listMemoryTopics, readMemoryFile, readMemoryTopic, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
 import {
   beginMemoryTurn,
   endMemoryTurn,
@@ -441,7 +439,6 @@ import type { SkillRequestCardData } from "../shared/skill-request.ts";
 import { checkSoulDrift, readSoulDrift, soulFile, writeSoulMirror } from "./bot-folder.ts";
 import {
   buildSystemPrompt,
-  userProfileSystemPrompt,
   cloudHomePrompt,
   computerPrompt,
   composioSystemPrompt,
@@ -3424,7 +3421,6 @@ function previewSystemPrompt(bot: BotRecord) {
   });
   const privateWorkspace = instance && supportsWorkspaceFiles(instance.driverKind);
   const built = buildSystemPrompt(persona, bot.soul ?? "", [
-    { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
     {
       id: "setup",
       label: "Setup",
@@ -3447,7 +3443,7 @@ function previewSystemPrompt(bot: BotRecord) {
     { id: "credential", label: "Credentials", text: agentsMounted ? CREDENTIAL_PROMPT : "" },
     { id: "routine", label: "Routines", text: agentsMounted ? ROUTINE_PROMPT : "" },
     { id: "profile", label: "Profile changes", text: agentsMounted ? PROFILE_PROMPT : "" },
-    { id: "updates", label: "Progress updates", text: workUpdatesPrompt(stepUpdatesEnabled(cfg)) },
+    { id: "updates", label: "Progress updates", text: workUpdatesPrompt() },
     { id: "section-context", label: "Section context", text: sectionContextSystemPrompt(bot.section) },
     { id: "team-memory", label: "Team memory", text: teamMemory.systemPrompt(bot.section) + (agentsMounted ? TEAM_MEMORY_PROMPT : "") },
     teamAvailabilityPart(agentsMounted && coordination ? peers : []),
@@ -5480,17 +5476,6 @@ const memoryUpkeep = createMemoryUpkeep({
     } : {};
   },
   busy: (botId) => botHasActiveTurn(botId),
-  addToAboutMe: (from, texts) => {
-    const current = cfg.profile?.aboutMe ?? "";
-    const facts = planLearned(from, texts, current, memoryDate());
-    const next = appendAboutMe(current, facts.map((fact) => fact.line));
-    if (!facts.length || next === null) return 0;
-    saveConfig({ profile: { ...cfg.profile, aboutMe: next } });
-    Object.assign(cfg, loadConfig());
-    commitLearned(facts);
-    broadcast({ kind: "config", ...configStatus() });
-    return facts.length;
-  },
   sourceLabel: (botId, threadId) => memorySourceLabel({ task: store.taskByThread(botId, threadId), threadId }),
   ...(lendingMemory ? { writing: <T>(botId: string, write: () => T): T => lendingMemory.trustedWrite(botId, write) } : {}),
   quietMs: () => captureQuietMs(cfg),
@@ -5530,7 +5515,6 @@ bus.subscribe((event: RuntimeEvent) => {
     memoryUpkeep.noteTurn(bot.id, event.threadId, {
       person: extractTurnImages(asked.text ?? "").text,
       bot: path[replyAt]!.text ?? "",
-      owner: !asked.sender,
     });
   } catch (error) {
     console.warn(`memory upkeep: could not queue a turn for capture: ${(error as Error).message}`);
@@ -9038,7 +9022,6 @@ async function startTurn(
       }
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const prompt = buildSystemPrompt(persona, liveBot?.soul ?? bot.soul ?? "", [
-        { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
         { id: "owner-grant", label: "Owner's standing grant", text: ownerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
         { id: "setup", label: "Setup", text: setupSystemPrompt(setupMode, { skills: skillAuthoring, cwd: liveBot?.cwd ?? bot.cwd }) },
         { id: "files", label: "File locations", text: worksInWorkspace ? workspaceLocationsPrompt(bot.id, cwd, liveBot?.cwd ?? bot.cwd) : "" },
@@ -9058,7 +9041,7 @@ async function startTurn(
         { id: "routine-execution", label: "Routine execution", text: opts?.automationSource === "schedule" || opts?.automationSource === "manual" ? ROUTINE_EXECUTION_PROMPT : "" },
         { id: "profile", label: "Profile changes", text: profilePrompt },
         { id: "learn", label: "Skill authoring", text: learnPrompt },
-        { id: "updates", label: "Progress updates", text: workUpdatesPrompt(stepUpdatesEnabled(cfg)) },
+        { id: "updates", label: "Progress updates", text: workUpdatesPrompt() },
         { id: "section-context", label: "Section context", text: sectionContextSystemPrompt(bot.section) },
         { id: "team-memory", label: "Team memory", text: teamMemory.systemPrompt(bot.section) + (integrations.agents ? TEAM_MEMORY_PROMPT : "") },
         teamAvailabilityPart(coordinationPrompt ? sectionPeers : []),
@@ -9094,7 +9077,7 @@ async function startTurn(
         effort,
         variant,
         ...(fast ? { fast: true } : {}),
-        ...(stepUpdatesEnabled(cfg) ? {} : { quietWork: true }),
+        quietWork: true,
         resumeCursor: dispatchContext.resumeCursor,
         sessionReset: dispatchContext.sessionReset,
         ...(dispatchContext.recoveryText !== undefined ? { recoveryText: dispatchContext.recoveryText } : {}),
@@ -10894,7 +10877,6 @@ async function runGroupMemberTurn(
   }
   const roomOwnerGrant = ownerGrantFor(roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomSystem = buildSystemPrompt(system, store.bot(bot.id)?.soul ?? bot.soul ?? "", [
-    { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
     { id: "owner-grant", label: "Owner's standing grant", text: roomOwnerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
     { id: "files", label: "File locations", text: workspace ? workspaceLocationsPrompt(bot.id, cwd, readyBot.cwd) : "" },
     { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
@@ -10906,7 +10888,7 @@ async function runGroupMemberTurn(
     { id: "recall", label: "Recall", text: integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "" },
     teamAvailabilityPart(outsideRoom),
     { id: "recent", label: "Recent work", text: recentWorkPrompt(recentLines) },
-    { id: "updates", label: "Progress updates", text: workUpdatesPrompt(stepUpdatesEnabled(cfg)) },
+    { id: "updates", label: "Progress updates", text: workUpdatesPrompt() },
     { id: "section-context", label: "Section context", text: sectionContextSystemPrompt(bot.section) },
     { id: "team-memory", label: "Team memory", text: teamMemory.systemPrompt(bot.section) + (integrations.agents ? TEAM_MEMORY_PROMPT : "") },
     { id: "memory", label: "Memory", text: roomMemory ? `\n${roomMemory.trim()}` : "" },
@@ -11019,7 +11001,7 @@ async function runGroupMemberTurn(
         ...(roomOwnerGrant ? { reviewerGrant: claudeReviewerGrant(cfg.profile?.name) } : {}),
         toolScope: toolScopeForTurn(readyBot.id),
         ...(roomGuestConfined ? { guestConfined: true, confinedWhy: confinedWhy(threadId) } : {}),
-        ...(stepUpdatesEnabled(cfg) ? {} : { quietWork: true }),
+        quietWork: true,
         system: roomSystem.text,
         systemStable: roomSystem.stable,
         systemVolatile: roomSystem.volatile,
@@ -13121,7 +13103,7 @@ function configStatus() {
     typing: typingSuggestions.describe(),
     imageGen: avatarImageStatus(cfg),
     live: liveSettingsFor(cfg),
-    profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "", aboutMe: cfg.profile?.aboutMe ?? "" },
+    profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "" },
     managedPolicy: managedPolicy.summary(),
     ...(CLOUD_HOME ? { cloudHome: true } : {}),
     language: cfg.language ?? "",
@@ -13144,7 +13126,6 @@ function configStatus() {
       skillAuthoring: skillAuthoringEnabled(cfg),
       skillsLibrary: skillsLibraryEnabled(cfg),
       showToolCalls: showToolCallsEnabled(cfg),
-      stepUpdates: stepUpdatesEnabled(cfg),
       browser: builtInBrowserEnabled(cfg),
       sharedComputers: sharedComputersEnabled(cfg),
       claudeUserMcp: claudeUserMcpEnabled(cfg),
@@ -13519,12 +13500,6 @@ ROUTES.push(createBotMemoryRoutes({
     ownersWrite: <T,>(auth: RequestAuth, botId: string, write: () => T): T =>
       cloudOwnerSession(auth) ? lendingMemory.trustedWrite(botId, write) : write(),
   } : {}),
-  aboutMe: () => cfg.profile?.aboutMe ?? "",
-  saveAboutMe: (aboutMe) => {
-    saveConfig({ profile: { ...cfg.profile, aboutMe } });
-    Object.assign(cfg, loadConfig());
-    broadcast({ kind: "config", ...configStatus() });
-  },
 }));
 ROUTES.push(createDeciderRoutes({ decider }));
 ROUTES.push(createJobTraceRoutes());

@@ -19,7 +19,6 @@ import {
   type MemoryJournalEntry,
 } from "../memory-journal.ts";
 import { upkeepEnabled, type MemoryUpkeep } from "../memory-upkeep.ts";
-import { listLearnedFacts, removeLearned } from "../profile-learned.ts";
 import type { RequestAuth } from "../request-auth.ts";
 import { PASS, type RouteHandler } from "./table.ts";
 
@@ -27,8 +26,6 @@ export interface BotMemoryRouteDeps {
   bot(id: string): { id: string; memoryUpkeep?: boolean } | null | undefined;
   taskByThread(botId: string, threadId: string): { title?: string } | undefined;
   upkeep: Pick<MemoryUpkeep, "status" | "tidy">;
-  aboutMe(): string;
-  saveAboutMe(text: string): void;
   lendingReview?: {
     needed(botId: string): { token: string; changed: string[] } | null;
     accept(botId: string, token: string): boolean;
@@ -148,15 +145,6 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       const result = write(botId, () => revertMemoryChange(botId, changeId));
       if (!result.ok) return json(res, result.status, { error: result.error });
       return json(res, 200, { ok: true, ...result.doc, entry: result.entry ? journalEntryForClient(m[1], result.entry) : null, overview: memoryOverview(m[1]) });
-    }
-    if (method === "GET" && path === "/api/profile/learned") {
-      return json(res, 200, { learned: listLearnedFacts() });
-    }
-    m = path.match(/^\/api\/profile\/learned\/([\w-]+)\/remove$/);
-    if (m && method === "POST") {
-      const removed = removeLearned(m[1], deps.aboutMe(), deps.saveAboutMe);
-      if (!removed) return json(res, 404, { error: "That fact was already removed." });
-      return json(res, 200, { ok: true, aboutMe: deps.aboutMe(), learned: listLearnedFacts() });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/memory\/upkeep$/);
     if (m && method === "GET") {

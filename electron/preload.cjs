@@ -26,25 +26,13 @@ const REMOTE_SAFE = new Set(["platform", "getCapabilities", "onCapabilitiesChang
 function updaterOffered() {
   try { return ipcRenderer.sendSync("update:offered") === true; } catch { return false; }
 }
-function profilePageOffered() {
-  try { return ipcRenderer.sendSync("profiles:page") === true; } catch { return false; }
-}
-const isProfilePage = !isLocalPage && profilePageOffered();
 let shownUpdateVersion;
 function showUpdateState(state) {
   if (state?.status === "downloaded") shownUpdateVersion = typeof state.version === "string" ? state.version : undefined;
   return state;
 }
-const PROFILE_KEYS = new Set([
-  "platform", "workspaces", "getCapabilities", "onCapabilitiesChanged", "approvals",
-  "beginScreenPreviewIntent", "screenFrame", "speechStart", "speechStop", "speechFinish", "speechAudio", "onSpeechTranscript", "onSpeechEnd",
-  "onOpenAppSettings", "getPathForFile", "permStatus", "permRequestMic", "permOpenSettings", "permissions",
-  "relaunch", "openInstallTerminal", "copyText", "openExternal", "applySkin", "windowControls", "onPackageInstall", "setUnreadCount",
-  "pickFolder", "exportDiagnostics", "saveFile", "revealInFolder", "setCredential", "retryCredentialStore", "updater", "releaseCheck", "confirm", "profiles",
-]);
 const remoteKeys = isLocalPage ? REMOTE_SAFE
-  : isProfilePage ? PROFILE_KEYS
-    : new Set([...REMOTE_SAFE, ...(updaterOffered() ? ["updater"] : [])]);
+  : new Set([...REMOTE_SAFE, ...(updaterOffered() ? ["updater"] : [])]);
 
 const COMPANY_BACKUP_CLIENT_KEYS = [
   "laterdog-drafts", "laterdog-draft-attachments", "laterdog-draft-send-ids", "laterdog-draft-channel-modes",
@@ -322,18 +310,6 @@ const bridge = {
     activity: id => ipcRenderer.invoke("sharing:activity", id),
   },
   confirm: message => ipcRenderer.invoke("dialog:confirm", message),
-  profiles: process.argv.includes("--laterdog-profiles=1") ? {
-    list: () => ipcRenderer.invoke("profiles:list"),
-    switch: id => ipcRenderer.invoke("profiles:switch", id),
-    add: name => ipcRenderer.invoke("profiles:add", name),
-    rename: (id, name) => ipcRenderer.invoke("profiles:rename", id, name),
-    remove: id => ipcRenderer.invoke("profiles:remove", id),
-    onChanged: cb => {
-      const handler = (_event, state) => cb(state);
-      ipcRenderer.on("profiles:changed", handler);
-      return () => ipcRenderer.removeListener("profiles:changed", handler);
-    },
-  } : undefined,
 };
 
 contextBridge.exposeInMainWorld(

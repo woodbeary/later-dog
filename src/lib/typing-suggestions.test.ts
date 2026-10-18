@@ -6,7 +6,6 @@ import {
   askRanking,
   buildTypingContext,
   fastCandidates,
-  forgetPhrases,
   learnPhrases,
   loadPhrases,
   pickFast,
@@ -54,7 +53,7 @@ describe("learning the person's own phrases", () => {
     expect(learned[0]).toMatchObject({ text: `please look at thing number ${MAX_PHRASES + 10} soon`, count: 2 });
   });
 
-  it("stores and forgets them locally, and ignores anything unreadable or secret", () => {
+  it("stores them locally, and ignores anything unreadable or secret", () => {
     const storage = memory();
     savePhrases(book("Can you fix the failing tests"), storage);
     expect(loadPhrases(storage)).toHaveLength(1);
@@ -62,8 +61,6 @@ describe("learning the person's own phrases", () => {
     expect(loadPhrases(storage).map((phrase) => phrase.text)).toEqual(["fine words here"]);
     storage.data.set(PHRASE_STORE_KEY, "not json");
     expect(loadPhrases(storage)).toEqual([]);
-    forgetPhrases(storage);
-    expect(storage.data.has(PHRASE_STORE_KEY)).toBe(false);
     expect(loadPhrases(undefined)).toEqual([]);
   });
 });

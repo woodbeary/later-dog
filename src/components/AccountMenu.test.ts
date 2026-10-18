@@ -13,9 +13,9 @@ const provider: PlanProvider = { id: "a", name: "a", driver: "claude", plan: nul
 const rest = { since: new Date(now - 3_600_000).toISOString(), until: new Date(now + 3_600_000).toISOString() };
 function render(auto = false, used = 27) {
   const host = document.createElement("div");
-  host.innerHTML = renderToStaticMarkup(createElement(AccountMenu, { auto, now, onPick: vi.fn(), onReorder: vi.fn(), rows: [
-    { instance: instance("a"), label: "Personal", selected: true, movable: true, rest },
-    { instance: instance("b"), label: "Work", selected: false, movable: true, inUse: true, provider: { ...provider, weekly: { ...provider.weekly, usedPercent: used, remainingPercent: 100 - used } } },
+  host.innerHTML = renderToStaticMarkup(createElement(AccountMenu, { auto, now, onPick: vi.fn(), rows: [
+    { instance: instance("a"), label: "Personal", selected: true, rest },
+    { instance: instance("b"), label: "Work", selected: false, inUse: true, provider: { ...provider, weekly: { ...provider.weekly, usedPercent: used, remainingPercent: 100 - used } } },
   ] }));
   return host;
 }
@@ -27,7 +27,6 @@ describe("compact account batteries", () => {
     expect(row.textContent).toContain("Resting · back at");
     expect(row.querySelector("[data-charging-bolt]")).not.toBeNull();
     expect(row.querySelector("[data-account-check]")?.getAttribute("data-account-check")).toBe("off");
-    expect(row.querySelector("[data-account-grip]")?.className).not.toContain("opacity-0");
   });
   it("shows the tighter remaining window and identifies the account actually in use", () => {
     const row = render().querySelector('[data-account-row="b"]')!;
@@ -76,7 +75,7 @@ describe("compact account batteries", () => {
     expect(row.querySelector("[data-recharge]")).toBeNull();
     expect(render(false, 99.6).querySelector('[data-account-row="b"] [data-sleeping-dog]')).toBeNull();
   });
-  it("locks dragging while the server manages priority", () => {
+  it("says when the server manages priority, with nothing to drag", () => {
     const host = render(true);
     expect(host.querySelector("[data-account-managed]")?.textContent).toContain("Automatically managed");
     expect(host.querySelector("[data-account-grip]")).toBeNull();
@@ -157,16 +156,16 @@ describe("account names come first", () => {
   const usage = (id: string, used: number): PlanProvider => ({ ...provider, id, weekly: { ...provider.weekly, usedPercent: used, remainingPercent: 100 - used } });
   const kinds = (instanceId: string, driverKind: string): InstanceInfo => ({ ...instance(instanceId), driverKind });
   const jacobs: AccountMenuRow[] = [
-    { instance: kinds("claude", "claudeAgent"), label: "Claude", selected: true, inUse: true, movable: true, provider: usage("claude", 0) },
-    { instance: kinds("claude-2", "claudeAgent"), label: "jacob.lopez.work.account@example.com", selected: false, movable: true, rest },
-    { instance: kinds("claude-3", "claudeAgent"), label: "A very long Claude account name for the team", selected: false, movable: true, provider: usage("claude-3", 64) },
+    { instance: kinds("claude", "claudeAgent"), label: "Claude", selected: true, inUse: true, provider: usage("claude", 0) },
+    { instance: kinds("claude-2", "claudeAgent"), label: "jacob.lopez.work.account@example.com", selected: false, rest },
+    { instance: kinds("claude-3", "claudeAgent"), label: "A very long Claude account name for the team", selected: false, provider: usage("claude-3", 64) },
     { instance: kinds("codex", "codex"), label: "ChatGPT", selected: false, provider: usage("codex", 0) },
     { instance: kinds("laterdogAi", "laterdogAi"), label: "Kimi", selected: false },
     { instance: kinds("grok", "grokAgent"), label: "Grok", selected: false },
   ];
   const draw = (rows: readonly AccountMenuRow[]) => {
     const host = document.createElement("div");
-    host.innerHTML = renderToStaticMarkup(createElement(AccountMenu, { now, onPick: vi.fn(), onReorder: vi.fn(), onAdd: vi.fn(), rows }));
+    host.innerHTML = renderToStaticMarkup(createElement(AccountMenu, { now, onPick: vi.fn(), onAdd: vi.fn(), rows }));
     return host;
   };
   const fixedWidth = (element: Element) => {

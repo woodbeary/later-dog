@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Check, GripVertical } from "lucide-react";
+import { Check } from "lucide-react";
 import type { InstanceInfo } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -7,9 +7,6 @@ import { InstanceProviderMark } from "./ProviderIcons";
 import { signedIn, useCarryOn } from "./AccountsPanel";
 import { USAGE_TEXT, usageLines, usageReading, usageTone, type PlanProvider, type PlanUsageReport, type UsageTone } from "./PlanUsage";
 import { backAt, rechargeProgress, restSummary, SleepingDog, usageLeft, type AccountRest } from "./AccountCharge";
-import { useAccountDrag } from "./account-drag";
-
-export { ACCOUNT_DRAG_TYPE, movedTo } from "./account-drag";
 
 type Resting = Readonly<Record<string, AccountRest>> | undefined;
 
@@ -81,17 +78,11 @@ export function AccountSwitcher({ accounts, currentId, report, now, resting, onP
   onPick: (account: InstanceInfo) => void;
 }) {
   const carryOn = useCarryOn();
-  const listed = shownAccounts(accounts, currentId);
-  const movable = (_account: InstanceInfo) => carryOn.canReorder && !carryOn.saving
-    && listed.length > 1;
-  const drag = useAccountDrag(listed.map((account) => ({ id: account.instanceId, kind: "account", movable: movable(account) })),
-    (ids) => void carryOn.reorder(ids));
-  const rows = drag.order.flatMap((id) => listed.filter((account) => account.instanceId === id));
-  const grips = listed.some(movable);
+  const rows = shownAccounts(accounts, currentId);
   return (
     <section data-account-switcher aria-label={t("accounts.title")} className="shrink-0 py-1">
       {carryOn.auto && <p className="px-3 py-1 text-[11px] text-ink-secondary">{t("accounts.automatic")}</p>}
-      <ul {...drag.list}>
+      <ul>
         {rows.map((account) => {
           const id = account.instanceId;
           const provider = report?.providers.find((candidate) => candidate.id === id);
@@ -99,7 +90,6 @@ export function AccountSwitcher({ accounts, currentId, report, now, resting, onP
           const reading = rest ? null : usageReading(provider);
           const ring = usageRingFor(provider, rest, now);
           const current = id === currentId;
-          const canMove = movable(account);
           const status = rest ? backAt(rest, now)
             : !signedIn(account) ? t("accounts.signedOut")
             : reading ? t("planUsage.left", { left: usageLeft(reading.used) }) : "";
@@ -108,18 +98,15 @@ export function AccountSwitcher({ accounts, currentId, report, now, resting, onP
             <li
               key={id}
               data-account-row={id}
-              {...drag.row(id)}
-              className={cn("group flex items-center hover:bg-raised-hover", current && "bg-control/50", drag.dragging === id && "opacity-50")}
+              className={cn("group flex items-center hover:bg-raised-hover", current && "bg-control/50")}
             >
               <button
                 type="button"
                 data-account={id}
                 aria-pressed={current}
-                aria-keyshortcuts={canMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
                 onClick={() => onPick(account)}
-                onKeyDown={(event) => drag.step(event, id)}
                 title={[account.displayName, ...accountUsageLines(provider, rest, now)].join("\n")}
-                className={cn("flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus", grips ? "pr-1" : "pr-3")}
+                className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-3 pr-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
               >
                 {ring ? (
                   <UsageRing {...ring}>{ring.charging || ring.sleeping ? <SleepingDog size={15} /> : <InstanceProviderMark instance={account} size={12} />}</UsageRing>
@@ -130,19 +117,6 @@ export function AccountSwitcher({ accounts, currentId, report, now, resting, onP
                 {status && <span className={cn("shrink-0 text-[12px] tabular-nums", rest ? "text-ink-secondary" : USAGE_TEXT[low])}>{status}</span>}
                 <Check size={14} aria-hidden="true" className={cn("shrink-0 text-accent", !current && "invisible")} />
               </button>
-              {grips && (
-                <span
-                  aria-hidden="true"
-                  data-account-grip={canMove || undefined}
-                  title={canMove ? t("accounts.dragHint") : undefined}
-                  className={cn(
-                    "flex w-6 shrink-0 cursor-grab items-center justify-center self-stretch text-ink-tertiary",
-                    !canMove && "invisible",
-                  )}
-                >
-                  <GripVertical size={12} />
-                </span>
-              )}
             </li>
           );
         })}

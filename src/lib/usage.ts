@@ -1,4 +1,4 @@
-import type { Bot, TaskUsage } from "@/state/store";
+import type { TaskUsage } from "@/state/store";
 import { t } from "./i18n";
 
 export const EMPTY_USAGE: TaskUsage = { input: 0, output: 0, costUsd: null, turns: 0 };
@@ -20,10 +20,6 @@ export function sumUsage(items: Array<TaskUsage | undefined>): TaskUsage {
   }
   if (items.some((u) => u && u.input > 0 && !cachedKnown(u))) delete out.cachedInput;
   return out;
-}
-
-export function botUsage(bot: Pick<Bot, "tasks">): TaskUsage {
-  return sumUsage((bot.tasks ?? []).map((t) => t.usage));
 }
 
 export function formatTokens(n: number): string {

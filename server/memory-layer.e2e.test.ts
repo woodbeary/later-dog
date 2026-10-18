@@ -14,8 +14,8 @@ it("recalls, captures, suggests, forgets and tidies a bot's memory", async () =>
   const future = new Date(Date.now() + 3 * 86_400_000).toISOString().slice(0, 10);
   writeFileSync(routes, JSON.stringify({
     [CAPTURE_MARKER]: JSON.stringify([
-      { text: "The person is vegetarian", kind: "preference", aboutUser: true, confidence: 0.9 },
-      { text: "The person has exams this weekend", kind: "fact", until: future, aboutUser: true, confidence: 0.9 },
+      { text: "The person is vegetarian", kind: "preference", confidence: 0.9 },
+      { text: "The person has exams this weekend", kind: "fact", until: future, confidence: 0.9 },
       { text: "The account balance is -10", kind: "fact", confidence: 0.9 },
       { text: "The person loves Irani cafes", kind: "preference", topic: "food", topicAliases: ["restaurants", "cafes"], confidence: 0.9 },
     ]),
@@ -55,7 +55,6 @@ it("recalls, captures, suggests, forgets and tidies a bot's memory", async () =>
       { timeout: 20_000 }).toBe("completed");
     await new Promise((resolve) => setTimeout(resolve, 2_500));
     expect((await memoryFile(scheduled.id)).text).not.toContain("The person is vegetarian");
-    expect((await api("/api/profile/learned")).learned).toEqual([]);
 
     await api(`/api/bots/${bot.id}/memory/file`, "PUT", { path: "memory/dining.md", text: "---\ntitle: Dining\naliases: [food, restaurants, lunch]\n---\n- Loves pasta, hates olives\n" });
     const preview = JSON.stringify(await api(`/api/bots/${bot.id}/system-prompt`));
@@ -126,13 +125,9 @@ it("recalls, captures, suggests, forgets and tidies a bot's memory", async () =>
     await expect.poll(async () => (await memoryFile(bot.id)).text, { timeout: 20_000 }).toContain("The account balance is 10\n");
     expect((await memoryFile(bot.id)).text.match(/The account balance is -10/g)).toHaveLength(1);
 
-    const { learned } = await api<{ learned: Array<{ id: string; text: string; botName: string }> }>("/api/profile/learned");
-    expect(learned.map((f) => f.text)).toEqual(["The person is vegetarian"]);
-    expect((await api("/api/config")).profile.aboutMe).toMatch(/- \d{4}-\d{2}-\d{2} · learned by Memo · The person is vegetarian/);
-    expect(JSON.stringify(await api(`/api/bots/${bot.id}/system-prompt`))).toContain("learned by Memo · The person is vegetarian");
-    const removed = await api<{ aboutMe: string }>(`/api/profile/learned/${learned[0]!.id}/remove`, "POST");
-    expect(removed.aboutMe).not.toContain("vegetarian");
-    await api(`/api/profile/learned/${learned[0]!.id}/remove`, "POST", undefined, 404);
+    expect((await api("/api/config")).profile).not.toHaveProperty("aboutMe");
+    expect(JSON.stringify(await api(`/api/bots/${bot.id}/system-prompt`))).not.toContain("learned by Memo");
+    await api("/api/profile/learned", "GET", undefined, 404);
 
     const current = (await memoryFile(bot.id)).text.split("\n").filter((line) => /^- \d{4}/.test(line));
     const minus = current.findIndex((line) => line.includes("balance is -10"));

@@ -25,7 +25,6 @@ vi.mock("@/lib/app-links", async (importOriginal) => ({ ...await importOriginal<
 vi.mock("../lib/brand", () => ({ brand: () => ({ name: "later.dog" }) }));
 const { marker } = vi.hoisted(() => ({ marker: (name: string) => () => `MARKER:${name};` }));
 vi.mock("./AccountsPanel", () => ({ AccountsPanel: marker("accounts"), AccountsRefresh: () => createElement("button", { "aria-label": "Refresh accounts" }) }));
-vi.mock("./AboutMeSettings", () => ({ AboutMeSettings: marker("about-me") }));
 vi.mock("./SavedApiKeys", async (importOriginal) => ({
   ...await importOriginal<typeof import("./SavedApiKeys")>(),
   SavedApiKeys: ({ instances }: { instances: readonly InstanceInfo[] }) => `MARKER:api-keys=${instances.map((instance) => instance.instanceId).join("+")};`,
@@ -67,22 +66,22 @@ const groups = (html: string) => [...html.matchAll(/data-settings-group="([^"]+)
 const markers = (html: string) => [...html.matchAll(/MARKER:([^;]+);/g)].map((match) => match[1]);
 
 describe("the Settings rail", () => {
-  it("lists the five pages, with icons, and the same five in the narrow-window picker", () => {
+  it("lists T7's four pages, with icons, and the same four in the narrow-window picker", () => {
     const html = render();
-    expect(SETTINGS_PAGES.map((page) => page.id)).toEqual(["general", "models", "computer", "usage", "updates"]);
-    expect(pages(html)).toEqual(["general", "models", "computer", "usage", "updates"]);
+    expect(SETTINGS_PAGES.map((page) => page.id)).toEqual(["general", "computer", "usage", "updates"]);
+    expect(pages(html)).toEqual(["general", "computer", "usage", "updates"]);
     expect(currentPage(html)).toBe("general");
     for (const page of pages(html)) expect(html).toMatch(new RegExp(`data-settings-page="${page}"[^>]*>\\s*<svg`));
     const picker = html.match(/<select aria-label="Settings"[\s\S]*?<\/select>/)![0];
-    expect([...picker.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1])).toEqual(["general", "models", "computer", "usage", "updates"]);
+    expect([...picker.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1])).toEqual(["general", "computer", "usage", "updates"]);
     expect(picker).toContain(">General<");
-    expect(picker).toContain(">Models<");
     expect(picker).toContain(">Computer<");
-    expect(picker).toContain(">Usage<");
+    expect(picker).toContain(">Usage &amp; Billing<");
     expect(picker).toContain(">Updates<");
     expect(html).not.toContain("data-settings-search");
     expect(html).not.toContain("Advanced mode");
-    for (const gone of ["engines", "connections", "companion", "organization", "experimental", "appearance"]) expect(html).not.toContain(`data-settings-page="${gone}"`);
+    expect(picker).not.toContain(">Models<");
+    for (const gone of ["models", "engines", "connections", "companion", "organization", "experimental", "appearance"]) expect(html).not.toContain(`data-settings-page="${gone}"`);
   });
 
   it("keeps the dialog's title, close button and glass frame", () => {
@@ -94,9 +93,11 @@ describe("the Settings rail", () => {
   });
 
   it("lands on General for a page it no longer has", () => {
-    fixture.section = "engines" as AppSettingsSection;
-    expect(currentPage(render())).toBe("general");
-    expect(markers(render())).toContain("accounts");
+    for (const gone of ["engines", "models"]) {
+      fixture.section = gone as AppSettingsSection;
+      expect(currentPage(render())).toBe("general");
+      expect(markers(render())).toContain("accounts");
+    }
   });
 });
 
@@ -109,24 +110,23 @@ describe("General", () => {
     expect(html).not.toContain("data-phone-pairing");
   });
 
-  it("stacks later.dog Cloud, Accounts, Profile, Appearance, Typing suggestions, System and Help, in that order", () => {
+  it("stacks later.dog Cloud, AI accounts, Profile, Appearance, System and Help, in that order", () => {
     const html = render();
-    expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "profile", "appearance", "typing-suggestions", "system", "help"]);
-    expect(markers(html)).toEqual(["accounts", "about-me", "permissions=microphone"]);
-    const order = ["later.dog Cloud", "Accounts", "Profile", "Your name", "Appearance", "Theme", "Language", "Notification sounds", "Typing suggestions", "System", "Help"].map((word) => html.indexOf(`>${word}</div>`));
+    expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "profile", "appearance", "system", "help"]);
+    expect(markers(html)).toEqual(["accounts", "permissions=microphone"]);
+    const order = ["later.dog Cloud", "AI accounts", "Profile", "Your name", "Appearance", "Theme", "Language", "Notification sounds", "System", "Help"].map((word) => html.indexOf(`>${word}</div>`));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(html).toContain('aria-label="Your name"');
     expect(html).not.toContain("Email");
   });
 
-  it("keeps dogs quiet until Step-by-step updates is switched on", () => {
-    const off = render();
-    expect(off).toContain(">Step-by-step updates</div>");
-    expect(off).toContain("Off, they work quietly and only write when it matters.");
-    expect(off).toContain('aria-label="Step-by-step updates" type="button" role="switch" aria-checked="false"');
-    fixture.config = { ...fixture.config, features: { browser: false, stepUpdates: true } };
-    expect(render()).toContain('aria-label="Step-by-step updates" type="button" role="switch" aria-checked="true"');
+  it("has none of the extra rows: no About me, Voice mode, Step-by-step updates, Show every update, Typing suggestions or Sharper dictation", () => {
+    fixture.config = { ...fixture.config, features: { browser: false, showToolCalls: true, cloudDictation: true, typingSuggestions: true } };
+    const html = render();
+    for (const gone of ["About me", "Voice mode", "Step-by-step updates", "Show every update", "Typing suggestions", "Smarter suggestions", "Sharper dictation", "Learned"]) expect(html).not.toContain(gone);
+    expect(html).not.toContain('data-settings-group="typing-suggestions"');
+    expect(html.match(/role="switch"/g) ?? []).toHaveLength(1);
   });
 
   it("picks the theme from System, Light and Dark", () => {
@@ -142,23 +142,23 @@ describe("General", () => {
       { instanceId: "mistral", driverKind: "mistral", displayName: "Mistral", access: "api", snapshot: { state: "unavailable", authenticated: false }, models },
     ];
     const html = render();
-    expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "api-keys", "profile", "appearance", "typing-suggestions", "system", "help"]);
-    expect(markers(html)).toEqual(["accounts", "api-keys=openai", "about-me", "permissions=microphone"]);
+    expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "api-keys", "profile", "appearance", "system", "help"]);
+    expect(markers(html)).toEqual(["accounts", "api-keys=openai", "permissions=microphone"]);
     expect(html).toContain(">API keys</div>");
   });
 
   it("asks for the microphone only on a Mac with the desktop bridge", () => {
     vi.stubGlobal("window", {});
-    expect(markers(render())).toEqual(["accounts", "about-me"]);
+    expect(markers(render())).toEqual(["accounts"]);
     vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, platform: "win32" } });
-    expect(markers(render())).toEqual(["accounts", "about-me"]);
+    expect(markers(render())).toEqual(["accounts"]);
   });
 
   it("leaves System out where it would be empty", () => {
     vi.stubGlobal("window", {});
-    expect(groups(render())).toEqual(["later-dog-cloud", "accounts", "profile", "appearance", "typing-suggestions", "help"]);
+    expect(groups(render())).toEqual(["later-dog-cloud", "accounts", "profile", "appearance", "help"]);
     fixture.analytics = true;
-    expect(groups(render())).toEqual(["later-dog-cloud", "accounts", "profile", "appearance", "typing-suggestions", "system", "help"]);
+    expect(groups(render())).toEqual(["later-dog-cloud", "accounts", "profile", "appearance", "system", "help"]);
   });
 
   it("ends with Help: Keyboard shortcuts, Help Center, Send Feedback and About", () => {
@@ -181,81 +181,34 @@ describe("General", () => {
   });
 });
 
-describe("Models", () => {
-  const account = (instanceId: string, driverKind: string, displayName: string, models: Array<[string, string, boolean?]>) => ({
-    instanceId, driverKind, displayName, snapshot: { state: "available", authenticated: true }, capabilities: {},
-    models: { default: models[0]![0], options: models.map(([id, label, custom]) => ({ id, label, ...(custom ? { custom } : {}) })) },
-  }) as unknown as InstanceInfo;
-
-  beforeEach(() => {
-    fixture.section = "models";
-    fixture.instances = [
-      account("claude", "claudeAgent", "Claude", [
-        ["claude-fable-5-1", "Claude Fable 5.1"], ["claude-fable-5", "Claude Fable 5"], ["claude-opus-5-5", "Claude Opus 5.5"],
-        ["claude-opus-5", "Claude Opus 5"], ["claude-haiku-5-5", "Claude Haiku 5.5"], ["claude-haiku-4-5", "Claude Haiku 4.5"],
-        ["my-local", "My local model", true],
-      ]),
-      account("codex", "codex", "Codex", [["gpt-6-astra", "GPT-6 Astra"], ["gpt-5.6-sol", "GPT-5.6 Sol"]]),
-    ];
-  });
-
-  const sections = (html: string) => [...html.matchAll(/data-settings-model-group="([^"]+)"/g)].map((match) => match[1]);
-  const rows = (html: string, group: string) => {
-    const block = html.split(`data-settings-model-group="${group}"`)[1]!.split("data-settings-model-group=")[0]!;
-    return [...block.matchAll(/data-settings-model="[^:]+:([^"]+)"|data-settings-model-earlier/g)].map((match) => match[1] ?? "earlier");
-  };
-
-  it("groups models by account, newest of each family first and earlier versions below their own heading", () => {
-    const html = render();
-    expect(sections(html)).toEqual(["claude", "codex"]);
-    expect(rows(html, "claude")).toEqual(["claude-fable-5-1", "claude-opus-5-5", "claude-haiku-5-5", "earlier", "claude-fable-5", "claude-opus-5", "claude-haiku-4-5"]);
-    expect(rows(html, "codex")).toEqual(["gpt-6-astra", "earlier", "gpt-5.6-sol"]);
-    expect(html).toContain("Earlier versions");
-    expect(html).not.toContain("My local model");
-  });
-
-  it("counts what each account shows in chats", async () => {
-    const { setModelShown } = await import("@/lib/model-visibility");
-    setModelShown("codex", "gpt-5.6-sol", false);
-    try {
-      const html = render();
-      expect(html).toContain("6 of 6 shown");
-      expect(html).toContain("1 of 2 shown");
-    } finally {
-      setModelShown("codex", "gpt-5.6-sol", true);
-    }
-  });
-});
-
 describe("Computer", () => {
   beforeEach(() => { fixture.section = "computer"; });
 
-  it("shows your computer with this Mac's permissions, what dogs may run on it, and cloud computers, nothing else", () => {
+  it("shows your computer with this Mac's permissions and cloud computers, nothing else", () => {
     const html = render();
     expect(currentPage(html)).toBe("computer");
-    expect(groups(html)).toEqual(["your-computer", "execution", "cloud-computers"]);
+    expect(groups(html)).toEqual(["your-computer", "cloud-computers"]);
     expect(markers(html)).toEqual(["permissions=accessibility+screen", "cloud-computers"]);
-    const order = ["Your computer", "Execution on this computer", "Cloud computers"].map((label) => html.indexOf(`>${label}</div>`));
+    const order = ["Your computer", "Cloud computers"].map((label) => html.indexOf(`>${label}</div>`));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(html).toMatch(/data-this-computer=""[^>]*>[\s\S]*?>This computer<\/span>/);
     expect(html).toContain("What macOS lets later.dog do on this Mac.");
-    expect(html).toContain("No dogs yet.");
-    for (const gone of ["VPS", "alias", "Local VM", "Boat", "built-in browser", "data-built-in-browser", "Route traffic", "This Mac<"]) expect(html).not.toContain(gone);
+    for (const gone of ["Execution on this computer", "data-execution-rows", "data-execution-dog", "VPS", "alias", "Local VM", "Boat", "built-in browser", "data-built-in-browser", "Route traffic", "This Mac<"]) expect(html).not.toContain(gone);
   });
 
-  it("keeps your computer and its execution levels to the desktop app, with the Mac permissions only on a Mac", () => {
+  it("keeps your computer to the desktop app, with the Mac permissions only on a Mac", () => {
     vi.stubGlobal("window", {});
     expect(groups(render())).toEqual(["cloud-computers"]);
     vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, platform: "linux" } });
     const linux = render();
-    expect(groups(linux)).toEqual(["your-computer", "execution", "cloud-computers"]);
+    expect(groups(linux)).toEqual(["your-computer", "cloud-computers"]);
     expect(markers(linux)).toEqual(["cloud-computers"]);
   });
 
 });
 
-describe("Usage", () => {
+describe("Usage & Billing", () => {
   it("is the usage section, nothing else", () => {
     fixture.section = "usage";
     const html = render();

@@ -1,5 +1,4 @@
 import { createElement, type ComponentProps } from "react";
-import { setVoiceMode } from "@/lib/voice-mode";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import type { Bot, InstanceInfo, Message, Task } from "@/state/store";
@@ -169,11 +168,8 @@ describe("thread control placement", () => {
     fixture.computerOpen = false;
   });
 
-  it("calls from the composer once voice mode is on in Settings, never from the header", () => {
-    expect(renderToStaticMarkup(createElement(ChatView, { bot }))).not.toContain("data-call-button");
-    setVoiceMode(true);
+  it("always offers a call from the composer, never from the header", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
-    setVoiceMode(false);
     const header = markup.slice(markup.indexOf("data-chathead-controls"), markup.indexOf("data-composer-row"));
     expect(header).not.toContain("data-call-button");
     expect(markup).not.toContain('data-call-button="header"');

@@ -112,7 +112,6 @@ export interface CaptureReport {
   at: number;
   added: number;
   topics?: number;
-  aboutMe?: number;
   note?: string;
 }
 

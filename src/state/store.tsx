@@ -512,9 +512,9 @@ export interface ConfigStatus {
     xaiConfigured?: boolean;
     customKeyConfigured?: boolean;
   };
-  profile?: { name: string; email: string; aboutMe?: string };
+  profile?: { name: string; email: string };
   language?: string;
-  features?: { skillAuthoring: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean };
+  features?: { skillAuthoring: boolean; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean };
   onboarding?: OnboardingStatus;
   browserEngine?: BrowserEngineSummary;
   browserProfiles?: BrowserProfile[];
@@ -653,7 +653,7 @@ export interface InstanceInfo {
   freeUpSpace?: boolean;
 }
 
-export type AppSettingsSection = "general" | "models" | "computer" | "usage" | "updates";
+export type AppSettingsSection = "general" | "computer" | "usage" | "updates";
 
 export type BotSettingsSection =
   | "overview"

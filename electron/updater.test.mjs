@@ -57,7 +57,6 @@ function mainRule() {
     createCloudAccountStore: () => ({}), rememberCloudHome: () => {}, rememberedCloudHome, computerSharing: null, accountWorkspace: null,
     sendUpdaterState: () => {},
     refreshApplicationMenu: vi.fn(), currentWindowTitle: () => "later.dog", observeCloudHome: vi.fn(),
-    profilePageSender: (event) => Boolean(window.webContents) && event.sender === window.webContents && event.senderFrame === window.webContents.mainFrame && event.senderFrame.url === `${PROFILE}/`,
     createCloudAccountClient: (options) => {
       signIn.options = options;
       return {
@@ -245,7 +244,7 @@ function bridgeFor(origin, { clicked = false, rule = null, states = [] } = {}) {
         sendSync: (channel) => {
           asked.push(channel);
           if (!rule) return undefined;
-          return channel === "profiles:page" ? rule.context.profilePageSender(loading.event) : rule.offered(loading.event);
+          return rule.offered(loading.event);
         },
         invoke: (...args) => { invoked.push(args); return Promise.resolve(args[0] === "update:get-state" && states.length ? states.shift() : { status: "idle" }); },
       },
@@ -296,7 +295,7 @@ it("another server's page never gets the update bridge; My Cloud's does, even wh
   };
   expect(has(OTHER, "vps")).toBe(false);
   expect(has(CLOUD, "cloud")).toBe(true);
-  expect(has(PROFILE)).toBe(true);
+  expect(has(PROFILE)).toBe(false);
   rule.show(page(CLOUD), "cloud");
   expect(rule.offered({ sender: rule.window.webContents, senderFrame: { url: `${CLOUD}/` } })).toBe(false);
 
@@ -420,7 +419,7 @@ it("My Cloud's page reads and drives the update channels, and another server's p
 
   const profile = page(PROFILE);
   rule.show(profile);
-  for (const channel of handlers.keys()) expect(() => handlers.get(channel)(profile.event), channel).not.toThrow();
+  for (const channel of handlers.keys()) expect(() => handlers.get(channel)(profile.event), channel).toThrow(/only available/);
 });
 
 it("sends update news only to a page allowed to read it", async () => {

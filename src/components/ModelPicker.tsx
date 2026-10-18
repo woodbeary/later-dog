@@ -18,7 +18,6 @@ import { repeatedModelLabels, SimpleModelPane } from "./SimpleModelPane";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 import { requestAccountSignIn, requestAddAccount } from "@/lib/add-account-request";
 import { fastModeFits } from "@/lib/fast-mode";
-import { modelShown, useHiddenModels } from "@/lib/model-visibility";
 import { ACCOUNT_MENU_WIDTH, AccountMenu, type AccountMenuRow } from "./AccountMenu";
 import { modelForAccount } from "./account-switch";
 import { ModelMenu, type ModelMenuGroup } from "./ModelMenu";
@@ -437,7 +436,6 @@ export function ModelPicker({
   label?: ReactNode;
 }) {
   const { state, dispatch, refreshInstances, refreshModels: refreshInstanceModels } = useStore();
-  const hiddenModels = useHiddenModels();
   const [open, setOpen] = useState(false);
   const motion = useMenuMotion(open);
   const [railId, setRailId] = useState<string | null>(null);
@@ -701,7 +699,6 @@ export function ModelPicker({
   };
   const accountRows: AccountMenuRow[] = simpleProviders.flatMap((provider) => {
     const shown = familyMembers(provider).filter((member) => signedInNow(member) || member.instanceId === selection.instanceId);
-    const ordered = shown.filter((member) => accountRank.has(member.instanceId));
     return shown.map((member) => ({
       instance: member,
       label: member.displayName,
@@ -709,8 +706,6 @@ export function ModelPicker({
       inUse: Boolean(routed && member.instanceId === routed.on),
       provider: usage.report?.providers.find((entry) => entry.id === member.instanceId),
       rest: activeRest(battery?.resting, member.instanceId, usage.now),
-      movable: carryOn.canReorder && !carryOn.saving && ordered.includes(member)
-        && switcherAccounts.length > 1,
       signIn: signsInFromPicker(member),
     }));
   }).sort((a, b) => (accountRank.get(a.instance.instanceId) ?? accountRank.size) - (accountRank.get(b.instance.instanceId) ?? accountRank.size));
@@ -726,8 +721,7 @@ export function ModelPicker({
   };
   const menuModels = (instance: InstanceInfo) => {
     const own = instance.models.options.filter((option) => !option.custom);
-    return (own.length > 0 ? own : instance.models.options).filter((option) =>
-      modelShown(instance.instanceId, option.id, hiddenModels) || (instance.instanceId === selection.instanceId && option.id === selection.model));
+    return own.length > 0 ? own : instance.models.options;
   };
   const inUseGroup: ModelMenuGroup[] = simpleProviders.flatMap((provider) => {
     const chosen = familyMembers(provider).find((member) => member.instanceId === selection.instanceId);
@@ -883,7 +877,7 @@ export function ModelPicker({
           )}
           {part === "account" ? (
             <>
-              <AccountMenu rows={accountRows} auto={carryOn.auto} now={usage.now} onSettings={() => { setOpen(false); dispatch({ type: "toggleAppSettings", open: true, section: "general" }); }} onManageUsage={() => { setOpen(false); dispatch({ type: "toggleAppSettings", open: true, section: "usage" }); }} onPick={chooseAccount} onReorder={(ids) => void carryOn.reorder(ids)} onAdd={() => {
+              <AccountMenu rows={accountRows} auto={carryOn.auto} now={usage.now} onSettings={() => { setOpen(false); dispatch({ type: "toggleAppSettings", open: true, section: "general" }); }} onManageUsage={() => { setOpen(false); dispatch({ type: "toggleAppSettings", open: true, section: "usage" }); }} onPick={chooseAccount} onAdd={() => {
                 setOpen(false);
                 requestAddAccount();
               }} />

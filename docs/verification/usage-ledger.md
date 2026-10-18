@@ -19,8 +19,8 @@
 
 ## User path
 
-Settings → Usage shows the live per-bot card and, below it, **History**: pick
-a period, group it, or **Export CSV**.
+The ledger has no Settings screen. Read it through `GET /api/usage` and
+`GET /api/usage.csv`; Settings → Usage & Billing shows only each account's limits.
 
 ## Driving it
 
@@ -59,8 +59,8 @@ pnpm control:laterdog wait --bot BOT_ID --timeout 30 --url http://127.0.0.1:PORT
 cat DATA_DIR/usage/$(date -u +%Y-%m).jsonl
 ```
 
-Then open the printed preview, go to Settings → Usage → History, and confirm
-the turn appears under **Bot** and under **Person** as "This computer".
+Then read `GET /api/usage?groupBy=user` on the same URL and confirm the turn
+appears under "This computer".
 
 ## Unit regressions
 
@@ -76,7 +76,7 @@ waits for settlement, and checks that the tooltip separates 10 uncached input,
 headline. Its JSON evidence sits next to the fixture log; no live account is used.
 
 ```sh
-pnpm exec vitest run server/usage-ledger.test.ts src/components/UsageHistory.test.ts server/request-auth.test.ts
+pnpm exec vitest run server/usage-ledger.test.ts server/request-auth.test.ts
 ```
 
 These cover month files and 0600 modes, torn lines, clamped tokens, a blocked

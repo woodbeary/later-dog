@@ -146,12 +146,6 @@ when the last tidy-up ran. It keeps the notes in shape without the bot having to
   allergies or health is never even offered for moving (a fixed rule, not the
   model's choice), and a line judged core is not asked about again. At most 20 lines move in one pass; each file's change
   is a journal row (*filed into topics*) that can be undone.
-- **About me.** A lasting fact about the person, taken from their own words,
-  is added to **Settings → General → About me**, which every bot reads, as a
-  dated line `- 2026-09-25 · learned by Scout · …`. **Added by your bots**
-  under About me lists each one with **Remove**; a removed fact is never
-  added again. On a shared installation, another person's messages never add
-  to the owner's About me.
 - **Nightly tidy-up.** Once a day after 3 am (`memory.tidyHour`), or at the
   next check if the computer was asleep, never while the bot is working, and
   on **Tidy up now**: expired entries move to `memory/archive.md` (from
@@ -298,7 +292,5 @@ free form, or one you rewrite by hand, works the same.
 | `POST` | `/api/bots/:id/memory/open` | `{ target: "obsidian" \| "folder" }` — opens the folder on this computer; loopback only. |
 | `GET` | `/api/bots/:id/memory/upkeep` | Whether upkeep is on, whether the engine can run the model steps, and the last tidy-up and capture. |
 | `POST` | `/api/bots/:id/memory/tidy` | Runs the tidy-up now (`409` when upkeep is switched off) and returns its report. |
-| `GET` | `/api/profile/learned` | Facts bots added to About me on their own, newest first. |
-| `POST` | `/api/profile/learned/:id/remove` | Takes that line out of About me; the fact is never added again. |
 
 All of them need the owner (admin) session, like the other bot-settings routes.

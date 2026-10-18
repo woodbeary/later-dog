@@ -1,7 +1,7 @@
 import { t } from "./i18n";
 
 export interface FeatureFlagConfig {
-  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean };
+  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean };
   browserEngine?: { kind: "engine" | "unavailable"; reason?: string; installable?: boolean; installing?: boolean; installError?: string };
 }
 
@@ -36,12 +36,8 @@ export function smarterSuggestionsEnabled(config: FeatureFlagConfig | null | und
   return config?.features?.smarterSuggestions === true;
 }
 
-export function stepUpdatesEnabled(config: FeatureFlagConfig | null | undefined): boolean {
-  return config?.features?.stepUpdates === true;
-}
-
 export function showToolCallsEnabled(config: FeatureFlagConfig | null | undefined): boolean {
-  return config?.features?.showToolCalls === true || stepUpdatesEnabled(config);
+  return config?.features?.showToolCalls === true;
 }
 
 export function sharedComputersEnabled(config: FeatureFlagConfig | null | undefined): boolean {

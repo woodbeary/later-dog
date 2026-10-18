@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { api } from "@/state/store";
 import { openExternalLink } from "@/lib/app-links";
@@ -216,7 +216,7 @@ export function CloudTrialOffer({ onUse, className = "mt-3" }: { onUse?: () => v
   );
 }
 
-export function CloudTrialRow({ fallback }: { fallback?: ReactNode }) {
+export function CloudTrialRow() {
   const { status, busy, error, start, cancel, end, buy, cancelPlan, checkingOut } = useCloudTrial();
   const spinner = (busy || checkingOut) && <Loader2 size={12} className="animate-spin" />;
   const paid = onPlan(status);
@@ -235,7 +235,7 @@ export function CloudTrialRow({ fallback }: { fallback?: ReactNode }) {
         <SettingRow title={t("vm.plan.title")} subtitle={checkingOut ? t("vm.plan.checkingOut") : t("vm.trial.ended")}>
           <div data-cloud-trial="ended" className="flex flex-wrap gap-2 sm:justify-end">{buyButton}</div>
         </SettingRow>
-      ) : status?.state === "none" ? fallback : status && (
+      ) : status?.state === "none" ? null : status && (
         <SettingRow title={paid ? t("vm.plan.title") : t("vm.trial.title")} subtitle={trialSubtitle(status)}>
           <div data-cloud-trial={paid ? "plan" : status.state} className="flex flex-wrap gap-2 sm:justify-end">
             {mayBuyPlan(status) && buyButton}

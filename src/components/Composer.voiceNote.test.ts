@@ -266,7 +266,7 @@ describe("sharper dictation", () => {
     expect([...host.querySelectorAll("[data-voice-note] button")].some((button) => button.textContent === "Retry")).toBe(true);
   });
 
-  it("keeps voice notes on this Mac when Sharper dictation is off", async () => {
+  it("keeps voice notes on this Mac when cloudDictation is false in the config", async () => {
     fixture.config = { features: { cloudDictation: false } };
     await dictate("draft the lunch post");
     await stopWithRecording();

@@ -58,7 +58,7 @@ vi.mock("./DeviceSignIn", () => ({
   deviceSignInProvider: (driverKind: string) => ({ grokAgent: "grok", cursorAgent: "cursor", codex: "codex" } as Record<string, string>)[driverKind] ?? null,
 }));
 
-const { AccountsPanel, AccountsRefresh, accountOrder, pollSignedIn, realAccount, removable, shownOrder, subscriptionAccounts, useCarryOn } = await import("./AccountsPanel");
+const { AccountsPanel, AccountsRefresh, accountOrder, pollSignedIn, realAccount, removable, subscriptionAccounts } = await import("./AccountsPanel");
 const { requestAddAccount } = await import("@/lib/add-account-request");
 const { AddAccountHost } = await import("./AddAccountHost");
 const Settings = () => createElement(Fragment, null, createElement(AccountsRefresh), createElement(AccountsPanel), createElement(AddAccountHost));
@@ -250,12 +250,6 @@ describe("account helpers", () => {
     expect(removable(leftover)).toBe(true);
     expect(realAccount(leftover)).toBe(false);
     expect(realAccount({ ...leftover, snapshot: { ...leftover.snapshot, authenticated: true } })).toBe(true);
-  });
-
-  it("puts the shown accounts in their new order and leaves a hidden one where it was", () => {
-    const rows = [claude("claude", "Personal"), claude("claude-old", "Old", { authenticated: false }), claude("claude-work", "Work"), chatgpt("chatgpt", "ChatGPT")];
-    expect(shownOrder(rows, ["claude-work", "claude", "chatgpt"])).toEqual({ claudeAgent: ["claude-work", "claude-old", "claude"], codex: ["chatgpt"] });
-    expect(shownOrder(rows, ["chatgpt"])).toEqual({ claudeAgent: ["claude", "claude-old", "claude-work"], codex: ["chatgpt"] });
   });
 
   it("checks the fetched list after each wait until the account reads as signed in", async () => {
@@ -816,212 +810,23 @@ describe("Accounts", () => {
   });
 });
 
-describe("adding a provider with an API key", () => {
-  const keyed = (instanceId: string, driverKind: string, displayName: string, patch: Partial<InstanceInfo> = {}): InstanceInfo => ({
-    instanceId, driverKind, displayName, access: "api",
-    snapshot: { state: "available", authenticated: false },
-    models: { default: "", options: [] },
-    ...patch,
-  } as InstanceInfo);
-  const providers = () => [
-    keyed("cerebras", "cerebras", "Cerebras"),
-    { ...keyed("company-router", "openai-compat", "Company router"), managed: { organizationId: "org", organizationName: "Org" } },
-    keyed("openaiCompat", "openai-compat", "Other (OpenAI-compatible)"),
-    keyed("xai", "grok", "xAI", { snapshot: { state: "available", authenticated: true } }),
-    keyed("openai", "openai-compat", "OpenAI"),
-    { ...claudeApi(), snapshot: { ...claudeApi().snapshot, authenticated: false, version: "2.1.0" } },
-    keyed("mistral", "mistral", "Mistral"),
-    keyed("openrouter", "openai-compat", "OpenRouter"),
-  ];
-  const more = () => sheet()!.querySelector<HTMLButtonElement>("[data-more-providers-toggle]");
-  const listed = () => all("[data-key-provider]").map((element) => element.dataset.keyProvider);
-  const pick = (instanceId: string) => sheet()!.querySelector<HTMLButtonElement>(`[data-key-provider="${instanceId}"]`);
-
-  beforeEach(async () => {
-    await remount({ instances: [...fixture.state.instances.filter((item) => item.instanceId !== "claudeApi"), ...providers()] });
+describe("the Add account sheet", () => {
+  it("offers Claude, ChatGPT, Grok and Cursor with no More providers list or key step", async () => {
+    await remount({ instances: [...fixture.state.instances, { instanceId: "openrouter", driverKind: "openai-compat", displayName: "OpenRouter", access: "api", snapshot: { state: "available", authenticated: false }, models: { default: "", options: [] } } as InstanceInfo] });
     await click(button("Add account"));
-  });
-
-  it("keeps the other providers folded under a quiet toggle, in a steady order, without anything a company manages", async () => {
-    expect(sheet()!.parentElement).toBe(document.body);
-    expect(button("Claude", sheet()!)).toBeTruthy();
-    expect(button("ChatGPT", sheet()!)).toBeTruthy();
-    expect(more()?.textContent).toBe("More providers");
-    expect(more()?.getAttribute("aria-expanded")).toBe("false");
-    expect(listed()).toEqual([]);
-    await click(more());
-    expect(more()?.getAttribute("aria-expanded")).toBe("true");
-    expect(listed()).toEqual(["openrouter", "xai", "openai", "claudeApi", "mistral", "cerebras", "openaiCompat"]);
-    expect(pick("xai")!.textContent).toContain("Connected");
-    expect(pick("openrouter")!.textContent).toContain("OpenRouter");
-    expect(pick("openrouter")!.textContent).not.toContain("Connected");
-    await click(more());
-    expect(listed()).toEqual([]);
-  });
-
-  it("saves and checks an OpenRouter key right in the sheet, then Done closes it", async () => {
-    fixture.api.mockImplementation(async (path: string) => {
-      if (path === "/api/config") return { ...fixture.state.config, openrouter: { configured: true } };
-      if (path === "/api/keys/test") return { ok: true, check: "authentication" };
-      throw new Error(`unexpected ${path}`);
-    });
-    await click(more());
-    await click(pick("openrouter"));
-    expect(sheet()?.getAttribute("aria-label")).toBe("Add OpenRouter");
-    expect(sheet()!.querySelector<HTMLAnchorElement>('a[href="https://openrouter.ai/keys"]')?.target).toBe("_blank");
-    const input = sheet()!.querySelector<HTMLInputElement>('input[aria-label="OpenRouter API key"]')!;
-    expect(input.type).toBe("password");
-    expect(document.activeElement).toBe(input);
-    await type(input, "sk-or-v1-fixture");
-    await press(input, "Enter");
-    expect(fixture.api.mock.calls).toEqual([
-      ["/api/config", { method: "PUT", body: JSON.stringify({ openrouter: { key: "sk-or-v1-fixture" } }) }],
-      ["/api/keys/test", { method: "POST", body: JSON.stringify({ provider: "openrouter" }) }],
-    ]);
-    expect(sheet()!.querySelector('[role="status"]')?.textContent).toBe("Saved key: API key authenticated. Chat not tested.");
-    expect(sheet()).not.toBeNull();
-    await click(button("Done", sheet()!));
-    expect(sheet()).toBeNull();
-  });
-
-  it("goes Back to the open list with focus kept in the sheet, and Escape closes it", async () => {
-    await click(more());
-    await click(pick("xai"));
-    expect(sheet()?.getAttribute("aria-label")).toBe("Add xAI");
-    await click(button("Back", sheet()!));
-    expect(sheet()?.getAttribute("aria-label")).toBe("Add account");
-    expect(more()?.getAttribute("aria-expanded")).toBe("true");
-    expect(document.activeElement).toBe(sheet());
-    await press(sheet()!, "Escape");
-    expect(sheet()).toBeNull();
-    expect(fixture.api).not.toHaveBeenCalled();
-  });
-
-  it("asks a custom OpenAI-compatible server for its address before its key", async () => {
-    await click(more());
-    await click(pick("openaiCompat"));
-    expect(sheet()?.getAttribute("aria-label")).toBe("Add an OpenAI-compatible server");
-    const inputs = [...sheet()!.querySelectorAll("input")];
-    expect(inputs.map((input) => input.getAttribute("aria-label"))).toEqual(["OpenAI-compatible base URL", "OpenAI-compatible API key"]);
-    expect(document.activeElement).toBe(inputs[0]);
-  });
-
-});
-
-describe("reordering accounts", () => {
-  let carryOn: ReturnType<typeof useCarryOn>;
-  function Probe() {
-    carryOn = useCarryOn();
-    return null;
-  }
-  const reordered = { claudeAgent: ["claude-new", "claude-work", "claude"], codex: ["chatgpt"] };
-
-  beforeEach(async () => {
-    await act(async () => publish({ instances: [...fixture.state.instances, claude("claude-new", "New")] }));
-    await act(async () => root.render(createElement(Probe)));
-  });
-
-  it("shows the new order at once, keeps a hidden account in its place, and takes the server's config", async () => {
-    let answer!: (config: unknown) => void;
-    fixture.api.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
-    await act(async () => { void carryOn.reorder(["claude-new", "claude", "chatgpt"]); });
-    expect(fixture.state.config.accountBattery!.order).toEqual(reordered);
-    expect(fixture.api).toHaveBeenCalledWith("/api/config", { method: "PUT", body: JSON.stringify({ accountBattery: { enabled: false, auto: false, order: reordered, sequence: ["claude-new", "claude", "chatgpt", "claude-work"] } }) });
-    expect(carryOn.saving).toBe(true);
-    const saved = { accountBattery: { enabled: false, order: reordered, resting: {} } };
-    await act(async () => answer(saved));
-    await settle();
-    expect(fixture.state.config).toEqual(saved);
-    expect(carryOn.saving).toBe(false);
-  });
-
-  it("puts the old order back and says why when it could not be saved", async () => {
-    const before = fixture.state.config;
-    fixture.api.mockRejectedValueOnce(new Error("Could not reach this server."));
-    await act(async () => { await carryOn.reorder(["claude-new", "claude", "chatgpt"]); });
-    await settle();
-    expect(fixture.state.config).toEqual(before);
-    expect(carryOn.error).toBe("Could not reach this server.");
-  });
-
-  it("locks ordering only while automatic management is enabled", async () => {
-    await act(async () => publish({ config: { accountBattery: { ...fixture.state.config.accountBattery!, enabled: true, auto: true } } }));
-    expect(carryOn.canReorder).toBe(false);
-    await act(async () => carryOn.reorder(["chatgpt", "claude"]));
-    expect(fixture.api).not.toHaveBeenCalled();
-    await act(async () => publish({ config: { accountBattery: { ...fixture.state.config.accountBattery!, enabled: false } } }));
-    expect(carryOn.canReorder).toBe(true);
-  });
-
-  it("can reorder only once the server has said how accounts carry on", async () => {
-    expect(carryOn.canReorder).toBe(true);
-    await act(async () => publish({ config: {} }));
-    expect(carryOn.canReorder).toBe(false);
-    await act(async () => { await carryOn.reorder(["claude-new", "claude", "chatgpt"]); });
-    expect(fixture.api).not.toHaveBeenCalled();
+    const tiles = all("[data-account-engine]").map((element) => element.dataset.accountEngine);
+    expect(tiles.slice(0, 2)).toEqual(["claudeAgent", "codex"]);
+    expect(tiles.every((tile) => ["claudeAgent", "codex", "grokAgent", "cursorAgent"].includes(tile!))).toBe(true);
+    expect(sheet()!.querySelector("[data-more-providers-toggle], [data-more-providers], [data-key-provider]")).toBeNull();
+    expect(sheet()!.textContent).not.toContain("More providers");
+    expect(sheet()!.textContent).not.toContain("OpenRouter");
   });
 });
 
-describe("moving an account in Settings", () => {
-  const grip = (instanceId: string) => row(instanceId)?.querySelector<HTMLButtonElement>("[data-account-grip]") ?? null;
-  const saved = (claudeAgent: string[]) => ["/api/config", { method: "PUT", body: JSON.stringify({ accountBattery: { enabled: false, auto: false, order: { claudeAgent, codex: ["chatgpt"] }, sequence: [...claudeAgent, "chatgpt"] } }) }];
-  const answer = (claudeAgent: string[]) => ({ accountBattery: { enabled: false, order: { claudeAgent, codex: ["chatgpt"] }, resting: {} } });
-  const drag = async (element: Element, kind: "dragstart" | "dragover" | "drop" | "dragend", transfer: DataTransfer) => {
-    const event = new Event(kind, { bubbles: true, cancelable: true });
-    Object.defineProperty(event, "dataTransfer", { value: transfer });
-    await act(async () => { element.dispatchEvent(event); });
-  };
-
-  it("moves an account with its handle and preserves keyboard focus", async () => {
-    fixture.api.mockResolvedValueOnce(answer(["claude-work", "claude"]));
-    const handle = grip("claude")!;
-    expect(handle.getAttribute("aria-label")).toBe("Move Personal");
-    expect(handle.getAttribute("title")).toBe("Drag to reorder");
-    expect(grip("chatgpt")).not.toBeNull();
-    handle.focus();
-    await press(handle, "ArrowUp");
-    expect(fixture.api).not.toHaveBeenCalled();
-    await press(handle, "ArrowDown");
-    expect(fixture.api).toHaveBeenCalledWith(...saved(["claude-work", "claude"]));
-    expect(ids()).toEqual(["claude-work", "claude", "chatgpt"]);
-    expect(document.activeElement).toBe(handle);
-    await press(grip("chatgpt")!, "ArrowDown");
-    expect(fixture.api).toHaveBeenCalledTimes(1);
-    expect(ids()).toEqual(["claude-work", "claude", "chatgpt"]);
-  });
-
-  it("drags an account onto another of its engine, shows the order at once, and saves it on the drop", async () => {
-    fixture.api.mockResolvedValueOnce(answer(["claude-work", "claude"]));
-    expect(row("claude")!.getAttribute("draggable")).toBe("true");
-    expect(row("chatgpt")!.getAttribute("draggable")).toBe("true");
-    const transfer = new DataTransfer();
-    await drag(row("claude-work")!, "dragstart", transfer);
-    await drag(row("chatgpt")!, "dragover", transfer);
-    expect(ids()).toEqual(["claude", "chatgpt", "claude-work"]);
-    await drag(row("claude")!, "dragover", transfer);
-    expect(ids()).toEqual(["claude-work", "claude", "chatgpt"]);
-    expect(fixture.api).not.toHaveBeenCalled();
-    await drag(row("claude")!, "drop", transfer);
-    await drag(row("claude-work")!, "dragend", transfer);
-    await settle();
-    expect(fixture.api).toHaveBeenCalledTimes(1);
-    expect(fixture.api).toHaveBeenCalledWith(...saved(["claude-work", "claude"]));
-    expect(ids()).toEqual(["claude-work", "claude", "chatgpt"]);
-  });
-
-  it("holds a row still while its name is being edited, so dragging text in the field moves nothing", async () => {
-    await click(row("claude")!.querySelector<HTMLButtonElement>('[aria-label="Rename Personal"]'));
-    const input = row("claude")!.querySelector("input")!;
-    expect(row("claude")!.getAttribute("draggable")).toBeNull();
-    const transfer = new DataTransfer();
-    await drag(input, "dragstart", transfer);
-    await drag(row("claude-work")!, "dragover", transfer);
-    expect(transfer.getData("application/x-laterdog-account")).toBe("");
-    expect(ids()).toEqual(["claude", "claude-work", "chatgpt"]);
-  });
-
-  it("offers no handle or drag until the server has said how accounts carry on", async () => {
-    await act(async () => publish({ config: {} }));
+describe("Keep going", () => {
+  it("is one switch with no account handles, drag or second switch", async () => {
+    await act(async () => publish({ config: { accountBattery: { ...fixture.state.config.accountBattery!, enabled: true, auto: false } } }));
+    expect(all("[data-accounts-panel] [role='switch']")).toHaveLength(1);
     expect(document.body.querySelector("[data-account-grip]")).toBeNull();
     expect(document.body.querySelector("[data-account][draggable]")).toBeNull();
   });

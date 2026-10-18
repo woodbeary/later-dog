@@ -45,15 +45,13 @@ describe("api refusals", () => {
 });
 
 describe("partial profile save responses", () => {
-  it.each([true, false])("preserves independently saved fields with about-me response first: %s", aboutFirst => {
-    const config = { ...initialState.config, profile: { name: "Old", email: "old@example.invalid", aboutMe: "Old biography" } } as NonNullable<AppState["config"]>;
-    const about: Action = { type: "profileSaved", profile: { aboutMe: "New biography" } };
-    const identity: Action = { type: "profileSaved", profile: { name: "New", email: "new@example.invalid" } };
-    const first = reducer({ ...initialState, config }, aboutFirst ? about : identity);
-    const last = reducer(first, aboutFirst ? identity : about);
-    expect(last.config?.profile).toEqual({ name: "New", email: "new@example.invalid", aboutMe: "New biography" });
-    expect(reducer(last, { type: "profileSaved", profile: { aboutMe: "" } }).config?.profile)
-      .toEqual({ name: "New", email: "new@example.invalid", aboutMe: "" });
+  it.each([true, false])("preserves independently saved fields with the name response first: %s", nameFirst => {
+    const config = { ...initialState.config, profile: { name: "Old", email: "old@example.invalid" } } as NonNullable<AppState["config"]>;
+    const name: Action = { type: "profileSaved", profile: { name: "New" } };
+    const email: Action = { type: "profileSaved", profile: { email: "new@example.invalid" } };
+    const first = reducer({ ...initialState, config }, nameFirst ? name : email);
+    const last = reducer(first, nameFirst ? email : name);
+    expect(last.config?.profile).toEqual({ name: "New", email: "new@example.invalid" });
   });
 });
 

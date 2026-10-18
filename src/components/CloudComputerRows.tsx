@@ -3,11 +3,9 @@ import { Loader2, Monitor } from "lucide-react";
 import { useStore, type Bot } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { SleepingDog } from "./AccountCharge";
-import { CloudComputersRow } from "./ApiKeys";
 import { BotAvatar } from "./Avatar";
 import { CloudTrialRow } from "./CloudTrial";
 import { pillButton } from "./LocalVmRows";
-import { SettingRow } from "./SettingsPrimitives";
 
 export interface CloudComputer {
   boxId: string;
@@ -57,9 +55,7 @@ function ComputerOwner({ computer, owner }: { computer: CloudComputer; owner: Bo
 export function CloudComputerRows() {
   const { state } = useStore();
   const keyConfigured = state.config?.box?.configured === true;
-  const soon = !keyConfigured && <SettingRow title={t("settings.cloud.soon")} subtitle={t("settings.cloud.soonHint")}>{null}</SettingRow>;
   const [computers, setComputers] = useState<CloudComputer[]>([]);
-  const [listed, setListed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [problem, setProblem] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -76,7 +72,6 @@ export function CloudComputerRows() {
     for (const boxId of deleting.current) if (!next.some((computer) => computer.boxId === boxId)) deleting.current.delete(boxId);
     latest.current = next;
     setComputers(next);
-    setListed(list.configured === true && list.available === true);
     setProblem(list.configured === true && list.available !== true ? list.problem ?? t("vm.err.cloudUnavailable") : null);
   }, []);
 
@@ -143,16 +138,15 @@ export function CloudComputerRows() {
 
   return (
     <div data-cloud-computer-rows="" className="rounded-xl bg-card px-4">
-      <CloudComputersRow />
-      {!state.config?.cloudHome && <CloudTrialRow fallback={soon} />}
+      {!state.config?.cloudHome && <CloudTrialRow />}
       {loading && computers.length === 0 ? (
         <div className="flex items-center gap-2 border-t border-hairline/40 py-4 text-[13px] text-ink-secondary">
           <Loader2 size={13} className="animate-spin" /> {t("vm.cloud.checkingList")}
         </div>
       ) : problem ? (
         <p className="border-t border-hairline/40 py-4 text-[12px] text-ink-secondary">{problem}</p>
-      ) : listed && computers.length === 0 ? (
-        <p className="border-t border-hairline/40 py-4 text-[12px] text-ink-secondary">{t("vm.cloud.noneFound")}</p>
+      ) : computers.length === 0 ? (
+        <p className="border-t border-hairline/40 py-4 text-[12px] text-ink-secondary first:border-t-0">{t("vm.cloud.noneFound")}</p>
       ) : computers.map((computer) => {
         const title = computer.orphaned ? t("vm.cloud.orphan") : computer.ownerName ?? computer.name;
         const held = pending !== null || computer.inUse || computer.state === "removing";

@@ -5,7 +5,6 @@ import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
-import { SettingRow } from "./SettingsPrimitives";
 
 export type ConfigSection = "composio" | "opencodeGo" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "xai" | "mistral" | "cerebras";
 export type TestableProvider = "anthropic" | "openai" | "openrouter" | "openaiCompat" | "xai" | "mistral" | "cerebras";
@@ -196,12 +195,6 @@ function CredentialHelp({ section }: { section: ConfigSection }) {
 
 export function looksLikeKey(value: string): boolean {
   return value.length > 0 && !/\s/.test(value);
-}
-
-export function CloudComputersRow() {
-  const box = useStore().state.config?.box;
-  if (box?.provider !== "laterdog" || box.trial) return null;
-  return <SettingRow title={t("settings.cloud.own")} subtitle={t("settings.cloud.ownHint")}>{null}</SettingRow>;
 }
 
 export function ComposioKeyNotice({ onSaved }: { onSaved: () => void }) {

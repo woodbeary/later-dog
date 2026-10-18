@@ -83,8 +83,6 @@ import { CLOUD_MOVE_LOCAL_ROUTES, cloudPageSenderAllowed, createCloudMove, mintO
 import { createOrgLibrary } from "./org-library.mjs";
 import { createCompanyBackups } from "./company-backups.mjs";
 import { createCompanyBackupSchedule } from "./company-backup-schedule.mjs";
-import { createProfileRunner } from "./laterdog-profiles.mjs";
-import { registerProfileIpc } from "./laterdog-profile-ipc.mjs";
 
 const { desktopCapabilities, nativeDesktopActions } = capabilitiesModule;
 const nativeActions = nativeDesktopActions(process.platform);
@@ -264,7 +262,6 @@ let serverReady = !app.isPackaged;
 let secureCredentials = {};
 let secureCredentialState = null;
 let desktopDataDirLease = null;
-let profiles = null;
 let managedDesktop = null;
 let cloudAccount = null;
 let cloudSignIn = null;
@@ -312,7 +309,7 @@ const serverSupervisor = createServerSupervisor({
     if (managedDesktop) void managedDesktop.refresh().catch(() => {});
     routineWake.start();
     for (const win of BrowserWindow.getAllWindows()) {
-      if (!serverUnavailableWindows.has(win) || activeEnvironment(environmentsState) || profiles?.activeOrigin()) continue;
+      if (!serverUnavailableWindows.has(win) || activeEnvironment(environmentsState)) continue;
       void win.loadURL(`http://127.0.0.1:${SERVER_PORT}`).then(() => {
         serverUnavailableWindows.delete(win);
       }).catch((error) => {
@@ -500,7 +497,7 @@ let logStream = null;
 let desktopShutdownStarted = false;
 import { createRoutineWakeHold, rememberRoutineWake, routineWakeSettings } from "./routine-wake.mjs";
 
-const { isLocalSender: senderIsLocal, isProfileSender, localOnly, localOnlySync, setLocalOrigin, setProfileOrigin } = localOriginModule;
+const { isLocalSender: senderIsLocal, localOnly, localOnlySync, setLocalOrigin } = localOriginModule;
 
 const routineWake = createRoutineWakeHold({
   fetchStatus: () => (serverReady
@@ -933,7 +930,7 @@ function installDesktopMutationHeader() {
       const target = new URL(details.url);
       const port = Number(target.port || 80);
       ownsTarget = target.protocol === "http:" && target.hostname === "127.0.0.1" &&
-        ((serverReady && port === SERVER_PORT) || profiles?.ownsPort(port) === true);
+        serverReady && port === SERVER_PORT;
     } catch {}
     if (!ownsTarget) {
       callback({ requestHeaders: details.requestHeaders });
@@ -1368,7 +1365,6 @@ async function openLendingSettings() {
   if (!desktopTray?.show()) activateExistingWindow(BrowserWindow.getAllWindows());
   if (!win.webContents.isLoadingMainFrame() && senderIsLocal({ sender: win.webContents })) win.webContents.send("app:open-settings", "cloud-settings");
   else {
-    profiles?.usePersonal();
     await win.loadURL(`${rendererOrigin()}/?desktop-settings=cloud-settings`);
   }
 }
@@ -1441,73 +1437,10 @@ function profilesDataRoot() {
 }
 
 function localPageOrigin() {
-  return profiles?.activeOrigin() ?? rendererOrigin();
+  return rendererOrigin();
 }
 
-function askingProfile(event) {
-  return Boolean(profiles) && isProfileSender(event);
-}
-
-function profilePageSender(event) {
-  return askingProfile(event) && workspaceSenderAllowed(event, mainWindow?.webContents, environmentsState, localPageOrigin());
-}
-
-function profileSwitcherSender(event) {
-  return (senderIsLocal(event) || isProfileSender(event)) &&
-    workspaceSenderAllowed(event, mainWindow?.webContents, environmentsState, localPageOrigin());
-}
-
-function showActive() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  let showing = null;
-  try {
-    showing = new URL(mainWindow.webContents.getURL()).origin;
-  } catch {}
-  const target = activeOrigin();
-  if (showing === target) return;
-  if (target === rendererOrigin() && app.isPackaged && !serverReady) {
-    serverUnavailableWindows.add(mainWindow);
-    void mainWindow.loadURL(buildErrorPage({ allPortsOccupied: serverStartConflictOnly })).catch(() => {});
-    return;
-  }
-  navigateMainWindow(target);
-}
-
-function showPersonalInstead(name, message, reason = "") {
-  const personal = profiles?.list().profiles.find((profile) => profile.main)?.name || "Personal";
-  profiles?.usePersonal();
-  showActive();
-  void dialog.showMessageBox({
-    type: "warning",
-    message,
-    detail: `${reason}Showing ${personal} instead. Choose ${name} again from the menu under your name to try again.`,
-  });
-}
-
-function profilesChanged() {
-  if (!profiles) return;
-  const state = profiles.list();
-  const contents = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null;
-  let showing = null;
-  try {
-    showing = new URL(contents?.getURL() ?? "").origin;
-  } catch {}
-  if (contents && showing === localPageOrigin()) contents.send("profiles:changed", state);
-  const open = state.profiles.find((profile) => profile.id === state.activeId);
-  if (open && !open.main && open.status === "failed" && !activeEnvironment(environmentsState)) {
-    showPersonalInstead(open.name, `${open.name} stopped`);
-  }
-}
-
-function syncProfileMutationToken(proc) {
-  try {
-    proc.postMessage({ type: "laterdog:desktop-mutation-token", token: desktopMutationToken });
-  } catch (error) {
-    slog(`profile mutation capability sync failed: ${error?.message ?? error}`);
-  }
-}
-
-async function applyProfileCredential({ port, patch }) {
+async function applyServerCredential({ port, patch }) {
   const response = await fetch(`http://127.0.0.1:${port}/api/config?secretStorage=external`, {
     method: "PUT",
     headers: desktopServerHeaders({ "content-type": "application/json" }, { packaged: true, token: desktopMutationToken }),
@@ -1517,54 +1450,6 @@ async function applyProfileCredential({ port, patch }) {
   if (!response.ok) throw new Error(body?.error || `Could not save credential (HTTP ${response.status})`);
   return body;
 }
-
-async function startProfiles() {
-  if (!app.isPackaged) return;
-  const userData = app.getPath("userData");
-  try {
-    profiles = createProfileRunner({
-      file: path.join(userData, "profiles.json"),
-      dataRoot: profilesDataRoot(),
-      mainDataDir: desktopDataDir(),
-      credentialsRoot: path.join(userData, "profiles"),
-      launch: () => serverChildLaunch({ resourcesPath: process.resourcesPath, userData }),
-      baseEnvironment: () => ({
-        ...process.env,
-        LATERDOG_STATIC_DIR: path.join(process.resourcesPath, "ui"),
-        LATERDOG_RESOURCES_PATH: process.resourcesPath,
-        LATERDOG_SKILLS_DIR: path.join(process.resourcesPath, "skills"),
-        LATERDOG_APP_VERSION: app.getVersion(),
-        LATERDOG_USER_DATA: userData,
-      }),
-      fork: (entry, args, options) => utilityProcess.fork(entry, args, options),
-      probe: pollServerIdentity,
-      acquireLease: (dataDir) => acquireDataDirLease(dataDir),
-      supervise: createServerSupervisor,
-      secrets: {
-        available: () => safeStorage.isAsyncEncryptionAvailable(),
-        encrypt: (value) => safeStorage.encryptStringAsync(value),
-        decrypt: (buffer) => safeStorage.decryptStringAsync(buffer),
-        ...(process.platform === "darwin" ? {
-          decryptFallback: decryptCredentialFallback,
-          encryptFallback: encryptCredentialFallback,
-        } : {}),
-      },
-      applyCredential: applyProfileCredential,
-      trash: (target) => shell.trashItem(target),
-      onSpawn: syncProfileMutationToken,
-      onMessage: (proc, message) => trustedApprovalMode.receive(proc, message),
-      onExit: (proc) => trustedApprovalMode.rejectProcess(proc),
-      onChange: profilesChanged,
-      bootTimeoutMs: SERVER_BOOT_TIMEOUT_MS,
-      stopTimeoutMs: UTILITY_SERVER_STOP_TIMEOUT_MS,
-      log: slog,
-    });
-    await profiles.start();
-  } catch (error) {
-    slog(`profiles unavailable: ${error?.message ?? error}`);
-  }
-}
-
 
 function refreshApplicationMenu() {
   Menu.setApplicationMenu(
@@ -1638,7 +1523,6 @@ const organizationEntry = createOrganizationEntry({
     if (!win.webContents.isLoadingMainFrame() && senderIsLocal({ sender: win.webContents })) {
       win.webContents.send("app:open-settings", "organization");
     } else {
-      profiles?.usePersonal();
       await win.loadURL(`${rendererOrigin()}/?desktop-settings=organization`);
     }
   },
@@ -1672,7 +1556,6 @@ async function openCloudEntry() {
   if (!win.webContents.isLoadingMainFrame() && senderIsLocal({ sender: win.webContents })) {
     win.webContents.send("app:open-settings", "cloud");
   } else {
-    profiles?.usePersonal();
     await win.loadURL(`${rendererOrigin()}/?desktop-settings=cloud`);
   }
   return true;
@@ -1684,7 +1567,6 @@ function openWorkspaceSettings(computerId, panel = "computer") {
   if (senderIsLocal({ sender: mainWindow.webContents })) {
     mainWindow.webContents.send("workspaces:open-settings", id, ...(copy ? ["copy"] : []));
   } else {
-    profiles?.usePersonal();
     persistEnvironments(withActive(environmentsState, LOCAL_ID));
     navigateMainWindow(`${rendererOrigin()}/?desktop-settings=workspaces${id ? `&${copy ? "copy-to" : "share-computer"}=${encodeURIComponent(id)}` : ""}`);
   }
@@ -1799,7 +1681,6 @@ function createWindow({ deferNavigation = false } = {}) {
       preload: path.join(__dirname, "preload.cjs"),
       additionalArguments: [`--laterdog-local-origin=${rendererOrigin()}`,
         ...(app.isPackaged ? ["--laterdog-company-desktop=1"] : []),
-        ...(profiles ? ["--laterdog-profiles=1"] : []),
         ...(app.isPackaged && configuredCloudOrigin() ? ["--laterdog-cloud-account=1"] : []),
         ...(adminPortalOrigin() ? [`--laterdog-admin-origin=${adminPortalOrigin()}`] : [])],
     },
@@ -1864,7 +1745,7 @@ function createWindow({ deferNavigation = false } = {}) {
       page = new URL(win.webContents.getURL()).origin;
     } catch {}
     if (!target || !page || target === page) return;
-    if (target === rendererOrigin() || allowedOrigins(environmentsState, rendererOrigin()).has(target) || profiles?.isProfileOrigin(target) === true) {
+    if (target === rendererOrigin() || allowedOrigins(environmentsState, rendererOrigin()).has(target)) {
       details.preventDefault();
       slog(`blocked subframe navigation to ${details.url}`);
     }
@@ -1891,17 +1772,6 @@ function createWindow({ deferNavigation = false } = {}) {
       detail: `${errorDescription}. Showing the local server instead.`,
     });
     void workspaceMenuAction(() => switchEnvironment(LOCAL_ID));
-  });
-  win.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-    if (!isMainFrame || errorCode === -3 || !profiles || activeEnvironment(environmentsState)) return;
-    const open = profiles.list().profiles.find((profile) => profile.id === profiles.activeId() && !profile.main);
-    let origin = null;
-    try {
-      origin = new URL(validatedURL).origin;
-    } catch {}
-    if (!open || origin !== profiles.activeOrigin()) return;
-    slog(`profile ${open.id} page did not load (${errorDescription}); back to Personal`);
-    showPersonalInstead(open.name, `${open.name} is not reachable`, `${errorDescription}. `);
   });
   win.webContents.on("did-finish-load", () => deliverPackageInstall(win));
   win.webContents.on("did-finish-load", () => void offerComputerSharing(win));
@@ -2017,13 +1887,10 @@ function createWindow({ deferNavigation = false } = {}) {
   }
 
   const remote = activeEnvironment(environmentsState);
-  const openProfile = remote ? null : profiles?.activeOrigin() ?? null;
-  if (!serverReady && app.isPackaged && !remote && !openProfile) serverUnavailableWindows.add(win);
+  if (!serverReady && app.isPackaged && !remote) serverUnavailableWindows.add(win);
   if (deferNavigation) return win;
   if (remote) {
     void win.loadURL(remote.origin).catch(() => {});
-  } else if (openProfile) {
-    void win.loadURL(openProfile).catch(() => {});
   } else if (app.isPackaged) {
     win.loadURL(serverReady ? `http://127.0.0.1:${SERVER_PORT}` : buildErrorPage({ allPortsOccupied: serverStartConflictOnly }));
   } else {
@@ -2084,7 +1951,7 @@ ipcMain.handle("desktop:export-diagnostics", localOnly("desktop:export-diagnosti
 }));
 
 ipcMain.handle("desktop:save-file", localOnly("desktop:save-file", async (event, rawPath) => {
-  return withSavableFile(rawPath, { home: os.homedir(), root: askingProfile(event) ? profiles.activeDataDir() : variant.id === "release" ? undefined : desktopDataDir() }, async ({ defaultName, copyTo }) => {
+  return withSavableFile(rawPath, { home: os.homedir(), root: variant.id === "release" ? undefined : desktopDataDir() }, async ({ defaultName, copyTo }) => {
     const parent = BrowserWindow.fromWebContents(event.sender);
     const defaultPath = await defaultSaveName(app.getPath("downloads"), defaultName);
     const choice = await dialog.showSaveDialog(parent ?? undefined, {
@@ -2603,7 +2470,7 @@ const cloudPageSender = (channel, handler) => (event) => {
   if (!asking) throw new Error(`${channel} is only available in this app's window`);
   return handler(asking === "cloud");
 };
-const updaterPageAllowed = event => cloudPageAsking(event) !== null || profilePageSender(event);
+const updaterPageAllowed = event => cloudPageAsking(event) !== null;
 const updaterPageOffered = event => {
   if (updaterPageAllowed(event)) return true;
   if (cloudSignInRestored) return false;
@@ -2701,18 +2568,15 @@ ipcMain.handle("environments:add-from-link", localWorkspaceOnly("environments:ad
 
 ipcMain.handle("workspaces:state", workspaceOnly(() => workspaceSummary(environmentsState)));
 ipcMain.handle("desktop:capabilities", async (event) => {
-  const profile = askingProfile(event);
   return desktopCapabilities({
-    remote: !senderIsLocal(event) && !profile,
+    remote: !senderIsLocal(event),
     platform: process.platform,
     env: process.env,
     packaged: app.isPackaged,
     localConnection: await cuaReady,
-    credentialStore: profile ? profiles.activeCredentialStore() : credentialStoreCapability(),
+    credentialStore: credentialStoreCapability(),
   });
 });
-
-registerProfileIpc({ ipcMain, runner: () => profiles, isPage: profilePageSender, senderAllowed: profileSwitcherSender, showActive });
 
 const CREDENTIAL_PATCH = {
   composioApiKey: (value) => ({ composio: { apiKey: value } }),
@@ -2764,16 +2628,7 @@ async function saveWorkspaceCredential(name, value) {
   );
 }
 
-async function saveProfileCredential(id, name, value) {
-  const patchFor = CREDENTIAL_PATCH[name];
-  if (!patchFor || typeof value !== "string") throw new Error("Unsupported credential");
-  if (!(await safeStorage.isAsyncEncryptionAvailable()) && !credentialFallbackAvailable()) throw new Error("The operating-system credential store is unavailable");
-  return profiles.saveCredential(id, name, value, patchFor(value.trim()));
-}
-
-ipcMain.handle("credential:set", localOnly("credential:set", (event, name, value) =>
-  askingProfile(event) ? saveProfileCredential(profiles.activeId(), name, value) : saveWorkspaceCredential(name, value),
-));
+ipcMain.handle("credential:set", localOnly("credential:set", (_event, name, value) => saveWorkspaceCredential(name, value)));
 
 async function restoreWorkspaceCredentials(credentials) {
   if (app.isPackaged && serverReady) {
@@ -2784,7 +2639,7 @@ async function restoreWorkspaceCredentials(credentials) {
         patch[section] = { ...patch[section], ...values };
       }
     }
-    await applyProfileCredential({ port: SERVER_PORT, patch });
+    await applyServerCredential({ port: SERVER_PORT, patch });
   }
   secureCredentials = credentials;
   credentialStoreUnavailable = false;
@@ -2792,19 +2647,17 @@ async function restoreWorkspaceCredentials(credentials) {
   void broadcastDesktopCapabilities().catch(() => {});
 }
 
-ipcMain.handle("credential:retry", localOnly("credential:retry", async (event) => {
+ipcMain.handle("credential:retry", localOnly("credential:retry", async () => {
   try {
-    const available = askingProfile(event)
-      ? await profiles.retryCredentials(profiles.activeId())
-      : await secureCredentialState?.retry() ?? false;
+    const available = await secureCredentialState?.retry() ?? false;
     return { available };
   } catch {
     return { available: false };
   }
 }));
 
-ipcMain.handle("approvals:set-trusted-mode", localOnly("approvals:set-trusted-mode", (event, botId, mode, options) => {
-  const proc = askingProfile(event) ? profiles.activeProcess() : serverProc;
+ipcMain.handle("approvals:set-trusted-mode", localOnly("approvals:set-trusted-mode", (_event, botId, mode, options) => {
+  const proc = serverProc;
   if (!app.isPackaged || !proc) {
     throw new Error("Full and Custom approval modes require the embedded desktop server");
   }
@@ -2813,30 +2666,23 @@ ipcMain.handle("approvals:set-trusted-mode", localOnly("approvals:set-trusted-mo
 
 async function broadcastDesktopCapabilities() {
   const localConnection = await cuaReady;
-  const build = (remote, credentialStore = credentialStoreCapability()) =>
+  const build = (remote) =>
     desktopCapabilities({
       remote,
       platform: process.platform,
       env: process.env,
       packaged: app.isPackaged,
       localConnection,
-      credentialStore,
+      credentialStore: credentialStoreCapability(),
     });
   const local = build(false);
   let redacted = null;
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed()) continue;
     let isLocal = false;
-    let isProfile = false;
     try {
-      const origin = new URL(window.webContents.getURL()).origin;
-      isLocal = origin === rendererOrigin();
-      isProfile = Boolean(profiles) && origin === profiles.activeOrigin();
+      isLocal = new URL(window.webContents.getURL()).origin === rendererOrigin();
     } catch {}
-    if (isProfile) {
-      window.webContents.send("desktop:capabilities-changed", build(false, profiles.activeCredentialStore()));
-      continue;
-    }
     if (!isLocal) redacted ??= build(true);
     window.webContents.send("desktop:capabilities-changed", isLocal ? local : redacted);
   }
@@ -2986,11 +2832,7 @@ app.whenReady().then(async () => {
           return { mode: "unavailable", reason: String(e) };
         })
       : Promise.resolve({ mode: "unavailable", reason: "unsupported-platform" });
-  if (app.isPackaged) {
-    const profilesStarting = startProfiles();
-    await startServerPackaged();
-    await profilesStarting;
-  }
+  if (app.isPackaged) await startServerPackaged();
   if (app.isPackaged && serverReady) {
     const supervisor = await startLaterDogSupervisor({ app, dataDir: desktopDataDir(), port: SERVER_PORT, ownerToken: desktopMutationToken, log: slog });
     if (supervisor) app.once("will-quit", () => supervisor.kill("SIGTERM"));
@@ -3003,7 +2845,6 @@ app.whenReady().then(async () => {
   }
   void cloudAccountStarted.then(() => { cloudSignInRestored = true; });
   setLocalOrigin(rendererOrigin());
-  setProfileOrigin(() => profiles?.activeOrigin() ?? null);
   appPermissions = appPermissionHandlers({
     rendererOrigin: localPageOrigin,
     mainContents: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : null),
@@ -3086,7 +2927,6 @@ app.on("before-quit", (e) => {
   ]);
   const cleanup = Promise.all([
     ownedHelperCleanup,
-    profiles?.stopAll().catch(() => {}),
     stoppingServer.then((stopped) => {
       if (!stopped) slog("server child did not stop before desktop exit; retaining the data-directory lease");
     }),

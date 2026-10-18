@@ -8073,7 +8073,7 @@ describe("harness HTTP API", () => {
   it("keeps skill authoring on by default and persists an explicit opt-out", async () => {
     const before = await api("GET", "/api/config");
     expect(before.status).toBe(200);
-    expect(before.body.features).toEqual({ browser: false, skillAuthoring: true, skillsLibrary: false, showToolCalls: false, stepUpdates: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: true, smarterSuggestions: false });
+    expect(before.body.features).toEqual({ browser: false, skillAuthoring: true, skillsLibrary: false, showToolCalls: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: true, smarterSuggestions: false });
     const untouched = JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8"));
     expect(untouched.features?.skillAuthoring).toBeUndefined();
     expect(untouched.features?.sharedComputers).toBeUndefined();
@@ -8082,14 +8082,14 @@ describe("harness HTTP API", () => {
       features: { skillAuthoring: false },
     });
     expect(saved.status).toBe(200);
-    expect(saved.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: false, stepUpdates: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: true, smarterSuggestions: false });
+    expect(saved.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: true, smarterSuggestions: false });
 
     const disk = JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8"));
     expect(disk.features).toEqual({ ...untouched.features, skillAuthoring: false });
 
     const tools = await api("PATCH", "/api/config", { features: { showToolCalls: true } });
     expect(tools.status).toBe(200);
-    expect(tools.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: true, stepUpdates: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: true, smarterSuggestions: false });
+    expect(tools.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: true, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: true, smarterSuggestions: false });
 
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     try {
@@ -8107,7 +8107,7 @@ describe("harness HTTP API", () => {
     await api("PATCH", "/api/config", { features: { skillAuthoring: true, showToolCalls: false } });
   });
 
-  it("keeps dogs quiet by default and brings step-by-step updates back when asked", async () => {
+  it("keeps dogs quiet, even with step-by-step updates saved on by an earlier build", async () => {
     const bot = (await api("POST", "/api/bots", { name: "Hush" })).body.bot;
     const updates = async () => ((await api("GET", `/api/bots/${bot.id}/system-prompt`)).body.sections as Array<{ id: string; text: string }>)
       .find((section) => section.id === "updates")?.text ?? "";
@@ -8129,15 +8129,15 @@ describe("harness HTTP API", () => {
       expect(quiet.systemPrompt).toContain("Never give time estimates");
       expect(quiet.env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBe("0");
 
-      const on = await api("PATCH", "/api/config", { features: { stepUpdates: true } });
-      expect(on.status).toBe(200);
-      expect(on.body.features.stepUpdates).toBe(true);
-      expect(await updates()).toContain("step-by-step updates");
-      const chatty = await turn("and next week");
-      expect(chatty.systemPrompt).toContain("before each meaningful step");
-      expect(chatty.systemPrompt).not.toContain("Work quietly");
-      expect(chatty.systemPrompt).toContain("each time you pass a milestone");
-      expect(chatty.env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBeUndefined();
+      const saved = await api("PATCH", "/api/config", { features: { stepUpdates: true } });
+      expect(saved.status).toBe(200);
+      expect(saved.body.features).not.toHaveProperty("stepUpdates");
+      expect(await updates()).not.toContain("step-by-step updates");
+      const still = await turn("and next week");
+      expect(still.systemPrompt).toContain("do not narrate your steps");
+      expect(still.systemPrompt).not.toContain("before each meaningful step");
+      expect(still.systemPrompt).toContain("each time you pass a milestone");
+      expect(still.env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBe("0");
     } finally {
       await api("PATCH", "/api/config", { features: { stepUpdates: false } });
       await api("POST", `/api/bots/${bot.id}/interrupt`);
@@ -9821,7 +9821,7 @@ describe("harness HTTP API", () => {
     expect(saved.status).toBe(200);
     expect(saved.body.composio).toEqual({ configured: true, mode: "self-hosted" });
     expect(saved.body.opencodeGo).toEqual({ configured: true, providerKeys: [] });
-    expect(saved.body.profile).toEqual({ name: "External Store", email: "", aboutMe: "" });
+    expect(saved.body.profile).toEqual({ name: "External Store", email: "" });
     expect(JSON.stringify(saved.body)).not.toContain("ak_good");
 
     const disk = JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8"));
@@ -10277,10 +10277,10 @@ describe("harness HTTP API", () => {
   it("stores and echoes the user profile (not write-only, unlike keys)", async () => {
     const put = await api("PUT", "/api/config", { profile: { name: "Ada Lovelace", email: "Ada@Example.com" } });
     expect(put.status).toBe(200);
-    expect(put.body.profile).toEqual({ name: "Ada Lovelace", email: "Ada@Example.com", aboutMe: "" });
+    expect(put.body.profile).toEqual({ name: "Ada Lovelace", email: "Ada@Example.com" });
 
     const after = await api("GET", "/api/config");
-    expect(after.body.profile).toEqual({ name: "Ada Lovelace", email: "Ada@Example.com", aboutMe: "" });
+    expect(after.body.profile).toEqual({ name: "Ada Lovelace", email: "Ada@Example.com" });
   });
 
   it("creates an independent webhook, accepts a delivery, deduplicates it, and rotates its secret", async () => {

@@ -2,16 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowDownToLine, Check, Loader2, LogOut, Puzzle, RefreshCw, Settings as SettingsIcon, Smartphone } from "lucide-react";
 
 import { InitialsAvatar } from "./Avatar";
-import {
-  AddProfileDialog,
-  EditProfilesDialog,
-  profileEntryItem,
-  profileError,
-  profileName,
-  profilePageItems,
-  useProfiles,
-  type ProfileSwitchError,
-} from "./ProfileSwitcher";
 import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { SignOutDialog, useSignOutTargets, type SignOutTargets } from "./SignOutAll";
@@ -158,53 +148,17 @@ export function SidebarProfileMenu() {
   const { state, dispatch } = useStore();
   const update = useUpdateItem();
   const accountItems = useAccountMenuItems();
-  const profiles = useProfiles();
   const signOut = useSignOutTargets();
   const [signingOut, setSigningOut] = useState<SignOutTargets | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [page, setPage] = useState<"main" | "profiles">("main");
-  const [switching, setSwitching] = useState<string | null>(null);
-  const [switchError, setSwitchError] = useState<ProfileSwitchError | null>(null);
-  const [profileDialog, setProfileDialog] = useState<"add" | "edit" | null>(null);
-  const [editProfileId, setEditProfileId] = useState<string>();
   const triggerRef = useRef<HTMLSpanElement>(null);
-  const switchTicket = useRef(0);
-  const profilesShown = useRef(false);
-  profilesShown.current = menuOpen && page === "profiles";
 
   const profile = state.config?.profile;
   const name = profileLabel(profile);
-  const openProfile = profiles?.list.profiles.find((entry) => entry.id === profiles.list.activeId);
-  const openName = openProfile && profiles && profiles.list.profiles.length > 1 ? profileName(openProfile) : "";
-  const setup = openName.trim().toLowerCase() === name.trim().toLowerCase() ? "" : openName;
 
   const focusTrigger = () => triggerRef.current?.closest("button")?.focus();
-  const switchTo = async (id: string) => {
-    if (!profiles) return;
-    const ticket = ++switchTicket.current;
-    setSwitching(id);
-    setSwitchError(null);
-    try {
-      await profiles.bridge.switch(id);
-    } catch (cause) {
-      if (ticket === switchTicket.current) {
-        const message = profileError(cause);
-        setSwitchError({ id, message });
-        if (!profilesShown.current) dispatch({ type: "error", message });
-      }
-    } finally {
-      if (ticket === switchTicket.current) setSwitching(null);
-    }
-  };
-  const onMenuOpenChange = (open: boolean) => {
-    setMenuOpen(open);
-    if (!open) return;
-    setPage("main");
-    setSwitchError(null);
-  };
 
   const updateReady = update?.phase === "downloaded" || update?.phase === "available";
-  const mainItems: SidebarMenuItem[] = [
+  const items: SidebarMenuItem[] = [
     ...(updateReady ? [{
       key: "update-available",
       label: t("sidebar.menu.updateRow"),
@@ -215,7 +169,6 @@ export function SidebarProfileMenu() {
         requestUpdateDialog();
       },
     }] : []),
-    ...(profiles ? [profileEntryItem(() => setPage("profiles"))] : []),
     ...(accountItems.usage ? [accountItems.usage] : []),
     {
       key: "phoneApp",
@@ -252,32 +205,12 @@ export function SidebarProfileMenu() {
       },
     }] : []),
   ];
-  const items =
-    profiles && page === "profiles"
-      ? profilePageItems({
-          list: profiles.list,
-          switching,
-          error: switchError,
-          onBack: () => setPage("main"),
-          onSwitch: (id) => void switchTo(id),
-          onAdd: () => {
-            focusTrigger();
-            setProfileDialog("add");
-          },
-          onEdit: (id) => {
-            setEditProfileId(id);
-            focusTrigger();
-            setProfileDialog("edit");
-          },
-        })
-      : mainItems;
 
   return (
     <>
       <SidebarPopoverMenu
         items={items}
         ariaLabel={name}
-        onOpenChange={onMenuOpenChange}
         renderTrigger={({ open }) => (
           <span
             ref={triggerRef}
@@ -289,19 +222,12 @@ export function SidebarProfileMenu() {
             <InitialsAvatar initials={profileInitials(profile)} size={28} />
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-[14px] text-ink">{name}</span>
-              {setup && <span className="truncate text-[12px] text-ink-secondary">{setup}</span>}
             </span>
             <SettingsIcon size={15} aria-hidden="true" className="shrink-0 text-ink-secondary" />
           </span>
         )}
       />
       {signingOut && <SignOutDialog targets={signingOut} onClose={() => setSigningOut(null)} />}
-      {profiles && profileDialog === "add" && (
-        <AddProfileDialog bridge={profiles.bridge} onClose={() => setProfileDialog(null)} />
-      )}
-      {profiles && profileDialog === "edit" && (
-        <EditProfilesDialog selectedId={editProfileId} bridge={profiles.bridge} list={profiles.list} onClose={() => setProfileDialog(null)} />
-      )}
     </>
   );
 }

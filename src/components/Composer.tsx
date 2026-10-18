@@ -67,7 +67,6 @@ import { CallButton } from "./CallView";
 import { AddAccountSheet } from "./AccountsPanel";
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { EffortButton } from "./EffortButton";
-import { useVoiceMode } from "@/lib/voice-mode";
 import { needsCli, needsSignIn } from "./EngineSetup";
 import { signInFamily } from "@/lib/engine-rail";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
@@ -515,7 +514,6 @@ export function Composer({
   }, [busy, pendingCount, steering]);
   const fileInput = useRef<HTMLInputElement>(null);
   const [signingIn, setSigningIn] = useState<string | null>(null);
-  const voiceOn = useVoiceMode();
   const sendAfterSignIn = useRef<() => void>(() => {});
   const [approvalWarning, setApprovalWarning] = useState<{
     mode: "auto" | "full";
@@ -1203,7 +1201,7 @@ export function Composer({
             {sharpening > 0 && !recording ? <Loader2 size={18} className="animate-spin" /> : <Mic size={18} />}
           </button>
         )}
-        {bot && !group && voiceOn && <CallButton bot={bot} placement="composer" />}
+        {bot && !group && <CallButton bot={bot} placement="composer" />}
         {!locked && (hasContent || !busy) && (
           <button
             type="button"
