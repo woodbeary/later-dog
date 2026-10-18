@@ -6,6 +6,7 @@ import { normalizeImageGenerationUrl, type ImageGenerationConfig } from "../shar
 
 import { writeFileAtomic } from "./atomic.ts";
 import { withoutComputerEngine } from "./computer-engine-removal.ts";
+import { withoutRetiredEngines } from "./laterdog/engine-trim.ts";
 import { newBotDefaultsSchema, type NewBotDefaults } from "./new-bot-defaults.ts";
 import { EFFORT_LEVELS, type EffortLevel, type LiveSettings } from "../shared/wire.ts";
 import { isModelVariant, type InstanceConfigMap, type ModelSelection } from "./contracts.ts";
@@ -1222,10 +1223,6 @@ export function instanceOwnsRouting(
         || own(entry.environment?.[compatKeyEnv])
         || (own(config.apiKeyEnv) && config.apiKeyEnv !== compatKeyEnv)
         || ownUrl(routingDefaults?.url || cfg.openaiCompat?.url || process.env.OPENAI_COMPAT_URL || "https://openrouter.ai/api/v1");
-    case "mistral":
-      return own(entry.environment?.MISTRAL_API_KEY) || ownUrl("https://api.mistral.ai/v1");
-    case "cerebras":
-      return own(entry.environment?.CEREBRAS_API_KEY) || ownUrl("https://api.cerebras.ai/v1");
     case "grok":
       return own(entry.environment?.XAI_API_KEY) || (own(config.apiKeyEnv) && config.apiKeyEnv !== "XAI_API_KEY")
         || ownUrl("https://api.x.ai/v1", cfg.xai?.url);
@@ -1236,8 +1233,6 @@ export function instanceOwnsRouting(
 
 function injectedEnvironment(cfg: AppConfig, instanceId: string, driver: string): Map<string, string> {
   const environment = new Map<string, string>();
-  if (driver === "mistral" && cfg.mistral?.key) environment.set("MISTRAL_API_KEY", cfg.mistral.key);
-  if (driver === "cerebras" && cfg.cerebras?.key) environment.set("CEREBRAS_API_KEY", cfg.cerebras.key);
   if (driver === "grok" && cfg.xai?.key) environment.set("XAI_API_KEY", cfg.xai.key);
   const anthropicHere = driver === "claudeAgent" && Boolean(cfg.anthropic?.key)
     && (cfg.anthropic?.everyClaudeBot === false ? instanceId === CLAUDE_API_INSTANCE : instanceId !== CLAUDE_API_INSTANCE);
@@ -1245,23 +1240,16 @@ function injectedEnvironment(cfg: AppConfig, instanceId: string, driver: string)
   if (anthropicHere && cfg.anthropic!.url) environment.set("ANTHROPIC_BASE_URL", cfg.anthropic!.url);
   if (driver === "openai-compat" && instanceId === OPENAI_API_INSTANCE) {
     if (cfg.openai?.key) environment.set("LATERDOG_OPENAI_API_KEY", cfg.openai.key);
-  } else if (driver === "openai-compat" && instanceId === OPENROUTER_API_INSTANCE) {
-    if (cfg.openrouter?.key) environment.set("LATERDOG_OPENROUTER_API_KEY", cfg.openrouter.key);
   } else {
     if (driver === "openai-compat" && cfg.openaiCompat?.key)
       environment.set("OPENAI_COMPAT_API_KEY", cfg.openaiCompat.key);
     if (driver === "openai-compat" && cfg.openaiCompat?.url)
       environment.set("OPENAI_COMPAT_URL", cfg.openaiCompat.url);
   }
-  if (driver === "opencodeGo") {
-    for (const [name, key] of Object.entries(openCodeProviderKeys(cfg))) environment.set(name, key);
-    if (cfg.opencodeGo?.apiKey) environment.set("OPENCODE_API_KEY", cfg.opencodeGo.apiKey);
-  }
   return environment;
 }
 
 export const OPENAI_API_INSTANCE = "openai";
-export const OPENROUTER_API_INSTANCE = "openrouter";
 export const XAI_API_INSTANCE = "xaiApi";
 export const CLAUDE_API_INSTANCE = "claudeApi";
 const API_KEY_FLEET: InstanceConfigMap = {
@@ -1274,10 +1262,6 @@ const API_KEY_FLEET: InstanceConfigMap = {
     config: { requireApiKey: true },
   },
   [XAI_API_INSTANCE]: { driver: "grok", displayName: "xAI", access: "api", icon: { kind: "preset", preset: "xai" } },
-  [OPENROUTER_API_INSTANCE]: {
-    driver: "openai-compat", displayName: "OpenRouter", access: "api", icon: { kind: "preset", preset: "openrouter" },
-    config: { url: "https://openrouter.ai/api/v1", apiKeyEnv: "LATERDOG_OPENROUTER_API_KEY" },
-  },
   laterdogAi: { driver: "laterdogAi", displayName: "Kimi", access: "subscription", icon: { kind: "preset", preset: "moonshot" } },
   laterdogGrok: { driver: "laterdogGrok", displayName: "Grok (free)", access: "subscription", icon: { kind: "preset", preset: "xai" } },
 };
@@ -1285,38 +1269,22 @@ const API_KEY_FLEET: InstanceConfigMap = {
 export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
   const DEFAULT_FLEET: InstanceConfigMap = {
     grok: { driver: "grokAgent" },
-    kimi: { driver: "kimiAgent" },
-    droid: { driver: "droidAgent" },
     cursor: { driver: "cursorAgent" },
     claude: { driver: "claudeAgent" },
     codex: { driver: "codex" },
     chatgpt: { driver: "codex", displayName: "ChatGPT plan", config: { authMode: "chatgpt-plan" } },
-    antigravity: { driver: "antigravityAgent" },
-    opencodeGo: { driver: "opencodeGo" },
-    openaiCompat: { driver: "openai-compat" },
-    mistral: { driver: "mistral" },
-    cerebras: { driver: "cerebras" },
     ...API_KEY_FLEET,
-    qwen: { driver: "qwenAgent" },
-    hermes: { driver: "hermesAgent" },
-    pi: { driver: "piAgent" },
   };
-  const CUSTOM_ONLY = {
-    qwen: { driver: "qwenAgent" },
-    hermes: { driver: "hermesAgent" },
-    pi: { driver: "piAgent" },
-  } as const;
   const PRODUCT_FLEET_ADDITIONS = {
     chatgpt: { driver: "codex", displayName: "ChatGPT plan", config: { authMode: "chatgpt-plan" } },
     cursor: { driver: "cursorAgent" },
-    openaiCompat: { driver: "openai-compat" },
-    mistral: { driver: "mistral" },
-    cerebras: { driver: "cerebras" },
     ...API_KEY_FLEET,
-    ...CUSTOM_ONLY,
   } as const;
   const configured = cfg.instances && Object.keys(cfg.instances).length ? cfg.instances : null;
-  const map: InstanceConfigMap = withoutComputerEngine(configured ? { ...configured } : { ...DEFAULT_FLEET });
+  const map: InstanceConfigMap = withoutRetiredEngines(
+    withoutComputerEngine(configured ? { ...configured } : { ...DEFAULT_FLEET }),
+    cfg.instances,
+  );
   if (
     configured &&
     (Object.hasOwn(configured, "claude") || Object.hasOwn(configured, "grok") || Object.hasOwn(configured, "codex"))
@@ -1352,7 +1320,7 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
       for (const [key, value] of injectedEnvironment(cfg, id, entry.driver)) environment[key] = value;
     }
     entry.environment = environment;
-    if (entry.driver === "openai-compat" && cfg.openaiCompat && id !== OPENAI_API_INSTANCE && id !== OPENROUTER_API_INSTANCE) {
+    if (entry.driver === "openai-compat" && cfg.openaiCompat && id !== OPENAI_API_INSTANCE) {
       const defaults: Record<string, string> = {};
       if (cfg.openaiCompat.url) defaults.url = cfg.openaiCompat.url;
       if (cfg.openaiCompat.model) defaults.model = cfg.openaiCompat.model;

@@ -5,8 +5,9 @@ import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlLaterDog, verificationServerEnvironment } from "../scripts/control-laterdog.ts";
 import { waitForExit } from "./testing/cleanup.ts";
+import { signedInGrokHome } from "./testing/fake-grok-home.ts";
 
-const primary = { instanceId: "opencodeGo", model: "fixture/recovery" };
+const primary = { instanceId: "acp", model: "grok-4.7" };
 const backup = { instanceId: "claude", model: "claude-sonnet-5" };
 const transient = { code: -32603, message: "Internal error", data: { details: "Upstream connection timed out" } };
 const jsonLines = (path: string): any[] => existsSync(path)
@@ -56,19 +57,20 @@ async function withRecoveryFixture(
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     const cli = fileURLToPath(new URL("./testing/fake-acp-cli.ts", import.meta.url));
     config.instances.history = {
-      driver: "opencodeGo", displayName: "History fixture", config: { cli },
-      environment: { FAKE_ACP_MODELS: primary.model },
+      driver: "grokAgent", displayName: "History fixture", config: { cli },
+      environment: { GROK_HOME: signedInGrokHome(dataDir), FAKE_ACP_MODELS: primary.model },
     };
-    config.instances.opencodeGo = {
-      driver: "opencodeGo", displayName: "Primary fixture", config: { cli },
+    config.instances.acp = {
+      driver: "grokAgent", displayName: "Primary fixture", config: { cli },
       environment: {
+        GROK_HOME: signedInGrokHome(dataDir),
         FAKE_ACP_MODELS: primary.model, FAKE_ACP_RPC_APPEND_FILE: rpcFile,
         FAKE_ACP_RPC_FAILURE_FILE: failureFile, FAKE_ACP_RPC_FAILURE_METHOD: options.method ?? "initialize",
         ...(options.afterOutput ? { FAKE_ACP_RPC_FAILURE_AFTER_OUTPUT: "1" } : {}),
         ...(options.gated ? { FAKE_ACP_RPC_FAILURE_GATE: gateFile } : {}),
       },
     };
-    config.instances.secondary = { ...config.instances.opencodeGo, displayName: "Second startup fixture" };
+    config.instances.secondary = { ...config.instances.acp, displayName: "Second startup fixture" };
     config.instances.claude.environment = {
       ...config.instances.claude.environment,
       FAKE_CLAUDE_PROMPTS: backupFile, FAKE_CLAUDE_TOOL_CALLS: "[]",

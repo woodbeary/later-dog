@@ -6,6 +6,7 @@ import { expect, it } from "vitest";
 
 import { launchVerificationServer, runControlLaterDog, verificationServerEnvironment } from "../scripts/control-laterdog.ts";
 import { waitForExit } from "./testing/cleanup.ts";
+import { signedInGrokHome } from "./testing/fake-grok-home.ts";
 
 const jsonl = (path: string) => existsSync(path)
   ? readFileSync(path, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line)) : [];
@@ -41,10 +42,10 @@ async function fixture(test: (f: any) => Promise<void>, { thisComputer = false }
     const configPath = join(dataDir, "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     config.instances.claude.config.cli = claude;
-    config.instances.opencodeGo = {
-      driver: "opencodeGo", displayName: "ACP fixture",
+    config.instances.acp = {
+      driver: "grokAgent", displayName: "ACP fixture",
       config: { cli: fileURLToPath(new URL("./testing/fake-acp-cli.ts", import.meta.url)) },
-      environment: { FAKE_ACP_MODELS: "fixture/warm", FAKE_ACP_RPC_APPEND_FILE: rpcPath, FAKE_ACP_DUMP: acpDump },
+      environment: { GROK_HOME: signedInGrokHome(dataDir), FAKE_ACP_MODELS: "grok-4.7", FAKE_ACP_RPC_APPEND_FILE: rpcPath, FAKE_ACP_DUMP: acpDump },
     };
     writeFileSync(configPath, JSON.stringify(config));
     if (thisComputer) {
@@ -117,7 +118,7 @@ it("keeps a thread's Claude process and ACP session across turns, with agents mo
 
   const { bot: acp } = await f.cli("new-bot", "--name", "Warm ACP");
   const thread = acp.activeTaskId;
-  expect((await f.api("PATCH", `/api/bots/${acp.id}/tasks/${thread}`, { modelSelection: { instanceId: "opencodeGo", model: "fixture/warm" } })).status).toBe(200);
+  expect((await f.api("PATCH", `/api/bots/${acp.id}/tasks/${thread}`, { modelSelection: { instanceId: "acp", model: "grok-4.7" } })).status).toBe(200);
   for (const text of ["First question.", "Second question.", "Third question."]) await f.turn(acp, thread, text);
   const prompts = f.rpc().filter((call: any) => call.method === "session/prompt");
   expect(prompts).toHaveLength(3);
@@ -182,7 +183,7 @@ itAutoThisComputer("keeps a thread's Claude process and ACP session across turns
 
   const { bot: acp } = await f.cli("new-bot", "--name", "Warm ACP desktop");
   const thread = acp.activeTaskId;
-  expect((await f.api("PATCH", `/api/bots/${acp.id}/tasks/${thread}`, { modelSelection: { instanceId: "opencodeGo", model: "fixture/warm" } })).status).toBe(200);
+  expect((await f.api("PATCH", `/api/bots/${acp.id}/tasks/${thread}`, { modelSelection: { instanceId: "acp", model: "grok-4.7" } })).status).toBe(200);
   for (const text of ["First question.", "Second question.", "Third question."]) await f.turn(acp, thread, text);
   expect(f.acpServers()).toEqual(expect.arrayContaining(["agents", "computer"]));
   const prompts = f.rpc().filter((call: any) => call.method === "session/prompt");

@@ -30,12 +30,13 @@ export interface ComputerEngineMove {
   askNow: boolean;
 }
 
-export function computerEngineMoveText(
-  move: Pick<ComputerEngineMove, "scope" | "cloud" | "askNow"> & Partial<Pick<ComputerEngineMove, "noComputer">>,
-  botName: string,
-  engine: string,
-): string {
-  const removed = "The Computer choice in the model list was removed.";
+export type EngineMoveFacts = Pick<ComputerEngineMove, "scope" | "cloud" | "askNow"> & Partial<Pick<ComputerEngineMove, "noComputer">>;
+
+export function computerEngineMoveText(move: EngineMoveFacts, botName: string, engine: string): string {
+  return engineMoveText(move, botName, engine, "The Computer choice in the model list was removed.");
+}
+
+export function engineMoveText(move: EngineMoveFacts, botName: string, engine: string, removed: string): string {
   const bot = move.scope !== "conversation";
   const head = move.scope === "conversation" ? `This conversation now uses ${engine}.`
     : move.scope === "bot-only" ? `${botName} now uses ${engine}; this conversation keeps its own model.`
@@ -59,12 +60,16 @@ export function computerEngineMoveText(
   return `${head} ${removed}${place}${ask}`;
 }
 
-export function writeComputerEngineMoveLines(moves: readonly ComputerEngineMove[], write: (move: ComputerEngineMove) => void): void {
+export function writeComputerEngineMoveLines(
+  moves: readonly ComputerEngineMove[],
+  write: (move: ComputerEngineMove) => void,
+  engine = "Computer engine",
+): void {
   for (const move of moves) {
     try {
       write(move);
     } catch (error) {
-      console.warn(`[engines] the Computer engine move line for ${move.threadId} was not written: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(`[engines] the ${engine} move line for ${move.threadId} was not written: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }

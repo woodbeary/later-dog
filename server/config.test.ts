@@ -688,21 +688,20 @@ describe("default fleet", () => {
     expect(cfg.instances).not.toHaveProperty("chatgpt");
     expect(instanceConfigs({ instances: { standalone: { driver: "fake" } } })).not.toHaveProperty("chatgpt");
   });
-  it("adds Mistral to product fleets and scopes its saved credential to Mistral", () => {
-    const map = instanceConfigs({ mistral: { key: "mistral-fixture" }, instances: { codex: { driver: "codex" } } });
-    expect(map.mistral).toEqual({ driver: "mistral", environment: { MISTRAL_API_KEY: "mistral-fixture" } });
-    expect(map.codex.environment).toEqual({});
-    expect(instanceConfigs({ instances: { standalone: { driver: "fake" } } })).not.toHaveProperty("mistral");
+  it("leaves Mistral out of every fleet and hands its saved key to no engine", () => {
+    const map = instanceConfigs({ mistral: { key: "mistral-fixture" }, instances: { codex: { driver: "codex" }, mistral: { driver: "mistral" } } });
+    expect(map).not.toHaveProperty("mistral");
+    expect(JSON.stringify(map)).not.toContain("mistral-fixture");
+    expect(instanceConfigs({ mistral: { key: "mistral-fixture" } })).not.toHaveProperty("mistral");
     expect(parseConfigPatch({ mistral: { key: "" } })).toEqual({ mistral: { key: "" } });
     const env = { MISTRAL_API_KEY: "mistral-fixture", KEEP: "yes" };
     stripWorkspaceCredentialEnv(env);
     expect(env).toEqual({ KEEP: "yes" });
   });
 
-  it("ships Qwen and Hermes as custom-only engines", () => {
-    const map = instanceConfigs({});
-    expect(map.qwen).toEqual({ driver: "qwenAgent", environment: {} });
-    expect(map.hermes).toEqual({ driver: "hermesAgent", environment: {} });
+  it("ships only Claude, ChatGPT, Grok, Cursor, the included AI and the three API-key engines", () => {
+    expect(Object.keys(instanceConfigs({})).sort()).toEqual(
+      ["chatgpt", "claude", "claudeApi", "codex", "cursor", "grok", "laterdogAi", "laterdogGrok", "openai", "xaiApi"]);
   });
 
   it("ships Cursor as a default-fleet subscription engine", () => {
@@ -710,22 +709,27 @@ describe("default fleet", () => {
     expect(map.cursor).toEqual({ driver: "cursorAgent", environment: {} });
   });
 
-  it("carries the saved OpenAI-compatible URL into the live default instance", () => {
+  it("carries the saved OpenAI-compatible URL and model into a custom OpenAI-compatible instance", () => {
     const map = instanceConfigs({
-      openaiCompat: { key: "secret", url: "https://models.example.test/v1" },
+      openaiCompat: { key: "secret", url: "https://models.example.test/v1", model: "fixture-model" },
+      instances: {
+        compat: { driver: "openai-compat" },
+        pinned: { driver: "openai-compat", config: { model: "own-model" } },
+      },
     });
-    expect(map.openaiCompat.config).toEqual({ url: "https://models.example.test/v1" });
-    expect(map.openaiCompat.environment).toEqual({
+    expect(map.compat.config).toEqual({ url: "https://models.example.test/v1", model: "fixture-model" });
+    expect(map.compat.environment).toEqual({
       OPENAI_COMPAT_API_KEY: "secret",
       OPENAI_COMPAT_URL: "https://models.example.test/v1",
     });
+    expect(map.pinned.config).toEqual({ url: "https://models.example.test/v1", model: "own-model" });
   });
 
   it("hands a saved Anthropic key only to Claude instances, as the variable the CLI reads", () => {
     const map = instanceConfigs({ anthropic: { key: "sk-ant-fixture", url: "https://anthropic-proxy.example.test" } });
     expect(map.claude.environment).toEqual({ ANTHROPIC_API_KEY: "sk-ant-fixture", ANTHROPIC_BASE_URL: "https://anthropic-proxy.example.test" });
     expect(map.codex.environment).toEqual({});
-    expect(map.openaiCompat.environment).toEqual({});
+    expect(map.openai.environment).toEqual({});
     expect(instanceConfigs({ anthropic: { url: "https://only-a-url.example.test" } }).claude.environment).toEqual({});
     expect(parseConfigPatch({ anthropic: { key: "sk-ant-new" } })).toEqual({ anthropic: { key: "sk-ant-new" } });
   });
@@ -749,47 +753,46 @@ describe("default fleet", () => {
   it("never hands a workspace API key to an API-key instance with its own endpoint or key", () => {
     const map = instanceConfigs({
       openaiCompat: { key: "sk-or-WORKSPACE" },
-      mistral: { key: "mistral-WORKSPACE" },
       xai: { key: "xai-WORKSPACE" },
       instances: {
         claude: { driver: "claudeAgent" },
-        openaiCompat: { driver: "openai-compat" },
+        compat: { driver: "openai-compat" },
         sameUrl: { driver: "openai-compat", config: { url: "https://openrouter.ai/api/v1/" } },
         groq: { driver: "openai-compat", config: { url: "https://third-party.example.test/v1" } },
         ownKey: { driver: "openai-compat", config: { key: "sk-own" } },
         ownVariable: { driver: "openai-compat", config: { apiKeyEnv: "GROQ_API_KEY" } },
-        mistral: { driver: "mistral" },
-        mistralProxy: { driver: "mistral", config: { url: "https://mistral-proxy.example.test/v1" } },
         grokApi: { driver: "grok" },
         grokProxy: { driver: "grok", config: { url: "https://xai-proxy.example.test/v1" } },
         grokOwn: { driver: "grok", environment: { XAI_API_KEY: "xai-own" } },
       },
     });
-    expect(map.openaiCompat.environment).toMatchObject({ OPENAI_COMPAT_API_KEY: "sk-or-WORKSPACE" });
+    expect(map.compat.environment).toMatchObject({ OPENAI_COMPAT_API_KEY: "sk-or-WORKSPACE" });
     expect(map.sameUrl.environment).toMatchObject({ OPENAI_COMPAT_API_KEY: "sk-or-WORKSPACE" });
     for (const id of ["groq", "ownKey", "ownVariable"]) expect(map[id].environment, id).toEqual({});
-    expect(map.mistral.environment).toEqual({ MISTRAL_API_KEY: "mistral-WORKSPACE" });
-    expect(map.mistralProxy.environment).toEqual({});
     expect(map.grokApi.environment).toEqual({ XAI_API_KEY: "xai-WORKSPACE" });
     expect(map.grokProxy.environment).toEqual({});
     expect(map.grokOwn.environment).toEqual({ XAI_API_KEY: "xai-own" });
   });
 
-  it.each(["openai", "openrouter", "xaiApi", "claudeApi"])("preserves a custom driver's own routing when its id is %s", (id) => {
+  it.each([
+    ["openai", "grok", { XAI_API_KEY: "xai-own" }],
+    ["xaiApi", "openai-compat", { OPENAI_COMPAT_API_KEY: "compat-own" }],
+    ["claudeApi", "grok", { XAI_API_KEY: "xai-own" }],
+  ])("preserves a custom driver's own routing when its id is %s", (id, driver, environment) => {
     const map = instanceConfigs({
-      mistral: { key: "mistral-WORKSPACE" },
+      xai: { key: "xai-WORKSPACE" },
+      openaiCompat: { key: "compat-WORKSPACE" },
       instances: {
-        [id]: { driver: "mistral", config: { url: "https://custom.example.test/v1" }, environment: { MISTRAL_API_KEY: "mistral-own" } },
+        [id]: { driver, config: { url: "https://custom.example.test/v1" }, environment },
       },
     });
-    expect(map[id].driver).toBe("mistral");
+    expect(map[id].driver).toBe(driver);
     expect(map[id].config).toEqual({ url: "https://custom.example.test/v1" });
-    expect(map[id].environment).toEqual({ MISTRAL_API_KEY: "mistral-own" });
+    expect(map[id].environment).toEqual(environment);
   });
 
   it.each([
     ["openai", "LATERDOG_OPENAI_API_KEY", "https://api.openai.com/v1"],
-    ["openrouter", "LATERDOG_OPENROUTER_API_KEY", "https://openrouter.ai/api/v1"],
   ])("respects same-driver endpoint and credential overrides for %s", (id, keyEnv, defaultUrl) => {
     const workspace = { openai: { key: "openai-WORKSPACE" }, openrouter: { key: "openrouter-WORKSPACE" } };
     for (const config of [
@@ -878,13 +881,13 @@ describe("default fleet", () => {
     expect(config.instances?.custom.config).toBeUndefined();
   });
 
-  it("adds missing custom-only engines onto an existing product fleet", () => {
+  it("adds the missing offered engines onto an existing product fleet, and none of the removed ones", () => {
     const map = instanceConfigs({ instances: { claude: { driver: "claudeAgent" } } });
     expect(map.claude.driver).toBe("claudeAgent");
-    expect(map.qwen?.driver).toBe("qwenAgent");
-    expect(map.hermes?.driver).toBe("hermesAgent");
     expect(map.cursor?.driver).toBe("cursorAgent");
-    expect(map.openaiCompat?.driver).toBe("openai-compat");
+    expect(map.chatgpt?.driver).toBe("codex");
+    expect(map.openai?.driver).toBe("openai-compat");
+    for (const id of ["qwen", "hermes", "pi", "openaiCompat", "openrouter", "mistral", "cerebras"]) expect(map, id).not.toHaveProperty(id);
   });
 
   it("does not expand a one-off shadow fleet", () => {
@@ -967,17 +970,17 @@ describe("Instance CLI override", () => {
       openaiCompat: { url: "https://first.example.test/v1", model: "first-model", provider: "first-provider" },
       instances: {
         claude: { driver: "claudeAgent" },
-        openaiCompat: { driver: "openai-compat", config: { tools: false } },
+        shared: { driver: "openai-compat", config: { tools: false } },
         inherited: { driver: "openai-compat" },
         custom: { driver: "openai-compat", config: { url: "https://custom.example.test/v1", provider: "", key: "fixture-custom" } },
       },
     };
     const updated = withInstanceCli(cfg, "claude", "/fixture/claude").config;
-    expect(updated.instances!.openaiCompat.config).toEqual({ tools: false });
+    expect(updated.instances!.shared.config).toEqual({ tools: false });
     expect(updated.instances!.inherited.config).toBeUndefined();
     expect(updated.instances!.custom.config).toEqual(cfg.instances!.custom.config);
     updated.openaiCompat = { url: "https://second.example.test/v1", model: "second-model", provider: "second-provider" };
-    expect(instanceConfigs(updated).openaiCompat.config).toEqual({ tools: false, ...updated.openaiCompat });
+    expect(instanceConfigs(updated).shared.config).toEqual({ tools: false, ...updated.openaiCompat });
     const persisted = persistableInstanceConfigs(cfg);
     (persisted.custom.config as Record<string, unknown>).url = "https://changed.example.test/v1";
     expect(cfg.instances!.custom.config).toMatchObject({ url: "https://custom.example.test/v1" });
@@ -997,40 +1000,6 @@ describe("the ChatGPT plan engine across saves", () => {
 });
 
 describe("OpenCode Go configuration", () => {
-  it("injects the key only into OpenCode Go instances", () => {
-    const cfg: AppConfig = {
-      opencodeGo: { apiKey: "secret-value" },
-      instances: {
-        opencode: { driver: "opencodeGo" },
-        grok: { driver: "grokAgent" },
-      },
-    };
-
-    const instances = instanceConfigs(cfg);
-    expect(instances.opencode.environment).toEqual({ OPENCODE_API_KEY: "secret-value" });
-    expect(instances.grok.environment).toEqual({});
-  });
-
-  it("hands the saved provider keys to OpenCode instances only, under their own names", () => {
-    const cfg: AppConfig = {
-      opencodeGo: { apiKey: "ocg", providerKeys: { VENICE_API_KEY: "venice-secret", ANTHROPIC_API_KEY: "own-anthropic" } },
-      instances: {
-        opencode: { driver: "opencodeGo", environment: { VENICE_API_KEY: "instance-venice" } },
-        grok: { driver: "grokAgent" },
-        codex: { driver: "codex" },
-        compat: { driver: "openai-compat" },
-      },
-    };
-    const instances = instanceConfigs(cfg);
-    expect(instances.opencode.environment).toEqual({
-      OPENCODE_API_KEY: "ocg", VENICE_API_KEY: "venice-secret", ANTHROPIC_API_KEY: "own-anthropic",
-    });
-    for (const id of ["grok", "codex", "compat"]) {
-      expect(JSON.stringify(instances[id].environment ?? {})).not.toMatch(/venice-secret|own-anthropic/);
-    }
-    expect(persistableInstanceConfigs(cfg).opencode.environment).toEqual({ VENICE_API_KEY: "instance-venice" });
-  });
-
   it("skips a hand-edited provider key OpenCode could not be given, without dropping the file", () => {
     const stored = parseStoredConfig({
       profile: { name: "Ada" },
@@ -1042,8 +1011,7 @@ describe("OpenCode Go configuration", () => {
     });
     expect(stored.profile?.name).toBe("Ada");
     expect(openCodeProviderKeys(stored)).toEqual({ VENICE_API_KEY: "venice-secret" });
-    expect(instanceConfigs({ ...stored, instances: { opencode: { driver: "opencodeGo" } } }).opencode.environment)
-      .toEqual({ VENICE_API_KEY: "venice-secret" });
+    expect(instanceConfigs({ ...stored, instances: { opencode: { driver: "opencodeGo" } } })).not.toHaveProperty("opencode");
     const notAMap = parseStoredConfig({ profile: { name: "Ada" }, opencodeGo: { apiKey: "ocg", providerKeys: "VENICE_API_KEY=x" } });
     expect(notAMap.profile?.name).toBe("Ada");
     expect(notAMap.opencodeGo).toEqual({ apiKey: "ocg", providerKeys: {} });
@@ -1103,17 +1071,17 @@ describe("credential env narrowing", () => {
     const cfg: AppConfig = {
       xai: { key: "SECRET-XAI" },
       box: { token: "SECRET-BOAT" },
-      opencodeGo: { apiKey: "SECRET-OCG" },
+      openai: { key: "SECRET-OPENAI" },
       instances: {
         grokApi: { driver: "grok" },
-        opencode: { driver: "opencodeGo" },
+        openai: { driver: "openai-compat" },
         claude: { driver: "claudeAgent" },
         codex: { driver: "codex" },
       },
     };
     const instances = instanceConfigs(cfg);
     expect(instances.grokApi.environment).toEqual({ XAI_API_KEY: "SECRET-XAI" });
-    expect(instances.opencode.environment).toEqual({ OPENCODE_API_KEY: "SECRET-OCG" });
+    expect(instances.openai.environment).toEqual({ LATERDOG_OPENAI_API_KEY: "SECRET-OPENAI" });
     for (const entry of Object.values(instances)) expect(Object.values(entry.environment ?? {})).not.toContain("SECRET-BOAT");
     expect(instances.claude.environment).toEqual({});
     expect(instances.codex.environment).toEqual({});
@@ -1136,10 +1104,10 @@ describe("credential env narrowing", () => {
     };
     const instances = instanceConfigs(cfg);
     expect(instances.openai.environment).toEqual({ LATERDOG_OPENAI_API_KEY: "SECRET-OPENAI" });
-    expect(instances.openrouter.environment).toEqual({ LATERDOG_OPENROUTER_API_KEY: "SECRET-OPENROUTER" });
-    expect(instances.openaiCompat.environment).toEqual({ OPENAI_COMPAT_API_KEY: "SECRET-COMPAT", OPENAI_COMPAT_URL: "https://api.groq.com/openai/v1" });
+    expect(instances).not.toHaveProperty("openrouter");
+    expect(instances).not.toHaveProperty("openaiCompat");
+    expect(JSON.stringify(instances)).not.toMatch(/SECRET-OPENROUTER|SECRET-COMPAT/);
     expect(instances.openai.config).toEqual({ url: "https://api.openai.com/v1", apiKeyEnv: "LATERDOG_OPENAI_API_KEY", catalog: "openai" });
-    expect(instances.openrouter.config).toEqual({ url: "https://openrouter.ai/api/v1", apiKeyEnv: "LATERDOG_OPENROUTER_API_KEY" });
     expect(instances.openai.access).toBe("api");
   });
 
@@ -1480,9 +1448,8 @@ describe("credential env preference", () => {
     expect(disk.instances.custom).toEqual(instances.custom);
     expect(disk.instances.customShared).toEqual(instances.customShared);
     expect(disk.openaiCompat).toEqual({ url, key: "fixture-shared" });
-    expect(instanceConfigs(loadConfig()).openaiCompat.config).toEqual({
-      tools: false, model: "selected", provider: "", ...(url ? { url } : {}),
-    });
+    expect(instanceConfigs(loadConfig())).not.toHaveProperty("openaiCompat");
+    expect(instanceConfigs(loadConfig()).customShared.config).toEqual({ url: "https://shared.example.test/v1" });
   });
 
   it.each([

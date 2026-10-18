@@ -98,7 +98,7 @@ describe("native provider onboarding", () => {
       expect(ui.io.choose.mock.calls[1]?.[1]).toEqual(["Fixture default", "Fixture selected", "Search models…"]);
       expect(loadConfig().defaultModelSelection).toEqual({ instanceId: id, model: "fixture-selected" });
       expect(loadConfig().instances?.[id]).toEqual({ driver, enabled: true });
-      expect(loadConfig().instances?.openaiCompat.driver).toBe("openai-compat");
+      expect(loadConfig().instances?.openai.driver).toBe("openai-compat");
       expect(ui.lines.join("\n")).toContain("Existing sign-in found");
       expect(await isSetupComplete(DATA_DIR)).toBe(true);
       ui.assertConsumed();

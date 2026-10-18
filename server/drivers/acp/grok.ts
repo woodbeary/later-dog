@@ -305,10 +305,10 @@ export function grokToolScopeProfile(scope: unknown, init: unknown, inherited?: 
   if (!parsed.ok) throw new Error(parsed.error);
   const meta = (init as { _meta?: { grokShell?: unknown; agentVersion?: unknown } } | null)?._meta;
   if (meta?.grokShell !== true || meta.agentVersion !== "1.0.41") {
-    throw new Error("This Grok runtime does not have verified native tool selection. Use Grok 1.0.41 or Pi; update Grok support before using another version.");
+    throw new Error("This Grok runtime does not have verified native tool selection. Use Grok 1.0.41, or update Grok support before using another version.");
   }
   if (hasMcp && (!allowsTool(scope, { kind: "native", name: "search_tool" }) || !allowsTool(scope, { kind: "native", name: "use_tool" }))) {
-    throw new Error("Grok requires native:search_tool and native:use_tool to find and call selected MCP tools. Allow both explicitly or use Pi.");
+    throw new Error("Grok requires native:search_tool and native:use_tool to find and call selected MCP tools. Allow both explicitly.");
   }
   const candidates = inherited?.toolConfig.tools ?? GROK_NATIVE_TOOLS.map(([name, id]) => ({ id, name_override: name }));
   const selected = candidates.filter((tool) => {

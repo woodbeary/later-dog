@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlLaterDog, verificationServerEnvironment } from "../scripts/control-laterdog.ts";
 import { waitForExit } from "./testing/cleanup.ts";
+import { signedInGrokHome } from "./testing/fake-grok-home.ts";
 
 it.each([false, true])("recovers the same conversation after an ACP internal error without replay (output: %s)", async (afterOutput) => {
   const fixture = await launchVerificationServer();
@@ -35,11 +36,12 @@ it.each([false, true])("recovers the same conversation after an ACP internal err
     await waitForExit(fixture.child, { signal: "SIGTERM" });
     const configPath = join(dataDir, "config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
-    config.instances.opencodeGo = {
-      driver: "opencodeGo", displayName: "Recovery fixture",
+    config.instances.acp = {
+      driver: "grokAgent", displayName: "Recovery fixture",
       config: { cli: fileURLToPath(new URL("./testing/fake-acp-cli.ts", import.meta.url)) },
       environment: {
-        FAKE_ACP_MODELS: "fixture/recovery", FAKE_ACP_DUMP: dumpFile, FAKE_ACP_DUMP_PROMPT: "1",
+        GROK_HOME: signedInGrokHome(dataDir),
+        FAKE_ACP_MODELS: "grok-4.7", FAKE_ACP_DUMP: dumpFile, FAKE_ACP_DUMP_PROMPT: "1",
         FAKE_ACP_RPC_APPEND_FILE: rpcFile, FAKE_ACP_RPC_FAILURE_FILE: failureFile,
         ...(afterOutput ? { FAKE_ACP_RPC_FAILURE_AFTER_OUTPUT: "1" } : {}),
       },
@@ -57,7 +59,7 @@ it.each([false, true])("recovers the same conversation after an ACP internal err
 
     const { bot } = await control("new-bot", "--name", "Recovery bot");
     const threadId = bot.activeTaskId;
-    await api("PATCH", `/api/bots/${bot.id}/tasks/${threadId}`, { modelSelection: { instanceId: "opencodeGo", model: "fixture/recovery" } });
+    await api("PATCH", `/api/bots/${bot.id}/tasks/${threadId}`, { modelSelection: { instanceId: "acp", model: "grok-4.7" } });
     const messages = async () => (await api("GET", `/api/threads/${threadId}/messages?limit=100`)).messages as any[];
     const task = async () => (await api("GET", "/api/bots")).bots.find((entry: any) => entry.id === bot.id)
       .tasks.find((entry: any) => entry.threadId === threadId);

@@ -193,7 +193,8 @@ export async function runSetup(
       try {
         if (native) {
           id = prior?.[0] ?? native.id;
-          if (!prior && runtime[id] && runtime[id]!.driver !== native.driver) id = `${native.id}-${randomUUID().slice(0, 8)}`;
+          const taken = cfg.instances?.[id] ?? runtime[id];
+          if (!prior && taken && taken.driver !== native.driver) id = `${native.id}-${randomUUID().slice(0, 8)}`;
           entry = { ...(cfg.instances?.[id] ?? { driver: native.driver }), enabled: true };
           const models = await connectNative(native, id, entry, io, deps);
           const saved = cfg.defaultModelSelection;

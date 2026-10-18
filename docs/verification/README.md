@@ -47,7 +47,6 @@ Use only mapped, tested commands:
 - [Work summaries and engine hooks](digests.md)
 - [OpenAI-compatible structured tools](openai-tools.md)
 - [Per-bot tool selection and local-model checks](tool-selection.md)
-- [OpenCode model variants through ACP](opencode-variants.md)
 - [Bot setup, model scope, and file continuity](bot-continuity.md)
 - [The main dog](main-dog.md)
 - [Profile proposal and credential-card lifecycle](proposal-cards.md)

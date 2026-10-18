@@ -1,6 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -132,29 +131,6 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
     chmodSync(FAKE_CLI, 0o755);
     home = mkdtempSync(join(tmpdir(), "laterdog-comms-test-"));
     gateFile = join(home, "helper-gate");
-    const antigravityDirectory = join(home, "fake-antigravity");
-    const antigravityCli = join(antigravityDirectory, "agy_acp_server.ts");
-    const antigravityHarness = join(
-      antigravityDirectory,
-      process.platform === "win32" ? "localharness_external.exe" : "localharness_external",
-    );
-    mkdirSync(antigravityDirectory, { recursive: true });
-    copyFileSync(FAKE_CLI, antigravityCli);
-    copyFileSync(FAKE_CLI, antigravityHarness);
-    if (process.platform !== "win32") {
-      chmodSync(antigravityCli, 0o755);
-      chmodSync(antigravityHarness, 0o755);
-    }
-    const antigravityProfile = join(
-      home,
-      ".laterdog",
-      "providers",
-      "antigravity",
-      createHash("sha256").update("geminiAsker").digest("hex"),
-      "antigravity-acp",
-    );
-    mkdirSync(antigravityProfile, { recursive: true });
-    writeFileSync(join(antigravityProfile, "acp_token.json"), "{}\n");
     mkdirSync(join(home, ".laterdog"), { recursive: true });
     writeFileSync(
       join(home, ".laterdog", "config.json"),
@@ -164,16 +140,6 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
             driver: "grokAgent",
             environment: { FAKE_ACP_MODE: "ask-peer" },
             config: { cli: FAKE_CLI, fullAuto: true },
-          },
-          geminiAsker: {
-            driver: "antigravityAgent",
-            environment: {
-              FAKE_ACP_MODE: "ask-peer",
-              FAKE_ACP_AUTH_METHOD: "oauth-personal",
-              FAKE_ACP_MODELS: "gemini-3.8-flash-high",
-              FAKE_ACP_MODES: "default,yolo",
-            },
-            config: { cli: antigravityCli, fullAuto: true },
           },
           askerDelegate: {
             driver: "grokAgent",
@@ -352,79 +318,6 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
       expect(helperBot.busy).toBeFalsy();
     },
     40_000,
-  );
-
-  it(
-    "lets a Gemini Antigravity bot call a peer through the temporary agents MCP mount",
-    async () => {
-      const section = "Gemini agents MCP e2e";
-      const helper = (await api("POST", "/api/bots")).body.bot;
-      await api("PATCH", `/api/bots/${helper.id}`, {
-        name: "Gemini Helper",
-        section,
-        modelSelection: { instanceId: "grok", model: "fake-model" },
-      });
-      const asker = (await api("POST", "/api/bots")).body.bot;
-      await api("PATCH", `/api/bots/${asker.id}`, {
-        name: "Gemini Asker",
-        section,
-        modelSelection: { instanceId: "geminiAsker", model: "gemini-3.8-flash-high" },
-      });
-
-      const send = await startRoutine(asker.id, "Ask the other bot for a status check.");
-      expect(send.status).toBe(201);
-
-      const deadline = Date.now() + 30_000;
-      let state: any;
-      let askerBot: any;
-      let helperBot: any;
-      for (;;) {
-        state = (await api("GET", "/api/bots")).body;
-        askerBot = state.bots.find((bot: any) => bot.id === asker.id);
-        helperBot = state.bots.find((bot: any) => bot.id === helper.id);
-        const peerReply = askerBot.messages.some(
-          (message: any) =>
-            message.kind === "text"
-            && message.role === "bot"
-            && message.text?.includes("peer says: Gemini Helper replied:"),
-        );
-        const helperReplied = helperBot.messages.some(
-          (message: any) =>
-            message.kind === "text"
-            && message.role === "bot"
-            && message.text?.includes("hello from fake acp"),
-        );
-        if (peerReply && helperReplied && !askerBot.busy && !helperBot.busy) break;
-        if (Date.now() > deadline) {
-          throw new Error(
-            `Gemini never got its peer reply. asker tail: ${JSON.stringify(askerBot.messages.slice(-8))}\n`
-              + `helper tail: ${JSON.stringify(helperBot.messages.slice(-6))}\n`
-              + `stderr: ${stderr.slice(-2000)}`,
-          );
-        }
-        await new Promise((resolve) => setTimeout(resolve, 250));
-      }
-
-      const askerReply = askerBot.messages.findLast(
-        (message: any) => message.kind === "text" && message.role === "bot",
-      );
-      expect(askerReply.text).toContain("peer says: Gemini Helper replied:");
-      expect(askerReply.text).toContain("hello from fake acp");
-      const helperReply = helperBot.messages.findLast(
-        (message: any) => message.kind === "text" && message.role === "bot",
-      );
-      expect(helperReply.text).toContain("hello from fake acp");
-      expect(helperReply.text).not.toContain("peer says:");
-
-      const inbound = helperBot.messages.find(
-        (message: any) => message.kind === "text" && message.role === "user",
-      );
-      expect(inbound.text).toContain("[Message from @Gemini Asker");
-      expect(inbound.text).toContain("ping from fake");
-
-      expect(existsSync(join(home, ".gemini", "config", "mcp_config.json"))).toBe(false);
-    },
-    45_000,
   );
 
   it(

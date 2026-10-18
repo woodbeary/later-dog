@@ -330,9 +330,10 @@ import { createCloudHoldRoutes } from "./laterdog/cloud-hold-http.ts";
 import { RESTART_EXIT_CODE } from "./restart.ts";
 import { holdIncludedServices, voiceCredential } from "./included-services.ts";
 import type { ProviderInstance } from "./contracts.ts";
-import { selectDefaultModelSelection, withNewBotEffort } from "./default-model-selection.ts";
+import { readyToRun, selectDefaultModelSelection, withNewBotEffort } from "./default-model-selection.ts";
 import { threadModelFallback, type ThreadEngine } from "./thread-model.ts";
-import { computerEngineMoveText, removedComputerInstanceIds, writeComputerEngineMoveLines } from "./computer-engine-removal.ts";
+import { computerEngineMoveText, removedComputerInstanceIds, writeComputerEngineMoveLines, type ComputerEngineMove } from "./computer-engine-removal.ts";
+import { namesRetiredInstance, retiredEngineMoveText, retiredInstanceIds } from "./laterdog/engine-trim.ts";
 import { cancelPeerApprovalsFor, cancelPeerApprovalsForThread, dismissStalePeerCards, peerApprovalFailure, requestPeerApproval, resolvePeerComms, type ApprovalBus } from "./peer-approval.ts";
 import { peerDeliveryReceipt, type PeerDeliveryReceipt } from "./peer-delivery.ts";
 import { peerProvenanceNote, withPeerProvenance } from "./peer-provenance.ts";
@@ -640,7 +641,7 @@ import { roomIdentityPrompt } from "./laterdog/room-prompt.ts";
 import { GROUP_CHAT_REFUSAL, groupChatsOf, mayMakeGroupChats } from "./laterdog/group-chats.ts";
 import { groupRoutineReply, SILENT_GROUP_ROUTINE } from "./laterdog/group-routine-reply.ts";
 import { botNames, dogActivityWords, teammateResultLabel } from "./laterdog/activity-words.ts";
-import { INCLUDED_AI_INSTANCES } from "./laterdog/included-ai.ts";
+import { INCLUDED_AI_INSTANCE, INCLUDED_AI_INSTANCES } from "./laterdog/included-ai.ts";
 import { createPhonePush } from "./laterdog/phone-push.ts";
 import { cloudEmailDelivery } from "./laterdog/email-me.ts";
 import { CONNECT_MAC, macOffline, withConnectMac } from "./laterdog/connect-mac.ts";
@@ -1329,10 +1330,7 @@ function canManageCommandAllowlist(auth: RequestAuth): boolean {
   return auth.kind === "loopback" ? auth.trust !== "service" : auth.scopes.includes("admin");
 }
 
-const COMMAND_ALLOWLIST_DRIVERS = new Set([
-  "claudeAgent", "codex", "antigravityAgent", "grokAgent", "opencodeGo", "kimiAgent",
-  "droidAgent", "cursorAgent", "qwenAgent", "geminiAgent", "hermesAgent", "customAcp",
-]);
+const COMMAND_ALLOWLIST_DRIVERS = new Set(["claudeAgent", "codex", "grokAgent", "cursorAgent"]);
 
 function commandAllowlistResponse(bot: BotRecord): CommandAllowlistResponse {
   const instance = registry.get(bot.modelSelection.instanceId);
@@ -2913,10 +2911,38 @@ async function defaultSelection(saved: ModelSelection | null = cfg.defaultModelS
   });
 }
 
-async function moveOffComputerEngine(): Promise<void> {
-  if (hostedModels) return;
-  const removed = removedComputerInstanceIds(cfg.instances);
-  const named = (selection?: { instanceId: string }) => Boolean(selection && removed.has(selection.instanceId));
+interface EngineRemoval {
+  removed: ReadonlySet<string>;
+  label: string;
+  replacement: () => Promise<ModelSelection>;
+  text: (move: ComputerEngineMove, botName: string, engine: string) => string;
+}
+
+async function computerEngineReplacement(): Promise<ModelSelection> {
+  const replacement = cfg.defaultModelSelection && removedComputerInstanceIds(cfg.instances).has(cfg.defaultModelSelection.instanceId)
+    ? { instanceId: "", model: "" }
+    : await defaultSelection();
+  return replacement.instanceId ? replacement : defaultSelection(null);
+}
+
+async function includedAiReplacement(): Promise<ModelSelection> {
+  const included = (await registry.describe()).find((instance) => instance.instanceId === INCLUDED_AI_INSTANCE);
+  const selection = (instance: typeof included) => ({ instanceId: INCLUDED_AI_INSTANCE, model: instance?.models.default ?? "" });
+  if (included && readyToRun(included, { refusal: (instance) => policyModelRefusal(instance) })) return selection(included);
+  const fallback = await defaultSelection(null);
+  if (fallback.instanceId) return fallback;
+  return included?.models.default ? selection(included) : { instanceId: "", model: "" };
+}
+
+function engineRemovals(): EngineRemoval[] {
+  return [
+    { removed: removedComputerInstanceIds(cfg.instances), label: "Computer engine", replacement: computerEngineReplacement, text: computerEngineMoveText },
+    { removed: retiredInstanceIds(cfg.instances), label: "retired engines", replacement: includedAiReplacement, text: retiredEngineMoveText },
+  ];
+}
+
+async function moveOffRemovedEngine({ removed, label, replacement: pick, text }: EngineRemoval): Promise<void> {
+  const named = (selection?: { instanceId: string }) => namesRetiredInstance(removed, selection);
   if (named(cfg.automaticRecovery?.backup)) {
     saveConfig({ automaticRecovery: { enabled: false } });
     cfg.automaticRecovery = { enabled: false };
@@ -2924,10 +2950,9 @@ async function moveOffComputerEngine(): Promise<void> {
   const defaults = named(cfg.defaultModelSelection) || named(cfg.newBotDefaults?.profile.modelSelection);
   if (!defaults && !store.bots.some(bot => named(bot.modelSelection) || bot.fallback?.some(named) ||
     store.tasks(bot.id).some(task => named(task.modelSelection)))) return;
-  let replacement = named(cfg.defaultModelSelection) ? { instanceId: "", model: "" } : await defaultSelection();
-  if (!replacement.instanceId) replacement = await defaultSelection(null);
+  const replacement = await pick();
   if (!replacement.instanceId) {
-    console.warn("[engines] the Computer engine was removed and no other engine is available yet; its bots move when one is");
+    console.warn(`[engines] the ${label} were removed and no other engine is available yet; their bots move when one is`);
     return;
   }
   if (defaults) {
@@ -2947,15 +2972,25 @@ async function moveOffComputerEngine(): Promise<void> {
   });
   writeComputerEngineMoveLines(moves, (move) => {
     const bot = store.bot(move.botId);
-    if (bot) store.appendMessage(move.threadId, { role: "bot", kind: "activity", tool: { name: computerEngineMoveText(move, bot.name, engine), ok: true } });
-  });
+    if (bot) store.appendMessage(move.threadId, { role: "bot", kind: "activity", tool: { name: text(move, bot.name, engine), ok: true } });
+  }, label);
 }
-let computerEngineMoveRunning: Promise<void> | null = null;
-function retryComputerEngineMove(): Promise<void> {
-  computerEngineMoveRunning ??= moveOffComputerEngine()
-    .catch((error) => console.warn(`[engines] moving bots off the removed Computer engine failed: ${error instanceof Error ? error.message : String(error)}`))
-    .finally(() => { computerEngineMoveRunning = null; });
-  return computerEngineMoveRunning;
+
+async function moveOffRemovedEngines(): Promise<void> {
+  if (hostedModels) return;
+  for (const removal of engineRemovals()) await moveOffRemovedEngine(removal);
+}
+
+function onRemovedEngine(instanceId: string): boolean {
+  return engineRemovals().some(({ removed }) => removed.has(instanceId));
+}
+
+let removedEngineMoveRunning: Promise<void> | null = null;
+function retryRemovedEngineMove(): Promise<void> {
+  removedEngineMoveRunning ??= moveOffRemovedEngines()
+    .catch((error) => console.warn(`[engines] moving bots off removed engines failed: ${error instanceof Error ? error.message : String(error)}`))
+    .finally(() => { removedEngineMoveRunning = null; });
+  return removedEngineMoveRunning;
 }
 const giveFirstEngine = firstEngine({
   bots: () => store.bots,
@@ -3309,7 +3344,7 @@ const store = new Store(
 const teamComputers = new TeamComputers(join(DATA_DIR, "team-computers.json"), ENVIRONMENT_ID);
 let followupsReady = false;
 const sendSequencer = new SendSequencer();
-await retryComputerEngineMove();
+await retryRemovedEngineMove();
 if (store.needsSeed()) bootSelection = await defaultSelection();
 else enginesRead = defaultSelection().then(
   (selection) => { bootSelection = selection; },
@@ -8085,7 +8120,7 @@ async function startTurn(
   const plan = turnSurfacePlan(bot, opts?.runOn, threadId);
   const instance = registry.get(bot.modelSelection.instanceId);
   if (!instance) {
-    if (removedComputerInstanceIds(cfg.instances).has(bot.modelSelection.instanceId)) void retryComputerEngineMove();
+    if (onRemovedEngine(bot.modelSelection.instanceId)) void retryRemovedEngineMove();
     throw Object.assign(
       new Error(`provider instance "${bot.modelSelection.instanceId}" is unavailable — pick another model in settings`),
       { status: 409 },
@@ -12503,7 +12538,7 @@ function persistMcpServers(next: Record<string, unknown>): void {
 
 async function describeInstances() {
   const configs = providerConfigs();
-  void retryComputerEngineMove();
+  void retryRemovedEngineMove();
   void giveFirstEngine();
   return (await registry.describe()).map((listed) => {
     const instance = CLOUD_HOME ? withHandedOverEmail(DATA_DIR, listed) : listed;
