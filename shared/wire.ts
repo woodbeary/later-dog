@@ -263,6 +263,7 @@ export interface WireMessage {
     pickup?: "restart";
   };
   webhookPost?: boolean;
+  ownersRoutine?: boolean;
   steered?: boolean;
   aside?: boolean;
   via?: "api" | "call";

@@ -182,7 +182,6 @@ import {
   saveConfig,
   showToolCallsEnabled,
   stepUpdatesEnabled,
-  routinesInConversationEnabled,
   claudeUserMcpEnabled,
   skillAuthoringEnabled,
   autoRecallEnabled,
@@ -357,7 +356,6 @@ import {
   roomResponders,
   sectionKey,
   Store,
-  threadTitleFrom,
   titleFromLlm,
   type BotRecord,
   type GroupDefaultResponder,
@@ -1011,8 +1009,8 @@ function cloudLendingTurn(capability: Pick<InternalCapability, "botId" | "thread
     ownersOwnDogs: ownersOwnDogs(capability.threadId),
     cardAnswerer: cloudCardAnswerer,
     routineRun: () => {
-      const run = activeRoutineRunForThread(capability.threadId);
-      if (!run || run.threadId !== capability.threadId || store.taskByThread(capability.botId, capability.threadId)?.routineRunId !== run.id) return null;
+      const run = routineRunForTurn(capability.threadId);
+      if (!run || run.threadId !== capability.threadId) return null;
       return {
         triggerSource: run.triggerSource ?? (run.manual ? "manual" : "schedule"),
         ownerStarted: ownerStartedRoutineRuns.has(run.id),
@@ -1126,7 +1124,7 @@ function cloudReportFromOthers(line: Message): boolean {
 const ownerOnlyCache = new Map<string, { length: number; last?: string; owner: boolean }>();
 function ownersOwnDogs(threadId: string): boolean {
   const bot = store.botByThread(threadId);
-  const routineThread = Boolean(routines?.runForThread(threadId) || (bot && store.taskByThread(bot.id, threadId)?.routineRunId));
+  const routineThread = Boolean(routineRunForTurn(threadId) || (bot && store.taskByThread(bot.id, threadId)?.routineRunId));
   return !routineThread && !cloudGuestDriven(threadId) && !workspaceShared({ hosted: HOSTED_WORKSPACE, cloudHome: Boolean(CLOUD_HOME), signIn: signInAllowList() }) &&
     sessions.list().every((session) => session.scopes.includes("admin") || session.localTools === true);
 }
@@ -1181,12 +1179,6 @@ function actorKey(auth: RequestAuth & { kind: "session" }): string {
   return CLOUD_OWNER_KEY && auth.scopes.includes("admin") ? CLOUD_OWNER_KEY : personKey(auth.session);
 }
 
-let routineWriterInFlight: string | undefined;
-function withRoutineWriter<T>(writer: string, work: () => T): T {
-  const previous = routineWriterInFlight;
-  routineWriterInFlight = writer;
-  try { return work(); } finally { routineWriterInFlight = previous; }
-}
 function cloudOwnersRoutine(routineId: string | undefined): void {
   const routine = routineId ? routines?.listRoutines().find((candidate) => candidate.id === routineId) : undefined;
   if (!routine || !cloudRoutineAuthors || !CLOUD_OWNER_KEY) return;
@@ -1201,8 +1193,22 @@ function cloudRoutineIsOwners(routineId: string | undefined): boolean {
     (cloudRoutineAuthors.writer(routine.id) === CLOUD_OWNER_KEY && !cloudRoutineAuthors.recorded(routine.id));
 }
 
+function cloudRoutineWrittenByOthers(routineId: string): boolean {
+  if (!CLOUD_HOME || !CLOUD_OWNER_KEY) return false;
+  const routine = routines?.listRoutines().find((candidate) => candidate.id === routineId);
+  if (routine && cloudRoutineAuthors?.authored(routineId, routine)) return false;
+  return cloudRoutineAuthors?.writer(routineId) !== CLOUD_OWNER_KEY;
+}
+
+function cloudOwnersRoutinePrompt(run: RoutineRun | null, botId: string, threadId: string): boolean {
+  if (!CLOUD_HOME || !run) return false;
+  const triggerSource = run.triggerSource ?? (run.manual ? "manual" : "schedule");
+  return triggerSource !== "webhook" && cloudRoutineRunIsOwners(run, botId, threadId) &&
+    (triggerSource !== "manual" || ownerStartedRoutineRuns.has(run.id));
+}
+
 function cloudRoutineRunIsOwners(run: RoutineRun | null | undefined, botId: string, threadId: string): boolean {
-  if (!run || run.threadId !== threadId || store.taskByThread(botId, threadId)?.routineRunId !== run.id || !cloudRoutineAuthors) return false;
+  if (!run || run.threadId !== threadId || run.botId !== botId || !cloudRoutineAuthors) return false;
   const routine = routines?.listRoutines().find((candidate) => candidate.id === run.routineId);
   return Boolean(routine) && cloudRoutineAuthors.authored(run.routineId, {
     ...routine!, prompt: run.prompt, target: run.target, botId: run.botId, groupId: run.groupId, attachments: run.attachments, runOn: run.runOn,
@@ -1218,15 +1224,6 @@ function approvalShape(shape: { prompt?: string; botId?: string; runOn?: string;
   if (schedule) delete schedule.anchorAt;
   return JSON.stringify([shape.prompt ?? "", shape.botId ?? "", shape.runOn ?? "dog", schedule, shape.target ?? "bot", shape.groupId ?? null,
     (shape.attachments ?? []).map((attachment) => [attachment.id, attachment.path])]);
-}
-
-function routineOpener(routineId: string): string {
-  if (routineWriterInFlight) return routineWriterInFlight;
-  const routine = routines?.listRoutines().find((candidate) => candidate.id === routineId);
-  if (routine && CLOUD_OWNER_KEY && cloudRoutineAuthors?.authored(routineId, routine)) return CLOUD_OWNER_KEY;
-  const writer = cloudRoutineAuthors?.writer(routineId);
-  if (writer && CLOUD_OWNER_KEY && writer === CLOUD_OWNER_KEY) return CLOUD_OWNER_KEY;
-  return writer && !cloudOwnerPerson(writer) ? writer : CLOUD_NOBODY_KEY;
 }
 
 function cloudGuestOpened(threadId: string): boolean {
@@ -1274,7 +1271,7 @@ function guestWorkThread(from: BotRecord, target: BotRecord, fromThreadId: strin
 const ROUTINE_FROM_BEFORE = "This routine was made before this update. Open it and save it once to run it with full access.";
 const CONVERSATION_FROM_BEFORE = "This conversation is from before My Cloud was only yours, so this bot works in it without a shell. Start a new conversation to use it fully.";
 function confinedWhy(threadId: string): string {
-  const run = activeRoutineRunForThread(threadId);
+  const run = routineRunForTurn(threadId);
   const writer = run ? cloudRoutineAuthors?.writer(run.routineId) : undefined;
   return run && writer && !cloudOwnerPerson(writer) ? ROUTINE_FROM_BEFORE : CONVERSATION_FROM_BEFORE;
 }
@@ -1287,7 +1284,7 @@ function guestEngineRefusal(threadId: string): string {
 function cloudGuestDriven(threadId: string): boolean {
   if (!CLOUD_HOME) return false;
   if (guestDrivenTurns.has(threadId) || cloudGuestOpened(threadId)) return true;
-  const run = activeRoutineRunForThread(threadId);
+  const run = routineRunForTurn(threadId);
   const writer = run ? cloudRoutineAuthors?.writer(run.routineId) : undefined;
   if (writer && !cloudOwnerPerson(writer)) return true;
   if (!store.groupByThread(threadId)) return false;
@@ -2363,6 +2360,8 @@ function boatNotConfigured(bot: { name: string }, source: PlaceSource): PlaceUna
 }
 const directTurnDispatchClaims = new Map<string, DirectTurnDispatchClaim>();
 const directTurnGenerationByThread = new Map<string, string>();
+const routineTurnOwners = new Map<string, { runId: string; messageId?: string; generation: string }>();
+
 const directRequestOwners = new Map<string, {
   generation: string; messageId?: string; generations: Set<string>; turnId: string | null; stopped?: boolean;
   automation?: RoutineRunTrigger;
@@ -2599,7 +2598,7 @@ async function interruptDirectThread(botId: string, threadId: string, options?: 
 
 async function stopThreadTurn(botId: string, threadId: string, by: "person" | "api" = "person"): Promise<void> {
   const routine = routines!.activeBotRunForBot(botId);
-  if (routine?.threadId === threadId) {
+  if (routine?.threadId === threadId && routineTurnBelongsToRun(routine)) {
     await routines!.cancelRun(routine.id);
     return;
   }
@@ -4446,12 +4445,6 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
       const source = store.bot(parent.botId);
       if (source) markTaskContextExternallyUpdated(source, parent.threadId);
     }
-    const childTask = store.taskByThread(child.botId, child.threadId);
-    if (!child.groupId && child.status === "completed" && !problem && !childTask?.closedBy && !roomHandoffs.activeDirect(child.threadId)
-      && childTask?.openedBy?.kind === "work" && childTask.openedBy.botId === parent.botId) {
-      store.setTaskClosedBy(child.botId, child.threadId,
-        { botId: parent.botId, name: store.bot(parent.botId)?.name ?? childTask.openedBy.name, at: Date.now() });
-    }
   },
   run: async (node, resumed, signal) => {
     const group = node.groupId ? store.group(node.groupId) : undefined;
@@ -4875,12 +4868,8 @@ store.onChange((change) => {
       break;
     case "thread.deleted":
       directRequestOwners.delete(change.threadId);
+      routineTurnOwners.delete(change.threadId);
       routines?.forgetRoutineRequestReceiptsForThread(change.threadId);
-      for (const run of routines?.listRuns() ?? []) {
-        if (run.resultsThreadId === change.threadId || run.sourceThreadId === change.threadId) {
-          syncRoutineRunToSource(run);
-        }
-      }
       broadcast({ kind: "bot.queued", queues: publicBotQueuedMessages() });
       break;
     case "bot": {
@@ -5348,7 +5337,7 @@ const watchdog = new TurnWatchdog({
     revokeInternalCapabilitiesForThread(turn.threadId);
     repeats.settle(turn.threadId);
     const bot = botForThread(turn.botId, turn.threadId);
-    const routineRun = activeRoutineRunForThread(turn.threadId);
+    const routineRun = routineRunForTurn(turn.threadId);
     void runningTurnInstance(bot, turn.threadId)?.adapter.interruptTurn(turn.threadId).catch(() => {});
     const detail = turnStallDetail(turn, TURN_STALL_MS, watchdog.toolOverran(turn));
     if (routineRun?.target === "bot") {
@@ -5474,7 +5463,7 @@ const promiseNudges = createPromiseNudges({
   },
   ownerAutoDog: (threadId) => {
     const owner = store.botByThread(threadId);
-    if (!owner || store.groupByThread(threadId) || !personAskAt.has(threadId) || isUnattended(owner.id, threadId) || activeRoutineRunForThread(threadId)) return null;
+    if (!owner || store.groupByThread(threadId) || !personAskAt.has(threadId) || isUnattended(owner.id, threadId) || routineRunForTurn(threadId)) return null;
     if (CLOUD_HOME && (!cloudOwnerOnlyThread(threadId) || cloudGuestDriven(threadId))) return null;
     return ["auto", "full", "custom"].includes(approvalModeForTurn(botForThread(owner.id, threadId) ?? owner, false, threadId)) ? owner.id : null;
   },
@@ -5493,10 +5482,7 @@ const restartPickupHost: RestartPickupHost = {
   owner: (threadId) => !CLOUD_HOME || cloudOwnerOnlyThread(threadId),
   queued: (botId, threadId) => hasQueuedSteeredMessages(botId, threadId) || limitHold.holds(threadId),
   busy: (botId, threadId) => threadBusy(botId, threadId),
-  routine: (threadId, at) => {
-    const run = routines?.runForThread(threadId);
-    return Boolean(run && (run.finishedAt === undefined || at <= run.finishedAt));
-  },
+  routine: (threadId, at) => Boolean(routines?.runDuring(threadId, at)),
   carriesOnAfterLimit: () => accountBattery.enabled,
   append: (threadId, message) => store.appendMessage(threadId, message),
   patch: (threadId, messageId, patch) => store.patchMessage(threadId, messageId, patch),
@@ -5599,7 +5585,7 @@ bus.subscribe((event: RuntimeEvent) => {
   try {
     const bot = store.botByThread(event.threadId);
     if (!bot || !upkeepEnabled(bot) || store.groupByThread(event.threadId) || isInternalTurn(event.threadId)
-      || isUnattended(bot.id, event.threadId) || routines?.runForThread(event.threadId)) return;
+      || isUnattended(bot.id, event.threadId) || routineTurn(event.threadId)) return;
     if (CLOUD_HOME && !cloudOwnerOnlyThread(event.threadId)) return;
     const path = store.activePath(event.threadId);
     const replyAt = path.findLastIndex((message) => message.role === "bot" && message.kind === "text" && message.turnId === event.turnId);
@@ -6728,7 +6714,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
     broadcast({ kind: "runtime", event: publicEvent });
   }
   const carryingOn = automaticallyCarriesOn(event);
-  const routineRun = privateImageEvent ? null : carryingOn ? activeRoutineRunForThread(event.threadId) : (routines?.handleRuntimeEvent(event) ?? null);
+  const routineRun = privateImageEvent ? null : carryingOn ? routineRunForTurn(event.threadId) : (routines?.handleRuntimeEvent(event) ?? null);
   const ownerBot = store.botByThread(event.threadId);
   const bot = ownerBot ? botForThread(ownerBot.id, event.threadId) ?? undefined : undefined;
   const group = bot ? undefined : store.groupByThread(event.threadId);
@@ -7123,7 +7109,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         console.info(`token battery: ${event.threadId} ${nextAccount ? "switch scheduled" : "waiting for an account to recharge"}`);
       }
       if (bot && event.stopReason === "usage_limit" && !nextAccount) limitHold.hold(event.threadId);
-      if (!event.ok && event.stopReason !== "interrupted" && !lazyClaimAlreadyReported && !computerParked && !carryingOn && !routines?.runForThread(event.threadId)) {
+      if (!event.ok && event.stopReason !== "interrupted" && !lazyClaimAlreadyReported && !computerParked && !carryingOn && !routineTurn(event.threadId)) {
         const broken = bot ?? (speaker ? store.bot(speaker.botId) : undefined);
         if (broken) reportIncident({ kind: "failed", bot: broken, threadId: event.threadId, detail: event.stopReason?.trim() || "the run ended without a result" });
       }
@@ -7361,6 +7347,32 @@ function activeRoutineRunForThread(threadId: string): RoutineRun | null {
   return run && ["running", "waiting"].includes(run.status) ? run : null;
 }
 
+function routineTurnBelongsToRun(run: Pick<RoutineRun, "id" | "threadId">): boolean {
+  const owner = run.threadId ? routineTurnOwners.get(run.threadId) : undefined;
+  return owner?.runId === run.id && owner.generation === directTurnGenerationByThread.get(run.threadId!);
+}
+
+function routineOwnsConversationTurn(run: Pick<RoutineRun, "id" | "threadId" | "target">): boolean {
+  return run.target === "room-goal" || routineTurnBelongsToRun(run);
+}
+
+function forgetRoutineDelegationWake(threadId: string, runId: string): void {
+  if (pendingDelegationWakes.get(threadId)?.routineRunId === runId) pendingDelegationWakes.delete(threadId);
+}
+
+function routineRunForTurn(threadId: string): RoutineRun | null {
+  const run = activeRoutineRunForThread(threadId);
+  return run && (run.target === "room-goal" || routineTurnBelongsToRun(run)) ? run : null;
+}
+
+function routineRunContinuedBy(threadId: string, routineRunId: string | undefined, requestMessageId: string | undefined): RoutineRun | null {
+  const run = activeRoutineRunForThread(threadId);
+  if (!run || run.target === "room-goal") return null;
+  if (routineRunId) return routineRunId === run.id ? run : null;
+  const owner = routineTurnOwners.get(threadId);
+  return requestMessageId && owner?.runId === run.id && owner.messageId === requestMessageId ? run : null;
+}
+
 function routineDelegationCanResume(threadId: string, routineRunId?: string): boolean {
   return !routineRunId || activeRoutineRunForThread(threadId)?.id === routineRunId;
 }
@@ -7385,6 +7397,7 @@ function dispatchDelegationWake(botId: string, threadId: string, targetName: str
     threadId,
     cardContinuation: true,
     unattended: isUnattended(botId, threadId),
+    ...(routineRunId ? { routineRunId } : {}),
   })
     .then(() => undefined)
     .catch((error) => {
@@ -7779,7 +7792,7 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, rawTe
         taskId,
         sourceThreadId,
         sourceBotId,
-        routineRunId: activeRoutineRunForThread(sourceThreadId)?.id,
+        routineRunId: routineRunForTurn(sourceThreadId)?.id,
         startedAtMs: Date.now(),
         ...(oneWay ? { oneWay: true } : {}),
         ...(completionOwner ? { completionOwner } : {}),
@@ -7820,7 +7833,7 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, rawTe
 };
 
 function drainThreadDelegations(threadId: string): void {
-  const routineRunId = activeRoutineRunForThread(threadId)?.id;
+  const routineRunId = routineRunForTurn(threadId)?.id;
   drainDelegations(commsBus, approvalBus, threadId, runDelegatedTurn,
     (receipt) => wakeUndispatchedDelegation(receipt, routineRunId));
 }
@@ -7828,7 +7841,7 @@ function drainThreadDelegations(threadId: string): void {
 const DELEGATION_SWEEP_MS = 60 * 60 * 1000;
 function expireDelegationsNow(): void {
   expireStaleDelegations(commsBus, Date.now(), (receipt) =>
-    wakeUndispatchedDelegation(receipt, activeRoutineRunForThread(receipt.sourceThreadId)?.id));
+    wakeUndispatchedDelegation(receipt, routineRunForTurn(receipt.sourceThreadId)?.id));
 }
 
 const delegationRetryBots = new Set<string>();
@@ -8373,6 +8386,8 @@ async function startTurn(
     threadId?: string;
     runOn?: RoutineRunOn;
     automationSource?: RoutineRunTrigger;
+    routineRunId?: string;
+    ownersRoutine?: boolean;
     unattended?: boolean;
     peerAsk?: Message["peerAsk"];
     cardContinuation?: boolean;
@@ -8398,7 +8413,7 @@ async function startTurn(
   const profile = store.bot(botId);
   if (!profile) throw Object.assign(new Error("no such bot"), { status: 404 });
   const threadId = opts?.threadId ?? profile.threadId;
-  const continuingRoutine = opts?.cardContinuation ? activeRoutineRunForThread(threadId) : null;
+  const continuingRoutine = opts?.cardContinuation ? routineRunContinuedBy(threadId, opts.routineRunId, opts.requestMessageId) : null;
   if (continuingRoutine) {
     const onDispatchError = opts?.onDispatchError;
     opts = {
@@ -8466,7 +8481,7 @@ async function startTurn(
   const commsDepth = opts?.commsDepth ?? 0;
   if (commsDepth > 0) markInternalTurn(threadId);
   else clearInternalTurn(threadId);
-  if (resolvedImages.text.trim() && !opts?.cardContinuation) {
+  if (resolvedImages.text.trim() && !opts?.cardContinuation && !opts?.automationSource) {
     const titled = store.titleTaskFromFirstMessage(bot.id, resolvedImages.text, threadId);
     const snippet = titled?.title;
     if (titled && snippet && !titled.openedBy?.botId && llmThreadTitlesEnabled(cfg) && instance.generateText) {
@@ -8521,6 +8536,7 @@ async function startTurn(
           sender: opts?.sender,
           ...(opts?.via ? { via: opts.via } : {}),
           ...(opts?.relayed ? { relayed: true } : {}),
+          ...(opts?.ownersRoutine ? { ownersRoutine: true } : {}),
         });
   }
   const recoveryUserMessageId = opts?.coordination
@@ -8551,6 +8567,11 @@ async function startTurn(
   requestGenerations.add(dispatchClaimId);
   directRequestOwners.set(threadId, { generation: dispatchClaimId, messageId: requestMessageId,
     generations: requestGenerations, turnId: null, ...(opts?.automationSource ? { automation: opts.automationSource } : {}) });
+  const routineRunId = opts?.routineRunId ?? continuingRoutine?.id;
+  if (routineRunId) {
+    routineTurnOwners.set(threadId, { runId: routineRunId, generation: dispatchClaimId,
+      messageId: (opts?.cardContinuation ? undefined : requestMessageId) ?? routineTurnOwners.get(threadId)?.messageId });
+  }
   if (CLOUD_HOME && cloudHomeLendingRefusal(cloudLendingTurn({ botId, threadId, generation: dispatchClaimId })) !== null) noteForeignTurn(botId, threadId, dispatchClaimId);
   const pendingSource = requestMessageId ?? store.activePath(threadId).findLast(message => message.role === "user")?.id;
   if (pendingSource) store.patchMessage(threadId, pendingSource, { requestPending: true });
@@ -9433,37 +9454,48 @@ async function startTurn(
   return userMessage;
 }
 
-function routineSourceOwner(run: Pick<RoutineRun, "botId" | "sourceThreadId" | "resultsThreadId">) {
-  if (run.resultsThreadId) {
-    const bot = store.bot(run.botId);
-    const task = bot && store.taskByThread(bot.id, run.resultsThreadId);
-    return bot && !bot.hidden && task && !task.routineRunId
-      ? { bot, group: undefined, threadId: task.threadId }
-      : null;
-  }
-  const threadId = run.sourceThreadId?.trim();
-  if (!threadId) return null;
+function routineSourceOwner(run: Pick<RoutineRun, "routineId" | "webhookId" | "botId" | "target" | "groupId" | "threadId">) {
   const bot = store.bot(run.botId);
-  if (!bot) return null;
-  const sourceBot = store.botByThread(threadId);
-  if (sourceBot && !sourceBot.hidden && !store.taskByThread(sourceBot.id, threadId)?.routineRunId &&
-    (sourceBot.id === bot.id || (canAccessTeam(sourceBot, bot.section) && canReachPeer(sourceBot, bot)))) {
-    return { bot: sourceBot, group: undefined, threadId };
+  if (!bot || run.webhookId) return null;
+  if (run.target === "room-goal") {
+    const group = run.groupId ? store.group(run.groupId) : undefined;
+    return group?.memberIds.includes(bot.id) ? { bot, group, threadId: group.threadId } : null;
   }
-  const group = store.groupByThread(threadId);
-  return group?.memberIds.includes(bot.id) ? { bot, group, threadId } : null;
+  if (cloudRoutineWrittenByOthers(run.routineId)) return null;
+  const ranIn = run.threadId && store.taskByThread(bot.id, run.threadId) ? run.threadId : undefined;
+  return { bot, group: undefined, threadId: ranIn ?? bot.threadId };
 }
 
-function botMainThread(botId: string): string | undefined {
-  const visible = store.tasks(botId).filter((task) => !task.routineRunId);
-  const open = visible.filter((task) => task.archivedAt === undefined);
-  return (open.length ? open : visible).reduce<TaskRecord | undefined>(
-    (oldest, task) => (!oldest || task.createdAt < oldest.createdAt ? task : oldest), undefined,
-  )?.threadId;
+const routineCardThreads = new Map<string, string>();
+
+function routineCardIn(botId: string, runId: string, threadIds: (string | undefined)[]): { threadId: string; message: Message } | null {
+  for (const threadId of new Set(threadIds)) {
+    if (!threadId || !store.taskByThread(botId, threadId)) continue;
+    const message = store.messagesFor(threadId).find((line) => line.kind === "routine.run" && line.routineRun?.runId === runId);
+    if (message) return { threadId, message };
+  }
+  return null;
 }
 
-function legacyResultsThread(routineName: string, task: TaskRecord): boolean {
-  return task.title.endsWith(" · Results") || task.title === threadTitleFrom(`${routineName} · Results`);
+const ROUTINE_WRITTEN_BY_OTHERS = "Someone else wrote this routine, so it can't run in your dog's conversation. Open it and save it to run it.";
+
+function routineConversation(run: RoutineRun): string | { refusal: string } | null {
+  if (run.target === "room-goal") return (run.groupId && store.group(run.groupId)?.threadId) || null;
+  if (run.webhookId) return webhooks.updatesThread(run.webhookId) ?? null;
+  if (cloudRoutineWrittenByOthers(run.routineId)) return { refusal: ROUTINE_WRITTEN_BY_OTHERS };
+  return store.bot(run.botId)?.threadId ?? null;
+}
+
+function routineTargetState(botId: string, run?: Pick<RoutineRun, "webhookId">): "ready" | "busy" | "missing" {
+  const state = unattendedDispatchState(botId);
+  const bot = store.bot(botId);
+  if (state !== "ready" || !bot) return state;
+  const threadId = run?.webhookId ? webhooks.list().find((trigger) => trigger.id === run.webhookId)?.resultsThreadId : bot.threadId;
+  return threadId && (threadBusy(botId, threadId) || activeRoutineRunForThread(threadId)) ? "busy" : "ready";
+}
+
+function routineTurn(threadId: string): boolean {
+  return Boolean(routineRunForTurn(threadId) || directRequestOwners.get(threadId)?.automation);
 }
 
 function routineSourceThread(run: RoutineRun): string | null {
@@ -9522,54 +9554,25 @@ function routineRunFallbackText(card: NonNullable<Message["routineRun"]>): strin
 
 function syncRoutineRunToSource(run: RoutineRun): string | null {
   const source = routineSourceOwner(run);
-  if (!source) {
-    const execution = run.threadId ? store.taskByThread(run.botId, run.threadId) : null;
-    if (execution?.routineRunId === run.id) {
-      store.patchTask(run.botId, execution.threadId, {
-        routineRunId: undefined,
-        ...(["waiting", "completed", "failed", "missed"].includes(run.status) ? { unread: true } : {}),
-      });
-    }
-    return null;
-  }
-  const sourceThreadId = source.threadId;
+  if (!source) return null;
+  if (run.target === "room-goal") return source.threadId;
+  const placed = routineCardIn(source.bot.id, run.id, [routineCardThreads.get(run.id), source.threadId, run.sourceThreadId, source.bot.threadId]);
+  const threadId = placed?.threadId ?? source.threadId;
   const card = routineRunCard(run);
+  if (card.executionThreadId === threadId) {
+    delete card.executionThreadId;
+    if (run.status === "completed") delete card.summary;
+  }
   const text = routineRunFallbackText(card);
-  const existing = store.messagesFor(sourceThreadId).find(
-    (message) => message.kind === "routine.run" && message.routineRun?.runId === run.id,
-  );
-  const statusChanged = existing?.routineRun?.status !== run.status;
-  if (existing) {
-    store.patchMessage(sourceThreadId, existing.id, { text, routineRun: card });
-  } else {
-    const message: Omit<Message, "id" | "at"> = {
-      role: "bot",
-      kind: "routine.run",
-      text,
-      routineRun: card,
-    };
-    if (source.group) {
-      message.from = { botId: source.bot.id, name: source.bot.name, color: source.bot.color };
-    }
-    store.appendMessage(sourceThreadId, message);
-  }
-
-  if (run.target === "bot" && run.triggerSource !== "webhook" && run.threadId && run.threadId !== sourceThreadId) {
-    const execution = store.taskByThread(run.botId, run.threadId);
-    const freshExecution = execution && run.status === "running" && !execution.routineRunId &&
-      store.messagesFor(run.threadId).length === 0;
-    if (execution && freshExecution) {
-      store.patchTask(run.botId, run.threadId, { routineRunId: run.id, unread: false });
-    } else if (execution?.routineRunId === run.id && execution.unread) {
-      store.patchTask(run.botId, run.threadId, { unread: false });
-    }
-  }
-
+  const statusChanged = placed?.message.routineRun?.status !== run.status;
+  if (placed) store.patchMessage(threadId, placed.message.id, { text, routineRun: card });
+  else store.appendMessage(threadId, { role: "bot", kind: "routine.run", text, routineRun: card });
+  if (["completed", "failed", "cancelled", "missed"].includes(run.status)) routineCardThreads.delete(run.id);
+  else routineCardThreads.set(run.id, threadId);
   if (statusChanged && ["waiting", "completed", "failed", "missed"].includes(run.status)) {
-    if (source.group) store.patchGroup(source.group.id, { unread: true });
-    else store.patchTask(source.bot.id, sourceThreadId, { unread: true });
+    store.patchTask(source.bot.id, threadId, { unread: true });
   }
-  return sourceThreadId;
+  return threadId;
 }
 
 async function interruptRoutineGroupGoal(
@@ -9634,10 +9637,11 @@ _loadPending();
 
 routines = new RoutineManager({
   emit: broadcast,
-  hasPendingDelegations: (threadId) => pendingThreads().includes(threadId) ||
-    [...delegationWatch.values()].some((watch) => watch.sourceThreadId === threadId) ||
-    pendingDelegationWakes.has(threadId),
-  botState: unattendedDispatchState,
+  hasPendingDelegations: (threadId, runId) => pendingThreads().includes(threadId) ||
+    [...delegationWatch.values()].some((watch) => watch.sourceThreadId === threadId && watch.routineRunId === runId) ||
+    pendingDelegationWakes.get(threadId)?.routineRunId === runId,
+  turnBelongsToRun: routineTurnBelongsToRun,
+  botState: routineTargetState,
   goalState: (groupId, coordinatorBotId) => {
     const group = store.group(groupId);
     const coordinator = store.bot(coordinatorBotId);
@@ -9653,48 +9657,10 @@ routines = new RoutineManager({
     }
     return groupIsWorking(group) || coordinator.busy ? "busy" : "ready";
   },
-  createTask: (botId, title, activate = false, run) => {
-    const task = store.createTask(botId, title, activate);
-    if (task && CLOUD_HOME && run) {
-      threadStarters.set(task.threadId, run.triggerSource === "webhook" ? CLOUD_OWNER_KEY! : routineOpener(run.routineId));
-    }
-    return task;
-  },
-  joinConversation: (run) => {
-    if (!routinesInConversationEnabled(cfg) || run.target !== "bot") return null;
-    const source = routineSourceOwner(run);
-    if (!source || source.group || source.bot.id !== run.botId) return null;
-    return source.threadId;
-  },
-  createGoalTask: (groupId, title) => store.createGroupTask(groupId, title, false),
-  isResultsThread: (botId, threadId) => {
-    const bot = store.bot(botId);
-    const task = store.taskByThread(botId, threadId);
-    return Boolean(bot && !bot.hidden && task && !task.routineRunId);
-  },
-  resolveResultsThread: (routine, forceNew) => {
-    const bot = store.bot(routine.botId);
-    const chosen = !forceNew && routine.resultsThreadId && bot && !bot.hidden
-      ? store.taskByThread(bot.id, routine.resultsThreadId) : undefined;
-    const opener = CLOUD_HOME ? routineOpener(routine.id) : undefined;
-    const main = bot && !bot.hidden ? botMainThread(bot.id) : undefined;
-    const mainAllowed = main && (!CLOUD_HOME || (opener === CLOUD_OWNER_KEY && !cloudGuestOpened(main)));
-    const keepChosen = chosen && !chosen.routineRunId && !(mainAllowed && legacyResultsThread(routine.name, chosen));
-    if (keepChosen) return chosen.threadId;
-    if (mainAllowed || !CLOUD_HOME) return main;
-    const threadId = store.createTask(routine.botId, `${routine.name} · Results`, false)?.threadId;
-    if (threadId) threadStarters.set(threadId, opener!);
-    return threadId;
-  },
-  discardResultsThread: (botId, threadId) => {
-    const task = store.taskByThread(botId, threadId);
-    if (task && threadId !== botMainThread(botId) && !task.busy && !task.routineRunId && store.messagesFor(threadId).length === 0) {
-      store.deleteTask(botId, threadId);
-      handoffs.forget(threadId);
-    }
-  },
-  startTurn: async (botId, threadId, prompt, runOn, triggerSource, onDispatchError) => {
-    await startTurn(botId, prompt, { threadId, runOn, automationSource: triggerSource, onDispatchError });
+  conversationFor: routineConversation,
+  startTurn: async (botId, threadId, prompt, runOn, triggerSource, onDispatchError, runId) => {
+    const ownersRoutine = cloudOwnersRoutinePrompt(activeRoutineRunForThread(threadId), botId, threadId);
+    await startTurn(botId, prompt, { threadId, runOn, automationSource: triggerSource, routineRunId: runId, onDispatchError, ...(ownersRoutine ? { ownersRoutine } : {}) });
   },
   startGoal: async (groupId, threadId, prompt, coordinatorBotId, runId, _onDispatchError) => {
     startGroupTurn(groupId, prompt, undefined, undefined, "goal", undefined, {
@@ -9703,9 +9669,10 @@ routines = new RoutineManager({
       goalRunId: runId,
     });
   },
-  interruptTurn: async (botId, threadId) => {
+  interruptTurn: async (botId, threadId, run) => {
+    forgetRoutineDelegationWake(threadId, run.id);
+    if (!routineTurnBelongsToRun(run)) return;
     const bot = botForThread(botId, threadId);
-    pendingDelegationWakes.delete(threadId);
     discardDelegations(commsBus, threadId);
     cancelDirectTurnDispatch(botId, threadId);
     revokeInternalCapabilitiesForThread(threadId);
@@ -9719,8 +9686,8 @@ routines = new RoutineManager({
   onRunChanged: syncRoutineRunToSource,
   onRunFailed: (run) => {
     if (run.threadId) {
-      pendingDelegationWakes.delete(run.threadId);
-      discardDelegations(commsBus, run.threadId);
+      forgetRoutineDelegationWake(run.threadId, run.id);
+      if (routineOwnsConversationTurn(run)) discardDelegations(commsBus, run.threadId);
     }
     const bot = store.bot(run.botId);
     if (!bot) return;
@@ -9756,7 +9723,7 @@ if (CLOUD_HOME && CLOUD_OWNER_KEY && cloudRoutineAuthors) {
       ids: () => (routines?.listRoutines() ?? []).map((routine) => routine.id),
       writer: (id) => authors.writer(id),
       fingerprinted: (id) => { const routine = routineById(id); return Boolean(routine) && authors.authored(id, routine!); },
-      resultsOpener: (id) => { const results = routineById(id)?.resultsThreadId; return results ? threadStarters.get(results) : undefined; },
+      resultsOpener: (id) => { const results = routines?.legacyResultsThreadId(id); return results ? threadStarters.get(results) : undefined; },
       shape: (id) => { const routine = routineById(id); return routine ? approvalShape(routine) : undefined; },
       name: (id, person) => authors.wrote(id, person),
       pause: (ids) => { for (const id of ids) routines?.update(id, { enabled: false }); },
@@ -10552,7 +10519,7 @@ const webhooks = new WebhookManager({
     store.appendMessage(threadId, { role: "bot", kind: "text", text, webhookPost: true });
   },
   resolvePostThread: (trigger, forceNew) => {
-    if (!forceNew && trigger.resultsThreadId) return trigger.resultsThreadId;
+    if (!forceNew && trigger.resultsThreadId && store.taskByThread(trigger.botId, trigger.resultsThreadId)) return trigger.resultsThreadId;
     return store.createTask(trigger.botId, "Updates", false)?.threadId;
   },
 });
@@ -13459,7 +13426,6 @@ function configStatus() {
       skillsLibrary: skillsLibraryEnabled(cfg),
       showToolCalls: showToolCallsEnabled(cfg),
       stepUpdates: stepUpdatesEnabled(cfg),
-      routinesInConversation: routinesInConversationEnabled(cfg),
       browser: builtInBrowserEnabled(cfg),
       sharedComputers: sharedComputersEnabled(cfg),
       claudeUserMcp: claudeUserMcpEnabled(cfg),
@@ -14989,7 +14955,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             ? { action: body.action, routineId: body.routineId, changes: body.changes, forBot }
             : { action: body.action, routineId: body.routineId, forBot };
         const wasOwners = proposedInput.action !== "create" && typeof proposedInput.routineId === "string" ? cloudRoutineIsOwners(proposedInput.routineId) : false;
-        const run = activeRoutineRunForThread(fromThreadId);
+        const run = routineRunForTurn(fromThreadId);
         const ownersTurn = cloudOwnerOnlyThread(fromThreadId) || cloudRoutineRunIsOwners(run, from.id, fromThreadId);
         const proposed = await routineRequests.submit({
           botId: from.id,
@@ -15547,7 +15513,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             taskId,
             sourceThreadId: fromThreadId,
             sourceBotId: currentFrom.id,
-            routineRunId: activeRoutineRunForThread(fromThreadId)?.id,
+            routineRunId: routineRunForTurn(fromThreadId)?.id,
             ...externalCompletion(internalCapability),
           });
           store.appendMessage(fromThreadId, {
@@ -15847,22 +15813,20 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             let createdThread: string | undefined;
             try {
               requireActiveInternalCapability();
-              const continued = destination ? undefined : store.workThread(target.botId, internalSender.id, address.threadId);
               if (!destination) {
-                const task = continued ?? store.createTask(target.botId, `@${internalSender.name} · work`, false, undefined,
-                  { botId: internalSender.id, name: internalSender.name, kind: "work", threadId: address.threadId, at: Date.now() });
-                if (!task) throw new Error("The recipient no longer exists");
-                target.threadId = task.threadId;
-                if (!continued) createdThread = task.threadId;
-                applyDelegatedLevel(internalSender, internalCapability.threadId, store.bot(target.botId)!, target.threadId);
+                const recipient = store.bot(target.botId);
+                if (!recipient) throw new Error("The recipient no longer exists");
+                const guestThread = guestWorkThread(internalSender, recipient, address.threadId, parsed.data.message);
+                if (guestThread === null) throw new Error("Couldn't open a conversation for that work");
+                target.threadId = guestThread ?? recipient.threadId;
+                createdThread = guestThread;
               }
               const { node, duplicate } = roomHandoffs.enqueue(address, internalCapability.generation, internalCapability.roomHandoffId,
                 target, target.botId, parsed.data.message, approvalGranted, parsed.data.rework, [...store.messagesFor(address.threadId)].reverse().find(m => m.role === "user" && m.kind === "text")?.text ?? "",
                 requestBatchKey);
               if (duplicate && createdThread) store.deleteTask(target.botId, createdThread);
-              else if (createdThread) threadStarters.set(createdThread, openerFrom(address.threadId));
               createdThread = undefined;
-              const title = destination ? undefined : store.taskByThread(node.botId, node.threadId)?.title;
+              const recipientName = destination ? undefined : store.bot(node.botId)?.name;
               const finished: Partial<Record<RoomHandoff["status"], string>> = {
                 completed: "it already finished and its result stands; send it with rework=true to run it again",
                 failed: "it failed; send it with rework=true to retry", cancelled: "it was cancelled; send it with rework=true to retry",
@@ -15875,8 +15839,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 outcome: notSent ? "failed" : !duplicate || node.status === "queued" ? "queued" : "injected",
                 detail: notSent ?? (duplicate
                   ? `already sent: it is ${node.status === "queued" ? "queued" : "under way"} and its result will resume you`
-                  : title
-                    ? `sent to "${title}"; it runs after anything still running there`
+                  : recipientName
+                    ? `sent to ${recipientName}'s conversation; it runs after anything still running there`
                     : "handed to the coordinator; the teammate's turn has not started yet"),
                 requestId: node.id,
                 ...(destination ? {} : { threadId: node.threadId }),
@@ -16797,17 +16761,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           .filter((run) => routineVisible(run, visible)),
       });
     }
-    const routineResultsRefusal = (body: unknown): string | null =>
-      body && typeof body === "object" && typeof (body as { resultsThreadId?: unknown }).resultsThreadId === "string"
-        ? cloudThreadRefusal(auth, (body as { resultsThreadId: string }).resultsThreadId) : null;
     if (path === "/api/routines" && method === "POST") {
       const body = await readBody(req);
       const hidden = hiddenRoutineTarget(body, visible);
       if (hidden) return json(res, 404, { error: hidden });
-      const notYours = routineResultsRefusal(body);
-      if (notYours) return json(res, 403, { error: notYours });
       const writer = auth.kind === "session" ? actorKey(auth) : CLOUD_NOBODY_KEY;
-      const routine = withRoutineWriter(writer, () => routines!.create(body));
+      const routine = routines!.create(body);
       if (cloudRoutineAuthors && cloudOwnerSession(auth)) cloudRoutineAuthors.record(routine.id, routine);
       cloudRoutineAuthors?.wrote(routine.id, writer);
       return json(res, 201, { routine });
@@ -16826,8 +16785,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const body = await readBody(req);
       const hidden = hiddenRoutineTarget(body, visible);
       if (hidden) return json(res, 404, { error: hidden });
-      const notYours = routineResultsRefusal(body);
-      if (notYours) return json(res, 403, { error: notYours });
       const before = cloudRoutineAuthors ? routines!.listRoutines().find((candidate) => candidate.id === routineMatch![1]) : undefined;
       const wasOwners = Boolean(before && cloudRoutineAuthors?.authored(before.id, before));
       const previous = cloudRoutineAuthors?.writer(routineMatch[1]);
@@ -16837,7 +16794,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const writer = ownerAuthors && CLOUD_OWNER_KEY ? CLOUD_OWNER_KEY
         : auth.kind === "session" && !cloudOwnerSession(auth) ? actorKey(auth)
           : previous && !cloudOwnerPerson(previous) ? previous : CLOUD_NOBODY_KEY;
-      const routine = withRoutineWriter(writer, () => routines!.update(routineMatch![1], body));
+      const routine = routines!.update(routineMatch![1], body);
       if (routine && cloudRoutineAuthors) {
         if (!cloudOwnerSession(auth)) cloudRoutineAuthors.forget(routine.id);
         else if (ownerAuthors) cloudRoutineAuthors.record(routine.id, routine);
@@ -20046,9 +20003,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (expectedThreadId !== undefined && routineRun.threadId !== expectedThreadId) {
           return json(res, 409, { error: "this dog is running a routine in another conversation" });
         }
-        cancelDirectTurnDispatch(bot.id, routineRun.threadId ?? expectedThreadId);
-        if (routineRun.threadId) {
-          revokeInternalCapabilitiesForThread(routineRun.threadId);
+        if (routineTurnBelongsToRun(routineRun)) {
+          cancelDirectTurnDispatch(bot.id, routineRun.threadId ?? expectedThreadId);
+          if (routineRun.threadId) revokeInternalCapabilitiesForThread(routineRun.threadId);
         }
         await routines!.cancelRun(routineRun.id);
         return json(res, 200, { ok: true });

@@ -44,15 +44,13 @@ specialists; it never inherits the parent Chief's cross-team access or permissio
 Advice is not a verification
 receipt: the lead must ask the reviewer to run the requested checks.
 
-Outside a room, a conversation has one thread with each recipient, titled
-“@Clive · work”. The first request opens it; every later request from that
-conversation — a follow-up, a change of plan, rework — goes into it, so the
-recipient has the earlier work in its own history. If the recipient is still
-working there, the request waits and runs next; the same work never runs twice
-in parallel. A different conversation of the sender gets its own thread.
-Successful reported work closes in the sidebar but remains readable, and
-reopens when the next request arrives; failed or withheld work remains
-visible. Each receipt names the thread the request went into. Within the
+Outside a room, every request goes into the recipient's one conversation:
+the first request, a follow-up, a change of plan and rework all land there, so
+the recipient has the earlier work in its own history. If the recipient is
+already working in that conversation, the request waits and runs next; the same
+work never runs twice in parallel. The recipient works at its own model and
+permission level; a Chief's level is never applied to it. Each receipt names the
+recipient's conversation. Within the
 sending turn and the turns that resume it, the same text to the same
 recipient and place is one request: a repeat while it is live is not sent
 again, and a repeat after it finished or failed runs again only with

@@ -136,7 +136,6 @@ export interface RoutineRun {
   webhookId?: string;
   deliveryId?: string;
   sourceThreadId?: string;
-  resultsThreadId?: string;
   threadId?: string;
   startedAt?: number;
   finishedAt?: number;
@@ -194,7 +193,6 @@ export interface RoutineInput {
   attachments?: RoutineContextAttachment[];
   continuity?: boolean;
   overlap?: "skip" | "queue";
-  resultsThreadId?: string | null;
 }
 
 interface RoutineFile {
@@ -217,8 +215,6 @@ const MAX_WEBHOOK_RECEIPTS = 20_000;
 
 export type RoutineRequestOwner = Pick<RoutineRequestReceipt, "requestId" | "messageId" | "botId" | "threadId">;
 
-type ResultsThreadAllocation = { botId: string; threadId: string };
-
 function routineRequestOwnerKey(owner: RoutineRequestOwner): string {
   return JSON.stringify([owner.requestId, owner.messageId, owner.botId, owner.threadId]);
 }
@@ -227,14 +223,9 @@ export interface RoutineManagerOptions {
   file?: string;
   now?: () => number;
   emit?: (payload: Record<string, unknown>) => void;
-  botState: (botId: string) => "ready" | "busy" | "missing";
+  botState: (botId: string, run?: Pick<RoutineRun, "webhookId">) => "ready" | "busy" | "missing";
   goalState?: (groupId: string, coordinatorBotId: string) => "ready" | "busy" | "missing";
-  createTask: (botId: string, title: string, activate?: boolean, run?: RoutineRun) => { threadId: string } | null;
-  joinConversation?: (run: RoutineRun) => string | null;
-  createGoalTask?: (groupId: string, title: string) => { threadId: string } | null;
-  isResultsThread?: (botId: string, threadId: string) => boolean;
-  resolveResultsThread?: (routine: Routine, forceNew: boolean) => string | undefined;
-  discardResultsThread?: (botId: string, threadId: string) => void;
+  conversationFor: (run: RoutineRun) => string | { refusal: string } | null;
   startTurn: (
     botId: string,
     threadId: string,
@@ -242,6 +233,7 @@ export interface RoutineManagerOptions {
     runOn: RoutineRunOn,
     triggerSource: RoutineRunTrigger,
     onDispatchError: (message: string) => void,
+    runId: string,
   ) => Promise<void>;
   startGoal?: (
     groupId: string,
@@ -251,7 +243,7 @@ export interface RoutineManagerOptions {
     runId: string,
     onDispatchError: (message: string) => void,
   ) => Promise<void>;
-  interruptTurn?: (botId: string, threadId: string) => Promise<void>;
+  interruptTurn?: (botId: string, threadId: string, run: RoutineRun) => Promise<void>;
   interruptGoal?: (
     groupId: string,
     threadId: string,
@@ -260,7 +252,8 @@ export interface RoutineManagerOptions {
   onRunChanged?: (run: RoutineRun) => void;
   onRunFailed?: (run: RoutineRun) => void;
   onRunDeferred?: (run: RoutineRun) => void;
-  hasPendingDelegations?: (threadId: string) => boolean;
+  hasPendingDelegations?: (threadId: string, runId: string) => boolean;
+  turnBelongsToRun?: (run: RoutineRun) => boolean;
 }
 
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -761,9 +754,9 @@ export class RoutineManager {
               timeoutMinutes: loadTimeoutMinutes(run.timeoutMinutes),
               attachments: loadAttachments(run.attachments),
               sourceThreadId: persistedSourceThreadId.parse(run.sourceThreadId),
-              resultsThreadId: persistedSourceThreadId.parse(run.resultsThreadId),
             };
             if (loaded.timeoutMinutes === undefined) delete loaded.timeoutMinutes;
+            delete (loaded as RoutineRun & { resultsThreadId?: string }).resultsThreadId;
             return loaded;
           })
         : [];
@@ -829,7 +822,7 @@ export class RoutineManager {
       .sort((a, b) => (b.finishedAt ?? b.createdAt) - (a.finishedAt ?? a.createdAt) || b.createdAt - a.createdAt);
     const success = outcomes.findIndex(run => run.status === "completed");
     const failures = success < 0 ? outcomes.length : success;
-    const { installedPackage: _installedPackage, ...visible } = cloneRoutine(routine);
+    const { installedPackage: _installedPackage, resultsThreadId: _legacyResultsThread, ...visible } = cloneRoutine(routine);
     return { ...visible, ...(failures ? { failureStreak: failures } : {}) };
   }
 
@@ -935,7 +928,18 @@ export class RoutineManager {
   }
 
   runForThread(threadId: string): RoutineRun | null {
-    const run = this.runs.find((candidate) => candidate.threadId === threadId);
+    const run = this.runs.findLast((candidate) => candidate.threadId === threadId);
+    return run ? cloneRun(run) : null;
+  }
+
+  legacyResultsThreadId(routineId: string): string | undefined {
+    return this.routines.find((routine) => routine.id === routineId)?.resultsThreadId;
+  }
+
+  runDuring(threadId: string, at: number): RoutineRun | null {
+    const run = this.runs.findLast((candidate) => candidate.threadId === threadId &&
+      (candidate.startedAt ?? candidate.createdAt) <= at &&
+      (candidate.finishedAt === undefined || at <= candidate.finishedAt));
     return run ? cloneRun(run) : null;
   }
 
@@ -963,11 +967,10 @@ export class RoutineManager {
       createdAt: at,
       updatedAt: at,
     };
-    const discardResults = this.applyResultsInput(routine, input.resultsThreadId);
     this.commitMutation(() => {
       this.routines.unshift(routine);
       if (request) this.rememberRoutineRequest(request, routine.id, at);
-    }, discardResults);
+    });
     this.emitRoutine(routine);
     return this.routineWithHealth(routine);
   }
@@ -1011,13 +1014,9 @@ export class RoutineManager {
     if (clean.schedule.type === "interval" && clean.enabled && nextRunAt === null) {
       throw new Error("This interval has no future runs. Choose a later end date or turn it off.");
     }
-    const destination = { ...routine, ...clean };
-    if (destination.botId !== routine.botId) delete destination.resultsThreadId;
-    const discardResults = this.applyResultsInput(destination, patch.resultsThreadId);
     const cancelledRuns: RoutineRun[] = [];
     this.commitMutation(() => {
       Object.assign(routine, clean, {
-        resultsThreadId: destination.resultsThreadId,
         nextRunAt,
         updatedAt: Math.max(now, routine.updatedAt + 1),
       });
@@ -1037,7 +1036,7 @@ export class RoutineManager {
         }
       }
       if (request) this.rememberRoutineRequest(request, routine.id, now);
-    }, discardResults);
+    });
     for (const run of cancelledRuns) this.emitRun(run);
     this.emitRoutine(routine);
     return this.routineWithHealth(routine);
@@ -1091,7 +1090,7 @@ export class RoutineManager {
         if (run.target === "room-goal" && run.groupId) {
           void this.options.interruptGoal?.(run.groupId, run.threadId).catch(() => {});
         } else {
-          void this.options.interruptTurn?.(run.botId, run.threadId).catch(() => {});
+          void this.options.interruptTurn?.(run.botId, run.threadId, cloneRun(run)).catch(() => {});
         }
       }
       changed = true;
@@ -1140,14 +1139,10 @@ export class RoutineManager {
     const routine = this.routines.find((r) => r.id === id);
     if (!routine) return null;
     let run!: RoutineRun;
-    const allocations: ResultsThreadAllocation[] = [];
-    const previousDestination = routine.resultsThreadId;
     this.commitMutation(() => {
-      run = this.newRun(routine, this.now(), true, allocations, request?.threadId ?? routine.sourceThreadId);
-      if (request) run.sourceThreadId = request.threadId;
+      run = this.newRun(routine, this.now(), true, request?.threadId ?? routine.sourceThreadId);
       if (request) this.rememberRoutineRequest(request, run.id, this.now());
-    }, () => this.discardResultsThreads(allocations));
-    if (routine.resultsThreadId !== previousDestination) this.emitRoutine(routine);
+    });
     this.emitRun(run);
     queueMicrotask(() => void this.tick());
     return cloneRun(run);
@@ -1272,7 +1267,7 @@ export class RoutineManager {
       if (run.target === "room-goal" && run.groupId) {
         await this.options.interruptGoal?.(run.groupId, run.threadId).catch(() => {});
       } else {
-        await this.options.interruptTurn?.(run.botId, run.threadId).catch(() => {});
+        await this.options.interruptTurn?.(run.botId, run.threadId, cloneRun(run)).catch(() => {});
       }
     }
     queueMicrotask(() => void this.tick());
@@ -1342,14 +1337,13 @@ export class RoutineManager {
             detail,
           }).catch(() => {});
         } else {
-          await this.options.interruptTurn?.(run.botId, threadId).catch(() => {});
+          await this.options.interruptTurn?.(run.botId, threadId, cloneRun(run)).catch(() => {});
         }
       }
       const dueRoutines = this.routines.filter(
         (routine) => routine.enabled && routine.nextRunAt != null && routine.nextRunAt <= now,
       );
       const scheduledRuns: RoutineRun[] = [];
-      const allocations: ResultsThreadAllocation[] = [];
       if (dueRoutines.length > 0) {
         this.commitMutation(() => {
           for (const routine of dueRoutines) {
@@ -1364,7 +1358,7 @@ export class RoutineManager {
             const scheduledQueued = this.runs.some(run => run.routineId === routine.id && run.status === "queued" &&
               (run.triggerSource ?? (run.manual ? "manual" : "schedule")) === "schedule");
             if (!overlapping || (routine.overlap === "queue" && !scheduledQueued)) {
-              const run = this.newRun(routine, scheduledFor, false, allocations);
+              const run = this.newRun(routine, scheduledFor, false);
               if (late > CATCH_UP_MS) {
                 run.status = "missed";
                 run.finishedAt = now;
@@ -1385,7 +1379,7 @@ export class RoutineManager {
               routine.updatedAt = Math.max(now, routine.updatedAt + 1);
             }
           }
-        }, () => this.discardResultsThreads(allocations));
+        });
       }
       for (const routine of dueRoutines) this.emitRoutine(routine);
       for (const run of scheduledRuns) this.emitRun(run);
@@ -1440,23 +1434,15 @@ export class RoutineManager {
           continue;
         }
         const startedAt = this.now();
-        const suffix = ` · ${new Date(startedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
-        const title = `${run.routineName.slice(0, 80 - suffix.length).trimEnd()}${suffix}`;
-        const joined = run.target === "room-goal" ? null : this.options.joinConversation?.(run) || null;
-        const task = joined
-          ? { threadId: joined }
-          : run.target === "room-goal"
-          ? run.groupId
-            ? this.options.createGoalTask?.(run.groupId, title) ?? null
-            : null
-          : this.options.createTask(run.botId, title, run.triggerSource === "webhook", run);
-        if (!task) {
-          this.failRun(run, run.target === "room-goal"
-            ? "Could not create a room task for this goal"
-            : "Could not create a task for this run");
+        const conversation = this.options.conversationFor(run);
+        if (typeof conversation !== "string") {
+          this.failRun(run, conversation?.refusal ?? (run.target === "room-goal"
+            ? "Could not find this group's conversation"
+            : "Could not find this dog's conversation"));
           continue;
         }
-        run.threadId = task.threadId;
+        const threadId = conversation;
+        run.threadId = threadId;
         run.startedAt = startedAt;
         run.status = "running";
         this.save();
@@ -1464,35 +1450,36 @@ export class RoutineManager {
         try {
           const prompt = run.prompt ?? this.routines.find((r) => r.id === run.routineId)?.prompt;
           if (!prompt) {
-            this.failThread(task.threadId, "The routine was deleted before it could start");
+            this.failStartedRun(run.id, "The routine was deleted before it could start");
             continue;
           }
           const triggerSource = run.triggerSource ?? (run.manual ? "manual" : "schedule");
           if (run.target === "room-goal") {
             if (!run.groupId || !this.options.startGoal) {
-              this.failThread(task.threadId, "Room goal routines are unavailable");
+              this.failStartedRun(run.id, "Room goal routines are unavailable");
               continue;
             }
             await this.options.startGoal(
               run.groupId,
-              task.threadId,
+              threadId,
               prompt,
               run.botId,
               run.id,
-              (message) => this.failThread(task.threadId, message),
+              (message) => this.failStartedRun(run.id, message),
             );
           } else {
             await this.options.startTurn(
               run.botId,
-              task.threadId,
+              threadId,
               composeExecutionPrompt(prompt, run.attachments, this.continuityCarry(run)),
               run.runOn ?? "dog",
               triggerSource,
-              (message) => this.failThread(task.threadId, message),
+              (message) => this.failStartedRun(run.id, message),
+              run.id,
             );
           }
         } catch (error) {
-          this.failThread(task.threadId, error instanceof Error ? error.message : String(error));
+          this.failStartedRun(run.id, error instanceof Error ? error.message : String(error));
         }
       }
     } finally {
@@ -1500,8 +1487,14 @@ export class RoutineManager {
     }
   }
 
+  private activeRunForTurn(threadId: string): RoutineRun | undefined {
+    const run = this.runs.find((r) => r.threadId === threadId && ["running", "waiting"].includes(r.status));
+    if (!run || run.target === "room-goal" || !this.options.turnBelongsToRun) return run;
+    return this.options.turnBelongsToRun(cloneRun(run)) ? run : undefined;
+  }
+
   handleRuntimeEvent(event: RuntimeEvent): RoutineRun | null {
-    const run = this.runs.find((r) => r.threadId === event.threadId && ["running", "waiting"].includes(r.status));
+    const run = this.activeRunForTurn(event.threadId);
     if (!run) return null;
     if (
       run.target === "room-goal" &&
@@ -1540,7 +1533,7 @@ export class RoutineManager {
         queueMicrotask(() => void this.tick());
         return cloneRun(run);
       }
-      const pending = this.options.hasPendingDelegations?.(event.threadId) === true;
+      const pending = this.options.hasPendingDelegations?.(event.threadId, run.id) === true;
       run.status = pending ? "waiting" : "completed";
       run.attention = pending ? "Waiting for delegated work to finish" : undefined;
       if (!pending) run.finishedAt = this.now();
@@ -1555,7 +1548,14 @@ export class RoutineManager {
   }
 
   failThread(threadId: string, message: string) {
-    const run = this.runs.find((r) => r.threadId === threadId && ["running", "waiting"].includes(r.status));
+    const run = this.activeRunForTurn(threadId);
+    if (!run) return;
+    this.failRun(run, message);
+    queueMicrotask(() => void this.tick());
+  }
+
+  private failStartedRun(runId: string, message: string) {
+    const run = this.runs.find((r) => r.id === runId && ["running", "waiting"].includes(r.status));
     if (!run) return;
     this.failRun(run, message);
     queueMicrotask(() => void this.tick());
@@ -1615,12 +1615,12 @@ export class RoutineManager {
     this.options.onRunFailed?.(cloneRun(run));
   }
 
-  private targetState(target: Pick<RoutineRun, "target" | "groupId" | "botId">): "ready" | "busy" | "missing" {
+  private targetState(target: Pick<RoutineRun, "target" | "groupId" | "botId" | "webhookId">): "ready" | "busy" | "missing" {
     if (target.target === "room-goal") {
       if (!target.groupId || !this.options.goalState) return "missing";
       return this.options.goalState(target.groupId, target.botId);
     }
-    return this.options.botState(target.botId);
+    return this.options.botState(target.botId, target);
   }
 
   private missingTargetMessage(target: RoutineTarget): string {
@@ -1654,17 +1654,8 @@ export class RoutineManager {
     routine: Routine,
     scheduledFor: number,
     manual: boolean,
-    allocations: ResultsThreadAllocation[],
     sourceThreadId = routine.sourceThreadId,
   ): RoutineRun {
-    if (routine.target === "bot" && this.options.resolveResultsThread) {
-      const destination = this.options.resolveResultsThread({ ...routine, sourceThreadId }, false);
-      if (destination !== routine.resultsThreadId) {
-        if (destination) allocations.push({ botId: routine.botId, threadId: destination });
-        routine.resultsThreadId = destination;
-        routine.updatedAt = Math.max(this.now(), routine.updatedAt + 1);
-      }
-    }
     const run: RoutineRun = {
       id: randomUUID(),
       routineId: routine.id,
@@ -1682,40 +1673,10 @@ export class RoutineManager {
       manual,
       triggerSource: manual ? "manual" : "schedule",
       sourceThreadId,
-      resultsThreadId: routine.resultsThreadId,
       createdAt: this.now(),
     };
     this.runs.push(run);
     return run;
-  }
-
-  private discardResultsThreads(allocations: ResultsThreadAllocation[]) {
-    for (const { botId, threadId } of allocations) {
-      try {
-        this.options.discardResultsThread?.(botId, threadId);
-      } catch (error) {
-        console.error("routine: could not discard uncommitted results thread", error);
-      }
-    }
-  }
-
-  private applyResultsInput(routine: Routine, value: RoutineInput["resultsThreadId"]) {
-    if (routine.target !== "bot") {
-      if (value != null) throw Object.assign(new Error("Results threads are only available for bot routines"), { status: 400 });
-      delete routine.resultsThreadId;
-      return;
-    }
-    if (value === undefined) return;
-    if (value === null) {
-      const destination = this.options.resolveResultsThread?.(routine, true);
-      if (!destination) throw new Error("Could not find a results thread for this routine");
-      routine.resultsThreadId = destination;
-      return () => this.options.discardResultsThread?.(routine.botId, destination);
-    }
-    if (typeof value !== "string" || !value.trim() || !this.options.isResultsThread?.(routine.botId, value.trim())) {
-      throw Object.assign(new Error("Choose a visible results thread belonging to this dog"), { status: 400 });
-    }
-    routine.resultsThreadId = value.trim();
   }
 
   private emitRoutine(routine: Routine) {
@@ -1768,7 +1729,7 @@ export class RoutineManager {
     this.routineRequestReceipts.unshift({ ...request, resultId, appliedAt });
   }
 
-  private commitMutation(mutate: () => void, rollback?: () => void): void {
+  private commitMutation(mutate: () => void): void {
     const before = {
       routines: this.routines.map(cloneRoutine),
       runs: this.runs.map(cloneRun),
@@ -1781,11 +1742,6 @@ export class RoutineManager {
       this.routines = before.routines;
       this.runs = before.runs;
       this.routineRequestReceipts = before.receipts;
-      try {
-        rollback?.();
-      } catch (cleanupError) {
-        console.error("routine: could not discard uncommitted results thread", cleanupError);
-      }
       throw error;
     }
   }

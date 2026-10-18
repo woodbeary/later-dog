@@ -8217,7 +8217,7 @@ describe("harness HTTP API", () => {
   it("keeps skill authoring on by default and persists an explicit opt-out", async () => {
     const before = await api("GET", "/api/config");
     expect(before.status).toBe(200);
-    expect(before.body.features).toEqual({ browser: false, skillAuthoring: true, skillsLibrary: false, showToolCalls: false, stepUpdates: false, routinesInConversation: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: true, smarterSuggestions: false });
+    expect(before.body.features).toEqual({ browser: false, skillAuthoring: true, skillsLibrary: false, showToolCalls: false, stepUpdates: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: true, smarterSuggestions: false });
     const untouched = JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8"));
     expect(untouched.features?.skillAuthoring).toBeUndefined();
     expect(untouched.features?.sharedComputers).toBeUndefined();
@@ -8226,14 +8226,14 @@ describe("harness HTTP API", () => {
       features: { skillAuthoring: false },
     });
     expect(saved.status).toBe(200);
-    expect(saved.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: false, stepUpdates: false, routinesInConversation: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: true, smarterSuggestions: false });
+    expect(saved.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: false, stepUpdates: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: true, smarterSuggestions: false });
 
     const disk = JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8"));
     expect(disk.features).toEqual({ ...untouched.features, skillAuthoring: false });
 
     const tools = await api("PATCH", "/api/config", { features: { showToolCalls: true } });
     expect(tools.status).toBe(200);
-    expect(tools.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: true, stepUpdates: false, routinesInConversation: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: true, smarterSuggestions: false });
+    expect(tools.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: true, stepUpdates: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: true, smarterSuggestions: false });
 
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     try {
@@ -9578,8 +9578,9 @@ describe("harness HTTP API", () => {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         modelSelection: { instanceId: "ghost", model: "unavailable-fixture" },
       })).status).toBe(200);
-      const sibling = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Unrelated selected thread" });
+      const sibling = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Unrelated older thread" });
       expect(sibling.status).toBe(201);
+      expect((await api("POST", `/api/bots/${bot.id}/tasks/${bot.threadId}`, {})).status).toBe(200);
       expect((await api("POST", `/api/bots/${bot.id}/read`, { threadId: bot.threadId })).status).toBe(200);
 
       const routineEvents = await openSse(`${BASE}/api/events`);
@@ -9617,7 +9618,7 @@ describe("harness HTTP API", () => {
           routineName: "Weekday brief",
           status: "failed",
         });
-        expect(runCards[0].routineRun.executionThreadId).not.toBe(bot.threadId);
+        expect(runCards[0].routineRun).not.toHaveProperty("executionThreadId");
 
         expect((await api("POST", `/api/bots/${bot.id}/read`, { threadId: bot.threadId })).status).toBe(200);
         expect((await api("POST", `/api/routine-runs/${queued.body.run.id}/seen`)).status).toBe(200);
@@ -9653,7 +9654,7 @@ describe("harness HTTP API", () => {
           startedAt: expect.any(String),
           finishedAt: expect.any(String),
           error: expect.stringMatching(/provider instance "ghost" is unavailable/i),
-          executionThreadId: runCards[0].routineRun.executionThreadId,
+          executionThreadId: bot.threadId,
         });
       } finally {
         routineEvents.close();

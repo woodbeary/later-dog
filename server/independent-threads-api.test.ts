@@ -94,7 +94,7 @@ describe("independent bot tasks through the isolated control surface", () => {
     await session.close();
   });
 
-  it("queues coordinated work behind a peer's approval even with a spare thread, and delivers it once without another user prompt", async () => {
+  it("queues coordinated work in the peer's one conversation behind its approval, and delivers it once without another user prompt", async () => {
     const chief = (await tool("create_bot", { name: "Mailbox Chief", instance_id: "claude", model: models[0] })).bot;
     const peer = (await tool("create_bot", { name: "Mailbox Peer", instance_id: "claude", model: models[1] })).bot;
     await api("PATCH", `/api/bots/${peer.id}/tasks/${peer.activeTaskId}`, { approvalMode: "ask" });
@@ -118,14 +118,14 @@ describe("independent bot tasks through the isolated control surface", () => {
       botId: peer.id,
       botName: "Mailbox Peer",
       outcome: "queued",
-      detail: "sent to \"@Mailbox Chief · work\"; it runs after anything still running there",
+      detail: "sent to Mailbox Peer's conversation; it runs after anything still running there",
       requestId: expect.any(String),
       threadId: expect.any(String),
     }]);
     const handoff = () => JSON.parse(readFileSync(join(session.info.dataDir, "room-handoffs.json"), "utf8"))
       .find((node: any) => node.id === requestId);
     const peerThread = handoff().threadId;
-    expect(peerThread).not.toBe(peer.activeTaskId);
+    expect(peerThread).toBe(peer.activeTaskId);
     expect(queued.body.receipts[0].threadId).toBe(peerThread);
     writeFileSync(modelFile(models[0], "gate"), "finish");
     await expect.poll(async () => {
@@ -134,9 +134,8 @@ describe("independent bot tasks through the isolated control surface", () => {
     }).toBe(1);
     await new Promise((resolve) => setTimeout(resolve, 1_500));
     const peerNow = (await api("GET", "/api/bots")).body.bots.find((bot: any) => bot.id === peer.id);
-    const side = peerNow?.tasks?.find((task: any) => task.threadId === peerThread || task.taskId === peerThread);
     expect(peerNow?.activity).toBe("waiting-on-you");
-    expect(side?.busy).not.toBe(true);
+    expect(peerNow?.tasks).toHaveLength(1);
     expect(handoff()?.status).toBe("queued");
     expect(answers).toEqual([]);
     await control(["messages", "--bot", chief.id, "--limit", "10"]);
@@ -153,7 +152,7 @@ describe("independent bot tasks through the isolated control surface", () => {
     const bots = (await api("GET", "/api/bots")).body.bots;
     const peerState = bots.find((bot: any) => bot.id === peer.id);
     expect(peerState.threadId).toBe(peer.activeTaskId);
-    expect(peerState.messages.some((message: any) => message.text?.includes("MAILBOX_REVIEW"))).toBe(false);
+    expect(peerState.tasks).toHaveLength(1);
     const targetMessages = (await api("GET", `/api/threads/${peerThread}/messages?limit=100`)).body.messages;
     expect(targetMessages.filter((message: any) => message.roomRequest?.id === requestId && message.roomRequest.phase === "request")).toHaveLength(1);
     expect(targetMessages.some((message: any) => message.text?.includes("MAILBOX_REVIEW"))).toBe(true);
@@ -381,7 +380,7 @@ describe("independent bot tasks through the isolated control surface", () => {
     expect(final.tasks.find((task: any) => task.taskId === taskB).modelSelection.model).toBe(models[1]);
   }, 45_000);
 
-  it("cancels a detached routine on its captured provider after an idle sibling changes the default", async () => {
+  it("cancels a routine running in the dog's one conversation on its captured provider", async () => {
     const created = await tool("create_bot", { name: "Routine provider fixture", instance_id: "claude", model: models[0] });
     const botId = created.bot.id;
     const selectedThread = created.bot.activeTaskId;
@@ -394,17 +393,18 @@ describe("independent bot tasks through the isolated control surface", () => {
     expect(launched.status).toBe(201);
     await dump(models[0]);
     const run = (await api("GET", "/api/routines")).body.runs.find((item: any) => item.id === launched.body.run.id);
-    expect(run.threadId).not.toBe(selectedThread);
-    expect((await botState(botId)).tasks.find((task: any) => task.taskId === run.threadId)?.busy).toBe(true);
+    expect(run.threadId).toBe(selectedThread);
+    expect((await botState(botId)).tasks).toHaveLength(1);
+    expect((await botState(botId)).tasks[0]).toMatchObject({ taskId: selectedThread, busy: true });
+    expect((await api("POST", `/api/routine-runs/${run.id}/cancel`)).status).toBe(200);
+    await expect.poll(async () => (await botState(botId)).tasks.find((task: any) => task.taskId === selectedThread)?.busy,
+      { timeout: 10_000 }).toBe(false);
+    expect((await api("GET", "/api/routines")).body.runs.find((item: any) => item.id === run.id).status).toBe("cancelled");
+    expect((await botState(botId)).tasks.find((task: any) => task.taskId === selectedThread)?.modelSelection.model).toBe(models[0]);
     expect((await api("PATCH", `/api/bots/${botId}`, {
       modelSelection: { instanceId: "offline-fixture", model: "offline-model" },
     })).status).toBe(200);
-    expect((await api("POST", `/api/routine-runs/${run.id}/cancel`)).status).toBe(200);
-    await expect.poll(async () => (await botState(botId)).tasks.find((task: any) => task.taskId === run.threadId)?.busy,
-      { timeout: 10_000 }).toBe(false);
-    const final = await botState(botId);
-    expect(final.tasks.find((task: any) => task.taskId === run.threadId)?.modelSelection.instanceId).toBe("offline-fixture");
-    expect(final.tasks.find((task: any) => task.taskId === selectedThread)?.modelSelection.instanceId).toBe("offline-fixture");
+    expect((await botState(botId)).tasks.find((task: any) => task.taskId === selectedThread)?.modelSelection.instanceId).toBe("offline-fixture");
     evidence.push({ routineCancelledOnOriginalProvider: true, runId: run.id, taskId: run.threadId });
   }, 30_000);
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { builtInBrowserEnabled, llmThreadTitlesEnabled, routinesInConversationEnabled, sharedComputersEnabled, showToolCallsEnabled, skillAuthoringEnabled, stepUpdatesEnabled } from "./feature-flags";
+import { builtInBrowserEnabled, llmThreadTitlesEnabled, sharedComputersEnabled, showToolCallsEnabled, skillAuthoringEnabled, stepUpdatesEnabled } from "./feature-flags";
 
 describe("experimental feature flags", () => {
   it("keeps skill authoring on by default, before and after the config arrives", () => {
@@ -29,9 +29,6 @@ describe("experimental feature flags", () => {
 
   it("shows tool-call chips only after explicit opt-in", () => {
     expect(showToolCallsEnabled({ features: { showToolCalls: true } })).toBe(true);
-    expect(routinesInConversationEnabled(null)).toBe(false);
-    expect(routinesInConversationEnabled({})).toBe(false);
-    expect(routinesInConversationEnabled({ features: { routinesInConversation: true } })).toBe(true);
   });
 
   it("keeps dogs quiet by default and shows every step once step-by-step updates are on", () => {

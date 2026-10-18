@@ -5,7 +5,7 @@ import { writeFileAtomic } from "./atomic.ts";
 import type { RoutineRunTrigger } from "./routines.ts";
 
 type Card = { requestId?: string; answered?: string; answeredText?: string; dismissed?: boolean; answeredBy?: { kind: string; person?: string } };
-type Line = { id: string; role: string; peerAsk?: unknown; sender?: { id?: string }; card?: Card };
+type Line = { id: string; role: string; peerAsk?: unknown; sender?: { id?: string }; card?: Card; ownersRoutine?: boolean };
 
 export interface CloudLendingTurn {
   request: { messageId?: string; generations: ReadonlySet<string>; stopped?: boolean; automation?: RoutineRunTrigger } | undefined;
@@ -23,6 +23,7 @@ const personOf = (line: Line | undefined) => line?.role === "user" && !line.peer
 
 export function ownersLine(line: Line | undefined, ownerPerson: (person: string | undefined) => boolean, ownersOwnDogs: boolean): boolean {
   if (ownerPerson(personOf(line))) return true;
+  if (line?.role === "user" && line.ownersRoutine === true) return true;
   return ownersOwnDogs && line?.role === "user" && (Boolean(line.peerAsk) || !line.sender?.id);
 }
 

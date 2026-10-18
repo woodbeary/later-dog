@@ -1083,7 +1083,6 @@ function routineSnapshot(routine: Routine): RoutineRequestSnapshot | undefined {
     enabled: routine.enabled,
     ...(routine.target === "room-goal" ? { target: "room-goal" as const } : {}),
     ...(routine.groupId ? { groupId: routine.groupId } : {}),
-    ...(routine.resultsThreadId ? { resultsThreadId: routine.resultsThreadId } : {}),
   };
   return storedSnapshotSchema.safeParse(snapshot).success ? snapshot : undefined;
 }
@@ -1330,7 +1329,6 @@ export class RoutineRequestService {
             ...(before.timeoutMinutes === undefined ? {} : { timeoutMinutes: before.timeoutMinutes }),
             ...(before.continuity ? { continuity: true } : {}),
             ...(before.overlap === "queue" ? { overlap: "queue" as const } : {}),
-            ...(before.resultsThreadId ? { resultsThreadId: before.resultsThreadId } : {}),
           }).id;
           break;
         }

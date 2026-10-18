@@ -547,7 +547,7 @@ describe("goal-driven channel runs", () => {
     }
   });
 
-  it("stops a detached scheduled goal from the active room and cancels its routine run", async () => {
+  it("stops a scheduled goal in the group's one conversation from the room and cancels its routine run", async () => {
     const lead = (await api("POST", "/api/bots", {
       name: "Detached scheduled lead",
       modelSelection: { instanceId: "directHang", model: "claude-sonnet-5" },
@@ -595,7 +595,7 @@ describe("goal-driven channel runs", () => {
         };
       }, { timeout: 10_000 }).toEqual({
         runStatus: "running",
-        detached: true,
+        detached: false,
         activeThreadId: originalThreadId,
         hasBackgroundTask: true,
         roomWorking: true,
@@ -640,7 +640,7 @@ describe("goal-driven channel runs", () => {
     }
   });
 
-  it("stops a detached scheduled goal from the coordinator's ordinary Stop", async () => {
+  it("stops a scheduled goal in the group's one conversation from the coordinator's ordinary Stop", async () => {
     const lead = (await api("POST", "/api/bots", {
       name: "Detached bot-stop lead",
       modelSelection: { instanceId: "directHang", model: "claude-sonnet-5" },
@@ -685,7 +685,7 @@ describe("goal-driven channel runs", () => {
         };
       }, { timeout: 10_000 }).toEqual({
         runStatus: "running",
-        detached: true,
+        detached: false,
         activeThreadId: originalThreadId,
         roomWorking: true,
         leadBusy: true,
@@ -870,7 +870,7 @@ describe("goal-driven channel runs", () => {
     }
   });
 
-  it("runs a routine as a goal in a new background room task", async () => {
+  it("runs a routine goal in the group's one conversation without opening a room task", async () => {
     const lead = (await api("POST", "/api/bots", {
       name: "Scheduled lead",
       modelSelection: { instanceId: "routineGoal", model: "claude-sonnet-5" },
@@ -954,14 +954,13 @@ describe("goal-driven channel runs", () => {
       const completedRun = calendar.runs.find((run: { id: string }) => run.id === runId);
       const state = (await api("GET", "/api/bots?messages=0")).body;
       const backgroundRoom = state.groups.find((group: { id: string }) => group.id === room.id);
-      expect(backgroundRoom.threadId).toBe(completedRun.threadId);
-      expect(backgroundRoom.tasks).toContainEqual(expect.objectContaining({
-        threadId: completedRun.threadId,
-        title: expect.stringMatching(/^Daily team review · [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} [AP]M$/),
-      }));
+      expect(completedRun.threadId).toBe(originalThreadId);
+      expect(backgroundRoom.threadId).toBe(originalThreadId);
+      expect(backgroundRoom.tasks.map((task: { threadId: string }) => task.threadId)).toEqual([originalThreadId]);
 
       const switched = await api("POST", `/api/groups/${room.id}/tasks/${completedRun.threadId}`);
       expect(switched.status).toBe(200);
+      expect(switched.body.group.messages.some((message: { kind: string }) => message.kind === "routine.run")).toBe(false);
       expect(switched.body.group.messages.filter((message: { kind: string }) => message.kind === "goal.run"))
         .toEqual([
           expect.objectContaining({

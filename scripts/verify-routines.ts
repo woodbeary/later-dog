@@ -74,12 +74,8 @@ try {
   } finally { await waitForExit(proxy, { signal: "SIGTERM" }); }
   writeFileSync(gate, "finish the isolated setup turn");
   await control(["wait", "--bot", pepper.id, "--timeout", "15"]);
-  const { project: resultsFolder } = await api("POST", `/api/bots/${pepper.id}/projects`, { name: "later.dog management", emoji: "🛠️" });
-  const { task: resultsTask } = await api("POST", `/api/bots/${pepper.id}/tasks`, { title: "Fleet health reports", projectId: resultsFolder.id });
-  await api("POST", `/api/bots/${pepper.id}/tasks/${pepper.threadId}`, {});
   const manual = await api("POST", "/api/routines", {
     name: "Manual inbox check", prompt: "Summarize the test inbox. No external services.", botId: pepper.id,
-    resultsThreadId: resultsTask.threadId,
     enabled: true, schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 },
   });
   for (let index = 0; index < 2; index++) {
@@ -98,7 +94,7 @@ try {
   ui = await mountPreview(fixture, {
     entry: "/scripts/testing/threads-preview.tsx", route: "/__routines.html", title: "Isolated later.dog Routines",
   });
-  console.log(JSON.stringify({ ...fixture.info, previewUrl: ui.previewUrl, pepperId: pepper.id, misoId: miso.id, scheduledRoutineId: scheduled.routine.id, manualRoutineId: manual.routine.id, resultsThreadId: resultsTask.threadId, resultsFolderId: resultsFolder.id }));
+  console.log(JSON.stringify({ ...fixture.info, previewUrl: ui.previewUrl, pepperId: pepper.id, misoId: miso.id, scheduledRoutineId: scheduled.routine.id, manualRoutineId: manual.routine.id }));
   await parkUntilSignal();
 } finally {
   const final = await api("GET", "/api/routines").catch(() => null);

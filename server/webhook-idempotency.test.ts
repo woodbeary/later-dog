@@ -17,7 +17,7 @@ function harness() {
   let now = Date.now();
   const options = {
     file: join(dir, "routines.json"), now: () => now,
-    botState: () => "busy" as const, createTask: () => null, startTurn: async () => {},
+    botState: () => "busy" as const, conversationFor: () => null, startTurn: async () => {},
   };
   return { dir, options, manager: new RoutineManager(options), advance: (ms: number) => { now += ms; } };
 }
@@ -137,7 +137,7 @@ it.each(["capacity", "disk", "routine-write"] as const)("a rejected %s admission
   const held = new Promise<void>((resolve) => { release = resolve; });
   const starts: string[] = [];
   const manager = new RoutineManager({
-    ...h.options, botState: () => "ready", createTask: (botId) => ({ threadId: `thread-${botId}` }),
+    ...h.options, botState: () => "ready", conversationFor: (run) => `thread-${run.botId}`,
     startTurn: async (botId) => { starts.push(botId); if (botId === "A") await held; },
   });
   manager.enqueueWebhook({ ...input, botId: "A", deliveryId: "A" });

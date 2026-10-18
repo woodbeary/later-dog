@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlLaterDog } from "../scripts/control-laterdog.ts";
 
-it("starts a thread a Chief opens with a teammate at the Chief's level, and a Chief on Ask raises nobody", async () => {
+it("runs a teammate's work in its own conversation at its own level, whatever the Chief's level", async () => {
   const fixture = await launchVerificationServer({}, undefined, undefined, undefined, undefined, { scripted: true });
   const { url, dataDir } = fixture.info;
   const planPath = join(dataDir, "room-plan.json");
@@ -42,14 +42,15 @@ it("starts a thread a Chief opens with a teammate at the Chief's level, and a Ch
 
     await api("PATCH", `/api/bots/${chief.id}/tasks/${chief.activeTaskId}`, { approvalMode: "auto", acknowledgeLocalAuto: true });
     const adaTurn = await bringIn(chief, chief.activeTaskId, ada, "check-auto");
-    expect(adaTurn.permissionMode).toBe("auto");
-    expect(persistedTask(ada.id, adaTurn.threadId)).toMatchObject({ approvalMode: "auto", autoApprove: false });
-    expect((await messages(adaTurn.threadId)).some(message => message.kind === "activity"
-      && message.tool?.name === "Off-leash — delegated by Clive, a Chief of Staff on Off-leash")).toBe(true);
+    expect(adaTurn.threadId).toBe(ada.activeTaskId);
+    expect(adaTurn.permissionMode).toBe("default");
+    expect(persistedTask(ada.id, adaTurn.threadId)?.approvalMode ?? "ask").toBe("ask");
+    expect((await messages(adaTurn.threadId)).some(message => message.kind === "activity" && /delegated by/.test(message.tool?.name ?? ""))).toBe(false);
     expect((await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === ada.id).approvalMode ?? "ask").toBe("ask");
 
     const askThread = (await api("POST", `/api/bots/${chief.id}/tasks`, { title: "Plain Ask work" }, 201)).task;
     const beaTurn = await bringIn(chief, askThread.threadId, bea, "check-ask");
+    expect(beaTurn.threadId).toBe(bea.activeTaskId);
     expect(beaTurn.permissionMode).toBe("default");
     expect(persistedTask(bea.id, beaTurn.threadId)?.approvalMode ?? "ask").toBe("ask");
     expect((await messages(beaTurn.threadId)).some(message => message.kind === "activity" && /delegated by/.test(message.tool?.name ?? ""))).toBe(false);

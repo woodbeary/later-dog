@@ -146,17 +146,18 @@ posixOnly("routine failure notification wiring", () => {
         expect(receipt).toMatchObject({
           status: "failed",
           botId: bot.id,
-          resultsThreadId: frame.notification.threadId,
+          threadId: frame.notification.threadId,
         });
-        expect(receipt.threadId).not.toBe(frame.notification.threadId);
+        expect(receipt).not.toHaveProperty("resultsThreadId");
         const report = await api("GET", `/api/threads/${frame.notification.threadId}/messages?limit=20`);
         expect(report.status).toBe(200);
-        expect(report.body.messages.find((message: any) => message.routineRun?.runId === receipt.id)?.routineRun)
-          .toMatchObject({ status: "failed", executionThreadId: receipt.threadId });
+        const card = report.body.messages.find((message: any) => message.routineRun?.runId === receipt.id)?.routineRun;
+        expect(card).toMatchObject({ status: "failed" });
+        expect(card).not.toHaveProperty("executionThreadId");
         const currentBot = (await api("GET", "/api/bots")).body.bots.find((candidate: any) => candidate.id === bot.id);
-        expect(currentBot.tasks.find((task: any) => task.threadId === receipt.resultsThreadId).routineRunId).toBeUndefined();
-        expect(currentBot.tasks.find((task: any) => task.threadId === receipt.threadId))
-          .toMatchObject({ routineRunId: receipt.id, unread: false });
+        expect(currentBot.tasks).toHaveLength(1);
+        expect(currentBot.tasks[0].threadId).toBe(bot.threadId);
+        expect(currentBot.tasks[0].routineRunId).toBeUndefined();
 
         expect((await api("PATCH", `/api/bots/${bot.id}`, { name: "Failure observed" })).status).toBe(200);
         await stream.until(

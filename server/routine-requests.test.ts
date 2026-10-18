@@ -73,7 +73,7 @@ function harness(
     now: () => clock.now,
     botState: (botId) => (botId === "missing" ? "missing" : "busy"),
     goalState: () => "busy",
-    createTask: () => null,
+    conversationFor: () => null,
     startTurn: async () => {},
   });
   const store = new MemoryStore();
@@ -1634,7 +1634,7 @@ describe("cross-bot routine targeting", () => {
       file: join(dir, "routines.json"),
       now: () => clock.now,
       botState: () => "busy",
-      createTask: () => null,
+      conversationFor: () => null,
       startTurn: async () => {},
     });
     const store = new MemoryStore();

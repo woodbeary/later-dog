@@ -16,7 +16,7 @@ function fixture() {
   const routines = new RoutineManager({
     botState: (id) => store.bot(id) ? "ready" : "missing",
     goalState: (id, botId) => store.group(id)?.memberIds.includes(botId) ? "ready" : "missing",
-    createTask: (id, title) => store.createTask(id, title),
+    conversationFor: (run) => store.bot(run.botId)?.threadId ?? null,
     startTurn: async () => { throw new Error("Import must never run a bot"); },
   });
   const chief = store.createBot({ name: "Mira", section: "Engineering", description: "Full instructions\n".repeat(400) }, { seedMessages: false });

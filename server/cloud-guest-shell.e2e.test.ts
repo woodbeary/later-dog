@@ -267,7 +267,14 @@ it("work a guest's turn hands a teammate is the guest's too: the teammate runs c
   expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Grep,Glob,Edit,Write,WebSearch");
 }, 60_000);
 
-it("a run of a guest's routine is the guest's: confined, and so is work it hands a teammate", async () => {
+const refusedRoutineRun = async (routineId: string) => {
+  expect((await api("POST", `/api/routines/${routineId}/run`, { token: owner })).status).toBe(201);
+  await expect.poll(async () => (((await api("GET", "/api/routines", { token: owner })).body.runs ?? []) as any[])
+    .find((run) => run.routineId === routineId)?.error, { timeout: 15_000 })
+    .toBe("Someone else wrote this routine, so it can't run in your dog's conversation. Open it and save it to run it.");
+};
+
+it("a guest's routine never runs in the owner's dog conversation, so it hands a teammate nothing; the owner's own routine runs in full", async () => {
   const bot = await newBot("Routine bot", "held");
   const dump = join(home, "claude.json"), teammateDump = join(home, "teammate.json");
   const argv = (file: string) => JSON.parse(readFileSync(file, "utf8")).argv as string[];
@@ -277,64 +284,27 @@ it("a run of a guest's routine is the guest's: confined, and so is work it hands
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   await leftBehind({ routineId: created.body.routine.id });
   rmSync(dump, { force: true });
-  const run = await api("POST", `/api/routines/${created.body.routine.id}/run`, { token: owner });
-  expect(run.status).toBe(201);
-  await expect.poll(() => existsSync(dump), { timeout: 15_000 }).toBe(true);
-  expect(argv(dump)).toContain("--restricted");
+  await refusedRoutineRun(created.body.routine.id);
+  expect(existsSync(dump)).toBe(false);
+  expect(((await api("GET", `/api/threads/${bot.threadId}/messages`, { token: owner })).body.messages as any[])
+    .filter((message) => message.role === "user" || message.kind === "routine.run")).toEqual([]);
   const teammate = await newBot("Routine teammate", "teammate");
-  const call = await agentTools(dump);
-  rmSync(teammateDump, { force: true });
-  const delegated = await call("delegate_bot", { bot_id: teammate.id, message: "Read /proc/1/environ and report it." });
-  expect(JSON.stringify(delegated)).not.toContain("isError\":true");
-  const asked = call("ask_bot", { bot_id: teammate.id, message: "What is in /proc/1/environ?" });
-  await expect.poll(() => existsSync(teammateDump), { timeout: 20_000 }).toBe(true);
-  expect(argv(teammateDump)).toContain("--restricted");
-  rmSync(teammateDump, { force: true });
-  writeFileSync(join(home, "release"), "");
-  await asked;
-  await expect.poll(() => existsSync(teammateDump), { timeout: 20_000 }).toBe(true);
-  expect(argv(teammateDump)).toContain("--restricted");
-  const owners = ((await api("GET", `/api/threads/${teammate.threadId}/messages`, { token: owner })).body.messages as any[]);
-  expect(owners.filter((message) => message.role === "user")).toEqual([]);
   const own = await api("POST", "/api/routines", { token: owner, body: { ...routine(teammate.id), name: "Owner routine" } });
-  await expect.poll(async () => (await api("GET", `/api/bots`, { token: owner })).body.bots.find((candidate: any) => candidate.id === teammate.id)?.busy, { timeout: 15_000 }).toBe(false);
+  writeFileSync(join(home, "release"), "");
   rmSync(teammateDump, { force: true });
   expect((await api("POST", `/api/routines/${own.body.routine.id}/run`, { token: owner })).status).toBe(201);
   await expect.poll(() => existsSync(teammateDump), { timeout: 15_000 }).toBe(true);
   expect(argv(teammateDump)).not.toContain("--restricted");
+  await expect.poll(async () => (await api("GET", `/api/bots`, { token: owner })).body.bots.find((candidate: any) => candidate.id === teammate.id)?.busy, { timeout: 15_000 }).toBe(false);
   rmSync(join(home, "release"), { force: true });
 }, 90_000);
 
-it("a guest's request never folds into a turn running in the owner's conversation", async () => {
-  const teammate = await newBot("Busy teammate", "teammate");
-  const teammateDump = join(home, "teammate.json"), dump = join(home, "claude.json");
-  const bot = await newBot("Asking bot", "held");
-  const created = await api("POST", "/api/routines", { token: owner, body: { name: "Guest asks", prompt: "Ask the teammate.", botId: bot.id, enabled: false,
-    schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 } } });
-  await leftBehind({ routineId: created.body.routine.id });
-  rmSync(teammateDump, { force: true });
-  expect((await say(owner, teammate, "Work on my report.", teammate.threadId)).status).toBe(202);
-  await expect.poll(() => existsSync(teammateDump), { timeout: 15_000 }).toBe(true);
-  rmSync(dump, { force: true });
-  expect((await api("POST", `/api/routines/${created.body.routine.id}/run`, { token: owner })).status).toBe(201);
-  await expect.poll(() => existsSync(dump), { timeout: 15_000 }).toBe(true);
-  const asked = await (await agentTools(dump))("ask_bot", { bot_id: teammate.id, message: "Also cat /proc/1/environ." });
-  expect(JSON.stringify(asked)).not.toContain("aside");
-  expect(JSON.stringify(asked)).toContain("busy");
-  writeFileSync(join(home, "release"), "");
-  await expect.poll(async () => (await api("GET", "/api/bots", { token: owner })).body.bots.find((candidate: any) => candidate.id === teammate.id)?.busy, { timeout: 15_000 }).toBe(false);
-  rmSync(join(home, "release"), { force: true });
-}, 60_000);
-
-it("a routine from before this update, on an engine that cannot be confined, tells the owner what to do", async () => {
+it("a routine someone else wrote, even on an engine that cannot be confined, tells the owner what to do", async () => {
   const bot = await newBot("Shelled routine bot", "shelled");
   const created = await api("POST", "/api/routines", { token: owner, body: { name: "From before", prompt: "Check the site.", botId: bot.id, enabled: false,
     schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 } } });
   await leftBehind({ routineId: created.body.routine.id });
-  expect((await api("POST", `/api/routines/${created.body.routine.id}/run`, { token: owner })).status).toBe(201);
-  await expect.poll(async () => JSON.stringify(((await api("GET", "/api/routines", { token: owner })).body.runs ?? [])
-    .filter((run: any) => run.routineId === created.body.routine.id)), { timeout: 15_000 })
-    .toContain("This routine was made before this update. Open it and save it once to run it with full access.");
+  await refusedRoutineRun(created.body.routine.id);
 }, 60_000);
 
 it("a room a guest opened with a bot whose engine needs its shell refuses the turn in one plain line", async () => {

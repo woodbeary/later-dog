@@ -394,6 +394,19 @@ export class WebhookManager {
     return { webhook: publicTrigger(trigger), secret };
   }
 
+  updatesThread(id: string): string | undefined {
+    const trigger = this.webhooks.find((candidate) => candidate.id === id);
+    if (!trigger) return undefined;
+    const threadId = this.options.resolvePostThread?.(trigger, false);
+    if (threadId && threadId !== trigger.resultsThreadId) {
+      trigger.resultsThreadId = threadId;
+      trigger.updatedAt = this.now();
+      this.save();
+      this.emit(trigger);
+    }
+    return threadId;
+  }
+
   disableForBot(botId: string): void {
     let changed = false;
     for (const trigger of this.webhooks) {

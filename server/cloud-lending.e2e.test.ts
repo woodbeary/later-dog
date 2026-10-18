@@ -289,7 +289,9 @@ it("the person's Mac connects by itself through the real connector, asks before 
   expect(JSON.parse((await updatesCall("list_shared_computers")).content[0].text).unavailable).toContain("Someone else wrote in this conversation");
   expect((await reads(updatesCall)).isError).toBe(true);
 
-  expect(await sees(await run(rewritten))).toBe(0);
+  const refused = (await api("POST", `/api/routines/${rewritten}/run`, { token: owner })).body.run;
+  await expect.poll(async () => ((await api("GET", "/api/routines", { token: owner })).body.runs as any[]).find((candidate) => candidate.id === refused.id)?.error, { timeout: 15_000 })
+    .toBe("Someone else wrote this routine, so it can't run in your dog's conversation. Open it and save it to run it.");
   const ownRetimed = await routineFor("Owner retimed");
   expect((await api("PATCH", `/api/routines/${ownRetimed}`, { token: owner, body: { schedule: { type: "interval", everyMinutes: 30, anchorAt: Date.now() + 60_000 } } })).status).toBe(200);
   expect(await sees(await run(ownRetimed))).toBe(1);

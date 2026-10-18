@@ -98,7 +98,7 @@ describe("team backups", () => {
     const routines = new RoutineManager({
       botState: (id) => store.bot(id) ? "ready" : "missing",
       goalState: () => "ready",
-      createTask: (id, title) => store.createTask(id, title),
+      conversationFor: (run) => store.bot(run.botId)?.threadId ?? null,
       startTurn: async () => { throw new Error("Import must never run a bot"); },
     });
     const ada = store.createBot({ name: "Ada" }, { seedMessages: false });

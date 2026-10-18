@@ -49,25 +49,25 @@ The launcher prepares these cases:
   captured from a running fixture turn. The fake model does not decide to call
   the tool, and the launcher does not confirm the card.
 - **Manual inbox check** is created through the routine API and run twice for
-  Pepper. Both fresh executions report into **Fleet health reports**, inside
-  the **later.dog management** folder. Its next scheduled occurrence is an hour later.
+  Pepper. Both runs happen in Pepper's one conversation. Its next scheduled
+  occurrence is an hour later.
 - **Provider failure example** is created for **Miso** and run once. Miso's
   isolated fake engine deliberately exits early, producing a failure receipt.
 - **Automatic scheduled check** is scheduled for Pepper about twelve seconds
   after creation. The real scheduler must dispatch it without clicking Run now.
 
 The final startup JSON includes the server `url`, `previewUrl`, `pepperId`,
-`misoId`, `scheduledRoutineId`, `manualRoutineId`, `resultsThreadId`,
-`resultsFolderId`, temporary `dataDir`, and persistent `logPath`.
+`misoId`, `scheduledRoutineId`, `manualRoutineId`, temporary `dataDir`, and
+persistent `logPath`.
 
 ## Real UI checks
 
 1. In Pepper's source chat, inspect the pending routine card. Confirm it once;
    the card must become settled and exactly one matching routine must appear.
    Reloading must preserve both the routine and the card's settled state.
-   Open that routine and run it. Its lifecycle receipt lands in Pepper's main
-   thread (her oldest open conversation), not the source chat or a new
-   "· Results" thread, and leads to the isolated execution thread.
+   Open that routine and run it. The run, its lifecycle receipt and any
+   approval it asks for all land in Pepper's one conversation, not the source
+   chat or a new thread.
 2. Open **Automations → Schedule**. Toggle **List / Calendar**. The list must
    show paused and finished schedules as well as active ones; changing views
    must not change a routine or start a run. Filter by Pepper and Miso and
@@ -85,8 +85,8 @@ The final startup JSON includes the server `url`, `previewUrl`, `pepperId`,
    described as a successful run merely because its date has passed.
 5. Exercise bot and status filters, search by name or result/error text, and
    open a routine's scoped **Run logs** link. **Show all routines** removes that
-   routine-only filter. Opening a run must show its own saved details and its
-   actual execution thread when that thread still exists.
+   routine-only filter. Opening a run must show its own saved details. A run
+   from an older version opens its old execution thread, read-only history.
 6. Return to Pepper and open its Computer side panel. The **Routines** tab next
    to Computer and the compact entry below the computer section must reach the
    same bot-scoped list. Check next-run dates, latest results and log links.
@@ -95,36 +95,33 @@ The final startup JSON includes the server `url`, `previewUrl`, `pepperId`,
 7. Open bot settings → Routines. It must use the same routine editor and central
    logs, without creating a second definition or competing history page.
    Confirm that the chat's model header and Ask composer retain their positions.
-8. Expand Pepper's threads. **later.dog management** contains one **Fleet health
-   reports** thread, not separate sidebar entries for the two executions.
-   Right-click the folder (or use its actions menu) → **Mark folder as read**.
-   Its unread dots clear without selecting a conversation or resolving any
-   pending approvals. Open the results thread: both dated reports remain.
-9. Use a report's **Open run** to inspect its fresh execution transcript, then
-   **Back to results**. **Run logs** retains the full execution history.
-   A user follow-up sent in a completed execution makes it an ordinary visible
-   thread; marking the older run seen must not hide that conversation again.
-10. In the routine editor, **Post results to** offers visible threads grouped by
-    folder or **The bot's main thread** (the default). Save to Fleet health
-    reports, reload, and confirm the selection persists. In quick create,
-    **More options** must preserve the chosen destination. Changing the owning
-    bot, including via Call/Team goal selectors, must reset a foreign destination.
-    Run a new routine twice: both reports use the chosen thread, while Run logs
-    links to two different executions. The default reports every run into the
-    bot's main thread and never creates a "· Results" thread.
+8. Pepper still has one conversation. Both manual runs, their dated reports and
+   their prompts are in it, in order; the sidebar shows no extra entry per run.
+9. Send Pepper a message while she is busy, then press **Run now**. The run
+   waits behind the person's turn (its receipt says it was deferred) and then
+   runs in the same conversation.
 
-Every routine reports into its bot's main thread unless the user chooses another
-destination, whether it was made in a chat, the editor or the API, and whether
-a teammate (such as a Chief) asked for it. The main thread is the bot's oldest
-open conversation: the one it was created with until that is deleted or
-archived. A routine still pointing at an automatic "<name> · Results" thread
-from an older version moves to the main thread on its next run; that thread and
-its reports stay. On a Cloud home, a routine written by someone other than the
-owner keeps its own results conversation, opened as theirs. Historical runs keep
-the destination they started with. If that destination is deleted, their
-execution threads become visible so results and approvals remain reachable;
-future runs report into the main thread. No existing user conversation is
-silently deleted or filed.
+Every routine runs in its dog's one conversation, whether it was made in a
+chat, the editor or the API, and whether a teammate asked for it. A routine
+for a group runs in that group's one conversation. A run waits while that
+conversation is busy. Older routines that pointed at a "· Results" thread, and
+older runs that opened their own execution thread, keep that history: it stays
+stored and opens from search and from the run's row, but no new run writes
+there. On a Cloud home, a routine someone other than the owner wrote does not
+run in the owner's dog conversation: the run fails with "Someone else wrote
+this routine, so it can't run in your dog's conversation. Open it and save it
+to run it." No existing user conversation is silently deleted or filed.
+
+A webhook that runs a task works in that webhook's own "Updates"
+conversation, the same one its posted messages use, never the dog's one
+conversation.
+
+While a run waits for delegated work, the person can keep chatting in the same
+conversation. Only the run's own turns, and the turns that pick it up when its
+delegated results arrive, move the run: the person's replies, stops, failures
+and teammate requests never change its status or result, and its card stays in
+the conversation where it was first posted. A completed run's card shows its
+status only; the dog's reply right after it holds the report.
 
 An unconfirmed proposal is not an active routine. A run marked **Waiting** is
 not necessarily asking the user for approval: its attention text can explain

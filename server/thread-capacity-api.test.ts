@@ -180,7 +180,7 @@ describe("per-bot thread capacity through an isolated HTTP fixture", () => {
     expect(existsSync(threadFile(threads[11], "json"))).toBe(false);
   }, 60_000);
 
-  it("dispatches routines into a free slot without waiting for whole-bot idle", async () => {
+  it("runs a routine in the dog's conversation while another thread works, and holds the next run until that conversation is free", async () => {
     await limit(2);
     const { botId, threads } = await botWithThreads(2);
     expect((await send(botId, threads[0], "HOLD_ONE_SLOT")).body.queued).toBeUndefined();
@@ -203,7 +203,7 @@ describe("per-bot thread capacity through an isolated HTTP fixture", () => {
       const first = (await api("POST", `/api/routines/${routineId}/run`)).body.run;
       await expect.poll(async () => (await runState(first.id))?.status, { timeout: 15_000 }).toBe("running");
       const firstRun = await runState(first.id);
-      expect(firstRun.threadId).toBeTruthy();
+      expect(firstRun.threadId).toBe((await botState(botId)).threadId);
       expect(firstRun.threadId).not.toBe(threads[0]);
       await dump(firstRun.threadId);
       expect(await busyThreads(botId)).toHaveLength(2);
@@ -212,10 +212,11 @@ describe("per-bot thread capacity through an isolated HTTP fixture", () => {
       await new Promise((resolve) => setTimeout(resolve, 1_500));
       expect((await runState(second.id))?.status).toBe("queued");
       finish(threads[0]);
-      await expect.poll(async () => (await runState(second.id))?.status, { timeout: 15_000 }).toBe("running");
-      const secondRun = await runState(second.id);
-      expect(secondRun.threadId).not.toBe(firstRun.threadId);
-      await dump(secondRun.threadId);
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      expect((await runState(second.id))?.status).toBe("queued");
+      finish(firstRun.threadId);
+      await expect.poll(async () => (await runState(second.id))?.status, { timeout: 15_000 }).toBe("completed");
+      expect((await runState(second.id)).threadId).toBe(firstRun.threadId);
     } finally {
       for (const threadId of await busyThreads(botId)) finish(threadId);
       await expect.poll(async () => (await busyThreads(botId)).length, { timeout: 15_000 }).toBe(0);
@@ -224,7 +225,7 @@ describe("per-bot thread capacity through an isolated HTTP fixture", () => {
     }
   }, 90_000);
 
-  it("starts a routine in the bot's project folder while another thread works there", async () => {
+  it("starts a routine in the dog's conversation in its project folder while another thread works there", async () => {
     await limit(2);
     const project = mkdtempSync(join(tmpdir(), "laterdog-collide-"));
     projectDirs.push(project);
@@ -232,8 +233,9 @@ describe("per-bot thread capacity through an isolated HTTP fixture", () => {
     let botId: string | undefined;
     let routineId: string | undefined;
     try {
-      ({ botId } = await botWithThreads(1));
-      const threadId = (await botState(botId)).threadId as string;
+      const made = await botWithThreads(2);
+      botId = made.botId;
+      const threadId = made.threads[0]!;
       expect((await api("PATCH", `/api/bots/${botId}`, { cwd: project })).status).toBe(200);
       expect((await send(botId, threadId, "HOLD_THE_FOLDER")).body.queued).toBeUndefined();
       await expect.poll(() => busyThreads(botId!)).toEqual([threadId]);
@@ -258,7 +260,8 @@ describe("per-bot thread capacity through an isolated HTTP fixture", () => {
       const dispatched = await runState(run.id);
       expect(dispatched.deferredAt).toBeUndefined();
       expect(dispatched.error).toBeUndefined();
-      expect(dispatched.threadId).not.toBe(threadId);
+      expect(dispatched.threadId).toBe(made.threads[1]);
+      expect(dispatched.threadId).toBe((await botState(botId)).threadId);
       await expect.poll(async () => JSON.stringify((await dump(key)).prompt), { timeout: 15_000 }).toContain("scheduled digest");
       expect((await dump(key)).cwd).toBe(realpathSync(project));
       expect((await busyThreads(botId)).sort()).toEqual([threadId, dispatched.threadId].sort());
@@ -331,19 +334,23 @@ describe("per-bot thread capacity through an isolated HTTP fixture", () => {
     await limit(2);
     const target = await botWithThreads(2);
     const source = await botWithThreads(1);
-    const created = await api("POST", "/api/routines", {
-      name: "Delegated slot probe",
-      prompt: "Hold the delegator turn.",
-      target: "bot",
-      botId: source.botId,
-      runOn: "dog",
-      enabled: true,
-      schedule: { type: "daily", time: "23:00" },
-    });
-    expect(created.status).toBe(201);
-    const routineId = created.body.routine.id;
+    const otherSource = await botWithThreads(1);
+    const delegatorRoutine = async (botId: string) => {
+      const created = await api("POST", "/api/routines", {
+        name: "Delegated slot probe",
+        prompt: "Hold the delegator turn.",
+        target: "bot",
+        botId,
+        runOn: "dog",
+        enabled: true,
+        schedule: { type: "daily", time: "23:00" },
+      });
+      expect(created.status).toBe(201);
+      return created.body.routine.id as string;
+    };
+    const routineIds = [await delegatorRoutine(source.botId), await delegatorRoutine(otherSource.botId)];
     const runState = async (id: string) => (await api("GET", "/api/routines")).body.runs.find((run: any) => run.id === id);
-    const delegatorTurn = async () => {
+    const delegatorTurn = async (routineId: string) => {
       const run = (await api("POST", `/api/routines/${routineId}/run`)).body.run;
       await expect.poll(async () => (await runState(run.id))?.status, { timeout: 15_000 }).toBe("running");
       const started = await runState(run.id);
@@ -379,7 +386,7 @@ describe("per-bot thread capacity through an isolated HTTP fixture", () => {
       expect(await busyThreads(target.botId)).toEqual([target.threads[0]]);
       expect((await botState(target.botId)).busy).toBe(true);
 
-      const first = await delegatorTurn();
+      const first = await delegatorTurn(routineIds[0]!);
       const queued = await delegate(first);
       expect(queued.status).toBe(200);
       expect(queued.body).toMatchObject({ queued: true, taskId: expect.any(String) });
@@ -388,7 +395,7 @@ describe("per-bot thread capacity through an isolated HTTP fixture", () => {
       expect((await busyThreads(target.botId)).sort()).toEqual([...target.threads].sort());
       expect((await botState(target.botId)).busy).toBe(true);
 
-      const second = await delegatorTurn();
+      const second = await delegatorTurn(routineIds[1]!);
       const held = await delegate(second);
       expect(held.body).toMatchObject({ queued: true, taskId: expect.any(String) });
       finish(second.threadId);
@@ -403,13 +410,12 @@ describe("per-bot thread capacity through an isolated HTTP fixture", () => {
       await expect.poll(async () => (await runState(first.runId))?.status, { timeout: 15_000 }).toBe("completed");
       await expectWokenByCompletion(first);
     } finally {
-      for (const bot of [target, source]) {
+      for (const bot of [target, source, otherSource]) {
         for (const threadId of await busyThreads(bot.botId)) finish(threadId);
       }
-      await expect.poll(async () => (await busyThreads(target.botId)).length + (await busyThreads(source.botId)).length, { timeout: 15_000 }).toBe(0);
-      await api("DELETE", `/api/routines/${routineId}`).catch(() => undefined);
-      await api("DELETE", `/api/bots/${target.botId}`).catch(() => undefined);
-      await api("DELETE", `/api/bots/${source.botId}`).catch(() => undefined);
+      await expect.poll(async () => (await busyThreads(target.botId)).length + (await busyThreads(source.botId)).length + (await busyThreads(otherSource.botId)).length, { timeout: 15_000 }).toBe(0);
+      for (const routineId of routineIds) await api("DELETE", `/api/routines/${routineId}`).catch(() => undefined);
+      for (const bot of [target, source, otherSource]) await api("DELETE", `/api/bots/${bot.botId}`).catch(() => undefined);
     }
   }, 150_000);
 

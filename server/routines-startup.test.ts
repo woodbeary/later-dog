@@ -53,7 +53,7 @@ it("recovers queued/due work without resurrecting an interrupted routine after r
 
     const file = join(dataDir, "routines.json");
     const scheduler = new RoutineManager({
-      file, botState: () => "busy", createTask: () => null, startTurn: async () => {},
+      file, botState: () => "busy", conversationFor: () => null, startTurn: async () => {},
     });
     const queued = scheduler.runNow(manual.id)!;
     await scheduler.tick();

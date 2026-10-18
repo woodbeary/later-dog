@@ -1235,8 +1235,9 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     }
   }, [lastUserMessage, bot.busy, bot.id, bot.threadId, dispatch]);
 
-  const routineExecution = state.routineRuns.find((run) => run.target === "bot" && run.botId === bot.id && run.threadId === bot.threadId);
-  const resultsThreadId = routineExecution?.resultsThreadId ?? routineExecution?.sourceThreadId;
+  const executionRunId = bot.tasks?.find((task) => task.threadId === bot.threadId)?.routineRunId;
+  const routineExecution = executionRunId ? state.routineRuns.find((run) => run.id === executionRunId && run.threadId === bot.threadId) : undefined;
+  const resultsThreadId = routineExecution?.sourceThreadId !== bot.threadId ? routineExecution?.sourceThreadId : undefined;
   const canOpenResults = resultsThreadId && [...state.bots, ...state.groups].some((owner) => owner.threadId === resultsThreadId || owner.tasks?.some((task) => task.threadId === resultsThreadId));
 
   return (

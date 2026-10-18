@@ -48,6 +48,27 @@ describe("threads follow their bot's model", () => {
       .every((task: TaskRecord) => !("modelSelection" in task))).toBe(true);
   });
 
+  it("moves each dog's main conversation onto the dog's model once, keeping its other threads on the model they ran", () => {
+    const store = open();
+    const bot = store.createBot();
+    const main = bot.threadId;
+    const follower = store.createTask(bot.id, "Follower", false)!;
+    store.switchTaskModel(bot.id, main, codex, false, false);
+    expect(ownModel(store, bot.id, main)).toEqual(codex);
+    rmSync(join(DATA_DIR, "main-task-models-moved"), { force: true });
+
+    const moved = open();
+    expect(moved.bot(bot.id)?.modelSelection).toEqual(codex);
+    expect(ownModel(moved, bot.id, main)).toBeUndefined();
+    expect(runsOn(moved, bot.id, follower.threadId)).toEqual(sonnet);
+    expect(existsSync(join(DATA_DIR, "main-task-models-moved"))).toBe(true);
+
+    moved.switchTaskModel(bot.id, main, opus, false, false);
+    const later = open();
+    expect(ownModel(later, bot.id, main)).toEqual(opus);
+    expect(later.bot(bot.id)?.modelSelection).toEqual(codex);
+  });
+
   it("a person's pick in one thread survives every change of the bot's model", () => {
     const store = open();
     const bot = store.createBot();
@@ -132,10 +153,10 @@ describe("threads follow their bot's model", () => {
     const bot = store.createBot();
     const first = bot.threadId;
     store.patchBot(bot.id, { modelSelection: codex });
-    const full = store.createTask(bot.id, "Full on Claude")!;
-    const asks = store.createTask(bot.id, "Ask on Claude")!;
-    const same = store.createTask(bot.id, "Full on the same engine")!;
-    const untouched = store.createTask(bot.id, "Not listed")!;
+    const full = store.createTask(bot.id, "Full on Claude", false)!;
+    const asks = store.createTask(bot.id, "Ask on Claude", false)!;
+    const same = store.createTask(bot.id, "Full on the same engine", false)!;
+    const untouched = store.createTask(bot.id, "Not listed", false)!;
     store.switchTaskModel(bot.id, full.threadId, sonnet, false, false, { approvalMode: "full", autoApprove: false, alwaysAllow: ["Bash"] });
     store.switchTaskModel(bot.id, asks.threadId, sonnet, false, false, { approvalMode: "ask" });
     store.switchTaskModel(bot.id, same.threadId, { ...codex, effort: "high" }, false, false, { approvalMode: "full" });

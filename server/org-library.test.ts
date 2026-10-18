@@ -93,7 +93,7 @@ async function installation(from?: string) {
     file: join(DATA_DIR, "routines.json"),
     botState: (id) => (store.bot(id) && !store.bot(id)!.hidden ? "ready" : "missing"),
     goalState: (groupId, botId) => (store.group(groupId)?.memberIds.includes(botId) ? "ready" : "missing"),
-    createTask: () => null,
+    conversationFor: () => null,
     startTurn: async () => {},
   });
   const mcp = { servers: {} as Record<string, unknown> };

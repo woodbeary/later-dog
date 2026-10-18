@@ -77,6 +77,14 @@ describe("who may use a Mac lent to a Cloud home (review: guests, webhooks)", ()
     expect(ownerOnlyConversation([said("x1"), reply("r1")], ownerPerson, cardAnswerer, "x1")).toBe(true);
     expect(ownerOnlyConversation([], ownerPerson, cardAnswerer)).toBe(true);
   });
+  it("earlier runs of the owner's own routines in the dog's one conversation still count as the owner's", () => {
+    const earlierRun = said("run0", undefined, { ownersRoutine: true });
+    expect(ownerOnlyConversation([earlierRun, reply("r0"), said("o1", OWNER)], ownerPerson, cardAnswerer)).toBe(true);
+    expect(mayLend(turn({ thread: [earlierRun, reply("r0"), said("m1", OWNER)] }))).toBe(true);
+    expect(mayLend(turn({ request: request("m1", { automation: "schedule" }), thread: [earlierRun, reply("r0"), said("m1")], routineRun: run() }))).toBe(true);
+    expect(ownerOnlyConversation([said("run0"), reply("r0"), said("o1", OWNER)], ownerPerson, cardAnswerer)).toBe(false);
+    expect(ownerOnlyConversation([{ ...reply("b0"), ownersRoutine: true }, said("g1", GUEST)], ownerPerson, cardAnswerer)).toBe(false);
+  });
   it("says why: unproven, not the owner's, or someone else wrote here", () => {
     expect(cloudHomeLendingRefusal(turn({ request: undefined }))).toBe("unproven");
     expect(cloudHomeLendingRefusal(turn({ thread: [said("m1", GUEST)] }))).toBe("not-owner");

@@ -87,7 +87,6 @@ export interface Routine {
   failureStreak?: number;
   attachments?: RoutineContextAttachment[];
   sourceThreadId?: string;
-  resultsThreadId?: string;
   nextRunAt: number | null;
   createdAt: number;
   updatedAt: number;
@@ -114,7 +113,6 @@ export interface RoutineRun {
   deliveryId?: string;
   executionThreadId?: string;
   sourceThreadId?: string;
-  resultsThreadId?: string;
   threadId?: string;
   startedAt?: number;
   finishedAt?: number;
@@ -141,5 +139,4 @@ export interface RoutineInput {
   overlap?: "skip" | "queue";
   continuity?: boolean;
   attachments?: RoutineContextAttachment[];
-  resultsThreadId?: string | null;
 }

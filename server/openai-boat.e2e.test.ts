@@ -129,6 +129,8 @@ it("keeps the selected API model for direct, group and scheduled Boat turns and 
     expect(requests.slice(beforeRoutine).every(request => request.model === "chosen-vision-model")).toBe(true);
     expect(nativePrompts).toBe(0);
     expect(commands.some(command => command.includes(".model.jpg"))).toBe(true);
+    const cardsBeforeCancel = (await api("GET", `/api/threads/${routineThread}/messages?limit=60`)).messages
+      .filter((message: any) => message.card?.requestId).length;
     const cancelledReadiness = pauseBoatReads();
     const beforeCancel = requests.length;
     const { run: cancelled } = await api("POST", `/api/routines/${routine.id}/run`, {});
@@ -144,8 +146,9 @@ it("keeps the selected API model for direct, group and scheduled Boat turns and 
     const stopped = await control(["wait", "--bot", bot.id, "--task", cancelledThread, "--timeout", "20"]);
     expect(stopped.status).toBe("settled");
     expect(requests).toHaveLength(beforeCancel);
-    const cancelledMessages = await api("GET", `/api/threads/${cancelledThread}/messages?limit=30`);
-    expect(cancelledMessages.messages.some((message: any) => message.card?.requestId)).toBe(false);
+    expect(cancelledThread).toBe(routineThread);
+    const cancelledMessages = await api("GET", `/api/threads/${cancelledThread}/messages?limit=60`);
+    expect(cancelledMessages.messages.filter((message: any) => message.card?.requestId)).toHaveLength(cardsBeforeCancel);
     const expectBlockedRun = async (reason: RegExp) => {
       const before = requests.length;
       const { run: blocked } = await api("POST", `/api/routines/${routine.id}/run`, {});

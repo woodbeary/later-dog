@@ -21,7 +21,7 @@ describe("independent bot task state", () => {
     const other = store.createBot({}, { seedMessages: false });
     const first = bot.threadId;
     store.appendMessage(first, { role: "user", kind: "text", text: "Keep this conversation" });
-    const archived = store.createTask(bot.id, "Archived")!;
+    const archived = store.createTask(bot.id, "Archived", false)!;
     store.patchTask(bot.id, archived.threadId, { archivedAt: Date.now(), modelSelection: { instanceId: "codex", model: "different" } });
     store.setResumeCursor(bot.id, "codex", "keep-session", archived.threadId);
     const history = store.messagesFor(first);
@@ -572,7 +572,8 @@ describe("independent bot task state", () => {
     const bot = store.createBot();
     const sibling = store.createBot();
     const project = store.createProject(bot.id, "General", "⭐")!;
-    store.patchTask(bot.id, bot.threadId, { modelSelection: { instanceId: "codex", model: "existing-thread" } });
+    const kept = store.createTask(bot.id, "Kept", false)!;
+    store.patchTask(bot.id, kept.threadId, { modelSelection: { instanceId: "codex", model: "existing-thread" } });
     expect(store.createTask(bot.id, undefined, false, project.id)?.modelSelection).toBeUndefined();
     expect(store.createTask(sibling.id, undefined, false, project.id)).toBeNull();
     expect(store.patchTask(sibling.id, sibling.threadId, { projectId: project.id })).toBeNull();
@@ -583,8 +584,22 @@ describe("independent bot task state", () => {
     writeFileSync(join(DATA_DIR, "bots.json"), JSON.stringify(saved));
     const reloaded = new Store(selection);
     expect(reloaded.project(bot.id, project.id)).toEqual({ id: project.id, name: "General", emoji: "⭐" });
-    expect(reloaded.taskByThread(bot.id, bot.threadId)?.modelSelection).toEqual({ instanceId: "codex", model: "existing-thread" });
+    expect(reloaded.taskByThread(bot.id, kept.threadId)?.modelSelection).toEqual({ instanceId: "codex", model: "existing-thread" });
     expect(reloaded.createTask(bot.id, undefined, false, project.id)?.modelSelection).toBeUndefined();
+  });
+
+  it("moves the dog's one conversation onto its own model when it loads", () => {
+    const store = new Store(selection);
+    const bot = store.createBot({}, { seedMessages: false });
+    const old = store.createTask(bot.id, "Old thread", false)!;
+    const picked = { instanceId: "codex", model: "picked-in-chat" };
+    store.patchTask(bot.id, bot.threadId, { modelSelection: picked });
+    store.patchTask(bot.id, old.threadId, { modelSelection: { instanceId: "codex", model: "old-thread" } });
+    const reloaded = new Store(selection);
+    expect(reloaded.bot(bot.id)?.modelSelection).toEqual(picked);
+    expect(reloaded.taskByThread(bot.id, bot.threadId)?.modelSelection).toBeUndefined();
+    expect(reloaded.taskByThread(bot.id, old.threadId)?.modelSelection).toEqual({ instanceId: "codex", model: "old-thread" });
+    expect(savedBots().find((entry) => entry.id === bot.id)!.tasks!.find((entry) => entry.threadId === bot.threadId)!.modelSelection).toBeUndefined();
   });
 
   it("pins a thread without storing false, and advances updatedAt from a message without rewriting bots.json", () => {

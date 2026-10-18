@@ -110,7 +110,7 @@ posixOnly("a routine run's task on the event stream", () => {
     if (home) await removeTempDir(home);
   });
 
-  it("announces the run's task without the bot's transcript", async () => {
+  it("announces a run in the dog's one conversation without the bot's transcript", async () => {
     const created = await api("POST", "/api/bots", { name: "Report Otter" });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     const bot = created.body.bot as { id: string; threadId: string };
@@ -137,7 +137,8 @@ posixOnly("a routine run's task on the event stream", () => {
         frame.kind === "routine.run" && ["completed", "failed"].includes(frame.run?.status)));
       expect(finished, log.slice(-2_000)).not.toBeNull();
       const botFrames = stream.frames.filter((frame) => frame.kind === "bot" && frame.bot?.id === bot.id);
-      expect(Math.max(...botFrames.map((frame) => (frame.bot.tasks ?? []).length))).toBeGreaterThan(1);
+      expect(botFrames.length).toBeGreaterThan(0);
+      expect(botFrames.every((frame) => (frame.bot.tasks ?? []).length === 1)).toBe(true);
       expect(botFrames.filter((frame) => "messages" in frame.bot)).toEqual([]);
       expect(botFrames.every((frame) => frame.bot.threadId === bot.threadId)).toBe(true);
     } finally {

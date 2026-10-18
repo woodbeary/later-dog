@@ -367,7 +367,7 @@ it("a friend unpaired before the upgrade: their conversation keeps its level, bu
   await idle(before.bot, owner);
 }, 60_000);
 
-it("routines fail closed: one from before with no proof runs confined; one the owner writes here, or one made from their bot template, reports into a conversation that stays theirs", async () => {
+it("routines fail closed: one from before with no proof does not run in the dog's conversation; one the owner writes here, or one made from their bot template, runs in the dog's one conversation, which stays theirs", async () => {
   const owner = await adminPairing();
   await settleAll(owner);
   const routineRun = async (id: string) => {
@@ -375,7 +375,8 @@ it("routines fail closed: one from before with no proof runs confined; one the o
     const routine = (await api("GET", "/api/routines", { token: owner })).body.routines.find((candidate: any) => candidate.id === id);
     for (const active of (await api("GET", "/api/routines", { token: owner })).body.runs ?? []) await api("POST", `/api/routine-runs/${active.id}/cancel`, { token: owner });
     await idle(before.bot, owner);
-    return { run, results: routine.resultsThreadId as string };
+    const conversation = (await api("GET", "/api/bots", { token: owner })).body.bots.find((candidate: any) => candidate.id === routine.botId).threadId as string;
+    return { run, results: conversation };
   };
   const followUp = async (bot: { id: string }, threadId: string) => {
     const again = await turn(async () => { const sent = await api("POST", `/api/bots/${bot.id}/messages`, { token: owner, body: { text: "Now with the shell.", threadId } }); expect(sent.status, JSON.stringify(sent.body)).toBe(202); });
@@ -383,9 +384,13 @@ it("routines fail closed: one from before with no proof runs confined; one the o
     await idle(bot, owner);
     return again;
   };
-  const old = await routineRun(before.routine);
-  expect(old.run).toMatchObject({ mode: "default", restricted: true });
-  expect(old.run.cwd).not.toBe(realpathSync(project()));
+  const refused = (await api("POST", `/api/routines/${before.routine}/run`, { token: owner })).body.run;
+  const refusedRun = async () => ((await api("GET", "/api/routines", { token: owner })).body.runs ?? []).find((candidate: any) => candidate.id === refused.id);
+  await until(async () => (await refusedRun())?.status === "failed", "the routine from before to be refused");
+  expect((await refusedRun()).error).toBe("Someone else wrote this routine, so it can't run in your dog's conversation. Open it and save it to run it.");
+  const liveThread = (await api("GET", "/api/bots", { token: owner })).body.bots.find((candidate: any) => candidate.id === before.bot.id).threadId;
+  expect(((await api("GET", `/api/threads/${liveThread}/messages`, { token: owner })).body.messages as any[])
+    .some((message) => message.routineRun?.runId === refused.id)).toBe(false);
   expect((await routineRun(before.approved)).run).toMatchObject({ mode: "auto", restricted: false });
   const mine = (await api("POST", "/api/routines", { token: owner, body: { name: "Mine", prompt: "Run the build script.", botId: before.bot.id,
     enabled: false, schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 } } })).body.routine.id;
@@ -402,7 +407,7 @@ it("routines fail closed: one from before with no proof runs confined; one the o
   expect(made).toMatchObject({ mode: "auto", restricted: false });
   for (const active of (await api("GET", "/api/routines", { token: owner })).body.runs ?? []) await api("POST", `/api/routine-runs/${active.id}/cancel`, { token: owner });
   await idle(templated, owner);
-  const results = (await api("GET", "/api/routines", { token: owner })).body.routines.find((candidate: any) => candidate.id === routineId).resultsThreadId;
+  const results = (await api("GET", "/api/bots", { token: owner })).body.bots.find((candidate: any) => candidate.id === templated.id).threadId;
   expect(await followUp(templated, results)).toMatchObject({ restricted: false });
   expect((await api("PATCH", `/api/routines/${routineId}`, { token: owner, body: { enabled: true } })).status).toBe(200);
   expect((await api("PATCH", `/api/routines/${routineId}`, { token: owner, body: { enabled: false } })).status).toBe(200);
@@ -544,7 +549,7 @@ it("a routine of the owner's not yet cleared for the Mac can't clear itself: its
   await idle(before.full, owner);
 }, 120_000);
 
-it("a follow-up from the same conversation continues the teammate's thread instead of opening a second one", async () => {
+it("work and its follow-up from the same conversation land in the teammate's one conversation", async () => {
   const owner = await adminPairing();
   await settleAll(owner);
   const chat = (await api("POST", `/api/bots/${before.lead.id}/tasks`, { token: owner, body: { title: "Ship it" } })).body.task.threadId;
@@ -560,7 +565,7 @@ it("a follow-up from the same conversation continues the teammate's thread inste
     return JSON.parse(result.content[0].text).receipts[0];
   };
   const first = await send("Get the writer drafting.", "Draft the launch post.");
-  expect(first).toMatchObject({ outcome: "queued", threadId: expect.any(String) });
+  expect(first).toMatchObject({ outcome: "queued", threadId: writer.threadId });
   await until(async () => (await writerTasks()).find((task) => task.threadId === first.threadId)?.busy === true, "the writer to start");
   const engine = () => { try { return JSON.parse(readFileSync(held(), "utf8")); } catch { return undefined; } };
   await until(() => JSON.stringify(engine()?.prompt ?? "").includes("Draft the launch post"), "the writer's engine to start");
@@ -571,8 +576,8 @@ it("a follow-up from the same conversation continues the teammate's thread inste
   await until(async () => ((await api("GET", "/api/bots", { token: owner })).body.bots as any[]).find((bot) => bot.id === before.lead.id)?.busy === false, "the lead to stop");
   const followUp = await send("Change of plan: keep it short.", "Keep the launch post under 100 words.");
   expect(followUp).toMatchObject({ outcome: "queued", threadId: first.threadId });
-  expect(followUp.detail).toContain('sent to "@');
-  expect(await writerTasks()).toHaveLength(opened + 1);
+  expect(followUp.detail).toContain("sent to Writer's conversation");
+  expect(await writerTasks()).toHaveLength(opened);
   await settleAll(owner);
 }, 60_000);
 

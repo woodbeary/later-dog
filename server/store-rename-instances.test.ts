@@ -10,7 +10,7 @@ it("moves model choices, native resume cursors and handed-message records to the
   const store = new Store(() => ({ instanceId: "personal", model: "claude-sonnet-5" }));
   const bot = store.createBot({ modelSelection: { instanceId: legacy, model: "claude-company" } }, { seedMessages: false });
   const other = store.createBot({}, { seedMessages: false });
-  const second = store.createTask(bot.id, "Second")!;
+  const second = store.createTask(bot.id, "Second", false)!;
   store.patchTask(bot.id, second.threadId, { modelSelection: { instanceId: legacy, model: "claude-company" } });
   store.setResumeCursor(bot.id, legacy, "native-session-1", bot.threadId);
   store.markTaskDispatched(bot.id, bot.threadId, legacy);

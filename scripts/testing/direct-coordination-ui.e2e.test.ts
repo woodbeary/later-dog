@@ -69,7 +69,7 @@ const enabled = process.env.LATERDOG_UI_E2E === "1" || Boolean(resolveAgentBrows
     const parent = state.bots.find((bot: any) => bot.id === info.botId);
     const receipt = parent.messages.find((message: any) => message.tool?.name === "Sent to Engineer");
     expect(receipt.threadRef.botId).toBe(lead.id);
-    expect(receipt.threadRef.threadId).not.toBe(lead.threadId);
+    expect(receipt.threadRef.threadId).toBe(lead.threadId);
     const screenshot = info.logPath + ".direct-coordination.png";
     await ui("screenshot", "--out", screenshot);
     await click("Open the conversation with Engineer");

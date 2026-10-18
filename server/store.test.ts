@@ -490,8 +490,8 @@ describe("Store", () => {
     const bot = store.createBot();
     store.patchBot(bot.id, { approvalMode: "full", alwaysAllow: ["old-tool"] });
     const first = store.activeTask(bot.id)!;
-    const sibling = store.createTask(bot.id)!;
-    const picked = store.createTask(bot.id)!;
+    const sibling = store.createTask(bot.id, undefined, false)!;
+    const picked = store.createTask(bot.id, undefined, false)!;
     const opus = { instanceId: "claude", model: "claude-opus-5" };
     store.switchTaskModel(bot.id, picked.threadId, opus, false, false);
     const next = { instanceId: "codex", model: "fixture-model" };

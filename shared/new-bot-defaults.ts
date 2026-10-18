@@ -18,7 +18,7 @@ export type BotDefaultsProfile = Partial<Pick<WireBot,
   parkDirectMessages?: boolean;
 };
 
-export type BotRoutineTemplate = Omit<RoutineInput, "botId" | "target" | "groupId" | "resultsThreadId">;
+export type BotRoutineTemplate = Omit<RoutineInput, "botId" | "target" | "groupId">;
 export interface BotSkillTemplate {
   name: string;
   description: string;

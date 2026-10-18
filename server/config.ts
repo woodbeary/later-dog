@@ -247,7 +247,6 @@ const featureConfigSchema = z.object({
   skillAuthoring: z.boolean().optional(),
   showToolCalls: z.boolean().optional(),
   stepUpdates: z.boolean().optional(),
-  routinesInConversation: z.boolean().optional(),
   browser: z.boolean().optional(),
   sharedComputers: z.boolean().optional(),
   claudeUserMcp: z.boolean().optional(),
@@ -499,7 +498,7 @@ export interface AppConfig {
   context?: { rebuildBytes?: number; compactAt?: number; autoCompact?: boolean };
   memory?: { captureQuietMs?: number; tidyHour?: number };
   localVm?: { mode?: "shared" | "per-bot" | "pool"; maxInstances?: number; idleTimeoutMinutes?: number };
-  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; autoRecall?: boolean; routinesInConversation?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean };
+  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; stepUpdates?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; autoRecall?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean };
   onboarding?: { completedAt?: string; version?: number; reelSeen?: boolean; hintsSeen?: string[]; firstTurnAt?: string };
   browserProfiles?: BrowserProfile[];
   browserEngine?: { attachCdpUrl?: string };
@@ -687,10 +686,6 @@ export function showToolCallsEnabled(cfg: AppConfig): boolean {
 
 export function stepUpdatesEnabled(cfg: AppConfig): boolean {
   return cfg.features?.stepUpdates === true;
-}
-
-export function routinesInConversationEnabled(cfg: AppConfig): boolean {
-  return cfg.features?.routinesInConversation === true;
 }
 
 export function builtInBrowserEnabled(_cfg: AppConfig, _env: NodeJS.ProcessEnv = process.env): boolean {

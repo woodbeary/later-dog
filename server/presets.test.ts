@@ -32,7 +32,7 @@ async function installation() {
     file: join(home, "routines.json"),
     botState: (id) => (store.bot(id) && !store.bot(id)!.hidden ? "ready" : "missing"),
     goalState: (groupId, botId) => (store.group(groupId)?.memberIds.includes(botId) ? "ready" : "missing"),
-    createTask: () => null,
+    conversationFor: () => null,
     startTurn: async () => {},
   });
   const presetFile = join(home, "presets.json");

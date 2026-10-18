@@ -363,6 +363,7 @@ export function parseConnectorTools(value: unknown): { ok: true; grants: Record<
 const BOTS_FILE = join(DATA_DIR, "bots.json");
 const GROUPS_FILE = join(DATA_DIR, "groups.json");
 const THREAD_MODEL_COPIES_CLEARED = join(DATA_DIR, "thread-model-copies-cleared");
+const MAIN_TASK_MODELS_MOVED = join(DATA_DIR, "main-task-models-moved");
 
 function tightenRegistryFile(file: string): void {
   if (process.platform === "win32") return;
@@ -680,6 +681,7 @@ export class Store {
     }
     if (groupsMigrated) this.saveGroups();
     const clearModelCopies = !existsSync(THREAD_MODEL_COPIES_CLEARED) && (botsLoaded || !existsSync(BOTS_FILE));
+    const moveMainTaskModels = !existsSync(MAIN_TASK_MODELS_MOVED) && (botsLoaded || !existsSync(BOTS_FILE));
     for (const b of this.bots) {
       if (b.projects?.some((project) => "modelSelection" in project)) {
         b.projects = b.projects.map(({ id, name, emoji }) => ({ id, name, ...(isProjectEmoji(emoji) ? { emoji } : {}) }));
@@ -705,6 +707,16 @@ export class Store {
           resumeCursors: b.resumeCursors ?? {},
         };
         b.tasks.unshift(active);
+        botsMigrated = true;
+      }
+      if (moveMainTaskModels && active.modelSelection !== undefined) {
+        if (!sameModelSelection(active.modelSelection, b.modelSelection)) {
+          for (const task of b.tasks) {
+            if (task !== active && task.modelSelection === undefined) task.modelSelection = structuredClone(b.modelSelection);
+          }
+        }
+        b.modelSelection = active.modelSelection;
+        delete active.modelSelection;
         botsMigrated = true;
       }
       for (const task of b.tasks) {
@@ -749,6 +761,7 @@ export class Store {
     }
     if (botsMigrated) this.saveBots();
     if (clearModelCopies) writeFileAtomic(THREAD_MODEL_COPIES_CLEARED, "Threads follow their bot's model; the copies older builds made are cleared.\n", { mode: 0o600 });
+    if (moveMainTaskModels) writeFileAtomic(MAIN_TASK_MODELS_MOVED, "Each dog's main conversation follows the dog's own model.\n", { mode: 0o600 });
     const knownThreads = new Set([
       ...this.bots.flatMap((b) => [b.threadId, ...(b.tasks ?? []).map((task) => task.threadId)]),
       ...this.groups.flatMap((group) => [group.threadId, ...(group.tasks ?? []).map((task) => task.threadId)]),
@@ -2190,11 +2203,6 @@ export class Store {
 
   taskByThread(botId: string, threadId: string): TaskRecord | undefined {
     return this.bot(botId)?.tasks?.find((t) => t.threadId === threadId);
-  }
-
-  workThread(botId: string, fromBotId: string, fromThreadId: string): TaskRecord | undefined {
-    return this.tasks(botId).find((t) => t.openedBy?.kind === "work" && t.openedBy.botId === fromBotId &&
-      t.openedBy.threadId === fromThreadId && t.archivedAt === undefined);
   }
 
   projectBotForTask(botId: string, threadId: string): BotRecord | null {
