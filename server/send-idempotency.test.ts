@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { acceptedSendMatch, parseSendId, sendFingerprint, SendSequencer } from "./send-idempotency.ts";
+import { acceptedSendMatch, landedSend, parseSendId, sendFingerprint, SendSequencer, type LandedSendSources, type QueuedSend } from "./send-idempotency.ts";
 import type { Message } from "./store.ts";
 
 function userMessage(overrides: Partial<Message> = {}): Message {
@@ -108,5 +108,48 @@ describe("send idempotency", () => {
     expect(secondWork).not.toHaveBeenCalled();
 
     await expect(sequencer.run("same-error", "one", secondWork)).resolves.toBe(2);
+  });
+
+  describe("landed send", () => {
+    const sendId = "send_1234567890123456";
+    const sources = (overrides: Partial<{ messages: Message[]; queued: QueuedSend | null; cancelled: boolean }> = {}): LandedSendSources => ({
+      messages: () => overrides.messages ?? [],
+      queued: (id) => (id === sendId ? overrides.queued ?? null : null),
+      cancelled: (id) => id === sendId && overrides.cancelled === true,
+    });
+
+    it("answers a landed row with that row", () => {
+      const message = userMessage({ replyToId: "reply-1" });
+      expect(landedSend(sources({ messages: [message] }), sendId, "ship it", "reply-1")).toEqual({ kind: "accepted", message });
+    });
+
+    it("answers a queued entry with its receipt", () => {
+      const queued: QueuedSend = { id: "queue-1", text: "ship it", reason: "capacity" };
+      expect(landedSend(sources({ queued }), sendId, "ship it")).toEqual({ kind: "queued", queued });
+      const room: QueuedSend = { id: "queue-2", text: "ship it", mode: "goal" };
+      expect(landedSend(sources({ queued: room }), sendId, "ship it", undefined, "goal")).toEqual({ kind: "queued", queued: room });
+    });
+
+    it("keeps the 409 when the same id carries a different message", () => {
+      const message = userMessage();
+      expect(() => landedSend(sources({ messages: [message] }), sendId, "changed")).toThrow(expect.objectContaining({ status: 409 }));
+      const queued: QueuedSend = { id: "queue-1", text: "ship it", replyToId: "reply-1" };
+      expect(() => landedSend(sources({ queued }), sendId, "changed", "reply-1")).toThrow(/another message/);
+      expect(() => landedSend(sources({ queued }), sendId, "ship it")).toThrow(/another message/);
+      const room: QueuedSend = { id: "queue-2", text: "ship it", mode: "goal" };
+      expect(() => landedSend(sources({ queued: room }), sendId, "ship it", undefined, "chat")).toThrow(/another message/);
+    });
+
+    it("refuses a cancelled queued id", () => {
+      expect(() => landedSend(sources({ cancelled: true, messages: [userMessage()] }), sendId, "ship it"))
+        .toThrow(expect.objectContaining({ status: 409, message: expect.stringMatching(/cancelled/) }));
+    });
+
+    it("treats a missing or unknown id as a new message", () => {
+      const lookups = { messages: vi.fn(() => [userMessage()]), queued: vi.fn(() => null), cancelled: vi.fn(() => false) };
+      expect(landedSend(lookups, undefined, "ship it")).toEqual({ kind: "new" });
+      expect(lookups.messages).not.toHaveBeenCalled();
+      expect(landedSend(sources({ messages: [userMessage()] }), "send_9999999999999999", "ship it")).toEqual({ kind: "new" });
+    });
   });
 });

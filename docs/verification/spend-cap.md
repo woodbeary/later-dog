@@ -6,6 +6,11 @@
   engines that report tokens but no price) reaches the workspace cap: the
   message routes answer 409 with `code: "spend_cap"`, and a routine, peer hop
   or webhook stops in `startTurn` with the same refusal.
+- Answer a resend of a message that already landed before refusing: the dog
+  route, the room route and the wake-up path return the stored row (or the
+  queued receipt) for an exact `sendId` match even once the cap is reached,
+  keep the 409 for the same `sendId` with a different text, and refuse only
+  new messages.
 - Notify admins once a month when the month crosses the warning percentage and
   once when it reaches the cap (`notify` frames of kind `spend`, withheld from
   client sessions), remembered across restarts in `<data>/usage/alerts.json`.
@@ -30,6 +35,7 @@ send is refused with the limit message once the cap is reached.
 
 ```sh
 pnpm exec vitest run --no-file-parallelism server/spend-cap-api.test.ts
+pnpm exec vitest run --no-file-parallelism server/send-landed-first-api.test.ts
 ```
 
 The test writes a stand-in enterprise layer (the folder shape core loads,
@@ -43,6 +49,10 @@ It also holds an admin and a chat-only event stream open across the two turns
 and checks the admin gets exactly one warning and one cap notice and the
 chat-only device gets neither.
 It prints the fixture's server log path and removes its temporary homes.
+The landed-first test sends one message to a dog and one to a room, lowers
+the cap below the month's spend, and checks that resending each `sendId`
+returns the original row, a changed text gets 409 without `spend_cap`, and a
+new message gets 409 `spend_cap`, with exactly one row per `sendId`.
 The memory regression also proves that one helper reaching the cap blocks
 the next step in that same upkeep pass, and that raising the cap resumes it.
 

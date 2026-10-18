@@ -1,4 +1,5 @@
 import type { Message } from "./store.ts";
+import type { SteerQueueReason } from "../shared/wire.ts";
 import { z } from "zod";
 
 const sendIdSchema = z.string().regex(/^[A-Za-z0-9_-]{16,80}$/).optional();
@@ -35,6 +36,53 @@ export function acceptedSendMatch(
     return { kind: "conflict" };
   }
   return { kind: "match", message };
+}
+
+export interface QueuedSend {
+  id: string;
+  text: string;
+  replyToId?: string;
+  mode?: "chat" | "goal";
+  reason?: SteerQueueReason;
+}
+
+export interface LandedSendSources {
+  messages: () => Message[];
+  queued: (sendId: string) => QueuedSend | null;
+  cancelled: (sendId: string) => boolean;
+}
+
+export type LandedSend =
+  | { kind: "new" }
+  | { kind: "accepted"; message: Message }
+  | { kind: "queued"; queued: QueuedSend };
+
+const sendIdTaken = () => Object.assign(new Error("sendId already belongs to another message"), { status: 409 });
+
+export function landedSend(
+  sources: LandedSendSources,
+  sendId: string | undefined,
+  text: string,
+  replyToId?: string,
+  channelMode?: "chat" | "goal",
+): LandedSend {
+  if (!sendId) return { kind: "new" };
+  if (sources.cancelled(sendId)) {
+    throw Object.assign(new Error("this queued sendId was cancelled; send a new message to try again"), { status: 409 });
+  }
+  const accepted = acceptedSendMatch(sources.messages(), sendId, text, replyToId, channelMode);
+  if (accepted.kind === "conflict") throw sendIdTaken();
+  if (accepted.kind === "match") return { kind: "accepted", message: accepted.message };
+  const queued = sources.queued(sendId);
+  if (!queued) return { kind: "new" };
+  if (
+    queued.text !== text ||
+    queued.replyToId !== replyToId ||
+    (queued.mode ?? "chat") !== (channelMode ?? "chat")
+  ) {
+    throw sendIdTaken();
+  }
+  return { kind: "queued", queued };
 }
 
 export class SendSequencer {

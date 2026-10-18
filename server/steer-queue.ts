@@ -2,7 +2,7 @@
 import { newId } from "./contracts.ts";
 import { chatFollowups, saveChatFollowup, settleChatFollowups } from "./message-db.ts";
 import { drainCoalesceHead } from "./admission.ts";
-import type { ResolvedSender, SteerQueueReason } from "../shared/wire.ts";
+import type { BotQueuedMessages, ResolvedSender, SteerQueueReason } from "../shared/wire.ts";
 import type { BotRecord, Message } from "./store.ts";
 import type { UsageTrigger } from "./usage-ledger.ts";
 
@@ -66,12 +66,13 @@ const changed = () => {
   }
 };
 
-export function queuedSteerSnapshot(ownsThread: (botId: string, threadId: string) => boolean):
-  Record<string, Array<{ queueId: string; text: string; reason?: SteerQueueReason }>> {
+export function queuedSteerSnapshot(ownsThread: (botId: string, threadId: string) => boolean): BotQueuedMessages {
   return Object.fromEntries([...queues]
     .filter(([threadId, entry]) => ownsThread(entry.botId, threadId))
     .map(([threadId, entry]) => [threadId, entry.items.map((item) => ({
-      queueId: item.messageId, text: item.text, ...(item.reason ? { reason: item.reason } : {}),
+      queueId: item.messageId, text: item.text,
+      ...(item.sendId ? { sendId: item.sendId } : {}),
+      ...(item.reason ? { reason: item.reason } : {}),
     }))]));
 }
 

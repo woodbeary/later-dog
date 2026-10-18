@@ -423,7 +423,7 @@ export interface WireGroup {
 
 export type SteerQueueReason = "capacity" | "group-turn";
 
-export type BotQueuedMessages = Record<string, Array<{ queueId: string; text: string; reason?: SteerQueueReason }>>;
+export type BotQueuedMessages = Record<string, Array<{ queueId: string; text: string; sendId?: string; reason?: SteerQueueReason }>>;
 
 export interface SkillsLibrarySkillWire {
   name: string;
