@@ -11,6 +11,7 @@ import {
 import { startReleaseCheck } from "./release-check.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
 import { updateFeedUrl } from "./update-feed.mjs";
+import { clearUpdateReceipt, takeUpdateReceipt, writeUpdateReceipt } from "./update-receipt.mjs";
 import { variant } from "./app-variant.mjs";
 import { createUpdaterCoordinator } from "./updater-coordinator.mjs";
 
@@ -22,6 +23,8 @@ let state = { status: "idle" };
 let updaterCoordinator = null;
 let releaseCheck = null;
 let pageAllowed = () => false;
+let cloudPage = () => false;
+let receiptTaken = false;
 
 function updaterLogger() {
   const directory = app.getPath("logs");
@@ -49,27 +52,37 @@ export function handOffDownloadedPackage(packageType) {
   };
 }
 
+function pageState(event) {
+  return { ...state, cloudPage: cloudPage(event) === true };
+}
+
 function setState(patch) {
   state = { ...state, ...patch };
   try {
     const contents = win?.webContents;
-    if (contents && pageAllowed({ sender: contents, senderFrame: contents.mainFrame })) contents.send("update:state", state);
+    const event = { sender: contents, senderFrame: contents?.mainFrame };
+    if (contents && pageAllowed(event)) contents.send("update:state", pageState(event));
   } catch {}
+}
+
+export function setUpdaterMacInUse(inUse) {
+  if (Boolean(state.macInUse) !== Boolean(inUse)) setState({ macInUse: Boolean(inUse) });
 }
 
 export function sendUpdaterState() {
   setState({});
 }
 
-export function registerUpdaterIpc({ pageAllowed: allowed }) {
+export function registerUpdaterIpc({ pageAllowed: allowed, cloudPage: showsCloud = () => false }) {
   pageAllowed = allowed;
-  const guarded = (channel, handler) => (event) => {
+  cloudPage = showsCloud;
+  const guarded = (channel, handler) => (event, ...args) => {
     if (!pageAllowed(event)) throw new Error(`${channel} is only available in this app's window`);
-    return handler();
+    return handler(event, ...args);
   };
-  ipcMain.handle("update:get-state", guarded("update:get-state", () => state));
+  ipcMain.handle("update:get-state", guarded("update:get-state", (event) => pageState(event)));
   ipcMain.handle("update:check", guarded("update:check", () => updaterCoordinator?.check(true) ?? releaseCheck?.check(true)));
-  ipcMain.handle("update:install", guarded("update:install", () => updaterCoordinator?.install()));
+  ipcMain.handle("update:install", guarded("update:install", (_event, version) => updaterCoordinator?.install(typeof version === "string" ? version : undefined)));
 }
 
 export function setReleaseCheckEnabled(enabled) {
@@ -88,6 +101,21 @@ function packagedUpdateFeed() {
     packageJson = null;
   }
   return updateFeedUrl({ env: process.env, packageJson });
+}
+
+function updateReceipt() {
+  const userData = app.getPath("userData");
+  return {
+    write: (target) => writeUpdateReceipt(userData, { from: app.getVersion(), target }),
+    clear: () => clearUpdateReceipt(userData),
+  };
+}
+
+function showUpdateReceipt() {
+  if (receiptTaken) return;
+  receiptTaken = true;
+  const outcome = takeUpdateReceipt(app.getPath("userData"), { currentVersion: app.getVersion() });
+  if (outcome) setState({ receipt: outcome });
 }
 
 export function startUpdater() {
@@ -119,11 +147,13 @@ export function startUpdater() {
 
   const packageType = linuxPackageType({ readMarker: (file) => (existsSync(file) ? readFileSync(file, "utf8") : null) });
   const handOff = HAND_OFF_TYPES.has(packageType);
-  autoUpdater.autoInstallOnAppQuit = !handOff;
+  autoUpdater.autoInstallOnAppQuit = false;
   setState({ installMode: handOff ? "handoff" : "restart" });
+  showUpdateReceipt();
   updaterCoordinator = createUpdaterCoordinator(autoUpdater, setState, {
     handOffInstall: handOff ? handOffDownloadedPackage(packageType) : null,
     nativeStaging: process.platform === "darwin",
+    receipt: handOff ? null : updateReceipt(),
   });
 
   setTimeout(() => void updaterCoordinator?.check(), 15_000).unref?.();

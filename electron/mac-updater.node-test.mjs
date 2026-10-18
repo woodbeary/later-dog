@@ -27,6 +27,16 @@ function readHttp(url, headers) {
   });
 }
 
+function withVendoredUpdater(native, create) {
+  const originalLoad = Module._load;
+  Module._load = (name, ...args) => name === "electron" ? { autoUpdater: native } : originalLoad(name, ...args);
+  try {
+    return create(createRequire(import.meta.url)("./vendor/electron-updater.cjs"));
+  } finally {
+    Module._load = originalLoad;
+  }
+}
+
 function harness(t, { fetchZip = true } = {}) {
   const native = new EventEmitter();
   const nativeCalled = deferred();
@@ -35,9 +45,11 @@ function harness(t, { fetchZip = true } = {}) {
   let quitCalls = 0;
   let downloads = 0;
   let checks = 0;
+  let nativeChecks = 0;
   native.setFeedURL = (value) => { feed = value; };
   native.quitAndInstall = () => { quitCalls += 1; };
   native.checkForUpdates = () => {
+    nativeChecks += 1;
     nativeCalled.resolve();
     if (!fetchZip) return;
     void (async () => {
@@ -50,18 +62,10 @@ function harness(t, { fetchZip = true } = {}) {
       transferred.resolve();
     })().catch(transferred.reject);
   };
-  const originalLoad = Module._load;
-  Module._load = (name, ...args) => name === "electron" ? { autoUpdater: native } : originalLoad(name, ...args);
-  let updater;
-  try {
-    const { MacUpdater } = createRequire(import.meta.url)("./vendor/electron-updater.cjs");
-    updater = new MacUpdater(null, { version: "1.0.0", quit: () => assert.fail("unexpected app quit") });
-  } finally {
-    Module._load = originalLoad;
-  }
+  const updater = withVendoredUpdater(native, ({ MacUpdater }) => new MacUpdater(null, { version: "1.0.0", quit: () => assert.fail("unexpected app quit") }));
   const warnings = [];
   updater.logger = { info() {}, warn(message) { warnings.push(message); }, error() {}, debug() {} };
-  updater.autoInstallOnAppQuit = true;
+  updater.autoInstallOnAppQuit = false;
   const workspace = mkdtempSync(join(tmpdir(), "laterdog-native-stage-"));
   const zip = join(workspace, "update.zip");
   writeFileSync(zip, "fixture ZIP bytes");
@@ -84,10 +88,12 @@ function harness(t, { fetchZip = true } = {}) {
   updater.checkForUpdates = async () => { checks += 1; };
   let state = { status: "idle" };
   const states = [];
+  const receipts = [];
+  const receipt = { write: (target) => receipts.push(["write", target]), clear: () => receipts.push(["clear"]) };
   const coordinator = createUpdaterCoordinator(updater, (patch) => {
     state = { ...state, ...patch };
     states.push({ ...state });
-  }, { nativeStaging: true });
+  }, { nativeStaging: true, receipt });
   const timers = new Map();
   const originalTimeout = globalThis.setTimeout;
   t.mock.method(globalThis, "setTimeout", (callback, delay, ...args) => {
@@ -113,46 +119,67 @@ function harness(t, { fetchZip = true } = {}) {
     await new Promise((resolve) => setImmediate(resolve));
   };
   return {
-    native, updater, coordinator, states, timers, nativeCalled, transferred, warnings, found, downloadSettled,
+    native, updater, coordinator, states, timers, nativeCalled, transferred, warnings, found, downloadSettled, receipts,
     state: () => state,
-    calls: () => ({ downloads, checks, quitCalls }),
+    calls: () => ({ downloads, checks, nativeChecks, quitCalls }),
   };
 }
 
-test("real Mac ZIP transfer stays preparing until native ready; restart is single-flight", async (t) => {
+test("a real Mac download is announced, and nothing is staged with macOS until the person says yes", async (t) => {
   const h = harness(t);
   await h.found();
-  await h.transferred.promise;
-  assert.equal(h.state().status, "preparing");
-  assert.equal(h.updater.squirrelDownloadedUpdate, false);
-  h.coordinator.install();
-  await h.coordinator.check(true);
-  assert.deepEqual(h.calls(), { downloads: 1, checks: 0, quitCalls: 0 });
-  const waitingListeners = h.native.listenerCount("update-downloaded");
-  assert.throws(() => h.updater.quitAndInstall(), /not ready/);
-  assert.equal(h.native.listenerCount("update-downloaded"), waitingListeners, "premature Restart never arms a future quit");
-
-  h.native.emit("update-downloaded");
   await h.downloadSettled();
   assert.equal(h.state().status, "downloaded");
+  assert.equal(h.state().version, "2.0.0");
+  assert.equal(h.updater.squirrelDownloadedUpdate, false);
+  assert.equal(h.updater.server.listening, true, "the local feed stays open for a later yes");
+  assert.deepEqual(h.calls(), { downloads: 1, checks: 0, nativeChecks: 0, quitCalls: 0 });
+  assert.equal(h.states.some((entry) => entry.status === "preparing"), false);
+
+  h.coordinator.install("1.9.0");
+  h.coordinator.install(undefined);
+  assert.deepEqual(h.calls(), { downloads: 1, checks: 0, nativeChecks: 0, quitCalls: 0 });
+  assert.equal(h.state().status, "downloaded");
+  assert.deepEqual(h.receipts, []);
+  t.diagnostic("downloaded -> no native checkForUpdates, so Squirrel.Mac has nothing it could install on quit; a different version is refused");
+});
+
+test("the yes stages the update with macOS, then restarts once and leaves a receipt", async (t) => {
+  const h = harness(t);
+  await h.found();
+  await h.downloadSettled();
+
+  h.coordinator.install("2.0.0");
+  assert.equal(h.state().status, "preparing");
+  await h.transferred.promise;
+  assert.equal(h.timers.has(300_000), true);
+  h.coordinator.install("2.0.0");
+  await h.coordinator.check(true);
+  assert.deepEqual(h.calls(), { downloads: 1, checks: 0, nativeChecks: 1, quitCalls: 0 });
+  assert.deepEqual(h.receipts, []);
+
+  h.native.emit("update-downloaded");
   assert.equal(h.updater.squirrelDownloadedUpdate, true);
-  assert.equal(h.native.listenerCount("update-downloaded"), 1, "temporary staging listener was removed");
+  assert.equal(h.state().status, "installing");
+  assert.deepEqual(h.receipts, [["write", "2.0.0"]]);
   assert.equal(h.timers.has(300_000), false);
-  h.coordinator.install();
+  assert.equal(h.native.listenerCount("update-downloaded"), 1, "the yes listener was removed");
   h.timers.get(120_000).callback();
   assert.equal(h.state().status, "installing");
   assert.match(h.state().message, /Quit and reopen/);
   assert.ok(h.warnings.some((message) => /restart handoff exceeded/.test(message)));
-  h.coordinator.install();
+  h.coordinator.install("2.0.0");
   await h.coordinator.check(true);
   h.native.emit("update-downloaded");
-  assert.deepEqual(h.calls(), { downloads: 1, checks: 0, quitCalls: 1 });
-  t.diagnostic("ZIP transferred -> preparing (0 quits) -> native ready -> downloaded -> one restart; watchdog and late ready cannot repeat it");
+  assert.deepEqual(h.calls(), { downloads: 1, checks: 0, nativeChecks: 1, quitCalls: 1 });
+  t.diagnostic("yes -> preparing -> native ready -> one restart with a receipt; the watchdog and a late ready cannot repeat it");
 });
 
-test("a native staging deadline fails visibly without retrying or reviving on late readiness", async (t) => {
+test("a native staging deadline after the yes fails visibly without restarting or reviving on late readiness", async (t) => {
   const h = harness(t, { fetchZip: false });
   await h.found();
+  await h.downloadSettled();
+  h.coordinator.install("2.0.0");
   await h.nativeCalled.promise;
   assert.equal(h.state().status, "preparing");
   h.timers.get(300_000).callback();
@@ -162,23 +189,24 @@ test("a native staging deadline fails visibly without retrying or reviving on la
   assert.ok(h.warnings.some((message) => /preparation exceeded/.test(message)));
   const failed = h.state();
   await h.coordinator.check(true);
-  h.coordinator.install();
+  h.coordinator.install("2.0.0");
   h.native.emit("update-downloaded");
-  await h.downloadSettled();
   h.updater.emit("download-progress", { percent: 100 });
   h.updater.emit("update-downloaded", { version: "9.0.0" });
   assert.deepEqual(h.state(), failed);
-  assert.deepEqual(h.calls(), { downloads: 1, checks: 0, quitCalls: 0 });
+  assert.deepEqual(h.calls(), { downloads: 1, checks: 0, nativeChecks: 1, quitCalls: 0 });
   assert.equal(h.native.listenerCount("update-downloaded"), 1);
-  t.diagnostic("native never fetches ZIP -> deadline/error/retryable=false; late native ready keeps error and causes zero quits");
+  assert.deepEqual(h.receipts, []);
+  t.diagnostic("native never fetches ZIP -> deadline/error/retryable=false; late native ready keeps error, zero quits, no receipt");
 });
 
-test("native validation errors after ZIP transfer remain visible and clean up staging listeners", async (t) => {
+test("native validation errors after the yes remain visible and clean up staging listeners", async (t) => {
   const h = harness(t);
   await h.found();
+  await h.downloadSettled();
+  h.coordinator.install("2.0.0");
   await h.transferred.promise;
   h.native.emit("error", new Error("signature validation failed"));
-  await h.downloadSettled();
   assert.equal(h.state().status, "error");
   assert.equal(h.state().retryable, false);
   assert.match(h.state().message, /failed verification.*Quit and reopen/);
@@ -188,24 +216,22 @@ test("native validation errors after ZIP transfer remain visible and clean up st
   assert.equal(h.timers.has(300_000), false);
   const failed = h.state();
   await h.coordinator.check(true);
-  h.coordinator.install();
+  h.coordinator.install("2.0.0");
   h.native.emit("update-downloaded");
   assert.deepEqual(h.state(), failed);
-  assert.deepEqual(h.calls(), { downloads: 1, checks: 0, quitCalls: 0 });
+  assert.deepEqual(h.calls(), { downloads: 1, checks: 0, nativeChecks: 1, quitCalls: 0 });
 });
 
-test("a late native error after readiness is not silently routed as a background check", async (t) => {
-  const h = harness(t);
-  await h.found();
-  await h.transferred.promise;
-  h.native.emit("update-downloaded");
-  await h.downloadSettled();
-  h.native.emit("error", new Error("native stage lost"));
-  assert.equal(h.state().status, "error");
-  assert.equal(h.state().retryable, false);
-  assert.match(h.state().message, /native stage lost/);
-  h.coordinator.install();
-  assert.equal(h.calls().quitCalls, 0);
+test("a Windows or AppImage updater with install-on-quit off registers nothing to run at quit", () => {
+  const quitHandlers = [];
+  const updater = withVendoredUpdater(new EventEmitter(), ({ NsisUpdater }) => new NsisUpdater(null, { version: "1.0.0", onQuit: (handler) => quitHandlers.push(handler), quit() {} }));
+  updater.logger = { info() {}, warn() {}, error() {}, debug() {} };
+  updater.autoInstallOnAppQuit = false;
+  updater.addQuitHandler();
+  assert.equal(quitHandlers.length, 0);
+  updater.autoInstallOnAppQuit = true;
+  updater.addQuitHandler();
+  assert.equal(quitHandlers.length, 1, "the fixture would catch a quit handler if one were added");
 });
 
 test("Mac vendor patch fails closed on an unknown upstream shape", () => {

@@ -34,27 +34,58 @@ test("only failures the person must fix are theirs to see when nobody asked", ()
   }
 });
 
-test("actionable messages do not permit retrying failed native staging", async () => {
+test("actionable messages do not permit retrying native staging that failed after the yes", async () => {
   const updater = new EventEmitter();
+  const native = new EventEmitter();
   let state = {};
   let downloads = 0;
   let installs = 0;
+  let nativeChecks = 0;
   const coordinator = createUpdaterCoordinator(updater, (patch) => { state = { ...state, ...patch }; }, { nativeStaging: true });
+  updater.nativeUpdater = native;
+  native.checkForUpdates = () => {
+    nativeChecks++;
+    updater.emit("error", Object.assign(new Error("write failed"), { code: "ENOSPC" }));
+  };
   updater.downloadUpdate = async () => {
     downloads++;
     updater.emit("update-downloaded", { version: "2.0.0" });
-    const error = Object.assign(new Error("write failed"), { code: "ENOSPC" });
-    updater.emit("error", error);
-    throw error;
+    return ["update.zip"];
   };
   updater.quitAndInstall = () => { installs++; };
   updater.checkForUpdates = async () => { updater.emit("update-available", { version: "2.0.0" }); };
   await coordinator.check();
   await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(state.status, "downloaded");
+  coordinator.install("2.0.0");
   assert.equal(state.retryable, false);
   assert.match(state.message, /Free some space.*Quit and reopen/);
   await coordinator.check(true);
-  coordinator.install();
+  coordinator.install("2.0.0");
+  native.emit("update-downloaded");
   assert.equal(downloads, 1);
+  assert.equal(nativeChecks, 1);
   assert.equal(installs, 0);
+});
+
+test("a download that fails before the yes stays the person's to retry, since nothing reached macOS", async () => {
+  const updater = new EventEmitter();
+  let state = {};
+  let downloads = 0;
+  const coordinator = createUpdaterCoordinator(updater, (patch) => { state = { ...state, ...patch }; }, { nativeStaging: true });
+  updater.downloadUpdate = async () => {
+    downloads++;
+    const error = Object.assign(new Error("write failed"), { code: "ENOSPC" });
+    updater.emit("error", error);
+    throw error;
+  };
+  updater.checkForUpdates = async () => { updater.emit("update-available", { version: "2.0.0" }); };
+  await coordinator.check();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(state.status, "error");
+  assert.notEqual(state.retryable, false);
+  assert.match(state.message, /Free some space/);
+  await coordinator.check(true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(downloads, 2);
 });

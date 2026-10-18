@@ -32,6 +32,11 @@ function profilePageOffered() {
   try { return ipcRenderer.sendSync("profiles:page") === true; } catch { return false; }
 }
 const isProfilePage = !isLocalPage && profilePageOffered();
+let shownUpdateVersion;
+function showUpdateState(state) {
+  if (state?.status === "downloaded") shownUpdateVersion = typeof state.version === "string" ? state.version : undefined;
+  return state;
+}
 const PROFILE_KEYS = new Set([
   "platform", "workspaces", "getCapabilities", "onCapabilitiesChanged", "approvals",
   "beginScreenPreviewIntent", "screenFrame", "speechStart", "speechStop", "speechFinish", "speechAudio", "onSpeechTranscript", "onSpeechEnd",
@@ -210,14 +215,15 @@ const bridge = {
 
   updater: {
     check: () => ipcRenderer.invoke("update:check"),
-    install: () => isLocalPage || navigator.userActivation?.isActive === true
-      ? ipcRenderer.invoke("update:install") : Promise.reject(new Error("Choose Restart to update.")),
+    install: (version) => isLocalPage || navigator.userActivation?.isActive === true
+      ? ipcRenderer.invoke("update:install", typeof version === "string" ? version : shownUpdateVersion)
+      : Promise.reject(new Error("Choose Restart to update.")),
     onState: (cb) => {
       ipcRenderer
         .invoke("update:get-state")
-        .then((s) => cb(s))
+        .then((s) => cb(showUpdateState(s)))
         .catch(() => {});
-      const handler = (_event, s) => cb(s);
+      const handler = (_event, s) => cb(showUpdateState(s));
       ipcRenderer.on("update:state", handler);
       return () => ipcRenderer.removeListener("update:state", handler);
     },

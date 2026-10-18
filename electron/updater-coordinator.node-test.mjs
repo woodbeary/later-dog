@@ -219,7 +219,7 @@ test("Mac transfer failures cannot overlap a pending download and remain retryab
   assert.equal(h.getState().status, "error");
   assert.notEqual(h.getState().retryable, false);
   await h.coordinator.check(true);
-  h.coordinator.install();
+  h.coordinator.install("2.0.0");
   assert.equal(calls, 1);
   pending.reject(failure);
   await settle();
@@ -263,36 +263,40 @@ test("a restart watchdog keeps Windows/AppImage installs locked against overlapp
   h.updater.quitAndInstall = () => { quits += 1; };
   await downloadInto(h);
   h.updater.checkForUpdates = () => assert.fail("install still owns the updater");
-  h.coordinator.install();
+  h.coordinator.install("2.0.0");
   watchdog();
   h.updater.downloadUpdate = () => assert.fail("a retry must not overlap a slow installer");
   await h.coordinator.check(true);
-  h.coordinator.install();
+  h.coordinator.install("2.0.0");
   assert.equal(h.getState().status, "installing");
   assert.match(h.getState().message, /Quit and reopen/);
   assert.equal(quits, 1);
 });
 
-test("an asynchronous native install error escapes the restarting spinner", () => {
-  const { updater, coordinator, getState, states } = harness();
+test("an asynchronous native install error escapes the restarting spinner", async () => {
+  const h = harness();
   const error = new Error("native staging failed");
-  updater.quitAndInstall = () => updater.emit("error", error);
+  h.updater.quitAndInstall = () => h.updater.emit("error", error);
+  await downloadInto(h);
 
-  coordinator.install();
+  h.coordinator.install("2.0.0");
 
-  assert.deepEqual(getState(), { status: "error", message: "native staging failed" });
-  assert.equal(errorStates(states).length, 1);
+  assert.equal(h.getState().status, "error");
+  assert.equal(h.getState().message, "native staging failed");
+  assert.equal(errorStates(h.states).length, 1);
 });
 
-test("a synchronous install failure becomes a user-visible error", () => {
-  const { updater, coordinator, getState } = harness();
-  updater.quitAndInstall = () => {
+test("a synchronous install failure becomes a user-visible error", async () => {
+  const h = harness();
+  h.updater.quitAndInstall = () => {
     throw new Error("install threw");
   };
+  await downloadInto(h);
 
-  coordinator.install();
+  h.coordinator.install("2.0.0");
 
-  assert.deepEqual(getState(), { status: "error", message: "install threw" });
+  assert.equal(h.getState().status, "error");
+  assert.equal(h.getState().message, "install threw");
 });
 
 test("an active download state survives a later background check failure", async () => {
@@ -559,7 +563,7 @@ test("the hand-off install opens the staged package instead of quitting", async 
   await downloadInto(h);
   assert.equal(h.getState().status, "downloaded");
 
-  h.coordinator.install();
+  h.coordinator.install("2.0.0");
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(received, [["/tmp/later.dog-2.0.0-amd64.deb"]]);
@@ -573,14 +577,14 @@ test("a failed hand-off is reported instead of leaving the card spinning", async
   const h = harness({ handOffInstall: () => Promise.reject(new Error("no handler for .deb")) });
 
   await downloadInto(h);
-  h.coordinator.install();
+  h.coordinator.install("2.0.0");
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(h.getState().status, "error");
   assert.equal(h.getState().message, "no handler for .deb");
 });
 
-test("the hand-off sees no staged file when nothing downloaded", async () => {
+test("nothing is installed or handed off when nothing downloaded", async () => {
   const received = [];
   const h = harness({
     handOffInstall: (files) => {
@@ -589,10 +593,11 @@ test("the hand-off sees no staged file when nothing downloaded", async () => {
     },
   });
 
-  h.coordinator.install();
+  h.coordinator.install("2.0.0");
   await new Promise((resolve) => setImmediate(resolve));
 
-  assert.deepEqual(received, [null]);
+  assert.deepEqual(received, []);
+  assert.equal(h.getState().status, "idle");
 });
 
 test("without a hand-off the install still quits and installs", async () => {
@@ -603,7 +608,7 @@ test("without a hand-off the install still quits and installs", async () => {
   };
 
   await downloadInto(h, ["/tmp/later.dog-2.0.0.AppImage"]);
-  h.coordinator.install();
+  h.coordinator.install("2.0.0");
 
   assert.equal(called, 1);
   assert.equal(h.getState().status, "installing");
@@ -664,7 +669,7 @@ test("checks cannot replace an install in progress or its completed hand-off", a
   const h = harness({ handOffInstall: () => pending.promise });
   await downloadInto(h);
   h.updater.checkForUpdates = () => assert.fail("installation owns the updater");
-  h.coordinator.install();
+  h.coordinator.install("2.0.0");
 
   await h.coordinator.check();
   await h.coordinator.check(true);
@@ -687,7 +692,7 @@ test("failed download and hand-off actions survive automatic checks but remain r
       await settle();
     } else {
       await downloadInto(h);
-      h.coordinator.install();
+      h.coordinator.install("2.0.0");
       await new Promise((resolve) => setImmediate(resolve));
     }
     let checks = 0;
@@ -710,4 +715,107 @@ test("failed download and hand-off actions survive automatic checks but remain r
     assert.equal(checks, 1);
     assert.equal(h.getState().status, "downloaded");
   }
+});
+
+function receiptLog() {
+  const entries = [];
+  return { entries, receipt: { write: (target) => entries.push(["write", target]), clear: () => entries.push(["clear"]) } };
+}
+
+test("the restart installs only the version the person approved", async () => {
+  const { entries, receipt } = receiptLog();
+  const h = harness({ receipt });
+  let quits = 0;
+  h.updater.quitAndInstall = () => { quits += 1; };
+  h.updater.downloadUpdate = async () => {
+    h.updater.emit("update-downloaded", { version: "0.3.43" });
+    return ["/tmp/later.dog-0.3.43.AppImage"];
+  };
+  await found(h, { version: "0.3.43" });
+  await settle();
+  assert.equal(h.getState().version, "0.3.43");
+  const sent = h.states.length;
+
+  h.coordinator.install("0.3.42");
+  h.coordinator.install(undefined);
+
+  assert.equal(quits, 0);
+  assert.deepEqual(entries, []);
+  assert.equal(h.getState().status, "downloaded");
+  assert.equal(h.states.length, sent + 2, "a refused install resends the state so the dialog shows the downloaded version");
+
+  h.coordinator.install("0.3.43");
+  assert.equal(quits, 1);
+  assert.deepEqual(entries, [["write", "0.3.43"]]);
+});
+
+test("a hand-off install also refuses a version the person did not see", async () => {
+  const received = [];
+  const h = harness({ handOffInstall: (files) => { received.push(files); return Promise.resolve({ command: "install", terminalOpened: false }); } });
+  await downloadInto(h);
+  h.coordinator.install("1.9.0");
+  await settle();
+  assert.deepEqual(received, []);
+  h.coordinator.install("2.0.0");
+  await settle();
+  assert.equal(received.length, 1);
+});
+
+test("on a Mac nothing is handed to macOS before the yes, and the yes waits for it before restarting", async (t) => {
+  const { entries, receipt } = receiptLog();
+  const h = harness({ nativeStaging: true, receipt });
+  const native = new EventEmitter();
+  let nativeChecks = 0;
+  let quits = 0;
+  native.checkForUpdates = () => { nativeChecks += 1; };
+  h.updater.nativeUpdater = native;
+  h.updater.quitAndInstall = () => { quits += 1; };
+  let deadline;
+  t.mock.method(globalThis, "setTimeout", (callback, delay) => {
+    if (delay === 300_000) deadline = callback;
+    return { unref() {} };
+  });
+  t.mock.method(globalThis, "clearTimeout", () => {});
+
+  await downloadInto(h);
+  assert.equal(h.getState().status, "downloaded");
+  assert.equal(nativeChecks, 0);
+  assert.equal(h.states.some((entry) => entry.status === "preparing"), false);
+
+  h.coordinator.install("2.0.0");
+  assert.equal(h.getState().status, "preparing");
+  assert.equal(nativeChecks, 1);
+  assert.equal(quits, 0);
+  assert.equal(typeof deadline, "function");
+  assert.deepEqual(entries, []);
+
+  native.emit("update-downloaded");
+  assert.equal(quits, 1);
+  assert.equal(h.getState().status, "installing");
+  assert.deepEqual(entries, [["write", "2.0.0"]]);
+});
+
+test("a restart that fails at once takes its receipt back, so the next launch does not repeat the error", async () => {
+  const { entries, receipt } = receiptLog();
+  const h = harness({ receipt });
+  h.updater.quitAndInstall = () => { throw new Error("install threw"); };
+  await downloadInto(h);
+  h.coordinator.install("2.0.0");
+  assert.equal(h.getState().status, "error");
+  assert.deepEqual(entries, [["write", "2.0.0"], ["clear"]]);
+});
+
+test("a check that finds nothing newer forgets the download, so a stale dialog cannot install it", async () => {
+  const h = harness();
+  let quits = 0;
+  h.updater.quitAndInstall = () => { quits += 1; };
+  await downloadInto(h);
+  h.updater.checkForUpdates = async () => {
+    h.updater.emit("checking-for-update");
+    h.updater.emit("update-not-available");
+  };
+  await h.coordinator.check(true);
+  assert.equal(h.getState().status, "idle");
+  h.coordinator.install("2.0.0");
+  assert.equal(quits, 0);
 });

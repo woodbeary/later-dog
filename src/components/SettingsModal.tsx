@@ -17,6 +17,7 @@ import { useUpdaterState } from "@/lib/updater";
 import { appVersion, openExternalLink } from "@/lib/app-links";
 import { brand } from "../lib/brand";
 import { ReleaseCheckRow, releaseChecksOff, releaseOffer } from "./ReleaseCheck";
+import { updateReceiptLine } from "./UpdateButton";
 import { AboutMeSettings } from "./AboutMeSettings";
 import { AccountsPanel, AccountsRefresh } from "./AccountsPanel";
 import { SavedApiKeys, savedKeyEngines } from "./SavedApiKeys";
@@ -118,7 +119,7 @@ export function UpdatesRow() {
                 ? t("settings.updates.handedOff")
                 : s.status === "error"
                   ? t("settings.updates.failed", { message: s.message ?? t("settings.updates.unknownError") })
-                  : t("settings.updates.latest");
+                  : updateReceiptLine(s) ?? t("settings.updates.latest");
   const release = releaseOffer(s);
   const checksOff = releaseChecksOff(s);
   const label = release
@@ -129,7 +130,7 @@ export function UpdatesRow() {
       <button
         onClick={() => {
           if (release) return void openExternalLink(release.url);
-          if (s.status === "downloaded") return void updater.install();
+          if (s.status === "downloaded") return void updater.install(s.version);
           void updater.check();
         }}
         disabled={

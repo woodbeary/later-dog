@@ -23,3 +23,15 @@ export function subscribeUpdateDialog(listener: () => void): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }
+
+let receiptDismissed = false;
+
+export function dismissUpdateReceipt(): void {
+  if (receiptDismissed) return;
+  receiptDismissed = true;
+  for (const listener of listeners) listener();
+}
+
+export function updateReceiptDismissed(): boolean {
+  return receiptDismissed;
+}
