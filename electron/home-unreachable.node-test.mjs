@@ -110,7 +110,7 @@ test("a reconnect that throws before loading keeps the line up and schedules the
 
 test("main.mjs never sends the window to this Mac's dogs when a remote or the Cloud home fails to load", () => {
   const handlers = main.split('win.webContents.on("did-fail-load"').slice(1).map(chunk => chunk.slice(0, chunk.indexOf("\n  });")));
-  assert.equal(handlers.length, 2);
+  assert.equal(handlers.length, 1);
   const remote = handlers.find(body => body.includes("activeEnvironment(environmentsState);"));
   assert.ok(remote);
   assert.doesNotMatch(remote, /LOCAL_ID|switchEnvironment|showMessageBox/);
