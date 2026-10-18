@@ -128,16 +128,15 @@ test("renderer links and redirects cannot switch onto the local or another saved
   assert.equal(env.workspaceNavigationAllowed("https://acme.example", switched, local), false);
 });
 
-test("native window identity distinguishes hosted HTML, companion data, and the local workspace", () => {
+test("native window identity distinguishes hosted HTML and the local workspace", () => {
   const state = { environments: [{ id: "old", name: "Old team", origin: "https://old.example" }], activeId: "old" };
   assert.equal(env.workspaceWindowTitle(state), "later.dog — Hosted: Old team (old.example)");
-  assert.equal(env.workspaceWindowTitle(state, { serverName: "Office", endpoint: "https://c-office.later.dog" }), "later.dog — Connected to: Office (c-office.later.dog)");
   assert.equal(env.workspaceWindowTitle(env.withActive(state, "local")), "later.dog");
 });
 
 test("a signed-in person's window is just later.dog, while any other hosted server still names itself", () => {
   const state = { environments: [{ id: "cloud", name: "My Cloud", origin: "https://home.example" }, { id: "old", name: "Old team", origin: "https://old.example" }], activeId: "cloud" };
-  assert.equal(env.workspaceWindowTitle(state, null, "https://home.example"), "later.dog");
-  assert.equal(env.workspaceWindowTitle(env.withActive(state, "old"), null, "https://home.example"), "later.dog — Hosted: Old team (old.example)");
+  assert.equal(env.workspaceWindowTitle(state, "https://home.example"), "later.dog");
+  assert.equal(env.workspaceWindowTitle(env.withActive(state, "old"), "https://home.example"), "later.dog — Hosted: Old team (old.example)");
   assert.equal(env.workspaceWindowTitle(state), "later.dog — Hosted: My Cloud (home.example)");
 });

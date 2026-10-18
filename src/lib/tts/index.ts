@@ -1,6 +1,4 @@
 
-import { localSystemVoiceActive, remoteSystemVoice, resolveLocalSystemVoice } from "@/lib/local-voice";
-
 export type SpeechStatus = "idle" | "preparing" | "speaking";
 
 export interface SpeechSnapshot {
@@ -30,8 +28,6 @@ export class Speaker {
   private objectUrl: string | null = null;
   private settlePlayback: ((finished: boolean) => void) | null = null;
   private request: AbortController | null = null;
-  private localUtterance: SpeechSynthesisUtterance | null = null;
-  private settleLocalSpeech: ((finished: boolean) => void) | null = null;
   private externalClaim: { pause: () => void } | null = null;
 
   subscribe(fn: (s: SpeechSnapshot) => void): () => void {
@@ -61,10 +57,6 @@ export class Speaker {
     external?.pause();
     this.request?.abort();
     this.request = null;
-    this.settleLocalSpeech?.(false);
-    this.settleLocalSpeech = null;
-    this.localUtterance = null;
-    if (typeof window !== "undefined") window.speechSynthesis?.cancel();
     if (this.settlePlayback) this.settlePlayback(false);
     else this.teardownAudio();
     if (this.snapshot.status !== "idle" || this.snapshot.error) this.set(IDLE);
@@ -102,11 +94,6 @@ export class Speaker {
     const live = () => this.token === mine && !controller.signal.aborted;
 
     this.set({ status: "preparing", botId: opts.botId, messageId: opts.messageId });
-    if (localSystemVoiceActive()) {
-      await this.speakWithLocalSystem(text, opts, live);
-      if (this.request === controller) this.request = null;
-      return;
-    }
     let utterances: string[];
     try {
       utterances = await this.prepare(text, opts.voiceId, controller.signal);
@@ -155,60 +142,6 @@ export class Speaker {
     }
     if (live()) this.set(IDLE);
     if (this.request === controller) this.request = null;
-  }
-
-  private speakWithLocalSystem(
-    text: string,
-    opts: SpeakOptions,
-    live: () => boolean,
-  ): Promise<void> {
-    const value = text.trim();
-    if (!value) {
-      this.set(IDLE);
-      return Promise.resolve();
-    }
-
-    const synth = window.speechSynthesis;
-    const utterance = new window.SpeechSynthesisUtterance(value);
-    const selected = resolveLocalSystemVoice(remoteSystemVoice(opts.botId));
-    if (selected) utterance.voice = selected;
-    this.localUtterance = utterance;
-
-    return new Promise((resolve) => {
-      let settled = false;
-      const finish = (finished: boolean, error?: string) => {
-        if (settled) return;
-        settled = true;
-        utterance.onstart = null;
-        utterance.onend = null;
-        utterance.onerror = null;
-        if (this.localUtterance === utterance) this.localUtterance = null;
-        if (this.settleLocalSpeech === finish) this.settleLocalSpeech = null;
-        if (live()) this.set(finished ? IDLE : { ...IDLE, ...(error ? { error } : {}) });
-        resolve();
-      };
-      this.settleLocalSpeech = finish;
-      utterance.onstart = () => {
-        if (live()) {
-          this.set({
-            status: "speaking",
-            botId: opts.botId,
-            messageId: opts.messageId,
-            caption: value,
-          });
-        }
-      };
-      utterance.onend = () => finish(true);
-      utterance.onerror = (event) => {
-        const interrupted = event.error === "canceled" || event.error === "interrupted";
-        finish(false, interrupted ? undefined : "This Mac could not play its selected voice.");
-      };
-      try {
-        synth.speak(utterance);
-      } catch {
-        finish(false, "This Mac could not start its selected voice.");
-      }
-    });
   }
 
   private async prepare(text: string, voiceId: string | undefined, signal: AbortSignal): Promise<string[]> {

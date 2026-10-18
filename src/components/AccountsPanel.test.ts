@@ -802,18 +802,6 @@ describe("adding a provider with an API key", () => {
     expect(document.activeElement).toBe(inputs[0]);
   });
 
-  it("offers no providers to a window driving another computer", async () => {
-    await click(button("Cancel", sheet()!));
-    const previous = window.laterdog;
-    window.laterdog = { remoteClient: { active: true } } as unknown as typeof window.laterdog;
-    try {
-      await click(button("Add account"));
-      expect(more()).toBeNull();
-      expect(button("Cancel", sheet()!)).toBeTruthy();
-    } finally {
-      window.laterdog = previous;
-    }
-  });
 });
 
 describe("reordering accounts", () => {

@@ -22,7 +22,7 @@ export function claudeSignInLink(value: string | null | undefined): string | nul
 
 export function claudeCallbackLink(value: string | null | undefined): string | null {
   const link = claudeSignInLink(value);
-  if (!link || window.laterdog?.remoteClient?.active === true) return null;
+  if (!link) return null;
   try {
     const redirect = new URL(new URL(link).searchParams.get("redirect_uri") ?? "");
     return redirect.protocol === "http:" && (redirect.hostname === "localhost" || redirect.hostname === "127.0.0.1") ? link : null;

@@ -741,7 +741,7 @@ function mainIpc(extra = {}) {
   const context = vm.createContext({
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: () => {} },
     senderIsLocal: localOrigin.isLocalSender, workspaceSenderAllowed: environments.workspaceSenderAllowed, cloudPageSenderAllowed, moveSenderDestination,
-    activeEnvironment: environments.activeEnvironment, rendererOrigin: () => LOCAL, desktopRemoteAccess: false,
+    activeEnvironment: environments.activeEnvironment, rendererOrigin: () => LOCAL,
     mainWindow: { isDestroyed: () => false, webContents: localContents },
     environmentsState: { environments: SAVED, activeId: "local" },
     cloudAccount: { homeTarget: () => ({ origin: ORIGIN }) }, isCloudHomeEntry, cloudPlanDisk, mintOwnerCode,
@@ -840,8 +840,6 @@ test("production IPC: a server's own page gets only itself, never starts a copy 
   for (const event of [{ sender: cloudContents, senderFrame: { url: `${ORIGIN}/` } }, { sender: {}, senderFrame: cloudFrame }, { sender: cloudContents, senderFrame: { url: "https://evil.example.test/" } }]) {
     for (const channel of ["cloud-move:state", "cloud-move:start", "cloud-move:cancel", "cloud-move:dismiss", "cloud-move:restore-previous"]) assert.throws(() => handlers.get(channel)(event), /only available/);
   }
-  context.desktopRemoteAccess = true;
-  assert.throws(() => handlers.get("cloud-move:start")({ sender: cloudContents, senderFrame: cloudFrame }), /only available/);
 });
 
 test("production IPC: a finished copy opens the server it went to", async () => {
@@ -903,7 +901,7 @@ test("the Cloud's setup checklist can open the lending switch here, and nothing 
   const context = vm.createContext({
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: () => {} },
     senderIsLocal: localOrigin.isLocalSender, workspaceSenderAllowed: environments.workspaceSenderAllowed, cloudPageSenderAllowed,
-    activeEnvironment: environments.activeEnvironment, rendererOrigin: () => LOCAL, desktopRemoteAccess: false,
+    activeEnvironment: environments.activeEnvironment, rendererOrigin: () => LOCAL,
     mainWindow: { isDestroyed: () => false, webContents: localContents },
     environmentsState: { environments: [], activeId: "local" },
     cloudAccount: { homeTarget: () => ({ origin: ORIGIN }) }, myCloudOrigin, rememberedHome: null,
@@ -946,7 +944,7 @@ test("Settings on the person's own Cloud shows the plan read only, and can only 
   const context = vm.createContext({
     ipcMain: { handle: (channel, handler) => handlers.set(channel, handler), on: () => {} },
     senderIsLocal: localOrigin.isLocalSender, workspaceSenderAllowed: environments.workspaceSenderAllowed, cloudPageSenderAllowed,
-    activeEnvironment: environments.activeEnvironment, rendererOrigin: () => LOCAL, desktopRemoteAccess: false,
+    activeEnvironment: environments.activeEnvironment, rendererOrigin: () => LOCAL,
     mainWindow: { isDestroyed: () => false, webContents: cloudContents },
     environmentsState: { environments: [{ id: "cloud", name: "My Cloud", origin: ORIGIN }], activeId: "cloud" },
     cloudAccount: { homeTarget: () => ({ origin: ORIGIN }), state: () => account }, cloudPlanSnapshot, LOCAL_ID: environments.LOCAL_ID, myCloudOrigin, rememberedHome: null,

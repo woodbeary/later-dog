@@ -92,10 +92,7 @@ it("opens the Claude API key card, after the sign-ins, where a key can be typed"
   expect(store.dispatch).not.toHaveBeenCalled();
 });
 
-it("leaves the API key choice out without a key engine, and in a window on another computer", () => {
-  expect(render().html).not.toContain('data-cloud-choice="api-key"');
-  store.instances = [claude, codex, claudeKey];
-  vi.stubGlobal("window", { laterdog: { remoteClient: { active: true } } });
+it("leaves the API key choice out without a key engine", () => {
   expect(render().html).not.toContain('data-cloud-choice="api-key"');
 });
 

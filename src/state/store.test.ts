@@ -677,7 +677,7 @@ describe("replacement snapshot boundary", () => {
         onSnapshotRequired: async () => {
           const chatReady = await loadSnapshotBoundary(
             async () => {},
-            [{ key: "webhooks", load: async () => Promise.reject(new Error("webhooks unavailable")) }],
+            [{ key: "helpers", load: async () => Promise.reject(new Error("helpers unavailable")) }],
             (part, error) => scheduleRetry(part.key, error),
           );
           if (chatReady) {
@@ -706,7 +706,7 @@ describe("replacement snapshot boundary", () => {
     expect(applied).toEqual([
       { kind: "message", threadId: "bot-thread", message: { id: "user-1" } },
     ]);
-    expect(scheduleRetry).toHaveBeenCalledWith("webhooks", expect.any(Error));
+    expect(scheduleRetry).toHaveBeenCalledWith("helpers", expect.any(Error));
     expect(sources).toHaveLength(1);
     expect(sources[0]!.close).not.toHaveBeenCalled();
     stop();
@@ -2006,12 +2006,11 @@ describe("bot settings section", () => {
     expect(next.botSettingsExpandAccordion).toBe(true);
   });
 
-  it("toggleSettings leaves the computer panel and inspector open, closes app settings", () => {
-    const withPanels = { ...initialState, computerOpen: true, inspectorOpen: true, appSettingsOpen: true };
+  it("toggleSettings leaves the computer panel open, closes app settings", () => {
+    const withPanels = { ...initialState, computerOpen: true, appSettingsOpen: true };
     const next = reducer(withPanels, { type: "toggleSettings", open: true });
     expect(next.settingsOpen).toBe(true);
     expect(next.computerOpen).toBe(true);
-    expect(next.inspectorOpen).toBe(true);
     expect(next.appSettingsOpen).toBe(false);
   });
 
@@ -2153,40 +2152,6 @@ describe("bot settings section", () => {
       id: "bot-a",
     });
     expect(state.botSettingsSection).toBe("overview");
-  });
-});
-
-describe("activity panel", () => {
-  it("starts closed", () => {
-    expect(initialState.activityOpen).toBe(false);
-  });
-
-  it("toggleActivity opens it and closes the other side panels", () => {
-    const withPanels = { ...initialState, computerOpen: true, inspectorOpen: true, appSettingsOpen: true };
-    const next = reducer(withPanels, { type: "toggleActivity" });
-    expect(next.activityOpen).toBe(true);
-    expect(next.computerOpen).toBe(false);
-    expect(next.inspectorOpen).toBe(false);
-    expect(next.appSettingsOpen).toBe(false);
-    expect(reducer(next, { type: "toggleActivity" }).activityOpen).toBe(false);
-  });
-
-  it("opening the inspector or the computer closes the activity panel", () => {
-    const open = { ...initialState, activityOpen: true };
-    expect(reducer(open, { type: "toggleInspector", open: true }).activityOpen).toBe(false);
-    expect(reducer(open, { type: "toggleComputer", open: true }).activityOpen).toBe(false);
-  });
-
-  it("opening bot settings closes activity without changing the other panels", () => {
-    const open = { ...initialState, activityOpen: true, computerOpen: true };
-    const next = reducer(open, { type: "toggleSettings", open: true });
-    expect(next.activityOpen).toBe(false);
-    expect(next.computerOpen).toBe(true);
-  });
-
-  it("switching to the team map closes the activity panel", () => {
-    const open = { ...initialState, activityOpen: true };
-    expect(reducer(open, { type: "showTeamMap" }).activityOpen).toBe(false);
   });
 });
 

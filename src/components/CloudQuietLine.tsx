@@ -9,9 +9,9 @@ const accountsText = (note: AccountsNote | undefined) => accountsSentences(note)
   .map((sentence) => sentence.key === "cloudMoveLine.accountsStayed" ? t(sentence.key, { names: sentence.names }) : t(sentence.key)).join(" ");
 
 export function CloudQuietLine() {
-  const moveBridge = window.laterdog?.remoteClient?.active ? undefined : window.laterdog?.cloudMove;
+  const moveBridge = window.laterdog?.cloudMove;
   const move = useCloudMove(moveBridge);
-  const accountBridge = window.laterdog?.remoteClient !== undefined ? cloudAccountBridge() : undefined;
+  const accountBridge = window.laterdog?.localPage === true ? cloudAccountBridge() : undefined;
   const { account, accept } = useCloudAccount(accountBridge);
   const [retrying, setRetrying] = useState(false);
   const line = moveLine(move.overview, move.state);

@@ -30,10 +30,10 @@ const bot: Bot = {
     { threadId: "unread", title: "Finished reply", createdAt: 6, unread: true },
   ],
 };
-const densities: SidebarDensity[] = ["comfortable", "compact", "icons"];
+const densities: SidebarDensity[] = ["comfortable", "icons"];
 const botRow = (BotListItem as MemoExoticComponent<(props: BotRowProps) => ReactNode>).type;
 const rowProps = (density: SidebarDensity, candidate: Bot = bot, query = "") =>
-  botRowProps({ ...initialState, ...fixture.state }, fixture.dispatch, candidate, { density, quiet: false, query, onMenu: vi.fn() });
+  botRowProps({ ...initialState, ...fixture.state }, fixture.dispatch, candidate, { density, query, onMenu: vi.fn() });
 
 type ElementProps = { children?: ReactNode; onClick?: (event: MouseEvent) => void; onKeyDown?: (event: KeyboardEvent) => void; [key: string]: unknown };
 function findElement(tree: ReactNode, attribute: string, value: string): ReactElement<ElementProps> | undefined {
@@ -58,10 +58,8 @@ afterEach(() => { vi.unstubAllGlobals(); });
 describe("bot-first sidebar", () => {
   it.each([
     { enabled: true, density: "comfortable", size: 32, spacing: ["gap-2", "py-2", "pl-6"] },
-    { enabled: true, density: "compact", size: 26, spacing: ["gap-1.5", "py-1", "pl-6"] },
     { enabled: true, density: "icons", size: 44, spacing: ["justify-center", "px-1", "py-1.5"] },
     { enabled: false, density: "comfortable", size: 56, spacing: ["gap-3", "py-2.5", "pl-2"] },
-    { enabled: false, density: "compact", size: 40, spacing: ["gap-2", "py-1.5", "pl-2"] },
     { enabled: false, density: "icons", size: 44, spacing: ["justify-center", "px-1", "py-1.5"] },
   ] as const)("sizes bot portraits and row spacing in $density density with threads $enabled", ({ enabled, density, size, spacing }) => {
     fixture.showThreads = enabled;
@@ -236,7 +234,7 @@ describe("activity-only escape hatch", () => {
 
   it("removes selected and settled activity but keeps unread completed replies", () => {
     const selected = { ...bot, threadId: "approval", tasks: bot.tasks!.map((task) => task.threadId === "working" ? { ...task, busy: false, activity: "idle" as const } : task) };
-    const markup = renderToStaticMarkup(createElement(SidebarBotActivity, { bot: selected, density: "compact", pendingQueued: fixture.state.pendingQueued!, dispatch: fixture.dispatch }));
+    const markup = renderToStaticMarkup(createElement(SidebarBotActivity, { bot: selected, density: "comfortable", pendingQueued: fixture.state.pendingQueued!, dispatch: fixture.dispatch }));
     expect(markup).not.toContain('data-sidebar-activity-row="approval"');
     expect(markup).not.toContain('data-sidebar-activity-row="working"');
     expect(markup).toContain('data-sidebar-activity-row="unread"');

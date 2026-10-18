@@ -141,40 +141,18 @@ describe("cloud preview recovery in the real renderer", () => {
     await select("Screenshot response", "connected");
     await expect.poll(frameVisible, { timeout: 15_000 }).toBe(true);
 
-    for (const panel of ["computer", "remote"]) {
-      if (panel === "remote") {
-        await select("Panel", "remote");
-        await expect.poll(frameVisible, { timeout: 5000 }).toBe(true);
-        await select("Screenshot response", "held");
-        await expect.poll(() => stat("capturing"), { timeout: 6000 }).toBe(true);
-        const aborted = await stat("aborted");
-        const requested = await stat("requests");
-        await click("Busy: true");
-        await pause(200);
-        expect(await stat("aborted")).toBe(aborted);
-        expect(await stat("requests")).toBe(requested);
-        await click("Reconnect panel");
-        await expect.poll(() => stat("aborted"), { timeout: 3000 }).toBe(aborted + 1);
-        expect(await snapshot()).not.toContain("Preview unavailable");
-        await select("Screenshot response", "connected");
-        await click("Release held capture");
-        await expect.poll(frameVisible, { timeout: 5000 }).toBe(true);
-        await click("Busy: false");
-      }
-      await expect.poll(frameVisible, { timeout: 5000 }).toBe(true);
-      const state = await ui("snapshot", "--interactive");
-      const target = Object.entries(state.refs as Record<string, { role: string; name: string }>)
-        .find(([, entry]) => entry.role === "button" && entry.name.startsWith("Open ") && entry.name.endsWith("live desktop"));
-      expect(target).toBeDefined();
-      await ui("click", "--ref", `@${target![0]}`);
-      await expect.poll(() => stat("joining"), { timeout: 5000 }).toBe(true);
-      const before = await stat("requests");
-      await pause(4500);
-      expect(await stat("requests")).toBe(before);
-      expect(await stat("duringJoin")).toBe(0);
-      await click("Release desktop join");
-      await expect.poll(() => stat("joining")).toBe(false);
-    }
+    const state = await ui("snapshot", "--interactive");
+    const target = Object.entries(state.refs as Record<string, { role: string; name: string }>)
+      .find(([, entry]) => entry.role === "button" && entry.name.startsWith("Open ") && entry.name.endsWith("live desktop"));
+    expect(target).toBeDefined();
+    await ui("click", "--ref", `@${target![0]}`);
+    await expect.poll(() => stat("joining"), { timeout: 5000 }).toBe(true);
+    const before = await stat("requests");
+    await pause(4500);
+    expect(await stat("requests")).toBe(before);
+    expect(await stat("duringJoin")).toBe(0);
+    await click("Release desktop join");
+    await expect.poll(() => stat("joining")).toBe(false);
     process.stdout.write(`${JSON.stringify({ fixture: info!, previewUrl: preview.previewUrl, transport: "simulated; panels and browser real" })}\n`);
     await waitForExit(child, { signal: "SIGINT", graceMs: 30_000 });
     expect(child.exitCode).toBe(0);

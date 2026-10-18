@@ -20,7 +20,7 @@ const HARDCODED = [
   "electron/environments.cjs", "electron/main.mjs", "electron/computer-sharing.mjs", "electron/shared-computer-access.mjs",
   "electron/company-backups.mjs", "electron/company-backup-schedule.mjs", "electron/managed-desktop.mjs", "electron/organization-entry.mjs",
   "src/components/VoiceSettings.tsx",
-  "src/components/BrowserPanel.tsx", "src/lib/call-capability.ts", "server/container-computer.ts",
+  "src/lib/call-capability.ts", "server/container-computer.ts",
 ];
 const RETIRED = [
   "hosted workspace", "Switch workspace", "Could not open workspaces", "Your workspaces", "Workspace address", "Connect workspace",

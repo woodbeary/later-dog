@@ -672,7 +672,7 @@ describe("ChatMarkdown attachments", () => {
     const revealInFolder = vi.fn(async () => "shown" as const);
 
     it("offers Show in folder in the local desktop app, without printing the path", () => {
-      vi.stubGlobal("window", { laterdog: { revealInFolder, remoteClient: { active: false } } });
+      vi.stubGlobal("window", { laterdog: { revealInFolder } });
       try {
         const html = render(true);
         expect(html).toContain("the linked file is outside this conversation&#x27;s workspace");
@@ -683,23 +683,12 @@ describe("ChatMarkdown attachments", () => {
       }
     });
 
-    it("shows the full path as selectable text to a remote client instead", () => {
-      vi.stubGlobal("window", { laterdog: { revealInFolder, remoteClient: { active: true } } });
-      try {
-        const html = render(true);
-        expect(html).not.toContain("Show in folder");
-        expect(html).toMatch(/<code[^>]*select-all[^>]*>C:\\Users\\Dog\\_draft\\ollama-gen\.js<\/code>/);
-      } finally {
-        vi.unstubAllGlobals();
-      }
-    });
-
     it("shows the path in a browser, which has no desktop bridge", () => {
       expect(render(true)).toContain(`>${filePath}</code>`);
     });
 
     it("leaves other failures alone", () => {
-      vi.stubGlobal("window", { laterdog: { revealInFolder, remoteClient: { active: false } } });
+      vi.stubGlobal("window", { laterdog: { revealInFolder } });
       try {
         const html = render(false);
         expect(html).not.toContain("Show in folder");

@@ -54,7 +54,7 @@ function storage() {
 }
 
 const fresh = { onboarding: EMPTY_ONBOARDING };
-const LOCAL_PAGE = { laterdog: { platform: "darwin", remoteClient: { active: false }, workspaces: {} } };
+const LOCAL_PAGE = { laterdog: { platform: "darwin", localPage: true, workspaces: {} } };
 const REMOTE_PAGE = { laterdog: { platform: "darwin", workspaces: {}, getCapabilities: () => ({}) } };
 beforeEach(() => {
   fixture.values = [];
@@ -148,11 +148,8 @@ describe("who gets the welcome flow", () => {
     expect(admin.props.hosted).toBe(true);
   });
 
-  it("shows nothing to a remote client member or while a browser's session is unknown", () => {
+  it("shows nothing while a browser's session is unknown", () => {
     expect(gate(null).tree).toBeNull();
-    vi.stubGlobal("window", { laterdog: { remoteClient: { active: true } } });
-    expect(gate({ hosted: true, canSave: false }).tree).toBeNull();
-    expect(gate(LOCAL_VIEWER).tree).toBeNull();
   });
 
   it("stays closed after the admin finished it", () => {

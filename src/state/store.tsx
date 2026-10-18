@@ -35,7 +35,6 @@ import {
   type SkillRequestCardData,
 } from "../../shared/skill-request";
 import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
-import type { WebhookAttempt, WebhookIngressStatus, WebhookTrigger } from "@/lib/webhooks";
 import { botShowsUnread } from "@/lib/bot-unread";
 import { personIsLooking, readWhenBack } from "@/lib/viewing";
 import { jevRoomRoutingOn } from "@/lib/group-routing";
@@ -694,28 +693,21 @@ export interface AppState {
   liveCallVersion: number;
   liveCallLookupSeq: number;
   selectedId: string;
-  activeView: "chat" | "team-map" | "workspace";
+  activeView: "chat" | "team-map";
   routines: Routine[];
   routineRuns: RoutineRun[];
   routinesLoadState: "loading" | "ready" | "error";
-  webhooks: WebhookTrigger[];
-  webhookAttempts: WebhookAttempt[];
-  webhookIngress: WebhookIngressStatus | null;
   settingsOpen: boolean;
   pluginsOpen: boolean;
   pluginsSurface: "apps" | "mcp";
-  triggersOpen: boolean;
   newBotOpen: boolean;
   botCreationPending: boolean;
   computerOpen: boolean;
   cloudTaskId: string | null;
-  inspectorOpen: boolean;
-  activityOpen: boolean;
   appSettingsOpen: boolean;
   appSettingsSection: AppSettingsSection;
   shortcutsOpen: boolean;
   welcomeOpen: boolean;
-  tourOpen: boolean;
   botSettingsSection: BotSettingsSection;
   botSettingsExpandAccordion: boolean;
   computerStarts: Record<string, ComputerStart>;
@@ -817,17 +809,12 @@ export type Action =
   | { type: "sections"; sections: string[] }
   | { type: "sectionDeleted"; section: string; sections: string[] }
   | { type: "showTeamMap" }
-  | { type: "showWorkspace" }
   | { type: "showChat" }
   | { type: "routinesHydrated"; routines: Routine[]; runs: RoutineRun[] }
   | { type: "routinesLoadFailed" }
   | { type: "routinePatched"; routine: Routine }
   | { type: "routineDeleted"; routineId: string }
   | { type: "routineRunPatched"; run: RoutineRun }
-  | { type: "webhooksHydrated"; webhooks: WebhookTrigger[]; attempts: WebhookAttempt[]; ingress: WebhookIngressStatus }
-  | { type: "webhookPatched"; webhook: WebhookTrigger }
-  | { type: "webhookAttempted"; attempt: WebhookAttempt }
-  | { type: "webhookDeleted"; webhookId: string }
   | { type: "createRoutine"; input: RoutineInput }
   | { type: "updateRoutine"; routineId: string; patch: Partial<RoutineInput> }
   | { type: "deleteRoutine"; routineId: string }
@@ -937,19 +924,15 @@ export type Action =
   | { type: "revealThread"; threadId: string }
   | { type: "toggleSettings"; open?: boolean; section?: BotSettingsSection; botId?: string }
   | { type: "togglePlugins"; open?: boolean; surface?: "apps" | "mcp" }
-  | { type: "toggleTriggers"; open?: boolean }
   | { type: "toggleNewBot"; open?: boolean }
   | { type: "toggleComputer"; open?: boolean }
   | { type: "openCloudTask"; jobId: string }
   | { type: "closeCloudTask" }
-  | { type: "toggleInspector"; open?: boolean }
-  | { type: "toggleActivity"; open?: boolean }
   | { type: "focusMessage"; threadId: string; messageId: string; matchText?: string }
   | { type: "focusMessageConsumed"; nonce: number }
   | { type: "toggleAppSettings"; open?: boolean; section?: AppSettingsSection }
   | { type: "toggleShortcuts"; open?: boolean }
   | { type: "toggleWelcome"; open?: boolean }
-  | { type: "toggleTour"; open?: boolean }
   | { type: "giveTreat"; botId: string }
   | {
       type: "updateBot";
@@ -1210,8 +1193,6 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, sections: action.sections };
     case "botQueues":
       return reconcileSnapshotQueues(replaceBotQueues(state, action.queues), [...state.bots, ...state.groups]);
-    case "showWorkspace":
-      return { ...state, activeView: "workspace", settingsOpen: false, computerOpen: false, inspectorOpen: false, activityOpen: false };
     case "showChat":
       return state.activeView === "chat" ? state : { ...state, activeView: "chat" };
     case "showTeamMap":
@@ -1220,11 +1201,8 @@ export function reducer(state: AppState, action: Action): AppState {
         activeView: "team-map",
         settingsOpen: false,
         computerOpen: false,
-        inspectorOpen: false,
-        activityOpen: false,
         appSettingsOpen: false,
         pluginsOpen: false,
-        triggersOpen: false,
       };
     case "routinesHydrated":
       return { ...state, routines: action.routines, routineRuns: trimRoutineRuns(action.runs), routinesLoadState: "ready" };
@@ -1250,29 +1228,6 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         routineRuns: trimRoutineRuns(runs),
       };
-    }
-    case "webhooksHydrated":
-      return { ...state, webhooks: action.webhooks, webhookAttempts: action.attempts, webhookIngress: action.ingress };
-    case "webhookPatched": {
-      const exists = state.webhooks.some((webhook) => webhook.id === action.webhook.id);
-      return {
-        ...state,
-        webhooks: exists
-          ? state.webhooks.map((webhook) => (webhook.id === action.webhook.id ? action.webhook : webhook))
-          : [action.webhook, ...state.webhooks],
-      };
-    }
-    case "webhookDeleted":
-      return {
-        ...state,
-        webhooks: state.webhooks.filter((webhook) => webhook.id !== action.webhookId),
-        webhookAttempts: state.webhookAttempts.filter((attempt) => attempt.webhookId !== action.webhookId),
-      };
-    case "webhookAttempted": {
-      const attempts = state.webhookAttempts.some((attempt) => attempt.id === action.attempt.id)
-        ? state.webhookAttempts.map((attempt) => attempt.id === action.attempt.id ? action.attempt : attempt)
-        : [...state.webhookAttempts, action.attempt];
-      return { ...state, webhookAttempts: attempts.slice(-2_000) };
     }
     case "groupPatched": {
       const fenced = action.group.messages ? bumpTranscriptGeneration(state, action.group.threadId) : state;
@@ -1642,7 +1597,6 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         selectedId,
         settingsOpen: open,
-        activityOpen: open ? false : state.activityOpen,
         botSettingsSection: action.section ?? (selectedId !== state.selectedId ? "overview" : state.botSettingsSection),
         botSettingsExpandAccordion: open ? action.section !== undefined : false,
         appSettingsOpen: open ? false : state.appSettingsOpen,
@@ -1654,15 +1608,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         pluginsOpen: open,
         pluginsSurface: action.surface ?? state.pluginsSurface,
-        ...(open ? { settingsOpen: false, appSettingsOpen: false, newBotOpen: false, shortcutsOpen: false, triggersOpen: false } : {}),
-      };
-    }
-    case "toggleTriggers": {
-      const open = action.open ?? !state.triggersOpen;
-      return {
-        ...state,
-        triggersOpen: open,
-        ...(open ? { settingsOpen: false, appSettingsOpen: false, newBotOpen: false, shortcutsOpen: false, pluginsOpen: false } : {}),
+        ...(open ? { settingsOpen: false, appSettingsOpen: false, newBotOpen: false, shortcutsOpen: false } : {}),
       };
     }
     case "botCreationPending":
@@ -1671,7 +1617,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const open = action.open ?? !state.newBotOpen;
       return {
         ...state, newBotOpen: open,
-        ...(open ? { settingsOpen: false, appSettingsOpen: false, pluginsOpen: false, shortcutsOpen: false, triggersOpen: false } : {}),
+        ...(open ? { settingsOpen: false, appSettingsOpen: false, pluginsOpen: false, shortcutsOpen: false } : {}),
       };
     }
     case "notice":
@@ -1698,8 +1644,6 @@ export function reducer(state: AppState, action: Action): AppState {
         computerOpen: true,
         cloudTaskId: action.jobId,
         settingsOpen: false,
-        inspectorOpen: false,
-        activityOpen: false,
         appSettingsOpen: false,
       };
     case "closeCloudTask":
@@ -1712,30 +1656,6 @@ export function reducer(state: AppState, action: Action): AppState {
         cloudTaskId: null,
         takeoverIntent: open ? state.takeoverIntent : null,
         settingsOpen: open ? false : state.settingsOpen,
-        inspectorOpen: open ? false : state.inspectorOpen,
-        activityOpen: open ? false : state.activityOpen,
-        appSettingsOpen: open ? false : state.appSettingsOpen,
-      };
-    }
-    case "toggleInspector": {
-      const open = action.open ?? !state.inspectorOpen;
-      return {
-        ...state,
-        inspectorOpen: open,
-        settingsOpen: open ? false : state.settingsOpen,
-        computerOpen: open ? false : state.computerOpen,
-        activityOpen: open ? false : state.activityOpen,
-        appSettingsOpen: open ? false : state.appSettingsOpen,
-      };
-    }
-    case "toggleActivity": {
-      const open = action.open ?? !state.activityOpen;
-      return {
-        ...state,
-        activityOpen: open,
-        settingsOpen: open ? false : state.settingsOpen,
-        computerOpen: open ? false : state.computerOpen,
-        inspectorOpen: open ? false : state.inspectorOpen,
         appSettingsOpen: open ? false : state.appSettingsOpen,
       };
     }
@@ -1744,13 +1664,10 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         appSettingsOpen: open,
-        activityOpen: open ? false : state.activityOpen,
         appSettingsSection: action.section ?? state.appSettingsSection,
         settingsOpen: open ? false : state.settingsOpen,
         computerOpen: open ? false : state.computerOpen,
-        inspectorOpen: open ? false : state.inspectorOpen,
         pluginsOpen: open ? false : state.pluginsOpen,
-        triggersOpen: open ? false : state.triggersOpen,
       };
     }
     case "toggleShortcuts": {
@@ -1759,10 +1676,6 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         shortcutsOpen: open,
       };
-    }
-    case "toggleTour": {
-      const open = action.open ?? !state.tourOpen;
-      return { ...state, tourOpen: open, appSettingsOpen: open ? false : state.appSettingsOpen };
     }
     case "toggleWelcome": {
       const open = action.open ?? !state.welcomeOpen;
@@ -2069,24 +1982,17 @@ export const initialState: AppState = {
   routines: [],
   routineRuns: [],
   routinesLoadState: "loading",
-  webhooks: [],
-  webhookAttempts: [],
-  webhookIngress: null,
   settingsOpen: false,
   pluginsOpen: false,
   pluginsSurface: "apps",
-  triggersOpen: false,
   newBotOpen: false,
   botCreationPending: false,
   computerOpen: false,
   cloudTaskId: null,
-  inspectorOpen: false,
-  activityOpen: false,
   appSettingsOpen: false,
   appSettingsSection: "general",
   shortcutsOpen: false,
   welcomeOpen: false,
-  tourOpen: false,
   botSettingsSection: "overview",
   botSettingsExpandAccordion: false,
   computerStarts: {},
@@ -2917,11 +2823,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               section: action.section,
               setup: {
                 bulletin: "",
-                defaultResponder: window.laterdog?.remoteClient?.active
-                  ? { kind: "mentions" }
-                  : jevRoomRoutingOn(stateRef.current.config)
-                    ? { kind: "auto", fallbackBotId: action.memberIds[0] }
-                    : { kind: "member", botId: action.memberIds[0] },
+                defaultResponder: jevRoomRoutingOn(stateRef.current.config)
+                  ? { kind: "auto", fallbackBotId: action.memberIds[0] }
+                  : { kind: "member", botId: action.memberIds[0] },
               },
             }),
           })
@@ -3161,7 +3065,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let alive = true;
-    type PeripheralKey = "instances" | "config" | "routines" | "webhooks" | "helpers";
+    type PeripheralKey = "instances" | "config" | "routines" | "helpers";
     type PeripheralPart = {
       key: PeripheralKey;
       request: () => Promise<() => void>;
@@ -3213,14 +3117,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return () => receiveHelpersSnapshot(snapshot);
         },
       },
-      ...(window.laterdog?.remoteClient?.active ? [] : [{
-        key: "webhooks",
-        request: async () => {
-          const { webhooks, attempts, ingress } = await api("/api/webhooks");
-          return () =>
-            rawDispatch({ type: "webhooksHydrated", webhooks, attempts: attempts ?? [], ingress });
-        },
-      } satisfies PeripheralPart]),
     ];
     const partByKey = new Map(peripheralParts.map((part) => [part.key, part]));
     const schedulePeripheralRetry = (part: PeripheralPart, error?: Error) => {
@@ -3327,12 +3223,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (frame.kind === "config") bumpPeripheralVersion("config", "instances");
       else if (frame.kind === "routine" || frame.kind === "routine.deleted" || frame.kind === "routine.run") {
         bumpPeripheralVersion("routines");
-      } else if (
-        frame.kind === "webhook" ||
-        frame.kind === "webhook.attempt" ||
-        frame.kind === "webhook.deleted"
-      ) {
-        bumpPeripheralVersion("webhooks");
       }
       switch (frame.kind) {
         case "sections":
@@ -3414,15 +3304,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         case "routine.run":
           rawDispatch({ type: "routineRunPatched", run: frame.run });
-          break;
-        case "webhook":
-          rawDispatch({ type: "webhookPatched", webhook: frame.webhook });
-          break;
-        case "webhook.attempt":
-          rawDispatch({ type: "webhookAttempted", attempt: frame.attempt });
-          break;
-        case "webhook.deleted":
-          rawDispatch({ type: "webhookDeleted", webhookId: frame.webhookId });
           break;
         case "runtime": {
           if (receiveHelperEvent(frame.event)) bumpPeripheralVersion("helpers");

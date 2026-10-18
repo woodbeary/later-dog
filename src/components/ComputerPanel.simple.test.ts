@@ -18,7 +18,7 @@ const fixture = vi.hoisted(() => {
     index: 0,
     own: 0,
     seed: {} as Record<string, unknown>,
-    config: {} as FeatureFlagConfig & { cloudHome?: boolean; box?: { configured: boolean }; vps?: { configured: boolean; sshAlias: string } },
+    config: {} as FeatureFlagConfig & { cloudHome?: boolean; box?: { configured: boolean } },
     instances: [] as InstanceInfo[],
     dispatch: (() => {}) as (...args: unknown[]) => void,
     api: (() => Promise.resolve({})) as (...args: unknown[]) => Promise<unknown>,
@@ -26,7 +26,7 @@ const fixture = vi.hoisted(() => {
   };
 });
 
-const PHASE_OFFSETS = { phase: 0, resolved: 2, boatState: 4, vmViewerUrl: 10, vmStatus: 11, pending: 12, error: 15 } as const;
+const PHASE_OFFSETS = { phase: 0, resolved: 2, boatState: 4, pending: 9, error: 12 } as const;
 let phaseIndex = -1;
 
 vi.mock("react", async (original) => ({
@@ -61,10 +61,8 @@ vi.mock("./DesktopCapabilities", () => ({
     },
   }),
 }));
-vi.mock("./BrowserPanel", () => ({ BrowserPanel: () => createElement("div", null, "BROWSER-PANEL") }));
 vi.mock("./CloudScreenPreview", () => ({ CloudScreenPreview: () => null }));
 vi.mock("./LocalScreenPreview", () => ({ LocalScreenPreview: () => null }));
-vi.mock("./LinuxLocalControl", () => ({ LinuxLocalControl: () => null }));
 vi.mock("./MacLocalControl", () => ({ MacLocalControl: () => createElement("div", null, "MAC-LOCAL") }));
 vi.mock("./ApiKeys", async (importOriginal) => ({
   ...await importOriginal<typeof import("./ApiKeys")>(),
@@ -243,21 +241,6 @@ describe("This Mac", () => {
   });
 });
 
-describe("Local VM", () => {
-  it("names a model that cannot use it in plain words and offers a different one", () => {
-    fixture.instances = [plainEngine()];
-    fixture.seed = { phase: "vm-unavailable" };
-    const rendered = render(makeBot({ computer: "vm" }));
-    expect(rendered.html).toContain("M can&#x27;t use a Local VM. Choose a model that can, such as Claude or ChatGPT.");
-    expect(rendered.html).not.toContain("ACP");
-    expect(rendered.nodes.some((node) => node.props.role === "alert")).toBe(false);
-    const action = rendered.byTestId("place-action")!;
-    expect(text(action.props.children)).toBe("Choose a model");
-    (action.props.onClick as () => void)();
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleSettings", open: true, section: "model", botId: "scout" });
-  });
-});
-
 describe("Cloud computer", () => {
   it("reads a refused start as the same state a failed row does, never the relay's words", () => {
     fixture.seed = {
@@ -338,10 +321,6 @@ describe("Technical controls", () => {
     expect(rendered.buttons.some((node) => text(node.props.children).startsWith("Routines"))).toBe(false);
   });
 
-  it("has no VM settings link", () => {
-    expect(render(makeBot({ computer: "vm" })).html).not.toContain("VM settings");
-  });
-
   it("puts no buttons under a ready cloud screen: the screen opens itself and sleeps on its own", () => {
     fixture.seed = { phase: "ready", resolved: { botId: "scout", threadId: "thread-scout", computer: "cloud", cloudBackend: "box" } };
     const simple = render(cloud());
@@ -357,51 +336,4 @@ describe("Technical controls", () => {
     expect(rendered.html).not.toContain("Capturing this computer");
   });
 
-  it("has no two desktops or Delete VM under a running VM", () => {
-    fixture.laterdog.desktopWorkspace = {};
-    fixture.seed = {
-      phase: "vm",
-      resolved: { botId: "scout", threadId: "thread-scout", computer: "vm", cloudBackend: "box" },
-      vmViewerUrl: "http://127.0.0.1/viewer",
-      vmStatus: { mode: "per-bot", container: "running", ready: true },
-    };
-    const rendered = render(makeBot({ computer: "vm" }));
-    expect(rendered.html).not.toContain("two desktops");
-    expect(rendered.html).not.toContain("Delete");
-    expect(rendered.nodes.find((node) => node.props["data-testid"] === "computer-actions")).toBeUndefined();
-  });
-
-  it("says a VPS computer is stopped and starts it from the sleeping dog, with no VPS setup controls", () => {
-    const vpsBox = { botId: "scout", threadId: "thread-scout", computer: "cloud", cloudBackend: "vps" } as const;
-    fixture.seed = { phase: "vps-stopped", resolved: vpsBox };
-    const rendered = render(makeBot({ computer: "cloud", cloudBackend: "vps" }));
-    expect(rendered.html).toContain("The managed VPS computer is stopped");
-    expect(rendered.buttons.some((node) => /VPS|advanced/i.test(text(node.props.children)))).toBe(false);
-    expect(rendered.button("Start it now")).toBeUndefined();
-    const dog = rendered.wakeDog!;
-    expect(dog.props.label).toBe("Turn on Scout's computer");
-    dog.props.onWake();
-    expect(fixture.api).toHaveBeenCalledWith("/api/bots/scout/computer/provision", { method: "POST" });
-
-    fresh();
-    fixture.seed = { phase: "vps-stopped", resolved: vpsBox, pending: "provision" };
-    expect(render(makeBot({ computer: "cloud", cloudBackend: "vps" })).wakeDog!.props.busy).toBe(true);
-  });
-
-  it("asks for the server's SSH alias right in the panel while a VPS computer has none", () => {
-    const vps = () => {
-      fixture.values = [];
-      phaseIndex = -1;
-      fixture.seed = { phase: "vps-unconfigured", resolved: { botId: "scout", threadId: "thread-scout", computer: "cloud", cloudBackend: "vps" } };
-      return render(makeBot({ computer: "cloud", cloudBackend: "vps" })).html;
-    };
-    expect(vps()).toContain('aria-label="Self-hosted VPS SSH config alias"');
-
-    fixture.config = { ...fixture.config, vps: { configured: true, sshAlias: "my-vps" } };
-    expect(vps()).not.toContain("data-vps-alias");
-
-    fixture.config = { ...fixture.config, vps: undefined };
-    fixture.laterdog.remoteClient = { active: true };
-    expect(vps()).not.toContain("data-vps-alias");
-  });
 });

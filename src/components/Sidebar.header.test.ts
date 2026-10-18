@@ -56,7 +56,7 @@ afterEach(() => {
 });
 
 describe("sidebar header", () => {
-  it.each(["comfortable", "compact", "icons"] as const)("shows no separate Cloud world or server picker at %s density", (density) => {
+  it.each(["comfortable", "icons"] as const)("shows no separate Cloud world or server picker at %s density", (density) => {
     fixture.density = density;
     fixture.cloudHome = true;
     const html = render();
@@ -68,7 +68,7 @@ describe("sidebar header", () => {
     expect(html).not.toContain("data-workspace-recovery");
   });
 
-  it.each(["comfortable", "compact"] as const)("keeps only add at %s density, with no density menu", (density) => {
+  it.each(["comfortable"] as const)("keeps only add at %s density, with no density menu", (density) => {
     fixture.density = density;
     const html = render();
     expect(html).not.toContain('aria-label="Collapse sidebar to avatars"');
@@ -181,7 +181,7 @@ describe("sidebar top row", () => {
 });
 
 describe("sidebar glass head and foot", () => {
-  it.each(["comfortable", "compact", "icons"] as const)(
+  it.each(["comfortable", "icons"] as const)(
     "puts the top row and search in the glass head, Bug report in the glass foot, and the list between at %s density",
     (density) => {
       fixture.density = density;
@@ -209,7 +209,7 @@ describe("sidebar glass head and foot", () => {
 });
 
 describe("sidebar foot", () => {
-  it.each(["comfortable", "compact"] as const)("keeps only the profile row, with Bug report at its end (%s)", (density) => {
+  it.each(["comfortable"] as const)("keeps only the profile row, with Bug report at its end (%s)", (density) => {
     fixture.density = density;
     const html = render();
     const foot = html.indexOf('data-glass-bar="bottom"');

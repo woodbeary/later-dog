@@ -202,7 +202,7 @@ function moveButton(view: MoveView, move: CloudMoveHandle, onStart?: () => void)
 }
 
 export function CloudMoveSettings({ destination, onClose }: { destination: string; onClose?: () => void }) {
-  const bridge = window.laterdog?.remoteClient?.active ? undefined : window.laterdog?.cloudMove;
+  const bridge = window.laterdog?.cloudMove;
   const move = useCloudMove(bridge, destination);
   if (!bridge) return null;
   const { overview, state, pending } = move;
@@ -264,7 +264,7 @@ export function CloudMoveSuggestion() {
 }
 
 export function CloudMoveImport() {
-  const bridge = window.laterdog?.remoteClient?.active ? undefined : window.laterdog?.cloudMove;
+  const bridge = window.laterdog?.cloudMove;
   const move = useCloudMove(bridge);
   const blocked = move.overview?.blocked;
   if (!bridge || !move.overview?.destination || blocked === "shared_workspace" || blocked === "same_computer") return null;

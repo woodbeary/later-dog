@@ -69,7 +69,7 @@ export function homeStatusKey(home: CloudMachine): LocaleKey {
 }
 
 export function cloudAccountBridge(): CloudAccountBridge | undefined {
-  if (typeof window === "undefined" || window.laterdog?.remoteClient?.active) return undefined;
+  if (typeof window === "undefined") return undefined;
   return window.laterdog?.cloudAccount;
 }
 

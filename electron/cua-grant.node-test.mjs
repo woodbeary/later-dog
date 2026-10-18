@@ -44,8 +44,7 @@ test("a daemon that is running, was stopped, never tried, or failed for another 
   }
 });
 
-test("only this Mac's own page starts it; other platforms and a remote server's page never do", () => {
-  assert.equal(cuaStartsAfterGrant({ platform: "darwin", remote: true, checklist: granted, connection: waiting }), false);
+test("only a Mac starts it; other platforms never do", () => {
   for (const platform of ["win32", "linux", "freebsd", undefined]) {
     assert.equal(cuaStartsAfterGrant({ platform, checklist: granted, connection: waiting }), false, String(platform));
   }

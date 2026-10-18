@@ -43,9 +43,9 @@ export function welcomeViewer(session: unknown): WelcomeViewer {
 
 export function welcomeDue(
   config: { onboarding?: OnboardingStatus } | null | undefined,
-  options: { remoteClient: boolean; legacyDone: boolean; hosted?: boolean; canSave?: boolean; cloudHome?: boolean },
+  options: { legacyDone: boolean; hosted?: boolean; canSave?: boolean; cloudHome?: boolean },
 ): boolean {
-  if (options.remoteClient || options.cloudHome) return false;
+  if (options.cloudHome) return false;
   if (options.canSave === false) return false;
   if (options.hosted && options.canSave !== true) return false;
   if (!config) return false;
@@ -122,10 +122,10 @@ export function defaultAdminOrigin(bridge: { defaultPortalOrigin?: string } | un
 }
 
 export function organisationSignIn<Bridge>(
-  laterdog: { organization?: Bridge; remoteClient?: { active?: boolean } } | undefined,
+  laterdog: { organization?: Bridge } | undefined,
   options: { hosted: boolean },
 ): Bridge | undefined {
-  if (options.hosted || !laterdog || laterdog.remoteClient?.active === true) return undefined;
+  if (options.hosted || !laterdog) return undefined;
   return laterdog.organization;
 }
 

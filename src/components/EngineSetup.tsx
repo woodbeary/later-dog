@@ -37,7 +37,7 @@ export function needsCli(instance: InstanceInfo | undefined): boolean {
 }
 
 export function serverTerminal(cloudHome: boolean): boolean {
-  return Boolean(window.laterdog?.openInstallTerminal) && window.laterdog?.remoteClient?.active !== true && !cloudHome;
+  return Boolean(window.laterdog?.openInstallTerminal) && !cloudHome;
 }
 
 export function grokKeyInstead(instance: InstanceInfo, cloudHome: boolean): boolean {
@@ -395,7 +395,6 @@ function apiKeySetup(instance: InstanceInfo): boolean {
 }
 
 export function apiKeySection(instance: InstanceInfo): (ConfigSection & TestableProvider) | null {
-  if (window.laterdog?.remoteClient?.active === true) return null;
   switch (instance.driverKind) {
     case "mistral":
     case "cerebras":
@@ -422,7 +421,6 @@ function KeyField({ section }: { section: ConfigSection & TestableProvider }) {
 }
 
 function GrokKeyInstead({ className, unframed }: { className?: string; unframed: boolean }) {
-  const remote = window.laterdog?.remoteClient?.active === true;
   return (
     <div data-engine-setup-key-instead className={cn(!unframed && "rounded-xl border border-hairline/40 bg-control/30 p-3", className)}>
       <div className="flex items-start gap-2.5">
@@ -431,17 +429,16 @@ function GrokKeyInstead({ className, unframed }: { className?: string; unframed:
         </span>
         <p className="min-w-0 text-[12.5px] leading-relaxed text-ink">{t("engineSetup.grok.notInstalled")}</p>
       </div>
-      {!remote && <KeyField section="xai" />}
+      <KeyField section="xai" />
     </div>
   );
 }
 
 function ApiKeyEngineSetup({ instance, className, unframed, configured = false }: { instance: InstanceInfo; className?: string; unframed: boolean; configured?: boolean }) {
-  const remote = window.laterdog?.remoteClient?.active === true;
   const section = apiKeySection(instance);
   const copy = configured
-    ? { title: "engineSetup.apiKey.configuredTitle", description: remote ? "engineSetup.apiKey.configuredRemote" : section ? "engineSetup.apiKey.configuredDescription" : null } as const
-    : { title: "engineSetup.apiKey.title", description: remote ? "engineSetup.apiKey.remote" : section ? "engineSetup.apiKey.description" : null } as const;
+    ? { title: "engineSetup.apiKey.configuredTitle", description: section ? "engineSetup.apiKey.configuredDescription" : null } as const
+    : { title: "engineSetup.apiKey.title", description: section ? "engineSetup.apiKey.description" : null } as const;
   return (
     <div data-engine-setup-api-key={configured ? "configured" : ""} className={cn(!unframed && "rounded-xl border border-hairline/40 bg-control/30 p-3", className)}>
       <div className="flex items-start gap-2.5">

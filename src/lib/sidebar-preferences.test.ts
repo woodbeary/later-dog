@@ -32,9 +32,9 @@ import {
 import { userSectionId } from "./sidebar-layout";
 
 describe("sidebar density preferences", () => {
-  it("accepts the three supported layouts and rejects stale values", () => {
+  it("accepts the two supported layouts and reads stale values, the old compact one included, as comfortable", () => {
     expect(parseSidebarDensity("comfortable")).toBe("comfortable");
-    expect(parseSidebarDensity("compact")).toBe("compact");
+    expect(parseSidebarDensity("compact")).toBe("comfortable");
     expect(parseSidebarDensity("icons")).toBe("icons");
     expect(parseSidebarDensity("tiny")).toBe("comfortable");
     expect(parseSidebarDensity(null)).toBe("comfortable");
@@ -44,7 +44,8 @@ describe("sidebar density preferences", () => {
     const setItem = vi.fn();
     saveSidebarDensity("icons", { setItem });
     expect(setItem).toHaveBeenCalledWith(SIDEBAR_DENSITY_KEY, "icons");
-    expect(loadSidebarDensity({ getItem: () => "compact" })).toBe("compact");
+    expect(loadSidebarDensity({ getItem: () => "icons" })).toBe("icons");
+    expect(loadSidebarDensity({ getItem: () => "compact" })).toBe("comfortable");
     expect(loadSidebarDensity({ getItem: () => { throw new Error("blocked"); } })).toBe("comfortable");
   });
 });

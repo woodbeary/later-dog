@@ -1,7 +1,5 @@
 const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
-const desktopRemoteClient = process.argv.includes("--laterdog-remote-client");
-
 let pendingPackageInstallUrl = null;
 const packageInstallListeners = new Set();
 ipcRenderer.on("package:install", (_event, url) => {
@@ -54,7 +52,7 @@ const COMPANY_BACKUP_CLIENT_KEYS = [
   "laterdog.sidebarCollapsedSections.v1", "laterdog.sidebarSectionOrder.v1",
   "laterdog-analytics-opt-out", "laterdog.remote-voice.v1",
 ];
-if (isLocalPage && !desktopRemoteClient && process.argv.includes("--laterdog-company-desktop=1")) {
+if (isLocalPage && process.argv.includes("--laterdog-company-desktop=1")) {
   ipcRenderer.on("company-backups:collect-client-state", (_event, request) => {
     if (!request || typeof request.requestId !== "string" || !/^[a-f0-9-]{36}$/.test(request.requestId)) return;
     try {
@@ -84,12 +82,7 @@ const bridge = {
     ipcRenderer.on("desktop:capabilities-changed", handler);
     return () => ipcRenderer.removeListener("desktop:capabilities-changed", handler);
   },
-  remoteClient: {
-    active: desktopRemoteClient,
-    state: () => ipcRenderer.invoke("desktop-remote:state"),
-    pair: (endpoint, code) => ipcRenderer.invoke("desktop-remote:pair", endpoint, code),
-    disconnect: () => ipcRenderer.invoke("desktop-remote:disconnect"),
-  },
+  localPage: true,
   routines: {
     wakeState: () => ipcRenderer.invoke("routines:wake-state"),
     keepAwake: (enabled) => ipcRenderer.invoke("routines:keep-awake", enabled),

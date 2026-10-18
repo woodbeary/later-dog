@@ -8,8 +8,6 @@ type Containing = { contains(target: unknown): boolean };
 
 export function popoverClosesOnPointer(target: EventTarget | null, root: Containing | null): boolean {
   if (!target || !root) return false;
-  const closest = (target as Partial<Element>).closest;
-  if (typeof closest === "function" && closest.call(target, "[data-tour-card]")) return false;
   return !root.contains(target);
 }
 

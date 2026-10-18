@@ -126,13 +126,6 @@ describe("setting up connected apps", () => {
     expect(html).not.toContain('data-app-tile="gmail"');
   });
 
-  it("only explains it on a remote screen, where no key can be typed", () => {
-    vi.stubGlobal("window", { laterdog: { remoteClient: { active: true } } });
-    const { html } = render();
-    expect(html).toContain("Ask whoever runs this server to paste a Composio project key into Apps on that computer.");
-    expect(html).not.toContain(">Add key</button>");
-  });
-
   it("names the key when a search finds an app that needs it", () => {
     fixture.overrides.set(SEARCH, "gmail");
     expect(render().html).toContain("data-connectors-key");

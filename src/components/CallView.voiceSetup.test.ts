@@ -42,10 +42,6 @@ vi.mock("@/lib/call", async (importOriginal) => ({
   endCall: fixture.endCall,
   useOnCall: () => fixture.onCall,
 }));
-vi.mock("@/lib/local-voice", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/local-voice")>(),
-  localSystemVoiceActive: () => false,
-}));
 vi.mock("@/lib/analytics", () => ({ track: fixture.track }));
 vi.mock("./MenuMotion", async (importOriginal) => ({
   ...await importOriginal<typeof import("./MenuMotion")>(),
@@ -197,43 +193,6 @@ describe("setting up a voice from the call button", () => {
     (fixture.dialog!.onStartCall as () => void)();
     expect(fixture.track).toHaveBeenCalledWith("group_call_started", { memberCount: 2 });
     expect(fixture.startCall).toHaveBeenCalledWith("room-1");
-  });
-
-  it("opens the remote agent settings instead on a desktop paired to another computer", () => {
-    vi.stubGlobal("window", { laterdog: { speechStart: () => {}, remoteClient: { active: true } } });
-    fixture.config = { tts: { configured: true, ready: false } };
-    click(find(render(), "data-call-button"));
-    const help = render();
-    expect(help.html).toContain("Set up voice");
-    const setUp = find(help, "data-voice-setup-open");
-    expect(setUp.props["aria-haspopup"]).toBeUndefined();
-    click(setUp);
-    expect(fixture.dispatch.mock.calls).toEqual([[{ type: "toggleSettings", open: true, section: "voice" }]]);
-    const after = render();
-    expect(after.html).not.toContain("data-voice-setup-stub");
-    expect(after.html).not.toContain("Call unavailable");
-    expect(fixture.dialog).toBeNull();
-    expect(fixture.startCall).not.toHaveBeenCalled();
-  });
-
-  it("opens the member's chat first from a room on a paired desktop", () => {
-    vi.stubGlobal("window", { laterdog: { speechStart: () => {}, remoteClient: { active: true } } });
-    fixture.config = { tts: { configured: true, ready: true } };
-    const room: Props = {
-      targetId: "room-1",
-      targetName: "Standup",
-      voices: ["voice-1", undefined],
-      setupBotId: "pepper",
-      requireExplicitVoices: true,
-      onStart: () => {},
-    };
-    click(find(render(room), "data-call-button"));
-    click(find(render(room), "data-voice-setup-open"));
-    expect(fixture.dispatch.mock.calls).toEqual([
-      [{ type: "select", id: "pepper" }],
-      [{ type: "toggleSettings", open: true, section: "voice" }],
-    ]);
-    expect(render(room).html).not.toContain("data-voice-setup-stub");
   });
 
   it("starts the Live call, not voice set-up, where the device can't take turns", () => {

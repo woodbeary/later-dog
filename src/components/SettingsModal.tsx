@@ -443,8 +443,8 @@ function ModelsPage() {
   );
 }
 
-function ComputerPage({ mac, remoteActive }: { mac: boolean; remoteActive: boolean }) {
-  const desktop = !remoteActive && Boolean(window.laterdog);
+function ComputerPage({ mac }: { mac: boolean }) {
+  const desktop = Boolean(window.laterdog);
   return (
     <>
       {desktop && (
@@ -460,11 +460,9 @@ function ComputerPage({ mac, remoteActive }: { mac: boolean; remoteActive: boole
           <ExecutionRows />
         </SettingsGroup>
       )}
-      {!remoteActive && (
-        <SettingsGroup label={t("vm.cloud.title")} testId="cloud-computers">
-          <CloudComputerRows />
-        </SettingsGroup>
-      )}
+      <SettingsGroup label={t("vm.cloud.title")} testId="cloud-computers">
+        <CloudComputerRows />
+      </SettingsGroup>
     </>
   );
 }
@@ -491,8 +489,7 @@ export function SettingsModal() {
   const section: AppSettingsSection = SETTINGS_PAGES.some((page) => page.id === state.appSettingsSection) ? state.appSettingsSection : "general";
   const dialogRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const remoteActive = window.laterdog?.remoteClient?.active === true;
-  const mac = !remoteActive && checklistHost(window.laterdog) === "mac";
+  const mac = checklistHost(window.laterdog) === "mac";
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
@@ -613,7 +610,7 @@ export function SettingsModal() {
           <div ref={scrollRef} data-settings-content={section} className="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-4 sm:px-5 sm:pb-5">
             {section === "general" && <GeneralPage mac={mac} />}
             {section === "models" && <ModelsPage />}
-            {section === "computer" && <ComputerPage mac={mac} remoteActive={remoteActive} />}
+            {section === "computer" && <ComputerPage mac={mac} />}
             {section === "usage" && <UsageSection />}
             {section === "updates" && <UpdatesPage />}
           </div>

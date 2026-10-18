@@ -58,7 +58,7 @@ describe("lazyScreen", () => {
 
   it("fetches a chunk once, however many places ask for it", async () => {
     const load = vi.fn(async () => Label);
-    const Screen = lazyScreen("Inspector", load);
+    const Screen = lazyScreen("BotSettings", load);
     render(createElement("div", null, createElement(Screen, { text: "a" }), createElement(Screen, { text: "b" })));
     await Promise.all([Screen.preload(), Screen.preload()]);
     await settle();
@@ -114,15 +114,15 @@ describe("lazyScreen", () => {
     const load = vi.fn<() => Loaded>()
       .mockRejectedValueOnce(new TypeError("Failed to fetch dynamically imported module"))
       .mockResolvedValue(Label);
-    const Screen = lazyScreen("TriggersPanel", load);
-    render(createElement(Screen, { text: "Triggers" }));
+    const Screen = lazyScreen("SettingsModal", load);
+    render(createElement(Screen, { text: "Settings" }));
     await settle();
     expect(document.querySelector('[role="alert"]')).not.toBeNull();
     render(createElement("p"));
     expect(document.querySelector('[role="alert"]')).toBeNull();
-    render(createElement(Screen, { text: "Triggers" }));
+    render(createElement(Screen, { text: "Settings" }));
     await settle();
-    expect(document.body.textContent).toBe("Triggers");
+    expect(document.body.textContent).toBe("Settings");
     expect(document.querySelector('[role="alert"]')).toBeNull();
     expect(load).toHaveBeenCalledTimes(2);
   });
@@ -140,8 +140,8 @@ describe("lazyScreen", () => {
   it("a screen closed before its chunk fails leaves nothing behind", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     let fail!: (error: Error) => void;
-    const Screen = lazyScreen("ActivityPanel", (): Loaded => new Promise((_, reject) => (fail = reject)));
-    render(createElement(Screen, { text: "Activity" }));
+    const Screen = lazyScreen("NewBotDialog", (): Loaded => new Promise((_, reject) => (fail = reject)));
+    render(createElement(Screen, { text: "New dog" }));
     render(createElement("p", null, "chat"));
     fail(new TypeError("Failed to fetch dynamically imported module"));
     await settle();
@@ -160,7 +160,7 @@ describe("preloadScreens", () => {
     });
     vi.stubGlobal("cancelIdleCallback", cancel);
     const preloads = stubPreloads();
-    expect(preloads.length).toBe(12);
+    expect(preloads.length).toBe(7);
     const stop = preloadScreens();
     for (const preload of preloads) expect(preload).not.toHaveBeenCalled();
     idle!();
@@ -230,9 +230,8 @@ describe("launch bundle", () => {
     expect(reached.has("App.tsx")).toBe(true);
     expect(reached.has("components/Sidebar.tsx")).toBe(true);
     const deferred = [
-      "ActivityPanel", "BotSettingsDialog", "ComputerPanel", "InspectorPanel", "KeyboardShortcutsModal",
-      "NewBotDialog", "RemoteAgentSettingsPanel", "remote-desktop-panel",
-      "SettingsModal", "TeamMapPage", "TriggersPanel",
+      "BotSettingsDialog", "CloudTaskPanel", "ComputerPanel", "KeyboardShortcutsModal",
+      "NewBotDialog", "SettingsModal", "TeamMapPage",
     ].map((name) => `components/${name}.tsx`);
     expect(deferred.filter((file) => reached.has(file))).toEqual([]);
   });

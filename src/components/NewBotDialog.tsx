@@ -22,7 +22,6 @@ const rowInputCls = "mt-1 w-full bg-transparent text-[14px] text-ink placeholder
 
 export function NewBotDialog({ onClose, section, onCreated, preserveSelection = false }: NewBotDialogProps = {}) {
   const { state, dispatch } = useStore();
-  const companion = typeof window !== "undefined" && Boolean(window.laterdog?.remoteClient?.active);
   const [name, setName] = useState("");
   const [purpose, setPurpose] = useState("");
   const [modelSelection, setModelSelection] = useState<ModelSelection | undefined>(undefined);
@@ -40,7 +39,6 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
   };
 
   useEffect(() => {
-    if (companion) return;
     let cancelled = false;
     void api<{ modelSelection: ModelSelection; suggestedName: string; defaults?: { profile?: { approvalMode?: string } } }>("/api/bot-defaults")
       .then((result) => {
@@ -51,7 +49,7 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [companion]);
+  }, []);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { if (saving) dialog.current?.focus(); }, [saving]);
   useEffect(() => {

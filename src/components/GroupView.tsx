@@ -156,7 +156,6 @@ function ClusterLabel({ bot, name, color, tinted = false }: { bot?: Bot; name: s
 
 function PinToggle({ group, message }: { group: Group; message: Message }) {
   const { dispatch } = useStore();
-  if (window.laterdog?.remoteClient?.active) return null;
   const pinned = group.pinnedMessageId === message.id;
   return (
     <button
@@ -983,7 +982,6 @@ export function GroupView({ group }: { group: Group }) {
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
   const countsInWindow = useCallback((message: Message) => transcriptRowShown(message, showToolCalls), [showToolCalls]);
-  const remoteClient = window.laterdog?.remoteClient?.active === true;
   const { dragStyle: headerDragStyle, noDragStyle: headerNoDragStyle, controlsShiftStyle } = useCaptionChrome();
   const composerDockRef = useRef<HTMLDivElement>(null);
   const composerDock = useComposerDockPad(composerDockRef);
@@ -1016,7 +1014,7 @@ export function GroupView({ group }: { group: Group }) {
     [group.memberIds, state.bots],
   );
   const speaker = members.find((b) => b.id === group.busyBotId);
-  const setupPending = !remoteClient && roomNeedsSetup(group);
+  const setupPending = roomNeedsSetup(group);
 
   const lastGroupMessage = group.messages.at(-1);
   const toolInFlight = lastGroupMessage?.kind === "activity" && lastGroupMessage.tool?.ok === undefined;
@@ -1149,7 +1147,7 @@ export function GroupView({ group }: { group: Group }) {
     <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
       <GroupCallOverlay group={group} members={members} />
       <ExchangeViewHost botId={group.id} />
-      {membersOpen && !remoteClient && !group.dm && (
+      {membersOpen && !group.dm && (
         <ManageMembersPanel group={group} onClose={closeMembers} triggerRef={membersTriggerRef} />
       )}
       <GlassScrollFrame className="flex-1 [--glass-tint:var(--color-app)]">
@@ -1192,9 +1190,9 @@ export function GroupView({ group }: { group: Group }) {
           {!setupPending && <ConversationTurnLimit group={group} />}
           <GroupCallButton group={group} members={members} />
           <GroupUsageChip usage={group.usage} />
-          {!remoteClient && !setupPending && !group.dm && <RoomWorkingFolderChip group={group} onToggle={() => setFolderOpen((open) => !open)} />}
-          {!remoteClient && !setupPending && !group.dm && <DefaultResponderSelect group={group} members={members} />}
-          {group.dm || remoteClient ? (
+          {!setupPending && !group.dm && <RoomWorkingFolderChip group={group} onToggle={() => setFolderOpen((open) => !open)} />}
+          {!setupPending && !group.dm && <DefaultResponderSelect group={group} members={members} />}
+          {group.dm ? (
             memberDogs
           ) : (
             <button
@@ -1221,7 +1219,7 @@ export function GroupView({ group }: { group: Group }) {
 
       {findOpen && <ChatFindBar threadId={group.threadId} onClose={() => setFindOpen(false)} />}
 
-      {!setupPending && !group.dm && !remoteClient && state.config && group.defaultResponder.kind === "auto" && !jevRoomRoutingOn(state.config) && (
+      {!setupPending && !group.dm && state.config && group.defaultResponder.kind === "auto" && !jevRoomRoutingOn(state.config) && (
         <div className="w-full px-5">
           <p data-testid="room-jev-off" className="mb-1 px-2 text-[12px] text-ink-secondary">
             {t("room.responder.jevOffHint", { name: defaultResponderName(group, members) ?? t("room.responder.leadFallback") })}
@@ -1251,14 +1249,13 @@ export function GroupView({ group }: { group: Group }) {
           </div>
         ) : (
           <button
-            disabled={remoteClient}
-            onClick={() => { if (!remoteClient) setBulletinOpen(true); }}
-            className={cn("mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left", !remoteClient && "hover:bg-raised/40")}
+            onClick={() => setBulletinOpen(true)}
+            className="mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-raised/40"
             title={t("room.bulletin.title")}
           >
             <Pin size={12} className="shrink-0 text-ink-secondary" />
             <span className={cn("truncate text-[12.5px]", group.bulletin ? "text-ink-secondary" : "text-ink-tertiary")}>
-              {group.bulletin.split("\n")[0] || (remoteClient ? t("room.bulletin.none") : t("room.bulletin.add"))}
+              {group.bulletin.split("\n")[0] || t("room.bulletin.add")}
             </span>
           </button>
         )}
@@ -1293,7 +1290,7 @@ export function GroupView({ group }: { group: Group }) {
                 onClick={() => dispatch({ type: "patchGroup", groupId: group.id, patch: { pinnedMessageId: "" } })}
                 aria-label={t("chat.unpinMessage")}
                 title={t("chat.unpin")}
-                className={cn("shrink-0 rounded p-0.5 text-ink-secondary hover:bg-raised hover:text-ink", remoteClient && "hidden")}
+                className="shrink-0 rounded p-0.5 text-ink-secondary hover:bg-raised hover:text-ink"
               >
                 <X size={13} />
               </button>

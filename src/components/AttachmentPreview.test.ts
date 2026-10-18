@@ -168,7 +168,7 @@ describe("Show in folder for a file outside the workspace", () => {
   const render = (filePath: string) => renderToStaticMarkup(createElement(OutsideWorkspaceFile, { filePath }));
 
   it("offers the reveal only for an absolute local path, and only in the local desktop app", () => {
-    vi.stubGlobal("window", { laterdog: { revealInFolder: vi.fn(), remoteClient: { active: false } } });
+    vi.stubGlobal("window", { laterdog: { revealInFolder: vi.fn() } });
     try {
       expect(render("/Users/dog/_draft/ollama-gen.js")).toContain("Show in folder");
       expect(render("C:\\Users\\Dog\\_draft\\ollama-gen.js")).toContain("Show in folder");
@@ -181,14 +181,6 @@ describe("Show in folder for a file outside the workspace", () => {
     }
   });
 
-  it("gives a remote client the path, since the file is not on its computer", () => {
-    vi.stubGlobal("window", { laterdog: { revealInFolder: vi.fn(), remoteClient: { active: true } } });
-    try {
-      expect(render("/Users/dog/_draft/ollama-gen.js")).toContain(">/Users/dog/_draft/ollama-gen.js</code>");
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
 });
 
 describe("local Markdown image lifecycle", () => {

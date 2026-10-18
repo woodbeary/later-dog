@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "@/state/store";
-import { waitingOnPerson } from "./GuidedTour";
+import { waitingOnPerson } from "./waiting-on-person";
 
 const card = (extra: Partial<NonNullable<Message["card"]>> = {}): Message =>
   ({ id: "q", role: "bot", kind: "options", at: 1, card: { title: "Quill has a question", options: [], requestId: "r1", ...extra } }) as Message;
 
-describe("the tour waits for the person", () => {
-  it("holds while the open chat has a question or approval nobody answered", () => {
+describe("waiting on the person", () => {
+  it("is true while the open chat has a question or approval nobody answered", () => {
     expect(waitingOnPerson({ messages: [card()], activeLeafId: undefined })).toBe(true);
     expect(waitingOnPerson({ messages: [card({ answered: "Allow once" })], activeLeafId: undefined })).toBe(false);
     expect(waitingOnPerson({ messages: [card({ dismissed: true })], activeLeafId: undefined })).toBe(false);

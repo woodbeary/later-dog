@@ -116,7 +116,7 @@ describe("the quiet line about this Mac's dogs", () => {
       state: vi.fn(async () => ({ status: "connected", fellBack: true }) as CloudAccountState),
       onState: vi.fn((callback) => { pushAccount = callback; return () => {}; }), connectHome,
     };
-    await show({ remoteClient: { active: false }, cloudAccount, cloudMove: makeMove(overview({ automatic: undefined })) });
+    await show({ localPage: true, cloudAccount, cloudMove: makeMove(overview({ automatic: undefined })) });
     expect(text()).toBe("Can't reach your home right now. Showing the dogs on this Mac.Try again");
     await click("Try again");
     expect(connectHome).toHaveBeenCalledOnce();

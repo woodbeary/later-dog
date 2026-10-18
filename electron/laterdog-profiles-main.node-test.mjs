@@ -316,7 +316,6 @@ test("main vault recovery restores all runtime keys before clearing the unavaila
   let capabilities = 0;
   let composio = 0;
   Object.assign(f.context, {
-    desktopRemoteAccess: null,
     SERVER_PORT: 48995,
     CREDENTIAL_PATCH: {
       ttsKey: (key) => ({ tts: { key } }),

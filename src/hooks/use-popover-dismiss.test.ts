@@ -24,11 +24,9 @@ describe("popover dismissal", () => {
     expect(popoverClosesOnKey(key({ isComposing: true }))).toBe(false);
   });
 
-  it("closes on a press outside, never inside or on the tour card", () => {
+  it("closes on a press outside, never inside", () => {
     expect(popoverClosesOnPointer({ closest: () => null } as unknown as EventTarget, root)).toBe(true);
     expect(popoverClosesOnPointer(INSIDE as unknown as EventTarget, root)).toBe(false);
-    const tourCard = { closest: (selector: string) => selector === "[data-tour-card]" ? {} : null };
-    expect(popoverClosesOnPointer(tourCard as unknown as EventTarget, root)).toBe(false);
     expect(popoverClosesOnPointer(null, root)).toBe(false);
     expect(popoverClosesOnPointer(INSIDE as unknown as EventTarget, null)).toBe(false);
   });

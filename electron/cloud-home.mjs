@@ -65,8 +65,8 @@ export function rememberedCloudHome(previous, state) {
   return previous?.accountId === accountId ? previous : null;
 }
 
-export function myCloudOrigin({ account, remembered, remoteAccess }) {
-  if (remoteAccess || !account) return null;
+export function myCloudOrigin({ account, remembered }) {
+  if (!account) return null;
   const verified = account.homeTarget()?.origin;
   if (verified) return verified;
   const accountId = account.state()?.account?.id;

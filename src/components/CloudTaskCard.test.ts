@@ -133,8 +133,8 @@ describe("CloudTaskUpdateRow", () => {
 
 describe("the cloud task panel's place", () => {
   it("opens a task in the Computer panel's place and goes back to the dog's computer", () => {
-    const opened = reducer({ ...initialState, settingsOpen: true, activityOpen: true }, { type: "openCloudTask", jobId: ID });
-    expect(opened).toMatchObject({ computerOpen: true, cloudTaskId: ID, settingsOpen: false, activityOpen: false, inspectorOpen: false });
+    const opened = reducer({ ...initialState, settingsOpen: true }, { type: "openCloudTask", jobId: ID });
+    expect(opened).toMatchObject({ computerOpen: true, cloudTaskId: ID, settingsOpen: false });
     const back = reducer(opened, { type: "closeCloudTask" });
     expect(back).toMatchObject({ computerOpen: true, cloudTaskId: null });
     expect(reducer(back, { type: "closeCloudTask" })).toBe(back);

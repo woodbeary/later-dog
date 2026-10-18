@@ -1,9 +1,9 @@
 import { useSyncExternalStore } from "react";
 import { z } from "zod";
 
-export type SidebarDensity = "comfortable" | "compact" | "icons";
+export type SidebarDensity = "comfortable" | "icons";
 
-export const SIDEBAR_DENSITIES: readonly SidebarDensity[] = ["comfortable", "compact", "icons"];
+export const SIDEBAR_DENSITIES: readonly SidebarDensity[] = ["comfortable", "icons"];
 
 export const SIDEBAR_DENSITY_KEY = "laterdog.sidebarDensity";
 export const SIDEBAR_WIDTH_KEY = "laterdog.sidebarWidth";
@@ -16,7 +16,6 @@ export const UNIVERSAL_PINS_KEY = "laterdog.universalPins";
 export function parseSidebarDensity(value: string | null): SidebarDensity {
   switch (value) {
     case "comfortable":
-    case "compact":
     case "icons":
       return value;
     default:

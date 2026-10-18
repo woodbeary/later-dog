@@ -223,18 +223,6 @@ it("the next step opens the server: from Settings it switches this window to it,
   expect(window.location.reload).toHaveBeenCalledOnce();
 });
 
-it("is not offered to a companion connected to another computer", async () => {
-  vi.stubGlobal("window", { laterdog: { cloudMove: bridge, remoteClient: { active: true } } });
-  for (const component of [settings(), backups]) {
-    f.values = [];
-    render(component);
-    expect(f.effects).toHaveLength(1);
-    f.effects[0]();
-    expect(render(component).html).toBe("");
-  }
-  expect(bridge.state).not.toHaveBeenCalled();
-});
-
 it("the card on an empty server shows only when main suggests it, names the server, and says Mac on a Mac", async () => {
   await ready(suggestion, overview({ destination: VPS }));
   expect(render(suggestion).html).toBe("");

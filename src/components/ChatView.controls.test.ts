@@ -389,14 +389,6 @@ describe("thread control placement", () => {
     expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "updateTask", botId: "bot", threadId: "selected", patch: { approvalMode: "auto" } });
   });
 
-  it("keeps both controls hidden for remote clients", () => {
-    window.laterdog = { remoteClient: { active: true } } as NonNullable<Window["laterdog"]>;
-    const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
-    expect(markup).not.toContain("data-test-model-control");
-    expect(markup).not.toContain("data-test-approval-control");
-    delete window.laterdog;
-  });
-
   it("pins no place per conversation: the chat follows the bot's Works on", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
     expect(markup).not.toContain('data-testid="place-chip"');

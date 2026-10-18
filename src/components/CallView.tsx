@@ -10,7 +10,6 @@ import { NO, YES } from "../../shared/call-consent";
 import { dismissKeyPrompt, hangUpLiveCall, isLiveCallRunning, startLiveCall, useLiveMedia } from "@/lib/live-call-media";
 import { t } from "@/lib/i18n";
 import { speaker } from "@/lib/tts";
-import { localSystemVoiceActive } from "@/lib/local-voice";
 import { useSpeech } from "@/lib/tts/useSpeech";
 import { usePushToTalk } from "@/lib/push-to-talk";
 import { BotAvatar } from "./Avatar";
@@ -65,7 +64,7 @@ export function CallTargetButton({
   liveCapable?: boolean;
   onStart: (mode: CallMode) => void;
 }) {
-  const { state, dispatch } = useStore();
+  const { state } = useStore();
   const { capabilities, ready: capabilitiesReady } = useDesktopCapabilities();
   const media = useLiveMedia();
   const liveThreadId = liveCapable ? threadId : undefined;
@@ -75,17 +74,14 @@ export function CallTargetButton({
   const liveElsewhere = liveRunning && media.botId !== targetId;
   const onCall = useOnCall() === targetId;
   const active = onCall || onLiveCall;
-  const remoteClient = globalThis.window?.laterdog?.remoteClient?.active === true;
   const capabilityHelp = capabilitiesReady
     ? callCapabilityHelp(capabilities, Boolean(window.laterdog?.speechStart))
     : null;
   const supported = capabilitiesReady && !capabilityHelp;
-  const localVoice = localSystemVoiceActive();
-  const configured = localVoice || Boolean(state.config?.tts?.configured);
+  const configured = Boolean(state.config?.tts?.configured);
   const everyTargetHasVoice = voices.length > 0 && voices.every((voice) => Boolean(voice));
   const voiceReady =
-    localVoice ||
-    (configured && (requireExplicitVoices ? everyTargetHasVoice : Boolean(state.config?.tts?.ready || everyTargetHasVoice)));
+    configured && (requireExplicitVoices ? everyTargetHasVoice : Boolean(state.config?.tts?.ready || everyTargetHasVoice));
   const turnsHere = !capabilitiesReady || capabilities.dictation.available;
   const mode = effectiveCallMode(useCallMode(), { turnsHere, canLive });
   const liveMode = canLive && mode === "live";
@@ -313,15 +309,10 @@ export function CallTargetButton({
           {voiceSetupRequired && setupBot && (
             <button
               type="button"
-              aria-haspopup={remoteClient ? undefined : "dialog"}
+              aria-haspopup="dialog"
               data-voice-setup-open
               onClick={() => {
                 setHelpOpen(false);
-                if (remoteClient) {
-                  if (setupBot.id !== targetId) dispatch({ type: "select", id: setupBot.id });
-                  dispatch({ type: "toggleSettings", open: true, section: "voice" });
-                  return;
-                }
                 setVoiceSetupOpen(true);
               }}
               className="mt-2.5 rounded-lg bg-accent px-3 py-1.5 text-[12px] font-medium text-accent-ink hover:brightness-110"

@@ -28,7 +28,6 @@ import {
 import { WorkingDots } from "@/components/WorkingIndicator";
 import { MessageActions, messageActionClass } from "@/components/MessageActions";
 import { useSpeech } from "@/lib/tts/useSpeech";
-import { localSystemVoiceActive } from "@/lib/local-voice";
 import { computerStartLine } from "@/lib/computer-start";
 import { useCaptionChrome, useDesktopCapabilities } from "@/components/DesktopCapabilities";
 import { contextChip, contextDetail, contextShare, costCaption, formatUsd, hasFiniteCost, lastTurnDetail, usageChip, usageDetail } from "@/lib/usage";
@@ -154,7 +153,6 @@ interface ChatRows {
   botName: string;
   voiceId?: string;
   tts: ConfigStatus["tts"];
-  localVoice: boolean;
   busy: boolean;
   bots: readonly Bot[];
   mentionPeers: readonly Bot[];
@@ -428,8 +426,7 @@ const Bubble = memo(function Bubble({
   replyTarget?: Message;
   onReply: (message: Message) => void;
 }) {
-  const { botId, threadId, botName, voiceId, tts, localVoice, busy, mentionPeers, focus, dispatch, onBranch, bots } = useChatRows();
-  const remoteClient = window.laterdog?.remoteClient?.active === true;
+  const { botId, threadId, botName, voiceId, tts, busy, mentionPeers, focus, dispatch, onBranch, bots } = useChatRows();
   const peer = peerLine(message);
   const user = message.role === "user" && !peer;
   const [expanded, setExpanded] = useState(false);
@@ -490,14 +487,14 @@ const Bubble = memo(function Bubble({
   };
   const togglePin = () =>
     dispatch({ type: "updateTask", botId, threadId, patch: { pinnedMessageId: pinned ? "" : message.id } });
-  const pinItem: SidebarMenuItem[] = remoteClient ? [] : [{
+  const pinItem: SidebarMenuItem[] = [{
     key: "pin",
     label: t(pinned ? "chat.unpin" : "chat.action.pin"),
     icon: pinned ? <PinOff size={16} /> : <Pin size={16} />,
     onSelect: togglePin,
   }];
   const botMore: SidebarMenuItem[] = [
-    ...(message.kind === "text" && text && !peer && !speaking && canSpeak(tts, voiceId, localVoice) ? [{
+    ...(message.kind === "text" && text && !peer && !speaking && canSpeak(tts, voiceId) ? [{
       key: "speak",
       label: t("chat.action.readAloud"),
       icon: <Volume2 size={16} />,
@@ -1053,7 +1050,6 @@ function chiefOfStaffBadge(bot: Bot) {
 export function ChatView({ bot: profile }: { bot: Bot }) {
   const bot = useMemo(() => currentTaskBot(profile), [profile]);
   const { state, dispatch } = useStore();
-  const remoteClient = window.laterdog?.remoteClient?.active === true;
   const { dragStyle: headerDragStyle, noDragStyle: headerNoDragStyle, controlsShiftStyle } = useCaptionChrome();
   const composerDockRef = useRef<HTMLDivElement>(null);
   const composerDock = useComposerDockPad(composerDockRef);
@@ -1150,15 +1146,14 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const mentionPeers = useMemo(() => bots.filter((peer) => peer.id !== bot.id), [bots, bot.id]);
   const focus = state.focusMessage?.threadId === bot.threadId ? state.focusMessage : null;
   const tts = state.config?.tts;
-  const localVoice = localSystemVoiceActive();
   const locale = activeLocale();
   const busy = Boolean(bot.busy);
   const branch = useRef(messages);
   branch.current = messages;
   const onBranch = useCallback((messageId: string) => branch.current.some((m) => m.id === messageId), []);
   const rows = useMemo<ChatRows>(
-    () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, voiceId: bot.voice, tts, localVoice, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch }),
-    [bot.id, bot.threadId, bot.name, bot.voice, tts, localVoice, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch],
+    () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, voiceId: bot.voice, tts, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch }),
+    [bot.id, bot.threadId, bot.name, bot.voice, tts, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch],
   );
   const place = effectivePlace(bot, bot.tasks?.find((task) => task.threadId === bot.threadId));
 
@@ -1281,7 +1276,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           className="flex shrink-0 items-center gap-2 @max-[30rem]/chathead:ml-auto @max-[30rem]/chathead:flex-wrap @max-[30rem]/chathead:justify-end @min-[30rem]/chathead:col-start-3 @min-[30rem]/chathead:justify-self-end"
           style={controlsShiftStyle}
         >
-          {!remoteClient && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} part="account" />}
+          <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} part="account" />
           <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openThread(dispatch, { botId, threadId }, state)} />
           <button
             data-tour="computer"
@@ -1329,7 +1324,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
         onJump={(messageId) =>
           dispatch({ type: "focusMessage", threadId: bot.threadId, messageId })
         }
-        onUnpin={remoteClient ? undefined : () =>
+        onUnpin={() =>
           dispatch({ type: "updateTask", botId: bot.id, threadId: bot.threadId, patch: { pinnedMessageId: "" } })
         }
       />
@@ -1592,7 +1587,7 @@ function ChatHeaderMenu({ bot, messages, findOpen, onFind }: {
           data-testid="chat-more"
           className={cn(
             "flex rounded-md p-1.5 hover:bg-raised",
-            open || findOpen || state.inspectorOpen || state.activityOpen ? "text-accent" : "text-ink-secondary hover:text-ink",
+            open || findOpen ? "text-accent" : "text-ink-secondary hover:text-ink",
           )}
           title={t("chat.more")}
         >

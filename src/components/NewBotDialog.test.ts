@@ -155,16 +155,6 @@ describe("the new dog dialog", () => {
     expect(lastNewBot()).toMatchObject({ name: "Rex", section: "Studio", preserveSelection: true });
   });
 
-  it("creates on the companion's single permitted request, without asking for host defaults", () => {
-    vi.stubGlobal("window", { addEventListener: () => {}, removeEventListener: () => {}, laterdog: { remoteClient: { active: true } } });
-    const rendered = render();
-    runEffects();
-    expect(fixture.api).not.toHaveBeenCalled();
-    change(find(rendered, "id", "new-dog-name"), "Rex");
-    submit(render());
-    expect(lastNewBot()).toMatchObject({ name: "Rex", modelSelection: undefined });
-  });
-
   it.each([false, true])("closes after a successful creation even when its caller fails (async=%s)", async (asyncFailure) => {
     const failed = () => { throw new Error("Caller failed"); };
     const rendered = render({ onCreated: asyncFailure ? async () => failed() : failed });

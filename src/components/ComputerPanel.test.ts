@@ -49,7 +49,7 @@ describe("computer/browser control transition ordering", () => {
     expect(requestControl).not.toHaveBeenCalled();
   });
 
-  it("leaves BrowserPanel to perform its own native choreography", async () => {
+  it("skips the native browser step when the caller handles it", async () => {
     const setNativeBrowserControl = vi.fn(async () => true);
     await transitionComputerControlLease({
       action: "take",

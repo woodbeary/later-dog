@@ -9,16 +9,13 @@ import { LiveCallHost } from "@/components/LiveCallHost";
 import { ThreadRefsProvider } from "@/components/ThreadRefs";
 import { initAnalytics } from "@/lib/analytics";
 import { Sidebar } from "@/components/Sidebar";
-import { LaterDogWorkspace } from "@/components/LaterDogWorkspace";
 import { ChatView } from "@/components/ChatView";
 import { GroupView } from "@/components/GroupView";
 import { SIDEBAR_AND_PANEL_FIT, TWO_SIDE_PANELS_FIT, useMediaQuery } from "@/lib/use-media-query";
 import { PluginsPanel, preloadConnectedApps } from "@/components/PluginsPanel";
 import {
-  ActivityPanel, BotSettingsDialog, CloudTaskPanel, ComputerPanel, InspectorPanel, KeyboardShortcutsModal, NewBotDialog,
-  preloadScreens, RemoteAgentSettingsPanel, RemoteDesktopPanel, SettingsModal, TeamMapPage, TriggersPanel,
+  BotSettingsDialog, CloudTaskPanel, ComputerPanel, KeyboardShortcutsModal, NewBotDialog, preloadScreens, SettingsModal, TeamMapPage,
 } from "@/components/lazy-screens";
-import { WorkspaceBackupRecovery } from "@/components/WorkspaceBackupSettings";
 import { CredentialStoreNotice } from "@/components/CredentialStoreNotice";
 import { DesktopCapabilitiesProvider, useDesktopCapabilities } from "@/components/DesktopCapabilities";
 import { WindowCaptionButtons } from "@/components/WindowCaptionButtons";
@@ -42,7 +39,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const unreadCount =
     state.bots.filter((bot) => !bot.hidden && botShowsUnread(bot)).length +
     state.groups.filter((group) => group.unread).length;
-  const remoteClient = window.laterdog?.remoteClient?.active === true;
   const twoSidePanelsFit = useMediaQuery(TWO_SIDE_PANELS_FIT, true);
   const sidebarAndPanelFit = useMediaQuery(SIDEBAR_AND_PANEL_FIT, true);
   useEffect(() => {
@@ -57,13 +53,13 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     };
     const url = new URL(window.location.href);
     const requestedSettings = url.searchParams.get("desktop-settings");
-    if (requestedSettings === "workspaces" || (requestedSettings === "organization" && window.laterdog.organization && !remoteClient) ||
-      ((requestedSettings === "cloud" || requestedSettings === "cloud-settings") && window.laterdog.cloudAccount && !remoteClient)) {
+    if (requestedSettings === "workspaces" || (requestedSettings === "organization" && window.laterdog.organization) ||
+      ((requestedSettings === "cloud" || requestedSettings === "cloud-settings") && window.laterdog.cloudAccount)) {
       url.searchParams.delete("desktop-settings");
       window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
       if (requestedSettings === "workspaces") open();
       else dispatch(CLOUD_LINK_SETTINGS);
-      acknowledgeOrganizationSettings(requestedSettings, window.laterdog.organization, remoteClient);
+      acknowledgeOrganizationSettings(requestedSettings, window.laterdog.organization);
     }
     return window.laterdog.environments.onOpenSettings?.(open);
   }, [dispatch]);
@@ -77,7 +73,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const group = state.groups.find((g) => g.id === state.selectedId);
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
-  const sidePanelOpen = (Boolean(bot) && (state.settingsOpen || state.computerOpen || state.inspectorOpen || state.activityOpen))
+  const sidePanelOpen = (Boolean(bot) && (state.settingsOpen || state.computerOpen))
     || (state.computerOpen && state.cloudTaskId !== null);
   const collapseSidebar = sidePanelOpen && !sidebarAndPanelFit;
 
@@ -139,7 +135,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   useEffect(() => {
     return window.laterdog?.onOpenAppSettings?.(section => {
       dispatch(section ? CLOUD_LINK_SETTINGS : { type: "toggleAppSettings", open: true });
-      acknowledgeOrganizationSettings(section, window.laterdog?.organization, remoteClient);
+      acknowledgeOrganizationSettings(section, window.laterdog?.organization);
     });
   }, [dispatch]);
 
@@ -194,13 +190,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
           menuButtonRef.current?.focus();
         }}
       />
-      {state.activeView === "workspace" ? (
-        <LaterDogWorkspace conversationId={bot?.threadId} botId={bot?.id} openConversation={(job) => {
-          if (job.botId && job.conversationId) dispatch({ type: "switchTask", botId: job.botId, threadId: job.conversationId });
-          else if (job.botId) dispatch({ type: "select", id: job.botId });
-          dispatch({ type: "showChat" });
-        }} />
-      ) : state.activeView === "team-map" ? (
+      {state.activeView === "team-map" ? (
         <TeamMapPage />
       ) : cloudSignIn ? (
         <CloudEngineSignIn />
@@ -228,25 +218,16 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         </main>
       )}
       {state.settingsOpen && bot && (
-        remoteClient
-          ? <RemoteAgentSettingsPanel bot={bot} overlay={state.computerOpen && !twoSidePanelsFit} />
-          : <BotSettingsDialog key={`settings:${bot.id}`} bot={bot} overlay={(state.inspectorOpen || state.computerOpen) && !twoSidePanelsFit} />
+        <BotSettingsDialog key={`settings:${bot.id}`} bot={bot} overlay={state.computerOpen && !twoSidePanelsFit} />
       )}
       {state.computerOpen && state.cloudTaskId ? (
         <CloudTaskPanel key={`cloud-task:${state.cloudTaskId}`} jobId={state.cloudTaskId} bot={bot} />
       ) : state.computerOpen && bot && (
-        remoteClient ? (
-          <RemoteDesktopPanel key={`computer:${bot.id}`} bot={bot} />
-        ) : (
-          <ComputerPanel key={`computer:${bot.id}`} bot={bot} />
-        )
+        <ComputerPanel key={`computer:${bot.id}`} bot={bot} />
       )}
-      {!remoteClient && state.inspectorOpen && bot && <InspectorPanel key={bot.threadId} bot={bot} />}
-      {!remoteClient && state.activityOpen && bot && <ActivityPanel key={`activity:${bot.id}`} bot={bot} />}
       {state.appSettingsOpen && <SettingsModal />}
       <CloudSetup viewer={viewer} />
       {state.pluginsOpen && <PluginsPanel />}
-      {state.triggersOpen && <TriggersPanel />}
       {state.newBotOpen && <NewBotDialog />}
       {state.shortcutsOpen && (
         <KeyboardShortcutsModal
@@ -266,7 +247,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   );
 }
 
-function Application() {
+export default function App() {
   useEffect(() => {
     initAnalytics();
   }, []);
@@ -287,6 +268,3 @@ function Application() {
   );
 }
 
-export default function App() {
-  return <WorkspaceBackupRecovery><Application /></WorkspaceBackupRecovery>;
-}

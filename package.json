@@ -82,7 +82,7 @@
     "laterdog:bridge": "node scripts/laterdog.mjs bridge",
     "laterdog:doctor": "node scripts/laterdog.mjs doctor",
     "laterdog:login": "node scripts/laterdog.mjs login",
-    "laterdog:test": "vitest run server/laterdog src/components/LaterDogWorkspace.test.ts",
+    "laterdog:test": "vitest run server/laterdog",
     "laterdog:build": "node scripts/build-laterdog.mjs",
     "laterdog:skills": "node scripts/export-laterdog-skills.mjs",
     "laterdog:icons": "electron scripts/laterdog-icons.mjs",

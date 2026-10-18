@@ -26,41 +26,36 @@ const done = { completedAt: "2026-09-09T10:00:00.000Z", version: WELCOME_VERSION
 
 describe("welcomeDue", () => {
   it("waits for the server before deciding", () => {
-    expect(welcomeDue(null, { remoteClient: false, legacyDone: false })).toBe(false);
-    expect(welcomeDue(undefined, { remoteClient: false, legacyDone: false })).toBe(false);
+    expect(welcomeDue(null, { legacyDone: false })).toBe(false);
+    expect(welcomeDue(undefined, { legacyDone: false })).toBe(false);
   });
 
   it("shows the tour to a fresh workspace", () => {
-    expect(welcomeDue({}, { remoteClient: false, legacyDone: false })).toBe(true);
-    expect(welcomeDue({ onboarding: EMPTY_ONBOARDING }, { remoteClient: false, legacyDone: false })).toBe(true);
-  });
-
-  it("never shows it to a paired remote client", () => {
-    expect(welcomeDue({}, { remoteClient: true, legacyDone: false })).toBe(false);
+    expect(welcomeDue({}, { legacyDone: false })).toBe(true);
+    expect(welcomeDue({ onboarding: EMPTY_ONBOARDING }, { legacyDone: false })).toBe(true);
   });
 
   it("respects a completion at the current version", () => {
-    expect(welcomeDue({ onboarding: done }, { remoteClient: false, legacyDone: false })).toBe(false);
+    expect(welcomeDue({ onboarding: done }, { legacyDone: false })).toBe(false);
   });
 
   it("re-shows a flow completed at an older version", () => {
-    expect(welcomeDue({ onboarding: { ...done, version: WELCOME_VERSION - 1 } }, { remoteClient: false, legacyDone: false })).toBe(true);
+    expect(welcomeDue({ onboarding: { ...done, version: WELCOME_VERSION - 1 } }, { legacyDone: false })).toBe(true);
   });
 
   it("honours the old localStorage gate for one release", () => {
-    expect(welcomeDue({}, { remoteClient: false, legacyDone: true })).toBe(false);
-    expect(welcomeDue({ onboarding: { ...done, version: 0 } }, { remoteClient: false, legacyDone: true })).toBe(true);
+    expect(welcomeDue({}, { legacyDone: true })).toBe(false);
+    expect(welcomeDue({ onboarding: { ...done, version: 0 } }, { legacyDone: true })).toBe(true);
   });
 
   it("decides who gets the tour on a fresh workspace", () => {
     const fresh = { onboarding: EMPTY_ONBOARDING };
     const cases = [
-      { who: "local desktop", options: { remoteClient: false, legacyDone: false, ...LOCAL_VIEWER }, due: true },
-      { who: "remote client", options: { remoteClient: true, legacyDone: false, ...LOCAL_VIEWER }, due: false },
-      { who: "hosted admin", options: { remoteClient: false, legacyDone: false, hosted: true, canSave: true }, due: true },
-      { who: "hosted member", options: { remoteClient: false, legacyDone: false, hosted: true, canSave: false }, due: false },
-      { who: "member of a self-hosted server", options: { remoteClient: false, legacyDone: false, hosted: false, canSave: false }, due: false },
-      { who: "hosted, scope unknown", options: { remoteClient: false, legacyDone: false, hosted: true }, due: false },
+      { who: "local desktop", options: { legacyDone: false, ...LOCAL_VIEWER }, due: true },
+      { who: "hosted admin", options: { legacyDone: false, hosted: true, canSave: true }, due: true },
+      { who: "hosted member", options: { legacyDone: false, hosted: true, canSave: false }, due: false },
+      { who: "member of a self-hosted server", options: { legacyDone: false, hosted: false, canSave: false }, due: false },
+      { who: "hosted, scope unknown", options: { legacyDone: false, hosted: true }, due: false },
     ];
     for (const { who, options, due } of cases) expect(welcomeDue(fresh, options), who).toBe(due);
   });
@@ -101,7 +96,7 @@ describe("first run on a later.dog Cloud home", () => {
 
   it("routes the connected app to the engine sign-in, not the welcome flow", () => {
     expect(cloudSignInDue(connected, { connected: true, instances: signedOut }, ready)).toBe(true);
-    expect(welcomeDue({ onboarding: EMPTY_ONBOARDING }, { remoteClient: false, legacyDone: false, ...connected })).toBe(false);
+    expect(welcomeDue({ onboarding: EMPTY_ONBOARDING }, { legacyDone: false, ...connected })).toBe(false);
   });
 
   it("hands over to the chat once any engine can run", () => {
@@ -117,7 +112,7 @@ describe("first run on a later.dog Cloud home", () => {
     expect(cloudSignInDue({ ...connected, canSave: false }, { connected: true, instances: signedOut }, ready)).toBe(false);
     for (const viewer of [LOCAL_VIEWER, { hosted: true, canSave: true }, welcomeViewer({ kind: "session", scopes: ["admin", "client"] })]) {
       expect(cloudSignInDue(viewer, { connected: true, instances: signedOut }, ready)).toBe(false);
-      expect(welcomeDue({ onboarding: EMPTY_ONBOARDING }, { remoteClient: false, legacyDone: false, ...viewer })).toBe(true);
+      expect(welcomeDue({ onboarding: EMPTY_ONBOARDING }, { legacyDone: false, ...viewer })).toBe(true);
     }
   });
 });
@@ -129,9 +124,7 @@ describe("organisation sign-in in the engines beat", () => {
     expect(organisationSignIn({ organization: bridge }, { hosted: false })).toBe(bridge);
     expect(organisationSignIn(undefined, { hosted: false })).toBeUndefined();
     expect(organisationSignIn({}, { hosted: false })).toBeUndefined();
-    expect(organisationSignIn({ organization: bridge, remoteClient: { active: true } }, { hosted: false })).toBeUndefined();
     expect(organisationSignIn({ organization: bridge }, { hosted: true })).toBeUndefined();
-    expect(organisationSignIn({ organization: bridge, remoteClient: { active: false } }, { hosted: false })).toBe(bridge);
   });
 
   it("counts the models the organisation approved", () => {

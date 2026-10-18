@@ -25,7 +25,7 @@ const card = (id: string) => host.querySelector(`[data-saved-api-key="${id}"] [d
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  vi.stubGlobal("laterdog", { platform: "darwin", remoteClient: { active: false } });
+  vi.stubGlobal("laterdog", { platform: "darwin" });
   setLocale("en");
   host = document.createElement("div");
   document.body.append(host);
@@ -80,11 +80,4 @@ describe("saved API keys", () => {
     expect(card("claudeApi")?.textContent).toContain("Use this key for every Claude dog");
   });
 
-  it("from a paired phone or browser, says where the key can be changed instead of offering the field", async () => {
-    vi.stubGlobal("laterdog", { platform: "darwin", remoteClient: { active: true } });
-    await mount([engine("openai", "openai-compat", { displayName: "OpenAI" })]);
-    await act(async () => button("openai").click());
-    expect(card("openai")?.textContent).toContain("To change the key, open Settings on the computer running later.dog.");
-    expect(card("openai")?.querySelector("[data-engine-setup-key-field]")).toBeNull();
-  });
 });

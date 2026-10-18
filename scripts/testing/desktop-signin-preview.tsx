@@ -57,7 +57,7 @@ const cloudPlan = { state: async () => ({ status: "paid", tier: "beta" }), manag
 
 (window as unknown as { laterdog: unknown }).laterdog = home
   ? { platform: "darwin", cloudMove, cloudPlan }
-  : { platform: "darwin", remoteClient: { active: false }, cloudAccount, cloudMove, cloudPlan };
+  : { platform: "darwin", localPage: true, cloudAccount, cloudMove, cloudPlan };
 
 if (home) {
   const nativeFetch = window.fetch.bind(window);

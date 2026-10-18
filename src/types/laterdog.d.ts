@@ -96,12 +96,6 @@ const __APP_VERSION__: string;
     at: number | null;
     onBattery: boolean;
   }
-  interface DesktopRemoteClientState {
-    active: boolean;
-    endpoint?: string;
-    serverName?: string;
-    deviceId?: string;
-  }
   interface DesktopProfile {
     id: string;
     name: string;
@@ -167,22 +161,10 @@ const __APP_VERSION__: string;
       confirm(message: string): Promise<boolean>;
       getCapabilities(): Promise<DesktopCapabilities>;
       onCapabilitiesChanged(cb: (capabilities: DesktopCapabilities) => void): () => void;
-      remoteClient?: {
-        active: boolean;
-        state(): Promise<DesktopRemoteClientState>;
-        pair(endpoint: string, code: string): Promise<DesktopRemoteClientState>;
-        disconnect(): Promise<DesktopRemoteClientState>;
-      };
+      localPage?: true;
       routines?: {
         wakeState(): Promise<DesktopRoutineWake>;
         keepAwake(enabled: boolean): Promise<DesktopRoutineWake>;
-      };
-      companionAccount?: {
-        state(): Promise<CompanionAccountState>;
-        requestCode(email: string): Promise<CompanionAccountState>;
-        verifyCode(email: string, code: string): Promise<CompanionAccountState>;
-        retry(): Promise<CompanionAccountState>;
-        signOut(): Promise<CompanionAccountState>;
       };
       approvals?: {
         setMode(
@@ -313,14 +295,6 @@ export interface UpdaterState {
   receipt?: { outcome: "updated" | "unfinished"; version: string };
   cloudPage?: boolean;
   macInUse?: boolean;
-}
-
-export interface CompanionAccountState {
-  available: boolean;
-  status: "signed-out" | "connecting" | "ready" | "error";
-  email?: string;
-  endpoint?: string;
-  message?: string;
 }
 
 export type AndroidUsbDevice = {

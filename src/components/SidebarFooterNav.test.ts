@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/state/store", () => ({ useStore: () => ({ state: { bots: [], groups: [], activeView: "chat" }, dispatch: vi.fn() }) }));
 import { SidebarBugButton, SidebarFooterNav } from "./SidebarFooterNav";
 afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ""; });
-it.each(["comfortable", "compact"] as const)("leaves the full-width footer row to its existing profile and bug controls (%s)", (density) => {
+it.each(["comfortable"] as const)("leaves the full-width footer row to its existing profile and bug controls (%s)", (density) => {
   expect(renderToStaticMarkup(createElement(SidebarFooterNav, { density }))).toBe("");
 });
 describe("bug report access", () => {

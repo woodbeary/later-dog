@@ -111,8 +111,6 @@ describe("engines set up with a pasted key", () => {
     expect(apiKeySection(engine("mistral"))).toBe("mistral");
     expect(apiKeySection(engine("cerebras"))).toBe("cerebras");
     expect(apiKeySection(engine("kimiAgent"))).toBeNull();
-    vi.stubGlobal("window", { laterdog: { platform: "darwin", remoteClient: { active: true } } });
-    expect(apiKeySection(engine("grok", "xaiApi"))).toBeNull();
   });
 });
 
@@ -248,12 +246,6 @@ describe("API-key engine setup", () => {
     expect(html).toContain("The provider rejected the saved key.");
     expect(html).toContain('data-api-key-row="xai"');
     expect(render(keyEngine("grok", { state: "unavailable" }))).not.toContain("rejected");
-  });
-
-  it("has no key box on a remote client, whose keys are the host's", () => {
-    const html = render(keyEngine("openai-compat", { state: "unavailable" }), { platform: "darwin", remoteClient: { active: true } });
-    expect(html).toContain("on the computer running later.dog");
-    expect(html).not.toContain("data-api-key-row");
   });
 
   it("leaves CLI engines on their install card", () => {

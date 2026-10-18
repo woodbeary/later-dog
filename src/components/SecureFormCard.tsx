@@ -69,9 +69,8 @@ export function SecureFormCard({
   const status = useShownStatus(card);
   const [open, setOpen] = useState(false);
   const openButton = useRef<HTMLButtonElement>(null);
-  const remoteClient = window.laterdog?.remoteClient?.active === true;
   const fillable = status === "open";
-  const canOpen = fillable && !remoteClient;
+  const canOpen = fillable;
 
   return (
     <RequestCard
@@ -95,9 +94,6 @@ export function SecureFormCard({
         </button>
       ) : <SecureFormStatusBadge status={status} />}
     >
-      {fillable && remoteClient && (
-        <p className="px-3.5 pb-3 text-[12.5px] leading-relaxed text-ink-secondary">{t("secureForm.remote")}</p>
-      )}
       {open && canOpen && (
         <SecureFormDialog
           botId={botId}

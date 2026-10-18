@@ -43,7 +43,7 @@ function load({ origin = personal, profilePage = false, updater = false, profile
 }
 
 const PERSONAL_ONLY = [
-  "remoteClient", "routines", "localControl", "androidDevice",
+  "localPage", "routines", "localControl", "androidDevice",
   "desktopViewer", "desktopWorkspace", "environments", "cloudAccount", "cloudMove", "cloudLending",
   "cloudPlan", "organization", "companyBackups", "computerSharing",
 ];

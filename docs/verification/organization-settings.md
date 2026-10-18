@@ -21,11 +21,11 @@ enrollment. Remote pages do not gain access to the organization bridge.
 Existing hosted server selections are not reset on an ordinary update.
 
 When a hosted workspace is selected, the native confirmation explains that
-its data stays on the server. The hosted entry remains saved. In desktop
-companion mode, confirming explicitly disconnects and restarts locally; the
-local Settings destination is remembered in the same encrypted write. A
-failed write or cancelled dialog does not disconnect. The pending destination
-is consumed only when the local renderer acknowledges opening Settings.
+its data stays on the server. The hosted entry remains saved. A cancelled
+dialog changes nothing. A pending Settings destination saved by an older
+version is consumed only when the local renderer acknowledges opening Settings.
+Desktop companion mode is gone: a saved pairing is cleared at launch and the
+app opens its own workspace.
 Relaunch arguments exclude the consumed one-shot link so later updates cannot
 replay it. Restore/retry and
 stale-confirmation cases are covered by

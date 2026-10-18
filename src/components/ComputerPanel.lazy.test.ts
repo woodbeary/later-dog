@@ -30,7 +30,6 @@ vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => true }));
 vi.mock("./CloudScreenPreview", () => ({
   CloudScreenPreview: () => createElement("div", { "data-live-screen": "" }),
 }));
-vi.mock("./BrowserPanel", () => ({ BrowserPanel: () => null }));
 vi.mock("@/state/store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/state/store")>(),
   api: async (path: string, init?: RequestInit) => {
@@ -192,20 +191,19 @@ describe("Computer panel on Cloud computer", () => {
     expect(fixture.posts).toEqual([]);
   });
 
-  it("wakes a sleeping cloud computer from a tap on the sleeping dog when opening did not start it", async () => {
-    vi.stubGlobal("laterdog", { remoteClient: { active: true } });
+  it("offers Wake it now when the wake on opening failed, and one tap wakes it", async () => {
     fixture.boatState = "archived";
+    fixture.provisionError = { status: 409, message: "this bot's cloud computer is being changed — wait for it to finish" };
     await open(makeBot({ computer: "cloud" }));
-    expect(fixture.posts).toEqual([]);
-    expect(button("Wake it now")).toBeUndefined();
-    const dog = wakeDog()!;
-    expect(dog.getAttribute("aria-label")).toBe("Wake Scout's computer");
-    expect(text()).toContain("Tap to wake");
-    flushSync(() => dog.click());
+    await settle();
+    fixture.provisionError = null;
+    fixture.posts.length = 0;
+    const wake = button("Wake it now")!;
+    expect(wake).toBeDefined();
+    flushSync(() => wake.click());
     await settle();
     expect(fixture.posts.filter((path) => !path.endsWith("/screenshot"))).toEqual(["/api/bots/scout/computer/provision"]);
     expect(document.querySelector("[data-live-screen]")).not.toBeNull();
-    vi.stubGlobal("laterdog", undefined);
   });
 
   it("still shows the screen of a cloud computer that select_computer moved this conversation to", async () => {

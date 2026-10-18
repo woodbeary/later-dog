@@ -195,10 +195,9 @@ describe("voice set-up pop-up", () => {
     expect(needsVoice.indexOf(key)).toBeLessThan(needsVoice.indexOf(tag!));
   });
 
-  it("takes the xAI key for Grok voice right in the card, on the computer running later.dog", async () => {
+  it("takes the xAI key for Grok voice right in the card", async () => {
     const actual = await vi.importActual<typeof import("./VoiceSettings")>("./VoiceSettings");
-    const card = (locked = false) =>
-      renderToStaticMarkup(createElement(actual.VoiceSettings, { bot: pepper, onPatch: () => {}, workspaceConfigurationLocked: locked }));
+    const card = () => renderToStaticMarkup(createElement(actual.VoiceSettings, { bot: pepper, onPatch: () => {} }));
     const keyBox = 'data-api-key-row="xai"';
 
     fixture.config = { tts: { configured: false, provider: "xai" } };
@@ -207,11 +206,6 @@ describe("voice set-up pop-up", () => {
     expect(needsKey).toContain(keyBox);
     expect(needsKey).not.toContain("Settings →");
 
-    expect(card(true)).toContain("Add an xAI API key on the computer running later.dog");
-    expect(card(true)).not.toContain(keyBox);
-    vi.stubGlobal("window", { laterdog: { remoteClient: { active: true } } });
-    expect(card()).not.toContain(keyBox);
-    vi.stubGlobal("window", {});
 
     fixture.config = { tts: { configured: true, provider: "xai" } };
     const ready = card();

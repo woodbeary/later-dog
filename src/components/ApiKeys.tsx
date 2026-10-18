@@ -204,17 +204,15 @@ export function CloudComputersRow() {
   return <SettingRow title={t("settings.cloud.own")} subtitle={t("settings.cloud.ownHint")}>{null}</SettingRow>;
 }
 
-export function ComposioKeyNotice({ remote, onSaved }: { remote: boolean; onSaved: () => void }) {
+export function ComposioKeyNotice({ onSaved }: { onSaved: () => void }) {
   const [adding, setAdding] = useState(false);
   return (
     <div data-connectors-key="" className="glass-card mb-3 rounded-xl px-4 py-3 text-[13px] text-ink-secondary">
       <div className="flex items-center justify-between gap-3">
-        <p className="min-w-0">{t(remote ? "connectors.setupNeededRemote" : "connectors.keyNeeded")}</p>
-        {!remote && (
-          <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setAdding((open) => !open)} className="shrink-0 rounded-full bg-control px-3 py-1.5 text-[12px] text-ink transition-colors hover:bg-control-hover">
-            {adding ? t("common.cancel") : t("connectors.addKey")}
-          </button>
-        )}
+        <p className="min-w-0">{t("connectors.keyNeeded")}</p>
+        <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => setAdding((open) => !open)} className="shrink-0 rounded-full bg-control px-3 py-1.5 text-[12px] text-ink transition-colors hover:bg-control-hover">
+          {adding ? t("common.cancel") : t("connectors.addKey")}
+        </button>
       </div>
       {adding && (
         <div className="mt-3">
@@ -510,81 +508,6 @@ export function AnthropicEveryClaudeBot() {
           <span>{t("keys.anthropic.warning")}</span>
         </div>
       )}
-      {error && <div className="mt-1 text-[12px] text-danger">{error}</div>}
-    </div>
-  );
-}
-
-export function VpsConnection() {
-  const { state, dispatch } = useStore();
-  const [alias, setAlias] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const configured = Boolean(state.config?.vps?.configured);
-
-  useEffect(() => {
-    setAlias(state.config?.vps?.sshAlias ?? "");
-  }, [state.config?.vps?.sshAlias]);
-
-  const save = () => {
-    if (saving || (!alias.trim() && !configured)) return;
-    setSaving(true);
-    setError(null);
-    api("/api/config", {
-      method: "PUT",
-      body: JSON.stringify({ vps: { sshAlias: alias.trim() } }),
-    })
-      .then((status: ConfigStatus) => {
-        dispatch({ type: "configStatus", config: status });
-        setAlias(status.vps?.sshAlias ?? "");
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setSaving(false));
-  };
-
-  return (
-    <div>
-      <div className="mb-1.5 flex items-center gap-2 text-[13px] text-ink-secondary">
-        <span className={cn("size-1.5 rounded-full", configured ? "bg-success" : "bg-raised-hover")} />
-        <span>{t("keys.vps.label")}</span>
-        {configured && <span className="text-[11px] text-success">{t("keys.connected")}</span>}
-      </div>
-      <div className="mb-1.5 text-[12px] leading-relaxed text-ink-secondary">
-        {t("keys.vps.descBefore")}
-        <a
-          href="https://github.com/woodbeary/later-dog/blob/main/docs/byo-vps.md"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-accent hover:underline"
-        >
-          {t("keys.vps.descLink")}
-        </a>
-        {t("keys.vps.descAfter")}
-      </div>
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={alias}
-          onChange={(e) => setAlias(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && save()}
-          placeholder="my-vps"
-          aria-label={t("keys.vps.aria")}
-          autoComplete="off"
-          className="w-full rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[13px] text-ink placeholder:text-ink-secondary focus:outline-none"
-        />
-        <button
-          onClick={save}
-          disabled={saving || (!alias.trim() && !configured)}
-          className={cn(
-            "flex w-[72px] shrink-0 items-center justify-center gap-1.5 rounded-lg py-2 text-[13px]",
-            !alias.trim() && configured ? "bg-control text-danger hover:bg-control-hover" : "bg-control text-ink hover:bg-control-hover",
-            "disabled:cursor-not-allowed disabled:opacity-50",
-          )}
-          title={!alias.trim() && configured ? t("keys.vps.removeAlias") : t("common.save")}
-        >
-          {saving ? <Loader2 size={13} className="animate-spin" /> : !alias.trim() && configured ? t("keys.clear") : <><Check size={13} />{t("common.save")}</>}
-        </button>
-      </div>
       {error && <div className="mt-1 text-[12px] text-danger">{error}</div>}
     </div>
   );

@@ -17,7 +17,6 @@ export function SecretRequestCard({
 }) {
   const { dispatch } = useStore();
   const secret = message.secret!;
-  const remoteClient = window.laterdog?.remoteClient?.active === true;
   const [value, setValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedLocally, setSavedLocally] = useState(false);
@@ -148,12 +147,7 @@ export function SecretRequestCard({
             </button>
           )}
         </div>
-        {remoteClient && pending && (
-          <div className="px-3.5 pb-3 text-[12.5px] leading-relaxed text-ink-secondary">
-            This key must be saved on the host computer. Open this conversation on the host to continue securely.
-          </div>
-        )}
-        {!remoteClient && pending && (
+        {pending && (
           <form onSubmit={(event) => void save(event)} className="px-3.5 pb-3">
             <div className="flex gap-2">
               <input

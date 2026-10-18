@@ -196,12 +196,6 @@ describe("the Secure Form card", () => {
     expect(card().textContent).toContain("Not filled");
   });
 
-  it("points a person on another device back to the host computer", () => {
-    vi.stubGlobal("laterdog", { remoteClient: { active: true } });
-    mount(form());
-    expect(openButton()).toBeNull();
-    expect(card().textContent).toContain("Open this chat on the host computer to fill this in.");
-  });
 });
 
 describe("Secure Form wording", () => {

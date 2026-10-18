@@ -6,7 +6,7 @@ import { SharedWorkspaceHint } from "./SharedWorkspaceHint";
 import { WelcomeFlow } from "./WelcomeFlow";
 
 export function localDesktopPage(): boolean {
-  return window.laterdog?.remoteClient !== undefined;
+  return window.laterdog?.localPage === true;
 }
 
 export function useWelcomeViewer(): WelcomeViewer | null {
@@ -33,10 +33,9 @@ export function WelcomeGate({ viewer, hold = false }: { viewer: WelcomeViewer | 
   const { state, dispatch } = useStore();
   const [dismissed, setDismissed] = useState(false);
   const [resumeAt, setResumeAt] = useState<BeatId | undefined>(undefined);
-  const remoteClient = window.laterdog?.remoteClient?.active === true;
   if (!viewer || hold) return null;
   if (hostedMember(viewer)) {
-    return remoteClient ? null : (
+    return (
       <SharedWorkspaceHint
         replay={state.welcomeOpen}
         onClose={() => {
@@ -48,7 +47,6 @@ export function WelcomeGate({ viewer, hold = false }: { viewer: WelcomeViewer | 
   const due =
     !dismissed &&
     welcomeDue(state.config, {
-      remoteClient,
       legacyDone: emailGateDone(),
       hosted: viewer.hosted,
       canSave: viewer.canSave,

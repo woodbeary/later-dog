@@ -109,11 +109,11 @@ test("a failed open is contained and a later link still opens", async () => {
   assert.deepEqual(h.calls, ["open", "reveal", "open"]);
 });
 
-test("a consumed launch link is not replayed by the companion or updater relaunch", () => {
+test("a consumed launch link is not replayed by the desktop or updater relaunch", () => {
   const argv = ["/fixture/later.dog", "--fixture", "laterdog://cloud", "laterdog://cloud?ignored"];
   takeCloudDeepLink(argv);
   const calls = [];
-  runInNewContext(`${between("function relaunchAfterDesktopRemoteChange()", 'ipcMain.handle("desktop-remote:state"')}\nrelaunchAfterDesktopRemoteChange();`, {
+  runInNewContext(`${between("function relaunchDesktop()", "const workspaceOnly = ")}\nrelaunchDesktop();`, {
     desktopShutdownStarted: false, process: { argv }, setTimeout: callback => { callback(); return {}; },
     app: { relaunch: options => calls.push(options.args), quit: () => {} },
   });
@@ -149,7 +149,6 @@ test("the Cloud entry checks the owned server, waits for the saved sign-in, and 
   for (const action of ["createWindow(", "win.webContents.send(", "win.loadURL("]) {
     assert.ok(entry.indexOf(action) > restored, `${action} must follow the server guard and the restore`);
   }
-  assert.ok(entry.indexOf("if (desktopRemoteAccess) throw") < guard, "companion client mode is not changed by the link");
   assert.doesNotMatch(entry, /dialog\.|confirm/);
   assert.deepEqual([...entry.matchAll(/webContents\.send\(([^)]*)\)/g)].map(match => match[1]), ['"app:open-settings", "cloud"']);
   assert.deepEqual([...entry.matchAll(/loadURL\((.*)\);/g)].map(match => match[1]), ["`${rendererOrigin()}/?desktop-settings=cloud`"]);
@@ -160,7 +159,7 @@ test("opening Cloud account settings does not silently replace an active custom 
   const selected = { id: "custom", origin: "https://custom.fixture.test" };
   const calls = [];
   const open = runInNewContext(`${between("async function openCloudEntry()", "\n}\n")}\n}\nopenCloudEntry`, {
-    app: { isPackaged: true }, desktopRemoteAccess: null, serverReady: true,
+    app: { isPackaged: true }, serverReady: true,
     cloudAccountRestored: async () => {},
     activeEnvironment: () => selected, environmentsState: { activeId: selected.id },
     cloudAccount: { homeTarget: () => ({ origin: "https://home.fixture.test" }) },

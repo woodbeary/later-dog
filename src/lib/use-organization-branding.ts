@@ -4,7 +4,7 @@ import { parseOrganizationBranding } from "../../electron/organization-branding.
 
 export function useOrganizationBranding() {
   const laterdog = typeof window === "undefined" ? undefined : window.laterdog;
-  const bridge = laterdog?.remoteClient?.active ? undefined : laterdog?.organization;
+  const bridge = laterdog?.organization;
   const [state, setState] = useState<ManagedDesktopState | null>(null);
   useEffect(() => {
     let active = true, revision = 0;

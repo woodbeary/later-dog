@@ -23,7 +23,6 @@ vi.mock("./DesktopCapabilities", async (importOriginal) => ({
 vi.mock("./CloudScreenPreview", () => ({
   CloudScreenPreview: ({ src }: { src: string | null }) => createElement("img", { "data-preview": "", src: src ?? "" }),
 }));
-vi.mock("./BrowserPanel", () => ({ BrowserPanel: () => null }));
 vi.mock("@/state/store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/state/store")>(),
   api: async (path: string, init?: RequestInit) => {

@@ -116,11 +116,10 @@ export function connectorSetupNotice(state: {
   configured: boolean;
   stale: boolean;
   setup: ConnectorSetup | undefined;
-  remoteClient: boolean;
 }): { key: LocaleKey; tone: "info" | "warning" } | null {
   if (state.configured || state.stale) return null;
   if (state.setup === "needs-setup") {
-    return { key: state.remoteClient ? "connectors.setupNeededRemote" : "connectors.setupNeeded", tone: "info" };
+    return { key: "connectors.setupNeeded", tone: "info" };
   }
   return { key: "connectors.notConfigured", tone: "warning" };
 }
@@ -275,7 +274,6 @@ export function botsUsingService(bots: Bot[], instances: InstanceInfo[], slug: s
 
 export function PluginsPanel() {
   const { state, dispatch } = useStore();
-  const remoteClient = window.laterdog?.remoteClient?.active === true;
   const dialogRef = useRef<HTMLDivElement>(null);
   const surface = state.pluginsSurface;
   const [cards, setCards] = useState<ToolkitCard[] | null>(null);
@@ -603,7 +601,7 @@ export function PluginsPanel() {
     + connectedConnectors.length;
   const connectedEmptyCopy = connectedInventoryCopy(inventoryPhase);
   const close = () => dispatch({ type: "togglePlugins", open: false });
-  const setupNotice = connectorSetupNotice({ configured, stale, setup, remoteClient });
+  const setupNotice = connectorSetupNotice({ configured, stale, setup });
   const botsWithoutApps = hasUsableConnectedApps(configured, inventoryPhase, stale, status)
     ? botsMissingConnectedApps(state.bots, state.instances)
     : [];
@@ -815,7 +813,7 @@ export function PluginsPanel() {
               </div>
             </div>
           )}
-          {configured && !remoteClient && source === "curated" && mode === "self-hosted" && filter !== "mcp" && (
+          {configured && source === "curated" && mode === "self-hosted" && filter !== "mcp" && (
             <div className="mb-2 text-[12px] text-ink-secondary">
               {t("connectors.featuredBefore")}
             </div>
@@ -855,7 +853,7 @@ export function PluginsPanel() {
                 <h3 data-apps-more-heading className="mb-2 flex min-h-8 items-center text-[13px] font-semibold text-ink">{t("apps.moreApps")}</h3>
               )}
               {filter === "all" && browsing === null && setupNotice?.tone === "info" && needKey && (
-                <ComposioKeyNotice remote={remoteClient} onSaved={readCatalogAgain} />
+                <ComposioKeyNotice onSaved={readCatalogAgain} />
               )}
               <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @3xl:grid-cols-3">
                 {shown.map((card) => renderTile(card))}

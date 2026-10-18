@@ -227,7 +227,7 @@ test("the app installs these handlers, with its one rule for My Cloud and a wait
 const ADMIN = "http://127.0.0.1:9";
 const ACCOUNT = { id: "account-1", email: "person@example.test" };
 function myCloudFixture() {
-  const f = { now: 1_800_000_000_000, remembered: null, remoteAccess: null, restoring: null, admin: "ready", answers: [] };
+  const f = { now: 1_800_000_000_000, remembered: null, restoring: null, admin: "ready", answers: [] };
   const identity = () => ({ cloudContractVersion: 1, expiresAt: f.now + 86_400_000, device: { id: "device-1" }, account: ACCOUNT });
   f.saved = { origin: ADMIN, token: `omc_${"T".repeat(43)}`, ...identity() };
   delete f.saved.cloudContractVersion;
@@ -249,7 +249,7 @@ function myCloudFixture() {
   const handlers = appPermissionHandlers({
     rendererOrigin: () => LOCAL_ORIGIN,
     mainContents: () => main,
-    cloudHomeOrigin: () => myCloudOrigin({ account: f.client, remembered: f.remembered, remoteAccess: f.remoteAccess }),
+    cloudHomeOrigin: () => myCloudOrigin({ account: f.client, remembered: f.remembered }),
     cloudHomeRestoring: () => f.restoring,
   });
   f.restore = () => { f.restoring = f.client.start().finally(() => { f.restoring = null; }); return f.restoring; };
@@ -330,21 +330,16 @@ test("a Cloud remembered for another account is not this account's Cloud", async
   await f.restore();
   assert.equal(f.client.state().account?.id, ACCOUNT.id);
   f.remembered = { accountId: "someone-else", origin: CLOUD };
-  assert.equal(myCloudOrigin({ account: f.client, remembered: f.remembered, remoteAccess: null }), null);
+  assert.equal(myCloudOrigin({ account: f.client, remembered: f.remembered }), null);
   assert.equal(f.ask("media", MIC).value, false);
   f.remembered = { accountId: ACCOUNT.id, origin: CLOUD };
   assert.equal(f.ask("media", MIC).value, true);
 });
 
-test("companion client mode has no Cloud of its own, so no Cloud page hears the microphone", async () => {
+test("a computer with no Cloud sign-in has no Cloud of its own", () => {
   const f = myCloudFixture();
-  await f.restore();
-  assert.equal(f.ask("media", MIC).value, true);
-  f.remoteAccess = { endpoint: "https://relay.example.test", serverName: "Office Mac", deviceId: "device-2" };
-  assert.equal(myCloudOrigin({ account: f.client, remembered: f.remembered, remoteAccess: f.remoteAccess }), null);
-  assert.equal(f.ask("media", MIC).value, false);
+  assert.equal(myCloudOrigin({ account: null, remembered: { accountId: ACCOUNT.id, origin: CLOUD } }), null);
   assert.equal(f.check(), false);
-  assert.equal(myCloudOrigin({ account: null, remembered: f.remembered, remoteAccess: null }), null, "no Cloud sign-in on this computer");
 });
 
 test("a check that finds no Cloud for this account ends it, for the microphone and the Plan channels alike", async () => {
@@ -354,7 +349,7 @@ test("a check that finds no Cloud for this account ends it, for the microphone a
   f.cloud = null;
   await f.client.refresh();
   assert.equal(f.client.state().status, "connected");
-  assert.equal(myCloudOrigin({ account: f.client, remembered: f.remembered, remoteAccess: null }), null);
+  assert.equal(myCloudOrigin({ account: f.client, remembered: f.remembered }), null);
   assert.equal(f.ask("media", MIC).value, false);
   assert.equal(f.check(), false);
   f.admin = "down";

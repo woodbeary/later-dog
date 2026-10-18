@@ -284,15 +284,11 @@ describe("an answer the server was not sure about", () => {
 });
 
 describe("connected apps setup notice", () => {
-  const base = { configured: false, stale: false, remoteClient: false };
+  const base = { configured: false, stale: false };
 
   it("tells a fresh install what to do instead of reporting an outage", () => {
     expect(connectorSetupNotice({ ...base, setup: "needs-setup" })).toEqual({
       key: "connectors.setupNeeded",
-      tone: "info",
-    });
-    expect(connectorSetupNotice({ ...base, setup: "needs-setup", remoteClient: true })).toEqual({
-      key: "connectors.setupNeededRemote",
       tone: "info",
     });
   });

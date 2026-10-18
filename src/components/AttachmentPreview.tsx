@@ -382,7 +382,7 @@ export function MessageFolderFiles({ folderPath, listing, message }: {
 const REVEALABLE_PATH = /^(?:\/(?!\/)|[a-zA-Z]:[\\/])/;
 function revealBridge(): NonNullable<Window["laterdog"]>["revealInFolder"] {
   const laterdog = typeof window === "undefined" ? undefined : window.laterdog;
-  return laterdog?.remoteClient?.active ? undefined : laterdog?.revealInFolder;
+  return laterdog?.revealInFolder;
 }
 
 export function OutsideWorkspaceFile({ filePath }: { filePath: string }) {

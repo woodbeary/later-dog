@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { ModelPicker } from "./ModelPicker";
 import { ArrowUp, BookOpen, Clock, Loader2, Mic, Square, Target, Users, X } from "lucide-react";
 import { useStore, visibleMessages, currentTaskBot, type Bot, type Group, type Message } from "@/state/store";
-import { waitingOnPerson } from "@/components/onboarding/GuidedTour";
+import { waitingOnPerson } from "@/lib/waiting-on-person";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { activeLocale, t } from "@/lib/i18n";
@@ -134,7 +134,6 @@ export function Composer({
   const { state, dispatch } = useStore();
   const { threads, currentBotId } = useThreadRefs();
   const { capabilities } = useDesktopCapabilities();
-  const remoteClient = window.laterdog?.remoteClient?.active === true;
   const busy = group ? Boolean(group.working || group.busyBotId) : Boolean(bot?.busy);
   const asking = !group && waitingOnPerson(bot);
   const steerInstanceId = group
@@ -532,7 +531,7 @@ export function Composer({
   const approvalEngine = modeBot
     ? state.instances.find((instance) => instance.instanceId === modeBot.modelSelection.instanceId)
     : undefined;
-  const trustedThreadAccess = Boolean(!remoteClient && window.laterdog?.approvals && capabilities.host.packaged);
+  const trustedThreadAccess = Boolean(window.laterdog?.approvals && capabilities.host.packaged);
   const uploadImage = useCallback(async (file: File): Promise<Attachment | null> => {
     const optimistic = optimisticImageAttachment(file);
     if (!optimistic) return null;
@@ -1033,8 +1032,8 @@ export function Composer({
             <div data-composer-tools className="flex items-center gap-1">
               <ComposerPlusMenu
                 onAttach={() => fileInput.current?.click()}
-                onConnectors={!remoteClient ? () => dispatch({ type: "togglePlugins", open: true }) : undefined}
-                permissions={modeBot && approvalEngine && !remoteClient ? {
+                onConnectors={() => dispatch({ type: "togglePlugins", open: true })}
+                permissions={modeBot && approvalEngine ? {
                   approvalMode: modeBot.approvalMode,
                   autoApprove: modeBot.autoApprove,
                   driverKind: approvalEngine.driverKind,
@@ -1192,8 +1191,8 @@ export function Composer({
           />
           <TypingGhostAnnouncement text={suggestion.ghost} />
           <div data-composer-actions className="ml-auto flex items-center gap-1">
-          {!locked && bot && !group && !remoteClient && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} above part="model" />}
-          {!locked && bot && !group && !remoteClient && <EffortButton bot={bot} threadId={bot.threadId} />}
+          {!locked && bot && !group && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} above part="model" />}
+          {!locked && bot && !group && <EffortButton bot={bot} threadId={bot.threadId} />}
           {(busy || bot?.waitingForTeammates) && !locked && !asking && (
           <button
             onClick={interruptTurn}

@@ -57,8 +57,7 @@ function workspaceSummary(state) {
   return active ? { local: false, name: active.name, origin: active.origin } : { local: true, name: "This computer" };
 }
 
-function workspaceWindowTitle(state, companion, quietOrigin = null) {
-  if (companion) return `later.dog — Connected to: ${companion.serverName} (${new URL(companion.endpoint).host})`;
+function workspaceWindowTitle(state, quietOrigin = null) {
   const active = activeEnvironment(state);
   if (active && quietOrigin && active.origin === quietOrigin) return "later.dog";
   return active ? `later.dog — Hosted: ${active.name} (${new URL(active.origin).host})` : "later.dog";

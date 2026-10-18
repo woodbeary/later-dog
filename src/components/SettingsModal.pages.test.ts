@@ -101,8 +101,8 @@ describe("the Settings rail", () => {
 });
 
 describe("General", () => {
-  it("has no server access or workspace recovery disclosure, even on a remote workspace", () => {
-    vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, remoteClient: { active: true }, workspaces: { state: vi.fn(), menu: vi.fn() } } });
+  it("has no server access or workspace recovery disclosure, even with saved workspaces", () => {
+    vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, workspaces: { state: vi.fn(), menu: vi.fn() } } });
     const html = render();
     expect(html).not.toContain("data-server-access");
     expect(html).not.toContain("data-workspace-recovery");
@@ -253,12 +253,6 @@ describe("Computer", () => {
     expect(markers(linux)).toEqual(["cloud-computers"]);
   });
 
-  it("shows nothing of the server's computer from a paired remote client", () => {
-    vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, remoteClient: { active: true } } });
-    const html = render();
-    expect(groups(html)).toEqual([]);
-    expect(markers(html)).toEqual([]);
-  });
 });
 
 describe("Usage", () => {

@@ -37,7 +37,6 @@ vi.mock("./ModelPicker", () => ({ ModelPicker: () => null }));
 
 const { ChatView } = await import("./ChatView");
 const { BotEditorStore, initialState, reducer } = await import("@/state/store");
-const { setRemoteVoiceProvider } = await import("@/lib/local-voice");
 const { t } = await import("@/lib/i18n");
 
 const message = (id: string, parentId: string | undefined, fields: Partial<Message>): Message =>
@@ -177,26 +176,19 @@ describe("chat transcript rows", () => {
     expect(regenerate()).toEqual(["m5"]);
   });
 
-  it("offers Read aloud only with a voice, following this device's choice at the next store event", async () => {
-    const bridge = window.laterdog;
-    window.laterdog = { ...bridge, platform: "darwin", remoteClient: { active: true } } as typeof window.laterdog;
-    const kept = new Map<string, string>();
-    vi.stubGlobal("localStorage", { getItem: (key: string) => kept.get(key) ?? null, setItem: (key: string, value: string) => kept.set(key, value) });
-    vi.stubGlobal("speechSynthesis", { getVoices: () => [] });
-    vi.stubGlobal("SpeechSynthesisUtterance", class {});
+  it("offers Read aloud only once the voice engine has a voice", async () => {
     const speak = () => offering(t("chat.action.readAloud"));
-    const switchTo = async (provider: "host" | "system") => {
-      await rowRendersAfter((current) => reducer(current, { type: "toggleSettings", open: true }));
-      setRemoteVoiceProvider(provider);
-      await rowRendersAfter((current) => reducer(current, { type: "toggleSettings", open: false }));
-    };
+    const voice = (configured: boolean) => (current: AppState) => reducer(current, {
+      type: "configStatus",
+      config: { ...current.config, tts: { configured, provider: "elevenlabs", voice: "fixture-voice" } } as NonNullable<AppState["config"]>,
+    });
     try {
-      await switchTo("system");
+      await rowRendersAfter(voice(true));
       expect(speak()).toEqual(["m2", "m5"]);
-      await switchTo("host");
+      await rowRendersAfter(voice(false));
       expect(speak()).toEqual([]);
     } finally {
-      window.laterdog = bridge;
+      await rowRendersAfter((current) => reducer(current, { type: "configStatus", config: { features: { showToolCalls: true } } as NonNullable<AppState["config"]> }));
     }
   });
 });

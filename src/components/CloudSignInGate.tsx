@@ -17,7 +17,7 @@ export interface CloudSignInGateHandle {
 }
 
 export function useCloudSignInGate(): CloudSignInGateHandle {
-  const bridge = window.laterdog?.remoteClient !== undefined ? cloudAccountBridge() : undefined;
+  const bridge = window.laterdog?.localPage === true ? cloudAccountBridge() : undefined;
   const { account, failed, accept } = useCloudAccount(bridge);
   const [asked, setAsked] = useState<boolean | null>(null);
   const [opened, setOpened] = useState(false);

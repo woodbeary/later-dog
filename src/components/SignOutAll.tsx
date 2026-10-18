@@ -14,7 +14,7 @@ export function cloudSignedIn(account: CloudAccountState | null): boolean {
 }
 
 function useCloudAccount(): { bridge: CloudAccountBridge | undefined; account: CloudAccountState | null } {
-  const bridge = typeof window === "undefined" || window.laterdog?.remoteClient?.active ? undefined : window.laterdog?.cloudAccount;
+  const bridge = typeof window === "undefined" ? undefined : window.laterdog?.cloudAccount;
   const [account, setAccount] = useState<CloudAccountState | null>(null);
   useEffect(() => {
     if (!bridge) return;

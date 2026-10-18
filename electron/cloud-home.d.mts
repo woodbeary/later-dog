@@ -23,7 +23,6 @@ export declare function rememberedCloudHome(previous: RememberedCloudHome | null
 export declare function myCloudOrigin(known: {
   account: { homeTarget(): { origin: string } | null; state(): { account?: { id: string } } } | null;
   remembered: RememberedCloudHome | null;
-  remoteAccess: unknown;
 }): string | null;
 export declare function isCloudHomeEntry(entry: { origin?: string } | null | undefined, known?: { homeOrigin?: string | null; remembered?: RememberedCloudHome | null }): boolean;
 export declare function parsePairingGrant(input: unknown, origin: string, now: number): CloudHomeGrant | null;

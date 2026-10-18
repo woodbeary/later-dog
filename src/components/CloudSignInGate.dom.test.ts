@@ -72,7 +72,7 @@ afterEach(async () => {
 describe("the desktop's one calm sign-in screen", () => {
   it("opens once for a Mac that was never asked, holds the welcome flow back, and Not now hands it over", async () => {
     const bridge = makeBridge({ status: "signed-out" });
-    await show({ remoteClient: { active: false }, cloudAccount: bridge });
+    await show({ localPage: true, cloudAccount: bridge });
     expect(gate()).toBeTruthy();
     expect(holding()).toBe("true");
     expect(text()).toContain("Use your email. We'll send you a code.");
@@ -85,12 +85,12 @@ describe("the desktop's one calm sign-in screen", () => {
   });
 
   it("does not appear for a Mac that was already asked, for one signed in, or in a plain browser", async () => {
-    await show({ remoteClient: { active: false }, cloudAccount: makeBridge({ status: "signed-out" }, false) });
+    await show({ localPage: true, cloudAccount: makeBridge({ status: "signed-out" }, false) });
     expect(gate()).toBeNull();
     expect(holding()).toBe("false");
     await act(async () => root.unmount());
     root = createRoot(host);
-    await show({ remoteClient: { active: false }, cloudAccount: makeBridge(ready) });
+    await show({ localPage: true, cloudAccount: makeBridge(ready) });
     expect(gate()).toBeNull();
     await act(async () => root.unmount());
     root = createRoot(host);
@@ -108,7 +108,7 @@ describe("the desktop's one calm sign-in screen", () => {
 
   it("holds the welcome flow back while the saved sign-in is still being read, and shows nothing yet", async () => {
     const bridge = makeBridge({ status: "signed-out", message: "restoring" });
-    await show({ remoteClient: { active: false }, cloudAccount: bridge });
+    await show({ localPage: true, cloudAccount: bridge });
     expect(gate()).toBeNull();
     expect(holding()).toBe("true");
     await act(async () => push({ status: "signed-out" }));
@@ -125,7 +125,7 @@ describe("the desktop's one calm sign-in screen", () => {
   ] satisfies [string, CloudAccountState][])("finishes sign-in without moving the workspace when the home is %s", async (_home, signedIn) => {
     const bridge = makeBridge({ status: "signed-out" });
     vi.mocked(bridge.verifyCode).mockResolvedValueOnce({ ok: true, account: signedIn });
-    await show({ remoteClient: { active: false }, cloudAccount: bridge });
+    await show({ localPage: true, cloudAccount: bridge });
     await type("input[type=email]", "jo@example.test");
     await click("Agree and continue");
     await type("input[autocomplete=one-time-code]", "12345678");
@@ -144,7 +144,7 @@ describe("the desktop's one calm sign-in screen", () => {
 
   it("closes when an account confirmation arrives through the bridge and stays closed after later refreshes", async () => {
     const bridge = makeBridge({ status: "signed-out" });
-    await show({ remoteClient: { active: false }, cloudAccount: bridge });
+    await show({ localPage: true, cloudAccount: bridge });
     await act(async () => push({ status: "connected" }));
     expect(gate()).toBeTruthy();
     expect(holding()).toBe("true");

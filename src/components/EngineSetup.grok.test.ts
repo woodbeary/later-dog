@@ -19,8 +19,7 @@ const grok = (snapshot: InstanceInfo["snapshot"]): InstanceInfo => ({
 const signedOut = grok({ state: "available", authenticated: false, version: "grok 1.0.41" });
 const missing = grok({ state: "unavailable", reason: "`grok` CLI not found" });
 
-const desktop = { platform: "darwin", openInstallTerminal: vi.fn(async () => true), remoteClient: { active: false } };
-const pairedDesktop = { ...desktop, remoteClient: { active: true } };
+const desktop = { platform: "darwin", openInstallTerminal: vi.fn(async () => true), localPage: true };
 
 let host: HTMLDivElement;
 let root: Root;
@@ -63,11 +62,8 @@ describe("signed out: the in-app code", () => {
     expect(html).toContain("grok login");
   });
 
-  it.each([
-    ["a desktop paired to another server", pairedDesktop, false],
-    ["My Cloud in the desktop app's window", desktop, true],
-  ] as const)("never hands %s a terminal command", (_where, laterdog, cloudHome) => {
-    const html = render(signedOut, laterdog, cloudHome);
+  it("never hands My Cloud in the desktop app's window a terminal command", () => {
+    const html = render(signedOut, desktop, true);
     expect(html).toContain('data-device-sign-in="grok"');
     expect(html).not.toContain("grok login");
   });
@@ -87,13 +83,6 @@ describe("Grok cannot run here: an xAI key instead", () => {
     expect(html).not.toContain(CURL);
     expect(html).not.toContain("Install Grok");
     expect(html).not.toContain("Terminal");
-  });
-
-  it("has no key box on a paired desktop, whose keys are the host's", () => {
-    const html = render(missing, pairedDesktop);
-    expect(html).toContain(NOT_INSTALLED);
-    expect(html).not.toContain("data-api-key-row");
-    expect(html).not.toContain("<button");
   });
 
   it("keeps the install on the desktop, where a terminal can run it", () => {

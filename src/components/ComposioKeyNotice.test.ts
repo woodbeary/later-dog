@@ -16,11 +16,11 @@ let root: Root | null = null;
 const flush = async () => {
   for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 };
-const mount = (remote = false) => {
+const mount = () => {
   const container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  flushSync(() => root!.render(createElement(ComposioKeyNotice, { remote, onSaved: fixture.saved })));
+  flushSync(() => root!.render(createElement(ComposioKeyNotice, { onSaved: fixture.saved })));
 };
 const text = () => document.body.textContent ?? "";
 const button = () => document.querySelector("button");
@@ -77,9 +77,4 @@ describe("Apps → the Composio key", () => {
     expect(fixture.saved).toHaveBeenCalledOnce();
   });
 
-  it("only explains it on a remote screen", () => {
-    mount(true);
-    expect(text()).toBe("Gmail, Slack and many more apps connect through Composio. Ask whoever runs this server to paste a Composio project key into Apps on that computer.");
-    expect(button()).toBeNull();
-  });
 });

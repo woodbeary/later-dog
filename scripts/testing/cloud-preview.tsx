@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 import { LocalVmRows } from "../../src/components/LocalVmRows";
 import { ComputerPanel } from "../../src/components/ComputerPanel";
 import { BotSettingsDialog } from "../../src/components/BotSettingsDialog";
-import { RemoteDesktopPanel } from "../../src/components/remote-desktop-panel";
 import { StoreProvider, useStore, type Bot } from "../../src/state/store";
 import { applySkin, readSkin } from "../../src/lib/skins";
 import { publishLiveFrame } from "../../src/lib/live-events";
@@ -183,7 +182,7 @@ function Fixture() {
         {["connected", "slow", "held", "contended", "failed", "unconfigured", "corrupt", "timeout"].map((value) => <option key={value}>{value}</option>)}
       </select></label>
       <label>Panel<select aria-label="Panel" value={panel} onChange={(event) => setPanel(event.target.value)}>
-        <option value="computer">Computer</option><option value="remote">Remote desktop</option><option value="settings">VM settings</option>
+        <option value="computer">Computer</option><option value="settings">VM settings</option>
       </select></label>
       <label>Conversation<select aria-label="Conversation surface" value={scenario} onChange={(event) => {
         const previousScenario = surfaceScenario;
@@ -208,8 +207,7 @@ function Fixture() {
     {state.settingsOpen && bot && <BotSettingsDialog key={bot.id} bot={bot} />}
     {state.computerOpen && fixtureBot ? panel === "computer"
       ? <ComputerPanel key={generation} bot={fixtureBot} />
-      : panel === "settings" ? <div className="w-[720px] overflow-y-auto"><LocalVmRows /></div>
-      : <RemoteDesktopPanel key={generation} bot={fixtureBot} />
+      : <div className="w-[720px] overflow-y-auto"><LocalVmRows /></div>
       : !state.settingsOpen && <button onClick={() => dispatch({ type: "toggleComputer", open: true })}>Open computer panel</button>}
   </div>;
 }
