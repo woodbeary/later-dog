@@ -115,7 +115,7 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
 }) {
   const heldNote = tFromServer(pending.heldCode, pending.held);
   const outbound = pending.message.card ? outboundSummary(pending.message.card) : undefined;
-  const reviewed = isSkillApproval(pending) || isRoutineApproval(pending) || isProfileApproval(pending) || Boolean(pending.message.card?.teamSetupRequest);
+  const reviewed = isSkillApproval(pending) || isRoutineApproval(pending) || isProfileApproval(pending) || Boolean(pending.message.card?.teamSetupRequest || pending.message.card?.modelRequest || pending.message.card?.teamMemoryRequest);
   const command = pending.commandAllowlist?.command ?? pending.detail;
   const details = (
     <pre

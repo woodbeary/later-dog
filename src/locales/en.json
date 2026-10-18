@@ -243,7 +243,7 @@
   "approval.action.cancel": "Cancel",
   "approval.action.deny": "Don't allow",
   "approval.reach.chat": "Always allow lets {name} do this again without asking in this chat.",
-  "approval.reach.dog": "Always allow lets {name} do this again without asking, here and in new chats.",
+  "approval.reach.dog": "Always allow lets {name} do this again without asking in group chats and in new chats.",
   "approval.reach.mac": "Always allow lets every dog use your Mac without asking.",
   "approval.reach.session": "Allow for this chat stops asking about this action until this chat's session ends.",
   "approval.reach.command": "Always allow lets {name} run this exact command in {cwd} without asking, in any chat using that folder with this engine.",
