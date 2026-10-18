@@ -10,7 +10,6 @@ export interface ChannelQueueItem {
   text: string;
   replyToId?: string;
   sendId?: string;
-  mode: "chat" | "goal";
   via?: "api";
   sender?: ResolvedSender;
   trigger?: UsageTrigger;
@@ -35,7 +34,6 @@ export function restoreChannelMessages(): void {
       ...payload,
       ...(via === "api" ? { via } : {}),
       id: row.id,
-      mode: row.payload.mode ?? "chat",
       queuedAt: row.payload.queuedAt ?? Date.now(),
     });
     queues.set(row.threadId, entry);
@@ -53,7 +51,6 @@ export function queueChannelMessage(
   options: {
     replyToId?: string;
     sendId?: string;
-    mode?: "chat" | "goal";
     via?: "api";
     sender?: ResolvedSender;
     trigger?: UsageTrigger;
@@ -66,7 +63,6 @@ export function queueChannelMessage(
     text,
     replyToId: options.replyToId,
     sendId: options.sendId,
-    mode: options.mode ?? "chat",
     via: options.via,
     sender: options.sender,
     trigger: options.trigger,
@@ -179,7 +175,6 @@ export function headChannelGroup(items: readonly ChannelQueueItem[]): ChannelQue
 
 function coalesceIdentity(item: ChannelQueueItem): string {
   if (item.via === "api") return `api:${item.id}`;
-  if (item.mode !== "chat") return `mode:${item.mode}:${item.id}`;
   if (item.sender) return `person:${item.sender.id ?? item.sender.name}`;
   return "person:local";
 }

@@ -1,4 +1,3 @@
-import type { GroupGoalRunCardData } from "../../shared/group-goal-run";
 import type { ConnectorCardData } from "../../shared/wire";
 
 export const PINNED_SECTION_ID = "builtin:pinned";
@@ -10,17 +9,6 @@ const USER_SECTION_PREFIX = "section:";
 export type SidebarSectionId = string;
 export type SectionDropPlace = "before" | "after";
 export type SidebarDensityMode = "comfortable" | "icons";
-
-const GOAL_RUN_PREVIEW_LABEL = {
-  working: "Working",
-  completed: "Completed",
-  "needs-input": "Needs your input",
-  blocked: "Blocked",
-  "limit-reached": "Turn limit reached",
-  paused: "Paused",
-  stopped: "Stopped",
-  failed: "Failed",
-} satisfies Record<GroupGoalRunCardData["status"], string>;
 
 export type SidebarBot = {
   id: string;
@@ -54,14 +42,6 @@ export function sidebarSectionLabel(id: SidebarSectionId): string {
   if (id === CHANNELS_SECTION_ID) return "Group chats";
   if (id === BOTS_SECTION_ID) return "Dogs";
   return userSectionName(id) ?? id;
-}
-
-export function sidebarGoalRunPreview(run: GroupGoalRunCardData): string {
-  const detail = run.detail?.replace(/\s+/g, " ").trim();
-  const goal = run.goal.replace(/\s+/g, " ").trim();
-  const summary = detail || goal;
-  const label = GOAL_RUN_PREVIEW_LABEL[run.status];
-  return summary ? `${label}: ${summary}` : label;
 }
 
 export type SidebarConnectorPreviewKey = "connectors.card.connected" | "connectors.card.waiting" | "connectors.card.connectSecurely";

@@ -47,8 +47,8 @@ it("keeps ordinary work out of setup and carries explicit bot defaults and file 
     expect(ordinary.system).toContain(JSON.stringify(join(fixture.info.dataDir, "task-workspaces", bot.id, bot.threadId)));
 
     const setup = await direct("/setup Help me track garden watering");
-    expect(setup.system).toContain("The user explicitly asked you to set yourself up");
-    expect(setup.system).toContain("at most four questions");
+    expect(setup.system).not.toContain("The user explicitly asked you to set yourself up");
+    expect(setup.system).not.toContain("at most four questions");
     const afterSetup = await direct("Never mind setup. Summarize: the garden needs water Friday.");
     expect(afterSetup.system).not.toContain("at most four questions");
     expect(JSON.stringify(afterSetup.prompt)).toContain("Never mind setup");
@@ -59,7 +59,7 @@ it("keeps ordinary work out of setup and carries explicit bot defaults and file 
     expect((await direct("Tell me your responsibility in one sentence.")).model).toBe(b);
     const { group } = await api("POST", "/api/groups", {
       name: "Garden room", memberIds: [bot.id],
-      setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
+      setup: { defaultResponder: { kind: "member", botId: bot.id } },
     });
     const room = async (text: string) => {
       await control(["send-channel", "--channel", group.id, "--text", text]);

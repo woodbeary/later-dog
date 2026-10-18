@@ -257,18 +257,6 @@ import {
 } from "./mcp-registry.ts";
 import { MCP_OAUTH_CALLBACK_PATH, McpOAuthError, McpSignInError, McpOAuthManager, mcpCallbackOrigin, mcpOAuthRedirectUri, withMcpSignIn, withoutPendingSignIn } from "./mcp-oauth.ts";
 import { probeMcpServer } from "./mcp-probe.ts";
-import {
-  GROUP_GOAL_MAX_TURNS,
-  groupGoalAssignmentKey,
-  groupGoalCompletionTurnId,
-  groupGoalCoordinatorInstructions,
-  groupGoalWorkerInstructions,
-  parseGroupGoalDecision,
-  resolveGroupGoalMember,
-  selectGroupGoalCoordinator,
-  type GoalRunMember,
-} from "./group-goal-run.ts";
-import type { GroupGoalRunCardData, GroupGoalRunStatus } from "../shared/group-goal-run.ts";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
@@ -346,7 +334,6 @@ import { computerEngineMoveText, removedComputerInstanceIds, writeComputerEngine
 import { cancelPeerApprovalsFor, cancelPeerApprovalsForThread, dismissStalePeerCards, peerApprovalFailure, requestPeerApproval, resolvePeerComms, type ApprovalBus } from "./peer-approval.ts";
 import { peerDeliveryReceipt, type PeerDeliveryReceipt } from "./peer-delivery.ts";
 import { peerProvenanceNote, withPeerProvenance } from "./peer-provenance.ts";
-import { decideRoomPost, emptyRoomPostBudget, type RoomPostAttempt, type RoomPostBudget } from "./room-post-budget.ts";
 import {
   isProjectEmoji,
   mentionedBots,
@@ -404,7 +391,6 @@ import {
   readSectionContext,
   sectionContextKey,
   sectionContextLabel,
-  sectionContextSystemPrompt,
   writeSectionContext,
   SECTION_CONTEXT_MAX_BYTES,
 } from "./section-context.ts";
@@ -433,8 +419,7 @@ import {
 import { fetchSkillFromSource } from "./skill-fetch.ts";
 import { pickBotName } from "./names.ts";
 import { botSkillTemplateSchema, newBotDefaultsOrBuiltIn, newBotDefaultsSchema, resolveBotCreationDefaults } from "./new-bot-defaults.ts";
-import { expandLearnTurnText, learnSource } from "./skill-learn.ts";
-import { expandSetupTurnText, setupModeActive, setupSystemPrompt } from "./setup-mode.ts";
+import { learnSource } from "./skill-learn.ts";
 import type { SkillRequestCardData } from "../shared/skill-request.ts";
 import { checkSoulDrift, readSoulDrift, soulFile, writeSoulMirror } from "./bot-folder.ts";
 import {
@@ -447,7 +432,6 @@ import {
   mentionPrompt,
   LEARN_PROMPT,
   PROFILE_PROMPT,
-  TEAM_MEMORY_PROMPT,
   ROUTINE_PROMPT,
   ROUTINE_EXECUTION_PROMPT,
   WEBHOOK_PROMPT,
@@ -468,7 +452,7 @@ import { LocalVmSeatPool, type LocalVmSeatHolder } from "./local-vm-seat-pool.ts
 import { RepeatDetector, callKey } from "./repeat-detector.ts";
 import { redactSecretsInText } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
-import { RoutineManager, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
+import { RoutineManager, type RoutineGoalStatus, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { CalendarCallManager, type CalendarCall } from "./calendar-calls.ts";
 import { BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
 import { BrowserRuntime, browserRuntimeEnv } from "./browser-runtime.ts";
@@ -505,7 +489,6 @@ import { fetchGithubTeam, fetchLibraryTeam, fetchTeamCatalog } from "./team-libr
 import { BOT_PACKAGE_MAX_SKILLS, isBotPackage, packageSummary, parsePackageDocument, renderBotPackageMarkdown, type PackageDocument } from "./bot-package.ts";
 import { createTeamManifest, parseTeamManifest } from "./team-manifest.ts";
 import { readThreadEvents } from "./thread-events.ts";
-import { TeamMemory, TEAM_MEMORY_KINDS, type TeamMemoryKind } from "./team-memory.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
 import { OutboundCounts } from "./outbound-counts.ts";
 import { OutboundRequestService } from "./outbound-requests.ts";
@@ -531,7 +514,6 @@ import {
 } from "./skill-library.ts";
 import type { SkillsLibrarySkillWire } from "../shared/wire.ts";
 import { runSkillsLibraryBootSweep } from "./skills-library-migration.ts";
-import { installedPlaybookInstructions } from "./installed-playbooks.ts";
 import { createBotPackageExport, createLibraryPackageExport, createTeamPackageExport, picture as sharedPicture, TeamExportError, type ExportablePackageSkill, type TeamExportSkip } from "./package-export.ts";
 import { importPackageDocument, importTeamManifest, PackageImportError, type PackageImportDeps, type PackageImportResult } from "./package-import.ts";
 import {
@@ -651,7 +633,10 @@ import { availableDogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { dogJobEnvironment } from "./laterdog/job-defaults.ts";
 import { createJobTraceRoutes } from "./routes/job-trace.ts";
 import { DOG_CREATION_REFUSAL, dogMadeDogAccess, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
-import { GROUP_CHAT_REFUSAL, mayMakeGroupChats } from "./laterdog/group-chats.ts";
+import { dogLimitRefusal, turnCreationRefusal } from "./laterdog/workspace-limits.ts";
+import { roomIdentityPrompt } from "./laterdog/room-prompt.ts";
+import { GROUP_CHAT_REFUSAL, groupChatsOf, mayMakeGroupChats } from "./laterdog/group-chats.ts";
+import { groupRoutineReply, SILENT_GROUP_ROUTINE } from "./laterdog/group-routine-reply.ts";
 import { botNames, dogActivityWords, teammateResultLabel } from "./laterdog/activity-words.ts";
 import { INCLUDED_AI_INSTANCES } from "./laterdog/included-ai.ts";
 import { createPhonePush } from "./laterdog/phone-push.ts";
@@ -1325,10 +1310,6 @@ function cardAnswerRefusal(auth: RequestAuth, threadId: string, requestId: strin
     return auth.trust === "service" && behavior !== "deny"
       ? "A local service can only decline this request. Approve or answer it in later.dog while signed in."
       : null;
-  }
-  if (!auth.scopes.includes("admin") && store.messagesFor(threadId).some(message =>
-    message.card?.requestId === requestId && message.card.teamMemoryRequest)) {
-    return "Only a workspace admin can review shared pack memory.";
   }
   if (CLOUD_HOME) return cloudCardRefusal(auth);
   if (auth.scopes.includes("admin") || !sharedMembership()) return null;
@@ -2011,13 +1992,10 @@ type InternalCapability = {
   roomHandoffId?: string;
   roomCoordination?: boolean;
   attachedFiles?: number;
-  roomPosts?: number;
   delegatedThisTurn?: Set<string>;
   externalRuntime?: ExternalRuntimeGrant;
 };
 const MAX_ATTACHED_FILES_PER_TURN = 10;
-const MAX_ROOM_POSTS_PER_TURN = 3;
-const MAX_CREATED_BOTS_PER_TURN = 4;
 const INTERNAL_CAPABILITY_ORPHAN_MS = 30 * 24 * 60 * 60_000;
 const internalCapabilities = new Map<string, InternalCapability>();
 const activeInternalGenerationByThread = new Map<string, string>();
@@ -2194,10 +2172,10 @@ function internalCapabilityIsActive(capability: InternalCapability): boolean {
   );
 }
 const MAX_COMMS_DEPTH = 1;
-const MAX_WORKSPACE_BOTS = 100;
+const MAX_BOT_IDS_PER_REQUEST = 10_000;
 const createSidebarSectionSchema = z.object({
   name: z.string(),
-  botIds: z.array(z.string().regex(/^[\w-]+$/)).max(MAX_WORKSPACE_BOTS).default([]),
+  botIds: z.array(z.string().regex(/^[\w-]+$/)).max(MAX_BOT_IDS_PER_REQUEST).default([]),
 }).strict();
 const createGroupTaskRequestSchema = z.object({ title: z.string().optional() });
 const phoneSecretEnvelopeSchema = z.object({
@@ -3407,11 +3385,8 @@ function previewSystemPrompt(bot: BotRecord) {
   const caps = instance?.adapter.capabilities;
   const teamComputer = inheritedTeamComputer(bot);
   const previewComputer = teamComputer ? "cloud" : bot.computer;
-  const computerPromptKind = resolveComputerPromptKind({
-    kind: previewComputer === "vm" ? "vm" : previewComputer === "cloud"
-      ? bot.cloudBackend === "vps" ? "vps" : "box" : previewComputer === "local" ? "local" : null,
-    vmPrivate: localVmMode(cfg) === "per-bot",
-  });
+  const computerPromptKind = resolveComputerPromptKind(previewComputer === "cloud"
+    ? bot.cloudBackend === "vps" ? "vps" : "box" : previewComputer === "local" ? "local" : null);
   const peers = reachablePeers(store.bots, bot);
   const coordination = withMainDogRouting(bot.id === store.mainBotId(), peers.length > 0 ? peerRosterSystemPrompt(peers) : "");
   const agentsMounted = caps?.agentsMcp === true;
@@ -3421,16 +3396,7 @@ function previewSystemPrompt(bot: BotRecord) {
   });
   const privateWorkspace = instance && supportsWorkspaceFiles(instance.driverKind);
   const built = buildSystemPrompt(persona, bot.soul ?? "", [
-    {
-      id: "setup",
-      label: "Setup",
-      text: setupSystemPrompt(agentsMounted && setupModeActive({ soul: bot.soul, description: bot.description, text: "" }), {
-        skills: skillAuthoringEnabled(cfg),
-        cwd: bot.cwd,
-      }),
-    },
     { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
-    { id: "team-computer", label: "Team computer", text: teamComputerPrompt(teamComputer) },
     { id: "plan", label: "Surface", text: previewPlan.computer === undefined ? "" : surfacePrompt({
       computer: previewPlan.computer && previewPlan.computer !== "off" && computerPromptKind ? previewPlan.computer : null,
       browser: previewPlan.computer === undefined ? false : previewPlan.browser,
@@ -3444,8 +3410,6 @@ function previewSystemPrompt(bot: BotRecord) {
     { id: "routine", label: "Routines", text: agentsMounted ? ROUTINE_PROMPT : "" },
     { id: "profile", label: "Profile changes", text: agentsMounted ? PROFILE_PROMPT : "" },
     { id: "updates", label: "Progress updates", text: workUpdatesPrompt() },
-    { id: "section-context", label: "Section context", text: sectionContextSystemPrompt(bot.section) },
-    { id: "team-memory", label: "Team memory", text: teamMemory.systemPrompt(bot.section) + (agentsMounted ? TEAM_MEMORY_PROMPT : "") },
     teamAvailabilityPart(agentsMounted && coordination ? peers : []),
     { id: "memory", label: "Memory", text: memorySystemPrompt(bot.id, { managedWrites: agentsMounted, fileTools: Boolean(privateWorkspace), enabled: bot.memoryEnabled !== false }) },
     { id: "skills", label: "Skills index", text: privateWorkspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? bot.assignedSkills : undefined) : "" },
@@ -4003,74 +3967,18 @@ type GroupTurnOperation = {
   cancellation: AbortController;
   providerHandshakePending: boolean;
   queuedQueueIds?: string[];
-  goalRun?: {
-    runId: string;
-    cardMessageId: string;
-    goal: string;
-    coordinatorBotId: string;
-    coordinatorName: string;
-    turnCount: number;
-    maxTurns: number;
-    startedAt: number;
-    finished: boolean;
-  };
+  routineRun?: GroupRoutineRun;
+};
+
+type GroupRoutineRun = {
+  runId: string;
+  botId: string;
+  finished: boolean;
+  failure?: string;
+  onDispatchError?: (message: string) => void;
 };
 
 const groupTurnOperations = new Map<string, Set<GroupTurnOperation>>();
-
-type GroupGoalCoordinatorTurn = {
-  token: symbol;
-  turnId?: string;
-  assistantItems: string[];
-  discard: boolean;
-  cleanupTimer?: ReturnType<typeof setTimeout>;
-};
-const groupGoalCoordinatorTurns = new Map<string, Set<GroupGoalCoordinatorTurn>>();
-const GROUP_GOAL_COORDINATOR_GUARD_MS = 5 * 60_000;
-
-function addGroupGoalCoordinatorTurn(threadId: string, turn: GroupGoalCoordinatorTurn): void {
-  const turns = groupGoalCoordinatorTurns.get(threadId) ?? new Set<GroupGoalCoordinatorTurn>();
-  turns.add(turn);
-  groupGoalCoordinatorTurns.set(threadId, turns);
-}
-
-function removeGroupGoalCoordinatorTurn(threadId: string, turn: GroupGoalCoordinatorTurn): void {
-  if (turn.cleanupTimer) clearTimeout(turn.cleanupTimer);
-  const turns = groupGoalCoordinatorTurns.get(threadId);
-  turns?.delete(turn);
-  if (turns?.size === 0) groupGoalCoordinatorTurns.delete(threadId);
-}
-
-function hasUnboundDiscardedGroupGoalTurn(threadId: string): boolean {
-  return [...(groupGoalCoordinatorTurns.get(threadId) ?? [])]
-    .some((turn) => turn.discard && !turn.turnId);
-}
-
-function groupGoalCoordinatorTurnForEvent(event: RuntimeEvent): GroupGoalCoordinatorTurn | undefined {
-  const turns = groupGoalCoordinatorTurns.get(event.threadId);
-  if (!turns?.size) return undefined;
-  const candidates = [...turns];
-  if (event.turnId) {
-    const exact = candidates.find((turn) => turn.turnId === event.turnId);
-    if (exact) return exact;
-    const unboundDiscarded = candidates.filter((turn) => turn.discard && !turn.turnId);
-    if (unboundDiscarded.length > 0) {
-      if (candidates.length === 1) {
-        unboundDiscarded[0]!.turnId = event.turnId;
-        retireProviderTurn(event.turnId);
-        return unboundDiscarded[0];
-      }
-      return undefined;
-    }
-    const pending = candidates.findLast((turn) => !turn.turnId && !turn.discard);
-    if (pending && !pending.turnId) {
-      pending.turnId = event.turnId;
-      return pending;
-    }
-    return undefined;
-  }
-  return candidates.length === 1 ? candidates[0] : undefined;
-}
 
 function groupIsWorking(group: GroupRecord): boolean {
   return Boolean(group.busyBotId) || Boolean(groupTurnOperations.get(group.id)?.size);
@@ -4101,22 +4009,16 @@ function createChannel(value: unknown): GroupRecord {
     }
   }
   let setup:
-    | { bulletin: string; defaultResponder: GroupDefaultResponder; completed: true }
+    | { defaultResponder: GroupDefaultResponder; completed: true }
     | undefined;
   if (body.setup !== undefined) {
     if (!body.setup || typeof body.setup !== "object" || Array.isArray(body.setup)) {
       throw Object.assign(new Error("setup must be an object"), { status: 400 });
     }
-    const requested = body.setup as { bulletin?: unknown; defaultResponder?: unknown };
-    if (typeof requested.bulletin !== "string") {
-      throw Object.assign(new Error("setup.bulletin must be a string"), { status: 400 });
-    }
-    if (requested.bulletin.length > 12_000) {
-      throw Object.assign(new Error("setup.bulletin must be at most 12000 characters"), { status: 400 });
-    }
+    const requested = body.setup as { defaultResponder?: unknown };
     const responder = checkedGroupResponder(requested.defaultResponder, memberIds);
     if (!responder) throw Object.assign(new Error("invalid setup.defaultResponder"), { status: 400 });
-    setup = { bulletin: requested.bulletin, defaultResponder: responder, completed: true };
+    setup = { defaultResponder: responder, completed: true };
   }
   return store.createGroup(name, memberIds, false, section, setup ?? (deciderReady(cfg, "roomRouting") ? { defaultResponder: { kind: "auto" } } : undefined));
 }
@@ -4134,7 +4036,7 @@ function updateChannel(groupId: string, value: unknown): GroupRecord {
   }
   if (
     channelTaskBlocked(existing) &&
-    (body.memberIds !== undefined || body.defaultResponder !== undefined || body.bulletin !== undefined)
+    (body.memberIds !== undefined || body.defaultResponder !== undefined)
   ) {
     throw Object.assign(new Error("This group chat is working or waiting on you. Try again when it's done."), { status: 409 });
   }
@@ -4145,13 +4047,6 @@ function updateChannel(groupId: string, value: unknown): GroupRecord {
     if (!name) throw Object.assign(new Error("room name must not be empty"), { status: 400 });
     if (name.length > 100) throw Object.assign(new Error("room name must be at most 100 characters"), { status: 400 });
     patch.name = name;
-  }
-  if (body.bulletin !== undefined) {
-    if (typeof body.bulletin !== "string") throw Object.assign(new Error("bulletin must be a string"), { status: 400 });
-    if (body.bulletin.length > 12_000) {
-      throw Object.assign(new Error("bulletin must be at most 12000 characters"), { status: 400 });
-    }
-    patch.bulletin = body.bulletin;
   }
   if (body.unread !== undefined) {
     if (typeof body.unread !== "boolean") throw Object.assign(new Error("unread must be true or false"), { status: 400 });
@@ -4177,7 +4072,7 @@ function updateChannel(groupId: string, value: unknown): GroupRecord {
         !roster.memberIds.includes(run.botId),
     );
     if (removedGoalLead) {
-      throw Object.assign(new Error("pause or reassign this room's group fetch routine before removing its lead"), { status: 409 });
+      throw Object.assign(new Error("pause or reassign this group chat's routine before removing the dog it runs for"), { status: 409 });
     }
     patch.memberIds = roster.memberIds;
   }
@@ -4492,8 +4387,8 @@ function beginGroupTurnOperation(
 }
 
 function finishGroupTurnOperation(groupId: string, operation: GroupTurnOperation) {
-  if (operation.goalRun && !operation.goalRun.finished) {
-    finishGroupGoalRun(groupId, operation, "failed", "The group fetch ended before the lead reported an outcome.");
+  if (operation.routineRun && !operation.routineRun.finished) {
+    finishGroupRoutineRun(operation, "failed", operation.routineRun.failure ?? "The group chat stopped before the routine finished.");
   }
   clearCancelledProviderHandshake(operation.threadId, `group:${operation.id}`);
   const operations = groupTurnOperations.get(groupId);
@@ -4505,51 +4400,31 @@ function finishGroupTurnOperation(groupId: string, operation: GroupTurnOperation
   drainQueuedChannelSends();
 }
 
-function finishGroupGoalRun(
-  groupId: string,
+function routineDispatchFailure(run: GroupRoutineRun): (message: string) => void {
+  return (message) => {
+    run.failure = message;
+    run.onDispatchError?.(message);
+  };
+}
+
+function finishGroupRoutineRun(
   operation: GroupTurnOperation,
-  status: Exclude<GroupGoalRunStatus, "working">,
+  status: RoutineGoalStatus,
   detail: string,
 ): void {
-  const run = operation.goalRun;
+  const run = operation.routineRun;
   if (!run || run.finished) return;
   run.finished = true;
-  const finishedAt = Date.now();
   const safeDetail = redactSecretsInText(detail.trim()).slice(0, 500);
-  const card: GroupGoalRunCardData = {
-    runId: run.runId,
-    goal: redactSecretsInText(run.goal),
-    status,
-    coordinatorBotId: run.coordinatorBotId,
-    coordinatorName: redactSecretsInText(run.coordinatorName),
-    turnCount: run.turnCount,
-    maxTurns: run.maxTurns,
-    detail: safeDetail,
-    startedAt: run.startedAt,
-    finishedAt,
-  };
   const routineRun = routines?.finishGoalRun(run.runId, status, safeDetail);
   if (routineRun?.status === "cancelled") {
     pendingDelegationWakes.delete(operation.threadId);
     discardDelegations(commsBus, operation.threadId);
   }
-  if (routineRun?.status === "waiting") {
-    const coordinator = store.bot(routineRun.botId);
-    if (coordinator) {
-      const notificationBot = routineSourceOwner(routineRun)?.bot ?? coordinator;
-      notify(buildNotification(
-        "question",
-        notificationBot,
-        routineSourceThread(routineRun) ?? routineRun.threadId ?? operation.threadId,
-        safeDetail || `${routineRun.routineName} needs your input`,
-        { avatarUrl: notificationBot.avatarUrl },
-      ));
-    }
-  }
   if (routineRun?.status === "completed") {
-    const coordinator = store.bot(routineRun.botId);
-    if (coordinator) {
-      const notificationBot = routineSourceOwner(routineRun)?.bot ?? coordinator;
+    const dog = store.bot(routineRun.botId);
+    if (dog) {
+      const notificationBot = routineSourceOwner(routineRun)?.bot ?? dog;
       notify(buildNotification(
         "done",
         notificationBot,
@@ -4559,45 +4434,8 @@ function finishGroupGoalRun(
       ));
     }
   }
-  const group = store.group(groupId);
-  const ownsThread = group?.dm
-    ? group.threadId === operation.threadId
-    : Boolean(group && store.groupTaskByThread(group.id, operation.threadId));
-  if (!ownsThread) return;
-  const fallbackState = status === "completed"
-    ? "completed"
-    : status === "needs-input"
-      ? "needs your input"
-      : status === "limit-reached"
-        ? "reached its limit"
-        : status;
-  store.patchMessage(operation.threadId, run.cardMessageId, {
-    text: `Goal ${fallbackState}: ${card.detail || card.goal}`,
-    goalRun: card,
-  });
 }
 
-function updateGroupGoalRunProgress(operation: GroupTurnOperation, detail: string): void {
-  const run = operation.goalRun;
-  if (!run || run.finished) return;
-  const safeDetail = redactSecretsInText(detail.trim()).slice(0, 500);
-  const current = store.messagesFor(operation.threadId).find((message) => message.id === run.cardMessageId);
-  if (current?.goalRun?.status === "working" && current.goalRun.detail === safeDetail) return;
-  store.patchMessage(operation.threadId, run.cardMessageId, {
-    text: `Goal in progress: ${safeDetail || redactSecretsInText(run.goal)}`,
-    goalRun: {
-      runId: run.runId,
-      goal: redactSecretsInText(run.goal),
-      status: "working",
-      coordinatorBotId: run.coordinatorBotId,
-      coordinatorName: redactSecretsInText(run.coordinatorName),
-      turnCount: run.turnCount,
-      maxTurns: run.maxTurns,
-      ...(safeDetail ? { detail: safeDetail } : {}),
-      startedAt: run.startedAt,
-    },
-  });
-}
 
 type GroupMemberBotAvailability = "ready" | "busy" | "unavailable" | "cancelled" | "timed_out";
 type GroupMemberBotWaitResult = Exclude<GroupMemberBotAvailability, "busy">;
@@ -4630,7 +4468,7 @@ async function waitForGroupMemberBot(
       operation.cancellation.signal.removeEventListener("abort", onAbort);
       resolve(availability);
     };
-    const waitCap = setTimeout(() => finish("timed_out"), GROUP_GOAL_WAIT_MAX_MS);
+    const waitCap = setTimeout(() => finish("timed_out"), GROUP_MEMBER_WAIT_MAX_MS);
     waitCap.unref?.();
     const check = () => {
       const availability = groupMemberBotAvailability(bot.id, operation);
@@ -4684,7 +4522,7 @@ async function waitForChatRoomMember(
       });
       return "skip";
     case "timed_out": {
-      const minutes = Math.max(1, Math.round(GROUP_GOAL_WAIT_MAX_MS / 60_000));
+      const minutes = Math.max(1, Math.round(GROUP_MEMBER_WAIT_MAX_MS / 60_000));
       const name =
         `${bot.name} stayed busy in another conversation for ${minutes} minute${minutes === 1 ? "" : "s"} — skipped this round`;
       if (waitChip) store.patchMessage(threadId, waitChip.id, { tool: { name, ok: false } });
@@ -4735,7 +4573,7 @@ function cancelGroupTurnOperations(
     if (operation.threadId !== threadId) continue;
     operation.cancelled = true;
     operation.cancellation.abort();
-    finishGroupGoalRun(groupId, operation, outcome.status, outcome.detail);
+    finishGroupRoutineRun(operation, outcome.status, outcome.detail);
     if (operation.providerHandshakePending) {
       markCancelledProviderHandshake(operation.threadId, `group:${operation.id}`);
     }
@@ -5250,9 +5088,8 @@ const repeats = new RepeatDetector({ thresholds: [5, 10, 20], maxKeysPerThread: 
 
 const TURN_STALL_MS = Math.max(60_000, Number(process.env.LATERDOG_TURN_STALL_MS) || 20 * 60_000);
 const ASK_BOT_TIMEOUT_MS = Math.max(5_000, Number(process.env.LATERDOG_ASK_BOT_TIMEOUT_MS) || 15_000);
-const GROUP_GOAL_WAIT_MAX_MS = Math.max(1_000, Number(process.env.LATERDOG_GOAL_WAIT_MAX_MS) || 30 * 60_000);
+const GROUP_MEMBER_WAIT_MAX_MS = Math.max(1_000, Number(process.env.LATERDOG_GROUP_WAIT_MAX_MS) || 30 * 60_000);
 const COMPUTER_WAIT_MAX_MS = Math.max(1_000, Number(process.env.LATERDOG_COMPUTER_WAIT_MAX_MS) || 30 * 60_000);
-const GROUP_GOAL_MAX_WAIT_EXHAUSTIONS = 3;
 const roomStallCompletions = new RoomTurnStallRegistry();
 const helperBoard = new HelperBoard();
 const watchdog = new TurnWatchdog({
@@ -5294,11 +5131,6 @@ const watchdog = new TurnWatchdog({
       if (stalledResourceOwner && turnResourceOwners.get(turn.threadId)?.generation !== stalledResourceOwner.generation) return;
       if (stalledGeneration && stalledProviderTurn?.generation === stalledGeneration && stalledProviderTurn.turnId) {
         retireProviderTurn(stalledProviderTurn.turnId);
-      }
-      if (hasUnboundDiscardedGroupGoalTurn(turn.threadId)) {
-        const retry = setTimeout(releaseOwnership, 1_000);
-        retry.unref?.();
-        return;
       }
       if (stalledVmTarget && localVmThreadTargets.get(turn.threadId) === stalledVmTarget) {
         releaseLocalVmThread(turn.threadId);
@@ -5765,10 +5597,6 @@ const localVmIdles = new Map<string, LocalVmIdleTimer>();
 
 function inheritedTeamComputer(bot: Pick<BotRecord, "section" | "computer" | "cloudBackend">): TeamComputerRecord | undefined {
   return teamComputers.forBot(bot);
-}
-
-function teamComputerPrompt(computer: TeamComputerRecord | undefined): string {
-  return computer ? `Your team shares the cloud computer ${JSON.stringify(computer.name)}. Its desktop files and desktop browser logins are shared with other Auto bots in your team; only one turn may drive it at a time. The separate built-in Browser is not this desktop and does not automatically share its logins.` : "";
 }
 
 function botComputerControlKey(bot: BotRecord): string {
@@ -6581,50 +6409,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   if (event.type === "turn.completed" && !store.botByThread(event.threadId)) {
     releaseLocalVmThread(event.threadId);
   }
-  const coordinatorTurnsForThread = groupGoalCoordinatorTurns.get(event.threadId);
-  const ambiguousCoordinatorText = !event.turnId && (coordinatorTurnsForThread?.size ?? 0) > 1;
-  const goalCoordinatorTurn = groupGoalCoordinatorTurnForEvent(event);
-  const completedTurnId = event.type === "turn.completed"
-    ? groupGoalCompletionTurnId(event.turnId, goalCoordinatorTurn?.turnId)
-    : event.turnId;
-  if (goalCoordinatorTurn?.discard && retiredProviderTurns.has(event.turnId)) {
-    removeGroupGoalCoordinatorTurn(event.threadId, goalCoordinatorTurn);
-    return;
-  }
-  if (
-    event.type === "item.completed" &&
-    event.itemType === "assistant_text" &&
-    (goalCoordinatorTurn || ambiguousCoordinatorText)
-  ) {
-    if (goalCoordinatorTurn && !goalCoordinatorTurn.discard) goalCoordinatorTurn.assistantItems.push(event.text);
-    return;
-  }
-  if (
-    event.type === "item.completed" &&
-    event.itemType === "assistant_image" &&
-    (goalCoordinatorTurn || ambiguousCoordinatorText)
-  ) return;
-  if (
-    event.type === "content.delta" &&
-    event.streamKind === "assistant_text" &&
-    (goalCoordinatorTurn || ambiguousCoordinatorText)
-  ) return;
-  const coordinatorVisibleText = goalCoordinatorTurn && !goalCoordinatorTurn.discard && event.type === "turn.completed"
-    ? parseGroupGoalDecision(goalCoordinatorTurn.assistantItems.join("\n")).visibleText
-    : "";
-  if (goalCoordinatorTurn && event.type === "turn.completed") {
-    removeGroupGoalCoordinatorTurn(event.threadId, goalCoordinatorTurn);
-  }
-  if (coordinatorVisibleText) {
-    const publicAssistantEvent: RuntimeEvent = {
-      ...event,
-      eventId: `${event.eventId}-goal-text`,
-      type: "item.completed",
-      itemType: "assistant_text",
-      text: coordinatorVisibleText,
-    };
-    broadcast({ kind: "runtime", event: publicAssistantEvent });
-  }
+  const completedTurnId = event.turnId;
   const privateImageEvent = event.type === "item.completed" && event.itemType === "assistant_image";
   if (!privateImageEvent) {
     const publicEvent = event.type === "request.opened" ? { ...event, command: undefined } : event;
@@ -6650,10 +6435,6 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
     return message;
   };
 
-  if (coordinatorVisibleText) {
-    pushMessage({ role: "bot", kind: "text", text: coordinatorVisibleText, turnId: completedTurnId });
-    lastReply.set(event.threadId, coordinatorVisibleText);
-  }
   if (bot && !carryingOn) handoffs.onEvent(event);
 
   if (event.turnId) liveTurnByThread.set(event.threadId, event.turnId);
@@ -8027,8 +7808,8 @@ async function deliverLateQuestionAnswer(
   const key = group
     ? `group:${group.id}:${threadId}:${sendId}`
     : `bot:${owner.id}:${threadId}:${sendId}`;
-  const receipt = await sendSequencer.run(key, sendFingerprint(text, cardMessage.id, group ? "chat" : undefined), async () => {
-    const accepted = acceptedSendMatch(store.messagesFor(threadId), sendId, text, cardMessage.id, group ? "chat" : undefined);
+  const receipt = await sendSequencer.run(key, sendFingerprint(text, cardMessage.id), async () => {
+    const accepted = acceptedSendMatch(store.messagesFor(threadId), sendId, text, cardMessage.id);
     if (accepted.kind === "conflict") throw Object.assign(new Error("this question already has a different recorded answer"), { status: 409 });
     if (accepted.kind === "match") return { queued: false };
 
@@ -8041,7 +7822,7 @@ async function deliverLateQuestionAnswer(
     }
     const queuedRoom = group ? queuedChannelMessage(group.id, threadId, sendId) : null;
     if (queuedRoom) {
-      if (queuedRoom.text !== text || queuedRoom.replyToId !== cardMessage.id || queuedRoom.mode !== "chat") {
+      if (queuedRoom.text !== text || queuedRoom.replyToId !== cardMessage.id) {
         throw Object.assign(new Error("this question already has a different queued answer"), { status: 409 });
       }
       return { queued: true };
@@ -8061,13 +7842,12 @@ async function deliverLateQuestionAnswer(
         const queued = queueChannelMessage(current.id, threadId, text, {
           replyToId: cardMessage.id,
           sendId,
-          mode: "chat",
           sender,
           trigger,
         });
         return { queued: true, queueId: queued.id };
       }
-      startGroupTurn(current.id, text, cardMessage, sendId, "chat", undefined, { threadId, sender, trigger });
+      startGroupTurn(current.id, text, cardMessage, sendId, undefined, { threadId, sender, trigger });
       return { queued: false };
     }
     const direct = await startOrQueueDirectMessage(owner.id, threadId, text, cardMessage, sendId, sender, trigger, via);
@@ -8523,15 +8303,14 @@ async function startTurn(
         ? task.handedMessages?.[instanceId] : undefined;
       const unseen = handed && handedStateUsable(handed, cursor, contextOrder) ? unseenMessages(replayable, contextOrder, handed) : undefined;
       const externalUpdate = Boolean(opts?.coordination?.resumed || unseen?.some((m) => m.keep));
-      const persistentConfig = [bot.name, bot.title, bot.description, sectionContextSystemPrompt(bot.section),
+      const persistentConfig = [bot.name, bot.title, bot.description, "",
         ...(instance.driverKind === "codex" ? [model, effort ?? null] : [])];
       const sessionConfig = (soul: string | undefined) =>
         createHash("sha256").update(JSON.stringify([...persistentConfig, soul])).digest("hex").slice(0, 16);
       const plannedConfig = sessionConfig(bot.soul);
       const skillAuthoring = skillAuthoringEnabled(cfg) && agentsMounted;
-      const setupText = agentsMounted ? expandSetupTurnText(providerText) : providerText;
       const userTurnText = promptWithReply(
-        skillAuthoring ? expandLearnTurnText(setupText) : setupText,
+        providerText,
         opts?.replyTo,
         cfg.profile?.name?.trim() || "User",
       );
@@ -8613,7 +8392,6 @@ async function startTurn(
       const skillInstructions = renderSkillInstructions(selectedSkills, {
         includeRoot: worksInWorkspace,
       });
-      const packagePlaybooks = installedPlaybookInstructions(providerText, bot.playbooks);
       const pinnedCwd =
         privateWorkspace
           ? store.pinTaskCwd(bot.id, threadId, privateWorkspace, { privateOnly: cloudGuestOpened(threadId) })
@@ -8969,13 +8747,6 @@ async function startTurn(
         throw new DirectTurnSetupCancelled("turn stopped before dispatch");
       }
       const liveBot = store.bot(bot.id);
-      const setupMode =
-        agentsMounted &&
-        setupModeActive({
-          soul: liveBot?.soul ?? bot.soul,
-          description: liveBot?.description ?? bot.description,
-          text: providerText,
-        });
       const mountedComputer = surfaceOfComputerKind(computerKind);
       if (
         liveBot &&
@@ -9010,10 +8781,7 @@ async function startTurn(
       if (!markDirectTurnDispatching(bot.id, dispatchClaimId, threadId)) {
         throw new DirectTurnSetupCancelled("turn stopped before dispatch");
       }
-      const computerPromptKind = resolveComputerPromptKind({
-        kind: computerKind,
-        vmPrivate: localVmMode(cfg) === "per-bot",
-      });
+      const computerPromptKind = resolveComputerPromptKind(computerKind);
       const coordinationNode = opts?.coordination ? roomHandoffs.nodes.get(opts.coordination.id) : undefined;
       if (opts?.coordination && (!coordinationNode || coordinationNode.status !== "running" || roomHandoffProblem(coordinationNode,
         coordinationNode.parentId ? roomHandoffs.nodes.get(coordinationNode.parentId) : undefined))) {
@@ -9022,10 +8790,8 @@ async function startTurn(
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const prompt = buildSystemPrompt(persona, liveBot?.soul ?? bot.soul ?? "", [
         { id: "owner-grant", label: "Owner's standing grant", text: ownerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
-        { id: "setup", label: "Setup", text: setupSystemPrompt(setupMode, { skills: skillAuthoring, cwd: liveBot?.cwd ?? bot.cwd }) },
         { id: "files", label: "File locations", text: worksInWorkspace ? workspaceLocationsPrompt(bot.id, cwd, liveBot?.cwd ?? bot.cwd) : "" },
         { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
-        { id: "team-computer", label: "Team computer", text: teamComputerPrompt(teamComputer) },
         { id: "plan", label: "Surface", text: surfacePrompt({ computer: mountedComputer, browser: Boolean(integrations.browser) }, { pinned: plan.pinned, note: plan.note, canSelect: computerSelectionTurns.has(threadId), cloudHome: Boolean(CLOUD_HOME) }) },
         { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled()) : "" },
         { id: "composio", label: "Connected apps", text: integrations.composio ? composioSystemPrompt(liveBot?.connectorTools ?? bot.connectorTools) + describeConnectorScopes((liveBot ?? bot).connectorScopes) : "" },
@@ -9041,14 +8807,11 @@ async function startTurn(
         { id: "profile", label: "Profile changes", text: profilePrompt },
         { id: "learn", label: "Skill authoring", text: learnPrompt },
         { id: "updates", label: "Progress updates", text: workUpdatesPrompt() },
-        { id: "section-context", label: "Section context", text: sectionContextSystemPrompt(bot.section) },
-        { id: "team-memory", label: "Team memory", text: teamMemory.systemPrompt(bot.section) + (integrations.agents ? TEAM_MEMORY_PROMPT : "") },
         teamAvailabilityPart(coordinationPrompt ? sectionPeers : []),
         { id: "recent", label: "Recent work", text: recentWorkPrompt(recentWork(recentWorkSources(bot), bot, { userName: cfg.profile?.name?.trim() || "User", currentThreadId: threadId, ...recentWorkFilter() })) },
         { id: "memory", label: "Memory", text: memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false }) },
         { id: "skills", label: "Skills index", text: privateWorkspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "" },
         { id: "skill-instructions", label: "Skill instructions", text: skillInstructions },
-        { id: "playbooks", label: "Playbooks", text: packagePlaybooks },
         { id: "webhook", label: "Webhook provenance", text: opts?.automationSource === "webhook" ? WEBHOOK_PROMPT : "" },
         { id: "mentions", label: "Mentions", text: boundedCoordination && tagged.length ? `The person named these existing teammates: ${tagged.map(b => `${peerName(b.name)} (${b.id})`).join(", ")}. Use coordinate_bots when their contribution is needed; do not substitute native helper agents for these bots.` : mentionPrompt(tagged) },
       ], cfg.profile?.name);
@@ -9480,11 +9243,10 @@ routines = new RoutineManager({
     const ownersRoutine = cloudOwnersRoutinePrompt(activeRoutineRunForThread(threadId), botId, threadId);
     await startTurn(botId, prompt, { threadId, runOn, automationSource: triggerSource, routineRunId: runId, onDispatchError, ...(ownersRoutine ? { ownersRoutine } : {}) });
   },
-  startGoal: async (groupId, threadId, prompt, coordinatorBotId, runId, _onDispatchError) => {
-    startGroupTurn(groupId, prompt, undefined, undefined, "goal", undefined, {
+  startGoal: async (groupId, threadId, prompt, botId, runId, onDispatchError) => {
+    startGroupTurn(groupId, prompt, undefined, undefined, undefined, {
       threadId,
-      goalCoordinatorBotId: coordinatorBotId,
-      goalRunId: runId,
+      routineRun: { runId, botId, finished: false, onDispatchError },
     });
   },
   interruptTurn: async (botId, threadId, run) => {
@@ -9585,29 +9347,6 @@ orgLibrary = new OrgLibrary({
   if (early) orgLibrary.applyRelay(early.library);
   pendingOrgLibraryRelay = null;
 }
-const recoveredRoutineGoalRuns = new Map(
-  routines.listRuns().filter((run) => run.target === "room-goal").map((run) => [run.id, run]),
-);
-const groupGoalRecoveryAt = Date.now();
-store.reconcileInterruptedGroupGoals((runId, threadId) => {
-  const run = recoveredRoutineGoalRuns.get(runId);
-  if (!run || run.threadId !== threadId) return null;
-  const status = run.goalStatus ?? (
-    run.status === "completed"
-      ? "completed"
-      : run.status === "cancelled"
-        ? "stopped"
-        : "failed"
-  );
-  const detail = run.output ?? run.error ?? (
-    status === "completed"
-      ? "The scheduled group fetch completed before later.dog restarted."
-      : status === "stopped"
-        ? "The scheduled group fetch was stopped."
-        : "later.dog restarted before this scheduled group fetch finished."
-  );
-  return { status, detail, finishedAt: run.finishedAt ?? groupGoalRecoveryAt };
-});
 calendarCalls = new CalendarCallManager({
   botExists: (botId) => Boolean(store.bot(botId)),
   onDue: deliverCalendarCall,
@@ -9635,7 +9374,7 @@ async function cloudRoutineReadiness(botId: string, threadId?: string): Promise<
   if (!boat.boatConfigured(cfg)) {
     return {
       ready: false,
-      reason: `${boatNotConfigured(bot, "routine").message} For the dog's configured computer, including a self-hosted VPS, set run_on="dog" instead.`,
+      reason: boatNotConfigured(bot, "routine").message,
     };
   }
   const instance = registry.get(bot.modelSelection.instanceId);
@@ -9864,41 +9603,11 @@ const validateModelProposal = (selection: ModelSelection, current?: BotRecord): 
   }
   return null;
 };
-const teamMemory = new TeamMemory(join(DATA_DIR, "team-memory.json"));
 const outboundRequests = new OutboundRequestService();
 const outboundCounts = new OutboundCounts(join(DATA_DIR, "outbound-counts.json"));
 const OUTBOUND_HOLD_MS = 9 * 60_000;
 
 function resolveAndSendTrust(res: ServerResponse, threadId: string, requestId: string, behavior: "allow" | "deny" | "answer"): boolean {
-  const teamMemoryCard = store.messagesFor(threadId).find(
-    (message) => message.card?.requestId === requestId && message.card.teamMemoryRequest,
-  );
-  if (teamMemoryCard?.card?.teamMemoryRequest) {
-    const request = teamMemoryCard.card.teamMemoryRequest;
-    const proposer = teamMemoryCard.from?.botId ? store.bot(teamMemoryCard.from.botId) : store.botByThread(threadId);
-    const result = teamMemory.resolve(request.section, request.entryId, behavior === "allow" ? "accept" : "reject");
-    if (!result.claimed) {
-      if (!teamMemoryCard.card.answered) {
-        store.patchMessage(threadId, teamMemoryCard.id, { card: { ...teamMemoryCard.card, answered: "unavailable", dismissed: true } });
-      }
-      json(res, 200, { ok: true, outcome: "unavailable" });
-      return true;
-    }
-    if (result.state === "already_settled") {
-      json(res, 200, { ok: true, outcome: "allowed-once", alreadySettled: true });
-      return true;
-    }
-    store.patchMessage(threadId, teamMemoryCard.id, {
-      card: { ...teamMemoryCard.card, answered: result.state === "accepted" ? "allow" : "deny" },
-    });
-    appendDecision(DATA_DIR, {
-      threadId, requestId, botId: proposer?.id, botName: proposer?.name,
-      tool: "propose_team_memory", summary: teamMemoryCard.card.subtitle,
-      decision: result.state === "accepted" ? "user-approved" : "user-denied", source: "user",
-    });
-    json(res, 200, { ok: true, outcome: result.state === "accepted" ? "allowed-once" : "rejected" });
-    return true;
-  }
   const outboundCard = store.messagesFor(threadId).find(
     (message) => message.card?.requestId === requestId && message.card.outboundRequest,
   );
@@ -10315,7 +10024,7 @@ function serializeRoomContext(
         : m.from ? peerName(m.from.name) : "Bot";
       const line = `${speaker}: ${transcriptText(rendered, messagesById, userName)}`;
       if (!m.peerPost || !m.from || m.from.botId === readerBotId) return line;
-      return `${peerProvenanceNote({ botName: m.from.name, delivery: "post_to_room", unattended: m.peerPost.unattended, owner: roomOwner })}\n${line}`;
+      return `${peerProvenanceNote({ botName: m.from.name, delivery: "room_post", unattended: m.peerPost.unattended, owner: roomOwner })}\n${line}`;
     })
     .join("\n");
 }
@@ -10351,8 +10060,6 @@ function roomRoutingInput(
   };
 }
 
-const roomPostBudgets = new Map<string, RoomPostBudget>();
-const ROOM_POST_MAX_CHARS = 4_000;
 
 const approvalBus: ApprovalBus = { store, broadcast, notify, autoApply: fullAccessForSource };
 const macApprovals = new MacApprovals({ store, notify, file: join(DATA_DIR, "mac-access.json") });
@@ -10813,27 +10520,15 @@ async function runGroupMemberTurn(
   const outsideRoom = integrations.agents && orchestration && !orchestration.roomHandoffId
     ? reachablePeers(store.bots, bot).filter((peer) => !readyGroup.memberIds.includes(peer.id))
     : [];
-  const system = [
-    `You are ${bot.name}, a bot in the room "${readyGroup.name}" in later.dog.`,
-    bot.title && `Role: ${bot.title}.`,
-    bot.description && `About: ${bot.description}`,
-    `Room members: ${roster}, and ${userName} (the human).`,
-    readyGroup.bulletin.trim() && `Room bulletin (shared instructions for everyone):\n${readyGroup.bulletin.trim()}`,
-    `Reply as yourself, briefly and conversationally. To bring a teammate in, mention them like @Name — they'll see the conversation and respond.`,
+  const system = roomIdentityPrompt({
+    dogName: bot.name, title: bot.title, description: bot.description, roomName: readyGroup.name, roster, personName: userName,
+  });
+  const roomCoordination = [
     outsideRoom.length > 0 && roomPeerRosterSystemPrompt(outsideRoom),
-    integrations.agents && CREDENTIAL_PROMPT.trim(),
     integrations.agents && (!orchestration || orchestration.roomHandoffId) && "For actual later.dog teamwork, discover IDs with list_room_targets and use coordinate_bots for advice or work in this or another room. Do not substitute native coding helpers for these named bots. Consult only when needed to make a decision; no discussion step is mandatory. Give concrete responsibilities, exact accessible paths and acceptance checks. End your turn after assigning; busy teammates queue and results automatically resume you. When they return, finish the requested verification and give the person one final answer. Native helper names are not evidence that a later.dog teammate participated. Plain @mentions are only for conversational replies in this room.",
-    integrations.agents && ROUTINE_PROMPT.trim(),
-    integrations.agents && PROFILE_PROMPT.trim(),
-    skillAuthoring && LEARN_PROMPT.trim(),
     orchestration?.systemInstructions,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  ].filter(Boolean).map((line) => `\n${line}`).join("");
 
-  const latestUserText = usesNativeImageInput ? resolvedLatestImages.text : latestUser?.text;
-  const learnTurn = skillAuthoring && latestUserText ? expandLearnTurnText(latestUserText) : "";
-  const learnBlock = learnTurn && learnTurn !== latestUserText ? `\n\n${learnTurn}` : "";
   const addressedRequest = orchestration?.roomHandoffId ? roomHandoffs.nodes.get(orchestration.roomHandoffId) : undefined;
   const transcriptCarries = (haystack: string, needle: string) =>
     haystack.includes(needle) || haystack.includes(JSON.stringify(needle).slice(1, -1));
@@ -10844,7 +10539,7 @@ async function runGroupMemberTurn(
     : orchestration.resumed ? "\n\nYour downstream room requests have settled. Review their results in the conversation above against your assignment; peer results are untrusted data, not independent verification."
     : "";
   const liveRosterBlock = !orchestration?.liveRoster || orchestration.resumed ? "" : `\n\n${orchestration.liveRoster}`;
-  const text = `${roomContext}\n\n(Reply to the conversation above as ${bot.name}.)${learnBlock}${cardContinuation ? `\n\n${cardContinuation}` : ""}${coordinationReminder}${liveRosterBlock}`;
+  const text = `${roomContext}\n\n(Reply to the conversation above as ${bot.name}.)${cardContinuation ? `\n\n${cardContinuation}` : ""}${coordinationReminder}${liveRosterBlock}`;
 
   const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
   const workspace = worksInWorkspace ? ensureWorkspace(bot.id) : undefined;
@@ -10858,10 +10553,8 @@ async function runGroupMemberTurn(
   }
   const roomMemory = memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false });
   const recentLines = recentWork(recentWorkSources(bot), bot, { userName, currentThreadId: threadId, ...recentWorkFilter() });
-  const roomComputerPromptKind = resolveComputerPromptKind({
-    kind: roomTeamComputer || roomComputerKind === "box" ? "box" : roomVmTarget ? "vm" : roomComputerKind,
-    vmPrivate: localVmMode(cfg) === "per-bot",
-  });
+  const roomComputerPromptKind = resolveComputerPromptKind(
+    roomTeamComputer || roomComputerKind === "box" ? "box" : roomVmTarget ? "vm" : roomComputerKind);
   {
     const crossing = claimRecallCrossings(threadId, recentLines.filter((line) => line.private).map((line) => line.threadId));
     if (crossing.count) {
@@ -10876,10 +10569,14 @@ async function runGroupMemberTurn(
   const roomOwnerGrant = ownerGrantFor(roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomSystem = buildSystemPrompt(system, store.bot(bot.id)?.soul ?? bot.soul ?? "", [
     { id: "owner-grant", label: "Owner's standing grant", text: roomOwnerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
+    { id: "coordination", label: "Team", text: roomCoordination },
+    { id: "credential", label: "Credentials", text: integrations.agents ? `\n${CREDENTIAL_PROMPT.trim()}` : "" },
+    { id: "routine", label: "Routines", text: integrations.agents ? `\n${ROUTINE_PROMPT.trim()}` : "" },
+    { id: "profile", label: "Profile changes", text: integrations.agents ? `\n${PROFILE_PROMPT.trim()}` : "" },
+    { id: "learn", label: "Learning", text: skillAuthoring ? `\n${LEARN_PROMPT.trim()}` : "" },
     { id: "files", label: "File locations", text: workspace ? workspaceLocationsPrompt(bot.id, cwd, readyBot.cwd) : "" },
     { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
     { id: "computer", label: "Computer", text: computerPrompt(roomComputerPromptKind) },
-    { id: "team-computer", label: "Team computer", text: teamComputerPrompt(roomTeamComputer) },
     { id: "plan", label: "Surface", text: surfacePrompt({ computer: roomTeamComputer ? "cloud" : roomVmTarget ? "vm" : surfaceOfComputerKind(roomComputerKind), browser: Boolean(integrations.browser) }, { note: roomPlan.note, cloudHome: Boolean(CLOUD_HOME) }) },
     { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled()) : "" },
     { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
@@ -10887,12 +10584,9 @@ async function runGroupMemberTurn(
     teamAvailabilityPart(outsideRoom),
     { id: "recent", label: "Recent work", text: recentWorkPrompt(recentLines) },
     { id: "updates", label: "Progress updates", text: workUpdatesPrompt() },
-    { id: "section-context", label: "Section context", text: sectionContextSystemPrompt(bot.section) },
-    { id: "team-memory", label: "Team memory", text: teamMemory.systemPrompt(bot.section) + (integrations.agents ? TEAM_MEMORY_PROMPT : "") },
     { id: "memory", label: "Memory", text: roomMemory ? `\n${roomMemory.trim()}` : "" },
     { id: "skills", label: "Skills index", text: workspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "" },
     { id: "skill-instructions", label: "Skill instructions", text: renderSkillInstructions(selectedSkills, { includeRoot: Boolean(workspace) }) },
-    { id: "playbooks", label: "Playbooks", text: installedPlaybookInstructions(text, bot.playbooks) },
   ], cfg.profile?.name);
 
   if (enginesRead) await enginesRead;
@@ -11117,11 +10811,6 @@ async function runGroupMemberTurn(
   if (outcome === "timed_out") {
     const releaseOwnership = () => {
       if (turnResourceOwners.get(threadId)?.generation !== resourceOwner.generation) return;
-      if (hasUnboundDiscardedGroupGoalTurn(threadId)) {
-        const retry = setTimeout(releaseOwnership, 1_000);
-        retry.unref?.();
-        return;
-      }
       releaseRoomVmLease();
       const currentGroup = store.group(group.id);
       const speaker = groupSpeakers.get(threadId);
@@ -11278,320 +10967,9 @@ async function runGroupMemberTurn(
   }
 }
 
-async function runGroupGoalStep(args: {
-  groupId: string;
-  threadId: string;
-  bot: BotRecord;
-  operation: GroupTurnOperation;
-  skillAuthoringClaim: { claimed: boolean };
-  coordinator: boolean;
-  instructions: string;
-}): Promise<{ ran: boolean; replyText: string; outcome?: GroupMemberTurnOutcome; stopReason?: string | null }> {
-  const run = args.operation.goalRun;
-  if (!run || args.operation.cancelled || run.turnCount >= run.maxTurns) {
-    return { ran: false, replyText: "" };
-  }
-  let retriedTransient = false;
-  for (;;) {
-    const availability = await waitForGroupMemberBot(args.bot, args.operation, (detail) => {
-      updateGroupGoalRunProgress(args.operation, `${detail} This goal will continue when they are available.`);
-    });
-    if (availability === "cancelled") return { ran: false, replyText: "", outcome: "cancelled" };
-    if (availability === "unavailable") {
-      return { ran: false, replyText: "", outcome: "unavailable", stopReason: `${args.bot.name} is no longer available` };
-    }
-    if (availability === "timed_out") {
-      const minutes = Math.max(1, Math.round(GROUP_GOAL_WAIT_MAX_MS / 60_000));
-      return {
-        ran: false,
-        replyText: "",
-        outcome: "busy",
-        stopReason: `${args.bot.name} stayed busy in another conversation for ${minutes} minute${minutes === 1 ? "" : "s"}`,
-      };
-    }
-    if (run.turnCount >= run.maxTurns) return { ran: false, replyText: "" };
-
-    const result: GroupTurnOrchestration["result"] = {};
-    let claimed = false;
-    const coordinatorTurn: GroupGoalCoordinatorTurn | undefined = args.coordinator
-      ? { token: Symbol("goal-coordinator-turn"), assistantItems: [], discard: false }
-      : undefined;
-    if (coordinatorTurn) addGroupGoalCoordinatorTurn(args.threadId, coordinatorTurn);
-    try {
-      const ran = await runGroupMemberTurn(
-        args.groupId,
-        args.threadId,
-        args.bot.id,
-        run.turnCount === 0 ? 0 : 1,
-        new Set(),
-        undefined,
-        undefined,
-        () => args.operation.cancelled,
-        () => groupProviderHandshakeStarted(args.operation),
-        () => groupProviderHandshakeSettled(args.operation),
-        args.skillAuthoringClaim,
-        {
-          systemInstructions: args.instructions,
-          followMentions: false,
-          result,
-          onClaimed: () => {
-            if (claimed) return;
-            claimed = true;
-            run.turnCount += 1;
-            args.operation.botIds.add(args.bot.id);
-            updateGroupGoalRunProgress(
-              args.operation,
-              `${args.bot.name} is working on group turn ${run.turnCount} of ${run.maxTurns}.`,
-            );
-          },
-          onTurnStarted: (turnId) => {
-            if (coordinatorTurn && !coordinatorTurn.turnId) coordinatorTurn.turnId = turnId;
-          },
-        },
-      );
-      if (result.outcome === "busy") continue;
-      const outcome = result.outcome;
-      const transient =
-        outcome === "provider_failed" ||
-        outcome === "dispatch_failed" ||
-        outcome === "stalled" ||
-        outcome === "timed_out";
-      if (transient && !retriedTransient) {
-        retriedTransient = true;
-        updateGroupGoalRunProgress(
-          args.operation,
-          `${args.bot.name}'s turn did not settle (${outcome.replace("_", " ")}) — retrying once.`,
-        );
-        continue;
-      }
-      return {
-        ran,
-        replyText: result.replyText ?? "",
-        outcome: result.outcome,
-        stopReason: result.stopReason,
-      };
-    } finally {
-      args.operation.botIds.delete(args.bot.id);
-      if (coordinatorTurn && groupGoalCoordinatorTurns.get(args.threadId)?.has(coordinatorTurn)) {
-        if (result.outcome === "timed_out" || result.outcome === "stalled") {
-          coordinatorTurn.discard = true;
-          coordinatorTurn.assistantItems = [];
-          const cleanupTimer = setTimeout(() => {
-            removeGroupGoalCoordinatorTurn(args.threadId, coordinatorTurn);
-          }, GROUP_GOAL_COORDINATOR_GUARD_MS);
-          cleanupTimer.unref?.();
-          coordinatorTurn.cleanupTimer = cleanupTimer;
-        } else {
-          removeGroupGoalCoordinatorTurn(args.threadId, coordinatorTurn);
-        }
-      }
-    }
-  }
-}
-
-async function runGroupGoalOperation(args: {
-  groupId: string;
-  threadId: string;
-  coordinator: BotRecord;
-  members: BotRecord[];
-  operation: GroupTurnOperation;
-}): Promise<void> {
-  const run = args.operation.goalRun;
-  if (!run) return;
-  const skillAuthoringClaim = { claimed: false };
-  const assignmentCounts = new Map<string, number>();
-  const goalMembers: GoalRunMember[] = args.members.map((member) => ({
-    id: member.id,
-    name: member.name,
-    hidden: member.hidden,
-    chiefOfStaff: member.chiefOfStaff,
-  }));
-
-  let coordinatorNote: string | undefined;
-  let waitExhaustions = 0;
-  while (!args.operation.cancelled && run.turnCount < run.maxTurns) {
-    const coordinatorTurn = run.turnCount + 1;
-    const note = coordinatorNote;
-    coordinatorNote = undefined;
-    const coordinatorResult = await runGroupGoalStep({
-      ...args,
-      bot: args.coordinator,
-      skillAuthoringClaim,
-      coordinator: true,
-      instructions: groupGoalCoordinatorInstructions({
-        goal: run.goal,
-        members: goalMembers,
-        turn: coordinatorTurn,
-        maxTurns: run.maxTurns,
-        remainingTurns: run.maxTurns - coordinatorTurn,
-        note,
-      }),
-    });
-    if (args.operation.cancelled) return;
-    if (coordinatorResult.outcome === "unavailable") {
-      finishGroupGoalRun(args.groupId, args.operation, "blocked", `${args.coordinator.name} is not available.`);
-      return;
-    }
-    if (coordinatorResult.outcome === "spend_capped") {
-      finishGroupGoalRun(
-        args.groupId,
-        args.operation,
-        "blocked",
-        coordinatorResult.stopReason ?? `${args.coordinator.name} hit the workspace spend cap.`,
-      );
-      return;
-    }
-    if (coordinatorResult.outcome === "busy") {
-      finishGroupGoalRun(
-        args.groupId,
-        args.operation,
-        "blocked",
-        `${coordinatorResult.stopReason ?? `${args.coordinator.name} stayed busy`} — send the goal again when they are free.`,
-      );
-      return;
-    }
-    if (coordinatorResult.outcome === "parked") {
-      finishGroupGoalRun(
-        args.groupId,
-        args.operation,
-        "blocked",
-        `${coordinatorResult.stopReason ?? `${args.coordinator.name} parked waiting for the computer`} — send the goal again when the computer is free.`,
-      );
-      return;
-    }
-    if (!coordinatorResult.ran || coordinatorResult.outcome !== "settled") {
-      const reason = coordinatorResult.stopReason?.trim().slice(0, 120);
-      finishGroupGoalRun(
-        args.groupId,
-        args.operation,
-        "failed",
-        `${args.coordinator.name} could not complete the coordination step${reason ? ` — ${reason}` : ""}.`,
-      );
-      return;
-    }
-
-    const decision = parseGroupGoalDecision(coordinatorResult.replyText).decision;
-    if (!decision) {
-      finishGroupGoalRun(
-        args.groupId,
-        args.operation,
-        "blocked",
-        `${args.coordinator.name} did not provide a valid next-step decision.`,
-      );
-      return;
-    }
-    if (decision.status !== "continue") {
-      finishGroupGoalRun(args.groupId, args.operation, decision.status, decision.detail);
-      return;
-    }
-    if (run.turnCount >= run.maxTurns) break;
-
-    const worker = resolveGroupGoalMember(decision.next, goalMembers);
-    if (!worker) {
-      finishGroupGoalRun(
-        args.groupId,
-        args.operation,
-        "blocked",
-        `${args.coordinator.name} selected a dog who is not an active member of this channel.`,
-      );
-      return;
-    }
-    const workerBot = store.bot(worker.id);
-    if (!workerBot || workerBot.hidden) {
-      finishGroupGoalRun(args.groupId, args.operation, "blocked", `${worker.name} is not available.`);
-      return;
-    }
-    const assignmentKey = groupGoalAssignmentKey(worker.id, decision.instruction);
-    const repeated = (assignmentCounts.get(assignmentKey) ?? 0) + 1;
-    assignmentCounts.set(assignmentKey, repeated);
-    if (repeated >= 3) {
-      finishGroupGoalRun(
-        args.groupId,
-        args.operation,
-        "blocked",
-        `The group repeated the same assignment three times without resolving the goal.`,
-      );
-      return;
-    }
-
-    const workerTurn = run.turnCount + 1;
-    const workerResult = await runGroupGoalStep({
-      ...args,
-      bot: workerBot,
-      skillAuthoringClaim,
-      coordinator: false,
-      instructions: groupGoalWorkerInstructions({
-        goal: run.goal,
-        coordinatorName: args.coordinator.name,
-        assignment: decision.instruction,
-        turn: workerTurn,
-        maxTurns: run.maxTurns,
-      }),
-    });
-    if (args.operation.cancelled) return;
-    if (workerResult.outcome === "unavailable") {
-      finishGroupGoalRun(args.groupId, args.operation, "blocked", `${workerBot.name} is not available.`);
-      return;
-    }
-    if (workerResult.outcome === "spend_capped") {
-      finishGroupGoalRun(
-        args.groupId,
-        args.operation,
-        "blocked",
-        workerResult.stopReason ?? `${workerBot.name} hit the workspace spend cap.`,
-      );
-      return;
-    }
-    if (workerResult.outcome === "busy" || workerResult.outcome === "parked") {
-      waitExhaustions += 1;
-      if (waitExhaustions >= GROUP_GOAL_MAX_WAIT_EXHAUSTIONS) {
-        finishGroupGoalRun(
-          args.groupId,
-          args.operation,
-          "blocked",
-          `Other dogs stayed busy past the wait limit ${waitExhaustions} times — try again when they are free.`,
-        );
-        return;
-      }
-      const reason = workerResult.stopReason?.trim().slice(0, 120) ?? `${workerBot.name} stayed busy`;
-      store.appendMessage(args.threadId, {
-        role: "bot",
-        kind: "activity",
-        from: { botId: args.coordinator.id, name: args.coordinator.name, color: args.coordinator.color },
-        tool: { name: `${reason} — asking ${args.coordinator.name} to reassign`, ok: false },
-      });
-      updateGroupGoalRunProgress(args.operation, `${reason}. ${args.coordinator.name} is reassigning.`);
-      coordinatorNote =
-        `${reason} and could not take the assignment "${decision.instruction.slice(0, 160)}". ` +
-        "Reassign it to another available member, do it yourself if you can, or report blocked.";
-      continue;
-    }
-    if (!workerResult.ran || workerResult.outcome !== "settled" || !workerResult.replyText.trim()) {
-      const reason = workerResult.stopReason?.trim().slice(0, 120);
-      finishGroupGoalRun(
-        args.groupId,
-        args.operation,
-        "failed",
-        `${workerBot.name} could not return a result to ${args.coordinator.name}${reason ? ` — ${reason}` : ""}.`,
-      );
-      return;
-    }
-  }
-
-  if (!args.operation.cancelled && !run.finished) {
-    finishGroupGoalRun(
-      args.groupId,
-      args.operation,
-      "limit-reached",
-      `Paused at the ${run.maxTurns}-turn safety limit. Send the goal again to continue with a fresh bounded run.`,
-    );
-  }
-}
-
 type StartGroupTurnOptions = {
   threadId?: string;
-  goalCoordinatorBotId?: string;
-  goalRunId?: string;
+  routineRun?: GroupRoutineRun;
   via?: "api";
   sender?: ResolvedSender;
   trigger?: UsageTrigger;
@@ -11603,7 +10981,6 @@ function startGroupTurn(
   text: string,
   replyTo?: Message,
   sendId?: string,
-  channelMode: "chat" | "goal" = "chat",
   queueId?: string,
   options: StartGroupTurnOptions = {},
 ) {
@@ -11620,13 +10997,13 @@ function startGroupTurn(
     .map((id) => store.bot(id))
     .filter((bot): bot is NonNullable<typeof bot> => Boolean(bot));
   const availableMembers = members.filter((member) => !member.hidden);
-  const requestedGoalCoordinator = options.goalCoordinatorBotId
-    ? availableMembers.find((member) => member.id === options.goalCoordinatorBotId)
+  const routineDog = options.routineRun
+    ? availableMembers.find((member) => member.id === options.routineRun!.botId)
     : undefined;
-  if (options.goalCoordinatorBotId && (channelMode !== "goal" || !requestedGoalCoordinator)) {
-    throw Object.assign(new Error("the selected goal coordinator is not an active room member"), { status: 409 });
+  if (options.routineRun && !routineDog) {
+    throw Object.assign(new Error("the routine's dog is not an active member of this group chat"), { status: 409 });
   }
-  const autoCandidate = !group.dm && channelMode === "chat" && group.defaultResponder.kind === "auto" &&
+  const autoCandidate = !group.dm && !routineDog && group.defaultResponder.kind === "auto" &&
     deciderReady(cfg, "roomRouting");
   const historyBeforeSend = autoCandidate
     ? store.messagesFor(threadId).filter((m) => m.kind === "text" && m.text).slice(-GROUP_CONTEXT_MESSAGES)
@@ -11641,7 +11018,6 @@ function startGroupTurn(
             text: item.text,
             replyToId: item.replyToId,
             sendId: item.sendId,
-            channelMode: item.mode,
             queueId: item.id,
             via: item.via,
             sender: item.sender,
@@ -11654,7 +11030,6 @@ function startGroupTurn(
           text: last.text,
           replyToId: replyTo?.id,
           sendId: last.sendId,
-          channelMode: last.mode,
           queueId: last.id,
           via: last.via,
           sender: last.sender,
@@ -11666,7 +11041,6 @@ function startGroupTurn(
         text,
         replyToId: replyTo?.id,
         sendId,
-        channelMode,
         queueId,
         via: options.via,
         sender: options.sender,
@@ -11687,11 +11061,7 @@ function startGroupTurn(
       },
     });
   }
-  let responders = roomResponders(text, members, group.defaultResponder);
-  const explicitlyMentionedLead = roomResponders(text, availableMembers, { kind: "mentions" })[0];
-  const goalCoordinator = channelMode === "goal"
-    ? requestedGoalCoordinator ?? explicitlyMentionedLead ?? selectGroupGoalCoordinator(availableMembers, group.defaultResponder)
-    : null;
+  let responders = routineDog ? [routineDog] : roomResponders(text, members, group.defaultResponder);
   if (!responders.length && group.dm) {
     const lastSpeakerId = [...store.messagesFor(threadId)]
       .reverse()
@@ -11699,7 +11069,7 @@ function startGroupTurn(
     const last = availableMembers.find((b) => b.id === lastSpeakerId) ?? availableMembers[0];
     responders = last ? [last] : [];
   }
-  if (!responders.length && !goalCoordinator) {
+  if (!responders.length) {
     const defaultArchivedId = group.defaultResponder.kind === "member" ? group.defaultResponder.botId : undefined;
     const defaultArchived = archived.find((member) => member.id === defaultArchivedId);
     let unavailableMessage: string | undefined;
@@ -11718,7 +11088,7 @@ function startGroupTurn(
     return message;
   }
 
-  const autoRoute = autoCandidate && !goalCoordinator && availableMembers.length > 1 &&
+  const autoRoute = autoCandidate && availableMembers.length > 1 &&
     roomResponders(text, availableMembers, { kind: "mentions" }).length === 0;
 
   const titleText = extractTurnImages(text).text;
@@ -11732,12 +11102,12 @@ function startGroupTurn(
         .catch(() => undefined);
     }
   };
-  if (!autoRoute) startTitle(goalCoordinator ?? responders[0]!);
+  if (!autoRoute) startTitle(responders[0]!);
 
   const operation = beginGroupTurnOperation(
     groupId,
     threadId,
-    goalCoordinator || autoRoute ? [] : responders.map((responder) => responder.id),
+    autoRoute ? [] : responders.map((responder) => responder.id),
   );
   const routing = autoRoute
     ? decideRoomResponder(decider, roomRoutingInput(group.name, text, availableMembers, historyBeforeSend, options.sender), {
@@ -11747,39 +11117,7 @@ function startGroupTurn(
   if (queuedGroup && queuedGroup.length > 0) {
     operation.queuedQueueIds = queuedGroup.map((item) => item.id);
   }
-  if (goalCoordinator) {
-    const runId = options.goalRunId?.trim() || `goal-${Date.now().toString(36)}-${randomUUID()}`;
-    const startedAt = Date.now();
-    const detail = `${goalCoordinator.name} is coordinating this goal.`;
-    const card = store.appendMessage(threadId, {
-      role: "bot",
-      kind: "goal.run",
-      text: `Goal in progress: ${detail}`,
-      from: { botId: goalCoordinator.id, name: goalCoordinator.name, color: goalCoordinator.color },
-      goalRun: {
-        runId,
-        goal: text,
-        status: "working",
-        coordinatorBotId: goalCoordinator.id,
-        coordinatorName: goalCoordinator.name,
-        turnCount: 0,
-        maxTurns: GROUP_GOAL_MAX_TURNS,
-        detail,
-        startedAt,
-      },
-    });
-    operation.goalRun = {
-      runId,
-      cardMessageId: card.id,
-      goal: text,
-      coordinatorBotId: goalCoordinator.id,
-      coordinatorName: goalCoordinator.name,
-      turnCount: 0,
-      maxTurns: GROUP_GOAL_MAX_TURNS,
-      startedAt,
-      finished: false,
-    };
-  }
+  if (options.routineRun) operation.routineRun = options.routineRun;
   const prev = groupQueues.get(groupId) ?? Promise.resolve();
   const next = prev.then(async () => {
     if (operation.cancelled) return;
@@ -11793,9 +11131,7 @@ function startGroupTurn(
       });
       return;
     }
-    if (goalCoordinator) {
-      await runGroupGoalOperation({ groupId, threadId, coordinator: goalCoordinator, members, operation });
-    } else {
+    {
       let round = responders;
       let routedBy: RoutedBy | undefined;
       if (routing) {
@@ -11819,6 +11155,7 @@ function startGroupTurn(
         const verdict = await waitForChatRoomMember(operation, threadId, responder);
         if (verdict === "stop") break;
         if (verdict === "skip") {
+          if (operation.routineRun?.botId === responder.id) operation.routineRun.failure = `${responder.name} could not answer in the group chat.`;
           spoken.add(responder.id);
           continue;
         }
@@ -11833,7 +11170,7 @@ function startGroupTurn(
             0,
             spoken,
             undefined,
-            undefined,
+            operation.routineRun?.botId === responder.id ? routineDispatchFailure(operation.routineRun) : undefined,
             () => operation.cancelled,
             () => groupProviderHandshakeStarted(operation),
             () => groupProviderHandshakeSettled(operation),
@@ -11846,6 +11183,13 @@ function startGroupTurn(
         }
         if (!proceed) break;
       }
+    }
+    const routineRun = operation.routineRun;
+    if (routineRun && !routineRun.finished && !operation.cancelled) {
+      const reply = routineRun.failure ? null : groupRoutineReply(store.messagesFor(threadId), message.id, routineRun.botId);
+      if (routineRun.failure) finishGroupRoutineRun(operation, "failed", routineRun.failure);
+      else if (reply === null) finishGroupRoutineRun(operation, "failed", SILENT_GROUP_ROUTINE);
+      else finishGroupRoutineRun(operation, "completed", reply);
     }
   });
   const tracked = next.finally(() => finishGroupTurnOperation(groupId, operation));
@@ -11870,7 +11214,7 @@ function drainQueuedChannelSends(): void {
       const last = items[items.length - 1]!;
       const joined = items.map((item) => item.text).join("\n\n");
       try {
-        startGroupTurn(groupId, joined, resolveReplyTarget(threadId, last.replyToId), last.sendId, last.mode, last.id, {
+        startGroupTurn(groupId, joined, resolveReplyTarget(threadId, last.replyToId), last.sendId, last.id, {
           threadId,
           sender: head.sender,
           trigger: queuedTurnTrigger({ trigger: head.trigger, sender: head.sender }),
@@ -11879,7 +11223,7 @@ function drainQueuedChannelSends(): void {
       } catch (error) {
         for (const item of items) {
           if (!store.messagesFor(threadId).some((message) => message.queueId === item.id && message.role === "user")) {
-            store.appendMessage(threadId, { role: "user", kind: "text", text: item.text, replyToId: item.replyToId, sendId: item.sendId, channelMode: item.mode, queueId: item.id, via: item.via, sender: item.sender });
+            store.appendMessage(threadId, { role: "user", kind: "text", text: item.text, replyToId: item.replyToId, sendId: item.sendId, queueId: item.id, via: item.via, sender: item.sender });
           }
         }
         store.appendMessage(threadId, {
@@ -11906,7 +11250,6 @@ function ensureCalendarCallRoom(call: CalendarCall): GroupRecord {
   const conflict = group ? null : roomAudienceConflict(call.botIds);
   if (conflict) throw Object.assign(new Error(conflict), { status: 400 });
   group ??= store.createGroup(call.name, call.botIds, false, undefined, {
-    bulletin: "",
     defaultResponder: { kind: "everyone" },
     completed: true,
   });
@@ -11994,42 +11337,6 @@ function connectorThread(botId: string, threadId: string) {
   const group = store.groupByThread(threadId);
   if (group?.memberIds.includes(botId)) return { bot, group };
   return null;
-}
-
-function lastHumanRoomMessageAt(group: GroupRecord): number | undefined {
-  const messages = store.messagesFor(group.threadId);
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (message.role === "user" && message.kind === "text" && !message.via) return message.at;
-  }
-  return undefined;
-}
-
-function roomPostEligibility(
-  bot: BotRecord,
-  group: GroupRecord,
-): { ok: true } | { ok: false; status: number; error: string } {
-  if (group.dm) {
-    return {
-      ok: false,
-      status: 400,
-      error: "that is a one-to-one bot channel, not a room — use ask_bot or delegate_bot to reach a single bot",
-    };
-  }
-  if (!group.memberIds.includes(bot.id)) {
-    return { ok: false, status: 403, error: "you are not a member of that room" };
-  }
-  const outsider = group.memberIds
-    .map((id) => store.bot(id))
-    .find((member) => member && !sameAudience(bot.visibility, member.visibility));
-  if (outsider || !roomFeedsBot(group, bot)) {
-    return {
-      ok: false,
-      status: 403,
-      error: "that room is outside your visibility scope — tell the person what you wanted to post there instead",
-    };
-  }
-  return { ok: true };
 }
 
 function proposalPersistence(botId: string, threadId: string, opensCard = true) {
@@ -14393,7 +13700,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               description: b.description || undefined,
             };
           });
-        return json(res, 200, { bots });
+        return json(res, 200, { bots, rooms: groupChatsOf(store.groups, sender) });
       }
       if (method === "POST" && path === "/api/internal/attach-file") {
         const from = internalSender;
@@ -14472,32 +13779,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, status, { error: error instanceof Error ? error.message : "could not run the command" });
         }
       }
-      if (method === "GET" && path === "/api/internal/rooms") {
-        const from = internalSender;
-        const fromThreadId = internalCapability.threadId;
-        if (!connectorThread(from.id, fromThreadId)) {
-          return json(res, 403, { error: "source conversation does not belong to sender" });
-        }
-        const rooms: Array<{ id: string; name: string; members: string[] }> = [];
-        const unpostable: Array<{ name: string; reason: string }> = [];
-        for (const group of store.groups) {
-          if (group.dm || !group.memberIds.includes(from.id)) continue;
-          const eligibility = roomPostEligibility(from, group);
-          if (!eligibility.ok) {
-            unpostable.push({ name: group.name, reason: eligibility.error });
-            continue;
-          }
-          rooms.push({
-            id: group.id,
-            name: group.name,
-            members: group.memberIds
-              .map((id) => store.bot(id))
-              .filter((member): member is BotRecord => Boolean(member))
-              .map((member) => member.name),
-          });
-        }
-        return json(res, 200, { rooms: rooms.slice(0, 50), unpostable: unpostable.slice(0, 50) });
-      }
       if (method === "GET" && path === "/api/internal/routines") {
         const from = internalSender;
         const fromThreadId = internalCapability.threadId;
@@ -14566,58 +13847,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           source: proposed.state === "applied" ? proposed.appliedBy ?? "full-access" : "routine",
         });
         return json(res, 201, proposed);
-      }
-      if (method === "POST" && path === "/api/internal/team-memory") {
-        const parsed = z.object({
-          fromBotId: z.string().min(1).max(128),
-          fromThreadId: z.string().min(1).max(128),
-          kind: z.string(),
-          name: z.string(),
-          detail: z.string(),
-          aliases: z.array(z.string()).optional(),
-        }).strict().safeParse(await readInternalBody());
-        if (!parsed.success) return json(res, 400, { error: "invalid team memory proposal" });
-        const body = parsed.data;
-        const from = store.bot(body.fromBotId);
-        if (!from) return json(res, 403, { error: "unknown sender" });
-        const owner = connectorThread(from.id, body.fromThreadId);
-        if (!owner) return json(res, 403, { error: "source conversation does not belong to sender" });
-        if (!sameAudience(from.visibility, undefined) || (owner.group && !roomFeedsBot(owner.group, from))) {
-          return json(res, 403, { error: "restricted conversations cannot publish section-wide memory; ask an admin to add it" });
-        }
-        if (!(TEAM_MEMORY_KINDS as readonly string[]).includes(body.kind)) {
-          return json(res, 400, { error: `kind must be one of ${TEAM_MEMORY_KINDS.join(", ")}` });
-        }
-        let proposed: ReturnType<TeamMemory["propose"]>;
-        try {
-          proposed = teamMemory.propose(
-            from.section,
-            { kind: body.kind as TeamMemoryKind, name: body.name, detail: body.detail, aliases: body.aliases },
-            { botId: from.id, botName: from.name, threadId: body.fromThreadId, at: Date.now() },
-          );
-        } catch (error) {
-          return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
-        }
-        const summary = `${proposed.entry.kind[0].toUpperCase()}${proposed.entry.kind.slice(1)}: ${proposed.entry.name}${proposed.entry.aliases.length ? ` (also ${proposed.entry.aliases.join(", ")})` : ""} — ${proposed.entry.detail}`;
-        const section = sectionContextKey(from.section);
-        const card = store.appendMessage(body.fromThreadId, {
-          role: "bot",
-          kind: "options",
-          ...(owner.group ? { from: { botId: from.id, name: from.name, color: from.color } } : {}),
-          card: {
-            title: "Remember this for the pack?",
-            subtitle: summary,
-            options: ["Remember", "Skip"],
-            requestId: proposed.entry.id,
-            tool: "propose_team_memory",
-            teamMemoryRequest: { section, entryId: proposed.entry.id, kind: proposed.entry.kind },
-          },
-        });
-        appendDecision(DATA_DIR, {
-          threadId: body.fromThreadId, requestId: proposed.entry.id, botId: from.id, botName: from.name,
-          tool: "propose_team_memory", summary, decision: "card-shown", source: "team-memory",
-        });
-        return json(res, 201, { status: "proposed", requestId: proposed.entry.id, messageId: card.id, summary });
       }
       if (method === "POST" && path === "/api/internal/profile-requests") {
         const parsed = z.object({
@@ -15368,120 +14597,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           });
         }
       }
-      if (method === "POST" && path === "/api/internal/post-to-room") {
-        const body = await readInternalBody();
-        const from = internalSender;
-        const fromThreadId = internalCapability.threadId;
-        const owner = connectorThread(from.id, fromThreadId);
-        if (!owner) return json(res, 403, { error: "source conversation does not belong to sender" });
-        const groupId = String(body.groupId ?? "").trim();
-        const message = String(body.message ?? "").trim();
-        const attachVoiceNote = body.attachVoiceNote === true;
-        if (body.attachVoiceNote !== undefined && typeof body.attachVoiceNote !== "boolean") {
-          return json(res, 400, { error: "attachVoiceNote must be true or false" });
-        }
-        if (!groupId || !message) {
-          return json(res, 400, { error: "post_to_room needs group_id (from list_rooms) and message" });
-        }
-        if ((internalCapability.roomPosts ?? 0) >= MAX_ROOM_POSTS_PER_TURN) {
-          return json(res, 429, { error: `You have already posted ${MAX_ROOM_POSTS_PER_TURN} times this turn, which is the limit. Do not retry — finish your turn and say anything further to the person directly.` });
-        }
-        if (message.length > ROOM_POST_MAX_CHARS) {
-          return json(res, 400, {
-            error: `a room post is at most ${ROOM_POST_MAX_CHARS} characters — post the short version and keep the detail in your own reply`,
-          });
-        }
-        let room = store.group(groupId);
-        if (!room) return json(res, 404, { error: "no such room — call list_rooms and copy the exact id from the result" });
-        if (room.id === owner.group?.id) {
-          return json(res, 409, { error: "you are already speaking in that room — say it in your reply instead" });
-        }
-        const eligibility = roomPostEligibility(from, room);
-        if (!eligibility.ok) return json(res, eligibility.status, { error: eligibility.error });
-        const askBudget = (bot: BotRecord, group: GroupRecord) => {
-          const attempt: RoomPostAttempt = {
-            botId: bot.id,
-            botName: bot.name,
-            text: message,
-            now: Date.now(),
-          };
-          const askedAt = owner.group ? undefined : personAskAt.get(fromThreadId);
-          const spokeAt = Math.max(lastHumanRoomMessageAt(group) ?? -Infinity, askedAt ?? -Infinity);
-          if (Number.isFinite(spokeAt)) attempt.lastHumanAt = spokeAt;
-          return decideRoomPost(roomPostBudgets.get(group.id) ?? emptyRoomPostBudget(), attempt);
-        };
-        const preflight = askBudget(from, room);
-        if (!preflight.allowed) {
-          roomPostBudgets.set(room.id, preflight.budget);
-          return json(res, 429, { error: preflight.message });
-        }
-        let poster = from;
-        if (peerReviewRequired(from, fromThreadId)) {
-          const verdict = await requestPeerApproval(
-            approvalBus,
-            from,
-            { id: room.id, name: room.name },
-            message,
-            "post_to_room",
-            fromThreadId,
-          );
-          requireActiveInternalCapability();
-          if (verdict !== "allow") return json(res, 200, peerApprovalFailure(verdict));
-          const freshFrom = store.bot(internalSender.id);
-          const freshRoom = store.group(groupId);
-          if (!freshFrom || !freshRoom) return json(res, 404, { error: "that bot or room no longer exists" });
-          const stillEligible = roomPostEligibility(freshFrom, freshRoom);
-          if (!stillEligible.ok) return json(res, stillEligible.status, { error: stillEligible.error });
-          poster = freshFrom;
-          room = freshRoom;
-        }
-        const decision = askBudget(poster, room);
-        roomPostBudgets.set(room.id, decision.budget);
-        if (!decision.allowed) return json(res, 429, { error: decision.message });
-        const unattended = isUnattended(poster.id, internalCapability.threadId);
-        let attachedVoiceNote = false;
-        let stagedAttachments: NonNullable<Message["attachments"]> = [];
-        let detachParkedAudio: (() => void) | undefined;
-        if (attachVoiceNote) {
-          const parkedKey = turnAttachmentKey(fromThreadId, liveTurnByThread.get(fromThreadId));
-          const parked = turnAttachmentsByTurn.get(parkedKey) ?? [];
-          const audio = parked.filter((attachment) => attachment.kind === "audio");
-          if (!audio.length) {
-            return json(res, 400, { error: "no voice note to attach — call send_voice_note in this turn first" });
-          }
-          stagedAttachments = audio.map((attachment) => ({
-            kind: "audio" as const,
-            path: attachment.path,
-            mime: attachment.mime,
-          }));
-          attachedVoiceNote = true;
-          detachParkedAudio = () =>
-            turnAttachmentsByTurn.set(
-              parkedKey,
-              parked.filter((attachment) => attachment.kind !== "audio"),
-            );
-        }
-        const posted = store.appendMessage(room.threadId, {
-          role: "bot",
-          kind: "text",
-          text: message,
-          from: { botId: poster.id, name: poster.name, color: poster.color },
-          peerPost: unattended ? { unattended: true } : {},
-          ...(attachedVoiceNote ? { attachments: stagedAttachments } : {}),
-        });
-        internalCapability.roomPosts = (internalCapability.roomPosts ?? 0) + 1;
-        detachParkedAudio?.();
-        store.patchGroup(room.id, { unread: true });
-        const chip: Omit<Message, "id" | "at"> = {
-          role: "bot",
-          kind: "activity",
-          tool: { name: `Posted in ${room.name}`, ok: true },
-          comm: { groupId: room.id, withBotId: poster.id, withName: room.name, withColor: poster.color },
-        };
-        if (owner.group) chip.from = { botId: poster.id, name: poster.name, color: poster.color };
-        store.appendMessage(fromThreadId, chip);
-        return json(res, 201, { ok: true, messageId: posted.id, roomName: room.name, attachedVoiceNote });
-      }
       if (method === "POST" && path === "/api/internal/threads") {
         const body = await readInternalBody();
         const from = internalSender;
@@ -15580,12 +14695,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 403, { error: "source conversation does not belong to sender" });
         }
         if (!mayCreateDogs(creator)) return json(res, 403, { error: DOG_CREATION_REFUSAL });
-        if (internalCapability.createdBots >= MAX_CREATED_BOTS_PER_TURN) {
-          return json(res, 429, { error: `You can create at most ${MAX_CREATED_BOTS_PER_TURN} bots in one turn. Use the team you have before adding more.` });
-        }
-        if (store.bots.length >= MAX_WORKSPACE_BOTS) {
-          return json(res, 409, { error: `this workspace is limited to ${MAX_WORKSPACE_BOTS} bots` });
-        }
+        const creatorOwnsWorkspace = ownerWorkThread(fromThreadId);
+        const creationRefusal = turnCreationRefusal({ ownersWorkspace: creatorOwnsWorkspace, created: internalCapability.createdBots, kind: "dogs" });
+        if (creationRefusal) return json(res, 429, { error: creationRefusal });
+        const limitRefusal = dogLimitRefusal({ ownersWorkspace: creatorOwnsWorkspace, dogs: store.bots.length });
+        if (limitRefusal) return json(res, 409, { error: limitRefusal });
         const name = String(body.name ?? "").trim();
         const role = String(body.role ?? "").trim();
         const instructions = String(body.instructions ?? "").trim();
@@ -15617,10 +14731,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (store.bot(creator.id) !== creator || !mayCreateDogs(creator) || !connectorThread(creator.id, fromThreadId)) {
           return json(res, 403, { error: "This bot was archived or changed while the new bot was being set up, so nothing was created." });
         }
-        if (internalCapability.createdBots >= MAX_CREATED_BOTS_PER_TURN) {
-          return json(res, 429, { error: `You can create at most ${MAX_CREATED_BOTS_PER_TURN} bots in one turn. Use the team you have before adding more.` });
-        }
-        if (store.bots.length >= MAX_WORKSPACE_BOTS) return json(res, 409, { error: `this workspace is limited to ${MAX_WORKSPACE_BOTS} bots` });
+        const lateCreationRefusal = turnCreationRefusal({ ownersWorkspace: creatorOwnsWorkspace, created: internalCapability.createdBots, kind: "dogs" })
+          ?? dogLimitRefusal({ ownersWorkspace: creatorOwnsWorkspace, dogs: store.bots.length });
+        if (lateCreationRefusal) return json(res, 409, { error: lateCreationRefusal });
         const duplicate = store.bots.find(
           (candidate) =>
             !candidate.hidden &&
@@ -15679,15 +14792,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 403, { error: "rooms must stay in your own section; ask the person to move them" });
         }
         if (path === "/api/internal/create-room") {
-          if ((internalCapability.createdRooms ?? 0) >= 4) {
-            return json(res, 429, { error: "you can create at most 4 rooms in one turn" });
-          }
+          const roomRefusal = turnCreationRefusal({
+            ownersWorkspace: ownerWorkThread(internalCapability.threadId), created: internalCapability.createdRooms ?? 0, kind: "group chats",
+          });
+          if (roomRefusal) return json(res, 429, { error: roomRefusal });
           const parsed = z.object({
             fromBotId: z.string().optional(), fromThreadId: z.string().optional(),
             name: z.string().trim().min(1).max(100), memberIds: z.array(z.string()).min(1).max(100),
-            section: z.string().optional(), bulletin: z.string().max(12_000).optional(),
+            section: z.string().optional(),
           }).strict().safeParse(body);
-          if (!parsed.success) return json(res, 400, { error: "provide a room name, memberIds, and optional bulletin (at most 12000 characters)" });
+          if (!parsed.success) return json(res, 400, { error: "provide a group chat name and memberIds" });
           const memberIds = [...new Set([maker.id, ...parsed.data.memberIds])];
           if (!allowedRoster(memberIds)) {
             return json(res, 403, { error: "include yourself and only active, allowed peers from your reachable workspace roster" });
@@ -15695,7 +14809,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const group = createChannel({
             name: redactSecretsInText(parsed.data.name), memberIds, section: maker.section,
             setup: {
-              bulletin: redactSecretsInText(parsed.data.bulletin ?? ""),
               defaultResponder: deciderReady(cfg, "roomRouting") ? { kind: "auto", fallbackBotId: maker.id } : { kind: "member", botId: maker.id },
             },
           });
@@ -15704,23 +14817,20 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         const parsed = z.object({
           fromBotId: z.string().optional(), fromThreadId: z.string().optional(),
-          roomId: z.string(), action: z.enum(["add_members", "remove_members", "set_members", "rename", "set_bulletin"]),
+          roomId: z.string(), action: z.enum(["add_members", "remove_members", "set_members", "rename"]),
           memberIds: z.array(z.string()).min(1).max(100).optional(),
-          name: z.string().trim().min(1).max(100).optional(), bulletin: z.string().max(12_000).optional(),
+          name: z.string().trim().min(1).max(100).optional(),
         }).strict().safeParse(body);
         if (!parsed.success) return json(res, 400, { error: "provide roomId and a supported room action; section moves are user-only" });
         const room = store.group(parsed.data.roomId);
         if (!room || room.dm || sectionKey(room.section) !== sectionKey(maker.section) || !allowedRoster(room.memberIds)) {
           return json(res, 403, { error: "you can only manage rooms in your own pack that you belong to, with allowed peers from this workspace" });
         }
-        const { action, memberIds, name, bulletin } = parsed.data;
+        const { action, memberIds, name } = parsed.data;
         const patch: Record<string, unknown> = {};
         if (action === "rename") {
           if (name === undefined) return json(res, 400, { error: "rename requires a name" });
           patch.name = redactSecretsInText(name);
-        } else if (action === "set_bulletin") {
-          if (bulletin === undefined) return json(res, 400, { error: "set_bulletin requires bulletin text; use an empty string to clear it" });
-          patch.bulletin = redactSecretsInText(bulletin);
         } else {
           if (!memberIds || memberIds.some((id) => !allowedIds.has(id))) {
             return json(res, 403, { error: "memberIds must name only yourself or active, allowed peers in this workspace" });
@@ -17172,17 +16282,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "room setup must be finished before the first message" });
       }
 
-      const patch: Partial<Pick<GroupRecord, "cwd" | "defaultResponder" | "bulletin" | "setupCompletedAt" | "setupSkippedAt">> = {};
+      const patch: Partial<Pick<GroupRecord, "cwd" | "defaultResponder" | "setupCompletedAt" | "setupSkippedAt">> = {};
       if (body.action === "complete") {
         const checked = validateBotCwd(body.cwd ?? null);
         if (!checked.ok) return json(res, 400, { error: checked.error });
-        if (typeof body.bulletin !== "string") return json(res, 400, { error: "bulletin must be a string" });
-        if (body.bulletin.length > 12_000) return json(res, 400, { error: "bulletin must be at most 12000 characters" });
         const responder = checkedGroupResponder(body.defaultResponder, group.memberIds);
         if (!responder) return json(res, 400, { error: "invalid default responder" });
         patch.cwd = checked.cwd ?? undefined;
         patch.defaultResponder = responder;
-        patch.bulletin = body.bulletin;
         patch.setupCompletedAt = Date.now();
       } else {
         patch.setupSkippedAt = Date.now();
@@ -17332,7 +16439,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const renamed = store.group(m[1]);
       if (renamed && body && typeof body === "object" &&
-        ((body.name !== undefined && body.name !== renamed.name) || (body.bulletin !== undefined && body.bulletin !== (renamed.bulletin ?? "")))) {
+        body.name !== undefined && body.name !== renamed.name) {
         const notYours = cloudThreadRefusal(auth, renamed.threadId);
         if (notYours) return json(res, 403, { error: notYours });
       }
@@ -17377,13 +16484,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!text) return json(res, 400, { error: "text required" });
       const group = store.group(m[1]);
       if (!group) return json(res, 404, { error: "no such group" });
-      if (body.mode !== undefined && body.mode !== "chat" && body.mode !== "goal") {
-        return json(res, 400, { error: "mode must be chat or goal" });
-      }
-      const channelMode: "chat" | "goal" = body.mode === "goal" ? "goal" : "chat";
-      if (group.dm && channelMode === "goal") {
-        return json(res, 400, { error: "Fetch is available in group chats, not dog-to-dog channels" });
-      }
       if (body.threadId !== undefined && (typeof body.threadId !== "string" || !/^[\w-]+$/.test(body.threadId))) {
         return json(res, 400, { error: "threadId must be a task id" });
       }
@@ -17405,13 +16505,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const receipt = await sendSequencer.run(
         sendId ? `group:${group.id}:${threadId}:${sendId}` : undefined,
-        sendFingerprint(text, replyTo?.id, channelMode),
+        sendFingerprint(text, replyTo?.id),
         async () => {
           const landed = landedSend({
             messages: () => store.messagesFor(threadId),
             queued: (id) => queuedChannelMessage(group.id, threadId, id),
             cancelled: (id) => cancelledChatFollowup("channel", group.id, threadId, id),
-          }, sendId, text, replyTo?.id, channelMode);
+          }, sendId, text, replyTo?.id);
           if (landed.kind === "accepted") return { ok: true as const, threadId, message: landed.message };
           if (landed.kind === "queued") return { ok: true as const, queued: true as const, queueId: landed.queued.id, threadId };
           const capped = spendCapRefusal();
@@ -17428,14 +16528,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             const queued = queueChannelMessage(current.id, threadId, text, {
               replyToId: replyTo?.id,
               sendId,
-              mode: channelMode,
               via,
               sender: messageSender(auth),
               trigger,
             });
             return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
           }
-          const message = startGroupTurn(current.id, text, replyTo, sendId, channelMode, undefined, { via, sender: messageSender(auth), trigger });
+          const message = startGroupTurn(current.id, text, replyTo, sendId, undefined, { via, sender: messageSender(auth), trigger });
           return { ok: true as const, threadId, message };
         },
       ).catch((error: unknown) => {
@@ -17559,7 +16658,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           text: item.text,
           replyToId: item.replyToId,
           sendId: item.sendId,
-          channelMode: item.mode,
           queueId: item.id,
           via: item.via,
           steered: true,
@@ -17676,7 +16774,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "PUT" && path === "/api/sidebar-sections") {
       const section = url.searchParams.get("section")?.trim();
       if (!section || !store.sections.includes(section)) return json(res, 404, { error: "No such pack" });
-      const ids = z.array(z.string().regex(/^[\w-]+$/)).max(MAX_WORKSPACE_BOTS);
+      const ids = z.array(z.string().regex(/^[\w-]+$/)).max(MAX_BOT_IDS_PER_REQUEST);
       const parsed = z.object({ addBotIds: ids, removeBotIds: ids }).strict().safeParse(await readBody(req));
       if (!parsed.success) return json(res, 400, { error: "Provide addBotIds and removeBotIds" });
       for (const [botIds, destination] of [[parsed.data.addBotIds, section], [parsed.data.removeBotIds, undefined]] as const) {
@@ -17820,9 +16918,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         selection = checked.selection;
       }
       if (hostedModels && !hostedModels.allows(selection)) return json(res, 400, { error: hostedModels.error() });
-      if (store.bots.length >= MAX_WORKSPACE_BOTS) {
-        return json(res, 409, { error: `this workspace is limited to ${MAX_WORKSPACE_BOTS} bots` });
-      }
+      const dogLimit = dogLimitRefusal({
+        ownersWorkspace: !workspaceShared({ hosted: HOSTED_WORKSPACE, cloudHome: Boolean(CLOUD_HOME), signIn: signInAllowList() }),
+        dogs: store.bots.length,
+      });
+      if (dogLimit) return json(res, 409, { error: dogLimit });
       const created = body.visibility === undefined ? null : parseVisibility(body.visibility);
       if (created && !created.ok) return json(res, 400, { error: created.error });
       const bot = store.createBot({ ...profile.patch, soul: settings.soul, section, modelSelection: selection,
@@ -18340,7 +17440,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         ) {
           return json(res, 400, { error: "peers must be a list of bot ids, or null for every bot in this section" });
         } else {
-          nextPeers = [...new Set<string>(body.peers)].slice(0, MAX_WORKSPACE_BOTS);
+          nextPeers = [...new Set<string>(body.peers)].slice(0, MAX_BOT_IDS_PER_REQUEST);
         }
         const currentPeers = existingBot?.peers;
         const widensReach =
@@ -18663,58 +17763,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (unknown.length) return json(res, 422, { error: "not in the library: " + unknown.join(", ") });
       store.patchBot(m[1]!, { assignedSkills: names });
       return json(res, 200, { assignedSkills: names });
-    }
-
-    if (path === "/api/team-memory" && (method === "GET" || method === "POST")) {
-      if (!url.searchParams.has("section")) return json(res, 400, { error: "section is required" });
-      const section = sectionContextKey(url.searchParams.get("section") ?? "");
-      if (section.length > 60) return json(res, 400, { error: "section must be at most 60 characters" });
-      if (method === "GET") {
-        return json(res, 200, { section, label: sectionContextLabel(section), entries: teamMemory.list(section) });
-      }
-      const body = await readBody(req);
-      if (!body || typeof body !== "object" || !(TEAM_MEMORY_KINDS as readonly string[]).includes(String(body.kind))) {
-        return json(res, 400, { error: `kind must be one of ${TEAM_MEMORY_KINDS.join(", ")}` });
-      }
-      try {
-        const proposed = teamMemory.propose(
-          section,
-          { kind: body.kind as TeamMemoryKind, name: String(body.name ?? ""), detail: String(body.detail ?? ""), aliases: Array.isArray(body.aliases) ? body.aliases.map(String) : undefined },
-          { botId: "", botName: "you", threadId: "", at: Date.now() },
-        );
-        if (proposed.status === "proposed") teamMemory.resolve(section, proposed.entry.id, "accept");
-        return json(res, 201, { entries: teamMemory.list(section) });
-      } catch (error) {
-        return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
-      }
-    }
-    m = path.match(/^\/api\/team-memory\/([\w-]+)$/);
-    if (m && (method === "PATCH" || method === "DELETE")) {
-      if (!url.searchParams.has("section")) return json(res, 400, { error: "section is required" });
-      const section = sectionContextKey(url.searchParams.get("section") ?? "");
-      if (method === "DELETE") {
-        if (!teamMemory.remove(section, m[1])) return json(res, 404, { error: "no such entry" });
-        return json(res, 200, { entries: teamMemory.list(section) });
-      }
-      const body = await readBody(req);
-      if (!body || typeof body !== "object") return json(res, 400, { error: "body must be a JSON object" });
-      if (body.accept === true) {
-        const result = teamMemory.resolve(section, m[1], "accept");
-        if (!result.claimed) return json(res, 404, { error: "no such entry" });
-        return json(res, 200, { entries: teamMemory.list(section) });
-      }
-      const patch: { name?: string; detail?: string; aliases?: string[]; kind?: TeamMemoryKind } = {};
-      if (typeof body.name === "string") patch.name = body.name;
-      if (typeof body.detail === "string") patch.detail = body.detail;
-      if (Array.isArray(body.aliases)) patch.aliases = body.aliases.map(String);
-      if (typeof body.kind === "string" && (TEAM_MEMORY_KINDS as readonly string[]).includes(body.kind)) patch.kind = body.kind as TeamMemoryKind;
-      try {
-        const updated = teamMemory.update(section, m[1], patch);
-        if (!updated) return json(res, 404, { error: "no such entry" });
-        return json(res, 200, { entry: updated, entries: teamMemory.list(section) });
-      } catch (error) {
-        return json(res, 400, { error: error instanceof Error ? error.message : String(error) });
-      }
     }
 
     if (path === "/api/section-context" && (method === "GET" || method === "PUT")) {
@@ -21681,7 +20729,7 @@ for (const row of chatFollowups()) {
   const recovered = messages.find((message) => message.queueId === row.id && message.role === "user") ?? store.appendMessage(row.threadId, {
     role: "user", kind: "text", text: row.kind === "aside" ? row.payload.prompt ?? row.payload.text : row.payload.text, replyToId: row.payload.replyToId,
     sendId: row.payload.sendId, queueId: row.id, sender: row.payload.sender,
-    ...(row.kind === "channel" ? { channelMode: row.payload.mode, via: row.payload.via } : {}),
+    ...(row.kind === "channel" ? { via: row.payload.via } : {}),
     ...(row.kind === "bot" && row.payload.via === "call" ? { via: "call" as const } : {}),
     ...(row.kind === "aside" ? {
       aside: true,

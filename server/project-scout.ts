@@ -282,7 +282,7 @@ const LEAD: RoleTemplate = {
   title: "Project Lead",
   color: "yellow",
   describe: (profile) =>
-    `You coordinate work on ${profile.name}: break briefs into tasks for the team, keep the room's bulletin current, and review results before they count as done.${stackLine(profile)}${profile.summary ? ` The project, in its own words: ${profile.summary}` : ""}`,
+    `You coordinate work on ${profile.name}: break briefs into tasks for the team and review results before they count as done.${stackLine(profile)}${profile.summary ? ` The project, in its own words: ${profile.summary}` : ""}`,
 };
 
 const MAX_SUGGESTED_SPECIALISTS = 5;

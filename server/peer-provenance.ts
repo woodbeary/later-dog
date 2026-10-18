@@ -4,7 +4,7 @@ import { peerName } from "./peer-roster.ts";
 
 export interface PeerProvenance {
   botName: string;
-  delivery: "ask_bot" | "post_to_room" | "send_to_bot";
+  delivery: "ask_bot" | "room_post" | "send_to_bot";
   unattended?: boolean;
   owner?: { name: string | undefined };
 }

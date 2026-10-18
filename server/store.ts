@@ -23,7 +23,6 @@ import { approvalModeFor, isApprovalMode, modelSwitchNeedsAsk } from "../shared/
 import { REMOVED_COMPUTER_DRIVER, type ComputerEngineMove } from "./computer-engine-removal.ts";
 import type { ProfileRequestChanges } from "../shared/profile-request.ts";
 import { mainDogId } from "../shared/main-dog.ts";
-import type { GroupGoalRunCardData } from "../shared/group-goal-run.ts";
 import { isMentionBoundary, isMentionNameContinuation } from "../shared/mention-boundary.ts";
 import type { HandedState } from "./delta-context.ts";
 import type { AgentPart, PartPair, RoomPart } from "./package-parts.ts";
@@ -125,14 +124,6 @@ function redactBotAuthored<T extends Omit<Message, "id" | "at"> & { at?: number 
     if (routineRun.summary) routineRun.summary = redactSecretsInText(routineRun.summary);
     if (routineRun.error) routineRun.error = redactSecretsInText(routineRun.error);
     out.routineRun = routineRun;
-  }
-  if (out.goalRun) {
-    out.goalRun = {
-      ...out.goalRun,
-      goal: redactSecretsInText(out.goalRun.goal),
-      coordinatorName: redactSecretsInText(out.goalRun.coordinatorName),
-      detail: out.goalRun.detail ? redactSecretsInText(out.goalRun.detail) : undefined,
-    };
   }
   if (out.card) {
     const card = { ...out.card } as OptionCardData & { summary?: string };
@@ -1057,50 +1048,6 @@ export class Store {
     }
     this.emit({ type: "group.deleted", groupId: id });
     return true;
-  }
-
-  reconcileInterruptedGroupGoals(
-    resolve?: (
-      runId: string,
-      threadId: string,
-    ) => {
-      status: Exclude<GroupGoalRunCardData["status"], "working">;
-      detail: string;
-      finishedAt: number;
-    } | null,
-    fallbackDetail = "later.dog restarted before this goal finished.",
-    fallbackFinishedAt = Date.now(),
-  ): number {
-    const ownedThreadIds = new Set<string>();
-    for (const group of this.groups) {
-      ownedThreadIds.add(group.threadId);
-      for (const task of group.tasks ?? []) ownedThreadIds.add(task.threadId);
-    }
-    let recovered = 0;
-    for (const hit of mdb.workingGoalRunMessages()) {
-      if (!ownedThreadIds.has(hit.threadId) || !hit.message.goalRun) continue;
-      const resolution = resolve?.(hit.message.goalRun.runId, hit.threadId) ?? {
-        status: "failed" as const,
-        detail: fallbackDetail,
-        finishedAt: fallbackFinishedAt,
-      };
-      const state = resolution.status === "needs-input"
-        ? "needs your input"
-        : resolution.status === "limit-reached"
-          ? "reached its turn limit"
-          : resolution.status;
-      this.patchMessage(hit.threadId, hit.message.id, {
-        text: `Goal ${state}: ${resolution.detail}`,
-        goalRun: {
-          ...hit.message.goalRun,
-          status: resolution.status,
-          detail: resolution.detail,
-          finishedAt: resolution.finishedAt,
-        },
-      });
-      recovered += 1;
-    }
-    return recovered;
   }
 
   groupTasks(groupId: string): GroupTaskRecord[] {

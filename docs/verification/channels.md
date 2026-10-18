@@ -33,6 +33,18 @@ Capture the returned channel ID from `new-channel`. The wait result must be
 - A confirmation card produces `needs-user`; it is not a timeout.
 - This first map does not claim to verify channel layout or sidebar UI.
 
+## Group chat routines and plain group turns
+
+```sh
+pnpm exec vitest run server/laterdog/room-routine.e2e.test.ts server/laterdog/room-prompt.test.ts
+```
+
+A routine that targets a group chat posts its prompt into that chat and its
+dog answers as an ordinary reply; the run finishes with that reply as its
+output. There are no goal cards and no `/goal` mode: a send that still carries
+`mode: "goal"` from an older client is an ordinary chat message. The room
+prompt says only who the dog is, who is in the chat and how to @mention.
+
 ## Chief room management
 
 ```sh
@@ -42,7 +54,7 @@ pnpm exec vitest run server/index.test.ts -t 'Chief room|team-goal lead|credenti
 
 The end-to-end test launches the isolated control fixture, creates disposable
 bots, starts its fake Chief engine and uses that turn's mounted agents MCP
-proxy. It creates a room, renames it, changes members and its bulletin, then
+proxy. It creates a room, renames it and changes members, then
 checks the saved state. A foreign-section member is refused; stopping the
 owning turn revokes the proxy's permission to rename the room. The test retains
 its control commands, tool results and final state beside the printed server

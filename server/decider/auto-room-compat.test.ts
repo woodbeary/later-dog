@@ -6,7 +6,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { parsePackageDocument } from "../../shared/package-format.ts";
 import { parseTeamBackup } from "../../shared/team-backup.ts";
 import { DATA_DIR } from "../config.ts";
-import { selectGroupGoalCoordinator } from "../group-goal-run.ts";
 import { createTeamPackageExport } from "../package-export.ts";
 import { RoutineManager } from "../routines.ts";
 import { Store, normalizeGroupDefaultResponder, roomResponders, type BotRecord, type GroupRecord } from "../store.ts";
@@ -43,11 +42,6 @@ describe("stored rooms", () => {
     expect(roomResponders("@everyone standup", MEMBERS, { kind: "auto" }).map((m) => m.id)).toEqual(IDS);
     const archived = [{ ...MEMBERS[0]!, hidden: true }, ...MEMBERS.slice(1)];
     expect(roomResponders("hi", archived, { kind: "auto", fallbackBotId: "maya" }).map((m) => m.id)).toEqual(["theo"]);
-  });
-
-  it("a team goal in an Auto room is led by its fallback", () => {
-    expect(selectGroupGoalCoordinator(MEMBERS, { kind: "auto", fallbackBotId: "ravi" })?.id).toBe("ravi");
-    expect(selectGroupGoalCoordinator(MEMBERS, { kind: "auto" })?.id).toBe("maya");
   });
 });
 

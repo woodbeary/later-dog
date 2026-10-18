@@ -345,8 +345,6 @@
   "chat.activity.computer": "Benutzt den Computer",
   "chat.activity.openPage": "Öffnet eine Seite",
   "chat.activity.whosAround": "Schaut, wer da ist",
-  "chat.activity.rooms": "Schaut in die Gruppen",
-  "chat.activity.postRoom": "Schreibt in eine Gruppe",
   "chat.activity.handoff": "Übergibt eine Aufgabe",
   "chat.activity.askTeammate": "Fragt einen anderen Hund",
   "chat.run.worked": "Gearbeitet",
@@ -1219,7 +1217,6 @@
   "approval.status.allowedForChat": "Für diesen Chat erlaubt",
   "approval.tool.messageDog": "einem anderen Hund schreiben",
   "approval.tool.delegateDog": "einem anderen Hund Arbeit übergeben",
-  "approval.tool.postRoom": "in einem Raum posten",
   "credentialStore.reset": "Einige von einer älteren Version gespeicherte Schlüssel konnten nicht gelesen werden und wurden beiseitegelegt. Melde dich dort, wo es verlangt wird, erneut an.",
   "settings.group.accounts": "AI-Konten"
 }

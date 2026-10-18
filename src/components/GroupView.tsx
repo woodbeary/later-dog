@@ -45,7 +45,6 @@ import { SecureFormCard } from "./SecureFormCard";
 import { TakeoverCard } from "./TakeoverCard";
 import { RoutineRunCard } from "./RoutineRunCard";
 import { ownerShowingElsewhere } from "@/lib/open-elsewhere";
-import { sidebarGoalRunPreview } from "@/lib/sidebar-layout";
 import { AttachmentGallery, MessageAttachmentGallery } from "./AttachmentGallery";
 import { VoiceNoteBubble, type VoiceNoteAttachment } from "./VoiceNoteBubble";
 import { OptionCard } from "./OptionCard";
@@ -244,7 +243,7 @@ export const Transcript = memo(function Transcript({
               <OptionCard botId={m.from.botId} threadId={group.threadId} groupId={group.id} message={m} />
             </div>
           ) : m.kind === "goal.run" ? (
-            m.goalRun || m.text ? <QuietLine kind="note">{m.goalRun ? sidebarGoalRunPreview(m.goalRun) : m.text}</QuietLine> : null
+            m.text ? <QuietLine kind="note">{m.text}</QuietLine> : null
           ) : m.kind === "routine.run" ? (
             <div className="flex justify-start">
               <RoutineRunCard

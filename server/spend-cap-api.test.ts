@@ -184,49 +184,6 @@ describe("spend cap and prices through real turns", () => {
     expect(raised.total.turns).toBe(3);
   }, 150_000);
 
-  it.each([1, 2])("blocks a goal after %i paid turn(s) without retrying or spending another turn", async (allowedTurns) => {
-    await session.close();
-    const replyState = join(layerDir, "reply-state");
-    session = await launchVerificationServer({
-      ...process.env,
-      FAKE_CLAUDE_REPLIES: JSON.stringify([
-        'Delegating the check.<laterdog-goal>{"status":"continue","next":"Worker","instruction":"Check the draft"}</laterdog-goal>',
-        "The draft has been checked.",
-      ]),
-      FAKE_CLAUDE_REPLY_STATE: replyState,
-    }, undefined, undefined, undefined, { dir: layerDir, licenseKey: "fixture-key" });
-    expect((await put({ budgets: { monthlyUsd: allowedTurns * 0.01 } })).status).toBe(200);
-    const lead = (await control(["new-bot", "--name", "Lead"])).bot;
-    const worker = (await control(["new-bot", "--name", "Worker"])).bot;
-    const created = await api("/api/groups", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: "Budgeted goal", memberIds: [lead.id, worker.id],
-        setup: { bulletin: "", defaultResponder: { kind: "member", botId: lead.id } } }),
-    });
-    expect(created.status).toBe(201);
-    const { group } = await created.json() as any;
-    expect((await api(`/api/groups/${group.id}/messages`, {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: "Check the draft and report back", mode: "goal" }),
-    })).status).toBe(202);
-    await control(["wait", "--channel", group.id, "--timeout", "30"]);
-
-    const page = await (await api(`/api/threads/${group.threadId}/messages?limit=50`)).json() as any;
-    const goal = page.messages.find((message: any) => message.kind === "goal.run")?.goalRun;
-    expect(goal).toMatchObject({ status: "blocked", turnCount: allowedTurns,
-      detail: expect.stringMatching(/reached its monthly spend limit/i) });
-    const capErrors = page.messages.filter((message: any) => message.kind === "activity" &&
-      /reached its monthly spend limit/i.test(message.tool?.name ?? ""));
-    expect(capErrors).toHaveLength(1);
-    expect(JSON.stringify(page)).not.toContain("retrying once");
-    expect(Number(readFileSync(replyState, "utf8"))).toBe(allowedTurns);
-    await expect.poll(async () => (await (await api("/api/usage")).json() as any).total.turns,
-      { timeout: 10_000 }).toBe(allowedTurns);
-    const usage = await (await api("/api/usage")).json() as any;
-    expect(usage.total.turns).toBe(allowedTurns);
-    expect(usage.budget.exceeded).toBe(true);
-  }, 150_000);
-
   it("refuses the next room member at execution time once the cap is reached", async () => {
     const edition = (await (await api("/api/edition")).json()) as { edition: string; features: string[] };
     expect(edition).toMatchObject({ edition: "enterprise", features: ["billing", "budgets"] });

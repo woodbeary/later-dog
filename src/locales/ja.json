@@ -347,8 +347,6 @@
   "chat.activity.computer": "コンピューターを操作中",
   "chat.activity.openPage": "ページを開いています",
   "chat.activity.whosAround": "誰がいるか確認中",
-  "chat.activity.rooms": "グループを確認中",
-  "chat.activity.postRoom": "グループに投稿中",
   "chat.activity.handoff": "タスクを引き継ぎ中",
   "chat.activity.askTeammate": "ほかの犬に確認中",
   "chat.run.worked": "作業しました",
@@ -1220,7 +1218,6 @@
   "approval.status.allowedForChat": "このチャットで許可",
   "approval.tool.messageDog": "別の犬にメッセージを送る",
   "approval.tool.delegateDog": "別の犬に仕事を任せる",
-  "approval.tool.postRoom": "ルームに投稿する",
   "credentialStore.reset": "古いバージョンで保存されたキーの一部を読み取れず、別に保管しました。求められた場所で再度サインインしてください。",
   "settings.group.accounts": "AI アカウント"
 }

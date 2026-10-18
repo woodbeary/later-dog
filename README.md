@@ -40,7 +40,6 @@ appears at the bottom of the sidebar, and **Restart to update** installs it.
   profile.
 - **Teach it tricks.** A trick is a skill: a playbook the dog follows when asked. Library → Teach a trick takes one
   sentence, and the dog writes the trick itself.
-- **Send it to fetch.** The Fetch chip (or `/goal`) gives a dog something to keep working on until it is done.
 - **Run a pack.** A group chat with a roster; @-mention one dog and it can consult another and relay the answer.
 - **Put it on a clock.** Ask a dog to make itself a routine; you confirm the schedule once and it runs in its own thread.
 - **Switch models any time.** The free Kimi K2.6 and Grok 4.3, Codex on your ChatGPT plan, or Claude Code, per dog or

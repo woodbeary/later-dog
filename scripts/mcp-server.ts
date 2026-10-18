@@ -368,7 +368,6 @@ export const TOOLS: McpToolDefinition[] = [
         name: { type: "string", description: "Channel name." },
         member_ids: { type: "array", items: { type: "string" }, minItems: 1, uniqueItems: true },
         section: { type: "string", description: "Optional sidebar section." },
-        bulletin: { type: "string", description: "Optional shared instructions for channel members." },
         default_responder: {
           oneOf: [
             { type: "object", properties: { kind: { const: "everyone" } }, required: ["kind"], additionalProperties: false },
@@ -384,7 +383,7 @@ export const TOOLS: McpToolDefinition[] = [
   },
   {
     name: "update_channel",
-    description: "Update a channel's name, members, section, bulletin, or default responder.",
+    description: "Update a channel's name, members, section, or default responder.",
     inputSchema: {
       type: "object",
       properties: {
@@ -392,7 +391,6 @@ export const TOOLS: McpToolDefinition[] = [
         name: { type: "string" },
         member_ids: { type: "array", items: { type: "string" }, minItems: 1, uniqueItems: true },
         section: { type: ["string", "null"], description: "Null clears the section." },
-        bulletin: { type: "string" },
         default_responder: {
           oneOf: [
             { type: "object", properties: { kind: { const: "everyone" } }, required: ["kind"], additionalProperties: false },
@@ -705,7 +703,6 @@ function projectChannel(channel: Record<string, any>) {
     id: channel.id,
     name: channel.name,
     memberIds: channel.memberIds,
-    bulletin: channel.bulletin,
     defaultResponder: channel.defaultResponder,
     section: channel.section ?? null,
     directMessage: Boolean(channel.dm),
@@ -1035,7 +1032,6 @@ export async function handleToolCall(
       const name = stringArg(args, "name", { max: 100 });
       const memberIds = stringArrayArg(args, "member_ids");
       const section = optionalStringArg(args, "section", { max: 60 });
-      const bulletin = optionalStringArg(args, "bulletin", { trim: false, allowEmpty: true, max: 12_000 }) ?? "";
       const requestedResponder = normalizeResponder(args.default_responder);
       if (requestedResponder?.kind === "member" && !memberIds.includes(requestedResponder.botId)) {
         throw new ToolInputError("default_responder bot must be a channel member");
@@ -1047,7 +1043,7 @@ export async function handleToolCall(
           name,
           memberIds,
           ...(section ? { section } : {}),
-          setup: { bulletin, defaultResponder: responder },
+          setup: { defaultResponder: responder },
         }),
       });
       if (!isRecord(created?.group) || typeof created.group.id !== "string") {
@@ -1062,7 +1058,6 @@ export async function handleToolCall(
       if (args.name !== undefined) patch.name = stringArg(args, "name", { max: 100 });
       if (args.member_ids !== undefined) patch.memberIds = stringArrayArg(args, "member_ids");
       if (args.section !== undefined) patch.section = args.section === null ? null : stringArg(args, "section", { max: 60 });
-      if (args.bulletin !== undefined) patch.bulletin = stringArg(args, "bulletin", { trim: false, allowEmpty: true, max: 12_000 });
       if (args.default_responder !== undefined) patch.defaultResponder = normalizeResponder(args.default_responder);
       if (Object.keys(patch).length === 0) throw new ToolInputError("provide at least one channel field to update");
       const memberIds = patch.memberIds as string[] | undefined;

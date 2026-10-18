@@ -202,9 +202,9 @@ silently substitute unrestricted access when a mode is rejected.
 
 ### Read-only integration tools
 
-later.dog's built-in agents MCP server describes eight scoped reads with
+later.dog's built-in agents MCP server describes seven scoped reads with
 explicit read-only, non-destructive, idempotent, closed-world metadata:
-`list_bots`, `list_rooms`, `check_delegation`, `wait_delegation`,
+`list_bots`, `check_delegation`, `wait_delegation`,
 `session_search`, `session_read`, `list_routines`, and `skills_list`.
 Session recall still enforces own-bot access and records its existing room
 disclosure audit. These hints do not grant access to another bot's conversations.

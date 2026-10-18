@@ -21,20 +21,11 @@ let savedResultWrites = 0;
 let lastAskBody: any = null;
 let lastCoordinateBody: any = null;
 let coordinateResponse: unknown = { ok: true };
-let lastRoomsQuery = "";
-let lastPostBody: any = null;
 let lastAttachBody: any = null;
 let attachStatus = 200;
 let attachResponse: unknown = { ok: true, name: "report.pdf", bytes: 48639 };
-let postCalls = 0;
-let postResponse: unknown = { ok: true, messageId: "msg-1", roomName: "Launch" };
 const DEFAULT_AGENTS = { bots: [{ id: "bot-helper", name: "Helper", model: "fake-model", busy: false }] };
 let agentsResponse: unknown = DEFAULT_AGENTS;
-let roomsResponse: unknown = {
-  rooms: [
-    { id: "room-launch", name: "Launch", members: ["Asker", "Helper"] },
-  ],
-};
 type StubAskResponse = { botName?: string; text?: string; busy?: boolean; timeout?: boolean; waitedMs?: number; taskId?: string; toBotName?: string; error?: string; receipt?: PeerDeliveryReceipt };
 let askResponse: StubAskResponse = { botName: "Helper", text: "hi from helper" };
 let lastDelegateBody: any = null;
@@ -187,11 +178,6 @@ beforeAll(async () => {
         JSON.stringify(agentsResponse),
       );
     }
-    if (req.method === "GET" && req.url?.startsWith("/api/internal/rooms?")) {
-      lastRoomsQuery = req.url;
-      res.writeHead(200, { "content-type": "application/json" });
-      return res.end(JSON.stringify(roomsResponse));
-    }
     if (req.method === "POST" && req.url === "/api/internal/attach-file") {
       let data = "";
       req.on("data", (c) => (data += c));
@@ -199,17 +185,6 @@ beforeAll(async () => {
         lastAttachBody = JSON.parse(data);
         res.writeHead(attachStatus, { "content-type": "application/json" });
         res.end(JSON.stringify(attachResponse));
-      });
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/internal/post-to-room") {
-      let data = "";
-      req.on("data", (c) => (data += c));
-      req.on("end", () => {
-        lastPostBody = JSON.parse(data);
-        postCalls += 1;
-        res.writeHead(201, { "content-type": "application/json" });
-        res.end(JSON.stringify(postResponse));
       });
       return;
     }
@@ -455,8 +430,8 @@ describe("agents-proxy MCP surface", () => {
     expect(credential.description).not.toContain("apply the change immediately");
     for (const name of ["create_room", "manage_room"]) {
       const description = list.result.tools.find((entry: { name: string }) => entry.name === name).description;
-      expect(description).toContain("Follow the tool result under the effective access level");
       expect(description).not.toContain("If peer approval is enabled");
+      expect(description).not.toMatch(/bulletin|pack|section/i);
       expect(description).toContain("without trying another route");
     }
   });
@@ -551,14 +526,12 @@ describe("agents-proxy MCP surface", () => {
       "list_shared_computers",
       "shared_computer",
       "list_bots",
-      "list_rooms",
       "ask_bot",
       "delegate_bot",
       "check_delegation",
       "wait_delegation",
       "select_computer",
       "attach_file",
-      "post_to_room",
       "create_bot",
       "create_room",
       "manage_room",
@@ -573,7 +546,6 @@ describe("agents-proxy MCP surface", () => {
       "propose_routine_action",
       "propose_profile",
       "propose_model",
-      "propose_team_memory",
       "skills_list",
       "skill_manage",
       "add_mcp_server",
@@ -642,7 +614,7 @@ describe("agents-proxy MCP surface", () => {
     const readNames = [
       "tool_result_read",
       "list_shared_computers",
-      "list_bots", "list_rooms", "check_delegation", "wait_delegation",
+      "list_bots", "check_delegation", "wait_delegation",
       "session_search", "session_read", "list_routines", "skills_list",
     ];
     expect(list.result.tools.filter((tool: any) => tool.annotations?.readOnlyHint)
@@ -707,6 +679,24 @@ describe("agents-proxy MCP surface", () => {
     expect(lastAuth).toBe(`Bearer ${TOKEN}`);
   });
 
+  it("list_bots lists the group chats the dog is in so manage_room has a room_id", async () => {
+    agentsResponse = { ...DEFAULT_AGENTS, rooms: [{ id: "room-launch", name: "Launch" }, { id: 7, name: "Broken" }] };
+    try {
+      const text = (await callTool("list_bots", {})).result.content[0].text;
+      expect(text).toContain("Group chats you are in:\n- Launch [id: room-launch]");
+      expect(text).toContain("manage_room");
+      expect(text).not.toContain("Broken");
+      agentsResponse = { bots: [], rooms: [{ id: "room-launch", name: "Launch" }] };
+      const alone = (await callTool("list_bots", {})).result.content[0].text;
+      expect(alone).toContain("No other reachable bots yet.");
+      expect(alone).toContain("- Launch [id: room-launch]");
+      agentsResponse = DEFAULT_AGENTS;
+      expect((await callTool("list_bots", {})).result.content[0].text).not.toContain("Group chats");
+    } finally {
+      agentsResponse = DEFAULT_AGENTS;
+    }
+  });
+
   it("list_bots says what each teammate is doing, not just busy", async () => {
     agentsResponse = {
       bots: [
@@ -723,60 +713,6 @@ describe("agents-proxy MCP surface", () => {
     } finally {
       agentsResponse = DEFAULT_AGENTS;
     }
-  });
-
-  it("list_rooms names each room, its id, and its members", async () => {
-    roomsResponse = {
-      rooms: [
-        { id: "room-launch", name: "Launch", members: ["Asker", "Helper"] },
-        { id: "room-ops", name: "Ops", members: ["Asker", "Ops Bot"] },
-      ],
-    };
-    const res = await callTool("list_rooms", {});
-    const text = res.result.content[0].text;
-    expect(text).toContain("room-launch");
-    expect(text).toContain("Launch");
-    expect(text).toContain("members: Asker, Helper");
-    expect(text).toContain("room-ops");
-    expect(text).toContain("post_to_room");
-    expect(text).toContain("does not start anyone's turn");
-    expect(lastRoomsQuery).toContain("fromBotId=bot-asker");
-    expect(lastRoomsQuery).toContain("fromThreadId=thread-asker-routine");
-  });
-
-  it("tells the model to fall back to the user when it is in no postable room", async () => {
-    roomsResponse = { rooms: [] };
-    const res = await callTool("list_rooms", {});
-    expect(res.result.content[0].text).toContain("Tell the person");
-    roomsResponse = { rooms: [{ id: "room-launch", name: "Launch", members: ["Asker", "Helper"] }] };
-  });
-
-  it("names a room the bot is in but cannot post into, with the reason and no id", async () => {
-    roomsResponse = {
-      rooms: [],
-      unpostable: [{ name: "Planning", reason: "that room includes @Scout, who is outside your section — tell the user what you wanted to post there instead" }],
-    };
-    const res = await callTool("list_rooms", {});
-    const text = res.result.content[0].text;
-    expect(text).toContain("cannot post into");
-    expect(text).toContain("- Planning: that room includes @Scout, who is outside your section");
-    expect(text).toContain("nothing to retry");
-    expect(text).not.toContain("[id:");
-    roomsResponse = { rooms: [{ id: "room-launch", name: "Launch", members: ["Asker", "Helper"] }] };
-  });
-
-  it("post_to_room forwards the sender's own identity and warns that no reply is coming", async () => {
-    const res = await callTool("post_to_room", { group_id: "room-launch", message: "shipping at 4" });
-    expect(res.result.isError).toBeFalsy();
-    expect(res.result.content[0].text).toContain("Posted in Launch");
-    expect(res.result.content[0].text).toContain("expect no reply");
-    expect(lastPostBody).toEqual({
-      fromBotId: "bot-asker",
-      fromThreadId: "thread-asker-routine",
-      groupId: "room-launch",
-      message: "shipping at 4",
-      attachVoiceNote: false,
-    });
   });
 
   it("attach_file sends only the path and name, and tells the model the file is in the chat", async () => {
@@ -797,23 +733,6 @@ describe("agents-proxy MCP surface", () => {
     expect(res.result.content[0].text).toContain("Supported: images");
     attachStatus = 200;
     attachResponse = { ok: true, name: "report.pdf", bytes: 48639 };
-  });
-
-  it("hands a harness refusal to the model verbatim", async () => {
-    postResponse = { error: "This room has already taken 2 bot posts. Do not retry this call." };
-    const res = await callTool("post_to_room", { group_id: "room-launch", message: "after the cap" });
-    expect(res.result.isError).toBe(true);
-    expect(res.result.content[0].text).toMatch(/do not retry this call/i);
-    postResponse = { ok: true, messageId: "msg-1", roomName: "Launch" };
-  });
-
-  it("counts no posts of its own: a proxy serving several turns leaves the per-turn limit to the harness", async () => {
-    const before = postCalls;
-    for (let i = 0; i < 4; i++) {
-      const ok = await callTool("post_to_room", { group_id: "room-launch", message: `update ${i}` });
-      expect(ok.result.isError).toBeFalsy();
-    }
-    expect(postCalls).toBe(before + 4);
   });
 
   it("ask_bot forwards sender + depth and returns the reply", async () => {
@@ -982,7 +901,6 @@ describe("agents-proxy MCP surface", () => {
     const resCreate = await callTool("create_room", {
       name: "Dev Team",
       member_bot_ids: ["bot-1", "bot-2"],
-      bulletin: "Ship fast.",
     });
     expect(resCreate.result.content[0].text).toContain("Created the group chat “Dev Team” [id: room-dev] with 2 members, you included.");
     expect(resCreate.result.content[0].text).toContain("in the person's sidebar under Group chats now");
@@ -991,7 +909,6 @@ describe("agents-proxy MCP surface", () => {
       fromThreadId: "thread-asker-routine",
       name: "Dev Team",
       memberIds: ["bot-1", "bot-2"],
-      bulletin: "Ship fast.",
     });
 
     const resManage = await callTool("manage_room", {
@@ -1381,7 +1298,6 @@ describe("agents-proxy MCP surface", () => {
       name: "Morning brief",
       instructions: "Summarize today's priorities.",
       schedule: { type: "weekly", time: "09:00", weekdays: ["monday", "friday"] },
-      run_on: "dog",
       duration_minutes: 45,
       timeout_minutes: 15,
       continuity: true,
@@ -1394,7 +1310,6 @@ describe("agents-proxy MCP surface", () => {
         name: "Morning brief",
         instructions: "Summarize today's priorities.",
         schedule: { type: "weekly", time: "09:00", weekdays: ["monday", "friday"] },
-        runOn: "dog",
         timeoutMinutes: 15,
         continuity: true,
       },
@@ -1405,46 +1320,34 @@ describe("agents-proxy MCP surface", () => {
     expect(res.result.isError).toBeFalsy();
   });
 
-  it.each(["box", "cloud"])("maps %s execution to the explicit Boat runner without changing stored wire values", async (run_on) => {
-    const res = await callTool("propose_routine", {
-      name: "Boat check", instructions: "Check explicitly on Boat.",
-      schedule: { type: "daily", time: "09:00" }, run_on,
-    });
-    expect(res.result.isError).toBeFalsy();
-    expect(lastRoutineRequestBody.routine.runOn).toBe("cloud");
-    const update = await callTool("propose_routine_action", {
-      action: "update", routine_id: "routine-morning", changes: { run_on, runOn: "cloud" },
-    });
-    expect(update.result.isError).toBeFalsy();
-    expect(lastRoutineRequestBody.changes.runOn).toBe("cloud");
-  });
-
-  it("advertises VPS-compatible default execution separately from the Boat runner", async () => {
+  it("no longer offers a place to run a routine", async () => {
     const list = await rpc("tools/list");
     const routine = list.result.tools.find((entry: { name: string }) => entry.name === "propose_routine");
-    expect(routine.inputSchema.properties.run_on.enum).toEqual(["dog", "box"]);
-    expect(routine.inputSchema.properties.run_on.description).toContain("INCLUDING a self-hosted VPS");
+    expect(routine.inputSchema.properties.run_on).toBeUndefined();
+    const res = await callTool("propose_routine", {
+      name: "Boat check", instructions: "Check the queue.",
+      schedule: { type: "daily", time: "09:00" }, run_on: "box", runOn: "cloud",
+    });
+    expect(res.result.isError).toBeFalsy();
+    expect(lastRoutineRequestBody.routine.runOn).toBeUndefined();
   });
+
 
   it("preserves execution settings copied from list_routines", async () => {
     const res = await callTool("propose_routine", {
       name: "Cloud check",
       instructions: "Check the queue.",
       schedule: { type: "interval", everyMinutes: 15, anchorAt: "2026-09-01T09:00:00+05:30" },
-      runOn: "cloud",
       timeoutMinutes: 20,
     });
     expect(res.result.isError).toBeFalsy();
     expect(lastRoutineRequestBody.routine).toMatchObject({
-      runOn: "cloud",
       timeoutMinutes: 20,
       schedule: { type: "interval", everyMinutes: 15, anchorAt: "2026-09-01T09:00:00+05:30" },
     });
   });
 
   it.each([
-    { run_on: 7 },
-    { run_on: "dog", runOn: "cloud" },
     { timeout_minutes: "20" },
     { timeout_minutes: 10, timeoutMinutes: 20 },
     { clear_timeout: true, timeoutMinutes: 10 },

@@ -378,8 +378,6 @@
   "chat.activity.computer": "Користується комп'ютером",
   "chat.activity.openPage": "Відкриває сторінку",
   "chat.activity.whosAround": "Перевіряє, хто на місці",
-  "chat.activity.rooms": "Перевіряє групи",
-  "chat.activity.postRoom": "Пише в групу",
   "chat.activity.handoff": "Передає завдання",
   "chat.activity.askTeammate": "Питає іншого собаку",
   "chat.run.worked": "Працював",
@@ -1389,7 +1387,6 @@
   "approval.status.allowedForChat": "Дозволено для цього чату",
   "approval.tool.messageDog": "написати іншій собаці",
   "approval.tool.delegateDog": "передати роботу іншій собаці",
-  "approval.tool.postRoom": "опублікувати в кімнаті",
   "credentialStore.reset": "Деякі ключі, збережені старішою версією, не вдалося прочитати, і їх відкладено. Увійдіть знову там, де буде запропоновано.",
   "settings.group.accounts": "Облікові записи AI"
 }

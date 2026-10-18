@@ -24,7 +24,7 @@ import { freePortBlock, withFreeSignInPort } from "./testing/ports.ts";
 import { openSse } from "./testing/sse.ts";
 import { MAIN_DOG_ROUTING } from "./laterdog/main-dog-prompt.ts";
 import { FILE_MAX_BYTES, IMAGE_MAX_BYTES } from "./attachments.ts";
-import { computerPrompt, SIGN_IN_PROMPT, VOICE_PROMPT } from "./system-prompt.ts";
+import { computerPrompt, SIGN_IN_PROMPT } from "./system-prompt.ts";
 import {
   PHONE_SECRET_INFO,
   phoneSecretAAD,
@@ -1420,35 +1420,20 @@ describe("harness HTTP API", () => {
     }
   }, 30_000);
 
-  it("reconciles durable working goal cards with scheduler truth after a restart", async () => {
+  it("keeps goal cards saved by older builds as plain history after a restart", async () => {
     const state = await api("GET", "/api/bots?messages=30");
     const room = state.body.groups.find(
       (candidate: { id: string }) => candidate.id === "test-goal-restart-room",
     );
     expect(room.working).toBe(false);
-    expect(room.messages.find(
-      (message: { id: string }) => message.id === "restarted-goal-card",
-    )).toMatchObject({
-      text: "Goal failed: later.dog restarted before this goal finished.",
-      goalRun: {
-        status: "failed",
-        detail: "later.dog restarted before this goal finished.",
-        turnCount: 2,
-        finishedAt: expect.any(Number),
-      },
-    });
-    expect(room.messages.find(
-      (message: { id: string }) => message.id === "settled-routine-goal-card",
-    )).toMatchObject({
-      text: "Goal completed: The scheduled report shipped successfully.",
-      goalRun: {
-        status: "completed",
-        detail: "The scheduled report shipped successfully.",
-        turnCount: 3,
-        finishedAt: 6,
-      },
-    });
+    for (const id of ["restarted-goal-card", "settled-routine-goal-card"]) {
+      expect(room.messages.find((message: { id: string }) => message.id === id)).toMatchObject({
+        kind: "goal.run",
+        text: "Goal in progress: Test bot A is coordinating this goal.",
+      });
+    }
   });
+
 
   it("attributes a paired person's message to them, and leaves the owner's own sends unstamped", async () => {
     const created = await api("POST", "/api/bots", {
@@ -1727,10 +1712,10 @@ describe("harness HTTP API", () => {
         roomId: room.id, action: "remove_members", memberIds: [lead.id],
       });
       expect(internalBlocked.status).toBe(409);
-      expect(internalBlocked.body.error).toMatch(/pause or reassign.*group fetch routine/i);
+      expect(internalBlocked.body.error).toMatch(/pause or reassign this group chat's routine/i);
       const blocked = await api("PATCH", `/api/groups/${room.id}`, { memberIds: [other.id] });
       expect(blocked.status).toBe(409);
-      expect(blocked.body.error).toMatch(/pause or reassign.*group fetch routine/i);
+      expect(blocked.body.error).toMatch(/pause or reassign this group chat's routine/i);
 
       expect((await api("PATCH", `/api/routines/${routineId}`, {
         botId: other.id,
@@ -1867,13 +1852,13 @@ describe("harness HTTP API", () => {
       const completed = await api("PATCH", `/api/groups/${group.id}/setup`, {
         action: "complete",
         cwd: null,
-        bulletin: "shared brief",
+        bulletin: "an older desktop's brief",
         defaultResponder: { kind: "member", botId: bot.id },
       });
       expect(completed.status).toBe(200);
-      expect(completed.body.group).toMatchObject({ bulletin: "shared brief", setupCompletedAt: expect.any(Number) });
+      expect(completed.body.group).toMatchObject({ bulletin: "", setupCompletedAt: expect.any(Number) });
       expect((await api("GET", "/api/bots")).body.groups.find((candidate: { id: string }) => candidate.id === group.id)).toMatchObject({
-        bulletin: "shared brief",
+        bulletin: "",
         setupSkippedAt: null,
       });
     } finally {
@@ -1888,7 +1873,6 @@ describe("harness HTTP API", () => {
       memberIds: [bot.id],
       section: "Work",
       setup: {
-        bulletin: "Keep updates concise.",
         defaultResponder: { kind: "mentions" },
       },
     });
@@ -1899,7 +1883,7 @@ describe("harness HTTP API", () => {
         name: "Atomic setup",
         memberIds: [bot.id],
         section: "Work",
-        bulletin: "Keep updates concise.",
+        bulletin: "",
         defaultResponder: { kind: "mentions" },
         setupSkippedAt: null,
       });
@@ -2423,7 +2407,7 @@ describe("harness HTTP API", () => {
       expect((await api("PATCH", `/api/bots/${chief.id}`, { peers: [peer.id, second.id] })).status).toBe(200);
       const token = await mintTestCapability(BASE, chief.id, chief.threadId);
       const create = (body: unknown) => chiefRoomRequest(BASE, token, "create-room", body);
-      const managed = await create({ name: "Managed room", memberIds: [peer.id, peer.id], bulletin: "A short brief." });
+      const managed = await create({ name: "Managed room", memberIds: [peer.id, peer.id] });
       expect(managed.status).toBe(201);
       const roomId = String(managed.body.id);
       roomIds.push(roomId);
@@ -2433,9 +2417,9 @@ describe("harness HTTP API", () => {
       expect((await manage({ action: "add_members", memberIds: [second.id] })).body.memberIds).toEqual([chief.id, peer.id, second.id]);
       expect((await manage({ action: "remove_members", memberIds: [peer.id] })).body.memberIds).toEqual([chief.id, second.id]);
       expect((await manage({ action: "set_members", memberIds: [chief.id, peer.id] })).body.memberIds).toEqual([chief.id, peer.id]);
-      expect((await manage({ action: "set_bulletin", bulletin: "Updated brief ✓" })).status).toBe(200);
+      expect((await manage({ action: "set_bulletin", bulletin: "Updated brief ✓" })).status).toBe(400);
       const readRoom = async () => (await api("GET", "/api/bots?messages=20")).body.groups.find((group: { id: string }) => group.id === roomId);
-      expect(await readRoom()).toMatchObject({ name: "Renamed room", bulletin: "Updated brief ✓", section, memberIds: [chief.id, peer.id], defaultResponder: { kind: "member", botId: chief.id }, messages: [] });
+      expect(await readRoom()).toMatchObject({ name: "Renamed room", bulletin: "", section, memberIds: [chief.id, peer.id], defaultResponder: { kind: "member", botId: chief.id }, messages: [] });
       for (const memberId of [foreign.id, excluded.id, "missing-bot"]) {
         expect((await create({ name: "Forbidden room", memberIds: [memberId] })).status).toBe(403);
         expect((await manage({ action: "add_members", memberIds: [memberId] })).status).toBe(403);
@@ -2455,7 +2439,7 @@ describe("harness HTTP API", () => {
         roomIds.push(otherRoom.id);
         expect((await manage({ roomId: otherRoom.id, action: "rename", name: "Forbidden" })).status).toBe(403);
       }
-      expect(await readRoom()).toMatchObject({ name: "Renamed room", bulletin: "Updated brief ✓", memberIds: [chief.id, peer.id] });
+      expect(await readRoom()).toMatchObject({ name: "Renamed room", bulletin: "", memberIds: [chief.id, peer.id] });
       expect((await api("PATCH", `/api/bots/${second.id}`, { hidden: true })).status).toBe(200);
       expect((await create({ name: "Archived member", memberIds: [second.id] })).status).toBe(403);
       expect((await manage({ action: "add_members", memberIds: [second.id] })).status).toBe(403);
@@ -2463,23 +2447,22 @@ describe("harness HTTP API", () => {
       expect((await manage({ action: "rename", name: "No review" })).body.error).toMatch(/peer approval is required/);
       expect((await create({ name: "No review", memberIds: [peer.id] })).status).toBe(403);
       expect((await api("PATCH", `/api/bots/${chief.id}`, { approvePeerComms: false })).status).toBe(200);
-      for (let count = 1; count < 4; count += 1) {
-        const created = await create({ name: `Bounded room ${count}`, memberIds: [peer.id] });
+      for (let count = 1; count <= 5; count += 1) {
+        const created = await create({ name: `Unbounded room ${count}`, memberIds: [peer.id] });
         expect(created.status).toBe(201);
         roomIds.push(String(created.body.id));
       }
-      expect((await create({ name: "Fifth room", memberIds: [peer.id] })).status).toBe(429);
       expect((await api("GET", "/api/bots?messages=0")).body.bots.find((bot: { id: string }) => bot.id === foreign.id).section).toBe(`${section} foreign`);
       expect((await api("PATCH", `/api/bots/${chief.id}`, { modelSelection: { instanceId: "claude", model: "claude-sonnet-5" } })).status).toBe(200);
       const busyToken = await mintTestCapability(BASE, chief.id, chief.threadId);
       expect((await api("POST", `/api/groups/${roomId}/messages`, { text: "Hold this room turn" })).status).toBe(202);
       await expect.poll(async () => (await readRoom()).working).toBe(true);
-      for (const mutation of [{ action: "set_members", memberIds: [chief.id] }, { action: "set_bulletin", bulletin: "Changed mid-turn" }]) {
+      for (const mutation of [{ action: "set_members", memberIds: [chief.id] }]) {
         const blocked = await chiefRoomRequest(BASE, busyToken, "manage-room", { roomId, ...mutation });
         expect(blocked.status).toBe(409);
         expect(blocked.body.error).toMatch(/working or waiting/);
       }
-      expect(await readRoom()).toMatchObject({ bulletin: "Updated brief ✓", memberIds: [chief.id, peer.id] });
+      expect(await readRoom()).toMatchObject({ memberIds: [chief.id, peer.id] });
     } finally {
       for (const id of roomIds) {
         expect((await api("POST", `/api/groups/${id}/interrupt`, {})).status).toBe(200);
@@ -3539,177 +3522,6 @@ describe("harness HTTP API", () => {
       await isolatedApi("POST", `/api/bots/${botId}/interrupt`, { threadId: siblingThreadId }).catch(() => undefined);
       if (stoppedThreadId) await isolatedApi("POST", `/api/bots/${botId}/interrupt`, { threadId: stoppedThreadId }).catch(() => undefined);
       await isolatedApi("DELETE", `/api/bots/${botId}`).catch(() => undefined);
-      await isolatedApi("PUT", "/api/config", { box: { token: "" } }).catch(() => undefined);
-      managedBoatRows = [];
-      managedBoatCreatedIds.clear();
-      managedBoatCreateMode = "refuse";
-      managedBoatCreateId = "bx_cdefghjk";
-      await waitForExit(isolatedChild, { signal: "SIGTERM" });
-      await removeTempDir(isolatedHome);
-    }
-    expectStoppedTestServerCleanly(isolatedChild, isolatedStderr);
-  }, 75_000);
-
-  it("routes a goal run around a member parked at the computer wait ceiling, then resumes it", async () => {
-    const requestId = randomUUID();
-    const section = `Park goal machine ${requestId.slice(0, 8)}`;
-    const isolatedHome = mkdtempSync(join(tmpdir(), "laterdog-computer-wait-goal-"));
-    const isolatedData = join(isolatedHome, ".laterdog");
-    const isolatedStatic = join(isolatedHome, "static");
-    const isolatedPort = await freePortBlock([0, 1]);
-    const leadReplies = [
-      [
-        "Parker should do the desktop work.",
-        '<laterdog-goal>{"status":"continue",',
-        '"next":"Parker","instruction":"Use the shared desktop","detail":"Delegated to Parker"}</laterdog-goal>',
-      ].join("\n"),
-      [
-        "The desktop stayed busy, so I finished without it.",
-        '<laterdog-goal>{"status":"completed",',
-        '"detail":"Parker parked at the computer; the lead finished the goal directly."}</laterdog-goal>',
-      ].join("\n"),
-    ];
-    mkdirSync(join(isolatedStatic, "assets"), { recursive: true });
-    mkdirSync(isolatedData, { recursive: true });
-    writeFileSync(join(isolatedStatic, "index.html"), "<!doctype html><title>Computer wait goal test</title>");
-    writeFileSync(join(isolatedStatic, "assets", "smoke.css"), "body{}");
-    writeFileSync(join(isolatedData, "config.json"), JSON.stringify({
-      instances: {
-        holder: {
-          driver: "claudeAgent",
-          displayName: "Fixture holder",
-          environment: { FAKE_CLAUDE_MODE: "hang", FAKE_CLAUDE_PROMPTS: join(isolatedHome, "desktop-prompts.jsonl") },
-          config: { cli: FAKE_CLAUDE_CLI },
-        },
-        lead: {
-          driver: "claudeAgent",
-          displayName: "Fixture lead",
-          environment: {
-            FAKE_CLAUDE_MODE: "happy",
-            FAKE_CLAUDE_REPLIES: JSON.stringify(leadReplies),
-            FAKE_CLAUDE_REPLY_STATE: join(isolatedHome, "lead-replies.txt"),
-          },
-          config: { cli: FAKE_CLAUDE_CLI },
-        },
-        worker: {
-          driver: "claudeAgent",
-          displayName: "Fixture worker",
-          environment: {
-            FAKE_CLAUDE_PROMPTS: join(isolatedHome, "desktop-prompts.jsonl"),
-            FAKE_CLAUDE_MODE: "happy",
-            FAKE_CLAUDE_REPLIES: JSON.stringify(["The parked computer work is complete."]),
-            FAKE_CLAUDE_REPLY_STATE: join(isolatedHome, "worker-replies.txt"),
-          },
-          config: { cli: FAKE_CLAUDE_CLI },
-        },
-      },
-    }));
-    let isolatedStderr = "";
-    const isolatedChild = spawn(process.execPath, [join(SERVER_DIR, "index.ts")], {
-      cwd: ROOT,
-      env: {
-        ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
-        ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
-        HOME: isolatedHome,
-        USERPROFILE: isolatedHome,
-        LATERDOG_SERVER_PORT: String(isolatedPort),
-        LATERDOG_WEBHOOK_PORT: String(isolatedPort + 1),
-        LATERDOG_STATIC_DIR: isolatedStatic,
-        LATERDOG_BOX_API: `http://127.0.0.1:${boatStubPort}`,
-        LATERDOG_COMPUTER_WAIT_MAX_MS: "2000",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    isolatedChild.stderr!.on("data", (chunk) => (isolatedStderr += chunk));
-    const isolatedApi = async (method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> => {
-      const response = await fetch(`http://127.0.0.1:${isolatedPort}${path}`, {
-        method,
-        headers: body ? { "content-type": "application/json" } : undefined,
-        body: body ? JSON.stringify(body) : undefined,
-      });
-      return { status: response.status, body: await response.json() };
-    };
-    const promptsOnGoalBox = () => {
-      expect(boatRouteCalls.filter((call) => call.method === "POST" && call.path === "/boxes/bx_parkedsk/prompt")).toHaveLength(0);
-      return claudePrompts(join(isolatedHome, "desktop-prompts.jsonl")).length;
-    };
-    const goalCard = async () => {
-      const state = (await isolatedApi("GET", "/api/bots?messages=40")).body;
-      const room = state.groups.find((group: any) => group.id === roomId);
-      const card = room?.messages.find((message: any) => message.kind === "goal.run");
-      return { working: room?.working, card };
-    };
-    const parkedChips = async () => {
-      const state = (await isolatedApi("GET", "/api/bots?messages=40")).body;
-      const room = state.groups.find((group: any) => group.id === roomId);
-      return (room?.messages ?? []).filter((message: any) =>
-        typeof message.tool?.name === "string" && message.tool.name.startsWith("Computer still busy after "),
-      );
-    };
-    let holderBotId = "";
-    let holderThreadId = "";
-    let leadId = "";
-    let workerId = "";
-    let roomId = "";
-    try {
-      await waitForIsolatedServer(isolatedChild, isolatedPort, () => isolatedStderr);
-      managedBoatCreateMode = "success";
-      managedBoatCreateId = "bx_parkedsk";
-      expect((await isolatedApi("PUT", "/api/config", { box: { token: "box_route" } })).status).toBe(200);
-      const holder = (await isolatedApi("POST", "/api/bots", {
-        name: "Goal park holder", section,
-        modelSelection: { instanceId: "holder", model: "claude-sonnet-5" },
-      })).body.bot;
-      holderBotId = holder.id;
-      holderThreadId = holder.threadId;
-      const lead = (await isolatedApi("POST", "/api/bots", {
-        name: "Goal lead", section,
-        modelSelection: { instanceId: "lead", model: "claude-sonnet-5" },
-      })).body.bot;
-      leadId = lead.id;
-      expect((await isolatedApi("PATCH", `/api/bots/${leadId}`, { computer: "off" })).status).toBe(200);
-      expect((await isolatedApi("POST", "/api/team-computers", { requestId, name: "Goal park desktop", acknowledgeCost: true })).status).toBe(201);
-      expect((await isolatedApi("PATCH", `/api/team-computers/${requestId}`, { section, acknowledgeSharedAccess: true })).status).toBe(200);
-      expect((await isolatedApi("POST", `/api/bots/${holderBotId}/messages`, { text: "hold the desktop forever" })).status).toBe(202);
-      await expect.poll(promptsOnGoalBox, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
-      const worker = (await isolatedApi("POST", "/api/bots", {
-        name: "Parker", section,
-        modelSelection: { instanceId: "worker", model: "claude-sonnet-5" },
-      })).body.bot;
-      workerId = worker.id;
-      const room = (await isolatedApi("POST", "/api/groups", {
-        name: "Goal park room", memberIds: [leadId, workerId], section,
-        setup: { bulletin: "", defaultResponder: { kind: "member", botId: leadId } },
-      })).body.group;
-      roomId = room.id;
-      expect((await isolatedApi("POST", `/api/groups/${roomId}/messages`, {
-        text: "Finish the report using the shared desktop",
-        mode: "goal",
-      })).status).toBe(202);
-
-      await expect.poll(async () => {
-        const { working, card } = await goalCard();
-        return { working, status: card?.goalRun?.status, detail: card?.goalRun?.detail, turnCount: card?.goalRun?.turnCount };
-      }, { timeout: 15_000 }).toEqual({
-        working: false,
-        status: "completed",
-        detail: "Parker parked at the computer; the lead finished the goal directly.",
-        turnCount: 3,
-      });
-      expect((await parkedChips()).length).toBe(1);
-      expect((await parkedChips()).every((message: any) => message.tool?.ok === true)).toBe(true);
-      await new Promise((resolve) => setTimeout(resolve, 3_000));
-      expect((await parkedChips()).length).toBe(1);
-
-      expect((await isolatedApi("POST", `/api/bots/${holderBotId}/interrupt`, { threadId: holderThreadId })).status).toBe(200);
-      await expect.poll(promptsOnGoalBox, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
-    } finally {
-      await isolatedApi("POST", `/api/groups/${roomId}/interrupt`, {}).catch(() => undefined);
-      await isolatedApi("POST", `/api/bots/${holderBotId}/interrupt`, {}).catch(() => undefined);
-      await isolatedApi("POST", `/api/bots/${leadId}/interrupt`, {}).catch(() => undefined);
-      await isolatedApi("POST", `/api/bots/${workerId}/interrupt`, {}).catch(() => undefined);
-      await isolatedApi("DELETE", `/api/groups/${roomId}`).catch(() => undefined);
-      for (const botId of [holderBotId, leadId, workerId]) await isolatedApi("DELETE", `/api/bots/${botId}`).catch(() => undefined);
       await isolatedApi("PUT", "/api/config", { box: { token: "" } }).catch(() => undefined);
       managedBoatRows = [];
       managedBoatCreatedIds.clear();
@@ -7975,7 +7787,7 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("re-enters setup mode for a configured bot when the user sends /setup, and rewrites the turn text", async () => {
+  it("passes /setup to the dog as the words the person typed, with no setup coaching", async () => {
     const bot = (await api("POST", "/api/bots", { name: "Kiwi", description: "Files bugs." })).body.bot;
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
@@ -7989,9 +7801,7 @@ describe("harness HTTP API", () => {
       const soul = "--- BEGIN STANDING INSTRUCTIONS (SOUL.md, 17 bytes) ---\nNever file noise.\n--- END STANDING INSTRUCTIONS ---";
       const soulStart = system.indexOf(soul);
       expect(soulStart).toBeGreaterThanOrEqual(0);
-      const soulEnd = soulStart + soul.length;
-      const afterSoul = `${VOICE_PROMPT}\n\nThe user explicitly asked you to set yourself up`;
-      expect(system.slice(soulEnd, soulEnd + afterSoul.length)).toBe(afterSoul);
+      expect(system).not.toContain("The user explicitly asked you to set yourself up");
       const content: unknown = seen.prompt?.message?.content;
       const userText: string = typeof content === "string"
         ? content
@@ -8001,8 +7811,8 @@ describe("harness HTTP API", () => {
               .map((block: { text?: string }) => block.text ?? "")
               .join("")
           : "";
-      expect(userText).toContain("Set yourself up for this job: watch Discord too");
-      expect(userText).not.toContain("/setup");
+      expect(userText).toContain("/setup watch Discord too");
+      expect(userText).not.toContain("Set yourself up for this job");
     } finally {
       await api("POST", `/api/bots/${bot.id}/interrupt`);
       await api("DELETE", `/api/bots/${bot.id}`);

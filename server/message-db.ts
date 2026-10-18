@@ -185,7 +185,6 @@ export interface FollowupPayload {
   reason?: SteerQueueReason;
   unattended?: boolean;
   peerAsk?: Message["peerAsk"];
-  mode?: "chat" | "goal";
   via?: "api" | "call";
   sender?: ResolvedSender;
   trigger?: UsageTrigger;
@@ -390,16 +389,6 @@ export function updateMessage(threadId: string, message: Message): void {
   db()
     .prepare("UPDATE messages SET at = ?, role = ?, kind = ?, text = ?, json = ? WHERE thread_id = ? AND id = ?")
     .run(message.at, message.role, message.kind, message.text ?? null, JSON.stringify(message), threadId, message.id);
-}
-
-export function workingGoalRunMessages(): Array<{ threadId: string; message: Message }> {
-  const rows = db()
-    .prepare(
-      "SELECT thread_id, json FROM messages " +
-      "WHERE kind = 'goal.run' AND json_extract(json, '$.goalRun.status') = 'working'",
-    )
-    .all() as Array<{ thread_id: string; json: string }>;
-  return rows.map((row) => ({ threadId: row.thread_id, message: JSON.parse(row.json) as Message }));
 }
 
 export function openPermissionCards(): Array<{ threadId: string; message: Message }> {

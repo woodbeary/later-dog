@@ -354,9 +354,6 @@ export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, data
     childEnv.LATERDOG_OPENAI_LIVE_URL = liveUrl;
     if (parentEnv.LATERDOG_OPENAI_LIVE_KEY) childEnv.LATERDOG_OPENAI_LIVE_KEY = parentEnv.LATERDOG_OPENAI_LIVE_KEY;
   }
-  if (parentEnv.LATERDOG_TEST_FAIL_AUDIO_APPEND_ONCE) {
-    childEnv.LATERDOG_TEST_FAIL_AUDIO_APPEND_ONCE = parentEnv.LATERDOG_TEST_FAIL_AUDIO_APPEND_ONCE;
-  }
   if (parentEnv.LATERDOG_TEST_DESKTOP_OWNER_TOKEN) {
     childEnv.LATERDOG_TEST_DESKTOP_OWNER_TOKEN = parentEnv.LATERDOG_TEST_DESKTOP_OWNER_TOKEN;
     if (parentEnv.LATERDOG_TEST_LOCAL_TOOLS_TOKEN) childEnv.LATERDOG_TEST_LOCAL_TOOLS_TOKEN = parentEnv.LATERDOG_TEST_LOCAL_TOOLS_TOKEN;
@@ -432,9 +429,6 @@ export async function launchVerificationServer(
   if (laterdogFixture) Object.assign(childEnv,{ LATERDOG_SUPERVISOR_URL: laterdogFixture.origin, LATERDOG_TOKEN: laterdogFixture.token,
     ...(laterdogFixture.wakeupPullMs === undefined ? {} : { LATERDOG_WAKEUP_PULL_MS: String(laterdogFixture.wakeupPullMs) }) });
   const serverArgs = ["--experimental-strip-types"];
-  if (childEnv.LATERDOG_TEST_FAIL_AUDIO_APPEND_ONCE === "1") {
-    serverArgs.push("--import", pathToFileURL(join(ROOT, "server", "testing", "fail-audio-append-once.mjs")).href);
-  }
   if (childEnv.LATERDOG_TEST_DESKTOP_OWNER_TOKEN) {
     serverArgs.push("--import", pathToFileURL(join(ROOT, "server", "testing", "desktop-parent.mjs")).href);
   }

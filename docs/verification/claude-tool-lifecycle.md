@@ -55,7 +55,7 @@ turn that made it) are counted by the harness for each turn, not by the
 proxy, which a warm engine keeps across turns.
 
 ```sh
-pnpm exec vitest run server/session-credentials.e2e.test.ts server/post-to-room.test.ts server/vps-routing.test.ts
+pnpm exec vitest run server/session-credentials.e2e.test.ts server/vps-routing.test.ts
 ```
 
 A message steered into a running Claude turn is folded in only before a

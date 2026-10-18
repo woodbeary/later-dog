@@ -14,7 +14,7 @@ type Mounted = { command: string; args: string[]; env: Record<string, string> };
 
 const REMOVED_TEAM_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
 
-it("creates and manages an own-section room through the mounted MCP proxy, for the main dog and for any dog", async () => {
+it("creates and manages an own-section room through the mounted MCP proxy, for the main dog and for any dog, finding group chats from a 1:1 chat with list_bots", async () => {
   const fixture = await launchVerificationServer({ ...process.env, FAKE_CLAUDE_MODE: "hang" });
   const evidence: unknown[] = [{ fixture: fixture.info }];
   const proxies: ChildProcess[] = [];
@@ -78,7 +78,7 @@ it("creates and manages an own-section room through the mounted MCP proxy, for t
     const peerMount = await mount(peer, "Say hello.");
     expect(peerMount.env.LATERDOG_CHIEF_OF_STAFF).toBeUndefined();
     const peerTools = await toolNames(connect(peerMount));
-    expect(peerTools).toContain("list_rooms");
+    expect(peerTools).not.toContain("list_rooms");
     expect(peerTools).toEqual(expect.arrayContaining(["create_bot", "create_room", "manage_room"]));
     expect(REMOVED_TEAM_TOOLS.filter((name) => peerTools.includes(name))).toEqual([]);
     evidence.push({ peerTools });
@@ -91,6 +91,25 @@ it("creates and manages an own-section room through the mounted MCP proxy, for t
     const peerRooms = (await api<{ groups: Room[] }>("GET", "/api/bots?messages=0")).groups;
     expect(peerRooms.find((candidate) => candidate.name === "Peer chat")).toMatchObject({ section: "Room verification", memberIds: [peer.id, second.id] });
     expect(peerRooms.some((candidate) => candidate.name === "Peer foreign")).toBe(false);
+    const { group: launch } = await api<{ group: Room }>("POST", "/api/groups", {
+      name: "Launch", memberIds: [peer.id, chief.id], section: "Room verification",
+    });
+    const roster = await peerRpc("tools/call", { name: "list_bots", arguments: {} });
+    evidence.push({ tool: "list_bots", by: "peer", result: roster });
+    const rosterText = roster.content.map((item) => item.text).join("\n");
+    expect(rosterText).toContain("Group chats you are in:");
+    const launchId = /- Launch \[id: ([^\]]+)\]/.exec(rosterText)?.[1];
+    expect(launchId).toBe(launch.id);
+    for (const args of [
+      { room_id: launchId, action: "rename", name: "Launch plans" },
+      { room_id: launchId, action: "add_members", member_bot_ids: [second.id] },
+    ]) {
+      const managed = await peerRpc("tools/call", { name: "manage_room", arguments: args });
+      evidence.push({ tool: "manage_room", by: "peer", args, result: managed });
+      expect(Boolean(managed.isError), JSON.stringify(managed)).toBe(false);
+    }
+    expect((await api<{ groups: Room[] }>("GET", "/api/bots?messages=0")).groups.find((candidate) => candidate.id === launch.id))
+      .toMatchObject({ name: "Launch plans", memberIds: [peer.id, chief.id, second.id] });
     await control(["interrupt", "--bot", peer.id]);
 
     const mounted = await mount(chief, "Set up a small room for the team.");
@@ -105,16 +124,15 @@ it("creates and manages an own-section room through the mounted MCP proxy, for t
       return result.content.map((item) => item.text).join("\n");
     };
     const rooms = async () => (await api<{ groups: Room[] }>("GET", "/api/bots?messages=0")).groups;
-    await tool("create_room", { name: "Review room", member_bot_ids: [peer.id], bulletin: "Review only the assigned change." });
+    await tool("create_room", { name: "Review room", member_bot_ids: [peer.id] });
     const room = (await rooms()).find((candidate) => candidate.name === "Review room")!;
     expect(room).toMatchObject({ section: "Room verification", memberIds: [chief.id, peer.id], working: false });
-    expect(await tool("list_rooms", {})).toContain(room.id);
     await tool("manage_room", { room_id: room.id, action: "rename", name: "Verified room" });
     await tool("manage_room", { room_id: room.id, action: "add_members", member_bot_ids: [second.id] });
     await tool("manage_room", { room_id: room.id, action: "remove_members", member_bot_ids: [peer.id] });
-    await tool("manage_room", { room_id: room.id, action: "set_bulletin", bulletin: "Verified short brief ✓" });
+    await tool("manage_room", { room_id: room.id, action: "set_bulletin", bulletin: "Verified short brief ✓" }, true);
     const saved = (await rooms()).find((candidate) => candidate.id === room.id);
-    expect(saved).toMatchObject({ name: "Verified room", memberIds: [chief.id, second.id], bulletin: "Verified short brief ✓", section: "Room verification" });
+    expect(saved).toMatchObject({ name: "Verified room", memberIds: [chief.id, second.id], bulletin: "", section: "Room verification" });
     evidence.push({ saved });
     await tool("create_room", { name: "Forbidden room", member_bot_ids: [foreign.id] }, true);
     await tool("manage_room", { room_id: room.id, action: "add_members", member_bot_ids: [foreign.id] }, true);

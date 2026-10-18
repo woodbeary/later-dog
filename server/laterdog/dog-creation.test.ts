@@ -103,12 +103,13 @@ describe("greetNewDog", () => {
 });
 
 describe("what a dog is told about creating dogs", () => {
-  it("every dog's prompt says it may create a dog or a group chat itself, and never sends the person to a missing Chief", () => {
+  it("every dog's prompt says it may create a dog or a group chat itself, with no pack, Chief or limit", () => {
     expect(PROFILE_PROMPT).toContain(DOG_CREATION_PROMPT);
-    expect(DOG_CREATION_PROMPT).toContain("create it yourself with create_bot");
-    expect(DOG_CREATION_PROMPT).toContain("When they ask for a group chat with teammates, create it yourself with create_room");
-    expect(DOG_CREATION_PROMPT).toContain("Create a pack is in the sidebar's + menu");
-    expect(DOG_CREATION_PROMPT).not.toMatch(/Chief/);
+    expect(DOG_CREATION_PROMPT).toContain("make it yourself with create_bot");
+    expect(DOG_CREATION_PROMPT).toContain("make it with create_room");
+    expect(DOG_CREATION_PROMPT).toContain("manage_room");
+    expect(DOG_CREATION_PROMPT).toContain("Do not click through this app with computer control");
+    expect(DOG_CREATION_PROMPT).not.toMatch(/Chief|pack|per turn|at most|limit/i);
     expect(PROFILE_PROMPT).not.toMatch(/bot-creation and team-setup tools for Chiefs|bots cannot be created/);
   });
 

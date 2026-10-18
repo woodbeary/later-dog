@@ -25,7 +25,6 @@ import type { ProfileRequestCardData } from "../../shared/profile-request";
 import type { ModelRequestCardData } from "../../shared/model-request";
 import type { RoutineRequestCardData } from "../../shared/routine-request";
 import type { RoutineRunCardData } from "../../shared/routine-run";
-import type { GroupGoalRunCardData } from "../../shared/group-goal-run";
 import type { SecureFormCardData } from "../../shared/secure-form";
 import type { PlaceRow } from "../../shared/place-view";
 import type { FailedTurnQuota } from "../../shared/failed-turn";
@@ -103,7 +102,6 @@ export interface OptionCardData {
   routineRequest?: RoutineRequestCardData;
   skillRequest?: SkillRequestCardData;
   outboundRequest?: { tool: string; app: string | null; calls?: Array<{ app: string | null; label: string }> };
-  teamMemoryRequest?: { section: string; entryId: string; kind: string };
   profileRequest?: ProfileRequestCardData;
   modelRequest?: ModelRequestCardData;
   questionRequest?: QuestionRequestCardData;
@@ -150,8 +148,6 @@ export interface Message {
   secret?: SecretRequestCardData;
   secureForm?: SecureFormCardData;
   routineRun?: RoutineRunCardData;
-  goalRun?: GroupGoalRunCardData;
-  channelMode?: "chat" | "goal";
   tool?: { name: string; ok?: boolean; spoken?: string; setup?: boolean; claudeUpdate?: boolean; place?: PlaceRow; quota?: FailedTurnQuota; carry?: { from: string; to: string }; resume?: { handoffId: string }; summary?: string; input?: string; output?: string ; itemId?: string; outputPath?: string; fullResult?: boolean; statusLine?: "live" | "folded" };
   steered?: boolean;
   via?: "api" | "call";
@@ -833,7 +829,7 @@ export type Action =
   | {
       type: "patchGroup";
       groupId: string;
-      patch: Partial<Pick<Group, "name" | "bulletin" | "memberIds" | "defaultResponder" | "pinnedMessageId" | "section">>;
+      patch: Partial<Pick<Group, "name" | "memberIds" | "defaultResponder" | "pinnedMessageId" | "section">>;
     }
   | { type: "deleteGroup"; groupId: string }
   | { type: "interruptGroup"; groupId: string; threadId?: string; onError?: () => void }

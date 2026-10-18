@@ -345,8 +345,6 @@
   "chat.activity.computer": "कंप्यूटर चला रहा है",
   "chat.activity.openPage": "पेज खोल रहा है",
   "chat.activity.whosAround": "देख रहा है कौन उपलब्ध है",
-  "chat.activity.rooms": "समूह देख रहा है",
-  "chat.activity.postRoom": "समूह में पोस्ट कर रहा है",
   "chat.activity.handoff": "काम सौंप रहा है",
   "chat.activity.askTeammate": "दूसरे कुत्ते से पूछ रहा है",
   "chat.run.worked": "काम किया",
@@ -1218,7 +1216,6 @@
   "approval.status.allowedForChat": "इस चैट के लिए अनुमति दी",
   "approval.tool.messageDog": "दूसरे कुत्ते को संदेश भेजना",
   "approval.tool.delegateDog": "दूसरे कुत्ते को काम सौंपना",
-  "approval.tool.postRoom": "किसी रूम में पोस्ट करना",
   "credentialStore.reset": "पुराने संस्करण द्वारा सहेजी गई कुछ कुंजियाँ पढ़ी नहीं जा सकीं और अलग रख दी गईं। जहाँ कहा जाए वहाँ फिर से साइन इन करें।",
   "settings.group.accounts": "AI खाते"
 }

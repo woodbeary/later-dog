@@ -5,7 +5,7 @@ Run the real-server fixture in an isolated home, with a local Boat API stub:
 ```sh
 pnpm exec vitest run server/index.test.ts -t 'shares one team computer|dispatches the conversation.s pinned computer|blocks bot-scoped Boat lifecycle'
 pnpm exec vitest run server/index.test.ts -t 'queues computer waiters in arrival order'
-pnpm exec vitest run server/index.test.ts -t 'parks the turn at the wait ceiling|routes a goal run around a member parked'
+pnpm exec vitest run server/index.test.ts -t 'parks the turn at the wait ceiling'
 pnpm exec vitest run server/turn-resources.test.ts server/shared-computers.e2e.test.ts
 pnpm exec vitest run server/managed-desktop-cleanup.test.ts
 ```
@@ -37,8 +37,6 @@ The park-and-resume cases prove:
 
 - A turn that reaches the computer wait ceiling settles parked, not failed,
   and resumes on its own when the computer frees.
-- A goal run routes around a member parked at the ceiling, then resumes the
-  member once the seat returns.
 - The parked-resume drain queues only behind a live release, dispatches at
   once when the seat is already free, and drops resumes that a newer message,
   a newer generation, or a deleted thread superseded.

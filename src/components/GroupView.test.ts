@@ -155,10 +155,9 @@ describe("a group chat without the extras", () => {
     expect(markup).toContain(`aria-label="Find in conversation"`);
   });
 
-  it("shows an old fetch card as one plain line", () => {
+  it("shows an old fetch card as one plain line of its saved text", () => {
     const messages: Message[] = [{
-      id: "goal", role: "bot", kind: "goal.run", at: 1,
-      goalRun: { runId: "r", goal: "Write the launch post", status: "completed", coordinatorBotId: "a", coordinatorName: "Atlas", turnCount: 3, maxTurns: 12, startedAt: 1 },
+      id: "goal", role: "bot", kind: "goal.run", at: 1, text: "Completed: Write the launch post",
     }];
     const markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(Transcript, {
       group: { ...room, messages }, members: [], locale: "en", messages, transcript: messages, onReply: () => {},

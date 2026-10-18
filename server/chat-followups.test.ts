@@ -77,9 +77,9 @@ describe("durable accepted follow-ups", () => {
     expect(journal.chatFollowups()[0].payload).toEqual({ text: "" });
   });
 
-  it("restores channel target, mode and API provenance without reviving cancelled messages", async () => {
+  it("restores channel target and API provenance without reviving cancelled messages", async () => {
     const first = queueChannelMessage("group", "old-thread", "continue goal", {
-      mode: "goal", via: "api", replyToId: "reply", sendId: "first", trigger: { kind: "user", label: "Ada's phone" },
+      via: "api", replyToId: "reply", sendId: "first", trigger: { kind: "user", label: "Ada's phone" },
     });
     const second = queueChannelMessage("group", "old-thread", "next", { sendId: "second" });
     const cancelled = queueChannelMessage("group", "old-thread", "drop", { sendId: "cancelled" });
@@ -92,7 +92,7 @@ describe("durable accepted follow-ups", () => {
       groupId: "group", threadId: "old-thread",
       items: [expect.objectContaining({
         id: first.id, text: "continue goal",
-        mode: "goal", via: "api", replyToId: "reply", sendId: "first", trigger: { kind: "user", label: "Ada's phone" },
+        via: "api", replyToId: "reply", sendId: "first", trigger: { kind: "user", label: "Ada's phone" },
         queuedAt: expect.any(Number),
       })],
     }));
@@ -100,7 +100,7 @@ describe("durable accepted follow-ups", () => {
     drainChannelMessages(() => false, run);
     expect(run.mock.calls[1][0]).toMatchObject({
       groupId: "group", threadId: "old-thread",
-      items: [expect.objectContaining({ id: second.id, mode: "chat", text: "next", queuedAt: expect.any(Number) })],
+      items: [expect.objectContaining({ id: second.id, text: "next", queuedAt: expect.any(Number) })],
     });
     await Promise.resolve();
     expect(journal.cancelledChatFollowup("channel", "group", "old-thread", "cancelled")).toBe(true);

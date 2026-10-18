@@ -22,48 +22,42 @@ import {
   SIGN_IN_PROMPT,
   VOICE_PROMPT,
   voicePrompt,
-  type ComputerPromptKind,
 } from "./system-prompt.ts";
 
 describe("resolveComputerPromptKind", () => {
   it.each([
-    [{ kind: "vm", vmPrivate: false }, "vm-shared"],
-    [{ kind: "vm", vmPrivate: true }, "vm-private"],
-    [{ kind: "box", vmPrivate: false }, "box"],
-    [{ kind: "vps", vmPrivate: false }, "vps"],
-    [{ kind: "local", vmPrivate: false }, "local"],
-    [{ kind: null, vmPrivate: true }, null],
-  ] as const)("resolves %j to %s", (input, expected) => {
+    ["box", "box"],
+    ["local", "local"],
+    ["vm", null],
+    ["vps", null],
+    [null, null],
+  ] as const)("resolves %s to %s", (input, expected) => {
     expect(resolveComputerPromptKind(input)).toBe(expected);
   });
 });
 
 describe("computerPrompt", () => {
-  it("gives every kind its own paragraph plus the sign-in policy, and silence to none", () => {
+  it("gives the cloud computer and the user's computer their own paragraph plus the sign-in policy, and silence to none", () => {
     expect(computerPrompt(null)).toBe("");
-    const paragraphs: Record<string, string> = {
-      "vm-private": "your own isolated Cua sandbox",
-      "vm-shared": "shared, isolated Cua sandbox",
-      box: "You control the assigned cloud computer",
-      vps: "This is the user's own VPS",
-      local: "act on the user's computer",
-    };
-    for (const [kind, distinct] of Object.entries(paragraphs)) {
-      const prompt = computerPrompt(kind as ComputerPromptKind);
-      expect(prompt.endsWith(kind === "box" ? SIGN_IN_PROMPT + SECURE_FORM_PROMPT : SIGN_IN_PROMPT)).toBe(true);
-      expect(prompt).toContain(distinct);
-    }
-    expect(new Set(Object.keys(paragraphs).map((kind) => computerPrompt(kind as ComputerPromptKind))).size)
-      .toBe(Object.keys(paragraphs).length);
+    expect(computerPrompt("box")).toContain("You control the assigned cloud computer");
+    expect(computerPrompt("local")).toContain("act on the user's computer");
+    expect(computerPrompt("box").endsWith(SIGN_IN_PROMPT + SECURE_FORM_PROMPT)).toBe(true);
+    expect(computerPrompt("local").endsWith(SIGN_IN_PROMPT)).toBe(true);
+    expect(computerPrompt("box")).not.toBe(computerPrompt("local"));
   });
 
   it("offers the Secure Form only where its tools exist, the cloud computer", () => {
     expect(computerPrompt("box")).toContain("request_secure_form");
-    for (const kind of ["vm-private", "vm-shared", "vps", "local"] as const) {
-      expect(computerPrompt(kind)).not.toContain("request_secure_form");
+    expect(computerPrompt("local")).not.toContain("request_secure_form");
+  });
+
+  it("no longer describes a Local VM sandbox or a self-hosted VPS", () => {
+    for (const kind of ["box", "local"] as const) {
+      expect(computerPrompt(kind)).not.toMatch(/Cua sandbox|VPS|vm_exec/);
     }
   });
 });
+
 
 describe("buildSystemPrompt", () => {
   it("keeps shared context stable and volatile parts apart", () => {
@@ -163,19 +157,16 @@ describe("computerPrompt", () => {
     expect(prompt).toContain("Do not silently retry a background refusal");
     expect(prompt).toContain("including through shell scripts, AppleScript/System Events");
     expect(prompt).toContain("If a background action unexpectedly changes focus");
-    expect(computerPrompt("vm-private")).not.toContain("user asked for foreground control");
+    expect(computerPrompt("box")).not.toContain("user asked for foreground control");
   });
   it("is empty with no computer", () => {
     expect(computerPrompt(null)).toBe("");
   });
 
   it("shares the authorized sign-in policy across every computer and browser surface", () => {
-    expect(computerPrompt("vm-private")).toContain("your own isolated Cua sandbox");
-    expect(computerPrompt("vm-shared")).toContain("a shared, isolated Cua sandbox");
     expect(computerPrompt("box")).toContain("You control the assigned cloud computer");
-    expect(computerPrompt("vps")).toContain("self-hosted remote Linux computer");
     expect(computerPrompt("local")).toContain("act on the user's computer");
-    for (const kind of ["vm-private", "vm-shared", "box", "vps", "local"] as const) {
+    for (const kind of ["box", "local"] as const) {
       expect(computerPrompt(kind).endsWith(kind === "box" ? SIGN_IN_PROMPT + SECURE_FORM_PROMPT : SIGN_IN_PROMPT)).toBe(true);
       expect(computerPrompt(kind).startsWith(" ")).toBe(true);
     }

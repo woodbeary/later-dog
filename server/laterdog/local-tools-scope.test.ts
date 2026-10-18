@@ -49,9 +49,9 @@ const CALLS: Record<string, Array<Record<string, unknown>>> = {
   send_channel_message: [{ channel_id: "g1", text: "hello" }],
   create_channel: [
     { name: "Room", member_ids: ["b1"] },
-    { name: "Room", member_ids: ["b1"], bulletin: "Plan", default_responder: { kind: "member", bot_id: "b1" } },
+    { name: "Room", member_ids: ["b1"], default_responder: { kind: "member", bot_id: "b1" } },
   ],
-  update_channel: [{ channel_id: "g1", name: "Renamed", member_ids: ["b1"], bulletin: "Plan", default_responder: { kind: "everyone" } }],
+  update_channel: [{ channel_id: "g1", name: "Renamed", member_ids: ["b1"], default_responder: { kind: "everyone" } }],
   create_task: [{ target_type: "bot", target_id: "b1" }, { target_type: "channel", target_id: "g1", title: "Work" }],
   switch_task: [{ target_type: "bot", target_id: "b1", task_id: "t1" }, { target_type: "channel", target_id: "g1", task_id: "gt1" }],
   rename_task: [{ target_type: "bot", target_id: "b1", task_id: "t1", title: "New" }, { target_type: "channel", target_id: "g1", task_id: "gt1", title: "New" }],
@@ -98,6 +98,14 @@ describe("every request the later.dog scripts make is on the allow-list", () => 
     }
   });
 
+  it("still lets an older local tool send a group chat bulletin, which the server ignores", () => {
+    const older = { name: "R", memberIds: ["b1"], setup: { bulletin: "", defaultResponder: { kind: "everyone" } } };
+    expect(localToolsBodyRefusal("POST", "/api/groups", older)).toBeNull();
+    expect(localToolsBodyRefusal("POST", "/api/groups", { ...older, setup: { ...older.setup, bulletin: 5 } })).toBe(LOCAL_TOOLS_REFUSAL);
+    expect(localToolsBodyRefusal("PATCH", "/api/groups/g1", { name: "R", bulletin: "Ship it" })).toBeNull();
+    expect(localToolsBodyRefusal("PATCH", "/api/groups/g1", { bulletin: 5 })).toBe(LOCAL_TOOLS_REFUSAL);
+  });
+
   it("refuses the one thing a tool can ask for that it may not, putting a dog or a room in a pack, or moving one", async () => {
     for (const [tool, args, method] of REFUSED_ON_PURPOSE) {
       const { seen, fetcher } = recorder();
@@ -139,7 +147,7 @@ describe("everything else is refused by default", () => {
       ["POST", "/api/bots", { name: "X", approvalMode: "auto" }], ["POST", "/api/bots", { name: "X", cwd: "/" }],
       ["POST", "/api/bots", { name: "X", preset: "p" }], ["POST", "/api/bots", { name: "X", computer: "local" }],
       ["POST", "/api/bots", { name: "X", section: "Ops" }], ["POST", "/api/groups", { name: "R", memberIds: ["b1"], section: "Ops" }],
-      ["POST", "/api/groups", { name: "R", memberIds: ["b1"], setup: { bulletin: "", defaultResponder: { kind: "everyone" }, section: "Ops" } }],
+      ["POST", "/api/groups", { name: "R", memberIds: ["b1"], setup: { defaultResponder: { kind: "everyone" }, section: "Ops" } }],
       ["PATCH", "/api/bots/b1", { name: "X", connectorTools: { gmail: "write" } }], ["PATCH", "/api/bots/b1", { browserProfile: "p" }],
       ["PATCH", "/api/bots/b1", { cloudBackend: "vps" }], ["PATCH", "/api/bots/b1", { autoStartVps: true }],
       ["PATCH", "/api/bots/b1", { fallback: [{ instanceId: "a", model: "m" }] }], ["PATCH", "/api/bots/b1", { visibility: "everyone" }],
@@ -147,7 +155,7 @@ describe("everything else is refused by default", () => {
       ["PATCH", "/api/bots/b1/tasks/t1", { surface: "local" }], ["PATCH", "/api/bots/b1/tasks/t1", { approvalMode: "full" }],
       ["PATCH", "/api/bots/b1/tasks/t1", { updateBotDefault: true, modelSelection: { instanceId: "a", model: "m" } }],
       ["PATCH", "/api/groups/g1", { cwd: "/" }], ["PATCH", "/api/groups/g1", { section: "Ops" }], ["PATCH", "/api/groups/g1/tasks/t1", { cwd: "/" }],
-      ["POST", "/api/groups", { name: "R", memberIds: ["b1"], cwd: "/" }], ["POST", "/api/groups", { name: "R", memberIds: ["b1"], setup: { bulletin: "", defaultResponder: { kind: "everyone" }, goal: "x" } }],
+      ["POST", "/api/groups", { name: "R", memberIds: ["b1"], cwd: "/" }], ["POST", "/api/groups", { name: "R", memberIds: ["b1"], setup: { defaultResponder: { kind: "everyone" }, goal: "x" } }],
       ["POST", "/api/bots/b1/messages", { text: "x", threadId: "t1", deliver: "stop" }], ["POST", "/api/bots/b1/messages", { text: "x", answer: "allow" }],
       ["POST", "/api/bots/b1/messages", { text: "x", sendId: "s" }], ["POST", "/api/groups/g1/messages", { text: "x", mode: "goal" }],
       ["POST", "/api/bots/b1/tasks", { title: "x", approvalMode: "full" }], ["POST", "/api/bots/b1/tasks", { title: "x", projectId: "p" }],

@@ -345,8 +345,6 @@
   "chat.activity.computer": "Usando o computador",
   "chat.activity.openPage": "Abrindo uma página",
   "chat.activity.whosAround": "Vendo quem está por perto",
-  "chat.activity.rooms": "Vendo os grupos",
-  "chat.activity.postRoom": "Publicando em um grupo",
   "chat.activity.handoff": "Repassando uma tarefa",
   "chat.activity.askTeammate": "Perguntando a outro cachorro",
   "chat.run.worked": "Trabalhou",
@@ -1224,7 +1222,6 @@
   "approval.status.allowedForChat": "Permitido para esta conversa",
   "approval.tool.messageDog": "enviar mensagem a outro cão",
   "approval.tool.delegateDog": "passar trabalho a outro cão",
-  "approval.tool.postRoom": "publicar em uma sala",
   "credentialStore.reset": "Algumas chaves salvas por uma versão anterior não puderam ser lidas e foram separadas. Entre novamente onde for solicitado.",
   "settings.group.accounts": "Contas de AI"
 }

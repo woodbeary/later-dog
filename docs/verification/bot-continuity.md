@@ -1,7 +1,7 @@
 # Bot setup, model scope, and file continuity
 
 ```sh
-pnpm exec vitest run server/setup-mode.test.ts server/bot-setup.e2e.test.ts server/bot-continuity.e2e.test.ts server/independent-threads-api.test.ts
+pnpm exec vitest run server/bot-setup.e2e.test.ts server/bot-continuity.e2e.test.ts server/independent-threads-api.test.ts
 LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/control-laterdog-ui.e2e.test.ts
 pnpm exec electron scripts/smoke-approval-modes.cjs --model-ui-only
 ```
@@ -12,8 +12,8 @@ turns, and checks the prompt and model delivered to the provider boundary:
 
 - A named bot with no description or SOUL can receive a normal work request
   without the setup interview or its "Wait for a yes" instruction.
-- `/setup Help me track garden watering` explicitly enables coaching; the next
-  ordinary request disables it, even if no profile card was confirmed.
+- `/setup Help me track garden watering` reaches the dog as the words typed,
+  with no setup coaching in its prompt.
 - A pinned thread's model change with `updateBotDefault: true` updates that
   thread and the bot default used by groups and future threads. It does not
   change a selected sibling, other saved model choices, or approval levels.

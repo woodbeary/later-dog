@@ -38,7 +38,7 @@ describe("channel queue", () => {
     });
     queueChannelMessage("group-a", "thread-a", "second follow-up", {
       sendId: "send_second_123456",
-      mode: "goal",
+      via: "api",
     });
 
     drainChannelMessages(() => working, run);
@@ -52,7 +52,7 @@ describe("channel queue", () => {
     expect(run).toHaveBeenLastCalledWith(expect.objectContaining({
       groupId: "group-a",
       threadId: "thread-a",
-      items: [expect.objectContaining({ text: "first follow-up", mode: "chat" })],
+      items: [expect.objectContaining({ text: "first follow-up" })],
     }));
     expect(_queuedChannelCount("thread-a")).toBe(1);
 
@@ -60,7 +60,7 @@ describe("channel queue", () => {
     drainChannelMessages(() => working, run);
     expect(run).toHaveBeenCalledTimes(2);
     expect(run).toHaveBeenLastCalledWith(expect.objectContaining({
-      items: [expect.objectContaining({ text: "second follow-up", mode: "goal" })],
+      items: [expect.objectContaining({ text: "second follow-up", via: "api" })],
     }));
     expect(_queuedChannelCount("thread-a")).toBe(0);
   });
@@ -92,13 +92,13 @@ describe("channel queue", () => {
   it("still loads and drains a durable row written before senders were kept", () => {
     saveChatFollowup({
       id: "legacy-channel-followup-without-sender", kind: "channel", ownerId: "group-legacy", threadId: "thread-legacy",
-      payload: { text: "queued by an older build", mode: "chat" },
+      payload: { text: "queued by an older build" },
     });
     expect(() => restoreChannelMessages()).not.toThrow();
     const run = vi.fn();
     drainChannelMessages(() => false, run);
     const legacy = run.mock.calls.map(([input]) => input).find((input) => input.threadId === "thread-legacy")?.items[0];
-    expect(legacy).toMatchObject({ id: "legacy-channel-followup-without-sender", text: "queued by an older build", mode: "chat" });
+    expect(legacy).toMatchObject({ id: "legacy-channel-followup-without-sender", text: "queued by an older build" });
     expect(legacy.sender).toBeUndefined();
   });
 

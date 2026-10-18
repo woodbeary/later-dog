@@ -15,7 +15,6 @@ import type { QuestionRequestCardData } from "./ask-question.ts";
 import type { TakeoverRequestCardData } from "./takeover.ts";
 import type { SecureFormCardData } from "./secure-form.ts";
 import type { RoutineRunCardData } from "./routine-run.ts";
-import type { GroupGoalRunCardData } from "./group-goal-run.ts";
 import type { RuntimeEvent } from "./runtime-events.ts";
 import type { Notification } from "./notification.ts";
 import type { Routine, RoutineRun } from "./routines.ts";
@@ -247,7 +246,6 @@ export interface WireMessage {
   secret?: SecretRequestCardData;
   secureForm?: SecureFormCardData;
   routineRun?: RoutineRunCardData;
-  goalRun?: GroupGoalRunCardData;
   tool?: {
     name: string; ok?: boolean; spoken?: string; setup?: boolean; terminal?: boolean; summary?: string; input?: string; output?: string;
     claudeUpdate?: boolean;
@@ -279,7 +277,6 @@ export interface WireMessage {
   parentId?: string | null;
   replyToId?: string;
   sendId?: string;
-  channelMode?: "chat" | "goal";
   from?: { botId: string; name: string; color: string };
   peerPost?: { unattended?: boolean };
   routedBy?: { provider: "jev"; probability: number };
@@ -294,7 +291,6 @@ export interface WireMessage {
 
 export interface OptionCardData {
   outboundRequest?: { tool: string; app: string | null; calls?: Array<{ app: string | null; label: string }> };
-  teamMemoryRequest?: { section: string; entryId: string; kind: string };
   title: string;
   subtitle: string;
   options: string[];

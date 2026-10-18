@@ -3,7 +3,6 @@ import { AgentChat } from "./AgentChat";
 import { Automations } from "./Automations";
 import { Channels } from "./Channels";
 import { Hands } from "./Hands";
-import { Setup } from "./Setup";
 import { Terminal } from "./Terminal";
 import type { SceneProps } from "./types";
 
@@ -14,11 +13,10 @@ const SCENES: Record<string, ComponentType<SceneProps>> = {
   automations: Automations,
   channels: Channels,
   hands: Hands,
-  setup: Setup,
   terminal: Terminal,
 };
 
-export const REEL = ["agents", "hands", "setup", "channels", "automations"] as const;
+export const REEL = ["agents", "hands", "channels", "automations"] as const;
 
 export function sceneFor(id: string): ComponentType<SceneProps> | null {
   return SCENES[id] ?? null;

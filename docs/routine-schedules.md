@@ -54,9 +54,9 @@ use an appropriate event/webhook workflow instead of a fake weekly schedule.
 - Routine execution defaults to **Bot’s current setup**: its selected model and
   configured computer, including a self-hosted VPS. No Boat key is needed for
   that VPS. **Boat cloud computer** is a separate, explicit choice: the bot's
-  own model works on its Boat. The agent tools call these `run_on: "dog"` and
-  `run_on: "box"`; legacy stored `runOn: "cloud"` still means Boat and is not
-  migrated to a different runner.
+  own model works on its Boat. Agent tools no longer choose between them; a
+  legacy stored `runOn: "cloud"` still means Boat and is not migrated to a
+  different runner.
 - later.dog must be running to dispatch routines, including cloud-targeted
   routines. There is no external always-on scheduling service: the schedule
   runs inside the app on your computer — it is not Grok's or anyone's cloud —

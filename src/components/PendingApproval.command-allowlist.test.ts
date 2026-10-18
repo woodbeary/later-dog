@@ -133,8 +133,8 @@ describe("remembering exact command approvals", () => {
     expect(html).toMatch(/<pre[^>]*class="[^"]*max-h-40[^"]*font-mono[^"]*"[^>]*>git status --short<\/pre>/);
   });
 
-  it("folds model and team memory proposals behind View details, as the chat card does", () => {
-    for (const extra of [{ tool: "update_model", modelRequest: {} }, { tool: "team_memory", teamMemoryRequest: {} }]) {
+  it("folds model proposals behind View details, as the chat card does", () => {
+    for (const extra of [{ tool: "update_model", modelRequest: {} }]) {
       const pending = pendingApprovals([message({ ...extra, subtitle: "proposal body", commandAllowlist: undefined } as never)])[0]!;
       const html = renderToStaticMarkup(createElement(PendingApprovalPanel, { pending, count: 1, index: 0 }));
       expect(html).toContain("<details");

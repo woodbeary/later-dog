@@ -83,7 +83,6 @@ import {
   placeSection,
   sameSectionOrder,
   sidebarConnectorPreview,
-  sidebarGoalRunPreview,
   sidebarLayoutInteractive,
   sidebarSectionCollapsed,
   sidebarSectionLabel,
@@ -170,11 +169,9 @@ function groupPreview(group: Group, bots: Bot[], instances: InstanceInfo[]): str
   if (!last) return t("sidebar.preview.noMessages");
   const readable = last.kind === "activity" && last.tool
     ? activityPreview(last.tool, botEngine(bots.find((bot) => bot.id === last.from?.botId), instances))
-    : last.kind === "goal.run" && last.goalRun
-      ? sidebarGoalRunPreview(last.goalRun)
-      : last.kind === "connector" && last.connector
-        ? sidebarConnectorPreview(last.connector, t)
-        : markdownPreview(citationPreviewText(last.text ?? ""));
+    : last.kind === "connector" && last.connector
+      ? sidebarConnectorPreview(last.connector, t)
+      : markdownPreview(citationPreviewText(last.text ?? ""));
   const wakeup = cloudWakeupOf(last);
   if (wakeup) return wakeupLine(wakeup.event);
   if (last.role === "user") return t("sidebar.preview.you", { text: readable });

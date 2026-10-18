@@ -29,8 +29,6 @@ describe("liveActivityLabel", () => {
     expect(liveActivityLabel(activity("web_search"))).toBe("Searching the web");
     expect(liveActivityLabel(activity("delegate_bot"))).toBe("Handing off a task");
     expect(liveActivityLabel(activity("ask_bot"))).toBe("Asking another dog");
-    expect(liveActivityLabel(activity("list_rooms"))).toBe("Checking the groups");
-    expect(liveActivityLabel(activity("post_to_room"))).toBe("Posting in a group");
   });
 
   it("keeps naming the live work while a status line is the newest row", () => {

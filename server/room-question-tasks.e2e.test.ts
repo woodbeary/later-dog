@@ -77,7 +77,6 @@ it("keeps live room questions fenced but allows task changes after their turn se
       ["POST", `/api/groups/${room.id}/tasks`, { title: "New task" }],
       ["POST", `/api/groups/${room.id}/tasks/${spareThreadId}`, {}],
       ["PATCH", `/api/groups/${room.id}/tasks/${spareThreadId}`, { title: "Renamed task" }],
-      ["PATCH", `/api/groups/${room.id}`, { bulletin: "Revised brief" }],
       ["PATCH", `/api/groups/${room.id}`, { memberIds: [bot.id] }],
       ["DELETE", `/api/groups/${room.id}/tasks/${spareThreadId}`],
     ];
@@ -95,7 +94,7 @@ it("keeps live room questions fenced but allows task changes after their turn se
     expect(settledTask.status).toBe(201);
     expect((await api("POST", `/api/groups/${room.id}/tasks/${spareThreadId}`, {})).status).toBe(200);
     expect((await api("POST", `/api/groups/${room.id}/tasks/${room.threadId}`, {})).status).toBe(200);
-    for (const [method, path, body] of changes.slice(2, 5)) {
+    for (const [method, path, body] of changes.slice(2, 4)) {
       expect((await api(method, path, body)).status, `${method} ${path} after settlement`).toBe(200);
     }
     expect((await api("DELETE", `/api/groups/${room.id}/tasks/${settledTask.body.task.threadId}`)).status).toBe(200);

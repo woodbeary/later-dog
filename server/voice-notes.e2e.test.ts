@@ -7,12 +7,9 @@ import { request } from "../scripts/mcp-server.ts";
 
 const MP3 = Buffer.from("ID3 fake mp3 for the voice note fixture");
 
-async function withVoiceFixture(test: (f: any) => Promise<void>, options?: { failFirstAudioAppend?: boolean }) {
+async function withVoiceFixture(test: (f: any) => Promise<void>) {
   const session = await launchVerificationServer(
-    {
-      ...process.env,
-      ...(options?.failFirstAudioAppend ? { LATERDOG_TEST_FAIL_AUDIO_APPEND_ONCE: "1" } : {}),
-    },
+    { ...process.env },
     undefined,
     undefined,
     undefined,
@@ -187,106 +184,6 @@ it("hides the tool and refuses the call when voice notes are turned off for the 
   expect(f.seen).toEqual([]);
   expect(f.mp3Files()).toEqual([]);
 }), 60_000);
-
-it("attaches a parked voice note to a room post and delivers it exactly once", async () => withVoiceFixture(async (f) => {
-  const baseUrl = await f.serveTts();
-  await f.api("/api/config", { tts: { provider: "chatterbox", baseUrl, voice: "voice-a" } }, "PUT");
-  const bot = (await f.cli("new-bot", "--name", "Room note bot")).bot;
-  const room = (await f.cli("new-channel", "--name", "Announcements", "--members", bot.id)).channel;
-  const note = "Team update: the deploy is green and every check passed.";
-  f.savePlan({
-    [bot.id]: {
-      steps: [
-        { tool: "send_voice_note", arguments: { text: note } },
-        { tool: "post_to_room", arguments: { group_id: room.id, message: "Deploy status: green.", attach_voice_note: true } },
-      ],
-      reply: "Posted the update to the room with the note attached.",
-    },
-  });
-  await f.cli("send", "--bot", bot.id, "--task", bot.activeTaskId, "--text", "Tell the room how the deploy went.");
-  expect((await f.cli("wait", "--bot", bot.id, "--task", bot.activeTaskId, "--timeout", "30")).status).toBe("settled");
-
-  const post = f.evidence().find((entry: any) => entry.botId === bot.id).evidence.find((entry: any) => entry.step?.tool === "post_to_room");
-  expect(post.response.result.isError).toBeFalsy();
-  expect(post.response.result.content[0].text).toContain("with the voice note attached");
-
-  const roomMessages = await f.messages(room.activeTaskId);
-  const posted = roomMessages.find((m: any) => m.text === "Deploy status: green.");
-  expect(posted).toBeTruthy();
-  const audio = (posted.attachments ?? []).find((a: any) => a.kind === "audio");
-  expect(audio?.mime).toBe("audio/mpeg");
-
-  const own = await f.messages(bot.activeTaskId);
-  expect(own.some((m: any) => (m.attachments ?? []).some((a: any) => a.kind === "audio"))).toBe(false);
-  expect(f.mp3Files()).toHaveLength(1);
-  expect(audio.path.endsWith(f.mp3Files()[0])).toBe(true);
-}), 60_000);
-
-it("refuses a room post that asks to attach a voice note this turn never recorded", async () => withVoiceFixture(async (f) => {
-  const baseUrl = await f.serveTts();
-  await f.api("/api/config", { tts: { provider: "chatterbox", baseUrl, voice: "voice-a" } }, "PUT");
-  const bot = (await f.cli("new-bot", "--name", "Empty note bot")).bot;
-  const room = (await f.cli("new-channel", "--name", "Empty notes", "--members", bot.id)).channel;
-  f.savePlan({
-    [bot.id]: {
-      steps: [
-        { tool: "post_to_room", arguments: { group_id: room.id, message: "Nothing to hear here.", attach_voice_note: true }, expectError: true },
-      ],
-      reply: "The post was refused.",
-    },
-  });
-  await f.cli("send", "--bot", bot.id, "--task", bot.activeTaskId, "--text", "Post an update with a note you never recorded.");
-  expect((await f.cli("wait", "--bot", bot.id, "--task", bot.activeTaskId, "--timeout", "30")).status).toBe("settled");
-
-  const post = f.evidence().find((entry: any) => entry.botId === bot.id).evidence.find((entry: any) => entry.step?.tool === "post_to_room");
-  expect(post.response.result.isError).toBe(true);
-  expect(post.response.result.content[0].text).toContain("call send_voice_note");
-  const roomMessages = await f.messages(room.activeTaskId);
-  expect(roomMessages.some((m: any) => m.text === "Nothing to hear here.")).toBe(false);
-  expect(f.mp3Files()).toEqual([]);
-}), 60_000);
-
-it("keeps the parked note when the room-post append fails, so a retry can attach it", async () => withVoiceFixture(async (f) => {
-  const baseUrl = await f.serveTts();
-  await f.api("/api/config", { tts: { provider: "chatterbox", baseUrl, voice: "voice-a" } }, "PUT");
-  const bot = (await f.cli("new-bot", "--name", "Retried note bot")).bot;
-  const room = (await f.cli("new-channel", "--name", "Deploy notes", "--members", bot.id)).channel;
-  const note = "Team update: one retry later, the deploy is green.";
-  f.savePlan({
-    [bot.id]: {
-      steps: [
-        { tool: "send_voice_note", arguments: { text: note } },
-        { tool: "post_to_room", arguments: { group_id: room.id, message: "Deploy status: green.", attach_voice_note: true }, expectError: true },
-        { tool: "post_to_room", arguments: { group_id: room.id, message: "Deploy status: green, retried.", attach_voice_note: true } },
-      ],
-      reply: "Posted the update after one persistence hiccup.",
-    },
-  });
-  await f.cli("send", "--bot", bot.id, "--task", bot.activeTaskId, "--text", "Tell the room how the deploy went.");
-  expect((await f.cli("wait", "--bot", bot.id, "--task", bot.activeTaskId, "--timeout", "30")).status).toBe("settled");
-
-  const posts = f.evidence().find((entry: any) => entry.botId === bot.id).evidence
-    .filter((entry: any) => entry.step?.tool === "post_to_room");
-  expect(posts).toHaveLength(2);
-  const failed = posts[0].response;
-  expect(Boolean(failed.error || failed.result?.isError)).toBe(true);
-  expect(String(failed.result?.content?.[0]?.text ?? failed.error ?? "")).not.toContain("no voice note to attach");
-  const retried = posts[1].response;
-  expect(Boolean(retried.error || retried.result?.isError)).toBe(false);
-  expect(retried.result.content[0].text).toContain("with the voice note attached");
-
-  const roomMessages = await f.messages(room.activeTaskId);
-  expect(roomMessages.some((m: any) => m.text === "Deploy status: green.")).toBe(false);
-  const posted = roomMessages.find((m: any) => m.text === "Deploy status: green, retried.");
-  expect(posted).toBeTruthy();
-  const audio = (posted.attachments ?? []).find((a: any) => a.kind === "audio");
-  expect(audio?.mime).toBe("audio/mpeg");
-
-  const own = await f.messages(bot.activeTaskId);
-  expect(own.some((m: any) => (m.attachments ?? []).some((a: any) => a.kind === "audio"))).toBe(false);
-  expect(f.mp3Files()).toHaveLength(1);
-  expect(audio.path.endsWith(f.mp3Files()[0])).toBe(true);
-}, { failFirstAudioAppend: true }), 60_000);
 
 it("deletes a parked voice note when the turn is cancelled mid-flight", async () => withVoiceFixture(async (f) => {
   const baseUrl = await f.serveTts();

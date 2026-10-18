@@ -75,7 +75,6 @@ export interface PeerApprovalTarget {
 const ACTION_VERB: Record<PeerAction, string> = {
   ask_bot: "contact",
   delegate_bot: "delegate to",
-  post_to_room: "post in",
 };
 
 function pushApprovalCard(
@@ -92,7 +91,7 @@ function pushApprovalCard(
     role: "bot",
     kind: "options",
     card: {
-      title: `@${from.name} wants to ${ACTION_VERB[action]} ${action === "post_to_room" ? `“${target.name}”` : `@${target.name}`}`,
+      title: `@${from.name} wants to ${ACTION_VERB[action]} @${target.name}`,
       subtitle,
       options: ["Allow", "Deny", "Always allow"],
       requestId,

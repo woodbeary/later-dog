@@ -69,8 +69,8 @@ must not be able to approve its own work" and needs the desktop app or a paired 
 | `POST /api/bots/:id/interrupt`, `POST /api/groups/:id/interrupt` | `threadId` |
 | `POST /api/bots` | `name`, `title`, `description`, `modelSelection`, `requireAvailableModel` |
 | `PATCH /api/bots/:id` | `name`, `title`, `description`, `modelSelection`, `requireAvailableModel` |
-| `POST /api/groups` | `name`, `memberIds`, `setup` (`bulletin`, `defaultResponder`) |
-| `PATCH /api/groups/:id` | `name`, `memberIds`, `bulletin`, `defaultResponder` |
+| `POST /api/groups` | `name`, `memberIds`, `setup` (`defaultResponder`) |
+| `PATCH /api/groups/:id` | `name`, `memberIds`, `defaultResponder` |
 | `POST /api/bots/:id/tasks`, `POST /api/groups/:id/tasks` | `title` |
 | `POST /api/bots/:id/tasks/:id`, `POST /api/groups/:id/tasks/:id` (switch) | none |
 | `PATCH /api/bots/:id/tasks/:id` | `title`, `modelSelection`, `requireAvailableModel` |

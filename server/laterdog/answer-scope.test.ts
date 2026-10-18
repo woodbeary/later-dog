@@ -73,7 +73,7 @@ describe("how an approval was answered", () => {
   it("does not upgrade a card that was never a once-allowed command", () => {
     const refused = fakeStore([card({ answered: "deny" })]);
     confirmRememberedCommand(refused, "t1", "r1");
-    const proposal = fakeStore([card({ answerScope: "once", teamMemoryRequest: { section: "s", entryId: "e", kind: "note" } })]);
+    const proposal = fakeStore([card({ answerScope: "once", questionRequest: { version: 1, questions: [] } })]);
     confirmRememberedCommand(proposal, "t1", "r1");
     expect([refused, proposal].flatMap((store) => store.patches)).toEqual([]);
   });
@@ -90,9 +90,9 @@ describe("how an approval was answered", () => {
   it("never labels a proposal, which already says what it changed or saved", () => {
     const routine = fakeStore([card({ routineRequest: { version: 1, requestId: "r1", botId: "b", threadId: "t", createdAt: 1, operation: { action: "delete", routineId: "x", expectedUpdatedAt: 1 } } })]);
     recordAnswerScope(routine, "t1", "r1", "allow", {}, none);
-    const memory = fakeStore([card({ teamMemoryRequest: { section: "s", entryId: "e", kind: "note" } })]);
-    recordAnswerScope(memory, "t1", "r1", "allow", { scope: "always" }, granted("k"));
-    expect([routine, memory].flatMap((store) => store.patches)).toEqual([]);
+    const question = fakeStore([card({ questionRequest: { version: 1, questions: [] } })]);
+    recordAnswerScope(question, "t1", "r1", "allow", { scope: "always" }, granted("k"));
+    expect([routine, question].flatMap((store) => store.patches)).toEqual([]);
   });
 
   it("leaves a refusal, an answered card and a question alone", () => {

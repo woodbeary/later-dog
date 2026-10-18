@@ -109,7 +109,15 @@ describe("failed send recovery", () => {
       expect.objectContaining({ sendId: "older-send" }),
     ]);
   });
+
+  it("keeps an old draft text that starts with a slash command as typed", () => {
+    const store = memoryStorage();
+    const draftId = "group:legacy:task";
+    store.setItem("laterdog-drafts", JSON.stringify({ [draftId]: "/goal existing typed goal" }));
+    expect(getDraft(store, draftId)).toBe("/goal existing typed goal");
+  });
 });
+
 
 describe("durable attachment completion", () => {
   it("isolates persisted citation drafts and keeps an older failed citation send out of a newer draft", () => {

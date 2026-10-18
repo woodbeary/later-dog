@@ -22,7 +22,6 @@ export function acceptedSendMatch(
   sendId: string,
   text: string,
   replyToId?: string,
-  channelMode?: "chat" | "goal",
 ): AcceptedSendMatch {
   const message = messages.find((candidate) => candidate.sendId === sendId);
   if (!message) return { kind: "none" };
@@ -30,8 +29,7 @@ export function acceptedSendMatch(
     message.role !== "user" ||
     message.kind !== "text" ||
     message.text !== text ||
-    message.replyToId !== replyToId ||
-    (message.channelMode ?? "chat") !== (channelMode ?? "chat")
+    message.replyToId !== replyToId
   ) {
     return { kind: "conflict" };
   }
@@ -42,7 +40,6 @@ export interface QueuedSend {
   id: string;
   text: string;
   replyToId?: string;
-  mode?: "chat" | "goal";
   reason?: SteerQueueReason;
 }
 
@@ -64,21 +61,19 @@ export function landedSend(
   sendId: string | undefined,
   text: string,
   replyToId?: string,
-  channelMode?: "chat" | "goal",
 ): LandedSend {
   if (!sendId) return { kind: "new" };
   if (sources.cancelled(sendId)) {
     throw Object.assign(new Error("this queued sendId was cancelled; send a new message to try again"), { status: 409 });
   }
-  const accepted = acceptedSendMatch(sources.messages(), sendId, text, replyToId, channelMode);
+  const accepted = acceptedSendMatch(sources.messages(), sendId, text, replyToId);
   if (accepted.kind === "conflict") throw sendIdTaken();
   if (accepted.kind === "match") return { kind: "accepted", message: accepted.message };
   const queued = sources.queued(sendId);
   if (!queued) return { kind: "new" };
   if (
     queued.text !== text ||
-    queued.replyToId !== replyToId ||
-    (queued.mode ?? "chat") !== (channelMode ?? "chat")
+    queued.replyToId !== replyToId
   ) {
     throw sendIdTaken();
   }
@@ -112,6 +107,6 @@ export class SendSequencer {
   }
 }
 
-export function sendFingerprint(text: string, replyToId?: string, channelMode?: "chat" | "goal"): string {
-  return JSON.stringify([text, replyToId ?? null, channelMode ?? null]);
+export function sendFingerprint(text: string, replyToId?: string): string {
+  return JSON.stringify([text, replyToId ?? null]);
 }

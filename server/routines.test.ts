@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { GroupGoalRunStatus } from "../shared/group-goal-run.ts";
+import type { RoutineGoalStatus } from "../shared/routines.ts";
 import {
   nextOccurrence,
   RoutineManager,
@@ -2259,7 +2259,7 @@ describe("RoutineManager", () => {
     });
   });
 
-  it.each(["needs-input", "paused"] satisfies GroupGoalRunStatus[])(
+  it.each(["needs-input", "paused"] satisfies RoutineGoalStatus[])(
     "keeps a %s room outcome waiting on the human instead of completing the routine",
     async (status) => {
       const h = harness();
@@ -2330,7 +2330,7 @@ describe("RoutineManager", () => {
     expect(h.manager.finishGoalRun(run.id, "completed", "Approved work completed")).toMatchObject({ status: "completed" });
   });
 
-  it.each(["blocked", "limit-reached"] satisfies GroupGoalRunStatus[])(
+  it.each(["blocked", "limit-reached"] satisfies RoutineGoalStatus[])(
     "records a %s room outcome as a failed routine run with the goal's own detail",
     async (status) => {
       const h = harness();

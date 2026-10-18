@@ -41,7 +41,6 @@ describe("t", () => {
     expect(t("team.moveTo", { name: "Research" })).toBe("Move dogs to Research");
     expect(t("team.moveMany", { count: 2 })).toBe("Move 2 dogs");
     expect(t("team.deleteTitle", { name: "Research" })).toBe("Delete Research pack?");
-    expect(t("team.instructionsTitle", { name: "Research" })).toBe("Research shared instructions");
   });
 
   it("setLocale reports the locale that actually took effect", () => {

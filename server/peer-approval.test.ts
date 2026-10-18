@@ -109,7 +109,7 @@ describe("peer approval card lifecycle", () => {
     const room = store.createGroup("Standup", [from.id, target.id], false);
     store.setActivity(from.id, "working");
 
-    void requestPeerApproval(bus, from, target, "ping", "post_to_room", room.threadId);
+    void requestPeerApproval(bus, from, target, "ping", "ask_bot", room.threadId);
 
     expect(frames[0]).toMatchObject({
       kind: "approval",
@@ -165,7 +165,7 @@ describe("peer approval card lifecycle", () => {
     store.patchBot(from.id, { approvalMode: "full" });
     bus = { store, broadcast: () => {}, notify: frame => frames.push(frame),
       autoApply: (botId, threadId) => botId === from.id && threadId === fullThread };
-    for (const action of ["ask_bot", "delegate_bot", "post_to_room"] as const) {
+    for (const action of ["ask_bot", "delegate_bot"] as const) {
       await expect(requestPeerApproval(bus, from, target, "ping", action, fullThread)).resolves.toBe("allow");
     }
     expect(store.messagesFor(fullThread).some(message => message.card?.requestId)).toBe(false);
@@ -221,12 +221,12 @@ describe("peer approval card lifecycle", () => {
 
   it("honors Always allow saved from a room in that room and in chats opened after it", async () => {
     const room = store.createGroup("Standup", [from.id, target.id], false);
-    store.patchBot(from.id, { alwaysAllow: [peerAllowKey("post_to_room", target.id)] });
-    await expect(requestPeerApproval(bus, store.bot(from.id)!, target, "again", "post_to_room", room.threadId))
+    store.patchBot(from.id, { alwaysAllow: [peerAllowKey("ask_bot", target.id)] });
+    await expect(requestPeerApproval(bus, store.bot(from.id)!, target, "again", "ask_bot", room.threadId))
       .resolves.toBe("allow");
     expect(store.messagesFor(room.threadId).some(message => message.card?.requestId)).toBe(false);
     const newChat = store.createTask(from.id, "New chat", false)!.threadId;
-    await expect(requestPeerApproval(bus, store.bot(from.id)!, target, "new", "post_to_room", newChat))
+    await expect(requestPeerApproval(bus, store.bot(from.id)!, target, "new", "ask_bot", newChat))
       .resolves.toBe("allow");
     expect(store.messagesFor(newChat).some(message => message.card?.requestId)).toBe(false);
   });

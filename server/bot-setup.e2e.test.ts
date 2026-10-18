@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlLaterDog } from "../scripts/control-laterdog.ts";
 
-it("dispatches setup and canonical standing instructions through the real isolated app", async () => {
+it("dispatches canonical standing instructions through the real isolated app, with /setup as plain words", async () => {
   const fixture = await launchVerificationServer();
   const env = { LATERDOG_URL: fixture.info.url };
   const api = async (method: string, path: string, body?: unknown) => {
@@ -23,9 +23,10 @@ it("dispatches setup and canonical standing instructions through the real isolat
       return JSON.parse(readFileSync(fixture.fixtureDumpPath, "utf8"));
     };
     const setup = await turn("/setup Help me track garden watering");
-    expect(setup.systemPrompt).toContain("The user explicitly asked you to set yourself up");
+    expect(setup.systemPrompt).not.toContain("The user explicitly asked you to set yourself up");
     expect(setup.systemPrompt).toContain("propose_profile");
-    expect(JSON.stringify(setup.prompt)).toContain("Set yourself up for this job: Help me track garden watering");
+    expect(JSON.stringify(setup.prompt)).toContain("/setup Help me track garden watering");
+    expect(JSON.stringify(setup.prompt)).not.toContain("Set yourself up for this job");
 
     await api("PATCH", `/api/bots/${bot.id}`, { description: "Garden helper", soul: "Only water the fixture garden after approval." });
     writeFileSync(join(fixture.info.dataDir, "bots", bot.id, "SOUL.md"), "UNAPPROVED MIRROR INSTRUCTIONS");

@@ -117,7 +117,7 @@ it("preserves explicit peer exclusions, hidden bots and different private-user a
 }), 60_000);
 
 it("coordinates into a same-audience room in another pack through the actual MCP proxy", () => fixture(async f => {
-  const room = (await f.tool("create_channel", { name: "Voice review", member_ids: [f.target.id], bulletin: "Voice verification room" })).channel;
+  const room = (await f.tool("create_channel", { name: "Voice review", member_ids: [f.target.id] })).channel;
   f.plan[f.sender.id] = {
     steps: [...discoverySteps(), { tool: "coordinate_bots", arguments: { group_id: room.id, bot_ids: [f.target.id], message: "Verify voice playback in this room" } }],
     reply: "Room verification assigned", resumeReply: "Room result verified",
@@ -134,7 +134,7 @@ it("coordinates into a same-audience room in another pack through the actual MCP
 
 it("withholds a room whose historical audience is narrower than its current cross-pack members", () => fixture(async f => {
   const former = (await f.cli("new-bot", "--name", "Former private reader", "--section", "Private")).bot;
-  const room = (await f.tool("create_channel", { name: "Private history", member_ids: [f.target.id, former.id], bulletin: "Restricted history fixture" })).channel;
+  const room = (await f.tool("create_channel", { name: "Private history", member_ids: [f.target.id, former.id] })).channel;
   await f.api(`/api/bots/${former.id}`, { visibility: { people: ["ada@example.test"] } }, "PATCH");
   await f.api(`/api/groups/${room.id}`, { memberIds: [f.target.id] }, "PATCH");
   const persisted = (await f.api("/api/bots?messages=0")).groups.find((group: any) => group.id === room.id);

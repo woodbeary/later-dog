@@ -51,26 +51,26 @@ try {
     await api(`/api/bots/${bot.id}/local-computer/run`, {});
     console.log(JSON.stringify({ stage: "fixture-desktop", id: bot.id }));
   }
-  const { group } = await api("/api/groups", { name: "Isolated Goal GUI routing", memberIds: ids,
-    setup: { bulletin: "Fixture only", defaultResponder: { kind: "member", botId: ids[0] } } });
+  const { group } = await api("/api/groups", { name: "Isolated group GUI routing", memberIds: ids,
+    setup: { defaultResponder: { kind: "member", botId: ids[0] } } });
   groupId = group.id;
   async function turn(id: string) {
     await api(`/api/groups/${group.id}`, { defaultResponder: { kind: "member", botId: id } }, "PATCH");
     rmSync(fixture.fixtureDumpPath, { force: true });
-    await api(`/api/groups/${group.id}/messages`, { mode: "goal", text: "Reply once for isolated GUI routing verification." });
+    await api(`/api/groups/${group.id}/messages`, { text: "Reply once for isolated GUI routing verification." });
     const wait = await runControlLaterDog(["wait", "--channel", group.id, "--timeout", "60", "--url", fixture.info.url]) as { status: string };
     controller.signal.throwIfAborted();
-    assert.equal(wait.status, "settled", "Goal turn must settle");
+    assert.equal(wait.status, "settled", "Group turn must settle");
     return { wait, dump: JSON.parse(readFileSync(fixture.fixtureDumpPath, "utf8")) };
   }
   for (const id of ids) {
     const { wait, dump } = await turn(id);
     const computer = dump.mcpConfig?.mcpServers?.computer;
-    assert(computer, "Goal speaker must receive computer MCP");
+    assert(computer, "Group speaker must receive computer MCP");
     const target = (await api(`/api/bots/${id}/local-computer`)).container_name;
     assert.equal(typeof target, "string");
     assert(computer.args.includes(target), "MCP must target exactly the speaking bot GUI container");
-    assert(String(dump.systemPrompt).includes("computer"), "Goal must include computer instructions");
+    assert(String(dump.systemPrompt).includes("computer"), "Group turn must include computer instructions");
     const gate = await fetch(computer.env.LATERDOG_CONTROL_URL, {
       headers: { authorization: `Bearer ${computer.env.LATERDOG_CONTROL_TOKEN}` }, signal: AbortSignal.timeout(5_000),
     });

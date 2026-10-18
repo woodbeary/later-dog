@@ -80,7 +80,7 @@ it.each(["explicit", "inherited"] as const)("persists the %s tool selection befo
   });
 }, 60_000);
 
-it.each(["direct", "preview", "room", "goal"] as const)("keeps a corrupt persisted selection fail-closed while reporting the %s result", async (surface) => {
+it.each(["direct", "preview", "room"] as const)("keeps a corrupt persisted selection fail-closed while reporting the %s result", async (surface) => {
   const fixture = await launchVerificationServer();
   let restarted: ReturnType<typeof spawn> | undefined;
   const log = openSync(fixture.info.logPath, "a", 0o600);
@@ -117,21 +117,10 @@ it.each(["direct", "preview", "room", "goal"] as const)("keeps a corrupt persist
       expect(await sent.json()).toMatchObject({ error: expect.stringMatching(/tool selection is invalid/i) });
       expect(await control(["messages", "--bot", bot.id, "--limit", "10"])).toEqual(before);
     } else {
-      if (surface === "goal") {
-        const sent = await fetch(`${fixture.info.url}/api/groups/${channel.id}/messages`, { method: "POST",
-          headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Must not run.", mode: "goal" }) });
-        expect(sent.status).toBe(202);
-      } else await control(["send-channel", "--channel", channel.id, "--text", "Must not run."]);
+      await control(["send-channel", "--channel", channel.id, "--text", "Must not run."]);
       await control(["wait", "--channel", channel.id, "--timeout", "30"]);
       const messages = await control(["messages", "--channel", channel.id, "--limit", "10"]);
       expect(JSON.stringify(messages)).toMatch(/tool selection is invalid/i);
-      if (surface === "goal") {
-        const state = await fetch(`${fixture.info.url}/api/bots?messages=30`).then(response => response.json()) as {
-          groups: Array<{ id: string; messages: Array<{ kind: string; goalRun?: { status: string } }> }>;
-        };
-        const room = state.groups.find((group: { id: string }) => group.id === channel.id);
-        expect(room?.messages.find(message => message.kind === "goal.run")?.goalRun?.status).toBe("failed");
-      }
     }
     expect(existsSync(fixture.fixtureDumpPath)).toBe(false);
   } finally {

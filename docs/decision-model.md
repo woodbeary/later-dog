@@ -24,7 +24,7 @@ message.
   became Auto, or else its first member. That is what a lead-mode room does
   today.
 
-@mentions, `@everyone`, team goals and the other responder modes never ask
+@mentions, `@everyone` and the other responder modes never ask
 Jev. The message is appended and the send returns straight away; the answer
 is awaited only when the room's turn starts, within 1.5 seconds.
 

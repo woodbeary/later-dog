@@ -9,7 +9,7 @@ import { harnessClientFromEnv } from "./agents-client.ts";
 import type { HarnessClient, Json } from "./agents-client.ts";
 import { boundedAgentResult } from "./agents-result.ts";
 import { parseTakeoverInput, takeoverRequestedText } from "../laterdog/takeover.ts";
-import { groupChatMadeText } from "../laterdog/group-chats.ts";
+import { groupChatMadeText, groupChatsText } from "../laterdog/group-chats.ts";
 
 export interface ToolCallContext {
   botId: string;
@@ -242,18 +242,10 @@ function routineAction(value: unknown): RoutineAction | null {
 
 function routineFields(args: Json): { fields: Json; error?: string } {
   const fields: Json = {};
-  const destination = (value: unknown) => value === "box" ? "cloud" : value;
-  if (args.run_on != null && args.runOn != null && destination(args.run_on) !== destination(args.runOn)) {
-    return { fields, error: "Choose one run_on destination; run_on and runOn disagree." };
-  }
   if (args.timeout_minutes != null && args.timeoutMinutes != null && args.timeout_minutes !== args.timeoutMinutes) {
     return { fields, error: "Choose one timeout_minutes limit; timeout_minutes and timeoutMinutes disagree." };
   }
-  const runOn = destination(args.run_on ?? args.runOn);
   const timeoutMinutes = args.timeout_minutes ?? args.timeoutMinutes;
-  if (runOn != null && runOn !== "dog" && runOn !== "cloud") {
-    return { fields, error: 'Use run_on="dog" for the bot’s current model and configured computer (including VPS), or run_on="box" only for the bot’s cloud computer. Legacy "cloud" also means box.' };
-  }
   if (timeoutMinutes != null && (
     typeof timeoutMinutes !== "number" || !Number.isInteger(timeoutMinutes) || timeoutMinutes < 5 || timeoutMinutes > 240
   )) {
@@ -278,7 +270,6 @@ function routineFields(args: Json): { fields: Json; error?: string } {
     if (normalized.error) return { fields, error: normalized.error };
     fields.schedule = normalized.schedule;
   }
-  if (runOn != null) fields.runOn = runOn;
   if (args.clear_timeout === true) fields.timeoutMinutes = null;
   else if (timeoutMinutes != null) fields.timeoutMinutes = timeoutMinutes;
   if (typeof args.continuity === "boolean") fields.continuity = args.continuity;
@@ -449,7 +440,8 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
   if (name === "list_bots") {
     const r = await api(`/api/internal/agents?self=${encodeURIComponent(BOT_ID)}`);
     const bots = (r.bots as Array<Json>) ?? [];
-    if (!bots.length) return { text: "No other reachable bots yet." };
+    const rooms = EXTERNAL_RUNTIME ? "" : groupChatsText(r.rooms);
+    if (!bots.length) return { text: rooms ? `No other reachable bots yet.\n\n${rooms}` : "No other reachable bots yet." };
     const lines = bots.map((b) => {
       const role = b.title ? ` — ${b.title}` : "";
       const about = b.description ? ` (${String(b.description).slice(0, 120)})` : "";
@@ -460,44 +452,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       return `- ${b.name}${role}${about} [id: ${b.id}, model: ${b.model}${team}${state ? `, ${state}` : ""}]`;
     });
     return {
-      text: `Reachable teammates:\n${lines.join("\n")}\n\n${COORDINATING ? "Use coordinate_bots for advice or concrete work, then end your turn. Busy teammates queue and results resume you automatically." : "Assign work with delegate_bot. Use ask_bot only for a short answer you need inline."}`,
-    };
-  }
-  if (name === "list_rooms") {
-    const query = new URLSearchParams({ fromBotId: BOT_ID, fromThreadId: THREAD_ID });
-    const r = await api(`/api/internal/rooms?${query.toString()}`);
-    const rooms = Array.isArray(r.rooms) ? r.rooms.filter(jsonRecord) : [];
-    const unpostable = Array.isArray(r.unpostable) ? r.unpostable.filter(jsonRecord) : [];
-    const blocked = unpostable.length
-      ? `\n\nRooms you are in but cannot post into (no id — there is nothing to retry; give the person the reason instead):\n${
-        unpostable.map((room) => `- ${String(room.name)}: ${String(room.reason)}`).join("\n")
-      }`
-      : "";
-    if (!rooms.length) {
-      return { text: `You are not in any room you can post into. Tell the person what you wanted to share and let them decide where it goes.${blocked}` };
-    }
-    const lines = rooms.map((room) => {
-      const members = Array.isArray(room.members) ? room.members.map(String).join(", ") : "";
-      return `- ${String(room.name)} [id: ${String(room.id)}]${members ? ` — members: ${members}` : ""}`;
-    });
-    return {
-      text: `Rooms you can post into:\n${lines.join("\n")}\n\nUse post_to_room with one of these ids. A post adds one message to the room; it does not start anyone's turn, so nobody replies to it automatically.${blocked}`,
-    };
-  }
-  if (name === "post_to_room") {
-    const groupId = String(args.group_id ?? "").trim();
-    const message = String(args.message ?? "").trim();
-    const attachVoiceNote = args.attach_voice_note === true;
-    if (!groupId || !message) {
-      return { text: "post_to_room needs group_id (from list_rooms) and message.", isError: true };
-    }
-    const r = await api("/api/internal/post-to-room", {
-      method: "POST",
-      body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, groupId, message, attachVoiceNote }),
-    });
-    if (r.error) return { text: String(r.error), isError: true };
-    return {
-      text: `Posted in ${r.roomName ?? "the room"}${r.attachedVoiceNote ? " with the voice note attached" : ""}. Nobody's turn was started, so expect no reply — tell the person it is posted.`,
+      text: `Reachable teammates:\n${lines.join("\n")}\n\n${COORDINATING ? "Use coordinate_bots for advice or concrete work, then end your turn. Busy teammates queue and results resume you automatically." : "Assign work with delegate_bot. Use ask_bot only for a short answer you need inline."}${rooms ? `\n\n${rooms}` : ""}`,
     };
   }
   if (name === "ask_bot") {
@@ -648,7 +603,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const memberIds = Array.isArray(args.member_bot_ids)
       ? args.member_bot_ids.map((id) => String(id).trim()).filter(Boolean)
       : [];
-    const bulletin = typeof args.bulletin === "string" ? args.bulletin.trim() : undefined;
     if (!roomName) {
       return { text: "create_room needs a room name.", isError: true };
     }
@@ -662,7 +616,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
         fromThreadId: THREAD_ID,
         name: roomName,
         memberIds,
-        bulletin,
       }),
     });
     if (r.error) return { text: `Couldn't create room: ${r.error}`, isError: true };
@@ -679,7 +632,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       ? args.member_bot_ids.map((id) => String(id).trim()).filter(Boolean)
       : undefined;
     const roomName = typeof args.name === "string" ? args.name.trim() : undefined;
-    const bulletin = typeof args.bulletin === "string" ? args.bulletin.trim() : undefined;
     const r = await api(`/api/internal/manage-room`, {
       method: "POST",
       body: JSON.stringify({
@@ -689,7 +641,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
         action,
         memberIds,
         name: roomName,
-        bulletin,
       }),
     });
     if (r.error) return { text: `Couldn't manage room: ${r.error}`, isError: true };
@@ -902,24 +853,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     });
     if (r.error || r.ok !== true) return { text: String(r.error ?? "The log line was not confirmed."), isError: true };
     return { text: `Logged to ${String(r.file)}: ${String(r.line)}` };
-  }
-  if (name === "propose_team_memory") {
-    const kind = String(args.kind ?? "").trim();
-    const entryName = String(args.name ?? "").trim();
-    const detail = String(args.detail ?? "").trim();
-    if (!kind || !entryName || !detail) return { text: "propose_team_memory needs kind, name, and detail.", isError: true };
-    const r = await api("/api/internal/team-memory", {
-      method: "POST",
-      body: JSON.stringify({
-        fromBotId: BOT_ID,
-        fromThreadId: THREAD_ID,
-        kind,
-        name: entryName,
-        detail,
-        aliases: Array.isArray(args.aliases) ? args.aliases.filter((alias) => typeof alias === "string") : undefined,
-      }),
-    });
-    return confirmationResult(r, `remembering ${entryName} for the team`, "entry");
   }
   if (name === "session_search") {
     const q = String(args.query ?? "").trim();

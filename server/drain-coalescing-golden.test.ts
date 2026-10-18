@@ -189,23 +189,22 @@ describe("drain coalescing golden (M2)", () => {
     expect(_queuedChannelCount(thread)).toBe(0);
   });
 
-  it("rooms never merge an API send or a goal send into anyone's burst", () => {
+  it("rooms never merge an API send into anyone's burst", () => {
     const group = "gd-group-kinds";
     const thread = "gd-room-kinds";
     queueChannelMessage(group, thread, "typed words");
     queueChannelMessage(group, thread, "programmatic words", { via: "api" });
-    queueChannelMessage(group, thread, "a goal", { mode: "goal" });
     const run = vi.fn();
 
-    for (let drains = 0; drains < 3; drains += 1) drainChannelMessages(() => false, run);
-    expect(run).toHaveBeenCalledTimes(3);
+    for (let drains = 0; drains < 2; drains += 1) drainChannelMessages(() => false, run);
+    expect(run).toHaveBeenCalledTimes(2);
     expect(run.mock.calls.map((call) => call[0].items.map((item: { text: string }) => item.text)))
-      .toEqual([["typed words"], ["programmatic words"], ["a goal"]]);
+      .toEqual([["typed words"], ["programmatic words"]]);
     expect(_queuedChannelCount(thread)).toBe(0);
   });
 
   it("a regressed queuedAt never joins the head group", () => {
-    const item = (id: string, text: string, queuedAt: number): ChannelQueueItem => ({ id, text, mode: "chat", queuedAt });
+    const item = (id: string, text: string, queuedAt: number): ChannelQueueItem => ({ id, text, queuedAt });
     expect(headChannelGroup([
       item("q-earlier", "typed first", 1_000),
       item("q-regressed", "clock went backwards", 500),

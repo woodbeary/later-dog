@@ -14,8 +14,8 @@ async function withRooms(test: (f: any) => Promise<void>) {
   try {
     const sender = (await cli("new-bot", "--name", "Director", "--section", "A")).bot;
     const target = (await cli("new-bot", "--name", "Engineer", "--section", "A")).bot;
-    const source = (await tool("create_channel", { name: "Planning", member_ids: [sender.id], bulletin: "SOURCE_ONLY" })).channel;
-    const destination = (await tool("create_channel", { name: "Engineering", member_ids: [target.id], bulletin: "DESTINATION_ONLY" })).channel;
+    const source = (await tool("create_channel", { name: "Planning", member_ids: [sender.id] })).channel;
+    const destination = (await tool("create_channel", { name: "Engineering", member_ids: [target.id] })).channel;
     const planPath = join(session.info.dataDir, "room-plan.json");
     const plan: Record<string, any> = {
       [sender.id]: { steps: [{ arguments: { group_id: destination.id, bot_ids: [target.id], message: "Please build CSV" } }], reply: "Assigned", resumeReply: "Reviewed downstream outcome" },
@@ -90,7 +90,6 @@ it("coordinates with a Chief in a different room across packs", () => withRooms(
   expect((await f.messages(f.destination.activeTaskId)).some((message: any) => message.text === "Supervisor checked the work")).toBe(true);
   const discovery = JSON.parse(f.provider().find((turn: any) => turn.botId === f.sender.id).evidence[1].result.content[0].text);
   expect(discovery.rooms.some((room: any) => room.id === f.destination.id)).toBe(true);
-  expect(JSON.stringify(f.provider().find((turn: any) => turn.botId === chief.id).prompt)).not.toContain("SOURCE_ONLY");
 }), 45_000);
 
 it("refuses queued same-room supervisor work when the owner revokes peer access", () => withRooms(async f => {
@@ -166,7 +165,6 @@ it("does not let a Chief's grant expose a different-audience room transcript to 
   expect(f.nodes()).toEqual([]);
   expect(await f.messages(f.destination.activeTaskId)).toEqual([]);
   expect(f.provider().map((turn: any) => turn.botId)).toEqual([f.sender.id]);
-  expect(JSON.stringify(f.provider())).not.toContain("DESTINATION_ONLY");
 }), 45_000);
 
 it("withholds a cross-pack result if the owner revokes peer access while it runs", () => withRooms(async f => {
@@ -223,7 +221,6 @@ it.each(["recipient", "source-reader", "destination-reader"])("refuses work invo
   expect(await f.messages(f.destination.activeTaskId)).toEqual([]);
   expect((await f.messages(f.source.activeTaskId)).some((m: any) => m.text === "Assigned")).toBe(true);
   expect(f.provider().map((turn: any) => turn.botId)).toEqual([f.sender.id]);
-  expect(JSON.stringify(f.provider())).not.toContain("DESTINATION_ONLY");
   const discovery = f.provider().find((turn: any) => turn.botId === f.sender.id).evidence[1];
   if (role === "source-reader") expect(discovery.result.isError).toBe(true);
   else expect(JSON.parse(discovery.result.content[0].text).rooms).toEqual([]);

@@ -96,12 +96,6 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
     category: "Management & Groups",
     items: [
       {
-        id: "save-bulletin",
-        description: "Save group instruction changes",
-        macKeys: ["⌘", "Return"],
-        winKeys: ["Ctrl", "Enter"],
-      },
-      {
         id: "reorder-section",
         description: "Reorder sidebar sections (focus a section heading)",
         macKeys: ["⌥", "↑ / ↓"],

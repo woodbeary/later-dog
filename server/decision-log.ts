@@ -29,7 +29,6 @@ export type DecisionSource =
   | "user"
   | "connector-scope"
   | "outbound"
-  | "team-memory"
   | "auto-review"
   | "auto-review-shadow";
 

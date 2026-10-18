@@ -8,7 +8,6 @@ import {
   changeEmptySection,
   sectionContextKey,
   sectionContextLabel,
-  sectionContextSystemPrompt,
   writeSectionContext,
   SECTION_CONTEXT_MAX_BYTES,
   SECTION_CONTEXTS_FILE,
@@ -29,17 +28,6 @@ describe("section context", () => {
     expect(readSectionContext("Work")).toEqual({ text: "# Work\n- Ship Friday", updatedAt: 101 });
     expect(readSectionContext("Personal")).toEqual({ text: "# Home\n- Book dentist", updatedAt: 202 });
     expect(readSectionContext("")).toBeNull();
-  });
-
-  it("injects only the selected team brief under an explicit trust boundary", () => {
-    writeSectionContext("Work", "Launch date: Friday", 1);
-    writeSectionContext("Personal", "Private appointment: Monday", 2);
-    const prompt = sectionContextSystemPrompt("Work");
-    expect(prompt).toContain("Launch date: Friday");
-    expect(prompt).not.toContain("Private appointment");
-    expect(prompt).toContain("never tool authorization");
-    expect(prompt).toContain("you cannot edit it");
-    expect(sectionContextSystemPrompt("Unknown")).toBe("");
   });
 
   it("clears empty briefs and refuses content beyond the prompt budget", () => {

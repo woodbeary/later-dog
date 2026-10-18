@@ -25,7 +25,8 @@ function exactly(allowed: Readonly<Record<string, Shape>>): Shape {
 
 const modelSelection = exactly({ instanceId: text, model: text, effort: text, variant: text, fast: flag });
 const responder = exactly({ kind: text, botId: text });
-const roomSetup = exactly({ bulletin: text, defaultResponder: responder });
+const ignoredLegacyBulletin = text;
+const roomSetup = exactly({ bulletin: ignoredLegacyBulletin, defaultResponder: responder });
 
 const SEND = { text, threadId: text } as const;
 const NO_BODY = {} as const;
@@ -38,7 +39,7 @@ export const LOCAL_TOOLS_ALLOWED_ROUTES: readonly AllowedRoute[] = [
   { methods: ["POST"], path: /^\/api\/bots$/, keys: { name: text, title: text, description: text, modelSelection, requireAvailableModel: flag } },
   { methods: ["PATCH"], path: /^\/api\/bots\/[\w-]+$/, keys: { name: text, title: text, description: text, modelSelection, requireAvailableModel: flag } },
   { methods: ["POST"], path: /^\/api\/groups$/, keys: { name: text, memberIds: strings, setup: roomSetup } },
-  { methods: ["PATCH"], path: /^\/api\/groups\/[\w-]+$/, keys: { name: text, memberIds: strings, bulletin: text, defaultResponder: responder } },
+  { methods: ["PATCH"], path: /^\/api\/groups\/[\w-]+$/, keys: { name: text, memberIds: strings, defaultResponder: responder, bulletin: ignoredLegacyBulletin } },
   { methods: ["POST"], path: /^\/api\/(?:bots|groups)\/[\w-]+\/tasks$/, keys: { title: text } },
   { methods: ["POST"], path: /^\/api\/(?:bots|groups)\/[\w-]+\/tasks\/[\w-]+$/, keys: NO_BODY },
   { methods: ["PATCH"], path: /^\/api\/bots\/[\w-]+\/tasks\/[\w-]+$/, keys: { title: text, modelSelection, requireAvailableModel: flag } },

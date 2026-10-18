@@ -30,7 +30,7 @@ it("takes cron through the real routine tools, applying the bot's own routine at
     const proposal = async (tool: string, args: unknown, text: string, expectError = false) => {
       const previousTurns = providerEvidence().length;
       writeFileSync(planPath, JSON.stringify({ [bot.id]: {
-        expectSystemIncludes: ["five-field cron expression", "Never replace a calendar rule with daily AI date checking", "including its VPS"],
+        expectSystemIncludes: ["five-field cron expression", "Never replace a calendar rule with daily AI date checking"],
         steps: [{ tool: "list_routines", arguments: {} }, { tool, arguments: args, expectError }],
         reply: expectError ? "That invalid schedule was refused." : "The routine change is applied.",
       } }));
@@ -93,12 +93,6 @@ it("takes cron through the real routine tools, applying the bot's own routine at
     expect(await current()).toMatchObject({ enabled: true, schedule: lastDay });
 
     await proposal("propose_routine", { name: "Impossible date", instructions: "Must not run.", schedule: { ...schedule, expression: "0 9 31 2 *" } }, "Try an invalid calendar rule.", true);
-    await proposal("propose_routine", {
-      name: "Explicit Boat", instructions: "Run on the Boat-hosted agent.", schedule, run_on: "box",
-    }, "Try the separate Boat runner without a Boat account.", true);
-    const boatResponse = providerEvidence().at(-1).evidence.find((entry: any) => entry.step?.tool === "propose_routine").response;
-    expect(boatResponse.result.content[0].text).toContain('run_on="dog"');
-    expect(boatResponse.result.content[0].text).toContain("self-hosted VPS");
     const before = await current();
     for (const invalid of [
       { type: "cron", expression: "0 9 1 * *" },

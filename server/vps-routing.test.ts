@@ -508,10 +508,9 @@ createServer(socket => socket.end()).listen(port, '127.0.0.1');
       }, "the echoed turn");
 
       const echo = snapshot.messages.find((m: any) => m.kind === "text" && m.text?.startsWith("echo: ")).text;
-      expect(echo).toContain("self-hosted remote Linux computer");
-      expect(echo).toContain("This is the user's own VPS");
+      expect(echo).not.toContain("self-hosted remote Linux computer");
+      expect(echo).not.toContain("This is the user's own VPS");
       expect(echo).not.toContain("Boat");
-      expect(echo).toContain("wiped whenever its container is recreated");
 
       const mcpServers = JSON.parse(readFileSync(`${acpDump}.mcp.json`, "utf8")) as Array<{
         name: string;
@@ -566,7 +565,8 @@ createServer(socket => socket.end()).listen(port, '127.0.0.1');
       const routineTools = JSON.parse(readFileSync(`${acpDump}.mcp.json`, "utf8"));
       expect(routineTools.find((tool: { name: string }) => tool.name === "computer")?.args).toContain("production-vps");
       const routineMessages = (await api("GET", `/api/threads/${completed.threadId}/messages?limit=100`)).body.messages;
-      expect(routineMessages.some((message: any) => message.text?.includes("This is the user's own VPS"))).toBe(true);
+      expect(routineMessages.some((message: any) => message.text?.startsWith("echo: "))).toBe(true);
+      expect(routineMessages.some((message: any) => message.text?.includes("This is the user's own VPS"))).toBe(false);
 
       const released = await api("PUT", "/api/config", { vps: { sshAlias: "other-vps" } });
       expect(released.status, JSON.stringify(released.body)).toBe(409);

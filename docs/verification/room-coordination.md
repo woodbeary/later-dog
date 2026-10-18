@@ -98,7 +98,7 @@ conversation.
 
 ### Rooms containing a supervising Chief
 
-A section bot can list and post to its room when an out-of-section Chief in
+A section bot can work in its room when an out-of-section Chief in
 that room has an owner-reviewed `managedSections` grant for the bot's section.
 This includes a Chief in General (no section). In that same conversation,
 `list_room_targets` advertises the Chief and section peers, and `coordinate_bots`
@@ -108,22 +108,21 @@ Chiefs, and peer restrictions still block work. Revoking supervision before
 queued work starts prevents dispatch.
 
 ```sh
-pnpm exec vitest run server/peer-roster.test.ts server/post-to-room.test.ts server/room-coordination.e2e.test.ts server/direct-coordination.e2e.test.ts server/room-handoffs.test.ts server/peer-allowlist.e2e.test.ts
+pnpm exec vitest run server/peer-roster.test.ts server/room-coordination.e2e.test.ts server/direct-coordination.e2e.test.ts server/room-handoffs.test.ts server/peer-allowlist.e2e.test.ts
 ```
 
 The coordination suites use `launchVerificationServer`, `control-laterdog`, and the
 actual agents MCP proxy with a scripted provider and disposable HOME/data.
 They assert discovered targets, accepted or refused tool calls, durable
 handoff state, the destination conversation, and absence of dispatch after
-revocation. They cover both named-section and sectionless Chiefs; the posting
-suite independently checks room listing and transcript writes. These are
+revocation. They cover both named-section and sectionless Chiefs. These are
 server workflow checks, not UI or live-model verification.
 
 ### Broader coordination checks
 
 ```sh
 pnpm exec vitest run server/room-handoffs.test.ts server/room-coordination.e2e.test.ts src/components/GroupView.test.ts src/lib/room-activity.test.ts --maxWorkers=2
-pnpm exec vitest run server/group-goal-run.e2e.test.ts server/group-goal-wait-cap.e2e.test.ts server/drivers/agents-proxy.test.ts --maxWorkers=2
+pnpm exec vitest run server/drivers/agents-proxy.test.ts --maxWorkers=2
 pnpm exec vitest run server/room-recovery.e2e.test.ts server/testing/room-handoff-agent.test.ts
 pnpm exec vitest run server/direct-coordination.e2e.test.ts --maxWorkers=1
 pnpm exec vitest run server/turn-dispatch-guard.test.ts

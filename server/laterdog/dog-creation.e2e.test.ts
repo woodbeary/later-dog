@@ -21,7 +21,7 @@ const dumpSchema = z.object({
   }) }),
 });
 
-it("lets an ordinary dog create a dog that greets the person, within the per-turn cap; an archived dog cannot", async () => {
+it("lets an ordinary dog create a dog that greets the person, with no per-turn cap in the owner workspace; an archived dog cannot", async () => {
   const temp = mkdtempSync(join(tmpdir(), "laterdog-dog-creation-"));
   const gate = join(temp, "finish");
   const fixture = await launchVerificationServer({ FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: gate });
@@ -120,10 +120,9 @@ it("lets an ordinary dog create a dog that greets the person, within the per-tur
     const create = (name: string, expected: number) => api("POST", "/api/internal/create-bot",
       { name, role: "research and writing", instructions: "Help with research." }, expected, turn.token);
     expect((await create("scout", 409)).error).toContain("@Scout already exists in this section");
-    for (const name of ["Scout Two", "Scout Three", "Scout Four"]) await create(name, 201);
-    expect((await create("Scout Five", 429)).error).toContain("at most 4 bots in one turn");
+    for (const name of ["Scout Two", "Scout Three", "Scout Four", "Scout Five"]) await create(name, 201);
     const research = (await bots()).filter((bot) => bot.section === "Research").map((bot) => bot.name).sort();
-    expect(research).toEqual(["Biscuit", "Rex", "Scout", "Scout Four", "Scout Three", "Scout Two"]);
+    expect(research).toEqual(["Biscuit", "Rex", "Scout", "Scout Five", "Scout Four", "Scout Three", "Scout Two"]);
 
     const archived = await startTurn(rex, "make me a helper");
     expect(await archived.toolNames()).toContain("create_bot");

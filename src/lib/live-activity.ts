@@ -28,8 +28,6 @@ const FALLBACKS: Array<[RegExp, ActivityKind, LocaleKey]> = [
   [/\b(?:click|type|keypress|press|scroll|computer)\b/i, "computer", "chat.activity.computer"],
   [/\b(?:open_url|navigate)\b/i, "page", "chat.activity.openPage"],
   [/\b(?:list_bots|list_agents)\b/i, "team", "chat.activity.whosAround"],
-  [/\blist_rooms\b/i, "team", "chat.activity.rooms"],
-  [/\bpost_to_room\b/i, "team", "chat.activity.postRoom"],
   [/\bdelegate_bot\b/i, "team", "chat.activity.handoff"],
   [/\b(?:ask_bot|send_message)\b/i, "team", "chat.activity.askTeammate"],
 ];

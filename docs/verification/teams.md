@@ -6,6 +6,10 @@ The sidebar and Team map use the same persisted team list. Existing bot and
 group-chat labels migrate automatically; clearing a team's shared instructions
 or moving its last bot does not remove the team.
 
+Shared instructions are still stored and carried in team packages, but they no
+longer reach any dog's prompt and the pack map has no editor for them or for
+pack memory.
+
 Run the isolated lifecycle checks:
 
 ```sh

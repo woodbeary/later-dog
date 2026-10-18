@@ -7,10 +7,9 @@ import { DATA_DIR } from "./config.ts";
 import type { RuntimeEvent } from "./contracts.ts";
 import { writeFileAtomic } from "./atomic.ts";
 import { redactSecretsInText } from "./redact.ts";
-import type { GroupGoalRunStatus } from "../shared/group-goal-run.ts";
 import type { RoutineRequestOperation } from "../shared/routine-request.ts";
 import { normalizeCronSchedule, nextCronRuns, type RoutineCronSchedule } from "../shared/routine-schedule.ts";
-import { isRoutineProblemRun } from "../shared/routines.ts";
+import { isRoutineProblemRun, type RoutineGoalStatus } from "../shared/routines.ts";
 import { ROUTINE_PARTS, type PartPair, type RoutinePart } from "./package-parts.ts";
 
 export interface RoutineIntervalWindow {
@@ -45,7 +44,7 @@ export type RoutineScheduleInput =
 
 export type RoutineRunOn = "dog" | "cloud";
 export type RoutineTarget = "bot" | "room-goal";
-export type RoutineGoalStatus = Exclude<GroupGoalRunStatus, "working">;
+export type { RoutineGoalStatus };
 
 export interface RoutineContextAttachment {
   id: string;
@@ -1561,13 +1560,13 @@ export class RoutineManager {
     queueMicrotask(() => void this.tick());
   }
 
-  finishGoalRun(runId: string, status: GroupGoalRunStatus, detail: string): RoutineRun | null {
+  finishGoalRun(runId: string, status: RoutineGoalStatus, detail: string): RoutineRun | null {
     const run = this.runs.find(
       (candidate) => candidate.id === runId &&
         candidate.target === "room-goal" &&
         ["running", "waiting"].includes(candidate.status),
     );
-    if (!run || status === "working") return null;
+    if (!run) return null;
     const safeDetail = redactSecretsInText(detail).trim();
     run.goalStatus = status;
     if (status === "failed" || status === "blocked" || status === "limit-reached") {

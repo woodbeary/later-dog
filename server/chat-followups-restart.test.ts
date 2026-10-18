@@ -203,7 +203,7 @@ it("survives a real server crash: queued sends keep receipts, cancellation and u
 
     await expect.poll(async () => (await messages(channel.threadId)).filter((message) => message.sendId === channelBody.sendId).length, { timeout: 15_000 }).toBe(1);
     expect((await api("POST", `/api/groups/${channel.id}/messages`, channelBody, 202)).message).toMatchObject({
-      text: channelBody.text, queueId: channelQueued.queueId, replyToId: initial.message.id, channelMode: "chat", via: "api",
+      text: channelBody.text, queueId: channelQueued.queueId, replyToId: initial.message.id, via: "api",
     });
     expect((await api("POST", `/api/groups/${channel.id}/messages`, channelCancelledBody, 409)).error).toContain("cancelled");
     const channelSettled = await runControlLaterDog(["wait", "--channel", channel.id, "--url", url]);

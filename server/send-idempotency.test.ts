@@ -38,24 +38,11 @@ describe("send idempotency", () => {
     });
   });
 
-  it("does not let one send id change channel execution mode", () => {
+  it("matches a stored message from an older build that still carries a channel mode", () => {
     const sendId = "send_1234567890123456";
-    const message = userMessage({ channelMode: "goal" });
-    expect(acceptedSendMatch([message], sendId, "ship it", undefined, "goal")).toEqual({
-      kind: "match",
-      message,
-    });
-    expect(acceptedSendMatch([message], sendId, "ship it", undefined, "chat")).toEqual({ kind: "conflict" });
-    expect(sendFingerprint("ship it", undefined, "goal")).not.toBe(sendFingerprint("ship it", undefined, "chat"));
-  });
-
-  it("treats a legacy missing channel mode as ordinary chat", () => {
-    const sendId = "send_1234567890123456";
-    const message = userMessage();
-    expect(acceptedSendMatch([message], sendId, "ship it", undefined, "chat")).toEqual({
-      kind: "match",
-      message,
-    });
+    const message = { ...userMessage(), channelMode: "goal" } as Message;
+    expect(acceptedSendMatch([message], sendId, "ship it")).toEqual({ kind: "match", message });
+    expect(sendFingerprint("ship it")).toBe(sendFingerprint("ship it", undefined));
   });
 
   it("coalesces simultaneous retries onto one operation", async () => {
@@ -126,8 +113,6 @@ describe("send idempotency", () => {
     it("answers a queued entry with its receipt", () => {
       const queued: QueuedSend = { id: "queue-1", text: "ship it", reason: "capacity" };
       expect(landedSend(sources({ queued }), sendId, "ship it")).toEqual({ kind: "queued", queued });
-      const room: QueuedSend = { id: "queue-2", text: "ship it", mode: "goal" };
-      expect(landedSend(sources({ queued: room }), sendId, "ship it", undefined, "goal")).toEqual({ kind: "queued", queued: room });
     });
 
     it("keeps the 409 when the same id carries a different message", () => {
@@ -136,8 +121,6 @@ describe("send idempotency", () => {
       const queued: QueuedSend = { id: "queue-1", text: "ship it", replyToId: "reply-1" };
       expect(() => landedSend(sources({ queued }), sendId, "changed", "reply-1")).toThrow(/another message/);
       expect(() => landedSend(sources({ queued }), sendId, "ship it")).toThrow(/another message/);
-      const room: QueuedSend = { id: "queue-2", text: "ship it", mode: "goal" };
-      expect(() => landedSend(sources({ queued: room }), sendId, "ship it", undefined, "chat")).toThrow(/another message/);
     });
 
     it("refuses a cancelled queued id", () => {

@@ -12,7 +12,6 @@ import {
   placeSection,
   sidebarConnectorPreview,
   sidebarLayoutInteractive,
-  sidebarGoalRunPreview,
   sidebarSectionCollapsed,
   sidebarSectionLabel,
   userSectionId,
@@ -105,21 +104,6 @@ describe("sidebar virtual sections", () => {
     expect(sidebarSectionCollapsed(PINNED_SECTION_ID, [PINNED_SECTION_ID], "comfortable", "")).toBe(true);
     expect(sidebarSectionCollapsed(PINNED_SECTION_ID, [PINNED_SECTION_ID], "comfortable", "writer")).toBe(false);
     expect(sidebarSectionCollapsed(PINNED_SECTION_ID, [PINNED_SECTION_ID], "icons", "")).toBe(false);
-  });
-
-  it("keeps a terminal channel goal meaningful in the sidebar", () => {
-    expect(sidebarGoalRunPreview({
-      runId: "run-1",
-      goal: "Ship the launch post",
-      status: "completed",
-      coordinatorBotId: "lead",
-      coordinatorName: "Lead",
-      turnCount: 3,
-      maxTurns: 13,
-      detail: "Drafted and verified.",
-      startedAt: 1,
-      finishedAt: 2,
-    })).toBe("Completed: Drafted and verified.");
   });
 
   it("previews a connection card by its app and state, not the phone fallback line", () => {

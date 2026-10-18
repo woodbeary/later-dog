@@ -128,11 +128,6 @@ const ROUTINE_FIELDS_SCHEMA = {
     description: "The complete instructions the bot should follow each time the routine runs.",
   },
   schedule: ROUTINE_SCHEDULE_SCHEMA,
-  run_on: {
-    type: "string",
-    enum: ["dog", "box"],
-    description: "Default dog keeps the bot's selected model and configured computer, INCLUDING a self-hosted VPS. Omit this field for normal schedules. box runs on the bot's cloud computer, same model; it needs cloud computers set up and is not the generic cloud/VPS option. Legacy cloud values from list_routines mean box, not VPS.",
-  },
   timeout_minutes: {
     type: "integer",
     minimum: 5,
@@ -245,14 +240,8 @@ const toolDefinitions = (externalRuntime: boolean) => [
   {
     name: "list_bots",
     description:
-      "List the other bots (agents) you may contact across packs in this workspace, with their pack, model and current status. Visibility and explicit peer restrictions still apply; this does not grant access to other workspaces or accounts. Call this to discover exact teammate IDs before assigning work or requesting advice through your available coordination tools.",
+      `List the other bots (agents) you may contact across packs in this workspace, with their pack, model and current status${externalRuntime ? "" : ", and the group chats you are in with their ids"}. Visibility and explicit peer restrictions still apply; this does not grant access to other workspaces or accounts. Call this to discover exact teammate IDs before assigning work or requesting advice through your available coordination tools.`,
     inputSchema: { type: "object", properties: {} },
-  },
-  {
-    name: "list_rooms",
-    description:
-      "List the shared rooms (team channels) you belong to, with the other members of each. Call this before post_to_room. One-to-one bot channels are never listed; discover individual teammates with list_bots. A room you are in but cannot post into is named without an id, together with the reason, so you can tell the user why.",
-    inputSchema: { type: "object", additionalProperties: false, properties: {} },
   },
   {
     name: "ask_bot",
@@ -338,30 +327,15 @@ const toolDefinitions = (externalRuntime: boolean) => [
     },
   },
   {
-    name: "post_to_room",
-    description:
-      "Put one message into a shared room you belong to, for example when the user asks you to tell the team something. Get group_id from list_rooms. This posts and returns: no room member's turn starts, nobody replies, and nothing comes back except confirmation — so never use it to ask a question or hand out work (use ask_bot or delegate_bot for those). Post once, say it in full, and tell the user what you posted. Set attach_voice_note true to attach this turn's voice note. If a post is refused, do not retry it: say what you wanted to post in your reply instead.",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        group_id: { type: "string", description: "The room's id, copied exactly from list_rooms." },
-        message: { type: "string", description: "The complete message to post, written for the room to read as it stands." },
-        attach_voice_note: { type: "boolean", description: "True to attach this turn's send_voice_note recording; the message is its caption. Call send_voice_note first." },
-      },
-      required: ["group_id", "message"],
-    },
-  },
-  {
     name: "create_bot",
     description:
-      "Create a new bot when the person asks for another bot, agent or teammate. If they did not say what it is for, first ask one short question: what it should do, and a name if they have one in mind; otherwise pick a short name yourself. It joins your section with the same access you have (never more) and greets the person in its own chat; then tell them it is in their sidebar. Omit modelSelection for the workspace default. If they gave it a job, hand the job over right away so it starts working without them repeating it. Maximum four new bots per turn.",
+      "Make a new dog when the person asks for another dog, agent or helper. If they did not say what it is for, first ask one short question: what it should do, and a name if they have one in mind; otherwise pick a short name yourself. It gets the same access you have, never more, and says hello in its own chat; then tell them it is in their list. Omit modelSelection for the default model. If they gave it a job, hand the job over right away so they do not have to repeat it.",
     inputSchema: {
       type: "object",
       properties: {
-        name: { type: "string", description: "Short, unique display name for the specialist." },
+        name: { type: "string", description: "Short, unique name for the new dog." },
         role: { type: "string", description: "What it is for, in a few words that finish \"set me up for…\", for example research and writing. Shown as its title." },
-        instructions: { type: "string", description: "What this specialist is responsible for and how it should work." },
+        instructions: { type: "string", description: "What the new dog does and how it should work." },
         modelSelection: { type: "object", additionalProperties: false, properties: {
           instanceId: { type: "string" }, model: { type: "string" },
           effort: { type: "string" }, variant: { type: "string" },
@@ -369,7 +343,7 @@ const toolDefinitions = (externalRuntime: boolean) => [
         cwd: {
           type: "string",
           maxLength: 1024,
-          description: "Absolute path of the folder this specialist's tools read and write in (for example /Users/me/Projects/site). It must already exist. Leave it out for the specialist's private workspace.",
+          description: "Absolute path of the folder the new dog works in (for example /Users/me/Projects/site). It must already exist. Leave it out for its own private folder.",
         },
       },
       required: ["name", "role", "instructions"],
@@ -378,23 +352,18 @@ const toolDefinitions = (externalRuntime: boolean) => [
   {
     name: "create_room",
     description:
-      "Create a group chat (a room) with teammates when the user asks for one (maximum four per turn). Choose active teammates from list_bots; you are included automatically as the default responder. It lands in your own section and starts with no turns or messages, so the person can pick up there. Section moves stay with the user. Follow the tool result under the effective access level; if permission is refused, ask the user to make the room change instead, without trying another route.",
+      "Make a group chat with other dogs when the person asks for one. Pick members from list_bots; you are added and answer by default. It starts empty, so the person can pick up there. If the change is refused, ask the person to make it instead, without trying another route.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
       properties: {
-        name: { type: "string", minLength: 1, maxLength: 100, description: "Display name for the room (e.g. \"Nalamdesk Team\")." },
+        name: { type: "string", minLength: 1, maxLength: 100, description: "Name for the group chat." },
         member_bot_ids: {
           type: "array",
           minItems: 1,
           maxItems: 100,
           items: { type: "string" },
-          description: "List of bot IDs to include as members of the room.",
-        },
-        bulletin: {
-          type: "string",
-          maxLength: 12_000,
-          description: "Optional initial bulletin / goal / instructions pinned for this room.",
+          description: "Ids of the dogs to add.",
         },
       },
       required: ["name", "member_bot_ids"],
@@ -403,16 +372,16 @@ const toolDefinitions = (externalRuntime: boolean) => [
   {
     name: "manage_room",
     description:
-      "Manage a group chat in your own section from list_rooms that you belong to: rename it, change its bulletin, or add/remove/set members. Reachable teammates across packs in this workspace can join; keep yourself as a member. Busy rooms, pending approvals and team-goal leads are protected. You cannot move rooms or bots between sections. Follow the tool result under the effective access level; if the change is refused, report the blocker and ask the user to make the change instead, without trying another route.",
+      "Rename a group chat you are in, or add, remove or set its members. Get room_id from list_bots, which lists the group chats you are in. Keep yourself as a member. A busy group chat, a pending approval and a dog whose routine runs in that chat are protected. If the change is refused, say what blocked it and ask the person to make the change instead, without trying another route.",
     inputSchema: {
       type: "object",
       additionalProperties: false,
       properties: {
-        room_id: { type: "string", description: "The ID of the group room to manage." },
+        room_id: { type: "string", description: "The group chat's id." },
         action: {
           type: "string",
-          enum: ["add_members", "remove_members", "set_members", "rename", "set_bulletin"],
-          description: "The action to perform on the room.",
+          enum: ["add_members", "remove_members", "set_members", "rename"],
+          description: "What to change.",
         },
         member_bot_ids: {
           type: "array",
@@ -420,7 +389,6 @@ const toolDefinitions = (externalRuntime: boolean) => [
           description: "List of bot IDs when action is add_members, remove_members, or set_members.",
         },
         name: { type: "string", minLength: 1, maxLength: 100, description: "New name for the room when action is rename." },
-        bulletin: { type: "string", maxLength: 12_000, description: "New bulletin text when action is set_bulletin; an empty string clears it." },
       },
       required: ["room_id", "action"],
     },
@@ -643,22 +611,6 @@ const toolDefinitions = (externalRuntime: boolean) => [
         reason: { type: "string", minLength: 1, maxLength: 500, description: "One sentence the user will see explaining why." },
       },
       required: ["model_selection", "reason"],
-    },
-  },
-  {
-    name: "propose_team_memory",
-    description:
-      "Propose something every bot on the team should know: who a person is (person), where something lives (place), what was decided (decision), or what a name means (term). Every addition or replacement waits for a workspace admin to confirm its card before entering shared prompts. End the turn and do not claim it is remembered before confirmation; accepted facts stay unchanged until then.",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        kind: { type: "string", enum: ["person", "place", "decision", "term"], description: "What kind of entry this is." },
-        name: { type: "string", maxLength: 120, description: "The person's name, the thing or document, the decision in a few words, or the term." },
-        detail: { type: "string", maxLength: 600, description: "One or two sentences: the person's role, where the thing lives, what was decided and where, what the term means." },
-        aliases: { type: "array", maxItems: 8, items: { type: "string", maxLength: 120 }, description: "Other names it goes by, for example a nickname or an abbreviation." },
-      },
-      required: ["kind", "name", "detail"],
     },
   },
   {

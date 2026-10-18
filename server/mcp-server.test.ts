@@ -267,14 +267,14 @@ describe("MCP tool execution", () => {
           name: "Launch",
           memberIds: ["bot-1", "bot-2"],
           section: "Work",
-          setup: { bulletin: "Ship safely", defaultResponder: { kind: "everyone" } },
+          setup: { defaultResponder: { kind: "everyone" } },
         });
         return { group: { id: "channel-1", name: "Launch", memberIds: ["bot-1", "bot-2"], threadId: "task-1", tasks: [] } };
       }
       throw new Error(`unexpected path ${path}`);
     });
     const result: any = await handleToolCall("create_channel", {
-      name: "Launch", member_ids: ["bot-1", "bot-2"], section: "Work", bulletin: "Ship safely",
+      name: "Launch", member_ids: ["bot-1", "bot-2"], section: "Work",
       default_responder: { kind: "everyone" },
     }, fetcher);
     expect(result.channel.id).toBe("channel-1");

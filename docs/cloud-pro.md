@@ -562,7 +562,7 @@ On the Cloud home (`server/shared-computers.ts`, `server/index.ts`):
   renames, edits, compacts, switches versions of or deletes only its own. Only
   the owner's own devices change a bot's name, title, description, standing
   instructions or notifications (a guest keeps its picture and voice), rename
-  the owner's rooms or change their bulletin, change a conversation's approval
+  the owner's rooms, change a conversation's approval
   level or a bot's default model, or point a routine's results at the owner's
   conversations. On a guest's device (or one of the owner's paired with
   chat-only access) the composer of any other conversation is replaced by a

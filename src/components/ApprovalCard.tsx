@@ -61,7 +61,7 @@ export function approvalCardOutcome(card: OptionCardData): string | undefined {
   if (card.expired === true) return t("approval.status.expired");
   if (!card.answered) return undefined;
   if (card.undone === true) return t("approval.status.undone");
-  const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest || card.teamMemoryRequest);
+  const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest);
   if (card.answered !== "allow") return isProposal ? t("approval.status.cancelled") : t("approval.status.denied");
   const routineAction = card.routineRequest?.operation.action;
   if (routineAction) return t(ROUTINE_SETTLED_LABEL[routineAction]);
@@ -80,7 +80,7 @@ export function approvalCardOutcome(card: OptionCardData): string | undefined {
 export function approvalFoldSummary(card: OptionCardData, tool: string): { outcome: string; action?: string } | undefined {
   const outcome = approvalCardOutcome(card);
   if (!outcome) return undefined;
-  const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest || card.teamMemoryRequest);
+  const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest);
   if (isProposal || card.expired === true || !card.tool) return { outcome };
   const phrase = toolLabel(tool, card.approvalScope);
   return { outcome, action: phrase.charAt(0).toUpperCase() + phrase.slice(1) };
@@ -119,7 +119,6 @@ export function toolLabel(tool?: string, where?: "local-computer"): string {
     mac_computer_call: "approval.tool.macUseApps",
     ask_bot: "approval.tool.messageDog",
     delegate_bot: "approval.tool.delegateDog",
-    post_to_room: "approval.tool.postRoom",
   };
   const key = nice[tool] ?? nice[tool.replace(/^mcp__[^_]+__/, "").replace(/^agents_/, "")];
   if (key) return t(key);
@@ -361,7 +360,7 @@ export function ApprovalCard({
         })
     : undefined;
 
-  const isProposal = isRoutineRequest || isSkillRequest || isProfileRequest || Boolean(card.modelRequest || card.teamMemoryRequest);
+  const isProposal = isRoutineRequest || isSkillRequest || isProfileRequest || Boolean(card.modelRequest);
   const details = (
     <pre
       tabIndex={0}
