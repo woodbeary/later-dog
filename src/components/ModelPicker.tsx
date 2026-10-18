@@ -31,6 +31,7 @@ import { subscriptionAccounts, useCarryOn } from "./AccountsPanel";
 import { SleepingDog } from "./AccountCharge";
 import { AccountBadge, AccountSwitcher, accountUsageLines, activeRest, shownAccounts, UsageRing, usageRingFor } from "./AccountSwitcher";
 import { usePlanUsage, useRefreshAfterTurn } from "./PlanUsage";
+import { isIncludedEngine } from "../../shared/account-engines";
 
 type ModelOption = InstanceInfo["models"]["options"][number];
 const COMPACT_MODEL_COUNT = 5;
@@ -349,8 +350,6 @@ export type RailProvider = {
   selected: boolean;
 };
 
-const INCLUDED_DRIVERS: ReadonlySet<string> = new Set(["laterdogAi", "laterdogGrok"]);
-
 export function railProviders(instances: InstanceInfo[], selectedInstance: InstanceInfo | undefined,
   claudeInstance: InstanceInfo | undefined, openaiInstance: InstanceInfo | undefined) {
   const firstOf: Record<SignInFamily, InstanceInfo | undefined> = {
@@ -360,9 +359,9 @@ export function railProviders(instances: InstanceInfo[], selectedInstance: Insta
   };
   const opensOn: Record<SignInFamily, InstanceInfo | undefined> = { claude: claudeInstance, openai: openaiInstance };
   const ready = (instance: InstanceInfo) => !needsCli(instance) && !needsSignIn(instance);
-  const included = instances.filter((instance) => INCLUDED_DRIVERS.has(instance.driverKind));
-  const twin = (instance: InstanceInfo) => (INCLUDED_DRIVERS.has(instance.driverKind)
-    ? instances.find((other) => !INCLUDED_DRIVERS.has(other.driverKind) && other.displayName === instance.displayName && ready(other))
+  const included = instances.filter((instance) => isIncludedEngine(instance.driverKind));
+  const twin = (instance: InstanceInfo) => (isIncludedEngine(instance.driverKind)
+    ? instances.find((other) => !isIncludedEngine(other.driverKind) && other.displayName === instance.displayName && ready(other))
     : !ready(instance) ? included.find((free) => free.displayName === instance.displayName) : undefined);
   const providers = instances.filter((instance) => {
     const family = signInFamily(instance);

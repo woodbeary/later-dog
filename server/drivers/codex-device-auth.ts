@@ -20,7 +20,7 @@ function loginFailure(output: string): string {
 }
 
 export const CODEX_DEVICE_SIGN_IN: DeviceSignIn = {
-  provider: "codex",
+  prompt: codexDevicePrompt,
   product: "Codex",
   account: "ChatGPT",
   homeEnv: "CODEX_HOME",

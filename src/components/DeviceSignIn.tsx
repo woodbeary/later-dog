@@ -18,8 +18,10 @@ export interface DeviceSignInStatus {
   callbackUrl?: string;
 }
 
-export function deviceSignInProvider(driverKind: string): DeviceSignInProvider {
-  return driverKind === "grokAgent" ? "grok" : "codex";
+const DEVICE_SIGN_IN_PROVIDERS: Partial<Record<string, DeviceSignInProvider>> = { codex: "codex", grokAgent: "grok" };
+
+export function deviceSignInProvider(driverKind: string): DeviceSignInProvider | null {
+  return DEVICE_SIGN_IN_PROVIDERS[driverKind] ?? null;
 }
 
 export const DEVICE_SIGN_IN_COPY: Record<DeviceSignInProvider, Record<"description" | "start" | "enterCode" | "open" | "security" | "connected" | "connectedAccount" | "failed" | "invalidChallenge", LocaleKey>> = {

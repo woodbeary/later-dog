@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { parse as parseYaml } from "yaml";
@@ -8,6 +8,7 @@ import { harnessHome, splitCliString } from "../../env-path.ts";
 import type { DeviceSignIn } from "../device-auth.ts";
 import { decodeInjectId, hostApiKey, localHost, mergeLocalInject } from "../local-inject.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
+import { deviceSignInPrompt } from "../../../shared/device-sign-in.ts";
 import { allowsTool, canUseMcpServer, narrowsNativeTools, parseToolScope } from "../../../shared/tool-scope.ts";
 
 export const STATIC_GROK_MODELS: ModelCatalog = {
@@ -48,8 +49,12 @@ function grokLoginFailure(output: string): string {
   return "Grok sign-in did not finish. Check the server's connection, then try again.";
 }
 
+export function forgetGrokSignIn(env: Record<string, string | undefined>): void {
+  rmSync(join(grokHome(env), "auth.json"), { force: true });
+}
+
 export const GROK_DEVICE_SIGN_IN: DeviceSignIn = {
-  provider: "grok",
+  prompt: (output) => deviceSignInPrompt("grok", output),
   product: "Grok",
   account: "Grok",
   homeEnv: "GROK_HOME",
@@ -58,6 +63,8 @@ export const GROK_DEVICE_SIGN_IN: DeviceSignIn = {
   install: "Install it with xAI's installer (https://x.ai/cli), then try again.",
   failure: grokLoginFailure,
   signedIn: grokSignedIn,
+  logoutArgs: ["logout"],
+  forget: forgetGrokSignIn,
 };
 
 function unquote(raw: string): string {

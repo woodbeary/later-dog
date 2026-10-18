@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 const home = process.env.HOME;
@@ -27,6 +27,9 @@ if (args === "--version") {
     writeFileSync(authenticated, "Offline fixture; not a credential.\n", { mode: 0o600 });
     process.stderr.write("Successfully logged in\n");
   }, 100);
+} else if (args === "logout") {
+  rmSync(authenticated, { force: true });
+  process.stderr.write("Successfully logged out\n");
 } else if (process.argv[2] === "app-server") {
   process.env.FAKE_CODEX_ASTRA = "1";
   process.env.FAKE_CODEX_MODE = "happy";

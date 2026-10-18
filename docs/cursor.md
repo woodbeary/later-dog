@@ -20,7 +20,13 @@ key.
    Windows (native): `irm 'https://cursor.com/install?win32=true' | iex`
 
 2. Sign in with `cursor-agent login`, or set `CURSOR_API_KEY` / `CURSOR_AUTH_TOKEN`
-   in the environment of the Cursor instance.
+   in the environment of the Cursor instance. The desktop's setup card shows that
+   command. The server also offers the instance auth routes
+   (`/api/instances/:id/auth/start`, `/auth/status`, `/auth/sign-out`): they run
+   `cursor-agent login` with `NO_OPEN_BROWSER=1`, return the cursor.com
+   `/loginDeepControl` link the CLI prints, confirm with `cursor-agent status`,
+   and sign out with `cursor-agent logout`. No desktop or phone button uses
+   those routes for Cursor yet.
 
 3. Confirm `cursor-agent --version` works. Cursor's docs call the command `agent`;
    the installer adds `cursor-agent` beside it, and later.dog runs that name,
@@ -63,7 +69,9 @@ bot's current level.
   project or user `.cursor/mcp.json` where needed.
 - Live smoke (`cursor-agent login`, `cursor-agent models`, one real turn) should be run on
   a machine with the CLI installed and signed in before relying on this in
-  production.
+  production. The in-app sign-in is proven only against the offline fake
+  (`server/testing/fake-cursor-login-cli.ts`); the real CLI's printed link and
+  `status` wording have not been checked.
 
 ## Testing
 

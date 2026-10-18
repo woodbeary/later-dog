@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProviderInstance, RuntimeEvent } from "../contracts.ts";
 import { DATA_DIR, NATIVE_DIR } from "../config.ts";
 import { ChatGptPlanAuthController } from "./chatgpt-plan-auth.ts";
+import { CodexDeviceAuthController } from "./codex-device-auth.ts";
 import { recordEvents, type EventRecorder } from "../testing/events.ts";
 import {
   CODEX_CLOUD_SIGN_IN_AGAIN,
@@ -1639,8 +1640,21 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     expect(catalog).toHaveBeenCalledTimes("authMode" in opts ? 1 : 0);
   });
 
+  it("signs the ChatGPT account in with Codex's device code on a Cloud home, in its own folder, never the desktop browser flow", async () => {
+    vi.stubEnv("LATERDOG_CLOUD_ROLE", "home");
+    const planCalls = (["models", "accessToken", "snapshot", "start"] as const).map((name) => vi.spyOn(ChatGptPlanAuthController.prototype, name));
+    const device = vi.spyOn(CodexDeviceAuthController.prototype, "start").mockResolvedValue({ phase: "waiting", flowId: "flow-1", authorizationUrl: "https://auth.openai.com/codex/device", userCode: "FIXT-URE00", expiresAt: null });
+    await create({ authMode: "chatgpt-plan" });
+    expect(instance.authenticationMethod).toBeUndefined();
+    expect(instance.signOut).toBeTypeOf("function");
+    expect(await instance.startAuthentication!()).toMatchObject({ phase: "waiting", userCode: "FIXT-URE00" });
+    expect(device).toHaveBeenCalledTimes(1);
+    const folder = join(DATA_DIR, "providers", "chatgpt-plan", createHash("sha256").update("codex-test").digest("hex"), "codex");
+    expect(readFileSync(join(folder, "config.toml"), "utf8")).toBe('cli_auth_credentials_store = "file"\n');
+    for (const operation of planCalls) expect(operation).not.toHaveBeenCalled();
+  });
+
   it.each([
-    ["Cloud home", "LATERDOG_CLOUD_ROLE", "home"],
     ["hosted enterprise", "LATERDOG_ADMIN_URL", "https://admin.example.test"],
   ])("refuses desktop ChatGPT plan sign-in on %s before accessing credentials or spawning", async (_name, variable, value) => {
     vi.stubEnv(variable, value);

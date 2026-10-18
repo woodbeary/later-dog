@@ -59,6 +59,15 @@ RUN if [ -n "$GROK_VERSION" ]; then \
       && HOME=/tmp/grok-install grok --version | grep -qF "grok $GROK_VERSION " \
       && rm -rf /tmp/grok-install; \
     fi
+ARG CURSOR_VERSION=2026.10.16-e3cb207
+RUN if [ -n "$CURSOR_VERSION" ]; then \
+      case "$(uname -m)" in x86_64|amd64) arch=x64;; arm64|aarch64) arch=arm64;; *) echo "no Cursor build for $(uname -m)" >&2; exit 1;; esac \
+      && mkdir -p /opt/cursor-agent /tmp/cursor-install \
+      && curl -fsSL "https://downloads.cursor.com/lab/${CURSOR_VERSION}/linux/${arch}/agent-cli-package.tar.gz" | tar --strip-components=1 --no-same-owner --no-same-permissions -xzf - -C /opt/cursor-agent \
+      && ln -s /opt/cursor-agent/cursor-agent /usr/local/bin/cursor-agent \
+      && HOME=/tmp/cursor-install cursor-agent --version | grep -qF "$CURSOR_VERSION" \
+      && rm -rf /tmp/cursor-install; \
+    fi
 ARG CLOUD_HOME_ENGINES="@anthropic-ai/claude-code@2.1.301 @openai/codex@0.163.0"
 ARG ENGINES_CACHE_TAG=""
 RUN echo "engines: ${CLOUD_HOME_ENGINES:-none} ${ENGINES_CACHE_TAG}" \

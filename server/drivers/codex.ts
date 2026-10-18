@@ -42,6 +42,7 @@ import { codexAccountEmail, codexHome } from "./codex-identity.ts";
 import { codexUsageLimit, type CodexRateLimits } from "../laterdog/usage-limit.ts";
 import { withContainerAccess } from "../laterdog/codex-container-sandbox.ts";
 import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
+import { chatgptPlanSignIn, cloudChatGptHome } from "../laterdog/cloud-chatgpt.ts";
 import { keyRejected, noteKeyAccepted, noteKeyRejected } from "../key-rejections.ts";
 import { classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { extractMcpImages } from "../mcp-tool-images.ts";
@@ -593,11 +594,13 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
 
   async create(input: DriverCreateInput<CodexConfig>): Promise<ProviderInstance> {
     const { instanceId, config } = input;
-    const plan = config.authMode === "chatgpt-plan";
-    const planUnavailable = plan && (hostedWorkspaceConfigured() || cloudHomeConfigured())
+    const deviceChatGpt = config.authMode === "chatgpt-plan" && chatgptPlanSignIn() === "device-code";
+    const plan = config.authMode === "chatgpt-plan" && !deviceChatGpt;
+    const planUnavailable = plan && hostedWorkspaceConfigured()
       ? "ChatGPT plan sign-in for hosted Pro requires OpenAI's hosted-app approval. Use a Company model or API key until that integration is approved; the local desktop flow cannot be used here."
       : undefined;
     const planDirectory = join(DATA_DIR, "providers", "chatgpt-plan", createHash("sha256").update(instanceId).digest("hex"));
+    const deviceHome = deviceChatGpt ? cloudChatGptHome(planDirectory, input.environment) : null;
     const childEnv = (): Record<string, string | undefined> => {
       const env: Record<string, string | undefined> = {
         ...process.env,
@@ -609,6 +612,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       stripWorkspaceCredentialEnv(env);
       delete env.LATERDOG_CHATGPT_TOKEN;
       if (plan) env.CODEX_HOME = join(planDirectory, "codex");
+      else if (deviceHome) env.CODEX_HOME = deviceHome;
       return env;
     };
     const catalogEnv = childEnv();
@@ -1552,7 +1556,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         autoAcceptPermissions = approvalMode === "full";
         const selection = config.managed
           ? { model: turn.model, modelProvider: "laterdog_company" }
-          : config.authMode === "chatgpt-plan"
+          : plan
             ? { model: turn.model, modelProvider: "openai_chatgpt_plan" }
             : decodeCodexSelection(turn.model);
         const cursor = typeof turn.resumeCursor === "string" ? turn.resumeCursor : null;

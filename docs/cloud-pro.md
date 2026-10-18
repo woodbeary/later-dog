@@ -52,8 +52,17 @@ Contract version: `1` (`cloudContractVersion` on the wire).
 5. Until one of those engines can run, every bot on the Cloud, including the
    default one, shows this sign-in rather than a chat that fails its first
    turn. Once one can run, the chat takes its place. Sign-ins stay on the
-   machine's volume (`~/.claude`, `~/.codex`, `~/.grok`, the server's own
-   config). On an older image without the Grok CLI, Grok's setup card says
+   machine's volume (`~/.claude`, `~/.codex`, `~/.grok`, Cursor's own folder,
+   the server's own config).
+
+   Settings › AI accounts on a Cloud home uses the same sign-ins: the
+   **ChatGPT** tile signs in with Codex's device code (`codex login
+   --device-auth`, in the account's own folder under the data folder), never
+   the desktop's browser sign-in, which OpenAI only allows on the computer
+   running later.dog. **Grok** signs in with xAI's code and signs out with
+   `grok logout`, then removes `~/.grok/auth.json` if it is still there.
+   **Cursor** runs `cursor-agent login` with `NO_OPEN_BROWSER=1`, shows the
+   link it prints, and signs out with `cursor-agent logout`. On an older image without the Grok CLI, Grok's setup card says
    so in one line and offers an xAI key instead.
 
 The Cloud's `GET /api/auth/session` answers `"cloudHome": true` for a paired
@@ -672,6 +681,11 @@ layers (Node, Chrome's libraries, agent-browser and its Chrome) and adds:
   build fails if the installer cannot be reached, rather than shipping an
   image whose Grok sign-in cannot run; `--build-arg GROK_VERSION=` leaves it
   out on purpose;
+- Cursor's CLI (`/usr/local/bin/cursor-agent`, unpacked to `/opt/cursor-agent`)
+  from Cursor's own download, pinned by `CURSOR_VERSION` (the build Cursor's
+  installer named on 2026-10-16). The build checks `cursor-agent --version`
+  prints that version; `--build-arg CURSOR_VERSION=` leaves it out. This pin
+  has not yet been built or signed in to on a real Cloud home;
 - the engine CLIs from `CLOUD_HOME_ENGINES` (default Claude Code 2.1.301 and
   Codex 0.163.0, pinned so an image build installs known versions);
 - the app files, root's, with `server/cloud-home-start.ts` (bundled to

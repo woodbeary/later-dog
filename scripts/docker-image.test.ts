@@ -40,6 +40,7 @@ const shipped = () => all.filter(s => s.name !== "build" && s.name !== "edge").f
 const npmInstall = (step: Step) => step.op === "RUN" && /\bnpm install\b/.test(step.args);
 const browserRun = () => chain("runtime").find(step => step.op === "RUN" && step.args.includes("agent-browser install"))!;
 const grokRun = (steps: Step[]) => steps.findIndex(step => step.op === "RUN" && step.args.includes("https://x.ai/cli/install.sh"));
+const cursorRun = (steps: Step[]) => steps.findIndex(step => step.op === "RUN" && step.args.includes("https://downloads.cursor.com/lab/"));
 const jq = process.platform === "win32" ? "" : spawnSync("sh", ["-c", "command -v jq"], { encoding: "utf8" }).stdout.trim();
 
 const temporaryDirectories: string[] = [];
@@ -110,13 +111,30 @@ describe("container images", () => {
     expect(grokRun(chain("server"))).toBe(-1);
   });
 
+  it("installs the pinned Cursor in Cloud home only, beneath the engines and the app, owned by root", () => {
+    const home = chain("cloud-home");
+    const cursor = cursorRun(home);
+    expect(cursor).toBeGreaterThan(-1);
+    expect(home.slice(0, cursor)).toContainEqual({ op: "ARG", args: expect.stringMatching(/^CURSOR_VERSION=\d{4}\.\d{2}\.\d{2}-[0-9a-f]{7}$/) });
+    expect(cursor).toBeLessThan(home.findLastIndex(npmInstall));
+    expect(cursor).toBeGreaterThan(grokRun(home));
+    expect(cursor).toBeLessThan(home.findIndex(step => step.args.includes("--from=build")));
+    const { args } = home[cursor];
+    expect(args).toContain('"https://downloads.cursor.com/lab/${CURSOR_VERSION}/linux/${arch}/agent-cli-package.tar.gz"');
+    expect(args).toContain("tar --strip-components=1 --no-same-owner --no-same-permissions -xzf - -C /opt/cursor-agent");
+    expect(args).toContain("ln -s /opt/cursor-agent/cursor-agent /usr/local/bin/cursor-agent");
+    expect(args).toContain('cursor-agent --version | grep -qF "$CURSOR_VERSION"');
+    expect(args).toMatch(/ && rm -rf \/tmp\/cursor-install; +fi$/);
+    expect(cursorRun(chain("server"))).toBe(-1);
+  });
+
   it.skipIf(!publishes)("scans the saved images for every throwaway build directory, and for one Grok", () => {
     const scan = (workflow.jobs["build-and-smoke"].steps as { name?: string; run?: string }[])
       .find(step => step.name?.startsWith("Prove each image ships its files once"))!.run!;
     const cache = new RegExp(/cache = re\.compile\(r"(.*)"\)/.exec(scan)![1]);
     const removed = shipped().flatMap(step => [...step.args.matchAll(/\brm -rf ([^;&|]+)/g)].flatMap(match => match[1].trim().split(/\s+/)));
     const throwaway = [...new Set(removed.filter(path => path.startsWith("/tmp/")))].sort();
-    expect(throwaway).toEqual(["/tmp/grok-install", "/tmp/node-compile-cache", "/tmp/npm-cache", "/tmp/laterdog-build-home"]);
+    expect(throwaway).toEqual(["/tmp/cursor-install", "/tmp/grok-install", "/tmp/node-compile-cache", "/tmp/npm-cache", "/tmp/laterdog-build-home"]);
     for (const path of throwaway) expect(cache.test(`${path.slice(1)}/leftover`), path).toBe(true);
     expect(scan).toContain('grok = files["usr/local/bin/grok"]');
   });

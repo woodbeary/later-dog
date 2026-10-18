@@ -210,6 +210,38 @@ describe.skipIf(process.platform === "win32")("Grok Build sign-in with a device 
     expect(alive(running)).toBe(false);
   });
 
+  it.each(["success", "logout-keeps", "logout-fails"])("signs out with %s: Grok's own logout first, then the stored sign-in is gone", async (mode) => {
+    mkdirSync(join(home, ".grok"));
+    writeFileSync(join(home, ".grok", "auth.json"), JSON.stringify({ access_token: "fixture-only" }));
+    const instance = await grok(mode);
+    expect(instance.signOut).toBeTypeOf("function");
+    expect((await instance.snapshot()).authenticated).toBe(true);
+    await instance.signOut!();
+    expect(existsSync(join(home, ".grok", "auth.json"))).toBe(false);
+    expect((await instance.snapshot()).authenticated).toBe(false);
+    expect(calls().filter((call) => call.args[0] === "logout")).toHaveLength(1);
+  });
+
+  it("signs out of the instance's own GROK_HOME only", async () => {
+    const grokHome = join(home, "work-grok");
+    mkdirSync(grokHome);
+    mkdirSync(join(home, ".grok"));
+    writeFileSync(join(grokHome, "auth.json"), JSON.stringify({ access_token: "fixture-only" }));
+    writeFileSync(join(home, ".grok", "auth.json"), JSON.stringify({ access_token: "other-fixture" }));
+    await (await grok("logout-keeps", { GROK_HOME: grokHome })).signOut!();
+    expect(existsSync(join(grokHome, "auth.json"))).toBe(false);
+    expect(existsSync(join(home, ".grok", "auth.json"))).toBe(true);
+  });
+
+  it("has nothing to do when Grok is already signed out, and waits for a sign-in in progress", async () => {
+    const instance = await grok("waiting");
+    await instance.signOut!();
+    expect(existsSync(join(home, "fake-grok-calls.jsonl")) ? calls().filter((call) => call.args[0] === "logout") : []).toEqual([]);
+    await instance.startAuthentication!();
+    await expect(instance.signOut!()).rejects.toThrow("Finish or cancel the Grok sign-in in progress before signing out.");
+    await instance.cancelAuthentication!();
+  });
+
   it("approves through the reusable fixture only once its local marker exists", async () => {
     const instance = await grok("approve");
     const start = await instance.startAuthentication!();

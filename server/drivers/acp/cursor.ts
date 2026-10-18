@@ -1,6 +1,7 @@
 import type { ModelCatalog, ProviderErrorCode } from "../../contracts.ts";
 import { titleCaseModelId } from "../../contracts.ts";
 import { execCli } from "../../procs.ts";
+import { CURSOR_DEVICE_SIGN_IN } from "../../laterdog/cursor-sign-in.ts";
 import { createAcpDriver, type AcpSupport } from "./core.ts";
 
 export function resolveCursorAcpModelId(
@@ -308,6 +309,7 @@ const support = (run: typeof execCli): AcpSupport => ({
     docsUrl: "https://cursor.com/docs/cli/installation",
     signInCommand: "cursor-agent login",
   },
+  deviceSignIn: CURSOR_DEVICE_SIGN_IN,
 
   spawnArgs: (config, turn) => [
     ...(config.fullAuto ? ["--force"] : turn.approvalMode === "auto" ? ["--auto-review"] : []),

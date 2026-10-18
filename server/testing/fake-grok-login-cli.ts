@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 const home = process.env.HOME;
@@ -45,6 +45,13 @@ if (args.join(" ") === "--version") {
     if (mode === "ignore-term") process.on("SIGTERM", () => {});
     setInterval(() => {}, 1000);
   }
+} else if (args.join(" ") === "logout") {
+  if (mode === "logout-fails") {
+    process.stderr.write("Could not reach the leader. secret-token\n");
+    process.exit(1);
+  }
+  if (mode !== "logout-keeps") rmSync(join(grokHome, "auth.json"), { force: true });
+  process.stderr.write("Signed out of Grok.\n");
 } else {
   process.stderr.write("Unsupported offline fixture command.\n");
   process.exitCode = 2;

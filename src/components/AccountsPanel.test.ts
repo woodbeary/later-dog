@@ -7,7 +7,7 @@ import { setLocale } from "@/lib/i18n";
 import type { PlanProvider } from "./PlanUsage";
 
 type State = { config: Pick<ConfigStatus, "accountBattery">; instances: InstanceInfo[] };
-type SignInProps = { instanceId: string; autoStart?: boolean; compact?: boolean; browserPkce?: boolean; onSignedIn?: () => void; onCancelled?: () => void };
+type SignInProps = { instanceId: string; autoStart?: boolean; compact?: boolean; browserPkce?: boolean; provider?: string; onSignedIn?: () => void; onCancelled?: () => void };
 type Report = { providers: Array<Partial<PlanProvider> & { id: string }> };
 
 const fixture = vi.hoisted(() => ({
@@ -55,6 +55,7 @@ vi.mock("./DeviceSignIn", () => ({
     fixture.signIns.push({ kind: "device", props });
     return createElement("div", { "data-sign-in": "device" });
   },
+  deviceSignInProvider: (driverKind: string) => (driverKind === "grokAgent" ? "grok" : "codex"),
 }));
 
 const { AccountsPanel, AccountsRefresh, accountOrder, pollSignedIn, realAccount, removable, shownOrder, subscriptionAccounts, useCarryOn } = await import("./AccountsPanel");
@@ -79,6 +80,12 @@ const codexLogin = (snapshot: Partial<InstanceInfo["snapshot"]> = {}): InstanceI
   instanceId: "codex", driverKind: "codex", displayName: "Codex", access: "subscription",
   snapshot: { state: "available", authenticated: true, ...snapshot },
   models: { default: "gpt-5", options: [] },
+  authentication: { method: "device-code", signOut: true },
+});
+const grokAccount = (snapshot: Partial<InstanceInfo["snapshot"]> = {}): InstanceInfo => ({
+  instanceId: "grok", driverKind: "grokAgent", displayName: "Grok", access: "subscription",
+  snapshot: { state: "available", authenticated: true, ...snapshot },
+  models: { default: "grok-4.7", options: [] },
   authentication: { method: "device-code", signOut: true },
 });
 const claudeApi = (): InstanceInfo => ({ ...claude("claudeApi", "Claude API", { account: { method: "api-key" } }), access: "api" });
@@ -617,6 +624,33 @@ describe("Accounts", () => {
     expect(sheet()).toBeNull();
     expect(ids()).toEqual(["claude"]);
     expect(fixture.api).not.toHaveBeenCalled();
+  });
+
+  it("adds the one Grok account with xAI's code, lists it, and signs it out from its row", async () => {
+    await remount({ instances: [claude("claude", "Claude"), grokAccount({ authenticated: false })] });
+    expect(ids()).toEqual(["claude"]);
+    await click(button("Add account"));
+    expect(all("[data-account-engine]").map((tile) => tile.dataset.accountEngine)).toEqual(["claudeAgent", "codex", "grokAgent"]);
+    await click(button("Grok", sheet()!));
+    expect(sheet()?.getAttribute("aria-label")).toBe("Sign in to Grok");
+    expect(lastSignIn()).toMatchObject({ kind: "device", props: { instanceId: "grok", browserPkce: false, provider: "grok", autoStart: true } });
+    await act(async () => publish({ instances: signedInAs("grok", "me@example.test") }));
+    await act(async () => lastSignIn().props.onSignedIn!());
+    await settle();
+    expect(sheet()).toBeNull();
+    expect(ids()).toEqual(["claude", "grok"]);
+    expect(document.body.querySelector('[data-accounts-panel] [role="switch"]')).toBeNull();
+    expect(document.body.querySelector("[data-accounts-panel] [data-account-grip]")).toBeNull();
+
+    await click(button("Add account"));
+    expect(all("[data-account-engine]").map((tile) => tile.dataset.accountEngine)).toEqual(["claudeAgent", "codex"]);
+    await press(sheet()!, "Escape");
+
+    fixture.api.mockResolvedValueOnce({ instances: signedOut("grok") });
+    await click(removeButton("Grok"));
+    await click(button("Remove", row("grok")!));
+    expect(fixture.api).toHaveBeenCalledWith("/api/instances/grok/auth/sign-out", { method: "POST" });
+    expect(fixture.api).not.toHaveBeenCalledWith("/api/instances/grok", { method: "DELETE" });
   });
 
   it("fetches the list again when the sign-in's snapshot lags, and still ends signed in without a refresh press", async () => {

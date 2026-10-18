@@ -31,13 +31,19 @@ const create = () => IncludedAiDriver.create({ instanceId: INCLUDED_AI_INSTANCE,
 describe("later.dog AI", () => {
   it("is in every fleet, and waits for the free trial without calling anyone", async () => {
     expect(instanceConfigs({} as never)[INCLUDED_AI_INSTANCE]).toMatchObject({ driver: "laterdogAi", displayName: "Kimi" });
-    expect(instanceConfigs({} as never).laterdogGrok).toMatchObject({ driver: "laterdogGrok", displayName: "Grok" });
+    expect(instanceConfigs({} as never).laterdogGrok).toMatchObject({ driver: "laterdogGrok", displayName: "Grok (free)" });
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);
     const instance = await create();
     expect(await instance.snapshot()).toMatchObject({ state: "unavailable", reason: "Start the free trial to use the free models." });
     expect(fetcher).not.toHaveBeenCalled();
     await instance.dispose();
+  });
+
+  it("keeps the free Grok's own name, so a signed-in Grok account is never taken for it", () => {
+    const saved = instanceConfigs({ instances: { claude: { driver: "claudeAgent" }, grok: { driver: "grokAgent", displayName: "Grok" }, laterdogGrok: { driver: "laterdogGrok", displayName: "Grok" } } } as never);
+    expect(saved.laterdogGrok).toMatchObject({ driver: "laterdogGrok", displayName: "Grok (free)" });
+    expect(saved.grok).toMatchObject({ driver: "grokAgent", displayName: "Grok" });
   });
 
   it("answers through later.dog's relay with the trial key once the trial is live", async () => {

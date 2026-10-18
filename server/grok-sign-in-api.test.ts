@@ -56,12 +56,12 @@ describe.skipIf(process.platform === "win32")("Grok Build sign-in over HTTP", ()
     if (home) await removeTempDir(home);
   });
 
-  it("lists Grok signed out, with the in-app code as its sign-in and the terminal command kept", async () => {
+  it("lists Grok signed out, with the in-app code as its sign-in, sign-out, and the terminal command kept", async () => {
     await vi.waitFor(async () => expect((await grok())?.snapshot?.state).toBe("available"), { timeout: 15_000, interval: 200 });
     expect(await grok()).toMatchObject({
       driverKind: "grokAgent",
       snapshot: { state: "available", authenticated: false },
-      authentication: { method: "device-code", signOut: false },
+      authentication: { method: "device-code", signOut: true },
       install: { signInCommand: "grok login" },
     });
   });
@@ -95,5 +95,13 @@ describe.skipIf(process.platform === "win32")("Grok Build sign-in over HTTP", ()
       expect((await api("GET", `/api/instances/${ID}/auth/status?flowId=${flowId}`)).body.auth.phase).toBe("succeeded");
     }, { timeout: 10_000, interval: 200 });
     expect((await grok()).snapshot).toMatchObject({ state: "available", authenticated: true });
+  });
+
+  it("signs out: the stored Grok sign-in is gone and Grok reads signed out", async () => {
+    const signedOut = await api("POST", `/api/instances/${ID}/auth/sign-out`, {});
+    expect(signedOut.status, JSON.stringify(signedOut.body)).toBe(200);
+    expect(signedOut.headers.get("cache-control")).toBe("no-store");
+    expect(existsSync(join(home, ".grok", "auth.json"))).toBe(false);
+    expect((await grok()).snapshot).toMatchObject({ state: "available", authenticated: false });
   });
 });

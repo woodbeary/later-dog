@@ -482,10 +482,10 @@ export function EngineSetup({
   const installCommand = installCommandFor(install);
   const signInCommand = install?.signInCommand;
   const signInOnly = intent === "cloud" && needsSignIn(instance);
-  const deviceSignIn = signInOnly && instance.authentication?.method === "device-code";
+  const provider = deviceSignInProvider(instance.driverKind);
+  const deviceSignIn = signInOnly && instance.authentication?.method === "device-code" && provider !== null;
   const browserSignIn = signInOnly && instance.authentication?.method === "browser-pkce";
   const pasteSignIn = signInOnly && instance.authentication?.method === "paste-code";
-  const provider = deviceSignInProvider(instance.driverKind);
   const command = signInOnly ? signInCommand : installCommand;
   const title = signInOnly
     ? t("engineSetup.signInTitle", { name: instance.displayName })
@@ -493,7 +493,7 @@ export function EngineSetup({
   const description = descriptionOverride ?? (signInOnly
     ? browserSignIn
       ? t("engineSetup.chatgpt.description")
-      : deviceSignIn
+      : deviceSignIn && provider
       ? t(DEVICE_SIGN_IN_COPY[provider].description)
       : pasteSignIn
       ? t("engineSetup.claude.description")
@@ -549,7 +549,7 @@ export function EngineSetup({
 
       {deviceSignIn || browserSignIn ? (
         <>
-          <DeviceSignIn key={instance.instanceId} instanceId={instance.instanceId} browserPkce={browserSignIn} provider={provider} />
+          <DeviceSignIn key={instance.instanceId} instanceId={instance.instanceId} browserPkce={browserSignIn} provider={provider ?? "codex"} />
           {deviceSignIn && provider === "grok" && signInCommand && serverTerminal(cloudHome) && (
             <details className="mt-2 rounded-lg border border-hairline/50 bg-app px-2.5 py-2 text-[11.5px] text-ink-secondary">
               <summary className="cursor-pointer select-none">{t("engineSetup.preferTerminal")}</summary>

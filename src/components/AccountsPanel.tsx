@@ -4,12 +4,13 @@ import { ChevronDown, GripVertical, Loader2, RefreshCw, X } from "lucide-react";
 import { api, useStore, type ConfigStatus, type InstanceInfo } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
-import { requestAccountSignIn, requestAddAccount } from "@/lib/add-account-request";
+import { requestAccountSignIn, requestAddAccount, type AddAccountKind } from "@/lib/add-account-request";
 import { useModalDialog } from "@/hooks/use-modal-dialog";
 import { Switch } from "./SettingsPrimitives";
-import { ClaudeMark, CodexMark } from "./ProviderIcons";
+import { ClaudeMark, CodexMark, GrokMark } from "./ProviderIcons";
 import { ClaudeSignIn } from "./ClaudeSignIn";
-import { DeviceSignIn } from "./DeviceSignIn";
+import { EngineSetup } from "./EngineSetup";
+import { DeviceSignIn, deviceSignInProvider } from "./DeviceSignIn";
 import { usageLines, usageReading, usePlanUsage, type PlanProvider, resetDistance } from "./PlanUsage";
 import { backAt, restSummary, SleepingDog, usageLeft } from "./AccountCharge";
 import { AccountCharge } from "./AccountBattery";
@@ -18,14 +19,20 @@ import { MoreProviders, ProviderKeyFields, keyProviders, keyStepTitle } from "./
 
 type Battery = NonNullable<ConfigStatus["accountBattery"]>;
 type Rest = NonNullable<Battery["resting"]>[string];
-export type AccountKind = "claudeAgent" | "codex";
+export type AccountKind = AddAccountKind;
 
-export const ACCOUNT_ENGINES: ReadonlyArray<{ kind: AccountKind; name: string; route: string; defaultId: string }> = [
+export const ACCOUNT_ENGINES: ReadonlyArray<{ kind: AccountKind; name: string; route?: string; defaultId: string }> = [
   { kind: "claudeAgent", name: "Claude", route: "/api/instances/claude-accounts", defaultId: "claude" },
   { kind: "codex", name: "ChatGPT", route: "/api/instances/chatgpt-accounts", defaultId: "chatgpt" },
+  { kind: "grokAgent", name: "Grok", defaultId: "grok" },
 ];
 
-const DEFAULT_ACCOUNT_IDS = new Set(["claude", "chatgpt", "codex"]);
+const CARRY_ON_KINDS: readonly AccountKind[] = ["claudeAgent", "codex"];
+const ALL_KINDS: readonly AccountKind[] = ACCOUNT_ENGINES.map((engine) => engine.kind);
+
+const DEFAULT_ACCOUNT_IDS = new Set(["claude", "chatgpt", "codex", "grok"]);
+
+const carriesOn = (instance: InstanceInfo) => (CARRY_ON_KINDS as readonly string[]).includes(instance.driverKind);
 
 export const pill = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45";
 const primary = cn(pill, "bg-accent text-white hover:bg-accent");
@@ -35,15 +42,15 @@ export function signedIn(instance: InstanceInfo): boolean {
   return instance.snapshot.state !== "unavailable" && instance.snapshot.authenticated !== false;
 }
 
-export function subscriptionAccounts(instances: readonly InstanceInfo[], battery: Pick<Battery, "order" | "sequence"> | undefined): InstanceInfo[] {
+export function subscriptionAccounts(instances: readonly InstanceInfo[], battery: Pick<Battery, "order" | "sequence"> | undefined, kinds: readonly AccountKind[] = CARRY_ON_KINDS): InstanceInfo[] {
   const rows: InstanceInfo[] = [];
-  for (const engine of ACCOUNT_ENGINES) {
-    for (const id of battery?.order?.[engine.kind] ?? []) {
+  for (const kind of kinds) {
+    for (const id of battery?.order?.[kind] ?? []) {
       const instance = instances.find((candidate) => candidate.instanceId === id);
-      if (instance && instance.driverKind === engine.kind && eligible(instance) && !rows.includes(instance)) rows.push(instance);
+      if (instance && instance.driverKind === kind && eligible(instance) && !rows.includes(instance)) rows.push(instance);
     }
     for (const instance of instances) {
-      if (instance.driverKind !== engine.kind || rows.includes(instance)) continue;
+      if (instance.driverKind !== kind || rows.includes(instance)) continue;
       if (eligible(instance)) rows.push(instance);
     }
   }
@@ -71,7 +78,7 @@ export function realAccount(instance: InstanceInfo): boolean {
 
 export function unusedDefault(instances: readonly InstanceInfo[], kind: AccountKind): InstanceInfo | undefined {
   const id = ACCOUNT_ENGINES.find((engine) => engine.kind === kind)?.defaultId;
-  return subscriptionAccounts(instances, undefined).find((instance) =>
+  return subscriptionAccounts(instances, undefined, [kind]).find((instance) =>
     instance.instanceId === id && !signedIn(instance) && instance.authentication !== undefined);
 }
 
@@ -109,7 +116,7 @@ function useListedAccounts(accounts: readonly InstanceInfo[]) {
 
 export function accountOrder(accounts: readonly InstanceInfo[]): Record<string, string[]> {
   const order: Record<string, string[]> = {};
-  for (const engine of ACCOUNT_ENGINES) order[engine.kind] = accounts.filter((account) => account.driverKind === engine.kind).map((account) => account.instanceId);
+  for (const kind of CARRY_ON_KINDS) order[kind] = accounts.filter((account) => account.driverKind === kind).map((account) => account.instanceId);
   return order;
 }
 
@@ -165,7 +172,7 @@ export function useCarryOn() {
 }
 
 function AccountMark({ kind, size = 20 }: { kind: string; size?: number }) {
-  return kind === "codex" ? <CodexMark size={size} /> : <ClaudeMark size={size} />;
+  return kind === "codex" ? <CodexMark size={size} /> : kind === "grokAgent" ? <GrokMark size={size} /> : <ClaudeMark size={size} />;
 }
 
 function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGone }: {
@@ -375,11 +382,12 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
   const engine = sheet.step === "name" ? ACCOUNT_ENGINES.find((candidate) => candidate.kind === sheet.kind) : undefined;
   const instance = sheet.step === "signIn" || sheet.step === "key" ? instances.find((candidate) => candidate.instanceId === sheet.instanceId) : undefined;
   const providers = keyProviders(instances);
+  const tiles = ACCOUNT_ENGINES.filter((candidate) => candidate.route || unusedDefault(instances, candidate.kind));
 
   const create = async (event: FormEvent) => {
     event.preventDefault();
     const displayName = name.trim();
-    if (!engine || !displayName || creating) return;
+    if (!engine?.route || !displayName || creating) return;
     setCreating(true);
     setError(null);
     try {
@@ -404,8 +412,8 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
         <h2 className="text-[15px] font-semibold">{title}</h2>
         {sheet.step === "pick" && (
           <div className="mt-4 flex flex-col gap-3">
-            <div className="grid grid-cols-2 gap-3">
-              {ACCOUNT_ENGINES.map((candidate) => (
+            <div className={cn("grid gap-3", tiles.length > 2 ? "grid-cols-3" : "grid-cols-2")}>
+              {tiles.map((candidate) => (
                 <button
                   key={candidate.kind}
                   type="button"
@@ -478,11 +486,14 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
               <InstallFirst instance={instance} onCancel={onClose} />
             ) : instance.driverKind === "claudeAgent" ? (
               <ClaudeSignIn key={instance.instanceId} instanceId={instance.instanceId} autoStart compact onSignedIn={() => onSignedIn(instance.instanceId)} onCancelled={onClose} />
+            ) : instance.authentication?.method === "device-code" && !deviceSignInProvider(instance.driverKind) ? (
+              <EngineSetup instance={instance} unframed />
             ) : (
               <DeviceSignIn
                 key={instance.instanceId}
                 instanceId={instance.instanceId}
                 browserPkce={instance.authentication?.method !== "device-code"}
+                provider={deviceSignInProvider(instance.driverKind) ?? "codex"}
                 autoStart
                 compact
                 onSignedIn={() => onSignedIn(instance.instanceId)}
@@ -528,16 +539,17 @@ function InstallFirst({ instance, onCancel }: { instance: InstanceInfo; onCancel
 export function AccountsPanel() {
   const { state } = useStore();
   const battery = state.config?.accountBattery;
-  const { listed: accounts, forget } = useListedAccounts(subscriptionAccounts(state.instances, battery));
+  const { listed: accounts, forget } = useListedAccounts(subscriptionAccounts(state.instances, battery, ALL_KINDS));
   const loaded = state.instances.length > 0;
   const signedInCount = accounts.filter(signedIn).length;
+  const carryOnCount = accounts.filter((account) => signedIn(account) && carriesOn(account)).length;
   const { report, now } = usePlanUsage();
   const carryOn = useCarryOn();
   const drag = useAccountDrag(
     accounts.map((instance) => ({
       id: instance.instanceId,
       kind: "account",
-      movable: carryOn.canReorder && accounts.length > 1,
+      movable: carryOn.canReorder && accounts.filter(carriesOn).length > 1 && carriesOn(instance),
     })),
     (ids) => void carryOn.reorder(ids),
   );
@@ -578,7 +590,7 @@ export function AccountsPanel() {
         <div className="flex items-center gap-3 border-t border-hairline/40 px-4 py-3">
           <button type="button" data-accounts-add onClick={() => requestAddAccount()} className={pill}>{t("accounts.add")}</button>
         </div>
-        {(signedInCount >= 2 || carryOn.on) && (
+        {(carryOnCount >= 2 || carryOn.on) && (
           <div className="flex items-center justify-between gap-3 border-t border-hairline/40 px-4 py-3">
             <div className="min-w-0">
               <div className="text-[13px] text-ink">{t("accounts.carryOn")}</div>

@@ -10,6 +10,7 @@ import { newBotDefaultsSchema, type NewBotDefaults } from "./new-bot-defaults.ts
 import { EFFORT_LEVELS, type EffortLevel, type LiveSettings } from "../shared/wire.ts";
 import { isModelVariant, type InstanceConfigMap, type ModelSelection } from "./contracts.ts";
 import { PROVIDER_ICON_PRESETS, providerIconError } from "../shared/provider-icon.ts";
+import { isIncludedEngine } from "../shared/account-engines.ts";
 import type { McpServerSpec } from "./contracts.ts";
 import { BUILT_IN_MCP_SERVER, isRemoteMcpServer, parseStoredMcpServer } from "./mcp-registry.ts";
 import { parseJson, schemaIssue, type JsonObject, type JsonValue } from "./schema.ts";
@@ -1287,7 +1288,7 @@ const API_KEY_FLEET: InstanceConfigMap = {
     config: { url: "https://openrouter.ai/api/v1", apiKeyEnv: "LATERDOG_OPENROUTER_API_KEY" },
   },
   laterdogAi: { driver: "laterdogAi", displayName: "Kimi", access: "subscription", icon: { kind: "preset", preset: "moonshot" } },
-  laterdogGrok: { driver: "laterdogGrok", displayName: "Grok", access: "subscription", icon: { kind: "preset", preset: "xai" } },
+  laterdogGrok: { driver: "laterdogGrok", displayName: "Grok (free)", access: "subscription", icon: { kind: "preset", preset: "xai" } },
 };
 
 export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
@@ -1337,7 +1338,7 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
     const saved = map[id];
     if (!saved || saved.driver !== builtIn.driver) continue;
     const savedConfig = typeof saved.config === "object" && saved.config !== null && !Array.isArray(saved.config) ? saved.config : {};
-    map[id] = { ...builtIn, ...saved, config: { ...(builtIn.config as object | undefined), ...savedConfig } };
+    map[id] = { ...builtIn, ...saved, ...(isIncludedEngine(id) ? { displayName: builtIn.displayName } : {}), config: { ...(builtIn.config as object | undefined), ...savedConfig } };
   }
   if (map.chatgpt?.driver === "codex") {
     const saved = typeof map.chatgpt.config === "object" && map.chatgpt.config !== null && !Array.isArray(map.chatgpt.config) ? map.chatgpt.config : {};

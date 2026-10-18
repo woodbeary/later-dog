@@ -4,7 +4,6 @@ import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { stripVTControlCharacters } from "node:util";
-import { deviceSignInPrompt, type DeviceSignInProvider } from "../../shared/device-sign-in.ts";
 import type { ProviderAuthenticationStart, ProviderAuthenticationStatus } from "../contracts.ts";
 import { killCliTree, spawnCli } from "../procs.ts";
 
@@ -22,18 +21,22 @@ type Env = Record<string, string | undefined>;
 
 export type DeviceSignInState = "signed-in" | "signed-out" | "other" | "unknown";
 
+export type DeviceSignInPrompt = { authorizationUrl: string; userCode?: string };
+
 export interface DeviceSignIn {
-  provider: DeviceSignInProvider;
+  prompt(output: string): DeviceSignInPrompt | null;
   product: string;
   account: string;
   homeEnv: string;
   homeDir: string;
   loginArgs: readonly string[];
+  loginEnv?: Readonly<Record<string, string>>;
   install: string;
   failure(output: string): string;
   status?: { args: readonly string[]; read(code: number | null, output: string): DeviceSignInState };
   signedIn?(env: Env): boolean;
   logoutArgs?: readonly string[];
+  forget?(env: Env): void;
 }
 
 type Flow = {
@@ -109,7 +112,7 @@ export class DeviceAuthController {
       flow.startupTimer.unref();
       flow.expiryTimer.unref();
       this.flow = flow;
-      const login = () => this.run(flow, [...this.spec.loginArgs], env, home, (loginCode, loginOutput) => {
+      const login = () => this.run(flow, [...this.spec.loginArgs], { ...env, ...this.spec.loginEnv }, home, (loginCode, loginOutput) => {
         if (loginCode !== 0 || !flow.ready) {
           this.finish(flow, "failed", this.spec.failure(loginOutput));
           return;
@@ -150,9 +153,14 @@ export class DeviceAuthController {
     this.flow = null;
   }
 
+  get canSignOut(): boolean {
+    const { status, logoutArgs, signedIn, forget } = this.spec;
+    return Boolean(status ? logoutArgs : signedIn && (logoutArgs || forget));
+  }
+
   async signOut(): Promise<void> {
     const { product, account, status, logoutArgs } = this.spec;
-    if (!status || !logoutArgs) throw new Error(`Signing out of ${account} is not available from here.`);
+    if (!this.canSignOut) throw new Error(`Signing out of ${account} is not available from here.`);
     if (this.disposed) throw new Error("This provider was removed. Refresh Settings before signing out.");
     if (this.flow?.status.phase === "waiting") throw new Error(`Finish or cancel the ${account} sign-in in progress before signing out.`);
     await this.flow?.stopping;
@@ -164,13 +172,17 @@ export class DeviceAuthController {
     }
     authenticatingHomes.add(homeKey);
     try {
+      if (!status) {
+        await this.forgetStored(env, home);
+        return;
+      }
       const before = await this.exec([...status.args], env, home);
       const state = status.read(before.code, before.output);
       if (state === "signed-out") return;
       if (state !== "signed-in") {
         throw new Error(`${product} did not confirm a ${account} sign-in. Other authentication methods will not be removed; ask the server administrator to check the account.`);
       }
-      const logout = await this.exec([...logoutArgs], env, home);
+      const logout = await this.exec([...logoutArgs!], env, home);
       if (logout.code !== 0) throw new Error(`${product} could not remove the sign-in on this server. Check the server's ${product} installation and try again.`);
       const after = await this.exec([...status.args], env, home);
       if (status.read(after.code, after.output) !== "signed-out") {
@@ -182,6 +194,19 @@ export class DeviceAuthController {
         child.once("close", () => authenticatingHomes.delete(homeKey));
       } else authenticatingHomes.delete(homeKey);
     }
+  }
+
+  private async forgetStored(env: Env, home: string): Promise<void> {
+    const { product, account, logoutArgs, forget } = this.spec;
+    const stored = () => { try { return this.spec.signedIn?.(env) === true; } catch { return true; } };
+    if (!stored()) return;
+    if (logoutArgs) await this.exec([...logoutArgs], env, home).catch(() => null);
+    if (stored()) {
+      try { forget?.(env); } catch {
+        throw new Error(`${product} could not remove the ${account} sign-in on this server. Check the server's ${product} folder and try again.`);
+      }
+    }
+    if (stored()) throw new Error(`${product} still reports a sign-in on this server. Update ${product} and check its login status before trying again.`);
   }
 
   private confirm(flow: Flow, env: Env, home: string, done: (signedIn: boolean) => void): void {
@@ -244,7 +269,7 @@ export class DeviceAuthController {
 
   private run(flow: Flow, args: string[], env: Env, cwd: string,
     done: (code: number | null, output: string) => void, parsePrompt = false): void {
-    const { product, provider } = this.spec;
+    const { product } = this.spec;
     if (flow.status.phase !== "waiting") return;
     let child: ReturnType<typeof spawnCli>;
     try {
@@ -263,7 +288,7 @@ export class DeviceAuthController {
         return;
       }
       output += chunk.toString("utf8");
-      const prompt = parsePrompt && !flow.ready ? deviceSignInPrompt(provider, stripVTControlCharacters(output)) : null;
+      const prompt = parsePrompt && !flow.ready ? this.spec.prompt(stripVTControlCharacters(output)) : null;
       if (prompt) {
         flow.status = { ...flow.status, ...prompt };
         flow.ready = true;

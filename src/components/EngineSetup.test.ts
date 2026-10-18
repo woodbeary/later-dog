@@ -198,7 +198,7 @@ describe("server device-code sign-in", () => {
     const engine: InstanceInfo = {
       ...instance({ state: "available", authenticated: false }),
       instanceId: "codex",
-      driverKind: "codexAgent",
+      driverKind: "codex",
       displayName: "Codex",
       authentication: { method: "device-code" },
       install: { signInCommand: "codex login" },

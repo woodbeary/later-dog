@@ -1,5 +1,6 @@
 import type { EffortLevel, EngineAccess, ModelCatalog, ModelSelection, ProviderSnapshot } from "./contracts.ts";
 import { fitEffort, modelEffortLevels } from "../shared/effort.ts";
+import { isIncludedEngine } from "../shared/account-engines.ts";
 
 export interface SelectableInstance {
   instanceId: string;
@@ -15,11 +16,9 @@ export interface DefaultSelectionContext {
   refusal?: (instance: SelectableInstance) => string | undefined;
 }
 
-const INCLUDED_LAST = new Set(["laterdogAi", "laterdogGrok"]);
-
 const claudeFirst = (instances: readonly SelectableInstance[]) =>
   instances.find((instance) => instance.driverKind === "claudeAgent")
-    ?? instances.find((instance) => !INCLUDED_LAST.has(instance.driverKind))
+    ?? instances.find((instance) => !isIncludedEngine(instance.driverKind))
     ?? instances[0];
 
 export function signedOut(instance: SelectableInstance): boolean {

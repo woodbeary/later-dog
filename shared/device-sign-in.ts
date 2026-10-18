@@ -38,3 +38,24 @@ export function deviceSignInPrompt(provider: DeviceSignInProvider, text: string)
   const authorizationUrl = userCode ? deviceSignInLink(provider, lines[at], userCode) : null;
   return authorizationUrl && userCode ? { authorizationUrl, userCode } : null;
 }
+
+const CURSOR_HOSTS = new Set(["cursor.com", "www.cursor.com"]);
+const CURSOR_LOGIN_PATH = "/loginDeepControl";
+
+export function cursorSignInLink(value: string | null | undefined): string | null {
+  if (!value || !/^https:\/\/[^\s#]+$/.test(value)) return null;
+  let url: URL;
+  try { url = new URL(value); } catch { return null; }
+  if (url.username || url.password || url.port || !CURSOR_HOSTS.has(url.hostname) || url.pathname !== CURSOR_LOGIN_PATH) return null;
+  return url.href;
+}
+
+export function cursorSignInPrompt(text: string): { authorizationUrl: string } | null {
+  for (const line of text.split(/\r?\n/).slice(0, -1)) {
+    for (const word of line.trim().split(/\s+/)) {
+      const authorizationUrl = cursorSignInLink(word);
+      if (authorizationUrl) return { authorizationUrl };
+    }
+  }
+  return null;
+}

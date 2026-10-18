@@ -70,4 +70,4 @@ function includedDriver(driverKind: string, displayName: string, models: typeof 
 }
 
 export const IncludedAiDriver = includedDriver(INCLUDED_AI_DRIVER, "Kimi", KIMI_MODELS, true);
-export const IncludedGrokDriver = includedDriver(INCLUDED_GROK_DRIVER, "Grok", GROK_MODELS, false);
+export const IncludedGrokDriver = includedDriver(INCLUDED_GROK_DRIVER, "Grok (free)", GROK_MODELS, false);
