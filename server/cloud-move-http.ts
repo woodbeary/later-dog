@@ -5,7 +5,7 @@ import {
   backupsBytes, beginUpload, CLOUD_MOVE_MAX_BYTES, CLOUD_MOVE_MAX_PART_BYTES, CLOUD_MOVE_PART_BYTES, completedUpload, discardNextPreviousCloud,
   discardUpload, enabledRoutineCount, forgetMoveRestore, freeVolumeBytes, isEmptyWorkspace, moveSpaceNeeded, noteMoveRestore, prepareNextPreviousCloud,
   previousCloud, previousCloudArchiveBytes, removeMoveFiles, stagePreviousCloud, tidyCloudMoveStorage, totalVolumeBytes, uploadStatus, validUploadDeclaration,
-  workspaceContents, workspaceMoveSize, writeUploadPart, type PreviousCloud,
+  workspaceContents, workspaceMoveSize, writeUploadPart, type PreviousCloud, type WorkspaceContents,
 } from "./cloud-move.ts";
 import { commitPendingWorkspaceRestore, createWorkspaceBackup, stageWorkspaceBackup } from "./workspace-backup.ts";
 import { CLOUD_MOVE_PROFILE, parseBackupProfile } from "./laterdog/cloud-move-profile.ts";
@@ -15,13 +15,16 @@ import type { RequestAuth } from "./request-auth.ts";
 export const CLOUD_MOVE_PREFIX = "/api/cloud-move";
 const failure = (message: string, status: number) => Object.assign(new Error(message), { status });
 const HELD_CACHE_MS = 30_000;
+const NOT_EMPTY = "not_empty";
+const notEmpty = (contents: WorkspaceContents) =>
+  Object.assign(failure("This server already has bots or chats of its own, so nothing was copied.", 409), { code: NOT_EMPTY, contents });
 
 type MoveSummary = { appVersion: string; files: number; bytes: number; bots: number; groups: number; threads: number; messages: number };
 export type CloudMoveJob =
   | { kind: "preview" | "restore" | "undo"; state: "running" }
   | { kind: "preview"; state: "done"; id: string; summary: MoveSummary }
   | { kind: "restore" | "undo"; state: "done"; id: string; previous?: Omit<PreviousCloud, "bytes"> | null }
-  | { kind: "preview" | "restore" | "undo"; state: "failed"; error: string };
+  | { kind: "preview" | "restore" | "undo"; state: "failed"; error: string; code?: "not_empty" };
 
 export function workspaceShared(input: { hosted: boolean; cloudHome: boolean; signIn: SignInLists }): boolean {
   return input.hosted || (!input.cloudHome && sharedSignIn(input.signIn));
@@ -82,7 +85,7 @@ export function createCloudMoveRoutes(options: {
       job = result;
       after?.(result);
     }, (error: unknown) => {
-      if (job === current) job = { kind, state: "failed", error: error instanceof Error ? error.message : "The copy could not finish." };
+      if (job === current) job = { kind, state: "failed", error: error instanceof Error ? error.message : "The copy could not finish.", ...((error as { code?: unknown }).code === NOT_EMPTY ? { code: NOT_EMPTY } : {}) };
     });
   }
   const quietly = async <T>(work: () => Promise<T>): Promise<T> => {
@@ -93,11 +96,17 @@ export function createCloudMoveRoutes(options: {
       }
     }
   };
-  async function replaceWith(id: string, req: IncomingMessage, auth: RequestAuth) {
+  const refuseUnlessEmpty = (requireEmpty: boolean) => {
+    if (!requireEmpty) return;
+    const contents = workspaceContents(options.dataDir);
+    if (!isEmptyWorkspace(contents)) throw notEmpty(contents);
+  };
+  async function replaceWith(id: string, req: IncomingMessage, auth: RequestAuth, requireEmpty = false) {
     noteMoveRestore(options.dataDir, id);
     try {
       return await quietly(async () => {
         check(req, auth);
+        refuseUnlessEmpty(requireEmpty);
         const previous = await prepareNextPreviousCloud(options.dataDir, id, (password) =>
           createWorkspaceBackup(options.dataDir, { password, appVersion: options.appVersion }));
         return { committed: commitPendingWorkspaceRestore(options.dataDir, id), previous };
@@ -207,11 +216,13 @@ export function createCloudMoveRoutes(options: {
         return true;
       }
       if (method === "POST" && path === `${CLOUD_MOVE_PREFIX}/restore`) {
-        const body = z.object({ id: z.string().uuid() }).parse(await options.readBody(req, 4096));
+        const body = z.object({ id: z.string().uuid(), requireEmpty: z.boolean().optional() }).parse(await options.readBody(req, 4096));
         ready();
         if (!staged.has(body.id)) throw failure("This copy is no longer ready on this server. Start it again.", 404);
+        const requireEmpty = body.requireEmpty === true;
+        refuseUnlessEmpty(requireEmpty);
         start("restore", async () => {
-          const { committed, previous } = await replaceWith(body.id, req, auth);
+          const { committed, previous } = await replaceWith(body.id, req, auth, requireEmpty);
           const from = stagedFrom.get(body.id);
           if (from?.profile) noteReceivedMovePending(options.dataDir, committed.id, from.source);
           return { kind: "restore", state: "done", id: committed.id, previous };
@@ -239,11 +250,12 @@ export function createCloudMoveRoutes(options: {
     } catch (error) {
       if (res.headersSent) { res.destroy(); return true; }
       const status = error instanceof z.ZodError ? 400 : (error as { status?: number }).status ?? 400;
-      const received = (error as { received?: unknown }).received, code = (error as { code?: unknown }).code;
+      const received = (error as { received?: unknown }).received, code = (error as { code?: unknown }).code, contents = (error as { contents?: unknown }).contents;
       json(res, status, {
         error: error instanceof z.ZodError ? "Invalid copy request." : error instanceof Error ? error.message : "The copy failed.",
         ...(Number.isSafeInteger(received) ? { received } : {}),
         ...(code === "shared_workspace" ? { code } : {}),
+        ...(code === NOT_EMPTY ? { code, contents } : {}),
       });
     }
     return true;

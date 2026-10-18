@@ -69,6 +69,29 @@ computer to return to local dogs without deleting either workspace. Explicit
 connect and Copy controls remain deliberate actions. The copy engine is a
 backup transfer, not synchronization; sign-in no longer invokes it.
 
+When the open Cloud home (or any other saved workspace) does not load, the
+window stays on it. It shows one line, "Couldn't reach your home · Try again",
+and tries again by itself after 5 s, 15 s, 30 s, 1 min, 2 min, then every
+5 min. Try again reconnects at once. The window never switches to this Mac's
+own dogs because the home is down, and a failed first copy of the Mac's dogs
+still opens the home while the copy is tried again in the background
+(`electron/home-unreachable.mjs`, `electron/cloud-window.mjs`). Once a copy
+has failed, the home is the person's to use: every later automatic copy to
+that home, the home's own Try again, and a copy after a relaunch asks for an
+empty home. The copy checks when it starts, checks again after packing and
+uploading, and sends `requireEmpty` with the restore, so the home itself refuses
+under its maintenance lock, after it flushes its chats and right before it swaps
+workspaces, if it gained a dog, a room or a chat in the meantime
+(`server/cloud-move-http.ts`). Any of these stops the copy with `not_empty`
+("Your home already has dogs, so the dogs on this Mac stayed here."), releases
+the Mac's paused dogs and ends the automatic retries. Only the Copy control in
+this Mac's Settings can replace such a home (`electron/cloud-auto-move.mjs`
+records the failed copy per account and home). A home on an older build ignores
+`requireEmpty`; there only the client's second check guards it, which leaves the
+time of one request.
+From the Server menu, a person signed in to Cloud whose home can't be reached
+also stays on the home with the line, instead of this Mac's Settings.
+
 The ownership alternatives and staged unification are documented in
 [workspace ownership](../laterdog/workspace-ownership.md).
 
@@ -224,7 +247,7 @@ behavior and are not evidence for the current policy.
 ## Not proven here
 
 - A real Electron window: the main-process wiring (`observeCloudHome`, the
-  Server menu, window title, the fall-back, the IPC) is covered by node tests executing
+  Server menu, window title, staying on an unreachable home, the IPC) is covered by node tests executing
   the observer and menu wiring plus the IPC guard, and the renderer by the browser fixture, but
   not by driving a packaged app.
 - Real accounts: the real OTP email, a real home that wakes from sleep, the

@@ -257,6 +257,7 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
     if (status === 401 || status === 403) fail("access_changed", `This app's sign-in to ${there()} changed. Open it in this app again, then copy.`);
     if (status === 507) fail("cloud_full", `${There()} does not have enough free space for this copy.`, { freeBytes: count(body?.freeBytes) ? body.freeBytes : undefined, neededBytes: count(body?.neededBytes) ? body.neededBytes : undefined });
     if (status === 413) fail("too_large", "This workspace is larger than a copy can carry.");
+    if (status === 409 && body?.code === "not_empty") fail("not_empty", alreadyUsed(), contentsOf(body));
     if (status === 409) fail("cloud_busy", message ?? `${There()} is busy. Try again in a minute.`);
     if (status === 404) fail("not_found", message ?? `${There()} does not know this copy. Start it again.`);
     if (status >= 500 || status === 429 || status === 408) fail("network", `${There()} did not answer. Try again; the copy continues where it stopped.`);
@@ -411,6 +412,10 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
       if (status) {
         const job = status.job;
         if (job?.kind === kind) sawJob = true;
+        if (job?.kind === kind && job.state === "failed" && job.code === "not_empty") {
+          committing = false;
+          fail("not_empty", alreadyUsed(), { contents: status.contents });
+        }
         if (job?.kind === kind && job.state === "failed") fail("restore_failed", typeof job.error === "string" ? job.error.slice(0, 300) : `${There()} could not restore the workspace.`);
         if (job?.kind === kind && job.state === "done" && typeof job.id === "string") { id = job.id; restartBegins(); }
         const restored = id ? status.lastRestoreId === id : status.lastRestoreId !== null && status.lastRestoreId !== target.lastRestoreId;
@@ -446,6 +451,11 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
     }
   }
 
+  function alreadyUsed() { return `${There()} already has bots or chats of its own, so nothing was copied.`; }
+  function contentsOf(body) {
+    const contents = body?.contents;
+    return record(contents) && ["bots", "rooms", "chats"].every(key => count(contents[key])) ? { contents: { bots: contents.bots, rooms: contents.rooms, chats: contents.chats } } : {};
+  }
   function classify(error, signal) {
     return error instanceof CloudMoveError && !(signal?.aborted && error.code !== "cancelled") ? error
       : signal?.aborted ? new CloudMoveError("cancelled", `The copy was stopped. ${There()} was not replaced.`)
@@ -500,7 +510,7 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
         fail(why, why === "outdated" ? `${There()} runs ${cloud.appVersion}; this computer runs ${local.appVersion}. Update it, then copy again.` : `${There()} can't receive this copy.`,
           { destVersion: cloud.appVersion, localVersion: local.appVersion });
       }
-      if (requireEmpty && !cloud.empty) fail("not_empty", `${There()} already has bots or chats of its own, so nothing was copied.`, { contents: cloud.contents });
+      if (requireEmpty && !cloud.empty) fail("not_empty", alreadyUsed(), { contents: cloud.contents });
       if (cloud.pendingRestore || cloud.busy || cloud.job?.state === "running") fail("cloud_busy", `${There()} is busy. Try again in a minute.`);
       if (local.bytes > CLOUD_MOVE_MAX_BYTES) fail("too_large", "This workspace is larger than a copy can carry.");
       let disk = null;
@@ -517,11 +527,15 @@ export function createCloudMove({ localRequest, fetchImpl = fetch, tempRoot, ava
       await cloudJson(session, "POST", "/api/cloud-move/preview", { sha256: archived.sha256, password: archived.password, ...(profile && local.environmentId ? { source: local.environmentId } : {}) }, signal);
       const preview = await waitForPreview(session, signal);
       if (preview.summary.bots !== archived.summary.bots || preview.summary.messages !== archived.summary.messages) fail("invalid_backup", `${There()} read a different workspace than this computer sent.`);
+      if (requireEmpty) {
+        const latest = await cloudStatus(session, signal);
+        if (!latest.empty) fail("not_empty", alreadyUsed(), { contents: latest.contents });
+      }
       publish({ phase: "replacing", action: "move", replacing: !cloud.empty });
       for (let attempt = 0; ; attempt++) {
         signal.throwIfAborted();
         committing = true;
-        try { await cloudJson(session, "POST", "/api/cloud-move/restore", { id: preview.id }, signal); break; } catch (error) {
+        try { await cloudJson(session, "POST", "/api/cloud-move/restore", { id: preview.id, ...(requireEmpty ? { requireEmpty: true } : {}) }, signal); break; } catch (error) {
           if (error?.code === "network" || error instanceof TypeError || error?.name === "TimeoutError") break;
           committing = false;
           if (error?.code !== "cloud_busy" || attempt >= retryDelaysMs.length) throw error;

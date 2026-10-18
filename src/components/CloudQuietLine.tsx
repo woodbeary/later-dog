@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useCloudMove } from "@/components/CloudMove";
-import { cloudAccountBridge, useCloudAccount } from "@/lib/cloud-account-view";
 import { DONE_LINE_MS, accountsSentences, moveLine } from "@/lib/cloud-move-line";
 import type { AccountsNote } from "../../electron/cloud-move.mjs";
 import { t } from "@/lib/i18n";
@@ -11,9 +10,6 @@ const accountsText = (note: AccountsNote | undefined) => accountsSentences(note)
 export function CloudQuietLine() {
   const moveBridge = window.laterdog?.cloudMove;
   const move = useCloudMove(moveBridge);
-  const accountBridge = window.laterdog?.localPage === true ? cloudAccountBridge() : undefined;
-  const { account, accept } = useCloudAccount(accountBridge);
-  const [retrying, setRetrying] = useState(false);
   const line = moveLine(move.overview, move.state);
   const { run } = move;
 
@@ -35,23 +31,13 @@ export function CloudQuietLine() {
       text = t("cloudMoveLine.failed");
       if (line.retry) action = { label: t("cloudMoveLine.retry"), onClick: () => run("start") };
     }
-  } else if (account?.fellBack && accountBridge) {
-    text = t("cloudHomeNotice.unreachable");
-    action = {
-      label: t("cloudMoveLine.retry"),
-      onClick: () => {
-        if (retrying) return;
-        setRetrying(true);
-        void accountBridge.connectHome().then(accept).catch(() => {}).finally(() => setRetrying(false));
-      },
-    };
   }
   if (text === null) return null;
   return (
-    <div role="status" data-cloud-quiet-line={line?.kind ?? "home-unreachable"}
+    <div role="status" data-cloud-quiet-line={line?.kind}
       className="flex h-7 shrink-0 items-center justify-center gap-3 border-t border-hairline/40 bg-panel px-4 text-[12.5px] text-ink-secondary">
       <span className="min-w-0 truncate">{text}</span>
-      {action && <button type="button" disabled={move.pending || retrying} onClick={action.onClick} className="shrink-0 font-medium text-ink hover:underline disabled:opacity-50">{action.label}</button>}
+      {action && <button type="button" disabled={move.pending} onClick={action.onClick} className="shrink-0 font-medium text-ink hover:underline disabled:opacity-50">{action.label}</button>}
     </div>
   );
 }

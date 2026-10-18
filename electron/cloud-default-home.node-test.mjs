@@ -20,7 +20,7 @@ function homeObserver(activeId = "local") {
     withoutEnvironment: environments.withoutEnvironment,
     withActive: environments.withActive,
     cloudOfferState: () => ({ signedIn: () => calls.push("signed-in") }),
-    cloudAutoMove: { stop: () => calls.push("stop-copy") }, homeFellBack: false,
+    cloudAutoMove: { stop: () => calls.push("stop-copy") }, homeRetry: { stop: () => calls.push("stop-retry") },
     connectCloudHome: () => { calls.push("connect-home"); return Promise.resolve(); },
     syncCloudWindow: () => { calls.push("sync-window"); return Promise.resolve(); },
     sharingController: () => ({ forget: () => calls.push("forget-home") }),

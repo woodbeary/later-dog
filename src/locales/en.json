@@ -366,7 +366,6 @@
   "cloudMoveLine.accountsClaudeMany": "Your Claude accounts are here too.",
   "cloudMoveLine.accountsChatgpt": "Your ChatGPT account is here too.",
   "cloudMoveLine.accountsStayed": "{names} stayed on this Mac for now.",
-  "cloudHomeNotice.unreachable": "Can't reach your home right now. Showing the dogs on this Mac.",
   "phoneApp.menu": "Get later.dog for iPhone",
   "lending.title": "Let My Cloud use this Mac",
   "lending.explain": "Your dogs in My Cloud can use files and apps on this Mac when you ask, from your phone too. They check with you first. It works while this Mac is awake with later.dog open.",

@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -340,6 +340,43 @@ it("a restore the Cloud cannot start leaves nothing staged behind, and a new upl
   expect((await cloud.call("POST", "/api/cloud-move/upload", cloud.owner, { sha256: sha(file), bytes: file.length })).status).toBe(200);
   expect(stagedJobs()).toEqual([]);
   expect((await cloud.call("POST", "/api/cloud-move/restore", cloud.owner, { id: second })).status).toBe(404);
+}, 120_000);
+
+it("a copy meant for an empty home is refused when the home gained a dog, a room or a chat after the copy began, right up to the moment it commits", async () => {
+  const file = await desktopArchive();
+  const cloud = await routes();
+  const first = await uploadAndPreview(cloud, file);
+  writeFileSync(join(dataDir, "groups.json"), JSON.stringify([{ id: "room" }]));
+  const refused = await cloud.call("POST", "/api/cloud-move/restore", cloud.owner, { id: first, requireEmpty: true });
+  expect(refused).toEqual({ status: 409, body: { code: "not_empty", contents: { bots: 0, rooms: 1, chats: 0 }, error: expect.stringMatching(/already has bots or chats/) } });
+  expect(cloud.restarts).toEqual([]);
+  expect(existsSync(join(dataDir, ".backups", "pending-restore.json"))).toBe(false);
+  expect((await cloud.call("POST", "/api/cloud-move/discard", cloud.owner, {})).status).toBe(200);
+  expect(stagedJobs()).toEqual([]);
+  rmSync(join(dataDir, "groups.json"));
+  server!.close(); server = undefined;
+  let gate: () => void = () => {};
+  const racing = await routes({ exclusive: async (work) => { gate(); return work(); } });
+  const second = await uploadAndPreview(racing, file);
+  gate = () => writeFileSync(join(dataDir, "bots.json"), JSON.stringify([{ id: "starter" }, { id: "new" }]));
+  expect((await racing.call("POST", "/api/cloud-move/restore", racing.owner, { id: second, requireEmpty: true })).status).toBe(202);
+  await expect.poll(async () => (await racing.call("GET", "/api/cloud-move", racing.owner)).body.job?.state, { timeout: 30_000 }).toBe("failed");
+  expect((await racing.call("GET", "/api/cloud-move", racing.owner)).body.job).toMatchObject({ kind: "restore", code: "not_empty" });
+  expect(stagedJobs()).toEqual([]);
+  expect(existsSync(join(dataDir, ".backups", "pending-restore.json"))).toBe(false);
+  expect(existsSync(join(dataDir, ".backups", "cloud-previous.next"))).toBe(false);
+  expect(racing.restarts).toEqual([]);
+  expect(JSON.parse(readFileSync(join(dataDir, "bots.json"), "utf8"))).toEqual([{ id: "starter" }, { id: "new" }]);
+}, 120_000);
+
+it("a copy that does not ask for an empty home still replaces one that has dogs", async () => {
+  const file = await desktopArchive();
+  writeFileSync(join(dataDir, "bots.json"), JSON.stringify([{ id: "starter" }, { id: "kept" }]));
+  const cloud = await routes();
+  const id = await uploadAndPreview(cloud, file);
+  expect((await cloud.call("POST", "/api/cloud-move/restore", cloud.owner, { id })).status).toBe(202);
+  await expect.poll(async () => (await cloud.call("GET", "/api/cloud-move", cloud.owner)).body.job?.state, { timeout: 30_000 }).toBe("done");
+  await expect.poll(() => cloud.restarts.length).toBe(1);
 }, 120_000);
 
 it("a stopped move's staged files are dropped, even when its preview finishes after the stop", async () => {

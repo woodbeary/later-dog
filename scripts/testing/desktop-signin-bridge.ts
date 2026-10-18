@@ -14,7 +14,6 @@ interface Harness {
   offer: ReturnType<typeof createCloudOffer>;
   offered: { value: string | null };
   entered: boolean;
-  fellBack: boolean;
   move: Record<string, unknown>;
   automatic: boolean;
   signedOutSeen: number;
@@ -27,7 +26,7 @@ async function create(): Promise<Harness> {
   const saved: { value: unknown } = { value: null };
   const offered: { value: string | null } = { value: null };
   const made = {
-    accounts, offered, entered: false, fellBack: false, move: { phase: "idle" }, automatic: true, signedOutSeen: 0,
+    accounts, offered, entered: false, move: { phase: "idle" }, automatic: true, signedOutSeen: 0,
     offer: createCloudOffer({ read: () => offered.value, write: (contents) => { offered.value = contents; } }),
   } as unknown as Harness;
   made.client = createCloudAccountClient({
@@ -64,21 +63,20 @@ async function outcome(work: () => Promise<Record<string, unknown>>) {
 }
 
 async function call(h: Harness, method: string, args: any[]) {
-  const view = (state: object) => (h.fellBack ? { ...state, fellBack: true } : state);
-  if (method === "state") return view(h.client.state());
+  if (method === "state") return h.client.state();
   if (method === "sendCode") return outcome(async () => ({ email: await h.signIn.sendCode(args[0]) }));
   if (method === "verifyCode") {
     return outcome(async () => {
       const grant = await h.signIn.verifyCode(args[0], args[1]);
       const state = await h.client.adopt(grant);
       if (!state.account) throw new CloudSignInError("unavailable");
-      return { account: view(state) };
+      return { account: state };
     });
   }
   if (method === "offer") return { due: h.offer.due() };
   if (method === "declineOffer") { h.offer.decline(); return { due: false }; }
-  if (method === "connectHome") { h.fellBack = false; h.entered = true; return view(h.client.state()); }
-  if (method === "signOut") { h.entered = false; return view(await h.client.signOut()); }
+  if (method === "connectHome") { h.entered = true; return h.client.state(); }
+  if (method === "signOut") { h.entered = false; return h.client.signOut(); }
   if (method === "moveState") return { phase: "idle", ...h.move, local: null, cloud: null, fit: null, suggest: false, blocked: null,
     ...(h.automatic ? { automatic: true } : {}), destination: { id: "cloud", name: "My Cloud", origin: HOME, kind: "cloud" } };
   if (method === "moveStart") { h.move = { phase: "uploading", action: "move", progress: { bytesTransferred: 10, totalBytes: 100 }, destination: { id: "cloud", name: "My Cloud", origin: HOME, kind: "cloud" } }; return h.move; }
@@ -89,14 +87,13 @@ async function call(h: Harness, method: string, args: any[]) {
 async function control(h: Harness, body: Record<string, any>) {
   if (body.reset) {
     await h.client.signOut();
-    h.offered.value = null; h.entered = false; h.fellBack = false; h.move = { phase: "idle" }; h.automatic = true;
+    h.offered.value = null; h.entered = false; h.move = { phase: "idle" }; h.automatic = true;
     h.accounts.homeState = "ready"; h.accounts.setup = undefined; h.accounts.otp = h.accounts.goodCode; h.accounts.failSend = null;
     h.accounts.sent.length = 0; h.accounts.requests.length = 0; h.accounts.signedOut.length = 0;
   }
   if (body.homeState) { h.accounts.homeState = body.homeState; h.accounts.setup = body.setup; }
   if (body.move) h.move = body.move;
   if (body.automatic !== undefined) h.automatic = body.automatic === true;
-  if (body.fellBack !== undefined) h.fellBack = body.fellBack === true;
   if (body.entered !== undefined) h.entered = body.entered === true;
   if (body.refresh) await h.client.refresh();
   if (body.otp) h.accounts.otp = body.otp;

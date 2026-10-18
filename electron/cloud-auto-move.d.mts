@@ -2,7 +2,7 @@ import type { CloudMove, CloudMoveState, MoveContents, MoveEstimate, MoveTarget 
 
 export type AutoMoveStatus = "moved" | "joined";
 export interface StayedOnMac { name: string; bytes: number }
-export interface AutoMoveRecord { status: AutoMoveStatus; at: number; origin: string; contents?: MoveContents; stayedOnMac?: StayedOnMac[] }
+export interface AutoMoveRecord { status: AutoMoveStatus | "failed"; at: number; origin: string; contents?: MoveContents; stayedOnMac?: StayedOnMac[] }
 export type AutoMoveOutcome = { status: AutoMoveStatus | "nothing" | "busy" } | { status: "failed"; code?: string; retryInMs?: number };
 export declare function worthMoving(local: Pick<MoveEstimate, "bots" | "rooms" | "chats"> | null | undefined): boolean;
 export declare function parseMoveRecords(raw: unknown): Record<string, AutoMoveRecord>;

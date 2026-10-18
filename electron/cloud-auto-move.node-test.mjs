@@ -80,23 +80,25 @@ test("a home at a different address than the one that received the move is decid
   assert.equal(f.moves.length, 2);
 });
 
-test("a move the home cannot confirm in full is not recorded and is reported once with its reason", async () => {
+test("a move the home cannot confirm in full is not recorded as moved and is reported once with its reason", async () => {
   const f = setup({ results: [failed("not_verified", { contents: { bots: 4, rooms: 1, chats: 5 } })] });
   assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "failed", code: "not_verified" });
-  assert.equal(f.stored.raw, null);
+  assert.equal(f.engine.status("acct", DEST), null);
+  assert.equal(parseMoveRecords(f.stored.raw).acct.status, "failed");
   assert.deepEqual(f.failures.map(reason => reason.code), ["not_verified"]);
   assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "failed" });
   assert.equal(f.moves.length, 1, "no retry timer: the next launch tries again");
   assert.equal(f.failures.length, 1);
   const short = setup({ results: [{ phase: "done", action: "move", moved: { bots: 4, rooms: 1, chats: 8 } }] });
   assert.equal((await short.engine.ensure("acct", DEST)).status, "failed");
-  assert.equal(short.stored.raw, null);
+  assert.equal(short.engine.status("acct", DEST), null);
 });
 
 test("a new launch tries a failed move again, and so does an explicit retry", async () => {
   const f = setup({ results: [failed("network")] });
   assert.equal((await f.engine.ensure("acct", DEST)).status, "failed");
   assert.deepEqual(await f.engine.retry("acct", DEST), { status: "moved" });
+  assert.equal(parseMoveRecords(f.stored.raw).acct.status, "moved");
   const g = setup({ results: [failed("network")] });
   await g.engine.ensure("acct", DEST);
   g.engine.stop();
@@ -149,4 +151,21 @@ test("a record that cannot be saved is logged, and the move still counts as done
   const f = setup({ writeFails: true });
   assert.deepEqual(await f.engine.ensure("acct", DEST), { status: "moved" });
   assert.ok(f.logs.some(line => /could not save/.test(line)));
+});
+
+test("after a failed copy every later copy to that home, on any launch, only goes into a home that is still empty, and a home with dogs ends the retries", async () => {
+  const f = setup({ results: [failed("network"), failed("not_empty")] });
+  assert.equal((await f.engine.ensure("acct", DEST)).retryInMs, 20_000);
+  assert.deepEqual(await f.engine.retry("acct", DEST), { status: "failed", code: "not_empty" });
+  assert.deepEqual(f.moves.map(([, flags]) => flags.requireEmpty), [false, true]);
+  const restarted = setup({ saved: f.stored.raw });
+  assert.deepEqual(await restarted.engine.ensure("acct", DEST), { status: "moved" });
+  assert.equal(restarted.moves[0][1].requireEmpty, true);
+  const elsewhere = setup({ saved: f.stored.raw });
+  await elsewhere.engine.ensure("acct", { ...DEST, origin: "https://other-home.fixture.test" });
+  assert.equal(elsewhere.moves[0][1].requireEmpty, false, "a different home is decided on its own");
+  const unsaved = setup({ writeFails: true, results: [failed("network")] });
+  await unsaved.engine.ensure("acct", DEST);
+  await unsaved.engine.retry("acct", DEST);
+  assert.deepEqual(unsaved.moves.map(([, flags]) => flags.requireEmpty), [false, true], "the launch remembers it even when the record cannot be saved");
 });

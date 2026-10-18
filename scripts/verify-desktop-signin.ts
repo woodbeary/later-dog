@@ -192,13 +192,6 @@ await poll(gateOpen, false, "signed in without changing the workspace");
 assert.equal(await inHome(), false);
 await evaluate("window.laterdog.cloudAccount.connectHome().then(() => true)");
 await arrived("an explicit request opens the home");
-await control({ entered: false, fellBack: true });
-await load("");
-await textVisible("Can't reach your home right now. Showing the dogs on this Mac.");
-assert.equal(await gateOpen(), false, "a person who signed in is not asked again when the home is unreachable");
-await shot("16-home-unreachable-quiet-line");
-await click("Try again");
-await arrived("Try again opens the home");
-console.log("PASS an unreachable home shows this Mac's dogs with one quiet line and a retry");
+console.log("PASS signing in keeps the current workspace and an explicit request opens the home");
 console.log("DONE evidence in", evidence);
 }

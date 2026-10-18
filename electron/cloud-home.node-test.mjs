@@ -258,7 +258,8 @@ test("switching to My Cloud goes through the Cloud's own connection, never a pai
   const entry = { id: "cloud", name: CLOUD_HOME_NAME, origin }, other = { id: "vps", name: "VPS", origin: "https://vps.example.test" };
   const context = vm.createContext({
     environmentsState: { environments: [entry, other], activeId: environments.LOCAL_ID }, LOCAL_ID: environments.LOCAL_ID,
-    cloudAccount: { homeTarget: () => ({ origin }) }, isCloudHomeEntry, slog: () => {},
+    cloudAccount: { homeTarget: () => ({ origin }), state: () => ({ account: null }) }, isCloudHomeEntry, slog: () => {},
+    stayOnCloudHome: home => calls.push(`stay:${home}`),
     connectCloudHome: (...args) => connect(...args), cloudHomeSignedIn: async () => signedIn,
     openLendingSettings: async () => { calls.push("settings"); },
     persistEnvironments: next => { calls.push(`active:${next.activeId}`); context.environmentsState = next; }, withActive: environments.withActive,
@@ -270,10 +271,13 @@ test("switching to My Cloud goes through the Cloud's own connection, never a pai
   calls.length = 0; await context.switchEnvironment("vps");
   assert.deepEqual(calls, ["active:vps", `navigate:${other.origin}`]);
   context.environmentsState = { environments: [entry, other], activeId: environments.LOCAL_ID };
-  context.cloudAccount = { homeTarget: () => null }; context.remember({ accountId: "a1", origin });
+  context.cloudAccount = { homeTarget: () => null, state: () => ({ account: null }) }; context.remember({ accountId: "a1", origin });
   connect = async () => { calls.push("connect"); throw new Error("Your Cloud is not ready to connect yet."); };
   calls.length = 0; await context.switchEnvironment("cloud");
   assert.deepEqual(calls, ["connect", "settings"], "not signed in there: Settings → later.dog Cloud says what to do next");
+  context.cloudAccount = { homeTarget: () => null, state: () => ({ account: { id: "a1" } }) };
+  calls.length = 0; await context.switchEnvironment("cloud");
+  assert.deepEqual(calls, ["connect", `stay:${origin}`], "signed in to Cloud but the home can't be reached: stay on the home with Try again, never this Mac's settings");
   signedIn = true; calls.length = 0; await context.switchEnvironment("cloud");
   assert.deepEqual(calls, ["connect", "active:cloud", `navigate:${origin}`], "signed in there already: it opens as any server does");
   context.cloudAccount = null; context.environmentsState = { environments: [entry, other], activeId: environments.LOCAL_ID };

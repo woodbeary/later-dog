@@ -1,8 +1,9 @@
 import { arrivedInFull, CLOUD_MOVE_PROFILE } from "./cloud-move.mjs";
 
 const FINAL = new Set(["moved", "joined"]);
+const RECORDED = new Set([...FINAL, "failed"]);
 const RETRY_IN_MS = Object.freeze([20_000, 60_000, 5 * 60_000, 15 * 60_000]);
-const FINAL_FAILURES = new Set(["too_large", "cloud_full", "local_full", "shared_workspace", "outdated", "same_computer", "invalid_backup", "not_verified", "cancelled"]);
+const FINAL_FAILURES = new Set(["too_large", "cloud_full", "local_full", "shared_workspace", "outdated", "same_computer", "invalid_backup", "not_verified", "cancelled", "not_empty"]);
 const count = value => Number.isSafeInteger(value) && value >= 0;
 
 export function worthMoving(local) {
@@ -15,7 +16,7 @@ export function parseMoveRecords(raw) {
   const homes = value && typeof value === "object" && value.homes && typeof value.homes === "object" ? value.homes : {};
   const records = {};
   for (const [accountId, entry] of Object.entries(homes)) {
-    if (!accountId || !entry || typeof entry !== "object" || !FINAL.has(entry.status) || !Number.isSafeInteger(entry.at) || typeof entry.origin !== "string") continue;
+    if (!accountId || !entry || typeof entry !== "object" || !RECORDED.has(entry.status) || !Number.isSafeInteger(entry.at) || typeof entry.origin !== "string") continue;
     const contents = entry.contents && ["bots", "rooms", "chats"].every(key => count(entry.contents[key]))
       ? { bots: entry.contents.bots, rooms: entry.contents.rooms, chats: entry.contents.chats } : undefined;
     const stayedOnMac = Array.isArray(entry.stayedOnMac)
@@ -31,16 +32,27 @@ export function serializeMoveRecords(records) {
 
 export function createCloudAutoMove({ move, read, write, now = Date.now, log = () => {}, pause = async () => {}, onMoved = () => {}, onJoined = () => {}, onFailed = () => {} }) {
   let busy = false, failedFor = null, closed = false, retries = 0;
+  const failedHomes = new Set();
+  const homeKey = (accountId, destination) => `${accountId}\n${destination.origin}`;
   const records = () => { try { return parseMoveRecords(read()); } catch { return {}; } };
-  const known = (accountId, destination) => {
+  const recorded = (accountId, destination) => {
     const entry = records()[accountId];
     return entry && entry.origin === destination.origin ? entry : null;
   };
+  const known = (accountId, destination) => {
+    const entry = recorded(accountId, destination);
+    return entry && FINAL.has(entry.status) ? entry : null;
+  };
+  const homeInUse = (accountId, destination) => failedHomes.has(homeKey(accountId, destination)) || recorded(accountId, destination)?.status === "failed";
   const remember = (accountId, entry) => {
     try { write(serializeMoveRecords({ ...records(), [accountId]: { ...entry, at: now() } })); } catch (error) { log(`cloud move: could not save the result (${error?.message ?? error})`); }
   };
-  const fail = (accountId, code, message) => {
+  const fail = (accountId, destination, code, message) => {
     failedFor = accountId;
+    if (!homeInUse(accountId, destination)) {
+      failedHomes.add(homeKey(accountId, destination));
+      remember(accountId, { status: "failed", origin: destination.origin });
+    }
     const retryInMs = FINAL_FAILURES.has(code) ? undefined : RETRY_IN_MS[retries];
     if (retryInMs) retries++;
     log(`cloud move: not moved (${code}): ${message}${retryInMs ? ` Trying again in ${Math.round(retryInMs / 1000)} s.` : ""}`);
@@ -59,13 +71,14 @@ export function createCloudAutoMove({ move, read, write, now = Date.now, log = (
     try {
       let local = null;
       try { local = await move.estimate(); } catch { local = null; }
-      if (!local) return fail(accountId, "unmeasured", "This Mac's dogs could not be measured.");
+      if (!local) return fail(accountId, destination, "unmeasured", "This Mac's dogs could not be measured.");
       if (!worthMoving(local)) return { status: "nothing" };
       await paused(false);
       let held = false;
       const onPacked = async () => { held = true; await paused(true); };
+      const requireEmpty = homeInUse(accountId, destination);
       let result;
-      try { result = await move.move(destination, { requireEmpty: false, verifyArrival: true, profile: CLOUD_MOVE_PROFILE, yieldToOtherComputer: true, fresh: true, onPacked }); } catch (error) {
+      try { result = await move.move(destination, { requireEmpty, verifyArrival: true, profile: CLOUD_MOVE_PROFILE, yieldToOtherComputer: true, fresh: true, onPacked }); } catch (error) {
         if (held) await paused(false);
         throw error;
       }
@@ -84,7 +97,7 @@ export function createCloudAutoMove({ move, read, write, now = Date.now, log = (
         try { onJoined(destination); } catch {}
         return { status: "joined" };
       }
-      return fail(accountId, code, result.error?.message ?? "The move did not finish.");
+      return fail(accountId, destination, code, result.error?.message ?? "The move did not finish.");
     } finally { busy = false; }
   }
 

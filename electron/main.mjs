@@ -75,6 +75,7 @@ import { CloudSignInError, createCloudSignIn } from "./cloud-sign-in.mjs";
 import { createCloudAutoMove } from "./cloud-auto-move.mjs";
 import { createMacHold } from "./cloud-hold.mjs";
 import { createCloudWindow } from "./cloud-window.mjs";
+import { createHomeRetry, isTryAgainLink } from "./home-unreachable.mjs";
 import { createCloudAiAccounts, createMacKeychain, MAC_ACCOUNT_ROUTES } from "./cloud-ai-accounts.mjs";
 import { createCloudOffer, leaveHomeNow } from "./cloud-default-home.mjs";
 import { CLOUD_HOME_NAME, cloudHomeConnectUrl, cloudPlanDisk, isCloudHomeEntry, myCloudOrigin, rememberedCloudHome, savedCloudHomeOrigin, withCloudHome } from "./cloud-home.mjs";
@@ -272,7 +273,7 @@ let cloudAiAccounts = null;
 let cloudAppsAccess = null;
 let accountsNote = null;
 let cloudOffer = null;
-let homeFellBack = false;
+let homeRetry = null;
 let cloudAccountStarted = Promise.resolve();
 let cloudAccountRestoring = false;
 let cloudSignInRestored = false;
@@ -648,10 +649,9 @@ function ensureCloudAccount() {
   return cloudAccount;
 }
 
-const cloudAccountView = state => (homeFellBack ? { ...state, fellBack: true } : state);
 function pushCloudAccountState(state) {
   if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.mainFrame.url.startsWith(`${rendererOrigin()}/`) &&
-    !activeEnvironment(environmentsState)) mainWindow.webContents.send("cloud-account:state-changed", cloudAccountView(state));
+    !activeEnvironment(environmentsState)) mainWindow.webContents.send("cloud-account:state-changed", state);
 }
 
 function ensureCloudSignIn() {
@@ -692,7 +692,7 @@ function observeCloudHome(state) {
       if (macHold) void macHold.set(false);
     }
     if (leaveHomeNow({ state, homeEntry })) { void leaveCloudHome(homeEntry); void syncCloudWindow(state); return; }
-    if (state.status === "signed-out") { homeFellBack = false; cloudAutoMove?.stop(); }
+    if (state.status === "signed-out") cloudAutoMove?.stop();
     void syncCloudWindow(state);
   } catch (error) {
     slog(`cloud home: ${error?.message ?? error}`);
@@ -700,7 +700,7 @@ function observeCloudHome(state) {
 }
 
 async function leaveCloudHome(entry) {
-  homeFellBack = false;
+  homeRetry?.stop();
   cloudAutoMove?.stop();
   sharingController().forget(entry);
   const wasActive = environmentsState.activeId === entry.id;
@@ -1492,7 +1492,11 @@ async function switchEnvironment(id) {
   if (entry && cloudAccount && isCloudHomeEntry(entry, { homeOrigin: cloudAccount.homeTarget()?.origin, remembered: rememberedHome })) {
     try { await connectCloudHome(); return; } catch (error) {
       slog(`cloud home: could not connect (${error?.message ?? error})`);
-      if (!(await cloudHomeSignedIn(entry.origin))) { await openLendingSettings(); return; }
+      if (!(await cloudHomeSignedIn(entry.origin))) {
+        if (cloudAccount.state().account) stayOnCloudHome(entry.origin);
+        else await openLendingSettings();
+        return;
+      }
     }
   }
   persistEnvironments(withActive(environmentsState, id));
@@ -1617,7 +1621,6 @@ async function connectCloudHome(open = null) {
   next = withActive(next, entry.id);
   persistEnvironments(next);
   navigateMainWindow(cloudHomeConnectUrl({ origin: target.origin, grant }, Date.now(), open));
-  homeFellBack = false;
   return client.state();
 }
 
@@ -1726,6 +1729,11 @@ function createWindow({ deferNavigation = false } = {}) {
     return { action: "deny" };
   });
   const guardNavigation = (event, url) => {
+    if (isTryAgainLink(url)) {
+      event.preventDefault();
+      homeRetry?.tryNow();
+      return;
+    }
     let origin = null;
     try {
       origin = new URL(url).origin;
@@ -1759,19 +1767,12 @@ function createWindow({ deferNavigation = false } = {}) {
       origin = new URL(validatedURL).origin;
     } catch {}
     if (origin !== remote.origin) return;
-    if (cloudAccount?.state().account && remote.origin === savedCloudHomeOrigin(environmentsState)) {
-      slog(`cloud home unreachable (${errorDescription}); showing this computer`);
-      homeFellBack = true;
-      void workspaceMenuAction(() => switchEnvironment(LOCAL_ID));
-      return;
-    }
-    slog(`remote server unreachable (${errorDescription}); back to Local`);
-    void dialog.showMessageBox({
-      type: "warning",
-      message: `${remote.name} is not reachable`,
-      detail: `${errorDescription}. Showing the local server instead.`,
-    });
-    void workspaceMenuAction(() => switchEnvironment(LOCAL_ID));
+    const home = remote.origin === savedCloudHomeOrigin(environmentsState);
+    const wait = ensureHomeRetry().failed({ origin: remote.origin, name: remote.name, home });
+    slog(`${home ? "cloud home" : "remote server"} unreachable (${errorDescription}); staying on it, trying again in ${Math.round(wait / 1000)} s`);
+  });
+  win.webContents.on("did-navigate", (_event, url) => {
+    if (/^https?:/.test(url)) homeRetry?.loaded();
   });
   win.webContents.on("did-finish-load", () => deliverPackageInstall(win));
   win.webContents.on("did-finish-load", () => void offerComputerSharing(win));
@@ -2152,10 +2153,10 @@ const workspaceOnly = (handler) => (event, ...args) => {
 };
 const localWorkspaceOnly = (channel, handler) => localOnly(channel, workspaceOnly(handler));
 for (const method of ["state", "begin", "signInAgain", "reopen", "cancel", "refresh", "signOut", "openDashboard"]) {
-  ipcMain.handle(`cloud-account:${method}`, localWorkspaceOnly(`cloud-account:${method}`, async () => cloudAccountView(await ensureCloudAccount()[method]())));
+  ipcMain.handle(`cloud-account:${method}`, localWorkspaceOnly(`cloud-account:${method}`, async () => ensureCloudAccount()[method]()));
 }
-ipcMain.handle("cloud-account:connectHome", localWorkspaceOnly("cloud-account:connectHome", async () => cloudAccountView(await connectCloudHome())));
-ipcMain.handle("cloud-account:connectHomeForPhone", localWorkspaceOnly("cloud-account:connectHomeForPhone", async () => cloudAccountView(await connectCloudHome("phone"))));
+ipcMain.handle("cloud-account:connectHome", localWorkspaceOnly("cloud-account:connectHome", () => connectCloudHome()));
+ipcMain.handle("cloud-account:connectHomeForPhone", localWorkspaceOnly("cloud-account:connectHomeForPhone", () => connectCloudHome("phone")));
 ipcMain.handle("cloud-account:sendCode", localWorkspaceOnly("cloud-account:sendCode", (_event, email) =>
   cloudSignInOutcome(async () => ({ email: await ensureCloudSignIn().sendCode(email) }))));
 ipcMain.handle("cloud-account:verifyCode", localWorkspaceOnly("cloud-account:verifyCode", (_event, email, code) =>
@@ -2163,7 +2164,7 @@ ipcMain.handle("cloud-account:verifyCode", localWorkspaceOnly("cloud-account:ver
     const grant = await ensureCloudSignIn().verifyCode(email, code);
     const state = await ensureCloudAccount().adopt(grant);
     if (!state.account) throw new CloudSignInError("unavailable");
-    return { account: cloudAccountView(state) };
+    return { account: state };
   })));
 ipcMain.handle("cloud-account:offer", localWorkspaceOnly("cloud-account:offer", () => ({ due: cloudOfferState().due() })));
 ipcMain.handle("cloud-account:declineOffer", localWorkspaceOnly("cloud-account:declineOffer", () => {
@@ -2338,17 +2339,33 @@ function ensureCloudWindow() {
     },
     showHome: async destination => {
       if (activeEnvironment(environmentsState)?.origin === destination.origin) return;
-      await connectCloudHome();
-    },
-    showLocal: async () => {
-      if (!activeEnvironment(environmentsState)) return;
-      persistEnvironments(withActive(environmentsState, LOCAL_ID));
-      navigateMainWindow(activeOrigin());
+      try { await connectCloudHome(); } catch (error) {
+        slog(`cloud home: could not connect (${error?.message ?? error}); staying on it`);
+        stayOnCloudHome(destination.origin);
+      }
     },
     retryWith: () => runCloudAutoMove(),
     log: slog,
   });
   return cloudWindow;
+}
+function stayOnCloudHome(origin) {
+  const next = withCloudHome(environmentsState, { status: "ready", origin }, () => randomUUID());
+  const entry = next.environments.find(candidate => candidate.origin === origin);
+  if (!entry) return;
+  persistEnvironments(withActive(next, entry.id));
+  ensureHomeRetry().failed({ origin, name: entry.name, home: true });
+}
+async function reconnectRemote(target) {
+  const remote = activeEnvironment(environmentsState);
+  if (!remote || remote.origin !== target.origin) { homeRetry?.stop(); return; }
+  await session.defaultSession.fetch(`${remote.origin}/`, { method: "HEAD", cache: "no-store", redirect: "manual", credentials: "omit", signal: AbortSignal.timeout(10_000) });
+  if (cloudAccount?.state().account && remote.origin === savedCloudHomeOrigin(environmentsState)) { await connectCloudHome(); return; }
+  navigateMainWindow(remote.origin);
+}
+function ensureHomeRetry() {
+  homeRetry ??= createHomeRetry({ reconnect: reconnectRemote, show: navigateMainWindow, log: slog });
+  return homeRetry;
 }
 function syncCloudWindow(state, manual = false) {
   if (!app.isPackaged || !serverReady) return Promise.resolve(null);
@@ -2912,6 +2929,7 @@ app.on("before-quit", (e) => {
   managedDesktop?.close();
   cloudAccount?.close();
   cloudWindow?.close();
+  homeRetry?.stop();
   void cloudMove?.close();
   companyBackupController?.abort();
   computerSharing?.close();

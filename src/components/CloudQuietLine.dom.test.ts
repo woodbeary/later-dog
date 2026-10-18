@@ -10,7 +10,6 @@ import { CloudQuietLine } from "./CloudQuietLine";
 let host: HTMLDivElement;
 let root: Root;
 let pushMove: (state: CloudMoveState) => void;
-let pushAccount: (state: CloudAccountState) => void;
 const home = { id: "cloud", name: "My Cloud", origin: "https://h1-home.later.dog", kind: "cloud" as const };
 const overview = (state: Partial<CloudMoveOverview> = {}): CloudMoveOverview =>
   ({ phase: "idle", local: null, cloud: null, fit: null, suggest: false, automatic: true, destination: home, blocked: null, ...state });
@@ -110,17 +109,14 @@ describe("the quiet line about this Mac's dogs", () => {
     expect(line()).toBeNull();
   });
 
-  it("on this Mac, says the home could not be reached and tries it again on a tap", async () => {
-    const connectHome = vi.fn(async () => ({ status: "connected" }) as CloudAccountState);
+  it("on this Mac, never offers to show this Mac's dogs in place of the home", async () => {
     const cloudAccount = {
-      state: vi.fn(async () => ({ status: "connected", fellBack: true }) as CloudAccountState),
-      onState: vi.fn((callback) => { pushAccount = callback; return () => {}; }), connectHome,
+      state: vi.fn(async () => ({ status: "connected" }) as CloudAccountState),
+      onState: vi.fn(() => () => {}), connectHome: vi.fn(),
     };
     await show({ localPage: true, cloudAccount, cloudMove: makeMove(overview({ automatic: undefined })) });
-    expect(text()).toBe("Can't reach your home right now. Showing the dogs on this Mac.Try again");
-    await click("Try again");
-    expect(connectHome).toHaveBeenCalledOnce();
-    await act(async () => pushAccount({ status: "connected" } as CloudAccountState));
     expect(line()).toBeNull();
+    expect(cloudAccount.state).not.toHaveBeenCalled();
+    expect(host.textContent).not.toContain("this Mac");
   });
 });

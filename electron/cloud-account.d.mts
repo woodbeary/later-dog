@@ -12,7 +12,6 @@ export interface CloudAccountState {
   lastPlan?: { tier?: string; active: boolean };
   machine?: import("./cloud-home.mjs").CloudMachine;
   purchase?: import("./cloud-home.mjs").CloudPurchase;
-  fellBack?: true;
 }
 export type CloudSignInFailure = import("./cloud-sign-in.mjs").CloudSignInFailure;
 export type CloudSendCodeResult = { ok: true; email: string } | { ok: false; code: CloudSignInFailure };

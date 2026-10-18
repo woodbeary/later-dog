@@ -1025,6 +1025,64 @@ test("a home that already has dogs refuses an automatic move and says what it ho
   } finally { f.done(); }
 });
 
+test("a copy meant for an empty home checks again right before it commits and asks the home to refuse at commit, so chats added during the copy are never replaced", async () => {
+  const restoreBodies = f => f.cloud.log.filter(([method, path]) => method === "POST" && path === "/api/cloud-move/restore");
+  const watch = (f, onRoute) => createCloudMove({ localRequest: f.local.request, tempRoot: join(f.temp, "move2"),
+    availableBytes: async () => 1024 ** 4, sleep: async (_ms, signal) => signal?.throwIfAborted(), pollMs: 0, retryDelaysMs: [0, 0],
+    fetchImpl: async (url, init = {}) => (await onRoute(new URL(url).pathname, init, f.cloud.fetchImpl)) ?? f.cloud.fetchImpl(url, init) });
+  const used = harness();
+  try {
+    const engine = watch(used, async (pathname, init, original) => {
+      if (pathname !== "/api/cloud-move/preview") return null;
+      const answer = await original(`${ORIGIN}${pathname}`, init);
+      used.cloud.state.empty = false; used.cloud.state.contents = { bots: 1, rooms: 0, chats: 2 };
+      return answer;
+    });
+    const result = await engine.move(used.dest, { requireEmpty: true, verifyArrival: true });
+    assert.equal(result.error.code, "not_empty");
+    assert.deepEqual(result.error.contents, { bots: 1, rooms: 0, chats: 2 });
+    assert.equal(result.error.committed, undefined);
+    assert.equal(restoreBodies(used).length, 0, "a home that gained chats during the copy is never asked to restore");
+    assert.ok(used.cloud.state.discards >= 1, "what the copy staged on the home is discarded");
+    assert.deepEqual(readdirSync(join(used.temp, "move2")), []);
+  } finally { used.done(); }
+  const racing = harness();
+  try {
+    let asked = null;
+    const engine = watch(racing, async (pathname, init) => {
+      if (pathname !== "/api/cloud-move/restore") return null;
+      asked = JSON.parse(init.body);
+      return json(409, { error: "This server already has bots or chats of its own, so nothing was copied.", code: "not_empty", contents: { bots: 2, rooms: 0, chats: 0 } });
+    });
+    const result = await engine.move(racing.dest, { requireEmpty: true, verifyArrival: true });
+    assert.equal(asked.requireEmpty, true, "the home is asked to refuse at commit");
+    assert.equal(result.error.code, "not_empty");
+    assert.deepEqual(result.error.contents, { bots: 2, rooms: 0, chats: 0 });
+    assert.equal(result.error.committed, undefined);
+    assert.equal(racing.cloud.state.lastRestoreId, null);
+  } finally { racing.done(); }
+  const locked = harness();
+  try {
+    const engine = watch(locked, async pathname => {
+      if (pathname !== "/api/cloud-move/restore") return null;
+      locked.cloud.state.contents = { bots: 1, rooms: 0, chats: 3 }; locked.cloud.state.empty = false;
+      locked.cloud.state.job = { kind: "restore", state: "failed", error: "This server already has bots or chats of its own, so nothing was copied.", code: "not_empty" };
+      return json(202, { job: { kind: "restore", state: "running" } });
+    });
+    const result = await engine.move(locked.dest, { requireEmpty: true, verifyArrival: true });
+    assert.equal(result.error.code, "not_empty");
+    assert.deepEqual(result.error.contents, { bots: 1, rooms: 0, chats: 3 });
+    assert.equal(result.error.committed, undefined, "a refusal at commit is not reported as a copy the home took");
+  } finally { locked.done(); }
+  const plain = harness();
+  try {
+    let asked = null;
+    const engine = watch(plain, async (pathname, init) => { if (pathname === "/api/cloud-move/restore") asked = JSON.parse(init.body); return null; });
+    assert.equal((await engine.move(plain.dest, {})).phase, "done");
+    assert.equal("requireEmpty" in asked, false, "a copy the person chose does not ask for an empty home");
+  } finally { plain.done(); }
+});
+
 test("the slim cloud-move profile is asked for on the estimate and the export, the Mac's environment is named on the preview, and what stayed behind is reported", async () => {
   const stayed = [{ name: "task-workspaces", bytes: 5_000_000 }, { name: "native", bytes: 1_600_000 }, { name: "tool-results", bytes: 260_000 }, { name: "providers", bytes: 900_000 }];
   const f = harness({ desktop: { identity: { environmentId: "mac-env-1" }, leftOnComputer: stayed } });

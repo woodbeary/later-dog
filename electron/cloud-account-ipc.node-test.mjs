@@ -46,7 +46,6 @@ test("production personal Cloud IPC guards exact local main frame and forwards n
     ensureCloudAccount: () => Object.fromEntries(methods.map(method => [method, (...args) => { calls.push([method, ...args]); return { status: "signed-out" }; }])),
     connectCloudHome: (...args) => { calls.push(["connectHome", ...args]); return { status: "connected" }; },
     signOutOfCloud: async () => { calls.push(["signOut"]); return { status: "signed-out" }; },
-    cloudAccountView: state => state,
     cloudSignInOutcome: async work => { try { return { ok: true, ...(await work()) }; } catch { return { ok: false, code: "unavailable" }; } },
     ensureCloudSignIn: () => ({ sendCode: async email => { calls.push(["sendCode", email]); return email; }, verifyCode: async (email, code) => { calls.push(["verifyCode", email, code]); return { grant: true }; } }),
     CloudSignInError: class extends Error {},
