@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { routineRunsOn } from "./routine-display";
+import { routineRunMessageId, routineRunsOn } from "./routine-display";
 
 describe("where a routine runs", () => {
   it("on My Cloud, every routine runs on schedule even when the person's computer is off", () => {
@@ -37,5 +37,17 @@ describe("where a routine runs", () => {
         expect(`${label} ${hint}`).not.toMatch(/boat|runner|VM\b/i);
       }
     }
+  });
+});
+
+describe("finding a run in the conversation", () => {
+  it("picks the run's own row and nothing else", () => {
+    const messages = [
+      { id: "m1", kind: "text" },
+      { id: "m2", kind: "routine.run", routineRun: { runId: "r-old" } },
+      { id: "m3", kind: "routine.run", routineRun: { runId: "r-new" } },
+    ];
+    expect(routineRunMessageId("r-new", messages)).toBe("m3");
+    expect(routineRunMessageId("r-missing", messages)).toBeUndefined();
   });
 });

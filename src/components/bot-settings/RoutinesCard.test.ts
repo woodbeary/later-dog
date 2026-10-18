@@ -2,7 +2,7 @@ import { Children, createElement, isValidElement, type ReactElement, type ReactN
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Routine } from "@/lib/routines";
+import type { Routine, RoutineRun } from "@/lib/routines";
 import type { Bot } from "@/state/store";
 
 const fixture = vi.hoisted(() => {
@@ -82,7 +82,7 @@ const bot: Bot = {
   modelSelection: { instanceId: "claude", model: "claude-opus-5-5" },
 };
 
-const card = () => capture(() => RoutinesCard({ bot }));
+const card = (forBot: Bot = bot) => capture(() => RoutinesCard({ bot: forBot }));
 const find = (rendered: { nodes: Node[] }, attr: string, value: unknown = true) =>
   rendered.nodes.find((node) => node.props[attr] === value)!;
 const click = (node: Node) => (node.props.onClick as () => void)();
@@ -172,6 +172,41 @@ describe("the routines card", () => {
     pressRow(card(), "soon");
     click(find(card(), "data-routine-action", "edit"));
     expect(fixture.drafts).toHaveLength(1);
+  });
+
+  it("shows the last run under each routine and opens it in the dog's conversation", () => {
+    const run = (id: string, routineId: string, createdAt: number, status: RoutineRun["status"]): RoutineRun => ({
+      id, routineId, routineName: `Routine ${routineId}`, target: "bot", botId: "scout", runOn: "dog",
+      scheduledFor: createdAt, status, manual: false, createdAt,
+    });
+    fixture.storeState = { routinesLoadState: "ready", routines: [routine("soon"), routine("fresh")], routineRuns: [
+      run("old", "soon", Date.UTC(2026, 9, 16, 16), "failed"),
+      run("new", "soon", Date.UTC(2026, 9, 17, 16), "completed"),
+      run("unseen", "fresh", Date.UTC(2026, 9, 17, 17), "running"),
+    ] };
+    const withRows: Bot = { ...bot, messages: [
+      { id: "m-old", role: "bot", kind: "routine.run", text: "", at: 1, routineRun: { runId: "old", routineId: "soon", routineName: "Routine soon", status: "failed" } },
+      { id: "m-new", role: "bot", kind: "routine.run", text: "", at: 2, routineRun: { runId: "new", routineId: "soon", routineName: "Routine soon", status: "completed" } },
+    ] } as Bot;
+    const rendered = card(withRows);
+    const line = find(rendered, "data-routine-last-run", "new");
+    expect(line.type).toBe("button");
+    expect(line.props.children).toMatch(/^Last run .+ · Completed$/);
+    const focus = { type: "focusMessage", threadId: "thread-scout", messageId: "m-new" };
+    const wide = (matches: boolean) => Object.assign(window, { matchMedia: (query: string) => ({ matches: matches && query === "(min-width: 768px)" }) });
+    wide(true);
+    click(line);
+    expect(fixture.dispatch).toHaveBeenLastCalledWith(focus);
+    wide(false);
+    click(line);
+    expect(vi.mocked(fixture.dispatch).mock.calls.slice(-2)).toEqual([[focus], [{ type: "toggleSettings", open: false }]]);
+    expect(rendered.nodes.some((node) => node.props["data-routine-last-run"] === "old")).toBe(false);
+    const elsewhere = find(rendered, "data-routine-last-run", "unseen");
+    expect(elsewhere.type).toBe("div");
+    expect(elsewhere.props.children).toMatch(/ · Running$/);
+
+    fixture.storeState = { routinesLoadState: "ready", routines: [routine("soon")], routineRuns: [] };
+    expect(card().nodes.some((node) => node.props["data-routine-last-run"] !== undefined)).toBe(false);
   });
 
   it("asks before deleting and only deletes on confirm", () => {

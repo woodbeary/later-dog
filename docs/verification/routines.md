@@ -128,6 +128,44 @@ not necessarily asking the user for approval: its attention text can explain
 that delegated work is still running. Status, result and scheduled/manual
 trigger must agree with the saved server record.
 
+## Time zone and last run
+
+Routines run in the home's time zone. The app the owner has open saves its
+computer's zone only when that zone actually changes:
+`src/lib/time-zone-sync.ts` reads `GET /api/time-zone` on connect and when the
+window comes back, and sends `PUT /api/time-zone` when the home has no saved
+zone, or when the computer's zone differs from the last one this app synced
+(kept in `localStorage` under `laterdog.timeZone.lastSynced`). A reconnect,
+reload or wake with the computer in the same zone sends nothing, so a zone the
+phone saved (its manual picker or Set Automatically) stays until the computer
+itself moves. A guest's PUT is refused and nothing changes. General ›
+Appearance shows the zone in a read-only **Time zone** row.
+
+On a fixture from `ui launch`, open the renderer once (`saved` becomes the
+Mac's zone), `PUT /api/time-zone` with `Asia/Kolkata` (as the phone would),
+create a daily 09:00 routine (its `nextRunAt` is 09:00 in Kolkata), reload the
+renderer, and read both again: `saved` is still `Asia/Kolkata` and `nextRunAt`
+is unchanged. Every routine from `GET`, `POST` and `PATCH /api/routines`
+carries a plain `scheduleLabel` (cron rules name their zone), which the phone
+shows in place of "Custom schedule".
+
+Each zone change moves every enabled routine except one-time and cron ones to
+its next occurrence in the new zone (`routines.retime()`). A change after a run already fired can run the same routine
+twice that day (moving west) or skip one (moving east). The desktop now writes
+only when its computer moves, so this needs a real zone change, not a
+reconnect.
+
+In a dog's Details, each routine with a run shows one line,
+`Last run <time> · <status>`. When that run's row is in the conversation, the
+line is a button that scrolls to the row and flashes it; below the side-by-side
+width it also closes Details, which would otherwise cover the conversation.
+
+```sh
+pnpm exec vitest run src/lib/time-zone-sync.test.ts server/laterdog/routine-schedule-label.test.ts \
+  src/components/bot-settings/RoutinesCard.test.ts src/lib/routine-display.test.ts \
+  server/laterdog/time-zone.test.ts server/bot-overview.test.ts
+```
+
 ## Evidence and cleanup
 
 Keep screenshots or a browser action transcript for renderer checks, and the

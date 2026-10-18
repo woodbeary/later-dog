@@ -25,6 +25,7 @@ import { cloudLendingBridge } from "@/lib/cloud-plan-summary";
 import { shortcutLabel } from "./ShortcutHint";
 import { UsageSection } from "./UsageSection";
 import { ThemeRow } from "./ThemeRow";
+import { TimeZoneRow } from "./TimeZoneRow";
 import { cn } from "@/lib/cn";
 import { glassPopupFrameStyle } from "@/lib/glass-popup";
 import { setNotificationSounds, useNotificationSounds } from "@/lib/notification-preferences";
@@ -243,6 +244,7 @@ function GeneralPage({ mac }: { mac: boolean }) {
         <SettingsRows>
           <ThemeRow />
           <LanguageRow />
+          <TimeZoneRow />
           <NotificationSoundsRow />
         </SettingsRows>
       </SettingsGroup>

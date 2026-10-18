@@ -454,7 +454,7 @@ import { LocalVmSeatPool, type LocalVmSeatHolder } from "./local-vm-seat-pool.ts
 import { RepeatDetector, callKey } from "./repeat-detector.ts";
 import { redactSecretsInText } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
-import { RoutineManager, type RoutineGoalStatus, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
+import { RoutineManager, type Routine, type RoutineGoalStatus, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { CalendarCallManager, type CalendarCall } from "./calendar-calls.ts";
 import { BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
 import { BrowserRuntime, browserRuntimeEnv } from "./browser-runtime.ts";
@@ -699,7 +699,8 @@ import { guardTurnEnd } from "./laterdog/turn-end-guard.ts";
 import { expireStaleApprovals } from "./laterdog/stale-approvals.ts";
 import { createUndoRoutes } from "./routes/undo.ts";
 import { createVoiceTranscribeRoutes } from "./routes/voice-transcribe.ts";
-import { createTimeZoneRoutes, restoreTimeZone } from "./laterdog/time-zone.ts";
+import { createTimeZoneRoutes, currentTimeZone, restoreTimeZone } from "./laterdog/time-zone.ts";
+import { withScheduleLabel } from "./laterdog/routine-schedule-label.ts";
 import { heldAccountReason } from "./laterdog/held-accounts.ts";
 import { createHomeAccountRoutes, withHandedOverEmail } from "./laterdog/home-accounts.ts";
 import { createMacAccountRoutes } from "./laterdog/mac-accounts.ts";
@@ -1259,6 +1260,10 @@ function cloudGuestDriven(threadId: string): boolean {
   if (!store.groupByThread(threadId)) return false;
   const person = store.messagesFor(threadId).findLast((line) => line.role === "user" && !line.peerAsk && line.sender?.id)?.sender?.id;
   return person !== undefined && !cloudOwnerPerson(person);
+}
+
+function labelledRoutine(routine: Routine) {
+  return withScheduleLabel(routine, currentTimeZone());
 }
 
 function cloudOwnerSession(auth: RequestAuth): boolean {
@@ -15314,7 +15319,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const from = fromParam == null ? undefined : Number(fromParam);
       const to = toParam == null ? undefined : Number(toParam);
       return json(res, 200, {
-        routines: routines!.listRoutines().filter((routine) => routineVisible(routine, visible)),
+        routines: routines!.listRoutines().filter((routine) => routineVisible(routine, visible)).map(labelledRoutine),
         runs: routines!.listRuns(from != null && Number.isFinite(from) ? from : undefined, to != null && Number.isFinite(to) ? to : undefined)
           .filter((run) => routineVisible(run, visible)),
       });
@@ -15327,7 +15332,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const routine = routines!.create(body);
       if (cloudRoutineAuthors && cloudOwnerSession(auth)) cloudRoutineAuthors.record(routine.id, routine);
       cloudRoutineAuthors?.wrote(routine.id, writer);
-      return json(res, 201, { routine });
+      return json(res, 201, { routine: labelledRoutine(routine) });
     }
     if (path === "/api/routines/wake" && method === "GET") {
       return json(res, 200, routines!.wakeHold());
@@ -15358,7 +15363,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         else if (ownerAuthors) cloudRoutineAuthors.record(routine.id, routine);
         cloudRoutineAuthors.wrote(routine.id, writer);
       }
-      return routine ? json(res, 200, { routine }) : json(res, 404, { error: "no such routine" });
+      return routine ? json(res, 200, { routine: labelledRoutine(routine) }) : json(res, 404, { error: "no such routine" });
     }
     if (routineMatch && method === "DELETE") {
       const removed = routines!.remove(routineMatch[1]);

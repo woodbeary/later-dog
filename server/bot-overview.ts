@@ -2,7 +2,7 @@ import type { BotRecord } from "./store.ts";
 import type { Routine } from "./routines.ts";
 import type { RoutineRequestSchedule } from "../shared/routine-request.ts";
 import { approvalModeFor } from "../shared/approval-mode.ts";
-import { cronScheduleLabel } from "../shared/cron-label.ts";
+import { clockAt, routineScheduleLabel } from "./laterdog/routine-schedule-label.ts";
 
 export interface BotOverview {
   who: { name: string; title: string; blurb: string; soulLead: string };
@@ -79,42 +79,6 @@ function lowerFirst(value: string): string {
   return value.length ? value[0]!.toLowerCase() + value.slice(1) : value;
 }
 
-function time(at: number, timeZone: string): string {
-  return new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone });
-}
-
-const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-function clockTime(hhmm: string): string {
-  const [h = 0, m = 0] = hhmm.split(":").map((part) => Number.parseInt(part, 10) || 0);
-  return new Date(Date.UTC(2000, 0, 1, h, m)).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    timeZone: "UTC",
-  });
-}
-
-function schedulePhrase(schedule: OverviewFacts["routines"][number]["schedule"], timeZone: string): string {
-  if (schedule.type === "cron") return cronScheduleLabel(schedule);
-  if (schedule.type === "once") {
-    const date = new Date(schedule.at).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone });
-    return `Once on ${date} at ${time(schedule.at, timeZone)}`;
-  }
-  if (schedule.type === "interval") {
-    const minutes = schedule.everyMinutes;
-    if (minutes < 60) return `Every ${minutes} minute${minutes === 1 ? "" : "s"}`;
-    if (minutes === 60) return "Every hour";
-    if (minutes % 60 === 0) return `Every ${minutes / 60} hours`;
-    return `Every ${Math.floor(minutes / 60)} hour${Math.floor(minutes / 60) === 1 ? "" : "s"} ${minutes % 60} minutes`;
-  }
-  const days = schedule.weekdays;
-  const at = ` at ${clockTime(schedule.time)}`;
-  if (days.length === 7) return `Every day${at}`;
-  if (days.join(",") === "1,2,3,4,5") return `Every weekday${at}`;
-  if (days.length === 1) return `Weekly on ${DAY_NAMES[days[0]!]}${at}`;
-  return `${days.map((day) => DAY_NAMES[day]).join(", ")}${at}`;
-}
-
 function latestRunFor(runs: OverviewFacts["runs"], routineId: string): OverviewFacts["runs"][number] | undefined {
   let best: OverviewFacts["runs"][number] | undefined;
   let bestAt = -Infinity;
@@ -136,11 +100,11 @@ function doesLines(facts: OverviewFacts): string[] {
       lines.push(`Paused: ${routine.name}.`);
       continue;
     }
-    const nextRun = routine.nextRunAt != null ? ` Next run ${time(routine.nextRunAt, facts.timeZone)}.` : "";
+    const nextRun = routine.nextRunAt != null ? ` Next run ${clockAt(routine.nextRunAt, facts.timeZone)}.` : "";
     const latest = latestRunFor(facts.runs, routine.id);
     const at = latest ? latest.finishedAt ?? latest.startedAt ?? latest.scheduledFor : undefined;
-    const lastRun = latest ? ` Last run ${latest.status} at ${time(at!, facts.timeZone)}.` : "";
-    lines.push(`${schedulePhrase(routine.schedule, facts.timeZone)}: ${routine.name}.${nextRun}${lastRun}`);
+    const lastRun = latest ? ` Last run ${latest.status} at ${clockAt(at!, facts.timeZone)}.` : "";
+    lines.push(`${routineScheduleLabel(routine.schedule, facts.timeZone)}: ${routine.name}.${nextRun}${lastRun}`);
   }
   for (const skill of facts.skills) {
     if (!skill.enabled) continue;

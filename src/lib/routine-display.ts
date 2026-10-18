@@ -10,6 +10,10 @@ export function latestRoutineRun(routineId: string, runs: readonly RoutineRun[])
     .reduce<RoutineRun | undefined>((latest, run) => !latest || routineRunTime(run) > routineRunTime(latest) ? run : latest, undefined);
 }
 
+export function routineRunMessageId(runId: string, messages: readonly { id: string; kind?: string; routineRun?: { runId: string } }[]): string | undefined {
+  return messages.find((message) => message.kind === "routine.run" && message.routineRun?.runId === runId)?.id;
+}
+
 export function routineRunLabel(run: RoutineRun): string {
   if (run.goalStatus) return t(`routines.goal.${run.goalStatus}`);
   return t(`routines.status.${run.status}`);

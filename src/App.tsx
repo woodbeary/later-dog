@@ -31,6 +31,7 @@ import { shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
 import { effectiveLanguage, useLanguageChoice } from "@/lib/language-preference";
 import { botShowsUnread } from "@/lib/bot-unread";
 import { acknowledgeOrganizationSettings } from "@/lib/organization-settings-ack";
+import { useTimeZoneSync } from "@/lib/time-zone-sync";
 
 function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const { state, dispatch } = useStore();
@@ -126,6 +127,8 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   }, [state.connected]);
 
   useEffect(() => preloadScreens(), []);
+
+  useTimeZoneSync(state.connected ? (state.config?.cloudHome ? "cloud" : "local") : null);
 
   useEffect(() => {
     setDrawerOpen(false);

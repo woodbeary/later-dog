@@ -5,6 +5,7 @@ import { Pause, Pencil, Play, Trash2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { appendComposerDraft, getDraft } from "@/lib/drafts";
 import { t } from "@/lib/i18n";
+import { latestRoutineRun, routineDateTime, routineRunLabel, routineRunMessageId, routineRunTime } from "@/lib/routine-display";
 import type { Routine } from "@/lib/routines";
 import { scheduleLabel } from "@/lib/schedule-label";
 import { useStore, type Bot } from "@/state/store";
@@ -23,6 +24,8 @@ function draftHas(id: string, text: string): boolean {
     return false;
   }
 }
+
+const SIDE_BY_SIDE = "(min-width: 768px)";
 
 export function RoutinesCard({ bot }: { bot: Bot }) {
   const { state, dispatch } = useStore();
@@ -83,39 +86,61 @@ export function RoutinesCard({ bot }: { bot: Bot }) {
             </div>
           )
         ) : (
-          routines.map((routine, index) => (
-            <div key={routine.id} className={cn(index === 0 ? rowCls : dividedRowCls, "flex items-center gap-3")}>
-              <button
-                type="button"
-                data-routine={routine.id}
-                aria-haspopup="menu"
-                aria-expanded={menu?.routineId === routine.id}
-                onClick={(event) => {
-                  if (menu?.routineId === routine.id) {
-                    setMenu(null);
-                    return;
-                  }
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  openMenu(routine.id, rect.left, rect.bottom + 4);
-                }}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  openMenu(routine.id, event.clientX, event.clientY);
-                }}
-                className="min-w-0 flex-1 rounded-md text-left outline-none focus-visible:ring-1 focus-visible:ring-focus"
-              >
-                <div className="truncate text-[13.5px] font-medium text-ink">{routine.name}</div>
-                <div className="truncate text-[12px] text-ink-secondary">
-                  {routine.enabled ? scheduleLabel(routine.schedule) : t("routines.pausedSchedule")}
+          routines.map((routine, index) => {
+            const lastRun = latestRoutineRun(routine.id, state.routineRuns);
+            const lastRunText = lastRun && t("routines.lastRun", { time: routineDateTime(routineRunTime(lastRun)), status: routineRunLabel(lastRun) });
+            const lastRunMessage = lastRun && routineRunMessageId(lastRun.id, bot.messages);
+            return (
+              <div key={routine.id} className={cn(index === 0 ? rowCls : dividedRowCls, "flex items-center gap-3")}>
+                <div className="min-w-0 flex-1">
+                  <button
+                    type="button"
+                    data-routine={routine.id}
+                    aria-haspopup="menu"
+                    aria-expanded={menu?.routineId === routine.id}
+                    onClick={(event) => {
+                      if (menu?.routineId === routine.id) {
+                        setMenu(null);
+                        return;
+                      }
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      openMenu(routine.id, rect.left, rect.bottom + 4);
+                    }}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      openMenu(routine.id, event.clientX, event.clientY);
+                    }}
+                    className="block w-full min-w-0 rounded-md text-left outline-none focus-visible:ring-1 focus-visible:ring-focus"
+                  >
+                    <div className="truncate text-[13.5px] font-medium text-ink">{routine.name}</div>
+                    <div className="truncate text-[12px] text-ink-secondary">
+                      {routine.enabled ? scheduleLabel(routine.schedule) : t("routines.pausedSchedule")}
+                    </div>
+                  </button>
+                  {lastRun && lastRunMessage ? (
+                    <button
+                      type="button"
+                      data-routine-last-run={lastRun.id}
+                      onClick={() => {
+                        dispatch({ type: "focusMessage", threadId: bot.threadId, messageId: lastRunMessage });
+                        if (!window.matchMedia?.(SIDE_BY_SIDE)?.matches) dispatch({ type: "toggleSettings", open: false });
+                      }}
+                      className="block max-w-full truncate rounded-md text-left text-[12px] text-ink-tertiary outline-none hover:text-ink focus-visible:ring-1 focus-visible:ring-focus"
+                    >
+                      {lastRunText}
+                    </button>
+                  ) : lastRun ? (
+                    <div data-routine-last-run={lastRun.id} className="truncate text-[12px] text-ink-tertiary">{lastRunText}</div>
+                  ) : null}
                 </div>
-              </button>
-              <Switch
-                checked={routine.enabled}
-                aria-label={t("routines.toggleAria", { name: routine.name })}
-                onClick={() => toggle(routine)}
-              />
-            </div>
-          ))
+                <Switch
+                  checked={routine.enabled}
+                  aria-label={t("routines.toggleAria", { name: routine.name })}
+                  onClick={() => toggle(routine)}
+                />
+              </div>
+            );
+          })
         )}
       </div>
       {menu && menuRoutine && createPortal(
