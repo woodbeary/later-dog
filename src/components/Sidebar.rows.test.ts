@@ -5,18 +5,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AppState, Bot, InstanceInfo, Message, Task } from "@/state/store";
 
-const renders = vi.hoisted(() => ({ bots: [] as string[], threads: [] as string[] }));
+const renders = vi.hoisted(() => ({ bots: [] as string[] }));
 vi.mock("./RenameTitle", () => ({
   RenameTitle: ({ value }: { value: string }) => {
     renders.bots.push(value);
     return createElement("span", null, value);
-  },
-}));
-vi.mock("./ConfirmDialog", async (importOriginal) => ({
-  ...await importOriginal<typeof import("./ConfirmDialog")>(),
-  ConfirmDialog: ({ body }: { body?: unknown }) => {
-    if (typeof body === "string") renders.threads.push(body);
-    return null;
   },
 }));
 vi.mock("./DesktopCapabilities", async (importOriginal) => ({
@@ -28,7 +21,7 @@ vi.mock("@/lib/cloud-guest", () => ({ useCanWriteIn: () => true }));
 
 const { Sidebar } = await import("./Sidebar");
 const { BotEditorStore, initialState, reducer } = await import("@/state/store");
-const { setLocale, t } = await import("@/lib/i18n");
+const { setLocale } = await import("@/lib/i18n");
 
 const HOUR = 3_600_000;
 const NOW = new Date(2026, 9, 4, 12, 0).getTime();
@@ -68,20 +61,13 @@ async function draw() {
   flushSync(() => root.render(createElement(BotEditorStore, { value, children: createElement(Sidebar, { open: true, onClose: () => {} }) })));
   await settle();
 }
-const threadTitles = ["Report draft", "Budget check", "Old notes"];
 function counted() {
   const bots: Record<string, number> = {};
   for (const name of renders.bots) bots[name] = (bots[name] ?? 0) + 1;
-  const threads: Record<string, number> = {};
-  for (const body of renders.threads) {
-    const title = threadTitles.find((candidate) => body.includes(`“${candidate}”`));
-    if (title) threads[title] = (threads[title] ?? 0) + 1;
-  }
-  return { bots, threads };
+  return bots;
 }
 async function rowRendersAfter(change: () => void | Promise<void>) {
   renders.bots = [];
-  renders.threads = [];
   await change();
   await settle();
   return counted();
@@ -101,9 +87,6 @@ beforeAll(async () => {
   document.body.append(container);
   root = createRoot(container);
   await draw();
-  const toggle = document.querySelector<HTMLButtonElement>(`button[aria-label="${t("task.expandNamed", { name: "Atlas" })}"]`);
-  toggle!.click();
-  await settle();
 });
 afterAll(() => {
   root.unmount();
@@ -113,54 +96,42 @@ afterAll(() => {
 });
 
 describe("sidebar rows", () => {
-  it("draws every bot row and the open thread list", () => {
+  it("draws one row per dog and no thread rows for old extra tasks", () => {
     for (const id of ["atlas", "scout", "pepper"]) expect(document.querySelector(`[data-sidebar-bot-row="${id}"]`)).not.toBeNull();
-    for (const id of ["atlas-now", "atlas-earlier", "atlas-old"]) expect(document.querySelector(`[data-sidebar-thread-row="${id}"]`)).not.toBeNull();
-    expect(document.body.textContent).toContain(t("task.updated.hours", { count: 1 }));
+    expect(document.querySelector("[data-sidebar-thread-row]")).toBeNull();
+    for (const title of ["Report draft", "Budget check", "Old notes", "Scout list"]) expect(document.body.textContent).not.toContain(title);
+    expect(document.body.textContent).toContain("Done with the report.");
   });
 
   it("renders no row for a store event no row shows", async () => {
-    expect(await rowRendersAfter(update((current) => reducer(current, { type: "toggleSettings", open: true }))))
-      .toEqual({ bots: {}, threads: {} });
+    expect(await rowRendersAfter(update((current) => reducer(current, { type: "toggleSettings", open: true })))).toEqual({});
   });
 
-  it("renders only the row of the bot that changed", async () => {
+  it("renders only the row of the dog that changed", async () => {
     expect(await rowRendersAfter(update((current) => reducer(current, { type: "botPatched", bot: { ...bot("scout"), busy: true } }))))
-      .toEqual({ bots: { Scout: 1 }, threads: {} });
+      .toEqual({ Scout: 1 });
   });
 
-  it("renders only that bot's row and its thread for a new message", async () => {
+  it("renders only that dog's row for a new message", async () => {
     const message = { ...reply("a3", "a2", "One more thing."), at: NOW };
-    const changed = await rowRendersAfter(update((current) => reducer(current, { type: "messageAdded", threadId: "atlas-now", message })));
-    expect(changed).toEqual({ bots: { Atlas: 1 }, threads: { "Report draft": 1 } });
-    expect(document.querySelector('[data-sidebar-thread-row="atlas-now"]')?.textContent).toContain(t("task.updated.justNow"));
+    expect(await rowRendersAfter(update((current) => reducer(current, { type: "messageAdded", threadId: "atlas-now", message }))))
+      .toEqual({ Atlas: 1 });
   });
 
-  it("renders only the renamed thread's row among the threads", async () => {
-    threadTitles[1] = "Budget review";
-    expect(await rowRendersAfter(update((current) => reducer(current, { type: "renameTask", botId: "atlas", threadId: "atlas-earlier", title: "Budget review" }))))
-      .toEqual({ bots: { Atlas: 1 }, threads: { "Budget review": 1 } });
-  });
-
-  it("re-renders only the thread rows with a relative stamp on the clock's tick", async () => {
-    const changed = await rowRendersAfter(() => { vi.advanceTimersByTime(30_000); });
-    expect(changed).toEqual({ bots: {}, threads: { "Report draft": 1, "Budget review": 1 } });
+  it("renders no row on the clock's tick", async () => {
+    expect(await rowRendersAfter(() => { vi.advanceTimersByTime(30_000); })).toEqual({});
   });
 
   it("moves the selection with exactly the two rows it changes", async () => {
-    const changed = await rowRendersAfter(update((current) => reducer(current, { type: "select", id: "scout" })));
-    expect(changed.bots).toEqual({ Atlas: 1, Scout: 1 });
+    expect(await rowRendersAfter(update((current) => reducer(current, { type: "select", id: "scout" })))).toEqual({ Atlas: 1, Scout: 1 });
     expect(document.querySelector('[data-sidebar-bot-row="scout"]')?.getAttribute("aria-current")).toBe("page");
-    expect(document.querySelector('[data-sidebar-thread-row="atlas-now"]')?.getAttribute("aria-current")).toBeNull();
+    expect(document.querySelector('[data-sidebar-bot-row="atlas"]')?.getAttribute("aria-current")).toBeNull();
   });
 
   it("re-renders every row when the app language changes", async () => {
     try {
       setLocale("de");
-      const changed = await rowRendersAfter(draw);
-      expect(changed.bots).toEqual({ Atlas: 1, Scout: 1, Pepper: 1 });
-      expect(Object.keys(changed.threads)).toHaveLength(3);
-      expect(document.querySelector('[data-sidebar-thread-row="atlas-earlier"]')?.textContent).toContain("vor 2 Std.");
+      expect(await rowRendersAfter(draw)).toEqual({ Atlas: 1, Scout: 1, Pepper: 1 });
     } finally {
       setLocale("en");
       await draw();

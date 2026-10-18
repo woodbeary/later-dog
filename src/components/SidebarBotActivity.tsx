@@ -1,10 +1,8 @@
-import { BellDot, CircleAlert, Clock3, Loader2, Pin, PinOff, type LucideIcon } from "lucide-react";
-import type { Dispatch } from "react";
-import type { Action, AppState, Bot, Group, Task } from "@/state/store";
+import { BellDot, CircleAlert, Clock3, Loader2, type LucideIcon } from "lucide-react";
+import type { Bot, Group, Task } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { orderedSidebarThreads, orderedThreadList, threadRecency, threadUpdatedLabel } from "./SidebarThreadRow";
-import type { SidebarDensity } from "@/lib/sidebar-preferences";
+import { orderedSidebarThreads, orderedThreadList } from "./SidebarThreadRow";
 
 export function sidebarBotActivityTasks(bot: Bot, queued: Record<string, unknown[]>): Array<Task & { queued: boolean }> {
   const tasks = bot.tasks ?? [{
@@ -56,13 +54,6 @@ export function attentionJumpAction(entry: AttentionThread):
     : { type: "switchGroupTask", groupId: entry.groupId, threadId: entry.task.threadId };
 }
 
-export function attentionUnpinAction(entry: AttentionThread):
-  | { type: "updateTask"; botId: string; threadId: string; patch: { pinned: boolean } }
-  | { type: "pinGroupTask"; groupId: string; threadId: string; pinned: boolean; title: string } {
-  if (entry.kind === "bot") return { type: "updateTask", botId: entry.botId, threadId: entry.task.threadId, patch: { pinned: false } };
-  return { type: "pinGroupTask", groupId: entry.groupId, threadId: entry.task.threadId, pinned: false, title: entry.task.title };
-}
-
 export function attentionRowStatus(task: AttentionThread["task"]): { active: boolean; Icon: LucideIcon; colorClass: string; label: string } {
   const waiting = task.activity === "waiting-on-you";
   const teammateWait = !waiting && task.waitingForTeammates === true;
@@ -96,27 +87,6 @@ export function crossBotAttentionThreads(
       : { kind: "bot", botId: botId!, botName: botName!, task });
 }
 
-export function crossBotPinnedThreads(bots: Bot[], groups: Group[], queued: Record<string, unknown[]>): AttentionThread[] {
-  const flat: FlatAttentionEntry[] = [
-    ...bots
-      .filter((bot) => !bot.hidden)
-      .flatMap((bot): FlatAttentionEntry[] => (bot.tasks ?? [])
-        .filter((task) => task.pinned === true && !task.routineRunId)
-        .map((task) => ({ ...task, queued: Boolean(queued[task.threadId]?.length), botId: bot.id, botName: bot.name }))),
-    ...groups
-      .flatMap((group): FlatAttentionEntry[] => {
-        const activity = new Map(sidebarGroupActivityTasks(group, bots, queued).map((task) => [task.threadId, task]));
-        return (group.tasks ?? [])
-          .filter((task) => task.pinned === true)
-          .map((task) => ({ ...task, ...activity.get(task.threadId), queued: Boolean(queued[task.threadId]?.length), groupId: group.id, groupName: group.name, groupThreadId: group.threadId }));
-      }),
-  ];
-  return orderedThreadList(flat).map(({ botId, botName, groupId, groupName, groupThreadId, ...task }): AttentionThread =>
-    groupId !== undefined
-      ? { kind: "group", groupId, groupName: groupName!, groupThreadId: groupThreadId!, task }
-      : { kind: "bot", botId: botId!, botName: botName!, task });
-}
-
 export function AttentionThreadRows({ entries, onJump }: { entries: AttentionThread[]; onJump: (entry: AttentionThread) => void }) {
   return <>
     {entries.map((entry) => {
@@ -134,61 +104,4 @@ export function AttentionThreadRows({ entries, onJump }: { entries: AttentionThr
       </button>;
     })}
   </>;
-}
-
-export function PinnedThreadRows({ entries, now, onJump, onUnpin }: { entries: AttentionThread[]; now: number; onJump: (entry: AttentionThread) => void; onUnpin: (entry: AttentionThread) => void }) {
-  return <>
-    {entries.map((entry) => {
-      const name = attentionOwnerName(entry);
-      const status = attentionRowStatus(entry.task);
-      const updated = threadUpdatedLabel(threadRecency(entry.task), now);
-      const byline = status.active ? `${name} · ${status.label}` : updated ? `${name} · ${updated}` : name;
-      const label = t("sidebar.pinnedThreads.item", { title: entry.task.title, name: byline });
-      const unpinLabel = t("sidebar.bot.unpin");
-      const key = `${entry.kind}-${entry.kind === "bot" ? entry.botId : entry.groupId}-${entry.task.threadId}`;
-      const Icon = status.active ? status.Icon : Pin;
-      return <div key={key} className="group/pinned flex w-full items-center">
-        <button type="button" aria-label={label} title={label}
-          onClick={() => onJump(entry)}
-          className="flex min-w-0 flex-1 items-center gap-2.5 px-3.5 py-2 text-left text-[13px] text-ink hover:bg-raised/70">
-          <Icon size={15} aria-hidden="true" className={cn("shrink-0", status.active ? status.colorClass : "text-ink-secondary")} />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate">{entry.task.title}</span>
-            <span className="block truncate text-[11px] text-ink-secondary">{byline}</span>
-          </span>
-        </button>
-        <button type="button" aria-label={unpinLabel} title={unpinLabel} onClick={() => onUnpin(entry)}
-          className="mr-2 flex size-6 shrink-0 items-center justify-center rounded text-ink-secondary opacity-0 hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover/pinned:opacity-100 max-md:opacity-70 touch:opacity-70">
-          <PinOff size={13} aria-hidden="true" />
-        </button>
-      </div>;
-    })}
-  </>;
-}
-
-export function threadsLeftWhenCollapsed<T extends { activity?: string }>(tasks: readonly T[], collapsedByYou: boolean): T[] {
-  return collapsedByYou ? tasks.filter((task) => task.activity === "waiting-on-you") : [...tasks];
-}
-
-export function SidebarBotActivity({ bot, density, pendingQueued, dispatch, onlyWaiting = false }: { bot: Bot; density: SidebarDensity; pendingQueued: AppState["pendingQueued"]; dispatch: Dispatch<Action>; onlyWaiting?: boolean }) {
-  const tasks = threadsLeftWhenCollapsed(threadsWhenTreeHidden(bot, pendingQueued).filter((task) => task.threadId !== bot.threadId), onlyWaiting);
-  if (!tasks.length) return null;
-  const iconOnly = density === "icons";
-  return <div data-sidebar-bot-activity={bot.id} className={cn("mb-1 space-y-0.5", !iconOnly && "ml-6")}>
-    {tasks.map((task) => {
-      const waiting = task.activity === "waiting-on-you";
-      const teammateWait = !waiting && task.waitingForTeammates === true;
-      const working = !waiting && !teammateWait && (task.busy || task.activity === "working");
-      const status = waiting ? t("sidebar.preview.waiting") : working ? t("chat.activity.working") : teammateWait ? t("sidebar.preview.waitingOnTeammate") : task.queued ? t("task.queued") : t("task.unread");
-      const label = `${bot.name}: ${task.title} · ${status}${task.unread && (waiting || working || teammateWait || task.queued) ? ` · ${t("task.unread")}` : ""}`;
-      const Icon = waiting ? CircleAlert : working ? Loader2 : teammateWait || task.queued ? Clock3 : BellDot;
-      return <button key={task.threadId} type="button" data-sidebar-activity-row={task.threadId} aria-label={label} title={label}
-        onClick={() => dispatch({ type: "switchTask", botId: bot.id, threadId: task.threadId })}
-        className={cn("flex min-h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] outline-none hover:bg-raised/50 focus-visible:ring-1 focus-visible:ring-accent/60", iconOnly && "justify-center", waiting ? "text-warning" : "text-ink-secondary")}>
-        <Icon size={12} aria-hidden="true" className={cn("shrink-0", working && "animate-spin text-success", teammateWait && "text-warning", task.unread && !waiting && !working && !teammateWait && "text-accent")} />
-        {!iconOnly && <><span className="min-w-0 flex-1 truncate">{task.title}</span><span className="shrink-0 text-[10px]">{waiting ? t("task.waiting") : status}</span>
-          {task.unread && (waiting || working || teammateWait || task.queued) && <span className="size-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />}</>}
-      </button>;
-    })}
-  </div>;
 }

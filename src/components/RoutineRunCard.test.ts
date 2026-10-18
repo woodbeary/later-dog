@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { RoutineRunCardData } from "../../shared/routine-run";
 import type { Message } from "@/state/store";
-import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
+import { RoutineRunCard } from "./RoutineRunCard";
 
 function message(
   status: RoutineRunCardData["status"],
@@ -145,13 +145,5 @@ describe("RoutineRunCard", () => {
 
     expect(markup).toContain("Missed");
     expect(markup).not.toContain("Open run");
-  });
-
-  it("recognizes only an execution thread still present in the owning bot's tasks", () => {
-    const tasks = [{ threadId: "source-thread" }, { threadId: "execution-thread" }];
-
-    expect(hasRoutineExecutionTask(tasks, "execution-thread")).toBe(true);
-    expect(hasRoutineExecutionTask(tasks, "deleted-thread")).toBe(false);
-    expect(hasRoutineExecutionTask(undefined, "execution-thread")).toBe(false);
   });
 });

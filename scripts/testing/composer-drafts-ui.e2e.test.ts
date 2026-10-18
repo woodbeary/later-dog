@@ -13,7 +13,7 @@ if (!enabled) console.log("skipping composer drafts UI: set LATERDOG_UI_E2E=1 to
 let child: ChildProcess | undefined;
 afterAll(() => waitForExit(child, { signal: "SIGINT", graceMs: 30_000 }));
 
-(enabled ? it : it.skip)("keeps each chat's draft across dogs and threads, and sending or creating a dog clears only its own composer", async () => {
+(enabled ? it : it.skip)("keeps each chat's draft across dogs, and sending or creating a dog clears only its own composer", async () => {
   let output = "";
   let stderr = "";
   child = spawn(process.execPath, ["--experimental-strip-types", join(ROOT, "scripts/control-laterdog.ts"), "ui", "launch"], { cwd: ROOT, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
@@ -30,7 +30,6 @@ afterAll(() => waitForExit(child, { signal: "SIGINT", graceMs: 30_000 }));
   const composer = () => evaluate(`(() => { const field = document.querySelector('textarea[aria-label^="Message "]'); return field && [field.getAttribute('aria-label'), field.value]; })()`);
   const press = (selector: string) => evaluate(`document.querySelector(${JSON.stringify(selector)}).click(); true`);
   const openDog = (id: string) => press(`[data-sidebar-bot-row="${id}"]`);
-  const openThread = (id: string) => press(`[data-sidebar-thread-row="${id}"]`);
 
   const initial = await bots();
   const pepper = initial.find(bot => bot.id === fixture!.botId)!;
@@ -43,25 +42,13 @@ afterAll(() => waitForExit(child, { signal: "SIGINT", graceMs: 30_000 }));
   await openDog(pepper.id);
   await expect.poll(composer).toEqual(["Message Pepper", "Half a thought for Pepper"]);
 
-  await evaluate(`document.querySelector('[data-sidebar-bot-row="${pepper.id}"]').parentElement.querySelector('button[aria-label="New thread"]').click(); true`);
-  const current = () => evaluate("document.querySelector('[data-sidebar-thread-row][aria-current=page]')?.dataset.sidebarThreadRow ?? null");
-  await expect.poll(current, { timeout: 10_000 }).not.toBe(null);
-  const fresh = await current() as string;
-  expect(fresh).not.toBe(pepper.threadId);
-  await expect.poll(composer).toEqual(["Message Pepper", ""]);
-  await ui("type", "--name", "Message Pepper", "--text", "A note in the new thread");
-  await openThread(pepper.threadId);
-  await expect.poll(composer).toEqual(["Message Pepper", "Half a thought for Pepper"]);
-
   await ui("press", "--keys", "Enter");
   await expect.poll(composer).toEqual(["Message Pepper", ""]);
   await ui("wait-settle", "--timeout", "60");
   expect(await evaluate("document.querySelector('[role=log]')?.innerText ?? ''")).toContain("Half a thought for Pepper");
   await openDog(starter.id);
   await expect.poll(composer).toEqual(["Message Fixture Starter", "Something else for the starter"]);
-  await openThread(fresh);
-  await expect.poll(composer).toEqual(["Message Pepper", "A note in the new thread"]);
-  await openThread(pepper.threadId);
+  await openDog(pepper.id);
   await expect.poll(composer).toEqual(["Message Pepper", ""]);
 
   const before = await bots();
@@ -74,7 +61,7 @@ afterAll(() => waitForExit(child, { signal: "SIGINT", graceMs: 30_000 }));
   expect(await evaluate("Boolean(document.querySelector('[role=dialog]'))")).toBe(false);
   await openDog(starter.id);
   await expect.poll(composer).toEqual(["Message Fixture Starter", "Something else for the starter"]);
-  await openThread(fresh);
-  await expect.poll(composer).toEqual(["Message Pepper", "A note in the new thread"]);
+  await openDog(pepper.id);
+  await expect.poll(composer).toEqual(["Message Pepper", ""]);
   await ui("screenshot", "--out", `${fixture!.logPath}.composer-drafts.png`);
 }, 720_000);

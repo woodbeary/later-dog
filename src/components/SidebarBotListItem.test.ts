@@ -38,31 +38,15 @@ afterEach(() => {
 });
 
 describe("BotListItem", () => {
-  it("offers direct New thread and New folder icons and a keyboard-accessible bot menu", () => {
-    const markup = renderRow(bot());
-    expect(markup).toContain('aria-label="New thread"');
-    expect(markup).toContain('aria-label="New folder under Atlas"');
+  it("offers only the keyboard-accessible dog menu, with no thread or folder buttons", () => {
+    const markup = renderRow(bot({
+      tasks: [{ threadId: "thread-atlas", title: "Current", createdAt: 2 }, { threadId: "thread-earlier", title: "Earlier", createdAt: 1 }],
+      projects: [{ id: "p1", name: "Research" }],
+    }));
     expect(markup).toContain('aria-label="Actions for Atlas"');
     expect(markup).toContain('aria-haspopup="menu"');
-  });
-  const twoThreads = (): Partial<Bot> => ({
-    tasks: [{ threadId: "thread-atlas", title: "Current", createdAt: 2 }, { threadId: "thread-earlier", title: "Earlier", createdAt: 1 }],
-  });
-
-  it("shows the thread toggle only once there is a list to open", () => {
-    expect(renderRow(bot())).not.toContain("Expand Atlas threads");
-    expect(renderRow(bot())).not.toContain('data-sidebar-thread-row=');
-    expect(renderRow(bot(twoThreads()))).toContain("Expand Atlas threads");
-    expect(renderRow(bot({ projects: [{ id: "p1", name: "Research" }] }))).toContain("Expand Atlas threads");
-  });
-
-  it("keeps the native thread toggle beside, not inside, the selectable bot row", () => {
-    const markup = renderRow(bot(twoThreads()));
     expect(markup).toContain('role="button" tabindex="0"');
-    expect(markup).toContain('</div><button type="button" aria-label="Expand Atlas threads" aria-expanded="false"');
-    const toggle = markup.match(/<button[^>]*aria-label="Expand Atlas threads"[^>]*>/)?.[0];
-    expect(toggle).toContain("focus-visible:ring-1");
-    expect(toggle).not.toContain("hover:bg-");
+    for (const gone of ["New thread", "New folder", "Expand Atlas threads", "data-sidebar-thread-row=", "Earlier", "Research"]) expect(markup).not.toContain(gone);
   });
 
   it("previews the last reply, not the digest receipt that follows it", () => {

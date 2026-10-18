@@ -39,15 +39,6 @@ function compactDetail(value: string | undefined): string {
   return clean.length > DETAIL_LIMIT ? `${clean.slice(0, DETAIL_LIMIT - 1).trimEnd()}…` : clean;
 }
 
-export function hasRoutineExecutionTask(
-  tasks: ReadonlyArray<{ threadId: string }> | undefined,
-  executionThreadId: string | undefined,
-): executionThreadId is string {
-  return Boolean(
-    executionThreadId && tasks?.some((task) => task.threadId === executionThreadId),
-  );
-}
-
 export function RoutineRunCard({
   message,
   onOpen,

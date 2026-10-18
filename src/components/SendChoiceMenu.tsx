@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { usePopoverDismiss } from "@/hooks/use-popover-dismiss";
 import type { SendDelivery } from "../../shared/send-delivery";
-import { navigateThreadMenu } from "./BotProjects";
+import { navigateMenu } from "@/lib/menu-keys";
 import { useMenuMotion } from "./MenuMotion";
 import { ShortcutHint } from "./ShortcutHint";
 
@@ -81,7 +81,7 @@ export function SendChoiceMenu({ name, canSteer, disabled = false, onChoose }: {
               setOpen(false);
               triggerRef.current?.focus();
             } else if (event.key === "Tab") setOpen(false);
-            else navigateThreadMenu(event);
+            else navigateMenu(event);
           }}
           className={cn(
             "absolute bottom-full right-0 z-30 mb-1.5 w-[290px] max-w-[calc(100vw-2rem)] rounded-menu origin-bottom-right border border-hairline bg-panel p-1.5 text-left shadow-popover",

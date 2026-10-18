@@ -13,7 +13,7 @@ import { speaker } from "@/lib/tts";
 import { useSpeech } from "@/lib/tts/useSpeech";
 import { usePushToTalk } from "@/lib/push-to-talk";
 import { BotAvatar } from "./Avatar";
-import { navigateThreadMenu } from "./BotProjects";
+import { navigateMenu } from "@/lib/menu-keys";
 import { LiveKeySetup } from "./LiveKeySetup";
 import { liveLineHeldElsewhere } from "./LiveCallBar";
 import { isRoutineApproval, isSkillApproval, pendingApprovals, spokenApprovalPrompt } from "./PendingApproval";
@@ -361,7 +361,7 @@ export function CallModeMenu({ id, mode, onChoose, onClose, placement = "header"
       aria-label={t("call.mode.menu")}
       onKeyDown={(event) => {
         if (event.key === "Tab") onClose();
-        else navigateThreadMenu(event);
+        else navigateMenu(event);
       }}
       className={cn("animate-pop-in absolute right-0 z-30 w-[280px] rounded-menu border border-hairline bg-panel p-1.5 text-left shadow-popover", placement === "composer" ? "bottom-full mb-1.5 origin-bottom-right" : "top-full mt-1.5 origin-top-right")}
     >

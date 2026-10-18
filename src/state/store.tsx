@@ -719,7 +719,6 @@ export interface AppState {
   hydrated?: boolean;
   error: string | null;
   notice: { kind: "thread-gone"; botName: string | null } | null;
-  revealThread: { threadId: string; nonce: number } | null;
   mascotMotion: {
     botId: string;
     nonce: number;
@@ -921,7 +920,6 @@ export type Action =
   | { type: "connected"; value: boolean }
   | { type: "error"; message: string | null }
   | { type: "notice"; notice: AppState["notice"] }
-  | { type: "revealThread"; threadId: string }
   | { type: "toggleSettings"; open?: boolean; section?: BotSettingsSection; botId?: string }
   | { type: "togglePlugins"; open?: boolean; surface?: "apps" | "mcp" }
   | { type: "toggleNewBot"; open?: boolean }
@@ -993,20 +991,12 @@ export function openNotificationTarget(
   );
   if (group) {
     dispatch({ type: "select", id: group.id });
-    if (group.threadId !== target.threadId) {
-      dispatch({ type: "switchGroupTask", groupId: group.id, threadId: target.threadId });
-    }
     return;
   }
   const bot = state.bots.find((candidate) =>
     candidate.threadId === target.threadId || candidate.tasks?.some((task) => task.threadId === target.threadId)
   ) ?? state.bots.find((candidate) => candidate.id === target.botId);
   dispatch({ type: "select", id: bot?.id ?? target.botId });
-  if (!bot) return;
-  const known =
-    bot.threadId === target.threadId ||
-    (bot.tasks ?? []).some((task) => task.threadId === target.threadId);
-  if (known) dispatch({ type: "switchTask", botId: bot.id, threadId: target.threadId });
 }
 
 export interface ThreadTarget {
@@ -1027,7 +1017,6 @@ export function openThread(
     owner.threadId === target.threadId || (owner.tasks ?? []).some((task) => task.threadId === target.threadId);
   if (state.groups.some(owns) || state.bots.some(owns)) {
     openNotificationTarget(dispatch, target, state);
-    dispatch({ type: "revealThread", threadId: target.threadId });
     return true;
   }
   const bot = state.bots.find((candidate) => candidate.id === target.botId);
@@ -1622,8 +1611,6 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "notice":
       return { ...state, notice: action.notice };
-    case "revealThread":
-      return { ...state, revealThread: { threadId: action.threadId, nonce: (state.revealThread?.nonce ?? 0) + 1 } };
     case "focusMessage":
       return {
         ...state,
@@ -2003,7 +1990,6 @@ export const initialState: AppState = {
   connected: false,
   error: null,
   notice: null,
-  revealThread: null,
   mascotMotion: null,
   pendingQueued: {},
   consumedQueueIds: {},

@@ -30,7 +30,6 @@ vi.mock("./DesktopCapabilities", async () => {
   const { initialDesktopCapabilities } = await import("@/lib/desktop");
   return { useDesktopCapabilities: () => ({ capabilities: initialDesktopCapabilities() }) };
 });
-vi.mock("@/lib/thread-preferences", () => ({ useShowThreads: () => true }));
 vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
   return { ...original, useStore: () => ({ state: original.initialState, dispatch: vi.fn() }) };

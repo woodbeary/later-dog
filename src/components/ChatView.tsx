@@ -35,7 +35,6 @@ import {
   currentTaskBot,
   useStore,
   formatTime,
-  openNotificationTarget,
   openThread,
   visibleMessages,
   type Action,
@@ -92,7 +91,8 @@ import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { SecureFormCard } from "./SecureFormCard";
 import { TakeoverCard } from "./TakeoverCard";
-import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
+import { RoutineRunCard } from "./RoutineRunCard";
+import { ownerShowingElsewhere } from "@/lib/open-elsewhere";
 import { AttachmentGallery, collectMessageFiles, splitMessageAttachments } from "./AttachmentGallery";
 import { ScreenFrame } from "./ScreenFrame";
 import { CompactionChip, DigestChip } from "./DigestChip";
@@ -748,16 +748,11 @@ const ActivityChip = memo(function ActivityChip({ message, place = "auto" }: { m
 
 function RoutineRunRow({ message, botId }: { message: Message; botId: string }) {
   const { state, dispatch } = useStore();
-  const executionThreadId = message.routineRun?.executionThreadId;
-  const canOpen = executionThreadId && state.bots.some((candidate) =>
-    candidate.threadId === executionThreadId || hasRoutineExecutionTask(candidate.tasks, executionThreadId)
-  );
+  const target = ownerShowingElsewhere([...state.bots, ...state.groups], message.routineRun?.executionThreadId, botId);
   return (
     <RoutineRunCard
       message={message}
-      onOpen={canOpen && executionThreadId
-        ? () => openNotificationTarget(dispatch, { botId, threadId: executionThreadId }, state)
-        : undefined}
+      onOpen={target ? () => dispatch({ type: "select", id: target.id }) : undefined}
     />
   );
 }
@@ -1238,7 +1233,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const executionRunId = bot.tasks?.find((task) => task.threadId === bot.threadId)?.routineRunId;
   const routineExecution = executionRunId ? state.routineRuns.find((run) => run.id === executionRunId && run.threadId === bot.threadId) : undefined;
   const resultsThreadId = routineExecution?.sourceThreadId !== bot.threadId ? routineExecution?.sourceThreadId : undefined;
-  const canOpenResults = resultsThreadId && [...state.bots, ...state.groups].some((owner) => owner.threadId === resultsThreadId || owner.tasks?.some((task) => task.threadId === resultsThreadId));
+  const resultsOwner = ownerShowingElsewhere([...state.bots, ...state.groups], resultsThreadId, bot.id);
 
   return (
     <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
@@ -1298,7 +1293,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       <BotActivityPicker bot={bot} />
       {routineExecution && <div className="mx-5 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[11.5px] text-ink-secondary">
         <span className="min-w-0 flex-1 truncate">{t("routines.executionDetails", { name: routineExecution.routineName })}</span>
-        {canOpenResults && resultsThreadId && <button type="button" onClick={() => openNotificationTarget(dispatch, { botId: bot.id, threadId: resultsThreadId }, state)} className="rounded px-2 py-1 text-accent hover:bg-raised">{t("routines.results.back")}</button>}
+        {resultsOwner && <button type="button" onClick={() => dispatch({ type: "select", id: resultsOwner.id })} className="rounded px-2 py-1 text-accent hover:bg-raised">{t("routines.results.back")}</button>}
       </div>}
       {findOpen && <ChatFindBar threadId={bot.threadId} onClose={() => setFindOpen(false)} />}
 

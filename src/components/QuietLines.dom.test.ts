@@ -56,7 +56,7 @@ it("shows a singleton's current title and bot immediately and navigates directly
   expect(host.querySelector("button[aria-expanded]")).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>('[data-thread-chip="a"]')!.click());
   expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-    { type: "select", id: "scout" }, { type: "switchTask", botId: "scout", threadId: "a" }, { type: "revealThread", threadId: "a" },
+    { type: "select", id: "scout" },
   ]);
 });
 
@@ -76,7 +76,7 @@ it("expands a multi-destination run and opens each recorded destination", async 
     dispatch.mockClear();
     await act(async () => host.querySelector<HTMLButtonElement>(`[data-thread-chip="${threadId}"]`)!.click());
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-      { type: "select", id: botId }, { type: "switchTask", botId, threadId }, { type: "revealThread", threadId },
+      { type: "select", id: botId },
     ]);
   }
   await act(async () => toggle.click());
@@ -139,7 +139,7 @@ it("renders mixed failures as one red pill and expands every individual result",
     expect(row.querySelector("button")!.classList.contains("hover:text-ink")).toBe(false);
   }
   await act(async () => host.querySelector<HTMLButtonElement>("li button")!.click());
-  expect(dispatch).toHaveBeenCalledWith({ type: "switchTask", botId: "scout", threadId: "a" });
+  expect(dispatch).toHaveBeenCalledWith({ type: "select", id: "scout" });
   await act(async () => toggle.click());
   expect(host.querySelectorAll("li")).toHaveLength(0);
 });
@@ -166,7 +166,7 @@ const sends: Message[] = ["a", "b"].map((threadId, index) => ({
   threadRef: { botId: "scout", threadId, title: `Work ${threadId}` },
 }));
 
-it("shows one counted Messaged line and lets each recorded send open its thread", async () => {
+it("shows one counted Messaged line and lets each recorded send open the dog", async () => {
   const currentBots = [{ ...bots[0], tasks: [{ threadId: "a", title: "First", createdAt: 1 }, { threadId: "b", title: "Second", createdAt: 2 }] }];
   await draw(sends, currentBots);
   const toggle = host.querySelector<HTMLButtonElement>("button")!;
@@ -177,10 +177,10 @@ it("shows one counted Messaged line and lets each recorded send open its thread"
   expect(host.textContent).toContain("First");
   expect(host.textContent).toContain("Second");
   for (const row of host.querySelectorAll("li")) expect(row.lastElementChild!.textContent).toContain("Messaged");
-  for (const [index, button] of [...host.querySelectorAll<HTMLButtonElement>("li button")].entries()) {
+  for (const button of host.querySelectorAll<HTMLButtonElement>("li button")) {
     dispatch.mockClear();
     await act(async () => button.click());
-    expect(dispatch).toHaveBeenCalledWith({ type: "switchTask", botId: "scout", threadId: index === 0 ? "a" : "b" });
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "scout" }]);
   }
 });
 
@@ -191,23 +191,19 @@ it("exposes the first and later send synchronously when search opens the collaps
   for (const send of sends) expect(host.querySelectorAll(`[data-mid="${send.id}"]`)).toHaveLength(1);
 });
 
-it("opens the recorded room task for each send and failure", async () => {
+it("opens the group chat for each send and failure, never a group task switch", async () => {
   const groups = [{ id: "g1", name: "Launch", memberIds: ["scout"], tasks: [{ threadId: "room-a" }, { threadId: "room-b" }] }] as AppState["groups"];
   const rows: Message[] = sends.map((message, index) => ({ ...message, threadRef: undefined,
     comm: { groupId: "g1", threadId: index === 0 ? "room-a" : "room-b", withBotId: "scout", withName: "Scout", withColor: "green" },
   }));
   await draw(rows, bots, true, groups);
-  for (const [index, button] of [...host.querySelectorAll<HTMLButtonElement>("li button")].entries()) {
+  for (const button of host.querySelectorAll<HTMLButtonElement>("li button")) {
     dispatch.mockClear();
     await act(async () => button.click());
-    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-      { type: "select", id: "g1" }, { type: "switchGroupTask", groupId: "g1", threadId: index === 0 ? "room-a" : "room-b" },
-    ]);
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "g1" }]);
   }
   await draw([{ ...failures[4], comm: rows[0].comm }], bots, false, groups);
   dispatch.mockClear();
   await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
-  expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-    { type: "select", id: "g1" }, { type: "switchGroupTask", groupId: "g1", threadId: "room-a" },
-  ]);
+  expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "g1" }]);
 });

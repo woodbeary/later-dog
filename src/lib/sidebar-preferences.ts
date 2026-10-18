@@ -7,7 +7,6 @@ export const SIDEBAR_DENSITIES: readonly SidebarDensity[] = ["comfortable", "ico
 
 export const SIDEBAR_DENSITY_KEY = "laterdog.sidebarDensity";
 export const SIDEBAR_WIDTH_KEY = "laterdog.sidebarWidth";
-export const SIDEBAR_ATTENTION_PINNED_KEY = "laterdog.sidebarAttentionPinned.v1";
 export const SIDEBAR_COLLAPSED_SECTIONS_KEY = "laterdog.sidebarCollapsedSections.v1";
 export const SIDEBAR_SECTION_ORDER_KEY = "laterdog.sidebarSectionOrder.v1";
 export const PINNED_CIRCLES_KEY = "laterdog.pinnedCircles";
@@ -107,29 +106,6 @@ export function saveSidebarWidth(width: number, storage?: Pick<Storage, "setItem
   try {
     const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
     target?.setItem(SIDEBAR_WIDTH_KEY, String(width));
-  } catch {}
-}
-
-export function parseSidebarAttentionPinned(value: string | null): boolean {
-  return value === "true";
-}
-
-export function loadSidebarAttentionPinned(storage?: Pick<Storage, "getItem"> | null): boolean {
-  try {
-    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
-    return parseSidebarAttentionPinned(target?.getItem(SIDEBAR_ATTENTION_PINNED_KEY) ?? null);
-  } catch {
-    return false;
-  }
-}
-
-export function saveSidebarAttentionPinned(
-  pinned: boolean,
-  storage?: Pick<Storage, "setItem"> | null,
-): void {
-  try {
-    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
-    target?.setItem(SIDEBAR_ATTENTION_PINNED_KEY, String(pinned));
   } catch {}
 }
 

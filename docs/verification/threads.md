@@ -128,15 +128,14 @@ This renderer fixture does not test a native mobile device or real computer use.
 ## Permanent regression checks
 
 ```sh
-pnpm exec vitest run server/independent-threads-api.test.ts server/paired-thread-targets-api.test.ts server/bot-projects-api.test.ts server/thread-capacity-api.test.ts src/components/BotThreads.test.ts src/components/BotProjects.test.ts src/components/ComposerQueuedMessages.test.ts src/lib/folder-order.test.ts src/state/store.test.ts
+pnpm exec vitest run server/independent-threads-api.test.ts server/paired-thread-targets-api.test.ts server/bot-projects-api.test.ts server/thread-capacity-api.test.ts src/components/BotProjects.test.ts src/components/ComposerQueuedMessages.test.ts src/state/store.test.ts
 ```
 
 These cover thread-pinned tools and permissions, stale legacy phone requests,
 retained folder histories, and background event isolation. Capacity tests run ten distinct fake-provider
 processes concurrently, queue/cancel overflow, and exercise limit changes while
 an approval is pending without revoking active capabilities. Folder tests cover
-validated emoji persistence, complete-order permutations and failed saves.
-Integration cases launch their own fixture and
+validated emoji persistence and failed saves. Integration cases launch their own fixture and
 print retained JSON evidence paths next to the server logs.
 
 Stop the foreground launcher with Ctrl-C. It closes only its own UI/server

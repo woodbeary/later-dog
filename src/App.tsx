@@ -38,7 +38,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const { capabilities } = useDesktopCapabilities();
   const unreadCount =
     state.bots.filter((bot) => !bot.hidden && botShowsUnread(bot)).length +
-    state.groups.filter((group) => group.unread).length;
+    state.groups.filter((group) => group.unread && !group.dm).length;
   const twoSidePanelsFit = useMediaQuery(TWO_SIDE_PANELS_FIT, true);
   const sidebarAndPanelFit = useMediaQuery(SIDEBAR_AND_PANEL_FIT, true);
   useEffect(() => {

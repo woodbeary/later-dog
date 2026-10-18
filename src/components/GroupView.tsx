@@ -5,7 +5,6 @@ import {
   api,
   useStore,
   formatTime,
-  openNotificationTarget,
   type Bot,
   type Group,
   type GroupDefaultResponder,
@@ -50,7 +49,8 @@ import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { SecureFormCard } from "./SecureFormCard";
 import { TakeoverCard } from "./TakeoverCard";
-import { hasRoutineExecutionTask, RoutineRunCard } from "./RoutineRunCard";
+import { RoutineRunCard } from "./RoutineRunCard";
+import { ownerShowingElsewhere } from "@/lib/open-elsewhere";
 import { GoalRunCard } from "./GoalRunCard";
 import { AttachmentGallery, MessageAttachmentGallery } from "./AttachmentGallery";
 import { VoiceNoteBubble, type VoiceNoteAttachment } from "./VoiceNoteBubble";
@@ -259,10 +259,8 @@ export const Transcript = memo(function Transcript({
         const sentAbove = sentAttachments && sentWords;
         const sentOnly = sentAttachments && !sentWords && !m.replyToId;
         const newCluster = previous?.kind === "exchange" || !prev || prev.role !== m.role || prev.from?.botId !== m.from?.botId || Boolean(prev.comm) || newDay;
-        const routineOwner = m.kind === "routine.run" ? memberOf(m.from?.botId) : undefined;
-        const routineExecutionThreadId = m.routineRun?.executionThreadId;
-        const routineTarget = routineOwner && hasRoutineExecutionTask(routineOwner.tasks, routineExecutionThreadId)
-          ? { botId: routineOwner.id, threadId: routineExecutionThreadId }
+        const routineTarget = m.kind === "routine.run"
+          ? ownerShowingElsewhere([...state.bots, ...state.groups], m.routineRun?.executionThreadId, group.id)
           : undefined;
         const row =
           m.kind === "secret" && m.secureForm && m.from?.botId ? (
@@ -293,9 +291,7 @@ export const Transcript = memo(function Transcript({
             <div className="flex justify-start">
               <RoutineRunCard
                 message={m}
-                onOpen={routineTarget
-                  ? () => openNotificationTarget(dispatch, routineTarget, state)
-                  : undefined}
+                onOpen={routineTarget ? () => dispatch({ type: "select", id: routineTarget.id }) : undefined}
               />
             </div>
           ) : m.kind === "activity" && m.tool ? (

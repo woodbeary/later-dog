@@ -146,7 +146,8 @@ export type MascotBotProfile = {
   busy?: boolean;
   activity?: string;
   unread?: boolean;
-  tasks?: Array<{ unread?: boolean; routineRunId?: string }> | null;
+  threadId?: string;
+  tasks?: Array<{ threadId: string; unread?: boolean }> | null;
   messages?: MascotMessage[];
 };
 

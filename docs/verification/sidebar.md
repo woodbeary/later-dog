@@ -49,12 +49,24 @@ the collapse button. Server safeguards still reject deletion during active work,
 with an assigned team computer, or when moving the Chief would conflict with
 General's Chief; see [Teams](teams.md) for those lifecycle checks.
 
-## Activity, quieter rows, and notification preference
+## One row per dog and per group chat
 
-Use the full-app [threads fixture](threads.md) for channel activity, search,
-and snooze interactions. Compact/quiet rows must retain live status and
-keyboard-accessible owner-row New thread/New folder controls. The matching
-sole thread must still appear during search even when its normal tree is hidden.
+Each dog and each group chat has one row and one conversation. There is no
+thread tree, folder, New thread button, Active threads panel or pinned-threads
+panel, and dog-to-dog exchanges are not listed (they open read-only from the
+quiet line in a chat). A dog's dot, Waiting line, Queued line and unread dot
+come from its one conversation only, so an old extra task never leaves a dot
+that cannot be cleared. Notification taps, search results and thread links open
+the dog or group chat, never a task switch.
+
+Check it headlessly with `node --experimental-strip-types scripts/control-laterdog.ts ui launch`
+([Chat UI](chat-ui.md)): give Pepper extra tasks and a folder through
+`POST /api/bots/:id/projects` and `POST /api/bots/:id/tasks`, send in one extra
+task with `control-laterdog send --task`, reload, and confirm the sidebar has no
+`[data-sidebar-thread-row]`, `[data-sidebar-folder-row]` or
+`[data-sidebar-activity-row]` and Pepper's row shows no unread dot.
+`src/components/Sidebar.one-row.test.ts` and `src/components/Sidebar.rows.test.ts`
+hold the same checks as unit tests.
 
 In Settings → Appearance, **Notification sounds** controls the operating
 system alert sound on this computer only; it does not disable notification

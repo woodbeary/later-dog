@@ -3,7 +3,7 @@ import { GitBranch, Wrench } from "lucide-react";
 import { api, useStore, formatTime } from "@/state/store";
 import { BotAvatar } from "./Avatar";
 import { cn } from "@/lib/cn";
-import type { SearchHit } from "@/lib/search-hit";
+import { inOneConversation, type SearchHit } from "@/lib/search-hit";
 import { landOnSearchHit } from "@/lib/focus-message";
 
 export const MIN_QUERY = 2;
@@ -36,6 +36,7 @@ export function SearchResults({ query, onLanded }: { query: string; onLanded: ()
   }, [q]);
 
   if (q.length < MIN_QUERY) return null;
+  const shown = hits?.filter((hit) => inOneConversation(hit, state)) ?? null;
 
   const land = async (hit: SearchHit) => {
     try {
@@ -49,11 +50,11 @@ export function SearchResults({ query, onLanded }: { query: string; onLanded: ()
   return (
     <div className="mt-2 border-t border-hairline/40 pt-2">
       <div className="px-3 pb-1 text-[12px] font-semibold text-ink-secondary">
-        Messages{hits ? ` · ${hits.length}${hits.length === 40 ? "+" : ""}` : ""}
+        Messages{shown && hits ? ` · ${shown.length}${hits.length === 40 ? "+" : ""}` : ""}
       </div>
       {error && <div className="px-3 py-2 text-[12.5px] text-danger">couldn't search: {error}</div>}
-      {hits && hits.length === 0 && !error && <div className="px-3 py-3 text-[13px] text-ink-secondary">No messages match “{q}”</div>}
-      {hits?.map((hit) => {
+      {shown && shown.length === 0 && !error && <div className="px-3 py-3 text-[13px] text-ink-secondary">No messages match “{q}”</div>}
+      {shown?.map((hit) => {
         const bot = hit.botId ? state.bots.find((b) => b.id === hit.botId) : undefined;
         const before = hit.snippet.slice(0, hit.matchStart);
         const match = hit.snippet.slice(hit.matchStart, hit.matchStart + hit.matchLength);
@@ -72,7 +73,6 @@ export function SearchResults({ query, onLanded }: { query: string; onLanded: ()
             <span className="min-w-0 flex-1">
               <span className="flex items-baseline gap-1.5 text-[12px] text-ink-secondary">
                 <span className="max-w-[60%] shrink-0 truncate font-medium text-ink">{hit.from ?? hit.name}</span>
-                {hit.task ? <span className="truncate">· {hit.task}</span> : null}
                 <span className="ml-auto shrink-0 tabular-nums">{formatTime(hit.at)}</span>
               </span>
               <span className={cn("mt-0.5 line-clamp-2 text-[12.5px] leading-snug", hit.role === "user" ? "text-ink" : "text-ink-secondary")}>

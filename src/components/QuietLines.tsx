@@ -91,11 +91,7 @@ function FailureResult({ row }: { row: ExchangeRow }) {
   const open = () => {
     if (target.kind === "thread") openThread(dispatch, target, state);
     else if (!group || group.dm) openExchange(target.groupId);
-    else {
-      dispatch({ type: "select", id: target.groupId });
-      const threadId = row.message.comm?.threadId;
-      if (threadId && group.tasks?.some(task => task.threadId === threadId)) dispatch({ type: "switchGroupTask", groupId: group.id, threadId });
-    }
+    else dispatch({ type: "select", id: target.groupId });
   };
   return <button type="button" onClick={open} className={failureClass} title={title}>
     <TriangleAlert size={13} aria-hidden="true" className="shrink-0" />
@@ -178,11 +174,7 @@ export const ExchangeLine = memo(function ExchangeLine({ item, forceOpen = false
   const open = () => {
     if (target.kind === "thread") openThread(dispatch, { botId: target.botId, threadId: target.threadId }, state);
     else if (readOnly) openExchange(target.groupId);
-    else {
-      dispatch({ type: "select", id: target.groupId });
-      const threadId = first.message.comm?.threadId;
-      if (threadId && group?.tasks?.some(task => task.threadId === threadId)) dispatch({ type: "switchGroupTask", groupId: target.groupId, threadId });
-    }
+    else dispatch({ type: "select", id: target.groupId });
   };
   return (
     <QuietLine onClick={open} label={preview ? `${label}: ${preview}` : label} title={preview ? `${label}: ${preview}` : label}>

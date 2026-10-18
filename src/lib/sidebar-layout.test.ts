@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  BOT_CHATS_SECTION_ID,
   BOTS_SECTION_ID,
   CHANNELS_SECTION_ID,
   PINNED_SECTION_ID,
@@ -10,7 +9,6 @@ import {
   orderedSidebarSections,
   partitionSidebarBots,
   partitionSidebarGroups,
-  pinnedCircleThreadListVisible,
   placeSection,
   sidebarConnectorPreview,
   sidebarLayoutInteractive,
@@ -25,12 +23,12 @@ describe("sidebar virtual sections", () => {
   it("keeps reserved labels separate from identically named user sections", () => {
     for (const name of ["Pinned", "pinned", "channels", "bots", "bot-chats", "Bot Chats"]) {
       const id = userSectionId(name);
-      expect([PINNED_SECTION_ID, CHANNELS_SECTION_ID, BOT_CHATS_SECTION_ID, BOTS_SECTION_ID]).not.toContain(id);
+      expect([PINNED_SECTION_ID, CHANNELS_SECTION_ID, BOTS_SECTION_ID]).not.toContain(id);
       expect(userSectionName(id)).toBe(name);
       expect(sidebarSectionLabel(id)).toBe(name);
     }
     expect(sidebarSectionLabel(CHANNELS_SECTION_ID)).toBe("Group chats");
-    expect(sidebarSectionLabel(BOT_CHATS_SECTION_ID)).toBe("Dog threads");
+    expect(sidebarSectionLabel("builtin:bot-chats")).toBe("builtin:bot-chats");
   });
 
   it("round-trips every valid section name without URI encoding", () => {
@@ -60,7 +58,7 @@ describe("sidebar virtual sections", () => {
     expect(bot.section).toBe("Work");
   });
 
-  it("shows DMs in Bot Chats without rewriting their comms context", () => {
+  it("leaves dog-to-dog exchanges out of the sidebar without rewriting their comms context", () => {
     const dm = { id: "dm", dm: true, section: "Work" };
     const namedBotChats = { id: "named", section: "Bot Chats" };
     const parts = partitionSidebarGroups([
@@ -69,7 +67,6 @@ describe("sidebar virtual sections", () => {
       namedBotChats,
       { id: "general" },
     ]);
-    expect(parts.botChats).toEqual([dm]);
     expect(parts.sectionedRooms.map((room) => room.id)).toEqual(["project", "named"]);
     expect(parts.unsectionedRooms.map((room) => room.id)).toEqual(["general"]);
     expect(dm.section).toBe("Work");
@@ -99,14 +96,6 @@ describe("sidebar virtual sections", () => {
     expect(parts.sectionedBots).toEqual([stay]);
     expect(workChief.section).toBe("Work");
     expect(home.section).toBe("Home");
-  });
-
-  it("shows pinned-circle thread rows only while the circle grid is showing", () => {
-    expect(pinnedCircleThreadListVisible(true, "comfortable", 1)).toBe(true);
-    expect(pinnedCircleThreadListVisible(true, "comfortable", 2)).toBe(true);
-    expect(pinnedCircleThreadListVisible(false, "comfortable", 1)).toBe(false);
-    expect(pinnedCircleThreadListVisible(true, "icons", 1)).toBe(false);
-    expect(pinnedCircleThreadListVisible(true, "comfortable", 0)).toBe(false);
   });
 
   it("forces filtered and icon-only views open and non-reorderable", () => {
@@ -152,7 +141,7 @@ describe("sidebar section ordering", () => {
   const natural = [
     PINNED_SECTION_ID,
     CHANNELS_SECTION_ID,
-    BOT_CHATS_SECTION_ID,
+    userSectionId("Home"),
     BOTS_SECTION_ID,
     userSectionId("Work"),
   ];
@@ -162,14 +151,14 @@ describe("sidebar section ordering", () => {
   });
 
   it("preserves a user move and inserts a newly visible bucket naturally", () => {
-    const withoutBotChats = natural.filter((id) => id !== BOT_CHATS_SECTION_ID);
+    const withoutHome = natural.filter((id) => id !== userSectionId("Home"));
     const saved = [userSectionId("Work"), PINNED_SECTION_ID, CHANNELS_SECTION_ID, BOTS_SECTION_ID];
-    expect(orderedSidebarSections(withoutBotChats, saved)).toEqual(saved);
+    expect(orderedSidebarSections(withoutHome, saved)).toEqual(saved);
     expect(orderedSidebarSections(natural, saved)).toEqual([
       userSectionId("Work"),
       PINNED_SECTION_ID,
       CHANNELS_SECTION_ID,
-      BOT_CHATS_SECTION_ID,
+      userSectionId("Home"),
       BOTS_SECTION_ID,
     ]);
   });
@@ -178,7 +167,7 @@ describe("sidebar section ordering", () => {
     expect(moveSection(natural, CHANNELS_SECTION_ID, -1)).toEqual([
       CHANNELS_SECTION_ID,
       PINNED_SECTION_ID,
-      BOT_CHATS_SECTION_ID,
+      userSectionId("Home"),
       BOTS_SECTION_ID,
       userSectionId("Work"),
     ]);
@@ -187,7 +176,7 @@ describe("sidebar section ordering", () => {
       BOTS_SECTION_ID,
       PINNED_SECTION_ID,
       CHANNELS_SECTION_ID,
-      BOT_CHATS_SECTION_ID,
+      userSectionId("Home"),
       userSectionId("Work"),
     ]);
   });

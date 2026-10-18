@@ -3,10 +3,7 @@ import type { ConnectorCardData } from "../../shared/wire";
 
 export const PINNED_SECTION_ID = "builtin:pinned";
 export const CHANNELS_SECTION_ID = "builtin:channels";
-export const BOT_CHATS_SECTION_ID = "builtin:bot-chats";
 export const BOTS_SECTION_ID = "builtin:bots";
-export const ATTENTION_SECTION_ID = "builtin:attention";
-export const PINNED_THREADS_SECTION_ID = "builtin:pinned-threads";
 
 const USER_SECTION_PREFIX = "section:";
 
@@ -55,7 +52,6 @@ export function userSectionName(id: SidebarSectionId): string | null {
 export function sidebarSectionLabel(id: SidebarSectionId): string {
   if (id === PINNED_SECTION_ID) return "Pinned";
   if (id === CHANNELS_SECTION_ID) return "Group chats";
-  if (id === BOT_CHATS_SECTION_ID) return "Dog threads";
   if (id === BOTS_SECTION_ID) return "Dogs";
   return userSectionName(id) ?? id;
 }
@@ -94,14 +90,6 @@ export function sidebarSectionCollapsed(
   return sidebarLayoutInteractive(density, query) && collapsedIds.includes(id);
 }
 
-export function pinnedCircleThreadListVisible(
-  circles: boolean,
-  density: SidebarDensityMode,
-  pinnedCount: number,
-): boolean {
-  return circles && density !== "icons" && pinnedCount > 0;
-}
-
 export function partitionSidebarBots<T extends SidebarBot>(
   bots: T[],
   options?: { universalPins?: boolean },
@@ -122,11 +110,10 @@ export function partitionSidebarBots<T extends SidebarBot>(
 }
 
 export function partitionSidebarGroups<T extends SidebarGroup>(groups: T[]) {
-  const botChats = groups.filter((group) => Boolean(group.dm));
   const rooms = groups.filter((group) => !group.dm);
   const sectionedRooms = rooms.filter((group) => Boolean(group.section));
   const unsectionedRooms = rooms.filter((group) => !group.section);
-  return { botChats, sectionedRooms, unsectionedRooms };
+  return { sectionedRooms, unsectionedRooms };
 }
 
 export function orderedSidebarSections(

@@ -12,9 +12,6 @@ vi.mock("react", async (original) => ({ ...await original<typeof import("react")
   useEffect: (effect: EffectCallback) => { fixture.effects.push(effect); },
 }));
 import { useRelativeNow } from "./SidebarThreadRow";
-import { BotThreadList, botRowProps } from "./Sidebar";
-import { initialState, type Bot } from "@/state/store";
-vi.mock("./DesktopCapabilities", () => ({ useDesktopCapabilities: () => ({}) }));
 
 type Interval = { delay: number; fire: () => void; cleared: boolean };
 const intervals: Interval[] = [];
@@ -97,24 +94,5 @@ describe("relative clock tick", () => {
     expect(fixture.values[0]).toBe(start + 2 * 86_400_000);
     for (const cleanup of cleanups) (cleanup as () => void | undefined)?.();
     expect(documentStub.listeners["visibilitychange"]).toHaveLength(0);
-  });
-
-  it("runs the shared clock from the production thread list: one timer for every row", () => {
-    const now = Date.now();
-    const bot: Bot = {
-      id: "dog", threadId: "current", name: "Dog", title: "", description: "", notifications: true,
-      color: "green", unread: false, busy: false, messages: [], modelSelection: { instanceId: "fake", model: "fake" },
-      tasks: [
-        { threadId: "current", title: "Current chat", createdAt: now - 10_000, busy: false, activity: "idle" },
-        { threadId: "older", title: "Older thread", createdAt: now - 5 * 60_000, busy: false, activity: "idle" },
-      ],
-    };
-    fixture.index = 0; fixture.effects = [];
-    const markup = renderToStaticMarkup(createElement(BotThreadList, { ...botRowProps(initialState, vi.fn(), bot, { density: "comfortable", query: "", onMenu: vi.fn() }), selected: true }));
-    expect(markup).toContain("just now");
-    expect(markup).toContain("5 min ago");
-    runEffects();
-    expect(intervals.filter((entry) => !entry.cleared)).toHaveLength(1);
-    expect(intervals[0]!.delay).toBe(30_000);
   });
 });

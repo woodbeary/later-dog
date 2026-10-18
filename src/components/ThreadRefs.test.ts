@@ -101,11 +101,7 @@ describe("ThreadLink", () => {
     }
     renderToStaticMarkup(createElement(Capture));
     findElement(tree, "data-thread-link")!.props.onClick!();
-    expect(fixture.dispatch.mock.calls.map(([action]) => action)).toEqual([
-      { type: "select", id: "scout" },
-      { type: "switchTask", botId: "scout", threadId: "qa-245" },
-      { type: "revealThread", threadId: "qa-245" },
-    ]);
+    expect(fixture.dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "scout" }]);
   });
 
   it("names the teammate in the full tooltip and accessible label", () => {

@@ -724,15 +724,12 @@ describe("notification routing", () => {
     ],
   }];
 
-  it("selects the bot and switches to the notification's exact task", () => {
+  it("opens the dog's one conversation for a notification from an old extra task, never a task switch", () => {
     const dispatch = vi.fn();
 
     openNotificationTarget(dispatch, { botId: "bot-1", threadId: "detached-thread" }, { bots, groups });
 
-    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-      { type: "select", id: "bot-1" },
-      { type: "switchTask", botId: "bot-1", threadId: "detached-thread" },
-    ]);
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "bot-1" }]);
   });
 
   it("opens the room when the thread is a group's — never a bot task switch that would 404", () => {
@@ -748,21 +745,15 @@ describe("notification routing", () => {
     openNotificationTarget(dispatch, { botId: "runner", threadId: "detached-thread" }, {
       bots: [...bots, { id: "runner", threadId: "runner-thread", tasks: [] }], groups,
     });
-    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-      { type: "select", id: "bot-1" },
-      { type: "switchTask", botId: "bot-1", threadId: "detached-thread" },
-    ]);
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "bot-1" }]);
   });
 
-  it("opens the room and restores the exact inactive channel task", () => {
+  it("opens the group chat's one conversation for an old extra group task", () => {
     const dispatch = vi.fn();
 
     openNotificationTarget(dispatch, { botId: "bot-1", threadId: "older-room-thread" }, { bots, groups });
 
-    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-      { type: "select", id: "room-1" },
-      { type: "switchGroupTask", groupId: "room-1", threadId: "older-room-thread" },
-    ]);
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "room-1" }]);
   });
 
   it("lands on a plain bot select for a thread it cannot place, not an error", () => {
@@ -776,24 +767,16 @@ describe("notification routing", () => {
   describe("openThread", () => {
     const named = bots.map((bot) => ({ ...bot, name: "Scout" }));
 
-    it("selects the bot, switches the view to the thread and reveals its row", () => {
+    it("opens the dog that owns the thread on its one conversation", () => {
       const dispatch = vi.fn();
       expect(openThread(dispatch, { botId: "bot-1", threadId: "detached-thread" }, { bots: named, groups })).toBe(true);
-      expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-        { type: "select", id: "bot-1" },
-        { type: "switchTask", botId: "bot-1", threadId: "detached-thread" },
-        { type: "revealThread", threadId: "detached-thread" },
-      ]);
+      expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "bot-1" }]);
     });
 
     it("opens a room thread through the room, not a bot switch", () => {
       const dispatch = vi.fn();
       openThread(dispatch, { botId: "bot-1", threadId: "older-room-thread" }, { bots: named, groups });
-      expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-        { type: "select", id: "room-1" },
-        { type: "switchGroupTask", groupId: "room-1", threadId: "older-room-thread" },
-        { type: "revealThread", threadId: "older-room-thread" },
-      ]);
+      expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "room-1" }]);
     });
 
     it("falls back to the bot with a quiet notice when the thread is gone, never a switch that would 404", () => {
@@ -813,14 +796,10 @@ describe("notification routing", () => {
       ]);
     });
 
-    it("stores the notice and bumps the reveal nonce so the same thread can be revealed twice", () => {
+    it("stores and clears the notice", () => {
       const noticed = reducer(initialState, { type: "notice", notice: { kind: "thread-gone", botName: "Scout" } });
       expect(noticed.notice).toEqual({ kind: "thread-gone", botName: "Scout" });
       expect(reducer(noticed, { type: "notice", notice: null }).notice).toBeNull();
-      const once = reducer(initialState, { type: "revealThread", threadId: "t" });
-      const twice = reducer(once, { type: "revealThread", threadId: "t" });
-      expect(once.revealThread).toEqual({ threadId: "t", nonce: 1 });
-      expect(twice.revealThread?.nonce).toBe(2);
     });
   });
 

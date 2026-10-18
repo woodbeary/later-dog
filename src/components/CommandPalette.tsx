@@ -3,7 +3,7 @@ import { Bot as BotIcon, MessageSquare, Search, Users } from "lucide-react";
 import { api, useStore, type Bot, type Group } from "@/state/store";
 import { rankByName } from "@/lib/palette-rank";
 import { cn } from "@/lib/cn";
-import type { SearchHit } from "@/lib/search-hit";
+import { inOneConversation, type SearchHit } from "@/lib/search-hit";
 import { landOnSearchHit } from "@/lib/focus-message";
 
 type PaletteEntry =
@@ -70,11 +70,12 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
   if (!open) return null;
 
   const bots = rankByName(state.bots.filter((b) => !b.hidden), q);
-  const rooms = rankByName(state.groups, q);
+  const rooms = rankByName(state.groups.filter((group) => !group.dm), q);
+  const shownHits = messageHits.filter((hit) => inOneConversation(hit, state));
   const entries: PaletteEntry[] = [
     ...bots.map((bot): PaletteEntry => ({ kind: "bot", bot })),
     ...rooms.map((group): PaletteEntry => ({ kind: "room", group })),
-    ...(q ? messageHits.map((hit): PaletteEntry => ({ kind: "message", hit })) : []),
+    ...(q ? shownHits.map((hit): PaletteEntry => ({ kind: "message", hit })) : []),
   ];
   const selected = entries.length ? Math.min(cursor, entries.length - 1) : 0;
 
@@ -195,13 +196,13 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
               </>,
             ),
           )}
-          {q && messageHits.length > 0 && (
+          {q && shownHits.length > 0 && (
             <div className="px-3 pb-1 pt-2 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
               Messages
             </div>
           )}
           {q &&
-            messageHits.map((hit, i) => {
+            shownHits.map((hit, i) => {
               const before = hit.snippet.slice(0, hit.matchStart);
               const match = hit.snippet.slice(hit.matchStart, hit.matchStart + hit.matchLength);
               const after = hit.snippet.slice(hit.matchStart + hit.matchLength);
@@ -213,7 +214,6 @@ export function CommandPalette({ onOpenChange }: { onOpenChange?: (open: boolean
                   <span className="flex items-center gap-2 truncate text-[13px] font-medium text-ink">
                     <MessageSquare size={13} className="shrink-0 text-ink-secondary" />
                     {hit.name}
-                    {hit.task ? <span className="font-normal text-ink-secondary"> · {hit.task}</span> : null}
                   </span>
                   <span className="line-clamp-2 text-[12.5px] text-ink-secondary">
                     {before}<mark className="rounded-sm bg-accent/25 px-0.5 text-ink">{match}</mark>{after}

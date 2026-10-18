@@ -50,16 +50,12 @@ describe("ThreadChip", () => {
     expect(renderToStaticMarkup(createElement(ThreadChip, { message: { ...receipt(), threadRef: undefined } }))).toBe("");
   });
 
-  it("clicking shows that thread: select the bot, switch the view, reveal the row", () => {
+  it("clicking opens the dog that owns the thread", () => {
     let tree: ReactNode;
     function Capture() { tree = ThreadChip({ message: receipt() }); return tree; }
     renderToStaticMarkup(createElement(Capture));
     findElement(tree, "data-thread-chip")!.props.onClick!();
-    expect(fixture.dispatch.mock.calls.map(([action]) => action)).toEqual([
-      { type: "select", id: "scout" },
-      { type: "switchTask", botId: "scout", threadId: "qa-245" },
-      { type: "revealThread", threadId: "qa-245" },
-    ]);
+    expect(fixture.dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "scout" }]);
   });
 
   it("falls back to the bot with a notice when the thread was deleted", () => {

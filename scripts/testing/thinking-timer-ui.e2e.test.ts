@@ -7,7 +7,7 @@ import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 import { resolveAgentBrowserBinary } from "../../server/browser-engine.ts";
 import { removeTempDir, waitForExit } from "../../server/testing/cleanup.ts";
-import { runControlLaterDog } from "../control-laterdog.ts";
+import { FIXTURE_STARTER_BOT_NAME, runControlLaterDog } from "../control-laterdog.ts";
 import { UI_TOOLS_DIR } from "./control-laterdog-ui.ts";
 import { fixtureApi } from "./preview-fixture.ts";
 
@@ -102,16 +102,6 @@ function elapsedSeconds(text: string): number {
   return -1;
 }
 
-async function expandThreads(handle: string, name: string): Promise<void> {
-  const collapsed = JSON.stringify(`button[aria-label="Expand ${name} threads"]`);
-  const expanded = JSON.stringify(`button[aria-label="Collapse ${name} threads"]`);
-  await waitUntil(async () => (await ui("eval", handle, "--js", `(() => {
-    if (document.querySelector(${expanded})) return true;
-    document.querySelector(${collapsed})?.click();
-    return false;
-  })()`)).result, 10_000, `${name}'s thread list to expand`);
-}
-
 async function waitUntil<T>(probe: () => Promise<T>, timeoutMs: number, what: string): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   let last: T;
@@ -123,7 +113,7 @@ async function waitUntil<T>(probe: () => Promise<T>, timeoutMs: number, what: st
   }
 }
 
-describe("the thinking timer stays anchored across a thread switch", () => {
+describe("the thinking timer stays anchored across a switch away", () => {
   let launched: Launched | undefined;
 
   afterEach(async () => {
@@ -154,17 +144,16 @@ describe("the thinking timer stays anchored across a thread switch", () => {
     const api = fixtureApi(info.url);
     const evaluate = async (js: string) => (await ui("eval", info.ui, "--js", js)).result;
     const timerText = () => progressTimer(info.ui);
-    const selectThread = (threadId: string) => evaluate(`document.querySelector('[data-sidebar-thread-row="${threadId}"]')?.click(); true`);
-    const isCurrent = (threadId: string) => evaluate(`Boolean(document.querySelector('[data-sidebar-thread-row="${threadId}"][aria-current="page"]'))`);
+    const selectDog = (botId: string) => evaluate(`document.querySelector('[data-sidebar-bot-row="${botId}"]')?.click(); true`);
+    const isCurrent = (botId: string) => evaluate(`Boolean(document.querySelector('[data-sidebar-bot-row="${botId}"][aria-current="page"]'))`);
     const taskOf = async (threadId: string) =>
       (await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === info.botId).tasks.find((task: any) => task.threadId === threadId);
 
-    const busyThread = (await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === info.botId).threadId;
-    const otherThread = (await api("POST", `/api/bots/${info.botId}/tasks`, {})).task.threadId;
-    await expandThreads(info.ui, "Pepper");
-    await waitUntil(() => evaluate(`Boolean(document.querySelector('[data-sidebar-thread-row="${otherThread}"]'))`), 10_000, "the new thread's sidebar row to appear");
-    await selectThread(busyThread);
-    await waitUntil(() => isCurrent(busyThread), 10_000, "the original thread to become current");
+    const roster = (await api("GET", "/api/bots")).bots;
+    const busyThread = roster.find((bot: any) => bot.id === info.botId).threadId;
+    const otherDog = roster.find((bot: any) => bot.name === FIXTURE_STARTER_BOT_NAME).id;
+    await selectDog(info.botId);
+    await waitUntil(() => isCurrent(info.botId), 10_000, "Pepper to become current");
 
     await ui("type", info.ui, "--name", "Message Pepper", "--text", "hello");
     await ui("press", info.ui, "--keys", "Enter");
@@ -185,11 +174,11 @@ describe("the thinking timer stays anchored across a thread switch", () => {
     expect(elapsedSeconds(beforeSwitch)).toBeGreaterThanOrEqual(Math.floor((Date.now() - stamp) / 1000) - 2);
 
     await closeProgress(info.ui);
-    await selectThread(otherThread);
-    await waitUntil(() => isCurrent(otherThread), 10_000, "the other thread to become current");
+    await selectDog(otherDog);
+    await waitUntil(() => isCurrent(otherDog), 10_000, "the other dog to become current");
     await new Promise((done) => setTimeout(done, 3_000));
-    await selectThread(busyThread);
-    await waitUntil(() => isCurrent(busyThread), 10_000, "the busy thread to become current again");
+    await selectDog(info.botId);
+    await waitUntil(() => isCurrent(info.botId), 10_000, "Pepper to become current again");
 
     const resumed = await openProgress(info.ui);
     const away = (Date.now() - stamp) / 1000;

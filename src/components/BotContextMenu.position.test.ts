@@ -19,7 +19,6 @@ vi.mock("react-dom", async (importOriginal) => {
   } };
 });
 vi.mock("./DesktopCapabilities", () => ({ useDesktopCapabilities: () => ({}) }));
-vi.mock("@/lib/thread-preferences", () => ({ useShowThreads: () => true }));
 vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
   return { ...original, useStore: () => ({ state: { ...original.initialState, bots: [bot, { ...bot, id: "other" }] }, dispatch: vi.fn() }) };
@@ -47,7 +46,7 @@ afterEach(() => vi.unstubAllGlobals());
 function render(x = 990, y = 795) {
   return renderToStaticMarkup(createElement(BotContextMenu, {
     menu: { botId: bot.id, x, y }, onClose: vi.fn(), onArchive: vi.fn(), onDelete: vi.fn(),
-    onMoveToSection: vi.fn(), onNewFolder: vi.fn(),
+    onMoveToSection: vi.fn(),
   }));
 }
 function layoutEffects() {

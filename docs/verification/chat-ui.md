@@ -112,8 +112,8 @@ on Ubuntu 24.04 and uploads the screenshots; it is not one of the required check
 A dog that hands work to another dog leaves one small grey line in the person's
 chat: `Messaged ◯ Name`, or `2 messages with ◯ Name` when repeats sit together.
 Older `Messaged @Name` rows (the dog-to-dog channel kind) read the same way and
-open a read-only view of the exchange with a Close chat button; a hand-off into
-a teammate's thread opens that thread. A routine a dog creates reads
+open a read-only view of the exchange with a Close chat button; a hand-off to a
+teammate opens that teammate's chat. A routine a dog creates reads
 `Created routine ⏲ name` and opens that routine in Routines. An answered
 permission folds to `Allowed once`, `Always allowed`, `Allowed for this chat`
 or `Denied` with the tool's short name; the open card offers Allow once
