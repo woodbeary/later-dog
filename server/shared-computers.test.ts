@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { provenRequestPerson, SharedComputers, sharedComputerScopeRefusal } from "./shared-computers.ts";
+import { MAX_SHARED_COMMAND, provenRequestPerson, SharedComputers, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerScopeRefusal } from "./shared-computers.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
 import { TurnResources } from "./turn-resources.ts";
 
@@ -201,4 +201,28 @@ it("shared screen calls respect local turns, human takeover, lease expiry and re
   expect(resources.claim("computer:host", local)).toBe(true);
   resources.release(local); control.acquire("remote"); control.close();
   expect(resources.claim("computer:host", local)).toBe(true);
+});
+
+describe("telling a dog why an operation was refused", () => {
+  const problem = (body: unknown) => {
+    const parsed = sharedComputerOperation.safeParse(body);
+    if (parsed.success) throw new Error("expected a refusal");
+    return sharedComputerOperationProblem(body, parsed.error);
+  };
+
+  it("names the command limit and how to write a long file in parts", () => {
+    const line = problem({ action: "run_command", command: "x".repeat(MAX_SHARED_COMMAND + 1) });
+    expect(line).toContain(`at most ${MAX_SHARED_COMMAND} characters`);
+    expect(line).toContain(`${MAX_SHARED_COMMAND + 1}`);
+    expect(line).toContain("cat >> file");
+  });
+
+  it("names the fields that are wrong otherwise", () => {
+    expect(problem({ action: "fly" })).toBe("Invalid shared computer operation: check action.");
+    expect(problem({ action: "read_file", length: 0, extra: 1 })).toBe("Invalid shared computer operation: check length, body.");
+  });
+
+  it("accepts a command right at the limit", () => {
+    expect(sharedComputerOperation.safeParse({ action: "run_command", command: "x".repeat(MAX_SHARED_COMMAND) }).success).toBe(true);
+  });
 });

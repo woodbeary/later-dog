@@ -112,22 +112,53 @@ describe("Settings, later.dog Cloud on this Mac", () => {
     expect(host.querySelector("[data-cloud-sign-in]")?.getAttribute("data-cloud-sign-in")).toBe("code");
   });
 
-  it.each(["backend", "bridge"] as const)("shows a %s send failure and permits an immediate retry", async (failure) => {
+  it.each(["backend", "unavailable", "bridge"] as const)("shows a %s send failure and permits an immediate retry", async (failure) => {
     bridge = makeBridge({ status: "signed-out" });
     if (failure === "backend") vi.mocked(bridge.sendCode).mockResolvedValueOnce({ ok: false, code: "email_unavailable" });
+    else if (failure === "unavailable") vi.mocked(bridge.sendCode).mockResolvedValueOnce({ ok: false, code: "unavailable" });
     else vi.mocked(bridge.sendCode).mockRejectedValueOnce(new Error("disconnected"));
     await show({ cloudAccount: bridge });
     await type("input[type=email]", "jo@example.test");
     await click("Agree and continue");
     expect(host.querySelector("[role=alert]")?.textContent).toBe(failure === "backend"
       ? "later.dog can't send sign-in emails right now. Try again in a little while."
-      : "That didn't work. Try again, or send a new code.");
+      : "Couldn't send a code. Try again.");
     expect(button("Agree and continue")?.disabled).toBe(false);
     expect(host.querySelector<HTMLInputElement>("input[type=email]")?.disabled).toBe(false);
     await click("Agree and continue");
     expect(bridge.sendCode).toHaveBeenCalledTimes(2);
     expect(host.querySelector("[role=alert]")).toBeNull();
     expect(host.querySelector("[data-cloud-sign-in]")?.getAttribute("data-cloud-sign-in")).toBe("code");
+  });
+
+  it.each(["backend", "bridge"] as const)("keeps code verification advice for a %s failure after a code was sent", async (failure) => {
+    bridge = makeBridge({ status: "signed-out" });
+    if (failure === "backend") vi.mocked(bridge.verifyCode).mockResolvedValueOnce({ ok: false, code: "unavailable" });
+    else vi.mocked(bridge.verifyCode).mockRejectedValueOnce(new Error("disconnected"));
+    await show({ cloudAccount: bridge });
+    await type("input[type=email]", "jo@example.test");
+    await click("Agree and continue");
+    await type("input[autocomplete=one-time-code]", "12345678");
+    expect(host.querySelector("[role=alert]")?.textContent).toBe("That didn't work. Try again, or send a new code.");
+    expect(host.querySelector<HTMLInputElement>("input[autocomplete=one-time-code]")?.disabled).toBe(false);
+  });
+
+  it("says a replacement code could not be sent and keeps code entry available", async () => {
+    vi.useFakeTimers();
+    try {
+      bridge = makeBridge({ status: "signed-out" });
+      await show({ cloudAccount: bridge });
+      await type("input[type=email]", "jo@example.test");
+      await click("Agree and continue");
+      for (let second = 0; second < 30; second += 1) await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      vi.mocked(bridge.sendCode).mockResolvedValueOnce({ ok: false, code: "unavailable" });
+      await click("Resend code");
+      expect(host.querySelector("[role=alert]")?.textContent).toBe("Couldn't send a code. Try again.");
+      expect(host.querySelector<HTMLInputElement>("input[autocomplete=one-time-code]")?.disabled).toBe(false);
+      expect(button("Resend code")?.disabled).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the current email while a code is being checked", async () => {

@@ -672,7 +672,8 @@ layers (Node, Chrome's libraries, agent-browser and its Chrome) and adds:
   build fails if the installer cannot be reached, rather than shipping an
   image whose Grok sign-in cannot run; `--build-arg GROK_VERSION=` leaves it
   out on purpose;
-- the engine CLIs from `CLOUD_HOME_ENGINES` (default Claude Code and Codex);
+- the engine CLIs from `CLOUD_HOME_ENGINES` (default Claude Code 2.1.301 and
+  Codex 0.163.0, pinned so an image build installs known versions);
 - the app files, root's, with `server/cloud-home-start.ts` (bundled to
   `dist-server/cloud-home-start.js`) as the entry point. The build fails if
   any file under `/app`, or Caddy, is not root's or is writable by others.
@@ -694,6 +695,13 @@ server on `127.0.0.1:8799` (webhooks on `127.0.0.1:8800`) and Caddy on
 and Fly restarts the machine. The one exception: after a restore commits
 (Copy this computer here, below), the server exits with code 75
 (`server/restart.ts`) and the launcher starts only the server again.
+On a Cloud home the server logs an uncaught exception or unhandled rejection
+with its stack before it exits, and its memory (`process.memoryUsage()`, free
+memory, the cgroup v2 limit and usage) at start, every five minutes and when
+its rss passes 75% of the container's limit
+(`server/laterdog/home-health-log.ts`). The Cloudflare runtime's
+`deploy/laterdog/home/runtime/run.mjs` logs the launcher's exit code and
+signal before its last save.
 
 The machine's secrets (`LATERDOG_CLOUD_BOOTSTRAP_SECRET` and the relay tokens
 `LATERDOG_CLOUD_BOAT_TOKEN`, `LATERDOG_CLOUD_VOICE_TOKEN`, `LATERDOG_CLOUD_DECIDER_TOKEN`)

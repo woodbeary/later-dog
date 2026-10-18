@@ -8,6 +8,9 @@ on:
       - deploy/cloud-home/**
       - Dockerfile
       - server/**
+      - electron/cloud-move.mjs
+      - electron/cloud-auto-move.mjs
+      - scripts/cloud-home-trip-check.mjs
       - .github/workflows/cloud-home-image.yml
 permissions:
   contents: read
@@ -25,14 +28,23 @@ jobs:
       CLOUDFLARE_PUSH: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: pnpm
       - name: Build the Cloud home base image
         run: docker build --target cloud-home -t laterdog-cloud-home:latest .
       - name: Add the Cloudflare runtime
         run: docker build -f deploy/laterdog/home/Dockerfile -t "$IMAGE" .
-      - name: Boot it and check pairing, sessions and live updates
+      - name: Install what the desktop fixture runs on
+        run: pnpm install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      - name: Boot it and check pairing, sessions, live updates and a desktop's first trip
+        timeout-minutes: 10
         run: |
           secret="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))')"
           docker run -d --name home -p 8080:8080 \
@@ -43,6 +55,7 @@ jobs:
             -e LATERDOG_PUBLIC_URL="https://$HOME_HOST" \
             "$IMAGE"
           HOME_BOOTSTRAP_SECRET="$secret" node deploy/laterdog/home/smoke.mjs || { docker logs home; exit 1; }
+          HOME_BOOTSTRAP_SECRET="$secret" timeout 240 node scripts/cloud-home-trip-check.mjs || { docker logs home 2>&1 | tail -200; exit 1; }
           docker logs home 2>&1 | tail -20
       - name: Stopped dogs leave no processes behind
         run: |

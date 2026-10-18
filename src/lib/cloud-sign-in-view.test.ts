@@ -12,7 +12,7 @@ describe("sign-in view rules", () => {
 
   it("has a plain sentence for every way a sign-in can fail", () => {
     for (const code of ["invalid_email", "wrong_code", "expired_code", "rate_limited", "email_unavailable", "network", "unavailable"] as const) {
-      expect(signInProblem(code)).toMatch(/^cloudSignIn\.problem\./);
+      for (const phase of ["send", "verify"] as const) expect(signInProblem(code, phase)).toMatch(/^cloudSignIn\.problem\./);
     }
   });
 

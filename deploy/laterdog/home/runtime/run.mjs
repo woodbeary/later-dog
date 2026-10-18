@@ -89,6 +89,7 @@ async function main() {
   process.on("SIGTERM", forward("SIGTERM"));
   process.on("SIGINT", forward("SIGINT"));
   child.on("exit", async (code, signal) => {
+    log(`the launcher stopped (exit code ${code ?? "none"}, signal ${signal ?? "none"})`);
     clearInterval(timer);
     const finished = await settleWithin((running ?? Promise.resolve()).then(() => save({ final: true })), FINAL_SAVE_MS);
     if (finished === "late") log(`the last save did not finish within ${FINAL_SAVE_MS / 1000} seconds; stopping anyway`);

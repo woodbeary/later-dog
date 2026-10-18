@@ -27,7 +27,10 @@ const PROBLEMS: Record<CloudSignInFailure, LocaleKey> = {
   unavailable: "cloudSignIn.problem.other",
 };
 
-export const signInProblem = (code: CloudSignInFailure): LocaleKey => PROBLEMS[code] ?? PROBLEMS.unavailable;
+export function signInProblem(code: CloudSignInFailure, phase: "send" | "verify"): LocaleKey {
+  const problem = PROBLEMS[code] ?? PROBLEMS.unavailable;
+  return phase === "send" && problem === PROBLEMS.unavailable ? "cloudSignIn.problem.send" : problem;
+}
 
 export type OfferStatus = "checking" | "due" | "done";
 

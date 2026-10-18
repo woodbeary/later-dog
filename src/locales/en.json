@@ -354,6 +354,7 @@
   "cloudSignIn.problem.emailUnavailable": "later.dog can't send sign-in emails right now. Try again in a little while.",
   "cloudSignIn.problem.network": "later.dog can't be reached. Check your connection and try again.",
   "cloudSignIn.problem.other": "That didn't work. Try again, or send a new code.",
+  "cloudSignIn.problem.send": "Couldn't send a code. Try again.",
   "cloudMoveLine.moving": "Moving your dogs here from this Mac…",
   "cloudMoveLine.movingPercent": "Moving your dogs here from this Mac… {percent}%",
   "cloudMoveLine.finishing": "Almost there. Your home restarts to open them.",

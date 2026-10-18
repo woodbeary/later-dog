@@ -214,7 +214,7 @@ describe("container images", () => {
     expect(declared).toBeLessThan(runtime.indexOf(browserRun()));
     expect(browserRun().args).toContain("${CHROME_CACHE_TAG");
     const home = all.find(s => s.name === "cloud-home")!.steps;
-    expect(home).toContainEqual({ op: "ARG", args: 'CLOUD_HOME_ENGINES="@anthropic-ai/claude-code @openai/codex"' });
+    expect(home).toContainEqual({ op: "ARG", args: 'CLOUD_HOME_ENGINES="@anthropic-ai/claude-code@2.1.301 @openai/codex@0.163.0"' });
     expect(home.find(npmInstall)!.args).toContain("${ENGINES_CACHE_TAG");
     if (!publishes) return;
     const keys = (workflow.jobs.publish.steps as { id?: string; env?: Record<string, string> }[]).find(step => step.id === "keys")!;
