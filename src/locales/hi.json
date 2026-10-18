@@ -88,7 +88,6 @@
   "approval.action.cancelTurn": "रोकें",
   "approval.action.cancel": "रद्द करें",
   "approval.action.deny": "अनुमति न दें",
-  "approval.action.stopAsking": "{name} से {key} के बारे में पूछना बंद करें",
   "approval.action.alwaysAllow": "हमेशा अनुमति दें",
   "approval.action.alwaysAllowSession": "इस चैट के लिए अनुमति दें",
   "approval.action.alwaysAllowCommand": "हमेशा अनुमति दें",

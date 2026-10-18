@@ -90,7 +90,6 @@
   "approval.action.cancelTurn": "停止",
   "approval.action.cancel": "キャンセル",
   "approval.action.deny": "許可しない",
-  "approval.action.stopAsking": "{name} に {key} を今後聞かない",
   "approval.action.alwaysAllow": "常に許可",
   "approval.action.alwaysAllowSession": "このチャットで許可",
   "approval.action.alwaysAllowCommand": "常に許可",

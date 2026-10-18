@@ -88,7 +88,6 @@
   "approval.action.cancelTurn": "Arrêter",
   "approval.action.cancel": "Annuler",
   "approval.action.deny": "Ne pas autoriser",
-  "approval.action.stopAsking": "Ne plus demander à {name} pour {key}",
   "approval.action.alwaysAllow": "Toujours autoriser",
   "approval.action.alwaysAllowSession": "Autoriser pour cette discussion",
   "approval.action.alwaysAllowCommand": "Toujours autoriser",

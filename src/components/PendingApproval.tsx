@@ -115,6 +115,25 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
 }) {
   const heldNote = tFromServer(pending.heldCode, pending.held);
   const outbound = pending.message.card ? outboundSummary(pending.message.card) : undefined;
+  const reviewed = isSkillApproval(pending) || isRoutineApproval(pending) || isProfileApproval(pending) || Boolean(pending.message.card?.teamSetupRequest);
+  const command = pending.commandAllowlist?.command ?? pending.detail;
+  const details = (
+    <pre
+      tabIndex={0}
+      aria-label={
+        isSkillApproval(pending)
+          ? t("approval.aria.reviewSkill")
+          : isRoutineApproval(pending)
+            ? t("approval.aria.reviewRoutine")
+            : isProfileApproval(pending)
+              ? t("approval.aria.reviewProfile")
+              : t("approval.aria.reviewDetails")
+      }
+      className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset px-3 py-2 font-mono text-[12px] leading-relaxed text-ink"
+    >
+      {command}
+    </pre>
+  );
   return (
     <div
       role="region"
@@ -151,24 +170,12 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
           </button>
         )}
       </div>
-      <details className="group mt-1.5 text-[13px] text-ink-secondary">
-      <summary className="flex w-fit cursor-pointer list-none items-center gap-1 hover:text-ink">{t("approval.viewDetails")}<ChevronRight size={13} className="transition-transform group-open:rotate-90" aria-hidden="true" /></summary>
-      <pre
-        tabIndex={0}
-        aria-label={
-          isSkillApproval(pending)
-            ? t("approval.aria.reviewSkill")
-            : isRoutineApproval(pending)
-              ? t("approval.aria.reviewRoutine")
-              : isProfileApproval(pending)
-                ? t("approval.aria.reviewProfile")
-                : t("approval.aria.reviewDetails")
-        }
-        className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-ink"
-      >
-        {pending.commandAllowlist?.command ?? pending.detail}
-      </pre>
-      </details>
+      {reviewed ? (
+        <details className="group mt-1.5 text-[13px] text-ink-secondary">
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 hover:text-ink">{t("approval.viewDetails")}<ChevronRight size={13} className="transition-transform group-open:rotate-90" aria-hidden="true" /></summary>
+          {details}
+        </details>
+      ) : command ? details : null}
       {pending.message.card?.profileRequest?.changes.avatarUrl && <img src={pending.message.card.profileRequest.changes.avatarUrl} alt={t("botSettings.avatar.generatedPreview")} className="mt-3 size-24 rounded-xl object-cover" />}
       {pending.message.card?.skillRequest && (
         <SkillRequestPreview request={pending.message.card.skillRequest} />
@@ -219,55 +226,60 @@ export function PendingApprovalActions({
   const quiet = "bg-control text-ink hover:bg-control-hover";
   const primary = "bg-accent font-medium text-white hover:brightness-110";
   const durable = "ml-3 border border-hairline bg-transparent text-ink hover:bg-control";
+  const reach = !durableRequest && bot && pending.allowKey
+    ? pending.allowKey === MAC_ALLOW_KEY ? t("approval.reach.mac") : t("approval.reach.dog", { name: bot.name })
+    : canRememberCommand && pending.commandAllowlist
+      ? t("approval.reach.command", { name: bot?.name ?? t("approval.someone"), cwd: pending.commandAllowlist.cwd })
+      : !durableRequest && !pending.allowKey && pending.allowSession ? t("approval.reach.session") : null;
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2 rounded-b-[18px] bg-card px-3 pb-3 pt-1">
-      <button
-        onClick={() => decide("allow")}
-        disabled={isSkillRequest && !reviewedSha256}
-        className={cn(base, primary, "disabled:cursor-not-allowed disabled:opacity-40")}
-      >
-        {isTeamSetup ? pending.message.card?.options[0] : isSkillRequest
-          ? pending.message.card?.skillRequest?.action === "update"
-            ? t("approval.action.update")
-            : t("approval.action.enable")
-          : isRoutineRequest || isProfileRequest
-            ? t("approval.action.confirm")
-            : t("approval.action.allowOnce")}
-      </button>
-      <button
-        onClick={() => decide("deny")}
-        autoFocus={isTeamSetup}
-        className={cn(base, quiet)}
-      >
-        {isRoutineRequest || isProfileRequest || isTeamSetup ? t("approval.action.cancel") : t("approval.action.deny")}
-      </button>
-      {!durableRequest && bot && pending.allowKey && (
+    <div className="rounded-b-[18px] bg-card px-3 pb-3 pt-1">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <button
-          onClick={() => decide("allow", true)}
-          title={pending.allowKey === MAC_ALLOW_KEY ? t("approval.action.stopAskingMacAll") : t("approval.action.stopAsking", { name: bot.name, key: pending.allowKey })}
-          className={cn(base, durable)}
+          onClick={() => decide("allow")}
+          disabled={isSkillRequest && !reviewedSha256}
+          className={cn(base, primary, "disabled:cursor-not-allowed disabled:opacity-40")}
         >
-          {t("approval.action.alwaysAllow")}
+          {isTeamSetup ? pending.message.card?.options[0] : isSkillRequest
+            ? pending.message.card?.skillRequest?.action === "update"
+              ? t("approval.action.update")
+              : t("approval.action.enable")
+            : isRoutineRequest || isProfileRequest
+              ? t("approval.action.confirm")
+              : t("approval.action.allowOnce")}
         </button>
-      )}
-      {!durableRequest && !pending.allowKey && !canRememberCommand && pending.allowSession && (
         <button
-          onClick={() => decide("allow", true)}
-          title={t("approval.action.alwaysAllowSessionHint")}
-          className={cn(base, durable)}
+          onClick={() => decide("deny")}
+          autoFocus={isTeamSetup}
+          className={cn(base, quiet)}
         >
-          {t("approval.action.alwaysAllowSession")}
+          {isRoutineRequest || isProfileRequest || isTeamSetup ? t("approval.action.cancel") : t("approval.action.deny")}
         </button>
-      )}
-      {canRememberCommand && pending.commandAllowlist && (
-        <button
-          onClick={() => decide("allow", false, true)}
-          title={t("approval.action.alwaysAllowCommandHint", { cwd: pending.commandAllowlist.cwd })}
-          className={cn(base, durable)}
-        >
-          {t("approval.action.alwaysAllowCommand")}
-        </button>
-      )}
+        {!durableRequest && bot && pending.allowKey && (
+          <button
+            onClick={() => decide("allow", true)}
+            className={cn(base, durable)}
+          >
+            {t("approval.action.alwaysAllow")}
+          </button>
+        )}
+        {!durableRequest && !pending.allowKey && !canRememberCommand && pending.allowSession && (
+          <button
+            onClick={() => decide("allow", true)}
+            className={cn(base, durable)}
+          >
+            {t("approval.action.alwaysAllowSession")}
+          </button>
+        )}
+        {canRememberCommand && pending.commandAllowlist && (
+          <button
+            onClick={() => decide("allow", false, true)}
+            className={cn(base, durable)}
+          >
+            {t("approval.action.alwaysAllowCommand")}
+          </button>
+        )}
+      </div>
+      {reach && <p className="mt-1.5 text-right text-[12px] leading-snug text-ink-tertiary">{reach}</p>}
     </div>
   );
 }

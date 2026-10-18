@@ -88,7 +88,6 @@
   "approval.action.cancelTurn": "Parar",
   "approval.action.cancel": "Cancelar",
   "approval.action.deny": "Não permitir",
-  "approval.action.stopAsking": "Não perguntar mais a {name} sobre {key}",
   "approval.action.alwaysAllow": "Sempre permitir",
   "approval.action.alwaysAllowSession": "Permitir nesta conversa",
   "approval.action.alwaysAllowCommand": "Sempre permitir",

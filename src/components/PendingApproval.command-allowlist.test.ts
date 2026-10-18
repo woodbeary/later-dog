@@ -125,6 +125,25 @@ describe("remembering exact command approvals", () => {
     }));
   });
 
+  it("shows the command open in a capped mono block, not behind View details", () => {
+    const pending = pendingApprovals([message()])[0]!;
+    const html = renderToStaticMarkup(createElement(PendingApprovalPanel, { pending, count: 1, index: 0 }));
+    expect(html).not.toContain("View details");
+    expect(html).not.toContain("<details");
+    expect(html).toMatch(/<pre[^>]*class="[^"]*max-h-40[^"]*font-mono[^"]*"[^>]*>git status --short<\/pre>/);
+  });
+
+  it("says in one visible line how far each lasting choice reaches", () => {
+    const line = (html: string) => html.match(/<p class="[^"]*text-ink-tertiary[^"]*">([^<]*)<\/p>/)?.[1];
+    const command = view();
+    expect(line(command.html)).toBe("Always allow lets Scout run this exact command in /work/project without asking, in any chat using that folder with this engine.");
+    expect(line(view({ commandAllowlist: undefined }).html)).toBe("Allow for this chat stops asks for this action until this chat&#x27;s session ends.");
+    expect(line(view({ allowKey: "ask_bot:kiwi" }).html)).toBe("Always allow lets Scout do this same thing again without asking, in every chat.");
+    expect(line(view({ allowKey: "mac" }).html)).toBe("Always allow lets every dog use your Mac without asking.");
+    for (const button of command.buttons) expect((button.props as { title?: string }).title).toBeUndefined();
+    expect(line(view({ commandAllowlist: undefined, allowSession: false }).html)).toBeUndefined();
+  });
+
   it("never offers remembered commands on a durable confirmation", () => {
     const result = view({ routineRequest: { version: 1, requestId: "request-1", botId: bot.id, threadId: "thread-1", createdAt: 1,
       operation: { action: "run_now", routineId: "routine-1", expectedUpdatedAt: 1 } } });

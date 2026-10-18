@@ -117,7 +117,11 @@ a teammate's thread opens that thread. A routine a dog creates reads
 `Created routine ⏲ name` and opens that routine in Routines. An answered
 permission folds to `Allowed once`, `Always allowed`, `Allowed for this chat`
 or `Denied` with the tool's short name; the open card offers Allow once
-(primary), Don't allow, and then, set apart and outlined, Always allow. A card
+(primary), Don't allow, and then, set apart and outlined, Always allow. The
+exact command shows open in a mono block of capped height, one plain line under
+the lasting choice says how far it reaches, and the dog's sidebar line reads
+`Waiting for you: <action>`. Don't allow always hands the engine the same fixed
+denial (`server/laterdog/person-denied.ts`), whatever text the client sent. A card
 is labelled Always allowed only once the grant is really on the dog.
 
 Names are read by dog id, and the server keeps a dog's earlier names
@@ -127,6 +131,7 @@ exchange header, room labels) while old message text stays as written.
 ```sh
 pnpm exec vitest run src/lib/quiet-lines.test.ts src/lib/dog-refs.test.ts \
   src/components/QuietLines.test.ts src/components/ApprovalCard.test.ts \
+  src/components/PendingApproval.command-allowlist.test.ts src/components/SidebarBotListItem.test.ts \
   src/lib/mentions.test.ts server/laterdog/rename-everywhere.test.ts \
   server/laterdog/rename-capability.test.ts server/laterdog/answer-scope.test.ts
 ```
