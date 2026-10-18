@@ -422,7 +422,7 @@ describe("per-bot thread capacity through an isolated HTTP fixture", () => {
     try {
       const queued = await send(botId, waiting, "RESTORE_AFTER_RELOAD", "reload_queue_receipt");
       expect(queued.body).toMatchObject({ queued: true, reason: "capacity", threadId: waiting });
-      const receipt = { queueId: queued.body.queueId, text: "RESTORE_AFTER_RELOAD", reason: "capacity" };
+      const receipt = { queueId: queued.body.queueId, text: "RESTORE_AFTER_RELOAD", sendId: "reload_queue_receipt", reason: "capacity" };
       expect((await api("GET", "/api/bots?messages=0")).body.botQueuedMessages).toEqual({ [waiting]: [receipt] });
       const enqueued = await events.until((frame) => frame.kind === "bot.queued" && frame.queues[waiting]?.[0]?.queueId === receipt.queueId);
       expect(enqueued.queues).toEqual({ [waiting]: [receipt] });

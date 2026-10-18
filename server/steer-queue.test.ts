@@ -213,16 +213,16 @@ describe("steer-queue module", () => {
 
   it("exports owned public receipts without sharing internal queue state", () => {
     const owned = queueSteeredMessage("bot-public", "thread-public", "public words", {
-      prompt: "private provider context", replyToId: "private-reply", sendId: "private-send", reason: "capacity",
+      prompt: "private provider context", replyToId: "private-reply", sendId: "client-send", reason: "capacity",
     });
     const orphan = queueSteeredMessage("bot-orphan", "thread-orphan", "deleted task");
     try {
       const ownsThread = (botId: string, threadId: string) => botId === "bot-public" && threadId === "thread-public";
       const snapshot = queuedSteerSnapshot(ownsThread);
-      expect(snapshot).toEqual({ "thread-public": [{ queueId: owned.id, text: "public words", reason: "capacity" }] });
+      expect(snapshot).toEqual({ "thread-public": [{ queueId: owned.id, text: "public words", sendId: "client-send", reason: "capacity" }] });
       snapshot["thread-public"][0].text = "client mutation";
       snapshot["thread-public"].pop();
-      expect(queuedSteerSnapshot(ownsThread)["thread-public"]).toEqual([{ queueId: owned.id, text: "public words", reason: "capacity" }]);
+      expect(queuedSteerSnapshot(ownsThread)["thread-public"]).toEqual([{ queueId: owned.id, text: "public words", sendId: "client-send", reason: "capacity" }]);
     } finally {
       cancelSteeredMessage("bot-public", owned.id);
       cancelSteeredMessage("bot-orphan", orphan.id);

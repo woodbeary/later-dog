@@ -39,8 +39,8 @@ describe("durable accepted follow-ups", () => {
     journal.closeMessageDb();
     restoreSteeredMessages();
     expect(queuedSteerSnapshot(() => true)).toEqual({ thread: [
-      { queueId: first.id, text, reason: "capacity" },
-      { queueId: second.id, text: "then summarize" },
+      { queueId: first.id, text, sendId: "first", reason: "capacity" },
+      { queueId: second.id, text: "then summarize", sendId: "second" },
     ] });
     const store = storeFor("bot", "thread");
     let dispatchingNow: string[] = [];

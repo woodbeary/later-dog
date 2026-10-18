@@ -321,6 +321,7 @@ import {
 } from "./channel-queue.ts";
 import {
   acceptedSendMatch,
+  landedSend,
   parseSendId,
   sendFingerprint,
   SendSequencer,
@@ -7949,14 +7950,34 @@ class DirectSendRefused extends Error {
   }
 }
 
-function directSendRefusal(botId: string, threadId: string): DirectSendRefused | null {
+function spendCapRefusal(): DirectSendRefused | null {
   try {
     assertWithinBudget(cfg, DATA_DIR);
   } catch (error) {
     return new DirectSendRefused(409, { error: error instanceof Error ? error.message : String(error), code: "spend_cap" });
   }
+  return null;
+}
+
+function directThreadRefusal(botId: string, threadId: string): DirectSendRefused | null {
   if (!store.taskByThread(botId, threadId)) {
     return new DirectSendRefused(409, { error: "the dog switched tasks before it could receive the message" });
+  }
+  return null;
+}
+
+function landedDirectSend(botId: string, threadId: string, sendId: string | undefined, text: string, replyTo?: Message): DirectSendReceipt | null {
+  const landed = landedSend({
+    messages: () => store.messagesFor(threadId),
+    queued: (id) => queuedSteeredMessage(botId, threadId, id),
+    cancelled: (id) => cancelledChatFollowup("bot", botId, threadId, id),
+  }, sendId, text, replyTo?.id);
+  if (landed.kind === "accepted") {
+    const canonical = { ok: true as const, threadId, message: landed.message };
+    return landed.message.steered ? { ...canonical, steered: true as const } : canonical;
+  }
+  if (landed.kind === "queued") {
+    return { ok: true as const, queued: true as const, queueId: landed.queued.id, threadId, reason: landed.queued.reason };
   }
   return null;
 }
@@ -7978,38 +7999,16 @@ async function acceptDirectSend(
   guardedStart?: (currentAtStart: BotRecord) => Promise<DirectSendReceipt>,
 ): Promise<DirectSendReceipt> {
   const { botId, threadId, text, sendId, replyTo, sender, trigger, via, personPresent, deliver, answerer } = input;
-  const refused = directSendRefusal(botId, threadId);
-  if (refused) throw refused;
+  const elsewhere = directThreadRefusal(botId, threadId);
+  if (elsewhere) throw elsewhere;
   return sendSequencer.run(
     sendId ? `bot:${botId}:${threadId}:${sendId}` : undefined,
     sendFingerprint(text, replyTo?.id),
     async (): Promise<DirectSendReceipt> => {
-      if (sendId) {
-        if (cancelledChatFollowup("bot", botId, threadId, sendId)) {
-          throw Object.assign(new Error("this queued sendId was cancelled; send a new message to try again"), { status: 409 });
-        }
-        const accepted = acceptedSendMatch(store.messagesFor(threadId), sendId, text, replyTo?.id);
-        if (accepted.kind === "conflict") {
-          throw Object.assign(new Error("sendId already belongs to another message"), { status: 409 });
-        }
-        if (accepted.kind === "match") {
-          const canonical = {
-            ok: true as const,
-            threadId,
-            message: accepted.message,
-          };
-          return accepted.message.steered
-            ? { ...canonical, steered: true as const }
-            : canonical;
-        }
-        const queued = queuedSteeredMessage(botId, threadId, sendId);
-        if (queued) {
-          if (queued.text !== text || queued.replyToId !== replyTo?.id) {
-            throw Object.assign(new Error("sendId already belongs to another message"), { status: 409 });
-          }
-          return { ok: true as const, queued: true as const, queueId: queued.id, threadId, reason: queued.reason };
-        }
-      }
+      const landed = landedDirectSend(botId, threadId, sendId, text, replyTo);
+      if (landed) return landed;
+      const capped = spendCapRefusal();
+      if (capped) throw capped;
 
       const currentAtStart = store.projectBotForTask(botId, threadId);
       if (!currentAtStart) throw Object.assign(new Error("no such bot"), { status: 404 });
@@ -17976,11 +17975,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const threadId = body.threadId ?? group.threadId;
       const trigger = usageTriggerFor(auth);
-      try {
-        assertWithinBudget(cfg, DATA_DIR);
-      } catch (error) {
-        return json(res, 409, { error: error instanceof Error ? error.message : String(error), code: "spend_cap" });
-      }
       const ownsThread = group.dm
         ? group.threadId === threadId
         : Boolean(store.groupTaskByThread(group.id, threadId));
@@ -17999,29 +17993,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         sendId ? `group:${group.id}:${threadId}:${sendId}` : undefined,
         sendFingerprint(text, replyTo?.id, channelMode),
         async () => {
-          if (sendId) {
-            if (cancelledChatFollowup("channel", group.id, threadId, sendId)) {
-              throw Object.assign(new Error("this queued sendId was cancelled; send a new message to try again"), { status: 409 });
-            }
-            const accepted = acceptedSendMatch(store.messagesFor(threadId), sendId, text, replyTo?.id, channelMode);
-            if (accepted.kind === "conflict") {
-              throw Object.assign(new Error("sendId already belongs to another message"), { status: 409 });
-            }
-            if (accepted.kind === "match") {
-              return { ok: true as const, threadId, message: accepted.message };
-            }
-            const queued = queuedChannelMessage(group.id, threadId, sendId);
-            if (queued) {
-              if (
-                queued.text !== text ||
-                queued.replyToId !== replyTo?.id ||
-                queued.mode !== channelMode
-              ) {
-                throw Object.assign(new Error("sendId already belongs to another message"), { status: 409 });
-              }
-              return { ok: true as const, queued: true as const, queueId: queued.id, threadId };
-            }
-          }
+          const landed = landedSend({
+            messages: () => store.messagesFor(threadId),
+            queued: (id) => queuedChannelMessage(group.id, threadId, id),
+            cancelled: (id) => cancelledChatFollowup("channel", group.id, threadId, id),
+          }, sendId, text, replyTo?.id, channelMode);
+          if (landed.kind === "accepted") return { ok: true as const, threadId, message: landed.message };
+          if (landed.kind === "queued") return { ok: true as const, queued: true as const, queueId: landed.queued.id, threadId };
+          const capped = spendCapRefusal();
+          if (capped) throw capped;
           const current = store.group(group.id);
           if (!current) throw Object.assign(new Error("no such group"), { status: 404 });
           if (current.threadId !== threadId) {
@@ -18044,7 +18024,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const message = startGroupTurn(current.id, text, replyTo, sendId, channelMode, undefined, { via, sender: messageSender(auth), trigger });
           return { ok: true as const, threadId, message };
         },
-      );
+      ).catch((error: unknown) => {
+        if (error instanceof DirectSendRefused) return error;
+        throw error;
+      });
+      if (receipt instanceof DirectSendRefused) return json(res, receipt.status, receipt.body);
       return json(res, 202, receipt);
     }
     m = path.match(/^\/api\/groups\/([\w-]+)\/queue\/([\w-]+)$/);
@@ -19607,8 +19591,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const trigger: UsageTrigger = onBehalfOf
         ? { kind: "user", ...(onBehalfOf.email ? { email: onBehalfOf.email } : {}), ...(onBehalfOf.name ? { label: onBehalfOf.name } : {}) }
         : usageTriggerFor(auth);
-      const refused = directSendRefusal(bot.id, threadId);
-      if (refused) return json(res, refused.status, refused.body);
+      const elsewhere = directThreadRefusal(bot.id, threadId);
+      if (elsewhere) return json(res, elsewhere.status, elsewhere.body);
       const sendId = parseSendId(body.sendId);
       const replyTo = resolveReplyTarget(threadId, body.replyToId);
       const sender = messageSender(auth);
