@@ -10,6 +10,7 @@ import {
 
 export function SidebarSectionHeader({
   name,
+  count,
   collapsed,
   attention,
   onToggle,
@@ -22,6 +23,7 @@ export function SidebarSectionHeader({
   onContextMenu,
 }: {
   name: string;
+  count?: number;
   collapsed: boolean;
   attention?: SidebarSectionAttention;
   onToggle?: () => void;
@@ -69,6 +71,7 @@ export function SidebarSectionHeader({
           <span className="truncate text-[12px] font-semibold text-ink-secondary">
             {name}
           </span>
+          {count !== undefined && <span data-section-count className="shrink-0 text-[11px] text-ink-tertiary">{count}</span>}
           <Chevron size={13} className="shrink-0 text-ink-secondary" aria-hidden="true" />
           {attention && attention.waiting > 0 && (
             <span
@@ -101,6 +104,7 @@ export function SidebarSectionHeader({
           <span className="truncate text-[12px] font-semibold text-ink-secondary">
             {name}
           </span>
+          {count !== undefined && <span data-section-count className="shrink-0 text-[11px] text-ink-tertiary">{count}</span>}
           {attentionLabel && <span className="sr-only">{attentionLabel}</span>}
         </div>
       )}

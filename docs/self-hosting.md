@@ -668,8 +668,8 @@ It is access control, not an approval step, and it applies at once. For a
 user who may not see a bot, the server answers the bot, its threads and
 their messages, images, exports, reactions, cards, sends, routines, runs and
 attachments exactly as it answers an id that does not exist (404), and leaves
-the bot out of the bot list, search results, routines, webhooks, the team map
-and the live event stream. Every bot a user is sent, by any route, comes
+the bot out of the bot list, search results, routines, webhooks and the live
+event stream. Every bot a user is sent, by any route, comes
 without its audience list or the ids of teammates they cannot see. When an
 admin changes a bot's audience, every user's open app reconnects and
 reloads exactly what that person may now see (a user who was away and

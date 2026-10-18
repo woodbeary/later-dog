@@ -62,18 +62,10 @@ download UI; verify those separately in a renderer connected to a fixture.
 
 ### Template sidebar UI
 
-```sh
-LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/team-template-ui.e2e.test.ts --silent=false
-```
-
-This owns a disposable `control-laterdog ui` app. It sends a fixture conversation,
-creates two existing sections, imports a catalog template, then imports the
-same template through the file input. It checks the preview copy, distinct
-new sections, and preservation of existing bots and their conversation.
-The catalog download is simulated; the renderer, import API and persistence
-are real. The file-input change handler is exercised, not the OS file picker.
-The output includes the fixture log path and a sidebar screenshot saved at
-`.laterdog-scratch/verify-evidence/template-import-sections.png`.
+The templates gallery and its renderer test were removed in the finalize slice
+`d3-chief-packs-teams` (2026-10-18). Backups and legacy template files are
+still parsed by the server checks above; the desktop adds a shared dog only
+through **Add this dog?** ([Sharing one dog](team-sharing.md)).
 
 ## Explicit skills in setup packages
 

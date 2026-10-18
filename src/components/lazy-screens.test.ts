@@ -85,17 +85,17 @@ describe("lazyScreen", () => {
     const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
     const reload = vi.spyOn(window.location, "reload").mockImplementation(() => {});
     const load = vi.fn((): Loaded => Promise.reject(new TypeError("Failed to fetch dynamically imported module")));
-    const Screen = lazyScreen("TeamMapPage", load);
+    const Screen = lazyScreen("SettingsModal", load);
     await expect(Screen.preload()).rejects.toThrow(TypeError);
-    render(createElement("main", null, "chat", createElement(Screen, { text: "Team map" })));
+    render(createElement("main", null, "chat", createElement(Screen, { text: "Settings" })));
     await settle();
     expect(document.querySelector("main")!.outerHTML).toBe("<main>chat</main>");
     const notice = document.querySelector<HTMLElement>('[role="alert"]');
     expect(notice?.textContent).toContain("couldn’t load");
-    expect(document.body.textContent).not.toContain("Team map");
+    expect(document.body.textContent).not.toContain("Settings");
     expect(errors).not.toHaveBeenCalled();
     expect(warnings).toHaveBeenCalledTimes(2);
-    expect(String(warnings.mock.calls[0]![0])).toContain("TeamMapPage");
+    expect(String(warnings.mock.calls[0]![0])).toContain("SettingsModal");
     expect(reload).not.toHaveBeenCalled();
     notice!.querySelector("button")!.click();
     expect(reload).toHaveBeenCalledTimes(1);
@@ -160,7 +160,7 @@ describe("preloadScreens", () => {
     });
     vi.stubGlobal("cancelIdleCallback", cancel);
     const preloads = stubPreloads();
-    expect(preloads.length).toBe(7);
+    expect(preloads.length).toBe(6);
     const stop = preloadScreens();
     for (const preload of preloads) expect(preload).not.toHaveBeenCalled();
     idle!();
@@ -231,7 +231,7 @@ describe("launch bundle", () => {
     expect(reached.has("components/Sidebar.tsx")).toBe(true);
     const deferred = [
       "BotSettingsDialog", "CloudTaskPanel", "ComputerPanel", "KeyboardShortcutsModal",
-      "NewBotDialog", "SettingsModal", "TeamMapPage",
+      "NewBotDialog", "SettingsModal",
     ].map((name) => `components/${name}.tsx`);
     expect(deferred.filter((file) => reached.has(file))).toEqual([]);
   });

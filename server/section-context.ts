@@ -84,9 +84,9 @@ export function ensureSections(names: (string | undefined)[]): boolean {
 export function changeEmptySection(name: string, nextName: string | null): void {
   const data = loadFile(true);
   const index = data.sections.indexOf(name);
-  if (index < 0) throw new Error("No such pack");
+  if (index < 0) throw new Error("No such section");
   if (nextName !== null && nextName !== name && data.sections.includes(nextName)) {
-    throw new Error("A pack with that name already exists");
+    throw new Error("A section with that name already exists");
   }
   if (nextName === name) return;
   if (nextName === null) data.sections.splice(index, 1);

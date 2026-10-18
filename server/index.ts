@@ -524,6 +524,7 @@ import {
   presetFromDefaults, presetOffered, readPublishedLibrary, writePublishedLibrary,
 } from "./presets.ts";
 import { readPublishedTeam, writePublishedTeam } from "./published-teams.ts";
+import { DOG_SHARE_MISSING, dogShareKey, sharedDog } from "./laterdog/dog-share.ts";
 import { OrgLibrary } from "./org-library.ts";
 import { createTeamBackup, importTeamBackup } from "./team-backup.ts";
 import { MAX_TEAM_BACKUP_BYTES } from "../shared/team-backup.ts";
@@ -2799,15 +2800,13 @@ function connectedAppsIntegration(bot: Pick<BotRecord, "id" | "connectorTools">,
 const computerControlRevision = new Map<string, number>();
 const takeoverWaits = new TakeoverWaits();
 const computerControl = new ComputerControl((key, snapshot) => {
-  const members = key.startsWith("computer_")
-    ? store.bots.filter(bot => inheritedTeamComputer(bot)?.id === key.slice("computer_".length)).map(bot => bot.id)
-    : [key];
-  for (const botId of members) {
-  computerControlRevision.set(botId, (computerControlRevision.get(botId) ?? 0) + 1);
-  if (snapshot.held && /^[A-Za-z0-9_-]{1,120}$/.test(botId)) {
-    postDesktopPrivateMessage({ type: "laterdog:browser-control", botId, held: true });
-  }
-  broadcast({ kind: "computer-control", botId, held: snapshot.held, helpReason: snapshot.helpReason });
+  if (!key.startsWith(teamComputerOwner(""))) {
+    const botId = key;
+    computerControlRevision.set(botId, (computerControlRevision.get(botId) ?? 0) + 1);
+    if (snapshot.held && /^[A-Za-z0-9_-]{1,120}$/.test(botId)) {
+      postDesktopPrivateMessage({ type: "laterdog:browser-control", botId, held: true });
+    }
+    broadcast({ kind: "computer-control", botId, held: snapshot.held, helpReason: snapshot.helpReason });
   }
   settleTakeoverWaits(key, snapshot);
 });
@@ -2968,7 +2967,7 @@ async function moveOffRemovedEngine({ removed, label, replacement: pick, text }:
   const moves = store.retireInstances(removed, replacement, {
     driverKind: instance?.driverKind,
     canWorkOnCloud: canWorkOnCloud(cloudEngine(instance)),
-    keepCloud: (bot) => boat.boatConfigured(cfg) && bot.cloudBackend !== "vps" && !inheritedTeamComputer(bot),
+    keepCloud: (bot) => boat.boatConfigured(cfg) && bot.cloudBackend !== "vps",
   });
   writeComputerEngineMoveLines(moves, (move) => {
     const bot = store.bot(move.botId);
@@ -3426,8 +3425,7 @@ function previewSystemPrompt(bot: BotRecord) {
     .join(" ");
   const instance = registry.get(bot.modelSelection.instanceId);
   const caps = instance?.adapter.capabilities;
-  const teamComputer = inheritedTeamComputer(bot);
-  const previewComputer = teamComputer ? "cloud" : bot.computer;
+  const previewComputer = bot.computer;
   const computerPromptKind = resolveComputerPromptKind(previewComputer === "cloud"
     ? bot.cloudBackend === "vps" ? "vps" : "box" : previewComputer === "local" ? "local" : null);
   const peers = reachablePeers(store.bots, bot);
@@ -4848,8 +4846,7 @@ const desktopViewer = createDesktopViewer({
   lease: (id, botId, controlLeaseId, threadId) => {
     const bot = store.bot(botId);
     if (!bot || viewerTargetId(localVmTargetForStatus(bot.id, threadId)) !== id) return;
-    const key = botComputerControlKey(bot);
-    const holds = () => computerControl.ownsLease(key, controlLeaseId);
+    const holds = () => computerControl.ownsLease(bot.id, controlLeaseId);
     return holds() ? holds : undefined;
   },
 });
@@ -5638,15 +5635,6 @@ const localVmIdleMs = () => localVmIdleTimeoutMinutes(cfg) * 60_000;
 const LOCAL_VM_DESKTOP_WAIT_MS = 90_000;
 const localVmIdles = new Map<string, LocalVmIdleTimer>();
 
-function inheritedTeamComputer(bot: Pick<BotRecord, "section" | "computer" | "cloudBackend">): TeamComputerRecord | undefined {
-  return teamComputers.forBot(bot);
-}
-
-function botComputerControlKey(bot: BotRecord): string {
-  const computer = inheritedTeamComputer(bot);
-  return computer ? teamComputerOwner(computer.id) : bot.id;
-}
-
 async function computerCallGate(internalCapability: InternalCapability) {
   const botId = internalCapability.botId;
   const snapshot = botComputerControlSnapshot(botId, internalCapability.teamComputerId);
@@ -5688,7 +5676,7 @@ async function computerCallGate(internalCapability: InternalCapability) {
 function botComputerControlSnapshot(botId: string, pinnedComputerId?: string) {
   const own = computerControl.snapshot(botId);
   const bot = store.bot(botId);
-  const key = pinnedComputerId ? teamComputerOwner(pinnedComputerId) : bot ? botComputerControlKey(bot) : botId;
+  const key = pinnedComputerId ? teamComputerOwner(pinnedComputerId) : bot ? bot.id : botId;
   const shared = computerControl.snapshot(key);
   return own.held ? own : shared.held || shared.helpReason ? shared : own;
 }
@@ -5704,18 +5692,8 @@ function teamComputerInUse(computer: TeamComputerRecord): boolean {
 
 function claimTeamComputerLifecycle(computer: TeamComputerRecord): () => void {
   if (computerProviderConfigTransitions.has("box")) throw Object.assign(new Error(providerTransitionMessage("box")), { status: 409 });
-  if (teamComputerInUse(computer)) throw Object.assign(new Error("This pack computer is in use; stop the pack's work and release computer control first"), { status: 409 });
+  if (teamComputerInUse(computer)) throw Object.assign(new Error("This shared computer is in use; stop the work on it and release computer control first"), { status: 409 });
   return claimBotComputerLifecycle(teamComputerOwner(computer.id));
-}
-
-function assertTeamComputerChangeIdle(before: BotRecord, after: BotRecord): void {
-  const previous = inheritedTeamComputer(before);
-  const next = inheritedTeamComputer(after);
-  if (previous?.id === next?.id) return;
-  if (botHasActiveTurn(before.id) || routines?.activeRunForBot(before.id) || botComputerControlSnapshot(before.id).held ||
-      [previous, next].some(computer => computer && (teamComputerInUse(computer) || boatLifecycleBusyBots.has(teamComputerOwner(computer.id))))) {
-    throw Object.assign(new Error("Stop the affected pack's work and release computer control before changing its computer access"), { status: 409 });
-  }
 }
 
 async function teamComputersPayload(): Promise<TeamComputersPayload> {
@@ -5736,39 +5714,11 @@ async function teamComputersPayload(): Promise<TeamComputersPayload> {
   };
 }
 
-async function attachTeamBoat(computer: TeamComputerRecord, botId: string, owner: TurnOwner, canMount: boolean) {
-  if (!canMount) throw new Error("This model cannot use the pack's cloud computer; choose a model provider with computer tools or give this dog its own Works on setting");
-  if (!boat.boatConfigured(cfg)) throw new Error("The pack's Boat account is not configured; reconnect it in Settings");
-  const ownerId = teamComputerOwner(computer.id);
-  if (boatLifecycleBusyBots.has(ownerId)) throw new Error("The pack computer is being changed; wait for it to finish");
-  if (computerControl.snapshot(ownerId).held) throw new Error("Release human control of the pack computer before starting another turn");
-  await bindTurnComputer(owner, `computer:box-bot:${ownerId}`, true);
-  teamComputerTurns.set(owner.threadId, { owner, computerId: computer.id, botId });
-  let machine = await boat.findBoat(cfg, ownerId);
-  if (!machine) throw new Error("The pack's cloud computer is missing; explicitly create or retry it from the Pack map");
-  await bindTurnComputer(owner, `computer:box:${machine.id}`, true);
-  const action = boat.boatTurnLifecycleAction(typeof machine.state === "string" ? machine.state : null);
-  if (action === "wake") machine = await boat.readyBoat(cfg, ownerId);
-  if (!machine || boat.boatTurnLifecycleAction(typeof machine.state === "string" ? machine.state : null) !== "attach") {
-    throw new Error("The pack computer is not ready; check it in the Pack map");
-  }
-  if (turnResourceOwners.get(owner.threadId)?.generation !== owner.generation ||
-      !turnResources.owns(`computer:box:${machine.id}`, owner)) throw new Error("This computer turn ended while its machine was starting");
-  return {
-    mount: cloudComputerMount(botId, owner, machine.id),
-    capture: () => boat.screenshotBoat(cfg, ownerId, machine!.id),
-  };
-}
-
 function cloudEngine(instance: ReturnType<typeof registry.get>, model?: string): CloudEngine & { name: string } {
   return {
     computerMcp: instance?.adapter.capabilities.computerMcp,
     name: model?.trim() || instance?.displayName || instance?.driverKind || "This model",
   };
-}
-
-function cloudComputerMount(botId: string, owner: TurnOwner, boxId: string): Pick<NonNullable<SendTurnInput["integrations"]>, "localComputer"> {
-  return { localComputer: cloudComputerTools(botId, owner, boxId) };
 }
 
 function cloudComputerTools(botId: string, owner: TurnOwner, boxId: string | null): NonNullable<SendTurnInput["integrations"]>["localComputer"] {
@@ -5977,7 +5927,7 @@ function homeCloudReadiness(bot: BotRecord, instance: ReturnType<typeof registry
 
 function turnSurfacePlan(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string) {
   const instance = registry.get(bot.modelSelection.instanceId);
-  const forcedBoat = runOn === "cloud" || Boolean(inheritedTeamComputer(bot));
+  const forcedBoat = runOn === "cloud";
   const browserOn = builtInBrowserEnabled(cfg) && bot.browser !== false && instance?.adapter.capabilities.browserMcp === true;
   const plan = resolveSurface({
     destination: forcedBoat ? "cloud" : bot.computer,
@@ -5988,7 +5938,7 @@ function turnSurfacePlan(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string
 }
 
 function turnProvider(bot: BotRecord, runOn?: RoutineRunOn, threadId?: string): RemoteComputerProvider | null {
-  if (runOn === "cloud" || inheritedTeamComputer(bot)) return "box";
+  if (runOn === "cloud") return "box";
   const wants = turnSurfacePlan(bot, runOn, threadId).computer;
   if (wants !== undefined && wants !== "cloud") return null;
   return bot.cloudBackend === "vps" ? "vps" : wants === "cloud" ? "box" : null;
@@ -8270,7 +8220,7 @@ async function startTurn(
 
   beginInternalCapabilityGeneration(threadId, dispatchClaimId);
   if (!opts?.computerSelectionContinuation && !opts?.cardContinuation && !opts?.automationSource && !opts?.unattended &&
-      !opts?.commsDepth && !opts?.coordination && !inheritedTeamComputer(bot) && bot.computer !== "off" && agentsMounted) {
+      !opts?.commsDepth && !opts?.coordination && bot.computer !== "off" && agentsMounted) {
     const source = store.activePath(threadId).findLast(message => message.id === userMessage?.id && message.role === "user" && !message.peerAsk);
     if (source) computerSelectionTurns.set(threadId, { generation: dispatchClaimId, botId: bot.id, source, text });
   }
@@ -8443,17 +8393,16 @@ async function startTurn(
       const checkpointCwd = cwd && cwd !== privateWorkspace ? cwd : undefined;
       const dwebUrl = process.env.DWEB_URL?.trim();
       if (dwebUrl) integrations.dweb = { url: dwebUrl };
-      const teamComputer = inheritedTeamComputer(bot);
-      const cloudBackend = teamComputer || opts?.runOn === "cloud" || bot.cloudBackend !== "vps" ? "box" : "vps";
+      const cloudBackend = opts?.runOn === "cloud" || bot.cloudBackend !== "vps" ? "box" : "vps";
       const mountsComputerMcp = instance.adapter.capabilities.computerMcp === true;
       const mountsLocalComputer = instance.adapter.capabilities.localComputerMcp === true;
       const dispatchTask = store.taskByThread(bot.id, threadId);
       const wants = plan.computer;
-      const wantedKind = teamComputer ? "box" : wants === "local" ? "thisComputer" : wants === "vm" ? "localVm"
+      const wantedKind = wants === "local" ? "thisComputer" : wants === "vm" ? "localVm"
         : wants === "cloud" ? (cloudBackend === "vps" ? "vps" : "box") : undefined;
       const placeRefusal = wantedKind && computerPlaceRefusal(wantedKind);
       if (placeRefusal) throw Object.assign(new Error(placeRefusal.message), { status: 409, code: placeRefusal.code });
-      const namedPlace = teamComputer || wants === undefined || wants === "off" ? undefined : wants;
+      const namedPlace = wants === undefined || wants === "off" ? undefined : wants;
       const placeSource: PlaceSource | undefined = !namedPlace ? undefined
         : opts?.runOn === "cloud" ? "routine"
         : plan.pinned ? (dispatchTask?.surfaceSource === "auto" ? "auto-pin" : "pin")
@@ -8477,7 +8426,7 @@ async function startTurn(
       const autoPinAllowed = () => {
         const liveBot = store.bot(bot.id);
         const liveTask = store.taskByThread(bot.id, threadId);
-        return liveBot?.computer === undefined && !teamComputer && opts?.runOn !== "cloud" && !plan.pinned &&
+        return liveBot?.computer === undefined && opts?.runOn !== "cloud" && !plan.pinned &&
           Boolean(liveTask && liveTask.surfaceSource !== "user");
       };
       const pinAutoSurface = (surface: Surface) => {
@@ -8667,13 +8616,7 @@ async function startTurn(
           }
         }
 
-        if (teamComputer) {
-          const attached = await attachTeamBoat(teamComputer, bot.id, resourceOwner, canWorkOnCloud(cloudEngine(instance)));
-          Object.assign(integrations, attached.mount);
-          previewCapture = attached.capture;
-          computerKind = "box";
-        }
-        if (!teamComputer && cloudBackend === "box" && boat.boatConfigured(cfg) && wants === "cloud") {
+        if (cloudBackend === "box" && boat.boatConfigured(cfg) && wants === "cloud") {
           integrations.localComputer = mountBotBoat(bot, resourceOwner, {
             source: placeSource,
             onClaimed: adoptClaimedCapture,
@@ -8723,7 +8666,6 @@ async function startTurn(
       if (mountsAutoCloud({
         wants,
         alreadyMounted: Boolean(integrations.localComputer),
-        teamComputer: Boolean(teamComputer),
         backend: cloudBackend,
         configured: boat.boatConfigured(cfg),
         placeRefused: Boolean(computerPlaceRefusal("box")),
@@ -9409,6 +9351,10 @@ if (recoveryOwners.length > 0) {
   );
 }
 
+async function probeCloudComputer(botId: string): Promise<void> {
+  await boat.findBoat(cfg, botId);
+}
+
 async function cloudRoutineReadiness(botId: string, threadId?: string): Promise<{ ready: boolean; reason?: string }> {
   const projected = threadId ? store.projectBotForTask(botId, threadId) : store.bot(botId);
   const selection = threadId ? turnSelection(botId, threadId) : projected?.modelSelection;
@@ -9428,12 +9374,7 @@ async function cloudRoutineReadiness(botId: string, threadId?: string): Promise<
     if ((await instance.snapshot()).state !== "available") {
       return { ready: false, reason: "The dog's model is not ready to use the cloud computer." };
     }
-    const teamComputer = inheritedTeamComputer(bot);
-    const ownerId = teamComputer ? teamComputerOwner(teamComputer.id) : bot.id;
-    const machine = await boat.findBoat(cfg, ownerId);
-    if (teamComputer && !machine) {
-      return { ready: false, reason: "The pack's cloud computer is missing; explicitly create or retry it from the Pack map." };
-    }
+    await probeCloudComputer(bot.id);
     return { ready: true };
   } catch (error) {
     return {
@@ -10418,22 +10359,21 @@ async function runGroupMemberTurn(
   });
   watchdog.watch(threadId, bot.id);
 
-  const roomTeamComputer = inheritedTeamComputer(readyBot);
   const roomBrowserOn = builtInBrowserEnabled(cfg) && readyBot.browser !== false && instance.adapter.capabilities.browserMcp === true;
   const roomPlan = homeCloudPlan(resolveSurface({
-    destination: roomTeamComputer ? "cloud" : readyBot.computer,
+    destination: readyBot.computer,
     browserOn: roomBrowserOn,
-  }), { cloudHome: Boolean(CLOUD_HOME), forced: Boolean(roomTeamComputer), browserOn: roomBrowserOn, readiness: () => homeCloudReadiness(readyBot, instance) });
-  const roomKind = roomTeamComputer ? "box" : roomPlan.computer === "local" ? "thisComputer" : readyBot.computer === "vm" ? "localVm"
+  }), { cloudHome: Boolean(CLOUD_HOME), forced: false, browserOn: roomBrowserOn, readiness: () => homeCloudReadiness(readyBot, instance) });
+  const roomKind = roomPlan.computer === "local" ? "thisComputer" : readyBot.computer === "vm" ? "localVm"
     : roomPlan.computer === "cloud" ? (turnProvider(readyBot) === "vps" ? "vps" : "box") : undefined;
   const roomPlaceRefusal = roomKind && computerPlaceRefusal(roomKind);
   if (roomPlaceRefusal) throw Object.assign(new Error(roomPlaceRefusal.message), { code: roomPlaceRefusal.code });
-  if (!roomTeamComputer && roomPlan.computer === "cloud") {
+  if (roomPlan.computer === "cloud") {
     const unsupported = cloudPlaceRefusal(cloudEngine(instance, readyBot.modelSelection.model), "room", readyBot.name)
       ?? computerToolsRefusal(readyBot.toolScope, "room", readyBot.name);
     if (unsupported) throw unsupported;
   }
-  if (roomPlan.browser && !(roomPlan.computer === undefined && roomTeamComputer)) {
+  if (roomPlan.browser) {
     const selectedProfile = readyBot.browserProfile;
     const browser = await browserIntegration(readyBot.id, selectedProfile, { threadId, generation: internalGeneration });
     if (browser) integrations.browser = browser.integration;
@@ -10443,14 +10383,6 @@ async function runGroupMemberTurn(
       groupSpeakers.get(threadId) !== roomSpeaker ||
       activeInternalGenerationByThread.get(threadId) !== internalGeneration) {
     return false;
-  }
-
-  if (roomTeamComputer) {
-    const attached = await attachTeamBoat(roomTeamComputer, readyBot.id, resourceOwner, canWorkOnCloud(cloudEngine(instance)));
-    if (isCancelled?.() || groupSpeakers.get(threadId) !== roomSpeaker ||
-        activeInternalGenerationByThread.get(threadId) !== internalGeneration) return false;
-    Object.assign(integrations, attached.mount);
-    startScreenPoller(readyBot.id, threadId, { computer: attached.capture });
   }
 
   const roomSetupIsCurrent = () => !isCancelled?.() &&
@@ -10489,13 +10421,13 @@ async function runGroupMemberTurn(
     void instance.adapter.interruptTurn(threadId).catch(() => {});
   };
   try {
-    if (!roomTeamComputer && roomPlan.computer === "local") {
+    if (roomPlan.computer === "local") {
       integrations.localComputer = await mountHostComputer(
         resourceOwner, readyBot.id, instance.adapter.capabilities.localComputerMcp === true);
       if (!roomSetupIsCurrent()) return false;
       roomComputerKind = "local";
     }
-    if (!roomTeamComputer && roomPlan.computer === "cloud") {
+    if (roomPlan.computer === "cloud") {
       if (turnProvider(readyBot) === "vps") {
         vpsThreadStarted(readyBot.id, threadId);
         roomVpsBotId = readyBot.id;
@@ -10597,7 +10529,7 @@ async function runGroupMemberTurn(
   const roomMemory = memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false });
   const recentLines = recentWork(recentWorkSources(bot), bot, { userName, currentThreadId: threadId, ...recentWorkFilter() });
   const roomComputerPromptKind = resolveComputerPromptKind(
-    roomTeamComputer || roomComputerKind === "box" ? "box" : roomVmTarget ? "vm" : roomComputerKind);
+    roomComputerKind === "box" ? "box" : roomVmTarget ? "vm" : roomComputerKind);
   {
     const crossing = claimRecallCrossings(threadId, recentLines.filter((line) => line.private).map((line) => line.threadId));
     if (crossing.count) {
@@ -10620,7 +10552,7 @@ async function runGroupMemberTurn(
     { id: "files", label: "File locations", text: workspace ? workspaceLocationsPrompt(bot.id, cwd, readyBot.cwd) : "" },
     { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
     { id: "computer", label: "Computer", text: computerPrompt(roomComputerPromptKind) },
-    { id: "plan", label: "Surface", text: surfacePrompt({ computer: roomTeamComputer ? "cloud" : roomVmTarget ? "vm" : surfaceOfComputerKind(roomComputerKind), browser: Boolean(integrations.browser) }, { note: roomPlan.note, cloudHome: Boolean(CLOUD_HOME) }) },
+    { id: "plan", label: "Surface", text: surfacePrompt({ computer: roomVmTarget ? "vm" : surfaceOfComputerKind(roomComputerKind), browser: Boolean(integrations.browser) }, { note: roomPlan.note, cloudHome: Boolean(CLOUD_HOME) }) },
     { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled()) : "" },
     { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
     { id: "recall", label: "Recall", text: integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "" },
@@ -12158,7 +12090,7 @@ function answerTakeoverByTyping(botId: string, threadId: string): void {
   for (const message of store.activePath(threadId)) {
     const request = message.kind === "options" ? message.card?.takeoverRequest : undefined;
     if (request?.status !== "waiting") continue;
-    endTakeover({ botId: message.from?.botId ?? botId, threadId, messageId: message.id }, "replied", botComputerControlKey(store.bot(message.from?.botId ?? botId) ?? bot));
+    endTakeover({ botId: message.from?.botId ?? botId, threadId, messageId: message.id }, "replied", (store.bot(message.from?.botId ?? botId) ?? bot).id);
   }
 }
 
@@ -12764,9 +12696,6 @@ const workspaceBackupAccess = {
       (current.kind !== "session" || (original.kind === "session" && current.session.id === original.session.id)));
   },
   exclusive: <T>(work: () => Promise<T>, keepLocked?: boolean) => workspaceMaintenance.run(async () => {
-    if (keepLocked && teamComputers.list().some(computer => computer.section !== null)) {
-      throw Object.assign(new Error("Unassign pack computers before restoring this workspace"), { status: 409 });
-    }
     return work();
   }, {
     idle: () => !providerFleetReloading && !providerAuthSessions.active && !browserEngineInstall &&
@@ -12929,7 +12858,7 @@ ROUTES.push(createVoiceTranscribeRoutes({
   transcribe: (req, url) => transcribeRoute(req, url, cloudDictationEnabled(cfg), pickTranscriber(voiceCredential(cfg.tts?.key), xaiVoice(cfg.xai?.key))),
 }));
 const takeoverLease = {
-  controlKey: botComputerControlKey,
+  controlKey: (bot: BotRecord) => bot.id,
   restateHelp: (controlKey: string, step: string) => {
     const { snapshot, requestId } = computerControl.restateHelpLease(controlKey, step);
     return { held: snapshot.held, requestId };
@@ -13283,9 +13212,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     beginAdminAudit(req, res, method, path, auth);
 
-    if (method === "POST" && path === "/api/workspace-backup/restore" && teamComputers.list().some(computer => computer.section !== null)) {
-      return json(res, 409, { error: "Unassign pack computers before restoring a workspace; restored pack names must not gain access to existing desktops" });
-    }
     if (await workspaceBackupRoutes(req, res, path, auth)) return;
     if (await cloudMoveRoutes(req, res, path, auth)) return;
     if (await cloudHoldRoutes(req, res, path, auth)) return;
@@ -14867,7 +14793,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!parsed.success) return json(res, 400, { error: "provide roomId and a supported room action; section moves are user-only" });
         const room = store.group(parsed.data.roomId);
         if (!room || room.dm || sectionKey(room.section) !== sectionKey(maker.section) || !allowedRoster(room.memberIds)) {
-          return json(res, 403, { error: "you can only manage rooms in your own pack that you belong to, with allowed peers from this workspace" });
+          return json(res, 403, { error: "you can only manage rooms in your own section that you belong to, with allowed peers from this workspace" });
         }
         const { action, memberIds, name } = parsed.data;
         const patch: Record<string, unknown> = {};
@@ -15316,36 +15242,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 200, { messageIds });
       }
       return json(res, 404, { error: "unknown internal endpoint" });
-    }
-
-    if (method === "GET" && path === "/api/team-map") {
-      const mapped = new Set(store.bots.filter((bot) => !bot.hidden && visible.bot(bot.id)).map((bot) => bot.id));
-      const collaborations = store.groups
-        .filter(
-          (group) =>
-            group.dm === true &&
-            group.memberIds.length === 2 &&
-            group.memberIds.every((botId) => mapped.has(botId)),
-        )
-        .map((group) => ({
-          groupId: group.id,
-          botIds: [group.memberIds[0], group.memberIds[1]] as [string, string],
-          lastAt: store.messagesFor(group.threadId).at(-1)?.at ?? group.createdAt,
-        }))
-        .sort((a, b) => b.lastAt - a.lastAt);
-      const queued = pendingDelegationSnapshot().flatMap((item) => {
-        if (!mapped.has(item.sourceBotId) || !mapped.has(item.toBotId)) return [];
-        return [{ sourceBotId: item.sourceBotId, targetBotId: item.toBotId, reason: item.reason }];
-      });
-      const running = [...delegationWatch.entries()].flatMap(([threadId, watch]) => {
-        if (!mapped.has(watch.toBotId)) return [];
-        const channel = watch.channelId ? store.group(watch.channelId) : undefined;
-        const sourceBotId = watch.sourceBotId ??
-          channel?.memberIds.find((botId) => botId !== watch.toBotId);
-        if (!sourceBotId || !mapped.has(sourceBotId)) return [];
-        return [{ sourceBotId, targetBotId: watch.toBotId, threadId, groupId: channel?.id }];
-      });
-      return json(res, 200, { collaborations, queued, running });
     }
 
     if (path === "/api/routines" && method === "GET") {
@@ -16037,13 +15933,16 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
       }
       if (body.format === "package" && body.version === 2) {
-        if (typeof body.team !== "string") return json(res, 400, { error: "Choose a pack to share." });
-        const team = body.team.trim();
-        if (team && !store.sections.includes(team) && !store.bots.some((bot) => sectionKey(bot.section) === team)) {
+        const dog = typeof body.botId === "string" ? sharedDog(store.bots, body.botId) : null;
+        if (typeof body.botId === "string" && !dog) return json(res, 404, { error: DOG_SHARE_MISSING });
+        if (!dog && typeof body.team !== "string") return json(res, 400, { error: "Choose a pack to share." });
+        const team = dog ? "" : String(body.team).trim();
+        if (!dog && team && !store.sections.includes(team) && !store.bots.some((bot) => sectionKey(bot.section) === team)) {
           return json(res, 404, { error: "That pack no longer exists." });
         }
+        const publishedKey = dog ? dogShareKey(dog.id) : team;
         const optional = (value: unknown) => (typeof value === "string" ? value : undefined);
-        const teamBots = store.bots.filter((bot) => !bot.hidden && sectionKey(bot.section) === team);
+        const teamBots = dog ? [dog] : store.bots.filter((bot) => !bot.hidden && sectionKey(bot.section) === team);
         const skills = collectTeamSkills(teamBots, body.skills);
         if (!skills.ok) return json(res, 400, { error: skills.error, choices: { skills: skills.available } });
         const avatars = body.avatars && typeof body.avatars === "object" && !Array.isArray(body.avatars)
@@ -16053,17 +15952,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         try {
           const exported = createTeamPackageExport({
             team,
-            name: optional(body.name),
+            name: optional(body.name) ?? dog?.name,
             tagline: optional(body.tagline),
             summary: optional(body.summary),
             release: optional(body.release),
             notes: optional(body.notes),
             authorName: profileName,
-            bots: store.bots,
-            groups: store.groups,
+            bots: dog ? teamBots : store.bots,
+            groups: dog ? [] : store.groups,
             routines: routines!.listRoutines(),
-            brief: readSectionContext(team)?.text,
-            published: readPublishedTeam(team),
+            brief: dog ? undefined : readSectionContext(team)?.text,
+            published: readPublishedTeam(publishedKey),
             skillsByBot: skills.skillsByBot,
             skillSelection: skills.all ? "all" : "chosen",
             memoryByBot: body.includeMemory === true ? new Map(teamBots.map((bot) => [bot.id, starterNotes(bot.id)])) : undefined,
@@ -16072,7 +15971,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             skipped: [...skills.skipped, ...(defaults?.skipped ?? [])],
             preset: defaults?.preset ?? null,
           });
-          if (body.dryRun !== true) writePublishedTeam(team, exported.published);
+          if (body.dryRun !== true) writePublishedTeam(publishedKey, exported.published);
           return json(res, 200, {
             document: exported.document,
             filename: exported.filename,
@@ -16803,51 +16702,42 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (path === "/api/sidebar-sections" && (method === "PATCH" || method === "DELETE")) {
       const section = url.searchParams.get("section")?.trim();
-      if (!section) return json(res, 400, { error: "Choose a named pack" });
-      if (method === "DELETE" && teamComputers.forSection(section)) return json(res, 409, { error: "Unassign this pack's computer before deleting the pack" });
+      if (!section) return json(res, 400, { error: "Choose a named section" });
       let nextName: string | null = null;
       if (method === "PATCH") {
         const parsed = z.object({ name: z.string().trim().min(1).max(60) }).strict().safeParse(await readBody(req));
-        if (!parsed.success) return json(res, 400, { error: "Pack name must be 1 to 60 characters" });
+        if (!parsed.success) return json(res, 400, { error: "Section name must be 1 to 60 characters" });
         nextName = parsed.data.name;
       }
+      const sectionComputer = nextName === null ? teamComputers.forSection(section) : undefined;
       const error = nextName === null ? store.deleteSection(section) : store.renameSection(section, nextName, teamComputers);
-      if (error) return json(res, error === "No such pack" ? 404 : 409, { error });
+      if (error) return json(res, error === "No such section" ? 404 : 409, { error });
+      if (sectionComputer) teamComputers.assign(sectionComputer.id, null);
       return json(res, 200, { sections: store.sections });
     }
     if (method === "PUT" && path === "/api/sidebar-sections") {
       const section = url.searchParams.get("section")?.trim();
-      if (!section || !store.sections.includes(section)) return json(res, 404, { error: "No such pack" });
+      if (!section || !store.sections.includes(section)) return json(res, 404, { error: "No such section" });
       const ids = z.array(z.string().regex(/^[\w-]+$/)).max(MAX_BOT_IDS_PER_REQUEST);
       const parsed = z.object({ addBotIds: ids, removeBotIds: ids }).strict().safeParse(await readBody(req));
       if (!parsed.success) return json(res, 400, { error: "Provide addBotIds and removeBotIds" });
-      for (const [botIds, destination] of [[parsed.data.addBotIds, section], [parsed.data.removeBotIds, undefined]] as const) {
-        for (const id of botIds) {
-          const bot = store.bot(id);
-          if (bot) assertTeamComputerChangeIdle(bot, { ...bot, section: destination });
-        }
-      }
       const result = store.updateTeamMembers(section, parsed.data.addBotIds, parsed.data.removeBotIds);
       if (!result.ok) return json(res, result.reason === "unavailable" ? 404 : 409, { error:
-        result.reason === "membership-changed" ? "Pack membership changed. Reopen the dialog and try again."
+        result.reason === "membership-changed" ? "This section changed. Reopen the dialog and try again."
           : "One or more dogs are unavailable" });
       return json(res, 200, { sections: store.sections, bots: result.bots.map(wireBot) });
     }
     if (method === "POST" && path === "/api/sidebar-sections") {
       const parsed = createSidebarSectionSchema.safeParse(await readBody(req));
       if (!parsed.success) {
-        return json(res, 400, { error: "Provide a team name and up to 100 valid botIds" });
+        return json(res, 400, { error: "Provide a section name and up to 100 valid botIds" });
       }
       const name = parsed.data.name.trim();
       if (name.length > 60) {
         return json(res, 400, { error: "name must be at most 60 characters" });
       }
       const botIds = [...new Set(parsed.data.botIds)];
-      if (!name && !botIds.length) return json(res, 400, { error: "Pack name is required" });
-      for (const botId of botIds) {
-        const bot = store.bot(botId);
-        if (bot) assertTeamComputerChangeIdle(bot, { ...bot, section: name || undefined });
-      }
+      if (!name && !botIds.length) return json(res, 400, { error: "Section name is required" });
       const result = store.setBotsSection(botIds, name);
       if (!result.ok) {
         return json(res, 404, { error: "one or more dogs are unavailable" });
@@ -17604,13 +17494,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "Stop the dog and release browser control before changing its profile." });
       }
       if (profile.patch.soul !== undefined) {
-        if (freshBrowserBot) assertTeamComputerChangeIdle(freshBrowserBot, { ...freshBrowserBot, ...patch } as BotRecord);
         const runtimePatch = { ...patch };
         for (const field of Object.keys(profile.patch)) delete runtimePatch[field];
         if (Object.keys(runtimePatch).length) store.patchBot(m[1], runtimePatch);
         bot = store.patchBotProfile(m[1], profile.patch);
       } else {
-        if (freshBrowserBot) assertTeamComputerChangeIdle(freshBrowserBot, { ...freshBrowserBot, ...patch } as BotRecord);
         bot = store.patchBot(m[1], patch);
       }
       if (!bot) return json(res, 404, { error: "no such bot" });
@@ -18837,17 +18725,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const section = parsed.data.section;
         const checkAssignment = () => {
           assertCurrentOwner();
-          if (section !== null && section !== "" && !store.sections.includes(section)) throw Object.assign(new Error("Create the pack before assigning a computer"), { status: 404 });
+          if (section !== null && section !== "" && !store.sections.includes(section)) throw Object.assign(new Error("Create the section before assigning a computer"), { status: 404 });
           if (section !== null && store.bots.some(bot => sectionKey(bot.section) === section && (
             botHasActiveTurn(bot.id) || routines?.activeRunForBot(bot.id) || botComputerControlSnapshot(bot.id).held || boatLifecycleBusyBots.has(bot.id)
-          ))) throw Object.assign(new Error("Stop the target pack's work and release computer control before assigning this computer"), { status: 409 });
+          ))) throw Object.assign(new Error("Stop the work in that section and release computer control before assigning this computer"), { status: 409 });
         };
         checkAssignment();
         const release = claimTeamComputerLifecycle(found);
         try {
-          if (section !== null && !(await boat.findBoat(cfg, teamComputerOwner(found.id)))) return json(res, 409, { error: "Create or retry this computer before assigning it to a pack" });
+          if (section !== null && !(await boat.findBoat(cfg, teamComputerOwner(found.id)))) return json(res, 409, { error: "Create or retry this computer before assigning it to a section" });
           checkAssignment();
-          if (teamComputerInUse(found)) return json(res, 409, { error: "This pack computer became busy; stop its work before assigning it" });
+          if (teamComputerInUse(found)) return json(res, 409, { error: "This shared computer became busy; stop its work before assigning it" });
           teamComputers.assign(found.id, section);
           return json(res, 200, { ok: true });
         } finally { release(); }
@@ -19108,7 +18996,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const lease = controlLeaseIdSchema.safeParse(url.searchParams.get("controlLeaseId") ?? undefined);
       if (!lease.success) return json(res, 400, { error: "controlLeaseId is required" });
       const controlBot = store.bot(bot.id);
-      if (!controlBot || !computerControl.ownsLease(botComputerControlKey(controlBot), lease.data)) {
+      if (!controlBot || !computerControl.ownsLease(controlBot.id, lease.data)) {
         return json(res, 409, { error: "Take control of this computer first" });
       }
       const target = localVmTargetForStatus(bot.id, threadId);
@@ -20506,8 +20394,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!bot) return json(res, 404, { error: "no such bot" });
       const surface = url.searchParams.has("threadId") ? await computerPreviewSurface(bot, bot.threadId) : "cloud";
       if (surface !== "cloud") return json(res, 200, { surface, configured: false, backend: bot.cloudBackend === "vps" ? "vps" : "box" });
-      const teamComputer = inheritedTeamComputer(bot);
-      if (teamComputer) return json(res, 200, { surface, backend: "box", teamComputer: { id: teamComputer.id, name: teamComputer.name }, ...(await boat.boatStatus(cfg, teamComputerOwner(teamComputer.id))) });
       return bot.cloudBackend === "vps"
         ? json(res, 200, { surface, backend: "vps", ...(await vps.vpsComputerStatus(cfg, bot.id)) })
         : json(res, 200, { surface, backend: "box", ...(await boat.boatStatus(cfg, bot.id)) });
@@ -20525,7 +20411,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const action = String(body.action ?? "");
         const currentBot = store.bot(bot.id);
         if (!currentBot) return json(res, 404, { error: "no such bot" });
-        const controlKey = botComputerControlKey(currentBot);
+        const controlKey = currentBot.id;
         const leaseResult =
           body.controlLeaseId === undefined
             ? null
@@ -20592,23 +20478,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (boatLifecycleBusyBots.has(botId)) {
         return json(res, 409, { error: "this bot's cloud computer is being changed — wait for it to finish" });
-      }
-      const teamComputer = inheritedTeamComputer(bot);
-      if (teamComputer) {
-        const key = teamComputerOwner(teamComputer.id);
-        if (boatLifecycleBusyBots.has(key)) return json(res, 409, { error: "This pack computer is being changed; wait for it to finish" });
-        if (m[2] === "provision" || m[2] === "remove") return json(res, 409, { error: "Manage this shared computer from the Pack map" });
-        if (m[2] === "exec") return json(res, 409, { error: "Use the bot's scoped computer tools for this shared desktop" });
-        if (m[2] === "join" && !computerControl.snapshot(key).held) return json(res, 409, { error: "Take control before opening this shared desktop" });
-        const release = m[2] === "sleep" ? claimTeamComputerLifecycle(teamComputer) : claimBotComputerLifecycle(key);
-        try {
-          if (m[2] === "join") return json(res, 200, await boat.joinReadyBoat(cfg, key));
-          if (m[2] === "screenshot") {
-            res.setHeader("cache-control", "private, no-store");
-            return json(res, 200, await boat.screenshotBoat(cfg, key));
-          }
-          return json(res, 200, await boat.sleepBoat(cfg, key));
-        } finally { release(); }
       }
       if (bot.cloudBackend === "vps") {
         if (m[2] === "screenshot") {

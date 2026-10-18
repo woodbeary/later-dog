@@ -26,7 +26,7 @@ const fixture = vi.hoisted(() => {
   };
 });
 
-const PHASE_OFFSETS = { phase: 0, resolved: 2, boatState: 4, pending: 9, error: 12 } as const;
+const PHASE_OFFSETS = { phase: 0, resolved: 2, boatState: 3, pending: 8, error: 11 } as const;
 let phaseIndex = -1;
 
 vi.mock("react", async (original) => ({

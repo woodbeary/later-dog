@@ -35,12 +35,11 @@ describe("t", () => {
     expect(t("engines.cloud")).toBe("Cloud");
   });
 
-  it("keeps new team lifecycle labels available in partial packs, with interpolated names and counts", () => {
+  it("keeps new section labels available in partial packs, with interpolated names and counts", () => {
     setLocale("de");
-    expect(t("team.create")).toBe("Create a pack");
-    expect(t("team.moveTo", { name: "Research" })).toBe("Move dogs to Research");
-    expect(t("team.moveMany", { count: 2 })).toBe("Move 2 dogs");
-    expect(t("team.deleteTitle", { name: "Research" })).toBe("Delete Research pack?");
+    expect(t("section.deleteTitle", { name: "Research" })).toBe("Delete Research?");
+    expect(t("sidebar.newChannel.createMany", { count: 2 })).toBe("Create group chat · 2 dogs");
+    expect(t("addDog.titleMany", { count: 2 })).toBe("Add these 2 dogs?");
   });
 
   it("setLocale reports the locale that actually took effect", () => {

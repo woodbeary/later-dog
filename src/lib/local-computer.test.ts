@@ -137,19 +137,6 @@ describe("local computer UI eligibility", () => {
     ).toBe(false);
   });
 
-  it("reports an inherited team Boat without choosing a private Boat or local fallback", () => {
-    for (const configured of [false, true]) {
-      for (const boatState of [null, "idle", "archived", "provisioning"]) {
-        for (const canUseCloud of [false, true]) {
-          expect(resolveBoatPanelAction({ computer: undefined, configured, boatState, canUseCloud,
-            autoLocal: true, teamComputer: true })).toBe("team-boat");
-        }
-      }
-    }
-    expect(resolveBoatPanelAction({ computer: "cloud", configured: true, boatState: "idle",
-      canUseCloud: true, autoLocal: true, teamComputer: true })).toBe("attach-ready-boat");
-  });
-
   it("never creates a missing Boat merely because an Auto panel opened", () => {
     expect(
       resolveBoatPanelAction({

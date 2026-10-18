@@ -1,9 +1,6 @@
 import { t, tFromServer } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import type { PackageDocument, PackageSummary } from "../../shared/package-format";
-import { skillChoicesFrom, startingTicks } from "./team-share-skills";
-
-export { includedSkills, requestedSkills, skillChoicesFrom, startingTicks, tickedSkills } from "./team-share-skills";
 
 export const PICTURE_EDGE = 256;
 export const PICTURE_MAX_BYTES = 64 * 1024;
@@ -16,18 +13,10 @@ export type ShareSkipReason =
 
 export interface ShareSkip { part: string; reason: ShareSkipReason | string }
 
-export interface ShareChoices {
-  team: string;
-  name?: string;
-  tagline?: string;
-  summary?: string;
-  release?: string;
-  notes?: string;
-  skills: "all" | string[];
+export interface DogShareChoices {
+  botId: string;
   includeMemory: boolean;
   avatars?: Record<string, string>;
-  includeDefaultsPreset?: boolean;
-  presetAvatar?: string;
   dryRun?: boolean;
 }
 
@@ -37,53 +26,20 @@ export interface ShareResponse {
   redacted: string[];
   skipped: ShareSkip[];
   summary: PackageSummary;
-  choices: { skills: string[] };
 }
-
-export const SHARE_DIALOG_DEFAULTS = { includePictures: true, includeMemory: true } as const;
 
 export function notesLine(includeMemory: boolean): string {
   return includeMemory ? t("teamShare.notesIncluded") : t("teamShare.notesExcluded");
 }
 
-export interface ShareView {
-  preview: ShareResponse | null;
-  available: string[] | null;
-  included: string[] | null;
-  error: string;
-}
-
-export const SHARE_VIEW_START: ShareView = { preview: null, available: null, included: null, error: "" };
-
-export function shareAnswered(view: ShareView, result: ShareResponse, all: boolean): ShareView {
-  return { preview: result, available: result.choices.skills, included: all ? startingTicks(result) : view.included, error: "" };
-}
-
-export function shareRefused(view: ShareView, cause: unknown): ShareView {
-  const body = cause && typeof cause === "object" && "body" in cause ? (cause as { body?: unknown }).body : undefined;
-  return {
-    ...view,
-    preview: null,
-    available: skillChoicesFrom(body) ?? view.available,
-    error: cause instanceof Error ? cause.message : String(cause),
-  };
-}
-
-export function shareRequestBody(choices: ShareChoices): Record<string, unknown> {
-  const text = (value: string | undefined) => (value?.trim() ? value.trim() : undefined);
+export function dogShareBody(choices: DogShareChoices): Record<string, unknown> {
   return {
     format: "package",
     version: 2,
-    team: choices.team,
-    name: text(choices.name),
-    tagline: text(choices.tagline),
-    summary: text(choices.summary),
-    release: text(choices.release),
-    notes: text(choices.notes),
-    skills: choices.skills,
+    botId: choices.botId,
+    skills: "all",
     includeMemory: choices.includeMemory,
     ...(choices.avatars && Object.keys(choices.avatars).length ? { avatars: choices.avatars } : {}),
-    ...(choices.includeDefaultsPreset ? { includeDefaultsPreset: true, ...(choices.presetAvatar ? { presetAvatar: choices.presetAvatar } : {}) } : {}),
     ...(choices.dryRun ? { dryRun: true } : {}),
   };
 }

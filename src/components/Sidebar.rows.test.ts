@@ -41,7 +41,6 @@ let state: AppState = {
   ...initialState,
   connected: true,
   selectedId: "atlas",
-  activeView: "chat",
   bots: [
     profile("atlas", "Atlas", [
       thread("atlas-now", "Report draft", NOW - HOUR),

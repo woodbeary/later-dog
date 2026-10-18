@@ -52,9 +52,6 @@ export class TeamComputers {
   forSection(section: string | undefined): TeamComputerRecord | undefined {
     return this.list().find(entry => entry.section !== null && entry.section === (section?.trim() || ""));
   }
-  forBot(bot: { computer?: string; cloudBackend?: string; section?: string }): TeamComputerRecord | undefined {
-    return bot.computer === undefined && bot.cloudBackend !== "vps" ? this.forSection(bot.section) : undefined;
-  }
   create(name: string, id: string = randomUUID()): TeamComputerRecord {
     const entries = this.list();
     const existing = entries.find(entry => entry.id === id);
@@ -62,7 +59,7 @@ export class TeamComputers {
       if (existing.name !== name) throw failure("This creation id already names a different computer");
       return existing;
     }
-    if (entries.length >= 100) throw failure("This workspace has reached its pack computer limit");
+    if (entries.length >= 100) throw failure("This workspace has reached its shared computer limit");
     const entry = entrySchema.parse({ id, name, section: null, createdAt: Date.now() });
     this.save([...entries, entry]);
     return { ...entry };
@@ -71,8 +68,8 @@ export class TeamComputers {
     section = entrySchema.shape.section.parse(section);
     const entry = this.get(id);
     if (!entry) throw failure("No such team computer", 404);
-    if (entry.section !== null && section !== null && section !== entry.section) throw failure("Unassign this computer before moving it to another pack");
-    if (section !== null && this.list().some(other => other.id !== id && other.section === section)) throw failure("This pack already has a computer; unassign it first");
+    if (entry.section !== null && section !== null && section !== entry.section) throw failure("Unassign this computer before moving it to another section");
+    if (section !== null && this.list().some(other => other.id !== id && other.section === section)) throw failure("This section already has a computer; unassign it first");
     return this.patch(id, { section });
   }
   setProblem(id: string, problem?: string): TeamComputerRecord {
@@ -81,7 +78,7 @@ export class TeamComputers {
   renameSection(from: string, to: string): boolean {
     const entry = this.forSection(from);
     if (!entry || from === to) return false;
-    if (this.forSection(to)) throw failure("This pack already has a computer");
+    if (this.forSection(to)) throw failure("This section already has a computer");
     this.patch(entry.id, { section: to });
     return true;
   }

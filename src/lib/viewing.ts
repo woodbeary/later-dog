@@ -9,7 +9,6 @@ type ViewedBot = {
 
 type Viewed = {
   selectedId: string | null;
-  activeView: string;
   bots: readonly ViewedBot[];
   groups: ReadonlyArray<{ id: string; unread?: boolean }>;
 };
@@ -26,7 +25,7 @@ export function selectedChatUnread(bot: ViewedBot): boolean {
 }
 
 export function readWhenBack(state: Viewed): ReadRequest | null {
-  if (!state.selectedId || state.activeView !== "chat") return null;
+  if (!state.selectedId) return null;
   const bot = state.bots.find((candidate) => candidate.id === state.selectedId);
   if (bot) {
     return selectedChatUnread(bot)

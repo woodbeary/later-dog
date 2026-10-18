@@ -68,10 +68,9 @@ export const CloudTaskPanel = lazyScreen("CloudTaskPanel", async () => (await im
 export const KeyboardShortcutsModal = lazyScreen("KeyboardShortcutsModal", async () => (await import("./KeyboardShortcutsModal")).KeyboardShortcutsModal);
 export const NewBotDialog = lazyScreen("NewBotDialog", async () => (await import("./NewBotDialog")).NewBotDialog);
 export const SettingsModal = lazyScreen("SettingsModal", async () => (await import("./SettingsModal")).SettingsModal);
-export const TeamMapPage = lazyScreen("TeamMapPage", async () => (await import("./TeamMapPage")).TeamMapPage);
 
 const SCREENS = [
-  BotSettingsDialog, CloudTaskPanel, ComputerPanel, KeyboardShortcutsModal, NewBotDialog, SettingsModal, TeamMapPage,
+  BotSettingsDialog, CloudTaskPanel, ComputerPanel, KeyboardShortcutsModal, NewBotDialog, SettingsModal,
 ];
 
 if (typeof location !== "undefined" && new URLSearchParams(location.search).has("desktop-settings")) {

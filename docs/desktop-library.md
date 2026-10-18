@@ -1,5 +1,9 @@
 # The organization library on the desktop
 
+> The renderer's shelf (**Templates → From {Organization}**) was removed on
+> 2026-10-18 with the templates gallery. Electron main still keeps the catalog
+> described here.
+
 When an Organization shares packages with its members, or a partner shares
 them with its Customers, Admin builds a catalog for each receiving
 Organization. A connected later.dog desktop keeps a verified copy of that

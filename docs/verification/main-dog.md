@@ -26,3 +26,28 @@ On an isolated fixture (`node --experimental-strip-types scripts/control-laterdo
 the starter dog is the main dog: deleting it returns 409, hiding it returns
 200 and it still answers a message, and after `PATCH /api/main-dog` to another
 dog the old one can be deleted.
+
+## On the desktop
+
+The sidebar marks the main dog with a small badge on its avatar; there is no
+crown, no "Chief of Staff" line and no badge in the chat header. Its menu has
+**Replace with different dog…** where other dogs have Delete. That opens
+**Choose a main dog**: a search field, every other visible dog, and Cancel /
+Confirm (Confirm stays off until a dog is picked). Confirming sends
+`PATCH /api/bots/:id { "chiefOfStaff": true }` for the chosen dog, and the
+badge moves. There is no "Make Chief of Staff" item on any dog. When the main
+dog is pinned it leads the pinned grid.
+
+```sh
+pnpm exec vitest run src/components/MainDog.test.ts src/components/SidebarBotListItem.test.ts src/lib/sidebar-layout.test.ts src/components/ChatView.controls.test.ts
+```
+
+In an isolated `control-laterdog ui launch` app (2026-10-18, finalize slice
+`d3-chief-packs-teams`): the starter dog showed the badge; its menu read
+"Pin | Move to | Mark as Unread | Edit Profile | Duplicate | Copy conversation ID |
+Archive | Replace with different dog…" while another dog's ended in Delete;
+choosing Pepper in the picker moved `chiefOfStaff` to Pepper over the API, the
+old main dog's menu got Delete back, and `DELETE /api/bots/<Pepper>` returned
+409. Evidence: `/Volumes/laterdog-phone/tmp/finalize-2026-10-18/d3-chief-packs-teams/`
+(`03-main-dog-menu.png`, `07-choose-main-dog.png`, `08-after-replace.png`,
+`09-menus-after-replace.txt`).

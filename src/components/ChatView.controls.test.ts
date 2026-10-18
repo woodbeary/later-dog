@@ -341,11 +341,11 @@ describe("thread control placement", () => {
     expect(controls[1].split(" ")).toEqual(expect.arrayContaining(["shrink-0", "@max-[30rem]/chathead:ml-auto", "@max-[30rem]/chathead:flex-wrap"]));
   });
 
-  it("keeps the Chief of Staff badge on one line instead of stacking a word per line", () => {
+  it("shows no crown or main dog label in the chat header", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot: { ...bot, busy: false, chiefOfStaff: true } }));
-    const badge = /<span title="Chief of Staff" class="([^"]*)"><svg[^>]*lucide-crown[^]*?<\/svg> <span class="([^"]*)">Chief of Staff<\/span>/.exec(markup)!;
-    expect(badge[1].split(" ")).toEqual(expect.arrayContaining(["shrink-0", "whitespace-nowrap"]));
-    expect(badge[2].split(" ")).toContain("@max-4xl/chathead:sr-only");
+    expect(markup).not.toContain("lucide-crown");
+    expect(markup).not.toContain("Chief of Staff");
+    expect(markup).not.toContain('data-testid="main-dog-badge"');
   });
 
   it("keeps the account in the header and puts the model inside the composer pill, with no permissions there", () => {

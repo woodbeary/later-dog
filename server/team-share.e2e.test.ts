@@ -4,7 +4,6 @@ import { expect, it } from "vitest";
 
 import { launchVerificationServer } from "../scripts/control-laterdog.ts";
 import { NEWER_PACKAGE_MESSAGE, parsePackageDocument } from "../shared/package-format.ts";
-import { includedSkills, requestedSkills, startingTicks } from "../src/lib/team-share-skills.ts";
 
 const FIXTURES = join(import.meta.dirname, "..", "shared", "package-fixtures");
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -160,15 +159,47 @@ it("never leaves Share team stuck on skills, and keeps keys out of connection ad
     const fits = await ok("POST", "/api/teams/export", { ...body, skills: names.slice(1) });
     expect(fits.document.package.skills.entries).toHaveLength(30);
 
-    await addSkill(scout.id, "step-31");
-    await addSkill(scout.id, "z-only");
-    const shared = await ok("POST", "/api/teams/export", body);
-    expect(includedSkills(shared.document)).toContain("step-31");
-    const ticks = startingTicks(shared);
-    expect(ticks).not.toContain("step-31");
-    const untickZ = (from: string[]) => requestedSkills(new Set(from.filter((name) => name !== "z-only")), shared.choices.skills);
-    expect((await call("POST", "/api/teams/export", { ...body, skills: untickZ(includedSkills(shared.document)) })).status).toBe(400);
-    expect((await ok("POST", "/api/teams/export", { ...body, skills: untickZ(ticks) })).document.package.skills.entries).toHaveLength(30);
+  } finally {
+    await fixture.close();
+  }
+}, 120_000);
+
+it("shares one dog as a file and adds it back as a new copy outside any section", async () => {
+  const fixture = await launchVerificationServer();
+  console.log(JSON.stringify({ fixture: fixture.info }));
+  const url = fixture.info.url;
+  const call = async (method: string, path: string, body?: unknown) => {
+    const response = await fetch(`${url}${path}`, {
+      method, headers: { "content-type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    return { status: response.status, body: await response.json() as any };
+  };
+  const ok = async (method: string, path: string, body?: unknown) => {
+    const result = await call(method, path, body);
+    if (result.status >= 300) throw new Error(`${method} ${path} → ${result.status} ${JSON.stringify(result.body)}`);
+    return result.body;
+  };
+  try {
+    const scout = (await ok("POST", "/api/bots", { name: "Scout", title: "Researcher", color: "cyan", section: "Sales desk" })).bot;
+    await ok("POST", "/api/bots", { name: "Neighbour", section: "Sales desk" });
+    await ok("POST", "/api/routines", { name: "Daily digest", prompt: "Summarize new leads.", botId: scout.id, enabled: true,
+      schedule: { type: "daily", time: "09:00", weekdays: [1, 2, 3, 4, 5] }, durationMinutes: 30 });
+    const body = { format: "package", version: 2, botId: scout.id, skills: "all", includeMemory: false };
+
+    const preview = await ok("POST", "/api/teams/export", { ...body, dryRun: true });
+    expect(preview.summary.counts).toMatchObject({ bots: 1, rooms: 0, routines: 1 });
+    const saved = await ok("POST", "/api/teams/export", body);
+    expect(saved.document.package.name).toBe("Scout");
+    expect(saved.document.package.agents.map((agent: { name: string }) => agent.name)).toEqual(["Scout"]);
+    expect(JSON.stringify(saved.document)).not.toMatch(/Neighbour|Sales desk|threadId/);
+    expect(await call("POST", "/api/teams/export", { ...body, botId: "missing-dog" })).toEqual({ status: 404, body: { error: "That dog no longer exists." } });
+
+    const imported = await call("POST", "/api/teams/import", saved.document);
+    expect(imported.status).toBe(201);
+    expect(imported.body.section).toBe("");
+    expect(imported.body.bots.map((bot: { name: string; section?: string }) => [bot.name, bot.section ?? ""])).toEqual([["Scout 2", ""]]);
+    expect(imported.body.routines.every((routine: { enabled: boolean }) => !routine.enabled)).toBe(true);
+    expect((await ok("GET", "/api/sidebar-sections")).sections).toEqual(["Sales desk"]);
   } finally {
     await fixture.close();
   }

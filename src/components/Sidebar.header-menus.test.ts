@@ -71,7 +71,7 @@ function press(target: unknown) {
 }
 
 const menus = [
-  { name: "New or share", label: "New or share", item: "Create a pack" },
+  { name: "New", label: "New", item: "New group chat" },
 ];
 const text = (tree: ReactElement<Props>[]) => tree.map((node) => Children.toArray(node.props.children).filter((child) => typeof child === "string").join(" ")).join(" ");
 
@@ -90,6 +90,13 @@ describe.each(menus)("sidebar header menu: $name", ({ label, item }) => {
     expect(text(tree)).toContain(item);
     return tree;
   };
+
+  it("offers only New dog and New group chat", () => {
+    const words = text(open());
+    expect(words).toContain("New dog");
+    expect(words).toContain("New group chat");
+    for (const gone of ["Templates", "Create a pack", "Archived dogs", "Share"]) expect(words).not.toContain(gone);
+  });
 
   it("does not cover the window with a click-eating backdrop", () => {
     const tree = open();

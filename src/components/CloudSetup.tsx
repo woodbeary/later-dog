@@ -64,10 +64,7 @@ export function CloudSetup({ viewer }: { viewer: WelcomeViewer | null }) {
   const action = (label: LocaleKey, onClick: () => void) => <button type="button" className="ui-button mt-2" onClick={onClick}>{t(label)}</button>;
 
   const details = (id: CloudSetupStep) => {
-    if (id === "engine") return <>
-      {hint("cloudSetup.engine.hint")}
-      {state.activeView !== "chat" && action("cloudSetup.engine.action", () => dispatch({ type: "showChat" }))}
-    </>;
+    if (id === "engine") return hint("cloudSetup.engine.hint");
     if (id === "move") {
       if (!moveBridge) return null;
       if (moveOpen || (moveItem?.status === "todo" && move.state.phase !== "idle")) {

@@ -13,7 +13,7 @@ import { GroupView } from "@/components/GroupView";
 import { SIDEBAR_AND_PANEL_FIT, TWO_SIDE_PANELS_FIT, useMediaQuery } from "@/lib/use-media-query";
 import { PluginsPanel, preloadConnectedApps } from "@/components/PluginsPanel";
 import {
-  BotSettingsDialog, CloudTaskPanel, ComputerPanel, KeyboardShortcutsModal, NewBotDialog, preloadScreens, SettingsModal, TeamMapPage,
+  BotSettingsDialog, CloudTaskPanel, ComputerPanel, KeyboardShortcutsModal, NewBotDialog, preloadScreens, SettingsModal,
 } from "@/components/lazy-screens";
 import { CredentialStoreNotice } from "@/components/CredentialStoreNotice";
 import { DesktopCapabilitiesProvider, useDesktopCapabilities } from "@/components/DesktopCapabilities";
@@ -132,7 +132,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
 
   useEffect(() => {
     setDrawerOpen(false);
-  }, [state.selectedId, bot?.threadId, group?.threadId, state.activeView, state.pluginsOpen, state.settingsOpen]);
+  }, [state.selectedId, bot?.threadId, group?.threadId, state.pluginsOpen, state.settingsOpen]);
 
   useEffect(() => {
     return window.laterdog?.onOpenAppSettings?.(section => {
@@ -192,9 +192,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
           menuButtonRef.current?.focus();
         }}
       />
-      {state.activeView === "team-map" ? (
-        <TeamMapPage />
-      ) : cloudSignIn ? (
+      {cloudSignIn ? (
         <CloudEngineSignIn />
       ) : noEngines ? (
         <NoEngines />

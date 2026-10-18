@@ -53,7 +53,7 @@ beforeEach(() => {
   vi.clearAllMocks(); f.values = []; f.index = 0; f.effects = []; viewer = owner; dispatched = []; push = () => {};
   f.dispatch = action => { dispatched.push(action); };
   f.state = {
-    connected: true, instances: [signedOut], activeView: "chat", selectedId: "b1",
+    connected: true, instances: [signedOut], selectedId: "b1",
     bots: [{ id: "b1", threadId: "t1", name: "Dog" }],
     config: { cloudHome: true, onboarding: { ...EMPTY_ONBOARDING } },
   };
@@ -126,12 +126,9 @@ it("on a new Cloud lists the three steps, sign-in first and required, each from 
   expect(button("Try it")).toBeUndefined();
 });
 
-it("sign-in is done when any engine can run; its action shows the existing sign-in when it is not on screen", async () => {
+it("sign-in is done when any engine can run", async () => {
   await mount();
   expect(button("Sign in")).toBeUndefined();
-  f.state.activeView = "routines";
-  button("Sign in")!.props.onClick!();
-  expect(dispatched).toEqual([{ type: "showChat" }]);
   f.state.instances = [signedOut, ready];
   expect(statuses().engine).toBe("done");
   expect(render().html).toContain("1 of 3 done");

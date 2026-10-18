@@ -71,17 +71,12 @@ describe("named team computer ownership", () => {
     expect(registry.forSection("__proto__")?.id).toBe(two.id);
   });
 
-  it("only Auto without explicit VPS inherits; permission choices and Chief grants do not", () => {
+  it("hands no dog its section's computer, so every dog keeps its own", () => {
     const { registry } = fixture();
     const computer = registry.create("Shared desktop");
     registry.assign(computer.id, "Design");
-    expect(registry.forBot({ section: "Design" })?.id).toBe(computer.id);
-    expect(registry.forBot({ section: "Design", cloudBackend: "box" })?.id).toBe(computer.id);
-    for (const mode of ["cloud", "local", "vm", "off", "browser"]) {
-      expect(registry.forBot({ section: "Design", computer: mode })).toBeUndefined();
-    }
-    expect(registry.forBot({ section: "Design", cloudBackend: "vps" })).toBeUndefined();
-    expect(registry.forBot({ section: "Other" })).toBeUndefined();
+    expect(registry.forSection("Design")?.id).toBe(computer.id);
+    expect(Reflect.has(registry, "forBot")).toBe(false);
   });
 
   it("requires explicit cost and sharing acknowledgements at the API boundary", () => {
@@ -98,7 +93,7 @@ describe("named team computer ownership", () => {
     const registry = new TeamComputers(file, environmentId);
     expect(() => registry.list()).toThrow(/could not be loaded/);
     expect(() => registry.create("Replacement")).toThrow(/could not be loaded/);
-    expect(() => registry.forBot({ section: "Design" })).toThrow(/could not be loaded/);
+    expect(() => registry.forSection("Design")).toThrow(/could not be loaded/);
     expect(readFileSync(file, "utf8")).toBe(contents);
   });
 

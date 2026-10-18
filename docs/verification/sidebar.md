@@ -18,36 +18,26 @@ The preview mounts the actual Sidebar and StoreProvider. Verify:
 
 Verified on 2026-09-05 against the isolated renderer. Static regression coverage
 in `src/components/SidebarBotListItem.test.ts` checks dialog semantics/copy,
-chief labels, role badges, and working/waiting indicators. The interaction checks
+the main dog badge, role badges, and working/waiting indicators. The interaction checks
 above are manual browser verification, not assertions made by those unit tests.
 This fixture covers the sidebar confirmation and bot-row result only; it does
 not exercise Settings > Computers deletion or provider completion polling.
 Those paths are covered by the computer-section and server Boat inventory tests.
 
-## Section deletion
+## Sections and the main dog
 
-Run `LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/team-lifecycle-ui.e2e.test.ts --maxWorkers=1`.
-The test launches its own isolated server and real renderer; never point it at
-the user's live workspace. It retains the Team map lifecycle checks and also
-checks deletion directly from a sidebar section header:
+Sections, their menu and the two-item **+** menu are in [Sections](teams.md).
+`src/components/SidebarSectionHeader.test.ts` checks that the delete control
+coexists with the header's context menu and does not nest inside the collapse
+button. Deleting a section asks first; Cancel gets initial focus and its dogs
+and group chats stay with their conversations.
 
-- Cancel gets initial focus; Tab and Shift-Tab wrap within the confirmation.
-- Escape and Cancel preserve the section and its shared instructions, and return
-  focus to its delete button.
-- Confirming deletion removes an empty section and its shared instructions.
-- Populated, pinned-only and archived-only sections can be deleted; their bots
-  move to General with their conversations, pinned state and archived state intact.
-- Deleting a group-only section keeps the group chat and its conversation in
-  General. The confirmation explains that members and conversations are retained.
-- The existing context menu still renames sections while preserving their saved
-  order and collapsed state, and its delete action retains pending/retry guards.
-
-The fixture reports its log path and keeps a snapshot and screenshot on failure.
-`src/components/SidebarSectionHeader.test.ts` separately checks that the optional
-delete control coexists with the context menu and does not replace or nest inside
-the collapse button. Server safeguards still reject deletion during active work,
-with an assigned team computer, or when moving the Chief would conflict with
-General's Chief; see [Teams](teams.md) for those lifecycle checks.
+The main dog carries a small badge on its avatar (no crown and no label line),
+and its menu offers **Replace with different dog…** in place of Delete, which
+opens **Choose a main dog** (search, every other visible dog, Cancel / Confirm).
+Hiding the main dog is allowed. [The main dog](main-dog.md) covers the server
+side; `src/components/MainDog.test.ts` and `src/components/SidebarBotListItem.test.ts`
+cover the menu, the picker list and the badge.
 
 ## One row per dog and per group chat
 

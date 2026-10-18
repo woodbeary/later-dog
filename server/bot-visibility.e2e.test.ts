@@ -284,8 +284,6 @@ posixOnly("per-bot visibility on a shared workspace", () => {
     expect(await hooks(ADA)).toContain(ids.hrHook);
     expect(await hooks(BOB)).not.toContain(ids.hrHook);
 
-    const map = (await api("GET", "/api/team-map", undefined, BOB)).body;
-    expect(JSON.stringify(map)).not.toContain(ids.hr);
   });
 
   it("withdraws real scan results when an audience changes before the response", async () => {

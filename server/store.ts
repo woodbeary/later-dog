@@ -848,16 +848,16 @@ export class Store {
   }
 
   renameSection(name: string, nextName: string, computers?: TeamComputers): string | undefined {
-    if (!name || !this.sections.includes(name)) return "No such pack";
+    if (!name || !this.sections.includes(name)) return "No such section";
     nextName = nextName.trim();
-    if (!nextName || nextName.length > 60 || [...nextName].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) return "Pack name must be 1 to 60 characters without control characters";
+    if (!nextName || nextName.length > 60 || [...nextName].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) return "Section name must be 1 to 60 characters without control characters";
     if (name === nextName) return undefined;
-    if (this.sections.includes(nextName) || computers?.forSection(nextName)) return "A pack with that name already exists";
+    if (this.sections.includes(nextName) || computers?.forSection(nextName)) return "A section with that name already exists";
     const members = this.bots.filter(bot => sectionKey(bot.section) === name);
     const rooms = this.groups.filter(group => sectionKey(group.section) === name);
     const affected = members;
     if (affected.some(bot => bot.busy || bot.tasks?.some(task => task.busy)) || rooms.some(group => group.busyBotId)) {
-      return "Stop this pack's active work before renaming the pack";
+      return "Stop the work in this section before renaming it";
     }
     if (!members.length && !rooms.length && !computers?.forSection(name)) return this.changeEmptySection(name, nextName);
     const nextBots = this.bots.map(bot => members.includes(bot) ? { ...bot, section: nextName } : bot);
@@ -883,12 +883,12 @@ export class Store {
   }
 
   changeEmptySection(name: string, nextName: string | null): string | undefined {
-    if (!this.sections.includes(name)) return "No such pack";
+    if (!this.sections.includes(name)) return "No such section";
     if ([...this.bots, ...this.groups].some((record) => sectionKey(record.section) === name)) {
-      return "Move all dogs (including archived dogs) and group chats out of this pack first";
+      return "Move all dogs (including archived dogs) and group chats out of this section first";
     }
     if (nextName !== null && nextName !== name && this.sections.includes(nextName)) {
-      return "A pack with that name already exists";
+      return "A section with that name already exists";
     }
     if (nextName === name) return undefined;
     changeEmptySection(name, nextName);
@@ -897,11 +897,11 @@ export class Store {
   }
 
   deleteSection(name: string): string | undefined {
-    if (!name || !this.sections.includes(name)) return "No such pack";
+    if (!name || !this.sections.includes(name)) return "No such section";
     const members = this.bots.filter(bot => sectionKey(bot.section) === name);
     const rooms = this.groups.filter(group => sectionKey(group.section) === name);
     if (members.some(bot => bot.busy || bot.tasks?.some(task => task.busy)) || rooms.some(group => group.busyBotId)) {
-      return "Stop this pack's active work before deleting the pack";
+      return "Stop the work in this section before deleting it";
     }
     const nextBots = this.bots.map(bot => sectionKey(bot.section) === name ? { ...bot, section: undefined } : bot);
     const nextGroups = this.groups.map(group => sectionKey(group.section) === name ? { ...group, section: undefined } : group);

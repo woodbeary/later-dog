@@ -45,15 +45,14 @@ describe("sidebar virtual sections", () => {
   it("shows pinned bots once without erasing their saved context", () => {
     const bot = { id: "writer", section: "Work", pinned: true };
     const parts = partitionSidebarBots([
-      { id: "chief", chiefOfStaff: true },
+      { id: "main", chiefOfStaff: true },
       bot,
       { id: "plain" },
       { id: "hidden", hidden: true, pinned: true },
     ]);
-    expect(parts.unsectionedChief?.id).toBe("chief");
     expect(parts.pinnedBots).toEqual([bot]);
     expect(parts.sectionedBots).toEqual([]);
-    expect(parts.unsectionedBots.map((candidate) => candidate.id)).toEqual(["plain"]);
+    expect(parts.unsectionedBots.map((candidate) => candidate.id)).toEqual(["main", "plain"]);
     expect(bot.section).toBe("Work");
   });
 
@@ -72,28 +71,22 @@ describe("sidebar virtual sections", () => {
     expect(namedBotChats.section).toBe("Bot Chats");
   });
 
-  it("keeps section Chiefs in their actual section", () => {
-    const chief = { id: "chief", chiefOfStaff: true, section: "Work", pinned: true };
-    const parts = partitionSidebarBots([chief]);
-    expect(parts.sectionChiefs).toEqual([chief]);
+  it("keeps the main dog in its own section like any other dog", () => {
+    const main = { id: "main", chiefOfStaff: true, section: "Work" };
+    const parts = partitionSidebarBots([main, { id: "other", section: "Work" }]);
+    expect(parts.sectionedBots.map((bot) => bot.id)).toEqual(["main", "other"]);
     expect(parts.pinnedBots).toEqual([]);
   });
 
-  it("lifts pinned bots from every group when pins are universal", () => {
-    const workChief = { id: "work-chief", chiefOfStaff: true, section: "Work", pinned: true };
+  it("lifts pinned dogs from every section and shows the main dog first", () => {
     const home = { id: "home", section: "Home", pinned: true };
-    const looseChief = { id: "loose", chiefOfStaff: true, pinned: true };
+    const main = { id: "main", chiefOfStaff: true, section: "Work", pinned: true };
     const stay = { id: "stay", section: "Work" };
     const hidden = { id: "hidden", section: "Home", pinned: true, hidden: true };
-    const parts = partitionSidebarBots(
-      [workChief, home, looseChief, stay, hidden],
-      { universalPins: true },
-    );
-    expect(parts.pinnedBots.map((bot) => bot.id)).toEqual(["work-chief", "home", "loose"]);
-    expect(parts.sectionChiefs).toEqual([]);
-    expect(parts.unsectionedChief).toBeNull();
+    const parts = partitionSidebarBots([home, main, stay, hidden]);
+    expect(parts.pinnedBots.map((bot) => bot.id)).toEqual(["main", "home"]);
     expect(parts.sectionedBots).toEqual([stay]);
-    expect(workChief.section).toBe("Work");
+    expect(main.section).toBe("Work");
     expect(home.section).toBe("Home");
   });
 

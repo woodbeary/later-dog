@@ -4,7 +4,6 @@ import { mountsAutoCloud, type AutoCloudTurn } from "./auto-cloud.ts";
 const AUTO: AutoCloudTurn = {
   wants: undefined,
   alreadyMounted: false,
-  teamComputer: false,
   backend: "box",
   configured: true,
   placeRefused: false,
@@ -22,7 +21,6 @@ describe("an Auto dog keeps its own cloud computer within reach", () => {
     expect(mountsAutoCloud({ ...AUTO, wants: "local" })).toBe(false);
     expect(mountsAutoCloud({ ...AUTO, wants: "off" })).toBe(false);
     expect(mountsAutoCloud({ ...AUTO, alreadyMounted: true })).toBe(false);
-    expect(mountsAutoCloud({ ...AUTO, teamComputer: true })).toBe(false);
   });
 
   it("never offers a computer the dog cannot have", () => {

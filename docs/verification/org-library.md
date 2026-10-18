@@ -1,6 +1,13 @@
 # The organization library
 
-This recipe covers **Templates → From {Organization}**: the catalog Electron
+The desktop shelf (**Templates → From {Organization}**) and **Bot → Skills →
+From {Organization}** were removed in the finalize slice `d3-chief-packs-teams`
+(2026-10-18), with `src/lib/org-library.ts`, its test and
+`scripts/testing/org-library-ui.e2e.test.ts`. The Electron relay, the server
+routes and `trust: "org"` imports remain and their server checks below still
+apply; the renderer sections and dated records describe the removed shelf.
+
+This recipe covered **Templates → From {Organization}**: the catalog Electron
 relays, **Add** with `trust: "org"`, the stamps, withdrawn releases, the
 report snapshot, **Bot → Skills → From {Organization}** and the provenance
 line. The product behaviour is described in
@@ -96,12 +103,8 @@ checks the following:
 
 ## Renderer
 
-```sh
-pnpm exec vitest run src/lib/org-library.test.ts
-LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/org-library-ui.e2e.test.ts --silent=false
-```
-
-The first command renders the shelf cards and the preview to markup. It
+Removed with the shelf (see the note at the top). When it existed, the first
+command (`src/lib/org-library.test.ts`) rendered the shelf cards and the preview to markup. It
 checks:
 
 - Add appears only for a checked file, and there is no confirm step;

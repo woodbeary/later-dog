@@ -16,7 +16,6 @@ export interface ComputerStatus {
   surface?: Surface;
   configured?: boolean;
   backend?: "box" | "vps";
-  teamComputer?: { id: string; name: string };
   box?: { state?: string | null } | null;
   ready?: boolean;
   container?: "running" | "stopped" | "missing";
@@ -25,7 +24,7 @@ export interface ComputerStatus {
 
 export type ComputerCard =
   | { kind: "checking" }
-  | { kind: "asleep"; fresh: boolean; canWake: boolean; team?: string }
+  | { kind: "asleep"; fresh: boolean; canWake: boolean }
   | { kind: "waking"; fresh: boolean; polling: boolean }
   | { kind: "awake" }
   | { kind: "unreachable" }
@@ -50,9 +49,8 @@ export function computerCardFor(bot: Pick<Bot, "computer" | "autoStartVps">, sta
   }
   const state = status.box?.state ?? null;
   if (isReadyBoatState(state)) return { kind: "awake" };
-  const team = status.teamComputer?.name;
   if (!state || SLEEPING_STATES.has(state)) {
-    return { kind: "asleep", fresh: !state, canWake: !team && bot.computer === "cloud", ...(team ? { team } : {}) };
+    return { kind: "asleep", fresh: !state, canWake: bot.computer === "cloud" };
   }
   return { kind: "waking", fresh: false, polling: true };
 }
@@ -225,7 +223,6 @@ export function ComputerTab({ bot }: { bot: Bot }) {
         <Middle>
           <SleepingDog size={76} color={dog.color} bodyId={dog.bodyId} className="mb-1" />
           <div className={headline}>{t("botSettings.computer.asleep")}</div>
-          {card.team && <p className={line}>{t("place.view.autoTeam.line", { computer: card.team })}</p>}
           {openButton}
         </Middle>
       );

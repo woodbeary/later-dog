@@ -176,10 +176,10 @@ directory), next to the tool names every request offered.
 
 Cloud routine readiness uses the executing bot’s selected runner (including a
 thread’s model override at dispatch), rather than any available cloud engine.
-The probe checks the bot-owned or inherited team Boat without provisioning or
-waking it. Dispatch repeats the check so a removed key or unavailable Boat fails
-the run before model execution. Explicit Cloud still permits creating/waking
-the bot’s own Boat; a missing assigned team computer requires explicit repair.
+The probe checks the bot's own Boat without provisioning or waking it.
+Dispatch repeats the check so a removed key or unavailable Boat fails the run
+before model execution. Explicit Cloud still permits creating/waking the bot’s
+own Boat.
 
 Run `pnpm exec vitest run server/routine-requests.test.ts server/openai-boat.e2e.test.ts`
 for target selection and the isolated direct/group/scheduled bridge fixture,

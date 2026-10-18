@@ -44,7 +44,6 @@ export function placeFacts(input: {
   instances: InstanceInfo[];
   local?: PlaceFacts["local"];
   computer?: PlaceFacts["computer"];
-  teamComputer?: string;
 }): PlaceFacts {
   const { bot, config, seat } = input;
   const instance = input.instances.find((candidate) => candidate.instanceId === bot.modelSelection.instanceId);
@@ -61,7 +60,6 @@ export function placeFacts(input: {
     role: seat.role,
     ...(input.local ? { local: input.local } : {}),
     ...(input.computer ? { computer: input.computer } : {}),
-    ...(input.teamComputer ? { teamComputer: input.teamComputer } : {}),
   };
 }
 
@@ -116,7 +114,6 @@ export function openPlaceAction(
     case "sign-in": appSettings("general"); return true;
     case "manage-computers": appSettings("computer"); return true;
     case "open-vm-settings": appSettings("computer"); return true;
-    case "open-team-map": dispatch({ type: "showTeamMap" }); return true;
     case "see-plan": {
       const desktop = window.laterdog?.cloudAccount;
       if (desktop) { void desktop.openDashboard().catch(() => {}); return true; }

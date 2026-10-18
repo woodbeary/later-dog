@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-vi.mock("@/state/store", () => ({ useStore: () => ({ state: { bots: [], groups: [], activeView: "chat" }, dispatch: vi.fn() }) }));
+vi.mock("@/state/store", () => ({ useStore: () => ({ state: { bots: [], groups: [] }, dispatch: vi.fn() }) }));
 import { SidebarBugButton, SidebarFooterNav } from "./SidebarFooterNav";
 afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = ""; });
 it.each(["comfortable"] as const)("leaves the full-width footer row to its existing profile and bug controls (%s)", (density) => {

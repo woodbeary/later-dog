@@ -73,7 +73,6 @@ type Phase =
   | "local"
   | "local-unavailable"
   | "auto-unavailable"
-  | "team-boat"
   | "show-ready-boat"
   | "show-sleeping-boat"
   | "show-pending-boat"
@@ -204,9 +203,6 @@ export function ComputerPanel({
     computer: Bot["computer"];
     cloudBackend: CloudBackend;
   } | null>(null);
-  const [teamComputer, setTeamComputer] = useState<{
-    id: string; name: string; botId: string; section: string;
-  } | null>(null);
   const cloudBackend = bot.cloudBackend ?? "box";
   const computerSelectionPersisted = Boolean(
     persistedComputerSelection
@@ -222,9 +218,6 @@ export function ComputerPanel({
       && resolvedComputerSelection.computer === bot.computer
       && resolvedComputerSelection.cloudBackend === cloudBackend,
   );
-  const currentTeamComputer = computerStatusCurrent && livePlace === "auto" && cloudBackend === "box"
-    && teamComputer?.botId === bot.id && teamComputer.section === (bot.section?.trim() ?? "")
-    ? teamComputer : null;
   const cloudPreviewReady = computerStatusCurrent && shouldPollCloudPreview({
     computer: bot.computer,
     cloudBackend,
@@ -236,7 +229,6 @@ export function ComputerPanel({
   });
   const updateComputerSelection = useCallback((patch: { computer: Bot["computer"] }) => {
     setResolvedComputerSelection(null);
-    setTeamComputer(null);
     setPhase("checking");
     dispatch({ type: "updateBot", botId: bot.id, patch });
   }, [bot.id, dispatch]);
@@ -317,7 +309,6 @@ export function ComputerPanel({
   useEffect(() => {
     let alive = true;
     setResolvedComputerSelection(null);
-    setTeamComputer(null);
     setPhase("checking");
     setPolledFrame(null);
     setPreviewError(null);
@@ -354,7 +345,6 @@ export function ComputerPanel({
           boatState: typeof status.box?.state === "string" ? status.box.state : null,
           canUseCloud: cloudSupported,
           autoLocal: false,
-          teamComputer: typeof status.teamComputer?.id === "string" && typeof status.teamComputer?.name === "string",
           busy: profileBot.busy,
         });
         setResolvedComputerSelection({
@@ -363,16 +353,8 @@ export function ComputerPanel({
           computer: bot.computer,
           cloudBackend,
         });
-        if (!status.configured && bot.computer === "cloud" && !status.teamComputer) {
+        if (!status.configured && bot.computer === "cloud") {
           setPhase("unconfigured");
-          return;
-        }
-        if (action === "team-boat") {
-          setTeamComputer({ id: status.teamComputer.id, name: status.teamComputer.name,
-            botId: bot.id, section: bot.section?.trim() ?? "" });
-          setBoatState(typeof status.box?.state === "string" ? status.box.state : status.configured ? "missing" : "unavailable");
-          setError(typeof status.problem === "string" ? status.problem : null);
-          setPhase("team-boat");
           return;
         }
         if (action === "attach-ready-boat" || (bot.computer === "cloud" && action === "show-ready-boat")) {
@@ -741,7 +723,6 @@ export function ComputerPanel({
       bot, place, seat: placeSeat, config: state.config, instances: state.instances,
       local: { ready: localSelectable, reason: localDisabledReason ?? t("computer.unavailableLocal") },
       ...(place === "cloud" ? { computer: cloudComputer } : {}),
-      ...(place === "auto" && currentTeamComputer ? { teamComputer: currentTeamComputer.name } : {}),
     }),
     ...(refusal ? { refusal } : {}),
   });
@@ -770,7 +751,6 @@ export function ComputerPanel({
     "busy-boat": cloudView.line,
     unconfigured: cloudView.line,
     "auto-unavailable": autoView.line,
-    "team-boat": autoView.line,
     "show-ready-boat": t("computer.phase.showReadyBoat"),
     "show-sleeping-boat": t("computer.phase.showSleepingBoat"),
     "show-pending-boat": t("computer.phase.showPendingBoat"),
@@ -798,9 +778,7 @@ export function ComputerPanel({
   const dogSleeps = (cloudSleeps && (!cloudActionId || cloudWakeId !== null)) || (phase === "busy-boat" && !busyBoat.spinner);
   const emptyLine = (
     <span className="text-[12px]">
-      {currentTeamComputer
-        ? autoView.line
-        : cloudPreviewReady
+      {cloudPreviewReady
         ? t("computer.waitingFrame")
         : phase === "ready"
           ? t("computer.autoChooseCloudOpen")
@@ -921,7 +899,6 @@ export function ComputerPanel({
                 )}
                 {emptyLine}
               </>}
-              {currentTeamComputer && placeActionButton(autoView)}
               {bot.computer === "cloud" && (phase === "unconfigured" || phase === "error") && placeActionButton(cloudView)}
               {(phase === "local" || phase === "local-unavailable") && livePlace !== "cloud" && !askingForGrants && !state.config?.cloudHome && (
                 <div className="min-h-[52px]">
@@ -964,16 +941,14 @@ export function ComputerPanel({
             {errorText}
           </div>
         )}
-        {(cloudPreviewReady || currentTeamComputer) && control.helpReason && !control.held && (
+        {cloudPreviewReady && control.helpReason && !control.held && (
           <div className="mt-3 rounded-xl bg-card p-4">
             <div className="text-[13px] leading-relaxed text-ink">
               <b>{t("computer.needsYou", { name: bot.name })}</b> {control.helpReason}
             </div>
             <div className="mt-2 flex gap-2">
               <button
-                onClick={() =>
-                  cloudPreviewReady ? void openDesktop() : controlAction("take")
-                }
+                onClick={() => void openDesktop()}
                 disabled={controlPending || pending === "join"}
                 className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-accent py-2 text-[13px] font-medium text-white hover:brightness-110 disabled:opacity-50"
               >
@@ -990,7 +965,7 @@ export function ComputerPanel({
             </div>
           </div>
         )}
-        {phase !== "team-boat" && (bot.computer !== undefined || computerStatusCurrent) && <>
+        {(bot.computer !== undefined || computerStatusCurrent) && <>
           <LocalScreenPreview />
           {bot.computer === "local" && !askingForGrants && <MacLocalControl />}
         </>}

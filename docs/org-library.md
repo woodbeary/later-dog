@@ -1,5 +1,11 @@
 # The organization library
 
+> The desktop shelf described here (**Templates → From {Organization}** and
+> **Bot → Skills → From {Organization}**) was removed from the app on
+> 2026-10-18 with the templates gallery. The runtime routes, the Electron relay
+> and `trust: "org"` imports below are unchanged; nothing in the app shows the
+> shelf until it is designed again.
+
 An organization's Admin can share packages (whole teams, or skills on their
 own) with the desktops that belong to it, and with its Customers. In
 later.dog they appear under **Templates → From {Organization}**, the first

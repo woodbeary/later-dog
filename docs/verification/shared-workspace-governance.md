@@ -18,8 +18,8 @@ prompt or dialog: visibility is access control and the log is a record.
     attachment (`pathSubject` / `subjectVisible`): a hidden one answers 404
     exactly like an unknown id;
   - narrowed lists: `GET /api/bots` (bots, rooms, teams, queued lines,
-    computer state), `/api/search`, `/api/routines`, `/api/webhooks`,
-    `/api/team-map`; `POST /api/groups` and routine create/edit refuse a
+    computer state), `/api/search`, `/api/routines`, `/api/webhooks`;
+    `POST /api/groups` and routine create/edit refuse a
     hidden bot or room;
   - the live stream: each member stream is narrowed frame by frame
     (`frameForMember`), including replay on reconnect; a bot or room that
@@ -59,7 +59,7 @@ pnpm exec vitest run server/bot-visibility.test.ts server/bot-visibility.e2e.tes
   its thread and an avatar. As Bob it checks the bot list (bots, rooms,
   teams, computer state), 24 routes to Payroll, its thread, its room, its
   routine and its files (all 404, nothing changed behind them), room and
-  routine creation, search, routines, webhooks and the team map; as Ada the
+  routine creation, search, routines and webhooks; as Ada the
   same routes work; Boss and the owner on loopback see everything. Two live
   streams (Ada, Bob) watch a turn in Payroll's thread (Ada sees it, Bob sees
   nothing naming it), then Boss adds Bob (Payroll, its room and its team

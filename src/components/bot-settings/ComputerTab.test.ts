@@ -97,8 +97,6 @@ describe("what the dog's computer card shows", () => {
 
   it("only offers Wake when the dog itself owns a cloud computer", () => {
     expect(computerCardFor({}, box("stopped"))).toEqual({ kind: "asleep", fresh: false, canWake: false });
-    expect(computerCardFor({ computer: "cloud" }, { ...box("stopped"), teamComputer: { id: "pack", name: "Pack box" } }))
-      .toEqual({ kind: "asleep", fresh: false, canWake: false, team: "Pack box" });
   });
 
   it("wakes a private server when the dog uses it or starts it on its own", () => {
@@ -192,10 +190,9 @@ describe("the Computer tab", () => {
     expect(calls(WAKE)).toHaveLength(2);
   });
 
-  it("offers Open instead of Wake for a computer the pack shares", async () => {
-    reply(STATUS, () => ({ ...box("stopped"), teamComputer: { id: "pack", name: "Pack box" } }));
-    await show(scout());
-    expect(panel().textContent).toContain("Uses Pack box, the cloud computer this pack shares.");
+  it("offers Open instead of Wake for a computer the dog does not own", async () => {
+    reply(STATUS, () => box("stopped"));
+    await show(scout({ computer: undefined }));
     expect(panel().querySelector("[data-wake-dog]")).toBeNull();
     expect(panel().querySelector('[data-dog="sleeping"]')).not.toBeNull();
     await press(button("Open"));

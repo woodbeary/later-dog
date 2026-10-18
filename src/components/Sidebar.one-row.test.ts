@@ -44,7 +44,7 @@ function findElement(tree: ReactNode, attribute: string, value: string): ReactEl
 }
 
 beforeEach(() => {
-  fixture.state = { bots: [bot], selectedId: "other-bot", activeView: "chat", pendingQueued: { queued: [{ queueId: "q", text: "next" }] } };
+  fixture.state = { bots: [bot], selectedId: "other-bot", pendingQueued: { queued: [{ queueId: "q", text: "next" }] } };
   fixture.dispatch.mockClear();
   vi.stubGlobal("window", { innerWidth: 1024, innerHeight: 768 });
   vi.stubGlobal("document", { body: {} });
@@ -115,7 +115,7 @@ describe("one row per dog", () => {
 
   it("offers no thread or folder creation in the dog's menu", () => {
     const markup = renderToStaticMarkup(createElement(BotContextMenu, {
-      menu: { botId: bot.id, x: 0, y: 0 }, onClose: vi.fn(), onArchive: vi.fn(), onDelete: vi.fn(), onMoveToSection: vi.fn(),
+      menu: { botId: bot.id, x: 0, y: 0 }, onClose: vi.fn(), onArchive: vi.fn(), onDelete: vi.fn(), onReplaceMainDog: vi.fn(), onMoveToSection: vi.fn(),
     }));
     expect(markup).not.toContain("New thread");
     expect(markup).not.toContain("New folder");

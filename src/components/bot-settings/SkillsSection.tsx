@@ -7,7 +7,6 @@ import { useBotEditor } from "./BotEditorContext";
 import { skillAuthoringEnabled, skillsLibraryEnabled } from "@/lib/feature-flags";
 import { Switch } from "../SettingsPrimitives";
 import { inputCls } from "./field";
-import { OrgSkillsCard } from "./OrgSkillsCard";
 
 export interface ManagedSkill {
   name: string;
@@ -497,8 +496,6 @@ export function SkillsSection({ bot }: { bot: Bot }) {
         )}
         {error && <div role="alert" className="mt-2 text-[12px] text-danger">{error}</div>}
       </div>
-
-      <OrgSkillsCard bot={bot} onAdded={() => void refresh()} />
 
       {reviewing && (
         <SkillReviewDialog

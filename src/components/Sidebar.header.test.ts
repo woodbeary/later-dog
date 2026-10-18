@@ -73,7 +73,7 @@ describe("sidebar header", () => {
     const html = render();
     expect(html).not.toContain('aria-label="Collapse sidebar to avatars"');
     expect(html).not.toContain('aria-label="Active Threads"');
-    expect(html).toContain('aria-label="New or share"');
+    expect(html).toContain('aria-label="New"');
     expect(html).not.toContain("Choose sidebar density");
     expect(html).not.toContain('title="Sidebar density"');
   });
@@ -94,7 +94,7 @@ describe("sidebar top row", () => {
   });
   const topRow = (html: string) => {
     const start = html.indexOf("data-sidebar-top-row");
-    const end = html.indexOf('aria-label="New or share"');
+    const end = html.indexOf('aria-label="New"');
     expect(start).toBeGreaterThan(-1);
     expect(end).toBeGreaterThan(start);
     return html.slice(start, end);

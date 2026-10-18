@@ -17,19 +17,18 @@ describe("finished work the person has not looked at yet", () => {
   });
 
   it("is marked read once the person comes back to the open chat", () => {
-    expect(readWhenBack({ selectedId: "pepper", activeView: "chat", bots: [pepper(true)], groups: [] })).toEqual({
+    expect(readWhenBack({ selectedId: "pepper", bots: [pepper(true)], groups: [] })).toEqual({
       path: "/api/bots/pepper/read",
       body: JSON.stringify({ threadId: "pepper-b" }),
     });
-    expect(readWhenBack({ selectedId: "room", activeView: "chat", bots: [], groups: [{ id: "room", unread: true }] })).toEqual({
+    expect(readWhenBack({ selectedId: "room", bots: [], groups: [{ id: "room", unread: true }] })).toEqual({
       path: "/api/groups/room/read",
     });
   });
 
   it("stays unread when the open chat is not the one with news", () => {
-    expect(readWhenBack({ selectedId: "pepper", activeView: "chat", bots: [pepper(false)], groups: [] })).toBeNull();
-    expect(readWhenBack({ selectedId: "pepper", activeView: "routines", bots: [pepper(true)], groups: [] })).toBeNull();
-    expect(readWhenBack({ selectedId: null, activeView: "chat", bots: [pepper(true)], groups: [] })).toBeNull();
-    expect(readWhenBack({ selectedId: "room", activeView: "chat", bots: [], groups: [{ id: "room", unread: false }] })).toBeNull();
+    expect(readWhenBack({ selectedId: "pepper", bots: [pepper(false)], groups: [] })).toBeNull();
+    expect(readWhenBack({ selectedId: null, bots: [pepper(true)], groups: [] })).toBeNull();
+    expect(readWhenBack({ selectedId: "room", bots: [], groups: [{ id: "room", unread: false }] })).toBeNull();
   });
 });

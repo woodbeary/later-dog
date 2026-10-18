@@ -1,45 +1,30 @@
 # Waiting for a shared computer
 
-Run the real-server fixture in an isolated home, with a local Boat API stub:
+Run the fixtures in isolated homes, with local Boat and VPS stubs:
 
 ```sh
-pnpm exec vitest run server/index.test.ts -t 'shares one team computer|dispatches the conversation.s pinned computer|blocks bot-scoped Boat lifecycle'
-pnpm exec vitest run server/index.test.ts -t 'queues computer waiters in arrival order'
-pnpm exec vitest run server/index.test.ts -t 'parks the turn at the wait ceiling'
-pnpm exec vitest run server/turn-resources.test.ts server/shared-computers.e2e.test.ts
+pnpm exec vitest run server/index.test.ts -t 'keeps every dog on its own computer|dispatches the conversation.s pinned computer|blocks bot-scoped Boat lifecycle'
+pnpm exec vitest run server/vps-routing.test.ts -t 'runs two turns of one bot on the VPS at once'
+pnpm exec vitest run server/turn-resources.test.ts server/computer-wait.test.ts server/shared-computers.e2e.test.ts
+pnpm exec vitest run server/cloud-computer-slow-start.e2e.test.ts
 pnpm exec vitest run server/managed-desktop-cleanup.test.ts
 ```
 
-The shared-team-computer case proves:
+Every dog has its own computer, so waiting happens between conversations of
+one dog. The VPS case proves a second conversation of the same dog waits for
+the desktop by name, with the visible waiting row, and continues on its own
+when the holder finishes. `server/turn-resources.test.ts` proves the
+arrival-ordered waitlist: position 1 alone gets a released seat, a lazy claim
+that never waited jumps no queue, and the estimate appears only once a wait
+has completed. `server/computer-wait.test.ts` proves the waiting, parked and
+resumed rows read as a queue position behind a named turn, never an error.
+The cloud computer slow-start case proves that a lazily claimed cloud computer
+tells a second conversation that another thread is using it.
 
-- A first turn starts on the Boat stub; a second thread under the same bot
-  waits without sending another provider prompt.
-- Stop cancels the waiting thread without interrupting the owner.
-- A room waits for that same computer, with a visible activity message.
-- Stopping the owner lets the room start automatically, without Retry or
-  another user message. The cancelled sibling never starts later.
-- Lifecycle changes remain blocked during active computer use, and a missing
-  paid computer is still reported rather than silently recreated.
-
-The arrival-order case proves:
-
-- Concurrent waiters join one arrival-ordered waitlist per resource and each
-  waiting chip names its stable position (1st, 2nd, 3rd) as of arrival.
-- Releasing the holder grants the seat to position 1 alone, by the arrival
-  text it carries; nobody jumps the released seat.
-- The chip's estimate ("recent waits here have taken …") appears only once a
-  wait has completed on that resource; chips written before any history
-  never gain one retroactively.
-- A lazy claim that failed once never blocks the queue: only turns genuinely
-  in the exclusive-bind poll loop hold a waitlist slot.
-
-The park-and-resume cases prove:
-
-- A turn that reaches the computer wait ceiling settles parked, not failed,
-  and resumes on its own when the computer frees.
-- The parked-resume drain queues only behind a live release, dispatches at
-  once when the seat is already free, and drops resumes that a newer message,
-  a newer generation, or a deleted thread superseded.
+The integration cases that drove queue order and parking through a shared
+team computer were removed with team computers. No real-server fixture now
+drives a turn to the wait ceiling; that path is covered by the unit tests
+above.
 
 Waiting is bounded by the computer wait ceiling (`LATERDOG_COMPUTER_WAIT_MAX_MS`,
 30 minutes by default). At the ceiling the turn parks instead of failing, and

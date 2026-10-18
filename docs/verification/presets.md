@@ -1,9 +1,9 @@
 # Preset bots
 
-What it covers: presets in **New bot** (from imported files and from the
-organization's shelf), **Include my New bot defaults as a preset** in Share
-team, **Share as preset…** (a preset file: skills and presets, no team), and
-adding a preset file back through **Templates → Import**. The product
+What it covers: the server side of presets (from imported files and from the
+organization's shelf) and preset files. The desktop no longer has a templates
+gallery or Share team dialog, so presets are added only through the server
+and organization paths below. The product
 behaviour is described in [../presets.md](../presets.md).
 
 ## HTTP round trip
@@ -77,11 +77,12 @@ pnpm exec vitest run server/presets.test.ts server/routes/bot-presets.test.ts se
 ## Renderer
 
 ```sh
-pnpm exec vitest run src/lib/team-import.test.ts src/lib/team-share.test.ts src/components/ShareTeamDialog.test.ts src/components/NewBotDialog.test.ts
+pnpm exec vitest run src/lib/team-import.test.ts src/lib/dog-share.test.ts src/components/NewBotDialog.test.ts
 ```
 
-The command covers the Share team dialog, the team file's import preview and
-the New bot dialog. The preset screens (**Share as preset…**, the preset
+The command covers the import preview, the one-dog share helpers and the New
+bot dialog. The templates gallery and the Share team dialog were removed in the
+finalize slice `d3-chief-packs-teams` (2026-10-18). The preset screens (**Share as preset…**, the preset
 picker in **New bot**) and their full-app test were removed in 0.3.0; only the
 server checks above still cover presets.
 

@@ -7,7 +7,6 @@ import {
   Check,
   ChevronRight,
   Copy,
-  Crown,
   Hand,
   MessageSquareReply,
   RefreshCw,
@@ -785,15 +784,6 @@ function HeaderStatusDot({ bot }: { bot: Bot }) {
 
 const CHATHEAD_PILL ="flex min-w-0 items-center gap-2 rounded-full border-[0.5px] border-ink/10 bg-composer py-1.5 pl-1.5 text-ink shadow-[0_4px_12px_-1px_rgba(0,0,0,0.08),0_1px_3px_rgba(0,0,0,0.06)]";
 
-function chiefOfStaffBadge(bot: Bot) {
-  if (!bot.chiefOfStaff) return null;
-  return (
-    <span title={t("chat.chiefOfStaff")} className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-accent/12 px-2 py-0.5 text-[11px] font-medium text-accent @max-4xl/chathead:px-1.5">
-      <Crown size={11} aria-hidden="true" /> <span className="@max-4xl/chathead:sr-only">{t("chat.chiefOfStaff")}</span>
-    </span>
-  );
-}
-
 export function ChatView({ bot: profile }: { bot: Bot }) {
   const bot = useMemo(() => currentTaskBot(profile), [profile]);
   const { state, dispatch } = useStore();
@@ -993,7 +983,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
               <HeaderStatusDot bot={bot} />
             </span>
             <span className="min-w-0 truncate text-[14px] font-semibold text-ink">{bot.name}</span>
-            {chiefOfStaffBadge(bot)}
           </button>
           {!bot.busy && bot.waitingForTeammates && <span className="truncate text-[12px] text-ink-secondary" role="status">{t("chat.teammatesWorking")}</span>}
         </div>

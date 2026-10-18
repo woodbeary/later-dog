@@ -1,30 +1,32 @@
-# Sharing a whole team
+# Sharing a dog
 
-**Share team…** saves one team as a single file (`<team>-<version>.laterdog.json`).
-Someone else adds it in **Templates → Import**, or an organization uploads it
-in Admin → Packages and its desktops add it from **Templates → From
-{Organization}** ([org-library.md](org-library.md)). Open it from the team's menu in the sidebar (right-click
-the team name), or from **Templates → Share**.
+Press **Share** at the top of a dog's panel. **Create a copy** makes a second
+dog with the same look, instructions and settings. **Save as a file…** saves
+that one dog as a single file (`<dog>-<version>.laterdog.json`) after showing
+what goes in, which connection addresses travel and what was removed or left
+out. Whoever gets the file drops it on later.dog's sidebar; **Add this dog?**
+lists the dog and **Add** brings it in as a new copy outside any section. A
+later.dog package link opens the same sheet. There is no templates gallery and
+no pack sharing in the app, and T7's "Share a template link" waits for a share
+host.
+
+The file format can hold several dogs (organization packages still do, see
+[org-library.md](org-library.md)); a file saved from a dog's panel holds that
+dog, every skill of it that fits, its routines and its connections, and no
+group chats or shared instructions. The details below describe the format.
 
 ## What goes in the file
 
 - **Bots.** Each bot's name, title and description, its standing instructions,
   its colour and mascot, and its picture (downscaled to at most 256 × 256 and
   64 KB; the dialog stops adding pictures after about 2 MB of them).
-- **Skills.** All skills on the team's bots by default, or the ones you tick.
-  Only the `SKILL.md` text travels, never scripts or other files. A file
-  holds at most 30 skills per bot and 60 per team, and one skill per name.
-  When you have not chosen, the dialog puts in what fits (switched-on skills
-  first) and lists the rest under **Left out**, including a name two bots
-  hold with different content. The skill boxes then start ticked on what
-  went in, less any skill a bot had to leave out over its 30 (even when
-  another bot's copy went in), so unticking any box is always a choice that
-  fits. When you tick more than fits, it says why and keeps every skill box
-  so you can change the choice.
+- **Skills.** Every skill that fits. Only the `SKILL.md` text travels, never
+  scripts or other files. A file holds at most 30 skills per bot and 60 in
+  all, and one skill per name; switched-on skills go first and the rest are
+  listed under **Left out**.
 - **Playbooks**, **group chats** (members and who answers by default) and the
   team's **shared instructions**.
 - **Routines**, including group chat goals. They always arrive paused.
-- **The Chief of Staff.**
 - **Connections.** For each remote MCP server a bot uses: its address and the
   names of the values it needs (for example `Authorization`). The values
   themselves never travel. Hosted servers often keep their key in the address
@@ -40,15 +42,16 @@ the team name), or from **Templates → Share**.
   they are. The rule is deliberately broad, so the dialog lists each
   connection's full address before you save and names any address it
   changed.
-- **Starter notes.** Each bot's `MEMORY.md` and topic notes. **Include
-  starter notes** is ticked, because a team is shared whole; untick it if the
-  notes hold private details about you. Daily logs never go in.
+- **Starter notes.** The dog's `MEMORY.md` and topic notes. **Include
+  starter notes** is ticked; untick it if the notes hold private details
+  about you. Daily logs never go in.
 - **Connector requirements** (which connected apps the team expects), as
   labels only.
-- **Your New bot defaults as a preset**, only when you tick **Include my New
-  bot defaults as a preset**: their name, look, standing instructions, skills
-  and (with starter notes) notes, never their model, folder, computer,
-  approval level or connected apps. See [presets.md](presets.md).
+- **Your New bot defaults as a preset**, only over the API with
+  `includeDefaultsPreset: true` (the app no longer offers it): their name,
+  look, standing instructions, skills and (with starter notes) notes, never
+  their model, folder, computer, approval level or connected apps. See
+  [presets.md](presets.md).
 
 ## What never goes in the file
 
@@ -76,11 +79,12 @@ that file's package id and bot keys, so "import the published release, edit,
 share again" produces the next release of the same package. The record lives
 in `published-teams.json` in the data folder.
 
-## Adding a shared team
+## Adding a shared dog
 
-Import is additive: everything becomes new records in a new team (numbered if
-the name is taken). Nothing in the file can change a bot, group chat or team
-you already have.
+Import is additive: everything becomes new records. A file with one dog and no
+group chats or shared instructions adds the dog outside any section; a file
+with several dogs adds them in a new section (numbered if the name is taken).
+Nothing in the file can change a dog, group chat or section you already have.
 
 - Bots start on **Ask**, with no connected-app access and the installation's
   default model. A suggested approval level in the file is recorded, never
@@ -113,7 +117,9 @@ produce a version 1 download for them. A file is at most 4 MB. Example files
 and their expected hashes live in `shared/package-fixtures/`.
 
 The HTTP route is `POST /api/teams/export` with
-`{"format":"package","version":2,"team":"Sales desk"}` (admin scope). Optional
+`{"format":"package","version":2,"botId":"…"}` for one dog, as the app sends,
+or `{"format":"package","version":2,"team":"Sales desk"}` for a whole section
+(admin scope; an unknown dog is a 404 "That dog no longer exists."). Optional
 fields: `name`, `tagline`, `summary`, `release`, `notes`, `skills` (`"all"` or
 names), `includeMemory` (default `false` over the API), `avatars` (data URLs
 by bot id) and `dryRun` (count without recording keys). The response is

@@ -70,23 +70,14 @@ export function sidebarSectionCollapsed(
   return sidebarLayoutInteractive(density, query) && collapsedIds.includes(id);
 }
 
-export function partitionSidebarBots<T extends SidebarBot>(
-  bots: T[],
-  options?: { universalPins?: boolean },
-) {
-  const universalPins = options?.universalPins === true;
+export function partitionSidebarBots<T extends SidebarBot>(bots: T[]) {
   const visible = bots.filter((bot) => !bot.hidden);
-  const pinnedBots = visible.filter((bot) => Boolean(bot.pinned) && (universalPins || !bot.chiefOfStaff));
-  const pinnedIds = new Set(pinnedBots.map((bot) => bot.id));
-  const unsectionedChief = visible.find((bot) => bot.chiefOfStaff && !bot.section && !pinnedIds.has(bot.id)) ?? null;
-  const sectionChiefs = visible.filter((bot) => bot.chiefOfStaff && Boolean(bot.section) && !pinnedIds.has(bot.id));
-  const sectionedBots = visible.filter(
-    (bot) => !bot.chiefOfStaff && Boolean(bot.section) && !pinnedIds.has(bot.id),
-  );
-  const unsectionedBots = visible.filter(
-    (bot) => !bot.chiefOfStaff && !bot.section && !pinnedIds.has(bot.id),
-  );
-  return { unsectionedChief, pinnedBots, sectionChiefs, sectionedBots, unsectionedBots };
+  const pinnedBots = visible
+    .filter((bot) => Boolean(bot.pinned))
+    .sort((a, b) => Number(Boolean(b.chiefOfStaff)) - Number(Boolean(a.chiefOfStaff)));
+  const sectionedBots = visible.filter((bot) => !bot.pinned && Boolean(bot.section));
+  const unsectionedBots = visible.filter((bot) => !bot.pinned && !bot.section);
+  return { pinnedBots, sectionedBots, unsectionedBots };
 }
 
 export function partitionSidebarGroups<T extends SidebarGroup>(groups: T[]) {

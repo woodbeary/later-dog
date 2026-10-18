@@ -21,7 +21,7 @@ import { useBotEditor } from "./bot-settings/BotEditorContext";
 import { botLibraryItems } from "./bot-settings/library";
 import { SimpleMemory } from "./bot-settings/SimpleMemory";
 import { ComputerTab } from "./bot-settings/ComputerTab";
-import { OrgSkillsCard } from "./bot-settings/OrgSkillsCard";
+import { DogShareButton } from "./bot-settings/DogShare";
 import { ProfileAvatar } from "./bot-settings/ProfileAvatar";
 import { RoutinesCard } from "./bot-settings/RoutinesCard";
 import { TEACH_TRICK_LINE } from "../../shared/learn-request";
@@ -163,10 +163,11 @@ export function BotSettingsDialog({ bot, overlay = false }: {
             : "md:static md:z-auto md:w-[min(420px,42vw)] md:shrink-0",
         )}
       >
-        <div className={cn("flex shrink-0 items-center justify-end px-4 py-3", padClass)}>
+        <div className={cn("flex shrink-0 items-center justify-end gap-1 px-4 py-3", padClass)}>
           <span id="bot-settings-title" className="sr-only">
             {bot.name}
           </span>
+          <DogShareButton bot={bot} />
           <button
             type="button"
             onClick={close}
@@ -427,8 +428,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                   )}
                 </div>
               </div>
-
-              <OrgSkillsCard bot={bot} onAdded={() => void skills.refresh()} />
 
               {library.length > 0 && (
               <div>

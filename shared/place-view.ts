@@ -2,7 +2,7 @@
 export type Place = "cloud" | "vm" | "local" | "browser";
 
 export const PLACE_STATES = [
-  "auto", "auto-team",
+  "auto",
   "cc-cannot", "cc-tools-off", "cc-sign-in", "cc-new", "cc-starting", "cc-waking", "cc-on", "cc-asleep",
   "cc-no-hours", "cc-at-once", "cc-trial-one", "cc-unavailable", "cc-ended", "cc-no-start", "cc-clearing", "cc-provider",
   "cc-on-my-cloud", "cc-needs-key", "vps",
@@ -16,7 +16,7 @@ export type PlaceSource = "works-on" | "pin" | "auto-pin" | "routine" | "room";
 
 export const PLACE_ACTIONS = [
   "choose-model", "allow-computer", "sign-in", "start", "wake", "watch", "see-plan", "get-cloud", "manage-computers",
-  "try-again", "open-my-cloud", "turn-on-browser", "open-team-map", "open-vm-settings",
+  "try-again", "open-my-cloud", "turn-on-browser", "open-vm-settings",
   "clear-pin", "change-routine", "open-computer-panel",
 ] as const;
 export type PlaceActionId = (typeof PLACE_ACTIONS)[number];
@@ -84,7 +84,6 @@ export interface PlaceFacts {
   browserOn: boolean;
   role: "admin" | "user";
   computer?: "none" | "starting" | "waking" | "on" | "asleep";
-  teamComputer?: string;
   local?: { ready: boolean; reason?: string };
   refusal?: { state: PlaceState; params: PlaceParams };
 }
@@ -95,8 +94,6 @@ export const PLACE_EN = {
   "place.view.auto.lineCloud": "Starts its cloud computer when a task needs one.",
   "place.view.auto.lineLocal": "Uses this computer when a task needs one.",
   "place.view.auto.lineNone": "Works without a computer for now.",
-  "place.view.autoTeam.short": "Shared",
-  "place.view.autoTeam.line": "Uses {computer}, the cloud computer this pack shares.",
   "place.view.ccCannot.short": "Not with this model",
   "place.view.ccCannot.line": "{model} can't use a computer. Choose a model that can, such as Claude or ChatGPT.",
   "place.view.ccToolsOff.short": "Not allowed",
@@ -170,7 +167,6 @@ export const PLACE_EN = {
   "place.action.tryAgain": "Try again",
   "place.action.openMyCloud": "Open My Cloud",
   "place.action.turnOnBrowser": "Turn on the browser",
-  "place.action.openTeamMap": "Open Pack map",
   "place.action.openVmSettings": "Local VM settings",
   "place.action.clearPin": "Clear this conversation's place",
   "place.action.usePlace": "Use {place}",
@@ -194,7 +190,6 @@ export const PLACE_WORDS: Record<PlaceActionId, string> = {
   "try-again": "Try again.",
   "open-my-cloud": "Open My Cloud from the menu at the top of the sidebar.",
   "turn-on-browser": "Turn on the built-in browser in the Computer panel.",
-  "open-team-map": "Open Pack map to manage it.",
   "open-vm-settings": "Check it in Settings → Computer.",
   "clear-pin": "Clear this conversation's place in the composer to continue.",
   "change-routine": "Change where this routine runs.",
@@ -211,7 +206,6 @@ export const english: PlaceTranslate = (key, params) => fill(PLACE_EN[key], para
 
 const STATE: Record<PlaceState, { key: string; action: PlaceActionId | null }> = {
   auto: { key: "auto", action: null },
-  "auto-team": { key: "autoTeam", action: "open-team-map" },
   "cc-cannot": { key: "ccCannot", action: "choose-model" },
   "cc-tools-off": { key: "ccToolsOff", action: "allow-computer" },
   "cc-sign-in": { key: "ccSignIn", action: "sign-in" },
@@ -246,7 +240,7 @@ const PASSING: ReadonlySet<PlaceState> = new Set(["cc-unavailable", "cc-no-start
 
 const ADMIN_ONLY: ReadonlySet<PlaceActionId> = new Set([
   "choose-model", "allow-computer", "sign-in", "see-plan", "get-cloud", "manage-computers", "open-my-cloud",
-  "turn-on-browser", "open-team-map", "open-vm-settings", "change-routine",
+  "turn-on-browser", "open-vm-settings", "change-routine",
 ]);
 const ADMIN_SHORTCUT: ReadonlySet<PlaceActionId> = new Set(["start", "wake"]);
 
@@ -263,7 +257,6 @@ const ACTION_KEY: Record<PlaceActionId, PlaceKey> = {
   "try-again": "place.action.tryAgain",
   "open-my-cloud": "place.action.openMyCloud",
   "turn-on-browser": "place.action.turnOnBrowser",
-  "open-team-map": "place.action.openTeamMap",
   "open-vm-settings": "place.action.openVmSettings",
   "clear-pin": "place.action.clearPin",
   "change-routine": "place.action.changeRoutine",
@@ -274,11 +267,7 @@ export function placeState(facts: PlaceFacts): { state: PlaceState; params: Plac
   const bot = facts.bot;
   const model = facts.engine.model || facts.engine.name;
   if (facts.place === "off") return { state: "off", params: { bot } };
-  if (facts.place === "auto") {
-    return facts.teamComputer
-      ? { state: "auto-team", params: { bot, computer: facts.teamComputer } }
-      : { state: "auto", params: { bot } };
-  }
+  if (facts.place === "auto") return { state: "auto", params: { bot } };
   if (facts.place === "browser") {
     if (!facts.engine.browser) return { state: "browser-cannot", params: { bot, model } };
     return facts.browserOn ? { state: "browser", params: { bot } } : { state: "browser-off", params: { bot } };

@@ -1,5 +1,10 @@
 # Preset bots
 
+> The templates gallery, **Templates → Import** and the Share team dialog
+> were removed from the app on 2026-10-18. Presets still arrive through the
+> organization channel and the server routes below, and a preset file can no
+> longer be added from the app.
+
 A preset is a named starting point in **New bot**. Choosing one fills in the
 new bot's name, title, description, standing instructions and look, and when
 you press **Create bot** it also brings the preset's skills, playbooks and

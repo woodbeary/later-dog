@@ -22,7 +22,7 @@ export function BugReportDialog({ onClose }: { onClose: () => void }) {
   const id = useId();
   useModalDialog(dialog, () => { if (!pending) onClose(); });
   const owner = [...state.bots, ...state.groups].find((item) => item.id === state.selectedId);
-  const threadId = state.activeView === "chat" ? owner?.threadId : undefined;
+  const threadId = owner?.threadId;
   const issue = bugReportIssue({ happened, expected, conversationId: includeConversation ? threadId : undefined,
     diagnostics, version: appVersion(), os: bugReportOs(window.laterdog?.platform, navigator.userAgent) });
   const copyReport = async () => {

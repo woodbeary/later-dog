@@ -43,7 +43,6 @@ function sources(dir: string): string[] {
 }
 
 const DECORATIVE: Record<string, string> = {
-  "components/TeamCanvas.tsx text-ink-secondary/35": "decorative connector",
   "components/AttachmentGallery.tsx text-ink-secondary/50": "decorative placeholder glyph",
 };
 

@@ -744,23 +744,15 @@ describe("notification routing", () => {
 
   it("identifies only the exact chat thread currently on screen", () => {
     expect(visibleNotificationThread({
-      activeView: "chat",
       selectedId: "bot-1",
       bots,
       groups,
     })).toBe("main-thread");
     expect(visibleNotificationThread({
-      activeView: "chat",
       selectedId: "room-1",
       bots,
       groups,
     })).toBe("room-thread");
-    expect(visibleNotificationThread({
-      activeView: "team-map",
-      selectedId: "bot-1",
-      bots,
-      groups,
-    })).toBeNull();
   });
 });
 
@@ -820,15 +812,13 @@ describe("config status", () => {
     features: { skillAuthoring: true },
   });
 
-  it("replaces the config without moving the person off their current view", () => {
-    const onTeamMap = reducer(initialState, { type: "showTeamMap" });
-    expect(onTeamMap.activeView).toBe("team-map");
-
-    const next = reducer(onTeamMap, {
+  it("replaces the config without moving the person off their current conversation", () => {
+    const onChat = { ...initialState, selectedId: "bot-1" };
+    const next = reducer(onChat, {
       type: "configStatus",
       config: { ...config, features: { skillAuthoring: false } },
     });
-    expect(next.activeView).toBe("team-map");
+    expect(next.selectedId).toBe("bot-1");
     expect(next.config?.features).toEqual({ skillAuthoring: false });
   });
 });
@@ -1880,17 +1870,15 @@ describe("bot settings section", () => {
     expect(next.botSettingsExpandAccordion).toBe(false);
   });
 
-  it.each(["identity", "model"] as const)("opens a bot's %s settings without leaving the team map or reading its conversations", (section) => {
+  it.each(["identity", "model"] as const)("opens a bot's %s settings without reading its conversations", (section) => {
     const state = {
       ...initialState,
-      activeView: "team-map" as const,
       selectedId: "room",
       bots: [{ ...bot, unread: true }],
       groups: [{ id: "room", unread: true } as Group],
     };
     const next = reducer(state, { type: "toggleSettings", botId: bot.id, section });
     expect(next.selectedId).toBe(bot.id);
-    expect(next.activeView).toBe("team-map");
     expect(next.settingsOpen).toBe(true);
     expect(next.botSettingsSection).toBe(section);
     expect(next.botSettingsExpandAccordion).toBe(true);
@@ -1902,7 +1890,6 @@ describe("bot settings section", () => {
     const other = { ...bot, id: "other-bot" };
     const state = {
       ...initialState,
-      activeView: "team-map" as const,
       selectedId: bot.id,
       bots: [bot, other],
       settingsOpen: true,
@@ -1911,7 +1898,6 @@ describe("bot settings section", () => {
     };
     const next = reducer(state, { type: "toggleSettings", botId: other.id });
     expect(next.selectedId).toBe(other.id);
-    expect(next.activeView).toBe("team-map");
     expect(next.settingsOpen).toBe(true);
     expect(next.botSettingsSection).toBe("overview");
     expect(next.botSettingsExpandAccordion).toBe(false);
@@ -1928,7 +1914,6 @@ describe("bot settings section", () => {
   it.each(["missing-bot", "hidden-bot", "room"])("ignores unavailable settings target %s", (botId) => {
     const state = {
       ...initialState,
-      activeView: "team-map" as const,
       selectedId: bot.id,
       bots: [bot, { ...bot, id: "hidden-bot", hidden: true }],
       groups: [{ id: "room" } as Group],

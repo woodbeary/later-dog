@@ -127,23 +127,21 @@ describe("BotListItem", () => {
     });
   });
 
-  it("leaves the full Chief card as one selectable hit area", () => {
+  it("leaves the full main dog row as one selectable hit area", () => {
     const markup = renderRow(bot({ chiefOfStaff: true }));
 
     expect(markup).toContain('data-sidebar-bot-row="atlas"');
     expect(markup).not.toContain('aria-label="Archive Atlas"');
   });
 
-  it("shows the Chief of Staff label on its own line under the name", () => {
-    const withTitle = renderRow(bot({ chiefOfStaff: true, title: "Developer" }));
-    expect(withTitle).toContain("Chief of Staff</span>");
-    expect(withTitle.indexOf("Chief of Staff</span>")).toBeGreaterThan(withTitle.indexOf(">Atlas<"));
+  it("marks the main dog with a small badge on its avatar and no extra line", () => {
+    const main = renderRow(bot({ chiefOfStaff: true, title: "Developer" }));
+    expect(main).toContain('data-testid="main-dog-badge"');
+    expect(main).toContain('aria-label="Main dog"');
+    expect(main.indexOf('data-testid="main-dog-badge"')).toBeLessThan(main.indexOf(">Atlas<"));
+    expect(main).not.toContain("Chief of Staff");
 
-    const withoutTitle = renderRow(bot({ chiefOfStaff: true }));
-    expect(withoutTitle).toContain("Chief of Staff</span>");
-    expect(withoutTitle.indexOf("Chief of Staff</span>")).toBeGreaterThan(withoutTitle.indexOf(">Atlas<"));
-
-    expect(renderRow(bot())).not.toContain("Chief of Staff");
+    expect(renderRow(bot())).not.toContain('data-testid="main-dog-badge"');
   });
 
   const titleLine = /<div class="truncate text-\[11px\][^"]*">([^<]*)<\/div>/;
@@ -229,7 +227,7 @@ describe("archive / delete confirmation", () => {
     const other = bot({ id: "other" });
     const renamed = bot({ name: "New name" });
     expect(currentArchivableBot([renamed, other], snapshot.id)).toBe(renamed);
-    expect(currentArchivableBot([bot({ chiefOfStaff: true }), other], snapshot.id)).toBeUndefined();
+    expect(currentArchivableBot([bot({ chiefOfStaff: true }), other], snapshot.id)?.id).toBe(snapshot.id);
     expect(currentArchivableBot([bot({ hidden: true }), other], snapshot.id)).toBeUndefined();
     expect(currentArchivableBot([snapshot], snapshot.id)).toBeUndefined();
     expect(currentArchivableBot([other, bot({ id: "third" })], snapshot.id)).toBeUndefined();
@@ -249,7 +247,7 @@ describe("archive / delete confirmation", () => {
     expect(copy.body).toMatch(/permanently/i);
     expect(copy.body).toMatch(/any computer it owns/i);
     expect(copy.body).toMatch(/files and browser sign-ins/i);
-    expect(copy.body).toMatch(/shared pack computers remain/i);
+    expect(copy.body).not.toMatch(/pack/i);
     expect(copy.tone).toBe("danger");
   });
 
@@ -305,9 +303,8 @@ describe("bot deletion feedback", () => {
       expect(renderRow(bot({ activity: "waiting-on-you", messages: [card({ answered: "deny" })] }))).toContain('<span class="truncate">Waiting for you…');
     });
 
-    it("keeps the title and Chief lines", () => {
-      expect(renderRow(bot({ title: "Developer", chiefOfStaff: true }))).toContain("Chief of Staff</span>");
-      expect(renderRow(bot({ title: "Developer", chiefOfStaff: true }))).not.toContain('data-testid="chief-crown"');
+    it("keeps the title line for the main dog", () => {
+      expect(/<div class="truncate text-\[11px\][^"]*">([^<]*)<\/div>/.exec(renderRow(bot({ title: "Developer", chiefOfStaff: true })))?.[1]).toBe("Developer");
     });
   });
 });

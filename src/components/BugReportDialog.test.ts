@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLocale } from "@/lib/i18n";
 
-vi.mock("@/state/store", () => ({ useStore: () => ({ state: { bots: [], groups: [], activeView: "chat" } }) }));
+vi.mock("@/state/store", () => ({ useStore: () => ({ state: { bots: [], groups: [] } }) }));
 
 import { BugReportDialog } from "./BugReportDialog";
 

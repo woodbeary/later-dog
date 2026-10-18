@@ -187,7 +187,7 @@ describe("Store", () => {
     expect(store.renameSection("Delivery", "Existing")).toContain("already exists");
     expect(store.renameSection("Delivery", "bad\nname")).toContain("control characters");
     bot.busy = true;
-    expect(store.renameSection("Delivery", "Launch")).toContain("active work");
+    expect(store.renameSection("Delivery", "Launch")).toBe("Stop the work in this section before renaming it");
     expect(bot.section).toBe("Delivery");
     expect(store.sections).not.toContain("Launch");
   });
@@ -232,19 +232,20 @@ describe("Store", () => {
     expect(readSectionContext("")?.text).toBe("General brief");
   });
 
-  it("refuses active work and keeps the main dog when its pack is deleted", () => {
+  it("refuses active work and keeps the main dog when its section is deleted", () => {
     const store = new Store(selection);
     const main = store.createBot({ section: "Studio" });
     store.setMainBot(main.id);
     store.patchBot(main.id, { busy: true });
-    expect(store.deleteSection("Studio")).toMatch(/Stop/);
+    expect(store.deleteSection("Studio")).toBe("Stop the work in this section before deleting it");
+    expect(store.renameSection("Studio", "Workshop")).toBe("Stop the work in this section before renaming it");
     store.patchBot(main.id, { busy: false });
     store.createBot();
     expect(store.deleteSection("Studio")).toBeUndefined();
     expect(store.bot(main.id)).toMatchObject({ chiefOfStaff: true, section: undefined });
     expect(store.mainBotId()).toBe(main.id);
-    expect(store.deleteSection("missing")).toBe("No such pack");
-    expect(store.deleteSection("")).toBe("No such pack");
+    expect(store.deleteSection("missing")).toBe("No such section");
+    expect(store.deleteSection("")).toBe("No such section");
   });
 
   it("restores persisted membership if deleting the team cannot finish", () => {

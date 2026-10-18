@@ -120,7 +120,6 @@ describe("placeState", () => {
 
   it("reads Auto, Off, the browser, this computer and a Local VM", () => {
     expect(placeState(facts({ place: "auto" })).state).toBe("auto");
-    expect(placeState(facts({ place: "auto", teamComputer: "Team desk" }))).toEqual({ state: "auto-team", params: { bot: "Scout", computer: "Team desk" } });
     expect(placeState(facts({ place: "off" })).state).toBe("off");
     expect(placeState(facts({ place: "browser" })).state).toBe("browser");
     expect(placeState(facts({ place: "browser", browserOn: false })).state).toBe("browser-off");

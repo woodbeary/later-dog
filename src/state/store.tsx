@@ -688,7 +688,6 @@ export interface AppState {
   liveCallVersion: number;
   liveCallLookupSeq: number;
   selectedId: string;
-  activeView: "chat" | "team-map";
   routines: Routine[];
   routineRuns: RoutineRun[];
   routinesLoadState: "loading" | "ready" | "error";
@@ -801,8 +800,6 @@ export type Action =
   | { type: "botQueues"; queues: AppState["pendingQueued"] }
   | { type: "sections"; sections: string[] }
   | { type: "sectionDeleted"; section: string; sections: string[] }
-  | { type: "showTeamMap" }
-  | { type: "showChat" }
   | { type: "routinesHydrated"; routines: Routine[]; runs: RoutineRun[] }
   | { type: "routinesLoadFailed" }
   | { type: "routinePatched"; routine: Routine }
@@ -944,9 +941,8 @@ interface NotificationRoutingState {
 }
 
 export function visibleNotificationThread(
-  state: NotificationRoutingState & Pick<AppState, "activeView" | "selectedId">,
+  state: NotificationRoutingState & Pick<AppState, "selectedId">,
 ): string | null {
-  if (state.activeView !== "chat") return null;
   return (
     state.bots.find((candidate) => candidate.id === state.selectedId)?.threadId ??
     state.groups.find((candidate) => candidate.id === state.selectedId)?.threadId ??
@@ -1155,17 +1151,6 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, sections: action.sections };
     case "botQueues":
       return reconcileSnapshotQueues(replaceBotQueues(state, action.queues), [...state.bots, ...state.groups]);
-    case "showChat":
-      return state.activeView === "chat" ? state : { ...state, activeView: "chat" };
-    case "showTeamMap":
-      return {
-        ...state,
-        activeView: "team-map",
-        settingsOpen: false,
-        computerOpen: false,
-        appSettingsOpen: false,
-        pluginsOpen: false,
-      };
     case "routinesHydrated":
       return { ...state, routines: action.routines, routineRuns: trimRoutineRuns(action.runs), routinesLoadState: "ready" };
     case "routinesLoadFailed":
@@ -1232,7 +1217,6 @@ export function reducer(state: AppState, action: Action): AppState {
       if (state.groups.some((g) => g.id === action.id)) {
         return {
           ...state,
-          activeView: "chat",
           selectedId: action.id,
           botSettingsSection: action.id !== state.selectedId ? "overview" : state.botSettingsSection,
           groups: state.groups.map((g) => (g.id === action.id ? { ...g, unread: false } : g)),
@@ -1242,7 +1226,6 @@ export function reducer(state: AppState, action: Action): AppState {
         withMascotMotion(
           {
             ...state,
-            activeView: "chat",
             selectedId: action.id,
             botSettingsSection: action.id !== state.selectedId ? "overview" : state.botSettingsSection,
           },
@@ -1275,7 +1258,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return withMascotMotion({
         ...state,
         bots: [action.bot, ...state.bots.filter((bot) => bot.id !== action.bot.id)],
-        ...(action.preserveSelection ? {} : { activeView: "chat" as const, selectedId: action.bot.id }),
+        ...(action.preserveSelection ? {} : { selectedId: action.bot.id }),
       }, action.bot.id, "arrive");
     case "deleteBot": {
       const bots = state.bots.filter((b) => b.id !== action.botId);
@@ -1829,7 +1812,6 @@ export const initialState: AppState = {
   liveCallVersion: 0,
   liveCallLookupSeq: 0,
   selectedId: "",
-  activeView: "chat",
   routines: [],
   routineRuns: [],
   routinesLoadState: "loading",
@@ -2949,7 +2931,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const bot = frame.bot as BotAnnouncement;
           const selected = stateRef.current.bots.find((candidate) => candidate.id === bot.id);
           const selectedTask = bot.tasks?.find((task) => task.threadId === selected?.threadId);
-          if (bot.id === stateRef.current.selectedId && stateRef.current.activeView === "chat" && personIsLooking() &&
+          if (bot.id === stateRef.current.selectedId && personIsLooking() &&
               (selectedTask?.unread || (!bot.tasks && bot.unread))) {
             if (selectedTask) selectedTask.unread = false;
             bot.unread = botShowsUnread(bot);

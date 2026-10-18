@@ -14,6 +14,7 @@ import { importedMemberProfile, type ParsedTeamManifest, type TeamManifestMember
 import { takeImportName } from "../shared/import-name.ts";
 import { decodeBase64, type PackageAgent, type PackageDocument, type PackageTrust } from "../shared/package-format.ts";
 import type { BotVisibility, ModelSelection } from "../shared/wire.ts";
+import { packageIsOneDog } from "./laterdog/dog-share.ts";
 
 export const NO_BOTS_MESSAGE = "This package has no dogs. Add it from your organization's shelf, or update later.dog.";
 export const NO_PRESETS_MESSAGE = "This file has no dogs or preset dogs to add. Its tricks can be added from your organization's shelf.";
@@ -239,7 +240,7 @@ function runImport(source: ImportSource, options: PackageImportOptions, deps: Pa
         .filter((value): value is string => Boolean(value?.trim()))
         .map((value) => value.trim().toLowerCase()),
     );
-    section = takeImportName(teamName, existingSections, 60);
+    section = !org && packageIsOneDog(pkg) ? "" : takeImportName(teamName, existingSections, 60);
 
     const serverForKey = new Map<string, string>();
     const connections: PackageImportResult["connections"] = [];
