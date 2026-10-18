@@ -273,6 +273,7 @@
   "chat.timeline.titleRunning": "Chronologie d'exécution · en cours",
   "chat.copyMessage": "Copier le message",
   "chat.retry": "Réessayer",
+  "chat.sending": "Envoi…",
   "chat.teammatesWorking": "D'autres chiens travaillent",
   "chat.error.signedOut": "{name} n’est pas encore connecté. Connectez-vous ci-dessous, puis renvoyez votre message.",
   "chat.error.details": "Détails",

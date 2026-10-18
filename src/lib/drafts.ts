@@ -6,6 +6,7 @@ const ATTACHMENTS_KEY = "laterdog-draft-attachments";
 const SEND_IDS_KEY = "laterdog-draft-send-ids";
 const CHANNEL_MODES_KEY = "laterdog-draft-channel-modes";
 const POSITIONS_KEY = "laterdog-draft-positions";
+const FAILED_SENDS_KEY = "laterdog-failed-sends";
 const draftRevisions = new Map<string, number>();
 const replyDrafts = new Map<string, string>();
 type ChannelMode = "chat" | "goal";
@@ -33,6 +34,7 @@ const failedSends = new Map<string, FailedComposerSend[]>();
 const failedSendListeners = new Map<string, Set<(sends: FailedComposerSend[]) => void>>();
 const restoredSendIds = new Map<string, string>();
 let failedSendSequence = 0;
+let failedSendsLoaded = false;
 
 type Values = Record<string, unknown>;
 type Store = Pick<Storage, "getItem" | "setItem"> | undefined;
@@ -445,12 +447,45 @@ function subscribeToDraftRestores(id: string, listener: DraftRestoreListener): (
   };
 }
 
+function readFailedSend(value: unknown): FailedComposerSend | null {
+  if (!value || typeof value !== "object") return null;
+  const entry = value as Record<string, unknown>;
+  if (typeof entry.id !== "string" || typeof entry.sendId !== "string" || typeof entry.text !== "string" ||
+    typeof entry.requestText !== "string" || typeof entry.threadId !== "string") return null;
+  return {
+    id: entry.id,
+    sendId: entry.sendId,
+    text: entry.text,
+    requestText: entry.requestText,
+    threadId: entry.threadId,
+    ...(typeof entry.replyToId === "string" ? { replyToId: entry.replyToId } : {}),
+    ...(entry.channelMode === "chat" || entry.channelMode === "goal" ? { channelMode: entry.channelMode } : {}),
+  };
+}
+
+function loadFailedSends(): void {
+  if (failedSendsLoaded) return;
+  failedSendsLoaded = true;
+  for (const [id, entries] of Object.entries(read(getStore(), FAILED_SENDS_KEY))) {
+    const sends = Array.isArray(entries) ? entries.map(readFailedSend).filter((entry): entry is FailedComposerSend => entry !== null) : [];
+    if (sends.length > 0 && !failedSends.has(id)) failedSends.set(id, sends);
+  }
+}
+
+function saveFailedSends(): void {
+  try {
+    getStore()?.setItem(FAILED_SENDS_KEY, JSON.stringify(Object.fromEntries(failedSends)));
+  } catch {}
+}
+
 function publishFailedSends(id: string): void {
+  saveFailedSends();
   const sends = failedSends.get(id) ?? [];
   for (const listener of failedSendListeners.get(id) ?? []) listener(sends);
 }
 
 export function failedComposerSends(id: string): FailedComposerSend[] {
+  loadFailedSends();
   return failedSends.get(id) ?? [];
 }
 
@@ -488,6 +523,7 @@ export function recoverFailedComposerSend(sent: ComposerSendSnapshot): "restored
 }
 
 export function forgetFailedComposerSend(id: string, failedId: string): void {
+  loadFailedSends();
   const remaining = failedComposerSends(id).filter((failed) => failed.id !== failedId);
   if (remaining.length > 0) failedSends.set(id, remaining);
   else failedSends.delete(id);

@@ -603,6 +603,7 @@ export function Composer({
       text: failed.requestText,
       replyToId: failed.replyToId,
       threadId: failed.threadId,
+      recovery: { draftId, text: failed.text, ...(failed.channelMode ? { channelMode: failed.channelMode } : {}) },
       onError: () => {
         rememberFailedComposerSend(draftId, {
           sendId: failed.sendId,
@@ -658,6 +659,7 @@ export function Composer({
         replyToId: replyTo?.id,
         threadId,
         mode: effectiveChannelMode,
+        recovery: { draftId, text, channelMode: effectiveChannelMode },
         onError: () => restoreDraft(sentDraft),
       });
       track("message_sent", { room: true, mode: effectiveChannelMode, queued: busy });
@@ -670,6 +672,7 @@ export function Composer({
         replyToId: replyTo?.id,
         threadId,
         deliver: delivery,
+        recovery: { draftId, text },
         onError: () => restoreDraft(sentDraft),
       });
       track("message_sent", { driver: bot.modelSelection?.instanceId, queued: busy && (delivery ? waitsForTurn(delivery) : !canSteer), delivery });
@@ -827,7 +830,7 @@ export function Composer({
         {failedSends.map((failed) => (
           <div
             key={failed.id}
-            className="mb-2 flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[12.5px] text-danger"
+            className="mb-2 flex items-center gap-2 rounded-lg border border-hairline/40 bg-raised px-3 py-2 text-[12.5px] text-ink-secondary"
           >
             <span className="min-w-0 flex-1 truncate">
               {t("composer.failed.notSent", {
@@ -837,7 +840,7 @@ export function Composer({
             <button
               type="button"
               onClick={() => retryFailedSend(failed)}
-              className="shrink-0 rounded px-2 py-1 font-medium hover:bg-danger/10"
+              className="shrink-0 rounded px-2 py-1 font-medium text-ink hover:bg-inset"
             >
               {t("chat.retry")}
             </button>
@@ -846,7 +849,7 @@ export function Composer({
               onClick={() => forgetFailedComposerSend(draftId, failed.id)}
               aria-label={t("composer.failed.dismissAria")}
               title={t("composer.failed.dismiss")}
-              className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-danger/10"
+              className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-inset hover:text-ink"
             >
               <X size={13} strokeWidth={2.5} />
             </button>

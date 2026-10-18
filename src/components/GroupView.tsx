@@ -63,6 +63,8 @@ import { groupActivityRuns, isStatusActivity } from "@/lib/activity-runs";
 import { ActivityRun } from "./ActivityRun";
 import { useDesktopCapabilities, useCaptionChrome } from "./DesktopCapabilities";
 import { cn } from "@/lib/cn";
+import { OPTIMISTIC_PREFIX } from "@/lib/dog-status";
+import { SendingTrack } from "./SendingTrack";
 import { useMenuMotion } from "./MenuMotion";
 import { shortPath } from "@/lib/short-path";
 import { useComposerDockPad } from "@/lib/composer-dock";
@@ -393,6 +395,7 @@ export const Transcript = memo(function Transcript({
                   {formatTime(m.at)}
                 </span>
               </div>
+              {user && m.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={m.at} />}
             </div>
           ) : null;
         if (!row) return null;

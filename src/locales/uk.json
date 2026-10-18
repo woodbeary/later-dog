@@ -305,6 +305,7 @@
   "chat.showRawMarkdown": "Показати сирий markdown",
   "chat.showRenderedMarkdown": "Показати оброблений markdown",
   "chat.retry": "Повторити",
+  "chat.sending": "Надсилаємо…",
   "chat.teammatesWorking": "Інші собаки працюють",
   "chat.error.signedOut": "У {name} ще не виконано вхід. Увійдіть нижче, а потім надішліть повідомлення ще раз.",
   "chat.error.details": "Подробиці",

@@ -888,6 +888,17 @@ body {
   animation-duration: var(--motion-base);
   animation-timing-function: var(--ease-out-soft);
 }
+.sending-track {
+  opacity: 0;
+  animation: fade-in 240ms ease-out forwards;
+}
+.sending-track-bar {
+  animation: sending-slide 1.4s ease-in-out infinite;
+}
+@keyframes sending-slide {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(300%); }
+}
 @keyframes shimmer {
   from { background-position: 200% 50%; }
   to { background-position: -200% 50%; }
@@ -918,6 +929,7 @@ body {
   .animate-pop-out, .turn-mascot-out { animation: none !important; opacity: 0; }
   .animate-caret, .animate-shimmer, .animate-ripple, .animate-bolt { animation: none !important; }
   .animate-status-pulse { animation: none !important; opacity: 0.6; }
+  .sending-track-bar { animation: reduced-loader-pulse 1.6s ease-in-out infinite; width: 100%; }
   .thinking-shimmer { background: none; color: var(--color-ink-secondary); }
   .mascot-ear { animation: none !important; transition: none !important; }
   aside { transition: none; }

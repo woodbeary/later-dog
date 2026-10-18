@@ -383,6 +383,7 @@
   "chat.showRawMarkdown": "显示原始 Markdown",
   "chat.showRenderedMarkdown": "显示渲染后的 Markdown",
   "chat.retry": "重试",
+  "chat.sending": "正在发送…",
   "chat.teammatesWorking": "其他狗狗正在工作",
   "chat.error.signedOut": "{name} 尚未登录。请在下方登录，然后重新发送你的消息。",
   "chat.error.details": "详情",

@@ -49,8 +49,10 @@ import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import type { OnboardingStatus } from "@/lib/onboarding";
 import { openLiveEvents, publishLiveFrame, publishMissedFrames } from "@/lib/live-events";
 import { plainClientError, statusFallback } from "@/lib/plain-client-error";
+import { HOME_WAKE_WORDS, WAKE_LIMIT_MS, WAKE_TOO_LONG, homeWake, retryAfterMs, wakeDelayMs, type HomeWake } from "../../shared/home-wake";
 import { queuedSteerResult } from "@/lib/queued-steer";
-import { SEND_ATTEMPT_TIMEOUT_MS, UncertainSends, isUncertainSendFailure, sendWithRetry } from "@/lib/send-retry";
+import type { OutboxItem, OutboxRecovery } from "@/lib/outbox";
+import { createSendOutbox, type SendOutbox } from "./send-outbox";
 import { receiveHelperEvent, receiveHelpersSnapshot, forgetHelpers } from "@/lib/helpers-state";
 import { receiveReasoningEvent, forgetReasoning } from "@/lib/turn-reasoning";
 
@@ -827,6 +829,7 @@ export type Action =
       replyToId?: string;
       threadId?: string;
       mode?: "chat" | "goal";
+      recovery?: OutboxRecovery;
       onError?: () => void;
     }
   | {
@@ -851,6 +854,7 @@ export type Action =
       replyToId?: string;
       threadId?: string;
       deliver?: SendDelivery;
+      recovery?: OutboxRecovery;
       onError?: () => void;
     }
   | { type: "pendingQueued"; threadId: string; queueId: string; text: string; reason?: SteerQueueReason }
@@ -893,6 +897,7 @@ export type Action =
   | { type: "messageAdded"; threadId: string; message: Message }
   | { type: "messagePatched"; threadId: string; message: Message }
   | { type: "optimisticMessageRemoved"; threadId: string; sendId: string; restoreLeafId?: string | null }
+  | { type: "outboxShown"; items: OutboxItem[] }
   | { type: "computerStart"; botId: string; start: ComputerStart | null }
   | { type: "computerControl"; botId: string; held: boolean; helpReason: string | null }
   | { type: "takeoverIntent"; intent: { botId: string; at: number } | null }
@@ -1063,6 +1068,26 @@ function optimisticUserMessage(
     replyToId,
     sendId,
     channelMode,
+  };
+}
+
+function showHeldSend(state: AppState, item: OutboxItem): AppState {
+  if (!item.threadId) return state;
+  const bot = state.bots.find((candidate) => candidate.threadId === item.threadId);
+  if (bot) {
+    if (bot.messages.some((message) => message.sendId === item.sendId)) return state;
+    const message = { ...optimisticUserMessage(item.text, item.sendId, item.replyToId, bot.activeLeafId), at: item.queuedAt };
+    return updateBot(state, bot.id, (current) => ({ ...current, messages: [...current.messages, message], activeLeafId: message.id }));
+  }
+  const group = state.groups.find((candidate) => candidate.threadId === item.threadId);
+  if (!group || group.messages.some((message) => message.sendId === item.sendId)) return state;
+  const message = {
+    ...optimisticUserMessage(item.text, item.sendId, item.replyToId, null, item.target.kind === "group" ? item.target.mode : "chat"),
+    at: item.queuedAt,
+  };
+  return {
+    ...state,
+    groups: state.groups.map((candidate) => candidate.id === group.id ? { ...candidate, messages: [...candidate.messages, message] } : candidate),
   };
 }
 
@@ -1409,6 +1434,8 @@ export function reducer(state: AppState, action: Action): AppState {
       const animated = motion ? withMascotMotion(next, bot.id, motion) : next;
       return animated;
     }
+    case "outboxShown":
+      return action.items.reduce(showHeldSend, state);
     case "optimisticMessageRemoved": {
       const id = optimisticMessageId(action.sendId);
       const bot = state.bots.find((candidate) => candidate.threadId === action.threadId);
@@ -1911,11 +1938,15 @@ export function nextLiveCallLookup(): number {
 export class ApiError extends Error {
   readonly status: number;
   readonly body?: Record<string, unknown>;
-  constructor(message: string, status: number, body?: Record<string, unknown>) {
+  readonly wake?: HomeWake;
+  readonly retryAfterMs?: number;
+  constructor(message: string, status: number, body?: Record<string, unknown>, home?: { wake?: HomeWake | null; retryAfterMs?: number | null }) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.body = body;
+    if (home?.wake) this.wake = home.wake;
+    if (home?.retryAfterMs) this.retryAfterMs = home.retryAfterMs;
   }
 }
 
@@ -1974,22 +2005,52 @@ export function duplicateProfileFor(source: Bot) {
 
 export const MESSAGE_PAGE_SIZE = 200;
 
-const uncertainSends = new UncertainSends();
 
-export async function api<T = any>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
-  const { timeoutMs, signal, ...rest } = init ?? {};
-  const res = await fetch(path, {
-    headers: { "content-type": "application/json" },
-    ...rest,
-    signal: timeoutMs === undefined
-      ? signal
-      : signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
-        : AbortSignal.timeout(timeoutMs),
+export type ApiInit = RequestInit & { timeoutMs?: number; rideWake?: boolean };
+
+const sleepUnlessAborted = (ms: number, signal: AbortSignal | null | undefined) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const timer = setTimeout(() => {
+      signal?.removeEventListener?.("abort", stop);
+      resolve();
+    }, ms);
+    const stop = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    signal?.addEventListener?.("abort", stop, { once: true });
   });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(body.error ?? statusFallback(res.status), res.status, body);
-  return body;
+
+export async function api<T = any>(path: string, init?: ApiInit): Promise<T> {
+  const { timeoutMs, signal, rideWake, ...rest } = init ?? {};
+  const bounded = timeoutMs === undefined
+    ? signal
+    : signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
+      : AbortSignal.timeout(timeoutMs);
+  const started = Date.now();
+  for (;;) {
+    const res = await fetch(path, {
+      headers: { "content-type": "application/json" },
+      ...rest,
+      signal: bounded,
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok) return body;
+    const wake = homeWake(res.status, res.headers);
+    const waitMs = retryAfterMs(res.headers, body);
+    if (wake && rideWake !== false && (rest.body == null || typeof rest.body === "string")) {
+      const delay = wakeDelayMs(wake, waitMs);
+      if (Date.now() - started + delay <= WAKE_LIMIT_MS) {
+        await sleepUnlessAborted(delay, bounded);
+        continue;
+      }
+      throw new ApiError(WAKE_TOO_LONG, res.status, body, { wake, retryAfterMs: waitMs });
+    }
+    const message = wake ? HOME_WAKE_WORDS[wake] : typeof body.error === "string" && body.error ? body.error : statusFallback(res.status);
+    throw new ApiError(message, res.status, body, { wake, retryAfterMs: waitMs });
+  }
 }
 
 type TrustedApprovalBridge = {
@@ -2198,6 +2259,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => botPatchQueue.dispose();
   }, [botPatchQueue]);
 
+  const sendOutboxRef = useRef<SendOutbox | null>(null);
+  const sendOutbox = useCallback(() => {
+    sendOutboxRef.current ??= createSendOutbox({
+      request: api,
+      dispatch: rawDispatch,
+      showError: (error) => {
+        rawDispatch({ type: "error", message: plainClientError(error) });
+        setTimeout(() => rawDispatch({ type: "error", message: null }), 6000);
+      },
+    });
+    return sendOutboxRef.current;
+  }, []);
+
+  useEffect(() => {
+    const resume = () => sendOutbox().resume();
+    window.addEventListener("online", resume);
+    window.addEventListener("focus", resume);
+    return () => {
+      window.removeEventListener("online", resume);
+      window.removeEventListener("focus", resume);
+      sendOutboxRef.current?.dispose();
+      sendOutboxRef.current = null;
+    };
+  }, [sendOutbox]);
+
   const dispatch = useMemo(() => {
     const olderPagesInFlight = new Set<string>();
     let creatingBot = false;
@@ -2305,16 +2391,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (action.type === "taskSwitched") action = { ...action, bot: withTaskWrites(action.bot) as Bot };
       if (action.type === "botPatched") action = { ...action, bot: withTaskWrites(action.bot) };
       if ((action.type === "send" || action.type === "sendGroup" || action.type === "editMessage") && !action.sendId) {
-        const { bots, groups } = stateRef.current;
-        let heldSendId: string | undefined;
-        if (action.type === "send") {
-          const { botId, threadId, text, replyToId } = action;
-          heldSendId = uncertainSends.recall(botId, threadId ?? bots.find((bot) => bot.id === botId)?.threadId, text, replyToId);
-        } else if (action.type === "sendGroup") {
-          const { groupId, threadId, text, replyToId, mode } = action;
-          heldSendId = uncertainSends.recall(groupId, threadId ?? groups.find((group) => group.id === groupId)?.threadId, text, `${replyToId ?? ""}|${mode ?? "chat"}`);
-        }
-        action = { ...action, sendId: heldSendId ?? crypto.randomUUID() };
+        action = { ...action, sendId: crypto.randomUUID() };
       }
       const botBeforeUpdate =
         action.type === "updateBot" || action.type === "setModel"
@@ -2466,45 +2543,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (quizBeforeSend) persistCard(action.botId, quizBeforeSend.id, { dismissed: true });
           const threadId =
             action.threadId ?? stateRef.current.bots.find((bot) => bot.id === action.botId)?.threadId;
-          const sendId = action.sendId ?? crypto.randomUUID();
-          void waitForExecutionSettings(botBeforeSend ? [botBeforeSend] : [], threadId)
-            .then(() => sendWithRetry(() => api(`/api/bots/${action.botId}/messages`, {
-                method: "POST",
-                body: JSON.stringify({ text: action.text, replyToId: action.replyToId, threadId, sendId, deliver: action.deliver }),
-                timeoutMs: SEND_ATTEMPT_TIMEOUT_MS,
-              })))
-            .then((body) => {
-              uncertainSends.forget(action.botId, threadId, action.text, action.replyToId);
-              if (body?.message && typeof body.threadId === "string") {
-                rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
-              }
-              if (
-                body?.queued &&
-                typeof body.threadId === "string" &&
-                typeof body.queueId === "string"
-              ) {
-                rawDispatch({
-                  type: "optimisticMessageRemoved",
-                  threadId: body.threadId,
-                  sendId,
-                });
-                rawDispatch({
-                  type: "pendingQueued",
-                  threadId: body.threadId,
-                  queueId: body.queueId,
-                  text: action.text,
-                  reason: body.reason === "capacity" || body.reason === "group-turn" ? body.reason : undefined,
-                });
-              }
-            })
-            .catch((error) => {
-              if (isUncertainSendFailure(error)) uncertainSends.remember(action.botId, threadId, action.text, sendId, action.replyToId);
-              if (threadId) {
-                rawDispatch({ type: "optimisticMessageRemoved", threadId, sendId });
-              }
-              showError(error);
-              action.onError?.();
-            });
+          sendOutbox().send({
+            sendId: action.sendId ?? crypto.randomUUID(),
+            threadId: threadId ?? "",
+            target: { kind: "bot", botId: action.botId, ...(action.deliver ? { deliver: action.deliver } : {}) },
+            text: action.text,
+            ...(action.replyToId ? { replyToId: action.replyToId } : {}),
+            queuedAt: Date.now(),
+            ...(action.recovery ? { recovery: action.recovery } : {}),
+          }, {
+            ready: waitForExecutionSettings(botBeforeSend ? [botBeforeSend] : [], threadId),
+            onError: action.onError,
+          });
           break;
         }
         case "editMessage": {
@@ -2715,50 +2765,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "sendGroup": {
           const threadId =
             action.threadId ?? stateRef.current.groups.find((group) => group.id === action.groupId)?.threadId;
-          const sendId = action.sendId ?? crypto.randomUUID();
-          void waitForExecutionSettings(executionBotsBeforeAction)
-            .then(() => sendWithRetry(() => api(`/api/groups/${action.groupId}/messages`, {
-              method: "POST",
-              body: JSON.stringify({
-                text: action.text,
-                replyToId: action.replyToId,
-                threadId,
-                sendId,
-                mode: action.mode ?? "chat",
-              }),
-              timeoutMs: SEND_ATTEMPT_TIMEOUT_MS,
-            })))
-            .then((body) => {
-              uncertainSends.forget(action.groupId, threadId, action.text, `${action.replyToId ?? ""}|${action.mode ?? "chat"}`);
-              if (body?.message && typeof body.threadId === "string") {
-                rawDispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
-              }
-              if (
-                body?.queued &&
-                typeof body.threadId === "string" &&
-                typeof body.queueId === "string"
-              ) {
-                rawDispatch({
-                  type: "optimisticMessageRemoved",
-                  threadId: body.threadId,
-                  sendId,
-                });
-                rawDispatch({
-                  type: "pendingQueued",
-                  threadId: body.threadId,
-                  queueId: body.queueId,
-                  text: action.text,
-                });
-              }
-            })
-            .catch((error) => {
-              if (isUncertainSendFailure(error)) uncertainSends.remember(action.groupId, threadId, action.text, sendId, `${action.replyToId ?? ""}|${action.mode ?? "chat"}`);
-              if (threadId) {
-                rawDispatch({ type: "optimisticMessageRemoved", threadId, sendId });
-              }
-              showError(error);
-              action.onError?.();
-            });
+          sendOutbox().send({
+            sendId: action.sendId ?? crypto.randomUUID(),
+            threadId: threadId ?? "",
+            target: { kind: "group", groupId: action.groupId, mode: action.mode ?? "chat" },
+            text: action.text,
+            ...(action.replyToId ? { replyToId: action.replyToId } : {}),
+            queuedAt: Date.now(),
+            ...(action.recovery ? { recovery: action.recovery } : {}),
+          }, {
+            ready: waitForExecutionSettings(executionBotsBeforeAction),
+            onError: action.onError,
+          });
           break;
         }
         case "patchGroup":
@@ -2851,7 +2869,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     };
     return wrapped;
-  }, [botPatchQueue]);
+  }, [botPatchQueue, sendOutbox]);
 
   useEffect(() => {
     let alive = true;
@@ -2969,6 +2987,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             computerControl: computerControl ?? {},
             botQueuedMessages,
           });
+          const outbox = sendOutbox();
+          const pending = outbox.pending(bots ?? [], groups ?? [], botQueuedMessages);
+          if (pending.length > 0) rawDispatch({ type: "outboxShown", items: pending });
+          outbox.resume();
         });
       const peripherals = peripheralParts.map((part) => ({
         key: part.key,
@@ -3019,10 +3041,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           rawDispatch({ type: "sections", sections: frame.sections });
           break;
         case "bot.queued":
+          sendOutbox().queued(frame.queues);
           rawDispatch({ type: "botQueues", queues: frame.queues });
           break;
         case "message": {
           rawDispatch({ type: "messageAdded", threadId: frame.threadId, message: frame.message as Message });
+          if (frame.message?.role === "user" && typeof frame.message.sendId === "string") sendOutbox().echoed(frame.message.sendId);
           if (frame.message?.role === "user" && typeof frame.message.queueId === "string") {
             rawDispatch({
               type: "consumePendingQueued",
@@ -3145,7 +3169,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     };
     const stopLive = openLiveEvents({
-      onOpen: () => rawDispatch({ type: "connected", value: true }),
+      onOpen: () => {
+        rawDispatch({ type: "connected", value: true });
+        sendOutbox().resume();
+      },
       onError: () => rawDispatch({ type: "connected", value: false }),
       onSnapshotRequired: () => {
         clearTimeout(hydrationFallback);
@@ -3169,7 +3196,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       stopLive();
     };
-  }, []);
+  }, [sendOutbox]);
 
   const refreshInstances = useCallback(async () => {
     try {

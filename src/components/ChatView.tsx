@@ -69,7 +69,8 @@ import { dogTint, normalizeState, restingStateForBot, turnState } from "@/lib/ma
 import { peerLine, type PeerLine } from "@/lib/peer-message";
 import { useWorkingDots } from "@/lib/working-dots";
 import { StatusDot } from "./StatusDot";
-import { dogStatusKind, sendInFlight } from "@/lib/dog-status";
+import { OPTIMISTIC_PREFIX, dogStatusKind, sendInFlight } from "@/lib/dog-status";
+import { SendingTrack } from "./SendingTrack";
 import { MOTION } from "@/lib/motion";
 import { useArrivals } from "@/lib/arrivals";
 import { liveActivity } from "@/lib/live-activity";
@@ -665,6 +666,7 @@ const Bubble = memo(function Bubble({
           {formatTime(message.at)}
         </span>
       </div>
+      {user && message.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={message.at} />}
       {forks.length > 1 && (
         <div className="mt-1 flex items-center gap-0.5 pr-1 text-[12px] text-ink-secondary">
           <button
