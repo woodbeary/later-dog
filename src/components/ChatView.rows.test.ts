@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AppState, Bot, InstanceInfo, Message } from "@/state/store";
 
 const renders = vi.hoisted(() => ({ botText: 0, userText: 0, toolChip: 0 }));
+const guest = vi.hoisted(() => ({ canWrite: true as boolean | null }));
 vi.mock("./ChatMarkdown", async (importOriginal) => ({
   ...await importOriginal<typeof import("./ChatMarkdown")>(),
   ChatMarkdown: ({ text }: { text: string }) => {
@@ -32,7 +33,7 @@ vi.mock("./DesktopCapabilities", async (importOriginal) => ({
   useDesktopCapabilities: () => ({ capabilities: { dictation: { available: false }, host: { packaged: true, platform: "other" }, localComputer: { available: false } }, ready: true }),
 }));
 vi.mock("@/lib/analytics", () => ({ track: vi.fn() }));
-vi.mock("@/lib/cloud-guest", () => ({ useCanWriteIn: () => true }));
+vi.mock("@/lib/cloud-guest", () => ({ useCanWriteIn: () => guest.canWrite }));
 vi.mock("./ModelPicker", () => ({ ModelPicker: () => null }));
 
 const { ChatView } = await import("./ChatView");
@@ -135,11 +136,70 @@ describe("chat transcript rows", () => {
     expect(document.body.textContent).not.toContain("Today");
   });
 
-  it("shows only Copy and Reply on hover, with no More menu or edit", () => {
+  it("shows only React, Copy and Reply on hover, with no More menu or edit", () => {
     const row = (mid: string) => [...document.querySelectorAll(`[data-mid="${mid}"] [data-testid="message-actions"] > button`)]
       .map((button) => button.getAttribute("aria-label"));
-    expect(row("m5")).toEqual([t("chat.copyMessage"), t("chat.replyToMessage")]);
-    expect(row("m3")).toEqual([t("chat.copyMessage"), t("chat.replyToMessage")]);
+    expect(row("m5")).toEqual([t("chat.reaction.open"), t("chat.copyMessage"), t("chat.replyToMessage")]);
+    expect(row("m3")).toEqual([t("chat.reaction.open"), t("chat.copyMessage"), t("chat.replyToMessage")]);
     expect(document.querySelectorAll(`[data-mid] [aria-label="${t("chat.messageActions")}"]`)).toHaveLength(0);
+  });
+
+  it("shows a reaction made on the phone under its bubble", async () => {
+    const answer = messages.find((candidate) => candidate.id === "m5")!;
+    await rowRendersAfter((current) => reducer(current, {
+      type: "messagePatched", threadId: "pepper-thread", message: { ...answer, reactions: [{ emoji: "👍", by: "user" }, { emoji: "👍", by: "pepper" }] },
+    }));
+    const pill = document.querySelector<HTMLButtonElement>('[data-mid="m5"] [data-testid="reaction-pills"] button')!;
+    expect(pill.textContent).toBe("👍2");
+    expect(pill.getAttribute("aria-pressed")).toBe("true");
+    expect(pill.getAttribute("aria-label")).toBe(t("chat.reaction.by", { names: `${t("chat.reaction.you")} and pepper`, emoji: "👍" }));
+    expect(document.querySelectorAll('[data-mid="m3"] [data-testid="reaction-pills"]')).toHaveLength(0);
+  });
+
+  it("reacts from the picker and posts the reaction to the home", async () => {
+    const fetch = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetch);
+    dispatch.mockClear();
+    flushSync(() => document.querySelector<HTMLButtonElement>(`[data-mid="m3"] [aria-label="${t("chat.reaction.open")}"]`)!.click());
+    const picker = document.querySelector('[data-testid="reaction-picker"]')!;
+    expect([...picker.querySelectorAll("button")].map((button) => button.textContent || button.getAttribute("aria-label")))
+      .toEqual(["👍", "👎", "❤️", "😂", "🎉", t("chat.reaction.more")]);
+    flushSync(() => picker.querySelector<HTMLButtonElement>(`[aria-label="${t("chat.reaction.add", { emoji: "🎉" })}"]`)!.click());
+    expect(dispatch).toHaveBeenCalledWith({ type: "reactionsSet", threadId: "pepper-thread", messageId: "m3", reactions: [{ emoji: "🎉", by: "user" }] });
+    expect(fetch).toHaveBeenCalledWith("/api/threads/pepper-thread/messages/m3/reactions", expect.objectContaining({ method: "POST", body: JSON.stringify({ emoji: "🎉" }) }));
+  });
+
+  it("searches the full emoji list from More", async () => {
+    flushSync(() => document.querySelector<HTMLButtonElement>(`[data-mid="m3"] [aria-label="${t("chat.reaction.open")}"]`)!.click());
+    const picker = () => document.querySelector('[data-testid="reaction-picker"]:not([aria-hidden])')!;
+    flushSync(() => picker().querySelector<HTMLButtonElement>(`[aria-label="${t("chat.reaction.more")}"]`)!.click());
+    const search = picker().querySelector<HTMLInputElement>("input")!;
+    expect(document.activeElement).toBe(search);
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    flushSync(() => {
+      setValue.call(search, "rocket");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect([...picker().querySelectorAll('[role="group"] button')].map((button) => button.textContent)).toEqual(["🚀"]);
+  });
+
+  it("lets a Cloud guest see reactions in a chat that is not theirs, but not add or change one", async () => {
+    guest.canWrite = false;
+    try {
+      await draw();
+      expect(document.querySelectorAll(`[data-mid] [aria-label="${t("chat.reaction.open")}"]`)).toHaveLength(0);
+      const pill = document.querySelector<HTMLButtonElement>('[data-mid="m5"] [data-testid="reaction-pills"] button')!;
+      expect(pill.textContent).toBe("👍2");
+      expect(pill.disabled).toBe(true);
+      const fetch = vi.fn(() => new Promise(() => {}));
+      vi.stubGlobal("fetch", fetch);
+      dispatch.mockClear();
+      flushSync(() => pill.click());
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      guest.canWrite = true;
+      await draw();
+    }
   });
 });

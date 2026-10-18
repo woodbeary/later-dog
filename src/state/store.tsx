@@ -885,6 +885,7 @@ export type Action =
   | { type: "botPatched"; bot: BotAnnouncement }
   | { type: "messageAdded"; threadId: string; message: Message }
   | { type: "messagePatched"; threadId: string; message: Message }
+  | { type: "reactionsSet"; threadId: string; messageId: string; reactions: Message["reactions"] }
   | { type: "optimisticMessageRemoved"; threadId: string; sendId: string }
   | { type: "outboxShown"; items: OutboxItem[] }
   | { type: "computerStart"; botId: string; start: ComputerStart | null }
@@ -1479,6 +1480,13 @@ export function reducer(state: AppState, action: Action): AppState {
         ...b,
         messages: b.messages.map((m) => (m.id === action.message.id ? action.message : m)),
       }));
+    }
+    case "reactionsSet": {
+      const react = (messages: Message[]) => messages.map((m) => (m.id === action.messageId ? { ...m, reactions: action.reactions } : m));
+      const bot = state.bots.find((b) => b.threadId === action.threadId);
+      if (bot) return updateBot(state, bot.id, (b) => ({ ...b, messages: react(b.messages) }));
+      if (!state.groups.some((g) => g.threadId === action.threadId)) return state;
+      return { ...state, groups: state.groups.map((g) => (g.threadId === action.threadId ? { ...g, messages: react(g.messages) } : g)) };
     }
     case "computerStart": {
       const { [action.botId]: _ended, ...others } = state.computerStarts;

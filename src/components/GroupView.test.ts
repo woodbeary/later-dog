@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { StoreProvider, type Group, type Message } from "@/state/store";
+import { StoreProvider, type Bot, type Group, type Message } from "@/state/store";
 
 vi.mock("./DesktopCapabilities", () => ({
   useDesktopCapabilities: () => ({ capabilities: { dictation: { available: false } } }),
@@ -174,5 +174,36 @@ describe("a group chat without the extras", () => {
     })));
     expect(markup).not.toContain("Pin message");
     expect(markup).toContain(`aria-label="Reply to message"`);
+  });
+});
+
+describe("reactions in a group chat", () => {
+  const room: Group = {
+    id: "room", threadId: "room-thread", name: "Trip", memberIds: ["scout"],
+    defaultResponder: { kind: "auto" }, bulletin: "", unread: false, createdAt: 1, messages: [],
+  };
+  const scout = { id: "scout", name: "Scout", color: "green" } as Bot;
+  const messages: Message[] = [
+    { id: "ask", role: "user", kind: "text", at: 1, text: "Pack light?", reactions: [{ emoji: "👍", by: "scout" }] },
+    { id: "answer", role: "bot", kind: "text", at: 2, text: "Yes.", from: { botId: "scout", name: "Scout", color: "green" }, reactions: [{ emoji: "❤️", by: "user" }] },
+  ];
+  const draw = (readOnly = false) => renderToStaticMarkup(createElement(StoreProvider, null, createElement(Transcript, {
+    group: { ...room, messages }, members: [scout], locale: "en", messages, transcript: messages, onReply: () => {}, readOnly,
+  })));
+
+  it("shows each reaction under its bubble with who reacted, and a React button beside Reply", () => {
+    const markup = draw();
+    expect(markup.match(/data-testid="reaction-pills"/g)).toHaveLength(2);
+    expect(markup).toContain('aria-label="Scout reacted with 👍"');
+    expect(markup).toContain('aria-label="You reacted with ❤️"');
+    expect(markup.match(/aria-label="Add reaction"/g)).toHaveLength(2);
+    expect(markup.match(/aria-label="Reply to message"/g)).toHaveLength(2);
+  });
+
+  it("shows reactions without letting a read-only viewer change them", () => {
+    const markup = draw(true);
+    expect(markup.match(/data-testid="reaction-pills"/g)).toHaveLength(2);
+    expect(markup).not.toContain('aria-label="Add reaction"');
+    expect(markup.match(/<button[^>]*disabled=""[^>]*aria-pressed/g)).toHaveLength(2);
   });
 });

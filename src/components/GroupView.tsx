@@ -39,6 +39,11 @@ import { CitationSelectionToolbar, SentCitations } from "./CitationUI";
 import { Composer } from "./Composer";
 import { ChatFindBar } from "./ChatFindBar";
 import { ReplyQuote } from "./ReplyQuote";
+import { MessageActions, messageActionClass } from "./MessageActions";
+import { ReactionPicker } from "./ReactionPicker";
+import { ReactionPills } from "./ReactionPills";
+import { myReactions } from "@/lib/reactions";
+import { canReactTo, reactToMessage } from "@/lib/react-to-message";
 import { ConnectorCard } from "./ConnectorCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { SecureFormCard } from "./SecureFormCard";
@@ -138,6 +143,37 @@ function ClusterLabel({ bot, name, color, tinted = false }: { bot?: Bot; name: s
         {name}
       </span>
     </div>
+  );
+}
+
+function RoomMessageActions({ side, message, threadId, onReply }: {
+  side: "user" | "bot";
+  message: Message;
+  threadId: string;
+  onReply: (message: Message) => void;
+}) {
+  const { dispatch } = useStore();
+  const [picking, setPicking] = useState(false);
+  return (
+    <MessageActions side={side} forceOpen={picking}>
+      {canReactTo(message) && (
+        <ReactionPicker
+          reacted={myReactions(message.reactions)}
+          onReact={(emoji) => void reactToMessage(dispatch, threadId, message, emoji)}
+          onOpenChange={setPicking}
+          align={side === "user" ? "end" : "start"}
+        />
+      )}
+      <button
+        type="button"
+        onClick={() => onReply(message)}
+        aria-label={t("chat.replyToMessage")}
+        title={t("chat.reply")}
+        className={messageActionClass}
+      >
+        <MessageSquareReply size={14} />
+      </button>
+    </MessageActions>
   );
 }
 
@@ -267,17 +303,7 @@ export const Transcript = memo(function Transcript({
                 <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId: group.threadId, messageId: m.id }} eager={m.id === newestMessageId || m.id === newestUserMessageId} className="mb-1.5 max-w-[min(42rem,78%)]" />
               )}
               <div className={cn("flex w-full items-end gap-1.5", user ? "justify-end" : "justify-start")}>
-                {user && !readOnly && (
-                  <button
-                    type="button"
-                    onClick={() => onReply(m)}
-                    aria-label={t("chat.replyToMessage")}
-                    title={t("chat.reply")}
-                    className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 touch:opacity-70"
-                  >
-                    <MessageSquareReply size={14} />
-                  </button>
-                )}
+                {user && !readOnly && <RoomMessageActions side="user" message={m} threadId={group.threadId} onReply={onReply} />}
                 <div
                   data-chat-bubble
                   className={cn(
@@ -340,21 +366,17 @@ export const Transcript = memo(function Transcript({
                     </>
                   )}
                 </div>
-                {!user && !readOnly && (
-                  <button
-                    type="button"
-                    onClick={() => onReply(m)}
-                    aria-label={t("chat.replyToMessage")}
-                    title={t("chat.reply")}
-                    className="rounded-md p-1.5 text-ink-secondary opacity-0 transition-opacity hover:bg-raised hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 touch:opacity-70"
-                  >
-                    <MessageSquareReply size={14} />
-                  </button>
-                )}
+                {!user && !readOnly && <RoomMessageActions side="bot" message={m} threadId={group.threadId} onReply={onReply} />}
                 <span className="self-end pb-1 text-[11px] tabular-nums text-ink-tertiary opacity-0 transition-opacity group-hover:opacity-100">
                   {formatTime(m.at)}
                 </span>
               </div>
+              <ReactionPills
+                reactions={m.reactions}
+                side={user ? "user" : "bot"}
+                nameOf={(by) => memberOf(by)?.name ?? (by === m.from?.botId ? m.from.name : by)}
+                onToggle={!readOnly && canReactTo(m) ? (emoji) => void reactToMessage(dispatch, group.threadId, m, emoji) : undefined}
+              />
               {user && m.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={m.at} />}
             </div>
           ) : null;

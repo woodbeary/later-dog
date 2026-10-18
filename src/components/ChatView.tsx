@@ -17,6 +17,10 @@ import {
 } from "lucide-react";
 import { WorkingDots } from "@/components/WorkingIndicator";
 import { MessageActions, messageActionClass } from "@/components/MessageActions";
+import { ReactionPicker } from "@/components/ReactionPicker";
+import { ReactionPills } from "@/components/ReactionPills";
+import { myReactions } from "@/lib/reactions";
+import { canReactTo, reactToMessage } from "@/lib/react-to-message";
 import { useSpeech } from "@/lib/tts/useSpeech";
 import { computerStartLine } from "@/lib/computer-start";
 import { useCaptionChrome, useDesktopCapabilities } from "@/components/DesktopCapabilities";
@@ -134,6 +138,7 @@ interface ChatRows {
   locale: string;
   dispatch: Dispatch<Action>;
   onBranch: (messageId: string) => boolean;
+  canWrite: boolean | null;
 }
 
 const ChatRowsContext = createContext<ChatRows | null>(null);
@@ -328,10 +333,14 @@ const Bubble = memo(function Bubble({
   replyTarget?: Message;
   onReply: (message: Message) => void;
 }) {
-  const { botId, threadId, botName, mentionPeers, focus, dispatch, onBranch, bots } = useChatRows();
+  const { botId, threadId, botName, mentionPeers, focus, dispatch, onBranch, bots, canWrite } = useChatRows();
   const peer = peerLine(message);
   const user = message.role === "user" && !peer;
   const [expanded, setExpanded] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const reactable = canReactTo(message) && canWrite !== false;
+  const react = (emoji: string) => void reactToMessage(dispatch, threadId, message, emoji);
+  const reactionName = (by: string) => (by === botId ? botName : bots.find((candidate) => candidate.id === by)?.name ?? by);
   const focusedSearch = focus?.messageId === message.id && Boolean(focus.matchText);
   const speech = useSpeech();
   const speaking = speech.messageId === message.id && speech.status !== "idle";
@@ -371,7 +380,8 @@ const Bubble = memo(function Bubble({
       )}
       <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}>
         {user && (
-          <MessageActions side="user">
+          <MessageActions side="user" forceOpen={picking}>
+            {reactable && <ReactionPicker reacted={myReactions(message.reactions)} onReact={react} onOpenChange={setPicking} align="end" />}
             {Boolean(visibleText.trim()) && <CopyButton text={visibleText} className="opacity-100" />}
             <button
               type="button"
@@ -483,8 +493,9 @@ const Bubble = memo(function Bubble({
           )}
         </div>
         {!user && (
-          <MessageActions side="bot" forceOpen={speaking}>
+          <MessageActions side="bot" forceOpen={speaking || picking}>
             {speaking && <StopSpeakingButton preparing={speech.status === "preparing"} />}
+            {reactable && <ReactionPicker reacted={myReactions(message.reactions)} onReact={react} onOpenChange={setPicking} />}
             {text && <CopyButton text={text} className="opacity-100" />}
             <button
               type="button"
@@ -506,6 +517,7 @@ const Bubble = memo(function Bubble({
           {formatTime(message.at)}
         </span>
       </div>
+      <ReactionPills reactions={message.reactions} side={user ? "user" : "bot"} nameOf={reactionName} onToggle={reactable ? react : undefined} />
       {user && message.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={message.at} />}
     </div>
   );
@@ -879,8 +891,8 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   branch.current = messages;
   const onBranch = useCallback((messageId: string) => branch.current.some((m) => m.id === messageId), []);
   const rows = useMemo<ChatRows>(
-    () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch }),
-    [bot.id, bot.threadId, bot.name, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch],
+    () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite }),
+    [bot.id, bot.threadId, bot.name, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite],
   );
   const place = effectivePlace(bot, bot.tasks?.find((task) => task.threadId === bot.threadId));
 
