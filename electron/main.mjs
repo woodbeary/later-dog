@@ -21,7 +21,7 @@ import { createAndroidDeviceController } from "./android-device.mjs";
 import { finishSpeech, startSpeech, stopSpeech, voiceNoteAudio } from "./speech.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
 import { pasteMenuItem } from "./paste-menu-item.mjs";
-import { attachUpdaterWindow, startUpdater, registerUpdaterIpc, sendUpdaterState, setReleaseCheckEnabled } from "./updater.mjs";
+import { attachUpdaterWindow, startUpdater, registerUpdaterIpc, sendUpdaterState, setReleaseCheckEnabled, setUpdaterMacInUse } from "./updater.mjs";
 import {
   buildDiagnosticsReport,
   diagnosticsFileName,
@@ -1334,7 +1334,11 @@ function sharingController() {
     cloud: cloudLendingSnapshot,
     pairCloud: async () => cloudAccount?.homeTarget() ? cloudAccount.pairHome() : null,
     primeAccess: () => app.isPackaged ? primeHomeFolders(os.homedir()) : undefined,
-    onChange: summary => lendingIndicator().update({ lending: summary.lending.length > 0, busy: Boolean(summary.busy && summary.lending.includes(summary.busy.env)) }),
+    onChange: summary => {
+      const busy = Boolean(summary.busy && summary.lending.includes(summary.busy.env));
+      lendingIndicator().update({ lending: summary.lending.length > 0, busy });
+      setUpdaterMacInUse(busy);
+    },
     cuaConnection: lendingCua,
     hostControl: async (id, signal) => {
       const lease = async action => {
@@ -3032,7 +3036,7 @@ app.whenReady().then(async () => {
   }
   registerCuaIpc();
   androidDevice.registerIpc(ipcMain);
-  registerUpdaterIpc({ pageAllowed: updaterPageAllowed });
+  registerUpdaterIpc({ pageAllowed: updaterPageAllowed, cloudPage: event => cloudPageAsking(event) === "cloud" });
   cuaReady =
     !desktopRemoteAccess && (process.platform === "darwin" || process.platform === "linux" || process.platform === "win32")
       ? startCua().catch((e) => {

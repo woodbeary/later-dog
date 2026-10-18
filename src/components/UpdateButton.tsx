@@ -2,22 +2,22 @@ import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } fro
 import { createPortal } from "react-dom";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ArrowDownToLine, CircleAlert, Loader2, SquareTerminal } from "lucide-react";
+import { ArrowDownToLine, Check, CircleAlert, Loader2, SquareTerminal } from "lucide-react";
 import { useModalDialog } from "@/hooks/use-modal-dialog";
 import { openExternalLink } from "@/lib/app-links";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { dismissUpdateDialog, requestUpdateDialog, subscribeUpdateDialog, updateDialogOpen } from "@/lib/update-request";
+import { dismissUpdateDialog, dismissUpdateReceipt, requestUpdateDialog, subscribeUpdateDialog, updateDialogOpen, updateReceiptDismissed } from "@/lib/update-request";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
 import { useStore, type Bot } from "@/state/store";
 import { brand } from "../lib/brand";
 import { releaseOffer } from "./ReleaseCheck";
 
-export type UpdateButtonPhase = "downloading" | "preparing" | "downloaded" | "installing" | "handed-off" | "error" | "available";
+export type UpdateButtonPhase = "downloading" | "preparing" | "downloaded" | "installing" | "handed-off" | "error" | "available" | "updated" | "unfinished";
 
 type WorkingBot = Pick<Bot, "name" | "busy" | "activity" | "tasks">;
 
-export function updateButtonPhase(state: UpdaterState | null): UpdateButtonPhase | null {
+export function updateButtonPhase(state: UpdaterState | null, receiptDismissed = false): UpdateButtonPhase | null {
   switch (state?.status) {
     case "downloading":
     case "preparing":
@@ -27,8 +27,17 @@ export function updateButtonPhase(state: UpdaterState | null): UpdateButtonPhase
     case "error":
       return state.status;
     default:
+      if (state?.receipt && !receiptDismissed) return state.receipt.outcome;
       return releaseOffer(state) ? "available" : null;
   }
+}
+
+export function updateReceiptLine(state: UpdaterState | null): string | null {
+  const receipt = state?.receipt;
+  if (!receipt) return null;
+  return receipt.outcome === "updated"
+    ? t("update.receipt.updated", { version: receipt.version })
+    : t("update.receipt.unfinished", { version: receipt.version });
 }
 
 export function workingDogNames(bots: readonly WorkingBot[]): string[] {
@@ -41,6 +50,11 @@ export function workingWarning(names: readonly string[]): string | null {
   if (names.length === 0) return null;
   if (names.length === 1) return t("update.working.one", { name: names[0]! });
   return t("update.working.many", { count: names.length });
+}
+
+export function restartWarning(state: UpdaterState, bots: readonly WorkingBot[]): string | null {
+  if (state.cloudPage) return state.macInUse ? t("update.working.mac") : null;
+  return workingWarning(workingDogNames(bots));
 }
 
 export function updateErrorText(message?: string): string {
@@ -72,6 +86,9 @@ export function updateButtonTitle(phase: UpdateButtonPhase, state: UpdaterState)
       return t("update.title.failed");
     case "available":
       return t("releaseCheck.available", { app, version: releaseOffer(state)?.version ?? "" });
+    case "updated":
+    case "unfinished":
+      return updateReceiptLine(state) ?? "";
   }
 }
 
@@ -140,13 +157,18 @@ export function updatePillView(phase: UpdateButtonPhase, state: UpdaterState): U
       return { kind: "problem", label: state.retryable === false ? t("update.pill.failed") : `${t("update.pill.failed")} · ${t("update.pill.retry")}`, busy: false };
     case "available":
       return { kind: "download", label: t("update.pill.download"), busy: false };
+    case "updated":
+      return { kind: "quiet", label: updateReceiptLine(state) ?? "", busy: false };
+    case "unfinished":
+      return { kind: "problem", label: `${updateReceiptLine(state) ?? ""} · ${t("update.pill.retry")}`, busy: state.status === "checking" };
   }
 }
 
 function PillGlyph({ phase, busy }: { phase: UpdateButtonPhase; busy: boolean }) {
   if (busy) return <Loader2 size={14} aria-hidden="true" className="shrink-0 animate-spin motion-reduce:animate-none" />;
-  if (phase === "error") return <CircleAlert size={14} aria-hidden="true" className="shrink-0" />;
+  if (phase === "error" || phase === "unfinished") return <CircleAlert size={14} aria-hidden="true" className="shrink-0" />;
   if (phase === "handed-off") return <SquareTerminal size={14} aria-hidden="true" className="shrink-0" />;
+  if (phase === "updated") return <Check size={14} aria-hidden="true" className="shrink-0" />;
   return <ArrowDownToLine size={14} aria-hidden="true" className="shrink-0" />;
 }
 
@@ -159,17 +181,21 @@ const PILL_TONE: Record<UpdatePillKind, string> = {
 
 export function UpdatePill({ compact = false }: { compact?: boolean }) {
   const state = useUpdaterState();
+  const receiptDismissed = useSyncExternalStore(subscribeUpdateDialog, updateReceiptDismissed, updateReceiptDismissed);
   const updater = window.laterdog?.updater;
-  const phase = updateButtonPhase(state);
+  const phase = updateButtonPhase(state, receiptDismissed);
   if (!state || !phase || !updater) return null;
   const view = updatePillView(phase, state);
   const title = updateButtonTitle(phase, state);
   const act = () => {
-    if (phase === "downloaded" || phase === "installing") return requestUpdateDialog();
+    if (phase === "downloaded" || phase === "preparing" || phase === "installing") return requestUpdateDialog();
     if (phase === "error" && state.retryable !== false) return void updater.check();
+    if (phase === "updated") return dismissUpdateReceipt();
+    if (phase === "unfinished") return void updater.check();
     const release = releaseOffer(state);
     if (phase === "available" && release) void openExternalLink(release.url);
   };
+  const waiting = phase === "preparing" || phase === "installing";
   const inert = view.busy || phase === "handed-off" || (phase === "error" && state.retryable === false);
   if (compact && view.kind === "quiet" && phase !== "downloading") return null;
   return (
@@ -179,7 +205,7 @@ export function UpdatePill({ compact = false }: { compact?: boolean }) {
       data-update-kind={view.kind}
       aria-label={title}
       title={title}
-      disabled={inert && phase !== "installing"}
+      disabled={inert && !waiting}
       onClick={act}
       className={cn(
         "animate-pop-in relative flex shrink-0 items-center overflow-hidden rounded-full text-[12.5px] transition-colors disabled:cursor-default",
@@ -201,24 +227,27 @@ export function UpdatePill({ compact = false }: { compact?: boolean }) {
 export interface UpdateDialogProps {
   phase: UpdateButtonPhase;
   state: UpdaterState;
-  working: readonly string[];
+  warning: string | null;
   pending: boolean;
   onInstall: () => void;
   onRetry: () => void;
   onClose: () => void;
 }
 
-export function UpdateDialogCard({ phase, state, working, pending, onInstall, onRetry, onClose }: UpdateDialogProps) {
+export function UpdateDialogCard({ phase, state, warning: restartWarningLine, pending, onInstall, onRetry, onClose }: UpdateDialogProps) {
   const app = brand().name;
   const version = state.version ?? "";
   const handoff = state.installMode === "handoff";
   const release = releaseOffer(state);
   const notes = state.notes?.trim();
-  const warning = phase === "downloaded" && !handoff ? workingWarning(working) : null;
-  const title = phase === "error" ? t("update.title.failed") : tidy(t("update.confirm.title", { app, version }));
+  const warning = phase === "downloaded" && !handoff ? restartWarningLine : null;
+  const waiting = phase === "preparing" || phase === "installing";
+  const title = phase === "error" ? t("update.title.failed")
+    : phase === "preparing" ? tidy(t("update.title.preparing", { app, version }))
+    : tidy(t("update.confirm.title", { app, version }));
   const body = phase === "error" ? updateErrorText(state.message)
     : phase === "handed-off" ? (state.terminalOpened ? t("update.body.handedOffOpened") : t("update.body.handedOff"))
-    : phase === "installing" ? (state.message?.trim() || t("update.body.installing", { app }))
+    : waiting ? (state.message?.trim() || t("update.body.installing", { app }))
     : handoff ? t("update.body.readyInstall")
     : t("update.confirm.body", { app });
   const ready = phase === "downloaded";
@@ -252,15 +281,15 @@ export function UpdateDialogCard({ phase, state, working, pending, onInstall, on
       )}
       {warning && <p data-update-warning className="mx-5 mt-3 truncate text-[12px] text-warning" title={warning}>{warning}</p>}
       <div className="mt-4 flex justify-end gap-2 px-5 pb-5">
-        {phase !== "installing" && (
+        {!waiting && (
           <button type="button" onClick={onClose} disabled={pending} className="rounded-full bg-control px-4 py-1.5 text-[13px] text-ink hover:bg-control-hover disabled:opacity-50">
             {ready ? t("releaseCheck.later") : t("update.close")}
           </button>
         )}
-        {(ready || phase === "installing") && (
-          <button type="button" data-update-confirm disabled={pending || phase === "installing"} onClick={onInstall}
+        {(ready || waiting) && (
+          <button type="button" data-update-confirm disabled={pending || waiting} onClick={onInstall}
             className="flex items-center gap-1.5 rounded-full bg-update px-4 py-1.5 text-[13px] font-medium text-white hover:bg-update-hover disabled:cursor-default disabled:opacity-70">
-            {pending || phase === "installing" ? <><Loader2 size={13} className="animate-spin" /> {restarting}</> : handoff ? t("settings.updates.install") : t("update.confirm.update")}
+            {pending || waiting ? <><Loader2 size={13} className="animate-spin" /> {restarting}</> : handoff ? t("settings.updates.install") : t("update.confirm.update")}
           </button>
         )}
         {phase === "error" && state.retryable !== false && (
@@ -286,7 +315,8 @@ export function UpdateDialog() {
   const dialogRef = useRef<HTMLDivElement>(null);
   const phase = updateButtonPhase(state);
   const status = state?.status;
-  useEffect(() => setPending(false), [status]);
+  const version = state?.version;
+  useEffect(() => setPending(false), [status, version]);
   const updater = window.laterdog?.updater;
   const shown = open && Boolean(state && phase && updater);
   useEffect(() => {
@@ -297,9 +327,9 @@ export function UpdateDialog() {
     <UpdateDialogCard
       phase={phase}
       state={state}
-      working={workingDogNames(store.bots)}
+      warning={restartWarning(state, store.bots)}
       pending={pending}
-      onInstall={() => { setPending(true); void updater.install(); }}
+      onInstall={() => { setPending(true); void updater.install(state.version); }}
       onRetry={() => { setPending(true); void updater.check(); }}
       onClose={dismissUpdateDialog}
     />

@@ -9,7 +9,7 @@ const fixture = vi.hoisted(() => ({ state: { status: "idle" } as UpdaterState, b
 vi.mock("@/lib/updater", () => ({ useUpdaterState: () => (window.laterdog?.updater ? fixture.state : null) }));
 vi.mock("@/state/store", () => ({ useStore: () => ({ state: { bots: fixture.bots }, dispatch: () => {} }) }));
 vi.mock("../lib/brand", () => ({ brand: () => ({ name: "later.dog" }) }));
-import { UpdateDialogCard, UpdatePill, updateButtonPhase, updateErrorText, updatePillView, workingDogNames, workingWarning, type UpdateButtonPhase } from "./UpdateButton";
+import { restartWarning, UpdateDialogCard, UpdatePill, updateButtonPhase, updateErrorText, updatePillView, workingDogNames, workingWarning, type UpdateButtonPhase } from "./UpdateButton";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -25,7 +25,8 @@ function pill(state: UpdaterState, window: object = { laterdog: { updater: {} } 
 function panel(state: UpdaterState, { working = [] as string[], pending = false } = {}) {
   vi.stubGlobal("window", { laterdog: { updater: {} } });
   const phase = updateButtonPhase(state) as UpdateButtonPhase;
-  return renderToStaticMarkup(createElement(UpdateDialogCard, { phase, state, working, pending, onInstall: () => {}, onRetry: () => {}, onClose: () => {} }));
+  const warning = restartWarning(state, working.map((name) => ({ name, busy: true })));
+  return renderToStaticMarkup(createElement(UpdateDialogCard, { phase, state, warning, pending, onInstall: () => {}, onRetry: () => {}, onClose: () => {} }));
 }
 
 const LOCAL = "http://127.0.0.1:8799";
@@ -102,6 +103,27 @@ describe("the update pill", () => {
     expect(pill({ status: "downloading", percent: 5 }, undefined, true)).toContain('data-update-pill="downloading"');
   });
 
+  it("says once, after a restart, whether the update worked", () => {
+    const updated = pill({ status: "idle", receipt: { outcome: "updated", version: "0.3.43" } });
+    expect(updated).toContain('data-update-pill="updated"');
+    expect(updated).toContain('data-update-kind="quiet"');
+    expect(updated).toContain("Updated to 0.3.43");
+    expect(updated).not.toContain('disabled=""');
+    const unfinished = pill({ status: "idle", receipt: { outcome: "unfinished", version: "0.3.43" } });
+    expect(unfinished).toContain('data-update-kind="problem"');
+    expect(unfinished).toContain("The update to 0.3.43 didn&#x27;t finish · Try again");
+    expect(pill({ status: "checking", receipt: { outcome: "unfinished", version: "0.3.43" } })).toContain("animate-spin");
+    expect(pill({ status: "downloaded", version: "0.3.44", receipt: { outcome: "unfinished", version: "0.3.43" } })).toContain('data-update-pill="downloaded"');
+    expect(updateButtonPhase({ status: "idle", receipt: { outcome: "updated", version: "0.3.43" } }, true)).toBeNull();
+    expect(pill({ status: "idle", receipt: { outcome: "updated", version: "0.3.43" } }, undefined, true)).toBe("");
+  });
+
+  it("opens the dialog from the pill while the approved update is getting ready", () => {
+    const html = pill({ status: "preparing", version: "0.3.4" });
+    expect(html).toContain('data-update-pill="preparing"');
+    expect(html).not.toContain('disabled=""');
+  });
+
   it("maps every updater state to a phase and a pill", () => {
     expect(updateButtonPhase(null)).toBeNull();
     expect(updateButtonPhase({ status: "idle" })).toBeNull();
@@ -138,6 +160,24 @@ describe("the update dialog", () => {
     expect(panel({ status: "downloaded", version: "0.3.4" }, { working: ["Pepper", "Biscuit"] })).toContain("2 dogs are still working. Restarting now interrupts them.");
     expect(panel({ status: "downloaded", version: "0.3.4" })).not.toContain("still working");
     expect(panel({ status: "downloaded", version: "0.3.4", installMode: "handoff" }, { working: ["Pepper"] })).not.toContain("still working");
+  });
+
+  it("on the Cloud home warns only when a dog is using this Mac, since Cloud dogs keep working through a restart", () => {
+    expect(panel({ status: "downloaded", version: "0.3.4", cloudPage: true }, { working: ["Pepper"] })).not.toContain("data-update-warning");
+    const busy = panel({ status: "downloaded", version: "0.3.4", cloudPage: true, macInUse: true }, { working: ["Pepper"] });
+    expect(busy).toContain("A dog is using this Mac. Restarting now interrupts it.");
+    expect(busy).not.toContain("Pepper");
+    expect(panel({ status: "downloaded", version: "0.3.4", cloudPage: false, macInUse: true }, { working: ["Pepper"] })).toContain("Pepper is still working.");
+  });
+
+  it("waits with a spinner while macOS gets the approved update ready", () => {
+    const html = panel({ status: "preparing", version: "0.3.4" });
+    expect(html).toContain("Getting later.dog 0.3.4 ready");
+    expect(html).toContain("later.dog will reopen in a moment.");
+    expect(html).toContain("Restarting…");
+    expect(html).toContain('disabled=""');
+    expect(html).not.toContain(">Later<");
+    expect(html).not.toContain(">Close<");
   });
 
   it("greys the restart out once it is pressed", () => {

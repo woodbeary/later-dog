@@ -145,7 +145,7 @@ export function useUpdateItem(): UpdateEntry | null {
         if (release) return void openExternalLink(release.url);
         if (phase === "downloaded") {
           setPending(true);
-          return void updater.install();
+          return void updater.install(state.version);
         }
         setCheckedAt(Date.now());
         void updater.check();

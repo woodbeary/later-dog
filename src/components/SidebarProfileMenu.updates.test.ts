@@ -43,3 +43,9 @@ it("offers a newer release's download quietly where this build cannot update its
   expect(entry({ status: "idle", releaseCheck: "off" })).toBeNull();
   expect(entry({ status: "idle", releaseCheck: "on" })?.label).toBe("Check for updates");
 });
+
+it("restarts with the version the menu shows", () => {
+  const ready = entry({ status: "downloaded", version: "0.2.0" });
+  ready!.item.onSelect();
+  expect((window as unknown as { laterdog: { updater: { install: ReturnType<typeof vi.fn> } } }).laterdog.updater.install).toHaveBeenCalledWith("0.2.0");
+});

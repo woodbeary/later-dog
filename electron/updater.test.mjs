@@ -14,10 +14,10 @@ const CLOUD = "https://home-7f3k2.fly.dev";
 const OTHER = "https://bots.example.test";
 const PROFILE = "http://127.0.0.1:8811";
 
-const fixture = vi.hoisted(() => ({ autoUpdater: null, handlers: new Map(), appPath: "/unused-updater-test-app" }));
+const fixture = vi.hoisted(() => ({ autoUpdater: null, handlers: new Map(), appPath: "/unused-updater-test-app", userData: "/unused-updater-test-log" }));
 
 vi.mock("electron", () => ({
-  app: { isPackaged: true, getPath: () => "/unused-updater-test-log", getVersion: () => "0.1.2", getAppPath: () => fixture.appPath },
+  app: { isPackaged: true, getPath: () => fixture.userData, getVersion: () => "0.1.2", getAppPath: () => fixture.appPath },
   clipboard: { writeText: vi.fn() },
   ipcMain: { handle: (name, handler) => fixture.handlers.set(name, handler) },
 }));
@@ -36,7 +36,7 @@ function mainRule() {
   const start = source.indexOf("function destinationFor(entry) {"), end = source.indexOf("const savedWorkspace = id =>", start);
   expect(start).toBeGreaterThanOrEqual(0);
   expect(end).toBeGreaterThan(start);
-  expect(source.includes("registerUpdaterIpc({ pageAllowed: updaterPageAllowed });"), "main.mjs wires the updater to updaterPageAllowed").toBe(true);
+  expect(source.includes('registerUpdaterIpc({ pageAllowed: updaterPageAllowed, cloudPage: event => cloudPageAsking(event) === "cloud" });'), "main.mjs wires the updater to updaterPageAllowed").toBe(true);
   const signInStart = source.indexOf("function ensureCloudAccount() {"), signInEnd = source.indexOf("function ensureCloudSignIn() {", signInStart);
   expect(signInStart).toBeGreaterThanOrEqual(0);
   expect(signInEnd).toBeGreaterThan(signInStart);
@@ -127,6 +127,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   fixture.appPath = "/unused-updater-test-app";
+  fixture.userData = "/unused-updater-test-log";
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.unstubAllEnvs();
@@ -226,7 +227,7 @@ it("takes a plain-http feed only from the environment and only on this computer,
   expect(autoUpdater.setFeedURL).toHaveBeenCalledWith({ provider: "generic", url: "http://127.0.0.1:8123/" });
 });
 
-function bridgeFor(origin, { clicked = false, rule = null } = {}) {
+function bridgeFor(origin, { clicked = false, rule = null, states = [] } = {}) {
   let bridge;
   const invoked = [];
   const asked = [];
@@ -246,7 +247,7 @@ function bridgeFor(origin, { clicked = false, rule = null } = {}) {
           if (!rule) return undefined;
           return channel === "profiles:page" ? rule.context.profilePageSender(loading.event) : rule.offered(loading.event);
         },
-        invoke: (...args) => { invoked.push(args); return Promise.resolve({ status: "idle" }); },
+        invoke: (...args) => { invoked.push(args); return Promise.resolve(args[0] === "update:get-state" && states.length ? states.shift() : { status: "idle" }); },
       },
     }),
   });
@@ -257,8 +258,8 @@ it("My Cloud's page gets the update bridge, and it restarts the app only on the 
   const local = bridgeFor(LOCAL);
   expect(Object.keys(local.bridge.updater).sort()).toEqual(["check", "install", "onState"]);
   expect(local.asked, "this computer's page has the whole bridge without asking").toEqual([]);
-  await local.bridge.updater.install();
-  expect(local.invoked).toEqual([["update:install"]]);
+  await local.bridge.updater.install("0.3.43");
+  expect(local.invoked).toEqual([["update:install", "0.3.43"]]);
 
   const rule = mainRule();
   rule.show(page(CLOUD), "cloud");
@@ -269,8 +270,22 @@ it("My Cloud's page gets the update bridge, and it restarts the app only on the 
   cloud.bridge.updater.onState(() => {});
   expect(cloud.invoked).toEqual([["update:check"], ["update:get-state"]]);
   const clicked = bridgeFor(CLOUD, { clicked: true, rule });
-  await clicked.bridge.updater.install();
-  expect(clicked.invoked).toEqual([["update:install"]]);
+  await clicked.bridge.updater.install("0.3.43");
+  expect(clicked.invoked).toEqual([["update:install", "0.3.43"]]);
+});
+
+it("a page that names no version installs the one it was last shown as ready, never one it never saw", async () => {
+  const quiet = bridgeFor(LOCAL);
+  await quiet.bridge.updater.install();
+  expect(quiet.invoked).toEqual([["update:install", undefined]]);
+
+  const ready = bridgeFor(LOCAL, { states: [{ status: "downloaded", version: "0.3.43" }] });
+  let delivered;
+  ready.bridge.updater.onState((state) => { delivered = state; });
+  await settle();
+  expect(delivered).toEqual({ status: "downloaded", version: "0.3.43" });
+  await ready.bridge.updater.install();
+  expect(ready.invoked.at(-1)).toEqual(["update:install", "0.3.43"]);
 });
 
 it("another server's page never gets the update bridge; My Cloud's does, even while the sign-in restores", () => {
@@ -302,16 +317,16 @@ it("another server's page never gets the update bridge; My Cloud's does, even wh
   expect("updater" in bridgeFor(CLOUD).bridge).toBe(false);
 });
 
-it("a downloaded update installs when the app quits, except a system package, which is the person's to install", async () => {
+it("quitting never installs a downloaded update, on any platform or package type", async () => {
   const platform = Object.getOwnPropertyDescriptor(process, "platform");
   const resourcesPath = process.resourcesPath;
   const appImage = process.env.APPIMAGE;
   const resources = mkdtempSync(join(tmpdir(), "laterdog-updater-package-"));
   try {
     for (const [os, marker, image, installsOnQuit] of [
-      ["darwin", null, null, true],
-      ["win32", null, null, true],
-      ["linux", null, "/home/a/later.dog.AppImage", true],
+      ["darwin", null, null, false],
+      ["win32", null, null, false],
+      ["linux", null, "/home/a/later.dog.AppImage", false],
       ["linux", "deb", null, false],
       ["linux", "rpm", null, false],
     ]) {
@@ -466,7 +481,65 @@ it("sends updater progress to a reopened window without restarting the updater",
 
   expect(first.webContents.send).not.toHaveBeenCalled();
   expect(reopened.webContents.send.mock.calls.map(([, state]) => state.status))
-    .toEqual(["checking", "downloading", "downloading", ...(process.platform === "darwin" ? ["preparing"] : []), "downloaded"]);
+    .toEqual(["checking", "downloading", "downloading", "downloaded"]);
   expect(autoUpdater.eventNames().reduce((count, name) => count + autoUpdater.listenerCount(name), 0)).toBe(listenerCount);
   expect(vi.getTimerCount()).toBe(timerCount);
+});
+
+it("tells the page whether it is the Cloud home and whether a dog is using this Mac, so the restart warning is right", async () => {
+  vi.resetModules();
+  fixture.handlers.clear();
+  const autoUpdater = new EventEmitter();
+  autoUpdater.checkForUpdates = vi.fn(async () => ({}));
+  autoUpdater.setFeedURL = vi.fn();
+  fixture.autoUpdater = autoUpdater;
+  const updater = await import("./updater.mjs");
+  const cloud = page(CLOUD);
+  const local = page(LOCAL);
+  updater.registerUpdaterIpc({ pageAllowed: () => true, cloudPage: (event) => event.senderFrame.url === `${CLOUD}/` });
+  updater.attachUpdaterWindow({ webContents: cloud.webContents });
+  const get = fixture.handlers.get("update:get-state");
+  expect(get(cloud.event)).toMatchObject({ cloudPage: true });
+  expect(get(local.event)).toMatchObject({ cloudPage: false });
+  expect(get(cloud.event).macInUse).toBeFalsy();
+
+  updater.setUpdaterMacInUse(true);
+  expect(cloud.webContents.send).toHaveBeenLastCalledWith("update:state", expect.objectContaining({ cloudPage: true, macInUse: true }));
+  const sends = cloud.webContents.send.mock.calls.length;
+  updater.setUpdaterMacInUse(true);
+  expect(cloud.webContents.send.mock.calls.length).toBe(sends);
+  updater.setUpdaterMacInUse(false);
+  expect(get(cloud.event)).toMatchObject({ macInUse: false });
+});
+
+it("installs only the version the page approved, leaves a receipt, and the next launch reads it once", async () => {
+  const userData = mkdtempSync(join(tmpdir(), "laterdog-updater-receipt-"));
+  try {
+    fixture.userData = userData;
+    const { updater, autoUpdater, handlers } = await load(() => true);
+    const native = new EventEmitter();
+    native.checkForUpdates = vi.fn();
+    autoUpdater.nativeUpdater = native;
+    updater.startUpdater();
+    await vi.advanceTimersByTimeAsync(15_000);
+    await settle();
+    const local = page(LOCAL);
+    handlers.get("update:install")(local.event, "1.9.0");
+    handlers.get("update:install")(local.event, { version: "2.0.0" });
+    expect(autoUpdater.quitAndInstall).not.toHaveBeenCalled();
+    expect(native.checkForUpdates).not.toHaveBeenCalled();
+
+    handlers.get("update:install")(local.event, "2.0.0");
+    native.emit("update-downloaded");
+    expect(autoUpdater.quitAndInstall).toHaveBeenCalledTimes(1);
+    expect(native.checkForUpdates).toHaveBeenCalledTimes(process.platform === "darwin" ? 1 : 0);
+    expect(JSON.parse(readFileSync(join(userData, "update-receipt.json"), "utf8"))).toMatchObject({ from: "0.1.2", target: "2.0.0" });
+
+    const next = await load(() => true);
+    next.updater.startUpdater();
+    expect(next.handlers.get("update:get-state")(local.event).receipt).toEqual({ outcome: "unfinished", version: "2.0.0" });
+    expect(() => readFileSync(join(userData, "update-receipt.json"))).toThrow(/ENOENT/);
+  } finally {
+    rmSync(userData, { recursive: true, force: true });
+  }
 });

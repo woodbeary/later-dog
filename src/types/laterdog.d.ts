@@ -267,7 +267,7 @@ const __APP_VERSION__: string;
       ): Promise<ConfigStatus>;
       updater?: {
         check(): Promise<void>;
-        install(): Promise<void>;
+        install(version?: string): Promise<void>;
         onState(cb: (s: UpdaterState) => void): () => void;
       };
       releaseCheck?: {
@@ -310,6 +310,9 @@ export interface UpdaterState {
   terminalOpened?: boolean;
   available?: { version: string; url: string };
   releaseCheck?: "on" | "off";
+  receipt?: { outcome: "updated" | "unfinished"; version: string };
+  cloudPage?: boolean;
+  macInUse?: boolean;
 }
 
 export interface CompanionAccountState {
