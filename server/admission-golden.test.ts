@@ -72,12 +72,4 @@ describe("admission golden tables", () => {
     expect(admit("peer", {}, { botBusy: true })).toEqual({ action: "start" });
     expect(admit("peer", {}, { parksBehindCoordination: true })).toEqual({ action: "start" });
   });
-
-  it("opened-thread: a bot's self-opened thread queues only behind a slot or room turn", () => {
-    expect(admit("opened-thread", {}, {})).toEqual({ action: "start" });
-    expect(admit("opened-thread", {}, { atCapacity: true })).toEqual({ action: "queue", reason: "capacity" });
-    expect(admit("opened-thread", {}, { groupTurn: true })).toEqual({ action: "queue", reason: "group-turn" });
-    expect(admit("opened-thread", {}, { atCapacity: true, groupTurn: true })).toEqual({ action: "queue", reason: "capacity" });
-    expect(admit("opened-thread", {}, { threadBusy: true })).toEqual({ action: "start" });
-  });
 });

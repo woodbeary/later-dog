@@ -3,7 +3,6 @@ export const READ_ONLY_AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
   "list_team_setup",
   "list_shared_computers",
   "list_rooms",
-  "list_threads",
   "check_delegation",
   "wait_delegation",
   "session_search",

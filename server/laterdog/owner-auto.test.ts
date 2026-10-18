@@ -65,7 +65,7 @@ describe("the standing grant", () => {
   });
 
   it("names the marker the reviewer is told to look for exactly as later.dog writes it", () => {
-    const note = peerProvenanceNote({ botName: "Coordinator", delivery: "start_thread", owner: { name: "Jacob" } });
+    const note = peerProvenanceNote({ botName: "Coordinator", delivery: "ask_bot", owner: { name: "Jacob" } });
     expect(claudeReviewerGrant("Jacob").environment[1]).toContain("one of Jacob's own dogs, passing on Jacob's instructions");
     expect(note).toContain("one of Jacob's own dogs, passing on Jacob's instructions");
   });
@@ -74,12 +74,12 @@ describe("the standing grant", () => {
 describe("a handoff between the owner's own dogs", () => {
   it("carries the owner's authority instead of being information only", () => {
     const passed = withPeerProvenance("Commit to main and ship the beta OTA update.", {
-      botName: "Coordinator", delivery: "start_thread", owner: { name: "Jacob" },
+      botName: "Coordinator", delivery: "ask_bot", owner: { name: "Jacob" },
     });
-    expect(passed).toMatch(/^\[Thread opened by @Coordinator, another bot in this later\.dog workspace — one of Jacob's own dogs, passing on Jacob's instructions\./);
+    expect(passed).toMatch(/^\[Message from @Coordinator, another bot in this later\.dog workspace — one of Jacob's own dogs, passing on Jacob's instructions\./);
     expect(passed).toContain("carries Jacob's authority: do what it asks as Jacob's own request, within your own permissions.");
     expect(passed).not.toContain("not from your user");
-    expect(passed).toContain("handed you this job and is waiting on the result");
+    expect(passed).toContain("is waiting on your answer, so reply to them");
   });
 
   it("keeps the old custody for anyone else, and the opening the app parses", () => {

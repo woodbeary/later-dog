@@ -7,7 +7,6 @@ import { COMPUTER_RULE } from "../laterdog/mac-computer.ts";
 export interface CatalogProfile {
   externalRuntime: boolean;
   coordinating: boolean;
-  ownThreadCreation: boolean;
   skillAuthoring: boolean;
   sharedComputers: boolean;
   voiceNotes: boolean;
@@ -23,7 +22,6 @@ export function catalogProfileFromEnv(env: NodeJS.ProcessEnv): CatalogProfile {
   return {
     externalRuntime,
     coordinating: !externalRuntime && env.LATERDOG_ROOM_TURN === "1",
-    ownThreadCreation: env.LATERDOG_OWN_THREAD_CREATION === "1",
     skillAuthoring: env.LATERDOG_SKILL_AUTHORING_ENABLED === "1",
     sharedComputers: env.LATERDOG_SHARED_COMPUTERS_ENABLED === "1",
     voiceNotes: env.LATERDOG_VOICE_NOTES === "1",
@@ -241,7 +239,7 @@ const toolDefinitions = (externalRuntime: boolean) => [
   },
   {
     name: "send_to_bot",
-    description: "Send work one way to another bot in a fresh thread. This is cross-bot only: use start_thread to send independent work to yourself. The recipient owns the new thread; its results, failures and questions stay there and never resume you. Use coordinate_bots when you need the result returned here.",
+    description: "Send work one way to another bot. The recipient owns the new thread; its results, failures and questions stay there and never resume you. Use coordinate_bots when you need the result returned here.",
     inputSchema: { type: "object", additionalProperties: false, properties: {
       bot_id: { type: "string", description: "One reachable teammate id from list_bots or list_room_targets." },
       title: { type: "string", description: "A short one-line title, at most 80 characters." },
@@ -328,39 +326,6 @@ const toolDefinitions = (externalRuntime: boolean) => [
       surface: { type: "string", enum: ["auto", "cloud", "local"],
         description: "auto = suitable configured computer, cloud = the dog's own cloud computer, local = the user's own computer. Omit to list." },
     } },
-  },
-  {
-    name: "list_threads",
-    description:
-      "See your own threads and the threads you opened on teammates, newest first: each with its bot, title, state (running, waiting on the person, queued, idle, or closed), whether the person has unread there, and the delegation id if it was a handoff. Use it to check how the threads you started are going before reporting to the person; write a thread's title as #Title when you mention it. A teammate's other threads are never listed — only the ones you opened. This is a read: it starts nothing and changes nothing.",
-    inputSchema: { type: "object", additionalProperties: false, properties: {} },
-  },
-  {
-    name: "close_thread",
-    description:
-      "Mark a thread you opened (or one of your own) as finished once you have read its result: it leaves the person's default sidebar list (still under all threads, with a note saying you closed it) and list_threads reports it as closed. Nothing is deleted — deleting stays the person's decision — and a thread that is still running cannot be closed; wait for it or leave it. Use the thread id from list_threads or from the start_thread result. If a close is refused, do not retry it.",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: { thread_id: { type: "string", description: "The thread id from list_threads or start_thread." } },
-      required: ["thread_id"],
-    },
-  },
-  {
-    name: "start_thread",
-    description:
-      "Open a new thread: one conversation with its own history and its own run, shown to the person as a row under the bot it belongs to. Leave bot_id out to open it on yourself, for a separate job that should run on its own (\"review each pull request\" — one thread per pull request) instead of inside this conversation. Give bot_id (from list_bots) to open it on a teammate: that is a handoff into a fresh thread, which starts after your current turn ends and whose result is delivered here, like delegate_bot. The title becomes the row's name, so make it short and specific; write it as #Title when you mention it to the person. Do not use it for a question you need answered right now (ask_bot), for one task where the teammate's usual conversation is fine (delegate_bot), or for a note nobody has to act on. If a call is refused, do not retry it: say what you still wanted opened.",
-    inputSchema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        title: { type: "string", description: "The thread's name: one short line, at most 80 characters, specific enough to tell it apart from the others (for example \"QA: PR #412 login fix\")." },
-        message: { type: "string", description: "The complete first message of the thread — everything the run needs, since it will not see this conversation." },
-        bot_id: { type: "string", description: "Optional: the teammate's id from list_bots. Leave out to open the thread on yourself." },
-        folder: { type: "string", description: "Optional: the name of one of that bot's existing folders to file the thread under. Leave out unless the person named one." },
-      },
-      required: ["title", "message"],
-    },
   },
   {
     name: "attach_file",
@@ -895,7 +860,7 @@ const CHIEF_ONLY_TOOL_NAMES = new Set([
 ]);
 const CHIEF_TARGET_TOOL_NAMES = new Set(["propose_model"]);
 const ROOM_ONLY_TOOLS = new Set(["list_room_targets", "coordinate_bots", "send_to_bot"]);
-const ROOM_REPLACED_TOOLS = new Set(["ask_bot", "delegate_bot", "check_delegation", "wait_delegation", "start_thread"]);
+const ROOM_REPLACED_TOOLS = new Set(["ask_bot", "delegate_bot", "check_delegation", "wait_delegation"]);
 const EXTERNAL_TOOL_NAMES = new Set(["list_bots", "ask_bot", "delegate_bot", "check_delegation", "wait_delegation"]);
 const WATCHER_TOOL_NAMES = new Set(["create_options_card"]);
 
@@ -944,13 +909,6 @@ function catalogTools(profile: CatalogProfile) {
   return profile.externalRuntime
     ? BOT_SCOPED_TOOLS.filter(tool => EXTERNAL_TOOL_NAMES.has(tool.name))
     : profile.coordinating
-    ? ROLE_TOOLS.filter(tool => !ROOM_REPLACED_TOOLS.has(tool.name) || (tool.name === "start_thread" && profile.ownThreadCreation))
-      .map(tool => tool.name === "start_thread" ? {
-        ...tool,
-        description: "Open a separate job on yourself with its own history and run, without switching the person's selected conversation. Use only when the user requests independent jobs (for example one review per pull request). Give a short specific title and complete instructions; you can open at most five per turn. This is not a teammate handoff: use coordinate_bots for teammates and their automatic replies. Self-opened jobs cannot recursively open more jobs. If refused, do not retry; explain what remains.",
-        inputSchema: { ...tool.inputSchema, properties: { ...tool.inputSchema.properties,
-          bot_id: { type: "string", enum: [profile.botId], description: "Leave out, or use your own bot ID. For teammates use coordinate_bots." },
-        } },
-      } : tool)
+    ? ROLE_TOOLS.filter(tool => !ROOM_REPLACED_TOOLS.has(tool.name))
     : ROLE_TOOLS.filter(tool => !ROOM_ONLY_TOOLS.has(tool.name));
 }

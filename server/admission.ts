@@ -6,8 +6,7 @@ export type AdmissionSurface =
   | "room-steer"
   | "guarded"
   | "unattended"
-  | "peer"
-  | "opened-thread";
+  | "peer";
 
 export type AdmissionQueueReason = "capacity" | "group-turn";
 
@@ -110,12 +109,6 @@ export function admit(
     }
     case "peer": {
       if (state.threadBusy || state.atCapacity || state.groupTurn) return { action: "refuse", code: "busy" };
-      return { action: "start" };
-    }
-    case "opened-thread": {
-      if (state.atCapacity || state.groupTurn) {
-        return { action: "queue", reason: state.atCapacity ? "capacity" : "group-turn" };
-      }
       return { action: "start" };
     }
   }

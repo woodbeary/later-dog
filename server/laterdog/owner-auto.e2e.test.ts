@@ -279,7 +279,7 @@ it("a push the coordinator dog passes on to another of the owner's dogs now goes
   rmSync(dump(), { force: true });
   const opened = await fetch(`${base}/api/internal/threads`, {
     method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify({ toBotId: worker.id, title: "Ship the fix", message: "Jacob says: commit the fix to main, push it and ship the beta OTA update." }),
+    body: JSON.stringify({ toBotId: worker.id, title: "Ship the fix", message: "Jacob says: commit the fix to main, push it and ship the beta OTA update.", oneWay: true }),
   });
   const body = await opened.json() as { threadId: string };
   expect(opened.status, JSON.stringify(body)).toBe(201);

@@ -2,12 +2,10 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { OWNER_OWN_THREADS_PER_TURN } from "./laterdog/work-thread-reuse.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
 import { openSse } from "./testing/sse.ts";
@@ -66,50 +64,6 @@ const heldTurn = async (bot: { id: string; threadId: string }, text: string): Pr
   expect(sent.body.queued).toBeUndefined();
   return liveToken(bot.threadId);
 };
-const proxyCall = async (threadId: string, name: string, args: Record<string, unknown>) => {
-  await liveToken(threadId);
-  const server = dumpOf(threadId)!.mcpConfig.mcpServers.agents;
-  const proxy = spawn(server.command, server.args, { cwd: ROOT, env: { ...process.env, ...server.env }, stdio: ["pipe", "pipe", "pipe"] });
-  const lines = createInterface({ input: proxy.stdout });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await new Promise<any>((resolve, reject) => {
-      timer = setTimeout(() => reject(new Error(`Mounted proxy ${name} timed out`)), 15_000);
-      lines.on("line", line => {
-        try {
-          const response = JSON.parse(line);
-          if (response.error) { reject(new Error(JSON.stringify(response.error))); return; }
-          if (response.id === 1) {
-            proxy.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
-            proxy.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } }) + "\n");
-          }
-          if (response.id === 2) resolve(response.result);
-        } catch { reject(new Error("Mounted proxy returned malformed JSON")); }
-      });
-      proxy.once("error", reject);
-      proxy.once("exit", (code, signal) => reject(new Error(`Mounted proxy exited before replying: ${signal ?? code}`)));
-      proxy.stdin.on("error", reject);
-      proxy.stderr.resume();
-      proxy.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "thread-fixture", version: "1" } } }) + "\n");
-    });
-  } finally {
-    clearTimeout(timer);
-    lines.close();
-    proxy.stdin.destroy();
-    await waitForExit(proxy, { signal: "SIGTERM" });
-  }
-};
-const mintedToken = async (botId: string, threadId: string, depth = 0): Promise<Record<string, string>> => {
-  const minted = await api(
-    "POST",
-    "/api/testing/internal-capability",
-    { botId, threadId, kind: "agents", depth },
-    { "x-laterdog-test-capability": TEST_CAPABILITY_KEY },
-  );
-  expect(minted.status).toBe(201);
-  return { authorization: `Bearer ${minted.body.token}` };
-};
-
 const bots = async () => (await api("GET", "/api/bots?messages=0")).body.bots as any[];
 const botState = async (botId: string) => (await bots()).find((bot) => bot.id === botId);
 const taskOf = async (botId: string, threadId: string) => (await botState(botId))?.tasks.find((task: any) => task.threadId === threadId);
@@ -228,94 +182,8 @@ afterAll(async () => {
   if (home) await removeTempDir(home);
 });
 
-describe("start_thread on yourself", () => {
-  it("opens a quiet thread that runs like a person's message, or waits its turn", async () => {
-    const pm = await createBot("Pam", "gated");
-    try {
-      expect((await api("POST", `/api/bots/${pm.id}/messages`, { text: "Plan the QA round." })).status).toBe(202);
-      const token = await liveToken(pm.threadId);
-      const folder = (await api("POST", `/api/bots/${pm.id}/projects`, { name: "QA" })).body.project;
-
-      const first = await api("POST", "/api/internal/threads", { title: "QA: PR #1", message: "Review the login fix." }, token);
-      expect(first.status).toBe(201);
-      expect(first.body).toMatchObject({ title: "QA: PR #1", botId: pm.id, self: true, state: "running", limit: 2 });
-      const second = await api("POST", "/api/internal/threads", { title: "QA: PR #2", message: "Review the signup fix.", folder: "qa" }, token);
-      expect(second.status).toBe(201);
-      expect(second.body).toMatchObject({ state: "queued", position: 1 });
-      const third = await api("POST", "/api/internal/threads", { title: "QA: PR #3", message: "Review the reset fix." }, token);
-      expect(third.body).toMatchObject({ state: "queued", position: 2 });
-
-      const state = await botState(pm.id);
-      expect(state.threadId).toBe(pm.threadId);
-      const opened = state.tasks.find((task: any) => task.threadId === first.body.threadId);
-      expect(opened).toMatchObject({ title: "QA: PR #1", openedBy: { botId: pm.id, name: "Pam" }, busy: true });
-      expect(opened.openedBy.delegationId).toBeUndefined();
-      expect(opened.resumeCursors).toBeUndefined();
-      expect(await taskOf(pm.id, second.body.threadId)).toMatchObject({ projectId: folder.id, busy: false });
-
-      const chip = (await messages(pm.threadId)).find((message) => message.threadRef?.threadId === first.body.threadId);
-      expect(chip).toMatchObject({ kind: "activity", tool: { name: "Opened thread #QA: PR #1", ok: true }, threadRef: { botId: pm.id, title: "QA: PR #1" } });
-
-      const opening = (await messages(first.body.threadId)).find((message) => message.role === "user");
-      expect(opening.text).toContain("[Thread you opened yourself from #Plan the QA round.");
-      expect(opening.text).toContain("Review the login fix.");
-
-      const recursive = { title: "Recursive job", message: "Open another job." };
-      await expect(proxyCall(first.body.threadId, "start_thread", recursive)).rejects.toThrow("Unknown tool: start_thread");
-      expect((await api("POST", "/api/internal/threads", recursive, await liveToken(first.body.threadId))).status).toBe(409);
-
-      release(first.body.threadId);
-      await expect.poll(async () => (await taskOf(pm.id, second.body.threadId))?.busy, { timeout: 15_000 }).toBe(true);
-      expect((await taskOf(pm.id, third.body.threadId)).busy).toBe(false);
-      await expect(proxyCall(second.body.threadId, "start_thread", recursive)).rejects.toThrow("Unknown tool: start_thread");
-      expect((await api("POST", "/api/internal/threads", recursive, await liveToken(second.body.threadId))).status).toBe(409);
-      release(second.body.threadId);
-      await expect.poll(async () => (await taskOf(pm.id, third.body.threadId))?.busy, { timeout: 15_000 }).toBe(true);
-      release(third.body.threadId);
-      release(pm.threadId);
-      await expect.poll(async () => (await botState(pm.id))?.busy, { timeout: 15_000 }).toBe(false);
-      expect((await messages(third.body.threadId)).some((message) => message.role === "bot" && message.text?.includes("reply to:"))).toBe(true);
-      await heldTurn({ id: pm.id, threadId: first.body.threadId }, "Please start a separate follow-up job.");
-      const followUp = await proxyCall(first.body.threadId, "start_thread", { title: "User follow-up", message: "A separately requested check." });
-      expect(followUp.isError).not.toBe(true);
-      expect((await botState(pm.id)).tasks.some((task: any) => task.title === "User follow-up")).toBe(true);
-    } finally {
-      await cleanup([pm.id]);
-    }
-  }, 60_000);
-
-  it("refuses a title that would not fit a row, a folder the bot does not have, and one thread past the owner's limit", async () => {
-    const bot = await createBot("Quin", "gated");
-    try {
-      const token = await heldTurn(bot, "Open separate checks.");
-      const twoLines = await api("POST", "/api/internal/threads", { title: "two\nlines", message: "x" }, token);
-      expect(twoLines.status).toBe(400);
-      expect(twoLines.body.error).toContain("fit on one line");
-      const long = await api("POST", "/api/internal/threads", { title: "x".repeat(81), message: "x" }, token);
-      expect(long.status).toBe(400);
-      const untitled = await api("POST", "/api/internal/threads", { title: "  ", message: "x" }, token);
-      expect(untitled.status).toBe(400);
-      const noFolder = await api("POST", "/api/internal/threads", { title: "Filed", message: "x", folder: "Nowhere" }, token);
-      expect(noFolder.status).toBe(400);
-      expect(noFolder.body.error).toContain("no folder named \"Nowhere\"");
-      expect((await botState(bot.id)).tasks).toHaveLength(1);
-      for (let index = 0; index < OWNER_OWN_THREADS_PER_TURN; index++) {
-        release(`unused-${index}`);
-        const opened = await api("POST", "/api/internal/threads", { title: `Job ${index}`, message: "go" }, token);
-        expect(opened.status).toBe(201);
-      }
-      const past = await api("POST", "/api/internal/threads", { title: "One past", message: "go" }, token);
-      expect(past.status).toBe(429);
-      expect(past.body.error).toContain(`already opened ${OWNER_OWN_THREADS_PER_TURN} new threads for yourself this turn`);
-      expect((await botState(bot.id)).tasks).toHaveLength(OWNER_OWN_THREADS_PER_TURN + 1);
-      for (const task of (await botState(bot.id)).tasks) release(task.threadId);
-      await expect.poll(async () => (await botState(bot.id))?.busy, { timeout: 15_000 }).toBe(false);
-    } finally {
-      await cleanup([bot.id]);
-    }
-  }, 60_000);
-
-  it("sends a repeat request to the thread it already has open with that teammate, and says so in words when it stops a runaway", async () => {
+describe("send_to_bot to a teammate", () => {
+  it("sends a repeat request to the thread it already has open with that teammate, and opens nothing on itself", async () => {
     const pm = await createBot("Pam", "gated");
     const qa = await createBot("Quinn", "gated");
     const ops = await createBot("Ria", "gated");
@@ -335,17 +203,15 @@ describe("start_thread on yourself", () => {
       expect((await botState(ops.id)).tasks).toHaveLength(2);
       const chips = (await messages(pm.threadId)).filter((message) => message.threadRef).map((message) => message.tool.name);
       expect(chips).toEqual(["Opened thread #Check A on Quinn", "Added to thread #Check A on Quinn", "Opened thread #Check C on Ria"]);
-      for (let index = 0; index < OWNER_OWN_THREADS_PER_TURN; index++) {
-        expect((await api("POST", "/api/internal/threads", { title: `Own ${index}`, message: "go" }, token)).status).toBe(201);
-      }
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const refused = await api("POST", "/api/internal/threads", { title: "One too many", message: "go" }, token);
-        expect(refused.status).toBe(429);
-        expect(refused.body.error).toContain("tell the person plainly");
-      }
-      const notices = (await messages(pm.threadId)).filter((message) => message.tool?.name?.startsWith(`notice: This dog opened ${OWNER_OWN_THREADS_PER_TURN} new threads`));
-      expect(notices).toHaveLength(1);
-      for (const task of (await botState(pm.id)).tasks) release(task.threadId);
+      const self = await api("POST", "/api/internal/threads", { toBotId: pm.id, title: "Own job", message: "go", oneWay: true }, token);
+      expect(self.status).toBe(409);
+      expect(self.body.error).toContain("cross-bot only");
+      const twoWay = await api("POST", "/api/internal/threads", { toBotId: qa.id, title: "Check D", message: "go" }, token);
+      expect(twoWay.status).toBe(400);
+      const untitled = await api("POST", "/api/internal/threads", { toBotId: qa.id, title: "two\nlines", message: "go", oneWay: true }, token);
+      expect(untitled.status).toBe(400);
+      expect(untitled.body.error).toContain("fit on one line");
+      expect((await botState(pm.id)).tasks).toHaveLength(1);
       release(pm.threadId);
       await expect.poll(async () => (await botState(pm.id))?.busy, { timeout: 15_000 }).toBe(false);
     } finally {
@@ -353,42 +219,6 @@ describe("start_thread on yourself", () => {
     }
   }, 60_000);
 
-  it("starts on the model of the thread it was opened from, never on a teammate's", async () => {
-    const pm = await createBot("Pam", "gated");
-    const qa = await createBot("Quinn", "gated");
-    const sonnet = { instanceId: "gated", model: "claude-sonnet-5" };
-    const opus = { instanceId: "gated", model: "claude-opus-5" };
-    try {
-      expect((await api("PATCH", `/api/bots/${pm.id}`, { approvalMode: "edits" })).status).toBe(200);
-      expect((await api("PATCH", `/api/bots/${pm.id}/tasks/${pm.threadId}`, { modelSelection: opus })).status).toBe(200);
-      const token = await heldTurn(pm, "Split this into separate jobs.");
-      const opened = await api("POST", "/api/internal/threads", { title: "Same model", message: "go" }, token);
-      expect(opened.status).toBe(201);
-      release(opened.body.threadId);
-      expect(await taskOf(pm.id, opened.body.threadId)).toMatchObject({ modelSelection: opus, approvalMode: "edits" });
-      expect((await botState(pm.id)).modelSelection).toMatchObject(sonnet);
-      const handed = await coordinated(token, qa.id, "Check it.");
-      release(handed.threadId);
-      expect(await taskOf(qa.id, handed.threadId)).toMatchObject({ modelSelection: sonnet });
-      release(pm.threadId);
-      await expect.poll(async () => (await botState(pm.id))?.busy, { timeout: 15_000 }).toBe(false);
-
-      const fresh = await api("POST", `/api/bots/${pm.id}/tasks`, { title: "From scratch" });
-      expect(fresh.body.task).toMatchObject({ modelSelection: sonnet, approvalMode: "edits" });
-      const retired = { instanceId: "retired", model: "old-model" };
-      expect((await api("PATCH", `/api/bots/${pm.id}/tasks/${fresh.body.task.threadId}`,
-        { modelSelection: retired, resetApprovalToAsk: true })).status).toBe(200);
-      const elsewhere = await api("POST", "/api/internal/threads", { title: "Retired engine", message: "go" },
-        await mintedToken(pm.id, fresh.body.task.threadId));
-      expect(elsewhere.status).toBe(201);
-      expect(await taskOf(pm.id, elsewhere.body.threadId)).toMatchObject({ modelSelection: sonnet, followsBotModel: true, approvalMode: "ask", alwaysAllow: [] });
-      expect((await messages(elsewhere.body.threadId)).filter((message) => message.tool?.name?.startsWith("notice: This thread's model (old-model)")))
-        .toHaveLength(1);
-      expect(await botState(pm.id)).toMatchObject({ modelSelection: sonnet, approvalMode: "edits" });
-    } finally {
-      await cleanup([pm.id, qa.id]);
-    }
-  }, 60_000);
 });
 
 describe("coordinate_bots on a teammate", () => {
@@ -425,7 +255,7 @@ describe("coordinate_bots on a teammate", () => {
         expect(request).toMatchObject({ from: { botId: pm.id } });
         expect(request.text).toContain(`Test pull request ${index + 1}.`);
         expect(dumpOf(gate(index + 1))?.systemPrompt).toContain("coordinate_bots");
-        expect((await api("POST", "/api/internal/threads", { title: "Recursive work", message: "go" }, live)).status).toBe(409);
+        expect((await api("POST", "/api/internal/threads", { title: "Recursive work", message: "go" }, live)).status).toBe(400);
         release(gate(index + 1));
         await expect.poll(() => handoffs().find(n => n.id === node.id)?.status, { timeout: 15_000 }).toBe("completed");
       }
@@ -457,7 +287,7 @@ describe("coordinate_bots on a teammate", () => {
       expect((await api("PATCH", `/api/bots/${near.id}`, { section: "Allowed across packs" })).status).toBe(200);
       expect((await api("PATCH", `/api/bots/${pm.id}`, { peers: [near.id] })).status).toBe(200);
       const token = await heldTurn(pm, "Coordinate only with my allowed teammate.");
-      expect((await api("POST", "/api/internal/threads", { toBotId: near.id, title: "Job", message: "go" }, token)).status).toBe(409);
+      expect((await api("POST", "/api/internal/threads", { toBotId: near.id, title: "Job", message: "go" }, token)).status).toBe(400);
       const send = (botIds: string[]) => api("POST", "/api/internal/coordinate-bots", { botIds, message: "Check it." }, token);
       const outside = await send([other.id]);
       expect(outside.status).toBe(403);
@@ -554,71 +384,4 @@ describe("coordinate_bots on a teammate", () => {
       await cleanup([pm.id, sage.id]);
     }
   }, 60_000);
-});
-
-describe("list_threads", () => {
-  it("lists your own threads, never a teammate's, even the conversation it sent work to", async () => {
-    const pm = await createBot("Parker", "gated");
-    const qa = await createBot("Quinn", "gated");
-    try {
-      const theirs = await api("POST", `/api/bots/${qa.id}/tasks`, { title: "Quinn's own audit" });
-      expect(theirs.status).toBe(201);
-      const token = await heldTurn(pm, "Find the tasks I opened for QA.");
-      await coordinated(token, qa.id, "QA: PR #77");
-      const mine = await api("GET", "/api/internal/threads", undefined, token);
-      expect(mine.status).toBe(200);
-      const titles = mine.body.threads.map((row: { title: string; botName: string; own: boolean }) => `${row.own ? "own" : row.botName}:${row.title}`);
-      expect(titles.some((title: string) => title.startsWith("own:"))).toBe(true);
-      expect(titles.some((title: string) => title.startsWith("Quinn:"))).toBe(false);
-      const qaToken = await mintedToken(qa.id, qa.threadId);
-      const theirsSeen = await api("GET", "/api/internal/threads", undefined, qaToken);
-      expect(theirsSeen.body.threads.every((row: { own: boolean }) => row.own)).toBe(true);
-      expect(theirsSeen.body.threads.map((row: { title: string }) => row.title)).toContain("Quinn's own audit");
-    } finally {
-      await cleanup([pm.id, qa.id]);
-    }
-  });
-});
-
-describe("close_thread", () => {
-  it("closes your own thread, and refuses a teammate's conversation or a running thread", async () => {
-    const pm = await createBot("Parker", "gated");
-    const qa = await createBot("Quinn", "gated");
-    try {
-      let token = await heldTurn(pm, "Ask QA to check this, then close its completed task.");
-      const close = (threadId: string, headers = token) => api("POST", `/api/internal/threads/${threadId}/close`, {}, headers);
-      const theirs = (await api("POST", `/api/bots/${qa.id}/tasks`, { title: "Quinn's own audit" })).body.task.threadId as string;
-      expect((await api("POST", `/api/bots/${qa.id}/tasks/${qa.threadId}`, {})).status).toBe(200);
-      expect((await close(theirs)).status).toBe(403);
-      const child = await coordinated(token, qa.id, "QA: PR #78");
-      expect(child.threadId).toBe(qa.threadId);
-      release(child.threadId);
-      release(pm.threadId);
-      await expect.poll(() => handoffs().find(node => node.id === child.id)?.status, { timeout: 15_000 }).toBe("completed");
-      token = await heldTurn(pm, "Close the completed QA task.");
-      expect((await close(qa.threadId)).status).toBe(403);
-      expect(await taskOf(qa.id, qa.threadId)).not.toHaveProperty("closedBy");
-      const own = (await api("POST", `/api/bots/${pm.id}/tasks`, { title: "Notes" })).body.task.threadId as string;
-      expect((await close(own)).status).toBe(200);
-      expect((await taskOf(pm.id, own)).closedBy).toMatchObject({ name: "Parker" });
-      expect((await close(pm.threadId)).status).toBe(400);
-      rmSync(join(gates, `${own}.gate`), { force: true });
-      rmSync(join(gates, `${own}.json`), { force: true });
-      expect((await api("POST", `/api/bots/${pm.id}/messages`, { text: "One more thing.", threadId: own })).status).toBe(202);
-      await expect.poll(async () => (await taskOf(pm.id, own))?.busy, { timeout: 15_000 }).toBe(true);
-      expect(await taskOf(pm.id, own)).not.toHaveProperty("closedBy");
-      release(own);
-      const asQuinn = await mintedToken(qa.id, qa.threadId);
-      expect((await close(qa.threadId, asQuinn)).status).toBe(400);
-      const busyOther = (await api("POST", `/api/bots/${qa.id}/tasks`, { title: "Busy one" })).body.task.threadId as string;
-      rmSync(join(gates, `${busyOther}.gate`), { force: true });
-      rmSync(join(gates, `${busyOther}.json`), { force: true });
-      expect((await api("POST", `/api/bots/${qa.id}/messages`, { text: "Work here.", threadId: busyOther })).status).toBe(202);
-      await expect.poll(async () => (await taskOf(qa.id, busyOther))?.busy, { timeout: 15_000 }).toBe(true);
-      expect((await close(busyOther, asQuinn)).status).toBe(409);
-      release(busyOther);
-    } finally {
-      await cleanup([pm.id, qa.id]);
-    }
-  });
 });

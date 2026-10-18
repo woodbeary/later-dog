@@ -116,8 +116,6 @@ export function customMcpPrompt(names: string[]): string {
 }
 export const CREDENTIAL_PROMPT =
   " If a supported API key is missing for the service actually needed, use request_credential to create a secure credential request. A freshly QR-paired mobile app or the desktop app can show the secure entry card. Never claim it opened unless the request succeeded, and never ask the user to paste credentials into chat." + TAKEOVER_PROMPT;
-export const THREADS_PROMPT =
-  " A thread is one conversation with its own history and its own run; a bot can have several running at once, and the person sees them as rows under that bot. Use start_thread to open one on yourself for separate work, or on a teammate to hand them a job that should run on its own. Use list_threads to see how the ones you opened are going. When you mention a thread to the person, write its title as #Title so it links. Do not use a ticket comment, a note, or a room post as a stand-in for a thread.";
 const PROPOSAL_RESULT_PROMPT =
   " Follow the tool result: a change to your own routines, skills, profile or model applies immediately and the person sees it with an Undo; then continue the requested work without asking for another confirmation. A change for another bot may wait for the person. If it reports a pending review, end the turn and wait for the in-app decision. Never claim success before an applied result, and report failures honestly. Full Access does not grant another bot broader permissions.";
 export const ROUTINE_PROMPT =

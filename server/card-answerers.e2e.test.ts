@@ -180,7 +180,7 @@ posixOnly("who may answer a card on a shared workspace", () => {
     const { token } = await minted.json() as { token: string };
     const opened = await fetch(`${BASE}/api/internal/threads`, {
       method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ toBotId: helper.id, title: "Helper job", message: "run it" }),
+      body: JSON.stringify({ toBotId: helper.id, title: "Helper job", message: "run it", oneWay: true }),
     });
     const openedBody = await opened.json() as { threadId: string };
     expect(opened.status, JSON.stringify(openedBody)).toBe(201);

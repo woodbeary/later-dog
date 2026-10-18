@@ -4,7 +4,7 @@ import { peerName } from "./peer-roster.ts";
 
 export interface PeerProvenance {
   botName: string;
-  delivery: "ask_bot" | "post_to_room" | "start_thread" | "send_to_bot";
+  delivery: "ask_bot" | "post_to_room" | "send_to_bot";
   unattended?: boolean;
   owner?: { name: string | undefined };
 }
@@ -13,7 +13,7 @@ export function peerProvenanceNote({ botName: rawName, delivery, unattended, own
   const botName = peerName(rawName);
   const opening = delivery === "ask_bot"
     ? `Message from @${botName}, another bot in this later.dog workspace`
-    : delivery === "start_thread" || delivery === "send_to_bot"
+    : delivery === "send_to_bot"
       ? `Thread opened by @${botName}, another bot in this later.dog workspace`
       : `Posted by @${botName}, another bot in this later.dog workspace`;
   const custody = owner
@@ -24,10 +24,8 @@ export function peerProvenanceNote({ botName: rawName, delivery, unattended, own
     : "";
   const owed = delivery === "ask_bot"
     ? ` @${botName} is waiting on your answer, so reply to them.`
-    : delivery === "start_thread"
-      ? ` @${botName} handed you this job and is waiting on the result: do the work in this thread and end with a clear reply to them.`
-      : delivery === "send_to_bot"
-        ? " Ownership is yours: continue in this thread. Results, failures and questions stay here; the sender is not waiting and will not be resumed."
+    : delivery === "send_to_bot"
+      ? " Ownership is yours: continue in this thread. Results, failures and questions stay here; the sender is not waiting and will not be resumed."
       : " Reply only if you have something to add that is not already in this conversation; saying nothing is a valid response.";
   return `[${opening} — ${custody}${watched}${owed}]`;
 }

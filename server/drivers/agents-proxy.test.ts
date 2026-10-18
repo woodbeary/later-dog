@@ -43,8 +43,7 @@ let delegationStatusResponse: unknown = { status: "done", toBotName: "Helper", r
 let delegationStatusCode = 200;
 let delegateResponse: unknown = { queued: true, message: "Delegation queued." };
 let lastThreadBody: any = null;
-let threadCalls = 0;
-let threadResponse: unknown = { threadId: "thread-new", title: "QA: PR #1", botId: "bot-asker", botName: "Asker", self: true, state: "running", limit: 3 };
+let threadResponse: unknown = { threadId: "thread-sent", title: "Ship it", botId: "bot-helper", botName: "Helper" };
 let computerRequests: { method: string; url: string; body: unknown }[] = [];
 let computerResponse: unknown = { current: "local", available: ["local", "vm"] };
 let computerStatus = 200;
@@ -262,7 +261,6 @@ beforeAll(async () => {
       req.on("data", (c) => (data += c));
       req.on("end", () => {
         lastThreadBody = JSON.parse(data);
-        threadCalls += 1;
         res.writeHead(201, { "content-type": "application/json" });
         res.end(JSON.stringify(threadResponse));
       });
@@ -601,9 +599,6 @@ describe("agents-proxy MCP surface", () => {
       "check_delegation",
       "wait_delegation",
       "select_computer",
-      "list_threads",
-      "close_thread",
-      "start_thread",
       "attach_file",
       "post_to_room",
       "create_bot",
@@ -693,7 +688,7 @@ describe("agents-proxy MCP surface", () => {
     const readNames = [
       "tool_result_read",
       "list_shared_computers",
-      "list_bots", "list_rooms", "check_delegation", "wait_delegation", "list_threads",
+      "list_bots", "list_rooms", "check_delegation", "wait_delegation",
       "list_team_setup",
       "session_search", "session_read", "list_routines", "skills_list",
     ];
@@ -1001,62 +996,6 @@ describe("agents-proxy MCP surface", () => {
     const text = res.result.content[0].text;
     expect(text).toContain("Delegation queued");
     expect(text).toContain("Delivery to Helper: queued — the teammate's turn runs after your current turn finishes");
-  });
-
-  it("start_thread: tells the model what a thread is for and what it is not for", async () => {
-    const list = await rpc("tools/list");
-    const start = list.result.tools.find((tool: { name: string }) => tool.name === "start_thread");
-    expect(start.inputSchema.required).toEqual(["title", "message"]);
-    expect(Object.keys(start.inputSchema.properties)).toEqual(["title", "message", "bot_id", "folder"]);
-    expect(start.description).toContain("Leave bot_id out to open it on yourself");
-    expect(start.description).toContain("Do not use it for a question you need answered right now");
-    expect(start.description).toContain("do not retry it");
-  });
-
-  it("start_thread on yourself forwards the sender and says whether it runs or waits in line", async () => {
-    threadResponse = { threadId: "thread-new", title: "QA: PR #1", botId: "bot-asker", botName: "Asker", self: true, state: "running", limit: 3 };
-    const running = await callTool("start_thread", { title: "QA: PR #1", message: "Review the login fix." });
-    expect(running.result.isError).toBeFalsy();
-    expect(running.result.content[0].text).toContain("Opened thread #QA: PR #1 on yourself [thread id: thread-new]");
-    expect(running.result.content[0].text).toContain("running now");
-    expect(lastThreadBody).toEqual({
-      fromBotId: "bot-asker",
-      fromThreadId: "thread-asker-routine",
-      title: "QA: PR #1",
-      message: "Review the login fix.",
-      depth: 0,
-    });
-    threadResponse = { threadId: "thread-two", title: "QA: PR #2", botId: "bot-asker", botName: "Asker", self: true, state: "queued", position: 2, limit: 3 };
-    const queued = await callTool("start_thread", { title: "QA: PR #2", message: "Review the signup fix.", folder: "QA" });
-    expect(queued.result.content[0].text).toContain("2nd in line");
-    expect(queued.result.content[0].text).toContain("limit of 3 threads");
-    expect(lastThreadBody.folder).toBe("QA");
-    expect(lastThreadBody.toBotId).toBeUndefined();
-    threadResponse = { threadId: "thread-three", title: "QA: PR #3", botId: "bot-asker", botName: "Asker", self: true, state: "failed", error: "provider unavailable" };
-    const failed = await callTool("start_thread", { title: "QA: PR #3", message: "Review the reset fix." });
-    expect(failed.result.isError).toBe(true);
-    expect(failed.result.content[0].text).toContain("could not start: provider unavailable");
-  });
-
-  it("start_thread refuses a missing title or message locally, and hands a harness refusal to the model", async () => {
-    const before = threadCalls;
-    const missing = await callTool("start_thread", { title: "", message: "x" });
-    expect(missing.result.isError).toBe(true);
-    expect(threadCalls).toBe(before);
-    threadResponse = { error: "title must fit on one line" };
-    const refused = await callTool("start_thread", { title: "two\nlines", message: "x" });
-    expect(refused.result.isError).toBe(true);
-    expect(refused.result.content[0].text).toContain("title must fit on one line");
-  });
-
-  it("counts no threads of its own: a proxy serving several turns leaves the per-turn limit to the harness", async () => {
-    threadResponse = { threadId: "thread-n", title: "More", botId: "bot-asker", botName: "Asker", self: true, state: "running", limit: 3 };
-    const before = threadCalls;
-    for (let i = 0; i < 3; i++) {
-      const ok = await callTool("start_thread", { title: `More ${i}`, message: "go" });
-      expect(ok.result.isError).toBeFalsy();
-    }
-    expect(threadCalls).toBe(before + 3);
   });
 
   it("lets a Chief create a bounded specialist through the harness", async () => {
@@ -1988,7 +1927,7 @@ describe("standing external runtime", () => {
     external = spawn(process.execPath, [PROXY], {
       env: { ...childEnv(), LATERDOG_HARNESS_URL: `http://127.0.0.1:${stubPort}`, LATERDOG_BOT_ID: "bot-asker",
         LATERDOG_THREAD_ID: "thread-asker-routine", LATERDOG_COMMS_TOKEN: TOKEN, LATERDOG_TURN_DEPTH: "0",
-        LATERDOG_EXTERNAL_RUNTIME: "1", LATERDOG_ROOM_TURN: "1", LATERDOG_OWN_THREAD_CREATION: "1",
+        LATERDOG_EXTERNAL_RUNTIME: "1", LATERDOG_ROOM_TURN: "1",
         LATERDOG_SKILL_AUTHORING_ENABLED: "1", LATERDOG_SHARED_COMPUTERS_ENABLED: "1" },
       stdio: ["pipe", "pipe", "inherit"],
     });
@@ -2015,7 +1954,7 @@ describe("standing external runtime", () => {
       "list_bots", "ask_bot", "delegate_bot", "check_delegation", "wait_delegation",
     ]);
     expect(JSON.stringify(list.result.tools)).not.toMatch(/after your current turn finishes|earlier turn|same turn as delegate_bot/);
-    for (const name of ["coordinate_bots", "start_thread", "create_bot", "request_credential", "memory_update", "skill_manage", "shared_computer", "tool_result_read"]) {
+    for (const name of ["coordinate_bots", "send_to_bot", "create_bot", "request_credential", "memory_update", "skill_manage", "shared_computer", "tool_result_read"]) {
       expect((await externalCall(name, {})).error).toMatchObject({ code: -32602, message: `Unknown tool: ${name}` });
     }
     const roster = (await externalCall("list_bots", {})).result.content[0].text;
@@ -2246,9 +2185,9 @@ describe("coordinate_bots arguments (room turn)", () => {
   it("sends cross-bot work one way through the existing thread route", async () => {
     const listed = await roomRpc("tools/list");
     const send = listed.result.tools.find((tool: { name: string }) => tool.name === "send_to_bot");
-    expect(send.description).toContain("cross-bot only");
+    expect(send.description).toContain("one way to another bot");
     const previous = threadResponse;
-    threadResponse = { threadId: "thread-sent", title: "Ship it", botId: "bot-helper", botName: "Helper", self: false };
+    threadResponse = { threadId: "thread-sent", title: "Ship it", botId: "bot-helper", botName: "Helper" };
     try {
       const result = await roomRpc("tools/call", { name: "send_to_bot", arguments: {
         bot_id: "bot-helper", title: "Ship it", message: "Ship the reviewed patch.",
@@ -2267,7 +2206,7 @@ describe("coordinate_bots arguments (room turn)", () => {
     const previous = threadResponse;
     threadResponse = {
       threadId: "thread-sent", title: "Ship it", botId: "bot-helper", botName: "Helper",
-      self: false, state: "pending", approvalRequired: true,
+      state: "pending", approvalRequired: true,
     };
     try {
       const result = await roomRpc("tools/call", { name: "send_to_bot", arguments: {

@@ -37,7 +37,7 @@ an incident.
 room thread (coordinate in the room instead), and never a thread that is
 still running. The retried thread keeps its own approval level; the Chief is
 not woken for its result — it stays in that thread, findable with
-`list_threads` or `session_search`.
+`session_search`.
 
 What the person sees: the Chief's *Team incidents* thread in the sidebar (and
 on the phone), with one entry per incident and the Chief's one-line report of

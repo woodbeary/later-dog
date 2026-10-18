@@ -438,9 +438,6 @@ it("a turn that may use the Mac finds only the owner's own conversations with th
   const guestLine = (await api("GET", `/api/threads/${guests}/messages`, { token: owner })).body.messages.find((message: any) => message.role === "user");
   const read = await ownerTools("session_read", { thread_id: guests, message_id: guestLine.id });
   expect(JSON.stringify(read)).not.toContain("setup script");
-  const threads = JSON.stringify(await ownerTools("list_threads"));
-  expect(threads).toContain("Owner kumquat notes");
-  expect(threads).not.toContain("Guest kumquat notes");
 }, 60_000);
 
 it("only the owner changes how a bot asks for approval in a conversation a guest left behind, not a process on the Cloud", async () => {
@@ -685,13 +682,12 @@ it("the old results conversation of a routine a guest left behind never reaches 
   expect((await api("GET", "/api/routines", { token: owner })).body.routines.find((routine: any) => routine.id === created.body.routine.id)).not.toHaveProperty("resultsThreadId");
   const ownerTools = await toolsFor(async () => say(owner, bot, "Read plan.md from my Mac.", await newThread(bot)));
   expect((await sees(ownerTools)).computers).toHaveLength(1);
-  expect(JSON.stringify(await ownerTools("list_threads", {}))).not.toContain("setup.sh");
+  expect(JSON.stringify(await ownerTools("session_search", { query: "setup.sh" }))).not.toContain("setup.sh first");
   const owners = await api("POST", "/api/routines", { token: owner, body: {
     name: "OWNER-ROUTINE", prompt: "Summarize my day.", botId: bot.id, enabled: false,
     schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 } } });
   expect(owners.status).toBe(201);
   expect(owners.body.routine).not.toHaveProperty("resultsThreadId");
-  expect(JSON.stringify(await ownerTools("list_threads", {}))).toContain(bot.threadId);
 }, 60_000);
 
 it("the owner's devices are not told which conversations they may write in, even with one a guest left behind", async () => {

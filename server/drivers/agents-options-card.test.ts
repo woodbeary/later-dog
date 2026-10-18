@@ -8,7 +8,6 @@ function profile(overrides: Partial<CatalogProfile> = {}): CatalogProfile {
   return {
     externalRuntime: false,
     coordinating: false,
-    ownThreadCreation: false,
     skillAuthoring: false,
     sharedComputers: false,
     voiceNotes: false,

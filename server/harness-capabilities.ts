@@ -10,7 +10,6 @@ export interface DriverCapabilities {
 const ENVELOPE: CatalogProfile = {
   externalRuntime: false,
   coordinating: true,
-  ownThreadCreation: true,
   skillAuthoring: true,
   sharedComputers: true,
   voiceNotes: true,

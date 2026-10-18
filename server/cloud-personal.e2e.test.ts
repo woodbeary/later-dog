@@ -353,18 +353,6 @@ it("a friend unpaired before the upgrade: their conversation keeps its level, bu
   expect(theirs).toMatchObject({ mode: "auto", restricted: false });
   expect((await api("POST", `/api/bots/${before.bot.id}/interrupt`, { token: owner, body: { threadId: before.friends } })).status).toBe(200);
   await idle(before.bot, owner);
-  const fresh = (await api("POST", `/api/bots/${before.bot.id}/tasks`, { token: owner, body: { title: "Fresh" } })).body.task.threadId;
-  await turn(async () => expect((await api("POST", `/api/bots/${before.bot.id}/messages`, { token: owner, body: { text: "What else is there?", threadId: fresh } })).status).toBe(202));
-  const listed = JSON.stringify(await (await agentTools())("list_threads", {}));
-  expect(listed).toContain("Fresh");
-  expect(listed).not.toContain("Owner plan");
-  expect(listed).not.toContain("Friend's own");
-  expect((await api("POST", `/api/bots/${before.bot.id}/interrupt`, { token: owner, body: { threadId: fresh } })).status).toBe(200);
-  await idle(before.bot, owner);
-  await turn(async () => expect((await api("POST", `/api/bots/${before.bot.id}/messages`, { token: owner, body: { text: "And now?", threadId: before.plan } })).status).toBe(202));
-  expect(JSON.stringify(await (await agentTools())("list_threads", {}))).toContain("Friend's own");
-  expect((await api("POST", `/api/bots/${before.bot.id}/interrupt`, { token: owner, body: { threadId: before.plan } })).status).toBe(200);
-  await idle(before.bot, owner);
 }, 60_000);
 
 it("routines fail closed: one from before with no proof does not run in the dog's conversation; one the owner writes here, or one made from their bot template, runs in the dog's one conversation, which stays theirs", async () => {

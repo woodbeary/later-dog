@@ -157,7 +157,7 @@
     },
     {
       "name": "send_to_bot",
-      "description": "Send work one way to another bot in a fresh thread. This is cross-bot only: use start_thread to send independent work to yourself. The recipient owns the new thread; its results, failures and questions stay there and never resume you. Use coordinate_bots when you need the result returned here.",
+      "description": "Send work one way to another bot. The recipient owns the new thread; its results, failures and questions stay there and never resume you. Use coordinate_bots when you need the result returned here.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -228,71 +228,6 @@
             "description": "auto = suitable configured computer, cloud = the dog's own cloud computer, local = the user's own computer. Omit to list."
           }
         }
-      }
-    },
-    {
-      "name": "list_threads",
-      "description": "See your own threads and the threads you opened on teammates, newest first: each with its bot, title, state (running, waiting on the person, queued, idle, or closed), whether the person has unread there, and the delegation id if it was a handoff. Use it to check how the threads you started are going before reporting to the person; write a thread's title as #Title when you mention it. A teammate's other threads are never listed — only the ones you opened. This is a read: it starts nothing and changes nothing.",
-      "inputSchema": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "close_thread",
-      "description": "Mark a thread you opened (or one of your own) as finished once you have read its result: it leaves the person's default sidebar list (still under all threads, with a note saying you closed it) and list_threads reports it as closed. Nothing is deleted — deleting stays the person's decision — and a thread that is still running cannot be closed; wait for it or leave it. Use the thread id from list_threads or from the start_thread result. If a close is refused, do not retry it.",
-      "inputSchema": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "thread_id": {
-            "type": "string",
-            "description": "The thread id from list_threads or start_thread."
-          }
-        },
-        "required": [
-          "thread_id"
-        ]
-      }
-    },
-    {
-      "name": "start_thread",
-      "description": "Open a separate job on yourself with its own history and run, without switching the person's selected conversation. Use only when the user requests independent jobs (for example one review per pull request). Give a short specific title and complete instructions; you can open at most five per turn. This is not a teammate handoff: use coordinate_bots for teammates and their automatic replies. Self-opened jobs cannot recursively open more jobs. If refused, do not retry; explain what remains.",
-      "inputSchema": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "title": {
-            "type": "string",
-            "description": "The thread's name: one short line, at most 80 characters, specific enough to tell it apart from the others (for example \"QA: PR #412 login fix\")."
-          },
-          "message": {
-            "type": "string",
-            "description": "The complete first message of the thread — everything the run needs, since it will not see this conversation."
-          },
-          "bot_id": {
-            "type": "string",
-            "enum": [
-              "bot-golden"
-            ],
-            "description": "Leave out, or use your own bot ID. For teammates use coordinate_bots."
-          },
-          "folder": {
-            "type": "string",
-            "description": "Optional: the name of one of that bot's existing folders to file the thread under. Leave out unless the person named one."
-          }
-        },
-        "required": [
-          "title",
-          "message"
-        ]
       }
     },
     {

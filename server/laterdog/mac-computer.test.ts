@@ -3,7 +3,7 @@ import { availableTools, type CatalogProfile } from "../drivers/agents-catalog.t
 import { COMPUTER_RULE, MAC_OFFLINE_RESULT, isMacOffline, macOfflineResult, macOption, macOptions, macSelectReply, taskNeedsMac } from "./mac-computer.ts";
 
 const profile = (overrides: Partial<CatalogProfile> = {}): CatalogProfile => ({
-  externalRuntime: false, coordinating: false, ownThreadCreation: false, skillAuthoring: false,
+  externalRuntime: false, coordinating: false, skillAuthoring: false,
   sharedComputers: true, voiceNotes: false, cloudHome: true, chief: false, botId: "bot-1", ...overrides,
 });
 const online = [{ name: "Jo's MacBook", online: true }];

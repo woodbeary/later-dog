@@ -611,7 +611,7 @@ On the Cloud home (`server/shared-computers.ts`, `server/index.ts`):
   - the bot's memory tools (`memory_update`, `memory_log`) refuse to write from
     them;
   - recall, the recent-work brief and, in a turn that may use the Mac, the
-    session tools (`session_search`, `session_read`, `list_threads`) draw
+    session tools (`session_search`, `session_read`) draw
     only on conversations the owner alone opened and wrote in (a title is
     words too);
   - a change while such a turn runs flags the bot: to MEMORY.md, a topic file

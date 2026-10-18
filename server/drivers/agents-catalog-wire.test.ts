@@ -25,30 +25,27 @@ function profiles(): Record<string, Profile> {
   const all: Record<string, Profile> = {};
   for (const chief of [true, false]) {
     for (const room of [false, true]) {
-      for (const ownThread of room ? [false, true] : [false]) {
-        for (const skills of [false, true]) {
-          for (const shared of [false, true]) {
-            for (const voice of [false, true]) {
-              const name = [room ? "room" : "direct", ownThread && "own-thread", skills && "skills", shared && "shared", voice && "voice", !chief && "non-chief"]
-                .filter(Boolean).join("+");
-              all[name] = {
-                family: room ? "room" : "direct",
-                env: {
-                  LATERDOG_ROOM_TURN: flag(room),
-                  LATERDOG_OWN_THREAD_CREATION: flag(ownThread),
-                  LATERDOG_SKILL_AUTHORING_ENABLED: flag(skills),
-                  LATERDOG_SHARED_COMPUTERS_ENABLED: flag(shared),
-                  LATERDOG_VOICE_NOTES: flag(voice),
-                  LATERDOG_CHIEF_OF_STAFF: flag(chief),
-                },
-              };
-            }
+      for (const skills of [false, true]) {
+        for (const shared of [false, true]) {
+          for (const voice of [false, true]) {
+            const name = [room ? "room" : "direct", skills && "skills", shared && "shared", voice && "voice", !chief && "non-chief"]
+              .filter(Boolean).join("+");
+            all[name] = {
+              family: room ? "room" : "direct",
+              env: {
+                LATERDOG_ROOM_TURN: flag(room),
+                LATERDOG_SKILL_AUTHORING_ENABLED: flag(skills),
+                LATERDOG_SHARED_COMPUTERS_ENABLED: flag(shared),
+                LATERDOG_VOICE_NOTES: flag(voice),
+                LATERDOG_CHIEF_OF_STAFF: flag(chief),
+              },
+            };
           }
         }
       }
     }
   }
-  for (const name of ["direct+skills+shared+voice", "room+own-thread+skills+shared+voice", "direct+skills+shared+voice+non-chief", "room+own-thread+skills+shared+voice+non-chief"]) {
+  for (const name of ["direct+skills+shared+voice", "room+skills+shared+voice", "direct+skills+shared+voice+non-chief", "room+skills+shared+voice+non-chief"]) {
     all[`${name}+cloud-home`] = { family: all[name]!.family, env: { ...all[name]!.env, LATERDOG_CLOUD_HOME: "1" } };
   }
   all.external = { family: "external", env: { LATERDOG_EXTERNAL_RUNTIME: "1" } };
@@ -57,7 +54,6 @@ function profiles(): Record<string, Profile> {
     env: {
       LATERDOG_EXTERNAL_RUNTIME: "1",
       LATERDOG_ROOM_TURN: "1",
-      LATERDOG_OWN_THREAD_CREATION: "1",
       LATERDOG_SKILL_AUTHORING_ENABLED: "1",
       LATERDOG_SHARED_COMPUTERS_ENABLED: "1",
       LATERDOG_VOICE_NOTES: "1",
@@ -71,63 +67,47 @@ function profiles(): Record<string, Profile> {
 const PROFILES = profiles();
 const CHIEF_ONLY_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
 const CHIEF_TARGET_TOOLS = ["propose_model"];
-const FULL = { direct: "direct+skills+shared+voice", room: "room+own-thread+skills+shared+voice", external: "external" } as const;
+const FULL = { direct: "direct+skills+shared+voice", room: "room+skills+shared+voice", external: "external" } as const;
 
 const BUDGET_BASELINE: Record<string, number> = {
-  "direct": 49067,
-  "direct+voice": 49808,
-  "direct+shared": 51917,
-  "direct+shared+voice": 52658,
-  "direct+skills": 51120,
-  "direct+skills+voice": 51861,
-  "direct+skills+shared": 53970,
-  "direct+skills+shared+voice": 54711,
-  "room": 47492,
-  "room+voice": 48233,
-  "room+shared": 50409,
-  "room+shared+voice": 51150,
-  "room+skills": 49545,
-  "room+skills+voice": 50286,
-  "room+skills+shared": 52462,
-  "room+skills+shared+voice": 53203,
-  "room+own-thread": 48779,
-  "room+own-thread+voice": 49520,
-  "room+own-thread+shared": 51696,
-  "room+own-thread+shared+voice": 52437,
-  "room+own-thread+skills": 50832,
-  "room+own-thread+skills+voice": 51573,
-  "room+own-thread+skills+shared": 53749,
-  "room+own-thread+skills+shared+voice": 54490,
-  "direct+skills+shared+voice+cloud-home": 54746,
-  "room+own-thread+skills+shared+voice+cloud-home": 54525,
-  "direct+non-chief": 42976,
-  "direct+voice+non-chief": 43717,
-  "direct+shared+non-chief": 45826,
-  "direct+shared+voice+non-chief": 46567,
-  "direct+skills+non-chief": 45029,
-  "direct+skills+voice+non-chief": 45770,
-  "direct+skills+shared+non-chief": 47879,
-  "direct+skills+shared+voice+non-chief": 48620,
-  "room+non-chief": 41401,
-  "room+voice+non-chief": 42142,
-  "room+shared+non-chief": 44318,
-  "room+shared+voice+non-chief": 45059,
-  "room+skills+non-chief": 43454,
-  "room+skills+voice+non-chief": 44195,
-  "room+skills+shared+non-chief": 46371,
-  "room+skills+shared+voice+non-chief": 47112,
-  "room+own-thread+non-chief": 42688,
-  "room+own-thread+voice+non-chief": 43429,
-  "room+own-thread+shared+non-chief": 45605,
-  "room+own-thread+shared+voice+non-chief": 46346,
-  "room+own-thread+skills+non-chief": 44741,
-  "room+own-thread+skills+voice+non-chief": 45482,
-  "room+own-thread+skills+shared+non-chief": 47658,
-  "room+own-thread+skills+shared+voice+non-chief": 48399,
-  "direct+skills+shared+voice+non-chief+cloud-home": 48655,
-  "room+own-thread+skills+shared+voice+non-chief+cloud-home": 48434,
-  "external": 3030,
-  "external+everything": 3030,
+  "direct": 46413,
+  "direct+voice": 47154,
+  "direct+shared": 49154,
+  "direct+shared+voice": 49895,
+  "direct+skills": 48466,
+  "direct+skills+voice": 49207,
+  "direct+skills+shared": 51207,
+  "direct+skills+shared+voice": 51948,
+  "room": 46478,
+  "room+voice": 47219,
+  "room+shared": 49219,
+  "room+shared+voice": 49960,
+  "room+skills": 48531,
+  "room+skills+voice": 49272,
+  "room+skills+shared": 51272,
+  "room+skills+shared+voice": 52013,
+  "direct+non-chief": 40589,
+  "direct+voice+non-chief": 41330,
+  "direct+shared+non-chief": 43330,
+  "direct+shared+voice+non-chief": 44071,
+  "direct+skills+non-chief": 42642,
+  "direct+skills+voice+non-chief": 43383,
+  "direct+skills+shared+non-chief": 45383,
+  "direct+skills+shared+voice+non-chief": 46124,
+  "room+non-chief": 40654,
+  "room+voice+non-chief": 41395,
+  "room+shared+non-chief": 43395,
+  "room+shared+voice+non-chief": 44136,
+  "room+skills+non-chief": 42707,
+  "room+skills+voice+non-chief": 43448,
+  "room+skills+shared+non-chief": 45448,
+  "room+skills+shared+voice+non-chief": 46189,
+  "direct+skills+shared+voice+cloud-home": 51900,
+  "room+skills+shared+voice+cloud-home": 51965,
+  "direct+skills+shared+voice+non-chief+cloud-home": 46076,
+  "room+skills+shared+voice+non-chief+cloud-home": 46141,
+  "external": 3083,
+  "external+everything": 3083,
 };
 
 const RPC_PREFIX = '{"jsonrpc":"2.0","id":1,"result":';
@@ -239,7 +219,7 @@ describe("agents proxy tools/list golden", () => {
   it("offers everyone reviewed teammate renames while keeping model targeting and team setup Chief-only", () => {
     type SchemaTool = Tool & { description: string; inputSchema: { properties: Record<string, unknown> } };
     const nonChief = Object.keys(PROFILES).filter((name) => PROFILES[name]!.env.LATERDOG_CHIEF_OF_STAFF === "0");
-    expect(nonChief).toHaveLength(26);
+    expect(nonChief).toHaveLength(18);
     for (const name of nonChief) {
       const chiefTools = toolsOf(wires[name.replace("+non-chief", "")]!) as SchemaTool[];
       const tools = new Map((toolsOf(wires[name]!) as SchemaTool[]).map((tool) => [tool.name, tool]));

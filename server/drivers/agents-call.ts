@@ -431,7 +431,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       return { text: "send_to_bot needs bot_id, title and message.", isError: true };
     }
     if (botId === context.botId) {
-      return { text: "send_to_bot is cross-bot only. Use start_thread to send independent work to yourself.", isError: true };
+      return { text: "send_to_bot is cross-bot only: do your own work here in this conversation.", isError: true };
     }
     const r = await api("/api/internal/threads", { method: "POST", body: JSON.stringify({
       fromBotId: context.botId, fromThreadId: context.threadId, toBotId: botId,
@@ -617,71 +617,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       method: "POST", body: JSON.stringify({ surface: args.surface, ...(typeof args.needs === "string" ? { needs: args.needs.slice(0, 500) } : {}) }),
     });
     return { text: JSON.stringify(result) };
-  }
-  if (name === "list_threads") {
-    const query = new URLSearchParams({ fromBotId: BOT_ID, fromThreadId: THREAD_ID });
-    const r = await api(`/api/internal/threads?${query.toString()}`);
-    if (r.error) return { text: `Couldn't list threads: ${String(r.error)}`, isError: true };
-    const threads = Array.isArray(r.threads) ? r.threads.filter(jsonRecord) : [];
-    if (!threads.length) return { text: "No threads yet: you have none of your own beyond this one, and you have not opened any on a teammate." };
-    const stateWord: Record<string, string> = { running: "running", "waiting-on-you": "waiting on the person", queued: "queued", idle: "idle" };
-    const lines = threads.map((thread) => {
-      const where = thread.own === true ? "yours" : `on @${String(thread.botName)}`;
-      const state = stateWord[String(thread.state)] ?? String(thread.state);
-      const unread = thread.unread === true ? ", unread for the person" : "";
-      const handoff = typeof thread.delegationId === "string" && thread.delegationId ? ` [delegation id: ${thread.delegationId}]` : "";
-      return `- #${String(thread.title)} (${where}, ${state}${unread}) [thread id: ${String(thread.threadId)}]${handoff}`;
-    });
-    return { text: `Threads, newest first:\n${lines.join("\n")}` };
-  }
-  if (name === "close_thread") {
-    const threadId = String(args.thread_id ?? "").trim();
-    if (!threadId) return { text: "close_thread needs the thread_id from list_threads or start_thread.", isError: true };
-    const r = await api(`/api/internal/threads/${encodeURIComponent(threadId)}/close`, { method: "POST", body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID }) });
-    if (r.error) return { text: `Couldn't close that thread: ${String(r.error)}`, isError: true };
-    return { text: `Closed #${String(r.title)}${r.botName ? ` on @${String(r.botName)}` : ""}. It stays in the person's sidebar, idle, with a note that you closed it.` };
-  }
-  if (name === "start_thread") {
-    const title = String(args.title ?? "").trim();
-    const message = String(args.message ?? "").trim();
-    if (!title || !message) return { text: "start_thread needs title (one short line) and message (the complete first message).", isError: true };
-    const toBotId = typeof args.bot_id === "string" ? args.bot_id.trim() : "";
-    if (COORDINATING && toBotId && toBotId !== BOT_ID) {
-      return { text: "Use coordinate_bots for teammates; start_thread only opens a separate job on yourself.", isError: true };
-    }
-    const folder = typeof args.folder === "string" ? args.folder.trim() : "";
-    const body: Record<string, unknown> = { fromBotId: BOT_ID, fromThreadId: THREAD_ID, title, message, depth: DEPTH };
-    if (toBotId) body.toBotId = toBotId;
-    if (folder) body.folder = folder;
-    const r = await api("/api/internal/threads", { method: "POST", body: JSON.stringify(body) });
-    if (r.error && r.state !== "failed") return { text: `Couldn't open that thread: ${String(r.error)}`, isError: true };
-    const threadTitle = String(r.title ?? title);
-    const threadId = String(r.threadId ?? "");
-    const where = r.self === true ? "on yourself" : `on @${String(r.botName ?? "that bot")}`;
-    const opened = r.reused === true
-      ? `Added to your open thread #${threadTitle} ${where} [thread id: ${threadId}], instead of opening another.`
-      : `Opened thread #${threadTitle} ${where} [thread id: ${threadId}].`;
-    if (r.self === true) {
-      if (r.state === "running") {
-        return { text: `${opened} It is running now, in parallel with this conversation, and its result stays in that thread — it will not be delivered here. Mention it to the person as #${threadTitle}; use list_threads in a later turn to see how it is going.` };
-      }
-      if (r.state === "queued") {
-        const position = Number(r.position) || 1;
-        const limit = Number(r.limit) || 0;
-        return { text: `${opened} You are at your limit of ${limit} threads running at once, so it is ${ordinal(position)} in line and starts as soon as one of them finishes — nothing more to do. Mention it to the person as #${threadTitle}.` };
-      }
-      return { text: `${opened} It could not start: ${String(r.error ?? "unknown reason")}. The thread exists but nothing is running in it; tell the person.`, isError: true };
-    }
-    const delegationId = typeof r.delegationId === "string" ? r.delegationId.trim() : "";
-    const approval = r.approvalRequired === true
-      ? " The person must approve this handoff first; their card appears after your turn ends."
-      : "";
-    const timing = r.state === "queued"
-      ? ` @${String(r.botName ?? "that bot")} can run ${Number(r.limit) || 0} threads at once and they are all spoken for, so it waits ${ordinal(Number(r.position) || 1)} in line for a free slot after this turn ends.`
-      : " It starts when this turn ends, like any handoff.";
-    return {
-      text: `${opened}${timing}${approval} Its result will be delivered to this conversation automatically (delegation id: ${delegationId || "unknown"}). Acknowledge it, mention it to the person as #${threadTitle}, and finish your turn; do not check or wait for it in this turn.`,
-    };
   }
   if (name === "list_team_setup") {
     return { text: JSON.stringify(await api("/api/internal/team-setup-catalog")) };
@@ -989,7 +924,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, toBotId: botId, toThreadId: threadId, ...(note ? { note } : {}) }),
     });
     if (r.error) return { text: `Couldn't retry that thread: ${String(r.error)}`, isError: true };
-    return { text: typeof r.message === "string" ? r.message : "The thread is running again. Its result stays in that thread; you are not woken for it — check it later with session_search or list_threads if you need to." };
+    return { text: typeof r.message === "string" ? r.message : "The thread is running again. Its result stays in that thread; you are not woken for it — check it later with session_search if you need to." };
   }
   if (name === "memory_log") {
     if (typeof args.text !== "string" || !args.text.trim()) {

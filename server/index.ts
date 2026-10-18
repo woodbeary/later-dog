@@ -449,7 +449,6 @@ import {
   customMcpPrompt,
   CREDENTIAL_PROMPT,
   mentionPrompt,
-  THREADS_PROMPT,
   LEARN_PROMPT,
   PROFILE_PROMPT,
   TEAM_MEMORY_PROMPT,
@@ -1249,16 +1248,6 @@ function openerFrom(fromThreadId: string): string | undefined {
   return person && !cloudOwnerPerson(person) ? person : CLOUD_NOBODY_KEY;
 }
 
-function parentThreadModel(botId: string, parentThreadId: string): { modelSelection?: ModelSelection; approvalMode?: "ask" } {
-  const bot = store.bot(botId);
-  const modelSelection = bot && store.taskByThread(bot.id, parentThreadId)?.modelSelection;
-  if (!bot || !modelSelection) return {};
-  const needsAsk = modelSwitchNeedsAsk(approvalModeFor(bot),
-    registry.cliTarget(bot.modelSelection.instanceId)?.driverKind,
-    registry.cliTarget(modelSelection.instanceId)?.driverKind);
-  return { modelSelection, ...(needsAsk ? { approvalMode: "ask" as const } : {}) };
-}
-
 function guestWorkThread(from: BotRecord, target: BotRecord, fromThreadId: string, brief: string): string | undefined | null {
   if (!CLOUD_HOME || !cloudGuestDriven(fromThreadId)) return undefined;
   const title = brief.replace(/\s+/g, " ").trim().slice(0, 60) || `From ${from.name}`;
@@ -2029,7 +2018,6 @@ type InternalCapability = {
   browserSession?: string;
   roomHandoffId?: string;
   roomCoordination?: boolean;
-  ownThreadCreation?: boolean;
   attachedFiles?: number;
   roomPosts?: number;
   delegatedThisTurn?: Set<string>;
@@ -2075,7 +2063,6 @@ function externalRuntimeCapability(header: string | string[] | undefined): Inter
     openedThreads: 0,
     orphanExpiresAt: Number.MAX_SAFE_INTEGER,
     roomCoordination: false,
-    ownThreadCreation: false,
   };
 }
 
@@ -2243,7 +2230,6 @@ function agentsIntegration(
   generation: string,
   roomHandoffId?: string,
   roomCoordination = false,
-  ownThreadCreation = false,
 ) {
   const token = mintInternalCapability({
     botId,
@@ -2256,7 +2242,6 @@ function agentsIntegration(
     openedThreads: 0,
     roomHandoffId,
     roomCoordination,
-    ownThreadCreation,
   });
   return {
     command: process.execPath,
@@ -2269,7 +2254,6 @@ function agentsIntegration(
       LATERDOG_COMMS_TOKEN: token,
       LATERDOG_TURN_DEPTH: String(depth),
       LATERDOG_ROOM_TURN: roomCoordination ? "1" : "0",
-      LATERDOG_OWN_THREAD_CREATION: ownThreadCreation ? "1" : "0",
       LATERDOG_SKILL_AUTHORING_ENABLED: skillAuthoring ? "1" : "0",
       LATERDOG_MEMORY_ENABLED: store.bot(botId)?.memoryEnabled === false ? "0" : "1",
       LATERDOG_SHARED_COMPUTERS_ENABLED: lendingEnabled() ? "1" : "0",
@@ -7782,7 +7766,7 @@ const runDelegatedTurn: Parameters<typeof drainDelegations>[3] = (toBotId, rawTe
       ? { botId: opener.id, name: opener.name, unattended: unattended || undefined }
       : undefined;
     const text = openedThreadId && opener
-      ? withPeerProvenance(rawText, { botName: opener.name, delivery: oneWay ? "send_to_bot" : "start_thread", unattended, owner: ownerAuthorityFor(sourceThreadId) })
+      ? withPeerProvenance(rawText, { botName: opener.name, delivery: oneWay ? "send_to_bot" : "ask_bot", unattended, owner: ownerAuthorityFor(sourceThreadId) })
       : rawText;
     if (targetThreadId) {
       delegationWatch.set(targetThreadId, {
@@ -8213,39 +8197,6 @@ async function deliverLateQuestionAnswer(
 
 const threadCapNoticed = new WeakSet<object>();
 const teammateThreads = new TeammateThreadCount();
-
-async function startOrQueueOpenedThread(
-  botId: string,
-  threadId: string,
-  text: string,
-  unattended: boolean,
-): Promise<{ state: "running" } | { state: "queued"; position: number } | { state: "failed"; error: string }> {
-  const peerAsk = { botId, name: store.bot(botId)!.name, unattended: unattended || undefined };
-  const decision = admit("opened-thread", {}, {
-    atCapacity: botAtThreadCapacity(botId),
-    groupTurn: Boolean(activeGroupTurnForBot(botId)),
-  });
-  if (decision.action === "queue") {
-    queueSteeredMessage(botId, threadId, text, {
-      reason: decision.reason,
-      unattended,
-      peerAsk,
-    });
-    return { state: "queued", position: queuedThreadPosition(botId, threadId) ?? 1 };
-  }
-  try {
-    await startTurn(botId, text, { threadId, unattended, peerAsk });
-    return { state: "running" };
-  } catch (error) {
-    const why = error instanceof Error ? error.message : String(error);
-    store.appendMessage(threadId, {
-      role: "bot",
-      kind: "activity",
-      tool: failedTurnTool(`this thread could not start — ${why}`),
-    });
-    return { state: "failed", error: why };
-  }
-}
 
 type Frame = { png: string; mime: string };
 const screenPollers = new Map<
@@ -9100,11 +9051,7 @@ async function startTurn(
       }
       const sectionPeers = reachablePeers(store.bots, bot);
       if (agentsMounted) {
-        const origin = opts?.cardContinuation
-          ? store.activePath(threadId).findLast(message => message.role === "user" && message.kind === "text")
-          : userMessage;
-        const ownThreadCreation = boundedCoordination && !opts?.coordination && Boolean(origin && !origin.peerAsk);
-        integrations.agents = agentsIntegration(bot.id, threadId, commsDepth, skillAuthoring, dispatchClaimId, opts?.coordination?.id, boundedCoordination, ownThreadCreation);
+        integrations.agents = agentsIntegration(bot.id, threadId, commsDepth, skillAuthoring, dispatchClaimId, opts?.coordination?.id, boundedCoordination);
       }
       if (instance.adapter.capabilities.hooks === true && hooksEnabled()) {
         integrations.hooks = hooksIntegration(bot.id, threadId, dispatchClaimId);
@@ -9125,7 +9072,7 @@ async function startTurn(
         : integrations.agents && sectionPeers.length > 0
           ? peerRosterSystemPrompt(sectionPeers, boundedCoordination)
           : "";
-      const credentialPrompt = integrations.agents ? CREDENTIAL_PROMPT + (boundedCoordination ? "" : THREADS_PROMPT) : "";
+      const credentialPrompt = integrations.agents ? CREDENTIAL_PROMPT : "";
       const routinePrompt = integrations.agents ? ROUTINE_PROMPT : "";
       const profilePrompt = integrations.agents ? PROFILE_PROMPT : "";
       const recallPrompt = integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "";
@@ -11116,7 +11063,7 @@ async function runGroupMemberTurn(
     readyGroup.bulletin.trim() && `Room bulletin (shared instructions for everyone):\n${readyGroup.bulletin.trim()}`,
     `Reply as yourself, briefly and conversationally. To bring a teammate in, mention them like @Name — they'll see the conversation and respond.`,
     outsideRoom.length > 0 && roomPeerRosterSystemPrompt(outsideRoom),
-    integrations.agents && (CREDENTIAL_PROMPT + (orchestration && !orchestration.roomHandoffId ? THREADS_PROMPT : "")).trim(),
+    integrations.agents && CREDENTIAL_PROMPT.trim(),
     integrations.agents && (!orchestration || orchestration.roomHandoffId) && "For actual later.dog teamwork, discover IDs with list_room_targets and use coordinate_bots for advice or work in this or another room. Do not substitute native coding helpers for these named bots. Consult only when needed to make a decision; no discussion step is mandatory. Give concrete responsibilities, exact accessible paths and acceptance checks. End your turn after assigning; busy teammates queue and results automatically resume you. When they return, finish the requested verification and give the person one final answer. Native helper names are not evidence that a later.dog teammate participated. Plain @mentions are only for conversational replies in this room.",
     integrations.agents && ROUTINE_PROMPT.trim(),
     integrations.agents && PROFILE_PROMPT.trim(),
@@ -14725,78 +14672,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           });
         return json(res, 200, { bots });
       }
-      if (method === "GET" && path === "/api/internal/threads") {
-        const from = internalSender;
-        const fromThreadId = internalCapability.threadId;
-        if (!connectorThread(from.id, fromThreadId)) {
-          return json(res, 403, { error: "source conversation does not belong to sender" });
-        }
-        const rows: Array<{
-          threadId: string; botId: string; botName: string; title: string;
-          state: "running" | "waiting-on-you" | "queued" | "idle" | "closed";
-          unread: boolean; openedAt: number; delegationId?: string; own: boolean;
-        }> = [];
-        const stateOf = (bot: BotRecord, task: TaskRecord) => {
-          if (task.activity === "waiting-on-you") return "waiting-on-you" as const;
-          if (threadBusy(bot.id, task.threadId)) return "running" as const;
-          if (queuedThreadPosition(bot.id, task.threadId) !== null) return "queued" as const;
-          if (roomHandoffs.activeDirect(task.threadId)) return "queued" as const;
-          if (task.closedBy) return "closed" as const;
-          return "idle" as const;
-        };
-        const shown = cloudLendingView(internalCapability) ? cloudOwnerOnlyThread : () => true;
-        for (const task of store.tasks(from.id)) {
-          if (!shown(task.threadId)) continue;
-          rows.push({
-            threadId: task.threadId, botId: from.id, botName: from.name, title: task.title,
-            state: stateOf(from, task), unread: task.unread === true, openedAt: task.openedBy?.at ?? task.createdAt,
-            delegationId: task.openedBy?.delegationId, own: true,
-          });
-        }
-        for (const peer of reachablePeers(store.bots, from)) {
-          for (const task of store.tasks(peer.id)) {
-            if (task.openedBy?.botId !== from.id || !shown(task.threadId)) continue;
-            rows.push({
-              threadId: task.threadId, botId: peer.id, botName: peer.name, title: task.title,
-              state: stateOf(peer, task), unread: task.unread === true, openedAt: task.openedBy.at,
-              delegationId: task.openedBy.delegationId, own: false,
-            });
-          }
-        }
-        rows.sort((a, b) => b.openedAt - a.openedAt);
-        return json(res, 200, { threads: rows.slice(0, 100) });
-      }
-      const closeMatch = method === "POST" ? path.match(/^\/api\/internal\/threads\/([\w-]+)\/close$/) : null;
-      if (closeMatch) {
-        const from = internalSender;
-        const fromThreadId = internalCapability.threadId;
-        if (!connectorThread(from.id, fromThreadId)) {
-          return json(res, 403, { error: "source conversation does not belong to sender" });
-        }
-        const threadId = closeMatch[1]!;
-        const owner = [from, ...reachablePeers(store.bots, from)].find((bot) => store.taskByThread(bot.id, threadId));
-        const task = owner ? store.taskByThread(owner.id, threadId) : undefined;
-        if (!owner || !task) return json(res, 404, { error: "no such thread — call list_threads for the ones you can see" });
-        if (owner.id !== from.id && task.openedBy?.botId !== from.id) {
-          return json(res, 403, { error: "that thread is not yours to close — only the bot that opened it, or its own bot, can" });
-        }
-        if (threadId === fromThreadId) return json(res, 400, { error: "you cannot close the thread you are speaking in — finish your turn instead" });
-        if (threadBusy(owner.id, threadId) || queuedThreadPosition(owner.id, threadId) !== null || roomHandoffs.activeDirect(threadId)) {
-          return json(res, 409, { error: `#${task.title} is still running — wait for it to finish (list_threads), or the person can stop it from the app` });
-        }
-        if (task.closedBy) {
-          return json(res, 200, { closed: true, alreadyClosed: true, threadId, title: task.title, botName: owner.name, closedBy: task.closedBy.name });
-        }
-        store.appendMessage(threadId, {
-          role: "bot",
-          kind: "activity",
-          from: { botId: from.id, name: from.name, color: from.color },
-          tool: { name: `Closed by @${from.name}`, ok: true },
-        });
-        if (task.unread) store.patchTask(owner.id, threadId, { unread: false });
-        store.setTaskClosedBy(owner.id, threadId, { botId: from.id, name: from.name, at: Date.now() });
-        return json(res, 200, { closed: true, threadId, title: task.title, botName: owner.name });
-      }
       if (method === "POST" && path === "/api/internal/attach-file") {
         const from = internalSender;
         const threadId = internalCapability.threadId;
@@ -15658,7 +15533,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           tool: { name: `Retried ${target.name}'s thread #${task.title}`, ok: true },
           threadRef: { botId: target.id, threadId, title: task.title },
         });
-        return json(res, 200, { started: true, message: `${target.name}'s thread #${task.title} is running again. Its result stays in that thread; you are not woken for it — check later with list_threads or session_search if you need to.` });
+        return json(res, 200, { started: true, message: `${target.name}'s thread #${task.title} is running again. Its result stays in that thread; you are not woken for it — check later with session_search if you need to.` });
       }
       if (method === "POST" && path === "/api/internal/delegate-bot") {
         const body = await readInternalBody();
@@ -16007,78 +15882,26 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }
           return json(res, 429, { error: threadLimitMessage(limit, kind) });
         };
-        const toBotId = typeof body.toBotId === "string" && body.toBotId.trim() ? body.toBotId.trim() : from.id;
+        if (body.oneWay !== true) return json(res, 400, { error: "only send_to_bot opens work on another dog here" });
+        const toBotId = typeof body.toBotId === "string" ? body.toBotId.trim() : "";
         const target = store.bot(toBotId);
         if (!target) return json(res, 404, { error: "no such bot" });
-        const oneWay = body.oneWay === true;
-        if (oneWay && target.id === from.id) {
-          return json(res, 409, { error: "send_to_bot is cross-bot only; use start_thread to send independent work to yourself" });
+        if (target.id === from.id) {
+          return json(res, 409, { error: "send_to_bot is cross-bot only: do your own work here in this conversation" });
         }
-        if (internalCapability.roomCoordination) {
-          if (target.id !== from.id && !oneWay) {
-            return json(res, 409, { error: "Use coordinate_bots for teamwork; it queues actual teammates and resumes you automatically." });
-          }
-          if (target.id === from.id && !internalCapability.ownThreadCreation) {
-            return json(res, 409, { error: "Only a direct user request can open separate self-owned threads. Finish this assigned work here; use coordinate_bots for teammates." });
-          }
-        }
-        const folder = typeof body.folder === "string" ? body.folder.trim() : "";
-        let projectId: string | undefined;
-        if (folder) {
-          const project = (target.projects ?? []).find(
-            (candidate) => candidate.id === folder || candidate.name.trim().toLowerCase() === folder.toLowerCase(),
-          );
-          if (!project) {
-            const names = (target.projects ?? []).map((candidate) => candidate.name).join(", ");
-            return json(res, 400, { error: `@${target.name} has no folder named "${folder}"${names ? ` — the folders are: ${names}` : " — it has no folders; leave folder out"}` });
-          }
-          projectId = project.id;
-        }
-        const sourceTitle = owner.group ? owner.group.name : (store.taskByThread(from.id, fromThreadId)?.title ?? "");
         const ownerTurn = ownerWorkThread(fromThreadId);
         const perTurn = threadsPerTurn(ownerTurn);
-        if (target.id === from.id) {
-          if (internalCapability.openedThreads >= perTurn.own) return refuseThreadCap(perTurn.own, "own");
-          const inherited = parentThreadModel(from.id, fromThreadId);
-          const task = store.createTask(from.id, title, false, projectId, { botId: from.id, name: from.name, at: Date.now() },
-            inherited.approvalMode, inherited.modelSelection);
-          if (!task) return json(res, 500, { error: "couldn't create that thread" });
-          threadStarters.set(task.threadId, openerFrom(fromThreadId));
-          internalCapability.openedThreads += 1;
-          const chip: Omit<Message, "id" | "at"> = {
-            role: "bot",
-            kind: "activity",
-            tool: { name: `Opened thread #${task.title}`, ok: true },
-            threadRef: { botId: from.id, threadId: task.threadId, title: task.title },
-          };
-          if (owner.group) chip.from = { botId: from.id, name: from.name, color: from.color };
-          store.appendMessage(fromThreadId, chip);
-          const opening = `[Thread you opened yourself${sourceTitle ? ` from #${sourceTitle}` : ""}. The request below is your own words, not the person's: do the work here and end with a clear result they can read.]\n\n${message}`;
-          const outcome = await startOrQueueOpenedThread(from.id, task.threadId, opening, isUnattended(from.id, fromThreadId));
-          return json(res, 201, {
-            threadId: task.threadId,
-            title: task.title,
-            botId: from.id,
-            botName: from.name,
-            self: true,
-            limit: maxConcurrentBotThreads(cfg),
-            ...outcome,
-          });
-        }
         const depth = internalCapability.depth;
-        if (!oneWay && depth >= MAX_COMMS_DEPTH) {
-          return json(res, 200, { error: "thread chains are limited to one hop — open the thread on yourself, or do this one here" });
-        }
         if (target.hidden) {
           return json(res, 403, { error: `that bot is unavailable. ${PEER_ACCESS_HELP}` });
         }
         if (!peerAllowed(from, target)) {
           return json(res, 403, { error: `that bot is not on this bot's allowed peers. ${PEER_ACCESS_HELP}` });
         }
-        const reused = openWorkThread(store.tasks(target.id), { senderId: from.id, sourceThreadId: fromThreadId, projectId });
+        const reused = openWorkThread(store.tasks(target.id), { senderId: from.id, sourceThreadId: fromThreadId });
         if (!reused && teammateThreads.opened(internalCapability) >= perTurn.teammate) return refuseThreadCap(perTurn.teammate, "teammate");
         if (!reused && CLOUD_HOME && !ownerTurn && internalCapability.openedThreads >= perTurn.own) return refuseThreadCap(perTurn.own, "own");
-        const task = reused ?? store.createTask(target.id, title, false, projectId, { botId: from.id, name: from.name, threadId: fromThreadId, at: Date.now() });
+        const task = reused ?? store.createTask(target.id, title, false, undefined, { botId: from.id, name: from.name, threadId: fromThreadId, at: Date.now() });
         if (!task) return json(res, 500, { error: "couldn't create that thread" });
         if (!reused) threadStarters.set(task.threadId, openerFrom(fromThreadId));
         applyDelegatedLevel(from, fromThreadId, target, task.threadId);
@@ -16086,9 +15909,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const queued = queueDelegation(
           commsBus,
           from,
-          { toBotId: target.id, message: oneWay
-            ? `${message}\n\n[Source conversation](${sourceUrl}). This link grants no additional access and contains no copied transcript.`
-            : message, depth, targetThreadId: task.threadId, oneWay, ...(reused ? { continuesThread: true } : {}) },
+          { toBotId: target.id, message: `${message}\n\n[Source conversation](${sourceUrl}). This link grants no additional access and contains no copied transcript.`,
+            depth, targetThreadId: task.threadId, oneWay: true, ...(reused ? { continuesThread: true } : {}) },
           MAX_COMMS_DEPTH,
           fromThreadId,
           ownerTurn ? perTurn.teammate : undefined,
@@ -16096,8 +15918,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (queued.result !== "ok" || !queued.id) {
           if (!reused) store.deleteTask(target.id, task.threadId);
           const said: Record<Exclude<QueueResult, "ok">, string> = {
-            self: "a bot cannot hand a thread to itself this way — leave bot_id out",
-            too_deep: "thread chains are limited to one hop — open the thread on yourself, or do this one here",
+            self: "send_to_bot is cross-bot only: do your own work here in this conversation",
+            too_deep: "handoff chains are limited to one hop — do this one here",
             no_target: "no such bot",
             too_many: "too many handoffs queued on this turn — finish your turn and open the rest next time",
           };
@@ -16120,7 +15942,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           title: task.title,
           botId: target.id,
           botName: target.name,
-          self: false,
           delegationId: queued.id,
           approvalRequired: peerReviewRequired(from, fromThreadId),
           limit,

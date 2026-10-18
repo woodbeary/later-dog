@@ -214,10 +214,8 @@ preview/server processes afterward; retain evidence without credentials.
 
 Existing peer allow-lists/approvals and every room reader's section still apply.
 Ordinary chats use one bounded coordination tool for teammate work instead of
-the competing ask/delegate/peer-thread execution paths. A top-level direct turn
-can still use `start_thread` to open separate work on itself, without moving the
-person's selected conversation. That tool is not an alternative way to dispatch
-teammates or recursively fan out from model-opened threads and coordinated children.
+the competing ask/delegate/peer-thread execution paths. A dog has one
+conversation and no tool to open separate work on itself.
 Direct routines, webhooks and legacy peer delivery
 retain their existing lifecycle: their completion is not claimed early by this
 new loop, and a turn of theirs that lands in a conversation cancels no
@@ -305,6 +303,6 @@ Checks: `server/room-handoffs.test.ts` (idle, hard cap, honest endings, Continue
 
 ## One open thread per teammate
 
-When a dog sends work to a teammate through `send_to_bot` (or the older cross-bot `start_thread`), later.dog first looks for a thread that dog already opened on that teammate from the same conversation and that is still open: not archived, and not closed unless it is the teammate's `@Chief · work` thread, which reopens when new work arrives. If there is one, the request goes into it and runs after anything still running there. The chat says "Added to thread #… on …" instead of "Opened thread", and the dog is told it was added to an open thread instead of opening another. A request that names a folder only reuses a thread in that folder.
+When a dog sends work to a teammate through `send_to_bot`, later.dog first looks for a thread that dog already opened on that teammate from the same conversation and that is still open: not archived, and not closed unless it is the teammate's `@Chief · work` thread, which reopens when new work arrives. If there is one, the request goes into it and runs after anything still running there. The chat says "Added to thread #… on …" instead of "Opened thread", and the dog is told it was added to an open thread instead of opening another. 
 
-New threads are counted per turn only when one is really created, and only to stop a runaway loop: in the owner's own conversations, 20 threads a dog opens for itself and 40 with teammates; where a guest drives the conversation or the workspace is shared, 5 and 15. A dog runs up to 10 threads at once by default (`threads.maxConcurrentPerBot`). At the limit the dog is told to finish and say plainly which threads it still wanted, and the conversation gets one line, "This dog opened 20 new threads in one go, so later.dog paused new ones to stop a runaway. Ask again if you want more." (shown once per turn, however many more it tries). The code is in `server/laterdog/work-thread-reuse.ts`; `server/thread-aware-bots.e2e.test.ts` proves the reuse, the chips and the single notice on a fixture.
+New threads are counted per turn only when one is really created, and only to stop a runaway loop: in the owner's own conversations, 40 with teammates; where a guest drives the conversation or the workspace is shared, 15 with teammates and 5 in all. A dog runs up to 10 threads at once by default (`threads.maxConcurrentPerBot`). At the limit the dog is told to finish and say plainly which threads it still wanted, and the conversation gets one line, "This dog opened 40 new threads in one go, so later.dog paused new ones to stop a runaway. Ask again if you want more." (shown once per turn, however many more it tries). The code is in `server/laterdog/work-thread-reuse.ts`; `server/thread-aware-bots.e2e.test.ts` proves the reuse and the chips on a fixture.
