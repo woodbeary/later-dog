@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 const INDEX = readFileSync(new URL("../../server/index.ts", import.meta.url), "utf8");
 
 const EXACT: Record<string, number> = {
-  'path === "/': 156,
+  'path === "/': 154,
   "path.match(": 86,
   "path.startsWith(": 11,
   ".exec(path)": 18,

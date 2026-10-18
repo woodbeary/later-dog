@@ -96,7 +96,7 @@ headless-renderer run with `LATERDOG_UI_E2E=1`), `server/team-share.e2e.test.ts`
 `server/new-bot-defaults.test.ts`, `server/new-bot-defaults.e2e.test.ts`,
 `server/bot-setup.e2e.test.ts`, `src/state/bot-creation.test.ts`,
 `server/org-library.test.ts`, `server/org-library.e2e.test.ts`,
-`src/lib/org-library.test.ts` and the Share team, organization library and
+the since-removed renderer library test and the Share team, organization library and
 New bot headless-renderer recipes passed; the presets
 headless recipe passed six runs in a row after its sidebar clicks learned to
 wait for a closing panel.

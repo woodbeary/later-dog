@@ -2,8 +2,8 @@
 
 The desktop shelf (**Templates → From {Organization}**) and **Bot → Skills →
 From {Organization}** were removed in the finalize slice `d3-chief-packs-teams`
-(2026-10-18), with `src/lib/org-library.ts`, its test and
-`scripts/testing/org-library-ui.e2e.test.ts`. The Electron relay, the server
+(2026-10-18), with the renderer library module, its unit test and its
+headless-renderer test. The Electron relay, the server
 routes and `trust: "org"` imports remain and their server checks below still
 apply; the renderer sections and dated records describe the removed shelf.
 
@@ -104,7 +104,7 @@ checks the following:
 ## Renderer
 
 Removed with the shelf (see the note at the top). When it existed, the first
-command (`src/lib/org-library.test.ts`) rendered the shelf cards and the preview to markup. It
+command (the removed renderer unit test) rendered the shelf cards and the preview to markup. It
 checks:
 
 - Add appears only for a checked file, and there is no confirm step;
@@ -141,7 +141,7 @@ This ran on macOS (arm64) against disposable fixtures only. These passed:
 - `server/package-import.test.ts`, `server/package-export.test.ts`,
   `shared/package-format.test.ts`, `server/bot-package.test.ts`,
   `server/skills.test.ts`, `server/routines.test.ts`, `server/store.test.ts`,
-  `server/team-share.e2e.test.ts`, `src/components/ShareTeamDialog.test.ts`
+  `server/team-share.e2e.test.ts`, the since-removed Share team dialog test
   and `src/lib/team-import.test.ts`.
 
 Each of these was mutation-checked: the behaviour was broken, the named test
@@ -197,8 +197,8 @@ fixtures only:
 
 These passed: `pnpm typecheck`, `pnpm lint`, the four commands above
 (including the headless-renderer run with `LATERDOG_UI_E2E=1`, together with
-`scripts/testing/team-share-ui.e2e.test.ts`), and the neighbouring tests
-listed in the section above plus `src/lib/team-share.test.ts`.
+the since-removed Share team headless-renderer test), and the neighbouring tests
+listed in the section above plus the since-removed renderer team-share test.
 
 Each of these was mutation-checked, with the named test seen failing:
 
@@ -213,7 +213,7 @@ Each of these was mutation-checked, with the named test seen failing:
 - a withdrawal skipping a removed team's leftover skill, and acting on it
   again after the person switched it back on (the withdrawal test for a
   removed team);
-- the provenance line shown for a file stamp (`src/lib/org-library.test.ts`).
+- the provenance line shown for a file stamp (the since-removed renderer unit test).
 
 Not tested: an actual process kill. The stops are simulated by copying the
 installation's files mid-import. The order in which each bot's starter notes
@@ -232,7 +232,7 @@ them, and a team deleted whole notes all of its parts as well as becoming
 
 These passed: `pnpm typecheck`, `pnpm lint`, `pnpm i18n:check`, and
 `pnpm exec vitest run` on `server/org-library.test.ts`,
-`server/org-library.e2e.test.ts`, `src/lib/org-library.test.ts`,
+`server/org-library.e2e.test.ts`, the since-removed renderer unit test,
 `server/package-import.test.ts` and
 `scripts/testing/verification-docs.test.ts`.
 
