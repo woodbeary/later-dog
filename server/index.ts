@@ -723,6 +723,7 @@ import { createTimeZoneRoutes, restoreTimeZone } from "./laterdog/time-zone.ts";
 import { heldAccountReason } from "./laterdog/held-accounts.ts";
 import { createHomeAccountRoutes, withHandedOverEmail } from "./laterdog/home-accounts.ts";
 import { createMacAccountRoutes } from "./laterdog/mac-accounts.ts";
+import { engineAnswer } from "./laterdog/person-denied.ts";
 import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeover.ts";
 import { createSecureFormRoutes } from "./routes/secure-forms.ts";
 import { dispatchInternalRoutes, INTERNAL_ROUTES } from "./routes/internal.ts";
@@ -5169,7 +5170,7 @@ async function answerRequest(
   let outcome: RequestOutcome = "unavailable";
   if (instance) {
     try {
-      outcome = await instance.adapter.respondToRequest(threadId, requestId, { behavior, message, always: always && behavior === "allow" });
+      outcome = await instance.adapter.respondToRequest(threadId, requestId, { behavior, message: engineAnswer(behavior, message), always: always && behavior === "allow" });
     } catch {
       outcome = "unavailable";
     }

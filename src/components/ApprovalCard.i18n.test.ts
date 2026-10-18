@@ -82,8 +82,9 @@ describe("German approval cards", () => {
     expect(markup).toContain("Ausstehende Freigabe");
     expect(markup).toContain("2 von 3");
     expect(markup).toContain("Darf Mochi einen Befehl ausführen?");
-    expect(markup).toContain("Details anzeigen");
+    expect(markup).not.toContain("Details anzeigen");
     expect(markup).toContain('aria-label="Details zur Freigabe prüfen"');
+    expect(markup).toContain(">pnpm test</pre>");
   });
 
   it("speaks a command approval in German", () => {
@@ -112,7 +113,7 @@ describe("German approval cards", () => {
     expect(markup).toContain("Nicht erlauben");
     expect(markup).toContain("Immer erlauben");
     expect(markup).toContain("Einmal erlauben");
-    expect(markup).toContain("Bei Mochi nicht mehr nach Bash:pnpm test fragen");
+    expect(markup).toContain("„Immer erlauben“ lässt Mochi das in Gruppenchats und neuen Chats wieder tun, ohne zu fragen.");
   });
 });
 
@@ -227,6 +228,6 @@ describe("Brazilian Portuguese approval cards", () => {
     expect(markup).toContain("Não permitir");
     expect(markup).toContain("Sempre permitir");
     expect(markup).toContain("Permitir uma vez");
-    expect(markup).toContain("Não perguntar mais a Mochi sobre Bash:pnpm test");
+    expect(markup).toContain("Sempre permitir deixa Mochi fazer isso de novo sem perguntar em conversas em grupo e em novas conversas.");
   });
 });

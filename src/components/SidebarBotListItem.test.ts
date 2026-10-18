@@ -332,6 +332,20 @@ describe("bot deletion feedback", () => {
       expect(renderRow(bot({ waitingForTeammates: true, busy: false }), true)).toContain("Waiting on another dog…");
     });
 
+    it("says what the dog is waiting on when its approval card is open", () => {
+      const card = (extra: Record<string, unknown> = {}) => ({
+        id: "ask-1", role: "bot", kind: "options", at: 3,
+        card: { title: "Approval needed", subtitle: "rm -rf build", options: ["Allow", "Deny"], requestId: "r1", tool: "Bash", ...extra },
+      }) as Bot["messages"][number];
+      for (const quiet of [false, true]) {
+        const markup = renderRow(bot({ activity: "waiting-on-you", messages: [card()] }), quiet);
+        expect(markup).toContain('<span class="truncate">Waiting for you: run a command</span>');
+        expect(markup).not.toContain('<span class="truncate">Waiting for you…');
+      }
+      expect(renderRow(bot({ activity: "waiting-on-you", messages: [card({ tool: "mac_run_command" })] }))).toContain("Waiting for you: run a command on your Mac");
+      expect(renderRow(bot({ activity: "waiting-on-you", messages: [card({ answered: "deny" })] }))).toContain('<span class="truncate">Waiting for you…');
+    });
+
     it("keeps the unread dot in the name line when the preview line is gone", () => {
       const markup = renderRow(bot({ unread: true, messages: [{ id: "b1", role: "bot", kind: "text", text: "hello", at: 1 }] as Bot["messages"] }), true);
       expect(markup).toContain('aria-label="Unread threads"');

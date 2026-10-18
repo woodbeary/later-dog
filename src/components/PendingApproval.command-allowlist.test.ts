@@ -27,9 +27,9 @@ function nodes(value: ReactNode): Node[] {
   const node = value as Node;
   return [node, ...Children.toArray(node.props.children).flatMap(nodes)];
 }
-function view(extra: Partial<NonNullable<Message["card"]>> = {}) {
+function view(extra: Partial<NonNullable<Message["card"]>> = {}, asker: Bot = bot) {
   const pending = pendingApprovals([message(extra)])[0]!;
-  const tree = PendingApprovalActions({ pending, bot, threadId: "thread-1" });
+  const tree = PendingApprovalActions({ pending, bot: asker, threadId: "thread-1" });
   return { html: renderToStaticMarkup(tree), buttons: nodes(tree).filter((node) => node.type === "button") };
 }
 
@@ -123,6 +123,36 @@ describe("remembering exact command approvals", () => {
     expect(fixture.dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       alwaysAllow: { botId: bot.id, key: "peer:teammate" }, always: undefined, rememberCommand: undefined,
     }));
+  });
+
+  it("shows the command open in a capped mono block, not behind View details", () => {
+    const pending = pendingApprovals([message()])[0]!;
+    const html = renderToStaticMarkup(createElement(PendingApprovalPanel, { pending, count: 1, index: 0 }));
+    expect(html).not.toContain("View details");
+    expect(html).not.toContain("<details");
+    expect(html).toMatch(/<pre[^>]*class="[^"]*max-h-40[^"]*font-mono[^"]*"[^>]*>git status --short<\/pre>/);
+  });
+
+  it("folds model and team memory proposals behind View details, as the chat card does", () => {
+    for (const extra of [{ tool: "update_model", modelRequest: {} }, { tool: "team_memory", teamMemoryRequest: {} }]) {
+      const pending = pendingApprovals([message({ ...extra, subtitle: "proposal body", commandAllowlist: undefined } as never)])[0]!;
+      const html = renderToStaticMarkup(createElement(PendingApprovalPanel, { pending, count: 1, index: 0 }));
+      expect(html).toContain("<details");
+      expect(html).toContain("View details");
+    }
+  });
+
+  it("says in one visible line how far each lasting choice reaches", () => {
+    const line = (html: string) => html.match(/<p class="[^"]*text-ink-tertiary[^"]*">([^<]*)<\/p>/)?.[1];
+    const command = view();
+    expect(line(command.html)).toBe("Always allow lets Scout run this exact command in /work/project without asking, in any chat using that folder with this engine.");
+    expect(line(view({ commandAllowlist: undefined }).html)).toBe("Allow for this chat stops asking about this action until this chat&#x27;s session ends.");
+    const ownChat = { ...bot, tasks: [{ threadId: "thread-1" }] } as Bot;
+    expect(line(view({ allowKey: "ask_bot:kiwi" }, ownChat).html)).toBe("Always allow lets Scout do this again without asking in this chat.");
+    expect(line(view({ allowKey: "ask_bot:kiwi" }).html)).toBe("Always allow lets Scout do this again without asking in group chats and in new chats.");
+    expect(line(view({ allowKey: "mac" }).html)).toBe("Always allow lets every dog use your Mac without asking.");
+    for (const button of command.buttons) expect((button.props as { title?: string }).title).toBeUndefined();
+    expect(line(view({ commandAllowlist: undefined, allowSession: false }).html)).toBeUndefined();
   });
 
   it("never offers remembered commands on a durable confirmation", () => {

@@ -135,6 +135,18 @@ export function toolLabel(tool?: string, where?: "local-computer"): string {
     : t("approval.tool.takeAction");
 }
 
+export function approvalAction(card: OptionCardData): string {
+  const routineAction = card.routineRequest?.operation.action;
+  const tool = routineAction
+    ? routineAction === "create" ? "schedule_routine" : "manage_routine"
+    : card.skillRequest
+      ? card.skillRequest.action === "update" ? "update_skill" : "stage_skill"
+      : card.profileRequest
+        ? "update_profile"
+        : card.tool;
+  return toolLabel(tool, card.approvalScope);
+}
+
 function plainWhen(schedule: RoutineRequestSchedule): string {
   if (schedule.type === "once") {
     return new Date(schedule.at).toDateString() === new Date().toDateString()
@@ -338,19 +350,10 @@ export function ApprovalCard({
   const isSkillRequest = Boolean(card.skillRequest);
   const isProfileRequest = Boolean(card.profileRequest);
   const isTeamSetup = Boolean(card.teamSetupRequest);
-  const routineAction = card.routineRequest?.operation.action;
-  const skillAction = card.skillRequest?.action;
   const heldNote = tFromServer(card.heldCode, card.held);
   const outcome = approvalCardOutcome(card);
   const outbound = outboundSummary(card);
   const foldedAction = approvalFoldSummary(card, card.tool ?? "")?.action;
-  const displayTool = isRoutineRequest
-    ? routineAction === "create" ? "schedule_routine" : "manage_routine"
-    : isSkillRequest
-      ? skillAction === "update" ? "update_skill" : "stage_skill"
-    : isProfileRequest
-      ? "update_profile"
-    : card.tool;
   const profileHeader = isProfileRequest && card.profileRequest
     ? card.profileRequest.targetBotId === card.profileRequest.botId
       ? t("approval.card.profileWantsToOwn", { name: bot?.name ?? t("approval.someone") })
@@ -359,6 +362,25 @@ export function ApprovalCard({
           target: card.profileRequest.targetName,
         })
     : undefined;
+
+  const isProposal = isRoutineRequest || isSkillRequest || isProfileRequest || isTeamSetup || Boolean(card.modelRequest || card.teamMemoryRequest);
+  const details = (
+    <pre
+      tabIndex={0}
+      aria-label={
+        isRoutineRequest
+          ? t("approval.aria.routineDetails")
+          : isSkillRequest
+            ? t("approval.aria.skillDetails")
+            : isProfileRequest
+              ? t("approval.aria.profileChange")
+              : t("approval.aria.details")
+      }
+      className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset px-3 py-2 font-mono text-[12.5px] leading-relaxed text-ink"
+    >
+      {card.subtitle}
+    </pre>
+  );
 
   const body = (
     <div
@@ -373,32 +395,20 @@ export function ApprovalCard({
           {isTeamSetup ? card.title : outbound ? outbound.headline : profileHeader ?? (
             <>
               {bot
-                ? t("approval.card.namedWantsTo", { name: bot.name, action: toolLabel(displayTool, card.approvalScope) })
-                : t("approval.card.wantsTo", { action: toolLabel(displayTool, card.approvalScope) })}
+                ? t("approval.card.namedWantsTo", { name: bot.name, action: approvalAction(card) })
+                : t("approval.card.wantsTo", { action: approvalAction(card) })}
             </>
           )}
         </div>
       </div>
       {outbound?.summary && <div className="mt-0.5 text-[13px] text-ink-secondary">{outbound.summary}</div>}
 
-      <details className="group mt-1.5 text-[13px] text-ink-secondary">
-      <summary className="flex w-fit cursor-pointer list-none items-center gap-1 hover:text-ink">{t("approval.viewDetails")}<ChevronRight size={13} className="transition-transform group-open:rotate-90" aria-hidden="true" /></summary>
-      <pre
-        tabIndex={0}
-        aria-label={
-          isRoutineRequest
-            ? t("approval.aria.routineDetails")
-            : isSkillRequest
-              ? t("approval.aria.skillDetails")
-              : isProfileRequest
-                ? t("approval.aria.profileChange")
-                : t("approval.aria.details")
-        }
-        className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset px-3 py-2 font-mono text-[12.5px] leading-relaxed text-ink"
-      >
-        {card.subtitle}
-      </pre>
-      </details>
+      {isProposal ? (
+        <details className="group mt-1.5 text-[13px] text-ink-secondary">
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 hover:text-ink">{t("approval.viewDetails")}<ChevronRight size={13} className="transition-transform group-open:rotate-90" aria-hidden="true" /></summary>
+          {details}
+        </details>
+      ) : card.subtitle ? details : null}
 
       {card.profileRequest?.changes.avatarUrl && <img src={card.profileRequest.changes.avatarUrl} alt={t("botSettings.avatar.generatedPreview")} className="mt-3 size-24 rounded-xl object-cover" />}
 
