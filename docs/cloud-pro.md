@@ -35,16 +35,12 @@ Contract version: `1` (`cloudContractVersion` on the wire).
    the card offers **Open My Cloud**. One click opens the machine in the
    app window, signed in. There is no second confirmation.
 4. The first thing the Cloud shows is its engine sign-in
-   (`src/components/CloudEngineSignIn.tsx`), with these choices:
-   - **Sign in to Claude**: the existing paste-code flow (open Anthropic's
-     page, paste the code back);
-   - **Sign in to ChatGPT (Codex)**: the existing device-code flow;
-   - **Sign in to Grok**: the same device-code flow for Grok Build on a
-     grok.com subscription (`grok login --device-auth`, run on the Cloud
-     computer), offered only when the image carries the Grok CLI;
-   - **Use an API key**: the existing model-provider keys in **Settings →
-     API keys** (Anthropic, xAI, or an OpenAI-compatible key such as
-     OpenRouter).
+   (`src/components/CloudEngineSignIn.tsx`). It is the same list the desktop
+   shows when no AI can run (`src/components/NoEngines.tsx`), from one place
+   (`src/components/AiChoices.tsx`): the free AI, then Claude, ChatGPT, Grok
+   and Cursor. Each **Sign in** opens the same sign-in sheet as Settings →
+   AI accounts → Add account; an engine this Cloud computer cannot run says
+   **Not available here**. API keys stay in Settings.
 
    It says plainly that the person's AI plan limits apply to bots that work
    around the clock, and that Anthropic's Claude Max plan or an API key works
@@ -207,46 +203,13 @@ problem**, **Could not be set up yet**. Only Ready can be connected to.
 Signed out of Cloud, the app makes no Cloud request and nothing on this page
 runs.
 
-### Setup checklist
+### No setup checklist
 
-On a Cloud home a small card, **Set up My Cloud**, sits at the bottom left
-until its steps are done or the person hides it (`src/components/CloudSetup.tsx`,
-`src/lib/cloud-setup.ts`). Only the owner's own devices (an admin session on a
-Cloud home) see it; desktop and self-hosted installs never do and keep their
-welcome flow. Each step's state comes from the Cloud or the app, never from a
-box the person ticks:
-
-1. **Sign in to Claude or ChatGPT**, the one required step: done when any
-   engine on the Cloud can run. From another view, its **Sign in** returns to
-   the engine sign-in above.
-2. **Bring your bots from your computer**: only in the desktop app, while the
-   Copy this computer here card would be offered (an empty Cloud, a computer
-   with work to bring; docs/copy-workspace.md). **Copy to My Cloud** opens that
-   offer in place (the size, what stays, **Copy** and **Not now**). Done after
-   a copy; skipped after **Not now**,
-   which the Cloud keeps (`cloud-setup-move-skipped` in its onboarding record)
-   and which also hides the one-time card.
-3. **Try something that runs while you're away**: one example, a daily
-   routine. **Try it** puts it in the chat's composer, unsent. Done when a bot's
-   turn first finishes on the Cloud: the server records `onboarding.firstTurnAt`
-   once, on a Cloud home only, for a turn that finished (not a failed or
-   stopped one) in a bot's conversation or a room. The onboarding record never
-   travels with a copy, so copied-in chats do not count.
-4. **Optional: Let your Cloud use this Mac**: only in the desktop app on
-   macOS. The switch is in Settings → Computer, in the Cloud's window too: the
-   page reads and flips it through `cloudLending.state()` and
-   `cloudLending.setHome(on)` (a click is required, and main answers only the
-   verified Cloud page or the app's own window), and the macOS permission rows
-   under it use `cloudPermissions`. The menu-bar item's **Lending settings…**
-   opens the same page without leaving the Cloud. Done when
-   `GET /api/shared-computers` lists a computer.
-
-**Hide setup** is the only dismiss. The Cloud keeps it (`cloud-setup-hidden`
-in its onboarding record), so it holds on every device and after browser
-storage is cleared, and it is the move's **Not now** too. The card also goes
-away by itself once steps 1 and 3 are done. Nothing asks for confirmation.
-After the card, the one-time Copy this computer here card behaves as on any
-other server.
+A Cloud home has no setup card or checklist. Signing in is the setup: the
+engine sign-in above shows until an AI can run, the Mac's dogs come over by
+themselves (docs/copy-workspace.md), and the first dog says hello. The server
+still records `onboarding.firstTurnAt` once, on a Cloud home only, for a turn
+that finished in a bot's conversation or a room.
 
 While a window shows a Cloud home, the sidebar's server switcher reads **My
 Cloud · always on**; in a browser, a plain label says the same.
@@ -1036,20 +999,14 @@ section is only what the Cloud adds.
 
 - **The Admin's grant.** Main signs in to the Cloud through the Admin: it
   opens a single-use pairing window for the signed-in owner
-  (`POST /api/cloud/desktop/pairing`, `pairHome`), so **Settings → later.dog Cloud**
-  can copy before the Cloud was ever opened in this app. No session in the
+  (`POST /api/cloud/desktop/pairing`, `pairHome`), so the copy on sign-in
+  can run before the Cloud was ever opened in this app. No session in the
   window yet is therefore not a block on the Cloud, as it is on other servers.
-  A saved "My Cloud" entry that is not this account's verified Cloud is copied
-  to like any other server.
-- **Settings → later.dog Cloud**, under My Cloud once it is Ready, opens the same
-  panel as Settings → Servers, named "My Cloud".
-- **The setup checklist.** While the Cloud's setup checklist is up, the copy
-  offer is its second step instead of a card (Setup checklist, above).
-- **Its own page starts the copy.** Because main verified this Cloud through
-  the Admin (`cloudPageSenderAllowed`), not on the Cloud's own word, its card
-  and checklist step start the copy at once, only into an empty Cloud. Any
-  other server's page leads to this computer's Settings instead
-  (docs/copy-workspace.md, Security).
+- **No copy button.** The copy starts by itself on sign-in
+  (`electron/cloud-auto-move.mjs`) and shows only as the quiet line at the
+  bottom of the window. Because main verified this Cloud through the Admin
+  (`cloudPageSenderAllowed`), not on the Cloud's own word, it goes there at
+  once, only into an empty Cloud.
 - **Disk growth.** Every Cloud starts at 10 GB; a plan whose disk grows grows
   it as it fills, up to the plan's maximum. Before anything is exported the app
   measures the copy (`moveFit`, with the Cloud's own `volumeBytes` from

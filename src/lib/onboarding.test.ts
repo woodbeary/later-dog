@@ -1,24 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   beatWidth,
-  beatsFor,
   cloudSignInDue,
-  flowDotsShown,
-  companyModelCount,
   completionPatch,
   EMPTY_ONBOARDING,
-  engineSummary,
   hintSeen,
   hostedMember,
   spotlightsQuiet,
   hintSeenPatch,
   LOCAL_VIEWER,
   nextBeat,
-  onboardingAccounts,
-  organisationSignIn,
   previousBeat,
   welcomeDue,
   welcomeViewer,
+  WELCOME_BEATS,
   WELCOME_VERSION,
 } from "./onboarding";
 
@@ -117,123 +112,6 @@ describe("first run on a later.dog Cloud home", () => {
   });
 });
 
-describe("organisation sign-in in the engines beat", () => {
-  const bridge = { begin: () => {} };
-
-  it("is offered only by the packaged local desktop", () => {
-    expect(organisationSignIn({ organization: bridge }, { hosted: false })).toBe(bridge);
-    expect(organisationSignIn(undefined, { hosted: false })).toBeUndefined();
-    expect(organisationSignIn({}, { hosted: false })).toBeUndefined();
-    expect(organisationSignIn({ organization: bridge }, { hosted: true })).toBeUndefined();
-  });
-
-  it("counts the models the organisation approved", () => {
-    expect(companyModelCount(null)).toBe(0);
-    expect(companyModelCount({})).toBe(0);
-    expect(companyModelCount({ providers: [
-      { configured: true, models: ["a", "b"] },
-      { configured: false, models: ["c"] },
-      { configured: true, models: ["d"] },
-    ] })).toBe(3);
-  });
-});
-
-describe("engineSummary", () => {
-  type Row = { id: string; install?: object; managed?: object; ok: boolean };
-  const ok = (row: Row) => row.ok;
-  const personal = (id: string, ready: boolean): Row => ({ id, install: {}, ok: ready });
-  const company = (id: string, ready: boolean): Row => ({ id, managed: { organizationId: "org", organizationName: "Org" }, ok: ready });
-
-  it("counts a signed-in Company engine as ready when nothing personal is", () => {
-    const rows = [personal("claude", false), personal("codex", false), company("company.claude", true)];
-    const summary = engineSummary(rows, ok, { company: true });
-    expect(summary.allReady).toBe(true);
-    expect(summary.company).toBe(1);
-    expect(summary.ready.map((row) => row.id)).toEqual([]);
-    expect(summary.setup.map((row) => row.id)).toEqual(["claude", "codex"]);
-  });
-
-  it("does not count a Company engine that cannot run", () => {
-    const summary = engineSummary([personal("claude", false), company("company.claude", false)], ok, { company: true });
-    expect(summary.company).toBe(0);
-    expect(summary.allReady).toBe(false);
-  });
-
-  it("counts exactly as before where organisation sign-in is not offered", () => {
-    const rows = [personal("claude", true), personal("codex", false), company("company.claude", true)];
-    const summary = engineSummary(rows, ok, { company: false });
-    expect(summary).toEqual({ ready: [rows[0]], setup: [rows[1]], company: 0, allReady: false });
-    expect(engineSummary([personal("claude", true)], ok, { company: false }).allReady).toBe(true);
-    expect(engineSummary([], ok, { company: false }).allReady).toBe(false);
-  });
-});
-
-describe("first run's two accounts", () => {
-  type Row = {
-    instanceId: string;
-    driverKind: string;
-    ok?: boolean;
-    access?: string;
-    readOnly?: boolean;
-    managed?: object;
-    policy?: object;
-    snapshot: { state: string; authenticationUnavailableReason?: string };
-    authentication?: { method: string };
-    install?: { server?: object };
-  };
-  const ready = (row: Row) => row.ok === true;
-  const row = (instanceId: string, driverKind: string, method: string | undefined, patch: Partial<Row> = {}): Row => ({
-    instanceId,
-    driverKind,
-    snapshot: { state: "available" },
-    install: { server: { package: "fixture" } },
-    ...(method ? { authentication: { method } } : {}),
-    ...patch,
-  });
-  const claude = (patch: Partial<Row> = {}) => row("claude", "claudeAgent", "paste-code", patch);
-  const chatgpt = (patch: Partial<Row> = {}) => row("chatgpt", "codex", "browser-pkce", patch);
-  const codex = (patch: Partial<Row> = {}) => row("codex", "codex", "device-code", patch);
-  const notInstalled = { snapshot: { state: "unavailable" } };
-
-  it("always lists Claude, then ChatGPT, and nothing else", () => {
-    expect(onboardingAccounts([], ready)).toEqual([{ id: "claude", status: "unavailable" }, { id: "chatgpt", status: "unavailable" }]);
-    const others = [row("grok", "grokAgent", "device-code", { ok: true }), row("cursor", "cursorAgent", undefined), row("openaiCompat", "openai-compat", undefined, { access: "custom", ok: true })];
-    expect(onboardingAccounts([...others, chatgpt(), claude()], ready).map((account) => account.id)).toEqual(["claude", "chatgpt"]);
-  });
-
-  it("is ready when any of the person's own engines of that kind can run", () => {
-    expect(onboardingAccounts([claude(), row("claudeApi", "claudeAgent", undefined, { access: "api", ok: true }), codex({ ok: true }), chatgpt()], ready))
-      .toEqual([{ id: "claude", status: "ready" }, { id: "chatgpt", status: "ready" }]);
-  });
-
-  it("does not count a Company engine, a read-only one, or one an organisation's policy blocks", () => {
-    const company = { managed: { organizationId: "org", organizationName: "Org" }, readOnly: true, ok: true };
-    expect(onboardingAccounts([claude({ instanceId: "company.claude", ...company }), chatgpt({ policy: { organizationName: "Org", reason: "Not allowed" }, ok: true })], ready))
-      .toEqual([{ id: "claude", status: "unavailable" }, { id: "chatgpt", status: "unavailable" }]);
-  });
-
-  it("signs in to the default account with the browser sign-in, never a device code", () => {
-    expect(onboardingAccounts([row("claude-work", "claudeAgent", "paste-code"), claude(), codex(), chatgpt()], ready)).toEqual([
-      { id: "claude", status: "signIn", instanceId: "claude", install: false },
-      { id: "chatgpt", status: "signIn", instanceId: "chatgpt", install: false },
-    ]);
-    expect(onboardingAccounts([row("claude-work", "claudeAgent", "paste-code"), codex()], ready)).toEqual([
-      { id: "claude", status: "signIn", instanceId: "claude-work", install: false },
-      { id: "chatgpt", status: "unavailable" },
-    ]);
-  });
-
-  it("installs first when the engine is missing and this Mac can install it, and is unavailable when it cannot", () => {
-    expect(onboardingAccounts([claude(notInstalled), chatgpt(notInstalled)], ready)).toEqual([
-      { id: "claude", status: "signIn", instanceId: "claude", install: true },
-      { id: "chatgpt", status: "signIn", instanceId: "chatgpt", install: true },
-    ]);
-    const blocked = { snapshot: { state: "unavailable", authenticationUnavailableReason: "Hosted Pro sign-in needs approval." } };
-    expect(onboardingAccounts([claude({ ...notInstalled, install: {} }), chatgpt(blocked)], ready))
-      .toEqual([{ id: "claude", status: "unavailable" }, { id: "chatgpt", status: "unavailable" }]);
-  });
-});
-
 describe("persistence patches", () => {
   it("stamps completion with the current version", () => {
     expect(completionPatch(new Date("2026-09-09T12:34:56.000Z"))).toEqual({
@@ -252,52 +130,18 @@ describe("persistence patches", () => {
 });
 
 describe("beat machine", () => {
-  it("lists beats for the desktop app with the reel off", () => {
-    expect(beatsFor({ desktop: true, reel: false })).toEqual(["hello", "bot"]);
-  });
-
-  it("never asks for this computer's permissions in first run, desktop or not: a dog asks when a task needs them", () => {
-    expect(beatsFor({ desktop: false, reel: false })).toEqual(["hello", "bot"]);
-    expect(beatsFor({ desktop: true, reel: false })).not.toContain("permissions");
-  });
-
-  it("slots the reel after hello when enabled", () => {
-    expect(beatsFor({ desktop: false, reel: true })).toEqual(["hello", "reel", "bot"]);
-  });
-
-  it("always ends on the bot beat", () => {
-    for (const desktop of [true, false]) {
-      for (const reel of [true, false]) {
-        expect(beatsFor({ desktop, reel }).at(-1)).toBe("bot");
-        expect(beatsFor({ desktop, reel, hosted: true }).at(-1)).toBe("bot");
-      }
-    }
-  });
-
-  it("gives a hosted workspace a greeting and the bot, nothing about this computer", () => {
-    expect(beatsFor({ desktop: true, reel: true, hosted: true })).toEqual(["hello", "bot"]);
-    expect(beatsFor({ desktop: true, reel: true, hosted: false })).toEqual(["hello", "reel", "bot"]);
+  it("greets, then meets the dog, and asks nothing about this computer or engines", () => {
+    expect(WELCOME_BEATS).toEqual(["hello", "bot"]);
   });
 
   it("walks forward and back and stops at the ends", () => {
-    const beats = beatsFor({ desktop: true, reel: false });
-    expect(nextBeat(beats, "hello")).toBe("bot");
-    expect(nextBeat(beats, "bot")).toBeNull();
-    expect(previousBeat(beats, "bot")).toBe("hello");
-    expect(previousBeat(beats, "hello")).toBeNull();
-    expect(nextBeat(beats, "reel")).toBeNull();
+    expect(nextBeat(WELCOME_BEATS, "hello")).toBe("bot");
+    expect(nextBeat(WELCOME_BEATS, "bot")).toBeNull();
+    expect(previousBeat(WELCOME_BEATS, "bot")).toBe("hello");
+    expect(previousBeat(WELCOME_BEATS, "hello")).toBeNull();
   });
 
-  it("gives the engines and bot beats more room than the greeting, and two sign-in rows no more than the next beat", () => {
-    expect(beatWidth("engines")).toBeGreaterThan(beatWidth("hello"));
+  it("gives the bot beat more room than the greeting", () => {
     expect(beatWidth("bot")).toBeGreaterThan(beatWidth("hello"));
-    expect(beatWidth("engines")).toBeLessThanOrEqual(beatWidth("bot"));
-  });
-
-  it("shows one row of dots at a time: the reel's own scene dots replace the flow's", () => {
-    expect(flowDotsShown("reel")).toBe(false);
-    for (const beat of beatsFor({ desktop: true, reel: true }).filter((id) => id !== "reel")) {
-      expect(flowDotsShown(beat)).toBe(true);
-    }
   });
 });

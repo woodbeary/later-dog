@@ -3,49 +3,30 @@ import { DogAvatar } from "@/components/Avatar";
 import { setEmailGateDone, track } from "@/lib/analytics";
 import { brand } from "@/lib/brand";
 import { cn } from "@/lib/cn";
-import { permissionBridge } from "@/lib/desktop-permissions";
 import { t } from "@/lib/i18n";
 import type { DogMotion, DogState } from "@/lib/mascot";
 import {
   beatWidth,
-  beatsFor,
   completionPatch,
-  flowDotsShown,
   nextBeat,
   previousBeat,
+  WELCOME_BEATS,
   type BeatId,
 } from "@/lib/onboarding";
 import { api, useStore, type Bot } from "@/state/store";
-import { EnginesBeat } from "./beats/EnginesBeat";
 import { HelloBeat } from "./beats/HelloBeat";
 import { MeetYourBotBeat } from "./beats/MeetYourBotBeat";
-import { PermissionsBeat } from "./beats/PermissionsBeat";
 import { QuietButton } from "./beats/shared";
 import { withViewTransition } from "./view-transition";
 import { ProgressDots } from "./ProgressDots";
-import { FeatureReel } from "./reel/FeatureReel";
 
 const MASCOT_FOR_BEAT: Record<BeatId, DogState> = {
   hello: "happy",
-  reel: "curious",
-  engines: "searching",
-  permissions: "listening",
   bot: "celebrate",
 };
 
-function beatTitle(beat: BeatId): string | null {
-  switch (beat) {
-    case "hello":
-      return t("onboarding.welcome", { app: brand().name });
-    case "engines":
-      return t("onboarding.engines.heading");
-    case "permissions":
-      return t("onboarding.perms.title");
-    case "bot":
-      return t("onboarding.bot.title");
-    case "reel":
-      return t("onboarding.reel.title");
-  }
+function beatTitle(beat: BeatId): string {
+  return beat === "hello" ? t("onboarding.welcome", { app: brand().name }) : t("onboarding.bot.title");
 }
 
 type Motion = Exclude<DogMotion, "none">;
@@ -56,25 +37,19 @@ export function WelcomeFlow({
   replay = false,
   initialBeat,
   embedded = false,
-  reel = false,
-  desktop,
   entrance = "arrive",
   hosted = false,
-  onOpenOrganisation,
 }: {
   bot: Bot | null;
   onDone: () => void;
   replay?: boolean;
   initialBeat?: BeatId;
   embedded?: boolean;
-  reel?: boolean;
-  desktop?: boolean;
   entrance?: Motion;
   hosted?: boolean;
-  onOpenOrganisation?: () => void;
 }) {
   const { dispatch } = useStore();
-  const beats = beatsFor({ desktop: desktop ?? Boolean(permissionBridge(window.laterdog)), reel, hosted });
+  const beats = WELCOME_BEATS;
   const [beat, setBeat] = useState<BeatId>(() => (initialBeat && beats.includes(initialBeat) ? initialBeat : "hello"));
   const [mascot, setMascot] = useState<DogState>(MASCOT_FOR_BEAT[beat]);
   const [motion, setMotion] = useState<{ kind: Motion; key: number }>({ kind: "blink", key: 0 });
@@ -202,18 +177,13 @@ export function WelcomeFlow({
               />
             )}
           </div>}
-          {title && (
-            <h1 className={cn("welcome-title font-semibold text-ink", hello ? "mt-4 text-[20px]" : "text-[18px]")}>
-              {title}
-            </h1>
-          )}
+          <h1 className={cn("welcome-title font-semibold text-ink", hello ? "mt-4 text-[20px]" : "text-[18px]")}>
+            {title}
+          </h1>
         </div>
 
-        <div key={beat} className={cn("flex flex-col", beat === "engines" ? "min-h-0" : "shrink-0")}>
+        <div key={beat} className="flex shrink-0 flex-col">
           {beat === "hello" && <HelloBeat {...beatProps} hosted={hosted} />}
-          {beat === "reel" && <FeatureReel {...beatProps} />}
-          {beat === "engines" && <EnginesBeat {...beatProps} hosted={hosted} onOpenOrganisation={onOpenOrganisation} />}
-          {beat === "permissions" && <PermissionsBeat {...beatProps} />}
           {beat === "bot" && (
             <MeetYourBotBeat
               bot={bot}
@@ -230,7 +200,7 @@ export function WelcomeFlow({
           ) : (
             <span className="w-10" aria-hidden="true" />
           )}
-          {flowDotsShown(beat) ? <ProgressDots items={beats.map((id) => ({ id }))} index={current - 1} /> : <span />}
+          <ProgressDots items={beats.map((id) => ({ id }))} index={current - 1} />
           <span className="sr-only" aria-live="polite">
             {t("onboarding.progress", { current, total: beats.length })}
           </span>

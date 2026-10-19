@@ -77,7 +77,7 @@ describe("who gets the welcome flow", () => {
     vi.stubGlobal("window", LOCAL_PAGE);
     const { tree } = gate(LOCAL_VIEWER);
     expect(tree?.type).toBe(WelcomeFlow);
-    expect(tree?.props).toMatchObject({ hosted: false, initialBeat: undefined, replay: false });
+    expect(tree?.props).toMatchObject({ hosted: false, replay: false });
   });
 
   it("opens the hosted beat set for a hosted workspace's admin", () => {
@@ -166,21 +166,6 @@ describe("who gets the welcome flow", () => {
     expect(gate(LOCAL_VIEWER).tree).toBeNull();
     store.state = { ...store.state, appSettingsOpen: false };
     expect(gate(LOCAL_VIEWER).tree).not.toBeNull();
-  });
-
-  it("resumes on the engines beat after the organisation row opens Settings", () => {
-    vi.stubGlobal("window", LOCAL_PAGE);
-    const first = gate(LOCAL_VIEWER).tree!;
-    first.props.onOpenOrganisation!();
-    expect(store.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings", open: true, section: "general" });
-    store.state = { ...store.state, appSettingsOpen: true, appSettingsSection: "general" };
-    expect(gate(LOCAL_VIEWER).tree).toBeNull();
-    store.state = { ...store.state, appSettingsOpen: false };
-    const resumed = gate(LOCAL_VIEWER).tree!;
-    expect(resumed.props.initialBeat).toBe("engines");
-    (resumed.props.onDone as () => void)();
-    store.state = { ...store.state, welcomeOpen: true };
-    expect(gate(LOCAL_VIEWER).tree?.props.initialBeat).toBeUndefined();
   });
 });
 

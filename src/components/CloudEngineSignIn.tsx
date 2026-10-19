@@ -1,81 +1,14 @@
-import { useState } from "react";
-import { ChevronDown, KeyRound, Loader2, RefreshCw } from "lucide-react";
-import { EngineSetup, apiKeySection, isApiKeyEngine } from "@/components/EngineSetup";
-import { ProviderMark } from "@/components/ProviderIcons";
-import { cn } from "@/lib/cn";
+import { AiChoices } from "@/components/AiChoices";
 import { t } from "@/lib/i18n";
-import { useStore, type InstanceInfo } from "@/state/store";
-
-type Choice = "claude" | "codex" | "grok" | "api-key";
-type ChoiceKind = "claudeAgent" | "codex" | "grokAgent";
-
-export function cloudEngine(instances: readonly InstanceInfo[], driverKind: ChoiceKind): InstanceInfo | undefined {
-  return instances.find((instance) => instance.driverKind === driverKind && instance.access !== "custom" && !instance.readOnly);
-}
 
 export function CloudEngineSignIn() {
-  const { state, refreshInstances } = useStore();
-  const [open, setOpen] = useState<Choice | null>(null);
-  const [checking, setChecking] = useState(false);
-  const recheck = async () => {
-    setChecking(true);
-    try {
-      await refreshInstances();
-    } finally {
-      setChecking(false);
-    }
-  };
-  const keyEngine = state.instances.find((instance) => isApiKeyEngine(instance) && apiKeySection(instance) === "anthropic");
-  const choices: Array<{ id: Choice; driverKind: ChoiceKind; label: string; hint: string; instance?: InstanceInfo }> = [
-    { id: "claude", driverKind: "claudeAgent", label: t("cloudSignIn.claude"), hint: t("cloudSignIn.claudeHint") },
-    { id: "codex", driverKind: "codex", label: t("cloudSignIn.codex"), hint: t("cloudSignIn.codexHint") },
-    ...(cloudEngine(state.instances, "grokAgent")?.snapshot.state === "available"
-      ? [{ id: "grok" as const, driverKind: "grokAgent" as const, label: t("cloudSignIn.grok"), hint: t("cloudSignIn.grokHint") }]
-      : []),
-    ...(keyEngine ? [{ id: "api-key" as const, driverKind: "claudeAgent" as const, label: t("cloudSignIn.apiKey"), hint: t("cloudSignIn.apiKeyHint"), instance: keyEngine }] : []),
-  ];
-  const row = "flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-raised/40";
-
   return (
     <main data-cloud-sign-in className="flex h-full min-w-0 flex-1 flex-col overflow-y-auto bg-app">
       <div className="mx-auto w-full max-w-[560px] px-6 py-12">
         <h1 className="text-[20px] font-semibold text-ink">{t("cloudSignIn.title")}</h1>
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-ink-secondary">{t("cloudSignIn.intro")}</p>
         <p role="note" className="mt-2 text-[12.5px] leading-relaxed text-ink-secondary">{t("cloudSignIn.limits")}</p>
-
-        <div className="mt-5 divide-y divide-hairline/40 rounded-xl border border-hairline/40 bg-card">
-          {choices.map((choice) => {
-            const instance = choice.instance ?? cloudEngine(state.instances, choice.driverKind);
-            const expanded = open === choice.id;
-            return (
-              <div key={choice.id} data-cloud-choice={choice.id}>
-                <button type="button" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : choice.id)} className={row}>
-                  <span className="flex size-[18px] shrink-0 items-center justify-center">
-                    {choice.id === "api-key" ? <KeyRound size={16} className="text-ink-secondary" /> : <ProviderMark driverKind={choice.driverKind} size={18} />}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[13.5px] font-medium text-ink">{choice.label}</span>
-                    <span className="block text-[12px] text-ink-secondary">{choice.hint}</span>
-                  </span>
-                  <ChevronDown size={14} className={cn("shrink-0 text-ink-secondary transition-transform duration-200", expanded && "rotate-180")} />
-                </button>
-                {expanded && (instance
-                  ? <EngineSetup instance={instance} className="mx-3.5 mb-3.5 border-0 bg-inset" />
-                  : <p role="status" className="mx-3.5 mb-3.5 text-[12px] text-ink-secondary">{t("cloudSignIn.missing")}</p>)}
-              </div>
-            );
-          })}
-        </div>
-
-        <button
-          type="button"
-          onClick={() => void recheck()}
-          disabled={checking}
-          className="mt-6 flex items-center gap-2 rounded-lg bg-raised px-3 py-2 text-[13px] text-ink hover:bg-raised-hover disabled:opacity-60"
-        >
-          {checking ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-          {checking ? t("common.checking") : t("common.checkAgain")}
-        </button>
+        <AiChoices />
       </div>
     </main>
   );

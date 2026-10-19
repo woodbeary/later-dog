@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { DesktopCapabilitiesProvider } from "@/components/DesktopCapabilities";
 import { WelcomeFlow } from "@/components/onboarding/WelcomeFlow";
 import type { DogMotion } from "@/lib/mascot";
-import { type BeatId, beatsFor } from "@/lib/onboarding";
+import { type BeatId, WELCOME_BEATS } from "@/lib/onboarding";
 import { SKINS, type SkinId } from "@/lib/skins";
 import { StoreProvider, type Bot } from "@/state/store";
 import "./styles.css";
@@ -15,7 +15,7 @@ const PREVIEW_BOT = {
   soul: "",
 } as unknown as Bot;
 
-const BEATS = beatsFor({ desktop: true, reel: true });
+const BEATS = WELCOME_BEATS;
 
 function fromUrl() {
   const params = new URLSearchParams(location.search);
@@ -43,7 +43,6 @@ function Stage({ skin, beat, run, scale = 1, entrance }: { skin: SkinId; beat: B
         <WelcomeFlow
           key={`${skin}-${beat}-${run}`}
           embedded
-          desktop
           entrance={entrance}
           initialBeat={beat}
           bot={PREVIEW_BOT}

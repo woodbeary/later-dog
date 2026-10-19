@@ -152,7 +152,7 @@ export function useCarryOn() {
   return { on: battery?.enabled === true, auto: battery?.enabled === true && battery.auto === true, saving, error, set };
 }
 
-function AccountMark({ kind, size = 20 }: { kind: string; size?: number }) {
+export function AccountMark({ kind, size = 20 }: { kind: string; size?: number }) {
   if (kind === "codex") return <CodexMark size={size} />;
   if (kind === "grokAgent") return <GrokMark size={size} />;
   if (kind === "cursorAgent") return <CursorMark size={size} />;

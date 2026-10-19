@@ -21,7 +21,6 @@ import { WindowCaptionButtons } from "@/components/WindowCaptionButtons";
 import { NoEngines } from "@/components/NoEngines";
 import { LaunchSplash } from "@/components/LaunchSplash";
 import { CloudEngineSignIn } from "@/components/CloudEngineSignIn";
-import { CloudSetup } from "@/components/CloudSetup";
 import { engineReady } from "@/components/EngineLibrary";
 import { CommandPalette } from "@/components/CommandPalette";
 import { AddAccountHost } from "@/components/AddAccountHost";
@@ -224,7 +223,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         <CloudTaskPanel key={`cloud-task:${state.cloudTaskId}`} jobId={state.cloudTaskId} bot={bot} />
       )}
       {state.appSettingsOpen && <SettingsModal />}
-      <CloudSetup viewer={viewer} />
       {state.pluginsOpen && <PluginsPanel />}
       {state.newBotOpen && <NewBotDialog />}
       {state.shortcutsOpen && (

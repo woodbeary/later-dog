@@ -19,17 +19,18 @@ first run done on load), so the welcome flow opens as it does on a new Mac. It
 uses the real renderer and fake-engine server. No provider login, native
 permissions or user workspace is involved.
 
-later.dog's flow (2026-10-08): your name, the model providers (Claude, Codex,
-Cursor, OpenAI-compatible; the rest named as coming soon), then the first dog
-(a breed drawn in the chosen color, a color, a name). There is no feature
-reel, no permissions step (a dog asks for this Mac's access when a task needs
-it) and no phone step. This recipe found that a fresh install never opened the welcome
+later.dog's flow (2026-10-18): your name, then the first dog (a breed drawn in
+the chosen color, a color, a name), who says hello first. There is no model
+provider step (AI accounts are signed in from the one list the app shows when
+no AI can run, or from Settings), no feature reel, no permissions step (a dog
+asks for this Mac's access when a task needs it), no phone step and no setup
+checklist. This recipe found that a fresh install never opened the welcome
 flow at all, because the legacy-gate check followed the analytics switch and
 later.dog ships with no analytics project; `src/lib/laterdog-privacy.test.ts`
 now pins that a fresh install is not taken for an old one.
 
-Assertions cover profile-save failure and retry, reduced-motion reel playback,
-engine refresh failure without losing inventory, no phone step, welcome completion,
+Assertions cover profile-save failure and retry, no provider list and no setup
+checklist, no phone step, welcome completion,
 the first dog speaking first, and the welcome staying closed after reload. There is
 no guided tour. Screenshots
 are retained in `.laterdog-scratch/verify-evidence/onboarding/` with a PASS line for
@@ -44,9 +45,8 @@ What each first-run surface depends on, and how it was checked:
 
 | Who opens the app | What they get | Checked by |
 |---|---|---|
-| Desktop app, own server (full bridge, `localPage` present) | The same flow as before, decided without a new request | `src/components/onboarding/WelcomeGate.test.ts`; `HelloBeat`/`EnginesBeat` HTML compared byte for byte with main (no bridge) |
+| Desktop app, own server (full bridge, `localPage` present) | The same flow as before, decided without a new request | `src/components/onboarding/WelcomeGate.test.ts` |
 | Hosted workspace opened inside the desktop app (reduced bridge, no `localPage`) | Treated like a browser: the server is asked | `src/components/onboarding/WelcomeGate.test.ts` |
-| Packaged desktop with the organization bridge | An optional "Using later.dog at work?" row on the engines beat; a signed-in Company engine counts as ready | `src/components/onboarding/beats/OrganisationRow.test.ts`, `src/components/onboarding/beats/EnginesBeat.test.ts` (fake bridge) |
 | Browser, admin of a hosted workspace | Greeting (no inputs) and the bot beat only | `src/components/onboarding/WelcomeGate.test.ts`, `src/components/onboarding/beats/HelloBeat.test.ts`, `src/lib/onboarding.test.ts` |
 | Browser, hosted member (no admin scope) | No welcome flow; one dismissible note kept in browser storage | `src/components/onboarding/WelcomeGate.test.ts` |
 | Browser, client-scope session on a server that is not hosted | Nothing new: the flow does not open itself (it could not be saved) | `src/components/onboarding/WelcomeGate.test.ts`, `src/lib/onboarding.test.ts` |

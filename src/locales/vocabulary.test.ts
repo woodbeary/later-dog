@@ -153,7 +153,7 @@ describe("one name per thing", () => {
     const e = en as Record<string, string>;
     const source = (file: string) => readFileSync(join(ROOT, file), "utf8");
     const myCloud = /CLOUD_HOME_NAME = "([^"]+)"/.exec(source("electron/cloud-home.mjs"))?.[1];
-    expect(myCloud).toEqual(e["cloudSetup.myCloud"]);
+    expect(myCloud).toEqual(e["cloudAccount.myCloud"]);
     const pointers: Array<[string, string[]]> = [
       ["computer.routines.offWarning", [e["routines.runsOn.boat"]!]],
     ];

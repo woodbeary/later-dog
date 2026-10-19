@@ -19,70 +19,20 @@ for servers with no desktop app nearby.
 
 The names still say "cloud" (`/api/cloud-move`, `.backups/cloud-move`,
 `.backups/cloud-previous`, `cloud-move-restores.json`, the `cloudMove` bridge
-and its `cloudMove.*` strings): Clouds already running answer on those routes
+and its `cloudMoveLine.*` strings): Clouds already running answer on those routes
 and keep their swap back in those folders.
 
 ## Where it is
 
-- **Right after adding a server.** After **Connect** in Settings → Servers, the
-  app opens the server's own page. If the server is empty (its starter bot at
-  most, no rooms, nobody has chatted), this computer has work of its own, the
-  copy fits, and nothing blocks it (below), the page shows a card: **Bring your
-  bots and chats from this Mac** ("this computer" elsewhere), with **Copy** and
-  **Not now**. Not now hides it for that server for good. A server added
-  earlier shows it the next time it is opened, while it is still empty. On an
-  later.dog Cloud whose setup checklist is up, the same offer is the checklist's
-  second step instead (docs/cloud-pro.md). **Copy** there switches the window
-  to this computer, on Settings → Servers with that server's panel open, and
-  the person starts the copy there (Security, below); on the person's own
-  later.dog Cloud, verified through the Admin, it starts the copy at once.
-- **Settings → Servers → Copy this computer here**, on every saved server's
-  row (not This computer), and **Settings → later.dog Cloud** under My Cloud once
-  it is Ready. Both open the same panel: the size and counts
-  (`GET /api/cloud-move/estimate` on this computer's own server), that API keys
-  and sign-ins stay on this computer, and **Copy to {server}**. When the server
-  already has bots or chats, the button reads **Replace {server} with this
-  computer's bots and chats**, and the panel says that what it holds is
-  replaced, backed up on it first, and put back by **Swap {server} back**. When
-  it already keeps a backup for Swap back (an earlier copy), the panel says
-  that copying again backs up what it has now in that backup's place and
-  deletes the one from {date}, and the button reads **Replace {server} and
-  delete its {date} backup**. There is no confirmation dialog.
-- **Settings → Backups → Import from this computer**, on a server open in the
-  desktop app, beside importing a file. It is the same offer, the same states
-  and messages as the card, and its **Copy** opens the same panel on this
-  computer, whether the server is empty or not. It is hidden in a browser, on
-  this computer's own server, and on a server shared with other people.
-
-After a copy the app opens the server it went to, and its page says what came
-and what does not run there yet (routines arrive paused; the phone stays
-paired with this computer), until **Done**.
-
-## Every state, one message
-
-`moveView` (`src/components/CloudMove.tsx`) is the only mapping from a copy's
-state to what the person sees: one sentence and one next step. A reason a copy
-cannot start (`moveBlocked`, which the engine also applies before exporting)
-and a copy that failed for that reason share one code, so they read and act
-the same.
-
-| State | Message | Next step |
-|---|---|---|
-| Ready | (size, what stays here) | Copy to {server} / Replace {server}… |
-| Running | Uploading to {server}… and so on, with bytes | Stop the copy (until it starts replacing) |
-| Done | Copied to {server}: N bots and M chats… | Done |
-| Ready, on the server's own page | (what comes, its size, what stays here) | Copy: opens this computer's panel for it (the verified Cloud's starts the copy) |
-| Not signed in as the owner (client-scope pairing) | This app isn't signed in to {server} as its owner. Pair it again with an owner code (`laterdog pair`), then copy. | Open {server} |
-| Shared with other people | {server} is shared with other people, so it can't receive this computer's bots and chats. Copy to a server only you use. | none |
-| This computer's own server | {server} is this computer's own server. | none |
-| Older than this computer (`outdated`) | {server} runs X; this computer runs Y. Update {server}, then copy again. | Check again |
-| From before any server could receive one | Update later.dog on {server}, then copy again. | Check again |
-| Not answering | {server} didn't answer. Check that it's running, then try again. | Check again |
-| A copy elsewhere is running | A copy to {other} is running. Wait for it to finish. | none |
-| The Cloud has work, on its own page | My Cloud already has bots and chats of its own… open Settings → Servers in this computer's window… | none |
-| A proxy refuses even 512 KB parts (`proxy_limit`) | A proxy in front of {server} refused a 512 KB upload. Raise its request size limit (nginx: client_max_body_size 64m), then copy again. | Continue the copy |
-| Not back after the restart | {server} hasn't come back yet. If it doesn't start again on its own, start later.dog there; it finishes installing the copy when it starts. | Open {server} |
-| Other failures | what happened | Copy again / Continue the copy |
+There is no copy button. When the person signs in to their later.dog Cloud on
+a Mac that has dogs of its own, the desktop copies them to the empty home by
+itself (`electron/cloud-auto-move.mjs` around `createCloudMove`). The only
+thing the person sees is one quiet line at the bottom of the window
+(`src/components/CloudQuietLine.tsx`, worded by `src/lib/cloud-move-line.ts`):
+"Moving your dogs…" with a percentage, then a short done line that clears
+itself, a note when the home already had dogs and was left alone, or a
+failure line with **Try again** where a retry can help. A copy the person did
+not start this way never shows the line.
 
 ## What moves, and what stays
 
@@ -217,8 +167,8 @@ computer's work is sent:
 - **The person's own later.dog Cloud is the one exception.** This app verifies it
   through the Admin with the person's later.dog Cloud sign-in, independently of the
   Cloud's word (`cloudPageSenderAllowed`: the Admin's origin, open as the
-  window's active server), so its card and setup checklist start the copy at
-  once, and only into an empty Cloud (`requireEmpty`, `not_empty` before
+  window's active server), so the copy on sign-in goes there at once, and
+  only into an empty Cloud (`requireEmpty`, `not_empty` before
   exporting). Replace and Swap back stay in this computer's Settings.
 - **Owner session there.** Main signs in to the destination with a code its
   owner session there mints (the Cloud's Admin, for the Cloud). Every

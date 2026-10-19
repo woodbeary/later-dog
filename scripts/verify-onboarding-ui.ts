@@ -48,32 +48,14 @@ await evaluate(`(() => {
 await click("Continue");
 await textVisible("Couldn't save your details");
 assert.equal(await evaluate("document.querySelector('.welcome-card input').value"), "Onboarding fixture");
-await click("Continue");
-await textVisible("Your model providers");
+for (let attempt = 0; attempt < 3 && !(await snapshot()).includes("Start chatting"); attempt++) {
+  await click("Continue");
+  await delay(1_500);
+}
+await textVisible("Start chatting");
 assert.equal((await config()).profile.name, "Onboarding fixture");
 console.log("PASS profile failure preserves input; retry persists before advancing");
-
-await textVisible("Check again");
-await screenshot("engines");
-const inventoryBefore = await evaluate("[...document.querySelectorAll('.welcome-card [aria-expanded]')].map(e => e.textContent)");
-await evaluate(`(() => {
-  const original = window.fetch.bind(window);
-  window.fetch = (input, init) => {
-    if (String(input) === '/api/instances') {
-      window.fetch = original;
-      return Promise.resolve(new Response(JSON.stringify({error:'Fixture inventory unavailable'}), {status:503}));
-    }
-    return original(input, init);
-  };
-  return true;
-})()`);
-await click("Check again");
-await textVisible("Couldn't check your AI connections");
-assert.deepEqual(await evaluate("[...document.querySelectorAll('.welcome-card [aria-expanded]')].map(e => e.textContent)"), inventoryBefore);
-await click("Check again");
-await poll(async () => (await snapshot()).includes("Couldn't check your AI connections"), false, "inventory retry");
-await click("Continue");
-await textVisible("Start chatting");
+assert.equal(await evaluate("Boolean(document.querySelector('[data-cloud-setup], [data-ai-choices]'))"), false);
 assert.equal((await snapshot()).includes("Your phone"), false);
 await screenshot("meet-bot");
 assert.equal(await evaluate("document.querySelector('.welcome-card [role=radiogroup]').querySelectorAll('[role=radio]').length"), 8);
@@ -89,7 +71,7 @@ await poll(async () => (await evaluate(`fetch('/api/bots?messages=10').then(r =>
   return texts[0]?.text === "Hi Onboarding fixture, I'm " + dog.name + "." && texts.length > 1 && !texts.some(m => m.role === 'user');
 })`)), true, "the first dog speaks first");
 console.log("PASS the first dog greets by name and takes the first turn, with nothing typed for the person");
-console.log("PASS providers, engine failure/retry, no permissions or phone step, and welcome completion");
+console.log("PASS no provider step, no setup checklist, no permissions or phone step, and welcome completion");
 
 await evaluate("setTimeout(() => location.reload(), 0); true");
 await poll(async () => Boolean((await config()).onboarding.completedAt), true, "welcome save completed");

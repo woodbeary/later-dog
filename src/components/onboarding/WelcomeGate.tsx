@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { emailGateDone } from "@/lib/analytics";
-import { hostedMember, LOCAL_VIEWER, welcomeDue, welcomeViewer, type BeatId, type WelcomeViewer } from "@/lib/onboarding";
+import { hostedMember, LOCAL_VIEWER, welcomeDue, welcomeViewer, type WelcomeViewer } from "@/lib/onboarding";
 import { api, useStore } from "@/state/store";
 import { SharedWorkspaceHint } from "./SharedWorkspaceHint";
 import { WelcomeFlow } from "./WelcomeFlow";
@@ -32,7 +32,6 @@ export function useWelcomeViewer(): WelcomeViewer | null {
 export function WelcomeGate({ viewer, hold = false }: { viewer: WelcomeViewer | null; hold?: boolean }) {
   const { state, dispatch } = useStore();
   const [dismissed, setDismissed] = useState(false);
-  const [resumeAt, setResumeAt] = useState<BeatId | undefined>(undefined);
   if (!viewer || hold) return null;
   if (hostedMember(viewer)) {
     return (
@@ -61,14 +60,8 @@ export function WelcomeGate({ viewer, hold = false }: { viewer: WelcomeViewer | 
       bot={bot}
       replay={replay}
       hosted={viewer.hosted}
-      initialBeat={resumeAt}
-      onOpenOrganisation={() => {
-        setResumeAt("engines");
-        dispatch({ type: "toggleAppSettings", open: true, section: "general" });
-      }}
       onDone={() => {
         setDismissed(true);
-        setResumeAt(undefined);
         dispatch({ type: "toggleWelcome", open: false });
       }}
     />

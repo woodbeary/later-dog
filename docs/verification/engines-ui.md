@@ -47,7 +47,7 @@ Automated coverage:
 
 ```sh
 pnpm exec vitest run scripts/verify-engines-ui.test.mjs
-pnpm exec vitest run src/components/EngineLibrary.test.ts src/components/EngineSetup.test.ts src/components/onboarding/beats/EnginesBeat.test.ts src/lib/onboarding.test.ts src/components/AccountsPanel.test.ts src/components/ClaudeSignIn.test.ts src/components/DeviceSignIn.test.ts src/components/GrokSignIn.interaction.test.ts src/components/EngineSetup.grok.test.ts src/components/EngineUpdateNotice.test.ts src/components/ModelPicker.test.ts
+pnpm exec vitest run src/components/EngineLibrary.test.ts src/components/EngineSetup.test.ts src/lib/onboarding.test.ts src/components/AccountsPanel.test.ts src/components/ClaudeSignIn.test.ts src/components/DeviceSignIn.test.ts src/components/GrokSignIn.interaction.test.ts src/components/EngineSetup.grok.test.ts src/components/EngineUpdateNotice.test.ts src/components/ModelPicker.test.ts
 pnpm typecheck
 pnpm i18n:check
 pnpm build

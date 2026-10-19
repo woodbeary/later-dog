@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useCloudMove } from "@/components/CloudMove";
+import { useCloudMove } from "@/hooks/use-cloud-move";
 import { DONE_LINE_MS, accountsSentences, moveLine } from "@/lib/cloud-move-line";
 import type { AccountsNote } from "../../electron/cloud-move.mjs";
 import { t } from "@/lib/i18n";

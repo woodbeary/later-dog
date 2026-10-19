@@ -137,7 +137,7 @@ function SignedInCard({ bridge }: { bridge: CloudAccountBridge }) {
     <SettingRow title={card.email} subtitle={<>{t(PLAN_LINE[card.plan])}{card.checking && <span className="ms-2">{t("cloudAccount.checking")}</span>}</>} message={confirm || error}>
       {!confirming && signOut}
     </SettingRow>
-    {home && <SettingRow title={t("cloudSetup.myCloud")}
+    {home && <SettingRow title={t("cloudAccount.myCloud")}
       subtitle={<span role="status" data-cloud-home={waking ? "waking" : home.status}>{waking ? t("cloudAccount.home.waking") : t(homeStatusKey(home), { time: home.retryAt ? time(home.retryAt) : "" })}</span>}
       message={openFailed ? <p role="alert" className="text-danger">{t("cloudAccount.openFailed")}</p> : undefined}>
       {home.status === "ready" && <button type="button" disabled={busy} className="ui-button" onClick={openHome}>{t("cloudHome.connect")}</button>}

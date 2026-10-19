@@ -71,21 +71,9 @@ export function hintSeenPatch(
   return { onboarding: { hintsSeen: [...(record?.hintsSeen ?? []), id] } };
 }
 
-export type BeatId = "hello" | "reel" | "engines" | "permissions" | "bot";
+export type BeatId = "hello" | "bot";
 
-export interface BeatOptions {
-  desktop: boolean;
-  reel: boolean;
-  hosted?: boolean;
-}
-
-export function beatsFor(options: BeatOptions): BeatId[] {
-  if (options.hosted) return ["hello", "bot"];
-  const beats: BeatId[] = ["hello"];
-  if (options.reel) beats.push("reel");
-  beats.push("bot");
-  return beats;
-}
+export const WELCOME_BEATS: readonly BeatId[] = ["hello", "bot"];
 
 export function nextBeat(beats: readonly BeatId[], current: BeatId): BeatId | null {
   const index = beats.indexOf(current);
@@ -100,94 +88,7 @@ export function previousBeat(beats: readonly BeatId[], current: BeatId): BeatId 
 }
 
 export function beatWidth(beat: BeatId): number {
-  switch (beat) {
-    case "engines":
-      return 520;
-    case "reel":
-      return 720;
-    case "bot":
-      return 520;
-    default:
-      return 460;
-  }
-}
-
-export function flowDotsShown(beat: BeatId): boolean {
-  return beat !== "reel";
-}
-
-export function defaultAdminOrigin(bridge: { defaultPortalOrigin?: string } | undefined): string | null {
-  const value = bridge?.defaultPortalOrigin?.trim();
-  return value ? value : null;
-}
-
-export function organisationSignIn<Bridge>(
-  laterdog: { organization?: Bridge } | undefined,
-  options: { hosted: boolean },
-): Bridge | undefined {
-  if (options.hosted || !laterdog) return undefined;
-  return laterdog.organization;
-}
-
-export function companyModelCount(state: { providers?: Array<{ configured: boolean; models: string[] }> } | null): number {
-  return (state?.providers ?? []).reduce((total, provider) => total + (provider.configured ? provider.models.length : 0), 0);
-}
-
-interface SummaryInstance {
-  install?: unknown;
-  managed?: unknown;
-}
-
-export function engineSummary<Instance extends SummaryInstance>(
-  instances: readonly Instance[],
-  ready: (instance: Instance) => boolean,
-  options: { company: boolean },
-): { ready: Instance[]; setup: Instance[]; company: number; allReady: boolean } {
-  const engines = instances.filter((instance) => instance.install);
-  const personal = engines.filter(ready);
-  const setup = engines.filter((instance) => !ready(instance));
-  const company = options.company ? instances.filter((instance) => instance.managed && ready(instance)).length : 0;
-  return { ready: personal, setup, company, allReady: company > 0 || (personal.length > 0 && setup.length === 0) };
-}
-
-const ONBOARDING_ACCOUNTS = [
-  { id: "claude", driverKind: "claudeAgent", primary: "claude", method: "paste-code" },
-  { id: "chatgpt", driverKind: "codex", primary: "chatgpt", method: "browser-pkce" },
-] as const;
-export type OnboardingAccountId = (typeof ONBOARDING_ACCOUNTS)[number]["id"];
-export const ONBOARDING_ACCOUNT_IDS: readonly OnboardingAccountId[] = ONBOARDING_ACCOUNTS.map((account) => account.id);
-
-interface AccountInstance {
-  instanceId: string;
-  driverKind: string;
-  access?: string;
-  readOnly?: boolean;
-  managed?: unknown;
-  policy?: unknown;
-  snapshot: { state: string; authenticationUnavailableReason?: string };
-  authentication?: { method: string };
-  install?: { server?: unknown };
-}
-
-export type OnboardingAccount = { id: OnboardingAccountId } & (
-  | { status: "ready" | "unavailable" }
-  | { status: "signIn"; instanceId: string; install: boolean }
-);
-
-export function onboardingAccounts<Instance extends AccountInstance>(
-  instances: readonly Instance[],
-  ready: (instance: Instance) => boolean,
-): OnboardingAccount[] {
-  return ONBOARDING_ACCOUNTS.map(({ id, driverKind, primary, method }): OnboardingAccount => {
-    const own = instances.filter((instance) => instance.driverKind === driverKind && !instance.managed && !instance.policy && !instance.readOnly);
-    if (own.some(ready)) return { id, status: "ready" };
-    const targets = own.filter((instance) => instance.authentication?.method === method
-      && (instance.access ?? "subscription") === "subscription" && !instance.snapshot.authenticationUnavailableReason);
-    const target = targets.find((instance) => instance.instanceId === primary) ?? targets[0];
-    const installed = target?.snapshot.state === "available";
-    if (!target || (!installed && !target.install?.server)) return { id, status: "unavailable" };
-    return { id, status: "signIn", instanceId: target.instanceId, install: !installed };
-  });
+  return beat === "bot" ? 520 : 460;
 }
 
 export function cloudSignInDue<Instance>(
