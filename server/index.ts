@@ -5249,6 +5249,7 @@ const statusLines = createStatusLines({
 }, statusLineTimingFromEnv());
 liveStatusLine = (threadId) => statusLines.current(threadId);
 statusLines.foldLeftovers();
+let companyShutdown = false;
 const inflightTurns = createInflightTurns(fileInflightLedger(join(DATA_DIR, "turns-running.json")), { stopping: () => companyShutdown });
 store.onChange((change) => {
   if (change.type === "message") statusLines.observe(change.threadId, change.message);
@@ -10549,7 +10550,7 @@ async function runGroupMemberTurn(
     { id: "routine", label: "Routines", text: integrations.agents ? `\n${ROUTINE_PROMPT.trim()}` : "" },
     { id: "profile", label: "Profile changes", text: integrations.agents ? `\n${PROFILE_PROMPT.trim()}` : "" },
     { id: "learn", label: "Learning", text: skillAuthoring ? `\n${LEARN_PROMPT.trim()}` : "" },
-    { id: "files", label: "File locations", text: workspace ? workspaceLocationsPrompt(bot.id, cwd, readyBot.cwd) : "" },
+    { id: "files", label: "File locations", text: workspace ? workspaceLocationsPrompt(bot.id, cwd, readyBot.cwd, cloudGuestOpened(threadId) ? null : store.taskByThread(bot.id, readyBot.threadId)?.cwd) : "" },
     { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
     { id: "computer", label: "Computer", text: computerPrompt(roomComputerPromptKind) },
     { id: "plan", label: "Surface", text: surfacePrompt({ computer: roomVmTarget ? "vm" : surfaceOfComputerKind(roomComputerKind), browser: Boolean(integrations.browser) }, { note: roomPlan.note, cloudHome: Boolean(CLOUD_HOME) }) },
@@ -12503,7 +12504,6 @@ async function describeInstances() {
   });
 }
 
-let companyShutdown = false;
 async function stopCompanyInstances(ids: string[]) {
   if (!ids.length) return;
   if (providerFleetReloading || companyShutdown) {

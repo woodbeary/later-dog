@@ -5,7 +5,7 @@ import { expect, it } from "vitest";
 import { launchVerificationServer } from "../scripts/control-laterdog.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
-it("Chief creation uses the workspace default or a validated explicit model and never more access than the Chief", async () => {
+it("a dog creates dogs with the workspace default or a validated explicit model, never more access than its own, and no per-turn cap in the owner's workspace", async () => {
   const temp = mkdtempSync(join(tmpdir(), "laterdog-create-model-"));
   const gate = join(temp, "finish");
   const fixture = await launchVerificationServer({ FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_SLOW_FINISH_GATE: gate }, undefined, undefined, undefined, undefined, undefined, ["codex"]);
@@ -24,15 +24,15 @@ it("Chief creation uses the workspace default or a validated explicit model and 
     const codex = instances.find((item: any) => item.instanceId === "codex");
     const defaultModel = { instanceId: "codex", model: codex.models.default, effort: "low" };
     await api("PATCH", "/api/config", { defaultModelSelection: defaultModel });
-    const chiefModel = { instanceId: "claude", model: claude.models.default };
-    const chief = (await api("POST", "/api/bots", { name: "Chief", section: "Design", modelSelection: chiefModel }, 201)).bot;
-    await api("PATCH", `/api/bots/${chief.id}`, { chiefOfStaff: true });
-    await api("POST", `/api/bots/${chief.id}/messages`, { text: "Prepare a specialist." }, 202);
+    const makerModel = { instanceId: "claude", model: claude.models.default };
+    const maker = (await api("POST", "/api/bots", { name: "Main dog", section: "Design", modelSelection: makerModel }, 201)).bot;
+    await api("PATCH", "/api/main-dog", { botId: maker.id });
+    await api("POST", `/api/bots/${maker.id}/messages`, { text: "Prepare a specialist." }, 202);
     await expect.poll(() => existsSync(fixture.fixtureDumpPath), { timeout: 15_000 }).toBe(true);
     const dump = JSON.parse(readFileSync(fixture.fixtureDumpPath, "utf8"));
     let token = dump.mcpConfig.mcpServers.agents.env.LATERDOG_COMMS_TOKEN;
     const create = (name: string, modelSelection?: unknown, expected = 201) => api("POST", "/api/internal/create-bot", {
-      fromBotId: chief.id, fromThreadId: chief.threadId, name,
+      fromBotId: maker.id, fromThreadId: maker.threadId, name,
       role: "Specialist", instructions: "Complete assigned work.",
       ...(modelSelection === undefined ? {} : { modelSelection }),
     }, expected, token);
@@ -42,12 +42,12 @@ it("Chief creation uses the workspace default or a validated explicit model and 
     const second = await create("Chosen specialist", explicit);
     expect(second.modelSelection).toEqual(explicit);
     const bots = (await api("GET", "/api/bots")).bots;
-    expect(bots.find((bot: any) => bot.id === chief.id).modelSelection).toEqual(chiefModel);
+    expect(bots.find((bot: any) => bot.id === maker.id).modelSelection).toEqual(makerModel);
     for (const [id, modelSelection] of [[first.id, defaultModel], [second.id, explicit]]) {
       expect(bots.find((bot: any) => bot.id === id)).toMatchObject({
         section: "Design", modelSelection, approvalMode: "ask", autoApprove: false, approvePeerComms: false,
       });
-      expect(bots.find((bot: any) => bot.id === id).composio).toBe(bots.find((bot: any) => bot.id === chief.id).composio);
+      expect(bots.find((bot: any) => bot.id === id).composio).toBe(bots.find((bot: any) => bot.id === maker.id).composio);
     }
     for (const invalid of [null, {}, { instanceId: "missing", model: "missing" },
       { ...explicit, model: "not-in-catalog" }, { ...explicit, effort: "invalid" },
@@ -55,16 +55,15 @@ it("Chief creation uses the workspace default or a validated explicit model and 
       await create("Invalid specialist", invalid, 400);
     }
     expect((await api("GET", "/api/bots")).bots.length).toBe(bots.length);
-    await create("Third specialist");
-    await create("Fourth specialist");
-    await create("Fifth specialist", undefined, 429);
+    for (const name of ["Third specialist", "Fourth specialist", "Fifth specialist", "Sixth specialist"]) await create(name);
+    expect((await api("GET", "/api/bots")).bots.length).toBe(bots.length + 4);
     writeFileSync(gate, "finish");
-    await expect.poll(async () => !(await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === chief.id).busy, { timeout: 20_000 }).toBe(true);
+    await expect.poll(async () => !(await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === maker.id).busy, { timeout: 20_000 }).toBe(true);
     await create("Expired authority", undefined, 401);
     await api("PATCH", "/api/config", { defaultModelSelection: explicit });
     unlinkSync(gate);
     unlinkSync(fixture.fixtureDumpPath);
-    await api("POST", `/api/bots/${chief.id}/messages`, { text: "Prepare the next specialist." }, 202);
+    await api("POST", `/api/bots/${maker.id}/messages`, { text: "Prepare the next specialist." }, 202);
     await expect.poll(() => existsSync(fixture.fixtureDumpPath), { timeout: 15_000 }).toBe(true);
     token = JSON.parse(readFileSync(fixture.fixtureDumpPath, "utf8")).mcpConfig.mcpServers.agents.env.LATERDOG_COMMS_TOKEN;
     expect((await create("Updated default specialist")).modelSelection).toEqual(explicit);

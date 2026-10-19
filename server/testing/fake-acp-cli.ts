@@ -29,33 +29,7 @@ const variantValues = (entries: any[]): string[] => entries.flatMap((entry) => (
 ));
 const modes = (process.env.FAKE_ACP_MODES ?? "").split(",").filter(Boolean);
 let currentMode: string | null = modes[0] ?? null;
-const taskIdFile = process.env.FAKE_ACP_TASKID_FILE ?? "";
-const logFile = process.env.FAKE_ACP_LOG_FILE ?? "";
 const rejectLiveLoadFile = process.env.FAKE_ACP_REJECT_LIVE_LOAD_FILE ?? "";
-function fakeLog(line: string): void {
-  if (!logFile) return;
-  try {
-    appendFileSync(logFile, `${new Date().toISOString()} ${line}\n`);
-  } catch {}
-}
-let chiefDelegatedTaskId = "";
-function rememberDelegatedTaskId(id: string): void {
-  chiefDelegatedTaskId = id;
-  if (taskIdFile) {
-    try {
-      writeFileSync(taskIdFile, id);
-    } catch {}
-  }
-}
-function savedDelegatedTaskId(): string {
-  if (chiefDelegatedTaskId) return chiefDelegatedTaskId;
-  if (taskIdFile && existsSync(taskIdFile)) {
-    try {
-      chiefDelegatedTaskId = readFileSync(taskIdFile, "utf8").trim();
-    } catch {}
-  }
-  return chiefDelegatedTaskId;
-}
 const configOptions = () => {
   const variant = variantConfigs[currentModel ?? ""];
   const options = [
@@ -498,7 +472,7 @@ function handle(msg: any) {
         break;
       }
       const cachedLiveLoad = process.env.FAKE_ACP_CACHED_LIVE_LOAD === "1" && liveSession === msg.params?.sessionId;
-      if ((mode === "safe-agent-reads" || mode === "chief-delegate") && !cachedLiveLoad) {
+      if (mode === "safe-agent-reads" && !cachedLiveLoad) {
         agentsMcp = (msg.params?.mcpServers ?? []).find((server: any) => server.name === "agents") ?? null;
       }
       if (process.env.FAKE_ACP_DUMP) {
@@ -693,7 +667,6 @@ function handle(msg: any) {
       const wokeFromDelegation = promptText.includes("[A delegated task just completed]")
         || promptText.includes("[A delegated task failed]");
       if (wokeFromDelegation) {
-        fakeLog("branch: wokeFromDelegation");
         const failed = promptText.includes("[A delegated task failed]");
         const sawResult = promptText.includes("replied to the delegated task");
         out({
@@ -715,76 +688,20 @@ function handle(msg: any) {
         complete();
         return;
       }
-      if (mode === "chief-delegate" && agentsMcp && promptText.includes("CHECK_STATUS")) {
-        fakeLog(`branch: CHECK_STATUS savedTaskId=${JSON.stringify(savedDelegatedTaskId())}`);
-        const savedTaskId = savedDelegatedTaskId();
-        if (!savedTaskId) {
-          out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: "status check skipped: no delegated task id" } } } });
-          complete();
-          return;
-        }
-        void driveMcp(agentsMcp, [
-          {
-            name: "check_delegation",
-            args: () => ({ task_id: savedTaskId }),
-          },
-        ])
-          .then((reply) => {
-            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `status: ${reply}` } } } });
-            complete();
-          })
-          .catch((e) => {
-            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `status error: ${(e as Error).message}` } } } });
-            complete();
-          });
-        return;
-      }
-      if (mode === "chief-delegate" && promptText.includes("CHIEF_RESULT_CONTEXT")) {
-        const sawDelegatedResult =
-          promptText.includes("@LongWorker replied to the delegated task")
-          && promptText.includes("long delegated task");
-        out({
-          jsonrpc: "2.0",
-          method: "session/update",
-          params: {
-            update: {
-              sessionUpdate: "agent_message_chunk",
-              content: {
-                text: sawDelegatedResult
-                  ? "chief saw delegated result: long delegated task"
-                  : "chief did not see delegated result",
-              },
-            },
-          },
-        });
-        complete();
-        return;
-      }
-      if (
-        mode === "chief-delegate"
-        && agentsMcp
-        && promptText.includes("ASSIGN_TO_PEER")
-        && !promptText.includes("CHIEF_FOLLOW_UP")
-      ) {
+      if (mode === "coordinate-peer" && agentsMcp && promptText.includes("COORDINATE_WITH_PEER")) {
         void driveMcp(agentsMcp, [
           { name: "list_bots", args: () => ({}) },
           {
-            name: "delegate_bot",
-            args: (list) => ({
-              bot_id: /id: ([\w-]+)/.exec(list)?.[1] ?? "",
-              message: "long delegated task",
-              reason: "background assignment",
-            }),
+            name: "coordinate_bots",
+            args: (list) => ({ bot_ids: [/id: ([\w-]+)/.exec(list)?.[1] ?? ""], message: "guarded coordinated task" }),
           },
-        ])
+        ], true)
           .then((reply) => {
-            rememberDelegatedTaskId(/Task id: ([\w-]+)/.exec(reply)?.[1] ?? "");
-            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `assigned: ${reply}` } } } });
+            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `coordinated: ${reply}` } } } });
             complete();
           })
           .catch((e) => {
-            const message = e instanceof Error ? e.message : String(e);
-            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `delegate error: ${message}` } } } });
+            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `coordinate error: ${(e as Error).message}` } } } });
             complete();
           });
         return;
@@ -803,36 +720,6 @@ function handle(msg: any) {
           })
           .catch((e) => {
             out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `peer error: ${(e as Error).message}` } } } });
-            complete();
-          });
-        return;
-      }
-      if (mode === "create-peer" && agentsMcp) {
-        void driveMcp(agentsMcp, [
-          {
-            name: "create_bot",
-            args: () => ({
-              name: "Pixel",
-              role: "Product designer",
-              instructions: "Design and review the user experience.",
-            }),
-          },
-          {
-            name: "delegate_bot",
-            args: (created) => ({
-              bot_id: /id: ([\w-]+)/.exec(created)?.[1] ?? "",
-              message: "Review the new onboarding flow.",
-              reason: "design review",
-            }),
-          },
-        ])
-          .then((reply) => {
-            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `team created: ${reply}` } } } });
-            complete();
-          })
-          .catch((e) => {
-            const message = e instanceof Error ? e.message : String(e);
-            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `create error: ${message}` } } } });
             complete();
           });
         return;

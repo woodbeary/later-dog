@@ -7,7 +7,7 @@ import { launchVerificationServer, runControlLaterDog } from "../scripts/control
 import { handleToolCall, request } from "../scripts/mcp-server.ts";
 import { waitForExit } from "./testing/cleanup.ts";
 
-it("boots and reports an interrupted routine back to its source room", async () => {
+it("boots and reports an interrupted routine made in a room in the dog's one conversation, leaving the room idle", async () => {
   const fixture = await launchVerificationServer();
   const { url, dataDir, logPath } = fixture.info;
   let restarted: ChildProcess | undefined;
@@ -45,9 +45,11 @@ it("boots and reports an interrupted routine back to its source room", async () 
     }, { timeout: 10_000, interval: 150 }).toBe(true);
     const { runs } = await request("/api/routines", {}, url) as any;
     expect(runs[0]).toMatchObject({ status: "failed", error: "later.dog restarted while this routine was running" });
-    const { messages } = await request(`/api/threads/${channel.activeTaskId}/messages`, {}, url) as any;
+    const { messages } = await request(`/api/threads/${bot.activeTaskId}/messages`, {}, url) as any;
     expect(messages.filter((m: any) => m.routineRun?.runId === "interrupted-room-run"))
       .toMatchObject([{ routineRun: { status: "failed" } }]);
+    const room = await request(`/api/threads/${channel.activeTaskId}/messages`, {}, url) as any;
+    expect(room.messages.some((m: any) => m.kind === "routine.run")).toBe(false);
     const { groups } = await request("/api/bots", {}, url) as any;
     expect(groups.find((g: any) => g.id === channel.id).working).toBe(false);
     expect(readFileSync(logPath, "utf8")).not.toMatch(/ReferenceError|store: change listener threw/);

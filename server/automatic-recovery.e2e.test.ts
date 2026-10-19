@@ -153,49 +153,48 @@ it("recovers once on the same thread with its history and permissions, leaving t
   });
 }, 90_000);
 
-it("recovers a coordinated specialist and returns its result to the Chief exactly once", async () => {
+it("recovers a dog asked by the main dog in its one conversation and returns its result exactly once", async () => {
   await withRecoveryFixture({ scripted: true }, async ({ api, control, calls, dataDir, evidence }) => {
-    const { bot: chief } = await control("new-bot", "--name", "Recovery Chief", "--section", "Leadership");
+    const { bot: main } = await control("new-bot", "--name", "Recovery main dog", "--section", "Leadership");
     const { bot: specialist } = await control("new-bot", "--name", "Recovery specialist", "--section", "Engineering");
-    await api("PATCH", `/api/bots/${chief.id}`, {
-      chiefOfStaff: true, managedSections: ["Engineering"], acknowledgePeerScope: true,
-    });
+    await api("PATCH", "/api/main-dog", { botId: main.id });
     await api("PATCH", `/api/bots/${specialist.id}/tasks/${specialist.activeTaskId}`, {
       modelSelection: primary, updateBotDefault: true, approvalMode: "ask",
     });
     const brief = "VERIFY_RECOVERED_SPECIALIST_2W";
     const specialistReply = "SPECIALIST_BACKUP_VERIFIED_3X";
-    const finalReply = "Chief received the recovered specialist result";
+    const finalReply = "Main dog received the recovered specialist result";
     const planPath = join(dataDir, "room-plan.json");
     writeFileSync(planPath, JSON.stringify({
-      [chief.id]: { turns: [
+      [main.id]: { turns: [
         { steps: [{ arguments: { bot_ids: [specialist.id], request_key: "recovery-check", message: brief } }], reply: "Assigned the recovery check" },
         { expectContextIncludes: [specialistReply], reply: finalReply },
       ] },
       [specialist.id]: { turns: [{ expectContextIncludes: [brief], reply: specialistReply }] },
     }));
-    await control("send", "--bot", chief.id, "--task", chief.activeTaskId, "--text", "Ask Engineering to verify this task and report the result.");
-    expect((await control("wait", "--bot", chief.id, "--task", chief.activeTaskId, "--timeout", "30")).status).toBe("settled");
+    await control("send", "--bot", main.id, "--task", main.activeTaskId, "--text", "Ask Engineering to verify this task and report the result.");
+    expect((await control("wait", "--bot", main.id, "--task", main.activeTaskId, "--timeout", "30")).status).toBe("settled");
     const nodes = JSON.parse(readFileSync(join(dataDir, "room-handoffs.json"), "utf8")) as any[];
     evidence.push({ nodes });
     expect(nodes).toHaveLength(2);
     expect(nodes.every((node) => !node.groupId && node.status === "completed" && node.reported)).toBe(true);
     const child = nodes.find((node) => node.botId === specialist.id);
     expect(child.result).toBe(specialistReply);
-    expect(nodes.find((node) => node.botId === chief.id).executions).toBe(2);
+    expect(child.threadId).toBe(specialist.activeTaskId);
+    expect(nodes.find((node) => node.botId === main.id).executions).toBe(2);
     const turns = jsonLines(`${planPath}.evidence.jsonl`);
-    expect(turns.filter((turn) => turn.botId === chief.id)).toHaveLength(2);
+    expect(turns.filter((turn) => turn.botId === main.id)).toHaveLength(2);
     expect(turns.filter((turn) => turn.botId === specialist.id)).toHaveLength(1);
     expect(turns.find((turn) => turn.botId === specialist.id)).toMatchObject({
       threadId: child.threadId, model: backup.model, permissionMode: "default",
     });
     expect(calls().filter((call) => call.method === "initialize.error")).toHaveLength(1);
     expect(calls().some((call) => call.method === "session/prompt")).toBe(false);
-    const chiefMessages = (await api("GET", `/api/threads/${chief.activeTaskId}/messages?limit=100`)).messages as any[];
-    expect(chiefMessages.filter((message) => message.text === finalReply)).toHaveLength(1);
-    expect(chiefMessages.filter((message) => message.roomRequest?.id === child.id && message.roomRequest.phase === "result")).toHaveLength(1);
+    const mainMessages = (await api("GET", `/api/threads/${main.activeTaskId}/messages?limit=100`)).messages as any[];
+    expect(mainMessages.filter((message) => message.text === finalReply)).toHaveLength(1);
+    expect(mainMessages.filter((message) => message.roomRequest?.id === child.id && message.roomRequest.phase === "result")).toHaveLength(1);
     const specialistMessages = (await api("GET", `/api/threads/${child.threadId}/messages?limit=100`)).messages as any[];
-    evidence.push({ chiefMessages, specialistMessages, turns });
+    evidence.push({ mainMessages, specialistMessages, turns });
     expect(specialistMessages.filter((message) => message.text === specialistReply)).toHaveLength(1);
     expect(specialistMessages.filter((message) => message.roomRequest?.id === child.id && message.roomRequest.phase === "request" && message.text?.includes(brief))).toHaveLength(1);
     expect(specialistMessages.some((message) => message.role === "user")).toBe(false);
@@ -205,9 +204,8 @@ it("recovers a coordinated specialist and returns its result to the Chief exactl
     const after = fleet.bots.find((bot: any) => bot.id === specialist.id);
     expect(after.modelSelection).toEqual(primary);
     expect(after.tasks.find((task: any) => task.threadId === child.threadId)).toMatchObject({ modelSelection: backup, approvalMode: "ask", busy: false });
-    expect(after.tasks.find((task: any) => task.threadId === specialist.activeTaskId).modelSelection).toEqual(primary);
-    expect(fleet.bots.find((bot: any) => bot.id === chief.id)).toMatchObject({ busy: false, waitingForTeammates: false });
-    await control("messages", "--bot", chief.id, "--task", chief.activeTaskId, "--limit", "20");
+    expect(fleet.bots.find((bot: any) => bot.id === main.id)).toMatchObject({ busy: false, waitingForTeammates: false });
+    await control("messages", "--bot", main.id, "--task", main.activeTaskId, "--limit", "20");
     await control("messages", "--bot", specialist.id, "--task", child.threadId, "--limit", "20");
   });
 }, 90_000);

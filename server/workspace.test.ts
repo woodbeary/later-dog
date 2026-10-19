@@ -65,6 +65,15 @@ describe("workspace", () => {
     expect(workspaceLocationsPrompt(BOT, undefined)).toContain("inspect the working directory");
   });
 
+  it("names the dog's own chat folder in a group chat, and only when it is a different folder", () => {
+    const shared = ensureWorkspace(BOT);
+    const chat = ensureTaskWorkspace(BOT, "own-chat");
+    expect(workspaceLocationsPrompt(BOT, shared, undefined, chat)).toContain(`"ownChatFolder":${JSON.stringify(chat)}`);
+    expect(workspaceLocationsPrompt(BOT, chat, undefined, chat)).not.toContain("ownChatFolder");
+    expect(workspaceLocationsPrompt(BOT, shared, undefined, shared)).not.toContain("ownChatFolder");
+    expect(workspaceLocationsPrompt(BOT, shared, undefined, null)).not.toContain("ownChatFolder");
+  });
+
   it("creates distinct private task desks outside shared memory and refuses path traversal", () => {
     const shared = ensureWorkspace(BOT);
     const first = ensureTaskWorkspace(BOT, "thread-first");

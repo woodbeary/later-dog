@@ -84,12 +84,15 @@ function memoryEntryStat(path: string) {
   return regularMemoryFilesOnly ? lstatSync(path) : statSync(path);
 }
 
-export function workspaceLocationsPrompt(botId: string, cwd: string | undefined, botCwd?: string): string {
-  return "\n\nYour folders (absolute paths): " + JSON.stringify({
-    workingFolder: cwd ?? "Provider default; inspect the working directory before using relative paths",
+export function workspaceLocationsPrompt(botId: string, cwd: string | undefined, botCwd?: string, ownChatFolder?: string | null): string {
+  const workingFolder = cwd ?? "Provider default; inspect the working directory before using relative paths";
+  const folders = {
+    workingFolder,
     botFolder: workspaceDir(botId),
     ...(botCwd ? { configuredProjectFolder: botCwd } : {}),
-  }) + ". For an existing file, use the exact path from the conversation; if it is missing there, check these folders before saying it is gone or recreating it." +
+  };
+  const chatFolder = ownChatFolder && !Object.values(folders).includes(ownChatFolder) ? { ownChatFolder } : {};
+  return "\n\nYour folders (absolute paths): " + JSON.stringify({ ...folders, ...chatFolder }) + ". For an existing file, use the exact path from the conversation; if it is missing there, check these folders before saying it is gone or recreating it." +
     " Follow an explicitly requested destination. Otherwise put new output in the working folder and report its absolute path." +
     " Do not move old files or read another bot's private folders without authorization. These paths do not grant additional access.";
 }

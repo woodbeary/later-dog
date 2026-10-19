@@ -156,18 +156,9 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
             },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
-          chiefAsync: {
+          coordinator: {
             driver: "grokAgent",
-            environment: {
-              FAKE_ACP_MODE: "chief-delegate",
-              FAKE_ACP_TASKID_FILE: join(home, "chief-task-id"),
-              FAKE_ACP_LOG_FILE: join(home, "chief-fake.log"),
-            },
-            config: { cli: FAKE_CLI, fullAuto: true },
-          },
-          chiefCreator: {
-            driver: "grokAgent",
-            environment: { FAKE_ACP_MODE: "create-peer" },
+            environment: { FAKE_ACP_MODE: "coordinate-peer" },
             config: { cli: FAKE_CLI, fullAuto: true },
           },
           helperCrash: {
@@ -321,52 +312,6 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
   );
 
   it(
-    "lets a section Chief create a safe operator and delegate work to it",
-    async () => {
-      const chief = (await api("POST", "/api/bots")).body.bot;
-      const defaultSelection = chief.modelSelection;
-      await api("PATCH", `/api/bots/${chief.id}`, {
-        name: "Atlas",
-        section: "Launch",
-        chiefOfStaff: true,
-        modelSelection: { instanceId: "chiefCreator", model: "fake-model" },
-      });
-
-      const send = await startRoutine(chief.id, "Create the specialist team and start the design review.");
-      expect(send.status).toBe(201);
-
-      const deadline = Date.now() + 30_000;
-      let operator: any;
-      for (;;) {
-        const state = (await api("GET", "/api/bots")).body;
-        operator = state.bots.find((bot: any) => bot.name === "Pixel" && bot.section === "Launch");
-        const replied = operator?.messages.some(
-          (message: any) => message.role === "bot" && message.text?.includes("hello from fake acp"),
-        );
-        if (operator && replied && !operator.busy) break;
-        if (Date.now() > deadline) {
-          throw new Error(`Chief never created and delegated to Pixel. stderr: ${stderr.slice(-2000)}`);
-        }
-        await new Promise((resolve) => setTimeout(resolve, 250));
-      }
-
-      expect(operator).toMatchObject({
-        title: "Product designer",
-        description: "Design and review the user experience.",
-        section: "Launch",
-        approvalMode: "ask",
-        autoApprove: false,
-        approvePeerComms: false,
-        modelSelection: defaultSelection,
-      });
-      expect(operator.composio).toBe((await api("GET", "/api/bots")).body.bots.find((bot: any) => bot.id === chief.id).composio);
-      expect(operator.chiefOfStaff).toBeFalsy();
-      expect(operator.messages.some((message: any) => message.text?.includes("Review the new onboarding flow."))).toBe(true);
-    },
-    45_000,
-  );
-
-  it(
     "hands the task off async via delegate_bot and lets B run after A's turn settles",
     async () => {
       const seeded = (await api("GET", "/api/bots")).body.bots[0];
@@ -498,181 +443,65 @@ describe("legacy routine comms e2e (fake ACP fleet)", () => {
   );
 
   it(
-    "keeps a Chief available while its delegated teammate is still working",
-    async () => {
-      for (const existing of (await api("GET", "/api/bots")).body.bots) {
-        await api("PATCH", `/api/bots/${existing.id}`, { hidden: true });
-      }
-      rmSync(gateFile, { force: true });
-
-      const helper = (await api("POST", "/api/bots")).body.bot;
-      await api("PATCH", `/api/bots/${helper.id}`, {
-        name: "LongWorker",
-        section: "Operations",
-        modelSelection: { instanceId: "helperGate", model: "fake-model" },
-      });
-      const chief = (await api("POST", "/api/bots")).body.bot;
-      await api("PATCH", `/api/bots/${chief.id}`, {
-        name: "Atlas",
-        section: "Operations",
-        chiefOfStaff: true,
-        modelSelection: { instanceId: "chiefAsync", model: "fake-model" },
-      });
-
-      try {
-        expect((await startRoutine(chief.id, "ASSIGN_TO_PEER: have @LongWorker handle the long task.")).status).toBe(201);
-
-        let chiefBot: any;
-        let helperBot: any;
-        await waitUntil(async () => {
-          const state = (await api("GET", "/api/bots")).body.bots;
-          chiefBot = state.find((bot: any) => bot.id === chief.id);
-          helperBot = state.find((bot: any) => bot.id === helper.id);
-          const acknowledged = chiefBot.messages.some(
-            (message: any) => message.kind === "text" && message.text?.includes("assigned: Delegation queued"),
-          );
-          return Boolean(acknowledged && !chiefBot.busy && helperBot.busy);
-        }, 30_000, "Chief did not become available while its teammate worked");
-
-        expect(helperBot.busy).toBe(true);
-        expect((await api("POST", `/api/bots/${chief.id}/messages`, {
-          text: "CHIEF_FOLLOW_UP: are you still available while that runs?",
-        })).status).toBe(202);
-        await waitUntil(async () => {
-          const state = (await api("GET", "/api/bots")).body.bots;
-          chiefBot = state.find((bot: any) => bot.id === chief.id);
-          helperBot = state.find((bot: any) => bot.id === helper.id);
-          const answeredFollowUp = chiefBot.messages.some(
-            (message: any) => message.kind === "text" && message.text?.includes("hello from fake acp"),
-          );
-          return Boolean(answeredFollowUp && !chiefBot.busy && helperBot.busy);
-        }, 20_000, "Chief stayed tied to the delegated worker");
-
-        writeFileSync(gateFile, "go");
-        await waitUntil(async () => {
-          chiefBot = (await api("GET", "/api/bots")).body.bots.find((bot: any) => bot.id === chief.id);
-          return chiefBot.messages.some(
-            (message: any) =>
-              message.kind === "text"
-              && message.from?.botId === helper.id
-              && message.text?.includes("replied to the delegated task")
-              && message.text?.includes("long delegated task"),
-          );
-        }, 20_000, "worker result did not return to the Chief conversation");
-
-        await waitUntil(async () => {
-          chiefBot = (await api("GET", "/api/bots")).body.bots.find((bot: any) => bot.id === chief.id);
-          return chiefBot.messages.some(
-            (message: any) =>
-              message.kind === "text"
-              && message.text === "woke after delegation: saw the result",
-          );
-        }, 20_000, "Chief did not wake with the delegated result");
-        expect(chiefBot.busy).toBeFalsy();
-      } finally {
-        writeFileSync(gateFile, "go");
-        await waitUntil(async () => {
-          const current = (await api("GET", "/api/bots?messages=0")).body.bots.find((bot: any) => bot.id === helper.id);
-          return !current?.busy;
-        }, 10_000, "gated helper did not settle during cleanup").catch(() => {});
-        rmSync(gateFile, { force: true });
-      }
-    },
-    60_000,
-  );
-
-  it(
-    "tells a Chief, and shows it, when its delegated teammate is waiting on an approval",
+    "shows the dog that asked, in its one conversation, when the teammate it coordinated is waiting on an approval",
     async () => {
       for (const existing of (await api("GET", "/api/bots")).body.bots) {
         await api("PATCH", `/api/bots/${existing.id}`, { hidden: true });
       }
       const helper = (await api("POST", "/api/bots")).body.bot;
       await api("PATCH", `/api/bots/${helper.id}`, {
-        name: "Gatekeeper",
-        section: "Approvals",
+        name: "Doorkeeper",
+        section: "Coordinated approvals",
         approvalMode: "ask",
         modelSelection: { instanceId: "helperPermission", model: "fake-model" },
       });
-      const chief = (await api("POST", "/api/bots")).body.bot;
-      await api("PATCH", `/api/bots/${chief.id}`, {
-        name: "Warden",
-        section: "Approvals",
-        chiefOfStaff: true,
-        modelSelection: { instanceId: "chiefAsync", model: "fake-model" },
+      const asker = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${asker.id}`, {
+        name: "Steward",
+        section: "Coordinated approvals",
+        modelSelection: { instanceId: "coordinator", model: "fake-model" },
       });
-      const chiefThreads = async () => {
-        const tasks = (await api("GET", "/api/bots")).body.bots.find((bot: any) => bot.id === chief.id).tasks as any[];
-        const out: Array<{ threadId: string; messages: any[] }> = [];
-        for (const task of tasks) {
-          const switched = await api("POST", `/api/bots/${chief.id}/tasks/${task.threadId}`);
-          out.push({ threadId: task.threadId, messages: switched.body.bot?.messages ?? [] });
-        }
-        return out;
-      };
+      const askerMessages = async () => (await api("GET", `/api/threads/${asker.threadId}/messages`)).body.messages as any[];
 
       try {
-        expect((await startRoutine(chief.id, "ASSIGN_TO_PEER: have @Gatekeeper handle the guarded task.")).status).toBe(201);
+        expect((await api("POST", `/api/bots/${asker.id}/messages`, {
+          text: "COORDINATE_WITH_PEER: have @Doorkeeper handle the guarded task.",
+        })).status).toBe(202);
 
         let waitingThreadId = "";
         await waitUntil(async () => {
           const current = (await api("GET", "/api/bots")).body.bots.find((bot: any) => bot.id === helper.id);
           waitingThreadId = current?.tasks?.find((task: any) => task.activity === "waiting-on-you")?.threadId ?? "";
           return Boolean(waitingThreadId);
-        }, 30_000, "the delegated teammate never stopped on an approval card");
+        }, 30_000, "the coordinated teammate never stopped on an approval card");
+        expect(waitingThreadId).toBe(helper.threadId);
 
         let chip: any;
-        let sourceThreadId = "";
         await waitUntil(async () => {
-          for (const thread of await chiefThreads()) {
-            const found = thread.messages.find((message: any) =>
-              message.kind === "activity" && message.threadRef?.threadId === waitingThreadId);
-            if (found) { chip = found; sourceThreadId = thread.threadId; }
-          }
+          chip = (await askerMessages()).find((message: any) =>
+            message.kind === "activity" && message.threadRef?.threadId === waitingThreadId && message.tool?.name?.startsWith("Waiting on your"));
           return Boolean(chip);
-        }, 10_000, "no waiting-on-approval chip in the Chief's conversation");
-        expect(chip.tool.name).toBe("Waiting on your approval in @Gatekeeper");
+        }, 10_000, "no waiting-on-approval chip in the asking dog's conversation");
+        expect(chip.tool.name).toBe("Waiting on your approval in @Doorkeeper");
         expect(chip.threadRef.botId).toBe(helper.id);
 
-        const taskId = readFileSync(join(home, "chief-task-id"), "utf8").trim();
-        expect(taskId).toBeTruthy();
-        const minted = await fetch(`${BASE}/api/testing/internal-capability`, {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-laterdog-test-capability": TEST_CAPABILITY_KEY },
-          body: JSON.stringify({ botId: chief.id, threadId: sourceThreadId, kind: "agents" }),
-        });
-        expect(minted.status).toBe(201);
-        const { token } = await minted.json() as { token: string };
-        const started = Date.now();
-        const status = await fetch(`${BASE}/api/internal/delegations/${taskId}?wait_ms=30000`, {
-          headers: { authorization: `Bearer ${token}` },
-        });
-        expect(status.status).toBe(200);
-        expect(Date.now() - started).toBeLessThan(5_000);
-        expect(await status.json()).toMatchObject({
-          status: "running",
-          toBotName: "Gatekeeper",
-          awaitingPerson: { kind: "approval", threadTitle: expect.any(String) },
-        });
-
-        const card = (await api("POST", `/api/bots/${helper.id}/tasks/${waitingThreadId}`)).body.bot.messages
+        const card = (await api("GET", `/api/threads/${waitingThreadId}/messages`)).body.messages
           .find((message: any) => message.kind === "options" && message.card?.requestId && !message.card.answered);
         expect(card).toBeTruthy();
         const answered = await api("POST", `/api/bots/${helper.id}/respond`, {
           threadId: waitingThreadId, requestId: card.card.requestId, behavior: "allow",
         });
         expect(answered.status, JSON.stringify(answered.body)).toBeLessThan(300);
-        await waitUntil(async () => {
-          const thread = (await chiefThreads()).find((candidate) => candidate.threadId === sourceThreadId);
-          return Boolean(thread?.messages.some((message: any) =>
-            message.id === chip.id && message.tool?.name === "@Gatekeeper got your approval"));
-        }, 20_000, "the chip did not settle once the approval was answered");
+        await waitUntil(async () => (await askerMessages()).some((message: any) =>
+          message.id === chip.id && message.tool?.name === "@Doorkeeper got your approval"), 20_000,
+        "the chip did not settle once the approval was answered");
       } finally {
         await api("POST", `/api/bots/${helper.id}/interrupt`);
+        await api("POST", `/api/bots/${asker.id}/interrupt`);
         await waitUntil(async () => {
-          const current = (await api("GET", "/api/bots?messages=0")).body.bots.find((bot: any) => bot.id === helper.id);
-          return !current?.busy;
-        }, 10_000, "approval helper did not settle during cleanup").catch(() => {});
+          const bots = (await api("GET", "/api/bots?messages=0")).body.bots;
+          return [helper.id, asker.id].every((id) => !bots.find((bot: any) => bot.id === id)?.busy);
+        }, 10_000, "coordinated approval fixture did not settle during cleanup").catch(() => {});
       }
     },
     60_000,

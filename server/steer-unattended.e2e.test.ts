@@ -144,13 +144,14 @@ posixOnly("a steered message does not lift the unattended mark on its own", () =
       runThreadId = run?.threadId ?? "";
       return Boolean(runThreadId);
     }, { timeout: 20_000 }).toBe(true);
-    await expect.poll(async () => (await getBot(bot.id))?.busy === true && (await getBot(bot.id))?.threadId === runThreadId, {
+    await expect.poll(async () => (await getBot(bot.id))?.tasks?.find((task: { threadId: string }) => task.threadId === runThreadId)?.busy === true, {
       timeout: 20_000,
     }).toBe(true);
+    expect((await getBot(bot.id)).threadId).not.toBe(runThreadId);
 
     const conn = await connectBroker(runThreadId, bot.id);
     try {
-      const steer = await api("POST", `/api/bots/${bot.id}/messages`, { text: "continue" });
+      const steer = await api("POST", `/api/bots/${bot.id}/messages`, { text: "continue", threadId: runThreadId });
       expect(steer.status).toBe(202);
       expect(steer.body.steered).toBe(true);
 
@@ -165,7 +166,7 @@ posixOnly("a steered message does not lift the unattended mark on its own", () =
     } finally {
       conn.destroy();
       writeFileSync(finishGate, "finish");
-      await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
+      await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: runThreadId }).catch(() => undefined);
     }
   }, 60_000);
 });
