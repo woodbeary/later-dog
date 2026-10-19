@@ -1355,5 +1355,7 @@
   "sidebar.hidden.title": "隐藏的狗狗",
   "sidebar.unreads.count": "{count} 条未读",
   "sidebar.unreads.above": "跳到上方 {count} 个未读聊天",
-  "sidebar.unreads.below": "跳到下方 {count} 个未读聊天"
+  "sidebar.unreads.below": "跳到下方 {count} 个未读聊天",
+  "appLink.notFound.title": "未找到",
+  "appLink.notFound.body": "这只狗已被移除，或未与你共享。"
 }

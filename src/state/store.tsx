@@ -12,6 +12,7 @@ import { flushSync } from "react-dom";
 import type { BotVisibility, CardAnswerer, CloudBackend, ConnectorToolGrant, EffortLevel, InstalledPackageMetadata, LiveCallState, LiveSettings, ServerFrame, GroupThreadUsage, SteerQueueReason } from "../../shared/wire";
 import type { TurnDigest } from "../../shared/digest";
 import { mainDogId } from "../../shared/main-dog";
+import type { AppLinkSettingsSection } from "../../shared/app-link";
 import type { ToolScope } from "../../shared/tool-scope";
 import type { ModelVariantOption, RuntimeEvent } from "../../shared/runtime-events";
 import type { DogColor, DogMotion } from "@/lib/mascot";
@@ -668,7 +669,7 @@ export interface InstanceInfo {
   freeUpSpace?: boolean;
 }
 
-export type AppSettingsSection = "general" | "computer" | "usage" | "updates";
+export type AppSettingsSection = AppLinkSettingsSection;
 
 export type BotSettingsSection =
   | "overview"

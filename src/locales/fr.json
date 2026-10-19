@@ -1094,5 +1094,7 @@
   "sidebar.hidden.title": "Chiens masqués",
   "sidebar.unreads.count": "{count} non lus",
   "sidebar.unreads.above": "Aller aux {count} discussions non lues au-dessus",
-  "sidebar.unreads.below": "Aller aux {count} discussions non lues en dessous"
+  "sidebar.unreads.below": "Aller aux {count} discussions non lues en dessous",
+  "appLink.notFound.title": "Introuvable",
+  "appLink.notFound.body": "Ce chien a été supprimé ou n'est pas partagé avec vous."
 }

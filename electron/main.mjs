@@ -82,6 +82,8 @@ import { createCloudAiAccounts, createMacKeychain, MAC_ACCOUNT_ROUTES } from "./
 import { createCloudOffer, leaveHomeNow } from "./cloud-default-home.mjs";
 import { CLOUD_HOME_NAME, cloudHomeConnectUrl, cloudPlanDisk, isCloudHomeEntry, myCloudOrigin, rememberedCloudHome, savedCloudHomeOrigin, withCloudHome } from "./cloud-home.mjs";
 import { createCloudEntry } from "./cloud-entry.mjs";
+import { APP_LINKS_READY_CHANNEL, createAppLinks } from "./app-links.mjs";
+import { openExternalLogged } from "./external-open.mjs";
 import { CLOUD_MOVE_LOCAL_ROUTES, cloudPageSenderAllowed, createCloudMove, mintOwnerCode, moveBlocked, moveFit, moveRefusal, moveSenderDestination, parseCloudMoveStatus } from "./cloud-move.mjs";
 import { createOrgLibrary } from "./org-library.mjs";
 import { createCompanyBackups } from "./company-backups.mjs";
@@ -120,6 +122,11 @@ const cloudEntry = createCloudEntry({
   },
 });
 cloudEntry.fromLaunch(process.argv);
+const appLinks = createAppLinks({
+  reveal: () => { if (!desktopTray?.show()) activateExistingWindow(BrowserWindow.getAllWindows()); },
+  log: line => slog(line),
+  otherHosts: ["organization", "cloud", "install", "trial", "plan"],
+});
 let pendingPackageInstallUrl = pendingOrganizationEntry ? null : packageUrlFromCommandLine(process.argv);
 let organizationEntryReady = false;
 let mainWindow = null;
@@ -246,7 +253,7 @@ function focusFromTrialLink(url) {
 }
 
 app.on("open-url", (event, url) => {
-  if (!queueOrganizationEntry(url) && !cloudEntry.fromUrl(url) && !queuePackageInstall(url) && !focusFromTrialLink(url)) return;
+  if (!queueOrganizationEntry(url) && !cloudEntry.fromUrl(url) && !queuePackageInstall(url) && !focusFromTrialLink(url) && !appLinks.accept(url)) return;
   event.preventDefault();
 });
 
@@ -256,6 +263,7 @@ app.on("second-instance", (_event, commandLine) => {
     return;
   }
   if (cloudEntry.fromArgs(commandLine)) return;
+  appLinks.fromArgs(commandLine);
   const packageUrl = packageUrlFromCommandLine(commandLine);
   if (packageUrl) pendingPackageInstallUrl = packageUrl;
   if (!desktopTray?.show()) activateExistingWindow(BrowserWindow.getAllWindows());
@@ -531,6 +539,7 @@ function slog(line) {
     logStream.write(`[${new Date().toISOString()}] ${line}\n`);
   } catch {}
 }
+appLinks.fromArgs(process.argv);
 
 function recordDesktopCrash(event) {
   let handle = null;
@@ -1202,18 +1211,13 @@ function openDesktopViewer(owner, rawUrl, rawTitle, contextId, rawPill) {
     viewer.setTitle(title);
   });
   viewer.webContents.setWindowOpenHandler(({ url: target }) => {
-    try {
-      const external = desktopViewerUrl(target);
-      void shell.openExternal(external.toString());
-    } catch {}
+    void openExternalLogged({ open: link => shell.openExternal(link), target: () => desktopViewerUrl(target), raw: target, log: slog }).catch(() => {});
     return { action: "deny" };
   });
   viewer.webContents.on("will-navigate", (event, target) => {
     if (sameDesktopViewerOrigin(target, viewerOrigin)) return;
     event.preventDefault();
-    try {
-      void shell.openExternal(desktopViewerUrl(target).toString());
-    } catch {}
+    void openExternalLogged({ open: link => shell.openExternal(link), target: () => desktopViewerUrl(target), raw: target, log: slog }).catch(() => {});
   });
   viewer.webContents.on("did-fail-load", (_event, code, description, failedUrl, isMainFrame) => {
     if (!isMainFrame || code === -3 || viewer.isDestroyed() || failedUrl.startsWith("data:")) return;
@@ -1316,6 +1320,13 @@ ipcMain.on("desktop:unread-count", (event, value) => {
   if (!sender || sender !== mainWindow || sender.isDestroyed()) return;
   unreadCount = normalizeUnreadCount(value);
   applyUnreadBadge(sender);
+});
+
+ipcMain.on(APP_LINKS_READY_CHANNEL, (event) => {
+  const sender = BrowserWindow.fromWebContents(event.sender);
+  if (!sender || sender !== mainWindow || sender.isDestroyed()) return;
+  if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame) return;
+  appLinks.ready(event.sender);
 });
 
 const { LOCAL_ID, activeEnvironment, allowedOrigins, parseEnvironments, parseHostedWorkspaceLink, serializeEnvironments, withActive, withEnvironment, withoutEnvironment, workspaceNavigationAllowed, workspaceSenderAllowed, workspaceSummary, workspaceWindowTitle } = environmentsModule;
@@ -1767,11 +1778,7 @@ function createWindow({ deferNavigation = false } = {}) {
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    try {
-      void shell.openExternal(externalWebUrl(url)).catch(() => {
-        console.warn("The external web link could not be opened");
-      });
-    } catch {}
+    void openExternalLogged({ open: link => shell.openExternal(link), target: () => externalWebUrl(url), raw: url, log: slog }).catch(() => {});
     return { action: "deny" };
   });
   const guardNavigation = (event, url) => {
@@ -1806,6 +1813,7 @@ function createWindow({ deferNavigation = false } = {}) {
   });
   win.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
     if (!isMainFrame || errorCode === -3) return;
+    appLinks.notReady(win.webContents);
     const remote = activeEnvironment(environmentsState);
     if (!remote) return;
     let origin = null;
@@ -1818,9 +1826,15 @@ function createWindow({ deferNavigation = false } = {}) {
     slog(`${home ? "cloud home" : "remote server"} unreachable (${errorDescription}); staying on it, trying again in ${Math.round(wait / 1000)} s`);
   });
   win.webContents.on("did-navigate", (_event, url) => {
+    appLinks.notReady(win.webContents);
     if (/^https?:/.test(url)) homeRetry?.loaded();
   });
   win.webContents.on("did-finish-load", () => deliverPackageInstall(win));
+  win.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace) appLinks.navigating(win.webContents);
+  });
+  win.webContents.on("did-stop-loading", () => appLinks.stayed(win.webContents));
+  win.webContents.on("render-process-gone", () => appLinks.notReady(win.webContents));
   win.webContents.on("did-finish-load", () => void offerComputerSharing(win));
 
   win.webContents.on("context-menu", (_event, params) => {
@@ -2049,7 +2063,7 @@ ipcMain.handle("window:state", (event) => {
 });
 
 ipcMain.handle("desktop:open-external", localOnly("desktop:open-external", async (_event, rawUrl) => {
-  await shell.openExternal(externalWebUrl(rawUrl));
+  await openExternalLogged({ open: link => shell.openExternal(link), target: () => externalWebUrl(rawUrl), raw: rawUrl, log: slog });
   return true;
 }));
 

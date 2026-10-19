@@ -1096,5 +1096,7 @@
   "sidebar.hidden.title": "非表示のドッグ",
   "sidebar.unreads.count": "未読 {count} 件",
   "sidebar.unreads.above": "上の未読チャット {count} 件へ移動",
-  "sidebar.unreads.below": "下の未読チャット {count} 件へ移動"
+  "sidebar.unreads.below": "下の未読チャット {count} 件へ移動",
+  "appLink.notFound.title": "見つかりません",
+  "appLink.notFound.body": "この犬は削除されたか、あなたと共有されていません。"
 }

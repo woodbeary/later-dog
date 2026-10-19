@@ -152,6 +152,9 @@ The [sidebar fixture](sidebar.md) checks Hide from sidebar, Show in sidebar and
 the delete confirmation against two disposable bots, and lists the Grok Bot
 sidebar parity checks (pins, sections, search, More unreads, footer, shortcuts).
 
+The [app links check](app-links.md) opens dog, chat and Settings links in the
+source Dev desktop, cold and warm, including Not found and ignored links.
+
 The [mobile generated-image checks](mobile-generated-images.md) cover native image
 attachments and message-scoped download authorization using isolated fixtures.
 

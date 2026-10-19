@@ -1098,7 +1098,9 @@
       "search.command.connectApps": "02903f49f6f5124626cab7d5ed840cb122e9c507739c9b72e279a10846ddec1b",
       "search.command.dogDetails": "d3573e0011f02d25ea3f9c319f6f6581073610a615c90f4c997131ed52154340",
       "search.command.toggleSidebar": "2183a13051ac6a0e0c896d816651c152fc79b344fbb3f888b36066b66a44d23d",
-      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f"
+      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f",
+      "appLink.notFound.title": "e3ebaa16dd9d9b9fc107c42183fb6cf9d22927e1af03dbbdfa0ccc38e4e4ac31",
+      "appLink.notFound.body": "9f1637c2112ecffd5e75736753e9a8417d6737bdfcae207f294ebb691b108a57"
     },
     "es": {
       "voice.fish.modelHint": "1a9019dcecefaa0ce95f00963b08ee59d6dfcdb451f45b6427ac96b05a753ed9",
@@ -2196,7 +2198,9 @@
       "search.command.connectApps": "02903f49f6f5124626cab7d5ed840cb122e9c507739c9b72e279a10846ddec1b",
       "search.command.dogDetails": "d3573e0011f02d25ea3f9c319f6f6581073610a615c90f4c997131ed52154340",
       "search.command.toggleSidebar": "2183a13051ac6a0e0c896d816651c152fc79b344fbb3f888b36066b66a44d23d",
-      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f"
+      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f",
+      "appLink.notFound.title": "e3ebaa16dd9d9b9fc107c42183fb6cf9d22927e1af03dbbdfa0ccc38e4e4ac31",
+      "appLink.notFound.body": "9f1637c2112ecffd5e75736753e9a8417d6737bdfcae207f294ebb691b108a57"
     },
     "fr": {
       "voice.fish.modelHint": "1a9019dcecefaa0ce95f00963b08ee59d6dfcdb451f45b6427ac96b05a753ed9",
@@ -3294,7 +3298,9 @@
       "search.command.connectApps": "02903f49f6f5124626cab7d5ed840cb122e9c507739c9b72e279a10846ddec1b",
       "search.command.dogDetails": "d3573e0011f02d25ea3f9c319f6f6581073610a615c90f4c997131ed52154340",
       "search.command.toggleSidebar": "2183a13051ac6a0e0c896d816651c152fc79b344fbb3f888b36066b66a44d23d",
-      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f"
+      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f",
+      "appLink.notFound.title": "e3ebaa16dd9d9b9fc107c42183fb6cf9d22927e1af03dbbdfa0ccc38e4e4ac31",
+      "appLink.notFound.body": "9f1637c2112ecffd5e75736753e9a8417d6737bdfcae207f294ebb691b108a57"
     },
     "hi": {
       "voice.fish.modelHint": "1a9019dcecefaa0ce95f00963b08ee59d6dfcdb451f45b6427ac96b05a753ed9",
@@ -4392,7 +4398,9 @@
       "search.command.connectApps": "02903f49f6f5124626cab7d5ed840cb122e9c507739c9b72e279a10846ddec1b",
       "search.command.dogDetails": "d3573e0011f02d25ea3f9c319f6f6581073610a615c90f4c997131ed52154340",
       "search.command.toggleSidebar": "2183a13051ac6a0e0c896d816651c152fc79b344fbb3f888b36066b66a44d23d",
-      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f"
+      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f",
+      "appLink.notFound.title": "e3ebaa16dd9d9b9fc107c42183fb6cf9d22927e1af03dbbdfa0ccc38e4e4ac31",
+      "appLink.notFound.body": "9f1637c2112ecffd5e75736753e9a8417d6737bdfcae207f294ebb691b108a57"
     },
     "ja": {
       "voice.fish.modelHint": "1a9019dcecefaa0ce95f00963b08ee59d6dfcdb451f45b6427ac96b05a753ed9",
@@ -5492,7 +5500,9 @@
       "search.command.connectApps": "02903f49f6f5124626cab7d5ed840cb122e9c507739c9b72e279a10846ddec1b",
       "search.command.dogDetails": "d3573e0011f02d25ea3f9c319f6f6581073610a615c90f4c997131ed52154340",
       "search.command.toggleSidebar": "2183a13051ac6a0e0c896d816651c152fc79b344fbb3f888b36066b66a44d23d",
-      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f"
+      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f",
+      "appLink.notFound.title": "e3ebaa16dd9d9b9fc107c42183fb6cf9d22927e1af03dbbdfa0ccc38e4e4ac31",
+      "appLink.notFound.body": "9f1637c2112ecffd5e75736753e9a8417d6737bdfcae207f294ebb691b108a57"
     },
     "pt-br": {
       "voice.fish.modelHint": "1a9019dcecefaa0ce95f00963b08ee59d6dfcdb451f45b6427ac96b05a753ed9",
@@ -6596,7 +6606,9 @@
       "search.command.connectApps": "02903f49f6f5124626cab7d5ed840cb122e9c507739c9b72e279a10846ddec1b",
       "search.command.dogDetails": "d3573e0011f02d25ea3f9c319f6f6581073610a615c90f4c997131ed52154340",
       "search.command.toggleSidebar": "2183a13051ac6a0e0c896d816651c152fc79b344fbb3f888b36066b66a44d23d",
-      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f"
+      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f",
+      "appLink.notFound.title": "e3ebaa16dd9d9b9fc107c42183fb6cf9d22927e1af03dbbdfa0ccc38e4e4ac31",
+      "appLink.notFound.body": "9f1637c2112ecffd5e75736753e9a8417d6737bdfcae207f294ebb691b108a57"
     },
     "zh": {
       "voice.grok.label": "ca5329e36d2316e0f517ceb661524f87a79c7a5bd73a6dfa130837b3f52d8f3f",
@@ -7955,7 +7967,9 @@
       "search.command.connectApps": "02903f49f6f5124626cab7d5ed840cb122e9c507739c9b72e279a10846ddec1b",
       "search.command.dogDetails": "d3573e0011f02d25ea3f9c319f6f6581073610a615c90f4c997131ed52154340",
       "search.command.toggleSidebar": "2183a13051ac6a0e0c896d816651c152fc79b344fbb3f888b36066b66a44d23d",
-      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f"
+      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f",
+      "appLink.notFound.title": "e3ebaa16dd9d9b9fc107c42183fb6cf9d22927e1af03dbbdfa0ccc38e4e4ac31",
+      "appLink.notFound.body": "9f1637c2112ecffd5e75736753e9a8417d6737bdfcae207f294ebb691b108a57"
     },
     "zh-tw": {
       "voice.grok.label": "ca5329e36d2316e0f517ceb661524f87a79c7a5bd73a6dfa130837b3f52d8f3f",
@@ -9314,7 +9328,9 @@
       "search.command.connectApps": "02903f49f6f5124626cab7d5ed840cb122e9c507739c9b72e279a10846ddec1b",
       "search.command.dogDetails": "d3573e0011f02d25ea3f9c319f6f6581073610a615c90f4c997131ed52154340",
       "search.command.toggleSidebar": "2183a13051ac6a0e0c896d816651c152fc79b344fbb3f888b36066b66a44d23d",
-      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f"
+      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f",
+      "appLink.notFound.title": "e3ebaa16dd9d9b9fc107c42183fb6cf9d22927e1af03dbbdfa0ccc38e4e4ac31",
+      "appLink.notFound.body": "9f1637c2112ecffd5e75736753e9a8417d6737bdfcae207f294ebb691b108a57"
     },
     "uk": {
       "voice.fish.modelHint": "1a9019dcecefaa0ce95f00963b08ee59d6dfcdb451f45b6427ac96b05a753ed9",
@@ -10558,7 +10574,9 @@
       "search.command.connectApps": "02903f49f6f5124626cab7d5ed840cb122e9c507739c9b72e279a10846ddec1b",
       "search.command.dogDetails": "d3573e0011f02d25ea3f9c319f6f6581073610a615c90f4c997131ed52154340",
       "search.command.toggleSidebar": "2183a13051ac6a0e0c896d816651c152fc79b344fbb3f888b36066b66a44d23d",
-      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f"
+      "search.command.shortcuts": "e9bef0b0f3c25e6eaf3a754817a8b4f62e1c8473cb2be3e190975926dbf72d6f",
+      "appLink.notFound.title": "e3ebaa16dd9d9b9fc107c42183fb6cf9d22927e1af03dbbdfa0ccc38e4e4ac31",
+      "appLink.notFound.body": "9f1637c2112ecffd5e75736753e9a8417d6737bdfcae207f294ebb691b108a57"
     }
   }
 }

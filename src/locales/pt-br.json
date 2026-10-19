@@ -1100,5 +1100,7 @@
   "sidebar.hidden.title": "Cães ocultos",
   "sidebar.unreads.count": "{count} não lidas",
   "sidebar.unreads.above": "Ir para {count} conversas não lidas acima",
-  "sidebar.unreads.below": "Ir para {count} conversas não lidas abaixo"
+  "sidebar.unreads.below": "Ir para {count} conversas não lidas abaixo",
+  "appLink.notFound.title": "Não encontrado",
+  "appLink.notFound.body": "Este cão foi removido ou não está compartilhado com você."
 }

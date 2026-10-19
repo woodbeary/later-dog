@@ -1094,5 +1094,7 @@
   "sidebar.hidden.title": "छिपे हुए डॉग",
   "sidebar.unreads.count": "{count} अपठित",
   "sidebar.unreads.above": "ऊपर {count} अपठित चैट पर जाएँ",
-  "sidebar.unreads.below": "नीचे {count} अपठित चैट पर जाएँ"
+  "sidebar.unreads.below": "नीचे {count} अपठित चैट पर जाएँ",
+  "appLink.notFound.title": "नहीं मिला",
+  "appLink.notFound.body": "यह डॉग हटा दिया गया है या आपके साथ शेयर नहीं किया गया है।"
 }

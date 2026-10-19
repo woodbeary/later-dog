@@ -2509,5 +2509,7 @@
   "pane.refreshFailed": "Couldn't refresh",
   "pane.loadFailed": "Couldn't load",
   "pane.routinesFailed": "Couldn't load routines",
-  "pane.tryAgain": "Try again"
+  "pane.tryAgain": "Try again",
+  "appLink.notFound.title": "Not found",
+  "appLink.notFound.body": "This dog was removed or isn't shared with you."
 }

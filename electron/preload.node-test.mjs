@@ -187,3 +187,26 @@ test("banners are a remote-safe bridge: show goes over notification:show and ope
   emit("notification:open", { botId: "bot-2", threadId: "thread-2" });
   assert.equal(opens.length, 1);
 });
+
+test("app links are remote-safe, say ready once on the first subscription, and replay a link that came before it", async () => {
+  const source = readFileSync(new URL("./preload.cjs", import.meta.url), "utf8");
+  const remoteSafe = source.match(/const REMOTE_SAFE = new Set\(\[([^\]]*)\]\)/)?.[1] ?? "";
+  assert.ok(remoteSafe.includes('"onAppLink"'), "Cloud home pages need app links");
+
+  emit("app:link", "laterdog://dog/early");
+  emit("app:link", 7);
+  emit("app:link", `laterdog://dog/${"a".repeat(2050)}`);
+  const before = sends.length;
+  const opened = [];
+  const stop = exposed.api.onAppLink((url) => opened.push(url));
+  assert.deepEqual(sends.slice(before), [["app-links:ready"]]);
+  await Promise.resolve();
+  assert.deepEqual(opened, ["laterdog://dog/early"]);
+
+  emit("app:link", "laterdog://settings?section=usage");
+  assert.deepEqual(opened, ["laterdog://dog/early", "laterdog://settings?section=usage"]);
+  stop();
+  const again = exposed.api.onAppLink(() => {});
+  assert.equal(sends.length, before + 1, "ready is sent once per page");
+  again();
+});

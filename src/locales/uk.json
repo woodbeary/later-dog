@@ -1240,5 +1240,7 @@
   "sidebar.hidden.title": "Приховані пси",
   "sidebar.unreads.count": "{count} непрочитаних",
   "sidebar.unreads.above": "Перейти до {count} непрочитаних чатів вище",
-  "sidebar.unreads.below": "Перейти до {count} непрочитаних чатів нижче"
+  "sidebar.unreads.below": "Перейти до {count} непрочитаних чатів нижче",
+  "appLink.notFound.title": "Не знайдено",
+  "appLink.notFound.body": "Цього пса видалено або ним з вами не поділилися."
 }

@@ -19,6 +19,18 @@ ipcRenderer.on("app:open-settings", (_event, section) => {
   for (const listener of appSettingsListeners) listener(fixedSection);
 });
 
+let pendingAppLink = null;
+let appLinksAnnounced = false;
+const appLinkListeners = new Set();
+ipcRenderer.on("app:link", (_event, url) => {
+  if (typeof url !== "string" || url.length > 2048) return;
+  if (!appLinkListeners.size) {
+    pendingAppLink = url;
+    return;
+  }
+  for (const listener of appLinkListeners) listener(url);
+});
+
 function bannerRelay(channel) {
   const listeners = new Set();
   const pending = [];
@@ -45,7 +57,7 @@ const onBannerReply = bannerRelay("notification:reply");
 const localOrigin = process.argv.find((arg) => arg.startsWith("--laterdog-local-origin="))?.slice("--laterdog-local-origin=".length) ?? null;
 const isLocalPage = !localOrigin || location.origin === localOrigin;
 const savedServer = id => isLocalPage && typeof id === "string" && /^[\w-]{1,64}$/.test(id) ? [id] : [];
-const REMOTE_SAFE = new Set(["platform", "getCapabilities", "onCapabilitiesChanged", "applySkin", "setUnreadCount", "permStatus", "workspaces", "cloudMove", "cloudLending", "cloudPlan", "cloudPermissions", "onOpenAppSettings", "notifications"]);
+const REMOTE_SAFE = new Set(["platform", "getCapabilities", "onCapabilitiesChanged", "applySkin", "setUnreadCount", "permStatus", "workspaces", "cloudMove", "cloudLending", "cloudPlan", "cloudPermissions", "onOpenAppSettings", "onAppLink", "notifications"]);
 function updaterOffered() {
   try { return ipcRenderer.sendSync("update:offered") === true; } catch { return false; }
 }
@@ -133,6 +145,20 @@ const bridge = {
       for (const listener of appSettingsListeners) listener(section);
     });
     return () => appSettingsListeners.delete(cb);
+  },
+  onAppLink: (cb) => {
+    appLinkListeners.add(cb);
+    queueMicrotask(() => {
+      const url = pendingAppLink;
+      if (!url || !appLinkListeners.size) return;
+      pendingAppLink = null;
+      for (const listener of appLinkListeners) listener(url);
+    });
+    if (!appLinksAnnounced) {
+      appLinksAnnounced = true;
+      ipcRenderer.send("app-links:ready");
+    }
+    return () => appLinkListeners.delete(cb);
   },
   getPathForFile: (file) => {
     try {

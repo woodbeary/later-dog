@@ -24,6 +24,7 @@ import { CloudEngineSignIn } from "@/components/CloudEngineSignIn";
 import { engineReady } from "@/components/EngineLibrary";
 import { CommandPalette } from "@/components/CommandPalette";
 import { AddAccountHost } from "@/components/AddAccountHost";
+import { AppLinkHost } from "@/components/AppLinkHost";
 import { UpdateDialog } from "@/components/UpdateButton";
 import { setLocale } from "@/lib/i18n";
 import { isMacPlatform, shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
@@ -280,6 +281,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       )}
       <CommandPalette />
       <AddAccountHost />
+      <AppLinkHost />
       <UpdateDialog />
       </div>
       <CloudQuietLine />

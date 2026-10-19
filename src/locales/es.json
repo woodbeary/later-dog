@@ -1094,5 +1094,7 @@
   "sidebar.hidden.title": "Perros ocultos",
   "sidebar.unreads.count": "{count} sin leer",
   "sidebar.unreads.above": "Ir a {count} chats sin leer arriba",
-  "sidebar.unreads.below": "Ir a {count} chats sin leer abajo"
+  "sidebar.unreads.below": "Ir a {count} chats sin leer abajo",
+  "appLink.notFound.title": "No encontrado",
+  "appLink.notFound.body": "Este perro se eliminó o no está compartido contigo."
 }
