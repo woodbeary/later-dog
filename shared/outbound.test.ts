@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { OUTBOUND_DEFAULT_CAP, connectorCallsIn, isOutboundTool, normalizeOutboundPolicy, outboundCallsIn } from "./outbound.ts";
+import { connectorCallsIn, isOutboundTool, outboundCallsIn } from "./outbound.ts";
 
 describe("isOutboundTool", () => {
   it("flags tools that send, reply, post, publish, invite, share, or move money", () => {
@@ -49,22 +49,6 @@ describe("isOutboundTool", () => {
     ]) {
       expect(isOutboundTool(name), name).toBe(false);
     }
-  });
-});
-
-describe("normalizeOutboundPolicy", () => {
-  it("accepts ask and allow with a whole-number daily cap", () => {
-    expect(normalizeOutboundPolicy({ policy: "ask" })).toEqual({ policy: "ask", dailyCap: OUTBOUND_DEFAULT_CAP });
-    expect(normalizeOutboundPolicy({ policy: "allow", dailyCap: 10 })).toEqual({ policy: "allow", dailyCap: 10 });
-  });
-
-  it("refuses anything else", () => {
-    expect(normalizeOutboundPolicy({ policy: "yes" })).toBeNull();
-    expect(normalizeOutboundPolicy({ policy: "allow", dailyCap: 0 })).toBeNull();
-    expect(normalizeOutboundPolicy({ policy: "allow", dailyCap: 2.5 })).toBeNull();
-    expect(normalizeOutboundPolicy({ policy: "allow", dailyCap: 100_000 })).toBeNull();
-    expect(normalizeOutboundPolicy("allow")).toBeNull();
-    expect(normalizeOutboundPolicy(null)).toBeNull();
   });
 });
 

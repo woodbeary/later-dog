@@ -126,3 +126,7 @@ A bot with no grant record at all keeps the legacy behavior: every tool on every
 **Imported bots land with no grants.** Shareable packages and team imports never carry grants — an imported bot starts with connected apps off, and any grants it later gets are chosen by the importing workspace. Grants also never appear in exports; only the workspace's own private team backup keeps them.
 
 Grants are enforced on the real tool names at call time (including batches inside the MULTI_EXECUTE meta-tool), the tool list offered to the model is filtered to the granted set, and every allow/deny writes a decision-log row. Refusals do not enumerate what else is granted. Paired phones see each bot's grants read-only in its profile (What this bot does → App tools); grants are assigned on the computer, never from a phone.
+
+## Sending on your behalf
+
+A tool that sends, posts, replies, invites or moves money shows one card before it runs: "Allow Gmail?", what it will send, and Allow once, Skip and Always allow. Always allow is remembered for that dog and that app, so later sends to the same app go straight out. Skip refuses the send and leaves that app unused until your next message. A batch across several apps, or code later.dog cannot read (the remote workbench), always asks and has no Always allow. In your own Cloud home, an Off-leash dog with Auto-review off, or a Full access dog, sends without a card. There is no daily send limit and no per-app access setting.

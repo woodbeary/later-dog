@@ -159,7 +159,6 @@ describe("bot patch queue", () => {
           ...patch,
           computer: patch.computer ?? undefined,
           connectorTools: patch.connectorTools ?? undefined,
-          connectorScopes: patch.connectorScopes ?? undefined,
         });
       },
       reconcile: async () => bot(),

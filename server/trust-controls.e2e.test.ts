@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,8 +18,6 @@ let fullBot: any;
 let brokerOrigin = "";
 const relayed: unknown[] = [];
 const evidence: unknown[] = [];
-let blockRelay: (() => void) | undefined;
-let relayEntered = false;
 let blockSession: (() => void) | undefined;
 let sessionEntered = false;
 const api = async (method: string, path: string, body?: unknown, token = admin) => {
@@ -73,10 +71,6 @@ beforeAll(async () => {
     }
     if (req.url === "/mcp") {
       relayed.push(body);
-      if (blockRelay) {
-        relayEntered = true;
-        await new Promise<void>(resolve => { blockRelay = resolve; });
-      }
       return res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: { content: [{ type: "text", text: "relay-ok" }] } }));
     }
     return res.end(JSON.stringify({ items: [{ slug: "gmail", connected_account: { id: "fixture-account", status: "ACTIVE" } }] }));
@@ -125,7 +119,6 @@ beforeAll(async () => {
 }, 40_000);
 
 afterAll(async () => {
-  blockRelay?.();
   blockSession?.();
   const evidencePath = fixture.info.logPath + ".trust-controls.json";
   writeFileSync(evidencePath, JSON.stringify({ fixture: fixture.info, evidence, relayed }, null, 2));
@@ -139,13 +132,13 @@ it("keeps activity and policy changes admin-only", async () => {
   const b = await bot("Trust authority");
   expect((await api("GET", `/api/bots/${b.id}/activity`)).status).toBe(200);
   expect((await api("GET", `/api/bots/${b.id}/activity`, undefined, member)).status).toBe(403);
-  for (const patch of [{ outbound: { policy: "allow", dailyCap: 100 } }, { connectorScopes: null }, { fallback: [] }]) {
+  for (const patch of [{ alwaysAllow: ["connector:gmail"] }, { composio: false }, { fallback: [] }]) {
     expect((await api("PATCH", `/api/bots/${b.id}`, patch, member)).status).toBe(403);
   }
   expect((await api("PATCH", `/api/bots/${b.id}`, { fallback: [{ instanceId: "claude", model: " " }] })).status).toBe(400);
 });
 
-it("asks in Full, refuses denied sends, and rechecks scopes after an approval", async () => {
+it("asks in Full, refuses skipped sends, and rechecks connected apps after an approval", async () => {
   const b = fullBot;
   const fleet = await api("GET", "/api/bots");
   expect(fleet.body.bots.find((row: any) => row.id === b.id).approvalMode).toBe("full");
@@ -156,9 +149,9 @@ it("asks in Full, refuses denied sends, and rechecks scopes after an approval", 
   await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: card.card.requestId, behavior: "deny" });
   expect((await denied).body.result.isError).toBe(true);
   expect(relayed).toHaveLength(before);
-  const held = relay(token, "GMAIL_SEND_EMAIL");
+  const held = relay(token, "SLACK_SEND_MESSAGE");
   card = await pending(b.threadId);
-  await api("PATCH", `/api/bots/${b.id}`, { connectorScopes: { apps: { gmail: "read" } } });
+  await api("PATCH", `/api/bots/${b.id}`, { composio: false });
   await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: card.card.requestId, behavior: "allow" });
   expect((await held).body.result.isError).toBe(true);
   expect(relayed).toHaveLength(before);
@@ -187,7 +180,7 @@ it("shows each outbound batch recipient and amount with explicit preview truncat
   expect(relayed).toHaveLength(before);
 });
 
-it.each(["scope", "turn"])("rechecks %s revocation after project-session metadata and before the actual send", async (revocation) => {
+it.each(["apps", "turn"])("rechecks %s revocation after project-session metadata and before the actual send", async (revocation) => {
   const b = await bot("Session race " + revocation);
   const token = await mint(b.id, b.threadId);
   const before = relayed.length;
@@ -197,44 +190,64 @@ it.each(["scope", "turn"])("rechecks %s revocation after project-session metadat
   blockSession = () => {};
   await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: card.card.requestId, behavior: "allow" });
   await expect.poll(() => sessionEntered, { timeout: 5_000 }).toBe(true);
-  if (revocation === "scope") await api("PATCH", `/api/bots/${b.id}`, { connectorScopes: { apps: { gmail: "read" } } });
+  if (revocation === "apps") await api("PATCH", `/api/bots/${b.id}`, { composio: false });
   else await mint(b.id, b.threadId);
   blockSession();
   blockSession = undefined;
   const result = await held;
-  if (revocation === "scope") expect(result.body.result.isError).toBe(true);
+  if (revocation === "apps") expect(result.body.result.isError).toBe(true);
   else expect(result.status).toBe(401);
   expect(relayed).toHaveLength(before);
 });
 
-it("reserves a daily slot before provider await, so simultaneous calls cannot overspend", async () => {
-  const b = await bot("Concurrent cap");
-  await api("PATCH", `/api/bots/${b.id}`, { outbound: { policy: "allow", dailyCap: 1 } });
-  const token = await mint(b.id, b.threadId);
-  relayEntered = false;
-  blockRelay = () => {};
-  const first = relay(token, "GMAIL_SEND_EMAIL");
-  await expect.poll(() => relayEntered, { timeout: 5_000 }).toBe(true);
-  expect((await relay(token, "GMAIL_SEND_EMAIL")).body.result.isError).toBe(true);
-  expect((await api("GET", `/api/bots/${b.id}/outbound`)).body.today).toBe(1);
-  blockRelay();
-  blockRelay = undefined;
+it("asks once per connector, remembers Always allow for it, and keeps a skip until the next message", async () => {
+  const b = await bot("Connector memory");
+  let token = await mint(b.id, b.threadId);
+  const before = relayed.length;
+  const first = relay(token, "GMAIL_SEND_EMAIL", { to: "first@fixture.test" });
+  const card = await pending(b.threadId);
+  expect(card.card).toMatchObject({ title: "Allow Gmail?", allowKey: "connector:gmail", heldCode: "approval.held.outbound" });
+  expect((await api("POST", `/api/bots/${b.id}/always-allow`, { threadId: b.threadId, allowKey: "connector:gmail" })).status).toBe(200);
+  await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: card.card.requestId, behavior: "allow", scope: "always" });
   expect((await first).body.result.isError).not.toBe(true);
-  expect((await api("GET", `/api/bots/${b.id}/outbound`)).body.today).toBe(1);
+  expect(relayed).toHaveLength(before + 1);
+  expect((await cards(b.threadId)).find((row: any) => row.id === card.id).card).toMatchObject({ answered: "allow", answerScope: "always" });
+  const cardsBefore = (await cards(b.threadId)).filter((row: any) => row.card?.outboundRequest).length;
+  expect((await relay(token, "GMAIL_SEND_EMAIL", { to: "second@fixture.test" })).body.result.isError).not.toBe(true);
+  expect(relayed).toHaveLength(before + 2);
+  expect((await cards(b.threadId)).filter((row: any) => row.card?.outboundRequest)).toHaveLength(cardsBefore);
+  const slack = relay(token, "SLACK_SEND_MESSAGE", { channel: "#fixture" });
+  const slackCard = await pending(b.threadId);
+  expect(slackCard.card).toMatchObject({ title: "Allow Slack?", allowKey: "connector:slack" });
+  await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: slackCard.card.requestId, behavior: "deny" });
+  expect((await slack).body.result.content[0].text).toContain("skipped");
+  const again = await relay(token, "SLACK_SEND_MESSAGE", { channel: "#fixture" });
+  expect(again.body.result.isError).toBe(true);
+  expect(again.body.result.content[0].text).toContain("until their next message");
+  expect(relayed).toHaveLength(before + 2);
+  token = await mint(b.id, b.threadId);
+  const nextTurn = relay(token, "SLACK_SEND_MESSAGE", { channel: "#fixture" });
+  const nextCard = await pending(b.threadId);
+  expect(nextCard.id).not.toBe(slackCard.id);
+  await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: nextCard.card.requestId, behavior: "deny" });
+  expect((await nextTurn).body.result.isError).toBe(true);
+  expect(relayed).toHaveLength(before + 2);
+  const state = (await api("GET", "/api/bots")).body.bots.find((row: any) => row.id === b.id);
+  expect(state).not.toHaveProperty("outbound");
+  expect(state).not.toHaveProperty("connectorScopes");
 });
 
-it("never treats arbitrary workbench code as a counted daily allowance", async () => {
+it("always asks before running workbench code, even when the connector is always allowed", async () => {
   const b = await bot("Opaque code");
-  await api("PATCH", `/api/bots/${b.id}`, { outbound: { policy: "allow", dailyCap: 1 } });
+  await api("PATCH", `/api/bots/${b.id}`, { alwaysAllow: ["connector:gmail"] });
   const token = await mint(b.id, b.threadId);
   const before = relayed.length;
   const held = relay(token, "COMPOSIO_REMOTE_WORKBENCH", { code_to_execute: 'for x in range(99): run_tool("GMAIL_" + "SEND_EMAIL", {})' });
   const card = await pending(b.threadId);
+  expect(card.card.title).toBe("Send on your behalf?");
+  expect(card.card.allowKey).toBeUndefined();
   await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: card.card.requestId, behavior: "deny" });
   expect((await held).body.result.isError).toBe(true);
-  expect(relayed).toHaveLength(before);
-  await api("PATCH", `/api/bots/${b.id}`, { connectorScopes: { apps: { gmail: "write" } } });
-  expect((await relay(token, "COMPOSIO_REMOTE_BASH_TOOL", { command: "curl -X POST https://fixture.test/send" })).body.result.isError).toBe(true);
   expect(relayed).toHaveLength(before);
 });
 
@@ -274,17 +287,4 @@ it("keeps a referenced account's credential directory, and removes the account f
   expect((await api("PATCH", `/api/instances/${instanceId}`, { configDir: join(fixture.info.dataDir, "synthetic-account-directory") })).status).toBe(409);
   expect((await api("DELETE", `/api/instances/${instanceId}`)).status).toBe(200);
   expect(((await api("GET", "/api/bots")).body.bots as any[]).find((row) => row.id === b.id).fallback ?? []).toEqual([]);
-});
-
-it("does not relay if the allowance cannot be durably written", async () => {
-  const b = await bot("Failed allowance");
-  await api("PATCH", `/api/bots/${b.id}`, { outbound: { policy: "allow", dailyCap: 1 } });
-  const token = await mint(b.id, b.threadId);
-  const file = join(fixture.info.dataDir, "outbound-counts.json");
-  renameSync(file, file + ".saved");
-  mkdirSync(file);
-  const before = relayed.length;
-  expect((await relay(token, "GMAIL_SEND_EMAIL")).body.result.isError).toBe(true);
-  expect(relayed).toHaveLength(before);
-  expect((await api("GET", `/api/bots/${b.id}/outbound`)).body.today).toBe(0);
 });

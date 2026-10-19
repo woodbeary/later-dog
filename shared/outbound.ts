@@ -1,12 +1,4 @@
 
-export type OutboundPolicy = {
-  policy: "ask" | "allow";
-  dailyCap: number;
-};
-
-export const OUTBOUND_DEFAULT_CAP = 25;
-const OUTBOUND_MAX_CAP = 1_000;
-
 const SEND_VERBS = new Set([
   "SEND",
   "SENDS",
@@ -57,17 +49,6 @@ export function isOutboundTool(name: string): boolean {
   if (tokens.includes("DRAFT")) return false;
   return tokens.some((token) => CREATE_VERBS.has(token)) && tokens.some((token) => SENT_NOUNS.has(token));
 }
-
-export function normalizeOutboundPolicy(value: unknown): OutboundPolicy | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const { policy, dailyCap } = value as { policy?: unknown; dailyCap?: unknown };
-  if (policy !== "ask" && policy !== "allow") return null;
-  if (dailyCap === undefined) return { policy, dailyCap: OUTBOUND_DEFAULT_CAP };
-  if (typeof dailyCap !== "number" || !Number.isInteger(dailyCap) || dailyCap < 1 || dailyCap > OUTBOUND_MAX_CAP) return null;
-  return { policy, dailyCap };
-}
-
-export const DEFAULT_OUTBOUND_POLICY: OutboundPolicy = { policy: "ask", dailyCap: OUTBOUND_DEFAULT_CAP };
 
 export interface ConnectorCall {
   slug: string;

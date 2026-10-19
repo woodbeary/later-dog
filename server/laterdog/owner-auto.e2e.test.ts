@@ -257,7 +257,6 @@ it("with Auto-review off an owner dog sends through a connected app with no card
   expect(sent.body.result?.isError, JSON.stringify(sent.body)).not.toBe(true);
   expect(relayed).toHaveLength(before + 1);
   expect(await sendCards(mailer.threadId)).toHaveLength(0);
-  expect((await api("GET", `/api/bots/${mailer.id}/outbound`)).body.today).toBe(1);
 
   await autoReview(true);
   const careful = await newDog("Careful mailer", "auto");

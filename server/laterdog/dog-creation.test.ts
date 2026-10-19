@@ -152,14 +152,12 @@ describe("dogMadeDogAccess", () => {
   it("gives a dog made by an Off-leash dog the same level, apps, tools and allowances, as copies", () => {
     const creator = {
       approvalMode: "auto" as const, composio: true, connectorTools: { gmail: { tools: "*" as const } },
-      connectorScopes: { apps: { gmail: "write" as const } }, outbound: { policy: "ask" as const, dailyCap: 25 },
       mcpServers: ["cloudflare"], toolScope: { deny: ["native:Bash"] }, alwaysAllow: ["WebFetch"], browser: true,
     };
     const access = dogMadeDogAccess(creator, "auto", "auto", everywhere);
     expect(access).toEqual({
       approvalMode: "auto", autoApprove: true, approvePeerComms: false, composio: true,
-      connectorTools: { gmail: { tools: "*" } }, connectorScopes: { apps: { gmail: "write" } },
-      outbound: { policy: "ask", dailyCap: 25 }, mcpServers: ["cloudflare"], toolScope: { deny: ["native:Bash"] },
+      connectorTools: { gmail: { tools: "*" } }, mcpServers: ["cloudflare"], toolScope: { deny: ["native:Bash"] },
       alwaysAllow: ["WebFetch"], browser: true,
     });
     expect(access.connectorTools).not.toBe(creator.connectorTools);

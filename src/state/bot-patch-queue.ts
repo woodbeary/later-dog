@@ -20,7 +20,6 @@ export type BotUpdatePatch = Partial<
     | "avatarFocusY"
     | "autoApprove"
     | "approvalMode"
-    | "outbound"
     | "fallback"
     | "speakReplies"
     | "voice"
@@ -41,7 +40,6 @@ export type BotUpdatePatch = Partial<
 > & {
   computer?: Bot["computer"] | null;
   connectorTools?: Bot["connectorTools"] | null;
-  connectorScopes?: Bot["connectorScopes"] | null;
   acknowledgeLocalAuto?: boolean;
   confirmFullAccess?: boolean;
   applyToAllThreads?: boolean;
@@ -49,11 +47,10 @@ export type BotUpdatePatch = Partial<
 
 export type BotStatePatch = Omit<
   BotUpdatePatch,
-  "computer" | "connectorTools" | "connectorScopes" | "acknowledgeLocalAuto" | "confirmFullAccess" | "applyToAllThreads"
+  "computer" | "connectorTools" | "acknowledgeLocalAuto" | "confirmFullAccess" | "applyToAllThreads"
 > & {
   computer?: Bot["computer"];
   connectorTools?: Bot["connectorTools"];
-  connectorScopes?: Bot["connectorScopes"];
 };
 
 interface BotPatchQueueEntry {
@@ -104,7 +101,6 @@ const stateOverlay = (patch: BotUpdatePatch): BotStatePatch => {
     applyToAllThreads: _allThreads,
     computer,
     connectorTools,
-    connectorScopes,
     ...fields
   } = patch;
   const normalized: BotStatePatch = { ...fields };
@@ -112,8 +108,6 @@ const stateOverlay = (patch: BotUpdatePatch): BotStatePatch => {
   else if (computer !== undefined) normalized.computer = computer;
   if (connectorTools === null) normalized.connectorTools = undefined;
   else if (connectorTools !== undefined) normalized.connectorTools = connectorTools;
-  if (connectorScopes === null) normalized.connectorScopes = undefined;
-  else if (connectorScopes !== undefined) normalized.connectorScopes = connectorScopes;
   return normalized;
 };
 

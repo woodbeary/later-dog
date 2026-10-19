@@ -71,7 +71,7 @@ export function autoVerdict(
 }
 
 export const HELD_NOTE = {
-  "approval.held.outbound": "This sends something on your behalf, so it always asks first.",
+  "approval.held.outbound": "This uses your connected account, so it asks first.",
   "approval.held.native": "This always asks you first.",
   "approval.held.sandbox":
     "This changes the provider sandbox, so only Full access can approve it automatically.",

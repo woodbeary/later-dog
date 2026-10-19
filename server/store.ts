@@ -546,6 +546,12 @@ export class Store {
         delete b.approvalMode;
         botsMigrated = true;
       }
+      const retiredTrust = b as { outbound?: unknown; connectorScopes?: unknown };
+      if (retiredTrust.outbound !== undefined || retiredTrust.connectorScopes !== undefined) {
+        delete retiredTrust.outbound;
+        delete retiredTrust.connectorScopes;
+        botsMigrated = true;
+      }
       if (b.approvalGrant !== undefined) {
         const threadOnly = b.approvalGrant.threadOnly === true;
         if (threadOnly) {

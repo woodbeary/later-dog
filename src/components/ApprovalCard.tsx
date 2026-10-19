@@ -62,7 +62,7 @@ export function approvalCardOutcome(card: OptionCardData): string | undefined {
   if (!card.answered) return undefined;
   if (card.undone === true) return t("approval.status.undone");
   const isProposal = Boolean(card.routineRequest || card.skillRequest || card.profileRequest || card.modelRequest);
-  if (card.answered !== "allow") return isProposal ? t("approval.status.cancelled") : t("approval.status.denied");
+  if (card.answered !== "allow") return isProposal ? t("approval.status.cancelled") : card.outboundRequest && card.answered === "deny" ? t("approval.status.skipped") : t("approval.status.denied");
   const routineAction = card.routineRequest?.operation.action;
   if (routineAction) return t(ROUTINE_SETTLED_LABEL[routineAction]);
   const skillAction = card.skillRequest?.action;

@@ -1019,6 +1019,22 @@ describe("Store", () => {
     expect(persisted.find((candidate) => candidate.id === bot.id)).not.toHaveProperty("approvalGrant");
   });
 
+  it("drops the retired send policy and per-app access on load", () => {
+    const store = new Store(selection);
+    const bot = store.createBot();
+    store.patchBot(bot.id, {
+      outbound: { policy: "allow", dailyCap: 5 },
+      connectorScopes: { apps: { gmail: "read" } },
+    } as Partial<BotRecord>);
+
+    const reloaded = new Store(selection);
+    expect(reloaded.bot(bot.id)).not.toHaveProperty("outbound");
+    expect(reloaded.bot(bot.id)).not.toHaveProperty("connectorScopes");
+    const persisted: BotRecord[] = JSON.parse(readFileSync(join(DATA_DIR, "bots.json"), "utf8"));
+    expect(persisted.find((candidate) => candidate.id === bot.id)).not.toHaveProperty("outbound");
+    expect(persisted.find((candidate) => candidate.id === bot.id)).not.toHaveProperty("connectorScopes");
+  });
+
   it.each(["prepared", "confirmed", "activated", "committed"] as const)("revokes a thread-scoped grant after restart in phase %s", (phase) => {
     const store = new Store(selection);
     const bot = store.createBot();

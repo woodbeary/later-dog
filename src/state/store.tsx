@@ -339,8 +339,6 @@ export interface Bot {
   peers?: string[];
   composio?: boolean;
   connectorTools?: Record<string, ConnectorToolGrant>;
-  connectorScopes?: { apps: Record<string, "read" | "write"> };
-  outbound?: { policy: "ask" | "allow"; dailyCap: number };
   fallback?: Array<{ instanceId: string; model: string }>;
   browser?: boolean;
   memoryUpkeep?: boolean;
@@ -1757,7 +1755,6 @@ export function reducer(state: AppState, action: Action): AppState {
         applyToAllThreads: _allThreads,
         computer,
         connectorTools,
-        connectorScopes,
         ...rest
       } = action.patch;
       const botPatch: Partial<Bot> = { ...rest };
@@ -1765,8 +1762,6 @@ export function reducer(state: AppState, action: Action): AppState {
       else if (computer !== undefined) botPatch.computer = computer;
       if (connectorTools === null) botPatch.connectorTools = undefined;
       else if (connectorTools !== undefined) botPatch.connectorTools = connectorTools;
-      if (connectorScopes === null) botPatch.connectorScopes = undefined;
-      else if (connectorScopes !== undefined) botPatch.connectorScopes = connectorScopes;
       return updateBot(next, action.botId, (b) => ({ ...b, ...botPatch }));
     }
     case "threadActive": {

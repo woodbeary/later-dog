@@ -25,7 +25,7 @@ function outbound(calls: OutboundCall[] | undefined, subtitle = linearSubtitle):
     options: ["Allow", "Deny"],
     requestId: "req",
     tool: "LINEAR_CREATE_LINEAR_COMMENT",
-    held: "This sends something on your behalf, so it always asks first.",
+    held: "This uses your connected account, so it asks first.",
     heldCode: "approval.held.outbound",
     outboundRequest: { tool: "LINEAR_CREATE_LINEAR_COMMENT", app: "Linear", ...(calls ? { calls } : {}) },
   };
@@ -36,13 +36,13 @@ describe("outboundSummary", () => {
     const call = { app: "Linear", label: "Create linear comment" };
     const card = outbound([call, call]);
     expect(outboundApp(outboundCalls(card))).toBe("Linear");
-    expect(outboundSummary(card)).toEqual({ headline: "Send to Linear?", summary: "Create linear comment ×2" });
+    expect(outboundSummary(card)).toEqual({ headline: "Allow Linear?", summary: "Create linear comment ×2", app: "Linear" });
   });
 
   it("reads the subtitle headings back when the card has no calls", () => {
     const card = outbound(undefined);
     expect(outboundCalls(card)).toHaveLength(2);
-    expect(outboundSummary(card)).toEqual({ headline: "Send to Linear?", summary: "Create linear comment ×2" });
+    expect(outboundSummary(card)).toEqual({ headline: "Allow Linear?", summary: "Create linear comment ×2", app: "Linear" });
   });
 
   it("treats an empty calls list like a missing one", () => {
@@ -59,6 +59,7 @@ describe("outboundSummary", () => {
     expect(outboundSummary(card)).toEqual({
       headline: "Send on your behalf?",
       summary: "Gmail · Send email ×2, Stripe · Create refund",
+      app: null,
     });
   });
 
@@ -70,13 +71,13 @@ describe("outboundSummary", () => {
   it("falls back to the generic headline and no summary when the subtitle cannot be read", () => {
     const card = outbound(undefined, "\n\nsomething odd");
     expect(outboundCalls(card)).toEqual([]);
-    expect(outboundSummary(card)).toEqual({ headline: "Send on your behalf?", summary: "" });
+    expect(outboundSummary(card)).toEqual({ headline: "Send on your behalf?", summary: "", app: null });
   });
 
   it("names a tool with no app by its label", () => {
     const card = outbound(undefined, 'Send a message\n{"to":"x"}');
     expect(outboundCalls(card)).toEqual([{ app: null, label: "Send a message" }]);
-    expect(outboundSummary(card)).toEqual({ headline: "Send on your behalf?", summary: "Send a message" });
+    expect(outboundSummary(card)).toEqual({ headline: "Send on your behalf?", summary: "Send a message", app: null });
   });
 
   it("is undefined for a card that is not an outbound hold", () => {

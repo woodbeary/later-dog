@@ -9553,7 +9553,7 @@ describe("harness HTTP API", () => {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         composio: true,
         connectorTools: { gmail: { tools: ["GMAIL_SEND_EMAIL"] } },
-        outbound: { policy: "allow", dailyCap: 10 },
+        alwaysAllow: ["connector:gmail"],
       })).status).toBe(200);
       const token = await mintTestCapability(BASE, bot.id, bot.threadId, { kind: "connectors" });
       const call = async (frame: unknown, bearer = token) => {
@@ -9616,7 +9616,7 @@ describe("harness HTTP API", () => {
       try {
         expect((await api("PATCH", `/api/bots/${legacy.id}`, {
           composio: true,
-          outbound: { policy: "allow", dailyCap: 10 },
+          alwaysAllow: ["connector:slack"],
         })).status).toBe(200);
         const legacyToken = await mintTestCapability(BASE, legacy.id, legacy.threadId, { kind: "connectors" });
         const legacyCall = await call(

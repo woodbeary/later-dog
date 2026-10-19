@@ -60,6 +60,7 @@ export function collapseOutboundCalls(calls: OutboundCall[], namingApps: boolean
 export interface OutboundSummary {
   headline: string;
   summary: string;
+  app: string | null;
 }
 
 export function outboundSummary(card: Pick<OptionCardData, "outboundRequest" | "subtitle">): OutboundSummary | undefined {
@@ -67,8 +68,9 @@ export function outboundSummary(card: Pick<OptionCardData, "outboundRequest" | "
   const calls = outboundCalls(card);
   const app = outboundApp(calls);
   return {
-    headline: app ? t("approval.outbound.sendTo", { app }) : t("approval.outbound.sendOnBehalf"),
+    headline: app ? t("approval.outbound.allowApp", { app }) : t("approval.outbound.sendOnBehalf"),
     summary: collapseOutboundCalls(calls, app === null),
+    app,
   };
 }
 

@@ -53,7 +53,7 @@ function inheritedLevel(mode: ApprovalMode | undefined): (typeof INHERITED_LEVEL
 }
 
 export type DogAccessSource = Pick<BotRecord, "approvalMode" | "autoApprove" | "approvalGrant" | "composio" | "connectorTools"
-  | "connectorScopes" | "outbound" | "mcpServers" | "toolScope" | "alwaysAllow" | "browser">;
+  | "mcpServers" | "toolScope" | "alwaysAllow" | "browser">;
 
 export function dogMadeDogAccess(
   creator: DogAccessSource,
@@ -75,8 +75,6 @@ export function dogMadeDogAccess(
     approvePeerComms: false,
     composio: creator.composio,
     connectorTools: copy(creator.connectorTools),
-    connectorScopes: copy(creator.connectorScopes),
-    outbound: copy(creator.outbound),
     mcpServers: copy(creator.mcpServers),
     toolScope: copy(creator.toolScope),
     alwaysAllow: copy(creator.alwaysAllow),

@@ -3,8 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { ApprovalCard, approvalFoldSummary, toolLabel } from "./ApprovalCard";
-import { pendingApprovals, PendingApprovalPanel, spokenApprovalPrompt, type Pending } from "./PendingApproval";
-import { BotEditorStore, type Bot, type Message } from "@/state/store";
+import { pendingApprovals, PendingApprovalActions, PendingApprovalPanel, spokenApprovalPrompt, type Pending } from "./PendingApproval";
+import { BotEditorStore, StoreProvider, type Bot, type Message } from "@/state/store";
 import type { Routine } from "@/lib/routines";
 import { skillRequestBehavior } from "../../shared/skill-request";
 
@@ -508,7 +508,7 @@ describe("ApprovalCard outbound holds", () => {
       requestId: "req-outbound",
       tool: "LINEAR_CREATE_LINEAR_COMMENT",
       heldCode: "approval.held.outbound",
-      held: "This sends something on your behalf, so it always asks first.",
+      held: "This uses your connected account, so it asks first.",
       answered,
       outboundRequest: {
         tool: "LINEAR_CREATE_LINEAR_COMMENT",
@@ -524,7 +524,7 @@ describe("ApprovalCard outbound holds", () => {
 
   it("names the app and the actions instead of the tool slug", () => {
     const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message: outboundMessage() }));
-    expect(html).toContain("Send to Linear?");
+    expect(html).toContain("Allow Linear?");
     expect(html).toContain("Create linear comment ×2");
     expect(html).not.toContain("LINEAR CREATE LINEAR COMMENT");
     expect(html).not.toContain("LINEAR_CREATE_LINEAR_COMMENT");
@@ -534,7 +534,7 @@ describe("ApprovalCard outbound holds", () => {
 
   it("keeps the settled status line", () => {
     const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message: outboundMessage("allow") }));
-    expect(html).not.toContain("Send to Linear?");
+    expect(html).not.toContain("Allow Linear?");
     expect(html).toContain('aria-expanded="false"');
     expect(html).toContain("Allowed");
   });
@@ -542,17 +542,35 @@ describe("ApprovalCard outbound holds", () => {
   it("heads the composer strip the same way", () => {
     const [pending] = pendingApprovals([outboundMessage()]);
     const strip = renderToStaticMarkup(createElement(PendingApprovalPanel, { pending: pending!, count: 1, index: 0 }));
-    expect(strip).toContain("Send to Linear?");
+    expect(strip).toContain("Allow Linear?");
     expect(strip).toContain("Create linear comment ×2");
     expect(strip).not.toContain("Approval requested");
     expect(strip).not.toContain("LINEAR_CREATE_LINEAR_COMMENT");
+  });
+
+  it("says Skipped once the person skips it", () => {
+    const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message: outboundMessage("deny") }));
+    expect(html).toContain("Skipped");
+    expect(html).not.toContain("Denied");
+  });
+
+  it("offers Allow once, Skip and Always allow for one connector, and says what each keeps", () => {
+    const message = outboundMessage();
+    message.card!.allowKey = "connector:linear";
+    const [pending] = pendingApprovals([message]);
+    const actions = renderToStaticMarkup(createElement(StoreProvider, null, createElement(PendingApprovalActions, { pending: pending!, threadId: "thread-1", bot })));
+    expect(actions).toContain("Allow once");
+    expect(actions).toContain("Skip");
+    expect(actions).not.toContain("Don&#x27;t allow");
+    expect(actions).toContain("Always allow");
+    expect(actions).toContain("Always allow lets Kiwi use Linear without asking again. Skip leaves it unused until your next message.");
   });
 
   it("reads the subtitle back for a card from an older computer", () => {
     const message = outboundMessage();
     message.card!.outboundRequest = { tool: "LINEAR_CREATE_LINEAR_COMMENT", app: "Linear" };
     const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message }));
-    expect(html).toContain("Send to Linear?");
+    expect(html).toContain("Allow Linear?");
     expect(html).toContain("Create linear comment ×2");
   });
 

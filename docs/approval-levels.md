@@ -36,9 +36,9 @@ With either setting:
   dog keeps, and no Confirm card. later.dog's own tools are pre-allowed on
   every engine, so the engine's reviewer does not see them.
 - Sends through a connected app (an email, a message, a post) go out with no
-  "Send on your behalf?" card in a Cloud home while Auto-review is off, and
-  always for a Full access dog, within the dog's daily limit. While it is on,
-  each send asks.
+  card in a Cloud home while Auto-review is off, and always for a Full access
+  dog. While it is on, a send shows one "Allow Gmail?" card (Allow once, Skip,
+  Always allow); Always allow is remembered for that dog and app.
 
 A dog is **yours** when it works in your own workspace (not a hosted or
 shared-sign-in workspace), in a conversation no guest drives. Messages from a

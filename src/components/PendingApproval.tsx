@@ -178,7 +178,7 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
       {pending.message.card?.skillRequest && (
         <SkillRequestPreview request={pending.message.card.skillRequest} />
       )}
-      {heldNote && <div className="mt-1.5 text-[12px] text-ink-secondary">{heldNote}</div>}
+      {heldNote && !(outbound && pending.allowKey) && <div className="mt-1.5 text-[12px] text-ink-secondary">{heldNote}</div>}
     </div>
   );
 });
@@ -192,6 +192,7 @@ export function PendingApprovalActions({
   threadId: string;
   bot?: Bot;
 }) {
+  const outbound = pending.message.card ? outboundSummary(pending.message.card) : undefined;
   const { dispatch } = useStore();
   const ownerOrAdmin = useOwnerOrAdmin();
   const isRoutineRequest = isRoutineApproval(pending);
@@ -225,7 +226,9 @@ export function PendingApprovalActions({
   const primary = "bg-accent font-medium text-white hover:brightness-110";
   const durable = "ml-3 border border-hairline bg-transparent text-ink hover:bg-control";
   const reach = !durableRequest && bot && pending.allowKey
-    ? pending.allowKey === MAC_ALLOW_KEY
+    ? outbound
+      ? t("approval.reach.connector", { name: bot.name, app: outbound.app ?? t("approval.reach.connectorApp") })
+      : pending.allowKey === MAC_ALLOW_KEY
       ? t("approval.reach.mac")
       : t(bot.tasks?.some((task) => task.threadId === threadId) ? "approval.reach.chat" : "approval.reach.dog", { name: bot.name })
     : canRememberCommand && pending.commandAllowlist
@@ -252,7 +255,7 @@ export function PendingApprovalActions({
             onClick={() => decide("deny")}
             className={cn(base, quiet)}
           >
-            {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : t("approval.action.deny")}
+            {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : outbound ? t("approval.action.skip") : t("approval.action.deny")}
           </button>
         )}
         {!durableRequest && bot && pending.allowKey && (

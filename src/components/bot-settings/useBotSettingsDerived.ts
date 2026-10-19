@@ -24,7 +24,6 @@ export type BotPatch = Partial<
     | "alwaysAllow"
     | "autoApprove"
     | "approvalMode"
-    | "outbound"
     | "fallback"
     | "speakReplies"
     | "memoryEnabled"
@@ -39,7 +38,6 @@ export type BotPatch = Partial<
 > & {
   computer?: Bot["computer"] | null;
   connectorTools?: Bot["connectorTools"] | null;
-  connectorScopes?: Bot["connectorScopes"] | null;
   acknowledgeLocalAuto?: boolean;
   confirmFullAccess?: boolean;
   acknowledgePeerScope?: boolean;
