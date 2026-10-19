@@ -1,0 +1,27 @@
+{
+  "name": "later.dog",
+  "workerOrigins": ["100::", "192.0.2.1"],
+  "dns": [
+    { "name": "later.dog", "type": "AAAA", "content": "100::", "proxied": true, "ttl": 1, "comment": "later-dog-site Worker route; replaces the Namecheap parking record" },
+    { "name": "www.later.dog", "type": "AAAA", "content": "100::", "proxied": true, "ttl": 1, "comment": "later-dog-site Worker route; replaces the Namecheap parking record" }
+  ],
+  "settings": [
+    { "id": "always_use_https", "value": "on" },
+    { "id": "min_tls_version", "value": "1.2" },
+    {
+      "id": "security_header",
+      "value": {
+        "strict_transport_security": {
+          "enabled": true,
+          "max_age": 86400,
+          "include_subdomains": false,
+          "preload": false,
+          "nosniff": true
+        }
+      }
+    },
+    { "id": "brotli", "value": "on" },
+    { "id": "http3", "value": "on" }
+  ],
+  "ssl": "strict"
+}

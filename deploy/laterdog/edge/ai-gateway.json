@@ -1,0 +1,24 @@
+{
+  "id": "laterdog",
+  "settings": {
+    "authentication": true,
+    "collect_logs": false,
+    "cache_ttl": 0,
+    "cache_invalidate_on_update": false,
+    "rate_limiting_interval": null,
+    "rate_limiting_limit": null,
+    "rate_limiting_technique": null,
+    "workers_ai_billing_mode": "postpaid"
+  },
+  "byokOnlyWhenKeysFor": ["grok", "anthropic"],
+  "providerAliases": { "grok": ["grok", "xai"] },
+  "spendLimits": {
+    "enabled": true,
+    "rules": [
+      { "id": "grok-daily", "limitType": "cost", "limit": 40, "window": 86400, "technique": "sliding", "provider": { "mode": "filter", "values": ["grok"] } },
+      { "id": "anthropic-daily", "limitType": "cost", "limit": 16, "window": 86400, "technique": "sliding", "provider": { "mode": "filter", "values": ["anthropic"] } },
+      { "id": "elevenlabs-daily", "limitType": "cost", "limitFromEnv": "LATERDOG_EDGE_ELEVENLABS_USD_PER_DAY", "window": 86400, "technique": "sliding", "provider": { "mode": "filter", "values": ["elevenlabs"] } },
+      { "id": "all-daily", "limitType": "cost", "limit": 250, "window": 86400, "technique": "sliding" }
+    ]
+  }
+}

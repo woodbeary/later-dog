@@ -1,0 +1,108 @@
+{
+  "phase": "http_ratelimit",
+  "maxRules": 5,
+  "allowedPeriods": [10, 60, 600],
+  "maxMitigationTimeout": 86400,
+  "rules": [
+    {
+      "ref": "r1-otp-send",
+      "description": "R1: every email code send on accounts.later.dog (sign-in and password reset), 3 per 10 min per IP",
+      "expression": "(http.host eq \"accounts.later.dog\" and http.request.method eq \"POST\" and http.request.uri.path in {\"/api/auth/email-otp/send-verification-otp\" \"/api/auth/email-otp/request-password-reset\" \"/api/auth/forget-password/email-otp\"})",
+      "action": "block",
+      "action_parameters": {
+        "response": {
+          "status_code": 429,
+          "content_type": "application/json",
+          "content": "{\"code\":\"TOO_MANY_REQUESTS\",\"message\":\"Too many sign-in codes from this network. Wait 10 minutes, then try again.\"}"
+        }
+      },
+      "ratelimit": {
+        "characteristics": ["ip.src", "cf.colo.id"],
+        "period": 600,
+        "requests_per_period": 3,
+        "mitigation_timeout": 600
+      },
+      "enabled": true
+    },
+    {
+      "ref": "r2-otp-sign-in",
+      "description": "R2: email code checks on accounts.later.dog, 10 per 10 min per IP",
+      "expression": "(http.host eq \"accounts.later.dog\" and http.request.method eq \"POST\" and http.request.uri.path eq \"/api/auth/sign-in/email-otp\")",
+      "action": "block",
+      "action_parameters": {
+        "response": {
+          "status_code": 429,
+          "content_type": "application/json",
+          "content": "{\"code\":\"TOO_MANY_REQUESTS\",\"message\":\"Too many sign-in tries from this network. Wait 10 minutes, then try again.\"}"
+        }
+      },
+      "ratelimit": {
+        "characteristics": ["ip.src", "cf.colo.id"],
+        "period": 600,
+        "requests_per_period": 10,
+        "mitigation_timeout": 600
+      },
+      "enabled": true
+    },
+    {
+      "ref": "r3-trial-start",
+      "description": "R3: trial starts on cloud.later.dog (app and web form), 3 per 10 min per IP",
+      "expression": "(http.host eq \"cloud.later.dog\" and http.request.method eq \"POST\" and http.request.uri.path in {\"/v1/trials/start\" \"/trial\"})",
+      "action": "block",
+      "action_parameters": {
+        "response": {
+          "status_code": 429,
+          "content_type": "application/json",
+          "content": "{\"error\":{\"code\":\"rate_limited\",\"message\":\"Too many trials from this network. Wait 10 minutes, then try again.\"}}"
+        }
+      },
+      "ratelimit": {
+        "characteristics": ["ip.src", "cf.colo.id"],
+        "period": 600,
+        "requests_per_period": 3,
+        "mitigation_timeout": 600
+      },
+      "enabled": true
+    },
+    {
+      "ref": "r4-cloud-api",
+      "description": "R4: cloud.later.dog except the keyed routes Cloud homes call (included AI, voice, decision, computers, trial and plan status; homes share egress addresses and the Worker limits those per key), 300 per minute per IP",
+      "expression": "(http.host eq \"cloud.later.dog\" and not starts_with(http.request.uri.path, \"/v1/ai/\") and not starts_with(http.request.uri.path, \"/v1/voice/\") and not starts_with(http.request.uri.path, \"/v1/computers/\") and not http.request.uri.path in {\"/v1/complete\" \"/v1/systemone\" \"/v1/computers\" \"/v1/trial\" \"/v1/plan\"})",
+      "action": "block",
+      "action_parameters": {
+        "response": {
+          "status_code": 429,
+          "content_type": "application/json",
+          "content": "{\"error\":{\"code\":\"rate_limited\",\"message\":\"Too many requests from this network. Wait a minute, then try again.\"}}"
+        }
+      },
+      "ratelimit": {
+        "characteristics": ["ip.src", "cf.colo.id"],
+        "period": 60,
+        "requests_per_period": 300,
+        "mitigation_timeout": 60
+      },
+      "enabled": true
+    },
+    {
+      "ref": "r5-homes",
+      "description": "R5: every Cloud home (*-home.later.dog), 600 per minute per IP",
+      "expression": "(http.host wildcard \"*-home.later.dog\")",
+      "action": "block",
+      "action_parameters": {
+        "response": {
+          "status_code": 429,
+          "content_type": "application/json",
+          "content": "{\"error\":{\"code\":\"rate_limited\",\"message\":\"Too many requests from this network. Wait a minute, then try again.\"}}"
+        }
+      },
+      "ratelimit": {
+        "characteristics": ["ip.src", "cf.colo.id"],
+        "period": 60,
+        "requests_per_period": 600,
+        "mitigation_timeout": 60
+      },
+      "enabled": true
+    }
+  ]
+}

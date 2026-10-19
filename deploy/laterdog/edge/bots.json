@@ -1,0 +1,8 @@
+{
+  "settings": {
+    "sbfm_definitely_automated": "allow",
+    "sbfm_likely_automated": "allow",
+    "sbfm_verified_bots": "allow",
+    "enable_js": false
+  }
+}

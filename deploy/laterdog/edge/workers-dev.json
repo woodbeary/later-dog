@@ -1,0 +1,11 @@
+{
+  "scripts": {
+    "laterdog-computers": { "enabled": false, "previews_enabled": false, "fix": "workers_dev and preview_urls are already false in deploy/laterdog/computers/wrangler.jsonc; a full wrangler deploy applies them (never a settings PATCH)" },
+    "laterdog-supervisor": { "previews_enabled": false, "fix": "preview_urls is false in deploy/laterdog/cloudflare/wrangler.jsonc; the next wrangler deploy applies it. Its workers.dev URL stays on: desktops reach the supervisor there" }
+  },
+  "turnstile": {
+    "sitekey": "0x4AAAAAAFToUIA2DvjWJrmf",
+    "dropDomainsEndingWith": ".workers.dev",
+    "after": "laterdog-computers"
+  }
+}
