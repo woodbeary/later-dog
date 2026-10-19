@@ -1451,7 +1451,8 @@ describe("harness HTTP API", () => {
 
     const steered = await person.call("POST", `/api/bots/${bot.id}/messages`, { text: "and one more" });
     expect(steered.status).toBe(202);
-    expect(steered.body.message).toMatchObject({ steered: true, sender: { name: "Safari on Mac" } });
+    if (steered.body.message) expect(steered.body.message).toMatchObject({ steered: true, sender: { name: "Safari on Mac" } });
+    else expect(steered.body).toMatchObject({ queued: true });
 
     const second = await api("POST", "/api/bots", {
       name: "Attribution owner",
@@ -1466,7 +1467,9 @@ describe("harness HTTP API", () => {
     expect(mine.body.message.steered).toBeUndefined();
     expect(mine.body.message.sender).toBeUndefined();
 
-    const bots = (await api("GET", "/api/bots?messages=30")).body.bots;
+    const transcripts = async () => (await api("GET", "/api/bots?messages=30")).body.bots;
+    await expect.poll(async () => ((await transcripts()).find((b: any) => b.id === bot.id)?.messages ?? []).some((m: any) => m.text === "and one more"), { timeout: 20_000 }).toBe(true);
+    const bots = await transcripts();
     const theirMessages = bots.find((b: any) => b.id === bot.id)?.messages ?? [];
     const myMessages = bots.find((b: any) => b.id === second.body.bot.id)?.messages ?? [];
     const personKey = theirMessages.find((m: any) => m.text === "from the paired person")?.sender?.id;

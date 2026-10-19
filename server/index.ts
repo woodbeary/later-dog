@@ -634,7 +634,7 @@ import { createDogHelloRoutes } from "./routes/dog-hello.ts";
 import { createHelpersRoutes } from "./routes/helpers.ts";
 import { availableDogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { dogJobEnvironment } from "./laterdog/job-defaults.ts";
-import { connectedRepositories, repositoriesEnvironment } from "./laterdog/connected-repositories.ts";
+import { connectedRepositories, repositoriesEnvironment, repositoriesForTurn } from "./laterdog/connected-repositories.ts";
 import { createJobTraceRoutes } from "./routes/job-trace.ts";
 import { DOG_CREATION_REFUSAL, dogMadeDogAccess, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
 import { dogLimitRefusal, turnCreationRefusal } from "./laterdog/workspace-limits.ts";
@@ -8360,7 +8360,7 @@ async function startTurn(
         if (connection) integrations.composio = connection;
       }
       if (instance.adapter.capabilities.customMcp === true) {
-        const custom = await withMcpSignIn(engineMcpServers(bot, await connectedRepositories.refresh()), mcpOAuth);
+        const custom = await withMcpSignIn(engineMcpServers(bot, await repositoriesForTurn()), mcpOAuth);
         if (Object.keys(custom).length) integrations.custom = custom;
       }
       const worksInWorkspace = supportsWorkspaceFiles(instance.driverKind);
@@ -10223,7 +10223,7 @@ async function runGroupMemberTurn(
     return true;
   }
   if (instance.adapter.capabilities.customMcp === true) {
-    const custom = await withMcpSignIn(engineMcpServers(bot, await connectedRepositories.refresh()), mcpOAuth);
+    const custom = await withMcpSignIn(engineMcpServers(bot, await repositoriesForTurn()), mcpOAuth);
     if (Object.keys(custom).length) integrations.custom = custom;
   }
   if (isCancelled?.()) return false;
@@ -20667,6 +20667,7 @@ try {
 
 server.listen(PORT, "127.0.0.1", async () => {
   companyRuntimeReady();
+  void connectedRepositories.refresh();
   console.log(`later.dog server on http://127.0.0.1:${PORT}`);
   followupsReady = true;
   drainQueuedSends();

@@ -4,6 +4,7 @@ export const REPOSITORIES_ENV = "LATERDOG_REPOSITORIES";
 
 export interface ConnectedRepositories {
   known(): readonly string[];
+  checked(): boolean;
   refresh(): Promise<readonly string[]>;
   forget(): void;
 }
@@ -35,6 +36,7 @@ export function createConnectedRepositories(
   let pending: Promise<readonly string[]> | null = null;
   return {
     known: () => slugs,
+    checked: () => checkedAt !== Number.NEGATIVE_INFINITY,
     refresh() {
       if (now() - checkedAt < freshForMs) return Promise.resolve(slugs);
       if (pending) return pending;
@@ -56,6 +58,12 @@ export function createConnectedRepositories(
 }
 
 export const connectedRepositories = createConnectedRepositories();
+
+export async function repositoriesForTurn(repositories: ConnectedRepositories = connectedRepositories): Promise<readonly string[]> {
+  if (!repositories.checked()) return repositories.refresh();
+  void repositories.refresh();
+  return repositories.known();
+}
 
 export function repositoriesEnvironment(slugs: readonly string[]): Record<string, string> {
   return slugs.length ? { [REPOSITORIES_ENV]: slugs.join(",") } : {};

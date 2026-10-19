@@ -1,7 +1,7 @@
 import { once } from "node:events";
 import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createConnectedRepositories, repositoriesEnvironment, repositoriesFromEnvironment, supervisorRepositorySlugs } from "./connected-repositories.ts";
+import { createConnectedRepositories, repositoriesEnvironment, repositoriesForTurn, repositoriesFromEnvironment, supervisorRepositorySlugs } from "./connected-repositories.ts";
 
 const servers: Server[] = [];
 afterEach(async () => {
@@ -36,6 +36,32 @@ describe("connected repositories", () => {
     expect(await repositories.refresh()).toEqual([]);
     repositories.forget();
     expect(await repositories.refresh()).toEqual(["acme/web"]);
+  });
+
+  it("starts a turn on the repositories it already knows and refreshes them behind it", async () => {
+    let clock = 0;
+    let answer: string[] = ["acme/web"];
+    let release: () => void = () => undefined;
+    const read = vi.fn(() => answer.length > 1 ? new Promise<string[]>((resolve) => { release = () => resolve(answer); }) : Promise.resolve(answer));
+    const repositories = createConnectedRepositories(read, 1_000, () => clock);
+    expect(repositories.checked()).toBe(false);
+    expect(await repositoriesForTurn(repositories)).toEqual(["acme/web"]);
+    expect(repositories.checked()).toBe(true);
+    clock = 2_000;
+    answer = ["acme/web", "acme/api"];
+    expect(await repositoriesForTurn(repositories)).toEqual(["acme/web"]);
+    expect(read).toHaveBeenCalledTimes(2);
+    release();
+    await repositories.refresh();
+    expect(repositories.known()).toEqual(["acme/web", "acme/api"]);
+  });
+
+  it("waits for a fresh answer once the person changes their repositories", async () => {
+    const answers = [["acme/web"], []];
+    const repositories = createConnectedRepositories(async () => answers.shift() ?? [], 60_000);
+    expect(await repositoriesForTurn(repositories)).toEqual(["acme/web"]);
+    repositories.forget();
+    expect(await repositoriesForTurn(repositories)).toEqual([]);
   });
 
   it("shares one question between turns that start together", async () => {
