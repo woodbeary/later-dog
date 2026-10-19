@@ -496,8 +496,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home": {
-    "bytes": 40304,
-    "sha256": "9e6fd412292948901fa341b861c75769ae1d8352c472227b485a335beeba8f6f",
+    "bytes": 40409,
+    "sha256": "43a5c87250132ec3fcac4880d9b9c8e48a3ac41d830a453db4e628b4c5b5df56",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
@@ -530,8 +530,8 @@
     ]
   },
   "room+skills+shared+voice+cloud-home": {
-    "bytes": 40369,
-    "sha256": "63028ff968c9b799edb0e53f2b81e9285469b97afcb13415f1dd2e93015492b4",
+    "bytes": 40474,
+    "sha256": "b3cfc982226950ac90184d5a09cb586965c47b07ee5762e29a5e59b72137d811",
     "tools": [
       "tool_result_read",
       "list_shared_computers",

@@ -403,7 +403,10 @@ posixOnly("per-bot visibility on a shared workspace", () => {
       for (const hidden of [created.body.bot.id, created.body.bot.threadId, "Layoffs Planning", ...importedIds]) expect(seen).not.toContain(hidden);
       const list = (await api("GET", "/api/bots?messages=0", undefined, BOB)).body.bots.map((bot: any) => bot.id);
       for (const id of [created.body.bot.id, ...importedIds]) expect(list).not.toContain(id);
-      for (const id of [created.body.bot.id, ...importedIds]) await api("DELETE", `/api/bots/${id}`, undefined, BOSS);
+      for (const id of [created.body.bot.id, ...importedIds]) {
+        const deleted = await api("DELETE", `/api/bots/${id}`, undefined, BOSS);
+        expect(deleted.status, JSON.stringify({ id, body: deleted.body })).toBe(200);
+      }
     } finally {
       bob.close();
     }

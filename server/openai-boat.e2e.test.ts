@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlLaterDog, VERIFICATION_COMPAT_INSTANCE } from "../scripts/control-laterdog.ts";
 
-it("keeps the selected API model for direct, group and scheduled Boat turns and preserves human control", async () => {
+it("keeps the selected API model for direct, group and scheduled Boat turns and acts on its own computer without asking unless the person holds it", async () => {
   const rows: Array<{ id: string; name: string; state: string }> = [];
   const requests: any[] = [];
   const commands: string[] = [];
@@ -77,17 +77,13 @@ it("keeps the selected API model for direct, group and scheduled Boat turns and 
       if (scenario === "group") ({ group } = await api("POST", "/api/groups", { name: "Boat fixture room", memberIds: [bot.id], setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } } }));
       const before = requests.length;
       const destination = scenario === "group" ? ["--channel", group.id, "--task", group.threadId] : ["--bot", bot.id, "--task", bot.activeTaskId];
+      if (scenario === "held") await api("POST", `/api/bots/${bot.id}/computer/control`, { action: "take" });
       await control([scenario === "group" ? "send-channel" : "send", ...destination, "--text", "Inspect the assigned cloud desktop."]);
-      const waiting = await control(["wait", ...destination, "--timeout", "20"]);
-      expect(waiting.status, JSON.stringify({ scenario, waiting })).toBe("needs-user");
+      const settled = await control(["wait", ...destination, "--timeout", "20"]);
+      expect(settled.status, JSON.stringify({ scenario, settled })).toBe(scenario === "held" ? "failed" : "settled");
       const current = await api("GET", "/api/bots");
       const conversation = scenario === "group" ? current.groups.find((item: any) => item.id === group.id) : current.bots.find((item: any) => item.id === bot.id);
-      const card = conversation.messages.find((message: any) => message.card?.requestId && !message.card.answered)?.card;
-      expect(card?.requestId).toBeTruthy();
-      if (scenario === "held") await api("POST", `/api/bots/${bot.id}/computer/control`, { action: "take" });
-      await api("POST", `/api/threads/${scenario === "group" ? group.threadId : bot.activeTaskId}/respond`, { requestId: card.requestId, behavior: "allow" });
-      const settled = await control(["wait", ...destination, "--timeout", "20"]);
-      expect(settled.status).toBe(scenario === "held" ? "failed" : "settled");
+      expect(conversation.messages.filter((message: any) => message.card?.requestId)).toEqual([]);
       expect(requests.slice(before)).toHaveLength(2);
       expect(requests.slice(before).every(request => request.model === "chosen-vision-model")).toBe(true);
       const followup = requests[before + 1].messages;
@@ -118,13 +114,10 @@ it("keeps the selected API model for direct, group and scheduled Boat turns and 
     expect((await control(["wait", ...destination, "--timeout", "1"])).status).toBe("timed-out");
     boatReadsGate = undefined;
     readiness.release();
-    const waiting = await control(["wait", ...destination, "--timeout", "20"]);
-    expect(waiting.status, JSON.stringify(waiting)).toBe("needs-user");
+    const finished = await control(["wait", ...destination, "--timeout", "20"]);
+    expect(finished.status, JSON.stringify(finished)).toBe("settled");
     const routineMessages = await api("GET", `/api/threads/${routineThread}/messages?limit=30`);
-    const card = routineMessages.messages.find((message: any) => message.card?.requestId && !message.card.answered)?.card;
-    expect(card?.requestId).toBeTruthy();
-    await api("POST", `/api/threads/${routineThread}/respond`, { requestId: card.requestId, behavior: "allow" });
-    expect((await control(["wait", ...destination, "--timeout", "20"])).status).toBe("settled");
+    expect(routineMessages.messages.filter((message: any) => message.card?.requestId)).toEqual([]);
     expect(requests.slice(beforeRoutine)).toHaveLength(2);
     expect(requests.slice(beforeRoutine).every(request => request.model === "chosen-vision-model")).toBe(true);
     expect(nativePrompts).toBe(0);

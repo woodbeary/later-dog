@@ -7,7 +7,7 @@ own dogs works. There is no per-dog Heel or Off-leash picker any more.
 
 | Auto-review | What your dogs do |
 | --- | --- |
-| **On** | The engine's own AI reviewer checks each step (Codex `auto_review`, Claude `auto`, Cursor `--auto-review`, Grok `auto`). You see a card only for what the reviewer leaves for you. Engines without a reviewer (the free Kimi and Grok models, OpenAI-compatible chat engines) card each request, and the chat says so once. |
+| **On** | The engine's own AI reviewer checks each step (Codex `auto_review`, Claude `auto`, Cursor `--auto-review`, Grok `auto`). You see a card only for what the reviewer leaves for you. Engines without a reviewer (the free Kimi and Grok models, OpenAI-compatible chat engines) card each request, and the chat says so once; the chat engines still use the dog's own cloud computer and browser with no card, and a computer the person has taken over refuses the dog's call. |
 | **Off** | No asks. The engine still starts with its reviewer, and later.dog answers whatever it leaves for you at once, with no card. The decision log records each one with source `owner-auto`. |
 
 The switch is saved in the config as `features.autoReview` and changed with
