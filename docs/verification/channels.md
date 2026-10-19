@@ -63,7 +63,7 @@ its control commands, tool results and final state beside the printed server
 log, without recording the bearer token, and removes its temporary home.
 
 The API regressions exercise spoofed sender/thread claims, slow expired
-requests, peer allow-lists, hidden bots, busy rooms, pending approvals and
+requests, peer allow-lists, busy rooms, pending approvals and
 in-flight credential saves. Public channel creation and edits use the same
 validation as the room tools. Dogs cannot move rooms or bots between sections,
 remove themselves, or change working folders. A dog configured to require peer

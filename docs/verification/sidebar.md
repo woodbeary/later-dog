@@ -70,9 +70,12 @@ C-LIVE-16, C-LIVE-29):
 pnpm exec vitest run src/components/Sidebar.parity.test.ts src/components/CommandPalette.test.ts src/lib/app-shortcuts.test.ts src/components/MoreUnreadsPills.test.ts src/components/Sidebar.one-row.test.ts src/components/SidebarProfileMenu.test.ts server/routes/sidebar-section-order.test.ts src/components/Sidebar.rename.test.ts electron/menu.test.mjs
 ```
 
-Hidden dogs still answer their own chat, but the server still leaves hidden
-dogs out of group chats, peer messages and routines; making hidden a list
-filter only on the server is a separate change.
+Hidden is a list filter only. On the server a hidden dog keeps working: it
+answers its own chat and @mentions in group chats, takes hand-offs and peer
+messages, runs its routines, and can make dogs and group chats
+(`server/laterdog/dog-can-act.ts`; `server/index.test.ts` "lets hidden room
+members answer @mentions and the default responder" and "runs a hidden dog's
+routines, in its own conversation and as a group chat goal").
 
 ## Sections and the main dog
 

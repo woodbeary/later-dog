@@ -80,9 +80,15 @@ describe("standing external-runtime authorization", () => {
     expect(authorize()?.threadId).toBe("other");
   });
 
-  it.each(["hidden", "archived", "archived-at-zero", "deleted"])("rejects a %s sender or conversation after authorization", reason => {
+  it("keeps a hidden sender authorized, since hiding only filters the list", () => {
     const grant = authorize()!;
-    if (reason === "hidden") bot.hidden = true;
+    bot.hidden = true;
+    expect(authorize()).toMatchObject({ botId: "gateway", threadId: "original" });
+    expect(externalRuntimeIsActive(file, grant, lookup)).toBe(true);
+  });
+
+  it.each(["archived", "archived-at-zero", "deleted"])("rejects a %s sender or conversation after authorization", reason => {
+    const grant = authorize()!;
     if (reason === "archived") bot.tasks[0].archivedAt = Date.now();
     if (reason === "archived-at-zero") bot.tasks[0].archivedAt = 0;
     if (reason === "deleted") bot.id = "another-bot";

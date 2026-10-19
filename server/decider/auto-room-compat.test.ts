@@ -40,8 +40,9 @@ describe("stored rooms", () => {
     expect(roomResponders("the navbar is broken", MEMBERS, { kind: "auto", fallbackBotId: "ravi" }).map((m) => m.id)).toEqual(["ravi"]);
     expect(roomResponders("@Theo the navbar", MEMBERS, { kind: "auto", fallbackBotId: "ravi" }).map((m) => m.id)).toEqual(["theo"]);
     expect(roomResponders("@everyone standup", MEMBERS, { kind: "auto" }).map((m) => m.id)).toEqual(IDS);
-    const archived = [{ ...MEMBERS[0]!, hidden: true }, ...MEMBERS.slice(1)];
-    expect(roomResponders("hi", archived, { kind: "auto", fallbackBotId: "maya" }).map((m) => m.id)).toEqual(["theo"]);
+    const hiddenLead = [{ ...MEMBERS[0]!, hidden: true }, ...MEMBERS.slice(1)];
+    expect(roomResponders("hi", hiddenLead, { kind: "auto", fallbackBotId: "maya" }).map((m) => m.id)).toEqual(["maya"]);
+    expect(roomResponders("@Maya hi", hiddenLead, { kind: "mentions" }).map((m) => m.id)).toEqual(["maya"]);
   });
 });
 

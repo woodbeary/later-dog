@@ -124,15 +124,14 @@ it("lets an ordinary dog create a dog that greets the person, with no per-turn c
     const research = (await bots()).filter((bot) => bot.section === "Research").map((bot) => bot.name).sort();
     expect(research).toEqual(["Biscuit", "Rex", "Scout", "Scout Five", "Scout Four", "Scout Three", "Scout Two"]);
 
-    const archived = await startTurn(rex, "make me a helper");
-    expect(await archived.toolNames()).toContain("create_bot");
-    await api("POST", "/api/internal/create-bot", { name: "Pup", role: "keeping notes", instructions: "Keep notes." }, 201, archived.token);
+    const rexTurn = await startTurn(rex, "make me a helper");
+    expect(await rexTurn.toolNames()).toContain("create_bot");
+    await api("POST", "/api/internal/create-bot", { name: "Pup", role: "keeping notes", instructions: "Keep notes." }, 201, rexTurn.token);
     expect((await bots()).find((bot) => bot.name === "Pup")).toMatchObject({ approvalMode: "ask", autoApprove: false });
     await api("PATCH", `/api/bots/${rex.id}`, { hidden: true });
-    const refused = await archived.tool("create_bot", { name: "Shadow", role: "keeping watch", instructions: "Watch." });
-    expect(refused.isError).toBe(true);
-    expect(refused.content.map((item) => item.text).join("\n")).toBe("This bot is archived, so it cannot create bots. Ask the person to restore it first.");
-    expect((await bots()).some((bot) => bot.name === "Shadow")).toBe(false);
+    const made = await rexTurn.tool("create_bot", { name: "Shadow", role: "keeping watch", instructions: "Watch." });
+    expect(made.isError).toBeFalsy();
+    expect((await bots()).some((bot) => bot.name === "Shadow")).toBe(true);
   } finally {
     writeFileSync(gate, "finish");
     for (const proxy of proxies) await waitForExit(proxy, { signal: "SIGTERM" });

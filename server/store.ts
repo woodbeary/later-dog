@@ -36,6 +36,7 @@ import { sameModelSelection } from "../shared/thread-model.ts";
 import { exchangeName, formerNamesAfterRename } from "./laterdog/former-names.ts";
 import { readOwnedJson } from "./laterdog/owned-file.ts";
 import type { DamagedData } from "../shared/damaged-data.ts";
+import { dogCanAct } from "./laterdog/dog-can-act.ts";
 export type {
   BotActivity, ConnectorCardData, GroupDefaultResponder, OptionCardData,
   SecretRequestCardData, Surface, TaskClosedBy, TaskOpenedBy, TaskUsage,
@@ -82,11 +83,11 @@ type AssertSameKeys<A, B> = [keyof A] extends [keyof B] ? ([keyof B] extends [ke
 export type TaskWireProjectionIsExact = AssertExact<WireTask, TaskWireProjection> & AssertSameKeys<WireTask, TaskWireProjection>;
 export const taskWireProjectionIsExact: TaskWireProjectionIsExact = true;
 
-export function toWireTask(task: TaskRecord, botModel: ModelSelection, bots: readonly Pick<WireBot, "id" | "name" | "hidden">[] = []): WireTask {
+export function toWireTask(task: TaskRecord, botModel: ModelSelection, bots: readonly Pick<WireBot, "id" | "name">[] = []): WireTask {
   const { resumeCursors: _resumeCursors, lastInstanceId: _lastInstanceId, handedMessages: _handedMessages,
     appliedCompactionId: _appliedCompactionId, contextFloor: _contextFloor, lastContextModel: _lastContextModel,
     surfaceSource, ...stored } = task;
-  const currentName = (ref: { botId: string; name: string }) => bots.find((bot) => bot.id === ref.botId && !bot.hidden)?.name ?? ref.name;
+  const currentName = (ref: { botId: string; name: string }) => bots.find((bot) => bot.id === ref.botId)?.name ?? ref.name;
   const openedBy = stored.openedBy && { ...stored.openedBy, name: currentName(stored.openedBy) };
   const closedBy = stored.closedBy && { ...stored.closedBy, name: currentName(stored.closedBy) };
   const title = stored.openedBy?.kind === "work" && stored.title === `@${stored.openedBy.name} · work`
@@ -384,9 +385,9 @@ const COLORS: DogColor[] = [
 
 export const sectionKey = (section?: string | null): string => section?.trim() || "";
 
-export function mentionedBots<T extends { name: string; hidden?: boolean }>(text: string, peers: T[]): T[] {
+export function mentionedBots<T extends { name: string }>(text: string, peers: T[]): T[] {
   const candidates = peers
-    .filter((p) => !p.hidden && p.name.trim())
+    .filter((p) => p.name.trim())
     .sort((a, b) => b.name.length - a.name.length);
   const lower = text.toLowerCase();
   const found: T[] = [];
@@ -432,12 +433,11 @@ export function normalizeGroupDefaultResponder(
   return { kind: "member", botId: memberIds[0] };
 }
 
-export function roomResponders<T extends { id: string; name: string; hidden?: boolean }>(
+export function roomResponders<T extends { id: string; name: string }>(
   text: string,
-  members: T[],
+  available: T[],
   defaultResponder: GroupDefaultResponder,
 ): T[] {
-  const available = members.filter((member) => !member.hidden);
   const everyone = "everyone";
   for (let at = text.indexOf("@"); at !== -1; at = text.indexOf("@", at + 1)) {
     const candidate = text.slice(at + 1, at + 1 + everyone.length);
@@ -898,7 +898,7 @@ export class Store {
   changeEmptySection(name: string, nextName: string | null): string | undefined {
     if (!this.sections.includes(name)) return "No such section";
     if ([...this.bots, ...this.groups].some((record) => sectionKey(record.section) === name)) {
-      return "Move all dogs (including archived dogs) and group chats out of this section first";
+      return "Move all dogs (including hidden dogs) and group chats out of this section first";
     }
     if (nextName !== null && nextName !== name && this.sections.includes(nextName)) {
       return "A section with that name already exists";
@@ -1631,7 +1631,7 @@ export class Store {
   ): { ok: true; bots: BotRecord[] } | { ok: false; reason: "unavailable" } {
     const ids = [...new Set(botIds)];
     const targets = ids.map((id) => this.bot(id));
-    if (targets.some((bot) => !bot || bot.hidden)) return { ok: false, reason: "unavailable" };
+    if (!targets.every(dogCanAct)) return { ok: false, reason: "unavailable" };
 
     const targetSection = sectionKey(section);
     const selected = targets as BotRecord[];
@@ -1669,7 +1669,7 @@ export class Store {
     const ids = new Set([...adds, ...removes]);
     for (const id of ids) {
       const bot = this.bot(id);
-      if (!bot || bot.hidden) return { ok: false, reason: "unavailable" };
+      if (!dogCanAct(bot)) return { ok: false, reason: "unavailable" };
       if (adds.has(id) && removes.has(id)) return { ok: false, reason: "membership-changed" };
       if (removes.has(id) && sectionKey(bot.section) !== key) return { ok: false, reason: "membership-changed" };
     }

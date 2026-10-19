@@ -4,21 +4,7 @@ import { callTool, type ToolCallContext } from "../drivers/agents-call.ts";
 import { peerRosterSystemPrompt } from "../peer-roster.ts";
 import type { Message } from "../store.ts";
 import { PROFILE_PROMPT } from "../system-prompt.ts";
-import { DOG_CREATION_PROMPT, DOG_CREATION_REFUSAL, dogGreeting, dogMadeDogAccess, greetNewDog, mayCreateDogs } from "./dog-creation.ts";
-
-describe("mayCreateDogs", () => {
-  it("lets every dog the person can see create dogs, Chief or not, and no archived one", () => {
-    const ordinary = { id: "a", hidden: false, chiefOfStaff: false };
-    const chief = { id: "b", hidden: false, chiefOfStaff: true };
-    expect(mayCreateDogs(ordinary)).toBe(true);
-    expect(mayCreateDogs(chief)).toBe(true);
-    expect(mayCreateDogs({})).toBe(true);
-    expect(mayCreateDogs({ hidden: true })).toBe(false);
-    expect(mayCreateDogs(null)).toBe(false);
-    expect(mayCreateDogs(undefined)).toBe(false);
-    expect(DOG_CREATION_REFUSAL).toBe("This bot is archived, so it cannot create bots. Ask the person to restore it first.");
-  });
-});
+import { DOG_CREATION_PROMPT, dogGreeting, dogMadeDogAccess, greetNewDog } from "./dog-creation.ts";
 
 describe("dogGreeting", () => {
   it("says hello to the person, names who set it up and for what, and asks where to start", () => {

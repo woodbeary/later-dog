@@ -32,9 +32,9 @@ describe("mentionedBots", () => {
   it("dedupes repeats and collects multiple bots", () => {
     expect(mentionedBots("@Sam and @New Bot and @Sam", peers).map((b) => b.id)).toEqual(["3", "1"]);
   });
-  it("ignores emails, hidden bots, and mid-word @", () => {
+  it("ignores emails and mid-word @, and matches a hidden bot like any other", () => {
     expect(mentionedBots("mail sam@sam.dev please", peers)).toEqual([]);
-    expect(mentionedBots("@Ghost around?", peers)).toEqual([]);
+    expect(mentionedBots("@Ghost around?", peers).map((b) => b.id)).toEqual(["4"]);
   });
   it("routes Markdown- and punctuation-wrapped mentions", () => {
     expect(mentionedBots("**@Sam** (@New Bot 2) 【@New Bot】", peers).map((bot) => bot.id))

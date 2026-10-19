@@ -32,11 +32,12 @@ pnpm lint
 
 The route test serves the module through the route table on a real HTTP
 server: the hosted answer, `{available:false}` for a local install, a hook
-that is not live and local membership, 404 for missing and hidden agents, and
+that is not live and local membership, 404 for missing agents (a hidden agent
+is served like any other), and
 a pass for every other method and path. The hosted-access test starts an owned
 server with a temporary home and fake Admin backchannel. It proves the real
 route returns the correct agent link to an admin and to a member, rejects
-missing and hidden agents, revokes a demoted admin's session, refuses a
+missing agents, revokes a demoted admin's session, refuses a
 member's write and an unauthenticated read, and withholds the link in local
 membership mode. The helper tests cover incomplete or invalid configuration
 and URL parameter boundaries.

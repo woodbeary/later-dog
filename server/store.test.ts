@@ -1363,7 +1363,7 @@ describe("Store", () => {
     expect(reloaded.mainBotId()).toBe(incumbent.id);
   });
 
-  it("rejects unavailable section assignments without changing bots", () => {
+  it("rejects missing section assignments without changing bots, and files a hidden dog like any other", () => {
     const store = new Store(selection);
     store.createBot({ section: "Launch" });
     const teammate = store.createBot({ section: "Personal" });
@@ -1375,10 +1375,11 @@ describe("Store", () => {
 
     expect(store.setBotsSection([teammate.id, "missing"], "Launch"))
       .toEqual({ ok: false, reason: "unavailable" });
-    expect(store.setBotsSection([teammate.id, hidden.id], "Launch"))
-      .toEqual({ ok: false, reason: "unavailable" });
     expect(snapshot()).toEqual(before);
     expect(new Store(selection).bot(teammate.id)?.section).toBe("Personal");
+
+    expect(store.setBotsSection([teammate.id, hidden.id], "Launch")).toMatchObject({ ok: true });
+    expect(new Store(selection).bot(hidden.id)).toMatchObject({ section: "Launch", hidden: true });
   });
 
   it("does not change memory or emit section updates when the atomic write fails", () => {

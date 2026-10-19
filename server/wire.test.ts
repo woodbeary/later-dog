@@ -45,7 +45,8 @@ describe("shared wire model", () => {
     expect(task).toMatchObject({ title: "@Opener · work", openedBy: { name: "Opener" }, closedBy: { name: "Opener" } });
     expect(toWireTask({ ...task, title: "Opener's custom project" }, botModel, bots).title).toBe("Opener's custom project");
     expect(toWireTask({ ...task, openedBy: { ...task.openedBy!, kind: undefined } }, botModel, bots).title).toBe("@Opener · work");
-    expect(toWireTask(task, botModel, [{ id: "b1", name: "Hidden name", hidden: true }]).title).toBe("@Opener · work");
+    const hiddenBots = [{ id: "b1", name: "Hidden name", hidden: true }];
+    expect(toWireTask(task, botModel, hiddenBots).title).toBe("@Hidden name · work");
     expect(toWireTask(task, botModel, []).title).toBe("@Opener · work");
   });
   it("toWireTask emits exactly the WireTask key set and never the server-private fields", () => {

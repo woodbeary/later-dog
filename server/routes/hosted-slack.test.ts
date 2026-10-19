@@ -68,13 +68,12 @@ describe("GET /api/bots/:id/slack-management through the route table", () => {
     expect((await response.json() as { managementUrl?: string }).managementUrl).toBe("https://admin.example.test/slack?workspace=acme&bot=bot_123");
   });
 
-  it("refuses a missing or hidden bot", async () => {
+  it("refuses a missing bot and serves a hidden one like any other", async () => {
     const base = await serve({});
-    for (const id of ["missing", "bot-hidden"]) {
-      const response = await fetch(`${base}/api/bots/${id}/slack-management`);
-      expect(response.status, id).toBe(404);
-      expect(await response.json()).toEqual({ error: "no such bot" });
-    }
+    const missing = await fetch(`${base}/api/bots/missing/slack-management`);
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toEqual({ error: "no such bot" });
+    expect((await fetch(`${base}/api/bots/bot-hidden/slack-management`)).status).toBe(200);
   });
 
   it("passes on every other method and path, including ids outside the bot id alphabet", async () => {

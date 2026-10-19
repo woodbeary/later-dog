@@ -24,7 +24,7 @@ import { buildSystemPrompt, teamAvailabilityPart } from "./system-prompt.ts";
 
 import type { LivePeer } from "./peer-roster.ts";
 
-const fleet: RosterMember[] = [
+const fleet: Array<RosterMember & { hidden?: boolean }> = [
   { id: "self", name: "Ada", section: "Work" },
   { id: "writer", name: "Quill", title: "Writer", description: "Drafts concise copy", section: "Work" },
   { id: "coder", name: "Patch", title: "Engineer", busy: true, section: "Work" },
@@ -87,8 +87,8 @@ describe("cross-pack coordination and separate management authority", () => {
     expect(canAccessTeam(self, "Finance")).toBe(false);
     expect(canAccessTeam(self, self.section)).toBe(true);
   });
-  it("keeps explicit peer lists and hidden bots as additional restrictions", () => {
-    expect(reachablePeers(fleet, { ...self, peers: ["elsewhere", "hidden"] }).map(bot => bot.id)).toEqual(["elsewhere"]);
+  it("keeps explicit peer lists as a restriction and lets hidden bots through", () => {
+    expect(reachablePeers(fleet, { ...self, peers: ["elsewhere", "hidden"] }).map(bot => bot.id)).toEqual(["hidden", "elsewhere"]);
     expect(reachablePeers(fleet, { ...self, peers: [] })).toEqual([]);
     expect(canReachPeer(self, self)).toBe(false);
   });
@@ -101,24 +101,24 @@ describe("open teams (LATERDOG_OPEN_TEAMS=1)", () => {
     for (const value of [undefined, "", "0", "true"]) {
       vi.stubEnv("LATERDOG_OPEN_TEAMS", value);
       expect(canAccessTeam(self, "Personal")).toBe(false);
-      expect(reachablePeers(fleet, self).map(bot => bot.id)).toEqual(["writer", "coder", "elsewhere"]);
+      expect(reachablePeers(fleet, self).map(bot => bot.id)).toEqual(["writer", "coder", "hidden", "elsewhere"]);
     }
   });
 
-  it("lets any bot reach any team while peer lists, hidden bots and visibility still apply", () => {
+  it("lets any bot reach any team while peer lists and visibility still apply", () => {
     vi.stubEnv("LATERDOG_OPEN_TEAMS", "1");
     expect(canAccessTeam(self, "Personal")).toBe(true);
     expect(canAccessTeam(fleet[4]!, undefined)).toBe(true);
     expect(canReachPeer(fleet[4]!, self)).toBe(true);
-    expect(reachablePeers(fleet, self).map(bot => bot.id)).toEqual(["writer", "coder", "elsewhere"]);
+    expect(reachablePeers(fleet, self).map(bot => bot.id)).toEqual(["writer", "coder", "hidden", "elsewhere"]);
     expect(reachablePeers(fleet, { ...self, peers: ["writer"] }).map(bot => bot.id)).toEqual(["writer"]);
     expect(canReachPeer(self, { ...fleet[4]!, visibility: "admins" })).toBe(false);
   });
 });
 
 describe("reachablePeers", () => {
-  it("lists every visible bot across packs when no allow-list is set", () => {
-    expect(reachablePeers(fleet, self).map((bot) => bot.id)).toEqual(["writer", "coder", "elsewhere"]);
+  it("lists every bot across packs, hidden ones too, when no allow-list is set", () => {
+    expect(reachablePeers(fleet, self).map((bot) => bot.id)).toEqual(["writer", "coder", "hidden", "elsewhere"]);
   });
 
   it("narrows to the allow-list across packs", () => {
@@ -127,9 +127,10 @@ describe("reachablePeers", () => {
     expect(reachablePeers(fleet, { ...self, peers: [] })).toEqual([]);
   });
 
-  it("never lists a hidden bot or the bot itself", () => {
+  it("never lists the bot itself, and lists a hidden bot like any other", () => {
     expect(reachablePeers(fleet, { ...self, peers: ["hidden", "self", "writer"] }).map((bot) => bot.id)).toEqual([
       "writer",
+      "hidden",
     ]);
   });
 });
@@ -148,8 +149,12 @@ describe("resolveTeammate", () => {
     expect(resolveTeammate(fleet, self, "Scout")).toEqual({ id: "elsewhere", byName: true });
   });
 
+  it("resolves a hidden teammate's name like any other", () => {
+    expect(resolveTeammate(fleet, self, "Secret")).toEqual({ id: "hidden", byName: true });
+  });
+
   it("never resolves a name to a bot the id could not reach", () => {
-    for (const raw of ["Secret", "Ada", "Nobody"]) {
+    for (const raw of ["Ada", "Nobody"]) {
       expect(resolveTeammate(fleet, self, raw)).toEqual({
         error: `No bot with id or name "${raw}" — call list_bots and copy the exact id from the result. ${PEER_ACCESS_HELP}`,
       });
@@ -186,7 +191,7 @@ describe("peerRosterSystemPrompt", () => {
     expect(prompt).not.toContain("Chief of Staff creates bots");
     expect(prompt).not.toContain("Chief of Staff for the");
     expect(prompt).toContain("Scout");
-    expect(prompt).not.toContain("Secret");
+    expect(prompt).toContain("Secret");
   });
 
   it("caps the roster at a dozen and points at list_bots for the rest", () => {
@@ -347,7 +352,7 @@ describe("bot visibility between teammates", () => {
     expect(canReachPeer(hr, self)).toBe(false);
     expect(canReachPeer(hr, admins)).toBe(false);
     expect(canReachPeer(hr, hr2)).toBe(true);
-    expect(reachablePeers([...fleet, hr, hr2, admins], self).map((bot) => bot.id)).toEqual(["writer", "coder", "elsewhere"]);
+    expect(reachablePeers([...fleet, hr, hr2, admins], self).map((bot) => bot.id)).toEqual(["writer", "coder", "hidden", "elsewhere"]);
     expect(reachablePeers([...fleet, hr, hr2, admins], hr).map((bot) => bot.id)).toEqual(["hr2"]);
     expect(resolveTeammate([...fleet, hr], self, "Payroll")).toMatchObject({ error: expect.stringContaining("No bot with id or name") });
     expect(peerAllowed(self, "hr")).toBe(true);
@@ -463,6 +468,7 @@ describe("workspace peer scope", () => {
     const otherOwner = { id: "other", name: "Other", section: "Dogs", visibility: { people: ["other@example.test"] } };
     expect(reachablePeers([owner, sameOwner, otherOwner], owner).map(bot => bot.id)).toEqual(["same"]);
     expect(canReachPeer({ ...owner, peers: [] }, sameOwner)).toBe(false);
-    expect(canReachPeer(owner, { ...sameOwner, hidden: true })).toBe(false);
+    const hiddenSameOwner = { ...sameOwner, hidden: true };
+    expect(canReachPeer(owner, hiddenSameOwner)).toBe(true);
   });
 });

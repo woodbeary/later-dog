@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
-type RuntimeBot = { id: string; hidden?: boolean; tasks?: Array<{ threadId: string; archivedAt?: number }> };
+import { dogCanAct } from "./laterdog/dog-can-act.ts";
+type RuntimeBot = { id: string; tasks?: Array<{ threadId: string; archivedAt?: number }> };
 type BotLookup = (id: string) => RuntimeBot | null | undefined;
 type Registration = { botId: string; tokenHash: string; threadId: string };
 export type ExternalRuntimeGrant = { botId: string; threadId: string; tokenHash: string };
@@ -52,7 +53,7 @@ function resolveRegistration(file: string, tokenHash: string, botForId: BotLooku
   if (matches.length !== 1) return null;
   const registration = matches[0];
   const bot = botForId(registration.botId);
-  if (!bot || bot.hidden) return null;
+  if (!dogCanAct(bot)) return null;
   const task = bot.tasks?.find(candidate => candidate.threadId === registration.threadId);
   if (!task || task.archivedAt !== undefined) return null;
   return { botId: bot.id, threadId: task.threadId, tokenHash };

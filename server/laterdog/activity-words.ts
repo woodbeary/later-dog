@@ -119,7 +119,7 @@ export function dogActivityWords(toolName: string, input: unknown, nameOf: NameO
 export function botNames(store: Pick<Store, "bot" | "bots">): NameOf {
   return (idOrName) => {
     const lower = idOrName.toLowerCase();
-    return store.bot(idOrName)?.name ?? store.bots.find((bot) => !bot.hidden && bot.name.trim().toLowerCase() === lower)?.name;
+    return store.bot(idOrName)?.name ?? store.bots.find((bot) => bot.name.trim().toLowerCase() === lower)?.name;
   };
 }
 

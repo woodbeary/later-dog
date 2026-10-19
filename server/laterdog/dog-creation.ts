@@ -2,12 +2,6 @@ import { approvalModeFor, type ApprovalMode } from "../../shared/approval-mode.t
 import { clip } from "../peer-roster.ts";
 import type { BotRecord, Store } from "../store.ts";
 
-export function mayCreateDogs(bot: Pick<BotRecord, "hidden"> | null | undefined): boolean {
-  return bot != null && bot.hidden !== true;
-}
-
-export const DOG_CREATION_REFUSAL = "This bot is archived, so it cannot create bots. Ask the person to restore it first.";
-
 export const DOG_CREATION_PROMPT =
   " When the person asks for another dog, make it yourself with create_bot. When they ask for a group chat, make it with create_room, and rename it or change who is in it with manage_room. Do not click through this app with computer control to do either.";
 

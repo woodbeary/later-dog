@@ -145,9 +145,9 @@ const mintCapability = async (botId: string, threadId: string): Promise<string> 
   return String(minted.body.token);
 };
 
-const hideSeededBot = async () => {
+const keepSeededBotOutOfReach = async () => {
   const seeded = (await api("GET", "/api/bots?messages=0")).body.bots[0];
-  await api("PATCH", `/api/bots/${seeded.id}`, { hidden: true });
+  expect((await api("PATCH", `/api/bots/${seeded.id}`, { visibility: "admins" })).status).toBe(200);
 };
 
 const peerNames = async (selfId: string, token: string) => {
@@ -163,7 +163,7 @@ const peerNames = async (selfId: string, token: string) => {
 
 describe("peer allow-list", () => {
   it("gives an ordinary bot a roster, then narrows it and the comms endpoints", async () => {
-    await hideSeededBot();
+    await keepSeededBotOutOfReach();
     const asker = await createBot("Ada", "asker");
     const quill = await createBot("Quill", "plain");
     const patch = await createBot("Patch", "plain");
@@ -250,7 +250,7 @@ describe("peer allow-list", () => {
   }, 40_000);
 
   it("renders only the allow-listed peers into the roster the bot is given", async () => {
-    await hideSeededBot();
+    await keepSeededBotOutOfReach();
     const bound = await createBot("Dot", "bound");
     const near = await createBot("Near", "plain");
     const far = await createBot("Farside", "plain");
@@ -272,7 +272,7 @@ describe("peer allow-list", () => {
   }, 40_000);
 
   it("re-checks the allow-list after the approval card, not just before it", async () => {
-    await hideSeededBot();
+    await keepSeededBotOutOfReach();
     const asker = await createBot("Iris", "asker");
     const helper = await createBot("Hedge", "plain");
 
@@ -324,7 +324,7 @@ describe("peer allow-list", () => {
   }, 60_000);
 
   it("refuses to loosen a bot from a bare loopback call while any bot is working", async () => {
-    await hideSeededBot();
+    await keepSeededBotOutOfReach();
     const held = await createBot("Held", "stuck");
     const bound = await createBot("Ivy", "plain");
     const peer = await createBot("Ash", "plain");
@@ -369,7 +369,7 @@ describe("peer allow-list", () => {
   }, 60_000);
 
   it("lets the loopback API narrow a bot's peers but never widen them unacknowledged", async () => {
-    await hideSeededBot();
+    await keepSeededBotOutOfReach();
     const bound = await createBot("Ivy", "plain");
     const peer = await createBot("Ash", "plain");
     const other = await createBot("Elm", "plain");

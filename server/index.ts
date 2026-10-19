@@ -638,10 +638,11 @@ import { availableDogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { dogJobEnvironment } from "./laterdog/job-defaults.ts";
 import { connectedRepositories, repositoriesEnvironment, repositoriesForTurn } from "./laterdog/connected-repositories.ts";
 import { createJobTraceRoutes } from "./routes/job-trace.ts";
-import { DOG_CREATION_REFUSAL, dogMadeDogAccess, greetNewDog, mayCreateDogs } from "./laterdog/dog-creation.ts";
+import { dogMadeDogAccess, greetNewDog } from "./laterdog/dog-creation.ts";
+import { dogCanAct } from "./laterdog/dog-can-act.ts";
 import { dogLimitRefusal, turnCreationRefusal } from "./laterdog/workspace-limits.ts";
 import { roomIdentityPrompt } from "./laterdog/room-prompt.ts";
-import { GROUP_CHAT_REFUSAL, groupChatsOf, mayMakeGroupChats } from "./laterdog/group-chats.ts";
+import { groupChatsOf } from "./laterdog/group-chats.ts";
 import { groupRoutineReply, SILENT_GROUP_ROUTINE } from "./laterdog/group-routine-reply.ts";
 import { botNames, dogActivityWords, teammateResultLabel } from "./laterdog/activity-words.ts";
 import { INCLUDED_AI_INSTANCE, INCLUDED_AI_INSTANCES } from "./laterdog/included-ai.ts";
@@ -3308,12 +3309,6 @@ function checkedMemberIds(value: unknown): { ok: true; memberIds: string[] } | {
   }
   const memberIds = [...new Set(value as string[])];
   if (!memberIds.length) return { ok: false, error: "a channel needs at least one dog" };
-  if (memberIds.every((id) => store.bot(id)?.hidden)) {
-    return {
-      ok: false,
-      error: "a channel needs at least one active dog — every member given is archived",
-    };
-  }
   return { ok: true, memberIds };
 }
 let bootSelection = { instanceId: "", model: "" };
@@ -4176,7 +4171,7 @@ const groupQueues = new Map<string, Promise<void>>();
 function roomHandoffProblem(node: Pick<RoomHandoff, "groupId" | "threadId" | "botId"> & Partial<Pick<RoomHandoff, "kind">>, parent?: Pick<RoomHandoff, "groupId" | "threadId" | "botId">): string | undefined {
   const group = node.groupId ? store.group(node.groupId) : undefined;
   const bot = store.bot(node.botId);
-  if (!bot || bot.hidden) return "The addressed agent no longer exists";
+  if (!dogCanAct(bot)) return "The addressed agent no longer exists";
   if (node.groupId && (!group || group.dm || !store.groupTaskByThread(group.id, node.threadId))) return "Destination room task no longer exists";
   if (!node.groupId && !store.taskByThread(bot.id, node.threadId)) return "Destination bot task no longer exists";
   if (group && !group.memberIds.includes(bot.id)) return "The addressed agent is no longer a member of this room";
@@ -4188,7 +4183,7 @@ function roomHandoffProblem(node: Pick<RoomHandoff, "groupId" | "threadId" | "bo
   if (parent) {
     const from = store.bot(parent.botId);
     const source = parent.groupId ? store.group(parent.groupId) : undefined;
-    if (!from || from.hidden || (parent.groupId ? !source || !source.memberIds.includes(from.id) || !store.groupTaskByThread(source.id, parent.threadId) : !store.taskByThread(from.id, parent.threadId))) return "Source membership or task was removed";
+    if (!dogCanAct(from) || (parent.groupId ? !source || !source.memberIds.includes(from.id) || !store.groupTaskByThread(source.id, parent.threadId) : !store.taskByThread(from.id, parent.threadId))) return "Source membership or task was removed";
     if (source && outsideAudience(source, from)) return "Source room is outside the sender's visibility scope";
     if (source && group && source.id === group.id && parent.threadId !== node.threadId) return "Same-room work must stay in the originating conversation";
     if (!peerAllowed(from, bot)) return "The recipient is not an allowed peer of the sender";
@@ -4476,7 +4471,7 @@ type GroupMemberBotWaitResult = Exclude<GroupMemberBotAvailability, "busy">;
 function groupMemberBotAvailability(botId: string, operation: GroupTurnOperation): GroupMemberBotAvailability {
   if (operation.cancelled || operation.cancellation.signal.aborted) return "cancelled";
   const bot = store.bot(botId);
-  if (!bot || bot.hidden) return "unavailable";
+  if (!dogCanAct(bot)) return "unavailable";
   return bot.busy ? "busy" : "ready";
 }
 
@@ -9202,8 +9197,7 @@ routines = new RoutineManager({
     if (
       !group ||
       group.dm ||
-      !coordinator ||
-      coordinator.hidden ||
+      !dogCanAct(coordinator) ||
       !group.memberIds.includes(coordinator.id)
     ) {
       return "missing";
@@ -9346,7 +9340,7 @@ async function cloudRoutineReadiness(botId: string, threadId?: string): Promise<
   const projected = threadId ? store.projectBotForTask(botId, threadId) : store.bot(botId);
   const selection = threadId ? turnSelection(botId, threadId) : projected?.modelSelection;
   const bot = projected && selection ? { ...projected, modelSelection: selection } : projected;
-  if (!bot || bot.hidden) return { ready: false, reason: "The routine's dog no longer exists." };
+  if (!dogCanAct(bot)) return { ready: false, reason: "The routine's dog no longer exists." };
   if (!boat.boatConfigured(cfg)) {
     return {
       ready: false,
@@ -10944,15 +10938,12 @@ function startGroupTurn(
   if (!ownsThread) {
     throw Object.assign(new Error("no such room task"), { status: 404 });
   }
-  const members = group.memberIds
-    .map((id) => store.bot(id))
-    .filter((bot): bot is NonNullable<typeof bot> => Boolean(bot));
-  const availableMembers = members.filter((member) => !member.hidden);
+  const members = group.memberIds.map((id) => store.bot(id)).filter(dogCanAct);
   const routineDog = options.routineRun
-    ? availableMembers.find((member) => member.id === options.routineRun!.botId)
+    ? members.find((member) => member.id === options.routineRun!.botId)
     : undefined;
   if (options.routineRun && !routineDog) {
-    throw Object.assign(new Error("the routine's dog is not an active member of this group chat"), { status: 409 });
+    throw Object.assign(new Error("the routine's dog is not a member of this group chat"), { status: 409 });
   }
   const autoCandidate = !group.dm && !routineDog && group.defaultResponder.kind === "auto" &&
     deciderReady(cfg, "roomRouting");
@@ -11000,47 +10991,27 @@ function startGroupTurn(
   const titled = group.dm ? null : store.titleGroupTaskFromFirstMessage(group.id, text, threadId);
   const snippet = titled?.title;
 
-  const archived = members.filter((member) => member.hidden);
-  const mentionedArchived = mentionedBots(text, archived.map(({ name }) => ({ name })))[0];
-  if (mentionedArchived) {
-    store.appendMessage(threadId, {
-      role: "bot",
-      kind: "activity",
-      tool: {
-        name: `${mentionedArchived.name} is archived and can't respond — restore it or mention an active room member.`,
-        ok: false,
-      },
-    });
-  }
   let responders = routineDog ? [routineDog] : roomResponders(text, members, group.defaultResponder);
   if (!responders.length && group.dm) {
     const lastSpeakerId = [...store.messagesFor(threadId)]
       .reverse()
       .find((msg) => msg.kind === "text" && msg.from)?.from?.botId;
-    const last = availableMembers.find((b) => b.id === lastSpeakerId) ?? availableMembers[0];
+    const last = members.find((b) => b.id === lastSpeakerId) ?? members[0];
     responders = last ? [last] : [];
   }
   if (!responders.length) {
-    const defaultArchivedId = group.defaultResponder.kind === "member" ? group.defaultResponder.botId : undefined;
-    const defaultArchived = archived.find((member) => member.id === defaultArchivedId);
-    let unavailableMessage: string | undefined;
-    if (!mentionedArchived && !availableMembers.length) {
-      unavailableMessage = "No active room members can respond — restore an archived dog or add an active member.";
-    } else if (!mentionedArchived && defaultArchived) {
-      unavailableMessage = `${defaultArchived.name} is archived and can't respond — restore it or mention an active room member.`;
-    }
-    if (unavailableMessage) {
+    if (!members.length) {
       store.appendMessage(threadId, {
         role: "bot",
         kind: "activity",
-        tool: { name: unavailableMessage, ok: false },
+        tool: { name: "No dogs are in this group chat to answer. Add one first.", ok: false },
       });
     }
     return message;
   }
 
-  const autoRoute = autoCandidate && availableMembers.length > 1 &&
-    roomResponders(text, availableMembers, { kind: "mentions" }).length === 0;
+  const autoRoute = autoCandidate && members.length > 1 &&
+    roomResponders(text, members, { kind: "mentions" }).length === 0;
 
   const titleText = extractTurnImages(text).text;
   const startTitle = (titleBot: (typeof members)[number]) => {
@@ -11061,7 +11032,7 @@ function startGroupTurn(
     autoRoute ? [] : responders.map((responder) => responder.id),
   );
   const routing = autoRoute
-    ? decideRoomResponder(decider, roomRoutingInput(group.name, text, availableMembers, historyBeforeSend, options.sender), {
+    ? decideRoomResponder(decider, roomRoutingInput(group.name, text, members, historyBeforeSend, options.sender), {
         signal: operation.cancellation.signal,
       })
     : null;
@@ -11088,8 +11059,8 @@ function startGroupTurn(
       if (routing) {
         const route = await routing;
         if (operation.cancelled) return;
-        const picked = route.kind === "member" ? availableMembers.filter((member) => member.id === route.botId)
-          : route.kind === "everyone" ? availableMembers
+        const picked = route.kind === "member" ? members.filter((member) => member.id === route.botId)
+          : route.kind === "everyone" ? members
             : [];
         if (picked.length && route.kind !== "fallback") {
           round = picked;
@@ -14096,9 +14067,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const target = store.bot(toBotId);
         if (!target) return json(res, 404, { error: "no such bot" });
         const from = internalSender;
-        if (target.hidden) {
-          return json(res, 403, { error: `that bot is unavailable. ${PEER_ACCESS_HELP}` });
-        }
         if (!peerAllowed(from, target)) {
           return json(res, 403, { error: `that bot is not on this bot's allowed peers. ${PEER_ACCESS_HELP}` });
         }
@@ -14189,12 +14157,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           const freshFrom = store.bot(fromBotId);
           const freshTarget = store.bot(toBotId);
           if (!freshFrom || !freshTarget) return json(res, 404, { error: "no such bot" });
-          if (freshTarget.hidden) {
-            return json(res, 200, { error: "that bot is no longer available", receipt: peerDeliveryReceipt({
-              botId: toBotId, outcome: "failed",
-              detail: "that bot is no longer available — the message was not sent",
-            }) });
-          }
           if (!peerAllowed(freshFrom, freshTarget)) {
             return json(res, 200, { error: "that bot is no longer an allowed peer", receipt: peerDeliveryReceipt({
               botId: toBotId, outcome: "failed",
@@ -14371,9 +14333,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const toBotId = resolvedTo.id;
         const target = store.bot(toBotId);
         if (!target) return json(res, 404, { error: "no such bot" });
-        if (target.hidden) {
-          return json(res, 403, { error: `that bot is unavailable. ${PEER_ACCESS_HELP}` });
-        }
         if (!peerAllowed(from, target)) {
           return json(res, 403, { error: `that bot is not on this bot's allowed peers. ${PEER_ACCESS_HELP}` });
         }
@@ -14479,7 +14438,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             const eligibility =
               target.botId === internalSender.id ? "Choose a teammate, not yourself"
               : !addressed ? `No bot with id "${target.botId}" — call list_bots and copy the exact id from the result`
-              : addressed.hidden ? `The bot with id "${target.botId}" is no longer available — call list_bots for the ones you can reach`
               : roomHandoffProblem(target, address);
             if (eligibility) return json(res, 403, { error: eligibility });
           }
@@ -14595,9 +14553,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const ownerTurn = ownerWorkThread(fromThreadId);
         const perTurn = threadsPerTurn(ownerTurn);
         const depth = internalCapability.depth;
-        if (target.hidden) {
-          return json(res, 403, { error: `that bot is unavailable. ${PEER_ACCESS_HELP}` });
-        }
         if (!peerAllowed(from, target)) {
           return json(res, 403, { error: `that bot is not on this bot's allowed peers. ${PEER_ACCESS_HELP}` });
         }
@@ -14658,7 +14613,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!connectorThread(creator.id, fromThreadId)) {
           return json(res, 403, { error: "source conversation does not belong to sender" });
         }
-        if (!mayCreateDogs(creator)) return json(res, 403, { error: DOG_CREATION_REFUSAL });
         const creatorOwnsWorkspace = ownerWorkThread(fromThreadId);
         const creationRefusal = turnCreationRefusal({ ownersWorkspace: creatorOwnsWorkspace, created: internalCapability.createdBots, kind: "dogs" });
         if (creationRefusal) return json(res, 429, { error: creationRefusal });
@@ -14692,15 +14646,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (!checkedCwd.ok) return json(res, 400, { error: checkedCwd.error });
           cwd = checkedCwd.cwd ?? undefined;
         }
-        if (store.bot(creator.id) !== creator || !mayCreateDogs(creator) || !connectorThread(creator.id, fromThreadId)) {
-          return json(res, 403, { error: "This bot was archived or changed while the new bot was being set up, so nothing was created." });
+        if (store.bot(creator.id) !== creator || !connectorThread(creator.id, fromThreadId)) {
+          return json(res, 403, { error: "This bot changed while the new bot was being set up, so nothing was created." });
         }
         const lateCreationRefusal = turnCreationRefusal({ ownersWorkspace: creatorOwnsWorkspace, created: internalCapability.createdBots, kind: "dogs" })
           ?? dogLimitRefusal({ ownersWorkspace: creatorOwnsWorkspace, dogs: store.bots.length });
         if (lateCreationRefusal) return json(res, 409, { error: lateCreationRefusal });
         const duplicate = store.bots.find(
           (candidate) =>
-            !candidate.hidden &&
             sectionKey(candidate.section) === sectionKey(creator.section) &&
             candidate.name.trim().toLowerCase() === name.toLowerCase(),
         );
@@ -14739,8 +14692,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (method === "POST" && (path === "/api/internal/create-room" || path === "/api/internal/manage-room")) {
         const body = await readInternalBody();
-        const maker = store.bot(internalCapability.botId)!;
-        if (!mayMakeGroupChats(maker)) return json(res, 403, { error: GROUP_CHAT_REFUSAL });
+        const maker = store.bot(internalCapability.botId);
+        if (!dogCanAct(maker)) return json(res, 404, { error: "no such bot" });
         if (!connectorThread(maker.id, internalCapability.threadId)) {
           return json(res, 403, { error: "source conversation does not belong to this bot" });
         }
@@ -14768,7 +14721,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           if (!parsed.success) return json(res, 400, { error: "provide a group chat name and memberIds" });
           const memberIds = [...new Set([maker.id, ...parsed.data.memberIds])];
           if (!allowedRoster(memberIds)) {
-            return json(res, 403, { error: "include yourself and only active, allowed peers from your reachable workspace roster" });
+            return json(res, 403, { error: "include yourself and only allowed peers from your reachable workspace roster" });
           }
           const group = createChannel({
             name: redactSecretsInText(parsed.data.name), memberIds, section: maker.section,
@@ -14797,7 +14750,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           patch.name = redactSecretsInText(name);
         } else {
           if (!memberIds || memberIds.some((id) => !allowedIds.has(id))) {
-            return json(res, 403, { error: "memberIds must name only yourself or active, allowed peers in this workspace" });
+            return json(res, 403, { error: "memberIds must name only yourself or allowed peers in this workspace" });
           }
           const next = action === "add_members" ? [...new Set([...room.memberIds, ...memberIds])]
             : action === "remove_members" ? room.memberIds.filter((id) => !memberIds.includes(id)) : memberIds;
@@ -17672,7 +17625,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const exists =
         section === "" ||
         store.sections.includes(section) ||
-        store.bots.some((bot) => !bot.hidden && sectionKey(bot.section) === section) ||
+        store.bots.some((bot) => sectionKey(bot.section) === section) ||
         store.groups.some((group) => sectionKey(group.section) === section);
       if (!exists) return json(res, 404, { error: "no such team" });
 

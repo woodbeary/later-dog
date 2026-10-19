@@ -444,22 +444,26 @@ it("waits for busy peers and then completes without the user relaying messages",
   expect((await f.messages(f.source.activeTaskId)).some((m: any) => m.text === "Reviewed downstream outcome")).toBe(true);
 }), 45_000);
 
-it.each([
-  ["a name nobody has in a bot_ids slot", false],
-  ["a hidden teammate's id", true],
-] as const)("refuses %s with a message the caller can act on", (_case, hidden) => withRooms(async f => {
-  if (hidden) await f.api(`/api/bots/${f.target.id}`, { hidden: true }, "PATCH");
-  const botId = hidden ? f.target.id : "Nobody";
+it("refuses a name nobody has in a bot_ids slot with a message the caller can act on", () => withRooms(async f => {
+  const botId = "Nobody";
   f.plan[f.sender.id].steps = [{ expectError: true, arguments: { group_id: f.destination.id, bot_ids: [botId], message: "Review CSV" } }];
   await f.start(); expect((await f.wait()).status).toBe("settled");
   expect(f.nodes()).toEqual([]);
   expect(await f.messages(f.destination.activeTaskId)).toEqual([]);
   const refused = f.provider().find((turn: any) => turn.botId === f.sender.id)
     .evidence.find((entry: any) => entry.step).response.result.content[0].text;
-  expect(refused).toBe(hidden
-    ? `The bot with id "${botId}" is no longer available — call list_bots for the ones you can reach`
-    : `No bot with id or name "${botId}" — call list_bots and copy the exact id from the result. ${PEER_ACCESS_HELP}`);
+  expect(refused).toBe(`No bot with id or name "${botId}" — call list_bots and copy the exact id from the result. ${PEER_ACCESS_HELP}`);
 }), 45_000);
+
+it("hands work to a hidden teammate in a room like any other", () => withRooms(async f => {
+  await f.api(`/api/bots/${f.target.id}`, { hidden: true }, "PATCH");
+  f.plan[f.sender.id].steps = [{ arguments: { group_id: f.destination.id, bot_ids: [f.target.id], message: "Please build CSV" } }];
+  await f.start(); expect((await f.wait()).status).toBe("settled");
+  const node = f.nodes().find((n: any) => n.parentId);
+  expect(node.botId).toBe(f.target.id);
+  expect(node.status).toBe("completed");
+  expect((await f.messages(f.destination.activeTaskId)).some((m: any) => m.text?.includes("Please build CSV"))).toBe(true);
+}), 60_000);
 
 it("resolves a unique teammate name in a bot_ids slot, and refuses an ambiguous one", () => withRooms(async f => {
   f.plan[f.sender.id].steps = [{ arguments: { group_id: f.destination.id, bot_ids: [f.target.name], message: "Please build CSV" } }];

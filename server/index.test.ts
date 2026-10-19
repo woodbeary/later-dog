@@ -1737,24 +1737,31 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("refuses a room whose every member is archived", async () => {
-    const [archived, active] = await Promise.all([api("POST", "/api/bots"), api("POST", "/api/bots")]).then(
-      (created) => created.map((response) => response.body.bot),
-    );
-    await api("PATCH", `/api/bots/${archived.id}`, { hidden: true });
+  it("makes a group chat whose only member is hidden, and that dog answers in it", async () => {
+    const hidden = (await api("POST", "/api/bots")).body.bot;
+    let roomId: string | undefined;
     try {
-      const refused = await api("POST", "/api/groups", { name: "All archived", memberIds: [archived.id] });
-      expect(refused.status).toBe(400);
-      expect(refused.body.error).toMatch(/at least one active dog/i);
-
+      expect((await api("PATCH", `/api/bots/${hidden.id}`, {
+        name: "Hush",
+        hidden: true,
+        chiefOfStaff: false,
+        modelSelection: { instanceId: "ghost", model: "ghost-1" },
+      })).status).toBe(200);
       const created = await api("POST", "/api/groups", {
-        name: "Mixed roster",
-        memberIds: [archived.id, active.id],
+        name: "Only hidden",
+        memberIds: [hidden.id],
+        setup: { bulletin: "", defaultResponder: { kind: "member", botId: hidden.id } },
       });
-      expect(created.status).toBe(201);
-      await api("DELETE", `/api/groups/${created.body.group.id}`);
+      expect(created.status, JSON.stringify(created.body)).toBe(201);
+      roomId = String(created.body.group.id);
+      expect(created.body.group.memberIds).toEqual([hidden.id]);
+      expect((await api("POST", `/api/groups/${roomId}/messages`, { text: "anyone there?" })).status).toBe(202);
+      await expect.poll(async () => ((await api("GET", "/api/bots?messages=20")).body.groups
+        .find((group: { id: string }) => group.id === roomId).messages as Array<{ tool?: { name?: string } }>)
+        .some((message) => message.tool?.name === "error: Hush's model is unavailable")).toBe(true);
     } finally {
-      for (const bot of [archived, active]) await api("DELETE", `/api/bots/${bot.id}`);
+      if (roomId) await api("DELETE", `/api/groups/${roomId}`);
+      await api("DELETE", `/api/bots/${hidden.id}`);
     }
   });
 
@@ -2426,8 +2433,12 @@ describe("harness HTTP API", () => {
       }
       expect(await readRoom()).toMatchObject({ name: "Renamed room", bulletin: "", memberIds: [chief.id, peer.id] });
       expect((await api("PATCH", `/api/bots/${second.id}`, { hidden: true })).status).toBe(200);
-      expect((await create({ name: "Archived member", memberIds: [second.id] })).status).toBe(403);
-      expect((await manage({ action: "add_members", memberIds: [second.id] })).status).toBe(403);
+      const withHidden = await create({ name: "Hidden member", memberIds: [second.id] });
+      expect(withHidden.status).toBe(201);
+      roomIds.push(String(withHidden.body.id));
+      expect(withHidden.body.memberIds).toEqual([chief.id, second.id]);
+      expect((await manage({ action: "add_members", memberIds: [second.id] })).body.memberIds).toEqual([chief.id, peer.id, second.id]);
+      expect((await manage({ action: "remove_members", memberIds: [second.id] })).body.memberIds).toEqual([chief.id, peer.id]);
       expect((await api("PATCH", `/api/bots/${chief.id}`, { approvePeerComms: true })).status).toBe(200);
       expect((await manage({ action: "rename", name: "No review" })).body.error).toMatch(/peer approval is required/);
       expect((await create({ name: "No review", memberIds: [peer.id] })).status).toBe(403);
@@ -2493,13 +2504,22 @@ describe("harness HTTP API", () => {
       }
       const token = await mintTestCapability(BASE, maker.id, maker.threadId);
       expect((await fetch(`${BASE}/api/internal/move-bot`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ targetBotId: peer.id, section: "Elsewhere" }) })).status).toBe(404);
-      held = await delayedJsonBody("POST", "/api/internal/manage-room", { roomId: room.id, action: "rename", name: "Archived" }, { authorization: `Bearer ${token}` });
+      held = await delayedJsonBody("POST", "/api/internal/manage-room", { roomId: room.id, action: "rename", name: "Must not change" }, { authorization: `Bearer ${token}` });
+      expect((await api("PATCH", `/api/bots/${maker.id}`, { approvePeerComms: true })).status).toBe(200);
+      const reviewed = await held.finish();
+      expect(reviewed.status).toBe(403);
+      expect(reviewed.body.error).toMatch(/peer approval is required/);
+      held.close();
+      held = undefined;
+      expect((await api("GET", "/api/bots?messages=0")).body.groups.find((group: { id: string }) => group.id === room.id).name).toBe("Guarded room");
+      expect((await api("PATCH", `/api/bots/${maker.id}`, { approvePeerComms: false })).status).toBe(200);
+      const hiddenToken = await mintTestCapability(BASE, maker.id, maker.threadId);
+      held = await delayedJsonBody("POST", "/api/internal/manage-room", { roomId: room.id, action: "rename", name: "Hidden maker's room" }, { authorization: `Bearer ${hiddenToken}` });
       expect((await api("PATCH", `/api/bots/${maker.id}`, { hidden: true })).status).toBe(200);
-      const archived = await held.finish();
-      expect(archived.status).toBe(403);
-      expect(archived.body.error).toMatch(/archived/);
+      const hiddenRename = await held.finish();
+      expect(hiddenRename.status, JSON.stringify(hiddenRename.body)).toBe(200);
       const groups = (await api("GET", "/api/bots?messages=0")).body.groups;
-      expect(groups.find((group: { id: string }) => group.id === room.id).name).toBe("Guarded room");
+      expect(groups.find((group: { id: string }) => group.id === room.id).name).toBe("Hidden maker's room");
       expect(groups.some((group: { name: string }) => group.name === "Must not exist")).toBe(false);
     } finally {
       held?.close();
@@ -3806,7 +3826,7 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("rejects malformed or unavailable sidebar section targets without partially filing bots", async () => {
+  it("rejects malformed or missing sidebar section targets without partially filing bots, and files hidden dogs like any other", async () => {
     const visible = (await api("POST", "/api/bots")).body.bot;
     const hidden = (await api("POST", "/api/bots")).body.bot;
     try {
@@ -3825,102 +3845,109 @@ describe("harness HTTP API", () => {
         name: "Work",
         botIds: [visible.id, "missing"],
       })).status).toBe(404);
+      const bots = (await api("GET", "/api/bots")).body.bots;
+      expect(bots.find((bot: { id: string }) => bot.id === visible.id)?.section).toBe("Original");
+
       expect((await api("POST", "/api/sidebar-sections", {
         name: "Work",
         botIds: [visible.id, hidden.id],
-      })).status).toBe(404);
-
-      const bots = (await api("GET", "/api/bots")).body.bots;
-      expect(bots.find((bot: { id: string }) => bot.id === visible.id)?.section).toBe("Original");
+      })).status).toBe(200);
+      const filed = (await api("GET", "/api/bots")).body.bots;
+      expect(filed.find((bot: { id: string }) => bot.id === hidden.id)).toMatchObject({ section: "Work", hidden: true });
     } finally {
       await api("DELETE", `/api/bots/${visible.id}`);
       await api("DELETE", `/api/bots/${hidden.id}`);
     }
   });
 
-  it("explains when archived room members cannot respond", async () => {
-    const archived = (await api("POST", "/api/bots")).body.bot;
+  it("lets hidden room members answer @mentions and the default responder", async () => {
+    const quiet = (await api("POST", "/api/bots")).body.bot;
     const active = (await api("POST", "/api/bots")).body.bot;
     const room = (await api("POST", "/api/groups", {
-      name: "Archived member feedback",
-      memberIds: [archived.id, active.id],
+      name: "Hidden member answers",
+      memberIds: [quiet.id, active.id],
     })).body.group;
+    const ghost = { instanceId: "ghost", model: "ghost-1" };
+    const roomMessages = async () => (await api("GET", "/api/bots?messages=40")).body.groups
+      .find((group: { id: string }) => group.id === room.id).messages as Array<{ kind?: string; role?: string; text?: string; tool?: { name?: string } }>;
+    const dispatched = async (name: string) => (await roomMessages())
+      .filter((message) => message.tool?.name === `error: ${name}'s model is unavailable`).length;
 
     try {
       expect((await api("PATCH", `/api/groups/${room.id}/setup`, { action: "skip" })).status).toBe(200);
-      const archivedBot = await api("PATCH", `/api/bots/${archived.id}`, {
-        name: "Quill",
-        hidden: true,
-        chiefOfStaff: false,
-      });
-      expect(archivedBot.status).toBe(200);
-      await api("PATCH", `/api/bots/${active.id}`, {
-        name: "Atlas",
-        modelSelection: { instanceId: "ghost", model: "ghost-1" },
-      });
+      expect((await api("PATCH", `/api/bots/${quiet.id}`, { name: "Quill", hidden: true, chiefOfStaff: false, modelSelection: ghost })).status).toBe(200);
+      await api("PATCH", `/api/bots/${active.id}`, { name: "Atlas", modelSelection: ghost });
       await api("PATCH", `/api/groups/${room.id}`, { defaultResponder: { kind: "mentions" } });
 
       expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "@Quill take this" })).status).toBe(202);
-      let state = (await api("GET", "/api/bots?messages=20")).body;
-      let messages = state.groups.find((group: { id: string }) => group.id === room.id).messages;
-      expect(messages.at(-1)).toMatchObject({
-        kind: "activity",
-        tool: {
-          name: "Quill is archived and can't respond — restore it or mention an active room member.",
-          ok: false,
-        },
-      });
+      await expect.poll(() => dispatched("Quill")).toBe(1);
+      expect((await roomMessages()).some((message) => /archived|restore/i.test(message.tool?.name ?? ""))).toBe(false);
 
-      const archivedError = "Quill is archived and can't respond — restore it or mention an active room member.";
-      const beforeMixedMention = messages.filter((message: { tool?: { name?: string } }) =>
-        message.tool?.name === archivedError
-      ).length;
       await api("POST", `/api/groups/${room.id}/messages`, { text: "@Quill and @Atlas take this" });
-      await expect.poll(async () => {
-        state = (await api("GET", "/api/bots?messages=20")).body;
-        messages = state.groups.find((group: { id: string }) => group.id === room.id).messages;
-        return {
-          archivedErrors: messages.filter((message: { tool?: { name?: string } }) =>
-            message.tool?.name === archivedError
-          ).length,
-          activeDispatched: messages.some((message: { tool?: { name?: string } }) =>
-            message.tool?.name === "error: Atlas's model is unavailable"
-          ),
-        };
-      }).toEqual({ archivedErrors: beforeMixedMention + 1, activeDispatched: true });
+      await expect.poll(async () => ({ quill: await dispatched("Quill"), atlas: await dispatched("Atlas") }))
+        .toEqual({ quill: 2, atlas: 1 });
 
-      await api("PATCH", `/api/groups/${room.id}`, {
-        defaultResponder: { kind: "member", botId: archived.id },
-      });
+      await api("PATCH", `/api/groups/${room.id}`, { defaultResponder: { kind: "member", botId: quiet.id } });
       await api("POST", `/api/groups/${room.id}/messages`, { text: "use the default responder" });
-      state = (await api("GET", "/api/bots?messages=20")).body;
-      messages = state.groups.find((group: { id: string }) => group.id === room.id).messages;
-      expect(messages.at(-1)?.tool).toEqual({ name: archivedError, ok: false });
+      await expect.poll(() => dispatched("Quill")).toBe(3);
 
       await api("PATCH", `/api/groups/${room.id}`, { defaultResponder: { kind: "mentions" } });
-
-      const beforeUnmentioned = messages.length;
-      await api("POST", `/api/groups/${room.id}/messages`, { text: "no mention" });
-      state = (await api("GET", "/api/bots?messages=20")).body;
-      messages = state.groups.find((group: { id: string }) => group.id === room.id).messages;
-      expect(messages).toHaveLength(beforeUnmentioned + 1);
-      expect(messages.at(-1)).toMatchObject({ kind: "text", role: "user", text: "no mention" });
-
       await api("PATCH", `/api/bots/${active.id}`, { hidden: true });
-      await api("POST", `/api/groups/${room.id}/messages`, { text: "hello everyone" });
-      state = (await api("GET", "/api/bots?messages=20")).body;
-      messages = state.groups.find((group: { id: string }) => group.id === room.id).messages;
-      expect(messages.at(-1)).toMatchObject({
-        kind: "activity",
-        tool: {
-          name: "No active room members can respond — restore an archived dog or add an active member.",
-          ok: false,
-        },
-      });
+      await api("POST", `/api/groups/${room.id}/messages`, { text: "@everyone hello" });
+      await expect.poll(async () => ({ quill: await dispatched("Quill"), atlas: await dispatched("Atlas") }))
+        .toEqual({ quill: 4, atlas: 2 });
     } finally {
       await api("DELETE", `/api/groups/${room.id}`);
-      await api("DELETE", `/api/bots/${archived.id}`);
+      await api("DELETE", `/api/bots/${quiet.id}`);
       await api("DELETE", `/api/bots/${active.id}`);
+    }
+  });
+
+  it("runs a hidden dog's routines, in its own conversation and as a group chat goal", async () => {
+    const bot = (await api("POST", "/api/bots", {
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      requireAvailableModel: true,
+    })).body.bot;
+    const room = (await api("POST", "/api/groups", {
+      name: "Hidden goal room",
+      memberIds: [bot.id],
+      setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
+    })).body.group;
+    const routineIds: string[] = [];
+    const runIds: string[] = [];
+    const runStatus = async (runId: string) =>
+      (await api("GET", "/api/routines")).body.runs.find((run: { id: string }) => run.id === runId)?.status;
+    try {
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { hidden: true, chiefOfStaff: false })).status).toBe(200);
+      for (const body of [
+        { name: "Hidden dog check-in", prompt: "Say how the week is going.", target: "bot" },
+        { name: "Hidden dog goal", prompt: "Agree on one goal for the week.", target: "room-goal", groupId: room.id },
+      ]) {
+        const created = await api("POST", "/api/routines", {
+          ...body,
+          botId: bot.id,
+          runOn: "dog",
+          enabled: false,
+          schedule: { type: "daily", time: "10:00", weekdays: [1] },
+        });
+        expect(created.status, JSON.stringify(created.body)).toBe(201);
+        routineIds.push(created.body.routine.id);
+        const queued = await api("POST", `/api/routines/${created.body.routine.id}/run`);
+        expect(queued.status, JSON.stringify(queued.body)).toBe(201);
+        runIds.push(queued.body.run.id);
+        await expect.poll(() => runStatus(queued.body.run.id), { timeout: 10_000 }).toMatch(/^(running|completed)$/);
+        const run = (await api("GET", "/api/routines")).body.runs.find((candidate: { id: string }) => candidate.id === queued.body.run.id);
+        expect(run).toMatchObject(body.target === "bot" ? { botId: bot.id, threadId: bot.threadId } : { botId: bot.id, groupId: room.id, threadId: expect.any(String) });
+        await api("POST", `/api/routine-runs/${queued.body.run.id}/cancel`).catch(() => undefined);
+        await expect.poll(() => runStatus(queued.body.run.id), { timeout: 10_000 }).not.toBe("running");
+      }
+      expect((await api("GET", "/api/bots?messages=0")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id))
+        .toMatchObject({ hidden: true });
+    } finally {
+      for (const runId of runIds) await api("POST", `/api/routine-runs/${runId}/cancel`).catch(() => undefined);
+      for (const routineId of routineIds) await api("DELETE", `/api/routines/${routineId}`).catch(() => undefined);
+      await api("DELETE", `/api/groups/${room.id}`).catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`).catch(() => undefined);
     }
   });
 
@@ -10027,6 +10054,18 @@ describe("section context API", () => {
     } finally {
       await api("DELETE", `/api/bots/${work.id}`);
       await api("DELETE", `/api/bots/${personal.id}`);
+    }
+  });
+
+  it("serves the brief of a section whose only dog is hidden", async () => {
+    const quiet = (await api("POST", "/api/bots")).body.bot;
+    try {
+      expect((await api("PATCH", `/api/bots/${quiet.id}`, { section: "Hidden pack", hidden: true })).status).toBe(200);
+      expect((await api("PUT", "/api/section-context?section=Hidden%20pack", { text: "Keep going." })).status).toBe(200);
+      expect((await api("GET", "/api/section-context?section=Hidden%20pack")).body.text).toBe("Keep going.");
+      expect((await api("PUT", "/api/section-context?section=Hidden%20pack", { text: "" })).status).toBe(200);
+    } finally {
+      await api("DELETE", `/api/bots/${quiet.id}`);
     }
   });
 

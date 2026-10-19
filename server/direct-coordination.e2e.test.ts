@@ -198,7 +198,7 @@ it("announces a settled delegation and its resume in the parent thread", () => f
   } finally { stream.close(); }
 }), 45_000);
 
-it.each(["resume", "stop", "failed resume", "failed root"] as const)("keeps a guarded Chief request exact through coordination and %s", action => fixture(async f => {
+it.each(["resume", "stop", "failed resume"] as const)("keeps a guarded Chief request exact through coordination and %s", action => fixture(async f => {
   const threadId = f.chief.activeTaskId;
   const sendId = randomUUID();
   const route = `/api/bots/${f.chief.id}/requests/${sendId}`;
@@ -238,26 +238,6 @@ it.each(["resume", "stop", "failed resume", "failed root"] as const)("keeps a gu
     await api("PATCH", `/api/bots/${f.chief.id}/tasks/${threadId}`, { approvalMode: "ask" });
     const target = { threadId, messageId: waiting.messageId, expectedActiveLeafId: waiting.activeLeafId,
       expectedTurnId: waiting.activeTurnId, expectedExecutionId: waiting.executionId };
-    if (action === "failed root") {
-      await api("PATCH", `/api/bots/${f.chief.id}`, { hidden: true });
-      await expect.poll(() => f.nodes().find((node: any) => node.id === waiting.executionId)?.status, { timeout: 15_000 }).toBe("failed");
-      writeFileSync(gate, "release the isolated teammate after its root failed");
-      const finalWait = await f.wait();
-      evidence.push({ command: ["wait", "--bot", f.chief.id, "--task", threadId, "--timeout", "30"], result: finalWait });
-      expect(finalWait.status).toBe("settled");
-      const failed = await snapshot();
-      expect(failed).toMatchObject({ messageId: accepted.message.id, phase: "untracked", activeTurnId: null, executionId: waiting.executionId });
-      expect(failed.messages[0].requestPending).toBe(true);
-      expect(failed.messages[0].requestCancelled).not.toBe(true);
-      expect(failed.messages.find((message: any) => message.turnTerminal)).toMatchObject({
-        text: "Assigned to Engineering", requestMessageId: accepted.message.id, turnSucceeded: true,
-      });
-      expect(failed.messages.some((message: any) => message.text === "The requested CSV export is implemented and verified")).toBe(false);
-      expect(f.evidence().filter((turn: any) => turn.botId === f.chief.id)).toHaveLength(1);
-      evidence.push({ command: ["messages", "--bot", f.chief.id, "--task", threadId, "--limit", "30"],
-        result: await f.cli("messages", "--bot", f.chief.id, "--task", threadId, "--limit", "30") });
-      return;
-    }
     if (action === "stop") {
       await api("POST", `${route}/interrupt`, { ...target, expectedExecutionId: null }, 409);
       expect(await api("POST", `${route}/interrupt`, target)).toEqual({ ok: true, outcome: "stopped" });

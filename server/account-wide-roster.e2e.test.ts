@@ -84,8 +84,8 @@ it("executes a cross-pack coordinate_bots request and returns the exact peer rep
   expect((await f.api("/api/bots?messages=0")).groups).toEqual([]);
 }), 60_000);
 
-it("preserves explicit peer exclusions, hidden bots and different private-user audiences across packs", () => fixture(async f => {
-  const hidden = (await f.cli("new-bot", "--name", "Archived dog", "--section", "Archive")).bot;
+it("preserves explicit peer exclusions and different private-user audiences across packs, and still reaches a hidden dog", () => fixture(async f => {
+  const hidden = (await f.cli("new-bot", "--name", "Hidden dog", "--section", "Archive")).bot;
   const denied = (await f.cli("new-bot", "--name", "Excluded dog", "--section", "Research")).bot;
   const privateA = (await f.cli("new-bot", "--name", "Ada private", "--section", "Private A")).bot;
   const privateB = (await f.cli("new-bot", "--name", "Bob private", "--section", "Private B")).bot;
@@ -94,7 +94,7 @@ it("preserves explicit peer exclusions, hidden bots and different private-user a
   await f.api(`/api/bots/${privateB.id}`, { visibility: { people: ["bob@example.test"] } }, "PATCH");
   await f.api(`/api/bots/${f.sender.id}`, { peers: [f.target.id, hidden.id, privateA.id, privateB.id] }, "PATCH");
   const refusal = (botId: string) => ({ tool: "coordinate_bots", expectError: true, arguments: { bot_ids: [botId], message: "Confirm this forbidden request is refused" } });
-  f.plan[f.sender.id] = { steps: [...discoverySteps(), ...[denied, hidden, privateA, privateB].map(bot => refusal(bot.id))], reply: "Restrictions verified" };
+  f.plan[f.sender.id] = { steps: [...discoverySteps(), ...[denied, privateA, privateB].map(bot => refusal(bot.id))], reply: "Restrictions verified" };
   f.plan[privateA.id] = { steps: [...discoverySteps(), refusal(privateB.id)], reply: "Private audience verified" };
   await f.start(f.sender);
   await f.start(privateA);
@@ -105,11 +105,11 @@ it("preserves explicit peer exclusions, hidden bots and different private-user a
       const ids = name === "list_bots"
         ? Array.from((result as string).matchAll(/\[id: ([^,]+),/g), match => match[1])
         : result.bots.map((peer: any) => peer.id);
-      if (bot.id === f.sender.id) expect(ids).toEqual([f.target.id]);
+      if (bot.id === f.sender.id) expect([...ids].sort()).toEqual([f.target.id, hidden.id].sort());
       else expect(ids).toEqual([]);
     }
     const attempts = turn.evidence.filter((entry: any) => entry.step?.tool === "coordinate_bots");
-    expect(attempts).toHaveLength(bot.id === f.sender.id ? 4 : 1);
+    expect(attempts).toHaveLength(bot.id === f.sender.id ? 3 : 1);
     expect(attempts.every((entry: any) => entry.response.result.isError)).toBe(true);
   }
   expect(f.nodes()).toEqual([]);

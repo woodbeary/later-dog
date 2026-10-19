@@ -8,7 +8,6 @@ export interface RosterMember {
   title?: string;
   description?: string;
   busy?: boolean;
-  hidden?: boolean;
   section?: string;
   peers?: string[];
   activity?: BotActivity;
@@ -64,7 +63,7 @@ export const peerAllowed = (
 };
 
 export function canReachPeer(from: RosterMember, target: RosterMember): boolean {
-  return from.id !== target.id && !target.hidden && peerAllowed(from, target);
+  return from.id !== target.id && peerAllowed(from, target);
 }
 
 export function reachablePeers<T extends RosterMember>(bots: readonly T[], from: RosterMember): T[] {

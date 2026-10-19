@@ -137,7 +137,7 @@ Addressing checks cover what a bot may put in a `bot_ids` slot: an id is always
 an id; a name that means exactly one reachable teammate resolves to it and the
 work runs as if the id had been sent; a name nobody has is refused with the
 argument echoed and `list_bots` named (`No bot with id or name "…"`); a hidden
-teammate's id is refused as no longer available; a name two reachable teammates
+teammate is reached by id or name like any other; a name two reachable teammates
 share is refused with the count and the way to the ids, never guessed. The same
 resolution serves `ask_bot` and `delegate_bot`, and every roster line a dog
 reads carries the teammate's `[id: …]`, so the tools can be called
