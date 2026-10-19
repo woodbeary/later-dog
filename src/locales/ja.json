@@ -612,7 +612,6 @@
   "signOut.tryAgain": "少し待ってから、もう一度お試しください。",
   "accounts.sheet.useCode": "代わりにコードを使う",
   "accounts.sheet.gettingReady": "{name} を準備中…",
-  "remote.pairOverTailscale": "Tailscale でペアリング",
   "remote.account.retrying": "再試行中…",
   "vm.state.inUse": "使用中",
   "vm.state.running": "実行中",

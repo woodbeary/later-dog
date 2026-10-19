@@ -53,7 +53,7 @@ export function macSelectReply(requested: unknown, needs: unknown, macs: readonl
   if (!macs.some(mac => mac.online)) return { status: "offline", surface: MAC_PLACE, message: MAC_OFFLINE_RESULT };
   return {
     status: "ready", surface: MAC_PLACE,
-    message: "The Mac is online. Use shared_computer for its files, terminal and apps; no switch or approval is needed. Keep using your own cloud computer for everything else.",
+    message: "The Mac is online. Use shared_computer for its files, terminal and apps; no switch is needed. If the person set that Mac to ask first, later.dog shows them a card and your call waits for the answer. Keep using your own cloud computer for everything else.",
   };
 }
 

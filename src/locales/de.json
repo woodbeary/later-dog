@@ -610,7 +610,6 @@
   "signOut.tryAgain": "versuche es gleich noch einmal.",
   "accounts.sheet.useCode": "Stattdessen einen Code verwenden",
   "accounts.sheet.gettingReady": "{name} wird vorbereitet…",
-  "remote.pairOverTailscale": "Über Tailscale koppeln",
   "remote.account.retrying": "Erneuter Versuch…",
   "vm.state.inUse": "In Benutzung",
   "vm.state.running": "Läuft",

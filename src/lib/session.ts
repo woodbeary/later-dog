@@ -70,7 +70,7 @@ export function takeBrowserSignInFromLocation(): string | null {
   return m ? m[1] : null;
 }
 
-export const BROWSER_SIGN_IN_FAILED = "This sign-in link has expired or was already used. On My Cloud, choose “Use in your browser” again.";
+export const BROWSER_SIGN_IN_FAILED = "This sign-in link has expired or was already used. Open later.dog on your Mac or iPhone and sign in with your email.";
 
 export function takeInvitedEmailFromLocation(): string | null {
   const params = new URLSearchParams(location.search);

@@ -66,10 +66,9 @@ describe("surfacePrompt", () => {
     expect(surfacePrompt({ computer: "local", browser: false })).toMatch(/tell them it is on this computer/);
   });
 
-  it("explains unavailable tools, and carries the pin line and the note", () => {
+  it("explains unavailable tools and carries the note", () => {
     expect(surfacePrompt({ computer: null, browser: false })).toContain("No computer tools are mounted this turn");
-    expect(surfacePrompt({ computer: "cloud", browser: false }, { pinned: "cloud" }))
-      .toContain("This conversation is pinned to the cloud computer; changing places requires");
+    expect(surfacePrompt({ computer: null, browser: false })).toContain("If asked for screen work, say so plainly");
     expect(surfacePrompt({ computer: null, browser: false }, { note: " NOTE." })).toBe(" NOTE.");
   });
 
@@ -93,23 +92,29 @@ describe("surfacePrompt", () => {
     expect(text).not.toMatch(/Local VM|\bVM\b|built-in browser/);
   });
 
-  it("keeps explicit destinations and uses a turn-bound switch when supported", () => {
-    const text = surfacePrompt({ computer: "local", browser: false }, { pinned: "local", canSelect: true });
+  it("uses a turn-bound switch when supported", () => {
+    const text = surfacePrompt({ computer: "local", browser: false }, { canSelect: true });
     expect(text).toContain("select the requested available place");
-    expect(text).toContain("changing places requires select_computer");
-    expect(text).not.toContain("ask the user to change where this conversation works");
     expect(text).not.toMatch(/\bVM\b/);
   });
 
-  it("sends the person to the Computer panel, the place control both interface modes show", () => {
-    const text = surfacePrompt({ computer: "cloud", browser: false }, { pinned: "cloud" });
-    expect(text).toContain("explain the mismatch and ask the user to change where this conversation works in the Computer panel");
-    expect(text).toContain("changing places requires the user's choice in the Computer panel, not a different tool name");
-    expect(text).not.toContain("computer selector");
+  it.each([
+    [{ computer: "cloud", browser: false }, {}],
+    [{ computer: "cloud", browser: false }, { canSelect: true }],
+    [{ computer: null, browser: true }, {}],
+    [{ computer: null, browser: false }, {}],
+    [{ computer: null, browser: false }, { canSelect: true }],
+  ] as Array<[{ computer: "cloud" | null; browser: boolean }, { canSelect?: boolean }]>)("names no panel, pin or menu for %j %j", (mounted, opts) => {
+    const text = surfacePrompt(mounted, opts);
+    expect(text).not.toMatch(/Computer panel|pinned|computer selector|change where this conversation works/);
+  });
+
+  it("says a mismatch out loud instead of acting elsewhere", () => {
+    expect(surfacePrompt({ computer: "cloud", browser: false })).toContain("If the requested place differs from the mounted one, say so plainly; never act on a different computer.");
   });
 
   const shapes = ([{ computer: "cloud", browser: false }, { computer: null, browser: false }] as Array<{ computer: "cloud" | null; browser: boolean }>)
-    .flatMap((mounted) => ([{}, { canSelect: true }, { canSelect: true, pinned: "cloud" }] as Array<{ canSelect?: boolean; pinned?: "cloud" }>)
+    .flatMap((mounted) => ([{}, { canSelect: true }] as Array<{ canSelect?: boolean }>)
       .map((opts) => ({ mounted, opts })));
 
   it("tells a Cloud home's bots only about the places it has", () => {

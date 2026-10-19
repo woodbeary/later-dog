@@ -82,7 +82,7 @@ it("carries a bot's recent 1:1 work into a room turn, tells the room, logs the t
     await runControlLaterDog(["wait", "--bot", lead.id, "--timeout", "30"], { env });
     const second = given();
     expect(second).toContain("Your recent work");
-    expect(second).toContain('room "Standup" · you said: "');
+    expect(second).toContain('group chat "Standup" · you said: "');
     expect(dailyLogs(fixture.info.dataDir).find((log) => log.path.includes(lead.id))!.text).toContain('from room "Standup"');
   } finally {
     await fixture.close();

@@ -666,7 +666,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       return { text: `${r.label ?? CREDENTIAL_TARGETS[credentialId].label} is already configured. Continue the task.` };
     }
     return {
-      text: `A secure ${r.label ?? CREDENTIAL_TARGETS[credentialId].label} request is ready. The desktop app and a freshly QR-paired mobile app show its secure entry card; older mobile pairings explain how to pair again or finish on the computer. End this turn; later.dog will resume the task after the person saves or declines. Never ask them to paste the key into chat.`,
+      text: `A secure ${r.label ?? CREDENTIAL_TARGETS[credentialId].label} request is ready. The desktop app shows its secure entry card, and the phone app shows it too or says to finish on the Mac. End this turn; later.dog will resume the task after the person saves or declines. Never ask them to paste the key into chat.`,
     };
   }
   if (name === "request_takeover") {

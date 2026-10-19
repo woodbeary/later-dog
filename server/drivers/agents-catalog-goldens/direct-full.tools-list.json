@@ -45,7 +45,7 @@
     },
     {
       "name": "shared_computer",
-      "description": "Use the person's own Mac, where later.dog is open and signed in to this account. computer_id is optional while one computer is connected, and folder_id is optional when it lends one folder: a Mac connected through its later.dog sign-in lends its home folder, so paths look like Downloads/report.pdf or ~/Downloads/report.pdf. On someone else's server the first time in a request that you look at files, save a file, run a command or use apps there, the person gets an Allow card on their phone and desktop and this call waits for the answer, up to about three minutes; if they don't allow it, say so in one line and don't retry. On the person's own cloud home there is no card. list_files/read_file/write_file stay inside lent folders. read_file returns sha256; overwriting requires expected_sha256. Binary files support base64 encoding. A file over 256 KiB is read in parts: pass offset and length (up to 262144 bytes each); every part reports the file's total size. run_command requires a SEPARATE unrestricted terminal grant and takes at most 8000 characters per command, so write a long file in parts (cat > file, then cat >> file). computer_tools lists the native computer-control tools; computer_call invokes one with arguments and needs a SEPARATE computer-control grant. If the Mac is offline the result says so: carry on with what you can do on your own computer, and never substitute the server's filesystem for its files. Actions are not retried automatically; inspect an uncertain outcome before retrying.",
+      "description": "Use the person's own Mac, where later.dog is open and signed in to this account. computer_id is optional while one computer is connected, and folder_id is optional when it lends one folder: a Mac connected through its later.dog sign-in lends its home folder, so paths look like Downloads/report.pdf or ~/Downloads/report.pdf. If the person set that Mac to ask first, the first time in a request that you look at files, save a file, run a command or use apps there, they get an Allow card on their phone and desktop and this call waits for the answer, up to about three minutes; if they don't allow it, or the Mac is set to Never, say so in one line and don't retry. list_files/read_file/write_file stay inside lent folders. read_file returns sha256; overwriting requires expected_sha256. Binary files support base64 encoding. A file over 256 KiB is read in parts: pass offset and length (up to 262144 bytes each); every part reports the file's total size. run_command requires a SEPARATE unrestricted terminal grant and takes at most 8000 characters per command, so write a long file in parts (cat > file, then cat >> file). computer_tools lists the native computer-control tools; computer_call invokes one with arguments and needs a SEPARATE computer-control grant. If the Mac is offline the result says so: carry on with what you can do on your own computer, and never substitute the server's filesystem for its files. Actions are not retried automatically; inspect an uncertain outcome before retrying.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -381,7 +381,7 @@
     },
     {
       "name": "request_credential",
-      "description": "Ask the user for a supported API key through later.dog's secure credential flow. The desktop app and a freshly QR-paired mobile app show a secure entry card; older mobile pairings show how to pair again or finish on the computer. Never claim a secure field opened unless this request succeeds, and never ask the user to paste a secret into chat. The secret is saved by the desktop app and is never returned to you. After calling this tool, end the turn; later.dog resumes the task after the user saves or declines.",
+      "description": "Ask the user for a supported API key through later.dog's secure credential flow. The desktop app shows a secure entry card, and the phone app shows one too or says to finish on the Mac. Never claim a secure field opened unless this request succeeds, and never ask the user to paste a secret into chat. The secret is saved by the desktop app and is never returned to you. After calling this tool, end the turn; later.dog resumes the task after the user saves or declines.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -389,9 +389,7 @@
             "type": "string",
             "enum": [
               "xaiApiKey",
-              "opencodeGoApiKey",
               "ttsKey",
-              "fishAudioKey",
               "openaiImageApiKey"
             ],
             "description": "The credential the current task requires."

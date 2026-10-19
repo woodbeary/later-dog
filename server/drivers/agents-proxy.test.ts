@@ -280,7 +280,7 @@ beforeAll(async () => {
       req.on("end", () => {
         lastCredentialBody = JSON.parse(data);
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ messageId: "msg-key", label: "OpenCode API key" }));
+        res.end(JSON.stringify({ messageId: "msg-key", label: "xAI API key" }));
       });
       return;
     }
@@ -560,7 +560,8 @@ describe("agents-proxy MCP surface", () => {
     expect(delegate.description).toContain("DEFAULT FOR ASSIGNING WORK");
     expect(delegate.description).toContain("delivered automatically");
     expect(wait.description).toContain("Never call it in the same turn as delegate_bot");
-    expect(credential.description).toContain("freshly QR-paired mobile app show a secure entry card");
+    expect(credential.description).toContain("The desktop app shows a secure entry card");
+    expect(credential.description).not.toMatch(/QR|pair again/);
     expect(credential.description).toContain("Never claim a secure field opened unless this request succeeds");
   });
 
@@ -940,17 +941,18 @@ describe("agents-proxy MCP surface", () => {
 
   it("requests an allowlisted credential without putting a secret in the request", async () => {
     const res = await callTool("request_credential", {
-      credential_id: "opencodeGoApiKey",
+      credential_id: "xaiApiKey",
       reason: "The selected model needs it.",
     });
-    expect(res.result.content[0].text).toContain("secure OpenCode API key request");
-    expect(res.result.content[0].text).toContain("freshly QR-paired mobile app show its secure entry card");
-    expect(res.result.content[0].text).toContain("older mobile pairings explain how to pair again");
+    expect(res.result.content[0].text).toContain("secure xAI API key request");
+    expect(res.result.content[0].text).toContain("The desktop app shows its secure entry card");
+    expect(res.result.content[0].text).toContain("says to finish on the Mac");
+    expect(res.result.content[0].text).not.toMatch(/QR|pair again/);
     expect(res.result.content[0].text).toContain("End this turn");
     expect(lastCredentialBody).toEqual({
       fromBotId: "bot-asker",
       fromThreadId: "thread-asker-routine",
-      credentialId: "opencodeGoApiKey",
+      credentialId: "xaiApiKey",
       reason: "The selected model needs it.",
     });
     expect(JSON.stringify(lastCredentialBody)).not.toContain("secret");

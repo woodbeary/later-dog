@@ -616,7 +616,6 @@
   "signOut.tryAgain": "tente novamente em instantes.",
   "accounts.sheet.useCode": "Usar um código",
   "accounts.sheet.gettingReady": "Preparando {name}…",
-  "remote.pairOverTailscale": "Parear pelo Tailscale",
   "remote.account.retrying": "Tentando de novo…",
   "vm.state.inUse": "Em uso",
   "vm.state.running": "Em execução",

@@ -47,7 +47,9 @@ describe("the owner's Mac as a computer on a Cloud home", () => {
     expect(properties.surface!.enum).toEqual(["auto", "cloud", "mac"]);
     expect(properties.needs).toBeDefined();
     const shared = availableTools(profile()).find(entry => entry.name === "shared_computer")!;
-    expect(shared.description).toContain("no card");
+    expect(shared.description).toContain("If the person set that Mac to ask first");
+    expect(shared.description).toContain("or the Mac is set to Never, say so in one line and don't retry");
+    expect(shared.description).not.toMatch(/someone else's server|there is no card/);
     expect(availableTools(profile({ cloudHome: false })).find(entry => entry.name === "select_computer")!.description).not.toContain(COMPUTER_RULE);
   });
 });

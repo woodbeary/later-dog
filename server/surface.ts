@@ -92,8 +92,7 @@ export function surfaceLabel(surface: Surface): string {
 const RESTATE_SENTENCE =
   " Before your first action on a screen or page in a task, say in one short sentence where you are working, using that same name.";
 
-const PLACE_CONTROL = "the Computer panel";
-const ASK_TO_SWITCH = `explain the mismatch and ask the user to change where this conversation works in ${PLACE_CONTROL}`;
+const ASK_TO_SWITCH = "say so plainly";
 
 const SURFACE_AUTHORITY =
   ` For screen tasks, use later.dog's mounted computer tools first: inspect the target, perform the action, and verify its result before claiming success. Discover deferred tools by their server/name when needed. Do not substitute the provider's own desktop, a shell-launched browser, or another automation path for the selected later.dog computer. Ordinary code and file tasks may still use their normal tools. Announcing an action is not performing it. A request naming another place does not move these tools: this computer is the user's own computer and the cloud computer is the dog's own computer in the cloud. If the requested place differs from the mounted one, ${ASK_TO_SWITCH}; never act on a different computer.`;
@@ -105,7 +104,7 @@ const CLOUD_HOME_WORDING: ReadonlyArray<readonly [string, string]> = [
 
 export function surfacePrompt(
   mounted: MountedSurfaces,
-  opts: { pinned?: Surface | null; note?: string; canSelect?: boolean; cloudHome?: boolean } = {},
+  opts: { note?: string; canSelect?: boolean; cloudHome?: boolean } = {},
 ): string {
   const computer = mounted.computer ? surfaceLabel(mounted.computer) : null;
   let text = "";
@@ -117,16 +116,13 @@ export function surfacePrompt(
       ` Everything you do on screen happens on ${computer}, web pages included, through its own browser. If you need the user to sign in, tell them it is on ${computer}.`;
   } else if (mounted.browser) {
     text =
-      " Everything you do on screen happens in the built-in browser; there is no desktop, file or shell computer this turn. If you need the user to sign in, tell them it is in the built-in browser, in the Computer panel.";
+      " Everything you do on screen happens in the built-in browser; there is no desktop, file or shell computer this turn. If you need the user to sign in, tell them it is in the built-in browser.";
   }
   if (text) text += RESTATE_SENTENCE + (opts.canSelect
     ? SURFACE_AUTHORITY.replace(ASK_TO_SWITCH, "inspect connected choices with select_computer and select the requested available place; on a pending result end this turn so later.dog can reconnect the correct tools and continue the original request")
     : SURFACE_AUTHORITY);
   else if (!opts.note && !opts.canSelect) {
-    text = " No computer tools are mounted this turn. You cannot open apps, click, or inspect a screen through later.dog. If asked for screen work, explain this and ask the user to choose and connect a computer in the Computer panel; do not claim to have opened or checked it.";
-  }
-  if (opts.pinned) {
-    text += ` This conversation is pinned to ${surfaceLabel(opts.pinned)}; changing places requires ${opts.canSelect ? "select_computer or " : ""}the user's choice in ${PLACE_CONTROL}, not a different tool name.`;
+    text = " No computer tools are mounted this turn. You cannot open apps, click, or inspect a screen through later.dog. If asked for screen work, say so plainly; do not claim to have opened or checked it.";
   }
   if (opts.canSelect) text += " For a screen task, use select_computer with no arguments when you need to inspect the actual available targets. Choose the requested place from its result; if the user left the place open, use a suitable available target or surface auto instead of asking them to operate the menu. Choose before taking actions, and do not repeat actions already completed if the task must continue elsewhere. later.dog can start an existing configured computer and highlight the selected target. If the right tools are already mounted, use them directly. On a pending switch, end this turn: the original request resumes automatically with the new tools, and then you must carry out the task. Only ask for input for a genuine blocker, such as missing setup, required sign-in or an approval.";
   if (opts.canSelect) text += " If no suitable computer is running but its provider is configured, select_computer can provision one for this computer task; reuse existing resources first. Do not provision merely for ordinary chat or inspection.";

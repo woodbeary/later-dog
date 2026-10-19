@@ -47,15 +47,15 @@ hand a dog (`send_to_bot`, `ask_bot`, a room post and `coordinate_bots`) carry
 your authority; the handoff note says "one of <your name>'s own dogs, passing on
 <your name>'s instructions" instead of "not from your user".
 
-Your dogs also get a **standing grant**: you authorize them to commit, push
-branches, commit and push to the default branch, open, update and comment on
-pull requests, and run the repository's build, test and release scripts (beta
-and over-the-air updates included) when you, a routine or another of your dogs
-asks. The grant is in the dog's system prompt, which Codex's reviewer reads as
-developer instructions, and Claude Code's auto-mode reviewer gets it in the
-session's `--settings` as `autoMode.environment` and `autoMode.allow` entries
-after `"$defaults"`. Whether a reviewer then approves a given action is still
-its own decision; later.dog cannot overrule a reviewer that denies outright.
+The dog's system prompt says so in one neutral sentence: it is one of your own
+dogs, and what you ask and what your routines and other dogs pass on carries
+your authority. Claude Code's auto-mode reviewer also gets a **standing grant**
+in the session's `--settings` as `autoMode.environment` and `autoMode.allow`
+entries after `"$defaults"`: you authorize your dogs to commit, push branches,
+commit and push to the default branch, open, update and comment on pull
+requests, and run the repository's build, test and release scripts. Whether a
+reviewer then approves a given action is still its own decision; later.dog
+cannot overrule a reviewer that denies outright.
 
 Guests, the conversations they drive, and hosted or shared workspaces keep each
 dog's saved level, and a guest-driven turn always runs as Heel. In a shared

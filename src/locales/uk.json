@@ -687,7 +687,6 @@
   "signOut.tryAgain": "спробуйте ще раз за мить.",
   "accounts.sheet.useCode": "Натомість використати код",
   "accounts.sheet.gettingReady": "Підготовка {name}…",
-  "remote.pairOverTailscale": "Прив'язати через Tailscale",
   "remote.account.retrying": "Пробуємо ще раз…",
   "vm.state.inUse": "Використовується",
   "vm.state.running": "Працює",

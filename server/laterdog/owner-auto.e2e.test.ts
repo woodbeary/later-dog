@@ -191,7 +191,7 @@ it("with Auto-review off, an owner dog gets the standing grant its reviewer can 
   expect(turn.launch.settings.autoMode.allow[0]).toBe("$defaults");
   expect(turn.launch.settings.autoMode.allow[1]).toMatch(/^Owner Standing Authorization \(later\.dog\): Jacob has given this agent a standing authorization/);
   expect(turn.launch.settings.autoMode.environment[0]).toBe("$defaults");
-  expect(turn.launch.systemPrompt).toContain("Standing grant from Jacob");
+  expect(turn.launch.systemPrompt).toContain("You are one of Jacob's own dogs in Jacob's own later.dog workspace");
 
   const started = Date.now();
   const push = turn.ask("Bash", { command: "git push origin main" });
@@ -275,7 +275,7 @@ it("with Auto-review on, every owner dog runs under the engine's reviewer and wh
   const turn = await startTurn(once, "Commit the fix to main.");
   expect(turn.launch.argv[turn.launch.argv.indexOf("--permission-mode") + 1]).toBe("auto");
   expect(turn.launch.settings.autoMode.allow[1]).toMatch(/^Owner Standing Authorization \(later\.dog\)/);
-  expect(turn.launch.systemPrompt).toContain("Standing grant from Jacob");
+  expect(turn.launch.systemPrompt).toContain("You are one of Jacob's own dogs in Jacob's own later.dog workspace");
   const asked = turn.ask("Bash", { command: "git push origin main" });
   await expect.poll(() => turn.card(asked), { timeout: 15_000 }).toMatchObject({ requestType: "permission" });
   await new Promise((resolve) => setTimeout(resolve, 1000));

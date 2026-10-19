@@ -60,7 +60,6 @@ appears at the bottom of the sidebar, and **Restart to update** installs it.
   work with Claude Code. A card in the chat shows what it is doing; click it to follow its steps, see the changed files
   and watch its screen, then open a draft pull request with one click. Cloud tasks run on a later.dog supervisor you deploy to your
   own Cloudflare account ([how](docs/laterdog/cloudflare.md)), and they never merge anything.
-- **later.dog Cloud**, cloud computers and cloud tasks with nothing to set up, is coming soon at $10 a month.
 
 ## Send your agent
 

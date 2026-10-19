@@ -32,9 +32,9 @@ describe("botThreads", () => {
     expect(botThreads(store, me, "Sam")).toEqual([
       { threadId: "main", where: "1:1 with Sam", title: "Getting started", private: true },
       { threadId: "t-inv", where: "1:1 with Sam", title: "Invoice reconciliation", private: true },
-      { threadId: "room-ops", where: 'room "Ops"', title: null, private: false },
-      { threadId: "room-ops-t1", where: 'room "Ops"', title: "Deploy day", private: false },
-      { threadId: "dm-them", where: 'room "DM"', title: null, private: true },
+      { threadId: "room-ops", where: 'group chat "Ops"', title: null, private: false },
+      { threadId: "room-ops-t1", where: 'group chat "Ops"', title: "Deploy day", private: false },
+      { threadId: "dm-them", where: 'group chat "DM"', title: null, private: true },
     ]);
   });
 });
@@ -53,9 +53,10 @@ describe("recentWorkLines + recentWorkPrompt", () => {
     expect(lines.map((line) => line.threadId)).toEqual(["t-inv", "room-ops"]);
     expect(lines[0]).toMatchObject({ where: "1:1 with Sam", title: "Invoice reconciliation", private: true });
     const text = recentWorkPrompt(lines, now);
-    expect(text).toContain("Your recent work");
+    expect(text).toContain("Your recent work: the newest thing you said over the last two days in your chat with the person and in each group chat you are in");
+    expect(text).not.toMatch(/other conversations|\broom\b/);
     expect(text).toContain('- today 09:05 · 1:1 with Sam · "Invoice reconciliation" · you said: "Sent the three flagged invoices to finance; two are still missing a PO."');
-    expect(text).toContain('- yesterday 17:40 · room "Ops" · you said: "I\'ll take the deploy tomorrow morning."');
+    expect(text).toContain('- yesterday 17:40 · group chat "Ops" · you said: "I\'ll take the deploy tomorrow morning."');
     expect(text).toContain("session_search with since");
     expect(recentWorkPrompt([], now)).toBe("");
   });

@@ -610,7 +610,6 @@
   "signOut.tryAgain": "कुछ देर में फिर कोशिश करें।",
   "accounts.sheet.useCode": "इसके बजाय कोड इस्तेमाल करें",
   "accounts.sheet.gettingReady": "{name} को तैयार किया जा रहा है…",
-  "remote.pairOverTailscale": "Tailscale से जोड़ें",
   "remote.account.retrying": "फिर कोशिश जारी…",
   "vm.state.inUse": "इस्तेमाल में",
   "vm.state.running": "चल रहा है",

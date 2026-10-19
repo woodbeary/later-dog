@@ -1456,7 +1456,6 @@
   "accounts.included.allowance": "Free · a daily allowance that resets at midnight UTC",
   "accounts.included.badge": "Included",
   "accounts.included.off": "Not on yet",
-  "remote.pairOverTailscale": "Pair over Tailscale",
   "remote.account.retrying": "Trying again…",
   "vm.state.inUse": "In use",
   "vm.state.running": "Running",

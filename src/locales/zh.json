@@ -745,7 +745,6 @@
   "signOut.tryAgain": "请稍后重试。",
   "accounts.sheet.useCode": "改用验证码",
   "accounts.sheet.gettingReady": "正在准备 {name}…",
-  "remote.pairOverTailscale": "通过 Tailscale 配对",
   "remote.account.retrying": "正在重试…",
   "vm.state.inUse": "使用中",
   "vm.state.running": "运行中",
