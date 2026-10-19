@@ -283,7 +283,10 @@ describe("MCP tool execution", () => {
   it("routes bot and channel task mutations", async () => {
     const fetcher = vi.fn(async (path: string, options?: RequestInit) => {
       if (path === "/api/groups/channel-1/tasks") {
-        return { task: { threadId: "task-2", title: "Fresh" }, group: { threadId: "task-2" } };
+        return { task: { threadId: "task-2", title: "Fresh" }, group: { threadId: "task-1" } };
+      }
+      if (path === "/api/groups/channel-1/tasks/task-2?messages=0") {
+        return { group: { id: "channel-1", threadId: "task-2" } };
       }
       if (path === "/api/bots/bot-1/tasks/task-2?messages=0") {
         return {
@@ -298,8 +301,9 @@ describe("MCP tool execution", () => {
       return { path, method: options?.method, task: { threadId: "task-2", title: "Fresh" } };
     });
     const created: any = await handleToolCall("create_task", { target_type: "channel", target_id: "channel-1", title: "Fresh" }, fetcher);
-    expect(fetcher).toHaveBeenLastCalledWith("/api/groups/channel-1/tasks", expect.objectContaining({ method: "POST" }));
-    expect(created.task.taskId).toBe("task-2");
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/groups/channel-1/tasks", expect.objectContaining({ method: "POST" }));
+    expect(fetcher).toHaveBeenLastCalledWith("/api/groups/channel-1/tasks/task-2?messages=0", expect.objectContaining({ method: "POST" }));
+    expect(created.task).toMatchObject({ taskId: "task-2", active: true });
     const switched: any = await handleToolCall("switch_task", {
       target_type: "bot", target_id: "bot-1", task_id: "task-2",
     }, fetcher);

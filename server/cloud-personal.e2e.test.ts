@@ -139,7 +139,7 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
   expect((await turn(() => api("POST", `/api/bots/${before.roomBot.id}/messages`, { token: before.chatOnly, body: { text: "Hello.", threadId: before.theirs } }))).cwd).toBe(realpathSync(project()));
   await api("POST", `/api/bots/${before.roomBot.id}/interrupt`, { token: before.device, body: { threadId: before.theirs } });
   await idle(before.roomBot, before.device);
-  expect((await api("GET", "/api/bots", { token: before.device })).body.bots.find((bot: any) => bot.id === before.roomBot.id).threadId).toBe(before.theirs);
+  expect((await api("GET", "/api/bots", { token: before.device })).body.bots.find((bot: any) => bot.id === before.roomBot.id).threadId).toBe(before.roomBot.threadId);
   before.lead = await newBot("Lead");
   before.member = await newBot("Member");
   before.room = (await api("POST", "/api/groups", { token: before.device, body: { memberIds: [before.lead.id, before.member.id], name: "Team", setup: { bulletin: "", defaultResponder: { kind: "everyone" } } } })).body.group.id;

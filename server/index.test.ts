@@ -2011,6 +2011,8 @@ describe("harness HTTP API", () => {
       const nextTask = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Now active" });
       expect(nextTask.status).toBe(201);
       expect(nextTask.body.task.threadId).not.toBe(originalThreadId);
+      expect(nextTask.body.bot.threadId).toBe(originalThreadId);
+      expect((await api("POST", `/api/bots/${bot.id}/tasks/${nextTask.body.task.threadId}?messages=0`)).status).toBe(200);
 
       const inactiveRetry = await api("POST", `/api/bots/${bot.id}/messages`, request);
       expect(inactiveRetry.status).toBe(202);
@@ -2233,11 +2235,14 @@ describe("harness HTTP API", () => {
 
       const created = await api("POST", `/api/groups/${room.id}/tasks`, { title: "Launch plan" });
       expect(created.status).toBe(201);
-      expect(created.body.group.threadId).toBe(created.body.task.threadId);
-      expect(created.body.group.messages).toEqual([]);
+      expect(created.body.group.threadId).toBe(originalThread);
       expect(created.body.group.tasks).toHaveLength(2);
 
       const newThread = created.body.task.threadId;
+      const opened = await api("POST", `/api/groups/${room.id}/tasks/${newThread}`);
+      expect(opened.status).toBe(200);
+      expect(opened.body.group.threadId).toBe(newThread);
+      expect(opened.body.group.messages).toEqual([]);
       const renamed = await api("PATCH", `/api/groups/${room.id}/tasks/${newThread}`, {
         title: "Release plan",
       });
@@ -5867,6 +5872,7 @@ describe("harness HTTP API", () => {
       const created = await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Running task" });
       expect(created.status).toBe(201);
       runningTask = created.body.task.threadId;
+      expect((await api("POST", `/api/bots/${bot.id}/tasks/${runningTask}?messages=0`)).status).toBe(200);
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "keep running" })).status).toBe(202);
 
       await expect.poll(async () => {
@@ -5918,7 +5924,8 @@ describe("harness HTTP API", () => {
       );
       if (operation === "tasks") {
         expect(completed.status).toBe(201);
-        expect(current.threadId).toBe(completed.body.task.threadId);
+        expect(current.threadId).toBe(before.threadId);
+        expect(current.tasks.some((task: { threadId: string }) => task.threadId === completed.body.task.threadId)).toBe(true);
         expect(current.tasks).toHaveLength(before.tasks.length + 1);
         expect(completed.body.bot.modelSelection).toEqual(before.modelSelection);
         expect(completed.body.task.modelSelection).toEqual(before.modelSelection);

@@ -27,8 +27,12 @@ it("projects historical usage, clears it on thread switch, and refreshes after a
     appendUsage(dataDir, { ...recorded, threadId: bot.activeTaskId, at: "2026-01-01T00:00:00.000Z", input: 9000 });
     await flushUsageLedger(dataDir);
     expect((await read()).usage).toMatchObject({ input: 100, output: 10, cachedInput: 80, turns: 1, lastSpeaker: { botId: bot.id, name: bot.name } });
-    const fresh = await post(`/api/groups/${group.id}/tasks`, { title: "Other thread" });
-    expect(fresh.threadId).not.toBe(group.activeTaskId);
+    const opened = await fetch(url + `/api/groups/${group.id}/tasks`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: "Other thread" }) });
+    const created = await opened.json() as { group: WireGroup; task: { threadId: string } };
+    expect(opened.status, JSON.stringify(created)).toBe(201);
+    expect(created.group.threadId).toBe(group.activeTaskId);
+    const fresh = await post(`/api/groups/${group.id}/tasks/${created.task.threadId}`);
+    expect(fresh.threadId).toBe(created.task.threadId);
     expect(fresh.usage).toBeNull();
     const restored = await post(`/api/groups/${group.id}/tasks/${group.activeTaskId}`);
     expect(restored.usage?.input).toBe(100);

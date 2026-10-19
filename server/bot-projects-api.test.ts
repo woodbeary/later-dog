@@ -55,6 +55,7 @@ describe("organizational folders through an isolated HTTP fixture", () => {
     const other = (await api("POST", `/api/bots/${bot.id}/projects`, { name: "Research", emoji: "🔬" })).body.project;
     const first = (await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Landing page", projectId })).body.task;
     expect(first).toMatchObject({ projectId, modelSelection: selection(models[0]) });
+    expect((await api("POST", `/api/bots/${bot.id}/tasks/${first.threadId}?messages=0`)).status).toBe(200);
     expect((await api("PATCH", `/api/bots/${bot.id}/tasks/${first.threadId}`, { modelSelection: selection(models[1]) })).status).toBe(200);
     expect(first.cwd).toBeUndefined();
     expect((await api("POST", `/api/bots/${bot.id}/messages`, { threadId: first.threadId, text: "Keep this project's conversation" })).status).toBe(202);

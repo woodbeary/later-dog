@@ -1083,7 +1083,8 @@ export async function handleToolCall(
       if (!isRecord(result?.task) || typeof result.task.threadId !== "string") {
         throw new Error("later.dog did not return the created task");
       }
-      const activeTaskId = result.bot?.threadId ?? result.group?.threadId ?? result.task?.threadId;
+      const opened = await fetcher(`${route}/${encodeURIComponent(result.task.threadId)}?messages=0`, { method: "POST", body: "{}" });
+      const activeTaskId = opened?.bot?.threadId ?? opened?.group?.threadId ?? result.task.threadId;
       return {
         success: true,
         targetType: args.target_type,

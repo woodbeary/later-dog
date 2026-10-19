@@ -53,6 +53,7 @@ describe("paired thread targets through an isolated HTTP fixture", () => {
     const userA = beforeA.messages.find((message: any) => message.role === "user" && message.text === "Original A");
     expect(userA).toBeTruthy();
     const threadB = (await api("POST", `/api/bots/${bot.id}/tasks`, { title: "B" })).body.task.threadId;
+    expect((await api("POST", `/api/bots/${bot.id}/tasks/${threadB}?messages=0`)).status).toBe(200);
     const beforeB = await page(threadB);
     const actions: Array<[string, string, unknown?]> = [
       ["POST", "/messages", { text: "Must not reach B" }],

@@ -108,9 +108,14 @@ describe("transcript pages on bot and room frames", () => {
     }
 
     let created: { threadId: string } | undefined;
-    const opened = await framesFor("bot", bot.id, async () => {
+    const added = await framesFor("bot", bot.id, async () => {
       created = (await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Short" })).body.task;
     });
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatchObject({ threadId: bot.threadId });
+    expect(added[0]).not.toHaveProperty("messages");
+
+    const opened = await framesFor("bot", bot.id, () => api("POST", `/api/bots/${bot.id}/tasks/${created!.threadId}?messages=0`));
     expect(opened).toHaveLength(1);
     expect(opened[0]).toMatchObject({ threadId: created!.threadId, messages: [], hasMore: false });
 
@@ -129,6 +134,7 @@ describe("transcript pages on bot and room frames", () => {
     const desktop = await import(pathToFileURL(join(ROOT, "src", "state", "store.tsx")).href);
     const bot = await longBot();
     const open = (await api("POST", `/api/bots/${bot.id}/tasks`, { title: "Open in window B" })).body.task;
+    expect((await api("POST", `/api/bots/${bot.id}/tasks/${open.threadId}?messages=0`)).status).toBe(200);
     const hydrated = (await api("GET", "/api/bots?messages=50")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id);
     let windowB = { ...desktop.initialState, bots: [hydrated], selectedId: bot.id };
     expect(windowB.bots[0].threadId).toBe(open.threadId);
@@ -149,7 +155,14 @@ describe("transcript pages on bot and room frames", () => {
     let windowB = { ...desktop.initialState, bots: [hydrated], selectedId: bot.id };
     expect(windowB.bots[0].hasMore).toBe(true);
 
-    const frames = await framesFor("bot", bot.id, () => api("POST", `/api/bots/${bot.id}/tasks`, { title: "From the phone" }));
+    let fromPhone: { threadId: string } | undefined;
+    const added = await framesFor("bot", bot.id, async () => {
+      fromPhone = (await api("POST", `/api/bots/${bot.id}/tasks`, { title: "From the phone" })).body.task;
+    });
+    expect(added).toHaveLength(1);
+    expect(added[0]).not.toHaveProperty("messages");
+    for (const frame of added) windowB = desktop.reducer(windowB, { type: "botPatched", bot: frame });
+    const frames = await framesFor("bot", bot.id, () => api("POST", `/api/bots/${bot.id}/tasks/${fromPhone!.threadId}?messages=0`));
     expect(frames).toHaveLength(1);
     expect(frames[0]).toMatchObject({ messages: [], hasMore: false });
     for (const frame of frames) windowB = desktop.reducer(windowB, { type: "botPatched", bot: frame });
@@ -190,9 +203,14 @@ describe("transcript pages on bot and room frames", () => {
     }
 
     let task: { threadId: string } | undefined;
-    const opened = await framesFor("group", room.id, async () => {
+    const added = await framesFor("group", room.id, async () => {
       task = (await api("POST", `/api/groups/${room.id}/tasks`, { title: "Side" })).body.task;
     });
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatchObject({ threadId: room.threadId });
+    expect(added[0]).not.toHaveProperty("messages");
+
+    const opened = await framesFor("group", room.id, () => api("POST", `/api/groups/${room.id}/tasks/${task!.threadId}?messages=0`));
     expect(opened).toHaveLength(1);
     expect(opened[0]).toMatchObject({ threadId: task!.threadId, messages: [], hasMore: false });
 

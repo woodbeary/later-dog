@@ -176,8 +176,8 @@ describe("removing the Computer engine", () => {
     await server.start();
     const [starter] = await server.bots();
     const { task: opened } = await server.api("POST", `/api/bots/${starter.id}/tasks`, {});
-    const main = opened.threadId;
-    const other = starter.threadId;
+    const main = starter.threadId;
+    const other = opened.threadId;
     const { bot: auto } = await server.api("POST", "/api/bots", { name: "Atlas" });
     const { bot: mixed } = await server.api("POST", "/api/bots", { name: "Iris" });
     const { task: mixedConversation } = await server.api("POST", `/api/bots/${mixed.id}/tasks`, {});
