@@ -1,21 +1,12 @@
 {
   "phase": "http_request_firewall_managed",
+  "logModeSince": "2026-10-19",
   "logModeHours": 48,
   "rules": [
     {
-      "ref": "managed-site",
-      "description": "Cloudflare Managed Ruleset with its own actions (block) on the marketing site",
-      "expression": "(http.host in {\"later.dog\" \"www.later.dog\"})",
-      "action": "execute",
-      "action_parameters": {
-        "id": "efb7b8c949ac4650a09736fc376e9aee"
-      },
-      "enabled": true
-    },
-    {
-      "ref": "managed-apps",
-      "description": "Cloudflare Managed Ruleset in log mode on accounts, cloud and homes; drop the override after 48 h without false positives",
-      "expression": "(http.host in {\"accounts.later.dog\" \"cloud.later.dog\"} or http.host wildcard \"*-home.later.dog\")",
+      "ref": "managed-all-log",
+      "description": "Cloudflare Managed Ruleset in log mode on later.dog and every subdomain; switch to the ruleset's own actions after 48 h without false positives",
+      "expression": "(http.host eq \"later.dog\" or ends_with(http.host, \".later.dog\"))",
       "action": "execute",
       "action_parameters": {
         "id": "efb7b8c949ac4650a09736fc376e9aee",

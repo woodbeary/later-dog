@@ -72,6 +72,43 @@ export function validateRateLimits(file) {
   return problems;
 }
 
+export function validateManagedRules(file) {
+  const problems = [];
+  const refs = new Set();
+  const executed = new Map();
+  for (const rule of file.rules) {
+    if (!rule.ref) problems.push(`a rule has no ref: ${rule.description}`);
+    if (refs.has(rule.ref)) problems.push(`ref ${rule.ref} is used twice`);
+    refs.add(rule.ref);
+    if (rule.action !== "execute") continue;
+    const ruleset = rule.action_parameters?.id;
+    if (!ruleset) {
+      problems.push(`${rule.ref}: execute needs action_parameters.id`);
+      continue;
+    }
+    if (executed.has(ruleset)) problems.push(`${rule.ref} and ${executed.get(ruleset)} both execute ${ruleset}; Cloudflare refuses a second rule for the same managed ruleset, so cover every host in one rule`);
+    else executed.set(ruleset, rule.ref);
+  }
+  if (file.logModeSince !== undefined) {
+    if (Number.isNaN(logModeStart(file.logModeSince))) problems.push(`logModeSince ${file.logModeSince} is not a YYYY-MM-DD date or an ISO timestamp`);
+    if (!(Number.isFinite(file.logModeHours) && file.logModeHours > 0)) problems.push("logModeHours must be a positive number of hours when logModeSince is set");
+  }
+  return problems;
+}
+
+const logModeStart = (since) => Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(since) ? `${since}T00:00:00Z` : since);
+
+export function logModeDue(since, hours) {
+  if (!since) return null;
+  const start = logModeStart(since);
+  if (Number.isNaN(start) || !(Number.isFinite(hours) && hours > 0)) return null;
+  const due = new Date(start + hours * 3600 * 1000).toISOString();
+  return /^\d{4}-\d{2}-\d{2}$/.test(since) ? due.slice(0, 10) : `${due.slice(0, 16).replace("T", " ")}Z`;
+}
+
+const overridesOf = (rule) => rule?.action_parameters?.overrides ?? {};
+export const loggedOnly = (rule) => overridesOf(rule).action === "log";
+
 export function resolveSpendRules(rules, env) {
   const notes = [];
   const resolved = [];
@@ -102,12 +139,15 @@ export function loadDesired(dir = EDGE_DIR, env = process.env) {
   const workersDev = readJson(dir, "workers-dev.json");
   const problems = validateRateLimits(rateLimits);
   if (problems.length) throw new Error(`rate-limits.json: ${problems.join("; ")}`);
+  const managedProblems = validateManagedRules(managed);
+  if (managedProblems.length) throw new Error(`managed-rules.json: ${managedProblems.join("; ")}`);
   const spend = resolveSpendRules(gateway.spendLimits.rules, env);
   return {
     zoneName: zone.name,
     workerOrigins: zone.workerOrigins,
     rulesets: { [rateLimits.phase]: rateLimits.rules, [managed.phase]: managed.rules },
     logModeHours: managed.logModeHours,
+    logModeSince: managed.logModeSince,
     bots: bots.settings,
     gateway: {
       id: gateway.id,
@@ -254,6 +294,14 @@ function step(id, title) {
 const cleanRule = (rule) => omit(rule, RULE_SERVER_FIELDS);
 const ruleName = (rule) => rule.ref ?? rule.id ?? rule.description;
 
+const sameOverrides = (want, have) => matches(overridesOf(want), overridesOf(have)) && matches(overridesOf(have), overridesOf(want));
+
+export function ruleChanges(want, have) {
+  const changed = Object.keys(cleanRule(want)).filter((field) => !matches(want[field], have[field]));
+  if (!changed.includes("action_parameters") && !sameOverrides(want, have)) changed.push("action_parameters");
+  return changed;
+}
+
 function rulesetStep(id, title, phase, wanted, current, { zonePath, prune }) {
   const result = step(id, title);
   const have = current ?? [];
@@ -261,8 +309,8 @@ function rulesetStep(id, title, phase, wanted, current, { zonePath, prune }) {
   for (const rule of wanted) {
     const existing = have.find((candidate) => candidate.ref === rule.ref);
     if (!existing) result.lines.push(`+ ${rule.ref}  ${rule.description ?? ""}`.trimEnd());
-    else if (!matches(cleanRule(rule), existing)) {
-      const changed = Object.keys(cleanRule(rule)).filter((field) => !matches(rule[field], existing[field]));
+    else {
+      const changed = ruleChanges(rule, existing);
       for (const field of changed) result.lines.push(`~ ${rule.ref}.${field}: ${show(existing[field])} -> ${show(rule[field])}`);
     }
   }
@@ -422,9 +470,12 @@ export function plan(desired, state, { origins = [], prune = false } = {}) {
   const zonePath = `/zones/${state.zone.id}`;
   const accountPath = `/accounts/${state.zone.accountId}`;
   const [rateLimitPhase, managedPhase] = Object.keys(desired.rulesets);
-  const managed = rulesetStep("managed-rules", "Cloudflare Managed Ruleset (block on the site, log on the apps)", managedPhase, desired.rulesets[managedPhase], state.rulesets[managedPhase], { zonePath, prune });
-  const logged = desired.rulesets[managedPhase].filter((rule) => rule.action_parameters?.overrides?.action === "log").map((rule) => rule.ref);
-  if (logged.length && !desired.rollback) managed.notes.push(`${logged.join(", ")} only log; after ${desired.logModeHours} h with no false positives in Security > Events, delete the overrides in managed-rules.json and apply again`);
+  const logged = desired.rulesets[managedPhase].filter(loggedOnly).map((rule) => rule.ref);
+  const mode = logged.length ? "in log mode" : "with its own actions";
+  const managed = rulesetStep("managed-rules", `Cloudflare Managed Ruleset ${mode} on every later.dog host`, managedPhase, desired.rulesets[managedPhase], state.rulesets[managedPhase], { zonePath, prune });
+  const due = logModeDue(desired.logModeSince, desired.logModeHours);
+  const when = due ? `logging since ${desired.logModeSince}; from ${due}` : `after ${desired.logModeHours ?? 48} h`;
+  if (logged.length && !desired.rollback) managed.notes.push(`${logged.join(", ")} only log, ${when}, if Security > Events shows no false positives, delete the overrides in managed-rules.json so the ruleset's own actions apply, and apply again`);
   return [
     rulesetStep("rate-limits", "Zone rate limiting R1-R5", rateLimitPhase, desired.rulesets[rateLimitPhase], state.rulesets[rateLimitPhase], { zonePath, prune }),
     managed,

@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -9,6 +9,7 @@ import {
   createReplayApi,
   effectiveRecords,
   loadDesired,
+  logModeDue,
   main,
   matches,
   parseArgs,
@@ -16,6 +17,7 @@ import {
   readState,
   requestKey,
   rollbackDesired,
+  validateManagedRules,
   validateRateLimits,
 } from "./edge-apply.mjs";
 
@@ -137,14 +139,14 @@ function ruleMatches(expression: string, request: Request): boolean {
       next();
       return !primary();
     }
-    if (token === "starts_with") {
+    if (token === "starts_with" || token === "ends_with") {
       next();
       expect_("(");
       const value = field();
       expect_(",");
-      const prefix = text();
+      const affix = text();
       expect_(")");
-      return value.startsWith(prefix);
+      return token === "starts_with" ? value.startsWith(affix) : value.endsWith(affix);
     }
     const value = field();
     const operator = next();
@@ -256,13 +258,46 @@ describe("the edge files", () => {
     expect(ruleMatches(r5.expression, { host: "cloud.later.dog", method: "GET", path: "/" })).toBe(false);
   });
 
-  it("run the Cloudflare Managed Ruleset blocking on the site and only logging on the app hosts", () => {
-    const [site, apps] = loadDesired(EDGE_DIR, {}).rulesets.http_request_firewall_managed;
-    expect(site.action_parameters).toEqual({ id: MANAGED_RULESET });
-    expect(site.expression).not.toContain("cloud.later.dog");
-    expect(apps.action_parameters).toEqual({ id: MANAGED_RULESET, overrides: { action: "log" } });
-    expect(apps.expression).toContain("accounts.later.dog");
-    expect(apps.expression).toContain("*-home.later.dog");
+  it("run the Cloudflare Managed Ruleset in one log-mode rule over later.dog and every subdomain, as applied live", () => {
+    const desired = loadDesired(EDGE_DIR, {});
+    const rules = desired.rulesets.http_request_firewall_managed;
+    expect(rules.map((rule: { ref: string }) => rule.ref)).toEqual(["managed-all-log"]);
+    const [all] = rules;
+    expect(all.expression).toBe('(http.host eq "later.dog" or ends_with(http.host, ".later.dog"))');
+    expect(all.action).toBe("execute");
+    expect(all.action_parameters).toEqual({ id: MANAGED_RULESET, overrides: { action: "log" } });
+    for (const host of ["later.dog", "www.later.dog", "accounts.later.dog", "cloud.later.dog", "jacob-home.later.dog"]) {
+      expect(ruleMatches(all.expression, { host, method: "GET", path: "/" }), host).toBe(true);
+    }
+    for (const host of ["notlater.dog", "later.dog.example.com", "laterdog-computers.example.workers.dev"]) {
+      expect(ruleMatches(all.expression, { host, method: "GET", path: "/" }), host).toBe(false);
+    }
+    expect(desired.logModeSince).toBe("2026-10-19");
+    expect(logModeDue(desired.logModeSince, desired.logModeHours)).toBe("2026-10-21");
+    expect(logModeDue("2026-10-19T17:40:00Z", 48)).toBe("2026-10-21 17:40Z");
+    expect(logModeDue("2026-10-19", undefined)).toBeNull();
+    expect(logModeDue(undefined, 48)).toBeNull();
+  });
+
+  it("refuse two rules that execute the same managed ruleset, which Cloudflare rejects", () => {
+    const file = JSON.parse(readFileSync(join(EDGE_DIR, "managed-rules.json"), "utf8"));
+    expect(validateManagedRules(file)).toEqual([]);
+    const [rule] = file.rules;
+    const site = { ...rule, ref: "managed-site", expression: '(http.host eq "later.dog")', action_parameters: { id: MANAGED_RULESET } };
+    expect(validateManagedRules({ ...file, rules: [site, rule] })).toEqual([
+      `managed-all-log and managed-site both execute ${MANAGED_RULESET}; Cloudflare refuses a second rule for the same managed ruleset, so cover every host in one rule`,
+    ]);
+    expect(validateManagedRules({ ...file, rules: [rule, { ...rule }] })).toContain("ref managed-all-log is used twice");
+    expect(validateManagedRules({ ...file, rules: [{ ...rule, action_parameters: {} }] })).toEqual(["managed-all-log: execute needs action_parameters.id"]);
+    expect(validateManagedRules({ ...file, logModeSince: "soon" })).toEqual(["logModeSince soon is not a YYYY-MM-DD date or an ISO timestamp"]);
+    expect(validateManagedRules({ ...file, logModeHours: undefined })).toEqual(["logModeHours must be a positive number of hours when logModeSince is set"]);
+    expect(validateManagedRules({ ...file, logModeHours: 0 })).toEqual(["logModeHours must be a positive number of hours when logModeSince is set"]);
+    expect(validateManagedRules({ ...file, logModeSince: undefined, logModeHours: undefined })).toEqual([]);
+    const directory = mkdtempSync(join(tmpdir(), "edge-managed-"));
+    directories.push(directory);
+    for (const name of readdirSync(EDGE_DIR)) writeFileSync(join(directory, name), readFileSync(join(EDGE_DIR, name)));
+    writeFileSync(join(directory, "managed-rules.json"), JSON.stringify({ ...file, rules: [site, rule] }));
+    expect(() => loadDesired(directory, {})).toThrow("managed-rules.json: managed-all-log and managed-site both execute");
   });
 
   it("keep the ElevenLabs spend rule out until its dollar amount is set, and refuse nonsense", () => {
@@ -296,12 +331,34 @@ describe("planning against the zone", () => {
     expect(byId(steps, "dns").calls.map((call) => `${call.method} ${call.path} ${call.body?.type}`)).toEqual([`PUT /zones/${ZONE}/dns_records/apex AAAA`, `PUT /zones/${ZONE}/dns_records/www AAAA`]);
     expect(byId(steps, "zone-settings").calls.map((call) => call.path.split("/").pop())).toEqual(["always_use_https", "min_tls_version", "security_header", "brotli", "http3"]);
     expect(byId(steps, "workers-dev").calls).toEqual([]);
+    expect(byId(steps, "managed-rules").calls).toEqual([{ method: "PUT", path: `/zones/${ZONE}/rulesets/phases/http_request_firewall_managed/entrypoint`, body: { rules: desired.rulesets.http_request_firewall_managed } }]);
+    expect(byId(steps, "managed-rules").notes).toContain(
+      "managed-all-log only log, logging since 2026-10-19; from 2026-10-21, if Security > Events shows no false positives, delete the overrides in managed-rules.json so the ruleset's own actions apply, and apply again",
+    );
   });
 
   it("reads ok everywhere once the zone matches the files", async () => {
     const { desired, state } = await liveState();
     const steps = plan(desired, appliedState(desired, state), { origins: [] });
     expect(steps.filter((step: { status: string }) => step.status !== "ok").map((step: { id: string }) => step.id)).toEqual([]);
+  });
+
+  it("notices the switch out of log mode when the file drops the overrides the live rule still has", async () => {
+    const { desired, state } = await liveState();
+    const applied = appliedState(desired, state);
+    expect(byId(plan(desired, applied), "managed-rules")).toMatchObject({ status: "ok", title: "Cloudflare Managed Ruleset in log mode on every later.dog host" });
+    const [logging] = desired.rulesets.http_request_firewall_managed;
+    const enforcing = { ...logging, action_parameters: { id: MANAGED_RULESET } };
+    const switched = { ...desired, rulesets: { ...desired.rulesets, http_request_firewall_managed: [enforcing] } };
+    const step = byId(plan(switched, applied), "managed-rules");
+    expect(step.title).toBe("Cloudflare Managed Ruleset with its own actions on every later.dog host");
+    expect(step.status).toBe("change");
+    expect(step.lines).toEqual([`~ managed-all-log.action_parameters: ${JSON.stringify({ id: MANAGED_RULESET, overrides: { action: "log" } })} -> ${JSON.stringify({ id: MANAGED_RULESET })}`]);
+    expect(step.calls).toEqual([{ method: "PUT", path: `/zones/${ZONE}/rulesets/phases/http_request_firewall_managed/entrypoint`, body: { rules: [enforcing] } }]);
+    expect(step.notes.join("\n")).not.toContain("only log");
+    const versioned = { ...applied, rulesets: { ...applied.rulesets, http_request_firewall_managed: [{ ...applied.rulesets.http_request_firewall_managed[0], action_parameters: { id: MANAGED_RULESET, version: "latest" } }] } };
+    expect(byId(plan(switched, versioned), "managed-rules").status).toBe("ok");
+    expect(byId(plan(desired, versioned), "managed-rules").lines).toEqual([`~ managed-all-log.action_parameters: ${JSON.stringify({ id: MANAGED_RULESET, version: "latest" })} -> ${JSON.stringify({ id: MANAGED_RULESET, overrides: { action: "log" } })}`]);
   });
 
   it("refuses to drop rules someone added in the dashboard unless told to prune", async () => {

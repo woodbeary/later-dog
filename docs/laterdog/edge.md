@@ -52,7 +52,7 @@ address section below), so watch Security, Events after applying. Steps that can
 | # | Step | What it sets | File |
 | --- | --- | --- | --- |
 | 1 | `rate-limits` | R1 to R5 below | `rate-limits.json` |
-| 2 | `managed-rules` | Cloudflare Managed Ruleset: its own actions (block) on `later.dog` and `www`, log only on `accounts.`, `cloud.` and `*-home.` | `managed-rules.json` |
+| 2 | `managed-rules` | Cloudflare Managed Ruleset in log mode on `later.dog` and every subdomain, in one rule | `managed-rules.json` |
 | 3 | `bots` | Bot classes stay at allow, no JavaScript detections | `bots.json` |
 | 4 | `ai-gateway` | Gateway `laterdog` with spend limits (the money kill switch) | `ai-gateway.json` |
 | 5 | `dns` | Apex and `www` become `AAAA 100::` (proxied) instead of the Namecheap parking records | `zone.json` |
@@ -120,10 +120,21 @@ match them.
 
 ### 2. Managed Ruleset
 
-The site gets the Cloudflare Managed Ruleset with its default actions, which block. The app hosts get the same ruleset
-with every action overridden to `log`. After 48 hours, look at Security, Events, filtered to the Managed Ruleset and the
-three app hosts. If nothing real was caught, delete the `overrides` block from the `managed-apps` rule in
-`managed-rules.json` and apply again; the dry run reminds you while log mode is on.
+One rule, `managed-all-log`, runs the Cloudflare Managed Ruleset on `later.dog` and every subdomain
+(`http.host eq "later.dog" or ends_with(http.host, ".later.dog")`), with every action overridden to `log`. It is one rule
+because Cloudflare refuses a second rule that executes the same managed ruleset, so a blocking rule for the site and a
+logging rule for the apps cannot both exist. The script checks this before it reads anything: `managed-rules.json` with two
+rules executing one ruleset stops with an error.
+
+Log mode started on 2026-10-19 (`logModeSince`), for 48 hours (`logModeHours`). From 2026-10-21, look at Security, Events,
+filtered to the Managed Ruleset. If nothing real was caught, delete the `overrides` block from `managed-all-log` in
+`managed-rules.json` so the ruleset's own actions (block) apply on every host, drop "in log mode" from its `description`
+and remove `logModeSince` and `logModeHours`, then apply `--only=managed-rules`. The dry run compares `overrides` both ways,
+so a live rule that still logs while the file has none shows as `~ managed-all-log.action_parameters` and is put back with
+the ruleset's own actions; the step's title says "in log mode" or "with its own actions" from the file. The dry run reminds
+you, with the date, while log mode is on. `logModeSince` may be a date (counted from 00:00Z) or a full ISO timestamp for
+the exact 48 h. If something real was caught on an app host, add a skip or a narrower override for that rule instead,
+still inside this one rule.
 
 ### 3. Bots
 
@@ -145,14 +156,15 @@ Kimi included once Kimi goes through `laterdog`, and the free AI and voice go da
 | --- | --- | --- |
 | `grok-daily` | grok | $40 |
 | `anthropic-daily` | anthropic | $16 |
-| `elevenlabs-daily` | elevenlabs | `LATERDOG_EDGE_ELEVENLABS_USD_PER_DAY` (left out while unset) |
+| `elevenlabs-daily` | elevenlabs | `LATERDOG_EDGE_ELEVENLABS_USD_PER_DAY` (left out while unset; keep it unset until the ElevenLabs key is on the gateway) |
 | `all-daily` | every provider | $250 |
 
 `byok_only` ("Require provider credentials") stays off until provider keys for grok and anthropic are stored on the
 gateway; the dry run after that turns it on.
 
-Creating the gateway changes nothing by itself: the Cloud Worker keeps calling `AI_GATEWAY_ID=default` until that var in
-`deploy/laterdog/computers/wrangler.jsonc` says `laterdog` and the Worker is deployed. Before switching it:
+Creating the gateway changes nothing by itself, and its spend limits count nothing yet: the Cloud Worker keeps calling
+`AI_GATEWAY_ID=default` until that var in `deploy/laterdog/computers/wrangler.jsonc` says `laterdog` and the computers
+Worker is deployed. Until then no traffic goes through `laterdog`, so these caps are not a kill switch. Before switching it:
 
 1. Open the `laterdog` gateway's spend limits in the dashboard and check each rule reads as one day. The API only says
    `window` is a whole number; this file sends `86400` on the guess that it means seconds. If the dashboard shows
@@ -241,18 +253,42 @@ check blocked `--only=ssl-strict` on both parking origins. To record your own, s
 `{"GET <path>?<sorted query>": {"result": …, "result_info": …}}` (or `{"error": {"status", "errors"}}`) and pass the file
 to `--replay`.
 
+## Applied 2026-10-19
+
+What the live account holds after the 2026-10-19 apply, as reported by the person who applied it (this record was not
+re-read from the API when written):
+
+- `http_ratelimit`: R1 to R5, exactly as `rate-limits.json`. That the zone took R4's `starts_with` and R5's `wildcard`
+  rests on this same report.
+- `http_request_firewall_managed`: one rule, `managed-all-log`, expression
+  `(http.host eq "later.dog" or ends_with(http.host, ".later.dog"))`, executing `efb7b8c949ac4650a09736fc376e9aee` with
+  `overrides: { action: "log" }`. The first version of this file had two rules (block on the site, log on the apps);
+  Cloudflare refused the second rule executing the same managed ruleset, which is why the file now has one.
+- AI Gateway `laterdog` with spend limits `grok-daily` $40, `anthropic-daily` $16 and `all-daily` $250. No
+  `elevenlabs-daily` rule: `LATERDOG_EDGE_ELEVENLABS_USD_PER_DAY` stays unset until Jacob adds the ElevenLabs key.
+
+Follow-ups:
+
+1. From 2026-10-21 (48 hours of log mode): check Security, Events for the Managed Ruleset. With no false positives, delete
+   the `overrides` block from `managed-all-log` (and the log-mode words and fields, as in section 2), run the dry run (it
+   should show `~ managed-all-log.action_parameters` with the `log` override going away, plus the `description` line), then
+   apply `--only=managed-rules` and run the dry run again until `managed-rules` reads `ok`. A test in
+   `scripts/edge-apply.test.ts` plans exactly this switch against a live rule that still logs.
+2. The gateway caps only count once the computers Worker is deployed with `AI_GATEWAY_ID=laterdog`. Do the window check
+   in section 4 first, then switch the var and deploy.
+3. Run the dry run with a read token: `rate-limits`, `managed-rules` and `ai-gateway` should read `ok`. Anything else means
+   the live zone and these files differ; copy the live change back here or apply.
+
 ## Not verified yet
 
 - The spend-limit `window` is taken to be seconds (86400 = one day), like the gateway's other intervals. The check in
   section 4 must pass before `AI_GATEWAY_ID` is switched.
 - Which address Cloud home traffic to `cloud.later.dog` carries, and how many homes share it. R4 leaves the included,
   computer, trial and plan routes out for that reason; R4 and R5 still count whatever else homes send.
-- Whether this zone's rate-limit expressions accept `starts_with` (R4). The API names the problem if not.
+- That the live zone matches the "Applied 2026-10-19" record; no dry run with a token has read it back yet.
 - Whether spend limits count requests sent with `collectLog: false`, and whether they price BYOK ElevenLabs. The
   ElevenLabs key's own credit quota stays the real cap there.
 - Whether `byok_only` affects Workers AI (Kimi) calls through the gateway. Try it on a test gateway before the keys go in.
 - Whether `PUT` may change a DNS record's type (A or CNAME to AAAA). If Cloudflare refuses, the step stops at its first
   call with nothing changed; then delete the record and add the AAAA in the dashboard.
-- Whether this zone's entitlement accepts the `wildcard` operator in rate-limit expressions. The API names the problem if
-  not.
 - Rate-limit counters are kept per data centre, so a flood spread across many locations is counted in parts.
