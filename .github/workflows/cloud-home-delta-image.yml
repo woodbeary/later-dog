@@ -2,8 +2,8 @@ name: Cloud home delta image
 on:
   workflow_dispatch:
     inputs:
-      base_sha:
-        description: Commit whose Cloud home image is already in Cloudflare's registry
+      base_tag:
+        description: Tag of a GHCR later-dog-home image whose layers are already in Cloudflare's registry
         type: string
         default: 38ca13c53e9c181e386e5fa2f28d0185ce86379f
 permissions:
@@ -18,8 +18,8 @@ jobs:
     timeout-minutes: 90
     env:
       FULL: laterdog-home-full:${{ github.sha }}
-      BASE: ghcr.io/${{ github.repository_owner }}/later-dog-home:${{ inputs.base_sha }}
-      DELTA: ghcr.io/${{ github.repository_owner }}/later-dog-home:${{ github.sha }}-on-${{ inputs.base_sha }}
+      BASE: ghcr.io/${{ github.repository_owner }}/later-dog-home:${{ inputs.base_tag }}
+      DELTA: ghcr.io/${{ github.repository_owner }}/later-dog-home:${{ github.sha }}-delta-${{ github.run_number }}
       HOME_HOST: h000000000000000000000000-home.later.dog
     steps:
       - name: Make room for three images and two exported file trees
