@@ -53,8 +53,8 @@ jobs:
           export_tree "$BASE" base-fs
           export_tree "$FULL" full-fs
           sudo rsync -rlpgoD --checksum --numeric-ids --delete --dry-run --exclude=/proc --exclude=/sys --exclude=/dev --exclude=/.dockerenv --exclude=/etc/hosts --exclude=/etc/hostname --exclude=/etc/resolv.conf --out-format='%i|%n' full-fs/ base-fs/ > changes.txt
-          grep -v '^\*deleting|' changes.txt | cut -d'|' -f2- | sed 's#/$##' | grep -v '^\.\?$' > changed.txt || true
-          grep '^\*deleting|' changes.txt | cut -d'|' -f2- | sed 's#/$##' > deleted.txt || true
+          grep -v '^\*deleting' changes.txt | cut -d'|' -f2- | sed 's#/$##' | grep -v '^\.\?$' > changed.txt || true
+          grep '^\*deleting' changes.txt | cut -d'|' -f2- | sed 's#/$##' > deleted.txt || true
           mkdir -p ctx
           sudo tar -C full-fs --numeric-owner --no-recursion -cpf ctx/delta.tar -T changed.txt
           sudo chown "$(id -u)" ctx/delta.tar
