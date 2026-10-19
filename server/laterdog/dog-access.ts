@@ -1,7 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { createJobSchema, type Job, type WorkspaceSnapshot } from "../../shared/laterdog.ts";
-import type { BridgeRequest } from "./bridge-store.ts";
 import { desktopSupervisorToken, supervisorOrigin } from "./config.ts";
 import { observationSchema } from "./observations.ts";
 import type { WorkspaceStore } from "./store.ts";
@@ -55,15 +54,13 @@ const DOG_ROUTES: { method: string; path: RegExp; job?: "read" | "act" }[] = [
   { method: "GET", path: /^\/v1\/profiles\/[a-zA-Z0-9_-]+\/access$/ },
   { method: "GET", path: /^\/v1\/profiles\/[a-zA-Z0-9_-]+\/tasks$/ },
   { method: "POST", path: /^\/v1\/observations$/ },
-  { method: "POST", path: /^\/v1\/bridge\/requests$/ },
-  { method: "GET", path: /^\/v1\/bridge\/devices$/ },
 ];
 const REFUSALS: [RegExp, string][] = [
   [/^\/v1\/repositories$/, "This dog's access does not include adding or changing repositories; the person connects them in the later.dog Workspace."],
   [/^\/v1\/verification-policy$/, "This dog's access does not include changing a repository's verification checks; the person sets them when connecting the repository in the later.dog Workspace."],
   [/^\/v1\/profiles\/[^/]+\/login$/, "This dog's access does not include starting a provider login; the person runs pnpm laterdog:login."],
   [/^\/v1\/github\//, "This dog's access does not include GitHub sign-in or account details; the person connects GitHub in the later.dog Workspace."],
-  [/^\/v1\/bridge\//, "This dog's access does not include pairing, revoking or acting as a paired device."],
+  [/^\/v1\/bridge\//, "This dog's access does not include the person's paired devices."],
   [/^\/v1\/wakeups(?:\/|$)/, "This dog's access does not include the wake-up queue; the later.dog desktop delivers each conversation's wake-ups."],
 ];
 const ELSEWHERE = "This dog's access does not include that later.dog operation.";
@@ -76,9 +73,8 @@ export interface CallerScope {
   snapshot(snapshot: WorkspaceSnapshot): WorkspaceSnapshot;
   jobRequest(body: unknown): unknown;
   observation(body: unknown): unknown;
-  bridgeRequests(requests: BridgeRequest[]): BridgeRequest[];
 }
-export const ADMIN_SCOPE: CallerScope = { check: () => {}, snapshot: (snapshot) => snapshot, jobRequest: (body) => body, observation: (body) => body, bridgeRequests: (requests) => requests };
+export const ADMIN_SCOPE: CallerScope = { check: () => {}, snapshot: (snapshot) => snapshot, jobRequest: (body) => body, observation: (body) => body };
 
 export function dogScope(store: WorkspaceStore, botId: string): CallerScope {
   const readable = (job: { botId?: string }) => !job.botId || job.botId === botId;
@@ -108,6 +104,5 @@ export function dogScope(store: WorkspaceStore, botId: string): CallerScope {
       if (parsed.success) own(parsed.data.jobId,"This dog's access does not include recording observations on a job it did not delegate.");
       return body;
     },
-    bridgeRequests: (requests) => requests.filter((request) => !request.requestedBy || request.requestedBy === botId),
   };
 }

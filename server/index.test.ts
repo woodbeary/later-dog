@@ -7415,7 +7415,7 @@ describe("harness HTTP API", () => {
     expectStoppedTestServerCleanly(isolatedChild, isolatedStderr);
   }, 30_000);
 
-  it("mounts the verification skill into a real turn when its trigger appears", async () => {
+  it("mounts no phone harness, bundled dev skill or supervisor tools when asked to send something to the phone", async () => {
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     try {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
@@ -7423,12 +7423,13 @@ describe("harness HTTP API", () => {
       })).status).toBe(200);
       rmSync(fakeClaudeDump, { force: true });
       expect((await api("POST", `/api/bots/${bot.id}/messages`, {
-        text: "/create-verification-skill for my notes app",
+        text: "Send it to my phone, then /create-verification-skill for my Android app",
       })).status).toBe(202);
-      const seen = await readJsonFileWhenReady<{ systemPrompt?: string }>(fakeClaudeDump, 15_000);
-      const system = seen.systemPrompt ?? "";
-      expect(system).toContain('<laterdog-skill id="create-verification-skill"');
-      expect(system).toContain("skill_manage");
+      const seen = await readJsonFileWhenReady<{ systemPrompt?: string; argv?: string[]; mcpConfig?: { mcpServers?: Record<string, unknown> } }>(fakeClaudeDump, 15_000);
+      expect(seen.systemPrompt ?? "").not.toContain("<laterdog-skill");
+      const mounted = Object.keys(seen.mcpConfig?.mcpServers ?? {});
+      for (const name of ["phone", "laterdog_phone", "dweb", "laterdog"]) expect(mounted).not.toContain(name);
+      expect((seen.argv ?? []).join(" ")).not.toMatch(/mcp__(?:phone|dweb|laterdog)\b/);
     } finally {
       await api("POST", `/api/bots/${bot.id}/interrupt`);
       await api("DELETE", `/api/bots/${bot.id}`);
@@ -7606,60 +7607,6 @@ describe("harness HTTP API", () => {
     } finally {
       await api("POST", `/api/bots/${bot.id}/interrupt`);
       await api("DELETE", `/api/bots/${bot.id}`);
-    }
-  });
-
-  it("mounts the verification skill only for the latest channel request", async () => {
-    const bot = (await api("POST", "/api/bots", {
-      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
-      requireAvailableModel: true,
-    })).body.bot;
-    let room: any;
-    try {
-      room = (await api("POST", "/api/groups", {
-        name: "Verification skill room",
-        memberIds: [bot.id],
-        setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },
-      })).body.group;
-
-      rmSync(fakeClaudeDump, { force: true });
-      expect((await api("POST", `/api/groups/${room.id}/messages`, {
-        text: "/create-verification-skill for my mobile app",
-      })).status).toBe(202);
-      let seen = await readJsonFileWhenReady<{ systemPrompt?: string }>(fakeClaudeDump);
-      let system = seen.systemPrompt ?? "";
-      expect(system).toContain('<laterdog-skill id="create-verification-skill"');
-      expect(system).toContain('<laterdog-skill id="phone-harness"');
-      expect((await api("POST", `/api/groups/${room.id}/interrupt`, {})).status).toBe(200);
-      await expect.poll(async () => {
-        const state = (await api("GET", "/api/bots?messages=0")).body;
-        return state.bots.find((candidate: { id: string }) => candidate.id === bot.id)?.busy;
-      }, { timeout: 5_000 }).toBe(false);
-
-      rmSync(fakeClaudeDump, { force: true });
-      expect((await api("POST", `/api/groups/${room.id}/messages`, {
-        text: "now give me a short status update",
-      })).status).toBe(202);
-      seen = await readJsonFileWhenReady<{ systemPrompt?: string }>(fakeClaudeDump);
-      system = seen.systemPrompt ?? "";
-      expect(system).not.toContain('<laterdog-skill id="create-verification-skill"');
-      expect(system).toContain('<laterdog-skill id="phone-harness"');
-    } finally {
-      if (room) {
-        expect((await api("POST", `/api/groups/${room.id}/interrupt`, {})).status).toBe(200);
-        await expect.poll(async () => {
-          const state = (await api("GET", "/api/bots?messages=0")).body;
-          const currentRoom = state.groups.find((candidate: { id: string }) => candidate.id === room.id);
-          const currentBot = state.bots.find((candidate: { id: string }) => candidate.id === bot.id);
-          return {
-            working: currentRoom?.working,
-            busyBotId: currentRoom?.busyBotId,
-            botBusy: currentBot?.busy,
-          };
-        }, { timeout: 5_000 }).toEqual({ working: false, busyBotId: null, botBusy: false });
-        expect((await api("DELETE", `/api/groups/${room.id}`)).status).toBe(200);
-      }
-      expect((await api("DELETE", `/api/bots/${bot.id}`)).status).toBe(200);
     }
   });
 

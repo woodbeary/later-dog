@@ -167,11 +167,6 @@ const __APP_VERSION__: string;
       };
       beginScreenPreviewIntent(): boolean;
       screenFrame(): Promise<string | null>;
-      androidDevice?: {
-        status(): Promise<AndroidDeviceStatus>;
-        frame(serial: string): Promise<{ serial: string; dataUrl: string }>;
-        input(serial: string, payload: AndroidDeviceInput): Promise<void>;
-      };
       speechStart(options?: { endpointMs?: number; file?: string }): Promise<void>;
       speechStop(): Promise<{ recording?: string } | undefined>;
       speechFinish?(): Promise<void>;
@@ -281,34 +276,3 @@ export interface UpdaterState {
   cloudPage?: boolean;
   macInUse?: boolean;
 }
-
-export type AndroidUsbDevice = {
-  serial: string;
-  state: string;
-  connection: "usb";
-  model: string;
-  product?: string;
-  transportId?: string;
-};
-
-export type AndroidDeviceStatus = {
-  available: boolean;
-  reasonCode?: "adb-unavailable" | "adb-failed";
-  message?: string;
-  devices: AndroidUsbDevice[];
-};
-
-export type AndroidDeviceInput =
-  | { type: "tap"; x: number; y: number; width: number; height: number }
-  | {
-      type: "swipe";
-      fromX: number;
-      fromY: number;
-      toX: number;
-      toY: number;
-      durationMs: number;
-      width: number;
-      height: number;
-    }
-  | { type: "key"; key: string; width?: number; height?: number }
-  | { type: "text"; text: string; width?: number; height?: number };

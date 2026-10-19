@@ -1,18 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { MCP_TOOLS } from "./mcp.ts";
-import { LATERDOG_PREALLOWED_TOOLS, isLaterdogMcp, laterdogPreallowedTools } from "./own-tools.ts";
+import { MCP_TOOLS, mcpTools } from "./mcp.ts";
+import { LATERDOG_DOG_TOOLS, isLaterdogMcp, laterdogPreallowedTools } from "./own-tools.ts";
 
 describe("later.dog's own tools", () => {
-  it("pre-allows only tools the later.dog MCP server really offers", () => {
-    const offered = new Set(MCP_TOOLS.map((tool) => tool.name));
-    for (const tool of LATERDOG_PREALLOWED_TOOLS) expect(offered.has(tool)).toBe(true);
+  it("offers a dog only delegate, inspect and publish, and pre-allows exactly those", () => {
+    expect(mcpTools({ LATERDOG_BOT_ID: "dog-a" }).map((tool) => tool.name)).toEqual([...LATERDOG_DOG_TOOLS]);
+    expect(laterdogPreallowedTools({ laterdog: { command: "node", args: ["/repo/server/laterdog/mcp.ts"] } }, { laterdog: {} }))
+      .toEqual(LATERDOG_DOG_TOOLS.map((tool) => `mcp__laterdog__${tool}`));
   });
 
-  it("keeps merging, verification recipes and local assistance behind the person's approval", () => {
-    const preallowed = new Set<string>(LATERDOG_PREALLOWED_TOOLS);
-    expect(preallowed.has("merge_cloud_job")).toBe(false);
-    expect(preallowed.has("configure_verification_recipe")).toBe(false);
-    expect(preallowed.has("request_local_assistance")).toBe(false);
+  it("keeps the whole supervisor for the person's own MCP client, without local assistance", () => {
+    const offered = MCP_TOOLS.map((tool) => tool.name);
+    expect(offered).toEqual(expect.arrayContaining(["laterdog_workspace", "merge_cloud_job", "configure_verification_recipe", ...LATERDOG_DOG_TOOLS]));
+    expect(offered).not.toContain("request_local_assistance");
+    expect(offered).not.toContain("inspect_local_assistance");
+  });
+
+  it("names the connected repositories to a dog instead of a workspace tool it does not have", () => {
+    const delegate = mcpTools({ LATERDOG_BOT_ID: "dog-a", LATERDOG_REPOSITORIES: "acme/web,acme/api" }).find((tool) => tool.name === "delegate_cloud_job");
+    expect(delegate?.description).toContain("acme/web, acme/api");
+    expect(delegate?.description).not.toContain("laterdog_workspace");
+    expect(MCP_TOOLS.find((tool) => tool.name === "delegate_cloud_job")?.description).toContain("laterdog_workspace");
   });
 
   it("recognises the server later.dog mounts in every launch shape", () => {

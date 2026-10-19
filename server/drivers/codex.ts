@@ -802,23 +802,6 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           if (mountName !== name) noteRenamedMcpServer(name, mountName);
           mountSelected(name, mountName, server, false);
         }
-        if (turn.integrations?.phone) {
-          if (turn.toolScope !== undefined) {
-            mountSelected("phone", "laterdog_phone", turn.integrations.phone);
-          } else {
-          const bridge = turn.integrations.phone;
-          Object.assign(env, bridge.env);
-          for (const name of Object.keys(bridge.env)) mountedNames.add(name);
-          const prefix = "mcp_servers.laterdog_phone";
-          appServerArgs.push(
-            "-c", `${prefix}.command=${JSON.stringify(bridge.command)}`,
-            "-c", `${prefix}.args=${JSON.stringify(bridge.args)}`,
-            "-c", `${prefix}.env_vars=${JSON.stringify(Object.keys(bridge.env))}`,
-            "-c", `${prefix}.default_tools_approval_mode="auto"`,
-            "-c", `${prefix}.tool_timeout_sec=${toolTimeoutSec}`,
-          );
-          }
-        }
 
         const mountedEnv = [...mountedNames].filter((name) => env[name] !== undefined && !SHELL_ESSENTIALS.has(name) && !name.startsWith("LC_")
           && (name === "ELECTRON_RUN_AS_NODE" || baseEnv.get(name) !== env[name]));
@@ -1797,7 +1780,6 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         composioMcp: true,
         agentsMcp: true,
       customMcp: true,
-        phoneMcp: true,
         browserMcp: true,
         images: true,
         nativeImageInput: true,

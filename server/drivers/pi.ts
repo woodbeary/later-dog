@@ -102,14 +102,6 @@ export function buildMcpServers(turn: SendTurnInput): Record<string, unknown> | 
     };
   }
   if (turn.integrations?.agents) servers.agents = { ...turn.integrations.agents };
-  if (turn.integrations?.phone) servers.phone = { ...turn.integrations.phone };
-  if (turn.integrations?.dweb) {
-    servers.dweb = {
-      command: process.execPath,
-      args: [SPAWNED_PROXIES.dweb],
-      env: { ...NODE_ENV_FLAG, DWEB_URL: turn.integrations.dweb.url },
-    };
-  }
   if (turn.integrations?.browser) servers.browser = { ...turn.integrations.browser };
   for (const [name, server] of Object.entries(turn.integrations?.custom ?? {})) servers[name] = { ...server, scope: "custom" };
   for (const [name, server] of Object.entries(servers)) {
@@ -1051,7 +1043,6 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           agentsMcp: true,
           computerMcp: true,
           composioMcp: true,
-          phoneMcp: true,
           customMcp: true,
           browserMcp: true,
           localComputerMcp: true,

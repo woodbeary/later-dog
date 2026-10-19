@@ -23,8 +23,7 @@ Use when the work is bigger than one change: several jobs, several repositories,
 6. **Submission uncertain:** never submit again. Look for the task with `list_provider_tasks` on the job's profile and attach it with `reconcile_cloud_task`. Only if that list shows no task may `cancel_cloud_job` with `acknowledgeUnknown` free the slot.
 7. **Cancelling** stops queued work. A native task that was already submitted cannot be cancelled; the job records the request and the task may keep running.
 8. **Limits stay visible.** This adapter cannot create a cloud environment, continue a native task or cancel a submitted one. A follow-up change is a new repair run (`correct_cloud_job`) on the published branch.
-9. **Local help,** only when the work truly needs a person's machine: `inspect_local_assistance` lists paired devices, and `request_local_assistance` queues a scoped request against one paired repository root. Requests wait while the device is offline, the local bot keeps its own permissions, and unrelated credentials never go in.
 
 ## Keep score
 
-10. Record decisions, human interventions, regressions and sourced costs with `record_job_observation`. Report PRs opened, verified and merged as separate numbers, with blockers and limits. A capacity goal (a monthly PR count, a concurrency level) is a target until observations show it; raise concurrency only after they do.
+9. Record decisions, human interventions, regressions and sourced costs with `record_job_observation`. Report PRs opened, verified and merged as separate numbers, with blockers and limits. A capacity goal (a monthly PR count, a concurrency level) is a target until observations show it; raise concurrency only after they do.

@@ -110,12 +110,6 @@ const bridge = {
   },
   beginScreenPreviewIntent: () => ipcRenderer.sendSync("screen:preview-intent"),
   screenFrame: () => ipcRenderer.invoke("screen:frame"),
-  androidDevice: {
-    status: () => ipcRenderer.invoke("android-device:status"),
-    frame: (serial) => ipcRenderer.invoke("android-device:frame", serial),
-    input: (serial, payload) =>
-      ipcRenderer.invoke("android-device:input", serial, payload).then(() => undefined),
-  },
   speechStart: (options) => ipcRenderer.invoke("speech:start", options),
   speechStop: () => ipcRenderer.invoke("speech:stop"),
   speechFinish: () => ipcRenderer.invoke("speech:finish"),

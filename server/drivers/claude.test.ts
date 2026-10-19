@@ -1089,7 +1089,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.mcpConfig.mcpServers.dog.alwaysLoad).toBe(true);
   });
 
-  it.each(["ask", "auto"] as const)("pre-allows later.dog's own cloud tools except merge in %s approval", async (approvalMode) => {
+  it.each(["ask", "auto"] as const)("pre-allows exactly a dog's three later.dog cloud tools in %s approval", async (approvalMode) => {
     await create();
     const dump = join(scratch, "dump.json");
     process.env.FAKE_CLAUDE_DUMP = dump;
@@ -1109,10 +1109,9 @@ describe("ClaudeDriver turns (fake CLI)", () => {
 
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     const allowed = seen.argv[seen.argv.indexOf("--allowedTools") + 1].split(",");
-    expect(allowed).toContain("mcp__laterdog__laterdog_workspace");
-    expect(allowed).toContain("mcp__laterdog__delegate_cloud_job");
-    expect(allowed).toContain("mcp__laterdog__publish_cloud_job");
-    expect(allowed).not.toContain("mcp__laterdog__merge_cloud_job");
+    expect(allowed.filter((name: string) => name.startsWith("mcp__laterdog__")).sort()).toEqual([
+      "mcp__laterdog__delegate_cloud_job", "mcp__laterdog__inspect_cloud_job", "mcp__laterdog__publish_cloud_job",
+    ]);
     expect(allowed).not.toContain("mcp__laterdog");
     expect(allowed.some((name: string) => name.startsWith("mcp__other"))).toBe(false);
     expect(seen.argv[seen.argv.indexOf("--permission-mode") + 1]).toBe(approvalMode === "auto" ? "auto" : "default");
@@ -1886,24 +1885,6 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv[seen.argv.indexOf("--tools") + 1]).toBe("");
     expect(seen.argv).not.toContain("--disallowedTools");
-  });
-
-  it("mounts the dweb proxy from the drivers directory and pre-allows its tools", async () => {
-    await create();
-    const dump = join(scratch, "dump.json");
-    process.env.FAKE_CLAUDE_DUMP = dump;
-
-    await instance.adapter.sendTurn({
-      threadId: "t-dweb",
-      text: "hi",
-      integrations: { dweb: { url: "http://127.0.0.1:49737" } },
-    });
-    await recorder.until((e) => e.type === "turn.completed");
-
-    const seen = JSON.parse(readFileSync(dump, "utf8"));
-    expect(seen.mcpConfig.mcpServers.dweb.args[0]).toMatch(/[\\/]drivers[\\/]dweb-proxy\.(?:ts|js)$/);
-    expect(seen.mcpConfig.mcpServers.dweb.env.DWEB_URL).toBe("http://127.0.0.1:49737");
-    expect(seen.argv[seen.argv.indexOf("--allowedTools") + 1]).toContain("mcp__dweb");
   });
 
   it("mounts the user's connected apps and claims the capability that gates them", async () => {

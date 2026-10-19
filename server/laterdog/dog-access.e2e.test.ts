@@ -44,7 +44,7 @@ it('starts a real conversation’s laterdog MCP server with that dog’s own tok
     const mounted=dump.mcpConfig.mcpServers.laterdog;
     const upstream=mounted.env.LATERDOG_GATE_UPSTREAM ? JSON.parse(mounted.env.LATERDOG_GATE_UPSTREAM) as McpLaunch : mounted;
     expect(upstream.args.at(-1)).toMatch(/server\/laterdog\/mcp\.ts$/);
-    expect(upstream.env).toEqual({LATERDOG_SUPERVISOR_URL:origin,LATERDOG_TOKEN:dogToken(token,bot.id),LATERDOG_BOT_ID:bot.id,LATERDOG_CONVERSATION_ID:bot.threadId,LATERDOG_ACCOUNT:'claude',LATERDOG_MODEL:'claude-sonnet-5'});
+    expect(upstream.env).toEqual({LATERDOG_SUPERVISOR_URL:origin,LATERDOG_TOKEN:dogToken(token,bot.id),LATERDOG_BOT_ID:bot.id,LATERDOG_CONVERSATION_ID:bot.threadId,LATERDOG_REPOSITORIES:'fixture/repo',LATERDOG_ACCOUNT:'claude',LATERDOG_MODEL:'claude-sonnet-5'});
     const holding=(value:unknown,path:string):string[]=>typeof value==='string' ? (value.includes(token) ? [path] : [])
       : value && typeof value==='object' ? Object.entries(value).flatMap(([key,child])=>holding(child,`${path}.${key}`)) : [];
     expect(holding(dump,'engine')).toEqual([]);
@@ -52,22 +52,27 @@ it('starts a real conversation’s laterdog MCP server with that dog’s own tok
     mcp.stderr!.on('data',(chunk)=>{ stderr+=String(chunk); });
     const waiting=new Map<number,(message:{result:ToolResult})=>void>(); let next=0;
     createInterface({input:mcp.stdout!}).on('line',(line)=>{ const message=JSON.parse(line) as {id:number;result:ToolResult}; waiting.get(message.id)?.(message); waiting.delete(message.id); });
-    const call=(name:string,args:unknown)=>new Promise<ToolResult>((resolve,reject)=>{
-      const id=++next; const timer=setTimeout(()=>reject(new Error(`${name} did not answer: ${stderr.slice(-500)}`)),20_000);
-      waiting.set(id,(message)=>{ clearTimeout(timer); resolve(message.result); });
-      mcp!.stdin!.write(`${JSON.stringify({jsonrpc:'2.0',id,method:'tools/call',params:{name,arguments:args}})}\n`);
+    const request=<T,>(method:string,params:unknown,label:string)=>new Promise<T>((resolve,reject)=>{
+      const id=++next; const timer=setTimeout(()=>reject(new Error(`${label} did not answer: ${stderr.slice(-500)}`)),20_000);
+      waiting.set(id,(message)=>{ clearTimeout(timer); resolve(message.result as T); });
+      mcp!.stdin!.write(`${JSON.stringify({jsonrpc:'2.0',id,method,params})}\n`);
     });
+    const call=(name:string,args:unknown)=>request<ToolResult>('tools/call',{name,arguments:args},name);
+    const listed=await request<{tools:{name:string;description:string}[]}>('tools/list',{},'tools/list');
+    expect(listed.tools.map((tool)=>tool.name)).toEqual(['delegate_cloud_job','inspect_cloud_job','publish_cloud_job']);
+    expect(listed.tools[0].description).toContain('fixture/repo');
+    expect(listed.tools[0].description).not.toContain('laterdog_workspace');
     const delegated=await call('delegate_cloud_job',{requestKey:randomUUID(),repository:'fixture/repo',title:'Dog job',brief:'Synthetic work',writeScopes:['src']});
     expect(delegated.isError,delegated.content[0].text).toBeFalsy();
     const job=JSON.parse(delegated.content[0].text) as {id:string};
     expect(store.job(job.id)).toMatchObject({botId:bot.id,conversationId:bot.threadId});
     const policy=await call('configure_verification_recipe',{repository:'fixture/repo',behavioralChecks:['always-green'],verification:[]});
-    expect(policy.isError).toBe(true); expect(policy.content[0].text).toMatch(/^This dog's access does not include [^\n]+\.$/);
+    expect(policy.isError).toBe(true); expect(policy.content[0].text).toBe('Unknown later.dog tool');
     expect(store.repository('fixture/repo').behavioralChecks).toEqual([]);
     const foreign=await call('inspect_cloud_job',{jobId:otherDogs.id});
     expect(foreign.isError).toBe(true); expect(foreign.content[0].text).toBe("This dog's access does not include jobs another dog delegated.");
     const cancelled=await call('cancel_cloud_job',{jobId:job.id});
-    expect(JSON.parse(cancelled.content[0].text)).toMatchObject({id:job.id,state:'cancelled'});
+    expect(cancelled.isError).toBe(true); expect(store.job(job.id).state).not.toBe('cancelled');
   } finally {
     mcp?.stdin?.end(); mcp?.kill();
     await harness?.close();

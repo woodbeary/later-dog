@@ -90,7 +90,6 @@ describe("laterdog command line", () => {
     const checkout = serverEntry(SERVER_DIR);
     expect(checkout.args[0]).toBe("--experimental-strip-types");
     expect(checkout.args[1]).toBe(join(SERVER_DIR, "index.ts"));
-    expect(checkout.skillsDir).toBe(join(SERVER_DIR, "..", "skills"));
   });
 
   it("serve: starts the server, prints the pairing link, and stops on SIGTERM", async () => {

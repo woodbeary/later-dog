@@ -1,6 +1,7 @@
 import { PASS, type RouteHandler } from "./table.ts";
 import { desktopSupervisorToken, supervisorOrigin } from "../laterdog/config.ts";
 import { wakeupPullActive } from "../laterdog/wakeups.ts";
+import { connectedRepositories } from "../laterdog/connected-repositories.ts";
 
 const FORWARDED_QUERY = ["ids", "bot", "limit", "after"];
 function queryFor(url: URL): string {
@@ -24,6 +25,7 @@ export function createLaterDogRoutes(): RouteHandler {
       const response = await fetch(`${origin}/v1${suffix}${query}`,{ method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
         ...(body === undefined ? {} : { body }), redirect: "error", signal: AbortSignal.timeout(method === "GET" ? (suffix.endsWith("/activity") ? 45_000 : 10_000) : 660_000) });
       const result = await response.json() as Record<string, unknown>;
+      if (suffix === "/repositories" && method !== "GET") connectedRepositories.forget();
       if (suffix === "/workspace" && response.ok && wakeupPullActive()) result.wakeupsConfigured = true;
       return json(res,response.status,result);
     } catch {

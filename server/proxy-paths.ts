@@ -16,11 +16,9 @@ export const SPAWNED_PROXIES = {
   containerMcp: resolveProxy("container-mcp"),
   vpsContainerMcp: resolveProxy("vps-container-mcp"),
   agents: resolveProxy("drivers/agents-proxy"),
-  dweb: resolveProxy("drivers/dweb-proxy"),
   connectors: resolveProxy("connector-proxy"),
   mcpGate: resolveProxy("mcp-gate"),
   mcpRemote: resolveProxy("mcp-remote-proxy"),
-  phone: resolveProxy("drivers/phone-proxy"),
   hook: resolveProxy("hooks/laterdog-hook"),
   piMcpExtension: resolveProxy("drivers/pi-mcp-extension"),
 } as const;

@@ -330,7 +330,7 @@ if (!proxyReport || proxyReport.error || proxyReport.missing.length > 0) {
   console.error("spawned proxy paths do not resolve inside the packaged server dir:");
   console.error(JSON.stringify(proxyReport, null, 2));
   console.error("\nthe server would still answer /api/health — and every one of these");
-  console.error("features would be dead: permission prompts, computer use, dweb, peer comms.");
+  console.error("features would be dead: permission prompts, computer use, peer comms.");
   process.exit(1);
 }
 

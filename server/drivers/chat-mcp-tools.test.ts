@@ -178,7 +178,7 @@ describe("Chat MCP session", () => {
   it("mounts only supported descriptors and preserves conversations with no tools", async () => {
     const controller = new AbortController();
     controllers.push(controller);
-    const session = await mountChatTools({ phone: { command: "must-not-launch", args: [], env: {} } }, controller.signal);
+    const session = await mountChatTools({ localComputer: { command: "must-not-launch", args: [], env: {} } }, controller.signal);
     sessions.push(session);
     expect(session.definitions).toEqual([]);
     await session.close();

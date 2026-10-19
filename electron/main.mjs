@@ -17,7 +17,6 @@ import { startCua, stopCua, registerCuaIpc, setCuaStateListener } from "./cua.mj
 import { startLaterDogSupervisor } from "./laterdog-supervisor.mjs";
 import { removeLocalControlToken, startLocalControlToken } from "./local-control-token.mjs";
 import { cloudAccessPath, createCloudAppsAccess } from "./cloud-apps-access.mjs";
-import { createAndroidDeviceController } from "./android-device.mjs";
 import { finishSpeech, startSpeech, stopSpeech, voiceNoteAudio } from "./speech.mjs";
 import { openBlankTerminal } from "./terminal-launch.mjs";
 import { pasteMenuItem } from "./paste-menu-item.mjs";
@@ -964,7 +963,6 @@ async function startServerOn(port) {
     LATERDOG_DESKTOP_PARENT: "1",
     LATERDOG_STATIC_DIR: path.join(process.resourcesPath, "ui"),
     LATERDOG_RESOURCES_PATH: process.resourcesPath,
-    LATERDOG_SKILLS_DIR: path.join(process.resourcesPath, "skills"),
     LATERDOG_SERVER_PORT: String(port),
     LATERDOG_APP_VERSION: app.getVersion(),
     LATERDOG_USER_DATA: app.getPath("userData"),
@@ -1089,7 +1087,6 @@ function buildErrorPage({ allPortsOccupied }) {
 const SERVER_BOOT_TIMEOUT_MS = 60_000;
 
 let cuaReady = Promise.resolve({ mode: "unavailable", reason: "not-started" });
-const androidDevice = createAndroidDeviceController({ resourcesPath: process.resourcesPath });
 const displayMediaGuard = createDisplayMediaGuard();
 let displayMediaRequestCount = 0;
 
@@ -2931,7 +2928,6 @@ app.whenReady().then(async () => {
     );
   }
   registerCuaIpc();
-  androidDevice.registerIpc(ipcMain);
   registerUpdaterIpc({ pageAllowed: updaterPageAllowed, cloudPage: event => cloudPageAsking(event) === "cloud" });
   cuaReady =
     process.platform === "darwin" || process.platform === "linux" || process.platform === "win32"

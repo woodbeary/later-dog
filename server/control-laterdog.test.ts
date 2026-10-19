@@ -243,7 +243,6 @@ describe("control-laterdog isolated verification loop", () => {
     const parentEnv = {
       ...process.env,
       COMPOSIO_API_KEY: "must-not-reach-the-fixture",
-      LATERDOG_SKILLS_DIR: "/must/not/reach/the/fixture",
       XAI_API_KEY: "must-not-reach-the-fixture",
       FAKE_CLAUDE_PROBE: "fixture-scripting-knob",
     };
@@ -263,7 +262,6 @@ describe("control-laterdog isolated verification loop", () => {
       expect(transcript.messages.some((message: { role?: string }) => message.role === "bot")).toBe(true);
       const fixtureEnv = JSON.parse(readFileSync(session.fixtureDumpPath, "utf8")).env as Record<string, string>;
       expect(fixtureEnv).not.toHaveProperty("COMPOSIO_API_KEY");
-      expect(fixtureEnv).not.toHaveProperty("LATERDOG_SKILLS_DIR");
       expect(fixtureEnv).not.toHaveProperty("XAI_API_KEY");
       expect(JSON.stringify(fixtureEnv)).not.toContain("must-not-reach-the-fixture");
       expect(fixtureEnv.FAKE_CLAUDE_PROBE).toBe("fixture-scripting-knob");

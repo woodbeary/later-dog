@@ -1169,7 +1169,6 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     await instance.adapter.sendTurn({ threadId: "mount-env-shell", text: "go", integrations: {
       agents: { command: process.execPath, args: ["/tmp/agents-proxy.js"], env: { ELECTRON_RUN_AS_NODE: "1", LATERDOG_COMMS_TOKEN: "agents-capability" } },
       composio: { command: process.execPath, args: ["/tmp/connector-proxy.js"], env: { LATERDOG_CONNECTORS_TOKEN: "connector-capability" } },
-      phone: { command: process.execPath, args: ["/tmp/phone-proxy.js"], env: { LATERDOG_PHONE_TOKEN: "phone-capability" } },
       custom: {
         notes: { command: "npx", args: ["-y", "@x/notes-mcp"], env: { GITHUB_PERSONAL_ACCESS_TOKEN: "ghp-synthetic", SHARED_SETTING: "same", OVERRIDDEN: "server", TZ: "UTC" } },
         docs: { type: "http", url: "https://docs.example/mcp", headers: { Authorization: "Bearer tok-docs" } },
@@ -1180,7 +1179,7 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     expect(seen.argv).toContain("features.shell_snapshot=false");
     expect(seen.calls.find((call: { method: string }) => call.method === "thread/start").params.config["shell_environment_policy.exclude"]).toEqual([
       "USER_SECRET_*", "LATERDOG_MCP_HEADER_*",
-      "ELECTRON_RUN_AS_NODE", "GITHUB_PERSONAL_ACCESS_TOKEN", "LATERDOG_COMMS_TOKEN", "LATERDOG_CONNECTORS_TOKEN", "LATERDOG_PHONE_TOKEN", "OVERRIDDEN",
+      "ELECTRON_RUN_AS_NODE", "GITHUB_PERSONAL_ACCESS_TOKEN", "LATERDOG_COMMS_TOKEN", "LATERDOG_CONNECTORS_TOKEN", "OVERRIDDEN",
     ]);
   });
 

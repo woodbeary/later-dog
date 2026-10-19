@@ -91,7 +91,7 @@ export function endsOnPromise(text: string | undefined | null): boolean {
   return parts.slice(0, -1).every((part) => forward(part) || ACK.test(part));
 }
 
-const WAITS_ON_OTHERS = /(?:delegate|cloud_job|cloud_task|schedule|wake|remind|routine|send_to_bot|ask_bot|coordinate_bots|request_local_assistance|request_credential|request_takeover|request_secure_form|propose_)/i;
+const WAITS_ON_OTHERS = /(?:delegate|cloud_job|cloud_task|schedule|wake|remind|routine|send_to_bot|ask_bot|coordinate_bots|request_credential|request_takeover|request_secure_form|propose_)/i;
 
 function asksOrHandsOff(message: Message): boolean {
   if (message.comm || message.threadRef || message.cloudTask || message.connector || message.secret || message.secureForm) return true;

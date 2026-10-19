@@ -43,32 +43,21 @@ async function fixture() {
 }
 const brief=()=>({requestKey:randomUUID(),repository:'fixture/repo',title:'Scoped change',brief:'Exercise behavior',writeScopes:[`src/${randomUUID()}`]});
 
-it('lets a dog delegate, inspect and act on its own job through the real MCP → HTTP → SQLite boundary',async()=>{
+it('lets a dog delegate, inspect and publish its own job through the real MCP → HTTP → SQLite boundary, and offers it nothing else',async()=>{
   const f=await fixture(); const a=f.dog('dog-a');
   const request=brief(); const job=await callTool('delegate_cloud_job',request,f.origin,a.credential) as Job;
   expect(f.store.job(job.id).botId).toBe('dog-a'); expect((await callTool('delegate_cloud_job',request,f.origin,a.credential) as Job).id).toBe(job.id); expect(f.store.jobs()).toHaveLength(1);
   expect(await callTool('inspect_cloud_job',{jobId:job.id},f.origin,a.credential)).toMatchObject({job:{id:job.id,botId:'dog-a'}});
-  await expect(callTool('collect_cloud_diff',{jobId:job.id},f.origin,a.credential)).rejects.toThrow(/No collected diff/);
   await expect(callTool('publish_cloud_job',{jobId:job.id},f.origin,a.credential)).rejects.toThrow(/remote supervisor/);
-  await expect(callTool('correct_cloud_job',{jobId:job.id,requestKey:randomUUID(),brief:'Repair it'},f.origin,a.credential)).rejects.toThrow(/Publish the result branch/);
-  await expect(callTool('reconcile_cloud_task',{jobId:job.id,taskId:'task_fixture'},f.origin,a.credential)).rejects.toThrow(/uncertain or blocked/);
-  expect(await callTool('record_job_observation',{requestKey:randomUUID(),jobId:job.id,kind:'decision',summary:'Chose the scope',source:'fixture'},f.origin,a.credential)).toMatchObject({jobId:job.id});
-  expect(await callTool('inspect_provider_access',{profileId:'default'},f.origin,a.credential)).toMatchObject({authenticated:true});
-  expect(await callTool('list_provider_tasks',{profileId:'default'},f.origin,a.credential)).toEqual({tasks:[]});
-  expect(await callTool('cancel_cloud_job',{jobId:job.id},f.origin,a.credential)).toMatchObject({id:job.id,state:'cancelled'});
+  for (const name of ['laterdog_workspace','collect_cloud_diff','correct_cloud_job','reconcile_cloud_task','record_job_observation','inspect_provider_access','list_provider_tasks','cancel_cloud_job','verify_cloud_job','review_cloud_job','merge_cloud_job','configure_verification_recipe','request_local_assistance','inspect_local_assistance']) {
+    await expect(callTool(name,{jobId:job.id},f.origin,a.credential)).rejects.toThrow('Unknown later.dog tool');
+  }
+  expect(f.store.job(job.id).state).not.toBe('cancelled');
   const unowned=f.job(); const other=f.job({botId:'dog-b'});
-  const workspace=await callTool('laterdog_workspace',{},f.origin,a.credential) as {jobs:Job[];repositories:unknown[]};
+  const workspace=(await a.send('GET','/workspace')).body as unknown as {jobs:Job[];repositories:unknown[]};
   expect(workspace.jobs.map((j)=>j.id).sort()).toEqual([job.id,unowned.id].sort()); expect(workspace.repositories).toHaveLength(1);
   expect(((await f.admin('GET','/workspace')).body.jobs as Job[]).map((j)=>j.id).sort()).toEqual([job.id,unowned.id,other.id].sort());
-  const pairing=await f.admin('POST','/bridge/pairing',{roots:['/fixture/repo']});
-  const device=await (await fetch(`${f.origin}/v1/bridge/pair`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code:pairing.body.code,label:'Fixture Mac'})})).json() as {deviceId:string};
-  const local=await callTool('request_local_assistance',{deviceId:device.deviceId,root:'/fixture/repo',kind:'inspect_repo'},f.origin,a.credential) as {id:string;requestedBy:string};
-  expect(local.requestedBy).toBe('dog-a');
-  const theirs=(await f.dog('dog-b').send('POST','/bridge/requests',{deviceId:device.deviceId,root:'/fixture/repo',kind:'inspect_repo'})).body as {id:string};
-  const operator=(await f.admin('POST','/bridge/requests',{deviceId:device.deviceId,root:'/fixture/repo',kind:'inspect_repo'})).body as {id:string};
-  const seen=await callTool('inspect_local_assistance',{},f.origin,a.credential) as {devices:{id:string}[];requests:{id:string}[]};
-  expect(seen.devices.map((d)=>d.id)).toEqual([device.deviceId]); expect(seen.requests.map((r)=>r.id).sort()).toEqual([local.id,operator.id].sort());
-  expect(((await f.admin('GET','/bridge/devices')).body.requests as {id:string}[]).map((r)=>r.id)).toContain(theirs.id);
+  expect(await callTool('cancel_cloud_job',{jobId:job.id},f.origin,{token:f.token})).toMatchObject({id:job.id,state:'cancelled'});
 });
 
 it('refuses a dog repositories, logins, verification policy, GitHub, device pairing and other jobs, in one plain sentence',async()=>{
@@ -83,8 +72,9 @@ it('refuses a dog repositories, logins, verification policy, GitHub, device pair
   expect(f.githubAccess).not.toHaveBeenCalled(); expect(f.githubLogin.start).not.toHaveBeenCalled();
   const pairing=await f.admin('POST','/bridge/pairing',{roots:['/fixture/repo']});
   const device=await (await fetch(`${f.origin}/v1/bridge/pair`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({code:pairing.body.code,label:'Fixture Mac'})})).json() as {deviceId:string};
-  await refused('POST','/bridge/pairing',{roots:['/']},/pairing/); await refused('DELETE',`/bridge/devices/${device.deviceId}`,undefined,/revoking/);
-  await refused('POST','/bridge/poll',{},/paired device/); expect((await f.admin('GET','/bridge/devices')).body.devices).toMatchObject([{id:device.deviceId,revoked:false}]);
+  await refused('POST','/bridge/pairing',{roots:['/']},/paired devices/); await refused('DELETE',`/bridge/devices/${device.deviceId}`,undefined,/paired devices/);
+  await refused('POST','/bridge/poll',{},/paired devices/); await refused('GET','/bridge/devices',undefined,/paired devices/);
+  await refused('POST','/bridge/requests',{deviceId:device.deviceId,root:'/fixture/repo',kind:'inspect_repo'},/paired devices/); expect((await f.admin('GET','/bridge/devices')).body.devices).toMatchObject([{id:device.deviceId,revoked:false}]);
   await refused('GET','/whatever'); await refused('POST','/workspace',{});
   await refused('GET',`/jobs/${other.id}`,undefined,/another dog/); await refused('GET',`/jobs/${other.id}/patch`,undefined,/another dog/);
   await refused('POST',`/jobs/${other.id}/action`,{action:'cancel'},/another dog/); expect(f.store.job(other.id).state).toBe('queued');
@@ -98,8 +88,7 @@ it('refuses a dog repositories, logins, verification policy, GitHub, device pair
   expect(f.store.jobs()).toHaveLength(jobs);
   await refused('POST','/observations',{requestKey:randomUUID(),jobId:other.id,kind:'regression',summary:'Blame',source:'fixture'},/another dog/);
   await refused('POST','/observations',{requestKey:randomUUID(),jobId:unowned.id,kind:'regression',summary:'Blame',source:'fixture'},/did not delegate/);
-  await expect(callTool('configure_verification_recipe',{repository:'fixture/repo',behavioralChecks:['always-green'],verification:[]},f.origin,a.credential)).rejects.toThrow(REFUSAL);
-  await expect(callTool('merge_cloud_job',{jobId:other.id},f.origin,a.credential)).rejects.toThrow(REFUSAL);
+  await refused('POST',`/jobs/${other.id}/action`,{action:'merge'},/another dog/);
   expect(f.store.job(own.id).botId).toBe('dog-a');
 });
 

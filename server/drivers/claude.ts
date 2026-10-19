@@ -374,7 +374,6 @@ export function readClaudeModelCatalog(env: Record<string, string | undefined> =
 }
 
 const PERM_PROXY_PATH = SPAWNED_PROXIES.permission;
-const DWEB_PROXY_PATH = SPAWNED_PROXIES.dweb;
 const HOOK_HELPER_PATH = SPAWNED_PROXIES.hook;
 const NODE_ENV_FLAG = { ELECTRON_RUN_AS_NODE: "1" };
 
@@ -1104,24 +1103,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         mcpServers.agents = { ...turn.integrations.agents, alwaysLoad: true };
         allowed.push("mcp__agents");
       }
-      if (turn.integrations?.phone) {
-        mcpServers.phone = { ...turn.integrations.phone };
-        allowed.push("mcp__phone");
-      }
       if (turn.integrations?.browser) {
         mcpServers.browser = { ...turn.integrations.browser };
         allowed.push("mcp__browser");
-      }
-      if (turn.integrations?.dweb) {
-        mcpServers.dweb = {
-          command: process.execPath,
-          args: [DWEB_PROXY_PATH],
-          env: {
-            ...NODE_ENV_FLAG,
-            DWEB_URL: turn.integrations.dweb.url,
-          },
-        };
-        allowed.push("mcp__dweb");
       }
       const botOwned = new Set<string>();
       for (const [name, server] of Object.entries(turn.integrations?.custom ?? {})) {
@@ -2060,7 +2044,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         customMcp: true,
           computerMcp: true,
           composioMcp: true,
-          phoneMcp: true,
           browserMcp: true,
           images: true,
           nativeImageInput: true,

@@ -17,7 +17,6 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 cpSync(join(root, "dist-server"), join(out, "dist-server"), { recursive: true });
 cpSync(join(root, "dist"), join(out, "dist"), { recursive: true });
-if (existsSync(join(root, "skills"))) cpSync(join(root, "skills"), join(out, "skills"), { recursive: true });
 const enterpriseBundle = join(root, "dist-server", "enterprise", "server", "index.js");
 if (existsSync(enterpriseBundle)) {
   mkdirSync(join(out, "enterprise", "server"), { recursive: true });
@@ -40,7 +39,7 @@ writeFileSync(
       license: "Apache-2.0",
       type: "module",
       bin: { laterdog: "cli.js" },
-      files: ["cli.js", "dist-server", "dist", "skills", "enterprise", "LICENSE", "README.md"],
+      files: ["cli.js", "dist-server", "dist", "enterprise", "LICENSE", "README.md"],
       engines: { node: ">=24" },
       repository: { type: "git", url: "https://github.com/woodbeary/later-dog" },
       homepage: "https://github.com/woodbeary/later-dog#readme",

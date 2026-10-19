@@ -1,8 +1,7 @@
-import { chmod, lstat, readdir } from "node:fs/promises";
+import { chmod, lstat } from "node:fs/promises";
 import path from "node:path";
 import { LICENSE_FILES } from "./cua-linux-release.mjs";
 import { verifyBrowserBundle } from "./prepare-browser.mjs";
-import { LIPO_ARCH, isMachO, writeThinMachO } from "./mac-thin.mjs";
 import { installDevUpdateConfig, keepOnlyDevScheme } from "./dev-update-config.mjs";
 
 async function requireRealDirectory(directory, mode = 0o755) {
@@ -19,22 +18,6 @@ async function requireRegularFile(file, mode) {
     throw new Error(`Package resource must be a regular file: ${file}`);
   }
   if (mode !== undefined) await chmod(file, mode);
-}
-
-async function thinMacPlatformTools(resources, arch) {
-  const root = path.join(resources, "android-platform-tools", "darwin");
-  let entries;
-  try {
-    entries = await readdir(root, { recursive: true, withFileTypes: true });
-  } catch (error) {
-    if (error?.code === "ENOENT") return;
-    throw error;
-  }
-  if (!arch) throw new Error("Unsupported macOS package architecture for Android Platform Tools");
-  for (const entry of entries) {
-    const file = path.join(entry.parentPath, entry.name);
-    if (entry.isFile() && await isMachO(file)) await writeThinMachO(file, file, LIPO_ARCH[arch]);
-  }
 }
 
 export default async function afterPack(context) {
@@ -55,7 +38,6 @@ export default async function afterPack(context) {
     if (!arch) throw new Error(`Unsupported desktop browser package architecture: ${context.arch}`);
     await verifyBrowserBundle(browserRoot, `${context.electronPlatformName}-${arch}`);
   }
-  if (context.electronPlatformName === "darwin") await thinMacPlatformTools(resources, arch);
 
   if (context.electronPlatformName !== "linux") return;
 

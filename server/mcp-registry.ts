@@ -83,10 +83,7 @@ const RESERVED_MCP_NAMES = new Set([
   "agents",
   "composio",
   "browser",
-  "phone",
-  "dweb",
   "laterdog_connectors",
-  "laterdog_phone",
 ]);
 
 const stdioEntrySchema = z.object({

@@ -2,11 +2,12 @@ import { createInterface } from "node:readline";
 import { z } from "zod";
 import { createJobSchema, repositorySchema } from "../../shared/laterdog.ts";
 import { observationSchema } from "./observations.ts";
-import { assistanceSchema } from "./bridge-store.ts";
 import { supervisorOrigin } from "./config.ts";
 import { credentialHeaders, mcpCredential, type SupervisorCredential } from "./dog-access.ts";
 import { jobReceipt, startsCloudJob } from "./job-receipt.ts";
 import { dogJobDefaults } from "./job-defaults.ts";
+import { repositoriesFromEnvironment } from "./connected-repositories.ts";
+import { LATERDOG_DOG_TOOLS } from "./own-tools.ts";
 
 const jobId = z.string().uuid();
 const tools = [
@@ -27,14 +28,30 @@ const tools = [
   { name: "review_cloud_job", description: "Launch a separate cloud review against the current published commit. Its review manifest is retained as evidence, without modifying the product branch.", schema: z.object({ jobId, requestKey: z.string().min(8), profileId: z.string().optional() }).strict(), method: "POST", action: "review", path: (a: Record<string,unknown>) => `/jobs/${a.jobId}/action` },
   { name: "correct_cloud_job", description: "Deliver a conversational correction as a new repair task against the result branch, updating the same PR. This is a new run, not native continuation. Pass writeScopes only when the evidence shows the fix lies outside the job's original paths; it replaces them for this repair.", schema: z.object({ jobId, requestKey: z.string().min(8), brief: z.string().min(1).max(100_000), writeScopes: z.array(z.string().min(1).max(300)).min(1).max(40).optional() }).strict(), method: "POST", action: "correct", path: (a: Record<string,unknown>) => `/jobs/${a.jobId}/action` },
   { name: "reconcile_cloud_task", description: "Attach a known provider task (a Codex task_… ID or a Claude session_… ID) to an uncertain submission after investigating it. Never blindly resubmit an uncertain job.", schema: z.object({ jobId, taskId: z.string().regex(/^(task|session)_[a-zA-Z0-9_-]+$/) }).strict(), method: "POST", action: "reconcile", path: (a: Record<string,unknown>) => `/jobs/${a.jobId}/action` },
-  { name: "request_local_assistance", description: "Queue assistance on an explicitly paired device and repository root. inspect_repo returns bounded metadata, excluding credentials. assist delegates to its configured local bot under existing computer permissions.", schema: assistanceSchema, method: "POST", path: () => "/bridge/requests" },
-  { name: "inspect_local_assistance", description: "Inspect paired-device availability and durable local request outcomes. Device credentials are never returned.", schema: z.object({}).strict(), method: "GET", path: () => "/bridge/devices" },
 ];
-export const MCP_TOOLS = tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: z.toJSONSchema(tool.schema),
-  annotations: { readOnlyHint: tool.method === "GET", destructiveHint: tool.name === "merge_cloud_job", openWorldHint: tool.method !== "GET" } }));
+const WORKSPACE_SENTENCE = " laterdog_workspace lists the profiles and which backends are enabled.";
+
+function isDog(env: NodeJS.ProcessEnv): boolean { return Boolean(env.LATERDOG_BOT_ID?.trim()); }
+
+function offered(dog: boolean) {
+  return dog ? tools.filter((tool) => (LATERDOG_DOG_TOOLS as readonly string[]).includes(tool.name)) : tools;
+}
+
+function describedFor(tool: (typeof tools)[number], env: NodeJS.ProcessEnv): string {
+  if (!isDog(env) || tool.name !== "delegate_cloud_job") return tool.description;
+  const repositories = repositoriesFromEnvironment(env);
+  const connected = repositories.length ? ` The person connected ${repositories.length === 1 ? "this repository" : "these repositories"}: ${repositories.join(", ")}.` : "";
+  return tool.description.replace(WORKSPACE_SENTENCE, connected);
+}
+
+export function mcpTools(env: NodeJS.ProcessEnv = process.env) {
+  return offered(isDog(env)).map((tool) => ({ name: tool.name, description: describedFor(tool, env), inputSchema: z.toJSONSchema(tool.schema),
+    annotations: { readOnlyHint: tool.method === "GET", destructiveHint: tool.name === "merge_cloud_job", openWorldHint: tool.method !== "GET" } }));
+}
+export const MCP_TOOLS = mcpTools({});
 
 export async function callTool(name: string, args: unknown, origin = supervisorOrigin(), credential: string | SupervisorCredential = mcpCredential()): Promise<unknown> {
-  const tool = tools.find((candidate) => candidate.name === name); if (!tool) throw new Error("Unknown later.dog tool");
+  const tool = offered(typeof credential !== "string" && Boolean(credential.botId)).find((candidate) => candidate.name === name); if (!tool) throw new Error("Unknown later.dog tool");
   const contextual = name === "delegate_cloud_job" && args && typeof args === "object"
     ? { ...dogJobDefaults(process.env), ...args, ...(process.env.LATERDOG_BOT_ID ? { botId: process.env.LATERDOG_BOT_ID } : {}), ...(process.env.LATERDOG_CONVERSATION_ID ? { conversationId: process.env.LATERDOG_CONVERSATION_ID } : {}) }
     : args;
@@ -59,7 +76,7 @@ export function startMcp(): void {
       const answer = (result: unknown) => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
       if (request.method === "initialize") return answer({ protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "laterdog", version: "0.1.0" } });
       if (request.method === "ping") return answer({});
-      if (request.method === "tools/list") return answer({ tools: MCP_TOOLS });
+      if (request.method === "tools/list") return answer({ tools: mcpTools() });
       if (request.method === "tools/call") {
         try {
           const result = await callTool(String(request.params?.name),request.params?.arguments ?? {});

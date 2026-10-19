@@ -513,17 +513,16 @@ export async function runBrowser(options: CliOptions, io: CliIo = defaultIo()): 
   return 0;
 }
 
-export function serverEntry(here = HERE): { command: string; args: string[]; staticDir: string | null; skillsDir: string | null } {
+export function serverEntry(here = HERE): { command: string; args: string[]; staticDir: string | null } {
   const bundled = join(here, "index.js");
   const root = resolve(here, "..");
   if (existsSync(bundled)) {
     const staticDir = [join(root, "dist"), join(here, "..", "ui")].find((d) => existsSync(join(d, "index.html"))) ?? null;
-    const skillsDir = existsSync(join(root, "skills")) ? join(root, "skills") : null;
-    return { command: process.execPath, args: [bundled], staticDir, skillsDir };
+    return { command: process.execPath, args: [bundled], staticDir };
   }
   const source = join(here, "index.ts");
   const staticDir = existsSync(join(root, "dist", "index.html")) ? join(root, "dist") : null;
-  return { command: process.execPath, args: ["--experimental-strip-types", source], staticDir, skillsDir: existsSync(join(root, "skills")) ? join(root, "skills") : null };
+  return { command: process.execPath, args: ["--experimental-strip-types", source], staticDir };
 }
 
 export async function runServe(options: CliOptions, log: (line: string) => void = console.log): Promise<number> {
@@ -557,7 +556,6 @@ export async function runServe(options: CliOptions, log: (line: string) => void 
   if (ownerToken) env.LATERDOG_CLI_OWNER_STDIN = "1";
   else delete env.LATERDOG_CLI_OWNER_STDIN;
   if (entry.staticDir) env.LATERDOG_STATIC_DIR = entry.staticDir;
-  if (entry.skillsDir && !process.env.LATERDOG_SKILLS_DIR) env.LATERDOG_SKILLS_DIR = entry.skillsDir;
   if (options.label && !process.env.LATERDOG_ENVIRONMENT_LABEL) env.LATERDOG_ENVIRONMENT_LABEL = options.label;
   let logPath: string | undefined;
   let logFd: number | undefined;

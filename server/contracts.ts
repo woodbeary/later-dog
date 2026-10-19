@@ -108,9 +108,7 @@ export interface SendTurnInput {
     };
     hooks?: { url: string; token: string };
     agents?: { command: string; args: string[]; env: Record<string, string> };
-    phone?: { command: string; args: string[]; env: Record<string, string> };
     browser?: { command: string; args: string[]; env: Record<string, string> };
-    dweb?: { url: string };
     custom?: Record<string, McpServerSpec>;
   };
   cwd?: string;
@@ -143,7 +141,6 @@ export interface ProviderAdapter {
     agentsMcp?: boolean;
     computerMcp?: boolean;
     composioMcp?: boolean;
-    phoneMcp?: boolean;
     browserMcp?: boolean;
     images?: boolean;
     nativeImageInput?: boolean;

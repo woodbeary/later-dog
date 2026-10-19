@@ -111,7 +111,7 @@ export function createSupervisorServer(supervisor: Supervisor, token: string): S
           return json(res,200,result);
         }
       }
-      if (url.pathname === "/v1/bridge/devices" && method === "GET") return json(res,200,{ devices: bridge.devices(), requests: scope.bridgeRequests(bridge.requests()) });
+      if (url.pathname === "/v1/bridge/devices" && method === "GET") return json(res,200,{ devices: bridge.devices(), requests: bridge.requests() });
       if (url.pathname === "/v1/bridge/pairing" && method === "POST") {
         const body = z.object({ roots: z.array(z.string().min(1).max(1000)).min(1).max(20), allowAssistance: z.boolean().default(false) }).strict().parse(await readBody(req,30_000));
         return json(res,200,bridge.pairing(body.roots,body.allowAssistance));

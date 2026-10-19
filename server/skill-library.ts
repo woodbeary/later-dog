@@ -68,17 +68,6 @@ function loadSkillDirectory(directory: string): BundledSkill | null {
   return { manifest, instructions, directory };
 }
 
-export function loadBundledSkills(root = process.env.LATERDOG_SKILLS_DIR || join(process.cwd(), "skills")): BundledSkill[] {
-  if (!existsSync(root)) return [];
-  const skills: BundledSkill[] = [];
-  for (const name of readdirSync(root).sort()) {
-    const directory = join(root, name);
-    const skill = loadSkillDirectory(directory);
-    if (skill) skills.push(skill);
-  }
-  return skills;
-}
-
 export function loadUserSkills(root: string): BundledSkill[] {
   if (!existsSync(root)) return [];
   let names: string[];
@@ -95,14 +84,6 @@ export function loadUserSkills(root: string): BundledSkill[] {
     } catch {}
   }
   return skills;
-}
-
-export function mergeSkills(bundled: readonly BundledSkill[], user: readonly BundledSkill[]): BundledSkill[] {
-  const byId = new Map(bundled.map((skill) => [skill.manifest.id, skill]));
-  for (const skill of user) {
-    if (!byId.has(skill.manifest.id)) byId.set(skill.manifest.id, skill);
-  }
-  return [...byId.values()];
 }
 
 export function selectBundledSkills(
