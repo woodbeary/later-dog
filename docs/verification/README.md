@@ -148,8 +148,9 @@ The [people invitation fixture](people.md) checks hosted workspace sign-in,
 roles and device revocation through the real HTTP API with a stubbed email
 service, and the `laterdog access` command. The app has no People page.
 
-The [sidebar fixture](sidebar.md) checks archive and delete confirmations, their
-default focus, keyboard wrapping and focus return against two disposable bots.
+The [sidebar fixture](sidebar.md) checks Hide from sidebar, Show in sidebar and
+the delete confirmation against two disposable bots, and lists the Grok Bot
+sidebar parity checks (pins, sections, search, More unreads, footer, shortcuts).
 
 The [mobile generated-image checks](mobile-generated-images.md) cover native image
 attachments and message-scoped download authorization using isolated fixtures.

@@ -10,7 +10,7 @@ vi.mock("./DesktopCapabilities", () => ({
 }));
 
 import { ConfirmDialogCard } from "./ConfirmDialog";
-import { BotListItem, botConfirmCopy, botRowProps, roomDeleteCopy } from "./Sidebar";
+import { BotListItem, botDeleteCopy, botRowProps, roomDeleteCopy } from "./Sidebar";
 
 const bot = (overrides: Partial<Bot> = {}): Bot => ({
   id: "atlas",
@@ -26,7 +26,7 @@ const bot = (overrides: Partial<Bot> = {}): Bot => ({
   ...overrides,
 }) as Bot;
 
-const rowProps = (value: Bot) => botRowProps(initialState, () => {}, value, { density: "comfortable", query: "", onMenu: () => {} });
+const rowProps = (value: Bot) => botRowProps(initialState, () => {}, value, { density: "comfortable", onMenu: () => {} });
 
 function renderRow(value: Bot): string {
   return renderToStaticMarkup(createElement(BotListItem, rowProps(value)));
@@ -50,18 +50,25 @@ describe("sidebar rows", () => {
   });
 });
 
-describe("archive / delete confirmation copy", () => {
+describe("delete confirmation copy", () => {
   it("translates and keeps the bot's name out of the catalog", () => {
     setLocale("pt-br");
-    const archive = botConfirmCopy("archive", "Juniper");
-    expect(archive.title).toBe("Arquivar Juniper?");
-    expect(archive.confirmLabel).toBe("Arquivar");
-
-    const remove = botConfirmCopy("delete", "Willow");
+    const remove = botDeleteCopy("Willow");
     expect(remove.body).toContain("Willow");
     expect(remove.confirmLabel).toBe("Excluir");
     setLocale("zh");
-    expect(botConfirmCopy("delete", "Willow").title).toBe("删除 Willow？");
+    expect(botDeleteCopy("Willow").title).toBe("删除 Willow？");
+  });
+});
+
+describe("hide and read words", () => {
+  it("translates Hide from sidebar, Show in sidebar and Mark as Read", () => {
+    setLocale("pt-br");
+    expect(t("sidebar.bot.hide")).toBe("Ocultar da barra lateral");
+    expect(t("sidebar.bot.show")).toBe("Mostrar na barra lateral");
+    setLocale("de");
+    expect(t("sidebar.bot.markRead")).toBe("Als gelesen markieren");
+    expect(t("sidebar.unreads.below", { count: 3 })).toBe("Zu 3 ungelesenen Chats unten springen");
   });
 });
 

@@ -47,7 +47,9 @@ export function SidebarPopoverMenu({
   align = "end",
   renderTrigger,
   onOpenChange,
+  menuWidth = "w-52",
 }: {
+  menuWidth?: string;
   placement?: "above" | "below" | "auto";
   portal?: boolean;
   align?: "start" | "end";
@@ -179,7 +181,7 @@ export function SidebarPopoverMenu({
         !portal && (placement === "below"
           ? "top-full right-0 mt-1 w-72 max-w-[calc(100vw-2rem)]"
           : placement === "auto"
-            ? cn("w-52", up ? "bottom-full mb-1" : "top-full mt-1", align === "start" ? "left-0" : "right-0")
+            ? cn(menuWidth, up ? "bottom-full mb-1" : "top-full mt-1", align === "start" ? "left-0" : "right-0")
             : "bottom-full left-0 right-0 mb-1"),
         motion.className,
       )}

@@ -6,6 +6,7 @@ import {
   readSections,
   ensureSections,
   changeEmptySection,
+  orderSections,
   sectionContextKey,
   sectionContextLabel,
   writeSectionContext,
@@ -28,6 +29,13 @@ describe("section context", () => {
     expect(readSectionContext("Work")).toEqual({ text: "# Work\n- Ship Friday", updatedAt: 101 });
     expect(readSectionContext("Personal")).toEqual({ text: "# Home\n- Book dentist", updatedAt: 202 });
     expect(readSectionContext("")).toBeNull();
+  });
+
+  it("orders saved sections as asked, keeps unnamed ones after them, and ignores unknown names", () => {
+    ensureSections(["Work", "Home", "Side"]);
+    expect(orderSections(["Side", "Nope", "Work"])).toBe(true);
+    expect(readSections()).toEqual(["Side", "Work", "Home"]);
+    expect(orderSections(["Side", "Work", "Home"])).toBe(false);
   });
 
   it("clears empty briefs and refuses content beyond the prompt budget", () => {

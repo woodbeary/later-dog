@@ -61,7 +61,7 @@ const remoteKeys = isLocalPage ? REMOTE_SAFE
 const COMPANY_BACKUP_CLIENT_KEYS = [
   "laterdog-drafts", "laterdog-draft-attachments", "laterdog-draft-send-ids", "laterdog-draft-channel-modes",
   "laterdog-skin", "laterdog-show-threads", "laterdog-show-run-card", "laterdog.sidebarDensity",
-  "laterdog.sidebarCollapsedSections.v1", "laterdog.sidebarSectionOrder.v1",
+  "laterdog.sidebarCollapsedSections.v1", "laterdog.sidebarSectionOrder.v1", "laterdog.sidebarPinOrder.v1",
   "laterdog-analytics-opt-out", "laterdog.remote-voice.v1",
 ];
 if (isLocalPage && process.argv.includes("--laterdog-company-desktop=1")) {

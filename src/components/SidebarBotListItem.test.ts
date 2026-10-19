@@ -9,7 +9,7 @@ vi.mock("./DesktopCapabilities", () => ({
 }));
 
 import { ConfirmDialogCard } from "./ConfirmDialog";
-import { BotDeleteMenuItem, BotListItem, botConfirmCopy, botRowProps, currentArchivableBot } from "./Sidebar";
+import { BotDeleteMenuItem, BotListItem, botDeleteCopy, botRowProps } from "./Sidebar";
 import { endCall } from "@/lib/call";
 import { configureLiveMedia, resetLiveMedia, startLiveCall } from "@/lib/live-call-media";
 
@@ -28,7 +28,7 @@ const bot = (overrides: Partial<Bot> = {}): Bot => ({
 });
 
 function renderRow(candidate: Bot, density: "comfortable" | "icons" = "comfortable") {
-  return renderToStaticMarkup(createElement(BotListItem, botRowProps(initialState, vi.fn(), candidate, { density, query: "", onMenu: vi.fn() })));
+  return renderToStaticMarkup(createElement(BotListItem, botRowProps(initialState, vi.fn(), candidate, { density, onMenu: vi.fn() })));
 }
 
 afterEach(() => {
@@ -84,6 +84,16 @@ describe("BotListItem", () => {
     expect(markup).not.toContain("[x]");
   });
 
+  it("marks an unread row so the More unreads pill can find it, and says what a waiting dog waits for on the icon rail", () => {
+    expect(renderRow(bot({ unread: true }))).toContain("data-sidebar-unread");
+    expect(renderRow(bot())).not.toContain("data-sidebar-unread");
+    const waiting = renderRow(bot({
+      activity: "waiting-on-you",
+      messages: [{ id: "c1", role: "bot", kind: "options", at: 2, card: { title: "Approval needed", subtitle: "ls", options: ["Allow", "Deny"], requestId: "r1", tool: "Bash" } }] as Bot["messages"],
+    }), "icons");
+    expect(waiting).toContain('aria-label="Atlas · Waiting for you: run a command"');
+  });
+
   it("previews a person's own last message exactly as typed", () => {
     const markup = renderRow(bot({
       messages: [{ id: "u1", role: "user", kind: "text", text: "rename *draft* to final", at: 1 }] as Bot["messages"],
@@ -131,7 +141,7 @@ describe("BotListItem", () => {
     const markup = renderRow(bot({ chiefOfStaff: true }));
 
     expect(markup).toContain('data-sidebar-bot-row="atlas"');
-    expect(markup).not.toContain('aria-label="Archive Atlas"');
+    expect(markup).not.toContain('aria-label="Hide Atlas"');
   });
 
   it("marks the main dog with a small badge on its avatar and no extra line", () => {
@@ -211,9 +221,9 @@ describe("BotListItem", () => {
     expect(markup).not.toContain('data-testid="teammate-wait-dot"');
   });
 
-  it("keeps Archive in the Actions menu and reveals quiet row controls on focus as well as hover", () => {
+  it("keeps Hide in the Actions menu and reveals quiet row controls on focus as well as hover", () => {
     const markup = renderRow(bot());
-    expect(markup).not.toContain('aria-label="Archive Atlas"');
+    expect(markup).not.toContain("Hide from sidebar");
     expect(markup).toContain('aria-label="Actions for Atlas"');
     expect(markup).toContain("group-focus-within:opacity-100");
     expect(markup).toContain("group-hover:pointer-events-auto");
@@ -221,27 +231,9 @@ describe("BotListItem", () => {
   });
 });
 
-describe("archive / delete confirmation", () => {
-  it("rechecks the latest fleet after a confirmation was opened", () => {
-    const snapshot = bot();
-    const other = bot({ id: "other" });
-    const renamed = bot({ name: "New name" });
-    expect(currentArchivableBot([renamed, other], snapshot.id)).toBe(renamed);
-    expect(currentArchivableBot([bot({ chiefOfStaff: true }), other], snapshot.id)?.id).toBe(snapshot.id);
-    expect(currentArchivableBot([bot({ hidden: true }), other], snapshot.id)).toBeUndefined();
-    expect(currentArchivableBot([snapshot], snapshot.id)).toBeUndefined();
-    expect(currentArchivableBot([other, bot({ id: "third" })], snapshot.id)).toBeUndefined();
-  });
-  it("archive copy names the bot and says it can be restored", () => {
-    const copy = botConfirmCopy("archive", "Juniper");
-
-    expect(copy.title).toContain("Juniper");
-    expect(copy.body).toMatch(/restore/i);
-    expect(copy.tone).toBe("neutral");
-  });
-
+describe("delete confirmation", () => {
   it("delete copy names the bot and warns about its owned computer", () => {
-    const copy = botConfirmCopy("delete", "Willow");
+    const copy = botDeleteCopy("Willow");
 
     expect(copy.title).toContain("Willow");
     expect(copy.body).toMatch(/permanently/i);
@@ -254,7 +246,7 @@ describe("archive / delete confirmation", () => {
   it("renders as an alert dialog with Cancel and the action button", () => {
     const markup = renderToStaticMarkup(createElement(ConfirmDialogCard, {
       open: true,
-      ...botConfirmCopy("delete", "Willow"),
+      ...botDeleteCopy("Willow"),
       onCancel: vi.fn(),
       onConfirm: vi.fn(),
     }));

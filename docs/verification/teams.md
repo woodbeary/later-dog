@@ -1,10 +1,13 @@
 # Sections
 
 A section is a plain named group in the sidebar. It can be empty. Each header
-shows how many dogs and group chats it holds; dogs without a section sit under
-**Unassigned** (titled **Dogs** when there are no sections). A dog moves with
-**Move to** in its menu, which can also start a new section, or by dragging its
-row onto a section; an empty section shows "Drag dogs here". A section's menu
+shows how many dogs and group chats it holds; dogs and group chats without a
+section sit under **Unassigned** (no header at all when there are no sections).
+Sections keep the order saved on the server: drag a header, or press
+Alt+Up/Down on it, and `PUT /api/sidebar-sections/order` saves the new order.
+A dog moves with **Move to** in its menu, which can also start a new section,
+or by dragging its row onto a section (group chats drag too); an empty section
+shows "Drag dogs here". A section's menu
 (right-click its header) has **Rename section** and **Delete**; deleting keeps
 its dogs and group chats with their conversations. There is no pack map,
 shared-instructions editor, **Add dogs**, **Share pack** or templates gallery,
@@ -17,7 +20,7 @@ edits them.
 ## Checks
 
 ```sh
-pnpm exec vitest run server/team-lifecycle.e2e.test.ts server/section-context.test.ts server/store.test.ts --maxWorkers=2
+pnpm exec vitest run server/team-lifecycle.e2e.test.ts server/section-context.test.ts server/store.test.ts server/routes/sidebar-section-order.test.ts --maxWorkers=2
 pnpm exec vitest run src/lib/sidebar-layout.test.ts src/lib/section-drop.test.ts src/components/AddDogSheet.test.ts src/components/Sidebar.header-menus.test.ts src/components/SidebarSectionHeader.test.ts
 ```
 

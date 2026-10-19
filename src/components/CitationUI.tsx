@@ -9,6 +9,12 @@ import {
   type CitationAttachment,
 } from "@/lib/citations";
 import { captureCitationSelection, citationTabShortcut } from "@/lib/citations-dom";
+import { isMacPlatform } from "@/lib/keyboard-shortcuts";
+
+export function quoteSelectionShortcut(event: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey" | "isComposing">, isMac: boolean): boolean {
+  const mod = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  return mod && !event.shiftKey && !event.altKey && !event.isComposing && (event.code === "KeyL" || event.key.toLowerCase() === "l");
+}
 
 type Point = { left: number; top: number };
 
@@ -142,7 +148,17 @@ export function CitationSelectionToolbar({
     viewportRef.current?.addEventListener("pointerup", update);
     viewportRef.current?.addEventListener("keyup", update);
     const focusAction = (event: KeyboardEvent) => {
-      if (captured && !editing) tabShortcut.handle(event, buttonRef.current);
+      if (!captured || editing) return;
+      if (quoteSelectionShortcut(event, isMacPlatform())) {
+        if (captured.citation.quote.length > CITATION_MAX_QUOTE_LENGTH) return;
+        event.preventDefault();
+        onAdd(captured.citation);
+        window.getSelection()?.removeAllRanges();
+        setCaptured(null);
+        focusComposer();
+        return;
+      }
+      tabShortcut.handle(event, buttonRef.current);
     };
     document.addEventListener("keydown", focusAction, true);
     return () => {
@@ -151,7 +167,7 @@ export function CitationSelectionToolbar({
       viewportRef.current?.removeEventListener("keyup", update);
       document.removeEventListener("keydown", focusAction, true);
     };
-  }, [captured, editing, tabShortcut, viewportRef]);
+  }, [captured, editing, onAdd, tabShortcut, viewportRef]);
 
   useLayoutEffect(() => {
     if (!captured || editing) return;

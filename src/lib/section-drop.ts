@@ -1,9 +1,11 @@
-import { BOTS_SECTION_ID, userSectionName, type SidebarSectionId } from "./sidebar-layout";
+import { UNASSIGNED_SECTION_ID, userSectionName, type SidebarSectionId } from "./sidebar-layout";
 
 export const DOG_DRAG_TYPE = "application/x-laterdog-dog";
+export const GROUP_DRAG_TYPE = "application/x-laterdog-group";
+export const PIN_DRAG_TYPE = "application/x-laterdog-pin";
 
 export function sectionForDogDrop(id: SidebarSectionId): string | null {
-  if (id === BOTS_SECTION_ID) return "";
+  if (id === UNASSIGNED_SECTION_ID) return "";
   return userSectionName(id);
 }
 

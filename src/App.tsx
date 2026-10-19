@@ -26,7 +26,11 @@ import { CommandPalette } from "@/components/CommandPalette";
 import { AddAccountHost } from "@/components/AddAccountHost";
 import { UpdateDialog } from "@/components/UpdateButton";
 import { setLocale } from "@/lib/i18n";
-import { shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
+import { isMacPlatform, shouldOpenKeyboardShortcuts } from "@/lib/keyboard-shortcuts";
+import { appShortcut, EMPTY_HISTORY, moveInHistory, stepThrough, visitSelection, type SelectionHistory } from "@/lib/app-shortcuts";
+import { sidebarOrder } from "@/lib/sidebar-order";
+import { loadSidebarDensity, setSidebarDensity } from "@/lib/sidebar-preferences";
+import { isLiveCallRunning, liveCallShortcut, liveMedia } from "@/lib/live-call-media";
 import { effectiveLanguage, useLanguageChoice } from "@/lib/language-preference";
 import { botShowsUnread } from "@/lib/bot-unread";
 import { acknowledgeOrganizationSettings } from "@/lib/organization-settings-ack";
@@ -82,7 +86,13 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     !state.instances.some((i) => i.snapshot.state === "available");
   const cloudSignIn = cloudSignInDue(viewer, state, engineReady);
 
+  const history = useRef<SelectionHistory>(EMPTY_HISTORY);
   useEffect(() => {
+    history.current = visitSelection(history.current, state.selectedId);
+  }, [state.selectedId]);
+
+  useEffect(() => {
+    const isMac = isMacPlatform();
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing || state.shortcutsOpen) return;
       if (shouldOpenKeyboardShortcuts(e)) {
@@ -90,31 +100,68 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         dispatch({ type: "toggleShortcuts", open: true });
         return;
       }
-
-      const mod = e.metaKey || e.ctrlKey;
-      if (!mod) return;
-      const bots = state.bots.filter((b) => !b.hidden);
-      if (e.key === "n" && !e.shiftKey) {
+      const shortcut = appShortcut(e, isMac);
+      if (!shortcut) return;
+      if (shortcut.kind === "connectApps" && liveCallShortcut(e, isMac) && isLiveCallRunning(liveMedia().phase)) return;
+      const exists = (id: string) => state.bots.some((b) => b.id === id) || state.groups.some((g) => g.id === id && !g.dm);
+      const go = (id: string | undefined) => {
+        if (!id) return;
         e.preventDefault();
-        dispatch({ type: "toggleNewBot", open: true });
-      } else if (/^[1-9]$/.test(e.key)) {
-        const target = bots[Number(e.key) - 1];
-        if (target) {
+        dispatch({ type: "select", id });
+      };
+      switch (shortcut.kind) {
+        case "search":
           e.preventDefault();
-          dispatch({ type: "select", id: target.id });
-        }
-      } else if (e.shiftKey && (e.key === "[" || e.key === "]")) {
-        const idx = bots.findIndex((b) => b.id === state.selectedId);
-        const next = bots[(idx + (e.key === "]" ? 1 : -1) + bots.length) % bots.length];
-        if (next) {
+          dispatch({ type: "toggleSearch" });
+          return;
+        case "newDog":
           e.preventDefault();
-          dispatch({ type: "select", id: next.id });
+          dispatch({ type: "toggleNewBot", open: true });
+          return;
+        case "settings":
+          e.preventDefault();
+          dispatch({ type: "toggleAppSettings", open: true });
+          return;
+        case "connectApps":
+          e.preventDefault();
+          dispatch({ type: "togglePlugins", open: true, surface: "apps" });
+          return;
+        case "focusComposer": {
+          const composer = document.querySelector<HTMLTextAreaElement>('[data-tour="composer"] textarea');
+          if (!composer) return;
+          e.preventDefault();
+          composer.focus();
+          return;
         }
+        case "toggleSidebar":
+          e.preventDefault();
+          setSidebarDensity(loadSidebarDensity() === "icons" ? "comfortable" : "icons");
+          return;
+        case "dogPanel":
+          if (!state.bots.some((b) => b.id === state.selectedId)) return;
+          e.preventDefault();
+          dispatch({ type: "toggleSettings" });
+          return;
+        case "back":
+        case "forward": {
+          const moved = moveInHistory(history.current, shortcut.kind === "back" ? -1 : 1, exists);
+          if (!moved) return;
+          history.current = moved.history;
+          go(moved.id);
+          return;
+        }
+        case "previousDog":
+        case "nextDog":
+          go(stepThrough(sidebarOrder(), state.selectedId, shortcut.kind === "nextDog" ? 1 : -1));
+          return;
+        case "dogAt":
+          go(sidebarOrder()[shortcut.index]);
+          return;
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [state.bots, state.selectedId, state.shortcutsOpen, dispatch]);
+  }, [state.bots, state.groups, state.selectedId, state.shortcutsOpen, dispatch]);
 
   useEffect(() => {
     window.laterdog?.setUnreadCount?.(unreadCount);

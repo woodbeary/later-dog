@@ -125,7 +125,8 @@ describe("sidebar top row", () => {
     expect(spacer).toBeGreaterThan(slot);
     expect(switcher).toBe(-1);
     expect(buttons).toBeGreaterThan(spacer);
-    expect(row.slice(buttons).match(/<button/g)).toHaveLength(1);
+    expect(row.slice(buttons).match(/<button/g)).toHaveLength(2);
+    expect(row.slice(buttons)).toContain('aria-label="Search"');
     const rowClasses = classesOf(row, "data-sidebar-top-row");
     expect(rowClasses).toEqual(expect.arrayContaining(["relative", "pl-4", "pr-2"]));
     expect(rowClasses).not.toContain("px-4");
@@ -182,7 +183,7 @@ describe("sidebar top row", () => {
 
 describe("sidebar glass head and foot", () => {
   it.each(["comfortable", "icons"] as const)(
-    "puts the top row and search in the glass head, Bug report in the glass foot, and the list between at %s density",
+    "puts the top row with Search in the glass head, Connect apps in the glass foot, and the list between at %s density",
     (density) => {
       fixture.density = density;
       const html = render();
@@ -193,15 +194,16 @@ describe("sidebar glass head and foot", () => {
       };
       const head = at('data-glass-bar="top"');
       const topRow = at("data-sidebar-top-row");
-      const search = at('aria-label="Search dogs and messages"');
+      const search = at('aria-label="Search"');
       const list = at('class="glass-scroller ');
       const foot = at('data-glass-bar="bottom"');
-      const bugReport = at('data-sidebar-nav="bug-report"');
+      const connectApps = at('data-sidebar-nav="connect-apps"');
       expect(head).toBeLessThan(topRow);
       expect(topRow).toBeLessThan(search);
       expect(search).toBeLessThan(list);
       expect(list).toBeLessThan(foot);
-      expect(foot).toBeLessThan(bugReport);
+      expect(foot).toBeLessThan(connectApps);
+      expect(html).not.toContain('aria-label="Search dogs and messages"');
       expect(html.match(/data-glass-frame=""/g)).toHaveLength(1);
       expect(at("data-glass-frame")).toBeLessThan(head);
     },
@@ -209,13 +211,13 @@ describe("sidebar glass head and foot", () => {
 });
 
 describe("sidebar foot", () => {
-  it.each(["comfortable"] as const)("keeps only the profile row, with Bug report at its end (%s)", (density) => {
-    fixture.density = density;
+  it("shows the avatar, then the Connect apps pill, and no bug button (Report a bug lives under Support)", () => {
     const html = render();
-    const foot = html.indexOf('data-glass-bar="bottom"');
+    const foot = html.indexOf("data-sidebar-footer");
+    expect(foot).toBeGreaterThan(html.indexOf('data-glass-bar="bottom"'));
+    expect(html.indexOf("data-sidebar-profile")).toBeGreaterThan(foot);
+    expect(html.indexOf('data-sidebar-nav="connect-apps"')).toBeGreaterThan(html.indexOf("data-sidebar-profile"));
     expect(html).not.toContain('data-sidebar-nav="routines"');
-    expect(html).not.toContain('data-sidebar-nav="triggers"');
-    expect(html.match(/data-sidebar-nav="bug-report"/g)).toHaveLength(1);
-    expect(html.indexOf('data-sidebar-nav="bug-report"')).toBeGreaterThan(foot);
+    expect(html).not.toContain('data-sidebar-nav="bug-report"');
   });
 });

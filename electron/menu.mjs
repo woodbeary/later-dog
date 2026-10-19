@@ -6,7 +6,7 @@ export function buildApplicationMenu({ onOpenSettings }) {
     ...(isMac ? [{ label: app.name, submenu: [{ role: "about" }, { label: "Preferences…", accelerator: "CmdOrCtrl+,", click: () => onOpenSettings() }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { role: "unhide" }, { type: "separator" }, { role: "quit" }] }] : []),
     { role: "fileMenu" },
     { role: "editMenu" },
-    { role: "viewMenu" },
+    isMac ? { role: "viewMenu" } : { role: "viewMenu", submenu: [{ role: "reload" }, { role: "forceReload" }, { role: "toggleDevTools", accelerator: "F12" }, { type: "separator" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }, { type: "separator" }, { role: "togglefullscreen" }] },
     { role: "windowMenu" },
   ];
   return Menu.buildFromTemplate(template);

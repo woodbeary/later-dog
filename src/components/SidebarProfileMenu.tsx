@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownToLine, Check, Loader2, LogOut, Puzzle, RefreshCw, Settings as SettingsIcon, Smartphone } from "lucide-react";
+import { ArrowDownToLine, Bug, Check, LifeBuoy, Loader2, LogOut, MessageSquare, RefreshCw, Settings as SettingsIcon, Smartphone, BookOpen } from "lucide-react";
 
 import { InitialsAvatar } from "./Avatar";
 import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
@@ -14,6 +14,8 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { openExternalLink } from "@/lib/app-links";
 import { PHONE_APP_URL } from "@/lib/cloud-account-view";
+import { FEEDBACK_URL, HELP_CENTER_URL } from "@/lib/app-links";
+import { BugReportDialog } from "./BugReportDialog";
 
 export function profileInitials(profile?: { name?: string; email?: string }): string {
   const name = profile?.name?.trim();
@@ -144,12 +146,30 @@ export function useUpdateItem(): UpdateEntry | null {
   };
 }
 
-export function SidebarProfileMenu() {
+export function SupportMenu({ close, onReportBug }: { close: () => void; onReportBug: () => void }) {
+  const row = "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[13.5px] text-ink hover:bg-raised-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus";
+  return (
+    <div data-support-menu className="flex w-56 flex-col p-1">
+      <button type="button" role="menuitem" className={row} onClick={() => { close(); void openExternalLink(HELP_CENTER_URL); }}>
+        <BookOpen size={16} aria-hidden="true" className="text-ink-secondary" />{t("sidebar.menu.help")}
+      </button>
+      <button type="button" role="menuitem" className={row} onClick={() => { close(); void openExternalLink(FEEDBACK_URL); }}>
+        <MessageSquare size={16} aria-hidden="true" className="text-ink-secondary" />{t("sidebar.menu.feedback")}
+      </button>
+      <button type="button" role="menuitem" className={row} onClick={() => { close(); onReportBug(); }}>
+        <Bug size={16} aria-hidden="true" className="text-ink-secondary" />{t("bugReport.title")}
+      </button>
+    </div>
+  );
+}
+
+export function SidebarProfileMenu({ compact = false }: { compact?: boolean }) {
   const { state, dispatch } = useStore();
   const update = useUpdateItem();
   const accountItems = useAccountMenuItems();
   const signOut = useSignOutTargets();
   const [signingOut, setSigningOut] = useState<SignOutTargets | null>(null);
+  const [reportingBug, setReportingBug] = useState(false);
   const triggerRef = useRef<HTMLSpanElement>(null);
 
   const profile = state.config?.profile;
@@ -180,17 +200,17 @@ export function SidebarProfileMenu() {
       },
     },
     {
+      key: "support",
+      label: t("sidebar.menu.support"),
+      icon: <LifeBuoy size={18} />,
+      submenu: (close) => <SupportMenu close={close} onReportBug={() => { focusTrigger(); setReportingBug(true); }} />,
+      onSelect: () => {},
+    },
+    {
       key: "settings",
       label: t("sidebar.menu.settings"),
       icon: <SettingsIcon size={18} />,
       onSelect: () => dispatch({ type: "toggleAppSettings" }),
-    },
-    {
-      key: "plugins",
-      label: t("sidebar.menu.plugins"),
-      icon: <Puzzle size={18} />,
-      tourId: "nav-apps",
-      onSelect: () => dispatch({ type: "togglePlugins", open: true }),
     },
     ...(accountItems.accounts ? [accountItems.accounts] : []),
     ...(accountItems.add ? [{ ...accountItems.add, separatorBefore: !accountItems.accounts }] : []),
@@ -211,23 +231,26 @@ export function SidebarProfileMenu() {
       <SidebarPopoverMenu
         items={items}
         ariaLabel={name}
+        align="start"
+        placement="auto"
+        menuWidth="w-72"
         renderTrigger={({ open }) => (
           <span
             ref={triggerRef}
+            data-sidebar-profile
+            title={name}
             className={cn(
-              "flex min-h-10 w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors",
+              "flex size-9 shrink-0 items-center justify-center rounded-full transition-colors",
               open ? "bg-raised" : "hover:bg-raised/50",
+              compact && "size-10",
             )}
           >
-            <InitialsAvatar initials={profileInitials(profile)} size={28} />
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-[14px] text-ink">{name}</span>
-            </span>
-            <SettingsIcon size={15} aria-hidden="true" className="shrink-0 text-ink-secondary" />
+            <InitialsAvatar initials={profileInitials(profile)} size={compact ? 30 : 32} />
           </span>
         )}
       />
       {signingOut && <SignOutDialog targets={signingOut} onClose={() => setSigningOut(null)} />}
+      {reportingBug && <BugReportDialog onClose={() => setReportingBug(false)} />}
     </>
   );
 }

@@ -1,21 +1,37 @@
-import { Bug } from "lucide-react";
-import { useState } from "react";
+import { Puzzle } from "lucide-react";
 import { t } from "@/lib/i18n";
 import type { SidebarDensity } from "@/lib/sidebar-preferences";
-import { BugReportDialog } from "./BugReportDialog";
+import { useStore } from "@/state/store";
 
-export function SidebarBugButton() {
-  const [open, setOpen] = useState(false);
-  return <>
-    <button type="button" data-sidebar-nav="bug-report" onClick={() => setOpen(true)}
-      aria-label={t("bugReport.title")} title={t("bugReport.title")} aria-haspopup="dialog"
-      className="flex size-9 shrink-0 items-center justify-center rounded-xl text-ink-secondary transition-colors hover:bg-raised/50 hover:text-ink">
-      <Bug size={18} />
+export function ConnectAppsPill() {
+  const { dispatch } = useStore();
+  return (
+    <button
+      type="button"
+      data-sidebar-nav="connect-apps"
+      onClick={() => dispatch({ type: "togglePlugins", open: true, surface: "apps" })}
+      className="flex h-9 min-w-0 flex-1 items-center justify-center rounded-full border border-hairline/50 px-4 text-[13.5px] font-medium text-ink transition-colors hover:bg-raised/60"
+    >
+      <span className="truncate">{t("sidebar.connectApps")}</span>
     </button>
-    {open && <BugReportDialog onClose={() => setOpen(false)} />}
-  </>;
+  );
 }
 
 export function SidebarFooterNav({ density }: { density: SidebarDensity }) {
-  return density === "icons" ? <nav aria-label={t("sidebar.tools")}><SidebarBugButton /></nav> : null;
+  const { dispatch } = useStore();
+  if (density !== "icons") return null;
+  return (
+    <nav aria-label={t("sidebar.tools")}>
+      <button
+        type="button"
+        data-sidebar-nav="connect-apps"
+        onClick={() => dispatch({ type: "togglePlugins", open: true, surface: "apps" })}
+        aria-label={t("sidebar.connectApps")}
+        title={t("sidebar.connectApps")}
+        className="flex size-9 shrink-0 items-center justify-center rounded-xl text-ink-secondary transition-colors hover:bg-raised/50 hover:text-ink"
+      >
+        <Puzzle size={18} />
+      </button>
+    </nav>
+  );
 }

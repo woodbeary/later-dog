@@ -51,4 +51,15 @@ describe("buildApplicationMenu", () => {
     expect(JSON.stringify(template.map(entry => entry.submenu ?? []).flat().map(entry => entry.label))).not.toMatch(/Pairing Link|Forget/);
     expect(template.map(entry => entry.role).filter(Boolean)).toEqual(["fileMenu", "editMenu", "viewMenu", "windowMenu"]);
   });
+
+  it.each(["linux", "win32"])("leaves Ctrl+Shift+I to the dog's details on %s and opens DevTools with F12", platform => {
+    const view = build(platform).find(entry => entry.role === "viewMenu");
+    const devTools = view.submenu.find(entry => entry.role === "toggleDevTools");
+    expect(devTools.accelerator).toBe("F12");
+    expect(JSON.stringify(view.submenu)).not.toMatch(/Shift\+I/i);
+  });
+
+  it("keeps the standard View menu on macOS, where ⌘⌥I opens DevTools", () => {
+    expect(build("darwin").find(entry => entry.role === "viewMenu").submenu).toBeUndefined();
+  });
 });

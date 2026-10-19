@@ -1,33 +1,29 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  BOTS_SECTION_ID,
-  CHANNELS_SECTION_ID,
-  PINNED_SECTION_ID,
-  mergeSectionOrder,
+  HIDDEN_SECTION_ID,
+  UNASSIGNED_SECTION_ID,
   moveSection,
-  orderedSidebarSections,
   partitionSidebarBots,
   partitionSidebarGroups,
   placeSection,
   sidebarConnectorPreview,
   sidebarLayoutInteractive,
   sidebarSectionCollapsed,
-  sidebarSectionLabel,
+  sidebarSectionNames,
   userSectionId,
   userSectionName,
 } from "./sidebar-layout";
 
 describe("sidebar virtual sections", () => {
-  it("keeps reserved labels separate from identically named user sections", () => {
-    for (const name of ["Pinned", "pinned", "channels", "bots", "bot-chats", "Bot Chats"]) {
+  it("keeps reserved ids separate from identically named user sections", () => {
+    for (const name of ["Pinned", "Hidden", "Unassigned", "bots", "hidden", "Bot Chats"]) {
       const id = userSectionId(name);
-      expect([PINNED_SECTION_ID, CHANNELS_SECTION_ID, BOTS_SECTION_ID]).not.toContain(id);
+      expect([UNASSIGNED_SECTION_ID, HIDDEN_SECTION_ID]).not.toContain(id);
       expect(userSectionName(id)).toBe(name);
-      expect(sidebarSectionLabel(id)).toBe(name);
     }
-    expect(sidebarSectionLabel(CHANNELS_SECTION_ID)).toBe("Group chats");
-    expect(sidebarSectionLabel("builtin:bot-chats")).toBe("builtin:bot-chats");
+    expect(userSectionName(UNASSIGNED_SECTION_ID)).toBeNull();
+    expect(userSectionName(HIDDEN_SECTION_ID)).toBeNull();
   });
 
   it("round-trips every valid section name without URI encoding", () => {
@@ -38,22 +34,24 @@ describe("sidebar virtual sections", () => {
       const id = userSectionId(name);
       expect(id).toBe(`section:${name}`);
       expect(userSectionName(id)).toBe(name);
-      expect(sidebarSectionLabel(id)).toBe(name);
     }
   });
 
-  it("shows pinned bots once without erasing their saved context", () => {
+  it("shows pinned bots once without erasing their saved context, and keeps hidden dogs apart", () => {
     const bot = { id: "writer", section: "Work", pinned: true };
+    const hidden = { id: "hidden", hidden: true, pinned: true, section: "Work" };
     const parts = partitionSidebarBots([
       { id: "main", chiefOfStaff: true },
       bot,
       { id: "plain" },
-      { id: "hidden", hidden: true, pinned: true },
+      hidden,
     ]);
     expect(parts.pinnedBots).toEqual([bot]);
     expect(parts.sectionedBots).toEqual([]);
     expect(parts.unsectionedBots.map((candidate) => candidate.id)).toEqual(["main", "plain"]);
+    expect(parts.hiddenBots).toEqual([hidden]);
     expect(bot.section).toBe("Work");
+    expect(hidden.section).toBe("Work");
   });
 
   it("leaves dog-to-dog exchanges out of the sidebar without rewriting their comms context", () => {
@@ -90,13 +88,12 @@ describe("sidebar virtual sections", () => {
     expect(home.section).toBe("Home");
   });
 
-  it("forces filtered and icon-only views open and non-reorderable", () => {
-    expect(sidebarLayoutInteractive("comfortable", "")).toBe(true);
-    expect(sidebarLayoutInteractive("comfortable", "writer")).toBe(false);
-    expect(sidebarLayoutInteractive("icons", "")).toBe(false);
-    expect(sidebarSectionCollapsed(PINNED_SECTION_ID, [PINNED_SECTION_ID], "comfortable", "")).toBe(true);
-    expect(sidebarSectionCollapsed(PINNED_SECTION_ID, [PINNED_SECTION_ID], "comfortable", "writer")).toBe(false);
-    expect(sidebarSectionCollapsed(PINNED_SECTION_ID, [PINNED_SECTION_ID], "icons", "")).toBe(false);
+  it("lets only the full sidebar collapse or reorder sections", () => {
+    expect(sidebarLayoutInteractive("comfortable")).toBe(true);
+    expect(sidebarLayoutInteractive("icons")).toBe(false);
+    expect(sidebarSectionCollapsed(HIDDEN_SECTION_ID, [HIDDEN_SECTION_ID], "comfortable")).toBe(true);
+    expect(sidebarSectionCollapsed(HIDDEN_SECTION_ID, [], "comfortable")).toBe(false);
+    expect(sidebarSectionCollapsed(HIDDEN_SECTION_ID, [HIDDEN_SECTION_ID], "icons")).toBe(false);
   });
 
   it("previews a connection card by its app and state, not the phone fallback line", () => {
@@ -115,70 +112,18 @@ describe("sidebar virtual sections", () => {
 });
 
 describe("sidebar section ordering", () => {
-  const natural = [
-    PINNED_SECTION_ID,
-    CHANNELS_SECTION_ID,
-    userSectionId("Home"),
-    BOTS_SECTION_ID,
-    userSectionId("Work"),
-  ];
-
-  it("uses natural order when no preference exists", () => {
-    expect(orderedSidebarSections(natural, [])).toEqual(natural);
-  });
-
-  it("preserves a user move and inserts a newly visible bucket naturally", () => {
-    const withoutHome = natural.filter((id) => id !== userSectionId("Home"));
-    const saved = [userSectionId("Work"), PINNED_SECTION_ID, CHANNELS_SECTION_ID, BOTS_SECTION_ID];
-    expect(orderedSidebarSections(withoutHome, saved)).toEqual(saved);
-    expect(orderedSidebarSections(natural, saved)).toEqual([
-      userSectionId("Work"),
-      PINNED_SECTION_ID,
-      CHANNELS_SECTION_ID,
-      userSectionId("Home"),
-      BOTS_SECTION_ID,
-    ]);
+  it("follows the server's saved order and adds sections only records name at the end", () => {
+    expect(sidebarSectionNames(["Work", "Home"], [{ section: "Home" }, {}, { section: "Side" }, { section: "Side" }])).toEqual(["Work", "Home", "Side"]);
+    expect(sidebarSectionNames([], [])).toEqual([]);
   });
 
   it("moves and drops sections without wrapping", () => {
-    expect(moveSection(natural, CHANNELS_SECTION_ID, -1)).toEqual([
-      CHANNELS_SECTION_ID,
-      PINNED_SECTION_ID,
-      userSectionId("Home"),
-      BOTS_SECTION_ID,
-      userSectionId("Work"),
-    ]);
-    expect(moveSection(natural, PINNED_SECTION_ID, -1)).toBe(natural);
-    expect(placeSection(natural, BOTS_SECTION_ID, PINNED_SECTION_ID, "before")).toEqual([
-      BOTS_SECTION_ID,
-      PINNED_SECTION_ID,
-      CHANNELS_SECTION_ID,
-      userSectionId("Home"),
-      userSectionId("Work"),
-    ]);
-  });
-
-  it("retains empty sections in their saved slot", () => {
-    const visible = natural.filter((id) => id !== CHANNELS_SECTION_ID);
-    expect(mergeSectionOrder(natural, visible)).toEqual(natural);
-  });
-
-  it("retains leading empty sections before their next visible successor", () => {
-    const work = userSectionId("Work");
-    const personal = userSectionId("Personal");
-    const saved = [work, personal, PINNED_SECTION_ID, CHANNELS_SECTION_ID];
-
-    expect(mergeSectionOrder(saved, [PINNED_SECTION_ID, CHANNELS_SECTION_ID])).toEqual(saved);
-  });
-
-  it("preserves a leading empty section when visible sections were reordered", () => {
-    const work = userSectionId("Work");
-    const saved = [work, PINNED_SECTION_ID, CHANNELS_SECTION_ID];
-
-    expect(mergeSectionOrder(saved, [CHANNELS_SECTION_ID, PINNED_SECTION_ID])).toEqual([
-      CHANNELS_SECTION_ID,
-      work,
-      PINNED_SECTION_ID,
-    ]);
+    const names = ["Work", "Home", "Side"];
+    expect(moveSection(names, "Home", -1)).toEqual(["Home", "Work", "Side"]);
+    expect(moveSection(names, "Work", -1)).toBe(names);
+    expect(moveSection(names, "Side", 1)).toBe(names);
+    expect(placeSection(names, "Side", "Work", "before")).toEqual(["Side", "Work", "Home"]);
+    expect(placeSection(names, "Work", "Side", "after")).toEqual(["Home", "Side", "Work"]);
+    expect(placeSection(names, "Work", "Work", "after")).toBe(names);
   });
 });

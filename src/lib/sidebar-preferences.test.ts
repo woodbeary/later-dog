@@ -1,31 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  PINNED_CIRCLES_KEY,
-  UNIVERSAL_PINS_KEY,
   SIDEBAR_COLLAPSED_SECTIONS_KEY,
   SIDEBAR_DENSITY_KEY,
+  SIDEBAR_PIN_ORDER_KEY,
   SIDEBAR_WIDTH_KEY,
-  SIDEBAR_SECTION_ORDER_KEY,
   clampSidebarWidth,
-  loadPinnedCircles,
-  loadUniversalPins,
   loadCollapsedSections,
-  loadSectionOrder,
+  loadPinOrder,
   loadSidebarDensity,
   loadSidebarWidth,
-  parsePinnedCircles,
-  parseUniversalPins,
   parseSidebarDensity,
   saveCollapsedSections,
-  savePinnedCircles,
-  saveUniversalPins,
-  saveSectionOrder,
+  savePinOrder,
   saveSidebarDensity,
   saveSidebarWidth,
   toggleCollapsedSection,
 } from "./sidebar-preferences";
-import { userSectionId } from "./sidebar-layout";
+import { orderPinnedBots, userSectionId } from "./sidebar-layout";
 
 describe("sidebar density preferences", () => {
   it("accepts the two supported layouts and reads stale values, the old compact one included, as comfortable", () => {
@@ -67,7 +59,7 @@ describe("sidebar width preference", () => {
 });
 
 describe("sidebar section preferences", () => {
-  it("round-trips unique collapsed and ordered section ids", () => {
+  it("round-trips unique collapsed section ids and the pinned order", () => {
     const collapsedSet = vi.fn();
     saveCollapsedSections(["builtin:pinned", "builtin:pinned", "section:Work"], {
       setItem: collapsedSet,
@@ -83,12 +75,12 @@ describe("sidebar section preferences", () => {
     ).toEqual(["builtin:pinned", "section:Work"]);
 
     const orderSet = vi.fn();
-    saveSectionOrder(["section:Work", "builtin:bots"], { setItem: orderSet });
+    savePinOrder(["section:Work", "builtin:bots"], { setItem: orderSet });
     expect(orderSet).toHaveBeenCalledWith(
-      SIDEBAR_SECTION_ORDER_KEY,
+      SIDEBAR_PIN_ORDER_KEY,
       JSON.stringify(["section:Work", "builtin:bots"]),
     );
-    expect(loadSectionOrder({ getItem: () => JSON.stringify(["section:Work", "builtin:bots"]) })).toEqual([
+    expect(loadPinOrder({ getItem: () => JSON.stringify(["section:Work", "builtin:bots"]) })).toEqual([
       "section:Work",
       "builtin:bots",
     ]);
@@ -96,7 +88,7 @@ describe("sidebar section preferences", () => {
 
   it("ignores malformed storage and toggles ids without mutating the source", () => {
     expect(loadCollapsedSections({ getItem: () => "not-json" })).toEqual([]);
-    expect(loadSectionOrder({ getItem: () => JSON.stringify({ nope: true }) })).toEqual([]);
+    expect(loadPinOrder({ getItem: () => JSON.stringify({ nope: true }) })).toEqual([]);
     const current = ["section:Work"];
     expect(toggleCollapsedSection(current, "builtin:bots")).toEqual([
       "section:Work",
@@ -108,12 +100,12 @@ describe("sidebar section preferences", () => {
 
   it("supports newlines, caps untrusted arrays, and tolerates blocked storage", () => {
     const withNewline = "section:Line\nBreak";
-    expect(loadSectionOrder({ getItem: () => JSON.stringify([withNewline]) })).toEqual([withNewline]);
+    expect(loadPinOrder({ getItem: () => JSON.stringify([withNewline]) })).toEqual([withNewline]);
 
     const oversized = Array.from({ length: 105 }, (_, index) => `section:${index}`);
-    expect(loadSectionOrder({ getItem: () => JSON.stringify(oversized) })).toHaveLength(100);
-    expect(loadSectionOrder({ getItem: () => { throw new Error("blocked"); } })).toEqual([]);
-    expect(() => saveSectionOrder(["section:Work"], { setItem: () => { throw new Error("blocked"); } })).not.toThrow();
+    expect(loadPinOrder({ getItem: () => JSON.stringify(oversized) })).toHaveLength(100);
+    expect(loadPinOrder({ getItem: () => { throw new Error("blocked"); } })).toEqual([]);
+    expect(() => savePinOrder(["section:Work"], { setItem: () => { throw new Error("blocked"); } })).not.toThrow();
   });
 
   it("persists raw section ids with lone surrogates and max-length emoji names", () => {
@@ -124,52 +116,15 @@ describe("sidebar section preferences", () => {
       setItem: (key: string, value: string) => values.set(key, value),
     };
 
-    saveSectionOrder(ids, storage);
-    expect(loadSectionOrder(storage)).toEqual(ids);
+    savePinOrder(ids, storage);
+    expect(loadPinOrder(storage)).toEqual(ids);
   });
 });
 
-describe("pinned circles preference", () => {
-  it("defaults off, stores the exact flag, and survives blocked storage", () => {
-    expect(parsePinnedCircles("true")).toBe(true);
-    expect(parsePinnedCircles("false")).toBe(false);
-    expect(parsePinnedCircles("yes")).toBe(false);
-    expect(parsePinnedCircles("1")).toBe(false);
-    expect(parsePinnedCircles(null)).toBe(false);
-
-    const setItem = vi.fn();
-    savePinnedCircles(true, { setItem });
-    savePinnedCircles(false, { setItem });
-    expect(setItem).toHaveBeenNthCalledWith(1, PINNED_CIRCLES_KEY, "true");
-    expect(setItem).toHaveBeenNthCalledWith(2, PINNED_CIRCLES_KEY, "false");
-    expect(loadPinnedCircles({ getItem: () => "true" })).toBe(true);
-    expect(loadPinnedCircles({ getItem: () => "false" })).toBe(false);
-    expect(loadPinnedCircles({ getItem: () => "untrusted" })).toBe(false);
-    expect(loadPinnedCircles({ getItem: () => { throw new Error("blocked"); } })).toBe(false);
-    expect(loadPinnedCircles(null)).toBe(false);
-    expect(() => savePinnedCircles(true, { setItem: () => { throw new Error("blocked"); } })).not.toThrow();
-    expect(() => savePinnedCircles(true, null)).not.toThrow();
-  });
-});
-
-describe("universal pins preference", () => {
-  it("defaults off, stores the exact flag, and survives blocked storage", () => {
-    expect(parseUniversalPins("true")).toBe(true);
-    expect(parseUniversalPins("false")).toBe(false);
-    expect(parseUniversalPins("yes")).toBe(false);
-    expect(parseUniversalPins(null)).toBe(false);
-
-    const setItem = vi.fn();
-    saveUniversalPins(true, { setItem });
-    saveUniversalPins(false, { setItem });
-    expect(setItem).toHaveBeenNthCalledWith(1, UNIVERSAL_PINS_KEY, "true");
-    expect(setItem).toHaveBeenNthCalledWith(2, UNIVERSAL_PINS_KEY, "false");
-    expect(loadUniversalPins({ getItem: () => "true" })).toBe(true);
-    expect(loadUniversalPins({ getItem: () => "false" })).toBe(false);
-    expect(loadUniversalPins({ getItem: () => "untrusted" })).toBe(false);
-    expect(loadUniversalPins({ getItem: () => { throw new Error("blocked"); } })).toBe(false);
-    expect(loadUniversalPins(null)).toBe(false);
-    expect(() => saveUniversalPins(true, { setItem: () => { throw new Error("blocked"); } })).not.toThrow();
-    expect(() => saveUniversalPins(true, null)).not.toThrow();
+describe("pinned grid order", () => {
+  it("keeps the main dog first, then the saved order, then newly pinned dogs as they come", () => {
+    const pinned = [{ id: "a" }, { id: "b" }, { id: "main", chiefOfStaff: true }, { id: "c" }];
+    expect(orderPinnedBots(pinned, ["c", "a"]).map((bot) => bot.id)).toEqual(["main", "c", "a", "b"]);
+    expect(orderPinnedBots(pinned, []).map((bot) => bot.id)).toEqual(["main", "a", "b", "c"]);
   });
 });

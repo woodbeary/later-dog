@@ -706,6 +706,7 @@ export interface AppState {
   appSettingsOpen: boolean;
   appSettingsSection: AppSettingsSection;
   shortcutsOpen: boolean;
+  searchOpen: boolean;
   welcomeOpen: boolean;
   botSettingsSection: BotSettingsSection;
   botSettingsExpandAccordion: boolean;
@@ -805,6 +806,7 @@ export type Action =
     }
   | { type: "botQueues"; queues: AppState["pendingQueued"] }
   | { type: "sections"; sections: string[] }
+  | { type: "orderSections"; sections: string[] }
   | { type: "sectionDeleted"; section: string; sections: string[] }
   | { type: "routinesHydrated"; routines: Routine[]; runs: RoutineRun[] }
   | { type: "routinesLoadFailed" }
@@ -832,7 +834,7 @@ export type Action =
   | {
       type: "patchGroup";
       groupId: string;
-      patch: Partial<Pick<Group, "name" | "memberIds" | "defaultResponder" | "pinnedMessageId" | "section">>;
+      patch: Partial<Pick<Group, "name" | "memberIds" | "defaultResponder" | "pinnedMessageId" | "section" | "unread">>;
     }
   | { type: "deleteGroup"; groupId: string }
   | { type: "interruptGroup"; groupId: string; threadId?: string; onError?: () => void }
@@ -885,6 +887,7 @@ export type Action =
   | { type: "botDeletionPending"; botId: string; on: boolean }
   | { type: "duplicateBot"; botId: string }
   | { type: "markUnread"; botId: string }
+  | { type: "markRead"; botId: string }
   | { type: "botPatched"; bot: BotAnnouncement }
   | { type: "messageAdded"; threadId: string; message: Message }
   | { type: "messagePatched"; threadId: string; message: Message }
@@ -910,6 +913,7 @@ export type Action =
   | { type: "focusMessageConsumed"; nonce: number }
   | { type: "toggleAppSettings"; open?: boolean; section?: AppSettingsSection }
   | { type: "toggleShortcuts"; open?: boolean }
+  | { type: "toggleSearch"; open?: boolean }
   | { type: "toggleWelcome"; open?: boolean }
   | {
       type: "updateBot";
@@ -1166,6 +1170,8 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     case "sections":
       return { ...state, sections: action.sections };
+    case "orderSections":
+      return { ...state, sections: [...action.sections, ...(state.sections ?? []).filter((name) => !action.sections.includes(name))] };
     case "botQueues":
       return reconcileSnapshotQueues(replaceBotQueues(state, action.queues), [...state.bots, ...state.groups]);
     case "routinesHydrated":
@@ -1295,6 +1301,12 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "markUnread":
       return updateBot(withMascotMotion(state, action.botId, "surprise"), action.botId, (b) => ({ ...b, unread: true }));
+    case "markRead":
+      return updateBot(state, action.botId, (b) => ({
+        ...b,
+        unread: Boolean(b.tasks?.some((task) => task.threadId !== b.threadId && task.unread)),
+        tasks: b.tasks?.map((task) => task.threadId === b.threadId ? { ...task, unread: false } : task),
+      }));
     case "botPatched": {
       const before = state.bots.find((b) => b.id === action.bot.id);
       if (!before) {
@@ -1642,6 +1654,8 @@ export function reducer(state: AppState, action: Action): AppState {
         shortcutsOpen: open,
       };
     }
+    case "toggleSearch":
+      return { ...state, searchOpen: action.open ?? !state.searchOpen };
     case "toggleWelcome": {
       const open = action.open ?? !state.welcomeOpen;
       return {
@@ -1846,6 +1860,7 @@ export const initialState: AppState = {
   appSettingsOpen: false,
   appSettingsSection: "general",
   shortcutsOpen: false,
+  searchOpen: false,
   welcomeOpen: false,
   botSettingsSection: "overview",
   botSettingsExpandAccordion: false,
@@ -2613,6 +2628,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           api(`/api/bots/${action.botId}`, { method: "PATCH", body: JSON.stringify({ unread: true }) }).catch(
             () => {},
           );
+          break;
+        case "markRead": {
+          const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
+          if (bot) api(`/api/bots/${bot.id}/read`, { method: "POST", body: JSON.stringify({ threadId: bot.threadId }) }).catch(() => {});
+          break;
+        }
+        case "orderSections":
+          api("/api/sidebar-sections/order", { method: "PUT", body: JSON.stringify({ sections: action.sections }) })
+            .then(({ sections }) => rawDispatch({ type: "sections", sections }))
+            .catch((error) => {
+              showError(error);
+              api("/api/sidebar-sections")
+                .then(({ sections }) => rawDispatch({ type: "sections", sections }))
+                .catch(() => {});
+            });
           break;
         case "select": {
           const bot = stateRef.current.bots.find((b) => b.id === action.id);

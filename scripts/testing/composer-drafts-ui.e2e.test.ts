@@ -58,7 +58,8 @@ afterAll(() => waitForExit(child, { signal: "SIGINT", graceMs: 30_000 }));
   await expect.poll(composer, settled).toEqual(["Message Pepper", ""]);
 
   const before = await bots();
-  await ui("press", "--keys", "Control+n");
+  const modifier = await evaluate("navigator.userAgent.includes('Mac')") ? "Meta" : "Control";
+  await ui("press", "--keys", `${modifier}+n`);
   await expect.poll(() => evaluate("[...document.querySelectorAll('[role=dialog] button')].find(button => button.textContent.trim() === 'Create dog')?.disabled"), settled).toBe(false);
   await ui("click", "--name", "Create dog");
   await expect.poll(async () => (await bots()).length, { timeout: 15_000 }).toBe(before.length + 1);

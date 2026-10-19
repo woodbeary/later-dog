@@ -101,6 +101,6 @@ preview's appearance; check that separately in a fixture renderer.
 
 ## Recovering bots hidden by older imports
 
-Open **Archived bots** in the sidebar menu and restore the original bots.
-Their existing conversations remain attached. No automatic unarchive is
-performed: intentionally archived bots must stay archived.
+Open **Hidden dogs** at the bottom of the sidebar and choose **Show in
+sidebar** on each original bot. Their existing conversations remain attached.
+Nothing is shown again automatically: intentionally hidden bots stay hidden.

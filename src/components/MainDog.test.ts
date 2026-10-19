@@ -25,7 +25,7 @@ const { BotContextMenu } = await import("./Sidebar");
 const { mainDogChoices } = await import("./MainDogPicker");
 
 const menuFor = (botId: string) => renderToStaticMarkup(createElement(BotContextMenu, {
-  menu: { botId, x: 0, y: 0 }, onClose: vi.fn(), onArchive: vi.fn(), onDelete: vi.fn(), onReplaceMainDog: vi.fn(), onMoveToSection: vi.fn(),
+  menu: { botId, x: 0, y: 0 }, onClose: vi.fn(), onHide: vi.fn(), onShow: vi.fn(), onRename: vi.fn(), onDelete: vi.fn(), onReplaceMainDog: vi.fn(), onMoveToSection: vi.fn(),
 }));
 
 describe("the main dog", () => {
@@ -33,7 +33,7 @@ describe("the main dog", () => {
     const markup = menuFor("main");
     expect(markup).toContain("Replace with different dog…");
     expect(markup).not.toContain(">Delete</button>");
-    expect(markup).toContain(">Archive</button>");
+    expect(markup).toContain("Hide from sidebar</button>");
     expect(markup).not.toMatch(/Chief of Staff/);
   });
 

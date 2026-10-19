@@ -42,9 +42,9 @@ describe("keyboard-shortcuts", () => {
     const all = filterShortcutGroups(SHORTCUT_GROUPS, "");
     expect(all.length).toBe(SHORTCUT_GROUPS.length);
 
-    const nav = filterShortcutGroups(SHORTCUT_GROUPS, "palette");
+    const nav = filterShortcutGroups(SHORTCUT_GROUPS, "group chats, apps");
     expect(nav.length).toBe(1);
-    expect(nav[0]?.items[0]?.id).toBe("command-palette");
+    expect(nav[0]?.items[0]?.id).toBe("search");
 
     const byKey = filterShortcutGroups(SHORTCUT_GROUPS, "Esc", true);
     expect(byKey.some((g) => g.items.some((i) => i.id === "close-panel"))).toBe(true);
@@ -59,11 +59,18 @@ describe("keyboard-shortcuts", () => {
     expect(items.find((item) => item.id === "live-call-hang-up")).toMatchObject({ macKeys: ["⌘", "⇧", "H"], winKeys: ["Ctrl", "Shift", "H"] });
   });
 
-  it("lists previous/next in handler order and excludes pointer gestures", () => {
+  it("lists the Grok Bot chords for moving around, and no pointer gestures", () => {
     const items = SHORTCUT_GROUPS.flatMap((group) => group.items);
-    const switchBot = items.find((item) => item.id === "switch-bot")!;
-    expect(switchBot.macKeys.at(-1)).toBe("[ / ]");
-    expect(switchBot.winKeys.at(-1)).toBe("[ / ]");
+    const keys = (id: string) => items.find((item) => item.id === id)?.macKeys;
+    expect(keys("switch-bot")).toEqual(["⌥", "↑ / ↓"]);
+    expect(keys("navigate-history")).toEqual(["⌘", "[ / ]"]);
+    expect(keys("toggle-sidebar")).toEqual(["⌘", "B"]);
+    expect(keys("dog-details")).toEqual(["⌘", "⌥", "B"]);
+    expect(keys("focus-composer")).toEqual(["⌘", "I"]);
+    expect(keys("quote-selection")).toEqual(["⌘", "L"]);
+    expect(keys("focus-search")).toEqual(["⌘", "⇧", "F"]);
+    expect(keys("open-settings")).toEqual(["⌘", ","]);
+    expect(items.find((item) => item.id === "open-settings")?.winKeys).toEqual(["Ctrl", ","]);
     expect(items.some((item) => [...item.macKeys, ...item.winKeys].includes("Double-click"))).toBe(false);
   });
 });

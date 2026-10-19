@@ -81,6 +81,15 @@ export function ensureSections(names: (string | undefined)[]): boolean {
   return true;
 }
 
+export function orderSections(order: readonly string[]): boolean {
+  const data = loadFile(true);
+  const wanted = [...new Set(order.map(sectionContextKey).filter((name) => data.sections.includes(name)))];
+  const sections = [...wanted, ...data.sections.filter((name) => !wanted.includes(name))];
+  if (sections.every((name, index) => name === data.sections[index])) return false;
+  saveFile({ ...data, sections });
+  return true;
+}
+
 export function changeEmptySection(name: string, nextName: string | null): void {
   const data = loadFile(true);
   const index = data.sections.indexOf(name);

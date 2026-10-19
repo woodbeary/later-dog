@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { BOTS_SECTION_ID, CHANNELS_SECTION_ID, PINNED_SECTION_ID, userSectionId } from "./sidebar-layout";
+import { HIDDEN_SECTION_ID, UNASSIGNED_SECTION_ID, userSectionId } from "./sidebar-layout";
 import { dogDropChangesSection, sectionForDogDrop } from "./section-drop";
 
 describe("dropping a dog on a section", () => {
   it("moves it into a named section or back to Unassigned", () => {
     expect(sectionForDogDrop(userSectionId("Work"))).toBe("Work");
-    expect(sectionForDogDrop(BOTS_SECTION_ID)).toBe("");
+    expect(sectionForDogDrop(UNASSIGNED_SECTION_ID)).toBe("");
   });
 
-  it("ignores the pinned and group chat sections", () => {
-    expect(sectionForDogDrop(PINNED_SECTION_ID)).toBeNull();
-    expect(sectionForDogDrop(CHANNELS_SECTION_ID)).toBeNull();
+  it("ignores the hidden dogs group", () => {
+    expect(sectionForDogDrop(HIDDEN_SECTION_ID)).toBeNull();
   });
 
   it("changes nothing when the dog is already there", () => {

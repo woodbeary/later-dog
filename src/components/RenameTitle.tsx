@@ -11,6 +11,7 @@ export function RenameTitle({
   onCommit,
   onEditingChange,
   onActivate,
+  editRequest = 0,
   showEditButton = false,
   className,
   editButtonClassName,
@@ -20,6 +21,7 @@ export function RenameTitle({
   onCommit: (next: string) => void;
   onEditingChange?: (editing: boolean) => void;
   onActivate?: () => void;
+  editRequest?: number;
   showEditButton?: boolean;
   className?: string;
   editButtonClassName?: string;
@@ -36,6 +38,13 @@ export function RenameTitle({
     setEditing(next);
     onEditingChange?.(next);
   };
+
+  useEffect(() => {
+    if (editRequest <= 0) return;
+    setDraft(value);
+    setEditing(true);
+    onEditingChange?.(true);
+  }, [editRequest]);
 
   const finish = (save: boolean) => {
     const next = save ? nextRename(value, draft) : null;

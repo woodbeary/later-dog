@@ -31,7 +31,7 @@ const bot: Bot = {
 const densities: SidebarDensity[] = ["comfortable", "icons"];
 const botRow = (BotListItem as MemoExoticComponent<(props: BotRowProps) => ReactNode>).type;
 const rowProps = (density: SidebarDensity, candidate: Bot = bot) =>
-  botRowProps({ ...initialState, ...fixture.state }, fixture.dispatch, candidate, { density, query: "", onMenu: vi.fn() });
+  botRowProps({ ...initialState, ...fixture.state }, fixture.dispatch, candidate, { density, onMenu: vi.fn() });
 
 type ElementProps = { children?: ReactNode; onClick?: (event: MouseEvent) => void; onKeyDown?: (event: KeyboardEvent) => void; [key: string]: unknown };
 function findElement(tree: ReactNode, attribute: string, value: string): ReactElement<ElementProps> | undefined {
@@ -114,12 +114,49 @@ describe("one row per dog", () => {
   });
 
   it("offers no thread or folder creation in the dog's menu", () => {
-    const markup = renderToStaticMarkup(createElement(BotContextMenu, {
-      menu: { botId: bot.id, x: 0, y: 0 }, onClose: vi.fn(), onArchive: vi.fn(), onDelete: vi.fn(), onReplaceMainDog: vi.fn(), onMoveToSection: vi.fn(),
-    }));
+    const markup = renderToStaticMarkup(createElement(BotContextMenu, menuProps()));
     expect(markup).not.toContain("New thread");
     expect(markup).not.toContain("New folder");
-    expect(markup).toContain("Edit Profile");
+    expect(markup).toContain("Rename Dog");
+  });
+});
+
+const menuProps = (botId = bot.id) => ({
+  menu: { botId, x: 0, y: 0 }, onClose: vi.fn(), onHide: vi.fn(), onShow: vi.fn(), onRename: vi.fn(),
+  onDelete: vi.fn(), onReplaceMainDog: vi.fn(), onMoveToSection: vi.fn(),
+});
+const menuLabels = (markup: string) => [...markup.matchAll(/role="menuitem"[^>]*>(?:<svg.*?<\/svg>)?([^<]+)</g)].map((match) => match[1]);
+
+describe("the dog's menu, like Grok Bot's", () => {
+  it("lists Pin, Move to, Read or Unread, Rename, Copy ID, Hide from sidebar and Delete in that order", () => {
+    fixture.state.bots = [{ ...bot, unread: false, tasks: undefined }];
+    expect(menuLabels(renderToStaticMarkup(createElement(BotContextMenu, menuProps())))).toEqual([
+      "Pin", "Move to", "Mark as Unread", "Rename Dog", "Copy conversation ID", "Hide from sidebar", "Delete",
+    ]);
+  });
+
+  it("offers Mark as Read on an unread dog and marks it read without opening it", () => {
+    const props = menuProps();
+    fixture.state.bots = [{ ...bot, unread: true, tasks: undefined }];
+    let tree: ReactNode;
+    function Capture() { tree = (BotContextMenu as (p: typeof props) => ReactNode)(props); return tree; }
+    const markup = renderToStaticMarkup(createElement(Capture));
+    expect(menuLabels(markup)).toContain("Mark as Read");
+    expect(menuLabels(markup)).not.toContain("Mark as Unread");
+  });
+
+  it("gives a hidden dog Show in sidebar instead of Pin, Move to and Hide, and keeps Delete", () => {
+    fixture.state.bots = [{ ...bot, unread: false, tasks: undefined, hidden: true }];
+    expect(menuLabels(renderToStaticMarkup(createElement(BotContextMenu, menuProps())))).toEqual([
+      "Mark as Unread", "Rename Dog", "Copy conversation ID", "Show in sidebar", "Delete",
+    ]);
+  });
+
+  it("lets a hidden main dog be shown again but never deleted", () => {
+    fixture.state.bots = [{ ...bot, unread: false, tasks: undefined, hidden: true, chiefOfStaff: true }];
+    const labels = menuLabels(renderToStaticMarkup(createElement(BotContextMenu, menuProps())));
+    expect(labels).toContain("Show in sidebar");
+    expect(labels).not.toContain("Delete");
   });
 });
 

@@ -1,8 +1,7 @@
 import type { ConnectorCardData } from "../../shared/wire";
 
-export const PINNED_SECTION_ID = "builtin:pinned";
-export const CHANNELS_SECTION_ID = "builtin:channels";
-export const BOTS_SECTION_ID = "builtin:bots";
+export const UNASSIGNED_SECTION_ID = "builtin:bots";
+export const HIDDEN_SECTION_ID = "builtin:hidden";
 
 const USER_SECTION_PREFIX = "section:";
 
@@ -37,13 +36,6 @@ export function userSectionName(id: SidebarSectionId): string | null {
   return id.slice(USER_SECTION_PREFIX.length);
 }
 
-export function sidebarSectionLabel(id: SidebarSectionId): string {
-  if (id === PINNED_SECTION_ID) return "Pinned";
-  if (id === CHANNELS_SECTION_ID) return "Group chats";
-  if (id === BOTS_SECTION_ID) return "Dogs";
-  return userSectionName(id) ?? id;
-}
-
 export type SidebarConnectorPreviewKey = "connectors.card.connected" | "connectors.card.waiting" | "connectors.card.connectSecurely";
 
 export function sidebarConnectorPreview(
@@ -57,17 +49,16 @@ export function sidebarConnectorPreview(
   return `${connector.label} · ${say(key)}`;
 }
 
-export function sidebarLayoutInteractive(density: SidebarDensityMode, query: string): boolean {
-  return density !== "icons" && query.trim().length === 0;
+export function sidebarLayoutInteractive(density: SidebarDensityMode): boolean {
+  return density !== "icons";
 }
 
 export function sidebarSectionCollapsed(
   id: SidebarSectionId,
   collapsedIds: SidebarSectionId[],
   density: SidebarDensityMode,
-  query: string,
 ): boolean {
-  return sidebarLayoutInteractive(density, query) && collapsedIds.includes(id);
+  return sidebarLayoutInteractive(density) && collapsedIds.includes(id);
 }
 
 export function partitionSidebarBots<T extends SidebarBot>(bots: T[]) {
@@ -77,7 +68,8 @@ export function partitionSidebarBots<T extends SidebarBot>(bots: T[]) {
     .sort((a, b) => Number(Boolean(b.chiefOfStaff)) - Number(Boolean(a.chiefOfStaff)));
   const sectionedBots = visible.filter((bot) => !bot.pinned && Boolean(bot.section));
   const unsectionedBots = visible.filter((bot) => !bot.pinned && !bot.section);
-  return { pinnedBots, sectionedBots, unsectionedBots };
+  const hiddenBots = bots.filter((bot) => bot.hidden);
+  return { pinnedBots, sectionedBots, unsectionedBots, hiddenBots };
 }
 
 export function partitionSidebarGroups<T extends SidebarGroup>(groups: T[]) {
@@ -87,34 +79,21 @@ export function partitionSidebarGroups<T extends SidebarGroup>(groups: T[]) {
   return { sectionedRooms, unsectionedRooms };
 }
 
-export function orderedSidebarSections(
-  present: SidebarSectionId[],
-  savedOrder: SidebarSectionId[],
-): SidebarSectionId[] {
-  const visible = unique(present);
-  const visibleSet = new Set(visible);
-  const result = unique(savedOrder).filter((id) => visibleSet.has(id));
-  if (result.length === 0) return visible;
+export function orderPinnedBots<T extends SidebarBot>(pinned: T[], savedOrder: readonly string[]): T[] {
+  const rank = (bot: T) => {
+    const index = savedOrder.indexOf(bot.id);
+    return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+  };
+  return pinned
+    .map((bot, index) => ({ bot, index }))
+    .sort((a, b) => Number(Boolean(b.bot.chiefOfStaff)) - Number(Boolean(a.bot.chiefOfStaff)) || rank(a.bot) - rank(b.bot) || a.index - b.index)
+    .map(({ bot }) => bot);
+}
 
-  for (const id of visible) {
-    if (result.includes(id)) continue;
-    const naturalIndex = visible.indexOf(id);
-    const naturalPredecessors = visible.slice(0, naturalIndex).reverse();
-    const naturalSuccessors = visible.slice(naturalIndex + 1);
-    const predecessor = naturalPredecessors.find((candidate) => result.includes(candidate));
-    const successor = naturalSuccessors.find((candidate) => result.includes(candidate));
-    const predecessorIndex = predecessor ? result.indexOf(predecessor) : -1;
-    const successorIndex = successor ? result.indexOf(successor) : -1;
-
-    if (predecessorIndex >= 0 && (successorIndex < 0 || predecessorIndex < successorIndex)) {
-      result.splice(predecessorIndex + 1, 0, id);
-    } else if (successorIndex >= 0) {
-      result.splice(successorIndex, 0, id);
-    } else {
-      result.push(id);
-    }
-  }
-  return result;
+export function sidebarSectionNames(saved: readonly string[], records: ReadonlyArray<{ section?: string }>): string[] {
+  const names = unique([...saved]);
+  for (const record of records) if (record.section && !names.includes(record.section)) names.push(record.section);
+  return names;
 }
 
 export function moveSection(
@@ -143,44 +122,4 @@ export function placeSection(
   if (place === "after") destination += 1;
   result.splice(destination, 0, fromId);
   return result;
-}
-
-export function mergeSectionOrder(
-  savedOrder: SidebarSectionId[],
-  visibleOrder: SidebarSectionId[],
-): SidebarSectionId[] {
-  const saved = unique(savedOrder);
-  const result = unique(visibleOrder);
-  const included = new Set(result);
-
-  for (let savedIndex = 0; savedIndex < saved.length; savedIndex += 1) {
-    const id = saved[savedIndex]!;
-    if (included.has(id)) continue;
-    let destination = result.length;
-    let foundPredecessor = false;
-    for (let previous = savedIndex - 1; previous >= 0; previous -= 1) {
-      const previousPosition = result.indexOf(saved[previous]!);
-      if (previousPosition >= 0) {
-        destination = previousPosition + 1;
-        foundPredecessor = true;
-        break;
-      }
-    }
-    if (!foundPredecessor) {
-      for (let next = savedIndex + 1; next < saved.length; next += 1) {
-        const nextPosition = result.indexOf(saved[next]!);
-        if (nextPosition >= 0) {
-          destination = nextPosition;
-          break;
-        }
-      }
-    }
-    result.splice(destination, 0, id);
-    included.add(id);
-  }
-  return result;
-}
-
-export function sameSectionOrder(a: SidebarSectionId[], b: SidebarSectionId[]): boolean {
-  return a.length === b.length && a.every((id, index) => id === b[index]);
 }

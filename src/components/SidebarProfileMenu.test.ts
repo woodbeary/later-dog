@@ -1,4 +1,4 @@
-import { createElement } from "react";
+import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -179,28 +179,35 @@ describe("the menu under your name", () => {
     menu.dispatch.mockReset();
   });
 
-  it("offers the iPhone app above Settings when nothing here is signed in, and no phone pairing", () => {
+  it("offers the iPhone app, Support and Settings when nothing here is signed in, with Connect apps left to the footer pill", () => {
     const items = open();
-    expect(items.map((item) => item.key)).toEqual(["phoneApp", "settings", "plugins"]);
+    expect(items.map((item) => item.key)).toEqual(["phoneApp", "support", "settings"]);
     expect(items[0]).toMatchObject({ label: "Get later.dog for iPhone" });
-    expect(items.map((item) => item.label).join(" ")).not.toMatch(/connect your phone|pair/i);
-    items[1]!.onSelect();
+    expect(items.map((item) => item.label).join(" ")).not.toMatch(/connect your phone|pair|plugins/i);
+    items[2]!.onSelect();
     expect(menu.dispatch).toHaveBeenCalledWith({ type: "toggleAppSettings" });
+  });
+
+  it("puts Help Center, Send Feedback and Report a bug under Support", () => {
+    const support = open().find((item) => item.key === "support")!;
+    expect(support.label).toBe("Support");
+    const markup = renderToStaticMarkup((support.submenu as (close: () => void) => ReactElement)(() => {}));
+    expect([...markup.matchAll(/role="menuitem"[^>]*>(?:<svg.*?<\/svg>)?([^<]+)</g)].map((match) => match[1])).toEqual(["Help Center", "Send Feedback", "Report a bug"]);
   });
 
   it("ends with Add account under a line once an account here is signed in, and never offers to sign Claude or ChatGPT out here", () => {
     menu.instances = [claude, { ...claude, instanceId: "claude-api", authentication: { method: "paste-code" } } as InstanceInfo];
     const items = open();
-    expect(items.map((item) => item.key)).toEqual(["phoneApp", "settings", "plugins", "add-account"]);
+    expect(items.map((item) => item.key)).toEqual(["phoneApp", "support", "settings", "add-account"]);
     expect(items[3]).toMatchObject({ label: "Add account", separatorBefore: true });
     menu.instances = [{ ...claude, snapshot: { state: "available", authenticated: false } } as InstanceInfo];
-    expect(open().map((item) => item.key)).toEqual(["phoneApp", "settings", "plugins"]);
+    expect(open().map((item) => item.key)).toEqual(["phoneApp", "support", "settings"]);
   });
 
   it("adds a New update available row with Install when an update is ready, and stays quiet otherwise", () => {
     const updater = { updater: { check: vi.fn(), install: vi.fn(), onState: vi.fn() } };
     menu.updater = { status: "downloaded", version: "0.2.0" } as UpdaterState;
-    const [ready, , settings] = open(updater);
+    const [ready, , , settings] = open(updater);
     expect(ready).toMatchObject({ key: "update-available", label: "New update available" });
     expect(renderToStaticMarkup(ready!.trailing as never)).toContain(">Install<");
     expect(settings).toMatchObject({ key: "settings" });
@@ -217,7 +224,7 @@ describe("the menu under your name", () => {
 
     for (const quiet of [{ status: "error", message: "offline" }, { status: "idle" }, { status: "downloading", percent: 3 }] as UpdaterState[]) {
       menu.updater = quiet;
-      expect(open(updater).map((item) => item.key)).toEqual(["phoneApp", "settings", "plugins"]);
+      expect(open(updater).map((item) => item.key)).toEqual(["phoneApp", "support", "settings"]);
     }
     menu.updater = { status: "downloaded", version: "0.2.0" } as UpdaterState;
     open(updater).find((item) => item.key === "settings")!.onSelect();

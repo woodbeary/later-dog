@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { writeFileAtomic, writeFileAtomicIfChanged } from "./atomic.ts";
 import { parseToolScope, toolScopeWidens } from "../shared/tool-scope.ts";
-import { ensureSections, readSections, changeEmptySection } from "./section-context.ts";
+import { ensureSections, readSections, changeEmptySection, orderSections } from "./section-context.ts";
 import type { TeamComputers } from "./team-computers.ts";
 import { removeBotFolder, soulFile, soulHash, writeSoulMirror } from "./bot-folder.ts";
 import type { BotProfilePatch } from "./bot-profile.ts";
@@ -880,6 +880,11 @@ export class Store {
     for (const room of rooms) this.emit({ type: "group", groupId: room.id });
     this.emit({ type: "sections" });
     return undefined;
+  }
+
+  orderSections(order: readonly string[]): string[] {
+    if (orderSections(order)) this.emit({ type: "sections" });
+    return this.sections;
   }
 
   changeEmptySection(name: string, nextName: string | null): string | undefined {

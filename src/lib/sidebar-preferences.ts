@@ -8,9 +8,7 @@ export const SIDEBAR_DENSITIES: readonly SidebarDensity[] = ["comfortable", "ico
 export const SIDEBAR_DENSITY_KEY = "laterdog.sidebarDensity";
 export const SIDEBAR_WIDTH_KEY = "laterdog.sidebarWidth";
 export const SIDEBAR_COLLAPSED_SECTIONS_KEY = "laterdog.sidebarCollapsedSections.v1";
-export const SIDEBAR_SECTION_ORDER_KEY = "laterdog.sidebarSectionOrder.v1";
-export const PINNED_CIRCLES_KEY = "laterdog.pinnedCircles";
-export const UNIVERSAL_PINS_KEY = "laterdog.universalPins";
+export const SIDEBAR_PIN_ORDER_KEY = "laterdog.sidebarPinOrder.v1";
 
 export function parseSidebarDensity(value: string | null): SidebarDensity {
   switch (value) {
@@ -109,143 +107,6 @@ export function saveSidebarWidth(width: number, storage?: Pick<Storage, "setItem
   } catch {}
 }
 
-export function parsePinnedCircles(value: string | null): boolean {
-  return value === "true";
-}
-
-let sessionPinnedCircles: boolean | undefined;
-const pinnedCircleListeners = new Set<() => void>();
-
-function notifyPinnedCircles(): void {
-  for (const listener of pinnedCircleListeners) listener();
-}
-
-function onPinnedCirclesStorage(event: StorageEvent): void {
-  if (event.key !== PINNED_CIRCLES_KEY && event.key !== null) return;
-  sessionPinnedCircles = undefined;
-  notifyPinnedCircles();
-}
-
-export function subscribePinnedCircles(listener: () => void): () => void {
-  pinnedCircleListeners.add(listener);
-  if (
-    pinnedCircleListeners.size === 1 &&
-    typeof window !== "undefined" &&
-    typeof window.addEventListener === "function"
-  ) {
-    window.addEventListener("storage", onPinnedCirclesStorage);
-  }
-  return () => {
-    pinnedCircleListeners.delete(listener);
-    if (
-      pinnedCircleListeners.size === 0 &&
-      typeof window !== "undefined" &&
-      typeof window.removeEventListener === "function"
-    ) {
-      window.removeEventListener("storage", onPinnedCirclesStorage);
-    }
-  };
-}
-
-export function loadPinnedCircles(storage?: Pick<Storage, "getItem"> | null): boolean {
-  if (storage === undefined && sessionPinnedCircles !== undefined) return sessionPinnedCircles;
-  try {
-    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
-    return parsePinnedCircles(target?.getItem(PINNED_CIRCLES_KEY) ?? null);
-  } catch {
-    return false;
-  }
-}
-
-export function savePinnedCircles(
-  enabled: boolean,
-  storage?: Pick<Storage, "setItem"> | null,
-): void {
-  try {
-    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
-    target?.setItem(PINNED_CIRCLES_KEY, enabled ? "true" : "false");
-  } catch {}
-}
-
-export function setPinnedCircles(enabled: boolean): void {
-  sessionPinnedCircles = enabled;
-  savePinnedCircles(enabled);
-  notifyPinnedCircles();
-}
-
-export function usePinnedCircles(): boolean {
-  return useSyncExternalStore(subscribePinnedCircles, loadPinnedCircles, () => false);
-}
-
-export function parseUniversalPins(value: string | null): boolean {
-  return value === "true";
-}
-
-let sessionUniversalPins: boolean | undefined;
-const universalPinListeners = new Set<() => void>();
-
-function notifyUniversalPins(): void {
-  for (const listener of universalPinListeners) listener();
-}
-
-function onUniversalPinsStorage(event: StorageEvent): void {
-  if (event.key !== UNIVERSAL_PINS_KEY && event.key !== null) return;
-  sessionUniversalPins = undefined;
-  notifyUniversalPins();
-}
-
-export function subscribeUniversalPins(listener: () => void): () => void {
-  universalPinListeners.add(listener);
-  if (
-    universalPinListeners.size === 1 &&
-    typeof window !== "undefined" &&
-    typeof window.addEventListener === "function"
-  ) {
-    window.addEventListener("storage", onUniversalPinsStorage);
-  }
-  return () => {
-    universalPinListeners.delete(listener);
-    if (
-      universalPinListeners.size === 0 &&
-      typeof window !== "undefined" &&
-      typeof window.removeEventListener === "function"
-    ) {
-      window.removeEventListener("storage", onUniversalPinsStorage);
-    }
-  };
-}
-
-export function loadUniversalPins(storage?: Pick<Storage, "getItem"> | null): boolean {
-  if (storage === undefined && sessionUniversalPins !== undefined) return sessionUniversalPins;
-  try {
-    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
-    return parseUniversalPins(target?.getItem(UNIVERSAL_PINS_KEY) ?? null);
-  } catch {
-    return false;
-  }
-}
-
-export function saveUniversalPins(
-  enabled: boolean,
-  storage?: Pick<Storage, "setItem"> | null,
-): void {
-  try {
-    const target = storage === undefined ? (globalThis.localStorage ?? null) : storage;
-    target?.setItem(UNIVERSAL_PINS_KEY, enabled ? "true" : "false");
-  } catch {}
-}
-
-export function setUniversalPins(enabled: boolean): void {
-  sessionUniversalPins = enabled;
-  saveUniversalPins(enabled);
-  notifyUniversalPins();
-}
-
-export function useUniversalPins(): boolean {
-  return useSyncExternalStore(subscribeUniversalPins, loadUniversalPins, () => false);
-}
-
-
 const stringListSchema = z.array(z.string().min(1).max(240));
 
 function parseStringList(raw: string | null): string[] {
@@ -300,13 +161,13 @@ export function toggleCollapsedSection(ids: string[], id: string): string[] {
   return ids.includes(id) ? ids.filter((candidate) => candidate !== id) : [...ids, id];
 }
 
-export function loadSectionOrder(storage?: Pick<Storage, "getItem"> | null): string[] {
-  return loadStringList(SIDEBAR_SECTION_ORDER_KEY, storage);
+export function loadPinOrder(storage?: Pick<Storage, "getItem"> | null): string[] {
+  return loadStringList(SIDEBAR_PIN_ORDER_KEY, storage);
 }
 
-export function saveSectionOrder(
+export function savePinOrder(
   ids: string[],
   storage?: Pick<Storage, "setItem"> | null,
 ): void {
-  saveStringList(SIDEBAR_SECTION_ORDER_KEY, ids, storage);
+  saveStringList(SIDEBAR_PIN_ORDER_KEY, ids, storage);
 }

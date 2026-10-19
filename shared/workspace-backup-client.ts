@@ -9,6 +9,7 @@ export const WORKSPACE_BACKUP_CLIENT_KEYS = [
   "laterdog.sidebarDensity",
   "laterdog.sidebarCollapsedSections.v1",
   "laterdog.sidebarSectionOrder.v1",
+  "laterdog.sidebarPinOrder.v1",
   "laterdog-analytics-opt-out",
   "laterdog.remote-voice.v1",
 ] as const;
