@@ -53,6 +53,11 @@ import type { OutboxItem, OutboxRecovery } from "@/lib/outbox";
 import { createSendOutbox, type SendOutbox } from "./send-outbox";
 import { receiveHelperEvent, receiveHelpersSnapshot, forgetHelpers } from "@/lib/helpers-state";
 import { receiveReasoningEvent, forgetReasoning } from "@/lib/turn-reasoning";
+import { readSessionState } from "@/lib/session";
+import {
+  FIRST_PAINT_SAVE_DELAY_MS, accountOf, firstPaintSnapshot, forgetFirstPaint, ownsFirstPaint, pageOrigin, readFirstPaint, saveFirstPaint, withFirstPaint,
+  type FirstPaintSnapshot,
+} from "@/lib/first-paint";
 
 const MAX_ROUTINE_RUNS = 2_000;
 const ACTIVE_ROUTINE_RUN_STATUSES = new Set<RoutineRun["status"]>(["queued", "running", "waiting"]);
@@ -711,6 +716,7 @@ export interface AppState {
   focusMessage: { threadId: string; messageId: string; matchText?: string; nonce: number; consumed: boolean } | null;
   connected: boolean;
   hydrated?: boolean;
+  restored?: boolean;
   error: string | null;
   mascotMotion: {
     botId: string;
@@ -892,6 +898,7 @@ export type Action =
   | { type: "setModel"; botId: string; selection: ModelSelection; threadId?: string; updateBotDefault?: boolean; resetApprovalToAsk?: boolean }
   | { type: "interrupt"; botId: string; threadId?: string; onError?: () => void }
   | { type: "connected"; value: boolean }
+  | { type: "firstPaintDropped" }
   | { type: "error"; message: string | null }
   | { type: "toggleSettings"; open?: boolean; section?: BotSettingsSection; botId?: string }
   | { type: "togglePlugins"; open?: boolean; surface?: "apps" | "mcp" }
@@ -1540,6 +1547,10 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "connected":
       return { ...state, connected: action.value };
+    case "firstPaintDropped":
+      return state.hydrated || !state.restored
+        ? state
+        : { ...state, restored: false, bots: [], groups: [], sections: [], selectedId: "" };
     case "error":
       return {
         ...(action.message && state.selectedId
@@ -2164,7 +2175,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     ...bot,
     tasks: bot.tasks?.map((task) => ({ ...task, ...taskPatchFields(taskWrites.get(task.threadId)?.patch ?? {}) })),
   });
-  const [state, rawDispatch] = useReducer(reducer, initialState);
+  const firstPaint = useRef<FirstPaintSnapshot | null | undefined>(undefined);
+  if (firstPaint.current === undefined) firstPaint.current = readFirstPaint(pageOrigin());
+  const [state, rawDispatch] = useReducer(reducer, initialState, (base) =>
+    firstPaint.current ? withFirstPaint(base, firstPaint.current) : base);
   const stateRef = useRef(state);
   stateRef.current = state;
   const botPatchQueue = useMemo(
@@ -3060,6 +3074,53 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       stopLive();
     };
   }, [sendOutbox]);
+
+  const firstPaintAccount = useRef<Promise<string | null> | null>(null);
+  const knownAccount = useRef<string | null | undefined>(undefined);
+  const knowAccount = useCallback(() => {
+    firstPaintAccount.current ??= readSessionState().then((session) => {
+      if (session.kind === "unreachable") {
+        firstPaintAccount.current = null;
+        return null;
+      }
+      const account = accountOf(session);
+      knownAccount.current = account;
+      const restored = firstPaint.current;
+      if (restored && !ownsFirstPaint(restored, { origin: pageOrigin() ?? "", account: account ?? "" })) {
+        firstPaint.current = null;
+        forgetFirstPaint();
+        rawDispatch({ type: "firstPaintDropped" });
+      }
+      return account;
+    });
+    return firstPaintAccount.current;
+  }, []);
+  const writeFirstPaint = useCallback((account: string | null | undefined) => {
+    const current = stateRef.current;
+    const origin = pageOrigin();
+    if (!current.hydrated || account === undefined || !origin) return;
+    const serialized = account ? firstPaintSnapshot(current, { origin, account }, Date.now()) : null;
+    if (serialized) saveFirstPaint(serialized);
+    else forgetFirstPaint();
+  }, []);
+
+  useEffect(() => {
+    void knowAccount();
+  }, [knowAccount]);
+
+  useEffect(() => {
+    if (!state.hydrated) return;
+    const timer = setTimeout(() => {
+      void knowAccount().then(() => writeFirstPaint(knownAccount.current));
+    }, FIRST_PAINT_SAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [state.hydrated, state.bots, state.groups, state.sections, state.selectedId, knowAccount, writeFirstPaint]);
+
+  useEffect(() => {
+    const flush = () => writeFirstPaint(knownAccount.current);
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, [writeFirstPaint]);
 
   const refreshInstances = useCallback(async () => {
     try {

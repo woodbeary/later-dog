@@ -187,6 +187,40 @@ Runtime mounting, direct/channel turns, busy-state rejection and revoked-session
 imports are exercised by `server/mcp-selection.e2e.test.ts` against disposable
 fake-engine servers.
 
+## First paint from the saved copy
+
+After a real hydrate the renderer keeps a copy of the sidebar and the newest
+50 messages of each conversation in `localStorage` (`laterdog-first-paint`,
+`src/lib/first-paint.ts`, at most about 2 MB). It belongs to the page origin
+plus the server's environment id and the signed-in account from
+`/api/auth/session`; a copy for anyone else is dropped once the session
+answers, and `/pair`, a refused session or a service session forget it. When a
+copy exists, `src/main.tsx` waits at most 300 ms for `/api/auth/session` and
+`/api/brand` (`src/lib/first-paint-gate.ts`), then paints the app from the copy
+with no launch splash; a late refused or service session still switches to the
+sign-in page. Without a copy the page waits for the session as before, so a
+stalled server on a first load still shows a blank page.
+
+Recipe, on the real entry rather than `__threads.html`: after `ui launch`, run
+`ui eval --js "setTimeout(() => { location.href = '/'; }, 0); true"` (the same
+Vite server serves `index.html` and `src/main.tsx` and proxies `/api` to the
+fixture), click Pepper's row, send a message and `wait-settle`; then
+`ui eval --js "localStorage.getItem('laterdog-first-paint').length"` is
+non-zero. `kill -STOP` the fixture's server PID (the process listening on the
+handle's `url` port, not the launcher), reload with
+`ui eval --js "setTimeout(() => location.reload(), 0); true"`, and within two
+seconds the sidebar, the selected chat and `Message Pepper` show with no
+`[data-launch-splash]` and no `/api/` resource entry finished. For the
+no-copy control remove the key after the page's own `pagehide` save
+(`addEventListener('pagehide', () => localStorage.removeItem('laterdog-first-paint'))`
+before the reload): the root stays empty until `kill -CONT`. Add a made-up dog
+to the saved copy, reload, `kill -CONT`: it disappears once the hydrate lands.
+A message sent while stopped lands once after `kill -CONT`.
+
+On a real Cloud home this helps only once the page itself loads; while the
+home's container sleeps the page does not load at all, because the home Worker
+does not serve the renderer's files yet.
+
 ## Cleanup
 
 Interrupt `ui launch` with Ctrl-C. It closes the browser session (waiting

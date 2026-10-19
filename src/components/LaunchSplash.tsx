@@ -8,9 +8,9 @@ export const SPLASH_FADE_MS = 360;
 
 export function LaunchSplash() {
   const { state } = useStore();
-  const ready = state.connected && state.hydrated === true;
+  const ready = state.restored === true || state.hydrated === true;
   const [held, setHeld] = useState(false);
-  const [phase, setPhase] = useState<"shown" | "leaving" | "gone">("shown");
+  const [phase, setPhase] = useState<"shown" | "leaving" | "gone">(() => (state.restored ? "gone" : "shown"));
 
   useEffect(() => {
     const timer = window.setTimeout(() => setHeld(true), SPLASH_MIN_MS);

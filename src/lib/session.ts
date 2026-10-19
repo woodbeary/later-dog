@@ -8,8 +8,8 @@ export interface EnvironmentDescriptor {
 }
 
 export type SessionState =
-  | { kind: "loopback"; trust?: "service" }
-  | { kind: "session"; id: string; label: string; scopes: string[]; expiresAt: number; cloudGuest?: true; openedThreads?: string[] }
+  | { kind: "loopback"; trust?: "service"; environmentId?: string }
+  | { kind: "session"; id: string; label: string; scopes: string[]; expiresAt: number; email?: string; environmentId?: string; cloudGuest?: true; openedThreads?: string[] }
   | { kind: "unauthenticated"; error: string }
   | { kind: "unreachable"; error: string };
 
@@ -26,6 +26,7 @@ export async function readSessionState(fetchImpl: typeof fetch = fetch): Promise
     return { kind: "unauthenticated", error: typeof record.error === "string" ? record.error : `${res.status}` };
   }
   if (!res.ok) return { kind: "unreachable", error: `${res.status} ${res.statusText}` };
+  const environment = typeof record.environmentId === "string" && record.environmentId ? { environmentId: record.environmentId } : {};
   if (record.kind === "session" && typeof record.id === "string") {
     return {
       kind: "session",
@@ -33,13 +34,15 @@ export async function readSessionState(fetchImpl: typeof fetch = fetch): Promise
       label: typeof record.label === "string" ? record.label : "",
       scopes: Array.isArray(record.scopes) ? record.scopes.filter((s): s is string => typeof s === "string") : [],
       expiresAt: typeof record.expiresAt === "number" ? record.expiresAt : 0,
+      ...(typeof record.email === "string" && record.email ? { email: record.email } : {}),
+      ...environment,
       ...(record.cloudGuest === true ? {
         cloudGuest: true as const,
         openedThreads: Array.isArray(record.openedThreads) ? record.openedThreads.filter((id): id is string => typeof id === "string") : [],
       } : {}),
     };
   }
-  return record.trust === "service" ? { kind: "loopback", trust: "service" } : { kind: "loopback" };
+  return record.trust === "service" ? { kind: "loopback", trust: "service", ...environment } : { kind: "loopback", ...environment };
 }
 
 export const SERVICE_TRUST_REASON = "This server does not treat this computer as its owner. Sign in or pair this browser to continue.";
