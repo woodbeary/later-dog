@@ -210,6 +210,62 @@ on them; a full quota must not hide sign-in or recovery) and adds a
 center reuses one read of the snapshot for up to two minutes, so `capacity`
 can trail D1 by that long; allocation gating always reads D1.
 
+### Sign-up abuse and Cloud home slots
+
+- **Unreadable code requests are refused.** A code request whose body is not
+  JSON, or whose email is not an address of at most 254 characters, answers
+  `400 invalid_email` before Better Auth sees it, so no guard below can be
+  skipped by an address only Better Auth would accept.
+- **Codes to new addresses have a daily cap.** A sign-in code request for an
+  email with no account counts against `NEW_EMAIL_CODES_PER_DAY` (UTC day,
+  default 200, `otp_new_email_days`); other code types send nothing to such an
+  address and are not counted. Past the cap the answer is `429 rate_limited`
+  with `Retry-After` set to the next UTC day, and no email is sent. People who already have an account and App Review are never
+  capped, so a flood of fake sign-ups cannot trip the Email Service limit and
+  lock everyone out (`email_health`). A request that fails afterwards gives its
+  count back.
+- **Throwaway domains** (`src/disposable-email.ts`, a short list plus their
+  subdomains) cannot start a new account: `400 invalid_email`. An existing
+  account on such a domain still signs in.
+- **Turnstile** is off until the `TURNSTILE_SECRET_KEY` secret exists. Then a
+  code request carrying `x-captcha-response` is checked by Better Auth's
+  captcha plugin (`cloudflare-turnstile`; a bad token, or one solved on a
+  hostname other than `BETTER_AUTH_URL`'s, is `403 captcha_failed`; Cloudflare's
+  public test secrets report `example.com`, so the hostname is not checked for
+  them).
+  The web pages at `/cloud` and `/cloud/desktop` render an interaction-only
+  widget and send the token once `TURNSTILE_SITE_KEY` is also set. The desktop
+  and phone apps send no token: their new-address codes come from a smaller
+  share, `UNVERIFIED_NEW_EMAIL_CODES_PER_DAY` (default 100) of the daily cap, so
+  bots without a token cannot use up the web's share. Signing in to an existing
+  account never needs a token.
+- **Homes wake only after a sign-in.** Asking for a code no longer opens a home;
+  a successful `/api/auth/sign-in/email-otp` warms the signed-in owner's home.
+- **Slots go to homes people use.** A home takes a slot when it is first
+  opened, and counts as used the first time a Mac or phone gets a pairing code
+  for it (no message can reach a home without one). Every five minutes the
+  scheduled pass releases the slot of a home that was never used after
+  `CLOUD_HOME_UNUSED_DAYS` (default 7; `0` turns this off), before inviting from
+  the waitlist. Releasing only sets `cloud_homes.released_at`: the home and its
+  data stay, the owner gets a slot again on their next visit if there is room
+  (or joins the waitlist), and deleting the account still removes the home.
+  Migration `0012` marks every home that existed before it as used.
+
+Known limits, until the S2 edge rate limits and an S7 signal from the home land:
+
+- A pairing code handed out stands in for real use. Nothing checks that a
+  device redeemed it, so a scripted sign-up that asks for one keeps its slot.
+- The daily cap can itself be used up on purpose. Without Turnstile, bots on
+  many IPs can spend it and new sign-ups wait for the next UTC day; with
+  Turnstile on, tokenless bots can still spend the desktop and phone share.
+- The answers show whether an address has an account: past the cap, or on a
+  throwaway domain, a new address is refused while an existing one gets
+  `200`.
+- While Turnstile's siteverify is unreachable, web code requests that carry a
+  token fail with `500`; the apps, which send no token, are unaffected.
+- The 200 a day default is sized against an Email Service quota that has not
+  been confirmed. Raise `NEW_EMAIL_CODES_PER_DAY` before a launch day.
+
 ## Local checks
 
 Install from the repository root, then run:

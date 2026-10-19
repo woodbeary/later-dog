@@ -5,12 +5,14 @@ import type { ControlPlaneConfig } from "./config";
 import { sendOTPEmail } from "./email";
 import { noteEmailFailure } from "./email-health";
 import { isReviewEmail, reviewSignIn } from "./review-signin";
+import { captchaPlugins } from "./turnstile";
 
 export function createAuth(
   env: Env,
   ctx: ExecutionContext,
   config: ControlPlaneConfig,
   requestId: string,
+  request: Request | null = null,
 ) {
   const review = reviewSignIn(env as unknown as Partial<Record<"REVIEW_EMAIL" | "REVIEW_SIGNIN_CODE", unknown>>);
   return betterAuth({
@@ -45,6 +47,7 @@ export function createAuth(
       },
     },
     plugins: [
+      ...(request ? captchaPlugins(env, request, config.authBaseURL) : []),
       emailOTP({
         otpLength: 8,
         expiresIn: 10 * 60,

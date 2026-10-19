@@ -2,14 +2,16 @@ import { z } from "zod";
 
 import { accountSession, createAuth, deleteExpiredVerifications } from "./auth";
 import { SIGN_IN_OTP_PATH, withoutAmbientCookie } from "./code-sign-in-request";
-import { emailFromCodeRequest, SEND_OTP_PATH, warmHomeForEmail } from "./warm-home";
+import { accountFromSignIn, warmHomeForAccount } from "./warm-home";
+import { releaseUnusedHomes } from "./home-slots";
 import { cloudHomeCap, cloudRoute, type HomesService } from "./cloud";
 import { inviteFromWaitlist } from "./waitlist";
 import { cloudPage, phoneAppTarget } from "./cloud-pages";
 export { AccountsApi } from "./owner-mail";
 import { readConfig, type ControlPlaneConfig } from "./config";
+import { turnstileSecret, turnstileSiteKey } from "./turnstile";
 import { errorResponse, HTTPError, json, preflight, secureResponse, withBoundedRequestBody } from "./http";
-import { limitedOTPResponse } from "./otp-rate-limit";
+import { gateCodeRequest, releaseNewEmailSend, type NewEmailSend } from "./otp-rate-limit";
 import type { CloudflareFetch } from "./cloudflare-api";
 import {
   cleanupEndpointForInstallation,
@@ -36,6 +38,8 @@ const BETTER_AUTH_ERROR_CODES = new Map([
   ["OTP_EXPIRED", "otp_expired"],
   ["TOO_MANY_ATTEMPTS", "rate_limited"],
   ["USER_NOT_FOUND", "invalid_otp"],
+  ["MISSING_RESPONSE", "captcha_required"],
+  ["VERIFICATION_FAILED", "captcha_failed"],
   ["VALIDATION_ERROR", "invalid_request"],
 ]);
 const betterAuthErrorSchema = z.object({ code: z.string() }).loose();
@@ -77,19 +81,35 @@ async function route(
   if (request.method === "OPTIONS") return preflight(request, config);
 
   if (url.pathname.startsWith("/api/auth/")) {
-    const limited = await limitedOTPResponse(request, env);
-    if (limited) return limited;
-    const auth = createAuth(env, ctx, config, requestId);
-    const warmEmail = homes && request.method === "POST" && url.pathname === SEND_OTP_PATH ? await emailFromCodeRequest(request) : null;
-    const response = await auth.handler(withoutAmbientCookie(request, url.pathname));
-    if (warmEmail && homes && response.ok) {
-      ctx.waitUntil(warmHomeForEmail(env, homes, warmEmail).catch(() => {
-        console.error(JSON.stringify({ message: "home warm-up on code request failed", requestId }));
+    const gate = await gateCodeRequest(request, env);
+    const release = (counted: NewEmailSend | null) => {
+      if (!counted) return;
+      ctx.waitUntil(releaseNewEmailSend(env, counted).catch(() => {
+        console.error(JSON.stringify({ message: "new email code release failed", requestId }));
+      }));
+    };
+    if (gate.response) {
+      if (!gate.response.ok) release(gate.counted);
+      return gate.response;
+    }
+    const auth = createAuth(env, ctx, config, requestId, request);
+    let response: Response;
+    try {
+      response = await auth.handler(withoutAmbientCookie(request, url.pathname));
+    } catch (error) {
+      release(gate.counted);
+      throw error;
+    }
+    if (!response.ok) release(gate.counted);
+    const signedIn = request.method === "POST" && url.pathname === SIGN_IN_OTP_PATH;
+    const accountId = homes && signedIn ? await accountFromSignIn(response) : null;
+    if (homes && accountId) {
+      ctx.waitUntil(warmHomeForAccount(env, homes, accountId).catch(() => {
+        console.error(JSON.stringify({ message: "home warm-up on sign-in failed", requestId }));
       }));
     }
     if (
-      request.method === "POST"
-      && url.pathname === SIGN_IN_OTP_PATH
+      signedIn
       && response.status !== 429
       && response.status < 500
     ) {
@@ -195,7 +215,7 @@ export function createWorker(
         }), request, null, requestId);
       }
 
-      const page = cloudPage(request, phoneAppTarget((env as unknown as { PHONE_APP_URL?: unknown }).PHONE_APP_URL));
+      const page = cloudPage(request, phoneAppTarget((env as unknown as { PHONE_APP_URL?: unknown }).PHONE_APP_URL), turnstileSecret(env) ? turnstileSiteKey(env) : null);
       if (page) return secureResponse(page, request, null, requestId);
 
       let config: ControlPlaneConfig | null = null;
@@ -233,6 +253,12 @@ export function createWorker(
             errorCode: "misconfigured",
           }));
           return;
+        }
+        try {
+          const released = await releaseUnusedHomes(env);
+          if (released) console.log(JSON.stringify({ message: "released home slots that were never used", requestId, released }));
+        } catch {
+          console.error(JSON.stringify({ message: "unused home release failed", requestId, errorCode: "home_release_failed" }));
         }
         try {
           const invited = await inviteFromWaitlist(env, cloudHomeCap(env));

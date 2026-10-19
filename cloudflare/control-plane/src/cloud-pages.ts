@@ -36,6 +36,21 @@ const params = new URLSearchParams(location.search);
 const $ = (id) => document.getElementById(id);
 const show = (id) => { for (const step of document.querySelectorAll(".step")) step.hidden = step.id !== id; };
 const fail = (message) => { $("error").textContent = message || ""; };
+const turnstileKey = document.body.dataset.turnstile || "";
+let turnstileWidget = null;
+function captchaToken() {
+  if (!turnstileKey || !window.turnstile) return Promise.resolve("");
+  return new Promise((resolve) => {
+    if (turnstileWidget !== null) window.turnstile.remove(turnstileWidget);
+    turnstileWidget = window.turnstile.render($("captcha"), {
+      sitekey: turnstileKey,
+      appearance: "interaction-only",
+      callback: resolve,
+      "error-callback": () => resolve(""),
+      "expired-callback": () => resolve(""),
+    });
+  });
+}
 async function call(path, init = {}) {
   const headers = { "content-type": "application/json", ...(state.token ? { authorization: "Bearer " + state.token } : {}) };
   const response = await fetch(path, { ...init, headers: { ...headers, ...(init.headers || {}) } });
@@ -47,9 +62,10 @@ async function sendCode(event) {
   fail("");
   state.email = $("email").value.trim();
   $("send").disabled = true;
-  const { response } = await call("/api/auth/email-otp/send-verification-otp", { method: "POST", body: JSON.stringify({ email: state.email, type: "sign-in" }) });
+  const captcha = await captchaToken();
+  const { response, body } = await call("/api/auth/email-otp/send-verification-otp", { method: "POST", body: JSON.stringify({ email: state.email, type: "sign-in" }), headers: captcha ? { "x-captcha-response": captcha } : {} });
   $("send").disabled = false;
-  if (!response.ok) return fail(response.status === 429 ? "Too many tries. Wait a minute and try again." : "That email didn't work. Check it and try again.");
+  if (!response.ok) return fail(response.status === 429 ? (Number(response.headers.get("retry-after")) > 300 ? "New sign-ups are full for now. Try again later." : "Too many tries. Wait a minute and try again.") : body.error === "captcha_failed" ? "We couldn't check that you're a person. Try again." : "That email didn't work. Check it and try again.");
   $("sent-to").textContent = state.email;
   show("code-step");
   $("otp").focus();
@@ -114,7 +130,9 @@ async function start() {
 start();
 `;
 
-function htmlPage(title: string, pageName: "desktop" | "account", body: string): string {
+function htmlPage(title: string, pageName: "desktop" | "account", body: string, turnstileKey: string | null = null): string {
+  const turnstile = turnstileKey ? ` data-turnstile="${turnstileKey}"` : "";
+  const turnstileScript = turnstileKey ? `<script src="${TURNSTILE_SCRIPT}"></script>\n` : "";
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -123,13 +141,13 @@ function htmlPage(title: string, pageName: "desktop" | "account", body: string):
 <title>${title}</title>
 <link rel="stylesheet" href="/cloud/style.css">
 </head>
-<body data-page="${pageName}">
+<body data-page="${pageName}"${turnstile}>
 <main>
 <div class="brand">later.dog</div>
 ${body}
 <p class="error" id="error" role="alert"></p>
 </main>
-<script src="/cloud/app.js"></script>
+${turnstileScript}<script src="/cloud/app.js"></script>
 </body>
 </html>`;
 }
@@ -139,6 +157,7 @@ const EMAIL_STEPS = `
 <form id="email-form">
 <label for="email">Email</label>
 <input id="email" type="email" autocomplete="email" required placeholder="you@example.com">
+<div id="captcha"></div>
 <button id="send" type="submit">Send code</button>
 </form>
 </section>
@@ -153,7 +172,7 @@ const EMAIL_STEPS = `
 </section>
 `;
 
-export const DESKTOP_PAGE = htmlPage("Connect later.dog", "desktop", `
+const DESKTOP_BODY = `
 <h1>Connect later.dog on your computer</h1>
 <p>Check that this code matches the one in later.dog.</p>
 <div class="code" id="user-code"></div>
@@ -172,9 +191,9 @@ ${EMAIL_STEPS}
 <section class="step" id="expired-step" hidden>
 <p class="status">This code has expired. Start again in later.dog.</p>
 </section>
-`);
+`;
 
-export const ACCOUNT_PAGE = htmlPage("later.dog Cloud", "account", `
+const ACCOUNT_BODY = `
 <h1>later.dog Cloud</h1>
 ${EMAIL_STEPS}
 <section class="step" id="account-step" hidden>
@@ -186,13 +205,25 @@ ${EMAIL_STEPS}
 <section class="step" id="deleted-step" hidden>
 <p class="status">Your account and your home are deleted.</p>
 </section>
-`);
+`;
 
 const HTML_HEADERS = {
   "content-type": "text/html; charset=utf-8",
   "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "cache-control": "no-store",
 };
+
+const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
+const TURNSTILE_SCRIPT = `${TURNSTILE_ORIGIN}/turnstile/v0/api.js`;
+const TURNSTILE_HTML_HEADERS = {
+  ...HTML_HEADERS,
+  "content-security-policy": `default-src 'none'; script-src 'self' ${TURNSTILE_ORIGIN}; frame-src ${TURNSTILE_ORIGIN}; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+};
+
+function signInPage(title: string, pageName: "desktop" | "account", body: string, turnstileKey: string | null): Response {
+  if (!turnstileKey) return new Response(htmlPage(title, pageName, body), { headers: HTML_HEADERS });
+  return new Response(htmlPage(title, pageName, body, turnstileKey), { headers: TURNSTILE_HTML_HEADERS });
+}
 
 const PHONE_APP_HOSTS = new Set(["testflight.apple.com", "apps.apple.com"]);
 
@@ -224,7 +255,7 @@ export const PHONE_APP_PAGE = `<!doctype html>
 </body>
 </html>`;
 
-export function cloudPage(request: Request, phoneApp: string | null = null): Response | null {
+export function cloudPage(request: Request, phoneApp: string | null = null, turnstileKey: string | null = null): Response | null {
   if (request.method !== "GET") return null;
   const path = new URL(request.url).pathname;
   if (path === "/privacy") return new Response(PRIVACY_PAGE, { headers: HTML_HEADERS });
@@ -233,8 +264,8 @@ export function cloudPage(request: Request, phoneApp: string | null = null): Res
     if (phoneApp) return new Response(null, { status: 302, headers: { location: phoneApp, "cache-control": "no-store" } });
     return new Response(PHONE_APP_PAGE, { headers: HTML_HEADERS });
   }
-  if (path === "/cloud" || path === "/cloud/") return new Response(ACCOUNT_PAGE, { headers: HTML_HEADERS });
-  if (path === "/cloud/desktop") return new Response(DESKTOP_PAGE, { headers: HTML_HEADERS });
+  if (path === "/cloud" || path === "/cloud/") return signInPage("later.dog Cloud", "account", ACCOUNT_BODY, turnstileKey);
+  if (path === "/cloud/desktop") return signInPage("Connect later.dog", "desktop", DESKTOP_BODY, turnstileKey);
   if (path === "/cloud/app.js") return new Response(SCRIPT, { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" } });
   if (path === "/cloud/style.css") return new Response(STYLE, { headers: { "content-type": "text/css; charset=utf-8", "cache-control": "no-store" } });
   return null;

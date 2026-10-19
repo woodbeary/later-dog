@@ -2,17 +2,16 @@ import type { HomesService } from "./cloud";
 
 export const SEND_OTP_PATH = "/api/auth/email-otp/send-verification-otp";
 
-export async function emailFromCodeRequest(request: Request): Promise<string | null> {
-  const body = (await request.clone().json().catch(() => null)) as { email?: unknown } | null;
-  const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
-  return email.includes("@") && email.length <= 320 ? email : null;
+export async function accountFromSignIn(response: Response): Promise<string | null> {
+  if (!response.ok) return null;
+  const body = (await response.clone().json().catch(() => null)) as { user?: { id?: unknown } } | null;
+  const id = body?.user?.id;
+  return typeof id === "string" && id.length > 0 && id.length <= 64 ? id : null;
 }
 
-export async function warmHomeForEmail(env: Env, homes: Pick<HomesService, "open">, email: string): Promise<boolean> {
-  const owner = await env.DB.prepare(
-    `SELECT u.id AS id FROM "user" u JOIN cloud_homes h ON h.account_id = u.id WHERE lower(u.email) = ?`,
-  ).bind(email).first<{ id: string }>();
-  if (!owner) return false;
-  await homes.open(owner.id);
+export async function warmHomeForAccount(env: Env, homes: Pick<HomesService, "open">, accountId: string): Promise<boolean> {
+  const home = await env.DB.prepare("SELECT account_id FROM cloud_homes WHERE account_id = ? AND released_at IS NULL").bind(accountId).first();
+  if (!home) return false;
+  await homes.open(accountId);
   return true;
 }

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { accountSession, type ControlPlaneAuth } from "./auth";
 import type { ControlPlaneConfig } from "./config";
 import { INVITE_HOLD_MS, joinWaitlist } from "./waitlist";
+import { markHomeUsed } from "./home-slots";
 import { errorResponse, HTTPError, json, readBoundedJSON, type JSONValue } from "./http";
 import { sha256 } from "./installations";
 
@@ -86,13 +87,15 @@ async function readJSON<T>(request: Request, schema: z.ZodType<T>): Promise<T> {
 }
 
 export async function homeAllowed(env: Env, accountId: string, now = Date.now()): Promise<boolean> {
-  const existing = await env.DB.prepare("SELECT account_id FROM cloud_homes WHERE account_id = ?").bind(accountId).first();
+  const existing = await env.DB.prepare("SELECT account_id FROM cloud_homes WHERE account_id = ? AND released_at IS NULL").bind(accountId).first();
   if (existing) return true;
   const result = await env.DB.prepare(
     `INSERT INTO cloud_homes (account_id, created_at)
-     SELECT ?, ? WHERE (SELECT COUNT(*) FROM cloud_homes)
+     SELECT ?, ? WHERE (SELECT COUNT(*) FROM cloud_homes WHERE released_at IS NULL)
        + (SELECT COUNT(*) FROM cloud_waitlist w WHERE w.invited_at > ? AND w.account_id <> ?
-          AND NOT EXISTS (SELECT 1 FROM cloud_homes h WHERE h.account_id = w.account_id)) < ?`,
+          AND NOT EXISTS (SELECT 1 FROM cloud_homes h WHERE h.account_id = w.account_id AND h.released_at IS NULL)) < ?
+     ON CONFLICT(account_id) DO UPDATE SET created_at = excluded.created_at, released_at = NULL
+     WHERE released_at IS NOT NULL`,
   ).bind(accountId, now, now - INVITE_HOLD_MS, accountId, homeCap(env)).run();
   if (result.meta.changes === 1) return true;
   await joinWaitlist(env, accountId, now);
@@ -225,16 +228,19 @@ async function revokeDevice(request: Request, env: Env): Promise<Response> {
   return json({ revoked: true });
 }
 
-async function pairingResponse(homes: HomesService, accountId: string, label: string, ttlSeconds: number): Promise<Response> {
+async function pairingResponse(env: Env, homes: HomesService, accountId: string, label: string, ttlSeconds: number): Promise<Response> {
   const outcome = await homes.pair(accountId, { label, ttlSeconds });
   if (!outcome.ok) return json({ error: "not_ready", cloud: cloudField(outcome.summary) }, 409);
+  await markHomeUsed(env, accountId).catch(() => {
+    console.error(JSON.stringify({ message: "home used mark failed" }));
+  });
   return json({ cloudContractVersion: CLOUD_CONTRACT_VERSION, origin: outcome.origin, code: outcome.code, expiresAt: outcome.expiresAt });
 }
 
 async function desktopPairing(request: Request, env: Env, homes: HomesService): Promise<Response> {
   const device = await requireDevice(request, env);
   if (!(await homeAllowed(env, device.account_id))) return errorResponse(403, "no_home");
-  return pairingResponse(homes, device.account_id, DESKTOP_PAIRING_LABEL, 300);
+  return pairingResponse(env, homes, device.account_id, DESKTOP_PAIRING_LABEL, 300);
 }
 
 async function requireAccount(request: Request, auth: ControlPlaneAuth) {
@@ -279,7 +285,7 @@ async function accountHome(request: Request, env: Env, auth: ControlPlaneAuth, h
 async function phonePairing(request: Request, env: Env, auth: ControlPlaneAuth, homes: HomesService): Promise<Response> {
   const session = await requireAccount(request, auth);
   if (!(await homeAllowed(env, session.user.id))) return errorResponse(403, "no_home");
-  return pairingResponse(homes, session.user.id, PHONE_PAIRING_LABEL, 120);
+  return pairingResponse(env, homes, session.user.id, PHONE_PAIRING_LABEL, 120);
 }
 
 async function deleteAccount(request: Request, env: Env, auth: ControlPlaneAuth, homes: HomesService): Promise<Response> {

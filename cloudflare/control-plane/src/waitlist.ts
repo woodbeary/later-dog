@@ -18,14 +18,14 @@ export async function joinWaitlist(env: Env, accountId: string, now = Date.now()
 export async function inviteFromWaitlist(env: Env, cap: number, sender: InviteSender = env.EMAIL as unknown as InviteSender, now = Date.now()): Promise<number> {
   if (await emailBlocked(env.DB, now)) return 0;
   const counts = await env.DB.prepare(
-    `SELECT (SELECT COUNT(*) FROM cloud_homes) AS homes,
-            (SELECT COUNT(*) FROM cloud_waitlist w WHERE w.invited_at > ? AND NOT EXISTS (SELECT 1 FROM cloud_homes h WHERE h.account_id = w.account_id)) AS held`,
+    `SELECT (SELECT COUNT(*) FROM cloud_homes WHERE released_at IS NULL) AS homes,
+            (SELECT COUNT(*) FROM cloud_waitlist w WHERE w.invited_at > ? AND NOT EXISTS (SELECT 1 FROM cloud_homes h WHERE h.account_id = w.account_id AND h.released_at IS NULL)) AS held`,
   ).bind(now - INVITE_HOLD_MS).first<{ homes: number; held: number }>();
   const room = cap - (counts?.homes ?? 0) - (counts?.held ?? 0);
   if (room <= 0) return 0;
   const waiting = await env.DB.prepare(
     `SELECT w.account_id AS accountId, u.email AS email FROM cloud_waitlist w JOIN "user" u ON u.id = w.account_id
-      WHERE w.invited_at IS NULL AND NOT EXISTS (SELECT 1 FROM cloud_homes h WHERE h.account_id = w.account_id)
+      WHERE w.invited_at IS NULL AND NOT EXISTS (SELECT 1 FROM cloud_homes h WHERE h.account_id = w.account_id AND h.released_at IS NULL)
       ORDER BY w.created_at LIMIT ?`,
   ).bind(Math.min(room, INVITE_BATCH)).all<{ accountId: string; email: string }>();
   const from = readConfig(env).emailFrom;
