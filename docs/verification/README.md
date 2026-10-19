@@ -217,6 +217,20 @@ real later.dog data at all. The copy inherits this Mac's Accessibility and
 Screen Recording grants, so its dogs never get a task on "this Mac". Ctrl-C ends
 the free trial it holds, stops it and removes its temporary folder.
 
+A build made on this Mac goes through the same sealed start:
+
+```sh
+scripts/sealed-installed-app.sh --local release/mac-arm64/later.dog.app
+```
+
+It skips the download, the checksums, the signature and notarization, which a
+local build does not have, and keeps everything else: the temporary home, the
+sandbox, the port 8799 check, the sealed profile check and Launch Services
+cleanup. It runs a copy, so the build is left as it was.
+`LATERDOG_SEALED_PARENT` puts the temporary folder somewhere other than `/tmp`,
+on the same disk as the build. `scripts/sealed-installed-app.test.ts` proves the
+sandbox, the sealed home and the 8799 check with a stand-in app.
+
 An update in place is checked from the release before:
 
 ```sh

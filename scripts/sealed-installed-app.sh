@@ -1,13 +1,22 @@
 #!/bin/bash
 set -euo pipefail
 
-TAG="${1:?release tag, for example v0.3.17}"
-PORT="${2:-19344}"
+LOCAL_APP=""
+if [ "${1:-}" = "--local" ]; then
+  LOCAL_APP="${2:?path to a locally built later.dog.app}"
+  [ -x "$LOCAL_APP/Contents/MacOS/later.dog" ] || { echo "no later.dog app at $LOCAL_APP"; exit 1; }
+  LOCAL_APP=$(cd "$LOCAL_APP" && pwd)
+  NAME="the local build $LOCAL_APP"
+  PORT="${3:-19344}"
+else
+  TAG="${1:?release tag, for example v0.3.17, or --local path/to/later.dog.app}"
+  NAME="later.dog $TAG"
+  PORT="${2:-19344}"
+fi
 REPO="woodbeary/later-dog"
 TRIAL_API="https://cloud.later.dog/v1"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
-REAL_HOME=$(dscl . -read "/Users/$USER" NFSHomeDirectory | awk '{print $2}')
-ROOT=$(mktemp -d /tmp/laterdog-sealed.XXXXXX)
+ROOT=$(mktemp -d "${LATERDOG_SEALED_PARENT:-/tmp}/laterdog-sealed.XXXXXX")
 SEALED="$ROOT/home"
 APP_PID=""
 
@@ -38,6 +47,7 @@ if lsof -nP -iTCP:8799 -sTCP:LISTEN >/dev/null 2>&1; then
   echo "something already serves on port 8799 (a running later.dog?); quit it first"
   exit 1
 fi
+REAL_HOME=$(dscl . -read "/Users/$USER" NFSHomeDirectory | awk '{print $2}')
 
 mkdir -p "$ROOT/dl" "$ROOT/verify" "$ROOT/run" "$SEALED/tmp" "$SEALED/.laterdog"
 if [ -n "${LATERDOG_TRIAL_GRANT_KEY_FILE:-}" ]; then
@@ -53,11 +63,15 @@ if [ -n "${LATERDOG_TRIAL_GRANT_KEY_FILE:-}" ]; then
   unset trial_key
   echo "granted the copy its own free trial"
 fi
-cd "$ROOT/dl"
-gh release download "$TAG" --repo "$REPO" \
-  --pattern 'later.dog-macOS-arm64.zip' --pattern 'SHA256SUMS.txt' --pattern 'latest-mac.yml'
-awk '$2 == "later.dog-macOS-arm64.zip"' SHA256SUMS.txt | shasum -a 256 -c -
-python3 -I - latest-mac.yml later.dog-macOS-arm64.zip <<'EOF'
+if [ -n "$LOCAL_APP" ]; then
+  ditto "$LOCAL_APP" "$ROOT/run/later.dog.app"
+  echo "skipped download, checksums, signature and notarization: local build"
+else
+  cd "$ROOT/dl"
+  gh release download "$TAG" --repo "$REPO" \
+    --pattern 'later.dog-macOS-arm64.zip' --pattern 'SHA256SUMS.txt' --pattern 'latest-mac.yml'
+  awk '$2 == "later.dog-macOS-arm64.zip"' SHA256SUMS.txt | shasum -a 256 -c -
+  python3 -I - latest-mac.yml later.dog-macOS-arm64.zip <<'EOF'
 import base64, hashlib, re, sys
 manifest = open(sys.argv[1]).read()
 want = re.search(r'sha512:\s*"?([^"\s]+)', manifest).group(1)
@@ -67,13 +81,14 @@ if want != got:
 print("latest-mac.yml sha512 matches the zip")
 EOF
 
-xattr -w com.apple.quarantine "0081;$(printf %x "$(date +%s)");Safari;" later.dog-macOS-arm64.zip
-ditto -x -k later.dog-macOS-arm64.zip "$ROOT/verify/"
-codesign --verify --deep --strict "$ROOT/verify/later.dog.app"
-spctl -a -vv -t exec "$ROOT/verify/later.dog.app"
-xcrun stapler validate "$ROOT/verify/later.dog.app"
+  xattr -w com.apple.quarantine "0081;$(printf %x "$(date +%s)");Safari;" later.dog-macOS-arm64.zip
+  ditto -x -k later.dog-macOS-arm64.zip "$ROOT/verify/"
+  codesign --verify --deep --strict "$ROOT/verify/later.dog.app"
+  spctl -a -vv -t exec "$ROOT/verify/later.dog.app"
+  xcrun stapler validate "$ROOT/verify/later.dog.app"
 
-ditto "$ROOT/verify/later.dog.app" "$ROOT/run/later.dog.app"
+  ditto "$ROOT/verify/later.dog.app" "$ROOT/run/later.dog.app"
+fi
 xattr -cr "$ROOT/run/later.dog.app"
 
 PROFILE="(version 1)(allow default)
@@ -97,7 +112,7 @@ curl -sf "http://127.0.0.1:$PORT/json/version" >/dev/null || { echo "the app did
 [ -d "$SEALED/Library/Application Support/later.dog" ] || { echo "the app did not use the sealed profile; stopping it"; exit 1; }
 
 cat <<EOF
-later.dog $TAG is running sealed (pid $APP_PID)
+$NAME is running sealed (pid $APP_PID)
   devtools  http://127.0.0.1:$PORT
   profile   $SEALED
   log       $ROOT/app.log
