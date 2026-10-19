@@ -5,7 +5,7 @@ const INDEX = readFileSync(new URL("../../server/index.ts", import.meta.url), "u
 
 const EXACT: Record<string, number> = {
   'path === "/': 152,
-  "path.match(": 86,
+  "path.match(": 85,
   "path.startsWith(": 11,
   ".exec(path)": 18,
   ".test(path)": 1,
