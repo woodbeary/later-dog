@@ -5,8 +5,10 @@ vi.mock("./notification-preferences", () => ({
   notificationSoundsEnabled: () => sounds.enabled,
 }));
 
+import { replyable } from "../../shared/notification";
 import {
   buildNotificationOptions,
+  desktopBanners,
   requestNotificationPermission,
   showNotification,
   type NotifyFrame,
@@ -153,5 +155,56 @@ describe("buildNotificationOptions", () => {
       tag: "laterdog:bot-9",
       icon: undefined,
     });
+  });
+});
+
+describe("native banners in the desktop app", () => {
+  function installBridge(focused = false) {
+    const show = vi.fn();
+    const { notices, requestPermission } = installNotification("granted", focused);
+    vi.stubGlobal("window", { focus: vi.fn(), laterdog: { notifications: { show, onOpen: vi.fn(), onReply: vi.fn() } } });
+    return { show, notices, requestPermission };
+  }
+
+  it("hands the frame to the native bridge instead of a web notification", () => {
+    const { show, notices } = installBridge();
+    showNotification({ ...frame, groupId: "group-1" }, vi.fn());
+    expect(notices).toHaveLength(0);
+    expect(show).toHaveBeenCalledWith({
+      kind: "done",
+      botId: "bot-1",
+      threadId: "thread-1",
+      groupId: "group-1",
+      title: frame.title,
+      body: frame.body,
+      silent: false,
+      replyable: true,
+    });
+  });
+
+  it("marks approvals and takeovers not replyable and follows the sounds switch", () => {
+    sounds.enabled = false;
+    const { show } = installBridge();
+    showNotification({ ...frame, kind: "approval" }, vi.fn());
+    showNotification({ ...frame, kind: "takeover" }, vi.fn());
+    expect(show.mock.calls.map(([request]) => [request.replyable, request.silent])).toEqual([[false, true], [false, true]]);
+  });
+
+  it("stays quiet over the visible thread and never asks the web permission", async () => {
+    const { show, requestPermission } = installBridge(true);
+    showNotification(frame, vi.fn(), undefined, frame.threadId);
+    expect(show).not.toHaveBeenCalled();
+    expect(requestNotificationPermission()).toBeNull();
+    expect(requestPermission).not.toHaveBeenCalled();
+    expect(desktopBanners()).not.toBeNull();
+  });
+});
+
+describe("replyable", () => {
+  it("lets every kind but approvals and takeovers take a reply", () => {
+    expect(replyable("done")).toBe(true);
+    expect(replyable("question")).toBe(true);
+    expect(replyable("approval")).toBe(false);
+    expect(replyable("takeover")).toBe(false);
   });
 });

@@ -19,10 +19,33 @@ ipcRenderer.on("app:open-settings", (_event, section) => {
   for (const listener of appSettingsListeners) listener(fixedSection);
 });
 
+function bannerRelay(channel) {
+  const listeners = new Set();
+  const pending = [];
+  ipcRenderer.on(channel, (_event, payload) => {
+    if (!payload || typeof payload !== "object") return;
+    if (!listeners.size) {
+      pending.push(payload);
+      return;
+    }
+    for (const listener of listeners) listener(payload);
+  });
+  return (cb) => {
+    listeners.add(cb);
+    queueMicrotask(() => {
+      if (!listeners.has(cb)) return;
+      for (const payload of pending.splice(0)) for (const listener of listeners) listener(payload);
+    });
+    return () => listeners.delete(cb);
+  };
+}
+const onBannerOpen = bannerRelay("notification:open");
+const onBannerReply = bannerRelay("notification:reply");
+
 const localOrigin = process.argv.find((arg) => arg.startsWith("--laterdog-local-origin="))?.slice("--laterdog-local-origin=".length) ?? null;
 const isLocalPage = !localOrigin || location.origin === localOrigin;
 const savedServer = id => isLocalPage && typeof id === "string" && /^[\w-]{1,64}$/.test(id) ? [id] : [];
-const REMOTE_SAFE = new Set(["platform", "getCapabilities", "onCapabilitiesChanged", "applySkin", "setUnreadCount", "permStatus", "workspaces", "cloudMove", "cloudLending", "cloudPlan", "cloudPermissions", "onOpenAppSettings"]);
+const REMOTE_SAFE = new Set(["platform", "getCapabilities", "onCapabilitiesChanged", "applySkin", "setUnreadCount", "permStatus", "workspaces", "cloudMove", "cloudLending", "cloudPlan", "cloudPermissions", "onOpenAppSettings", "notifications"]);
 function updaterOffered() {
   try { return ipcRenderer.sendSync("update:offered") === true; } catch { return false; }
 }
@@ -155,6 +178,11 @@ const bridge = {
     return () => packageInstallListeners.delete(cb);
   },
   setUnreadCount: (count) => ipcRenderer.send("desktop:unread-count", count),
+  notifications: {
+    show: (request) => ipcRenderer.send("notification:show", request),
+    onOpen: onBannerOpen,
+    onReply: onBannerReply,
+  },
   desktopViewer: {
     open: (url, title, contextId, pill) => ipcRenderer.invoke("desktop-viewer:open", url, title, contextId, pill),
     close: (contextId) => ipcRenderer.invoke("desktop-viewer:close", contextId),

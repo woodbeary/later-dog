@@ -2,12 +2,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { writeFileAtomic } from "../atomic.ts";
 import type { Notification } from "../notify.ts";
+import { replyable } from "../../shared/notification.ts";
 
 export const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 export const EXPO_PUSH_TOKEN = /^Expo(?:nent)?PushToken\[[A-Za-z0-9_-]{8,128}\]$/;
 const MAX_TOKENS = 20;
 const URGENT = new Set<string>(["approval", "question", "takeover"]);
-const NOT_REPLYABLE = new Set<string>(["approval", "takeover"]);
 export const REPLY_CATEGORY = "reply";
 
 export interface PhonePush {
@@ -58,7 +58,7 @@ export function createPhonePush(options: { dataDir: string; fetcher?: typeof fet
         sound: "default",
         data: { kind: notification.kind, botId: notification.botId, threadId: notification.threadId },
         ...(urgent ? { priority: "high", interruptionLevel: "time-sensitive" } : {}),
-        ...(notification.botId && notification.threadId && !NOT_REPLYABLE.has(notification.kind) ? { categoryId: REPLY_CATEGORY } : {}),
+        ...(notification.botId && notification.threadId && replyable(notification.kind) ? { categoryId: REPLY_CATEGORY } : {}),
       }));
       let response: Response;
       try {

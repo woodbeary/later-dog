@@ -42,7 +42,7 @@ import { descendsFrom, newestTip } from "@/lib/leaf-follow";
 import type { ComputerStart } from "@/lib/computer-start";
 import { answerResponse, dismissResponse } from "@/lib/card-answer";
 import { currentCall } from "@/lib/call";
-import { showNotification, type NotificationTarget } from "@/lib/notify";
+import { desktopBanners, showNotification, type BannerReply, type NotificationTarget } from "@/lib/notify";
 import { speaker } from "@/lib/tts";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import type { OnboardingStatus } from "@/lib/onboarding";
@@ -950,24 +950,34 @@ export function visibleNotificationThread(
   );
 }
 
+const ownsThread = (owner: NotificationThreadOwner, threadId: string) =>
+  owner.threadId === threadId || (owner.tasks ?? []).some((task) => task.threadId === threadId);
+
+function notificationOwner(target: NotificationTarget & { groupId?: string }, state: NotificationRoutingState) {
+  const group = state.groups.find((candidate) => candidate.id === target.groupId) ??
+    state.groups.find((candidate) => ownsThread(candidate, target.threadId));
+  if (group) return { kind: "group" as const, id: group.id };
+  const bot = state.bots.find((candidate) => ownsThread(candidate, target.threadId)) ??
+    state.bots.find((candidate) => candidate.id === target.botId);
+  return bot ? { kind: "bot" as const, id: bot.id } : null;
+}
+
 export function openNotificationTarget(
   dispatch: (action: Action) => void,
   target: NotificationTarget,
   state: NotificationRoutingState,
 ) {
-  const group = state.groups.find(
-    (candidate) =>
-      candidate.threadId === target.threadId ||
-      (candidate.tasks ?? []).some((task) => task.threadId === target.threadId),
-  );
-  if (group) {
-    dispatch({ type: "select", id: group.id });
-    return;
-  }
-  const bot = state.bots.find((candidate) =>
-    candidate.threadId === target.threadId || candidate.tasks?.some((task) => task.threadId === target.threadId)
-  ) ?? state.bots.find((candidate) => candidate.id === target.botId);
-  dispatch({ type: "select", id: bot?.id ?? target.botId });
+  dispatch({ type: "select", id: notificationOwner(target, state)?.id ?? target.botId });
+}
+
+export function bannerReplyAction(reply: BannerReply, state: NotificationRoutingState): Action | null {
+  const text = reply.text.trim();
+  if (!text) return null;
+  const owner = notificationOwner(reply, state);
+  if (!owner) return null;
+  return owner.kind === "group"
+    ? { type: "sendGroup", groupId: owner.id, text, sendId: reply.sendId }
+    : { type: "send", botId: owner.id, text, sendId: reply.sendId };
 }
 
 export interface ThreadTarget {
@@ -3078,6 +3088,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", back);
     };
   }, []);
+
+  useEffect(() => {
+    const banners = desktopBanners();
+    if (!banners) return;
+    const stopOpen = banners.onOpen((target) => openNotificationTarget(dispatch, target, stateRef.current));
+    const stopReply = banners.onReply((reply) => {
+      const action = bannerReplyAction(reply, stateRef.current);
+      if (action) dispatch(action);
+    });
+    return () => {
+      stopOpen();
+      stopReply();
+    };
+  }, [dispatch]);
 
   const lastFocusProbe = useRef(0);
   useEffect(() => {

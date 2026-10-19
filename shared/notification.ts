@@ -21,3 +21,9 @@ export interface Notification {
   groupId?: string;
 }
 
+
+const NOT_REPLYABLE: ReadonlySet<NotifyKind> = new Set<NotifyKind>(["approval", "takeover"]);
+
+export function replyable(kind: NotifyKind): boolean {
+  return !NOT_REPLYABLE.has(kind);
+}

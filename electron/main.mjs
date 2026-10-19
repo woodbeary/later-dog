@@ -1,4 +1,4 @@
-import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, Tray, WebContentsView, clipboard, desktopCapturer, dialog, ipcMain, Menu, nativeImage, powerMonitor, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, utilityProcess } from "electron";
+import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, Notification, Tray, WebContentsView, clipboard, desktopCapturer, dialog, ipcMain, Menu, nativeImage, powerMonitor, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences, utilityProcess } from "electron";
 import { createRequire } from "node:module";
 import { randomBytes, randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -43,6 +43,7 @@ import { createAllWindowsClosedQuit } from "./window-all-closed.mjs";
 import { offerMoveToApplications } from "./move-to-applications.mjs";
 import { createStartupScreen } from "./startup-screen.mjs";
 import { createSystemTray } from "./system-tray.mjs";
+import { NOTIFY_CHANNEL, createDesktopNotifications, hideOnClose } from "./desktop-notifications.mjs";
 import { createLendingIndicator } from "./lending-indicator.mjs";
 let startupScreen = null;
 let desktopTray = null;
@@ -209,7 +210,10 @@ if (!app.requestSingleInstanceLock()) {
   process.exit(0);
 }
 
-nativeAutoUpdater.on("before-quit-for-update", () => releaseSingleInstanceLock(app));
+nativeAutoUpdater.on("before-quit-for-update", () => {
+  desktopShutdownStarted = true;
+  releaseSingleInstanceLock(app);
+});
 
 function deliverPackageInstall(win) {
   if (!pendingPackageInstallUrl || !win || win.isDestroyed()) return;
@@ -1279,6 +1283,37 @@ ipcMain.on("screen:preview-intent", localOnlySync("screen:preview-intent", (even
   event.returnValue = displayMediaGuard.begin(event.senderFrame);
 }));
 
+function sendWhenLoaded(win, channel, payload) {
+  if (win.isDestroyed()) return;
+  if (!win.webContents.isLoadingMainFrame()) {
+    win.webContents.send(channel, payload);
+    return;
+  }
+  win.webContents.once("did-finish-load", () => {
+    if (!win.isDestroyed()) win.webContents.send(channel, payload);
+  });
+}
+
+const bannerWindow = () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : createWindow());
+const desktopBanners = createDesktopNotifications({
+  Notification,
+  open: (channel, target) => {
+    const win = bannerWindow();
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    sendWhenLoaded(win, channel, target);
+  },
+  deliver: (channel, reply) => sendWhenLoaded(bannerWindow(), channel, reply),
+});
+
+ipcMain.on(NOTIFY_CHANNEL, (event, request) => {
+  const sender = BrowserWindow.fromWebContents(event.sender);
+  if (!sender || sender !== mainWindow || sender.isDestroyed()) return;
+  if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame) return;
+  desktopBanners.show(request);
+});
+
 ipcMain.on("desktop:unread-count", (event, value) => {
   const sender = BrowserWindow.fromWebContents(event.sender);
   if (!sender || sender !== mainWindow || sender.isDestroyed()) return;
@@ -1709,6 +1744,7 @@ function createWindow({ deferNavigation = false } = {}) {
       desktopTray.hide(win);
     }
   });
+  hideOnClose(win, { quitting: () => desktopShutdownStarted });
   win.setTitle(currentWindowTitle());
   win.webContents.on("page-title-updated", event => {
     if (!activeEnvironment(environmentsState)) return;
@@ -2955,6 +2991,10 @@ app.whenReady().then(async () => {
   refreshApplicationMenu();
   app.on("activate", () => {
     if (desktopTray?.show()) return;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (!mainWindow.isVisible()) mainWindow.show();
+      return;
+    }
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 }).finally(() => allWindowsClosedQuit.settleStartup());

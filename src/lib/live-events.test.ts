@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   LIVE_EVENTS_STALE_MS,
+  desktopShellKeepsLive,
   isLivePing,
   liveEventsUrl,
   openLiveEvents,
@@ -69,7 +70,7 @@ function harness(options?: { online?: boolean; visible?: boolean; now?: number }
     windowTarget,
     documentTarget,
     isOnline: () => online,
-    isVisible: () => visible,
+    keepsLive: () => visible,
     now: () => now,
   };
   return {
@@ -201,7 +202,7 @@ describe("live events supervisor", () => {
         throw new Error("offline");
       },
       isOnline: () => true,
-      isVisible: () => true,
+      keepsLive: () => true,
       now: Date.now,
     };
 
@@ -325,5 +326,14 @@ describe("live event liveness predicates", () => {
     expect(isLivePing({ kind: "message" })).toBe(false);
     expect(shouldReconnectLiveEvents(0, LIVE_EVENTS_STALE_MS - 1)).toBe(false);
     expect(shouldReconnectLiveEvents(0, LIVE_EVENTS_STALE_MS)).toBe(true);
+  });
+});
+
+describe("desktop app keeps live events while its window is hidden", () => {
+  it("stays live in the desktop app, where banners need the stream, and not in a plain browser tab", () => {
+    const bridge = { show: () => {}, onOpen: () => () => {}, onReply: () => () => {} };
+    expect(desktopShellKeepsLive({ laterdog: { platform: "darwin", notifications: bridge } } as unknown as Window)).toBe(true);
+    expect(desktopShellKeepsLive({} as Window)).toBe(false);
+    expect(desktopShellKeepsLive(undefined)).toBe(false);
   });
 });

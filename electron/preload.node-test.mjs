@@ -8,6 +8,7 @@ const require = createRequire(import.meta.url);
 const listeners = new Map();
 const exposed = { name: null, api: null };
 const invocations = [];
+const sends = [];
 const fakeIpcRenderer = {
   on: (channel, handler) => {
     if (!listeners.has(channel)) listeners.set(channel, new Set());
@@ -17,7 +18,7 @@ const fakeIpcRenderer = {
     listeners.get(channel)?.delete(handler);
   },
   invoke: async (...args) => { invocations.push(args); },
-  send: () => undefined,
+  send: (...args) => { sends.push(args); },
 };
 const fakeElectron = {
   ipcRenderer: fakeIpcRenderer,
@@ -157,4 +158,32 @@ test("credential recovery uses its dedicated channel and removes the IPC wrapper
   } finally {
     fakeIpcRenderer.invoke = invoke;
   }
+});
+
+test("banners are a remote-safe bridge: show goes over notification:show and opens or replies wait for the app to subscribe", async () => {
+  const source = readFileSync(new URL("./preload.cjs", import.meta.url), "utf8");
+  const remoteSafe = source.match(/const REMOTE_SAFE = new Set\(\[([^\]]*)\]\)/)?.[1] ?? "";
+  assert.ok(remoteSafe.includes('"notifications"'), "Cloud home pages need banners");
+
+  const request = { kind: "done", botId: "bot-1", threadId: "thread-1", title: "Rex finished", body: "Done" };
+  exposed.api.notifications.show(request);
+  assert.deepEqual(sends.at(-1), ["notification:show", request]);
+
+  emit("notification:reply", { botId: "bot-1", threadId: "thread-1", text: "Thanks", sendId: "send-1" });
+  emit("notification:open", { botId: "bot-1", threadId: "thread-1" });
+  const replies = [];
+  const opens = [];
+  const stopReply = exposed.api.notifications.onReply((reply) => replies.push(reply));
+  const stopOpen = exposed.api.notifications.onOpen((target) => opens.push(target));
+  await Promise.resolve();
+  assert.deepEqual(replies, [{ botId: "bot-1", threadId: "thread-1", text: "Thanks", sendId: "send-1" }]);
+  assert.deepEqual(opens, [{ botId: "bot-1", threadId: "thread-1" }]);
+
+  emit("notification:reply", { botId: "bot-1", threadId: "thread-1", text: "Again", sendId: "send-2" });
+  emit("notification:reply", "not an object");
+  assert.equal(replies.length, 2);
+  stopReply();
+  stopOpen();
+  emit("notification:open", { botId: "bot-2", threadId: "thread-2" });
+  assert.equal(opens.length, 1);
 });

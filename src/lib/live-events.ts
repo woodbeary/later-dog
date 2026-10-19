@@ -33,7 +33,7 @@ export interface LiveEventsPlatform {
   createEventSource: (url: string) => LiveEventSourceLike;
   windowTarget?: ListenerTarget;
   documentTarget?: ListenerTarget;
-  isVisible: () => boolean;
+  keepsLive: () => boolean;
   isOnline: () => boolean;
   now: () => number;
 }
@@ -109,6 +109,10 @@ function parseLiveFrame(data: string): LiveFrame | null {
   return candidate as LiveFrame;
 }
 
+export function desktopShellKeepsLive(win: Pick<Window, "laterdog"> | undefined): boolean {
+  return Boolean(win?.laterdog?.notifications);
+}
+
 function browserPlatform(overrides: Partial<LiveEventsPlatform>): LiveEventsPlatform | null {
   const NativeEventSource = globalThis.EventSource;
   const createEventSource =
@@ -150,8 +154,9 @@ function browserPlatform(overrides: Partial<LiveEventsPlatform>): LiveEventsPlat
             removeEventListener: (type, listener) => browserDocument.removeEventListener(type, listener),
           }
         : undefined),
-    isVisible:
-      overrides.isVisible ?? (() => !browserDocument || browserDocument.visibilityState === "visible"),
+    keepsLive:
+      overrides.keepsLive ??
+      (() => desktopShellKeepsLive(browserWindow) || !browserDocument || browserDocument.visibilityState === "visible"),
     isOnline: overrides.isOnline ?? (() => globalThis.navigator?.onLine !== false),
     now: overrides.now ?? Date.now,
   };
@@ -208,13 +213,13 @@ export function openLiveEvents(
 
   let connect: () => void;
   const scheduleReconnect = () => {
-    if (stopped || retryTimer !== null || !platform.isOnline() || !platform.isVisible()) return;
+    if (stopped || retryTimer !== null || !platform.isOnline() || !platform.keepsLive()) return;
     const exponent = Math.min(retryAttempt, 20);
     const delay = Math.min(retryMaxMs, retryMinMs * 2 ** exponent);
     retryAttempt += 1;
     retryTimer = setTimeout(() => {
       retryTimer = null;
-      if (!platform.isVisible()) return;
+      if (!platform.keepsLive()) return;
       connect();
     }, delay);
   };
@@ -316,17 +321,17 @@ export function openLiveEvents(
   };
 
   const recover = () => {
-    if (stopped || !platform.isOnline() || !platform.isVisible()) return;
+    if (stopped || !platform.isOnline() || !platform.keepsLive()) return;
     if (!source || shouldReconnectLiveEvents(lastHeardAt, platform.now(), staleMs)) {
       reconnectNow(source !== null);
     }
   };
   const onOnline = () => recover();
   const onFocus = () => {
-    if (platform.isVisible()) recover();
+    if (platform.keepsLive()) recover();
   };
   const onVisibilityChange = () => {
-    if (platform.isVisible()) recover();
+    if (platform.keepsLive()) recover();
   };
 
   connect();

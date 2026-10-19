@@ -200,6 +200,7 @@ const __APP_VERSION__: string;
       onPackageInstall?(cb: (url: string) => void): () => void;
       onOpenAppSettings?(cb: (section?: "organization" | "cloud" | "cloud-settings" | "lending") => void): () => void;
       setUnreadCount?(count: number): void;
+      notifications?: import("../../electron/desktop-notifications.mjs").DesktopNotificationsBridge;
       desktopViewer?: {
         open(url: string, title: string, contextId: string, pill?: { label: string; done: string }): Promise<boolean>;
         close(contextId: string): Promise<boolean>;

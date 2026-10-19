@@ -65,3 +65,19 @@ and `src/lib/notify.test.ts` cover persisted preferences, blocked storage, cross
 reads after Settings unmounts, and the silent flag sent to the desktop bridge.
 Actual operating-system sound delivery requires a native Electron smoke test;
 the isolated browser cannot prove it.
+
+In the desktop app every notification, on the Mac's own dogs or on a Cloud
+home, goes through the native banner bridge (`window.laterdog.notifications`,
+remote-safe in `electron/preload.cjs`, shown by `electron/desktop-notifications.mjs`).
+Clicking a banner opens its dog or group chat. On macOS a banner for anything
+but an approval or a takeover (`replyable` in `shared/notification.ts`, shared
+with phone pushes) has a Reply field that sends through the normal send path
+with a fresh sendId and leaves the window where it is. Closing the window on
+macOS hides it, so live events keep reconnecting and banners keep coming until
+the app quits. `electron/desktop-notifications.node-test.mjs` drives a fake
+Notification class through click and reply, and
+`scripts/testing/desktop-banners-ui.e2e.test.ts` runs a turn on the fixture
+with a recording bridge (`__threads.html?desktopBanners`), replies from the
+banner, and checks exactly one message with that sendId lands, even when the
+reply is delivered twice. A real banner on screen, its Reply field and the
+hidden window need a packaged app on a Mac and are not covered by these checks.

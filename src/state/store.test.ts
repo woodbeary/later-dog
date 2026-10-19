@@ -10,6 +10,7 @@ import {
   initialState,
   liveCallFromFrame,
   loadSnapshotBoundary,
+  bannerReplyAction,
   openNotificationTarget,
   persistBotUpdate,
   persistTaskApproval,
@@ -647,7 +648,7 @@ describe("replacement snapshot boundary", () => {
         return source;
       },
       isOnline: () => true,
-      isVisible: () => true,
+      keepsLive: () => true,
       now: Date.now,
     };
     const stop = openLiveEvents(
@@ -740,6 +741,23 @@ describe("notification routing", () => {
     openNotificationTarget(dispatch, { botId: "bot-1", threadId: "deleted-task-thread" }, { bots, groups });
 
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "bot-1" }]);
+  });
+
+  it("sends a banner Reply into the dog's one conversation with the banner's sendId", () => {
+    expect(bannerReplyAction({ botId: "bot-1", threadId: "detached-thread", text: "  On it  ", sendId: "s-1" }, { bots, groups }))
+      .toEqual({ type: "send", botId: "bot-1", text: "On it", sendId: "s-1" });
+  });
+
+  it("sends a banner Reply from a group chat to that group, by id or by thread", () => {
+    expect(bannerReplyAction({ botId: "bot-1", threadId: "room-thread", groupId: "room-1", text: "Ship it", sendId: "s-2" }, { bots, groups }))
+      .toEqual({ type: "sendGroup", groupId: "room-1", text: "Ship it", sendId: "s-2" });
+    expect(bannerReplyAction({ botId: "bot-1", threadId: "older-room-thread", text: "Ship it", sendId: "s-3" }, { bots, groups }))
+      .toEqual({ type: "sendGroup", groupId: "room-1", text: "Ship it", sendId: "s-3" });
+  });
+
+  it("drops a blank banner Reply or one for a dog that is gone", () => {
+    expect(bannerReplyAction({ botId: "bot-1", threadId: "main-thread", text: "   ", sendId: "s-4" }, { bots, groups })).toBeNull();
+    expect(bannerReplyAction({ botId: "gone", threadId: "gone-thread", text: "Hi", sendId: "s-5" }, { bots, groups })).toBeNull();
   });
 
   it("identifies only the exact chat thread currently on screen", () => {
