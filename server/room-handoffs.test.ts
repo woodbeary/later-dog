@@ -889,4 +889,23 @@ describe("long work for the owner's auto dogs", () => {
     expect(after.run).not.toHaveBeenCalled();
     expect(JSON.parse(readFileSync(file, "utf8")).every((n: { status: string }) => n.status === "failed")).toBe(true);
   }));
+
+  it("ends a routine's work with its run on restart, even when it would otherwise be picked back up", () => fixture(async (engine, hooks, file) => {
+    hooks.run = () => new Promise(() => {});
+    const { node } = engine.enqueue(chief, "turn", undefined, builder, "build", "Build it", false, false, "", undefined, undefined, "routine-run");
+    const later = engine.enqueue(chief, "turn", undefined, scout, "scout", "Find it", false, false, "", undefined, undefined, "other-run").node;
+    engine.tick(); await flush();
+    expect(engine.nodes.get("turn")?.routineRunId).toBe("routine-run");
+    const owner = engine.enqueue(scout, "owner-turn", undefined, builder, "owner", "Check it").node;
+    const restartedLine = vi.fn();
+    const after: RoomHandoffHooks = { ...hooks, busy: () => false, longWork: () => true, restarted: restartedLine, report: vi.fn(),
+      run: vi.fn(async (n) => ({ ok: true, text: `${n.key} done` })) };
+    const restarted = new RoomHandoffs(file, after);
+    await settle(restarted, 8);
+    for (const id of [node.id, later.id, "turn"]) expect(restarted.nodes.get(id)).toMatchObject({ status: "failed", endedBy: "restart" });
+    expect(restarted.nodes.get(owner.id)?.status).toBe("completed");
+    expect(after.run).not.toHaveBeenCalledWith(expect.objectContaining({ rootId: "turn" }), expect.anything(), expect.anything());
+    expect(restartedLine).toHaveBeenCalledTimes(1);
+    expect(restartedLine).toHaveBeenCalledWith(expect.objectContaining({ id: "owner-turn" }), expect.anything(), true);
+  }));
 });

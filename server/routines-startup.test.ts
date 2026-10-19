@@ -78,16 +78,21 @@ it("recovers queued/due work without resurrecting an interrupted routine after r
       finishedAt: dueAt - 60_000, manual: true, status: "completed", threadId: reusedBot.threadId,
     });
     writeFileSync(file, JSON.stringify(disk));
-    writeFileSync(join(dataDir, "delegations.json"), JSON.stringify({
-      [interruptedBot.threadId]: [{
-        id: "orphan-handoff", sourceBotId: interruptedBot.id, toBotId: orphanPeer.id,
-        message: "This stopped routine must not launch peer work", depth: 0, attempts: 0,
-      }],
-      [reusedBot.threadId]: [{
-        id: "later-user-handoff", sourceBotId: reusedBot.id, toBotId: reusedPeer.id,
-        message: "This later user request must survive the restart", depth: 0, attempts: 0,
-      }],
-    }));
+    const handoff = (id: string, owner: { id: string; threadId: string }, peer: { id: string; threadId: string }, text: string, routineRunId?: string) => [
+      { id: `${id}-root`, rootId: `${id}-root`, threadId: owner.threadId, botId: owner.id, key: "root", text: "Ask a teammate", createdAt: dueAt, status: "waiting", executions: 1, ...(routineRunId ? { routineRunId } : {}) },
+      { id, rootId: `${id}-root`, parentId: `${id}-root`, threadId: peer.threadId, botId: peer.id, key: id, text, createdAt: dueAt, status: "queued" },
+    ];
+    const botsFile = join(dataDir, "bots.json");
+    const savedBots = JSON.parse(readFileSync(botsFile, "utf8"));
+    for (const saved of savedBots.filter((b: { id: string }) => [orphanPeer.id, reusedPeer.id].includes(b.id))) {
+      saved.approvalMode = "full"; saved.autoApprove = false;
+      for (const task of saved.tasks ?? []) { task.approvalMode = "full"; task.autoApprove = false; }
+    }
+    writeFileSync(botsFile, JSON.stringify(savedBots));
+    writeFileSync(join(dataDir, "room-handoffs.json"), JSON.stringify([
+      ...handoff("orphan-handoff", interruptedBot, orphanPeer, "This stopped routine must not launch peer work", "interrupted-run"),
+      ...handoff("later-user-handoff", reusedBot, reusedPeer, "This later user request must survive the restart"),
+    ]));
 
     const env: NodeJS.ProcessEnv = {};
     for (const key of ["SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "LANG", "LC_ALL", "TZ"]) {
@@ -127,18 +132,18 @@ it("recovers queued/due work without resurrecting an interrupted routine after r
     const restoredCron = (await api("GET", "/api/routines")).routines.find((routine: { id: string }) => routine.id === cron.id);
     expect(restoredCron.schedule).toEqual(cron.schedule);
     expect(restoredCron.nextRunAt).toBeGreaterThan(Date.now());
-    const recoveredPeer = (await api("GET", "/api/bots")).bots.find((bot: { id: string }) => bot.id === orphanPeer.id);
-    expect(recoveredPeer.messages.some((message: { role: string }) => message.role === "user")).toBe(false);
-    expect(Boolean(recoveredPeer.busy)).toBe(false);
-    await expect.poll(async () => {
-      const current = (await api("GET", "/api/bots")).bots.find((bot: { id: string }) => bot.id === reusedPeer.id);
-      return current.messages.some((message: { role: string; text?: string }) =>
-        message.role === "user" && message.text?.includes("This later user request must survive the restart"));
-    }, { timeout: 15_000 }).toBe(true);
-    await expect.poll(
-      () => JSON.parse(readFileSync(join(dataDir, "delegations.json"), "utf8")),
-      { timeout: 10_000 },
-    ).toEqual({});
+    const peerMessages = async (peerId: string) =>
+      ((await api("GET", "/api/bots")).bots.find((bot: { id: string }) => bot.id === peerId).messages as Array<{ text?: string }>);
+    await expect.poll(async () => (await peerMessages(reusedPeer.id)).some((message) =>
+      message.text?.includes("This later user request must survive the restart")), { timeout: 15_000 }).toBe(true);
+    const handoffs = () => JSON.parse(readFileSync(join(dataDir, "room-handoffs.json"), "utf8")) as Array<{ id: string; status: string; endedBy?: string }>;
+    await expect.poll(() => handoffs().find((node) => node.id === "later-user-handoff")?.status, { timeout: 10_000 }).toBe("completed");
+    expect(handoffs().filter((node) => node.id.startsWith("orphan-handoff"))).toEqual([
+      expect.objectContaining({ id: "orphan-handoff-root", status: "failed", endedBy: "restart" }),
+      expect.objectContaining({ id: "orphan-handoff", status: "failed", endedBy: "restart" }),
+    ]);
+    expect((await peerMessages(orphanPeer.id)).some((message) => message.text?.includes("This stopped routine must not launch peer work"))).toBe(false);
+    expect(Boolean((await api("GET", "/api/bots")).bots.find((bot: { id: string }) => bot.id === orphanPeer.id).busy)).toBe(false);
     const scheduledRun = runs.find((run) => run.routineId === scheduled.id)!;
     const wait = await runControlLaterDog(["wait", "--bot", scheduledBot.id, "--task", scheduledRun.threadId!, "--url", url]);
     const messages = await runControlLaterDog(["messages", "--bot", scheduledBot.id, "--task", scheduledRun.threadId!, "--url", url]);

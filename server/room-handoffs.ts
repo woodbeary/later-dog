@@ -19,6 +19,7 @@ const nodeSchema = z.object({
   lastProgressAt: z.number().optional(),
   approvalGranted: z.boolean().default(false),
   requestedBy: z.string().optional(),
+  routineRunId: z.string().optional(),
   kind: z.enum(["work", "assignment"]).default("work"),
   endedBy: z.enum(HANDOFF_ENDS).optional(),
   continueOffered: z.boolean().optional(),
@@ -123,7 +124,7 @@ export class RoomHandoffs {
       const root = this.nodes.get(rootId);
       const open = [...this.nodes.values()].filter(n => n.rootId === rootId && !terminal(n));
       if (!root) continue;
-      if (long) {
+      if (long && !root.routineRunId) {
         for (const n of open) {
           if (n.status === "source") { n.status = "waiting"; continue; }
           if (n.status !== "running") continue;
@@ -199,7 +200,7 @@ export class RoomHandoffs {
 
   enqueue(source: RoomAddress, generation: string, parentId: string | undefined,
     target: RoomAddress, key: string, text: string, approvalGranted = false,
-    rework = false, sourceText = "", requestBatchKey?: string, requestedBy?: string): { node: RoomHandoff; duplicate: boolean } {
+    rework = false, sourceText = "", requestBatchKey?: string, requestedBy?: string, routineRunId?: string): { node: RoomHandoff; duplicate: boolean } {
     if (this.loadError) throw new Error(this.loadError);
     this.settleRestart();
     let parent = parentId ? this.nodes.get(parentId) : this.nodes.get(generation);
@@ -243,6 +244,7 @@ export class RoomHandoffs {
       kind, ...(target.groupId && requestBatchKey ? { requestBatchKey } : {}) };
     const problem = this.hooks.validate(node, parent);
     if (problem) throw new Error(problem);
+    if (routineRunId) root.routineRunId ??= routineRunId;
     if (fresh) this.nodes.set(parent.id, parent);
     this.nodes.set(node.id, node);
     this.longCache.delete(root.id);

@@ -4098,15 +4098,6 @@ function roomHandoffProblem(node: Pick<RoomHandoff, "groupId" | "threadId" | "bo
   }
 }
 
-const routineCoordinations = new Map<string, string>();
-
-function rememberRoutineCoordination(rootId: string, runId: string): void {
-  const settled = new Set<RoomHandoff["status"]>(["completed", "failed", "cancelled"]);
-  const liveRoots = new Set([...roomHandoffs.nodes.values()].filter(node => !settled.has(node.status)).map(node => node.rootId));
-  for (const known of routineCoordinations.keys()) if (!liveRoots.has(known)) routineCoordinations.delete(known);
-  routineCoordinations.set(rootId, runId);
-}
-
 function openPeerExchange(sender: BotRecord, recipient: BotRecord, text: string): GroupRecord {
   const exchange = getOrCreateChannel(store, sender, recipient);
   store.appendMessage(exchange.threadId, { role: "bot", kind: "text", text,
@@ -4275,7 +4266,7 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
       };
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) { abort(); return; }
-      const routineRunId = node.id === node.rootId ? routineCoordinations.get(node.id) : undefined;
+      const routineRunId = node.id === node.rootId ? node.routineRunId : undefined;
       void startTurn(bot.id, turnText, {
         threadId: node.threadId, cardContinuation: true, commsDepth: MAX_COMMS_DEPTH,
         ...(routineRunId ? { routineRunId } : {}),
@@ -8706,7 +8697,7 @@ async function stopBotForEmergencyApprovalDowngrade(botId: string): Promise<void
 
 routines = new RoutineManager({
   emit: broadcast,
-  hasPendingDelegations: (threadId, runId) => roomHandoffs.outstandingDirect(threadId).some(node => routineCoordinations.get(node.rootId) === runId),
+  hasPendingDelegations: (threadId, runId) => roomHandoffs.outstandingDirect(threadId).some(node => roomHandoffs.root(node).routineRunId === runId),
   turnBelongsToRun: routineTurnBelongsToRun,
   botState: routineTargetState,
   goalState: (groupId, coordinatorBotId) => {
@@ -8734,7 +8725,7 @@ routines = new RoutineManager({
     });
   },
   interruptTurn: async (botId, threadId, run) => {
-    roomHandoffs.stopAwaitingDirect(threadId, "person", node => routineCoordinations.get(node.rootId) === run.id);
+    roomHandoffs.stopAwaitingDirect(threadId, "person", node => roomHandoffs.root(node).routineRunId === run.id);
     if (!routineTurnBelongsToRun(run)) return;
     const bot = botForThread(botId, threadId);
     cancelDirectTurnDispatch(botId, threadId);
@@ -13601,12 +13592,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                 target.threadId = guestThread ?? recipient.threadId;
                 createdThread = guestThread;
               }
+              const routineRun = destination || internalCapability.roomHandoffId ? undefined : routineRunForTurn(address.threadId);
               const { node, duplicate } = roomHandoffs.enqueue(address, internalCapability.generation, internalCapability.roomHandoffId,
                 target, target.botId, parsed.data.message, approvalGranted, parsed.data.rework, [...store.messagesFor(address.threadId)].reverse().find(m => m.role === "user" && m.kind === "text")?.text ?? "",
-                requestBatchKey, threadPersonKey(address.threadId));
+                requestBatchKey, threadPersonKey(address.threadId), routineRun?.id);
               if (duplicate && createdThread) store.deleteTask(target.botId, createdThread);
-              const routineRun = destination ? undefined : routineRunForTurn(address.threadId);
-              if (routineRun && !internalCapability.roomHandoffId) rememberRoutineCoordination(node.rootId, routineRun.id);
               createdThread = undefined;
               const recipientName = destination ? undefined : store.bot(node.botId)?.name;
               const finished: Partial<Record<RoomHandoff["status"], string>> = {

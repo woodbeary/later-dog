@@ -200,7 +200,13 @@ it("recovers a dog asked by the main dog in its one conversation and returns its
     expect(specialistMessages.some((message) => message.role === "user")).toBe(false);
     expect(specialistMessages.filter((message) => message.tool?.name?.startsWith("recovery:"))).toHaveLength(1);
     const fleet = await api("GET", "/api/bots");
-    expect(fleet.groups).toEqual([]);
+    expect(fleet.groups).toHaveLength(1);
+    const [exchange] = fleet.groups;
+    expect(exchange).toMatchObject({ dm: true, memberIds: [main.id, specialist.id] });
+    expect(exchange.messages.map((message: any) => [message.from?.botId, message.text])).toEqual([
+      [main.id, brief],
+      [specialist.id, specialistReply],
+    ]);
     const after = fleet.bots.find((bot: any) => bot.id === specialist.id);
     expect(after.modelSelection).toEqual(primary);
     expect(after.tasks.find((task: any) => task.threadId === child.threadId)).toMatchObject({ modelSelection: backup, approvalMode: "ask", busy: false });

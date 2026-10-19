@@ -1,7 +1,7 @@
 {
   "id": "dispatch-supersede",
   "title": "A message sent while a teammate works runs now and keeps the outstanding assignment",
-  "behavior": "A new user message, sent once the Chief's dispatching turn has settled while its teammate is still working, is not held behind that work: it runs immediately as its own turn, the assignment stays attached (not cancelled), and that turn's model-visible instructions name the outstanding assignment so the model does not resend its fan-out.",
+  "behavior": "A new user message, sent once the Chief's dispatching turn has settled while its teammate is still working, is not held behind that work: it runs immediately as its own turn, the assignment stays attached (not cancelled) and is not sent again, and that turn still has coordinate_bots to send any change to the same teammate. The outstanding-assignments reminder was removed in S2 (one peer tool); its result still returns on its own and resumes the Chief.",
   "issue": 1503,
   "world": "coordination",
   "gates": [
@@ -137,7 +137,7 @@
       "kind": "instructionsInclude",
       "bot": "chief",
       "turn": 1,
-      "includes": "Assignments you already sent are still outstanding"
+      "includes": "with coordinate_bots (list_bots shows who they are)"
     },
     {
       "kind": "handoffTree",

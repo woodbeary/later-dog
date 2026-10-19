@@ -70,9 +70,9 @@ recipient task without changing other tasks.
 Steering is not cancelling. A message sent while teammates are still working
 runs straight away — it is not queued behind them — and the assignments stay
 out: they keep running and each result still returns to this conversation and
-resumes it. That turn's context names what is still outstanding, so the bot
-answers the new instruction without assuming its fan-out died or sending the
-same work again.
+resumes it. That turn gets no list of what is outstanding; the
+`dispatch-supersede` eval pins that the assignment is not sent again and that
+the turn still has `coordinate_bots` to send a change to the same teammate.
 
 Direct-chat parking is a per-bot opt-in (`parkDirectMessages`). When it is on,
 a message that arrives while teammates are still working waits on the server

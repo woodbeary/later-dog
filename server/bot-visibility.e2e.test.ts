@@ -547,13 +547,35 @@ posixOnly("per-bot visibility on a shared workspace", () => {
   it("keeps bots with different audiences from reaching each other", async () => {
     const benefits = await makeBot("Benefits Lynx", "People");
     expect((await api("PATCH", `/api/bots/${benefits.id}`, { visibility: { people: [ADA] } }, BOSS)).status).toBe(200);
-    const roster = async (id: string) => JSON.stringify((await api("GET", `/api/bots/${id}/system-prompt`, undefined, BOSS)).body);
-    const hr = await roster(ids.hr);
-    expect(hr).toContain("Benefits Lynx");
-    expect(hr).not.toContain("Board Heron");
-    expect(await roster(ids.board)).not.toContain("Payroll Zebra");
+    const capability = async (botId: string) => {
+      const threadId = (await api("GET", "/api/bots?messages=0", undefined, BOSS)).body.bots.find((b: any) => b.id === botId).threadId;
+      const minted = await fetch(`${BASE}/api/testing/internal-capability`, {
+        method: "POST", headers: { "content-type": "application/json", "x-laterdog-test-capability": CAPABILITY_KEY },
+        body: JSON.stringify({ botId, threadId }),
+      });
+      return ((await minted.json()) as { token: string }).token;
+    };
+    const asBot = async (botId: string, method: string, path: string, body?: unknown) => {
+      const res = await fetch(`${BASE}${path}`, {
+        method, headers: { "content-type": "application/json", authorization: `Bearer ${await capability(botId)}` },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      return { status: res.status, body: await res.json() as any };
+    };
+    const reachable = async (botId: string) => ((await asBot(botId, "GET", `/api/internal/agents?self=${botId}`)).body.bots as Array<{ name: string }>).map((b) => b.name);
+    const prompt = async (id: string) => JSON.stringify((await api("GET", `/api/bots/${id}/system-prompt`, undefined, BOSS)).body);
+    expect(await reachable(ids.hr)).toContain("Benefits Lynx");
+    expect(await reachable(ids.hr)).not.toContain("Board Heron");
+    expect(await reachable(ids.board)).not.toContain("Payroll Zebra");
+    const refused = await asBot(ids.hr, "POST", "/api/internal/coordinate-bots", { botIds: [ids.board], message: "Share the board deck." });
+    expect(refused.status, JSON.stringify(refused.body)).toBe(403);
+    expect(refused.body.error).toBe("The recipient is not an allowed peer of the sender");
+    expect((await asBot(ids.board, "POST", "/api/internal/coordinate-bots", { botIds: ["Payroll Zebra"], message: "Share payroll." })).body.error).toMatch(/^No bot with id or name/);
+    expect(await prompt(ids.hr)).not.toContain("Board Heron");
+    expect(await prompt(ids.board)).not.toContain("Payroll Zebra");
     expect((await api("PATCH", `/api/bots/${ids.board}`, { visibility: "everyone" }, BOSS)).status).toBe(200);
-    expect(await roster(ids.hr)).not.toContain("Board Heron");
+    expect(await reachable(ids.hr)).not.toContain("Board Heron");
+    expect((await asBot(ids.hr, "POST", "/api/internal/coordinate-bots", { botIds: [ids.board], message: "Share the board deck." })).body.error).toBe("The recipient is not an allowed peer of the sender");
     expect((await api("PATCH", `/api/bots/${ids.board}`, { visibility: "admins" }, BOSS)).status).toBe(200);
   });
 

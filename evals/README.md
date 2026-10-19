@@ -29,7 +29,7 @@ Each fixture declares a `world`, the `bots` to create with their scripted `turns
 
 ## Current pins
 
-- `dispatch-supersede` — a message sent to an idle Chief while its coordinated work is outstanding runs immediately as its own turn (not steered into the dispatching turn, not queued behind the work), the assignment stays attached, and that turn is told which work is outstanding. (Current semantics: a new message is not a cancellation.)
+- `dispatch-supersede` — a message sent to an idle Chief while its coordinated work is outstanding runs immediately as its own turn (not steered into the dispatching turn, not queued behind the work), the assignment stays attached and is not sent again, and that turn still has coordinate_bots for changes. (Current semantics: a new message is not a cancellation. The outstanding-assignments reminder was removed with the other peer tools in S2.)
 - `routine-deferral` — a routine due behind a busy target is stamped `deferredAt` while staying queued, then dispatches and completes when the target frees.
 
 ## Worlds
