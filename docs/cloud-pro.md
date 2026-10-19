@@ -1038,6 +1038,15 @@ section is only what the Cloud adds.
   web UI removes from the address bar before it renders. Its session is
   cookie-only and makes changes only from requests its browser marks as
   same-origin: defence in depth, not the protection itself.
+- A sleeping Cloudflare home starts only for a request carrying something the
+  home Worker can check without starting it (`deploy/laterdog/home/src/wake-guard.ts`):
+  a session token or session cookie, a webhook URL's secret, or anything
+  while a pairing it handed out is still open. Everything else gets the
+  resting page, and a stranger's request to an awake home is answered without
+  keeping it awake. With `HOME_WAKE_GUARD=learning` (the default) any
+  well-formed credential counts, and the home remembers each one it has seen
+  the server accept; `owners` counts only those, seen in the last 30 days.
+  A home sleeps 30 minutes after its person's last request.
 - The web UI's pages cannot be framed and send no `Referer`.
 - Device names are stored without control or bidirectional-formatting
   characters.

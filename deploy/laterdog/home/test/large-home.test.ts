@@ -14,6 +14,7 @@ const OWNER = "owner-account";
 const SOMEONE = "someone-else";
 const SECRET = "test-home-secret";
 const SUFFIX = "-home.later.dog";
+const OWNER_HEADERS = { accept: "application/json", authorization: `Bearer laterdog_sess_${"o".repeat(43)}` };
 
 function memoryBucket(): StateBucket & { objects: Map<string, ArrayBuffer> } {
   const objects = new Map<string, ArrayBuffer>();
@@ -67,7 +68,7 @@ function cloud(largeAccounts = "") {
     }
   };
   const visit = async (machineId: string, path = "/api/bots") =>
-    worker.fetch(new Request(`https://${machineId}${SUFFIX}${path}`, { headers: { accept: "application/json" } }), env as never);
+    worker.fetch(new Request(`https://${machineId}${SUFFIX}${path}`, { headers: OWNER_HEADERS }), env as never);
   return { env, HOMES, HOMES_LARGE, STATE, api, settle, visit };
 }
 
@@ -235,7 +236,7 @@ describe("moving a home to the large computer", () => {
     const owner = await machineOf(OWNER);
     await api.open(OWNER);
     await settle();
-    const request = () => new Request(`https://${owner}${SUFFIX}/api/bots`, { headers: { accept: "application/json" } });
+    const request = () => new Request(`https://${owner}${SUFFIX}/api/bots`, { headers: OWNER_HEADERS });
     const standard = host(HOMES, owner);
     const large = host(HOMES_LARGE, owner);
     await large.adopt(await homeIdentity(SECRET, OWNER, SUFFIX));
@@ -286,7 +287,7 @@ describe("a start that begins inside a request", () => {
     const standard = host(HOMES, owner);
     const large = host(HOMES_LARGE, owner);
     await large.adopt(await homeIdentity(SECRET, OWNER, SUFFIX));
-    const request = () => new Request(`https://${owner}${SUFFIX}/api/bots`, { headers: { accept: "application/json" } });
+    const request = () => new Request(`https://${owner}${SUFFIX}/api/bots`, { headers: OWNER_HEADERS });
     const inside = standard.containerFetch(request(), 8080);
     await Promise.all([large.fetch(request()), inside]);
     await settle();

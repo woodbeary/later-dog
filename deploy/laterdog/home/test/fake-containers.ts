@@ -18,13 +18,38 @@ export interface FakeMachine {
 export interface FakeWorld {
   live: Map<string, Set<string>>;
   overlaps: string[];
+  sessions: Set<string>;
+  hooks: Set<string>;
+  sessionChecks: number;
 }
 
-export const world: FakeWorld = { live: new Map(), overlaps: [] };
+export const world: FakeWorld = { live: new Map(), overlaps: [], sessions: new Set(), hooks: new Set(), sessionChecks: 0 };
 
 export function resetWorld(): void {
   world.live.clear();
   world.overlaps.length = 0;
+  world.sessions.clear();
+  world.hooks.clear();
+  world.sessionChecks = 0;
+}
+
+function presentedSession(request: Request): string | undefined {
+  const bearer = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1];
+  if (bearer) return bearer;
+  return /laterdog_session_[^=]*=([^;\s]+)/.exec(request.headers.get("cookie") ?? "")?.[1];
+}
+
+function homeAnswer(namespace: string, request: Request): Response {
+  const path = new URL(request.url).pathname;
+  if (path === "/api/health") return Response.json({ app: "laterdog" });
+  if (path === "/api/auth/session") {
+    world.sessionChecks += 1;
+    const token = presentedSession(request);
+    return token && world.sessions.has(token) ? Response.json({ kind: "session", scopes: ["admin", "client"] }) : Response.json({ error: "unauthorized" }, { status: 401 });
+  }
+  if (path === "/api/cloud/pairing") return Response.json({ code: "ABCD-EFGH-JKMN", credential: `laterdog_pair_${"p".repeat(43)}`, expiresAt: Date.now() + 120_000 });
+  if (path.startsWith("/hooks/")) return world.hooks.has(path) ? Response.json({ accepted: true }, { status: 202 }) : Response.json({ error: "Invalid webhook URL or secret" }, { status: 401 });
+  return new Response(`home ${namespace} ${path}`);
 }
 
 export class FakeId {
@@ -65,7 +90,7 @@ export function fakeContext(id: FakeId, storage = new FakeStorage()) {
       get running() {
         return machine.running;
       },
-      getTcpPort: () => ({ fetch: async () => Response.json({ app: "laterdog" }) }),
+      getTcpPort: () => ({ fetch: async (url: string, init: Request) => homeAnswer(id.namespace, new Request(url, init)) }),
     },
     blockConcurrencyWhile: async (work: () => Promise<unknown>) => {
       const done = work();
@@ -162,9 +187,7 @@ export class Container<E> {
         return new Response(`Failed to start container: ${error instanceof Error ? error.message : String(error)}`, { status: 500 });
       }
     }
-    const path = new URL(request.url).pathname;
-    if (path === "/api/health") return Response.json({ app: "laterdog" });
-    return new Response(`home ${this.ctx.id.namespace} ${path}`);
+    return homeAnswer(this.ctx.id.namespace, request);
   }
 
   async fetch(request: Request): Promise<Response> {

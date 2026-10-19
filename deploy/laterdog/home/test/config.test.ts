@@ -34,4 +34,14 @@ describe.each(["wrangler.jsonc", "wrangler.production.json", "wrangler.bootstrap
   it("lists nobody for a large home unless the deploy says so", () => {
     expect(worker.vars.LARGE_HOME_ACCOUNTS).toBe("");
   });
+
+  it("keeps a tenth of the Worker's logs", () => {
+    expect(worker.observability).toEqual({ enabled: true, head_sampling_rate: 0.1 });
+  });
+});
+
+describe.each(["wrangler.jsonc", "wrangler.production.json", "wrangler.bootstrap.json", "wrangler.test.json"])("%s wake guard", (name) => {
+  it("boots for any well-formed owner credential until the deploy says owners", () => {
+    expect(config(name).vars.HOME_WAKE_GUARD).toBe("learning");
+  });
 });

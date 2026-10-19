@@ -4,7 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "workers_dev": false,
-  "observability": { "enabled": true },
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 },
   "routes": [{ "pattern": "*-home.later.dog/*", "zone_name": "later.dog" }],
   "containers": [
     {
@@ -43,7 +43,8 @@
     "HOME_HOST_SUFFIX": "-home.later.dog",
     "ADMIN_ORIGIN": "https://accounts.later.dog",
     "INCLUDED_API": "https://cloud.later.dog/v1",
-    "LARGE_HOME_ACCOUNTS": ""
+    "LARGE_HOME_ACCOUNTS": "",
+    "HOME_WAKE_GUARD": "learning"
   },
   "secrets": { "required": ["HOME_SECRET"] }
 }

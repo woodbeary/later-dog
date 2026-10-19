@@ -9,6 +9,19 @@ import { Handover, type HandoverPeer, type HomeStanding } from "./handover.ts";
 import { homeNamespace, otherSize, type HomeSize } from "./size.ts";
 import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, stateOwner } from "./state.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
+import {
+  hookAccepted,
+  remember,
+  remembered,
+  seenLongAgo,
+  sessionCheck,
+  sessionCheckOutcome,
+  wakeCredential,
+  wakeGuard,
+  wakerKey,
+  type WakeCredential,
+  type Wakers,
+} from "./wake-guard.ts";
 
 export const HOME_PORT = 8080;
 const RECORD_KEY = "home";
@@ -20,7 +33,11 @@ const STARTED_KEY = "started-included-key";
 const STANDING_KEY = "standing";
 const REMOVED_KEY = "removed";
 const REMOVED = "This home was removed.";
-export const PERSON_SLEEP_AFTER = "2h";
+const WAKERS_KEY = "wakers";
+const PAIRING_OPEN_KEY = "pairing-open-until";
+const REFUSED_KEPT = 256;
+const CHECKS_AT_ONCE = 4;
+export const PERSON_SLEEP_AFTER = "30m";
 export const ROUTINE_SLEEP_AFTER = "15m";
 export const MAINTAIN_EVERY_S = 6 * 60 * 60;
 
@@ -58,6 +75,10 @@ export class CloudHomeHost extends Container<Env> {
   private storedStanding: HomeStanding | null = null;
   private signalled = false;
   private removed = false;
+  private wakers: Wakers = {};
+  private pairingOpenUntil = 0;
+  private readonly checking = new Set<string>();
+  private readonly refused = new Set<string>();
   private readonly handover = new Handover({
     standing: () => this.storedStanding ?? (this.size === "standard" ? "holding" : "released"),
     stand: async (standing) => {
@@ -79,6 +100,8 @@ export class CloudHomeHost extends Container<Env> {
       this.record = (await ctx.storage.get<HomeRecord>(RECORD_KEY)) ?? null;
       this.storedStanding = (await ctx.storage.get<HomeStanding>(STANDING_KEY)) ?? null;
       this.removed = (await ctx.storage.get<boolean>(REMOVED_KEY)) === true;
+      this.wakers = (await ctx.storage.get<Wakers>(WAKERS_KEY)) ?? {};
+      this.pairingOpenUntil = (await ctx.storage.get<number>(PAIRING_OPEN_KEY)) ?? 0;
       if (this.record) this.envVars = await this.environment(this.record);
     });
   }
@@ -227,6 +250,7 @@ export class CloudHomeHost extends Container<Env> {
     const response = await this.containerFetch(await signedPairingRequest(record.origin, secret, input), HOME_PORT);
     const grant = response.ok ? parsePairingGrant(await response.json().catch(() => null), Date.now()) : null;
     if (!grant) return { ok: false, summary, status: response.status };
+    await this.openPairing(grant.expiresAt);
     return { ok: true, origin: record.origin, ...grant };
   }
 
@@ -254,6 +278,8 @@ export class CloudHomeHost extends Container<Env> {
     await this.ctx.storage.deleteAll();
     this.record = null;
     this.storedStanding = null;
+    this.wakers = {};
+    this.pairingOpenUntil = 0;
     await this.bury();
   }
 
@@ -287,11 +313,85 @@ export class CloudHomeHost extends Container<Env> {
     const record = this.record;
     if (!record || this.removed) return new Response("Not found", { status: 404 });
     const background = isBackground(request);
-    if (!background) this.sleepAfter = PERSON_SLEEP_AFTER;
-    if (await this.running()) return background ? this.quietly(request) : super.fetch(request);
-    if (!background) this.boot(record, true);
+    const credential = background ? null : wakeCredential(request);
+    const key = credential ? await wakerKey(credential) : null;
+    const running = await this.running();
+    const wakes = !background && (await this.mayWake(key, !running));
+    if (wakes) this.sleepAfter = PERSON_SLEEP_AFTER;
+    if (running) {
+      const response = wakes ? await super.fetch(request) : await this.quietly(request);
+      if (credential && key) this.learn(record, credential, key, response);
+      return response;
+    }
+    if (wakes) this.boot(record, true);
     const busy = this.lastStart?.wake === "busy" && Date.now() - this.lastStart.at < BUSY_MEMORY_MS;
-    return wakeResponse(request, busy ? "busy" : background && !this.booting ? "asleep" : "waking");
+    return wakeResponse(request, busy ? "busy" : wakes || this.booting ? "waking" : "asleep");
+  }
+
+  async knowsWaker(key: string): Promise<boolean> {
+    return remembered(this.wakers, key, Date.now());
+  }
+
+  private async mayWake(key: string | null, askSibling: boolean): Promise<boolean> {
+    const now = Date.now();
+    if (now < this.pairingOpenUntil) return true;
+    if (!key) return false;
+    if (wakeGuard(this.env.HOME_WAKE_GUARD) === "learning") return true;
+    if (remembered(this.wakers, key, now)) return true;
+    if (!askSibling || !this.mayHaveMoved() || !(await this.siblingKnows(key))) return false;
+    await this.remember(key);
+    return true;
+  }
+
+  private mayHaveMoved(): boolean {
+    return this.size === "large" || this.storedStanding !== null;
+  }
+
+  private async siblingKnows(key: string): Promise<boolean> {
+    const record = this.record;
+    if (!record) return false;
+    const namespace = homeNamespace(this.env, otherSize(this.size));
+    return namespace.get(namespace.idFromName(record.machineId)).knowsWaker(key).catch(() => false);
+  }
+
+  private learn(record: HomeRecord, credential: WakeCredential, key: string, response: Response): void {
+    const now = Date.now();
+    if (remembered(this.wakers, key, now)) {
+      if (seenLongAgo(this.wakers, key, now)) this.ctx.waitUntil(this.remember(key));
+      return;
+    }
+    if (credential.kind === "hook") {
+      if (hookAccepted(response)) this.ctx.waitUntil(this.remember(key));
+      return;
+    }
+    if (this.checking.has(key) || this.refused.has(key) || this.checking.size >= CHECKS_AT_ONCE) return;
+    this.checking.add(key);
+    this.ctx.waitUntil(
+      this.quietly(sessionCheck(record.origin, credential))
+        .then(sessionCheckOutcome)
+        .then(async (outcome) => {
+          if (outcome === "owner") await this.remember(key);
+          if (outcome === "refused") this.refuse(key);
+        })
+        .catch(() => undefined)
+        .finally(() => this.checking.delete(key)),
+    );
+  }
+
+  private async remember(key: string): Promise<void> {
+    this.wakers = remember(this.wakers, key, Date.now());
+    await this.ctx.storage.put(WAKERS_KEY, this.wakers);
+  }
+
+  private refuse(key: string): void {
+    if (this.refused.size >= REFUSED_KEPT) this.refused.clear();
+    this.refused.add(key);
+  }
+
+  private async openPairing(until: number): Promise<void> {
+    if (until <= this.pairingOpenUntil) return;
+    this.pairingOpenUntil = until;
+    await this.ctx.storage.put(PAIRING_OPEN_KEY, until);
   }
 
   private quietly(request: Request): Promise<Response> {

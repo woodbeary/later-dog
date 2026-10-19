@@ -95,7 +95,8 @@
     "HOME_HOST_SUFFIX": "-hometest.later.dog",
     "ADMIN_ORIGIN": "https://accounts.later.dog",
     "INCLUDED_API": "https://cloud.later.dog/v1",
-    "LARGE_HOME_ACCOUNTS": ""
+    "LARGE_HOME_ACCOUNTS": "",
+    "HOME_WAKE_GUARD": "learning"
   },
   "secrets": {
     "required": [
