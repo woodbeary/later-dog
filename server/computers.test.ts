@@ -95,7 +95,9 @@ describe("the cloud computer facade", () => {
         if (!action && method === "DELETE") { fleet.delete(computer.id); return send(200, { deleted: true }); }
         if (action === "wake") { computer.state = wakeTo; return send(200, { computer }); }
         if (action === "sleep") { computer.state = "sleeping"; return send(200, { computer }); }
+        if (action === "reset") { computer.state = "starting"; return send(200, { computer }); }
         if (computer.state !== "running") return send(409, { error: { code: "asleep", message: "the computer is asleep" } });
+        if (action === "update") { computer.state = "starting"; return send(200, { computer }); }
         if (action === "exec") return send(200, { exitCode: 0, stdout: `ran ${String(JSON.parse(body).command).length} characters`, stderr: "" });
         if (action === "screenshot") { res.writeHead(200, { "content-type": "image/jpeg" }).end(frame); return; }
         if (action === "desktop") return send(200, { url: `https://desktop.example.test/${computer.id}?token=signed`, expiresAt: "2026-10-08T12:00:00Z" });
@@ -400,13 +402,29 @@ describe("the cloud computer facade", () => {
     await expect(computers.sleepBoat(noBoat, "no-computer-bot")).rejects.toThrow("no computer for this dog");
   });
 
+  it("resets a dog's computer from its snapshot and updates it after waking it, only on later.dog's computers", async () => {
+    const computer = add("refresh-bot", "running");
+    expect(await computers.resetBoat(noBoat, "refresh-bot")).toEqual({ state: "starting" });
+    expect(ours().filter((request) => request.method === "POST").map((request) => request.path)).toEqual([`/v1/computers/${computer.id}/reset`]);
+    requests.length = 0;
+    computer.state = "sleeping";
+    expect(await computers.updateBoat(noBoat, "refresh-bot")).toEqual({ state: "starting" });
+    expect(ours().filter((request) => request.method === "POST").map((request) => request.path.split("/").at(-1))).toEqual(["wake", "update"]);
+    computer.state = "running";
+    failures.set(`POST /v1/computers/${computer.id}/update`, { status: 413, error: { code: "too_large", message: "Its files are larger than 1 GB" } });
+    await expect(computers.updateBoat(noBoat, "refresh-bot")).rejects.toMatchObject({ status: 413, code: "too_large", message: expect.stringMatching(/larger than 1 GB/) });
+    await expect(computers.resetBoat(noBoat, "no-computer-bot")).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/no cloud computer yet/) });
+    vi.stubEnv("LATERDOG_COMPUTERS_API", "");
+    await expect(computers.resetBoat(withBoat, "refresh-bot")).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/later.dog cloud computers only/) });
+  });
+
   it("lists only this installation's computers for Settings, owned first, and nothing it did not name", async () => {
     const owned = add("owned-bot", "running");
     const orphan = add("deleted-dog", "sleeping");
     add("", "running", "dog-ffffffffffff-other-123456");
     add("", "running", "my-production-box");
     const inventory = await computers.listManagedBoats(noBoat, [owner("owned-bot", "Research", true)]);
-    expect(inventory).toEqual({ configured: true, available: true, problem: null, instances: [
+    expect(inventory).toEqual({ configured: true, available: true, problem: null, changeable: true, instances: [
       { boxId: owned.id, name: nameFor("owned-bot"), state: "running", ownerBotId: "owned-bot", ownerName: "Research", orphaned: false, inUse: true },
       { boxId: orphan.id, name: nameFor("deleted-dog"), state: "archived", ownerBotId: null, ownerName: null, orphaned: true, inUse: false },
     ] });

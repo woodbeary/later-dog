@@ -71,8 +71,8 @@ never call it, even with a leaked key.
 
 Errors are JSON `{ "error": { "code": "…", "message": "…" } }` with a matching status: 400 `invalid_*`, 401
 `unauthorized`, 403 `browser_origin` / `trial_size`, 404 `not_found` / `file_not_found` / `no_trial`, 405
-`method_not_allowed`, 409 `asleep` / `limit_reached` / `is_directory` / `trial_ended` / `trial_used_up`, 413
-`too_large`, 502 `start_failed` / `snapshot_failed` / `screenshot_failed` / `container_error`, 503 `not_configured` /
+`method_not_allowed`, 409 `asleep` / `updating` / `limit_reached` / `is_directory` / `trial_ended` / `trial_used_up`, 413
+`too_large`, 502 `start_failed` / `snapshot_failed` / `pack_failed` / `screenshot_failed` / `container_error`, 503 `not_configured` /
 `trials_off` / `trial_unavailable`.
 
 A computer looks like:
@@ -96,6 +96,8 @@ still drawing has it `false` (see Waking and readiness).
 | `DELETE /computers/:id` | `{ deleted: true }`. Destroys the container and forgets the computer. |
 | `POST /computers/:id/wake` | `{ computer }` in state `starting`. Boots from the latest snapshot, or from the image if it never slept. Poll `GET` until `running`. |
 | `POST /computers/:id/sleep` | `{ computer }` in state `sleeping`. Snapshots the disk, then stops the container. Answers when done. |
+| `POST /computers/:id/reset` | `{ computer }` in state `starting`. Throws away everything since the last sleep and boots from the latest snapshot (or the image if it never slept). Desktop links end. 409 `updating` during an update. |
+| `POST /computers/:id/update` | `{ computer }` in state `starting`. Moves a running computer to the current image and brings `/home/dog` along (files and logins; apps and packages installed elsewhere are gone). It first snapshots the computer, packs `/home/dog` (without `.cache` or Chromium's session locks, up to 1 GB, 413 `too_large` above) into Durable Object storage, boots the image, unpacks, and snapshots the updated computer before it reports `running`, so a later reset or wake starts from the updated computer with its files. If the files cannot be put back, or the updated computer cannot be saved, it boots the snapshot taken before the update instead. 409 `asleep` unless `running`; 409 `updating` while one is under way. |
 | `POST /computers/:id/exec` `{ "command", "timeoutMs"? (default 120000, max 600000), "cwd"?, "env"? }` | `{ exitCode, stdout, stderr, timedOut }`. Runs `bash -lc command` as `dog` in `/home/dog` with `DISPLAY=:0`. Each stream keeps its first 1 MiB. On timeout the command and everything it started are killed (exit 124). 409 `asleep` unless `running`. Exec never wakes a computer. `env` is described below. |
 | `GET /computers/:id/files?path=` | The file's bytes, 404 if missing, 413 over 16 MB. Relative paths start at `/home/dog`. |
 | `PUT /computers/:id/files?path=` raw body | `{ ok: true }`. Up to 16 MB. Creates missing folders. New files and folders belong to `dog`. |

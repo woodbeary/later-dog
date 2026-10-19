@@ -207,6 +207,12 @@ async function computerRequest(op: ComputerOp, id: string, request: Request, env
       return answer(await stub.wake({ fullAllowance: Boolean(caller.fullAllowance) }), (value) => json({ computer: value }));
     case "sleep":
       return answer(await stub.sleep("request"), (value) => json({ computer: value }));
+    case "reset":
+    case "update": {
+      if (trialLimited(caller) && !trialPolicy(env).enabled) return apiError(TRIALS_OFF);
+      const allowance = { fullAllowance: Boolean(caller.fullAllowance) };
+      return answer(await (op === "reset" ? stub.reset(allowance) : stub.updateImage(allowance)), (value) => json({ computer: value }));
+    }
     case "exec": {
       const body = await readJson(request);
       if (!body.ok) return body.response;

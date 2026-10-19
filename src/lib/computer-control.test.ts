@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { transitionComputerControlLease } from "../lib/computer-control";
+import { transitionComputerControlLease } from "./computer-control";
 
 const snap = (held: boolean) => ({ held, helpReason: null });
 

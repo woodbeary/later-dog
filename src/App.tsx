@@ -13,7 +13,7 @@ import { GroupView } from "@/components/GroupView";
 import { SIDEBAR_AND_PANEL_FIT, TWO_SIDE_PANELS_FIT, useMediaQuery } from "@/lib/use-media-query";
 import { PluginsPanel, preloadConnectedApps } from "@/components/PluginsPanel";
 import {
-  BotSettingsDialog, CloudTaskPanel, ComputerPanel, KeyboardShortcutsModal, NewBotDialog, preloadScreens, SettingsModal,
+  BotSettingsDialog, CloudTaskPanel, KeyboardShortcutsModal, NewBotDialog, preloadScreens, SettingsModal,
 } from "@/components/lazy-screens";
 import { CredentialStoreNotice } from "@/components/CredentialStoreNotice";
 import { DesktopCapabilitiesProvider, useDesktopCapabilities } from "@/components/DesktopCapabilities";
@@ -73,8 +73,8 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const group = state.groups.find((g) => g.id === state.selectedId);
   const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
-  const sidePanelOpen = (Boolean(bot) && (state.settingsOpen || state.computerOpen))
-    || (state.computerOpen && state.cloudTaskId !== null);
+  const cloudTaskOpen = state.computerOpen && state.cloudTaskId !== null;
+  const sidePanelOpen = (Boolean(bot) && state.settingsOpen) || cloudTaskOpen;
   const collapseSidebar = sidePanelOpen && !sidebarAndPanelFit;
 
   const noEngines =
@@ -218,12 +218,10 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         </main>
       )}
       {state.settingsOpen && bot && (
-        <BotSettingsDialog key={`settings:${bot.id}`} bot={bot} overlay={state.computerOpen && !twoSidePanelsFit} />
+        <BotSettingsDialog key={`settings:${bot.id}`} bot={bot} overlay={cloudTaskOpen && !twoSidePanelsFit} />
       )}
-      {state.computerOpen && state.cloudTaskId ? (
+      {cloudTaskOpen && state.cloudTaskId && (
         <CloudTaskPanel key={`cloud-task:${state.cloudTaskId}`} jobId={state.cloudTaskId} bot={bot} />
-      ) : state.computerOpen && bot && (
-        <ComputerPanel key={`computer:${bot.id}`} bot={bot} />
       )}
       {state.appSettingsOpen && <SettingsModal />}
       <CloudSetup viewer={viewer} />

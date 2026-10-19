@@ -3,6 +3,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { Refusal } from "./auth";
 import { DESKTOP_LINK_TTL_SECONDS, signDesktopToken, verifyDesktopToken } from "./desktop-token";
 import { BROWSER_DEFAULT_SCRIPT } from "./browser-default";
+import { CARRY_HOME, CARRY_MAX_BYTES, CARRY_TIMEOUT_MS, type Carry, PACK_SCRIPT, UNPACK_SCRIPT, carryPartKey, partsStream, storeParts } from "./carry";
 import { type Collected, collect, json, outputText, within } from "./http";
 import { type IdlePolicy, MINUTE, decideIdle, idlePolicy, inactivityTimeoutMs } from "./idle";
 import { type ExecInput, FILE_MAX_BYTES, SIZES, type Size, commandEnv, redact } from "./inputs";
@@ -50,6 +51,7 @@ interface ComputerRecord {
   snapshot?: { id: string; size: number; name?: string };
   snapshotAt?: number;
   image?: string;
+  carry?: Carry;
   error?: string;
   registry?: string;
   trial?: string;
@@ -90,6 +92,7 @@ const SCREENSHOT_SCRIPT = `f=$(mktemp --suffix=.jpg) || exit 1; trap 'rm -f "$f"
 const ok = <T>(value: T): Result<T> => ({ ok: true, value });
 const fail = (status: number, code: string, message: string): Result<never> => ({ ok: false, refusal: { status, code, message } });
 const notFound = () => fail(404, "not_found", "No computer with that id.");
+const UPDATING = fail(409, "updating", "The computer is still updating. Try again in a minute.");
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const describeError = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -198,8 +201,7 @@ export class DogComputer extends DurableObject<Env> {
     return this.serially(async () => {
       const found = this.load();
       if (!found) return notFound();
-      const record = input.fullAllowance === undefined || input.fullAllowance === Boolean(found.fullAllowance) ? found
-        : this.update((r) => { if (input.fullAllowance) r.fullAllowance = true; else delete r.fullAllowance; })!;
+      const record = this.withAllowance(found, input);
       if ((record.state === "running" || record.state === "starting") && this.ctx.container?.running) {
         return ok(view(this.markActive()!));
       }
@@ -208,11 +210,76 @@ export class DogComputer extends DurableObject<Env> {
     });
   }
 
+  async reset(input: { fullAllowance?: boolean } = {}): Promise<Result<ComputerView>> {
+    return this.serially(async () => {
+      const found = this.load();
+      if (!found) return notFound();
+      if (found.carry) return UPDATING;
+      const record = this.withAllowance(found, input);
+      this.closeViewers(4004, "The computer was reset.");
+      if (this.ctx.container?.running) {
+        await this.container().destroy().catch((error) => console.error(`laterdog computers: ${record.id} stop before reset failed: ${describeError(error)}`));
+      }
+      await this.charge(true);
+      console.log(`laterdog computers: ${record.id} resetting to ${record.snapshot ? `snapshot ${record.snapshot.id}` : "a fresh image"}`);
+      const booted = await this.boot();
+      return booted.ok ? ok(view(this.load()!)) : booted;
+    });
+  }
+
+  async updateImage(input: { fullAllowance?: boolean } = {}): Promise<Result<ComputerView>> {
+    return this.serially(async () => {
+      const found = this.load();
+      if (!found) return notFound();
+      if (found.carry) return UPDATING;
+      const record = this.withAllowance(found, input);
+      const container = this.container();
+      if (record.state !== "running" || !container.running) {
+        return fail(409, "asleep", "Wake the computer before updating it, so its files can come along.");
+      }
+      this.closeViewers(4005, "The computer is updating.");
+      await this.quitBrowser(record.id);
+      await this.run(["sync"], { timeoutMs: 30_000, cap: 1024 }).catch(() => undefined);
+      let before: ContainerSnapshot;
+      try {
+        before = await container.snapshotContainer({ name: `${record.id}-g${record.generation}-before-update` });
+      } catch (error) {
+        return fail(502, "snapshot_failed", `The computer could not be saved before updating, so it was left as it was: ${describeError(error)}`);
+      }
+      const saved = this.update((r) => {
+        r.snapshot = { id: before.id, size: before.size, ...(before.name ? { name: before.name } : {}) };
+        r.snapshotAt = Date.now();
+      })!;
+      const packed = await this.packHome();
+      if (!packed.ok) {
+        this.dropCarry(packed.parts);
+        return packed.tooLarge
+          ? fail(413, "too_large", `Its files are larger than ${CARRY_MAX_BYTES / (1024 * 1024 * 1024)} GB, so they can't come along. Remove some, then update again.`)
+          : fail(502, "pack_failed", `Its files could not be gathered, so the computer was left as it was: ${packed.why}`);
+      }
+      this.update((r) => {
+        r.carry = { parts: packed.parts, bytes: packed.bytes, ...(saved.snapshot ? { from: saved.snapshot } : {}) };
+        delete r.snapshot;
+      });
+      console.log(`laterdog computers: ${record.id} updating to the current image with ${packed.bytes} bytes of files in ${packed.parts} parts`);
+      await container.destroy().catch((error) => console.error(`laterdog computers: ${record.id} stop before update failed: ${describeError(error)}`));
+      await this.charge(true);
+      const booted = await this.boot();
+      if (!booted.ok) {
+        this.abandonCarry();
+        await this.publish();
+        return booted;
+      }
+      return ok(view(this.load()!));
+    });
+  }
+
   async sleep(reason: "request" | "idle" | "max_awake" | "budget" = "request"): Promise<Result<ComputerView>> {
     return this.serially(async () => {
       const record = this.load();
       if (!record) return notFound();
       if (record.state === "sleeping") return ok(view(record));
+      if (record.carry) return UPDATING;
       const container = this.container();
       const previous = record.state;
       this.update((r) => {
@@ -467,6 +534,7 @@ export class DogComputer extends DurableObject<Env> {
         return this.failBoot(generation, record.snapshot ? "The computer stopped while restoring its snapshot." : "The computer stopped while starting.");
       }
       if (container.running && (await answersRfb(container.getTcpPort(DESKTOP_PORT)))) {
+        if (record.carry && !(await this.unpackHome(record))) return;
         const now = Date.now();
         const ready = this.update((r) => {
           if (r.generation === generation && r.state === "starting") {
@@ -557,6 +625,7 @@ export class DogComputer extends DurableObject<Env> {
         r.error = why;
       }
     });
+    if (failed?.carry && failed.generation === generation) this.abandonCarry();
     console.error(`laterdog computers: ${failed?.id} failed to boot: ${why}`);
     if (this.ctx.container?.running) await this.ctx.container.destroy().catch(() => undefined);
     await this.charge(true);
@@ -704,7 +773,18 @@ export class DogComputer extends DurableObject<Env> {
       await container.destroy().catch((error) => console.error(`laterdog computers: clearing the old container failed: ${describeError(error)}`));
     }
     const budget = await this.budget();
-    if (!budget.ok) return budget;
+    if (!budget.ok) {
+      const stopped = this.update((r) => {
+        if (r.state !== "running" && r.state !== "starting") return;
+        r.state = "sleeping";
+        delete r.awakeSince;
+      });
+      if (stopped?.state === "sleeping") {
+        await this.ctx.storage.deleteAlarm();
+        await this.publish();
+      }
+      return budget;
+    }
     const now = Date.now();
     const record = this.update((r) => {
       r.generation += 1;
@@ -757,6 +837,95 @@ export class DogComputer extends DurableObject<Env> {
     await this.ctx.storage.setAlarm(Date.now() + READY_POLL_MS);
     await this.publish();
     return ok(undefined);
+  }
+
+  private withAllowance(found: ComputerRecord, input: { fullAllowance?: boolean }): ComputerRecord {
+    if (input.fullAllowance === undefined || input.fullAllowance === Boolean(found.fullAllowance)) return found;
+    return this.update((r) => { if (input.fullAllowance) r.fullAllowance = true; else delete r.fullAllowance; })!;
+  }
+
+  private async packHome(): Promise<{ ok: true; parts: number; bytes: number } | { ok: false; parts: number; tooLarge: boolean; why: string }> {
+    const child = await this.container().exec(["timeout", "--kill-after=5", `${CARRY_TIMEOUT_MS / 1000}s`, "bash", "-c", PACK_SCRIPT], { env: DOG_ENV, cwd: CARRY_HOME });
+    const exit = child.exitCode;
+    exit.catch(() => undefined);
+    const stderr = collect(child.stderr as ReadableStream<Uint8Array> | null, 4096);
+    let parts = 0;
+    try {
+      const stored = await storeParts(child.stdout as ReadableStream<Uint8Array> | null, (key, part) => {
+        parts += 1;
+        this.ctx.storage.kv.put(key, part);
+      });
+      if (!stored.ok) {
+        try { child.kill(9); } catch {}
+        return { ok: false, parts, tooLarge: true, why: "too large" };
+      }
+      const code = (await within(exit, CARRY_TIMEOUT_MS + 10_000)) ?? -1;
+      if (code !== 0) return { ok: false, parts, tooLarge: false, why: outputText(await stderr.settle(2_000)).trim() || `exit ${code}` };
+      return { ok: true, parts: stored.parts, bytes: stored.bytes };
+    } catch (error) {
+      return { ok: false, parts, tooLarge: false, why: describeError(error) };
+    }
+  }
+
+  private async unpackHome(record: ComputerRecord): Promise<boolean> {
+    const carry = record.carry!;
+    let why: string | undefined;
+    try {
+      const child = await this.container().exec(["timeout", "--kill-after=5", `${CARRY_TIMEOUT_MS / 1000}s`, "bash", "-c", UNPACK_SCRIPT], {
+        env: DOG_ENV,
+        cwd: CARRY_HOME,
+        stdin: partsStream(carry.parts, (key) => this.ctx.storage.kv.get<Uint8Array>(key)),
+      });
+      const stderr = collect(child.stderr as ReadableStream<Uint8Array> | null, 4096);
+      const code = (await within(child.exitCode, CARRY_TIMEOUT_MS + 10_000)) ?? -1;
+      if (code !== 0) why = outputText(await stderr.settle(2_000)).trim() || `exit ${code}`;
+    } catch (error) {
+      why = describeError(error);
+    }
+    if (why === undefined) {
+      await this.run(["sync"], { timeoutMs: 30_000, cap: 1024 }).catch(() => undefined);
+      try {
+        const after = await this.container().snapshotContainer({ name: `${record.id}-g${record.generation}-after-update` });
+        const kept = this.update((r) => {
+          if (r.generation !== record.generation || !r.carry) return;
+          r.snapshot = { id: after.id, size: after.size, ...(after.name ? { name: after.name } : {}) };
+          r.snapshotAt = Date.now();
+          delete r.carry;
+        });
+        if (kept?.generation !== record.generation || kept.carry) return false;
+      } catch (error) {
+        why = `the updated computer could not be saved: ${describeError(error)}`;
+      }
+    }
+    if (why === undefined) {
+      this.dropCarry(carry.parts);
+      console.log(`laterdog computers: ${record.id} brought ${carry.bytes} bytes of files to the current image and saved it`);
+      return true;
+    }
+    console.error(`laterdog computers: ${record.id} could not bring its files to the current image, so it goes back to how it was: ${why}`);
+    await this.serially(async () => {
+      const current = this.load();
+      if (!current || this.deleting || current.generation !== record.generation || !current.carry) return;
+      await this.container().destroy().catch(() => undefined);
+      this.abandonCarry();
+      await this.boot();
+    });
+    return false;
+  }
+
+  private abandonCarry(): void {
+    const record = this.load();
+    if (!record?.carry) return;
+    const carry = record.carry;
+    this.dropCarry(carry.parts);
+    this.update((r) => {
+      if (carry.from) r.snapshot = carry.from;
+      delete r.carry;
+    });
+  }
+
+  private dropCarry(parts: number): void {
+    for (let index = 0; index < parts; index++) this.ctx.storage.kv.delete(carryPartKey(index));
   }
 
   private async using<T>(work: (record: ComputerRecord) => Promise<Result<T>>, options: { whileStarting?: boolean } = {}): Promise<Result<T>> {

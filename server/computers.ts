@@ -208,7 +208,7 @@ async function listOwn(owners: ManagedBoatOwner[], client?: ComputersClient): Pr
       ownerName: owner?.name ?? null, orphaned: owner === null, inUse: owner?.inUse ?? false });
   }
   instances.sort((a, b) => a.orphaned !== b.orphaned ? (a.orphaned ? 1 : -1) : (a.ownerName ?? a.name).localeCompare(b.ownerName ?? b.name));
-  return { configured: true, available: true, problem: null, instances };
+  return { configured: true, available: true, problem: null, changeable: true, instances };
 }
 
 async function releaseOrphanedTrialComputers(client: ComputersClient, owners: ManagedBoatOwner[] = ownerSource?.() ?? []): Promise<number> {
@@ -314,6 +314,36 @@ export async function sleepBoat(cfg: AppConfig, botId: string) {
   if (!computer) throw new Error("no computer for this dog");
   await stopOwn(client, computer);
   return { ok: true };
+}
+
+const CHANGE_ONLY_OWN = "Reset and Update work on later.dog cloud computers only";
+function changeRefusal(error: unknown): unknown {
+  if (!(error instanceof ComputersApiError)) return error;
+  const status = error.httpStatus >= 400 && error.httpStatus < 500 && error.httpStatus !== 401 && error.httpStatus !== 403 ? error.httpStatus : 502;
+  return Object.assign(new Error(error.message, { cause: error }), { status, ...(error.code ? { code: error.code } : {}) });
+}
+
+async function ownComputerToChange(): Promise<ComputersClient> {
+  if (!computersSelected()) throw Object.assign(new Error(CHANGE_ONLY_OWN), { status: 409 });
+  return ownClient();
+}
+
+export async function resetBoat(_cfg: AppConfig, botId: string): Promise<{ state: string }> {
+  const client = await ownComputerToChange();
+  const computer = await findOwn(client, botId);
+  if (!computer) throw Object.assign(new Error("this dog has no cloud computer yet"), { status: 409 });
+  try { return { state: asBoatState((await client.reset(computer.id)).state) }; }
+  catch (error) { throw changeRefusal(error); }
+}
+
+export async function updateBoat(_cfg: AppConfig, botId: string): Promise<{ state: string }> {
+  const client = await ownComputerToChange();
+  const computer = await findOwn(client, botId);
+  if (!computer) throw Object.assign(new Error("this dog has no cloud computer yet"), { status: 409 });
+  const ready = await waitRunning(client, computer.id, PROVISION_BUDGET_MS);
+  if (!ready) throw new Error("the cloud computer did not wake in time to update — try again in a minute");
+  try { return { state: asBoatState((await client.update(ready.id)).state) }; }
+  catch (error) { throw changeRefusal(error); }
 }
 
 export async function execOnBoat(cfg: AppConfig, botId: string, command: string) {

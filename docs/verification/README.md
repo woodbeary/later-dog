@@ -122,9 +122,6 @@ The [external runtimes recipe](external-runtime.md) proves a bot's standing
 comms capability from `external-runtimes.json` against a disposable server and
 the fake engine: scope, on-demand token reads, and immediate delegation drain.
 
-The [cloud preview fixture](cloud-preview.md) mounts the real Computer panel
-against an isolated server for image decoding, loading, and recovery UI checks.
-
 The [VPS recovery fixtures](vps-recovery.md) reproduce preview/startup contention
 and Docker-over-SSH timeout cleanup without contacting a real server.
 

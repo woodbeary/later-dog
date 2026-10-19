@@ -102,6 +102,8 @@ describe("the computers API", () => {
     await client.rename("cmp_one", "dog-0123456789ab-research-a1b2c3");
     await client.wake("cmp_one");
     await client.sleep("cmp_one");
+    await client.reset("cmp_one");
+    await client.update("cmp_one");
     expect(await client.exec("cmp_one", { command: "echo hi", timeoutMs: 5_000, cwd: "/home/dog" })).toEqual({ exitCode: 0, stdout: "hi\n", stderr: "" });
     expect(await client.desktop("cmp_one")).toEqual({ url: "https://desktop.example.test/cmp_one?token=signed", expiresAt: "2026-10-08T12:00:00Z" });
     expect((await client.readFile("cmp_one", "/home/dog/a b.txt")).toString()).toBe("file bytes");
@@ -110,7 +112,8 @@ describe("the computers API", () => {
 
     expect(calls.map((call) => `${call.method} ${call.url.pathname}${call.url.search}`)).toEqual([
       "POST /v1/computers", "GET /v1/computers", "GET /v1/computers/cmp_one", "PATCH /v1/computers/cmp_one",
-      "POST /v1/computers/cmp_one/wake", "POST /v1/computers/cmp_one/sleep", "POST /v1/computers/cmp_one/exec",
+      "POST /v1/computers/cmp_one/wake", "POST /v1/computers/cmp_one/sleep", "POST /v1/computers/cmp_one/reset",
+      "POST /v1/computers/cmp_one/update", "POST /v1/computers/cmp_one/exec",
       "POST /v1/computers/cmp_one/desktop", "GET /v1/computers/cmp_one/files?path=%2Fhome%2Fdog%2Fa%20b.txt",
       "PUT /v1/computers/cmp_one/files?path=%2Fhome%2Fdog%2Fout.bin", "DELETE /v1/computers/cmp_one",
     ]);
@@ -118,8 +121,8 @@ describe("the computers API", () => {
     expect(calls.filter((call) => call.headers.has("idempotency-key")).map((call) => call.headers.get("idempotency-key"))).toEqual(["ldc-create-fixture"]);
     expect(JSON.parse(String(calls[0].body))).toEqual({ name: "dog-0123456789ab-research-a1b2c3" });
     expect(JSON.parse(String(calls[3].body))).toEqual({ name: "dog-0123456789ab-research-a1b2c3" });
-    expect(JSON.parse(String(calls[6].body))).toEqual({ command: "echo hi", timeoutMs: 5_000, cwd: "/home/dog" });
-    expect(calls[9].body).toEqual(new Uint8Array([1, 2, 3]));
+    expect(JSON.parse(String(calls[8].body))).toEqual({ command: "echo hi", timeoutMs: 5_000, cwd: "/home/dog" });
+    expect(calls[11].body).toEqual(new Uint8Array([1, 2, 3]));
     for (const call of calls) expect(call.url.href).not.toContain(KEY);
   });
 

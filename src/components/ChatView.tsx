@@ -121,6 +121,7 @@ import { openQuestion } from "@/lib/open-question";
 import { pendingApprovals } from "./PendingApproval";
 import { TranscriptAnnouncer } from "./TranscriptAnnouncer";
 import { QueuedBubbles } from "./QueuedBubbles";
+import { tabForSection } from "./bot-settings/sections";
 
 const USER_COLLAPSE_CHARS = 600;
 const HEADER_INSET = 60;
@@ -1192,14 +1193,15 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 function NeedsYouRow({ botId, name }: { botId: string; name: string }) {
   const { state, dispatch } = useStore();
   const control = state.computerControl[botId];
-  if (!control?.helpReason || control.held || state.computerOpen) return null;
+  const computerShown = state.settingsOpen && state.botSettingsExpandAccordion && tabForSection(state.botSettingsSection) === "computer";
+  if (!control?.helpReason || control.held || computerShown) return null;
   return (
     <div className="pointer-events-auto mx-auto mb-2 flex w-full max-w-[min(48rem,calc(100%-2.5rem))] items-center gap-2 rounded-xl bg-card px-3 py-2 text-[13px] text-ink ring-[0.5px] ring-ink/10" data-needs-you>
       <Hand size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />
       <span className="min-w-0 flex-1 truncate">
         <b className="font-medium">{t("computer.needsYou", { name })}</b> <span className="text-ink-secondary">{control.helpReason}</span>
       </span>
-      <button type="button" onClick={() => dispatch({ type: "toggleComputer", open: true })}
+      <button type="button" onClick={() => dispatch({ type: "toggleSettings", open: true, section: "access" })}
         className="shrink-0 rounded-full bg-control px-3 py-1 text-[12.5px] font-medium hover:bg-control-hover">
         {t("computer.needsYouOpen")}
       </button>

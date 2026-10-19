@@ -8,14 +8,15 @@ const fixture = vi.hoisted(() => {
   vi.stubGlobal("window", {});
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
   return { menus: [] as { ariaLabel: string; items: { key: string; disabled?: boolean; heading?: string; active?: boolean }[] }[], dispatch: vi.fn(), canWrite: null as boolean | null, showToolCalls: false, platform: "other", localReasonCode: "cua-driver-unavailable", localMessage: "", model: null as ComponentProps<typeof ModelPicker> | null,
-    control: {} as Record<string, { held: boolean; helpReason: string | null }>, computerOpen: false };
+    control: {} as Record<string, { held: boolean; helpReason: string | null }>, computerShown: false };
 });
 vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
   return { ...original, useStore: () => ({
     state: { ...original.initialState, config: fixture.showToolCalls ? { features: { showToolCalls: true } } : null,
       instances: [{ instanceId: "test", driverKind: "codex", displayName: "Test" } as InstanceInfo],
-      computerControl: fixture.control, computerOpen: fixture.computerOpen },
+      computerControl: fixture.control,
+      ...(fixture.computerShown ? { settingsOpen: true, botSettingsSection: "access", botSettingsExpandAccordion: true } : {}) },
     dispatch: fixture.dispatch,
   }) };
 });
@@ -150,16 +151,16 @@ describe("thread control placement", () => {
     expect(markup).not.toContain('data-testid="chat-more"');
   });
 
-  it("says in the chat when the dog needs your hands on its computer, with Open", () => {
+  it("says in the chat when the dog needs your hands on its computer, with Open, unless its Computer tab is showing", () => {
     expect(renderToStaticMarkup(createElement(ChatView, { bot }))).not.toContain("data-needs-you");
     fixture.control = { [bot.id]: { held: false, helpReason: "Sign in to the site, then hand it back." } };
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
     expect(markup).toContain("data-needs-you");
     expect(markup).toContain("Sign in to the site, then hand it back.");
-    fixture.computerOpen = true;
+    fixture.computerShown = true;
     expect(renderToStaticMarkup(createElement(ChatView, { bot }))).not.toContain("data-needs-you");
     fixture.control = {};
-    fixture.computerOpen = false;
+    fixture.computerShown = false;
   });
 
   it("always offers one voice button in the composer, never in the header, with no mode menu", () => {

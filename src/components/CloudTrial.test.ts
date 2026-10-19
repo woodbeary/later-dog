@@ -23,7 +23,7 @@ vi.mock("@/state/store", () => ({
 }));
 vi.mock("@/lib/app-links", () => ({ openExternalLink: fixture.open }));
 
-const { CloudTrialOffer, CloudTrialRow, trialSubtitle } = await import("./CloudTrial");
+const { CloudTrialRow, trialSubtitle } = await import("./CloudTrial");
 
 const PAGE = `https://trial.example.test/trial?claim=${"a".repeat(64)}`;
 const offered: TrialStatus = { state: "offered", minutes: 30, days: 7 };
@@ -178,89 +178,5 @@ describe("the free trial row", () => {
     expect(trialSubtitle(active(1))).toBe("1 minute left");
     expect(trialSubtitle({ state: "none" })).toBe("");
     expect(trialSubtitle({ state: "ended" })).toBe("");
-  });
-});
-
-describe("the Computer panel's trial offer", () => {
-  it("offers the trial in one button, then waits for the browser check", async () => {
-    let started = false;
-    fixture.serve = (method) => {
-      if (method === "POST") started = true;
-      return started ? pending : offered;
-    };
-    await mount(createElement(CloudTrialOffer));
-    expect(text()).toBe("Try a cloud computer free30 minutes, no card needed");
-    await click("Try a cloud computer free");
-    expect(fixture.open).toHaveBeenCalledExactlyOnceWith(PAGE);
-    expect(text()).toContain("Finish the quick check in your browser to start");
-    await click("Open");
-    expect(fixture.open).toHaveBeenCalledTimes(2);
-  });
-
-  it("moves the dog to the free computer by itself once the browser check passes", async () => {
-    let state: "offered" | "pending" | "active" = "offered";
-    fixture.serve = (method) => {
-      if (method === "POST") state = "pending";
-      return state === "offered" ? offered : state === "pending" ? pending : active(30);
-    };
-    const use = vi.fn();
-    await mount(createElement(CloudTrialOffer, { onUse: use }));
-    await click("Try a cloud computer free");
-    expect(use).not.toHaveBeenCalled();
-    state = "active";
-    await vi.advanceTimersByTimeAsync(3_000);
-    await flush();
-    expect(use).toHaveBeenCalledTimes(1);
-  });
-
-  it("offers the running trial's computer to a dog that has none", async () => {
-    fixture.serve = () => active(29);
-    const use = vi.fn();
-    await mount(createElement(CloudTrialOffer, { onUse: use }));
-    expect(text()).toBe("Use the free cloud computer29 minutes left");
-    await click("Use the free cloud computer");
-    expect(use).toHaveBeenCalledTimes(1);
-  });
-
-  it("takes the caller's spacing, and renders nothing at all without an offer", async () => {
-    fixture.serve = () => offered;
-    await mount(createElement(CloudTrialOffer, { className: "mt-4 border-t pt-4" }));
-    expect(document.querySelector("[data-cloud-trial-offer]")?.className).toContain("mt-4 border-t pt-4");
-    root!.unmount();
-    root = null;
-    document.body.innerHTML = "";
-    fixture.serve = () => ({ state: "none" });
-    await mount(createElement("div", { "data-testid": "host" }, createElement(CloudTrialOffer, { className: "mt-4 border-t pt-4" })));
-    expect(document.querySelector('[data-testid="host"]')?.innerHTML).toBe("");
-  });
-
-  it("offers later.dog Cloud once the free minutes are used, when plans are open, and opens Square checkout", async () => {
-    fixture.serve = (method) => method === "PLAN POST"
-      ? { state: "checkout", url: "https://square.link/u/fixture" }
-      : { state: "used_up", minutes: 30, expiresAt: "2026-10-17T12:00:00.000Z", planOffered: true };
-    await mount(createElement(CloudTrialOffer));
-    expect(text()).toContain("Keep going for $10/month");
-    expect(text()).toContain("40 hours a month");
-    await click("Keep going for $10/month");
-    expect(fixture.calls).toContain("PLAN POST");
-    expect(fixture.open).toHaveBeenCalledWith("https://square.link/u/fixture");
-    expect(text()).toContain("Finish checking out in your browser");
-  });
-
-  it("never offers a plan that isn't open yet", async () => {
-    fixture.serve = () => ({ state: "used_up", minutes: 30, expiresAt: "2026-10-17T12:00:00.000Z" });
-    await mount(createElement(CloudTrialOffer));
-    expect(text()).toBe("");
-  });
-
-  it("stays out of the way without an offer, and once the trial runs", async () => {
-    for (const answer of [{ state: "none" }, active(20), { state: "ended" }] as TrialStatus[]) {
-      fixture.serve = () => answer;
-      await mount(createElement(CloudTrialOffer));
-      expect(text()).toBe("");
-      root!.unmount();
-      root = null;
-      document.body.innerHTML = "";
-    }
   });
 });

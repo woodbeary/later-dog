@@ -10,6 +10,7 @@ const MAX_JSON_BYTES = 16 * 1024 * 1024;
 const MAX_ERROR_BYTES = 64 * 1024;
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
 const JSON_TYPE = { "content-type": "application/json" };
+const UPDATE_TIMEOUT_MS = 11 * 60_000;
 
 export class ComputersConfigError extends Error { readonly status = 409; }
 
@@ -226,8 +227,10 @@ export class ComputersClient {
 
   wake(id: string, options: { signal?: AbortSignal } = {}): Promise<Computer> { return this.#lifecycle(id, "wake", options.signal); }
   sleep(id: string): Promise<Computer> { return this.#lifecycle(id, "sleep"); }
-  async #lifecycle(id: string, action: "wake" | "sleep", signal?: AbortSignal): Promise<Computer> {
-    return (await this.#read(await this.#send(`/computers/${computerPath(id)}/${action}`, { method: "POST", body: "{}", headers: JSON_TYPE, timeoutMs: 30_000, signal }), computerBody)).computer;
+  reset(id: string): Promise<Computer> { return this.#lifecycle(id, "reset"); }
+  update(id: string): Promise<Computer> { return this.#lifecycle(id, "update", undefined, UPDATE_TIMEOUT_MS); }
+  async #lifecycle(id: string, action: "wake" | "sleep" | "reset" | "update", signal?: AbortSignal, timeoutMs = 30_000): Promise<Computer> {
+    return (await this.#read(await this.#send(`/computers/${computerPath(id)}/${action}`, { method: "POST", body: "{}", headers: JSON_TYPE, timeoutMs, signal }), computerBody)).computer;
   }
 
   async exec(id: string, input: { command: string; timeoutMs?: number; cwd?: string }, options: { signal?: AbortSignal } = {}): Promise<ExecResult> {

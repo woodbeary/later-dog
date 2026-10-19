@@ -20,6 +20,7 @@ export interface CloudComputerList {
   configured: boolean;
   available: boolean;
   problem: string | null;
+  changeable?: boolean;
   instances: CloudComputer[];
 }
 
@@ -43,6 +44,8 @@ export function mergeCloudComputers(list: CloudComputerList, previous: CloudComp
     .map((computer) => deleting.has(computer.boxId) ? { ...computer, state: "removing" } : computer);
 }
 
+type Action = "delete" | "reset" | "update";
+
 const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 function ComputerOwner({ computer, owner }: { computer: CloudComputer; owner: Bot | undefined }) {
@@ -57,8 +60,9 @@ export function CloudComputerRows() {
   const [computers, setComputers] = useState<CloudComputer[]>([]);
   const [loading, setLoading] = useState(true);
   const [problem, setProblem] = useState<string | null>(null);
+  const [changeable, setChangeable] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState<{ boxId: string; action: "sleep" | "delete" } | null>(null);
+  const [pending, setPending] = useState<{ boxId: string; action: Action } | null>(null);
   const latest = useRef<CloudComputer[]>([]);
   const deleting = useRef(new Set<string>());
 
@@ -71,6 +75,7 @@ export function CloudComputerRows() {
     for (const boxId of deleting.current) if (!next.some((computer) => computer.boxId === boxId)) deleting.current.delete(boxId);
     latest.current = next;
     setComputers(next);
+    if (list.configured === true && list.available === true) setChangeable(list.changeable === true);
     setProblem(list.configured === true && list.available !== true ? list.problem ?? t("vm.err.cloudUnavailable") : null);
   }, []);
 
@@ -113,17 +118,20 @@ export function CloudComputerRows() {
     }
   };
 
-  const sleep = async (computer: CloudComputer) => {
-    setPending({ boxId: computer.boxId, action: "sleep" });
+  const change = async (computer: CloudComputer, action: "reset" | "update") => {
+    if (!computer.ownerBotId) return;
+    const name = computer.ownerName ?? computer.name;
+    if (!window.confirm(t(action === "reset" ? "vm.confirm.resetCloud" : "vm.confirm.updateCloud", { name }))) return;
+    setPending({ boxId: computer.boxId, action });
     setError(null);
     try {
-      const response = await fetch(`/api/computers/boxes/${encodeURIComponent(computer.boxId)}/sleep`, {
+      const response = await fetch(`/api/bots/${encodeURIComponent(computer.ownerBotId)}/computer/${action}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: "{}",
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error ?? t("vm.cloud.sleepError"));
+      if (!response.ok) throw new Error(body.error ?? t(action === "reset" ? "vm.cloud.resetError" : "vm.cloud.updateError"));
       await refresh().catch(() => {});
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -132,7 +140,7 @@ export function CloudComputerRows() {
     }
   };
 
-  const spinning = (computer: CloudComputer, action: "sleep" | "delete") =>
+  const spinning = (computer: CloudComputer, action: Action) =>
     pending?.boxId === computer.boxId && pending.action === action && <Loader2 size={12} className="animate-spin" />;
 
   return (
@@ -164,30 +172,44 @@ export function CloudComputerRows() {
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
-              {AWAKE.includes(computer.state) && (
+              {computer.orphaned || !computer.ownerBotId ? (
                 <button
                   type="button"
-                  data-cloud-computer-sleep={computer.boxId}
-                  onClick={() => void sleep(computer)}
+                  data-cloud-computer-delete={computer.boxId}
+                  onClick={() => void remove(computer)}
                   disabled={held}
-                  title={t("vm.cloud.sleepTitle")}
-                  className={`${pillButton} flex items-center gap-1.5`}
+                  title={t("vm.cloud.deleteTitle")}
+                  className={`${pillButton} flex items-center gap-1.5 text-danger`}
                 >
-                  {spinning(computer, "sleep")}
-                  {t("vm.cloud.sleep")}
+                  {spinning(computer, "delete")}
+                  {t("common.delete")}
                 </button>
+              ) : changeable && (
+                <>
+                  <button
+                    type="button"
+                    data-cloud-computer-update={computer.boxId}
+                    onClick={() => void change(computer, "update")}
+                    disabled={held}
+                    title={t("vm.cloud.updateTitle")}
+                    className={`${pillButton} flex items-center gap-1.5`}
+                  >
+                    {spinning(computer, "update")}
+                    {t("vm.cloud.update")}
+                  </button>
+                  <button
+                    type="button"
+                    data-cloud-computer-reset={computer.boxId}
+                    onClick={() => void change(computer, "reset")}
+                    disabled={held}
+                    title={t("vm.cloud.resetTitle")}
+                    className={`${pillButton} flex items-center gap-1.5 text-danger`}
+                  >
+                    {spinning(computer, "reset")}
+                    {t("vm.cloud.reset")}
+                  </button>
+                </>
               )}
-              <button
-                type="button"
-                data-cloud-computer-delete={computer.boxId}
-                onClick={() => void remove(computer)}
-                disabled={held}
-                title={t("vm.cloud.deleteTitle")}
-                className={`${pillButton} flex items-center gap-1.5 text-danger`}
-              >
-                {spinning(computer, "delete")}
-                {t("common.delete")}
-              </button>
             </div>
           </div>
         );

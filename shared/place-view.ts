@@ -66,28 +66,6 @@ const AUTO_LINE: Record<AutoReach, PlaceKey> = {
   none: "place.view.auto.lineNone",
 };
 
-export interface PlaceFacts {
-  place: Place | "auto" | "off";
-  server: ServerKind;
-  bot: string;
-  plan?: boolean;
-  boat: "included" | "own-key" | "none";
-  backend?: "box" | "vps";
-  engine: {
-    name: string;
-    model?: string;
-    computer: boolean;
-    browser: boolean;
-    signedIn: boolean;
-  };
-  toolsAllowComputer: boolean;
-  browserOn: boolean;
-  role: "admin" | "user";
-  computer?: "none" | "starting" | "waking" | "on" | "asleep";
-  local?: { ready: boolean; reason?: string };
-  refusal?: { state: PlaceState; params: PlaceParams };
-}
-
 export const PLACE_EN = {
   "place.view.auto.short": "Chooses for you",
   "place.view.auto.lineBoth": "Picks its cloud computer or this computer when a task needs one.",
@@ -171,7 +149,7 @@ export const PLACE_EN = {
   "place.action.clearPin": "Clear this conversation's place",
   "place.action.usePlace": "Use {place}",
   "place.action.changeRoutine": "Change where it runs",
-  "place.action.openComputerPanel": "Open Computer panel",
+  "place.action.openComputerPanel": "Open computer",
   "place.askAdmin": "Ask an Admin to change it.",
   "place.backOnAuto": "This conversation is back on Auto.",
 } as const;
@@ -179,21 +157,21 @@ export type PlaceKey = keyof typeof PLACE_EN;
 
 export const PLACE_WORDS: Record<PlaceActionId, string> = {
   "choose-model": "Choose another model in {bot}'s settings.",
-  "allow-computer": "Let {bot} use the computer from the Computer panel.",
+  "allow-computer": "Let {bot} use the computer from its Computer tab.",
   "sign-in": "Sign in to {engine} in Settings.",
-  start: "Start it from the Computer panel.",
-  wake: "Wake it from the Computer panel.",
-  watch: "Watch it from the Computer panel.",
+  start: "Start it from the Computer tab.",
+  wake: "Wake it from the Computer tab.",
+  watch: "Watch it from the Computer tab.",
   "see-plan": "See your plan on the Plan page.",
   "get-cloud": "Get later.dog Cloud in Settings → Computer.",
   "manage-computers": "Manage your cloud computers in Settings → Computer.",
   "try-again": "Try again.",
   "open-my-cloud": "Open My Cloud from the menu at the top of the sidebar.",
-  "turn-on-browser": "Turn on the built-in browser in the Computer panel.",
+  "turn-on-browser": "Turn on the built-in browser in the Computer tab.",
   "open-vm-settings": "Check it in Settings → Computer.",
   "clear-pin": "Clear this conversation's place in the composer to continue.",
   "change-routine": "Change where this routine runs.",
-  "open-computer-panel": "Check it in the Computer panel.",
+  "open-computer-panel": "Check it in the Computer tab.",
 };
 
 export type PlaceTranslate = (key: PlaceKey, params?: Record<string, string | number>) => string;
@@ -262,42 +240,6 @@ const ACTION_KEY: Record<PlaceActionId, PlaceKey> = {
   "change-routine": "place.action.changeRoutine",
   "open-computer-panel": "place.action.openComputerPanel",
 };
-
-export function placeState(facts: PlaceFacts): { state: PlaceState; params: PlaceParams } {
-  const bot = facts.bot;
-  const model = facts.engine.model || facts.engine.name;
-  if (facts.place === "off") return { state: "off", params: { bot } };
-  if (facts.place === "auto") return { state: "auto", params: { bot } };
-  if (facts.place === "browser") {
-    if (!facts.engine.browser) return { state: "browser-cannot", params: { bot, model } };
-    return facts.browserOn ? { state: "browser", params: { bot } } : { state: "browser-off", params: { bot } };
-  }
-  if (facts.place === "local") {
-    return facts.local?.ready === false
-      ? { state: "local-unavailable", params: { bot, reason: facts.local.reason ?? "" } }
-      : { state: "local", params: { bot } };
-  }
-  if (facts.place === "vm") {
-    return facts.engine.computer ? { state: "vm", params: { bot } } : { state: "vm-cannot", params: { bot, model } };
-  }
-  const vps = facts.backend === "vps";
-  if (!facts.engine.computer) return { state: "cc-cannot", params: { bot, model } };
-  if (!facts.toolsAllowComputer) return { state: "cc-tools-off", params: { bot } };
-  if (!facts.engine.signedIn) return { state: "cc-sign-in", params: { bot, engine: facts.engine.name } };
-  if (vps) return { state: "vps", params: { bot } };
-  if (facts.refusal) return { state: facts.refusal.state, params: { bot, ...facts.refusal.params } };
-  if (facts.boat === "none") {
-    if (facts.server === "my-cloud") return { state: "cc-unavailable", params: { bot } };
-    return { state: facts.plan ? "cc-on-my-cloud" : "cc-needs-key", params: { bot } };
-  }
-  switch (facts.computer) {
-    case "starting": return { state: "cc-starting", params: { bot } };
-    case "waking": return { state: "cc-waking", params: { bot } };
-    case "on": return { state: "cc-on", params: { bot } };
-    case "asleep": return { state: "cc-asleep", params: { bot } };
-    default: return { state: "cc-new", params: { bot } };
-  }
-}
 
 function sourceAction(source: PlaceSource, state: PlaceState): PlaceActionId | null {
   switch (source) {
@@ -374,17 +316,6 @@ export function placeViewOf(state: PlaceState, params: PlaceParams, context: Pla
     line,
     action: action && label ? { id: action, label } : null,
   };
-}
-
-export function placeView(facts: PlaceFacts, options: { translate?: PlaceTranslate; locale?: string } = {}): PlaceView {
-  const { state, params } = placeState(facts);
-  return placeViewOf(state, params, { server: facts.server, reach: autoReach(facts), role: facts.role, ...options });
-}
-
-function autoReach(facts: PlaceFacts): AutoReach {
-  const cloud = facts.server === "my-cloud" || facts.boat !== "none";
-  const local = (facts.server === "mac" || facts.server === "pc") && facts.local?.ready !== false;
-  return cloud ? (local ? "both" : "cloud") : local ? "local" : "none";
 }
 
 export function placeRowView(row: PlaceRow, context: Omit<PlaceContext, "source">): PlaceView {

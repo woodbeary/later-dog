@@ -19,6 +19,8 @@ describe("API routes", () => {
       ["DELETE", "", "delete"],
       ["POST", "/wake", "wake"],
       ["POST", "/sleep", "sleep"],
+      ["POST", "/reset", "reset"],
+      ["POST", "/update", "update"],
       ["POST", "/exec", "exec"],
       ["GET", "/files", "readFile"],
       ["PUT", "/files", "writeFile"],

@@ -106,6 +106,7 @@ export interface ManagedBoatInventory {
   available: boolean;
   problem: string | null;
   credentialRejected?: boolean;
+  changeable?: boolean;
   instances: ManagedBoatInventoryInstance[];
 }
 

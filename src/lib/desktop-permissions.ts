@@ -1,5 +1,5 @@
 import { t } from "./i18n";
-import { missingMacCuaPermissions, type MacCuaPermission } from "./mac-cua-permissions";
+import type { MacCuaPermission } from "./mac-cua-permissions";
 
 export type DesktopPermission = "microphone" | "accessibility" | "screen";
 
@@ -64,18 +64,6 @@ export function missingComputerPermissions(checklist: DesktopPermissionChecklist
   return COMPUTER_PERMISSIONS.filter((permission) => checklist[permission] === "denied" || checklist[permission] === "notDetermined");
 }
 
-export function localPermissionGap({
-  checklist,
-  message,
-}: {
-  checklist: DesktopPermissionChecklist | null | undefined;
-  message: string | undefined;
-}): MacCuaPermission[] {
-  if (checklist) return missingComputerPermissions(checklist);
-  const recorded = new Set(missingMacCuaPermissions(message));
-  return COMPUTER_PERMISSIONS.filter((permission) => recorded.has(permission));
-}
-
 export function permissionName(permission: DesktopPermission): string {
   switch (permission) {
     case "microphone":
@@ -85,12 +73,6 @@ export function permissionName(permission: DesktopPermission): string {
     case "screen":
       return t("permissions.screen");
   }
-}
-
-export function computerPermissionReason(missing: readonly MacCuaPermission[], app: string): string | null {
-  if (!missing.length) return null;
-  if (missing.length > 1) return t("computer.local.missingBoth", { app });
-  return t("computer.local.missingOne", { permission: permissionName(missing[0]!), app });
 }
 
 export function statusLabel(status: DesktopPermissionStatus | null, host: ChecklistHost): string {

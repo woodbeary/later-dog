@@ -691,6 +691,7 @@ import { createThreadModelRoutes } from "./routes/thread-models.ts";
 import { createContinueOnRoutes } from "./routes/continue-on.ts";
 import { createHandoffContinueRoutes } from "./routes/handoff-continue.ts";
 import { createMacAccessRoutes } from "./routes/mac-access.ts";
+import { createComputerChangeRoutes } from "./routes/computer-change.ts";
 import { createCloudTrialRoutes } from "./routes/cloud-trial.ts";
 import { autoStartTrial } from "./laterdog/cloud-trial.ts";
 import { newDogComputer } from "./laterdog/new-dog-computer.ts";
@@ -12787,6 +12788,13 @@ ROUTES.push(createThreadModelRoutes({
   follow: (botId, threadIds) => store.followBotModel(botId, threadIds, (from, to) => hostedModels?.resetTask(from, to) ?? {}),
   mayChangeModel: (auth) => !CLOUD_HOME || cloudOwnerSession(auth),
   reply: (botId) => publicBot(store.bot(botId)!),
+}));
+ROUTES.push(createComputerChangeRoutes({
+  bot: (id) => store.bot(id) ?? undefined,
+  busy: (botId) => botHasActiveTurn(botId) || Boolean(routines?.activeRunForBot(botId)),
+  controlHeld: (botId) => botComputerControlSnapshot(botId).held,
+  claim: (botId) => claimBotComputerLifecycle(botId),
+  change: (action, botId) => action === "reset" ? boat.resetBoat(cfg, botId) : boat.updateBoat(cfg, botId),
 }));
 ROUTES.push(createMacAccessRoutes({
   cloudHome: Boolean(CLOUD_HOME),

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { api } from "@/state/store";
 import { openExternalLink } from "@/lib/app-links";
@@ -147,73 +147,6 @@ export function useCloudTrial() {
     start: () => void act("POST"), cancel: () => void act("DELETE"), end,
     buy: () => void buy(), cancelPlan: () => void cancelPlan(),
   };
-}
-
-export function CloudTrialOffer({ onUse, className = "mt-3" }: { onUse?: () => void; className?: string }) {
-  const { status, busy, error, start, buy, checkingOut } = useCloudTrial();
-  const previous = useRef(status?.state);
-  useEffect(() => {
-    if (previous.current === "pending" && status?.state === "active") onUse?.();
-    previous.current = status?.state;
-  }, [status?.state, onUse]);
-  if (status?.state === "active" && onUse) {
-    return (
-      <div data-cloud-trial-offer="active" className={`${className} flex flex-col items-center gap-1.5`}>
-        <button
-          type="button"
-          onClick={onUse}
-          className="rounded-full bg-accent px-3.5 py-1.5 text-[12px] font-medium text-white hover:brightness-110"
-        >
-          {t("computer.trial.use")}
-        </button>
-        <span className="text-[11px] text-ink-tertiary">{trialSubtitle(status)}</span>
-      </div>
-    );
-  }
-  if (mayBuyPlan(status)) {
-    return (
-      <div data-cloud-trial-offer="plan" className={`${className} flex flex-col items-center gap-1.5`}>
-        <button
-          type="button"
-          onClick={buy}
-          disabled={busy || checkingOut}
-          className="flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-[12px] font-medium text-white hover:brightness-110 disabled:opacity-50"
-        >
-          {(busy || checkingOut) && <Loader2 size={12} className="animate-spin" />}
-          {t("vm.plan.buy")}
-        </button>
-        <span className="text-[11px] text-ink-tertiary">{checkingOut ? t("vm.plan.checkingOut") : t("vm.plan.hint")}</span>
-        {error && <p role="alert" className="text-[11px] text-danger">{error}</p>}
-      </div>
-    );
-  }
-  if (status?.state !== "offered" && status?.state !== "pending") return null;
-  return (
-    <div data-cloud-trial-offer={status.state} className={`${className} flex flex-col items-center gap-1.5`}>
-      {status.state === "offered" ? (
-        <>
-          <button
-            type="button"
-            onClick={start}
-            disabled={busy}
-            className="flex items-center gap-1.5 rounded-full bg-accent px-3.5 py-1.5 text-[12px] font-medium text-white hover:brightness-110 disabled:opacity-50"
-          >
-            {busy && <Loader2 size={12} className="animate-spin" />}
-            {t("computer.trial.try")}
-          </button>
-          <span className="text-[11px] text-ink-tertiary">{t("computer.trial.hint", { minutes: status.minutes })}</span>
-        </>
-      ) : (
-        <>
-          <span className="text-[12px]">{t("vm.trial.pending")}</span>
-          <button type="button" onClick={() => void openExternalLink(status.url)} className="rounded-lg bg-control px-3 py-1.5 text-[12px] text-ink hover:bg-control-hover">
-            {t("vm.trial.open")}
-          </button>
-        </>
-      )}
-      {error && <p role="alert" className="text-[11px] text-danger">{error}</p>}
-    </div>
-  );
 }
 
 export function CloudTrialRow() {

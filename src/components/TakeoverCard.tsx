@@ -46,7 +46,7 @@ export function TakeoverCard({
   const showComputer = (handOver: boolean) => {
     if (state.selectedId !== botId) dispatch({ type: "select", id: botId });
     dispatch({ type: "takeoverIntent", intent: handOver ? { botId, at: Date.now() } : null });
-    dispatch({ type: "toggleComputer", open: true });
+    dispatch({ type: "toggleSettings", open: true, section: "access" });
   };
 
   const act = async (action: TakeoverAction) => {

@@ -96,10 +96,12 @@ describe("tapping Take over", () => {
 
     const takeOver = [...host.querySelectorAll("button")].find((button) => button.textContent === "Take over")!;
     flushSync(() => takeOver.click());
-    await vi.waitFor(() => expect(state.computerOpen).toBe(true));
+    await vi.waitFor(() => expect(state.settingsOpen).toBe(true));
+    expect(state.botSettingsSection).toBe("access");
+    expect(state.botSettingsExpandAccordion).toBe(true);
 
     expect(calls).toEqual([{ url: "/api/bots/pepper/takeover-cards/card-1/take", body: { threadId: "pack-thread" } }]);
-    expect(dispatch.mock.calls.map(([action]) => action.type)).toEqual(["select", "takeoverIntent", "toggleComputer"]);
+    expect(dispatch.mock.calls.map(([action]) => action.type)).toEqual(["select", "takeoverIntent", "toggleSettings"]);
     expect(state.takeoverIntent).toMatchObject({ botId: "pepper" });
     root.unmount();
   });
@@ -123,10 +125,10 @@ describe("tapping Take over", () => {
   });
 });
 
-describe("closing the computer panel", () => {
+describe("closing the dog's panel", () => {
   it("drops a pending hand-over so it never opens the desktop later by surprise", () => {
-    const pending = reducer({ ...initialState, takeoverIntent: { botId: "pepper", at: 1 } }, { type: "toggleComputer", open: true });
+    const pending = reducer({ ...initialState, takeoverIntent: { botId: "pepper", at: 1 } }, { type: "toggleSettings", open: true, section: "access" });
     expect(pending.takeoverIntent).toEqual({ botId: "pepper", at: 1 });
-    expect(reducer(pending, { type: "toggleComputer", open: false }).takeoverIntent).toBeNull();
+    expect(reducer(pending, { type: "toggleSettings", open: false }).takeoverIntent).toBeNull();
   });
 });

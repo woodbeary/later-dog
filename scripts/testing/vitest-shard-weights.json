@@ -3,7 +3,6 @@
   "evals/golden/golden.test.ts": 5,
   "evals/runners/run-skill-bench.test.ts": 23,
   "scripts/ci-scope.test.ts": 6,
-  "scripts/testing/cloud-preview.e2e.test.ts": 1,
   "scripts/testing/composer-drafts-ui.e2e.test.ts": 1,
   "scripts/testing/control-laterdog-ui.e2e.test.ts": 1,
   "scripts/testing/direct-coordination-ui.e2e.test.ts": 1,

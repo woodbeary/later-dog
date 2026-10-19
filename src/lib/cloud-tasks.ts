@@ -120,34 +120,6 @@ export function useCloudTask(jobId: string | null | undefined): CloudTaskEntry |
   return useSyncExternalStore(subscribe, read, read);
 }
 
-export function useBotCloudTasks(botId: string | undefined): { tasks: CloudTaskSummary[] | null; error: string | null } {
-  const [tasks, setTasks] = useState<CloudTaskSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!botId) return;
-    let stopped = false;
-    let next: ReturnType<typeof setTimeout> | null = null;
-    const load = async () => {
-      let delay = 30_000;
-      try {
-        const { jobs } = await api<{ jobs: CloudTaskSummary[] }>(`/api/laterdog/jobs?bot=${encodeURIComponent(botId)}&limit=8`);
-        if (stopped) return;
-        rememberCloudTasks(jobs);
-        setTasks(jobs);
-        setError(null);
-        if (jobs.some((job) => ACTIVE.has(job.state))) delay = 5_000;
-      } catch (failure) {
-        if (stopped) return;
-        setError(failure instanceof Error ? failure.message : String(failure));
-      }
-      if (!stopped) next = setTimeout(() => void load(), delay);
-    };
-    void load();
-    return () => { stopped = true; if (next) clearTimeout(next); };
-  }, [botId]);
-  return { tasks, error };
-}
-
 export interface CloudTaskActivity { steps: CloudTaskStep[]; available: boolean; live: boolean; reason?: string; loading: boolean; error?: string }
 
 export function useCloudTaskActivity(jobId: string, active: boolean): CloudTaskActivity {

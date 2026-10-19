@@ -5,15 +5,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Bot } from "@/state/store";
 import { CLOUD_COMPUTER_BUSY_ERROR } from "../../../shared/computer-contention";
 
+type FixtureState = {
+  computerControl: Record<string, { held: boolean; helpReason: string | null }>;
+  takeoverIntent: { botId: string; at: number } | null;
+};
 const fixture = vi.hoisted(() => ({
   api: vi.fn(),
   dispatch: vi.fn(),
   flushBotPatches: vi.fn(async () => null),
+  state: { computerControl: {}, takeoverIntent: null } as FixtureState,
 }));
 vi.mock("@/state/store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/state/store")>(),
   api: fixture.api,
-  useStore: () => ({ dispatch: fixture.dispatch, flushBotPatches: fixture.flushBotPatches }),
+  useStore: () => ({ state: fixture.state, dispatch: fixture.dispatch, flushBotPatches: fixture.flushBotPatches }),
 }));
 vi.mock("../Avatar", async (importOriginal) => ({
   ...await importOriginal<typeof import("../Avatar")>(),
@@ -42,14 +47,20 @@ const panel = () => host.querySelector<HTMLElement>("[data-simple-computer]")!;
 const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>("button")].find((element) => element.textContent === label)!;
 const dogButton = (label: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
 const press = (element: HTMLElement) => act(async () => element.click());
+let shown: Bot | null = null;
 const show = async (bot: Bot) => {
+  shown = bot;
   await act(async () => root.render(createElement(ComputerTab, { bot })));
   await settle();
 };
+const rerender = () => { if (shown) root.render(createElement(ComputerTab, { bot: shown })); };
 
 const STATUS = "GET /api/bots/scout/computer";
 const WAKE = "POST /api/bots/scout/computer/provision";
 const SHOT = "POST /api/bots/scout/computer/screenshot";
+const CONTROL = "GET /api/bots/scout/computer/control";
+const CONTROL_CHANGE = "POST /api/bots/scout/computer/control";
+const JOIN = "POST /api/bots/scout/computer/join";
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -63,7 +74,19 @@ beforeEach(() => {
     return next(init);
   });
   fixture.dispatch.mockReset();
+  fixture.state = { computerControl: {}, takeoverIntent: null };
+  fixture.dispatch.mockImplementation((action: { type: string; botId?: string; held?: boolean; helpReason?: string | null; intent?: FixtureState["takeoverIntent"] }) => {
+    if (action.type === "computerControl") {
+      fixture.state = { ...fixture.state, computerControl: { ...fixture.state.computerControl, [action.botId!]: { held: action.held === true, helpReason: action.helpReason ?? null } } };
+      rerender();
+    }
+    if (action.type === "takeoverIntent") {
+      fixture.state = { ...fixture.state, takeoverIntent: action.intent ?? null };
+      rerender();
+    }
+  });
   fixture.flushBotPatches.mockClear();
+  shown = null;
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -112,14 +135,14 @@ describe("what the dog's computer card shows", () => {
 });
 
 describe("the Computer tab", () => {
-  it("sleeps until woken, then shows the dog's screen and opens the full desktop", async () => {
+  it("sleeps until woken, then shows the dog's screen to watch, with Take control", async () => {
     reply(STATUS, () => box("stopped"), () => box("running"));
     reply(WAKE, () => ({ ready: true }));
     reply(SHOT, () => ({ png: "AAAA", format: "jpeg" }));
     await show(scout());
 
     expect(fixture.flushBotPatches).toHaveBeenCalledWith("scout");
-    expect(fixture.api.mock.calls[0]![0]).toBe("/api/bots/scout/computer?threadId=thread-scout");
+    expect(calls(STATUS)[0]![0]).toBe("/api/bots/scout/computer?threadId=thread-scout");
     expect(panel().dataset.simpleComputer).toBe("asleep");
     expect(panel().textContent).toContain("Computer is asleep");
     expect(panel().textContent).toContain("Scout's screen");
@@ -137,8 +160,10 @@ describe("the Computer tab", () => {
     expect(screen.getAttribute("src")).toBe("data:image/jpeg;base64,AAAA");
     expect(screen.getAttribute("alt")).toBe("Scout's screen");
 
-    await press(panel().querySelector<HTMLButtonElement>('[aria-label="Open Scout\'s live desktop"]')!);
-    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleComputer", open: true });
+    expect(panel().querySelector('[aria-label="Open Scout\'s live desktop"]')).toBeNull();
+    expect(host.querySelector("[data-computer-hands]")!.getAttribute("data-computer-hands")).toBe("watching");
+    expect(button("Take control")).toBeDefined();
+    expect(calls(CONTROL_CHANGE)).toHaveLength(0);
   });
 
   it("stays waking while the dog's own turn holds the computer, and checks again until it is up", async () => {
@@ -190,13 +215,13 @@ describe("the Computer tab", () => {
     expect(calls(WAKE)).toHaveLength(2);
   });
 
-  it("offers Open instead of Wake for a computer the dog does not own", async () => {
+  it("moves the dog onto its cloud computer when the person wakes one it does not use yet", async () => {
     reply(STATUS, () => box("stopped"));
     await show(scout({ computer: undefined }));
-    expect(panel().querySelector("[data-wake-dog]")).toBeNull();
     expect(panel().querySelector('[data-dog="sleeping"]')).not.toBeNull();
-    await press(button("Open"));
-    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleComputer", open: true });
+    expect(button("Open")).toBeUndefined();
+    await press(dogButton("Wake Scout's computer")!);
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "updateBot", botId: "scout", patch: { computer: "cloud" } });
   });
 
   it("turns the computer on and wakes it with one tap on the sleeping dog", async () => {
@@ -261,5 +286,131 @@ describe("the Computer tab", () => {
     expect(panel().querySelector("img")).toBeNull();
     await act(async () => publishLiveFrame({ kind: "screen", botId: "scout", threadId: "thread-scout", png: "BBBB", mime: "image/png" }));
     expect(panel().querySelector("img")!.getAttribute("src")).toBe("data:image/png;base64,BBBB");
+  });
+});
+
+type ViewerState = { open: boolean; contextId: string | null };
+function stubViewer(opened = true) {
+  const listeners = new Set<(state: ViewerState) => void>();
+  const viewer = {
+    open: vi.fn(async (_url: string, _title: string, contextId: string) => {
+      for (const listener of listeners) listener({ open: true, contextId });
+      return opened;
+    }),
+    close: vi.fn(async (contextId: string) => {
+      for (const listener of listeners) listener({ open: false, contextId });
+      return true;
+    }),
+    currentState: vi.fn(async () => ({ open: false, contextId: null })),
+    onState: (listener: (state: ViewerState) => void) => {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
+    emit: (state: ViewerState) => { for (const listener of listeners) listener(state); },
+  };
+  vi.stubGlobal("laterdog", { desktopViewer: viewer });
+  return viewer;
+}
+const sent = (key: string) => calls(key).map(([, init]) => JSON.parse(String((init as RequestInit).body ?? "{}")));
+
+describe("watching and taking control of the dog's computer", () => {
+  const awake = () => {
+    reply(STATUS, () => box("running"));
+    reply(SHOT, () => ({ png: "AAAA", format: "jpeg" }));
+  };
+
+  it("never takes control from a busy dog just by being opened", async () => {
+    awake();
+    reply(CONTROL, () => ({ held: false, helpReason: null }));
+    stubViewer();
+    await show(scout({ busy: true }));
+    expect(panel().querySelector("img")!.getAttribute("src")).toBe("data:image/jpeg;base64,AAAA");
+    expect(calls(CONTROL)).toHaveLength(1);
+    expect(calls(CONTROL_CHANGE)).toHaveLength(0);
+    expect(calls(JOIN)).toHaveLength(0);
+  });
+
+  it("takes control, opens the desktop with an I'm done pill, and goes back to watching when the person is done", async () => {
+    awake();
+    reply(CONTROL, () => ({ held: false, helpReason: null }));
+    reply(CONTROL_CHANGE, (init) => ({ held: JSON.parse(String(init!.body)).action === "take", helpReason: null }));
+    reply(JOIN, () => ({ joinUrl: "https://desktop.example.test/cmp_one/token/" }));
+    const viewer = stubViewer();
+    await show(scout());
+
+    await press(button("Take control"));
+    await settle();
+    expect(sent(CONTROL_CHANGE)).toEqual([{ action: "take" }]);
+    expect(calls(JOIN)[0]![0]).toBe("/api/bots/scout/computer/join?threadId=thread-scout");
+    expect(viewer.open).toHaveBeenCalledWith("https://desktop.example.test/cmp_one/token/", "Scout's live desktop", "scout", { label: "You're in control", done: "I'm done" });
+    expect(host.querySelector("[data-computer-hands]")!.getAttribute("data-computer-hands")).toBe("held");
+    expect(host.textContent).toContain("Scout waits until you're done.");
+
+    await act(async () => viewer.emit({ open: false, contextId: "scout" }));
+    await settle();
+    expect(sent(CONTROL_CHANGE)).toEqual([{ action: "take" }, { action: "release" }]);
+    expect(host.querySelector("[data-computer-hands]")!.getAttribute("data-computer-hands")).toBe("watching");
+  });
+
+  it("hands control back from the tab, closing the desktop", async () => {
+    awake();
+    reply(CONTROL, () => ({ held: true, helpReason: null }));
+    reply(CONTROL_CHANGE, () => ({ held: false, helpReason: null }));
+    const viewer = stubViewer();
+    await show(scout());
+    await press(button("I'm done"));
+    await settle();
+    expect(viewer.close).toHaveBeenCalledWith("scout");
+    expect(sent(CONTROL_CHANGE)).toEqual([{ action: "release" }]);
+    expect(button("Take control")).toBeDefined();
+  });
+
+  it("gives control back and says why when the desktop cannot open", async () => {
+    awake();
+    reply(CONTROL, () => ({ held: false, helpReason: null }));
+    reply(CONTROL_CHANGE, (init) => ({ held: JSON.parse(String(init!.body)).action === "take", helpReason: null }));
+    reply(JOIN, () => ({}));
+    stubViewer();
+    await show(scout());
+    await press(button("Take control"));
+    await settle();
+    expect(sent(CONTROL_CHANGE)).toEqual([{ action: "take" }, { action: "release" }]);
+    expect(host.querySelector('[role="alert"]')!.textContent).toBe("The computer did not return a live desktop link");
+  });
+
+  it("shows when the dog needs the person, with Take control and Skip", async () => {
+    awake();
+    reply(CONTROL, () => ({ held: false, helpReason: "Sign in to the bank, please." }));
+    reply(CONTROL_CHANGE, () => ({ held: false, helpReason: null }));
+    stubViewer();
+    await show(scout({ busy: true }));
+    expect(host.textContent).toContain("Scout needs you. Sign in to the bank, please.");
+    await press(button("Skip"));
+    await settle();
+    expect(sent(CONTROL_CHANGE)).toEqual([{ action: "dismiss-help" }]);
+    expect(host.textContent).not.toContain("needs you");
+  });
+
+  it("opens the desktop by itself after a takeover card handed control over, without taking it again", async () => {
+    awake();
+    reply(CONTROL, () => ({ held: true, helpReason: null }));
+    reply(JOIN, () => ({ joinUrl: "https://desktop.example.test/cmp_one/token/" }));
+    const viewer = stubViewer();
+    fixture.state = { ...fixture.state, takeoverIntent: { botId: "scout", at: Date.now() } };
+    await show(scout({ busy: true }));
+    await settle();
+    expect(viewer.open).toHaveBeenCalledTimes(1);
+    expect(calls(CONTROL_CHANGE)).toHaveLength(0);
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "takeoverIntent", intent: null });
+  });
+
+  it("lets a stale takeover go without opening anything", async () => {
+    awake();
+    reply(CONTROL, () => ({ held: true, helpReason: null }));
+    const viewer = stubViewer();
+    fixture.state = { ...fixture.state, takeoverIntent: { botId: "scout", at: Date.now() - 61_000 } };
+    await show(scout());
+    expect(viewer.open).not.toHaveBeenCalled();
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "takeoverIntent", intent: null });
   });
 });

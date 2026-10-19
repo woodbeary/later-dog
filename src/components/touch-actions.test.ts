@@ -93,7 +93,7 @@ describe("hover-only actions on touch screens", () => {
 
   it("finds the hover-revealed controls it guards", () => {
     const literals = classLiterals().filter((literal) => !isNotAction(literal));
-    expect(literals.length).toBeGreaterThanOrEqual(19);
+    expect(literals.length).toBeGreaterThanOrEqual(15);
   });
 
   it("gives every hover-revealed action a touch fallback", () => {

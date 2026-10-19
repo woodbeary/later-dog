@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import en from "../src/locales/en.json";
 import {
-  cloudRefusal, PLACE_EN, PLACE_STATES, PLACE_WORDS, placeRowText, placeRowView, placeState, placeView, placeViewOf,
-  type PlaceFacts, type PlaceParams, type PlaceSource, type PlaceState,
+  cloudRefusal, PLACE_EN, PLACE_STATES, PLACE_WORDS, placeRowText, placeRowView, placeViewOf,
+  type PlaceParams, type PlaceSource, type PlaceState,
 } from "./place-view.ts";
 
 const PARAMS: PlaceParams = {
@@ -11,12 +11,6 @@ const PARAMS: PlaceParams = {
   plan: "Pro", max: 2, holders: ["Ada", "Bo"], words: "Start the Boat plan to create sandboxes.", reason: "CUA Driver is not ready.",
   cause: "the Local VM is not ready",
 };
-
-const facts = (patch: Partial<PlaceFacts> = {}): PlaceFacts => ({
-  place: "cloud", server: "my-cloud", bot: "Scout", boat: "included", role: "admin", toolsAllowComputer: true, browserOn: true,
-  engine: { name: "Claude", model: "Claude Fable 5", computer: true, browser: true, signedIn: true },
-  ...patch,
-});
 
 describe("U1: one line and at most one action for every state", () => {
   it("words every state whole, for an Admin and for a User", () => {
@@ -96,49 +90,6 @@ describe("U1: one line and at most one action for every state", () => {
     expect(placeViewOf("cc-needs-key", {}, { role: "admin", server: "mac" })).toMatchObject({
       short: "Not set up", line: "Cloud computers aren’t set up here yet.", action: null,
     });
-  });
-});
-
-describe("placeState", () => {
-  it("reads the cloud computer's facts in order: model, what it can use, sign-in, provider, state", () => {
-    expect(placeState(facts({ engine: { name: "Llama", computer: false, browser: true, signedIn: true } })).state).toBe("cc-cannot");
-    expect(placeState(facts({ toolsAllowComputer: false })).state).toBe("cc-tools-off");
-    expect(placeState(facts({ engine: { name: "Claude", computer: true, browser: true, signedIn: false } }))).toEqual({
-      state: "cc-sign-in", params: { bot: "Scout", engine: "Claude" },
-    });
-    expect(placeState(facts({ server: "mac", boat: "none", plan: true })).state).toBe("cc-on-my-cloud");
-    expect(placeState(facts({ server: "pc", boat: "none" })).state).toBe("cc-needs-key");
-    expect(placeState(facts({ server: "mac", boat: "own-key" })).state).toBe("cc-new");
-    expect(placeState(facts({ computer: "starting" })).state).toBe("cc-starting");
-    expect(placeState(facts({ computer: "asleep" })).state).toBe("cc-asleep");
-    expect(placeState(facts({ computer: "on" })).state).toBe("cc-on");
-    expect(placeState(facts({ refusal: { state: "cc-no-hours", params: { hours: 50, month: "November" } } }))).toEqual({
-      state: "cc-no-hours", params: { bot: "Scout", hours: 50, month: "November" },
-    });
-    expect(placeState(facts({ backend: "vps" })).state).toBe("vps");
-  });
-
-  it("reads Auto, Off, the browser, this computer and a Local VM", () => {
-    expect(placeState(facts({ place: "auto" })).state).toBe("auto");
-    expect(placeState(facts({ place: "off" })).state).toBe("off");
-    expect(placeState(facts({ place: "browser" })).state).toBe("browser");
-    expect(placeState(facts({ place: "browser", browserOn: false })).state).toBe("browser-off");
-    expect(placeState(facts({ place: "browser", engine: { name: "X", computer: true, browser: false, signedIn: true } })).state).toBe("browser-cannot");
-    expect(placeState(facts({ place: "local", local: { ready: false, reason: "Not yet." } }))).toEqual({
-      state: "local-unavailable", params: { bot: "Scout", reason: "Not yet." },
-    });
-    expect(placeState(facts({ place: "vm", engine: { name: "X", computer: false, browser: true, signedIn: true } })).state).toBe("vm-cannot");
-  });
-
-  it("words the Auto line for where this server runs", () => {
-    expect(placeView(facts({ place: "auto" })).line).toBe("Starts its cloud computer when a task needs one.");
-    expect(placeView(facts({ place: "auto", server: "pc" })).line).toBe("Picks its cloud computer or this computer when a task needs one.");
-    expect(placeView(facts({ place: "auto", server: "linux" })).line).toBe("Starts its cloud computer when a task needs one.");
-    expect(placeView(facts({ place: "auto", server: "mac", boat: "none" })).line).toBe("Uses this computer when a task needs one.");
-    expect(placeView(facts({ place: "auto", server: "mac", boat: "none", local: { ready: false } })).line).toBe("Works without a computer for now.");
-    expect(placeView(facts({ place: "auto", server: "linux", boat: "none" })).line).toBe("Works without a computer for now.");
-    expect(placeView(facts({ engine: { name: "Claude", computer: true, browser: true, signedIn: false } })).line)
-      .toBe("Sign in to Claude on My Cloud first. Scout uses it on the cloud computer too.");
   });
 });
 

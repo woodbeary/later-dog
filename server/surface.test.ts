@@ -178,13 +178,13 @@ describe("computerToolsRefusal", () => {
   it("refuses a Tool selection without the computer with one action: the setting that changes it", () => {
     const refused = computerToolsRefusal({ deny: ["mcp:computer:*"] }, "works-on", "Scout")!;
     expect(refused).toMatchObject({ name: "PlaceUnavailableError", place: "cloud", row: { state: "cc-tools-off", params: { bot: "Scout" }, source: "works-on" } });
-    const line = "What Scout can use doesn't include a computer. Let Scout use the computer from the Computer panel.";
+    const line = "What Scout can use doesn't include a computer. Let Scout use the computer from its Computer tab.";
     expect(refused.message).toBe(line);
     for (const source of ["pin", "routine", "room"] as const) {
       expect(computerToolsRefusal({ allow: ["native:*"] }, source, "Scout")?.message).toBe(line);
     }
     expect(computerToolsRefusal({ allow: ["native:*"] }, "auto-pin", "Scout")?.message)
-      .toBe("What Scout can use doesn't include a computer. This conversation is back on Auto. Let Scout use the computer from the Computer panel.");
+      .toBe("What Scout can use doesn't include a computer. This conversation is back on Auto. Let Scout use the computer from its Computer tab.");
   });
 
   it("lets every selection that keeps a computer tool through", () => {
@@ -204,12 +204,12 @@ describe("placeUnavailable", () => {
     expect(cause("routine")).toBe("Scout's cloud computer didn't start. Change where this routine runs.");
     expect(cause("room")).toBe("Scout's cloud computer didn't start.");
     expect(placeUnavailable("vm", { state: "place-failed", params: { bot: "Scout", cause: "The Local VM is not ready." }, source: "works-on" }))
-      .toMatchObject({ name: "PlaceUnavailableError", place: "vm", message: "The Local VM is not ready. Check it in the Computer panel." });
+      .toMatchObject({ name: "PlaceUnavailableError", place: "vm", message: "The Local VM is not ready. Check it in the Computer tab." });
   });
 
   it("keeps the whole cause: no row cuts it", () => {
     const long = `${"x".repeat(400)}.`;
     expect(placeUnavailable("vm", { state: "place-failed", params: { bot: "Scout", cause: long }, source: "works-on" }).message)
-      .toBe(`${long} Check it in the Computer panel.`);
+      .toBe(`${long} Check it in the Computer tab.`);
   });
 });

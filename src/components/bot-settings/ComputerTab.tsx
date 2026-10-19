@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Globe, Laptop, Loader2, Maximize2, Monitor, MonitorOff } from "lucide-react";
+import { Globe, Hand, Laptop, Loader2, Monitor, MonitorOff } from "lucide-react";
 
 import { api, useStore, type Bot } from "@/state/store";
 import { cn } from "@/lib/cn";
@@ -7,8 +7,9 @@ import { t } from "@/lib/i18n";
 import { listenLiveFrames } from "@/lib/live-events";
 import { isReadyBoatState } from "@/lib/local-computer";
 import { isActiveTurnRefusal } from "@/lib/remote-desktop";
-import { SleepingDog } from "../AccountCharge";
+import { MacLocalControl } from "../MacLocalControl";
 import { WakeDog } from "../WakeDog";
+import { useComputerHands } from "./useComputerHands";
 
 type Surface = "cloud" | "local" | "vm" | "browser" | "off";
 
@@ -55,6 +56,7 @@ export function computerCardFor(bot: Pick<Bot, "computer" | "autoStartVps">, sta
   return { kind: "waking", fresh: false, polling: true };
 }
 
+const strongPill = "inline-flex items-center gap-1.5 rounded-full bg-ink px-4 py-1.5 text-[13px] font-medium text-panel transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-45";
 const pill = "rounded-full bg-control px-4 py-1.5 text-[13px] font-medium text-ink transition-colors hover:bg-control-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-45";
 const headline = "text-[14px] font-medium text-ink";
 const line = "max-w-[17rem] text-[12px] leading-relaxed text-ink-secondary";
@@ -164,7 +166,7 @@ export function ComputerTab({ bot }: { bot: Bot }) {
     };
   }, [awake, id, threadId, query, round]);
 
-  const open = () => dispatch({ type: "toggleComputer", open: true });
+  const hands = useComputerHands(bot, card.kind === "awake");
   const retry = () => {
     setFrame(null);
     setCard({ kind: "checking" });
@@ -196,9 +198,6 @@ export function ComputerTab({ bot }: { bot: Bot }) {
     setRound((value) => value + 1);
   };
 
-  const openButton = (
-    <button type="button" data-computer-open onClick={open} className={pill}>{t("computer.open")}</button>
-  );
   const dog = { color: bot.color, bodyId: bot.mascotBody ?? undefined };
   const wakeLabel = t("computer.wakeDog", { name: bot.name });
 
@@ -213,17 +212,11 @@ export function ComputerTab({ bot }: { bot: Bot }) {
       );
       break;
     case "asleep":
-      body = card.canWake ? (
+      body = (
         <Middle>
-          <WakeDog {...dog} label={wakeLabel} hint={t("computer.wakeHint")} onWake={() => void wake(card.fresh)}>
+          <WakeDog {...dog} label={wakeLabel} hint={t("computer.wakeHint")} onWake={card.canWake ? () => void wake(card.fresh) : turnOn}>
             <div className={headline}>{t("botSettings.computer.asleep")}</div>
           </WakeDog>
-        </Middle>
-      ) : (
-        <Middle>
-          <SleepingDog size={76} color={dog.color} bodyId={dog.bodyId} className="mb-1" />
-          <div className={headline}>{t("botSettings.computer.asleep")}</div>
-          {openButton}
         </Middle>
       );
       break;
@@ -247,33 +240,16 @@ export function ComputerTab({ bot }: { bot: Bot }) {
         <Middle>
           <Monitor size={22} className="text-ink-secondary" aria-hidden="true" />
           <div className={headline}>{t("botSettings.computer.unreachable", { name: bot.name })}</div>
-          <div className="flex gap-2">
-            <button type="button" data-computer-retry onClick={retry} className={pill}>{t("botSettings.computer.tryAgain")}</button>
-            {openButton}
-          </div>
+          <button type="button" data-computer-retry onClick={retry} className={pill}>{t("botSettings.computer.tryAgain")}</button>
         </Middle>
       ) : (
-        <button
-          type="button"
-          data-computer-open
-          onClick={open}
-          aria-label={t("computer.openLiveDesktopAria", { name: bot.name })}
-          className="group absolute inset-0 flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
-        >
+        <div data-computer-screen className="absolute inset-0 flex items-center justify-center">
           {frame ? (
-            <img
-              src={frame}
-              alt={t("computer.screenOf", { name: bot.name })}
-              className="h-full w-full object-contain transition-[filter] duration-300 group-hover:brightness-75"
-            />
+            <img src={frame} alt={t("computer.screenOf", { name: bot.name })} className="h-full w-full object-contain" />
           ) : (
             <Loader2 size={18} className="animate-spin text-ink-secondary" aria-hidden="true" />
           )}
-          <span className="pointer-events-none absolute bottom-2.5 right-2.5 flex items-center gap-1.5 rounded-full bg-black/75 px-3 py-1 text-[12px] font-medium text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 touch:opacity-100">
-            <Maximize2 size={12} aria-hidden="true" />
-            {t("computer.open")}
-          </span>
-        </button>
+        </div>
       );
       break;
     case "unreachable":
@@ -308,7 +284,6 @@ export function ComputerTab({ bot }: { bot: Bot }) {
               : t(card.surface === "browser" ? "place.view.browser.short" : "place.view.vm.short")}
           </div>
           <p className={line}>{t(`place.view.${card.surface}.line`)}</p>
-          {openButton}
         </Middle>
       );
       break;
@@ -319,7 +294,6 @@ export function ComputerTab({ bot }: { bot: Bot }) {
           <MonitorOff size={24} className="text-ink-secondary" aria-hidden="true" />
           <div className={headline}>{t("botSettings.computer.noScreen")}</div>
           <p className={line}>{t("place.view.ccNeedsKey.line")}</p>
-          {openButton}
         </Middle>
       );
       break;
@@ -341,6 +315,36 @@ export function ComputerTab({ bot }: { bot: Bot }) {
         {body}
       </div>
       <p className="mt-2 text-center text-[12px] text-ink-tertiary">{t("computer.screenOf", { name: bot.name })}</p>
+      {card.kind === "awake" && (
+        <div className="mt-3 flex flex-col items-center gap-3" data-computer-hands={hands.held ? "held" : "watching"}>
+          {hands.held ? (
+            <div className="flex w-full items-center gap-3 rounded-xl bg-card px-4 py-3">
+              <span className="min-w-0 flex-1 text-[13px] leading-relaxed text-ink">{t("computer.youHaveWheel", { name: bot.name })}</span>
+              <button type="button" onClick={() => void hands.handBack()} className={pill}>{t("computer.handBack")}</button>
+            </div>
+          ) : hands.helpReason ? (
+            <div role="status" className="w-full rounded-xl bg-card px-4 py-3">
+              <p className="text-[13px] leading-relaxed text-ink">
+                <b className="font-medium">{t("computer.needsYou", { name: bot.name })}</b> {hands.helpReason}
+              </p>
+              <div className="mt-2.5 flex gap-2">
+                <button type="button" onClick={() => void hands.take()} disabled={hands.opening} className={strongPill}>
+                  {hands.opening ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Hand size={13} aria-hidden="true" />}
+                  {t("computer.takeControl")}
+                </button>
+                <button type="button" onClick={() => void hands.skip()} disabled={hands.opening} className={pill}>{t("computer.skip")}</button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={() => void hands.take()} disabled={hands.opening} className={strongPill}>
+              {hands.opening && <Loader2 size={13} className="animate-spin" aria-hidden="true" />}
+              {t("computer.takeControl")}
+            </button>
+          )}
+          {hands.problem && <p role="alert" className={cn(line, "text-center text-danger")}>{hands.problem}</p>}
+        </div>
+      )}
+      {card.kind === "elsewhere" && card.surface === "local" && <MacLocalControl />}
     </div>
   );
 }

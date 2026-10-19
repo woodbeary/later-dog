@@ -131,7 +131,7 @@ describe("lazyScreen", () => {
     vi.useFakeTimers();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const load = vi.fn(() => Promise.reject(new TypeError("Failed to fetch dynamically imported module")));
-    const Screen = lazyScreen("ComputerPanel", load);
+    const Screen = lazyScreen("CloudTaskPanel", load);
     render(createElement(Screen, {}));
     await vi.advanceTimersByTimeAsync(60_000);
     expect(load).toHaveBeenCalledTimes(1);
@@ -160,7 +160,7 @@ describe("preloadScreens", () => {
     });
     vi.stubGlobal("cancelIdleCallback", cancel);
     const preloads = stubPreloads();
-    expect(preloads.length).toBe(6);
+    expect(preloads.length).toBe(5);
     const stop = preloadScreens();
     for (const preload of preloads) expect(preload).not.toHaveBeenCalled();
     idle!();
@@ -230,7 +230,7 @@ describe("launch bundle", () => {
     expect(reached.has("App.tsx")).toBe(true);
     expect(reached.has("components/Sidebar.tsx")).toBe(true);
     const deferred = [
-      "BotSettingsDialog", "CloudTaskPanel", "ComputerPanel", "KeyboardShortcutsModal",
+      "BotSettingsDialog", "CloudTaskPanel", "KeyboardShortcutsModal",
       "NewBotDialog", "SettingsModal",
     ].map((name) => `components/${name}.tsx`);
     expect(deferred.filter((file) => reached.has(file))).toEqual([]);

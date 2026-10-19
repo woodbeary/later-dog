@@ -22,7 +22,7 @@ const computer = (patch: Partial<CloudComputer> = {}): CloudComputer => ({
   boxId: "box-1", name: "laterdog-scout", state: "archived", ownerBotId: "scout", ownerName: "Scout", orphaned: false, inUse: false, ...patch,
 });
 const list = (instances: CloudComputer[], patch: Partial<CloudComputerList> = {}): CloudComputerList => ({
-  configured: true, available: true, problem: null, instances, ...patch,
+  configured: true, available: true, problem: null, changeable: true, instances, ...patch,
 });
 
 let root: Root | null = null;
@@ -41,7 +41,8 @@ const mount = async () => {
 };
 const text = () => document.body.textContent ?? "";
 const deleteButton = (boxId: string) => document.querySelector<HTMLButtonElement>(`[data-cloud-computer-delete="${boxId}"]`);
-const sleepButton = (boxId: string) => document.querySelector<HTMLButtonElement>(`[data-cloud-computer-sleep="${boxId}"]`);
+const updateButton = (boxId: string) => document.querySelector<HTMLButtonElement>(`[data-cloud-computer-update="${boxId}"]`);
+const resetButton = (boxId: string) => document.querySelector<HTMLButtonElement>(`[data-cloud-computer-reset="${boxId}"]`);
 const row = (boxId: string) => document.querySelector<HTMLElement>(`[data-cloud-computer="${boxId}"]`)!;
 
 beforeEach(() => {
@@ -107,7 +108,7 @@ describe("merging a fresh read", () => {
 });
 
 describe("Settings → Computer → Cloud computers", () => {
-  it("names each computer by its dog, says when one is left over, and holds Delete while one is in use", async () => {
+  it("names each computer by its dog, offers Update and Reset for a dog's and Delete for a left-over one, and holds them while one is in use", async () => {
     fixture.lists = [list([
       computer(),
       computer({ boxId: "box-2", name: "laterdog-old", ownerBotId: null, ownerName: null, orphaned: true, state: "stopped" }),
@@ -117,8 +118,23 @@ describe("Settings → Computer → Cloud computers", () => {
     expect(text()).toContain("ScoutSleeping");
     expect(text()).toContain("Left over from a removed dogSleeping");
     expect(text()).toContain("BoIn use · Stop this dog's work before changing its computer.");
-    expect(deleteButton("box-1")!.disabled).toBe(false);
-    expect(deleteButton("box-3")!.disabled).toBe(true);
+    expect(deleteButton("box-1")).toBeNull();
+    expect(updateButton("box-1")!.disabled).toBe(false);
+    expect(resetButton("box-1")!.disabled).toBe(false);
+    expect(deleteButton("box-2")!.disabled).toBe(false);
+    expect(updateButton("box-2")).toBeNull();
+    expect(resetButton("box-2")).toBeNull();
+    expect(updateButton("box-3")!.disabled).toBe(true);
+    expect(resetButton("box-3")!.disabled).toBe(true);
+  });
+
+  it("offers no Update or Reset for a dog's computer that later.dog's computers service does not run", async () => {
+    fixture.lists = [list([computer(), computer({ boxId: "box-2", ownerBotId: null, ownerName: null, orphaned: true })], { changeable: false })];
+    await mount();
+    expect(text()).toContain("ScoutSleeping");
+    expect(updateButton("box-1")).toBeNull();
+    expect(resetButton("box-1")).toBeNull();
+    expect(deleteButton("box-2")!.disabled).toBe(false);
   });
 
   it("says when there are none, and when Boat can't list them", async () => {
@@ -143,7 +159,8 @@ describe("Settings → Computer → Cloud computers", () => {
 
   it("deletes after the person confirms, reads Removing, and drops the row once Boat's list does", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout"] });
-    fixture.lists = [list([computer()]), list([computer()]), list([])];
+    const leftOver = computer({ ownerBotId: null, ownerName: null, orphaned: true });
+    fixture.lists = [list([leftOver]), list([leftOver]), list([])];
     await mount();
     flushSync(() => deleteButton("box-1")!.click());
     await flush();
@@ -161,62 +178,62 @@ describe("Settings → Computer → Cloud computers", () => {
   });
 
   it("deletes nothing when the person cancels", async () => {
-    fixture.lists = [list([computer()])];
+    fixture.lists = [list([computer({ ownerBotId: null, ownerName: null, orphaned: true })])];
     fixture.confirm = false;
     await mount();
     flushSync(() => deleteButton("box-1")!.click());
     await flush();
     expect(fixture.posts).toEqual([]);
-    expect(text()).toContain("ScoutSleeping");
+    expect(text()).toContain("Left over from a removed dogSleeping");
   });
 });
 
-describe("putting a cloud computer to sleep from Settings", () => {
-  it("offers Sleep only on an awake computer, and holds it while a dog is using it", async () => {
-    fixture.lists = [list([
-      computer({ state: "running" }),
-      computer({ boxId: "box-2", ownerName: "Bo", state: "running", inUse: true }),
-      computer({ boxId: "box-3", ownerName: "Ada", state: "archived" }),
-      computer({ boxId: "box-4", ownerName: "Cy", state: "provisioning" }),
-    ])];
+describe("resetting or updating a dog's cloud computer from Settings", () => {
+  it("resets after the person confirms, through the dog's own route", async () => {
+    fixture.lists = [list([computer({ state: "running" })]), list([computer({ state: "starting" })])];
     await mount();
-    expect(sleepButton("box-1")!.disabled).toBe(false);
-    expect(sleepButton("box-1")!.textContent).toBe("Sleep");
-    expect(sleepButton("box-2")!.disabled).toBe(true);
-    expect(sleepButton("box-3")).toBeNull();
-    expect(sleepButton("box-4")).toBeNull();
+    flushSync(() => resetButton("box-1")!.click());
+    await flush();
+    expect(fixture.posts).toEqual([{ url: "/api/bots/scout/computer/reset", body: {} }]);
+    expect(text()).toContain("ScoutStarting");
   });
 
-  it("asks the server to put it to sleep, without a confirm, and reads Sleeping once the list does", async () => {
-    fixture.lists = [list([computer({ state: "running" })]), list([computer({ state: "archived" })])];
+  it("updates after the person confirms", async () => {
+    fixture.lists = [list([computer({ state: "running" })])];
+    await mount();
+    flushSync(() => updateButton("box-1")!.click());
+    await flush();
+    expect(fixture.posts).toEqual([{ url: "/api/bots/scout/computer/update", body: {} }]);
+  });
+
+  it("changes nothing when the person cancels", async () => {
+    fixture.lists = [list([computer({ state: "running" })])];
     fixture.confirm = false;
     await mount();
-    flushSync(() => sleepButton("box-1")!.click());
+    flushSync(() => resetButton("box-1")!.click());
+    flushSync(() => updateButton("box-1")!.click());
     await flush();
-    expect(fixture.posts).toEqual([{ url: "/api/computers/boxes/box-1/sleep", body: {} }]);
-    expect(text()).toContain("ScoutSleeping");
-    expect(sleepButton("box-1")).toBeNull();
-    expect(deleteButton("box-1")!.disabled).toBe(false);
+    expect(fixture.posts).toEqual([]);
   });
 
   it("says why when the server refuses, and leaves the computer as it was", async () => {
     fixture.lists = [list([computer({ state: "running" })])];
-    fixture.postReply = { status: 409, body: { error: "Scout is using its computer right now." } };
+    fixture.postReply = { status: 409, body: { error: "Scout is working. Stop it first, then try again." } };
     await mount();
-    flushSync(() => sleepButton("box-1")!.click());
+    flushSync(() => updateButton("box-1")!.click());
     await flush();
-    expect(document.querySelector('[role="alert"]')!.textContent).toBe("Scout is using its computer right now.");
+    expect(document.querySelector('[role="alert"]')!.textContent).toBe("Scout is working. Stop it first, then try again.");
     expect(text()).toContain("ScoutRunning");
-    expect(sleepButton("box-1")!.disabled).toBe(false);
+    expect(updateButton("box-1")!.disabled).toBe(false);
   });
 
   it("falls back to its own words when the refusal has none", async () => {
     fixture.lists = [list([computer({ state: "running" })])];
     fixture.postReply = { status: 502, body: {} };
     await mount();
-    flushSync(() => sleepButton("box-1")!.click());
+    flushSync(() => resetButton("box-1")!.click());
     await flush();
-    expect(document.querySelector('[role="alert"]')!.textContent).toBe("Could not put this cloud computer to sleep");
+    expect(document.querySelector('[role="alert"]')!.textContent).toBe("Could not reset this cloud computer");
   });
 });
 

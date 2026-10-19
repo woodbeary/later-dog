@@ -2,7 +2,7 @@ import { isComputerId } from "./ids";
 
 export type CollectionOp = "list" | "create";
 export type TrialOp = "status" | "end";
-export type ComputerOp = "get" | "rename" | "delete" | "wake" | "sleep" | "exec" | "readFile" | "writeFile" | "screenshot" | "desktop";
+export type ComputerOp = "get" | "rename" | "delete" | "wake" | "sleep" | "reset" | "update" | "exec" | "readFile" | "writeFile" | "screenshot" | "desktop";
 
 export type DesktopResource = { type: "page" } | { type: "status" } | { type: "socket" };
 
@@ -37,6 +37,8 @@ const ACTIONS: Record<string, Record<string, ComputerOp>> = {
   "": { GET: "get", PATCH: "rename", DELETE: "delete" },
   wake: { POST: "wake" },
   sleep: { POST: "sleep" },
+  reset: { POST: "reset" },
+  update: { POST: "update" },
   exec: { POST: "exec" },
   files: { GET: "readFile", PUT: "writeFile" },
   screenshot: { GET: "screenshot" },

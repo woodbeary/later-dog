@@ -2,15 +2,12 @@ import { useEffect, useState } from "react";
 import type { CloudAccountState } from "../../electron/cloud-account.mjs";
 import { activeLocale, t } from "@/lib/i18n";
 import { cloudPlanView, startCloudPlan } from "@/lib/cloud-plan";
-import { engineSignedOut } from "@/lib/failed-turn";
-import { browserAvailable, builtInBrowserEnabled, type FeatureFlagConfig } from "@/lib/feature-flags";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
-import type { Action, Bot, ConfigStatus, InstanceInfo } from "@/state/store";
+import type { Action, Bot, ConfigStatus } from "@/state/store";
 import type { LocaleKey } from "@/locales";
 import {
-  placeRowView, placeView, type Place, type PlaceActionId, type PlaceFacts, type PlaceRow, type PlaceTranslate, type PlaceView, type ServerKind,
+  placeRowView, type Place, type PlaceActionId, type PlaceRow, type PlaceTranslate, type PlaceView, type ServerKind,
 } from "../../shared/place-view";
-import { canUseMcpServer } from "../../shared/tool-scope";
 
 export const placeTranslate: PlaceTranslate = (key, params) => t(key as LocaleKey, params);
 
@@ -25,61 +22,9 @@ export function serverKind(config: Pick<ConfigStatus, "cloudHome"> | null | unde
   return platform === "darwin" ? "mac" : platform === "win32" ? "pc" : "linux";
 }
 
-function engineFacts(instance: InstanceInfo | undefined, model: string | undefined): PlaceFacts["engine"] {
-  const label = instance?.models?.options?.find((option) => option.id === model)?.label;
-  return {
-    name: instance?.displayName || instance?.driverKind || model || "",
-    model: label || model || instance?.displayName || "",
-    computer: instance?.capabilities?.computerMcp === true,
-    browser: instance?.capabilities?.browserMcp === true,
-    signedIn: !engineSignedOut(instance),
-  };
-}
-
-export function placeFacts(input: {
-  bot: Pick<Bot, "name" | "modelSelection" | "toolScope" | "cloudBackend" | "browser">;
-  place: PlaceFacts["place"];
-  seat: PlaceSeat;
-  config: (FeatureFlagConfig & Pick<ConfigStatus, "box">) | null | undefined;
-  instances: InstanceInfo[];
-  local?: PlaceFacts["local"];
-  computer?: PlaceFacts["computer"];
-}): PlaceFacts {
-  const { bot, config, seat } = input;
-  const instance = input.instances.find((candidate) => candidate.instanceId === bot.modelSelection.instanceId);
-  return {
-    place: input.place,
-    server: seat.server,
-    bot: bot.name,
-    plan: seat.plan,
-    boat: config?.box?.configured ? (config.box.included ? "included" : "own-key") : "none",
-    backend: bot.cloudBackend === "vps" ? "vps" : "box",
-    engine: engineFacts(instance, bot.modelSelection.model),
-    toolsAllowComputer: canUseMcpServer(bot.toolScope, "computer"),
-    browserOn: builtInBrowserEnabled(config) && (browserAvailable(config) || config?.browserEngine?.installable === true) && bot.browser !== false,
-    role: seat.role,
-    ...(input.local ? { local: input.local } : {}),
-    ...(input.computer ? { computer: input.computer } : {}),
-  };
-}
-
-export function placeViewFor(facts: PlaceFacts): PlaceView {
-  return placeView(facts, { translate: placeTranslate, locale: activeLocale() });
-}
-
 export function placeRowViewFor(row: PlaceRow, seat: PlaceSeat, worksOnLabel?: string): PlaceView {
   const read = row.state === "cc-needs-key" && seat.plan && seat.server !== "my-cloud" ? { ...row, state: "cc-on-my-cloud" as const } : row;
   return placeRowView(read, { server: seat.server, role: seat.role, worksOnLabel, translate: placeTranslate, locale: activeLocale() });
-}
-
-export function placeBlocked(view: PlaceView): boolean {
-  return view.state === "cc-cannot" || view.state === "cc-on-my-cloud" || view.state === "cc-needs-key" || view.state === "browser-off"
-    || view.state === "browser-cannot" || view.state === "vm-cannot" || view.state === "local-unavailable";
-}
-
-export function placeHasIssue(view: PlaceView): boolean {
-  return placeBlocked(view) || view.state === "cc-tools-off" || view.state === "cc-sign-in" || view.state === "cc-needs-key"
-    || view.state === "cc-unavailable";
 }
 
 export function useCloudPlanPaid(): boolean {
@@ -138,7 +83,7 @@ export function openPlaceAction(
     case "open-computer-panel":
     case "allow-computer":
     case "turn-on-browser":
-      dispatch({ type: "toggleComputer", open: true });
+      dispatch({ type: "toggleSettings", open: true, section: "access" });
       return true;
     default:
       return false;

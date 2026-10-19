@@ -3,8 +3,6 @@ import { setLocale } from "./i18n";
 import {
   allGranted,
   checklistHost,
-  computerPermissionReason,
-  localPermissionGap,
   missingComputerPermissions,
   permissionBridge,
   readChecklist,
@@ -54,22 +52,6 @@ describe("what This PC is missing", () => {
     expect(allGranted(checklist())).toBe(true);
     expect(allGranted(checklist({ screen: "denied" }))).toBe(false);
     expect(allGranted(null)).toBe(false);
-  });
-
-  it("prefers the live checklist, and falls back to what the driver recorded", () => {
-    const recorded = "Screen Recording and Accessibility required; grant access in System Settings and restart later.dog";
-    expect(localPermissionGap({ checklist: checklist({ screen: "denied" }), message: recorded })).toEqual(["screen"]);
-    expect(localPermissionGap({ checklist: checklist(), message: recorded })).toEqual([]);
-    expect(localPermissionGap({ checklist: null, message: recorded })).toEqual(["accessibility", "screen"]);
-    expect(localPermissionGap({ checklist: null, message: "Screen Recording required" })).toEqual(["screen"]);
-    expect(localPermissionGap({ checklist: null, message: undefined })).toEqual([]);
-  });
-
-  it("words the Not ready line with the grant still missing", () => {
-    expect(computerPermissionReason([], "later.dog")).toBeNull();
-    expect(computerPermissionReason(["accessibility"], "later.dog")).toBe("Accessibility isn't allowed for later.dog yet.");
-    expect(computerPermissionReason(["screen"], "later.dog")).toBe("Screen Recording isn't allowed for later.dog yet.");
-    expect(computerPermissionReason(["accessibility", "screen"], "later.dog")).toBe("Accessibility and Screen Recording aren't allowed for later.dog yet.");
   });
 });
 

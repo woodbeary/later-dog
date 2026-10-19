@@ -1548,6 +1548,7 @@ export function reducer(state: AppState, action: Action): AppState {
         botSettingsSection: action.section ?? (selectedId !== state.selectedId ? "overview" : state.botSettingsSection),
         botSettingsExpandAccordion: open ? action.section !== undefined : false,
         appSettingsOpen: open ? false : state.appSettingsOpen,
+        takeoverIntent: open ? state.takeoverIntent : null,
       };
     }
     case "togglePlugins": {
@@ -1598,7 +1599,6 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         computerOpen: open,
         cloudTaskId: null,
-        takeoverIntent: open ? state.takeoverIntent : null,
         settingsOpen: open ? false : state.settingsOpen,
         appSettingsOpen: open ? false : state.appSettingsOpen,
       };

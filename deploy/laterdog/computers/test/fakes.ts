@@ -79,12 +79,14 @@ export class FakeContainer {
   }
 
   readonly execs: Array<{ cmd: string[]; options: ContainerExecOptions | undefined }> = [];
+  readonly stdins: Uint8Array[] = [];
   failCommands: Error | undefined;
   reply: ((cmd: string[]) => { exitCode?: number; stdout?: Uint8Array | string; stderr?: string } | undefined) | undefined;
 
   async exec(cmd: string[], options?: ContainerExecOptions): Promise<{ exitCode: Promise<number>; stdout: ReadableStream<Uint8Array> | null; stderr: ReadableStream<Uint8Array> | null; kill(): void }> {
     this.execs.push({ cmd, options });
     if (this.failCommands && cmd.includes("-lc")) throw this.failCommands;
+    if (options?.stdin) this.stdins.push(new Uint8Array(await new Response(options.stdin as ReadableStream<Uint8Array>).arrayBuffer()));
     const answered = this.reply?.(cmd);
     const stream = (value: Uint8Array | string | undefined) => (value === undefined ? null : (new Blob([value]).stream() as ReadableStream<Uint8Array>));
     return { exitCode: Promise.resolve(answered?.exitCode ?? 0), stdout: stream(answered?.stdout), stderr: stream(answered?.stderr), kill: () => undefined };
@@ -113,6 +115,8 @@ function fakeState(slot: Slot, container?: FakeContainer): DurableObjectState {
       put: (key: string, value: unknown) => {
         values.set(key, structuredClone(value));
       },
+      delete: (key: string) => values.delete(key),
+      keys: () => [...values.keys()],
     },
     getAlarm: async () => slot.alarm,
     setAlarm: async (at: number | Date) => {
