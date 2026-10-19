@@ -1,5 +1,5 @@
 import type { Refusal } from "./auth";
-import { TIERS, type Tier } from "./gateway";
+import type { Tier } from "./gateway";
 
 export const VOICE_MODEL = "@cf/deepgram/aura-2-en";
 export const VOICE_MAX_CHARS = 2_500;
@@ -67,23 +67,36 @@ export const ELEVENLABS_MODEL_ID = "eleven_flash_v2_5";
 export const ELEVENLABS_ENGINE = `elevenlabs/${ELEVENLABS_MODEL_ID}`;
 export const AURA_FORMAT = "mp3";
 
-export type ElevenLabsVoice = { key?: string; charsPerDay: number; tiers: readonly Tier[] };
+export const ELEVENLABS_PLAN_CHARS_PER_DAY = 1_000;
+export const ELEVENLABS_TIER: Tier = "plan";
 
-function tiersFrom(value: string | undefined): readonly Tier[] {
-  const named = (value ?? "").split(",").map((tier) => tier.trim()).filter(Boolean);
-  if (named.length === 0) return TIERS;
-  return TIERS.filter((tier) => named.includes(tier));
+export type ElevenLabsVoice = { key?: string; charsPerDay: number; planCharsPerDay: number };
+
+function positiveCount(value: string | undefined, fallback?: number): number | null {
+  const text = value?.trim() ?? "";
+  if (!text && fallback !== undefined) return fallback;
+  if (!/^\d+$/.test(text)) return null;
+  const count = Number.parseInt(text, 10);
+  return Number.isSafeInteger(count) && count > 0 ? count : null;
 }
 
 export function elevenLabsVoice(env: Env): ElevenLabsVoice | null {
-  const charsPerDay = Number.parseInt(env.ELEVENLABS_CHARS_PER_DAY?.trim() ?? "", 10);
-  if (!Number.isSafeInteger(charsPerDay) || charsPerDay <= 0) return null;
-  const tiers = tiersFrom(env.ELEVENLABS_TIERS);
+  const charsPerDay = positiveCount(env.ELEVENLABS_CHARS_PER_DAY);
+  const planCharsPerDay = positiveCount(env.ELEVENLABS_PLAN_CHARS_PER_DAY, ELEVENLABS_PLAN_CHARS_PER_DAY);
+  if (charsPerDay === null || planCharsPerDay === null) return null;
   const mode = env.ELEVENLABS_MODE?.trim();
-  if (mode === "byok") return { charsPerDay, tiers };
+  if (mode === "byok") return { charsPerDay, planCharsPerDay };
   const key = env.ELEVENLABS_API_KEY?.trim();
-  if (mode === "secret" && key) return { key, charsPerDay, tiers };
+  if (mode === "secret" && key) return { key, charsPerDay, planCharsPerDay };
   return null;
+}
+
+export function elevenLabsFor(env: Env, tier: Tier | null): ElevenLabsVoice | null {
+  return tier === ELEVENLABS_TIER ? elevenLabsVoice(env) : null;
+}
+
+export function elevenLabsBudget(voice: ElevenLabsVoice) {
+  return { kind: "elevenlabs_chars" as const, perKey: 0, perFullKey: voice.planCharsPerDay, total: voice.charsPerDay };
 }
 
 export function elevenLabsRequest(request: SpeechRequest, key?: string) {

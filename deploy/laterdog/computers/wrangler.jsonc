@@ -55,7 +55,7 @@
     "TYPING_AI_MODEL": "@cf/meta/llama-3.2-3b-instruct",
     "ELEVENLABS_MODE": "off",
     "ELEVENLABS_CHARS_PER_DAY": "0",
-    "ELEVENLABS_TIERS": "",
+    "ELEVENLABS_PLAN_CHARS_PER_DAY": "1000",
     "TRANSCRIBE_AI_MODEL": "@cf/deepgram/nova-3",
     "SQUARE_API_VERSION": "2026-05-20",
     "SQUARE_LOCATION_ID": "L7GC619QNDQ55",

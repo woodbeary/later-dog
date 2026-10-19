@@ -5,7 +5,7 @@ import { MINUTE } from "../src/idle";
 import { type McpBackend, type McpComputerOp, handleMcp } from "../src/mcp";
 import { MCP_PROTOCOL_VERSIONS, TOOLS } from "../src/mcp-tools";
 import { ROOM_ROUTING_INSTRUCTIONS } from "../src/decide";
-import { ORIGIN, OWNER_KEY, type World, apiRequest, body, siteverify, startTrial, trialKey, world, viaGateway } from "./fakes";
+import { ORIGIN, OWNER_KEY, type World, apiRequest, body, givePlan, siteverify, startTrial, trialKey, world, viaGateway } from "./fakes";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -43,13 +43,6 @@ const clefAnswer = (screen = "ready", changed = 0.9) => ({
   model: "clef-flash",
   answers: { screen: { type: "choice", choice: screen, probabilities: { [screen]: 0.97 } }, changed: { type: "noul", noul: changed } },
 });
-
-async function givePlan(w: World, key: string, status: "active" | "canceled" = "active", periodEnd = Date.now() + 30 * DAY) {
-  const keySha256 = await sha256Hex(key);
-  const registry = w.trials.named("trials");
-  registry.planPending({ keySha256, ref: "r".repeat(32), linkId: "link", orderId: "order" });
-  await registry.applyPlan({ keySha256, customerId: "cust", subscriptionId: "sub", status, periodEnd, limitMs: 40 * 60 * MINUTE, graceMs: 3 * DAY });
-}
 
 async function withDecisions(answers: unknown[] = [clefAnswer()], plan = false) {
   let at = 0;

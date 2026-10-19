@@ -3,7 +3,7 @@ import { sha256Hex } from "../src/auth";
 import { CLEF_MODEL, KEY_CHECK_QUESTION, KEY_CHECK_STATE, ROOM_ROUTING_INSTRUCTIONS } from "../src/decide";
 import { DAY } from "../src/trial";
 import { INCLUDED_VOICES, VOICE_MODEL, audioBytes } from "../src/voice";
-import { ORIGIN, apiRequest, body, siteverify, startTrial, trialKey, world, viaGateway } from "./fakes";
+import { ORIGIN, apiRequest, body, givePlan, siteverify, startTrial, trialKey, world, viaGateway } from "./fakes";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -181,15 +181,17 @@ describe("included voice", () => {
 
   it("falls back to the Aura voices when ElevenLabs refuses", async () => {
     const { w, run, key, gatewayRun } = await included(OWN_ELEVENLABS_KEY, "down");
+    await givePlan(w, key);
     const audio = await w.fetch(speak(key, INCLUDED_VOICES[7]!.voice_id, "Hello."));
     expect(audio.status).toBe(200);
     expect(new TextDecoder().decode(await audio.arrayBuffer())).toBe("ID3-mp3-bytes");
     expect(gatewayRun).toHaveBeenCalledTimes(1);
-    expect(run).toHaveBeenCalledWith(VOICE_MODEL, { text: "Hello.", speaker: "zeus", encoding: "mp3" }, await viaGateway(key));
+    expect(run).toHaveBeenCalledWith(VOICE_MODEL, { text: "Hello.", speaker: "zeus", encoding: "mp3" }, await viaGateway(key, "plan"));
   });
 
-  it("speaks with later.dog's own ElevenLabs key through the AI Gateway when switched on, logging no content", async () => {
+  it("speaks to a plan key with later.dog's own ElevenLabs key through the AI Gateway when switched on, logging no content", async () => {
     const { w, run, key, gateway, gatewayRun } = await included(OWN_ELEVENLABS_KEY);
+    await givePlan(w, key);
     const audio = await w.fetch(speak(key, INCLUDED_VOICES[1]!.voice_id, "Hello."));
     expect(audio.status).toBe(200);
     expect(await audio.text()).toBe("mp3-from-elevenlabs");

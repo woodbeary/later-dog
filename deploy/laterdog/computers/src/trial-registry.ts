@@ -252,6 +252,10 @@ export class TrialRegistry extends DurableObject<Env> {
     return { trial, fullAllowance: home || this.planPaid(keySha256), home };
   }
 
+  tierFor(keySha256: string): Tier | null {
+    return this.find(keySha256) ? this.tierOf(keySha256) : null;
+  }
+
   private renewed(id: string): boolean {
     const row = this.ctx.storage.sql.exec<{ expires_at: number }>("SELECT expires_at FROM trials WHERE id = ?", id).toArray()[0];
     if (row && row.expires_at > Date.now()) {

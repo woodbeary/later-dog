@@ -32,7 +32,7 @@ import { trialPage, trialPageHeaders } from "./trial-page";
 import { type PlanRow, planPolicy, trials } from "./trial-registry";
 import { cancelSubscription, createPlanLink, customerPlan, orderCustomer, paidThrough, squareConfigured, subscription } from "./square";
 import { messagePage, newNonce } from "./viewer";
-import { AURA_FORMAT, ELEVENLABS_ENGINE, type ElevenLabsVoice, type SpeechRequest, VOICE_CHARS_PER_DAY, VOICE_MODEL, audioBytes, auraSpeaker, elevenLabsRequest, elevenLabsVoice, includedVoices, speechRequest, voiceInput } from "./voice";
+import { AURA_FORMAT, ELEVENLABS_ENGINE, type ElevenLabsVoice, type SpeechRequest, VOICE_CHARS_PER_DAY, VOICE_MODEL, audioBytes, auraSpeaker, elevenLabsBudget, elevenLabsFor, elevenLabsRequest, elevenLabsVoice, includedVoices, speechRequest, voiceInput } from "./voice";
 import { TRANSCRIBE_MAX_BYTES, TRANSCRIBE_SECONDS_PER_DAY, TRANSCRIBE_SECONDS_TOTAL_PER_DAY, takesGateway, transcribeInput, transcribeModel, transcriptFrom, transcriptionRequest } from "./transcribe";
 import { type GatewayMetadata, gatewayId, gatewayMetadata, gatewayOptions, withMetadata } from "./gateway";
 import { type MessagesRequest, anthropicBudget, anthropicFirst, anthropicGatewayRequest, anthropicModel, chatCompletion, chatCompletionStream, messagesRequest } from "./anthropic";
@@ -52,7 +52,7 @@ declare global {
     ELEVENLABS_API_KEY?: string;
     ELEVENLABS_MODE?: string;
     ELEVENLABS_CHARS_PER_DAY?: string;
-    ELEVENLABS_TIERS?: string;
+    ELEVENLABS_PLAN_CHARS_PER_DAY?: string;
     TRANSCRIBE_AI_MODEL?: string;
     SQUARE_ACCESS_TOKEN?: string;
     SQUARE_ENVIRONMENT?: string;
@@ -640,8 +640,10 @@ async function completeHandler(request: Request, env: Env): Promise<Response> {
 
 async function voicesRequest(request: Request, env: Env): Promise<Response> {
   if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
-  if (!includedKey(request)) return apiError(NO_TRIAL, CHALLENGE);
-  return json({ voices: includedVoices(Boolean(elevenLabsVoice(env))) });
+  const token = includedKey(request);
+  if (!token) return apiError(NO_TRIAL, CHALLENGE);
+  const tier = elevenLabsVoice(env) ? await trials(env).tierFor(await sha256Hex(token)) : null;
+  return json({ voices: includedVoices(Boolean(elevenLabsFor(env, tier))) });
 }
 
 function audioResponse(audio: Audio, engine: "elevenlabs" | "aura", cached: boolean): Response {
@@ -652,8 +654,7 @@ async function elevenLabsSpeech(env: Env, voice: ElevenLabsVoice, request: Speec
   const key: SpeechKey = { engine: ELEVENLABS_ENGINE, voice: request.voiceId, format: request.outputFormat, text: request.text };
   const cached = await cache.find(key);
   if (cached) return audioResponse(cached, "elevenlabs", true);
-  const budget = { kind: "elevenlabs_chars" as const, perKey: voice.charsPerDay, perFullKey: voice.charsPerDay, total: voice.charsPerDay };
-  const held = await reserveTokens(trials(env), keySha256, budget, request.text.length);
+  const held = await reserveTokens(trials(env), keySha256, elevenLabsBudget(voice), request.text.length);
   if (!held.ok) return null;
   const upstream = await env.AI.gateway(gatewayId(env)).run(withMetadata(elevenLabsRequest(request, voice.key), metadata)).catch((error: unknown) => {
     console.error(`laterdog computers: speech failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -696,8 +697,8 @@ async function speakRequest(request: Request, env: Env, url: URL, voiceId: strin
   const metadata = gatewayMetadata(keySha256, allowance.tier);
   const cache = new SpeechCache(edgeSpeechStore(), url.origin, waitUntil);
   try {
-    const voice = elevenLabsVoice(env);
-    if (voice?.tiers.includes(allowance.tier)) {
+    const voice = elevenLabsFor(env, allowance.tier);
+    if (voice) {
       const spoken = await elevenLabsSpeech(env, voice, parsed.request, keySha256, metadata, cache);
       if (spoken) return spoken;
     }

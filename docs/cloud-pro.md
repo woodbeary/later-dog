@@ -19,11 +19,12 @@ stays free.
   the app offers it when a trial runs low or ends. Whether the website shows
   the price is an open launch decision.
 
-Speech runs on Aura-2 for every tier. ElevenLabs voice is used only when
-`ELEVENLABS_MODE` is `byok` or `secret` and `ELEVENLABS_CHARS_PER_DAY` is above
-0; the defaults (`off`, `0`) keep every tier on Aura-2. `ELEVENLABS_TIERS`
-narrows it to the tiers it names, and empty means all tiers, so it is not an off
-switch. See `deploy/laterdog/computers/README.md` for the budget.
+Speech runs on Aura-2 for every tier. ElevenLabs voice is only for the plan:
+when `ELEVENLABS_MODE` is `byok` or `secret` and `ELEVENLABS_CHARS_PER_DAY` is
+above 0, each plan key gets `ELEVENLABS_PLAN_CHARS_PER_DAY` (1,000 by default)
+ElevenLabs characters a day, then Aura-2. Trial and home keys never reach
+ElevenLabs. The defaults (`off`, `0`) keep every tier on Aura-2. See
+`deploy/laterdog/computers/README.md` for the budget.
 
 ## Today, on Cloudflare
 

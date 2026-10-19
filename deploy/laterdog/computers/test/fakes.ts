@@ -1,5 +1,7 @@
 import { vi } from "vitest";
 import { sha256Hex } from "../src/auth";
+import { MINUTE } from "../src/idle";
+import { DAY } from "../src/trial";
 import { FakeSocket, RFB_BANNER } from "./fake-socket";
 import worker, { ComputerRegistry, DogComputer, TrialRegistry } from "../src/index";
 
@@ -270,4 +272,11 @@ export async function body(response: Response): Promise<any> {
 
 export async function viaGateway(key: string, tier: "trial" | "home" | "plan" = "trial") {
   return { gateway: { id: "default", collectLog: false, metadata: { user: (await sha256Hex(key)).slice(0, 16), tier } } };
+}
+
+export async function givePlan(w: World, key: string, status: "active" | "canceled" = "active", periodEnd = Date.now() + 30 * DAY) {
+  const keySha256 = await sha256Hex(key);
+  const registry = w.trials.named("trials");
+  registry.planPending({ keySha256, ref: keySha256.slice(0, 32), linkId: "link", orderId: "order" });
+  await registry.applyPlan({ keySha256, customerId: "cust", subscriptionId: "sub", status, periodEnd, limitMs: 40 * 60 * MINUTE, graceMs: 3 * DAY });
 }

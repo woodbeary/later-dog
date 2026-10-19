@@ -354,11 +354,13 @@ allowance per key and one for all keys together, reset at midnight UTC and kept 
 - Speech (`POST /v1/voice/text-to-speech/:voice`) runs on Aura-2 (`@cf/deepgram/aura-2-en`), 10,000 characters a day
   per key and 400,000 for all keys. ElevenLabs (Flash v2.5) is used only when `ELEVENLABS_MODE` is `byok` (the AI
   Gateway adds its stored ElevenLabs key, so the Worker sends no `xi-api-key`) or `secret` (the Worker sends its
-  `ELEVENLABS_API_KEY` secret), and `ELEVENLABS_CHARS_PER_DAY` is above 0. That number is one daily budget of ElevenLabs
-  characters for all keys together, reserved before each call and given back when ElevenLabs fails. `ELEVENLABS_TIERS`
-  (comma-separated `trial`, `home`, `plan`; empty means all) limits which keys get it. When the budget is used up, the
-  key's tier is left out, or ElevenLabs answers anything but audio, the speech comes from Aura-2. The defaults
-  (`off`, `0`, empty) keep everyone on Aura-2. The ElevenLabs key's own credit quota stays the hard cap.
+  `ELEVENLABS_API_KEY` secret), and `ELEVENLABS_CHARS_PER_DAY` is above 0, and only for keys on the $10 plan: trial
+  and free home keys always get Aura-2. Each plan key gets `ELEVENLABS_PLAN_CHARS_PER_DAY` ElevenLabs characters a day
+  (1,000 when unset; `0` or anything that is not a whole number turns ElevenLabs off), and `ELEVENLABS_CHARS_PER_DAY`
+  stays one daily budget for all plan keys together on top of that. Both are reserved before each call and given back
+  when ElevenLabs fails. When either is used up, or ElevenLabs answers anything but audio, the speech comes from
+  Aura-2; the voice list shows the ElevenLabs labels only to plan keys. The defaults (`off`, `0`, `1000`) keep everyone
+  on Aura-2. The ElevenLabs credit is a one-time balance, so its own quota stays the hard cap.
 - Spoken audio is kept in the edge Cache API for 30 days, keyed by the SHA-256 of engine, voice, format and text, because
   the AI Gateway does not cache audio. A repeat is served from the cache with no model call and no ElevenLabs
   characters; it still counts against the key's own daily characters. Responses say which engine spoke in
