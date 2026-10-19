@@ -54,19 +54,21 @@ jobs:
           export_tree "$FULL" full-fs
           sudo rsync -rlpgoD --checksum --numeric-ids --delete --dry-run --exclude=/proc --exclude=/sys --exclude=/dev --exclude=/.dockerenv --exclude=/etc/hosts --exclude=/etc/hostname --exclude=/etc/resolv.conf --out-format='%i|%n' full-fs/ base-fs/ > changes.txt
           grep -v '^\*deleting' changes.txt | cut -d'|' -f2- | sed 's#/$##' | grep -v '^\.\?$' > changed.txt || true
-          grep '^\*deleting' changes.txt | cut -d'|' -f2- | sed 's#/$##' > deleted.txt || true
+          grep '^\*deleting' changes.txt | cut -d'|' -f2- | sed 's#/$##; s#^#/#' > deleted.txt || true
           mkdir -p ctx
           sudo tar -C full-fs --numeric-owner --no-recursion -cpf ctx/delta.tar -T changed.txt
           sudo chown "$(id -u)" ctx/delta.tar
           cp deleted.txt ctx/deleted.txt
           echo "changed $(wc -l < changed.txt), deleted $(wc -l < deleted.txt), layer $(du -h ctx/delta.tar | cut -f1) before compression"
+          (cd full-fs && sudo find . -xdev -type f -size +5M -printf '%s %P\n' 2>/dev/null) | sort -rn > big.txt || true
+          grep -Fxf changed.txt <(cut -d' ' -f2- big.txt) | head -15 | while read -r f; do echo "big change: $(grep -F " $f" big.txt | head -1)"; done || true
       - name: Build the delta image on top of it
         working-directory: ${{ runner.temp }}
         run: |
           {
             echo "FROM $BASE"
             echo "ADD delta.tar /"
-            if [ -s deleted.txt ]; then echo 'RUN --mount=type=bind,source=deleted.txt,target=/tmp/deleted.txt xargs -d "\n" -a /tmp/deleted.txt rm -rf --'; fi
+            if [ -s deleted.txt ]; then echo 'RUN --mount=type=bind,source=deleted.txt,target=/tmp/deleted.txt cd / && xargs -d "\n" -a /tmp/deleted.txt rm -rf --'; fi
           } > ctx/Dockerfile
           cat ctx/Dockerfile
           DOCKER_BUILDKIT=1 docker build -t "$DELTA" ctx
