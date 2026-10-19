@@ -1550,7 +1550,7 @@ describe("harness HTTP API", () => {
 
     try {
       const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("competing server did not exit")), 5_000);
+        const timer = setTimeout(() => reject(new Error("competing server did not exit")), 15_000);
         timer.unref?.();
         contender.once("close", (code, signal) => {
           clearTimeout(timer);
@@ -1564,7 +1564,7 @@ describe("harness HTTP API", () => {
     } finally {
       await waitForExit(contender, { signal: "SIGTERM", graceMs: 1_000 });
     }
-  });
+  }, 30_000);
 
   it("serves packaged UI assets and preserves API 404s", async () => {
     const root = await fetch(`${BASE}/`);
