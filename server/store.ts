@@ -37,6 +37,7 @@ import { exchangeName, formerNamesAfterRename } from "./laterdog/former-names.ts
 import { readOwnedJson } from "./laterdog/owned-file.ts";
 import type { DamagedData } from "../shared/damaged-data.ts";
 import { dogCanAct } from "./laterdog/dog-can-act.ts";
+import { madeForRoutineRun, mainConversation, savedRoutineRuns, type ConversationEvidence } from "./laterdog/main-conversation.ts";
 import { setAsideRemovedDogSettings } from "./laterdog/removed-dog-settings.ts";
 export type {
   BotActivity, ConnectorCardData, GroupDefaultResponder, OptionCardData,
@@ -362,6 +363,8 @@ const BOTS_FILE = join(DATA_DIR, "bots.json");
 const GROUPS_FILE = join(DATA_DIR, "groups.json");
 const THREAD_MODEL_COPIES_CLEARED = join(DATA_DIR, "thread-model-copies-cleared");
 const MAIN_TASK_MODELS_MOVED = join(DATA_DIR, "main-task-models-moved");
+const CONVERSATION_POINTERS_SETTLED = join(DATA_DIR, "conversation-pointers-settled");
+const ROUTINES_FILE = join(DATA_DIR, "routines.json");
 
 function tightenRegistryFile(file: string): void {
   if (process.platform === "win32") return;
@@ -654,6 +657,12 @@ export class Store {
       g.pinnedCwd = active.pinnedCwd;
       g.pinnedMessageId = active.pinnedMessageId;
     }
+    const settleConversationPointers = !existsSync(CONVERSATION_POINTERS_SETTLED) && bots.state !== "damaged" && groups.state !== "damaged";
+    if (settleConversationPointers) {
+      const settled = this.settleConversationPointers();
+      if (settled.bots) botsMigrated = true;
+      if (settled.groups) groupsMigrated = true;
+    }
     if (groupsMigrated) this.saveGroups();
     const clearModelCopies = !existsSync(THREAD_MODEL_COPIES_CLEARED) && (botsLoaded || !existsSync(BOTS_FILE));
     const moveMainTaskModels = !existsSync(MAIN_TASK_MODELS_MOVED) && (botsLoaded || !existsSync(BOTS_FILE));
@@ -737,6 +746,7 @@ export class Store {
     if (botsMigrated) this.saveBots();
     if (clearModelCopies) writeFileAtomic(THREAD_MODEL_COPIES_CLEARED, "Threads follow their bot's model; the copies older builds made are cleared.\n", { mode: 0o600 });
     if (moveMainTaskModels) writeFileAtomic(MAIN_TASK_MODELS_MOVED, "Each dog's main conversation follows the dog's own model.\n", { mode: 0o600 });
+    if (settleConversationPointers) writeFileAtomic(CONVERSATION_POINTERS_SETTLED, "Each dog and group chat opens on the conversation the person last wrote in.\n", { mode: 0o600 });
     const knownThreads = new Set([
       ...this.bots.flatMap((b) => [b.threadId, ...(b.tasks ?? []).map((task) => task.threadId)]),
       ...this.groups.flatMap((group) => [group.threadId, ...(group.tasks ?? []).map((task) => task.threadId)]),
@@ -748,6 +758,35 @@ export class Store {
     this.repairThreadUpdatedAts();
     this.repairDuplicatePairConversations();
     this.registeringInitialSections = false;
+  }
+
+  private settleConversationPointers(): { bots: boolean; groups: boolean } {
+    const rooms = this.groups.filter((group) => !group.dm);
+    const threadIds = [...this.bots, ...rooms].flatMap((owner) => (owner.tasks ?? []).map((task) => task.threadId));
+    for (const threadId of threadIds) {
+      const legacyFile = messagesFile(threadId);
+      if (existsSync(legacyFile)) mdb.readThread(threadId, legacyFile);
+    }
+    const evidence: ConversationEvidence = {
+      lastWrittenByPerson: mdb.latestPersonMessageAts(threadIds),
+      madeForRoutineRun: madeForRoutineRun(savedRoutineRuns(ROUTINES_FILE)),
+    };
+    const settled = { bots: false, groups: false };
+    for (const bot of this.bots) {
+      const threadId = mainConversation(bot.threadId, bot.tasks ?? [], evidence);
+      const task = bot.tasks?.find((candidate) => candidate.threadId === threadId);
+      if (threadId === bot.threadId || !task) continue;
+      this.mirrorActiveTask(bot, task);
+      settled.bots = true;
+    }
+    for (const group of rooms) {
+      const threadId = mainConversation(group.threadId, group.tasks ?? [], evidence);
+      const task = group.tasks?.find((candidate) => candidate.threadId === threadId);
+      if (threadId === group.threadId || !task) continue;
+      this.mirrorActiveGroupTask(group, task);
+      settled.groups = true;
+    }
+    return settled;
   }
 
   private noteThreadActivity(threadId: string, at: number): void {
@@ -1096,13 +1135,17 @@ export class Store {
     return task;
   }
 
+  private mirrorActiveGroupTask(group: GroupRecord, task: GroupTaskRecord) {
+    group.threadId = task.threadId;
+    group.pinnedCwd = task.pinnedCwd;
+    group.pinnedMessageId = task.pinnedMessageId;
+  }
+
   switchGroupTask(groupId: string, threadId: string): GroupRecord | null {
     const group = this.group(groupId);
     const task = group?.tasks?.find((candidate) => candidate.threadId === threadId);
     if (!group || group.dm || !task) return null;
-    group.threadId = task.threadId;
-    group.pinnedCwd = task.pinnedCwd;
-    group.pinnedMessageId = task.pinnedMessageId;
+    this.mirrorActiveGroupTask(group, task);
     this.saveGroups();
     this.emit({ type: "group", groupId });
     return group;
