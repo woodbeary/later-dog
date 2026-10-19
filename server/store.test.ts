@@ -1033,6 +1033,15 @@ describe("Store", () => {
     const persisted: BotRecord[] = JSON.parse(readFileSync(join(DATA_DIR, "bots.json"), "utf8"));
     expect(persisted.find((candidate) => candidate.id === bot.id)).not.toHaveProperty("outbound");
     expect(persisted.find((candidate) => candidate.id === bot.id)).not.toHaveProperty("connectorScopes");
+    const setAside = JSON.parse(readFileSync(join(DATA_DIR, "removed-dog-settings.json"), "utf8"));
+    expect(setAside).toEqual([{
+      id: bot.id, name: bot.name,
+      outbound: { policy: "allow", dailyCap: 5 },
+      connectorScopes: { apps: { gmail: "read" } },
+      removedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
+    }]);
+    new Store(selection);
+    expect(JSON.parse(readFileSync(join(DATA_DIR, "removed-dog-settings.json"), "utf8"))).toEqual(setAside);
   });
 
   it.each(["prepared", "confirmed", "activated", "committed"] as const)("revokes a thread-scoped grant after restart in phase %s", (phase) => {

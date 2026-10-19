@@ -37,6 +37,7 @@ import { exchangeName, formerNamesAfterRename } from "./laterdog/former-names.ts
 import { readOwnedJson } from "./laterdog/owned-file.ts";
 import type { DamagedData } from "../shared/damaged-data.ts";
 import { dogCanAct } from "./laterdog/dog-can-act.ts";
+import { setAsideRemovedDogSettings } from "./laterdog/removed-dog-settings.ts";
 export type {
   BotActivity, ConnectorCardData, GroupDefaultResponder, OptionCardData,
   SecretRequestCardData, Surface, TaskClosedBy, TaskOpenedBy, TaskUsage,
@@ -509,6 +510,7 @@ export class Store {
     let botsMigrated = false;
     const browserProfileAliases = loadBrowserProfileIdAliases();
     let groupsMigrated = false;
+    if (setAsideRemovedDogSettings(DATA_DIR, this.bots)) botsMigrated = true;
     for (const b of this.bots) {
       if (b.busy || (b.activity !== undefined && b.activity !== "idle")) botsMigrated = true;
       b.busy = false;
@@ -544,12 +546,6 @@ export class Store {
       }
       if (b.approvalMode !== undefined && !isApprovalMode(b.approvalMode)) {
         delete b.approvalMode;
-        botsMigrated = true;
-      }
-      const retiredTrust = b as { outbound?: unknown; connectorScopes?: unknown };
-      if (retiredTrust.outbound !== undefined || retiredTrust.connectorScopes !== undefined) {
-        delete retiredTrust.outbound;
-        delete retiredTrust.connectorScopes;
         botsMigrated = true;
       }
       if (b.approvalGrant !== undefined) {
