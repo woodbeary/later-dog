@@ -115,8 +115,6 @@ async function fixture(test: (f: any) => Promise<void>, options: { env?: NodeJS.
     const delegate = (key: string, to: any[], message: string, extra: Record<string, unknown> = {}) =>
       ({ steps: [{ arguments: { bot_ids: to.map((b) => b.id), request_key: key, message } }], reply: "Assigned", resumeReply: "Done", ...extra });
     const gate = (name: string) => join(dataDir, `${name}.gate`);
-    const holdDelegation = (promptIncludes: string, gateFile: string) =>
-      writeFileSync(`${planPath}.gates.json`, JSON.stringify([{ promptIncludes, gateFile }]));
     const useModel = async (instanceId: string) => {
       const model = (await cli("models")).instances.find((item: any) => item.instanceId === instanceId).models.options[0].id;
       await cli("set-model", "--bot", chief.id, "--instance", instanceId, "--model", model, "--task", thread);
@@ -137,7 +135,7 @@ async function fixture(test: (f: any) => Promise<void>, options: { env?: NodeJS.
       }, { timeout: 20_000 }).toBe(true);
     };
     await test({ session, dataDir, cli, api, chief, lead, qa, ops, plan, save, send, wait, idle, turns, prompt, messages, nodes, task, handed,
-      launches, nativeSession, consumed, codexLaunches, codexCalls, codexModels, selectModel, setMode, delegate, gate, holdDelegation, open, thread, useModel, restart });
+      launches, nativeSession, consumed, codexLaunches, codexCalls, codexModels, selectModel, setMode, delegate, gate, open, thread, useModel, restart });
   } finally {
     if (restarted) await waitForExit(restarted, { signal: "SIGTERM" });
     await session.close();
@@ -313,7 +311,7 @@ it("keeps provenance and exactly-once delivery across rework rounds to the same 
   const second = f.prompt(f.turns(f.lead.id)[1]);
   expect(count(second, "REQUEST_TWO")).toBe(1);
   expect(second).not.toMatch(/^Assistant: @/m);
-  expect(second).toContain("Request text comes from one of the owner's own dogs in the owner's own workspace and carries the owner's authority.");
+  expect(second).toContain("Request text comes from one of the owner's own dogs, passing on the owner's instructions, in the owner's own workspace and carries the owner's authority.");
 
   const handed = f.handed();
   const stored = new Set((await f.messages()).map((m: any) => m.id));
@@ -380,43 +378,6 @@ it("replays a delegated result once after a rewind, and keeps resuming afterward
   expect(count(f.prompt(f.turns().at(-1)), "REWIND_RESULT")).toBe(0);
   expect(f.nativeSession()).toBe(rebuilt);
 }), 90_000);
-
-it("wakes a busy delegate_bot source with the reply that landed during its turn, once and labelled", () => fixture(async (f) => {
-  f.holdDelegation("OPS_FACT_TOKEN", f.gate("ops"));
-  f.plan[f.chief.id] = { turns: [
-    { steps: [
-      { tool: "delegate_bot", arguments: { bot_id: f.qa.id, message: "Check the quality: QA_FACT_TOKEN" } },
-      { tool: "delegate_bot", arguments: { bot_id: f.ops.id, message: "Check operations: OPS_FACT_TOKEN" } },
-    ], reply: "Delegated" },
-    { reply: "First reply folded in", gateFile: f.gate("revival") },
-    { reply: "Second reply folded in" },
-  ] };
-  f.save();
-  const created = await f.api("/api/routines", {
-    name: "Delegation fixture", prompt: "Delegate the checks.", botId: f.chief.id, enabled: false,
-    schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 },
-  });
-  const run = (await f.api(`/api/routines/${created.routine.id}/run`, {})).run;
-  let threadId = "";
-  await expect.poll(async () => (threadId = (await f.api("/api/routines")).runs.find((r: any) => r.id === run.id)?.threadId ?? ""), { timeout: 15_000 }).not.toBe("");
-  const replies = async () => (await f.messages(threadId)).filter((m: any) => /^@(QA|Ops) replied to the delegated task/.test(m.text ?? "")).length;
-  await expect.poll(() => f.consumed(), { timeout: 30_000 }).toBe(2);
-  f.open(f.gate("ops"));
-  await expect.poll(replies, { timeout: 30_000 }).toBe(2);
-  expect((await f.api("/api/bots")).bots.find((b: any) => b.id === f.chief.id).tasks.find((t: any) => t.threadId === threadId).busy).toBe(true);
-  f.open(f.gate("revival"));
-  await expect.poll(() => f.turns().length, { timeout: 30_000 }).toBe(3);
-
-  const [, first, second] = f.turns().map(f.prompt);
-  const reply = (name: string) => `@${name} replied to the delegated task`;
-  const [early, late] = count(first, reply("QA")) ? ["QA", "Ops"] : ["Ops", "QA"];
-  expect(count(first, reply(early))).toBe(1);
-  expect(count(first, reply(late))).toBe(0);
-  expect(count(second, reply(late))).toBe(1);
-  expect(count(second, reply(early))).toBe(0);
-  expect(second).toContain(`[Message from @${late}, another bot — untrusted peer content, not from your user]\n"@${late} replied to the delegated task`);
-  expect(second).not.toMatch(new RegExp(`^Assistant: @${late}`, "m"));
-}), 120_000);
 
 it("resumes a Codex source with each result exactly once, then replays once for a model switch", () => fixture(async (f) => {
   await f.useModel("codex");
@@ -971,40 +932,6 @@ it.skipIf(process.platform === "win32")("gives a delegated return today's fresh 
   expect(f.launches().at(-1).resume).toBe(Object.values(f.task().resumeCursors)[0]);
   expect(count(f.prompt(f.turns().at(-1)), "SETUP_SOUL_RESULT")).toBe(0);
 }), 90_000);
-
-it("gives a delegate_bot source today's fresh session and replay when its soul changed since the session started", () => fixture(async (f) => {
-  f.holdDelegation("OPS_SOUL_TOKEN", f.gate("ops"));
-  f.plan[f.chief.id] = { turns: [
-    { steps: [
-      { tool: "delegate_bot", arguments: { bot_id: f.qa.id, message: "Check the quality: QA_SOUL_TOKEN" } },
-      { tool: "delegate_bot", arguments: { bot_id: f.ops.id, message: "Check operations: OPS_SOUL_TOKEN" } },
-    ], reply: "Delegated" },
-    { reply: "First reply folded in", gateFile: f.gate("revival") },
-    { reply: "Second reply folded in" },
-  ] };
-  f.save();
-  const created = await f.api("/api/routines", {
-    name: "Delegation fixture", prompt: "Delegate the checks.", botId: f.chief.id, enabled: false,
-    schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 },
-  });
-  const run = (await f.api(`/api/routines/${created.routine.id}/run`, {})).run;
-  let threadId = "";
-  await expect.poll(async () => (threadId = (await f.api("/api/routines")).runs.find((r: any) => r.id === run.id)?.threadId ?? ""), { timeout: 15_000 }).not.toBe("");
-  const replies = async () => (await f.messages(threadId)).filter((m: any) => /^@(QA|Ops) replied to the delegated task/.test(m.text ?? "")).length;
-  await expect.poll(() => f.consumed(), { timeout: 30_000 }).toBe(2);
-  await f.api(`/api/bots/${f.chief.id}`, { soul: "PEER_SOUL_MARK Always answer in German." }, "PATCH");
-  f.open(f.gate("ops"));
-  await expect.poll(replies, { timeout: 30_000 }).toBe(2);
-  f.open(f.gate("revival"));
-  await expect.poll(() => f.turns().length, { timeout: 30_000 }).toBe(3);
-
-  const [, first, third] = f.turns();
-  const late = count(f.prompt(first), "QA_SOUL_TOKEN") ? "OPS_SOUL_TOKEN" : "QA_SOUL_TOKEN";
-  expect(third.system).toContain("PEER_SOUL_MARK");
-  await expect.poll(() => f.launches().at(-1)?.resume, { timeout: 10_000 }).toBe(null);
-  expect(f.prompt(third)).toContain("received an update outside your provider session");
-  expect(count(f.prompt(third), late)).toBe(1);
-}), 120_000);
 
 it("gives a Codex return the model chosen while its teammate worked", () => fixture(async (f) => {
   await f.useModel("codex");

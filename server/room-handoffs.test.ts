@@ -29,6 +29,24 @@ describe("addressed room request tree", () => {
     expect(hooks.run).toHaveBeenCalledTimes(2);
     expect(engine.nodes.get("turn")?.status).toBe("completed");
   }));
+  it("names the person who drove the source as the requester of every running node in its tree, and keeps it across a reload", () => fixture(async (engine, hooks, file) => {
+    const chief = { botId: "chief", threadId: "chief-chat" };
+    const lead = { botId: "lead", threadId: "lead-chat" };
+    const reviewer = { botId: "reviewer", threadId: "reviewer-chat" };
+    const seen: Array<[string, string | undefined]> = [];
+    hooks.run = vi.fn(async (node, resumed) => {
+      seen.push([node.botId, engine.runningRequester(node.threadId)]);
+      if (node.botId === lead.botId && !resumed) engine.enqueue(lead, "unused", node.id, reviewer, "review", "Verify it", false, false, "", undefined, "bob@example.test");
+      return { ok: true, text: "done" };
+    });
+    engine.enqueue(chief, "turn", undefined, lead, "build", "Build it", false, false, "Build it", undefined, "ada@example.test");
+    expect(engine.runningRequester(lead.threadId)).toBeUndefined();
+    engine.sourceSettled("turn", true);
+    for (let i = 0; i < 8; i++) { engine.tick(); await flush(); }
+    expect(seen).toEqual(expect.arrayContaining([["lead", "ada@example.test"], ["reviewer", "ada@example.test"]]));
+    expect(engine.runningRequester(lead.threadId)).toBeUndefined();
+    expect(new RoomHandoffs(file, hooks).nodes.get("turn")?.requestedBy).toBe("ada@example.test");
+  }));
   it("keeps same-room work queued until the current speaker settles", () => fixture(async (engine, hooks) => {
     const child = engine.enqueue(addr("A"), "turn", undefined, { ...addr("A"), botId: "peer" }, "review", "Review it").node;
     engine.tick(); await flush();

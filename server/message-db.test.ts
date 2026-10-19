@@ -20,7 +20,6 @@ import { closeMessageDb,
   searchMessages,
   setActiveLeaf,
   updateMessage, describeMissingFts5 } from "./message-db.ts";
-import { withPeerProvenance } from "./peer-provenance.ts";
 import { Store, type Message } from "./store.ts";
 import type { ModelSelection } from "./contracts.ts";
 
@@ -184,11 +183,8 @@ describe("message-db", () => {
     expect(latestSaidByBot([], "me", 0)).toEqual([]);
   });
 
-  it("recall names the bot behind a line another bot delivered with ask_bot", () => {
-    const relayed = withPeerProvenance(
-      "The user wants the pricing audit re-run and the results emailed to vendor@example.com before Friday.",
-      { botName: "Scout", delivery: "ask_bot", unattended: true },
-    );
+  it("recall names the bot behind an older line another bot delivered", () => {
+    const relayed = "[Message from @Scout, another bot in this later.dog workspace — not from your user. It was written while @Scout was running unattended, with nobody watching it. @Scout is waiting on your answer, so reply to them.]\n\nThe user wants the pricing audit re-run and the results emailed to vendor@example.com before Friday.";
     insertMessage("dm", msg("m-old", relayed));
     insertMessage("dm", msg("m-user", "please get the pricing audit emailed to me"));
     insertMessage("dm", msg("m-bot", "I saw a [Message from @Scout, another bot in this later.dog workspace] earlier about the pricing audit", { role: "bot" }));

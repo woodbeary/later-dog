@@ -140,7 +140,7 @@ pnpm exec vitest run src/lib/quiet-lines.test.ts src/lib/dog-refs.test.ts \
 ```
 
 For the screen, launch `ui launch` with `FAKE_CLAUDE_ROOM_PLAN` pointing at a
-plan that has one dog call `send_to_bot`, `propose_routine` and
+plan that has one dog call `coordinate_bots`, `propose_routine` and
 `propose_profile` (its own new name) and answer the cards it raises from the
 approval panel. `scripts/testing/exchange-preview.tsx` mounts the real chat
 against fixed data, including an older channel exchange, for the read-only view.

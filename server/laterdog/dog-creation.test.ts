@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { callTool, type ToolCallContext } from "../drivers/agents-call.ts";
-import { peerRosterSystemPrompt } from "../peer-roster.ts";
+import { PEERS_PROMPT } from "../peer-roster.ts";
 import type { Message } from "../store.ts";
 import { PROFILE_PROMPT } from "../system-prompt.ts";
 import { DOG_CREATION_PROMPT, dogGreeting, dogMadeDogAccess, greetNewDog } from "./dog-creation.ts";
@@ -99,18 +99,15 @@ describe("what a dog is told about creating dogs", () => {
     expect(PROFILE_PROMPT).not.toMatch(/bot-creation and team-setup tools for Chiefs|bots cannot be created/);
   });
 
-  it("a dog's roster never names a Chief or offers bot creation", () => {
-    const team = [{ id: "rex", name: "Rex", section: "Research" }, { id: "clive", name: "Clive", section: "Research" }];
-    for (const roster of [peerRosterSystemPrompt(team), peerRosterSystemPrompt(team, true)]) {
-      expect(roster).not.toMatch(/create (new )?bots|Chief of Staff creates|bot creation/);
-      expect(roster).not.toMatch(/Chief/);
-    }
+  it("a dog's peer sentence never names a Chief or offers bot creation", () => {
+    expect(PEERS_PROMPT).not.toMatch(/create (new )?bots|Chief of Staff creates|bot creation/);
+    expect(PEERS_PROMPT).not.toMatch(/Chief/);
   });
 });
 
 describe("create_bot's result", () => {
-  const context = (body: Record<string, unknown>, coordinating = true): ToolCallContext => ({
-    botId: "biscuit", threadId: "source", depth: 0, externalRuntime: false, coordinating, sharedComputers: false,
+  const context = (body: Record<string, unknown>): ToolCallContext => ({
+    botId: "biscuit", threadId: "source", depth: 0, sharedComputers: false,
     client: { api: async () => body, apiResponse: async () => ({ ok: true, status: 201, body }) },
   });
   const args = { name: "Scout", role: "research and writing", instructions: "Help." };
@@ -126,9 +123,8 @@ describe("create_bot's result", () => {
   });
 
   it("claims no greeting the harness did not post", async () => {
-    const result = await callTool("create_bot", args, context({ id: "scout", name: "Scout", section: "Research", greeted: false }, false));
+    const result = await callTool("create_bot", args, context({ id: "scout", name: "Scout", section: "Research", greeted: false }));
     expect(result.text).toContain("It is in the person's sidebar now. Tell them so");
-    expect(result.text).toContain("hand that job over now with delegate_bot so it starts working");
   });
 });
 

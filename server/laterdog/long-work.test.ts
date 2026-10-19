@@ -5,9 +5,6 @@ import {
   LONG_WORK_TURN_MINUTES, autoContinuedLine, handoffRunNote, ownerAutoWork, ownersWork, restartLine, roomHandoffResult, roomTurnMinutes,
   runsUnattended, stalledTurnOutcome, stoppedWorkLine, timedOutAgain, turnStallDetail,
 } from "./long-work.ts";
-import {
-  MAX_OWN_THREADS_PER_TURN, MAX_TEAMMATE_THREADS_PER_TURN, OWNER_OWN_THREADS_PER_TURN, OWNER_TEAMMATE_THREADS_PER_TURN, threadsPerTurn,
-} from "./work-thread-reuse.ts";
 
 const owner = { sharedWorkspace: false, guestDriven: false };
 
@@ -84,14 +81,5 @@ describe("plain lines after a restart or an automatic continue", () => {
     expect(lost).toBe("notice: later.dog restarted while Builder, Scout were working, and that work did not carry over. Re-send: @Builder: Build it; @Scout: Find the files");
     expect(lost.split("\n")).toHaveLength(1);
     expect(autoContinuedLine("idle", 20 * 60_000)).toBe("notice: Nothing moved for 20 minutes, so later.dog picked the work back up.");
-  });
-});
-
-describe("threads per turn", () => {
-  it("lets the owner's dogs open 20 own and 40 teammate threads, and keeps the old limits for anyone else", () => {
-    expect(threadsPerTurn(true)).toEqual({ own: 20, teammate: 40 });
-    expect(threadsPerTurn(true)).toEqual({ own: OWNER_OWN_THREADS_PER_TURN, teammate: OWNER_TEAMMATE_THREADS_PER_TURN });
-    expect(threadsPerTurn(false)).toEqual({ own: MAX_OWN_THREADS_PER_TURN, teammate: MAX_TEAMMATE_THREADS_PER_TURN });
-    expect(threadsPerTurn(false)).toEqual({ own: 5, teammate: 15 });
   });
 });

@@ -115,10 +115,6 @@ The [embedded server recovery smoke](desktop-server-recovery.md) crashes real
 Electron-owned fixture servers, verifies bounded recovery and private access,
 and proves quit cancels recovery without replaying an interrupted fixture turn.
 
-The [external runtimes recipe](external-runtime.md) proves a bot's standing
-comms capability from `external-runtimes.json` against a disposable server and
-the fake engine: scope, on-demand token reads, and immediate delegation drain.
-
 The [VPS recovery fixtures](vps-recovery.md) reproduce preview/startup contention
 and Docker-over-SSH timeout cleanup without contacting a real server.
 

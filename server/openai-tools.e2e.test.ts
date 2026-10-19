@@ -147,10 +147,7 @@ it("runs structured MCP calls through real harness approval and continuation, pr
       const messages = await control(["messages", "--bot", bot.id, "--task", bot.activeTaskId, "--limit", "20"]);
       const first = delivered(requests[before]!);
       expectMemoryInTurn(requests[before]!, "Write the verification artifact if a structured tool is requested.");
-      if (mode === "ordinary") {
-        expect(first.system).not.toContain(AVAILABILITY);
-        expect(first.turn).toContain(AVAILABILITY);
-      }
+      if (mode === "ordinary") expect(first.all).not.toContain(AVAILABILITY);
       expect(first.all).not.toContain("update it with your file tools");
       expect(first.all).not.toContain("Your folders (absolute paths)");
       expect(first.all).not.toContain("read its exact SKILL.md path above with your file tools");
@@ -197,7 +194,7 @@ it("runs structured MCP calls through real harness approval and continuation, pr
         const previewText = JSON.stringify(preview.sections);
         expect(previewText).toContain("Fixture prefers concise replies.");
         expect(previewText).not.toContain("update it with your file tools");
-        if (mode === "ordinary") expect(preview.sections.find((section: any) => section.id === "availability")?.text).toContain(AVAILABILITY);
+        if (mode === "ordinary") expect(preview.sections.some((section: any) => section.id === "availability")).toBe(false);
         const { group } = await api("POST", "/api/groups", {
           name: "API memory room", memberIds: [bot.id],
           setup: { bulletin: "", defaultResponder: { kind: "member", botId: bot.id } },

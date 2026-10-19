@@ -265,7 +265,7 @@ app.whenReady().then(async () => {
   await coordinator.request(child, id, "full");
   const customTarget = (await api("/api/bots", "POST", { modelSelection: { instanceId: "codex", model: "gpt-fake-default" } })).body.bot;
   await coordinator.request(child, customTarget.id, "custom");
-  const customRequest = api("/api/internal/ask-bot", "POST", { toBotId: customTarget.id, message: "Delegated Custom uses the native Auto reviewer" }, { authorization: `Bearer ${capability.body.token}` });
+  const customRequest = api("/api/internal/coordinate-bots", "POST", { botIds: [customTarget.id], message: "Delegated Custom uses the native Auto reviewer" }, { authorization: `Bearer ${capability.body.token}` });
   void customRequest.catch(() => {});
   const customCard = await until(async () => pendingCard((await api("/api/bots")).body.bots.find((bot) => bot.id === customTarget.id)));
   assert.equal(customCard.held, "This always asks you first.");

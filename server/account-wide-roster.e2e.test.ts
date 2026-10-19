@@ -6,7 +6,6 @@ import { handleToolCall, request } from "../scripts/mcp-server.ts";
 
 const discoverySteps = () => [
   { tool: "list_bots", arguments: {} },
-  { tool: "list_room_targets", arguments: {} },
 ];
 
 const toolResult = (turn: any, name: string) => {
@@ -50,7 +49,7 @@ async function fixture(test: (f: any) => Promise<void>) {
   }
 }
 
-it("advertises ordinary bots in different packs bidirectionally through both MCP discovery tools", () => fixture(async f => {
+it("advertises ordinary bots in different packs bidirectionally through list_bots", () => fixture(async f => {
   for (const bot of [f.sender, f.target]) {
     f.plan[bot.id] = { steps: discoverySteps(), reply: "Roster checked" };
     await f.start(bot);
@@ -59,10 +58,7 @@ it("advertises ordinary bots in different packs bidirectionally through both MCP
     const turn = f.evidence().find((entry: any) => entry.botId === from.id);
     expect(toolResult(turn, "list_bots")).toContain(`[id: ${to.id},`);
     expect(toolResult(turn, "list_bots")).toContain(`team: ${to.section}`);
-    expect(toolResult(turn, "list_room_targets").bots).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: to.id, name: to.name, section: to.section }),
-    ]));
-    expect(turn.system).toContain(`[id: ${to.id}]`);
+    expect(turn.system).toContain("ask your other dogs for advice or work with coordinate_bots");
   }
 }), 60_000);
 
@@ -81,7 +77,12 @@ it("executes a cross-pack coordinate_bots request and returns the exact peer rep
   expect(turns[2].resumed).toBe(true);
   expect(JSON.stringify(turns[2].prompt)).toContain("Rio verified the voice selection fixture");
   expect((await f.messages(f.sender.activeTaskId)).some((message: any) => message.text === "Reviewed Rio's verified voice result")).toBe(true);
-  expect((await f.api("/api/bots?messages=0")).groups).toEqual([]);
+  const groups = (await f.api("/api/bots?messages=0")).groups;
+  expect(groups).toHaveLength(1);
+  expect(groups[0]).toMatchObject({ dm: true, memberIds: [f.sender.id, f.target.id] });
+  expect((await f.messages(groups[0].threadId)).map((message: any) => message.text)).toEqual([
+    "Verify the voice selection fixture and report its exact result", "Rio verified the voice selection fixture",
+  ]);
 }), 60_000);
 
 it("preserves explicit peer exclusions and different private-user audiences across packs, and still reaches a hidden dog", () => fixture(async f => {
@@ -100,14 +101,9 @@ it("preserves explicit peer exclusions and different private-user audiences acro
   await f.start(privateA);
   for (const bot of [f.sender, privateA]) {
     const turn = f.evidence().find((entry: any) => entry.botId === bot.id);
-    for (const name of ["list_bots", "list_room_targets"]) {
-      const result = toolResult(turn, name);
-      const ids = name === "list_bots"
-        ? Array.from((result as string).matchAll(/\[id: ([^,]+),/g), match => match[1])
-        : result.bots.map((peer: any) => peer.id);
-      if (bot.id === f.sender.id) expect([...ids].sort()).toEqual([f.target.id, hidden.id].sort());
-      else expect(ids).toEqual([]);
-    }
+    const ids = Array.from((toolResult(turn, "list_bots") as string).matchAll(/\[id: ([^,]+),/g), match => match[1]);
+    if (bot.id === f.sender.id) expect([...ids].sort()).toEqual([f.target.id, hidden.id].sort());
+    else expect(ids).toEqual([]);
     const attempts = turn.evidence.filter((entry: any) => entry.step?.tool === "coordinate_bots");
     expect(attempts).toHaveLength(bot.id === f.sender.id ? 3 : 1);
     expect(attempts.every((entry: any) => entry.response.result.isError)).toBe(true);
@@ -125,9 +121,7 @@ it("coordinates into a same-audience room in another pack through the actual MCP
   f.plan[f.target.id] = { reply: "Voice playback verified in the room" };
   await f.start(f.sender);
   const firstTurn = f.evidence().find((entry: any) => entry.botId === f.sender.id);
-  expect(toolResult(firstTurn, "list_room_targets").rooms).toEqual(expect.arrayContaining([
-    expect.objectContaining({ id: room.id, members: [expect.objectContaining({ id: f.target.id })] }),
-  ]));
+  expect(toolResult(firstTurn, "list_bots")).toContain(`[id: ${f.target.id},`);
   expect(f.nodes().find((node: any) => node.botId === f.target.id)).toMatchObject({ groupId: room.id, status: "completed", result: "Voice playback verified in the room" });
   expect((await f.messages(room.activeTaskId)).some((message: any) => message.text === "Voice playback verified in the room")).toBe(true);
 }), 60_000);
@@ -145,7 +139,7 @@ it("withholds a room whose historical audience is narrower than its current cros
   };
   await f.start(f.sender);
   const turn = f.evidence().find((entry: any) => entry.botId === f.sender.id);
-  expect(toolResult(turn, "list_room_targets").rooms.map((entry: any) => entry.id)).not.toContain(room.id);
+  expect(toolResult(turn, "list_bots")).not.toContain(room.id);
   expect(toolResult(turn, "list_bots")).toContain(`[id: ${f.target.id},`);
   const refusal = turn.evidence.find((entry: any) => entry.step?.tool === "coordinate_bots");
   expect(refusal.response.result.isError).toBe(true);

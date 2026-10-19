@@ -109,105 +109,49 @@
       }
     },
     {
+      "name": "coordinate_bots",
+      "description": "Ask other dogs for advice or hand them work. Give 1-4 bot_ids, as list_bots prints them; a unique name also resolves. In a group chat the request goes to that chat; group_id sends it to another group chat you are in. Outside a group chat it goes to each dog's own conversation and runs after anything still running there, and both conversations show the exchange. They see only what you send and use their own model, tools and permissions, so include exact file paths, constraints and what must be checked. Their results come back here and resume you: after sending, end your turn and do not poll or wait. When they return, check the outcome and ask for concrete corrections if needed before giving one final answer. Do not send acknowledgements as new work.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "group_id": {
+            "type": "string",
+            "description": "Optional group chat id from list_bots; omit for this group chat or, outside one, each dog's own conversation."
+          },
+          "bot_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "A dog's id exactly as list_bots prints it ([id: …]). A unique name also resolves; a name two dogs share is refused."
+            },
+            "minItems": 1,
+            "maxItems": 4,
+            "uniqueItems": true
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "Question or task for these teammates; later requests in the same conversation can build on earlier ones. Send separate requests when responsibilities differ."
+          },
+          "rework": {
+            "type": "boolean",
+            "description": "True only to send concrete work again to someone whose request already finished or failed: a correction, a re-check or a retry."
+          }
+        },
+        "required": [
+          "bot_ids",
+          "message"
+        ]
+      }
+    },
+    {
       "name": "list_bots",
-      "description": "List the other bots (agents) you may contact across packs in this workspace, with their pack, model and current status, and the group chats you are in with their ids. Visibility and explicit peer restrictions still apply; this does not grant access to other workspaces or accounts. Call this to discover exact teammate IDs before assigning work or requesting advice through your available coordination tools.",
+      "description": "List the other dogs you can ask with coordinate_bots, with their team, model and whether they are free, and the group chats you are in, with their ids.",
       "inputSchema": {
         "type": "object",
         "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "ask_bot",
-      "description": "Brief synchronous consultation: send a short question to another bot. Quick replies return inline; slow replies become asynchronous delegations and return automatically after you finish your turn. Use only when that reply is required to write your current response. Do not use for assigning work, background tasks, or potentially long work; use delegate_bot for those. Returns promptly with a note if that bot is busy.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "bot_id": {
-            "type": "string",
-            "description": "The target bot's id (from list_bots or your roster); a unique teammate name also resolves."
-          },
-          "message": {
-            "type": "string",
-            "description": "What to say / ask the bot."
-          }
-        },
-        "required": [
-          "bot_id",
-          "message"
-        ]
-      }
-    },
-    {
-      "name": "delegate_bot",
-      "description": "DEFAULT FOR ASSIGNING WORK. Hand a task to another bot asynchronously: this returns immediately, your turn can end, and you remain available while the peer works. The peer starts after your current turn finishes and its outcome is delivered automatically to the originating conversation — success or failure wakes you with it. Acknowledge the assignment; do not call check_delegation or wait_delegation in this same turn.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "bot_id": {
-            "type": "string",
-            "description": "The target bot's id (from list_bots or your roster); a unique teammate name also resolves."
-          },
-          "message": {
-            "type": "string",
-            "description": "What the peer should do / answer."
-          },
-          "reason": {
-            "type": "string",
-            "description": "Optional one-line reason for the delegation (shown to the user as a chip)."
-          }
-        },
-        "required": [
-          "bot_id",
-          "message"
-        ]
-      }
-    },
-    {
-      "name": "check_delegation",
-      "description": "In a later turn, check what happened to a delegation without waiting: still queued, running (with elapsed time and the peer's recent activity), or finished with the result. Prefer this when a delegated bot is taking long or might be stuck — empty recent activity usually means it is stuck, not working. Do not poll it right after delegate_bot; completion is delivered to the conversation automatically.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "task_id": {
-            "type": "string",
-            "description": "The task id delegate_bot returned."
-          }
-        },
-        "required": [
-          "task_id"
-        ]
-      },
-      "annotations": {
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "wait_delegation",
-      "description": "BLOCKING status tool for a delegation from an earlier turn. Use only when the user explicitly asks you to wait for that earlier task. Never call it in the same turn as delegate_bot: a fresh delegation cannot start until your current turn ends, and its result will arrive automatically.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "task_id": {
-            "type": "string",
-            "description": "The task id delegate_bot returned."
-          },
-          "timeout_seconds": {
-            "type": "integer",
-            "description": "give up waiting after this many seconds; default 60, max 240"
-          }
-        },
-        "required": [
-          "task_id"
-        ]
       },
       "annotations": {
         "readOnlyHint": true,

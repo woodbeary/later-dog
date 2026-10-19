@@ -157,9 +157,9 @@ until the handoff settles (potentially about 25 hours); it never duplicates
 the pending job to catch up.
 
 ```sh
-pnpm exec vitest run server/delegations.test.ts server/peer-roster.test.ts server/drivers/agents-proxy.test.ts
+pnpm exec vitest run server/peer-roster.test.ts server/drivers/agents-proxy.test.ts
 pnpm exec vitest run server/independent-threads-api.test.ts -t "queues coordinated work behind a peer's approval"
-pnpm exec vitest run server/comms.test.ts
+pnpm exec vitest run server/routine-delegation.e2e.test.ts
 ```
 
 The mailbox API fixture uses the isolated launcher and per-model fake-engine

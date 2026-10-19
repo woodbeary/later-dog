@@ -251,183 +251,56 @@ describe("a room turn belongs to the room", () => {
   }, 45_000);
 });
 
-describe("bot-to-bot coordination is recorded, not announced", () => {
-  it("runs an ask_bot round trip with no badge and no banner anywhere", async () => {
+describe("a dog asking another dog", () => {
+  it("records the coordinate_bots exchange with no badge and no banner for the exchange or the teammate", async () => {
     const asker = await createBot("Pen", "quick");
     const peer = await createBot("Ink", "quick");
     let channelId: string | undefined;
     const stream = await openSse(`${base}/api/events`);
     try {
-      expect((await api("PATCH", `/api/bots/${peer.id}`, { unread: true })).status).toBe(200);
-      expect((await botState(peer.id))?.unread).toBe(true);
       const asked = await api(
         "POST",
-        "/api/internal/ask-bot",
-        { fromBotId: asker.id, toBotId: peer.id, message: "Ink, can you take the deploy?" },
+        "/api/internal/coordinate-bots",
+        { botIds: [peer.id], message: "Ink, can you take the deploy?" },
         await capability(asker.id, asker.threadId),
       );
-      expect(asked.status).toBe(200);
-      expect(asked.body.botName).toBe("Ink");
-      expect(asked.body.text).toContain("hello from fake claude");
-
-      const current = await state(40);
-      const channel = current.groups.find(
+      expect(asked.status, JSON.stringify(asked.body)).toBe(200);
+      const exchange = async () => (await state(40)).groups.find(
         (group: { dm?: boolean; memberIds: string[] }) =>
           group.dm === true && group.memberIds.includes(asker.id) && group.memberIds.includes(peer.id),
       );
-      channelId = channel?.id;
-      expect(channel).toBeTruthy();
-
-      expect(channel.messages.some((message: { text?: string }) => message.text === "Ink, can you take the deploy?")).toBe(true);
-      expect(channel.messages.some(
+      await expect.poll(async () => ((await exchange())?.messages ?? []).some(
         (message: { from?: { botId?: string }; text?: string }) =>
           message.from?.botId === peer.id && (message.text ?? "").includes("hello from fake claude"),
-      )).toBe(true);
-      const chip = (botId: string, name: string) =>
-        (current.bots.find((candidate: { id: string }) => candidate.id === botId)?.messages ?? []).some(
-          (message: { kind: string; tool?: { name?: string }; comm?: { groupId?: string } }) =>
-            message.kind === "activity" && message.tool?.name === name && message.comm?.groupId === channel.id,
-        );
-      expect(chip(asker.id, "Messaged @Ink")).toBe(true);
-      expect(chip(peer.id, "Message from @Pen")).toBe(true);
-
+      ), { timeout: 20_000 }).toBe(true);
+      const channel = await exchange();
+      channelId = channel.id;
+      expect(channel.messages.some((message: { from?: { botId?: string }; text?: string }) =>
+        message.from?.botId === asker.id && message.text === "Ink, can you take the deploy?")).toBe(true);
       expect(channel.unread).toBeFalsy();
-      expect(current.bots.find((candidate: { id: string }) => candidate.id === asker.id)?.unread).toBeFalsy();
-      expect(current.bots.find((candidate: { id: string }) => candidate.id === peer.id)?.unread).toBe(true);
-
-      expect((await api("PATCH", `/api/bots/${asker.id}`, { name: "Pen observed" })).status).toBe(200);
-      await stream.until(
-        (candidate) => candidate.kind === "bot" && candidate.bot?.id === asker.id && candidate.bot?.name === "Pen observed",
-      );
-      expect(stream.frames.filter((candidate) => candidate.kind === "notify")).toEqual([]);
-    } finally {
-      stream.close();
-      await cleanup([channelId], [asker.id, peer.id]);
-    }
-  }, 45_000);
-
-  const pairChannelId = async (a: string, b: string) =>
-    (await state(0)).groups.find(
-      (group: { dm?: boolean; memberIds: string[] }) =>
-        group.dm === true && group.memberIds.includes(a) && group.memberIds.includes(b),
-    )?.id;
-
-  it("still announces the person's own next message after a hop that finished", async () => {
-    const asker = await createBot("Nib", "quick");
-    const peer = await createBot("Vellum", "quick");
-    let channelId: string | undefined;
-    const stream = await openSse(`${base}/api/events`);
-    try {
-      const asked = await api(
-        "POST",
-        "/api/internal/ask-bot",
-        { fromBotId: asker.id, toBotId: peer.id, message: "Vellum, is the branch green?" },
-        await capability(asker.id, asker.threadId),
-      );
-      expect(asked.status).toBe(200);
       expect((await botState(peer.id))?.unread).toBeFalsy();
 
-      expect((await api("POST", `/api/bots/${peer.id}/messages`, { text: "and for me?" })).status).toBe(202);
-      const frame = await stream.until(
-        (candidate) =>
-          candidate.kind === "notify" &&
-          candidate.notification?.kind === "done" &&
-          candidate.notification?.botId === peer.id,
-        20_000,
+      expect((await api("PATCH", `/api/bots/${peer.id}`, { name: "Ink observed" })).status).toBe(200);
+      await stream.until(
+        (candidate) => candidate.kind === "bot" && candidate.bot?.id === peer.id && candidate.bot?.name === "Ink observed",
       );
-      expect(frame.notification.threadId).toBe(peer.threadId);
-      await expect.poll(async () => (await botState(peer.id))?.unread, { timeout: 20_000 }).toBe(true);
-      channelId = await pairChannelId(asker.id, peer.id);
+      expect(stream.frames.filter((candidate) => candidate.kind === "notify" &&
+        (candidate.notification?.botId === peer.id || candidate.notification?.threadId === channel.threadId))).toEqual([]);
     } finally {
       stream.close();
       await cleanup([channelId], [asker.id, peer.id]);
     }
   }, 45_000);
 
-  it("still announces the person's own next message after a hop that never started", async () => {
-    const asker = await createBot("Quire", "quick");
-    const peer = await createBot("Folio", "quick");
-    let channelId: string | undefined;
-    const stream = await openSse(`${base}/api/events`);
-    try {
-      expect((await api("PATCH", `/api/bots/${peer.id}`, {
-        modelSelection: { instanceId: "ghost", model: "ghost-1" },
-      })).status).toBe(200);
-      const asked = await api(
-        "POST",
-        "/api/internal/ask-bot",
-        { fromBotId: asker.id, toBotId: peer.id, message: "Folio, still there?" },
-        await capability(asker.id, asker.threadId),
-      );
-      expect(asked.status).toBe(200);
-      expect(asked.body.text).toContain("couldn't start");
-
-      expect((await api("PATCH", `/api/bots/${peer.id}`, {
-        modelSelection: { instanceId: "quick", model: "claude-sonnet-5" },
-      })).status).toBe(200);
-      expect((await api("POST", `/api/bots/${peer.id}/messages`, { text: "back? tell me when" })).status).toBe(202);
-      const frame = await stream.until(
-        (candidate) =>
-          candidate.kind === "notify" &&
-          candidate.notification?.kind === "done" &&
-          candidate.notification?.botId === peer.id,
-        20_000,
-      );
-      expect(frame.notification.threadId).toBe(peer.threadId);
-      await expect.poll(async () => (await botState(peer.id))?.unread, { timeout: 20_000 }).toBe(true);
-      channelId = await pairChannelId(asker.id, peer.id);
-    } finally {
-      stream.close();
-      await cleanup([channelId], [asker.id, peer.id]);
-    }
-  }, 45_000);
-
-  it("buzzes when a bot stops to ask whether it may contact a teammate", async () => {
-    const asker = await createBot("Nib", "quick");
-    const peer = await createBot("Dot", "quick");
-    expect((await api("PATCH", `/api/bots/${asker.id}`, { approvePeerComms: true })).status).toBe(200);
-    const stream = await openSse(`${base}/api/events`);
-    const asking = api(
-      "POST",
-      "/api/internal/ask-bot",
-      { fromBotId: asker.id, toBotId: peer.id, message: "Dot, can you take the deploy?" },
-      await capability(asker.id, asker.threadId),
-    );
-    try {
-      const frame = await stream.until(
-        (candidate) => candidate.kind === "notify" && candidate.notification?.botId === asker.id,
-        20_000,
-      );
-      expect(frame.notification).toMatchObject({
-        kind: "approval",
-        botId: asker.id,
-        threadId: asker.threadId,
-        title: "Nib needs approval",
-      });
-      expect(frame.notification.body).toContain("wants to contact @Dot");
-      const card = (await botState(asker.id))?.messages.findLast(
-        (message: { kind: string; card?: { requestId?: string; tool?: string } }) => message.kind === "options" && Boolean(message.card?.requestId),
-      );
-      expect(card?.card?.tool).toBe("ask_bot");
-      const denied = await api("POST", `/api/bots/${asker.id}/respond`, { requestId: card.card.requestId, behavior: "deny" });
-      expect(denied.status).toBe(200);
-      expect((await asking).body).toMatchObject({ error: "the person said no" });
-    } finally {
-      stream.close();
-      await asking.catch(() => undefined);
-      await cleanup([], [asker.id, peer.id]);
-    }
-  }, 45_000);
-
-  it("still buzzes when a peer's turn stops to ask the person a question", async () => {
+  it("still buzzes when the other dog's turn stops to ask the person a question", async () => {
     const asker = await createBot("Quill", "quick");
     const peer = await createBot("Sage", "curious", "fake-model");
     let channelId: string | undefined;
     const stream = await openSse(`${base}/api/events`);
     const asking = api(
       "POST",
-      "/api/internal/ask-bot",
-      { fromBotId: asker.id, toBotId: peer.id, message: "Sage, which colour?" },
+      "/api/internal/coordinate-bots",
+      { botIds: [peer.id], message: "Sage, which colour?" },
       await capability(asker.id, asker.threadId),
     );
     try {

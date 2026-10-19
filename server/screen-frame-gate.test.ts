@@ -96,7 +96,7 @@ describe("screenTouchingTool", () => {
     "list_windows", "list_apps", "check_permissions", "get_screen_size",
     "wait_for", "mcp__computer__wait_for", "wait_for_navigation", "browser_wait_for",
     "computer_request_help", "browser_request_takeover",
-    "Bash", "Read", "mcp__agents__ask_bot", "mcp__composio__GMAIL_SEND_EMAIL", "screenshot_helper",
+    "Bash", "Read", "mcp__agents__coordinate_bots", "mcp__composio__GMAIL_SEND_EMAIL", "screenshot_helper",
   ];
   for (const tool of bystanders) {
     it(`ignores: ${tool}`, () => expect(screenTouchingTool(tool)).toBe(false));

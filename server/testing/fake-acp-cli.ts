@@ -706,24 +706,6 @@ function handle(msg: any) {
           });
         return;
       }
-      if (mode === "ask-peer" && agentsMcp) {
-        void driveMcp(agentsMcp, [
-          { name: "list_bots", args: () => ({}) },
-          {
-            name: "ask_bot",
-            args: (list) => ({ bot_id: /id: ([\w-]+)/.exec(list)?.[1] ?? "", message: "ping from fake" }),
-          },
-        ])
-          .then((reply) => {
-            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `peer says: ${reply}` } } } });
-            complete();
-          })
-          .catch((e) => {
-            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `peer error: ${(e as Error).message}` } } } });
-            complete();
-          });
-        return;
-      }
       if (mode === "echo-gated") {
         const finish = () => {
           out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `echo: ${promptText}` } } } });
@@ -741,28 +723,6 @@ function handle(msg: any) {
           return;
         }
         finish();
-        return;
-      }
-      if (mode === "delegate-peer" && agentsMcp) {
-        void driveMcp(agentsMcp, [
-          { name: "list_bots", args: () => ({}) },
-          {
-            name: "delegate_bot",
-            args: (list) => ({
-              bot_id: /id: ([\w-]+)/.exec(list)?.[1] ?? "",
-              message: "delegated task",
-              reason: "followup",
-            }),
-          },
-        ])
-          .then((reply) => {
-            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `delegated: ${reply}` } } } });
-            complete();
-          })
-          .catch((e) => {
-            out({ jsonrpc: "2.0", method: "session/update", params: { update: { sessionUpdate: "agent_message_chunk", content: { text: `delegate error: ${(e as Error).message}` } } } });
-            complete();
-          });
         return;
       }
       if (mode === "image") {

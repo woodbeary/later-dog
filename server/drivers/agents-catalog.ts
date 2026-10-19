@@ -5,8 +5,6 @@ import { agentToolAnnotations } from "../agent-tool-policy.ts";
 import { COMPUTER_RULE } from "../laterdog/mac-computer.ts";
 
 export interface CatalogProfile {
-  externalRuntime: boolean;
-  coordinating: boolean;
   skillAuthoring: boolean;
   sharedComputers: boolean;
   voiceNotes: boolean;
@@ -17,10 +15,7 @@ export interface CatalogProfile {
 }
 
 export function catalogProfileFromEnv(env: NodeJS.ProcessEnv): CatalogProfile {
-  const externalRuntime = env.LATERDOG_EXTERNAL_RUNTIME === "1";
   return {
-    externalRuntime,
-    coordinating: !externalRuntime && env.LATERDOG_ROOM_TURN === "1",
     skillAuthoring: env.LATERDOG_SKILL_AUTHORING_ENABLED === "1",
     sharedComputers: env.LATERDOG_SHARED_COMPUTERS_ENABLED === "1",
     voiceNotes: env.LATERDOG_VOICE_NOTES === "1",
@@ -152,7 +147,7 @@ const ROUTINE_FIELDS_SCHEMA = {
 
 const SELF_CHANGE_OUTCOME = " Read the result: a change to your own routines, skills, profile or model applies immediately, and the person sees it with an Undo; a change for another bot may wait for the person's confirmation. If applied, continue the requested work without another confirmation. Only a pending result requires ending the turn and waiting for the in-app decision. Never claim success without an applied result; report failed or cancelled results honestly. This does not elevate another bot's execution permissions.";
 
-const toolDefinitions = (externalRuntime: boolean) => [
+const TOOL_DEFINITIONS = [
   {
     name: "create_options_card",
     description:
@@ -214,94 +209,20 @@ const toolDefinitions = (externalRuntime: boolean) => [
     }, required: ["subject", "body"] },
   },
   {
-    name: "list_room_targets",
-    description: "Discover reachable later.dog teammates and rooms across packs in this workspace. Visibility and explicit peer restrictions still apply. Works in a normal bot conversation too; no room is required. Returns bot and room IDs, roles and working folders, never other conversations' history. Use these bots, not native coding helpers with similar names, when the user asks their team to work together.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
-  },
-  {
     name: "coordinate_bots",
-    description: "Ask existing later.dog teammates for advice or assign concrete work. In a room it defaults to this room; use group_id from list_room_targets for a specific room. Outside a room, everything you send a teammate from this conversation goes to one thread with them and runs after anything still running there. Give 1-4 bot_ids — teammate ids as list_bots or your roster prints them; a unique teammate name also resolves: they see only what you send them and use their own model, tools and permissions. They can consult their specialists; all results return here and resume you automatically. Include exact file paths, constraints and what must be verified. After sending all assignments, END your turn; do not poll or wait. On return, resolve tradeoffs, verify the requested outcome and request concrete corrections if necessary before giving one final answer. Do not send acknowledgements as new work.",
+    description: "Ask other dogs for advice or hand them work. Give 1-4 bot_ids, as list_bots prints them; a unique name also resolves. In a group chat the request goes to that chat; group_id sends it to another group chat you are in. Outside a group chat it goes to each dog's own conversation and runs after anything still running there, and both conversations show the exchange. They see only what you send and use their own model, tools and permissions, so include exact file paths, constraints and what must be checked. Their results come back here and resume you: after sending, end your turn and do not poll or wait. When they return, check the outcome and ask for concrete corrections if needed before giving one final answer. Do not send acknowledgements as new work.",
     inputSchema: { type: "object", additionalProperties: false, properties: {
-      group_id: { type: "string", description: "Optional destination room; omit for this room or, outside a room, your thread with each teammate." },
-      bot_ids: { type: "array", items: { type: "string", description: "A teammate's id exactly as list_bots or your roster prints it ([id: …]). A teammate's unique display name also resolves; a name shared by two reachable teammates is refused." }, minItems: 1, maxItems: 4, uniqueItems: true },
+      group_id: { type: "string", description: "Optional group chat id from list_bots; omit for this group chat or, outside one, each dog's own conversation." },
+      bot_ids: { type: "array", items: { type: "string", description: "A dog's id exactly as list_bots prints it ([id: …]). A unique name also resolves; a name two dogs share is refused." }, minItems: 1, maxItems: 4, uniqueItems: true },
       message: { type: "string", minLength: 1, maxLength: 4000, description: "Question or task for these teammates; later requests in the same conversation can build on earlier ones. Send separate requests when responsibilities differ." },
       rework: { type: "boolean", description: "True only to send concrete work again to someone whose request already finished or failed: a correction, a re-check or a retry." },
     }, required: ["bot_ids", "message"] },
   },
   {
-    name: "send_to_bot",
-    description: "Send work one way to another bot. The recipient owns the new thread; its results, failures and questions stay there and never resume you. Use coordinate_bots when you need the result returned here.",
-    inputSchema: { type: "object", additionalProperties: false, properties: {
-      bot_id: { type: "string", description: "One reachable teammate id from list_bots or list_room_targets." },
-      title: { type: "string", description: "A short one-line title, at most 80 characters." },
-      message: { type: "string", description: "Complete instructions; the recipient does not inherit this conversation." },
-    }, required: ["bot_id", "title", "message"] },
-  },
-  {
     name: "list_bots",
     description:
-      `List the other bots (agents) you may contact across packs in this workspace, with their pack, model and current status${externalRuntime ? "" : ", and the group chats you are in with their ids"}. Visibility and explicit peer restrictions still apply; this does not grant access to other workspaces or accounts. Call this to discover exact teammate IDs before assigning work or requesting advice through your available coordination tools.`,
+      "List the other dogs you can ask with coordinate_bots, with their team, model and whether they are free, and the group chats you are in, with their ids.",
     inputSchema: { type: "object", properties: {} },
-  },
-  {
-    name: "ask_bot",
-    description: externalRuntime
-      ? "Brief synchronous consultation with a reachable teammate. Quick replies return inline; busy or slow replies become asynchronous delegations with a task id. Use check_delegation or wait_delegation to retrieve their outcome. Use delegate_bot for assigning work. Existing peer approvals still apply."
-      :
-      "Brief synchronous consultation: send a short question to another bot. Quick replies return inline; slow replies become asynchronous delegations and return automatically after you finish your turn. Use only when that reply is required to write your current response. Do not use for assigning work, background tasks, or potentially long work; use delegate_bot for those. Returns promptly with a note if that bot is busy.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        bot_id: { type: "string", description: "The target bot's id (from list_bots or your roster); a unique teammate name also resolves." },
-        message: { type: "string", description: "What to say / ask the bot." },
-      },
-      required: ["bot_id", "message"],
-    },
-  },
-  {
-    name: "delegate_bot",
-    description: externalRuntime
-      ? "Hand work to a reachable teammate asynchronously. Returns a task id; the server dispatches when its source conversation and the peer are available and required approvals are granted. Use check_delegation or wait_delegation with that id; the external runtime does not need to end for polling."
-      :
-      "DEFAULT FOR ASSIGNING WORK. Hand a task to another bot asynchronously: this returns immediately, your turn can end, and you remain available while the peer works. The peer starts after your current turn finishes and its outcome is delivered automatically to the originating conversation — success or failure wakes you with it. Acknowledge the assignment; do not call check_delegation or wait_delegation in this same turn.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        bot_id: { type: "string", description: "The target bot's id (from list_bots or your roster); a unique teammate name also resolves." },
-        message: { type: "string", description: "What the peer should do / answer." },
-        reason: { type: "string", description: "Optional one-line reason for the delegation (shown to the user as a chip)." },
-      },
-      required: ["bot_id", "message"],
-    },
-  },
-  {
-    name: "check_delegation",
-    description: externalRuntime
-      ? "Check one of this external runtime's delegations without waiting: queued, running, or finished with its result. Newly returned task ids can be checked immediately; the server enforces ownership and current peer access."
-      :
-      "In a later turn, check what happened to a delegation without waiting: still queued, running (with elapsed time and the peer's recent activity), or finished with the result. Prefer this when a delegated bot is taking long or might be stuck — empty recent activity usually means it is stuck, not working. Do not poll it right after delegate_bot; completion is delivered to the conversation automatically.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        task_id: { type: "string", description: "The task id delegate_bot returned." },
-      },
-      required: ["task_id"],
-    },
-  },
-  {
-    name: "wait_delegation",
-    description: externalRuntime
-      ? "Wait for one of this external runtime's delegations, including a newly returned task id, for up to timeout_seconds (maximum 240). Returns its result or current queued/running status; the server enforces ownership and current peer access."
-      :
-      "BLOCKING status tool for a delegation from an earlier turn. Use only when the user explicitly asks you to wait for that earlier task. Never call it in the same turn as delegate_bot: a fresh delegation cannot start until your current turn ends, and its result will arrive automatically.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        task_id: { type: "string", description: "The task id delegate_bot returned." },
-        timeout_seconds: { type: "integer", description: "give up waiting after this many seconds; default 60, max 240" },
-      },
-      required: ["task_id"],
-    },
   },
   {
     name: "select_computer",
@@ -729,9 +650,6 @@ const SKILL_TOOL_NAMES = new Set(["skills_list", "skill_manage"]);
 export const SHARED_COMPUTER_TOOL_NAMES = new Set(["list_shared_computers", "shared_computer"]);
 const EMAIL_TOOL_NAMES = new Set(["email_me"]);
 const VOICE_TOOL_NAMES = new Set(["send_voice_note"]);
-const ROOM_ONLY_TOOLS = new Set(["list_room_targets", "coordinate_bots", "send_to_bot"]);
-const ROOM_REPLACED_TOOLS = new Set(["ask_bot", "delegate_bot", "check_delegation", "wait_delegation"]);
-const EXTERNAL_TOOL_NAMES = new Set(["list_bots", "ask_bot", "delegate_bot", "check_delegation", "wait_delegation"]);
 const WATCHER_TOOL_NAMES = new Set(["create_options_card"]);
 
 const CLOUD_HOME_SURFACE = {
@@ -753,8 +671,7 @@ export function availableTools(profile: CatalogProfile) {
 }
 
 function catalogTools(profile: CatalogProfile) {
-  const TOOLS = toolDefinitions(profile.externalRuntime);
-  const BOT_SCOPED_TOOLS = TOOLS.filter((tool) =>
+  const BOT_SCOPED_TOOLS = TOOL_DEFINITIONS.filter((tool) =>
     (profile.botId === WATCHER_OPTIONS_CARD_BOT_ID || !WATCHER_TOOL_NAMES.has(tool.name)) &&
     (profile.memoryEnabled !== false || (tool.name !== "memory_update" && tool.name !== "memory_log")));
   const AUTHORING_TOOLS = profile.skillAuthoring
@@ -766,12 +683,7 @@ function catalogTools(profile: CatalogProfile) {
   const EMAIL_READY_TOOLS = profile.emailMe
     ? SHAREABLE_TOOLS
     : SHAREABLE_TOOLS.filter((tool) => !EMAIL_TOOL_NAMES.has(tool.name));
-  const VOICE_READY_TOOLS = profile.voiceNotes
+  return profile.voiceNotes
     ? EMAIL_READY_TOOLS
     : EMAIL_READY_TOOLS.filter((tool) => !VOICE_TOOL_NAMES.has(tool.name));
-  return profile.externalRuntime
-    ? BOT_SCOPED_TOOLS.filter(tool => EXTERNAL_TOOL_NAMES.has(tool.name))
-    : profile.coordinating
-    ? VOICE_READY_TOOLS.filter(tool => !ROOM_REPLACED_TOOLS.has(tool.name))
-    : VOICE_READY_TOOLS.filter(tool => !ROOM_ONLY_TOOLS.has(tool.name));
 }

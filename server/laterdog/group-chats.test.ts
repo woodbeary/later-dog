@@ -25,6 +25,6 @@ describe("group chats a dog is in", () => {
     expect(groupChatsText(undefined)).toBe("");
     expect(groupChatsText([])).toBe("");
     expect(groupChatsText([{ id: 1, name: "x" }])).toBe("");
-    expect(groupChatsText([{ id: "a", name: "Launch" }])).toBe("Group chats you are in:\n- Launch [id: a]\n\nUse one of these ids as room_id with manage_room.");
+    expect(groupChatsText([{ id: "a", name: "Launch" }])).toBe("Group chats you are in:\n- Launch [id: a]\n\nUse one of these ids as room_id with manage_room, or as group_id with coordinate_bots to ask its members there.");
   });
 });

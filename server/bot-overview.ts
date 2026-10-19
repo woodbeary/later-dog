@@ -62,6 +62,7 @@ export interface OverviewFacts {
   engine: { agentsMcp?: boolean; composioMcp?: boolean; browserMcp?: boolean; computerMcp?: boolean } | null;
   browserEnabled?: boolean;
   cloudHome?: boolean;
+  sharedWorkspace?: boolean;
   connectedApps: { configured: boolean; authoritative: boolean; services: string[] };
   sectionPeers: number;
   timeZone: string;
@@ -191,7 +192,7 @@ function wontLines(facts: OverviewFacts): string[] {
   if (mode === "ask") lines.push("Command approvals use Heel, so it checks with you before commands and file changes; saved permissions and provider rules still apply.");
   if (mode === "custom") lines.push("Command approvals follow the provider's custom configuration.");
   if (facts.bot.peers?.length === 0) lines.push("Cannot initiate contact with other dogs.");
-  else if (mode !== "full" && facts.bot.approvePeerComms) lines.push("Asks before contacting other dogs.");
+  else if (facts.sharedWorkspace && mode !== "full" && facts.bot.approvePeerComms) lines.push("Asks before contacting other dogs.");
   if (!couldUseApps(facts) || (facts.connectedApps.authoritative && facts.connectedApps.services.length === 0)) {
     lines.push("Has no connected apps.");
   }

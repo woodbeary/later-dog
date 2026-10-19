@@ -13,7 +13,7 @@ Every guide describes a bot the same six ways. later.dog already has a home for 
 | A computer | its own machine, running whether or not yours is on | **Bot's computer** (Computer / Files): a cloud computer per dog on later.dog Cloud (one with the free trial) or your own Cloudflare (roadmap, direction b), and the signed-in Mac |
 | Routines | standing work on a clock or an event; "created Disabled until I hit Enable" | **Routines** (schedules, webhooks); every routine has an enabled flag — create them paused |
 | Skills | playbooks the bot replays; recorded once, reused everywhere | **Skills** per bot; the repo's canonical skills in `skills/laterdog/` (verify, orchestrate, correct, review, ship, architect, benchmark) |
-| Handoffs | "the ability to hand work to another bot directly, without routing through you" | `ask_bot` / `send_to_bot` tools, @mentions, **group chats** and **teams** |
+| Handoffs | "the ability to hand work to another bot directly, without routing through you" | the `coordinate_bots` tool, @mentions, **group chats** and **teams** |
 
 ## 2. Standing rules every bot should carry
 
@@ -81,7 +81,7 @@ tasks opened. The Workspace is the shared board the guides keep in Notion.
 | One job per bot, job-description presets | Starting roles (General, Email triage, Researcher, Coding partner, Community monitor, Operations) + the roster above | **Added tonight** (roles) |
 | Draft-then-send; approval before writes | Per-bot "Ask me first / Decide for me", per-tool permissions, approval cards | Have |
 | Routines, promotable from chat, paused until enabled | Routines with schedules and webhooks and an enabled flag | Have; "create paused" is a convention in the roles, not yet a one-click default |
-| Bot-to-bot handoffs, group chats, teams | `ask_bot`, `send_to_bot`, @mentions, group chats, teams | Have |
+| Bot-to-bot handoffs, group chats, teams | `coordinate_bots`, @mentions, group chats, teams | Have |
 | Chief-of-staff front door | A role, plus group chats | Have (role added tonight) |
 | Persistent per-bot memory; corrections become rules | Memory per bot; `correct-recurring-errors` skill | Have |
 | Skills recorded from a demonstration | Skills are written, not recorded | Roadmap (record-to-skill) |

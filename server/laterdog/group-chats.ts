@@ -23,5 +23,5 @@ export function groupChatsText(rooms: unknown): string {
       typeof room === "object" && room !== null && typeof (room as GroupChatListing).id === "string" && typeof (room as GroupChatListing).name === "string")
     : [];
   if (!listed.length) return "";
-  return `Group chats you are in:\n${listed.map((room) => `- ${room.name} [id: ${room.id}]`).join("\n")}\n\nUse one of these ids as room_id with manage_room.`;
+  return `Group chats you are in:\n${listed.map((room) => `- ${room.name} [id: ${room.id}]`).join("\n")}\n\nUse one of these ids as room_id with manage_room, or as group_id with coordinate_bots to ask its members there.`;
 }

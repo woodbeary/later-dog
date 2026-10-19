@@ -178,20 +178,21 @@ posixOnly("who may answer a card on a shared workspace", () => {
     });
     expect(minted.status).toBe(201);
     const { token } = await minted.json() as { token: string };
-    const opened = await fetch(`${BASE}/api/internal/threads`, {
+    const opened = await fetch(`${BASE}/api/internal/coordinate-bots`, {
       method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ toBotId: helper.id, title: "Helper job", message: "run it", oneWay: true }),
+      body: JSON.stringify({ botIds: [helper.id], message: "run it" }),
     });
-    const openedBody = await opened.json() as { threadId: string };
-    expect(opened.status, JSON.stringify(openedBody)).toBe(201);
+    const openedBody = await opened.json() as { receipts: Array<{ threadId: string }> };
+    expect(opened.status, JSON.stringify(openedBody)).toBe(200);
+    const helperThread = openedBody.receipts[0]!.threadId;
     expect((await api("POST", `/api/threads/${opener.threadId}/respond`, { requestId: source, behavior: "allow" }, ADA)).status).toBe(200);
-    const delegated = await openCard(openedBody.threadId);
+    const delegated = await openCard(helperThread);
     expect(delegated, `the handoff never asked:\n${log.slice(-2_000)}`).not.toBeNull();
     const requestId = delegated.card.requestId as string;
-    const refused = await api("POST", `/api/threads/${openedBody.threadId}/respond`, { requestId, behavior: "allow" }, BOB);
+    const refused = await api("POST", `/api/threads/${helperThread}/respond`, { requestId, behavior: "allow" }, BOB);
     expect(refused.status).toBe(403);
     expect(refused.body.error).toMatch(refusal);
-    expect((await api("POST", `/api/threads/${openedBody.threadId}/respond`, { requestId, behavior: "allow" }, ADA)).status).toBe(200);
+    expect((await api("POST", `/api/threads/${helperThread}/respond`, { requestId, behavior: "allow" }, ADA)).status).toBe(200);
     expect((await decision(requestId, "user-approved"))?.actor).toMatchObject({ kind: "session", email: ADA });
   }, 90_000);
 

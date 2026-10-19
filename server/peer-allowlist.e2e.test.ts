@@ -8,11 +8,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
+import { PEERS_PROMPT } from "./peer-roster.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(SERVER_DIR, "..");
 const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
-const REFUSED = "not on this bot's allowed peers";
+const REFUSED = "not an allowed peer";
 const TEST_CAPABILITY_KEY = "peer-allowlist-fixture-capability";
 
 let child: ChildProcess;
@@ -124,16 +125,6 @@ const botPeers = async (botId: string) => {
   return state.bots.find((bot: { id: string }) => bot.id === botId)?.peers;
 };
 
-const botMessages = async (botId: string): Promise<any[]> => {
-  const state = (await api("GET", "/api/bots")).body;
-  return state.bots.find((bot: { id: string }) => bot.id === botId)?.messages ?? [];
-};
-
-const warmUp = async (botId: string) => {
-  expect((await api("POST", `/api/bots/${botId}/messages`, { text: "Warm up" })).status).toBe(202);
-  await expect.poll(() => botBusy(botId), { timeout: 15_000 }).toBe(false);
-};
-
 const mintCapability = async (botId: string, threadId: string): Promise<string> => {
   const minted = await api(
     "POST",
@@ -162,7 +153,7 @@ const peerNames = async (selfId: string, token: string) => {
 };
 
 describe("peer allow-list", () => {
-  it("gives an ordinary bot a roster, then narrows it and the comms endpoints", async () => {
+  it("tells an ordinary bot about its peers in one sentence, then narrows list_bots and coordinate_bots", async () => {
     await keepSeededBotOutOfReach();
     const asker = await createBot("Ada", "asker");
     const quill = await createBot("Quill", "plain");
@@ -175,18 +166,12 @@ describe("peer allow-list", () => {
       const dump = readDump(askerDump)()!;
 
       const systemPrompt = String(dump.systemPrompt);
-      expect(systemPrompt).toContain("[TEAM ROSTER]");
-      expect(systemPrompt).toContain(`- Quill — General assistant [id: ${quill.id}]`);
-      expect(systemPrompt).toContain(`- Patch — General assistant [id: ${patch.id}]`);
-      expect(systemPrompt).toContain("Team availability: every teammate is available.");
-      expect(systemPrompt).toContain("Use coordinate_bots");
-      expect(systemPrompt).toContain("Each recipient runs with its own model and permissions");
-      expect(systemPrompt).toContain("you cannot grant them your access");
-      expect(systemPrompt).not.toContain("Use delegate_bot");
-      expect(systemPrompt).not.toContain("use ask_bot");
+      expect(systemPrompt).toContain(PEERS_PROMPT);
+      expect(systemPrompt).not.toContain("[TEAM ROSTER]");
+      expect(systemPrompt).not.toContain("Team availability");
+      expect(systemPrompt).not.toMatch(/delegate_bot|ask_bot|send_to_bot/);
       expect(systemPrompt).toContain("make it yourself with create_bot");
       expect(systemPrompt).not.toContain("list_team_setup");
-      expect(systemPrompt).toContain("[/TEAM ROSTER] If a supported API key is missing");
 
       const providerToken = String(dump.mcpConfig?.mcpServers?.agents?.env?.LATERDOG_COMMS_TOKEN ?? "");
       expect(providerToken).toMatch(/^[a-f0-9]{48}$/);
@@ -194,53 +179,26 @@ describe("peer allow-list", () => {
       const token = await mintCapability(asker.id, asker.threadId);
 
       expect(await peerNames(asker.id, token)).toEqual(["Patch", "Quill"]);
-      const openAsk = await api(
+      const ask = (toBotId: string, message: string) => api(
         "POST",
-        "/api/internal/ask-bot",
-        { fromBotId: asker.id, toBotId: patch.id, message: "Patch, still there?" },
+        "/api/internal/coordinate-bots",
+        { botIds: [toBotId], message },
         { authorization: `Bearer ${token}` },
       );
+      const openAsk = await ask(patch.id, "Patch, still there?");
       expect(openAsk.status).toBe(200);
-      await expect.poll(() => botBusy(patch.id)).toBe(false);
+      expect(openAsk.body.receipts).toEqual([expect.objectContaining({ botId: patch.id, outcome: "queued" })]);
 
       expect((await api("PATCH", `/api/bots/${asker.id}`, { peers: [quill.id] })).status).toBe(200);
       expect(await peerNames(asker.id, token)).toEqual(["Quill"]);
 
-      const refusedAsk = await api(
-        "POST",
-        "/api/internal/ask-bot",
-        { fromBotId: asker.id, toBotId: patch.id, message: "Patch, one more thing" },
-        { authorization: `Bearer ${token}` },
-      );
+      const refusedAsk = await ask(patch.id, "Patch, one more thing");
       expect(refusedAsk.status).toBe(403);
       expect(String(refusedAsk.body.error)).toContain(REFUSED);
-      const refusedDelegation = await api(
-        "POST",
-        "/api/internal/delegate-bot",
-        { fromBotId: asker.id, toBotId: patch.id, message: "Patch, take this" },
-        { authorization: `Bearer ${token}` },
-      );
-      expect(refusedDelegation.status).toBe(403);
-      expect(String(refusedDelegation.body.error)).toContain(REFUSED);
 
-      const allowedAsk = await api(
-        "POST",
-        "/api/internal/ask-bot",
-        { fromBotId: asker.id, toBotId: quill.id, message: "Quill, still there?" },
-        { authorization: `Bearer ${token}` },
-      );
+      const allowedAsk = await ask(quill.id, "Quill, still there?");
       expect(allowedAsk.status).toBe(200);
       expect(allowedAsk.body.error).toBeUndefined();
-      await expect.poll(() => botBusy(quill.id)).toBe(false);
-
-      const allowedDelegation = await api(
-        "POST",
-        "/api/internal/delegate-bot",
-        { fromBotId: asker.id, toBotId: quill.id, message: "Quill, take this" },
-        { authorization: `Bearer ${token}` },
-      );
-      expect(allowedDelegation.status).toBe(200);
-      expect(allowedDelegation.body.queued).toBe(true);
     } finally {
       for (const bot of [asker, quill, patch]) {
         await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
@@ -249,7 +207,7 @@ describe("peer allow-list", () => {
     }
   }, 40_000);
 
-  it("renders only the allow-listed peers into the roster the bot is given", async () => {
+  it("lists only the allow-listed peers to the bot", async () => {
     await keepSeededBotOutOfReach();
     const bound = await createBot("Dot", "bound");
     const near = await createBot("Near", "plain");
@@ -257,12 +215,7 @@ describe("peer allow-list", () => {
 
     try {
       expect((await api("PATCH", `/api/bots/${bound.id}`, { peers: [near.id] })).status).toBe(200);
-      expect((await api("POST", `/api/bots/${bound.id}/messages`, { text: "Warm up" })).status).toBe(202);
-      await expect.poll(() => readDump(boundDump)()?.systemPrompt, { timeout: 10_000 }).toBeTruthy();
-
-      const systemPrompt = String(readDump(boundDump)()!.systemPrompt);
-      expect(systemPrompt).toContain(`- Near — General assistant [id: ${near.id}]`);
-      expect(systemPrompt).not.toContain("Farside");
+      expect(await peerNames(bound.id, await mintCapability(bound.id, bound.threadId))).toEqual(["Near"]);
     } finally {
       for (const bot of [bound, near, far]) {
         await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
@@ -270,58 +223,6 @@ describe("peer allow-list", () => {
       }
     }
   }, 40_000);
-
-  it("re-checks the allow-list after the approval card, not just before it", async () => {
-    await keepSeededBotOutOfReach();
-    const asker = await createBot("Iris", "asker");
-    const helper = await createBot("Hedge", "plain");
-
-    try {
-      rmSync(askerDump, { force: true });
-      await warmUp(asker.id);
-      await expect.poll(() => readDump(askerDump)()?.mcpConfig, { timeout: 10_000 }).toBeTruthy();
-      const providerToken = String(readDump(askerDump)()!.mcpConfig?.mcpServers?.agents?.env?.LATERDOG_COMMS_TOKEN ?? "");
-      expect(providerToken).toMatch(/^[a-f0-9]{48}$/);
-      const token = await mintCapability(asker.id, asker.threadId);
-      expect((await api("PATCH", `/api/bots/${asker.id}`, { approvePeerComms: true })).status).toBe(200);
-
-      const parked = api(
-        "POST",
-        "/api/internal/ask-bot",
-        { fromBotId: asker.id, toBotId: helper.id, message: "Hedge, a quick one" },
-        { authorization: `Bearer ${token}` },
-      );
-
-      const askCard = async () =>
-        (await botMessages(asker.id)).find(
-          (message) => message.kind === "options" && message.card?.tool === "ask_bot",
-        )?.card;
-      await expect.poll(async () => (await askCard())?.requestId, { timeout: 15_000 }).toBeTruthy();
-      const card = (await askCard())!;
-
-      expect((await api("PATCH", `/api/bots/${asker.id}`, { peers: [] })).status).toBe(200);
-      const allowed = await api("POST", `/api/bots/${asker.id}/respond`, {
-        requestId: card.requestId,
-        behavior: "allow",
-      });
-      expect(allowed.status).toBe(200);
-
-      const outcome = await parked;
-      expect(outcome.status).toBe(200);
-      expect(String(outcome.body.error)).toBe("that bot is no longer an allowed peer");
-      expect(
-        (await botMessages(helper.id)).some(
-          (message) => message.role === "user" && message.kind === "text",
-        ),
-      ).toBe(false);
-      expect(await botBusy(helper.id)).toBeFalsy();
-    } finally {
-      for (const bot of [asker, helper]) {
-        await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
-        await api("DELETE", `/api/bots/${bot.id}`).catch(() => undefined);
-      }
-    }
-  }, 60_000);
 
   it("refuses to loosen a bot from a bare loopback call while any bot is working", async () => {
     await keepSeededBotOutOfReach();

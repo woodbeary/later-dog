@@ -95,13 +95,12 @@ On a disposable worktree stacked on #1708 and rebased onto later.dog main
 above passed. Before that rebase (main `0bb37982` plus #1708),
 `pnpm test:packaged-server` and `server/index.test.ts`,
 `server/independent-threads-api.test.ts`,
-`server/notification-routing.e2e.test.ts`, `server/comms.test.ts`,
+`server/notification-routing.e2e.test.ts`,
 `server/guarded-messages-api.test.ts`,
 `server/paired-thread-targets-api.test.ts`, `server/chief-rooms.e2e.test.ts`,
 `server/direct-coordination.e2e.test.ts`, `server/request-auth.test.ts`,
 `server/decision-log.test.ts`, `server/decision-log-wiring.test.ts`,
 `server/card-answerers.e2e.test.ts`, `server/peer-allowlist.e2e.test.ts`,
-`server/delegations.test.ts`,
 `server/thread-capacity-api.test.ts`, `server/cli-service-trust.e2e.test.ts`
 and the Settings/People/session UI tests passed on macOS.
 `server/hosted-access.test.ts` passed except once for its 8-second licence

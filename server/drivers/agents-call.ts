@@ -3,7 +3,6 @@ import { parseOptionsCardInput, WATCHER_OPTIONS_CARD_BOT_ID } from "../../shared
 import { normalizeCronSchedule } from "../../shared/routine-schedule.ts";
 
 import { peerName } from "../peer-roster.ts";
-import { renderPeerDeliveryReceipts, type PeerDeliveryOutcome, type PeerDeliveryReceipt } from "../peer-delivery.ts";
 import { catalogProfileFromEnv, SHARED_COMPUTER_TOOL_NAMES, WEEKDAYS } from "./agents-catalog.ts";
 import { harnessClientFromEnv } from "./agents-client.ts";
 import type { HarnessClient, Json } from "./agents-client.ts";
@@ -15,8 +14,6 @@ export interface ToolCallContext {
   botId: string;
   threadId: string;
   depth: number;
-  externalRuntime: boolean;
-  coordinating: boolean;
   sharedComputers: boolean;
   client: HarnessClient;
 }
@@ -33,14 +30,11 @@ export function toolCallContextFromEnv(env: NodeJS.ProcessEnv): ToolCallContext 
     botId: profile.botId,
     threadId: env.LATERDOG_THREAD_ID ?? "",
     depth: Number(env.LATERDOG_TURN_DEPTH ?? "0") || 0,
-    externalRuntime: profile.externalRuntime,
-    coordinating: profile.coordinating,
     sharedComputers: profile.sharedComputers,
     client: harnessClientFromEnv(env),
   };
 }
 
-const EXTERNAL_STATUS_GUIDANCE = "Use check_delegation or wait_delegation with this task id to retrieve the result; polling is allowed without ending this external runtime.";
 const MOVED_ENTRIES_SHOWN = 5;
 
 const SHORT_WEEKDAYS = {
@@ -218,17 +212,9 @@ function normalizeScheduleInput(args: Json): NormalizedSchedule {
 type RoutineAction = "update" | "pause" | "resume" | "run_now" | "delete";
 
 export const capResult = (text: string, context: ToolCallContext) => boundedAgentResult(text, (retained, truncated) => {
-  if (context.externalRuntime) throw new Error("External runtime results are not cached");
   return context.client.api("/api/internal/tool-result", { method: "POST", signal: AbortSignal.timeout(3_000),
     body: JSON.stringify({ text: retained, truncated }) });
 });
-
-function ordinal(n: number): string {
-  const rem100 = n % 100;
-  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
-  const rem10 = n % 10;
-  return `${n}${rem10 === 1 ? "st" : rem10 === 2 ? "nd" : rem10 === 3 ? "rd" : "th"}`;
-}
 
 function jsonRecord(value: unknown): value is Json {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -301,29 +287,9 @@ function confirmationResult(r: Json, fallback: string, noun = "routine"): { text
 }
 
 function recallSpeaker(hit: Json): string {
-  if (typeof hit.peer === "string" && hit.peer) return `@${hit.peer} (another bot, via ask_bot — not your user)`;
+  if (typeof hit.peer === "string" && hit.peer) return `@${hit.peer} (another bot, not your user)`;
   if (typeof hit.from === "string" && hit.from) return hit.from;
   return hit.role === "user" ? "user" : "you";
-}
-
-const isPeerDeliveryOutcome = (value: unknown): value is PeerDeliveryOutcome =>
-  value === "queued" || value === "injected" || value === "failed";
-
-function deliveryNote(r: Json): string {
-  const receipt = (r as { receipt?: unknown }).receipt;
-  if (!receipt || typeof receipt !== "object") return "";
-  const { botId, botName, outcome, detail, taskId, requestId } = receipt as Record<string, unknown>;
-  if (typeof botId !== "string" || !botId || typeof detail !== "string" || !detail) return "";
-  if (!isPeerDeliveryOutcome(outcome)) return "";
-  const parsed: PeerDeliveryReceipt = {
-    botId,
-    ...(typeof botName === "string" && botName ? { botName } : {}),
-    outcome,
-    detail,
-    ...(typeof taskId === "string" && taskId ? { taskId } : {}),
-    ...(typeof requestId === "string" && requestId ? { requestId } : {}),
-  };
-  return renderPeerDeliveryReceipts([parsed]);
 }
 
 function recallWhen(at: unknown, dateOnly: boolean): string {
@@ -336,7 +302,7 @@ function recallWhen(at: unknown, dateOnly: boolean): string {
 }
 
 export async function callTool(name: string, args: Json, context: ToolCallContext): Promise<ToolCallResult> {
-  const { botId: BOT_ID, threadId: THREAD_ID, depth: DEPTH, externalRuntime: EXTERNAL_RUNTIME, coordinating: COORDINATING } = context;
+  const { botId: BOT_ID, threadId: THREAD_ID } = context;
   const { api, apiResponse } = context.client;
   if (name === "attach_file") {
     const { ok, body } = await apiResponse("/api/internal/attach-file", {
@@ -389,10 +355,6 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       ? `Read more with tool_result_read id "${args.id}" and offset ${r.nextOffset}.`
       : `End of retained result.${r.truncated ? " The original tail exceeded the storage limit and was omitted." : ""}`}]` };
   }
-  if (name === "list_room_targets") {
-    const r = await api("/api/internal/room-targets");
-    return { text: JSON.stringify(r), ...(r.error ? { isError: true } : {}) };
-  }
   if (name === "coordinate_bots") {
     const canonical: Json = { ...args };
     delete canonical.botIds;
@@ -414,33 +376,10 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     }) });
     return { text: JSON.stringify(r), ...(r.error ? { isError: true } : {}) };
   }
-  if (name === "send_to_bot") {
-    const botId = String(args.bot_id ?? "").trim();
-    const title = String(args.title ?? "").trim();
-    const message = String(args.message ?? "").trim();
-    if (!botId || !title || !message) {
-      return { text: "send_to_bot needs bot_id, title and message.", isError: true };
-    }
-    if (botId === context.botId) {
-      return { text: "send_to_bot is cross-bot only: do your own work here in this conversation.", isError: true };
-    }
-    const r = await api("/api/internal/threads", { method: "POST", body: JSON.stringify({
-      fromBotId: context.botId, fromThreadId: context.threadId, toBotId: botId,
-      title, message, depth: context.depth, oneWay: true,
-    }) });
-    if (r.error) return { text: `Couldn't send to that bot: ${String(r.error)}`, isError: true };
-    const destination = `@${String(r.botName ?? "that bot")} in #${String(r.title ?? title)} [thread id: ${String(r.threadId ?? "")}]${r.reused === true ? ", the open thread you already have with them" : ""}`;
-    const state = r.approvalRequired === true
-      ? `Send to ${destination} is pending approval. The person's approval card appears after this turn ends; dispatch starts once approved.`
-      : r.state === "queued"
-        ? `Send to ${destination} is queued ${ordinal(Number(r.position) || 1)} for a free slot and can dispatch after this turn ends.`
-        : `Send to ${destination} is pending until this turn ends, then dispatch starts.`;
-    return { text: `${state} Its result stays in that thread; nothing there will resume you.` };
-  }
   if (name === "list_bots") {
     const r = await api(`/api/internal/agents?self=${encodeURIComponent(BOT_ID)}`);
     const bots = (r.bots as Array<Json>) ?? [];
-    const rooms = EXTERNAL_RUNTIME ? "" : groupChatsText(r.rooms);
+    const rooms = groupChatsText(r.rooms);
     if (!bots.length) return { text: rooms ? `No other reachable bots yet.\n\n${rooms}` : "No other reachable bots yet." };
     const lines = bots.map((b) => {
       const role = b.title ? ` — ${b.title}` : "";
@@ -452,117 +391,8 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       return `- ${b.name}${role}${about} [id: ${b.id}, model: ${b.model}${team}${state ? `, ${state}` : ""}]`;
     });
     return {
-      text: `Reachable teammates:\n${lines.join("\n")}\n\n${COORDINATING ? "Use coordinate_bots for advice or concrete work, then end your turn. Busy teammates queue and results resume you automatically." : "Assign work with delegate_bot. Use ask_bot only for a short answer you need inline."}${rooms ? `\n\n${rooms}` : ""}`,
+      text: `Reachable teammates:\n${lines.join("\n")}\n\nUse coordinate_bots for advice or concrete work, then end your turn. Busy teammates queue and results resume you automatically.${rooms ? `\n\n${rooms}` : ""}`,
     };
-  }
-  if (name === "ask_bot") {
-    const toBotId = String(args.bot_id ?? "").trim();
-    const message = String(args.message ?? "").trim();
-    if (!toBotId || !message) return { text: "ask_bot needs bot_id and message.", isError: true };
-    const r = await api(`/api/internal/ask-bot`, {
-      method: "POST",
-      body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, toBotId, message, depth: DEPTH }),
-    });
-    const note = deliveryNote(r);
-    if (r.timeout) {
-      const taskId = String(r.taskId ?? "").trim();
-      const waitedSeconds = Math.max(1, Math.round((Number(r.waitedMs) || 0) / 1000));
-      const amount = waitedSeconds < 60 ? waitedSeconds : Math.round(waitedSeconds / 60);
-      const unit = waitedSeconds < 60 ? "second" : "minute";
-      return {
-        text: `${r.toBotName ?? "That bot"} is still working after ${amount} ${unit}${amount === 1 ? "" : "s"} — the ask was converted to a delegation so the reply is not lost. Task id: ${taskId}. ${EXTERNAL_RUNTIME ? EXTERNAL_STATUS_GUIDANCE : "Finish your turn now; the result will be delivered to this conversation automatically. Use check_delegation in a later turn only if the person asks for status."}${note ? `\n\n${note}` : ""}`,
-      };
-    }
-    if (r.busy) {
-      if (r.aside === "injected") {
-        return {
-          text: `${r.toBotName ?? "That bot"} is mid-turn; your message was handed to them as an aside — peer context folded into their current work, not a request that interrupts or replies. Finish your turn and treat their eventual output as possibly informed by it.`,
-        };
-      }
-      if (r.aside === "queued") {
-        return {
-          text: `${r.toBotName ?? "That bot"} is mid-turn; your aside is queued and will reach them as context when the turn settles. No reply is expected — finish your turn.`,
-        };
-      }
-      const taskId = String(r.taskId ?? "").trim();
-      if (taskId) {
-        return {
-          text: `${r.toBotName ?? "That bot"} is busy right now, so your message was queued as a delegation instead — ${EXTERNAL_RUNTIME ? "it waits for the peer and any required approval" : "it runs after your current turn ends"}. Task id: ${taskId}. ${EXTERNAL_RUNTIME ? EXTERNAL_STATUS_GUIDANCE : "Finish your turn now; the result will be delivered to this conversation automatically. Use check_delegation in a later turn only if the person asks for status."}${note ? `\n\n${note}` : ""}`,
-        };
-      }
-      return { text: `That bot is busy right now — try again after it finishes.${note ? `\n\n${note}` : ""}` };
-    }
-    if (r.error) return { text: `Couldn't reach that bot: ${r.error}${note ? `\n\n${note}` : ""}`, isError: true };
-    return { text: `${r.botName ?? "Bot"} replied:\n${r.text ?? "(no reply)"}${note ? `\n\n${note}` : ""}` };
-  }
-  if (name === "delegate_bot") {
-    const toBotId = String(args.bot_id ?? "").trim();
-    const message = String(args.message ?? "").trim();
-    const reason = typeof args.reason === "string" ? args.reason.trim() : "";
-    if (!toBotId || !message) return { text: "delegate_bot needs bot_id and message.", isError: true };
-    const body: Record<string, unknown> = {
-      fromBotId: BOT_ID,
-      fromThreadId: THREAD_ID,
-      toBotId,
-      message,
-      depth: DEPTH,
-    };
-    if (reason) body.reason = reason;
-    const r = await api(`/api/internal/delegate-bot`, { method: "POST", body: JSON.stringify(body) });
-    const delivery = deliveryNote(r);
-    if (r.error) return { text: `Couldn't queue the delegation: ${r.error}${delivery ? `\n\n${delivery}` : ""}`, isError: true };
-    const note = typeof r.message === "string" ? r.message : "Delegation queued.";
-    const taskId = typeof r.taskId === "string" ? r.taskId.trim() : "";
-    const suffix = taskId
-      ? ` Task id: ${taskId}. ${EXTERNAL_RUNTIME ? EXTERNAL_STATUS_GUIDANCE : "Acknowledge the assignment and finish your turn; the result will be delivered to this conversation automatically. Do not check or wait for it in this turn."}`
-      : "";
-    return { text: `${note}${suffix}${delivery ? `\n\n${delivery}` : ""}` };
-  }
-  if (name === "check_delegation" || name === "wait_delegation") {
-    const taskId = String(args.task_id ?? "").trim();
-    if (!/^[\w-]{4,64}$/.test(taskId)) {
-      return { text: `${name} needs the "task_id" that delegate_bot returned, e.g. {"task_id":"1f0c2f4e-..."}.`, isError: true };
-    }
-    const timeout = Math.min(Math.max(Math.trunc(Number(args.timeout_seconds) || 60), 1), 240);
-    const waitMs = name === "wait_delegation" ? timeout * 1000 : 0;
-    const query = new URLSearchParams({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, wait_ms: String(waitMs) });
-    const r = await api(`/api/internal/delegations/${encodeURIComponent(taskId)}?${query.toString()}`);
-    const who = typeof r.toBotName === "string" && r.toBotName ? `@${r.toBotName}` : "the peer";
-    if (r.status === "done") return { text: `${who} finished task ${taskId}:\n${String(r.result || "(no reply text)")}` };
-    if (r.status === "queued") {
-      const why = r.targetStatus === "waiting-on-user"
-        ? ` ${who} is waiting on the person, so it goes through after they answer.`
-        : r.targetStatus === "working" ? ` ${who} is busy with other work.` : "";
-      const expiresInMs = Number(r.expiresInMs);
-      const expiry = !Number.isFinite(expiresInMs)
-        ? ""
-        : expiresInMs <= 0
-          ? " It is past its 24-hour limit and will expire the next time it cannot be delivered."
-          : ` It expires if not picked up within ${Math.ceil(expiresInMs / 3_600_000)} hour${Math.ceil(expiresInMs / 3_600_000) === 1 ? "" : "s"}.`;
-      return { text: `Task ${taskId} is still queued — ${who} hasn't picked it up yet${waitMs ? ` after ${timeout}s` : ""}.${why}${expiry} Keep working and check again later.` };
-    }
-    if (r.status === "running" && r.awaitingPerson && typeof r.awaitingPerson === "object") {
-      const card = r.awaitingPerson as { kind?: unknown; tool?: unknown; threadTitle?: unknown };
-      const what = card.kind === "approval" ? "approval" : card.kind === "review" ? "review" : "answer";
-      const where = typeof card.threadTitle === "string" && card.threadTitle ? ` in its thread "${card.threadTitle}"` : " in its own thread";
-      const tool = typeof card.tool === "string" && card.tool ? ` (to run ${card.tool})` : "";
-      return {
-        text: `Task ${taskId} is waiting on the person's ${what}: ${who} stopped at a card${where}${tool}. Nothing moves until the person answers that card there. Tell the person now and point them to that thread; do not keep waiting or checking.`,
-      };
-    }
-    if (r.status === "running") {
-      const elapsedMs = Number.isFinite(r.elapsedMs) ? Number(r.elapsedMs) : 0;
-      const minutes = Math.floor(elapsedMs / 60_000);
-      const elapsed = minutes >= 1 ? `${minutes} minute${minutes === 1 ? "" : "s"}` : `${Math.round(elapsedMs / 1000)}s`;
-      const activity = Array.isArray(r.recentActivity) ? r.recentActivity.filter((line: unknown) => typeof line === "string") : [];
-      const recent = activity.length
-        ? activity.map((line: string) => `  - ${line}`).join("\n")
-        : "  (no visible activity yet — if this stays empty, the peer may be stuck, not working; say so instead of promising progress)";
-      return {
-        text: `Task ${taskId} is running with ${who} — going on ${elapsed} now.${waitMs ? ` (still going after ${timeout}s)` : ""}\nRecent activity:\n${recent}\nJudge progress by this activity, not by waiting: real work keeps producing lines; the same silence for a long stretch usually means stuck.`,
-      };
-    }
-    return { text: `Task ${taskId} ended without a reply — ${String(r.status ?? "unknown")}${r.result ? `: ${String(r.result)}` : ""}.`, isError: true };
   }
   if (name === "select_computer") {
     if (args.surface !== undefined && (typeof args.surface !== "string" || !["auto", "cloud", "local", "mac"].includes(args.surface))) {
@@ -594,7 +424,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     });
     const newName = String(r.name ?? botName);
     return {
-      text: `Created @${newName} in ${r.section ?? "General"} [id: ${r.id}].${r.modelSelection ? ` Model: ${JSON.stringify(r.modelSelection)}.` : ""} It is in the person's sidebar now${r.greeted === true ? ", greeting them in its own chat" : ""}. Tell them so in one sentence, for example: "I've created ${newName}, and it should be in your sidebar now." If they gave it a job, hand that job over now with ${COORDINATING ? "coordinate_bots" : "delegate_bot"} so it starts working; otherwise leave it to greet them.`,
+      text: `Created @${newName} in ${r.section ?? "General"} [id: ${r.id}].${r.modelSelection ? ` Model: ${JSON.stringify(r.modelSelection)}.` : ""} It is in the person's sidebar now${r.greeted === true ? ", greeting them in its own chat" : ""}. Tell them so in one sentence, for example: "I've created ${newName}, and it should be in your sidebar now." If they gave it a job, hand that job over now with coordinate_bots so it starts working; otherwise leave it to greet them.`,
     };
   }
   if (name === "create_room") {

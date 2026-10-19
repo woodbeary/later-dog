@@ -7,8 +7,8 @@ worker permanent browser credentials.
 
 The Claude driver keeps native background tasks disabled. Native subagents
 can still work within the active turn; asynchronous work across bots uses
-later.dog's `delegate_bot` path, which owns each recipient's turn, approvals,
-and completion receipt. Long-running native Bash commands can no longer
+later.dog's `coordinate_bots` path, which owns each recipient's turn, approvals,
+and the result that resumes the sender. Long-running native Bash commands can no longer
 auto-background past the owning turn. This does not change approval modes or
 disable sandbox protections.
 

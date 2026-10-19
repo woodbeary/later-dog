@@ -210,15 +210,15 @@ it("lets only a routine's own turns move its run while the person chats, delegat
     const leadGate = join(fixture.info.dataDir, "lead-report.gate");
     writeFileSync(planPath, JSON.stringify({
       [ops.id]: { turns: [
-        { steps: [{ tool: "delegate_bot", arguments: { bot_id: lead.id, message: "Write the weekly report." } }], reply: "ROUTINE asked Lead" },
+        { steps: [{ arguments: { bot_ids: [lead.id], message: "Write the weekly report." } }], reply: "ROUTINE asked Lead" },
         { steps: [{ arguments: { bot_ids: [helper.id], message: "Check the invoice total." } }], reply: "PERSON asked Helper" },
         { reply: "PERSON got Helper's answer" },
         { fail: true },
         { reply: "ROUTINE has Lead's report" },
       ] },
       [helper.id]: { turns: [{ reply: "The invoice total is 42" }] },
+      [lead.id]: { turns: [{ reply: "The weekly report is ready", gateFile: leadGate }] },
     }));
-    writeFileSync(`${planPath}.gates.json`, JSON.stringify([{ promptIncludes: "Write the weekly report.", gateFile: leadGate }]));
     const { routine } = await api("POST", "/api/routines", {
       name: "Weekly report", prompt: "Get the weekly report from Lead.", botId: ops.id, enabled: false,
       schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 },
@@ -286,17 +286,14 @@ it("cancels a waiting routine without touching the person's reply or their teamm
     const personReady = join(fixture.info.dataDir, "person-reply.ready");
     writeFileSync(planPath, JSON.stringify({
       [ops.id]: { turns: [
-        { steps: [{ tool: "delegate_bot", arguments: { bot_id: lead.id, message: "Write the weekly report." } }], reply: "ROUTINE asked Lead" },
+        { steps: [{ arguments: { bot_ids: [lead.id], message: "Write the weekly report." } }], reply: "ROUTINE asked Lead" },
         { steps: [{ arguments: { bot_ids: [helper.id], message: "Check the invoice total." } }], reply: "PERSON asked Helper" },
         { reply: "PERSON held reply", readyFile: personReady, gateFile: personGate },
         { reply: "PERSON got Helper's answer" },
       ] },
       [helper.id]: { turns: [{ reply: "The invoice total is 42", gateFile: helperGate }] },
+      [lead.id]: { turns: [{ reply: "The weekly report is ready", gateFile: leadGate }] },
     }));
-    writeFileSync(`${planPath}.gates.json`, JSON.stringify([
-      { promptIncludes: "Write the weekly report.", gateFile: leadGate },
-      { promptIncludes: "Check the invoice total.", gateFile: helperGate },
-    ]));
     const { routine } = await api("POST", "/api/routines", {
       name: "Weekly report", prompt: "Get the weekly report from Lead.", botId: ops.id, enabled: false,
       schedule: { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 },

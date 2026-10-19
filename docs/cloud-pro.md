@@ -656,7 +656,7 @@ On the Cloud home (`server/shared-computers.ts`, `server/index.ts`):
   guest's included, controls the Cloud machine: it can change other bots'
   files and these records.
 - Not covered yet: a bot whose memory changed can still pass its words to
-  other bots through rooms, `ask_bot` and delegation, and a turn that may use
+  other bots through rooms and `coordinate_bots`, and a turn that may use
   the Mac can still read room names and routine listings through its tools.
 
 ### What the Cloud can see: `GET /api/shared-computers`

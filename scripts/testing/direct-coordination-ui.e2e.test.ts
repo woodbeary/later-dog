@@ -12,7 +12,7 @@ import { UI_TOOLS_DIR } from "./control-laterdog-ui.ts";
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const enabled = process.env.LATERDOG_UI_E2E === "1" || Boolean(resolveAgentBrowserBinary({ dataDir: UI_TOOLS_DIR, env: process.env }));
 
-(enabled ? it : it.skip)("coordinates from the real composer and opens the other dog's conversation from the inline receipt", async () => {
+(enabled ? it : it.skip)("coordinates from the real composer and opens the read-only exchange from the inline receipt", async () => {
   const temporary = mkdtempSync(join(tmpdir(), "laterdog-direct-ui-plan-"));
   const planPath = join(temporary, "plan.json");
   writeFileSync(planPath, "{}");
@@ -64,19 +64,25 @@ const enabled = process.env.LATERDOG_UI_E2E === "1" || Boolean(resolveAgentBrows
     writeFileSync(gateFile, "complete fixture work");
     await ui("wait-settle", "--timeout", "60");
     await expect.poll(snapshot, { timeout: 15_000 }).toContain("Engineer checked the fixture CSV export");
-    expect(await snapshot()).toContain("Open the conversation with Engineer");
+    const exchangeLabel = "Read what Pepper and Engineer said to each other";
+    expect(await snapshot()).toContain(exchangeLabel);
     const state = await api("/api/bots");
     const parent = state.bots.find((bot: any) => bot.id === info.botId);
     const receipt = parent.messages.find((message: any) => message.tool?.name === "Sent to Engineer");
-    expect(receipt.threadRef.botId).toBe(lead.id);
-    expect(receipt.threadRef.threadId).toBe(lead.threadId);
+    expect(receipt.threadRef).toBeUndefined();
+    const exchange = state.groups.find((group: any) => group.id === receipt.comm.groupId);
+    expect(exchange).toMatchObject({ dm: true, memberIds: [info.botId, lead.id] });
+    expect(receipt.comm).toMatchObject({ threadId: exchange.threadId, withBotId: lead.id, direction: "to" });
     const screenshot = info.logPath + ".direct-coordination.png";
     await ui("screenshot", "--out", screenshot);
-    await click("Open the conversation with Engineer");
-    await expect.poll(snapshot, { timeout: 15_000 }).toContain("CSV export checked in my separate task");
-    const selected = (await api("/api/bots")).bots.find((bot: any) => bot.id === lead.id);
-    expect(selected.threadId).toBe(receipt.threadRef.threadId);
-    const evidence = { source: parent.messages, receipt, selectedThread: selected.threadId, final: await snapshot(), screenshot };
+    await click(exchangeLabel);
+    await expect.poll(snapshot, { timeout: 15_000 }).toContain("The dogs wrote these to each other. You can read along but not reply here.");
+    const opened = await snapshot();
+    expect(opened).toContain("Check the fixture CSV export");
+    expect(opened).toContain("CSV export checked in my separate task");
+    const exchangeScreenshot = info.logPath + ".direct-coordination-exchange.png";
+    await ui("screenshot", "--out", exchangeScreenshot);
+    const evidence = { source: parent.messages, receipt, exchange, final: opened, screenshot, exchangeScreenshot };
     writeFileSync(info.logPath + ".direct-coordination.json", JSON.stringify(evidence, null, 2));
     console.log("Direct coordination UI evidence:", info.logPath + ".direct-coordination.json");
   } finally {

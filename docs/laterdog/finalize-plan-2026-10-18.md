@@ -269,7 +269,7 @@ Ordered by user impact per effort. Each lane is split into small PRs. Every PR i
   - Two POSTs with the same `createId` add one dog. `/api/events` shows the seed greeting, then the fake first question with no extra call.
   - A room made by the fake create_room tool emits a group frame. The phone reducer and buildHome tests list it.
   - Drag a pack headless: GET `/api/sidebar-sections` returns the new order and the local key is gone.
-  - Hide B: A's ask_bot to B is delivered, a room mention gets a reply, and run-now creates a run.
+  - Hide B: A's coordinate_bots request to B is delivered, a room mention gets a reply, and run-now creates a run.
   - Reload restores the last chat; `'{bad'` opens the main dog.
 - **Unverified until live:** phone rows side by side with the Mac on the person's iPhone.
 

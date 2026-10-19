@@ -8,8 +8,6 @@ export interface DriverCapabilities {
 }
 
 const ENVELOPE: CatalogProfile = {
-  externalRuntime: false,
-  coordinating: true,
   skillAuthoring: true,
   sharedComputers: true,
   voiceNotes: true,
@@ -22,11 +20,10 @@ export function harnessCapabilityLines(from: DriverCapabilities | undefined, to:
   const lines: string[] = [];
   if (from.agentsMcp !== to.agentsMcp) {
     const names = availableTools(ENVELOPE).map((tool) => tool.name);
-    const coordination = ["coordinate_bots", "ask_bot", "delegate_bot"].filter((name) => names.includes(name));
     lines.push(
       to.agentsMcp
-        ? "Gains peer coordination and the other team tools: " + names.length + " tools including " + coordination.join(", ") + "."
-        : "Loses peer coordination and every team tool: " + names.length + " tools including " + coordination.join(", ") + " go away.",
+        ? "Gains peer coordination and the other team tools: " + names.length + " tools including coordinate_bots."
+        : "Loses peer coordination and every team tool: " + names.length + " tools including coordinate_bots go away.",
     );
   }
   if (from.driverKind !== to.driverKind) {

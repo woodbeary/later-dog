@@ -47,8 +47,9 @@ it.each(["", "Leadership"])("lists and coordinates with a supervising Chief and 
   f.plan[f.sender.id].steps = [{ arguments: { bot_ids: [chief.id, f.target.id], message: "Review the work here" } }];
   f.plan[f.target.id] = { reply: "Built CSV", expectContextIncludes: ["[LIVE TEAMMATES]", `[id: ${f.sender.id}]`] };
   await f.start(); expect((await f.wait()).status).toBe("settled");
-  const discovery = JSON.parse(f.provider().find((turn: any) => turn.botId === f.sender.id).evidence[1].result.content[0].text);
-  expect(discovery.rooms.find((room: any) => room.id === f.source.id).members.map((bot: any) => bot.id)).toEqual(expect.arrayContaining([chief.id, f.target.id]));
+  const discovery = f.provider().find((turn: any) => turn.botId === f.sender.id).evidence[1].result.content[0].text;
+  expect(discovery).toContain(`[id: ${chief.id}`);
+  expect(discovery).toContain(`[id: ${f.target.id}`);
   const children = f.nodes().filter((node: any) => node.parentId);
   expect(children.map((node: any) => node.botId).sort()).toEqual([chief.id, f.target.id].sort());
   expect(children.every((node: any) => node.status === "completed" && node.groupId === f.source.id && node.threadId === f.source.activeTaskId)).toBe(true);
@@ -64,8 +65,7 @@ it.each(["unmanaged", "other-pack-reader"])("coordinates in the same room with %
   f.plan[f.sender.id].steps = [{ arguments: { bot_ids: [chief.id], message: "Review the work across packs" } }];
   await f.start(); expect((await f.wait()).status).toBe("settled");
   expect(f.nodes().find((node: any) => node.parentId)).toMatchObject({ botId: chief.id, groupId: f.source.id, status: "completed" });
-  const discovery = JSON.parse(f.provider().find((entry: any) => entry.botId === f.sender.id).evidence[1].result.content[0].text);
-  expect(discovery.rooms.find((room: any) => room.id === f.source.id).members.map((bot: any) => bot.id)).toContain(chief.id);
+  expect(f.provider().find((entry: any) => entry.botId === f.sender.id).evidence[1].result.content[0].text).toContain(`[id: ${chief.id}`);
   expect(f.provider().map((entry: any) => entry.botId)).toEqual([f.sender.id, chief.id, f.sender.id]);
 }), 45_000);
 
@@ -77,7 +77,7 @@ it("refuses same-room supervisor coordination with a disallowed peer", () => wit
   expect(f.nodes()).toEqual([]);
   const turn = f.provider().find((entry: any) => entry.botId === f.sender.id);
   expect(turn.evidence.find((entry: any) => entry.step).response.result.isError).toBe(true);
-  expect(JSON.parse(turn.evidence[1].result.content[0].text).rooms).toEqual([]);
+  expect(turn.evidence[1].result.content[0].text).not.toContain(`[id: ${chief.id}`);
   expect(f.provider().some((entry: any) => entry.botId === chief.id)).toBe(false);
 }), 45_000);
 
@@ -88,8 +88,7 @@ it("coordinates with a Chief in a different room across packs", () => withRooms(
   await f.start(); expect((await f.wait()).status).toBe("settled");
   expect(f.nodes().find((node: any) => node.parentId)).toMatchObject({ botId: chief.id, groupId: f.destination.id, status: "completed" });
   expect((await f.messages(f.destination.activeTaskId)).some((message: any) => message.text === "Supervisor checked the work")).toBe(true);
-  const discovery = JSON.parse(f.provider().find((turn: any) => turn.botId === f.sender.id).evidence[1].result.content[0].text);
-  expect(discovery.rooms.some((room: any) => room.id === f.destination.id)).toBe(true);
+  expect(f.provider().find((turn: any) => turn.botId === f.sender.id).evidence[1].result.content[0].text).toContain(`[id: ${chief.id}`);
 }), 45_000);
 
 it("refuses queued same-room supervisor work when the owner revokes peer access", () => withRooms(async f => {
@@ -221,9 +220,6 @@ it.each(["recipient", "source-reader", "destination-reader"])("refuses work invo
   expect(await f.messages(f.destination.activeTaskId)).toEqual([]);
   expect((await f.messages(f.source.activeTaskId)).some((m: any) => m.text === "Assigned")).toBe(true);
   expect(f.provider().map((turn: any) => turn.botId)).toEqual([f.sender.id]);
-  const discovery = f.provider().find((turn: any) => turn.botId === f.sender.id).evidence[1];
-  if (role === "source-reader") expect(discovery.result.isError).toBe(true);
-  else expect(JSON.parse(discovery.result.content[0].text).rooms).toEqual([]);
 }), 45_000);
 
 it.each([false, true])("coordinates across packs in the same room only with matching audiences (restricted sender %s)", restricted => withRooms(async f => {
@@ -330,7 +326,21 @@ it("stops an active downstream turn when the source group is interrupted", () =>
   expect((await f.messages(f.source.activeTaskId)).some((m: any) => m.text === "Reviewed downstream outcome")).toBe(false);
 }), 45_000);
 
-it.each(["allow", "deny"])("honors %s on the sender's peer-approval card", behavior => withRooms(async f => {
+it("sends an owner's dog's room request without a peer-approval card, even with peer approval switched on", () => withRooms(async f => {
+  await f.api(`/api/bots/${f.sender.id}`, { approvePeerComms: true }, "PATCH");
+  await f.start();
+  expect((await f.wait()).status).toBe("settled");
+  expect((await f.messages(f.source.activeTaskId)).some((m: any) => m.card?.tool === "delegate_bot")).toBe(false);
+  expect(f.nodes().find((n: any) => n.parentId)).toMatchObject({ status: "completed", approvalGranted: false });
+}), 45_000);
+
+async function shareWorkspace(f: any) {
+  await f.api("/api/config", { signIn: { admins: ["owner@fixture.test", "partner@fixture.test"], members: [] } }, "PUT");
+  expect((await f.api("/api/config")).signIn.admins).toHaveLength(2);
+}
+
+it.each(["allow", "deny"])("honors %s on the sender's peer-approval card in a shared sign-in workspace", behavior => withRooms(async f => {
+  await shareWorkspace(f);
   await f.api(`/api/bots/${f.sender.id}`, { approvePeerComms: true }, "PATCH");
   f.plan[f.sender.id].steps[0].expectError = behavior === "deny";
   await f.start();
@@ -339,15 +349,22 @@ it.each(["allow", "deny"])("honors %s on the sender's peer-approval card", behav
     card = (await f.messages(f.source.activeTaskId)).find((m: any) => m.card?.tool === "delegate_bot");
     return Boolean(card);
   }, { timeout: 10_000 }).toBe(true);
+  expect(f.nodes()).toEqual([]);
   expect(await f.messages(f.destination.activeTaskId)).toEqual([]);
   expect((await f.cli("wait", "--channel", f.source.id, "--timeout", "3")).status).toBe("needs-user");
   await f.api(`/api/threads/${f.source.activeTaskId}/respond`, { requestId: card.card.requestId, behavior });
   expect((await f.wait()).status).toBe("settled");
-  if (behavior === "deny") expect(f.nodes()).toEqual([]);
-  else expect(f.nodes().find((n: any) => n.parentId)).toMatchObject({ status: "completed", approvalGranted: true });
+  if (behavior === "deny") {
+    expect(f.nodes()).toEqual([]);
+    expect(await f.messages(f.destination.activeTaskId)).toEqual([]);
+    const refusal = f.provider().find((turn: any) => turn.botId === f.sender.id).evidence.find((entry: any) => entry.step).response.result;
+    expect(refusal.isError).toBe(true);
+    expect(JSON.stringify(refusal.content)).toContain("no work sent");
+  } else expect(f.nodes().find((n: any) => n.parentId)).toMatchObject({ status: "completed", approvalGranted: true });
 }), 45_000);
 
-it.each(["allow", "deny"])("presents all peer approvals together and dispatches only if every recipient is allowed (%s)", behavior => withRooms(async f => {
+it.each(["allow", "deny"])("presents all peer approvals together in a shared sign-in workspace and dispatches only if every recipient is allowed (%s)", behavior => withRooms(async f => {
+  await shareWorkspace(f);
   const reviewer = (await f.cli("new-bot", "--name", "Reviewer", "--section", "A")).bot;
   await f.tool("update_channel", { channel_id: f.destination.id, member_ids: [f.target.id, reviewer.id] });
   await f.api(`/api/bots/${f.sender.id}`, { approvePeerComms: true }, "PATCH");
@@ -373,7 +390,6 @@ it.each(["allow", "deny"])("presents all peer approvals together and dispatches 
   const posted = (await f.messages(f.destination.activeTaskId)).filter((m: any) => m.roomRequest?.phase === "request");
   expect(posted).toHaveLength(behavior === "deny" ? 0 : 1);
   if (behavior === "allow") expect(posted[0].text).toBe("@Engineer @Reviewer Please build CSV");
-
 }), 45_000);
 
 it("pins a busy destination's task even when its active task changes", () => withRooms(async f => {

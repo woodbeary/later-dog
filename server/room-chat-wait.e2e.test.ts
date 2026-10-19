@@ -275,12 +275,12 @@ describe("chat rooms wait for a member busy elsewhere", { timeout: 45_000 }, () 
 
       const asked = await api(
         "POST",
-        "/api/internal/ask-bot",
-        { fromBotId: pen.id, toBotId: ink.id, message: "Ink, quick question" },
+        "/api/internal/coordinate-bots",
+        { botIds: [ink.id], message: "Ink, quick question" },
         { authorization: `Bearer ${token}` },
       );
       expect(asked.status).toBe(200);
-      expect(asked.body.botName).toBe("Ink");
+      expect(asked.body.receipts).toEqual([expect.objectContaining({ botId: ink.id })]);
       const channel = (await api("GET", "/api/bots?messages=0")).body.groups.find((group: {
         dm?: boolean;
         memberIds: string[];

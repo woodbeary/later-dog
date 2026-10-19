@@ -15,7 +15,7 @@ const GOLDENS = join(HERE, "agents-catalog-goldens");
 const UPDATE = process.env.UPDATE_AGENTS_CATALOG_GOLDENS === "1";
 
 interface Profile {
-  family: "direct" | "room" | "external";
+  family: "direct";
   env: Record<string, string>;
 }
 
@@ -23,68 +23,40 @@ const flag = (on: boolean) => (on ? "1" : "0");
 
 function profiles(): Record<string, Profile> {
   const all: Record<string, Profile> = {};
-  for (const room of [false, true]) {
-    for (const skills of [false, true]) {
-      for (const shared of [false, true]) {
-        for (const voice of [false, true]) {
-          const name = [room ? "room" : "direct", skills && "skills", shared && "shared", voice && "voice"]
-            .filter(Boolean).join("+");
-          all[name] = {
-            family: room ? "room" : "direct",
-            env: {
-              LATERDOG_ROOM_TURN: flag(room),
-              LATERDOG_SKILL_AUTHORING_ENABLED: flag(skills),
-              LATERDOG_SHARED_COMPUTERS_ENABLED: flag(shared),
-              LATERDOG_VOICE_NOTES: flag(voice),
-            },
-          };
-        }
+  for (const skills of [false, true]) {
+    for (const shared of [false, true]) {
+      for (const voice of [false, true]) {
+        const name = ["direct", skills && "skills", shared && "shared", voice && "voice"].filter(Boolean).join("+");
+        all[name] = {
+          family: "direct",
+          env: {
+            LATERDOG_SKILL_AUTHORING_ENABLED: flag(skills),
+            LATERDOG_SHARED_COMPUTERS_ENABLED: flag(shared),
+            LATERDOG_VOICE_NOTES: flag(voice),
+          },
+        };
       }
     }
   }
-  for (const name of ["direct+skills+shared+voice", "room+skills+shared+voice"]) {
-    all[`${name}+cloud-home`] = { family: all[name]!.family, env: { ...all[name]!.env, LATERDOG_CLOUD_HOME: "1" } };
-  }
-  all.external = { family: "external", env: { LATERDOG_EXTERNAL_RUNTIME: "1" } };
-  all["external+everything"] = {
-    family: "external",
-    env: {
-      LATERDOG_EXTERNAL_RUNTIME: "1",
-      LATERDOG_ROOM_TURN: "1",
-      LATERDOG_SKILL_AUTHORING_ENABLED: "1",
-      LATERDOG_SHARED_COMPUTERS_ENABLED: "1",
-      LATERDOG_VOICE_NOTES: "1",
-      LATERDOG_CLOUD_HOME: "1",
-    },
-  };
+  all["direct+skills+shared+voice+cloud-home"] = { family: "direct", env: { ...all["direct+skills+shared+voice"]!.env, LATERDOG_CLOUD_HOME: "1" } };
   return all;
 }
 
 const PROFILES = profiles();
 const REMOVED_TEAM_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
-const FULL = { direct: "direct+skills+shared+voice", room: "room+skills+shared+voice", external: "external" } as const;
+const REMOVED_PEER_TOOLS = ["ask_bot", "delegate_bot", "check_delegation", "wait_delegation", "send_to_bot", "list_room_targets"];
+const FULL = { direct: "direct+skills+shared+voice" } as const;
 
 const BUDGET_BASELINE: Record<string, number> = {
-  "direct": 34738,
-  "direct+voice": 35479,
-  "direct+shared": 37479,
-  "direct+shared+voice": 38220,
-  "direct+skills": 36791,
-  "direct+skills+voice": 37532,
-  "direct+skills+shared": 39532,
-  "direct+skills+shared+voice": 40273,
-  "room": 34803,
-  "room+voice": 35544,
-  "room+shared": 37544,
-  "room+shared+voice": 38285,
-  "room+skills": 36856,
-  "room+skills+voice": 37597,
-  "room+skills+shared": 39597,
-  "room+skills+shared+voice": 40338,
-  "direct+skills+shared+voice+cloud-home": 40225,
-  "room+skills+shared+voice+cloud-home": 40290,
-  "external": 3083,
-  "external+everything": 3083,
+  "direct": 33176,
+  "direct+voice": 33917,
+  "direct+shared": 35905,
+  "direct+shared+voice": 36646,
+  "direct+skills": 35229,
+  "direct+skills+voice": 35970,
+  "direct+skills+shared": 37958,
+  "direct+skills+shared+voice": 38699,
+  "direct+skills+shared+voice+cloud-home": 38756,
 };
 
 const RPC_PREFIX = '{"jsonrpc":"2.0","id":1,"result":';
@@ -180,7 +152,7 @@ describe("agents proxy tools/list golden", () => {
     type SelectTool = Tool & { inputSchema: { properties: { surface: { enum: string[]; description: string } } } };
     const select = (wire: string) => toolsOf(wire).find((tool) => tool.name === "select_computer") as SelectTool;
     const cloudHome = Object.keys(PROFILES).filter((name) => name.endsWith("+cloud-home"));
-    expect(cloudHome).toHaveLength(2);
+    expect(cloudHome).toHaveLength(1);
     for (const name of cloudHome) {
       const desktop = wires[name.slice(0, -"+cloud-home".length)]!;
       expect(toolsOf(wires[name]!).map((tool) => tool.name)).toEqual(toolsOf(desktop).map((tool) => tool.name));
@@ -200,7 +172,15 @@ describe("agents proxy tools/list golden", () => {
       for (const tool of tools) expect(tool.inputSchema.properties, `${name}: ${tool.name}`).not.toHaveProperty("for_bot_id");
     }
     expect(wires[FULL.direct]).not.toMatch(/Chief/);
-    expect(wires["external+everything"]).toBe(wires.external);
+  });
+
+  it("gives every dog coordinate_bots as its one way to work with another dog", () => {
+    for (const [name, wire] of Object.entries(wires)) {
+      const tools = toolsOf(wire).map((tool) => tool.name);
+      expect(tools, name).toContain("coordinate_bots");
+      expect(tools, name).toContain("list_bots");
+      expect(REMOVED_PEER_TOOLS.filter((tool) => tools.includes(tool)), name).toEqual([]);
+    }
   });
 
   it("is what the catalog module computes in-process, so another front end mounts the same tools", () => {

@@ -119,7 +119,7 @@ describe("narrateTool", () => {
 
   it("sees through an MCP tool prefix", () => {
     expect(narrateTool("mcp__computer__click")).toBe("using the computer");
-    expect(narrateTool("mcp__agents__ask_bot")).toBe("asking another dog");
+    expect(narrateTool("mcp__agents__coordinate_bots")).toBe("asking another dog");
   });
 
   it("stays quiet for chips the user is already told about another way", () => {

@@ -83,7 +83,7 @@ export async function runRoomHandoffAgent(argv: string[], planPath: string, prom
     return await Promise.race([failed, (async () => {
       await call("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "room-fixture", version: "1" } });
       evidence.push(await call("tools/list"));
-      evidence.push(await call("tools/call", { name: "list_room_targets", arguments: {} }));
+      evidence.push(await call("tools/call", { name: "list_bots", arguments: {} }));
       for (const step of steps) {
         const response = await call("tools/call", { name: step.tool ?? "coordinate_bots", arguments: step.arguments });
         evidence.push({ step, response });

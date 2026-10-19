@@ -2,7 +2,6 @@ import { soulSystemPrompt } from "./bot-folder.ts";
 import { DOG_CREATION_PROMPT } from "./laterdog/dog-creation.ts";
 import { SECURE_FORM_PROMPT } from "./laterdog/secure-form.ts";
 import { TAKEOVER_PROMPT } from "./laterdog/takeover.ts";
-import { teammateAvailabilityPrompt, type RosterMember } from "./peer-roster.ts";
 import type { ConnectorToolGrant } from "../shared/wire.ts";
 
 export type PromptPart = { id: string; label: string; text: string };
@@ -16,10 +15,6 @@ export const VOICE_PROMPT =
 export function voicePrompt(personName?: string): string {
   const name = personName?.trim();
   return name ? `${VOICE_PROMPT} Their name is ${JSON.stringify(name)}; use it when it helps.` : VOICE_PROMPT;
-}
-
-export function teamAvailabilityPart(team: readonly RosterMember[]): PromptPart {
-  return { id: "availability", label: "Team availability", text: teammateAvailabilityPrompt(team) };
 }
 
 export function buildSystemPrompt(
@@ -101,7 +96,7 @@ const PROPOSAL_RESULT_PROMPT =
 export const ROUTINE_PROMPT =
   " If the user explicitly asks to list or review, schedule, run, or change routines, use list_routines and propose_routine or propose_routine_action. Convert calendar requests such as the first or last day of each month or the second Monday to a five-field cron expression with an explicit IANA timezone; use interval for elapsed every-N-minutes work. Never replace a calendar rule with daily AI date checking or an approximate weekly schedule; clarify ambiguous or unsupported requests." + PROPOSAL_RESULT_PROMPT;
 export const ROUTINE_EXECUTION_PROMPT =
-  " Execute this routine now: use available peer tools for required handoffs rather than merely announcing that you will wait; after an accepted delegation, end this turn for automatic resumption, and report a concrete blocker if no handoff is possible.";
+  " Do this routine now. If it needs another dog, ask with coordinate_bots instead of saying you will wait, then end this turn; their result resumes you. If no dog can take it, say what blocked it.";
 export const LEARN_PROMPT =
   " If the user sends /learn or asks you to save a reusable procedure from this work, use skills_list and skill_manage. Create new skills; update an existing learned skill only when the user explicitly asks to revise that exact name. Include source provenance." + PROPOSAL_RESULT_PROMPT;
 export const WEBHOOK_PROMPT =
@@ -113,5 +108,5 @@ export function mentionPrompt(tagged: ReadonlyArray<{ id: string; name: string }
   if (!tagged.length) return "";
   return ` The user tagged ${tagged
     .map((t) => `@${t.name} (bot_id ${t.id})`)
-    .join(" and ")} in their message. If they assigned independent work, use delegate_bot and finish your turn without waiting; use ask_bot only if their short reply is required in this answer.`;
+    .join(" and ")} in their message. When their part is needed, ask them with coordinate_bots instead of doing it with a native helper.`;
 }

@@ -3,9 +3,8 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { launchVerificationServer, runControlLaterDog, type VerificationServer } from "../scripts/control-laterdog.ts";
-import { DELEGATION_WAKE_MAX_PER_WINDOW } from "./delegations.ts";
 
-describe("routine delegation through the isolated harness", () => {
+describe("a routine asking another dog through the isolated harness", () => {
   let fixture: VerificationServer;
   let source: any;
   let peer: any;
@@ -46,12 +45,15 @@ describe("routine delegation through the isolated harness", () => {
     await expect.poll(async () => (await runState(run.id))?.status, { timeout: 15_000 }).toBe("running");
     return await runState(run.id);
   };
-  const delegate = async (threadId: string) => {
+  const coordinate = async (threadId: string) => {
     const launched = await dump(threadId);
-    const result = await api("POST", "/api/internal/delegate-bot", { toBotId: peer.id, message: "Produce the fixture report." }, launched.mcpConfig.mcpServers.agents.env.LATERDOG_COMMS_TOKEN);
-    expect(result.queued).toBe(true);
-    return result;
+    const result = await api("POST", "/api/internal/coordinate-bots", { botIds: [peer.id], message: "Produce the fixture report." }, launched.mcpConfig.mcpServers.agents.env.LATERDOG_COMMS_TOKEN);
+    expect(result.receipts).toHaveLength(1);
+    return result.receipts[0];
   };
+  const peerThreadId = async () => (await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === peer.id).threadId as string;
+  const handoff = (id: string) => JSON.parse(readFileSync(join(fixture.info.dataDir, "room-handoffs.json"), "utf8"))
+    .find((node: any) => node.id === id);
   beforeEach(async () => {
     fixture = await launchVerificationServer();
     evidence = [{ fixture: fixture.info }];
@@ -80,89 +82,37 @@ describe("routine delegation through the isolated harness", () => {
     await fixture.close();
   });
 
-  it("waits for a busy peer, then resumes the same routine and records the final report", async () => {
-    const { bots } = await api("GET", "/api/bots");
-    const peerThread = bots.find((bot: any) => bot.id === peer.id).threadId;
+  it("asks a busy dog, waits, resumes the same run, and both conversations show the exchange", async () => {
+    const peerThread = await peerThreadId();
     await control(["send", "--bot", peer.id, "--text", "An existing task occupies the peer."]);
-    expect((await dump(peerThread)).systemPrompt).not.toContain("Execute this routine now:");
+    expect((await dump(peerThread)).systemPrompt).not.toContain("Do this routine now.");
     const run = await start();
-    expect((await dump(run.threadId)).systemPrompt).toContain("Execute this routine now:");
-    expect((await dump(run.threadId)).systemPrompt).toContain("after an accepted delegation, end this turn for automatic resumption");
-    await delegate(run.threadId);
+    const launched = await dump(run.threadId);
+    expect(launched.systemPrompt).toContain("Do this routine now.");
+    expect(launched.systemPrompt).toContain("coordinate_bots");
+    const receipt = await coordinate(run.threadId);
     finish(run.threadId);
     await expect.poll(async () => (await runState(run.id))?.status, { timeout: 15_000 }).toBe("waiting");
-    expect((await runState(run.id)).attention).toContain("delegated");
+    expect((await runState(run.id)).attention).toBe("Waiting on another dog");
     expect((await runState(run.id)).finishedAt).toBeUndefined();
     finish(peerThread);
-    await expect.poll(async () => (await runState(run.id))?.status, { timeout: 20_000 }).toBe("completed");
+    await expect.poll(async () => (await runState(run.id))?.status, { timeout: 30_000 }).toBe("completed");
+    expect(handoff(receipt.requestId).status).toBe("completed");
     const transcript = await messages(run.threadId);
-    expect(transcript.some((message) => message.text?.includes("@Routine peer replied to the delegated task"))).toBe(true);
-    expect((await runState(run.id)).output).toContain("[A delegated task just completed]");
-    evidence.push({ waitedForBusyPeer: true, resumedRoutine: run.id, threadId: run.threadId, transcript });
-  }, 60_000);
-
-  it("wakes the routine with a denied handoff instead of leaving it waiting forever", async () => {
-    await api("PATCH", `/api/bots/${source.id}`, { approvePeerComms: true });
-    const run = await start();
-    await delegate(run.threadId);
-    finish(run.threadId);
-    await expect.poll(async () => (await messages(run.threadId)).some((message) => message.card?.tool === "delegate_bot"), { timeout: 15_000 }).toBe(true);
-    const card = (await messages(run.threadId)).find((message) => message.card?.tool === "delegate_bot");
-    await api("POST", `/api/bots/${source.id}/respond`, { threadId: run.threadId, requestId: card.card.requestId, behavior: "deny" });
-    await expect.poll(async () => (await runState(run.id))?.status, { timeout: 15_000 }).toBe("completed");
-    const transcript = await messages(run.threadId);
-    expect(transcript.some((message) => /denied/i.test(message.text ?? message.tool?.name ?? ""))).toBe(true);
-    evidence.push({ deniedHandoffResumed: true, transcript });
-  }, 45_000);
-
-  it.each([
-    { capacity: 3, resume: "completion" },
-    { capacity: 1, resume: "raise" },
-  ])("charges a logical wake once at capacity $capacity, then resumes on $resume", async ({ capacity, resume }) => {
-    await api("PATCH", "/api/config", { threads: { maxConcurrentPerBot: capacity } });
-    writeFileSync(join(fixture.info.dataDir, "gate-peer"), "hold the delegated peer");
-    const run = await start();
-    await delegate(run.threadId);
-    finish(run.threadId);
-    await dump("probe");
-    await expect.poll(async () => (await runState(run.id))?.status).toBe("waiting");
-
-    const occupiedThreads: string[] = [];
-    for (let index = 0; index < capacity; index++) {
-      const { task } = await api("POST", `/api/bots/${source.id}/tasks`, { title: `Occupied ${index}` });
-      occupiedThreads.push(task.threadId);
-      await api("POST", `/api/bots/${source.id}/messages`, { threadId: task.threadId, text: "Hold this task open." });
-      await dump(task.threadId);
-    }
-    finish("probe");
-    await expect.poll(async () => (await messages(run.threadId)).some(
-      (message) => message.text?.includes("@Routine peer replied to the delegated task"),
-    ), { timeout: 15_000 }).toBe(true);
-
-    const observer = (await control(["new-bot", "--name", "Unrelated observer"]) as any).bot;
-    const observerThread = (await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === observer.id).threadId;
-    for (let index = 0; index <= DELEGATION_WAKE_MAX_PER_WINDOW; index++) {
-      await api("POST", `/api/bots/${observer.id}/messages`, { threadId: observerThread, text: `Unrelated work ${index}` });
-      await dump(observerThread);
-      finish(observerThread);
-      await control(["wait", "--bot", observer.id, "--task", observerThread]);
-      expect((await runState(run.id)).status).toBe("waiting");
-    }
-
-    if (resume === "raise") await api("PATCH", "/api/config", { threads: { maxConcurrentPerBot: capacity + 1 } });
-    else {
-      finish(occupiedThreads[0]);
-      await expect.poll(async () => {
-        const bot = (await api("GET", "/api/bots?messages=0")).bots.find((bot: any) => bot.id === source.id);
-        return bot.tasks.find((task: any) => task.threadId === occupiedThreads[0]).busy;
-      }, { timeout: 15_000 }).toBe(false);
-    }
-    await expect.poll(async () => (await runState(run.id))?.status, { timeout: 15_000 }).toBe("completed");
-    expect((await runState(run.id)).output).toContain("[A delegated task just completed]");
-    const bot = (await api("GET", "/api/bots?messages=0")).bots.find((bot: any) => bot.id === source.id);
-    expect(occupiedThreads.map(threadId => bot.tasks.find((task: any) => task.threadId === threadId).busy))
-      .toEqual(resume === "raise" ? [true] : [false, true, true]);
-    evidence.push({ busyRetriesPreservedWakeBudget: true, capacity, resume, runId: run.id, transcript: await messages(run.threadId) });
+    const sent = transcript.find((message) => message.tool?.name === "Sent to Routine peer");
+    const report = transcript.find((message) => message.roomRequest?.id === receipt.requestId && message.roomRequest.phase === "result");
+    expect(sent.comm).toMatchObject({ withBotId: peer.id, direction: "to" });
+    expect(report.comm).toMatchObject({ groupId: sent.comm.groupId, threadId: sent.comm.threadId, withBotId: peer.id, direction: "from" });
+    expect(transcript.some((message) => message.tool?.name?.startsWith("Resumed with Routine peer results"))).toBe(true);
+    const exchange = (await api("GET", "/api/bots?messages=0")).groups.find((group: any) => group.id === sent.comm.groupId);
+    expect(exchange).toMatchObject({ dm: true, memberIds: [source.id, peer.id] });
+    const exchangeLines = await messages(exchange.threadId);
+    expect(exchangeLines[0]).toMatchObject({ text: "Produce the fixture report.", from: { botId: source.id } });
+    expect(exchangeLines.at(-1)?.from?.botId).toBe(peer.id);
+    const peerTranscript = await messages(peerThread);
+    expect(peerTranscript.some((message) => message.roomRequest?.id === receipt.requestId && message.roomRequest.phase === "request" && message.from?.botId === source.id)).toBe(true);
+    expect(peerTranscript.find((message) => message.comm?.direction === "from")?.comm).toMatchObject({ groupId: exchange.id, threadId: exchange.threadId, withBotId: source.id });
+    evidence.push({ waitedForBusyPeer: true, resumedRoutine: run.id, threadId: run.threadId, transcript, exchange: exchangeLines, peerTranscript });
   }, 60_000);
 
   it("coordinates a new user request on a completed routine's thread without changing its recorded result", async () => {
@@ -183,81 +133,36 @@ describe("routine delegation through the isolated harness", () => {
     }, launched.mcpConfig.mcpServers.agents.env.LATERDOG_COMMS_TOKEN);
     expect(coordinated.receipts).toHaveLength(1);
     const requestId = coordinated.receipts[0].requestId;
-    const handoff = () => JSON.parse(readFileSync(join(fixture.info.dataDir, "room-handoffs.json"), "utf8"))
-      .find((node: any) => node.id === requestId);
     finish(run.threadId);
-    await dump(handoff().threadId);
-    finish(handoff().threadId);
+    await dump(handoff(requestId).threadId);
+    finish(handoff(requestId).threadId);
     await expect.poll(async () => (await messages(run.threadId)).some(
       (message) => message.from?.botId === peer.id && message.roomRequest?.id === requestId && message.roomRequest.phase === "result",
     ), { timeout: 20_000 }).toBe(true);
     await control(["wait", "--bot", source.id, "--task", run.threadId]);
-    expect(handoff().status).toBe("completed");
+    expect(handoff(requestId).status).toBe("completed");
     expect(await runState(run.id)).toMatchObject({ status: "completed", finishedAt: finished.finishedAt, output: finished.output });
     evidence.push({ reusedCompletedExecution: true, transcript: await messages(run.threadId) });
   }, 45_000);
 
-  it("does not dispatch an approved handoff after the routine was cancelled", async () => {
-    await api("PATCH", `/api/bots/${source.id}`, { approvePeerComms: true });
+  it("does not resume a cancelled routine when the other dog replies later", async () => {
+    const peerThread = await peerThreadId();
     const run = await start();
-    await delegate(run.threadId);
+    const receipt = await coordinate(run.threadId);
     finish(run.threadId);
-    await expect.poll(async () => (await messages(run.threadId)).some((message) => message.card?.tool === "delegate_bot"), { timeout: 15_000 }).toBe(true);
-    const card = (await messages(run.threadId)).find((message) => message.card?.tool === "delegate_bot");
+    await expect.poll(async () => (await runState(run.id))?.status, { timeout: 15_000 }).toBe("waiting");
+    await dump(peerThread);
     await api("POST", `/api/routine-runs/${run.id}/cancel`);
-    await fetch(`${fixture.info.url}/api/bots/${source.id}/respond`, {
-      method: "POST", headers: { "content-type": "application/json", origin: fixture.info.url },
-      body: JSON.stringify({ threadId: run.threadId, requestId: card.card.requestId, behavior: "allow" }),
-    });
-    expect((await runState(run.id)).status).toBe("cancelled");
-    const target = (await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === peer.id);
-    expect(Boolean(target.busy)).toBe(false);
-    expect(target.messages.some((message: any) => message.role === "user")).toBe(false);
-    evidence.push({ cancelledHandoffNotDispatched: true, runId: run.id });
-  }, 45_000);
-
-  it("drops a failed routine's persisted handoffs when provider settings reload", async () => {
-    const run = await start();
-    await delegate(run.threadId);
-    const pendingFile = join(fixture.info.dataDir, "delegations.json");
-    expect(JSON.parse(readFileSync(pendingFile, "utf8"))[run.threadId]).toHaveLength(1);
-    await api("PUT", "/api/config", { composio: { apiKey: "" } });
-    await expect.poll(async () => (await runState(run.id))?.status).toBe("failed");
-    const health = (await api("GET", "/api/routines")).routines.find((routine: any) => routine.id === run.routineId);
-    expect(health.failureStreak).toBe(1);
-    evidence.push({ failedRunHealth: health });
-    expect(JSON.parse(readFileSync(pendingFile, "utf8"))[run.threadId]).toBeUndefined();
-    unlinkSync(file(run.threadId, "json"));
-    await api("POST", `/api/bots/${source.id}/messages`, { threadId: run.threadId, text: "New unrelated work after the failed routine." });
-    await dump(run.threadId);
-    finish(run.threadId);
-    await control(["wait", "--bot", source.id, "--task", run.threadId]);
-    const target = (await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === peer.id);
-    expect(target.messages.some((message: any) => message.role === "user")).toBe(false);
-    expect(JSON.parse(readFileSync(pendingFile, "utf8"))[run.threadId]).toBeUndefined();
-    evidence.push({ providerFailureRemovedPersistedHandoff: true, runId: run.id });
-  }, 45_000);
-
-  it("does not revive a cancelled routine when an already-running peer replies during later user work", async () => {
-    writeFileSync(join(fixture.info.dataDir, "gate-peer"), "hold the delegated peer");
-    const run = await start();
-    await delegate(run.threadId);
-    finish(run.threadId);
-    await dump("probe");
-    await expect.poll(async () => (await runState(run.id))?.status).toBe("waiting");
-    await api("POST", `/api/routine-runs/${run.id}/cancel`);
-    unlinkSync(file(run.threadId, "gate"));
-    unlinkSync(file(run.threadId, "json"));
-    await api("POST", `/api/bots/${source.id}/messages`, { threadId: run.threadId, text: "A new independent request after cancellation." });
-    await dump(run.threadId);
-    finish("probe");
+    const rootId = handoff(receipt.requestId).rootId;
+    await expect.poll(() => handoff(rootId)?.status, { timeout: 10_000 }).toBe("cancelled");
+    finish(peerThread);
+    await expect.poll(() => handoff(receipt.requestId)?.status, { timeout: 20_000 }).toBe("completed");
+    expect(handoff(rootId).status).toBe("cancelled");
     await expect.poll(async () => (await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === peer.id)?.busy,
       { timeout: 15_000 }).toBe(false);
-    finish(run.threadId);
-    await control(["wait", "--bot", source.id, "--task", run.threadId]);
+    expect((await runState(run.id)).status).toBe("cancelled");
     const transcript = await messages(run.threadId);
-    expect(transcript.some((message) => message.text?.includes("[A delegated task just completed]"))).toBe(false);
-    await expect.poll(async () => (await runState(run.id))?.status, { timeout: 10_000 }).toBe("cancelled");
-    evidence.push({ cancelledPeerDidNotResumeNewUserTurn: true, transcript });
+    expect(transcript.some((message) => message.tool?.name?.startsWith("Resumed with"))).toBe(false);
+    evidence.push({ cancelledRoutineNotResumed: true, runId: run.id, transcript });
   }, 45_000);
 });

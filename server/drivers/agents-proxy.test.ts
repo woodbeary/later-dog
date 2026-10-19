@@ -5,8 +5,6 @@ import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { childEnv } from "../testing/laterdog-env.ts";
 import { ToolResults } from "../tool-results.ts";
-import { waitForExit } from "../testing/cleanup.ts";
-import type { PeerDeliveryReceipt } from "../peer-delivery.ts";
 
 const PROXY = join(dirname(fileURLToPath(import.meta.url)), "agents-proxy.ts");
 const TOKEN = "test-comms-token";
@@ -18,7 +16,6 @@ const savedToolResults = new ToolResults();
 const savedOwner = { botId: "bot-asker", threadId: "thread-asker" };
 let failSavingResult = false;
 let savedResultWrites = 0;
-let lastAskBody: any = null;
 let lastCoordinateBody: any = null;
 let coordinateResponse: unknown = { ok: true };
 let lastAttachBody: any = null;
@@ -26,15 +23,6 @@ let attachStatus = 200;
 let attachResponse: unknown = { ok: true, name: "report.pdf", bytes: 48639 };
 const DEFAULT_AGENTS = { bots: [{ id: "bot-helper", name: "Helper", model: "fake-model", busy: false }] };
 let agentsResponse: unknown = DEFAULT_AGENTS;
-type StubAskResponse = { botName?: string; text?: string; busy?: boolean; timeout?: boolean; waitedMs?: number; taskId?: string; toBotName?: string; error?: string; receipt?: PeerDeliveryReceipt };
-let askResponse: StubAskResponse = { botName: "Helper", text: "hi from helper" };
-let lastDelegateBody: any = null;
-let lastDelegationUrl: string | null = null;
-let delegationStatusResponse: unknown = { status: "done", toBotName: "Helper", result: "All done." };
-let delegationStatusCode = 200;
-let delegateResponse: unknown = { queued: true, message: "Delegation queued." };
-let lastThreadBody: any = null;
-let threadResponse: unknown = { threadId: "thread-sent", title: "Ship it", botId: "bot-helper", botName: "Helper" };
 let computerRequests: { method: string; url: string; body: unknown }[] = [];
 let computerResponse: unknown = { current: "local", available: ["local", "vm"] };
 let computerStatus = 200;
@@ -188,16 +176,6 @@ beforeAll(async () => {
       });
       return;
     }
-    if (req.method === "POST" && req.url === "/api/internal/ask-bot") {
-      let data = "";
-      req.on("data", (c) => (data += c));
-      req.on("end", () => {
-        lastAskBody = JSON.parse(data);
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify(askResponse));
-      });
-      return;
-    }
     if (req.method === "POST" && req.url === "/api/internal/coordinate-bots") {
       let data = "";
       req.on("data", (c) => (data += c));
@@ -205,32 +183,6 @@ beforeAll(async () => {
         lastCoordinateBody = JSON.parse(data);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify(coordinateResponse));
-      });
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/internal/delegate-bot") {
-      let data = "";
-      req.on("data", (c) => (data += c));
-      req.on("end", () => {
-        lastDelegateBody = JSON.parse(data);
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify(delegateResponse));
-      });
-      return;
-    }
-    if (req.method === "GET" && req.url?.startsWith("/api/internal/delegations/")) {
-      lastDelegationUrl = req.url;
-      res.writeHead(delegationStatusCode, { "content-type": "application/json" });
-      res.end(JSON.stringify(delegationStatusResponse));
-      return;
-    }
-    if (req.method === "POST" && req.url === "/api/internal/threads") {
-      let data = "";
-      req.on("data", (c) => (data += c));
-      req.on("end", () => {
-        lastThreadBody = JSON.parse(data);
-        res.writeHead(201, { "content-type": "application/json" });
-        res.end(JSON.stringify(threadResponse));
       });
       return;
     }
@@ -525,11 +477,8 @@ describe("agents-proxy MCP surface", () => {
       "tool_result_read",
       "list_shared_computers",
       "shared_computer",
+      "coordinate_bots",
       "list_bots",
-      "ask_bot",
-      "delegate_bot",
-      "check_delegation",
-      "wait_delegation",
       "select_computer",
       "attach_file",
       "create_bot",
@@ -550,16 +499,10 @@ describe("agents-proxy MCP surface", () => {
       "skill_manage",
       "add_mcp_server",
     ]);
-    const ask = list.result.tools.find((tool: { name: string }) => tool.name === "ask_bot");
-    const delegate = list.result.tools.find((tool: { name: string }) => tool.name === "delegate_bot");
-    const wait = list.result.tools.find((tool: { name: string }) => tool.name === "wait_delegation");
+    const coordinate = list.result.tools.find((tool: { name: string }) => tool.name === "coordinate_bots");
     const credential = list.result.tools.find((tool: { name: string }) => tool.name === "request_credential");
-    expect(ask.description).toContain("Brief synchronous consultation");
-    expect(ask.description).toContain("slow replies become asynchronous delegations");
-    expect(ask.description).toContain("Do not use for assigning work");
-    expect(delegate.description).toContain("DEFAULT FOR ASSIGNING WORK");
-    expect(delegate.description).toContain("delivered automatically");
-    expect(wait.description).toContain("Never call it in the same turn as delegate_bot");
+    expect(coordinate.description).toContain("both conversations show the exchange");
+    expect(coordinate.description).toContain("end your turn and do not poll or wait");
     expect(credential.description).toContain("The desktop app shows a secure entry card");
     expect(credential.description).not.toMatch(/QR|pair again/);
     expect(credential.description).toContain("Never claim a secure field opened unless this request succeeds");
@@ -615,7 +558,7 @@ describe("agents-proxy MCP surface", () => {
     const readNames = [
       "tool_result_read",
       "list_shared_computers",
-      "list_bots", "check_delegation", "wait_delegation",
+      "list_bots",
       "session_search", "session_read", "list_routines", "skills_list",
     ];
     expect(list.result.tools.filter((tool: any) => tool.annotations?.readOnlyHint)
@@ -675,8 +618,7 @@ describe("agents-proxy MCP surface", () => {
     const text = res.result.content[0].text;
     expect(text).toContain("Helper");
     expect(text).toContain("bot-helper");
-    expect(text).toContain("Assign work with delegate_bot");
-    expect(text).toContain("Use ask_bot only for a short answer");
+    expect(text).toContain("Use coordinate_bots for advice or concrete work");
     expect(lastAuth).toBe(`Bearer ${TOKEN}`);
   });
 
@@ -734,141 +676,6 @@ describe("agents-proxy MCP surface", () => {
     expect(res.result.content[0].text).toContain("Supported: images");
     attachStatus = 200;
     attachResponse = { ok: true, name: "report.pdf", bytes: 48639 };
-  });
-
-  it("ask_bot forwards sender + depth and returns the reply", async () => {
-    askResponse = { botName: "Helper", text: "hi from helper" };
-    const res = await callTool("ask_bot", { bot_id: "bot-helper", message: "ping" });
-    expect(res.result.content[0].text).toContain("Helper replied:");
-    expect(res.result.content[0].text).toContain("hi from helper");
-    expect(lastAskBody).toMatchObject({
-      fromBotId: "bot-asker",
-      fromThreadId: "thread-asker-routine",
-      toBotId: "bot-helper",
-      message: "ping",
-      depth: 0,
-    });
-  });
-
-  it("renders a busy peer as a clean answer, not an error", async () => {
-    askResponse = { busy: true };
-    const res = await callTool("ask_bot", { bot_id: "bot-helper", message: "ping" });
-    expect(res.result.content[0].text).toContain("busy");
-    expect(res.result.isError).toBeFalsy();
-  });
-
-  it("turns a busy+queued reply into delegation guidance with the task id", async () => {
-    askResponse = { busy: true, taskId: "task-9", toBotName: "Helper" };
-    const res = await callTool("ask_bot", { bot_id: "bot-helper", message: "ping" });
-    const text = res.result.content[0].text;
-    expect(text).toContain("Helper is busy");
-    expect(text).toContain("queued as a delegation");
-    expect(text).toContain("task-9");
-    expect(text).toContain("check_delegation");
-    expect(text).toContain("delivered to this conversation automatically");
-    expect(text).not.toContain("wait_delegation");
-    expect(res.result.isError).toBeFalsy();
-  });
-
-  it.each([[15_000, "15 seconds"], [240_000, "4 minutes"]])("renders a timeout conversion after %s ms with the task id and guidance", async (waitedMs, duration) => {
-    askResponse = { timeout: true, taskId: "task-42", toBotName: "Helper", waitedMs };
-    const res = await callTool("ask_bot", { bot_id: "bot-helper", message: "ping" });
-    const text = res.result.content[0].text;
-    expect(text).toContain(`Helper is still working after ${duration}`);
-    expect(text).toContain("converted to a delegation");
-    expect(text).toContain("task-42");
-    expect(text).toContain("check_delegation");
-    expect(text).toContain("delivered to this conversation automatically");
-    expect(text).not.toContain("wait_delegation");
-    expect(res.result.isError).toBeFalsy();
-  });
-
-  it("surfaces the harness's depth refusal as a tool error", async () => {
-    askResponse = { error: "message chains are limited to one hop" };
-    const res = await callTool("ask_bot", { bot_id: "bot-helper", message: "ping" });
-    expect(res.result.isError).toBe(true);
-    expect(res.result.content[0].text).toContain("one hop");
-  });
-
-  it("appends the ask_bot delivery receipt after the reply prose", async () => {
-    askResponse = {
-      botName: "Helper", text: "hi from helper",
-      receipt: { botId: "bot-helper", botName: "Helper", outcome: "injected", detail: "the teammate's turn ran to completion" },
-    };
-    const res = await callTool("ask_bot", { bot_id: "bot-helper", message: "ping" });
-    const text = res.result.content[0].text;
-    expect(text).toContain("Helper replied:");
-    expect(text).toContain("Delivery to Helper: injected — the teammate's turn ran to completion");
-  });
-
-  it("renders a failed receipt on a busy ask the queue refused, without claiming delivery", async () => {
-    askResponse = {
-      busy: true,
-      receipt: {
-        botId: "bot-helper", botName: "Helper", outcome: "failed",
-        detail: "the teammate was busy and the delegation queue refused the fallback — the message was not delivered",
-      },
-    };
-    const res = await callTool("ask_bot", { bot_id: "bot-helper", message: "ping" });
-    const text = res.result.content[0].text;
-    expect(text).toContain("busy");
-    expect(text).toContain("Delivery to Helper: failed");
-    expect(text).toContain("the message was not delivered");
-    expect(res.result.isError).toBeFalsy();
-  });
-
-  it("keeps a dispatch failure honest: the prose reads like a reply, the receipt says failed", async () => {
-    askResponse = {
-      botName: "Helper", text: "(couldn't start that bot: provider offline)",
-      receipt: {
-        botId: "bot-helper", botName: "Helper", outcome: "failed",
-        detail: "the teammate's turn could not start — the message was not delivered",
-      },
-    };
-    const res = await callTool("ask_bot", { bot_id: "bot-helper", message: "ping" });
-    const text = res.result.content[0].text;
-    expect(text).toContain("(couldn't start that bot: provider offline)");
-    expect(text).toContain("Delivery to Helper: failed — the teammate's turn could not start");
-    expect(res.result.isError).toBeFalsy();
-  });
-
-  it("forwards the source thread when queueing a delegation", async () => {
-    delegateResponse = { queued: true, message: "Delegation queued." };
-    const res = await callTool("delegate_bot", {
-      bot_id: "bot-helper",
-      message: "take this",
-      reason: "follow-up",
-    });
-    expect(res.result.content[0].text).toContain("Delegation queued");
-    expect(lastDelegateBody).toMatchObject({
-      fromBotId: "bot-asker",
-      fromThreadId: "thread-asker-routine",
-      toBotId: "bot-helper",
-      message: "take this",
-      reason: "follow-up",
-      depth: 0,
-    });
-  });
-
-  it("returns queue refusal guidance to the agent as a tool error", async () => {
-    delegateResponse = { error: "delegation chains are limited to one hop — do this one yourself" };
-    const res = await callTool("delegate_bot", { bot_id: "bot-helper", message: "take this" });
-    expect(res.result.isError).toBe(true);
-    expect(res.result.content[0].text).toContain("do this one yourself");
-  });
-
-  it("appends the delegate_bot delivery receipt under the queue guidance", async () => {
-    delegateResponse = {
-      queued: true, taskId: "task-77", message: "Delegation queued.",
-      receipt: {
-        botId: "bot-helper", botName: "Helper", outcome: "queued", taskId: "task-77",
-        detail: "the teammate's turn runs after your current turn finishes",
-      },
-    };
-    const res = await callTool("delegate_bot", { bot_id: "bot-helper", message: "take this" });
-    const text = res.result.content[0].text;
-    expect(text).toContain("Delegation queued");
-    expect(text).toContain("Delivery to Helper: queued — the teammate's turn runs after your current turn finishes");
   });
 
   it("lets a Chief create a bounded specialist through the harness", async () => {
@@ -963,117 +770,6 @@ describe("agents-proxy MCP surface", () => {
     const res = await callTool("request_credential", { credential_id: "arbitrary.config.path" });
     expect(res.result.isError).toBe(true);
     expect(lastCredentialBody).toBeNull();
-  });
-
-  it("hands back the task id, and relays the harness's refusal to check it in the same turn", async () => {
-    delegateResponse = {
-      queued: true,
-      taskId: "task-abc123",
-      message: "Delegation queued — @Helper will pick it up after your current turn finishes.",
-    };
-    const res = await callTool("delegate_bot", { bot_id: "bot-helper", message: "do the thing" });
-    expect(res.result.content[0].text).toContain("Task id: task-abc123");
-    expect(res.result.content[0].text).toContain("delivered to this conversation automatically");
-    expect(res.result.content[0].text).toContain("Do not check or wait for it in this turn");
-    expect(res.result.content[0].text).not.toContain("wait_delegation");
-
-    delegationStatusCode = 409;
-    delegationStatusResponse = { error: "Task task-abc123 was delegated during this turn. Finish your response now so the other bot can work; its result will be delivered to this conversation automatically." };
-    try {
-      for (const name of ["check_delegation", "wait_delegation"]) {
-        lastDelegationUrl = null;
-        const status = await callTool(name, { task_id: "task-abc123", timeout_seconds: 240 });
-        expect(status.result.isError).toBe(true);
-        expect(status.result.content[0].text).toContain("delegated during this turn");
-        expect(status.result.content[0].text).toContain("Finish your response now");
-        expect(lastDelegationUrl).toContain("/api/internal/delegations/task-abc123?");
-      }
-    } finally {
-      delegationStatusCode = 200;
-      delegationStatusResponse = { status: "done", toBotName: "Helper", result: "All done." };
-    }
-    delegateResponse = { queued: true, message: "Delegation queued." };
-  });
-
-  it("check/wait_delegation: flat schemas, guided errors, and the read-back wire", async () => {
-    const list = await rpc("tools/list");
-    for (const name of ["check_delegation", "wait_delegation"]) {
-      const tool = list.result.tools.find((t: { name: string }) => t.name === name);
-      expect(JSON.stringify(tool.inputSchema)).not.toMatch(/"(oneOf|anyOf|allOf|const|format)":/);
-    }
-
-    lastDelegationUrl = null;
-    const bad = await callTool("check_delegation", { task_id: "!" });
-    expect(bad.result.isError).toBe(true);
-    expect(bad.result.content[0].text).toContain('"task_id"');
-    expect(lastDelegationUrl).toBeNull();
-
-    const done = await callTool("check_delegation", { task_id: "task-earlier123" });
-    expect(done.result.content[0].text).toContain("@Helper finished task task-earlier123");
-    expect(done.result.content[0].text).toContain("All done.");
-    expect(lastDelegationUrl).toContain("/api/internal/delegations/task-earlier123?");
-    expect(lastDelegationUrl).toContain("wait_ms=0");
-    expect(lastDelegationUrl).toContain("fromBotId=bot-asker");
-
-    delegationStatusResponse = { status: "queued", toBotName: "Helper" };
-    const waiting = await callTool("wait_delegation", { task_id: "task-earlier123", timeout_seconds: 45 });
-    expect(waiting.result.content[0].text).toContain("still queued");
-    expect(waiting.result.content[0].text).toContain("after 45s");
-    expect(lastDelegationUrl).toContain("wait_ms=45000");
-    delegationStatusResponse = { status: "done", toBotName: "Helper", result: "All done." };
-  });
-
-  it("check_delegation says when the teammate is stopped on the person's approval", async () => {
-    delegationStatusResponse = {
-      status: "running",
-      toBotName: "Helper",
-      elapsedMs: 90_000,
-      recentActivity: ["Bash: echo hi"],
-      awaitingPerson: { kind: "approval", tool: "Bash", threadTitle: "Guarded task" },
-    };
-    try {
-      const text = (await callTool("check_delegation", { task_id: "task-later456" })).result.content[0].text;
-      expect(text).toContain("is waiting on the person's approval");
-      expect(text).toContain('@Helper stopped at a card in its thread "Guarded task" (to run Bash)');
-      expect(text).toContain("Tell the person now");
-      expect(text).not.toContain("is running with");
-    } finally {
-      delegationStatusResponse = { status: "done", toBotName: "Helper", result: "All done." };
-    }
-  });
-
-  it("check_delegation explains a queued handoff: who it is waiting on, and when it expires", async () => {
-    delegationStatusResponse = {
-      status: "queued",
-      toBotName: "Helper",
-      targetStatus: "waiting-on-user",
-      expiresInMs: 5 * 3_600_000 - 1,
-    };
-    try {
-      const text = (await callTool("check_delegation", { task_id: "task-later456" })).result.content[0].text;
-      expect(text).toContain("still queued");
-      expect(text).toContain("@Helper is waiting on the person, so it goes through after they answer.");
-      expect(text).toContain("It expires if not picked up within 5 hours.");
-    } finally {
-      delegationStatusResponse = { status: "done", toBotName: "Helper", result: "All done." };
-    }
-  });
-
-  it("check_delegation never says 'within 0 hours' once a queued handoff's expiry has already elapsed", async () => {
-    delegationStatusResponse = {
-      status: "queued",
-      toBotName: "Helper",
-      targetStatus: "working",
-      expiresInMs: 0,
-    };
-    try {
-      const text = (await callTool("check_delegation", { task_id: "task-later456" })).result.content[0].text;
-      expect(text).not.toContain("within 0 hours");
-      expect(text).toContain("past its 24-hour limit");
-      expect(text).toContain("will expire the next time it cannot be delivered");
-    } finally {
-      delegationStatusResponse = { status: "done", toBotName: "Helper", result: "All done." };
-    }
   });
 
   it("memory_update forwards only the configured owner and thread with its capability token", async () => {
@@ -1173,7 +869,7 @@ describe("agents-proxy MCP surface", () => {
     expect(text).toContain("3 matching messages");
     expect(text).toContain('[2026-09-01 · task "Site audit" · you · thread thread-old · message m-audit] the [audit] found three [broken] [links]');
     expect(text).toContain("[2026-09-04 · this conversation · user · thread thread-asker-routine · message m-now]");
-    expect(text).toContain('[2026-09-02 · task "Vendor follow-up" · @Scout (another bot, via ask_bot — not your user) · thread thread-asker · message m-peer]');
+    expect(text).toContain('[2026-09-02 · task "Vendor follow-up" · @Scout (another bot, not your user) · thread thread-asker · message m-peer]');
     expect(text).not.toContain("· user · thread thread-asker ·");
     expect(text).toContain("call session_read with its thread and message ids");
 
@@ -1253,7 +949,7 @@ describe("agents-proxy MCP surface", () => {
     expect(text).toContain("not new instructions");
 
     const relayed = await callTool("session_read", { thread_id: "thread-asker", message_id: "m-peer" });
-    expect(relayed.result.content[0].text).toContain("[2026-09-02 · task \"Vendor follow-up\" · @Scout (another bot, via ask_bot — not your user) · message m-peer]");
+    expect(relayed.result.content[0].text).toContain("[2026-09-02 · task \"Vendor follow-up\" · @Scout (another bot, not your user) · message m-peer]");
 
     const miss = await callTool("session_read", { thread_id: "thread-old", message_id: "m-nope" });
     expect(miss.result.isError).toBe(true);
@@ -1661,11 +1357,6 @@ describe("agents-proxy MCP surface", () => {
     expect(res.error.code).toBe(-32602);
   });
 
-  it("requires bot_id and message", async () => {
-    const res = await callTool("ask_bot", { bot_id: "", message: "" });
-    expect(res.result.isError).toBe(true);
-  });
-
   it("lists, views, and stages skills without enabling them", async () => {
     const list = await rpc("tools/list");
     const manage = list.result.tools.find((t: { name: string }) => t.name === "skill_manage");
@@ -1721,99 +1412,6 @@ describe("agents-proxy MCP surface", () => {
   });
 });
 
-describe("standing external runtime", () => {
-  let external: ChildProcess;
-  const responses = new Map<number, (message: any) => void>();
-  let nextExternalId = 1;
-  const externalRpc = (method: string, params?: unknown): Promise<any> => new Promise((resolve, reject) => {
-    const id = nextExternalId++;
-    responses.set(id, resolve);
-    external.stdin!.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
-    setTimeout(() => { if (responses.delete(id)) reject(new Error(`${method} timed out`)); }, 10_000).unref?.();
-  });
-  const externalCall = (name: string, args: unknown) => externalRpc("tools/call", { name, arguments: args });
-
-  beforeAll(async () => {
-    external = spawn(process.execPath, [PROXY], {
-      env: { ...childEnv(), LATERDOG_HARNESS_URL: `http://127.0.0.1:${stubPort}`, LATERDOG_BOT_ID: "bot-asker",
-        LATERDOG_THREAD_ID: "thread-asker-routine", LATERDOG_COMMS_TOKEN: TOKEN, LATERDOG_TURN_DEPTH: "0",
-        LATERDOG_EXTERNAL_RUNTIME: "1", LATERDOG_ROOM_TURN: "1",
-        LATERDOG_SKILL_AUTHORING_ENABLED: "1", LATERDOG_SHARED_COMPUTERS_ENABLED: "1" },
-      stdio: ["pipe", "pipe", "inherit"],
-    });
-    let buffer = "";
-    external.stdout!.on("data", chunk => {
-      buffer += chunk;
-      let newline;
-      while ((newline = buffer.indexOf("\n")) !== -1) {
-        const line = buffer.slice(0, newline);
-        buffer = buffer.slice(newline + 1);
-        if (!line.trim()) continue;
-        const message = JSON.parse(line);
-        responses.get(message.id)?.(message);
-        responses.delete(message.id);
-      }
-    });
-    await externalRpc("initialize", { protocolVersion: "2024-11-05" });
-  });
-  afterAll(async () => { if (external) await waitForExit(external, { signal: "SIGTERM" }); });
-
-  it("advertises only peer communication and receipt tools even when unrelated feature flags are set", async () => {
-    const list = await externalRpc("tools/list");
-    expect(list.result.tools.map((tool: any) => tool.name)).toEqual([
-      "list_bots", "ask_bot", "delegate_bot", "check_delegation", "wait_delegation",
-    ]);
-    expect(JSON.stringify(list.result.tools)).not.toMatch(/after your current turn finishes|earlier turn|same turn as delegate_bot/);
-    for (const name of ["coordinate_bots", "send_to_bot", "create_bot", "request_credential", "memory_update", "skill_manage", "shared_computer", "tool_result_read"]) {
-      expect((await externalCall(name, {})).error).toMatchObject({ code: -32602, message: `Unknown tool: ${name}` });
-    }
-    const roster = (await externalCall("list_bots", {})).result.content[0].text;
-    expect(roster).toContain("Assign work with delegate_bot");
-    expect(roster).not.toContain("coordinate_bots");
-  });
-
-  it("checks and waits for a newly delegated task in the same standing process", async () => {
-    delegateResponse = { queued: true, taskId: "external-task-123", message: "Delegated — @Helper is picking it up now." };
-    try {
-      const result = await externalCall("delegate_bot", { bot_id: "bot-helper", message: "A standing assignment" });
-      expect(result.result.content[0].text).toContain("check_delegation or wait_delegation");
-      expect(result.result.content[0].text).not.toContain("finish your turn");
-      for (const name of ["check_delegation", "wait_delegation"]) {
-        lastDelegationUrl = null;
-        const status = await externalCall(name, { task_id: "external-task-123", timeout_seconds: 1 });
-        expect(status.result.isError).toBeFalsy();
-        expect(status.result.content[0].text).toContain("All done.");
-        expect(lastDelegationUrl).toContain(`/api/internal/delegations/external-task-123?`);
-        expect(lastDelegationUrl).toContain(`wait_ms=${name === "wait_delegation" ? 1000 : 0}`);
-        expect(lastAuth).toBe(`Bearer ${TOKEN}`);
-      }
-    } finally { delegateResponse = { queued: true, message: "Delegation queued." }; }
-  });
-
-  it.each(["busy", "timeout"])("can poll a %s ask converted into a delegation without ending the standing process", async outcome => {
-    askResponse = { [outcome]: true, taskId: `external-${outcome}-123`, toBotName: "Helper", waitedMs: 15_000 };
-    try {
-      const result = await externalCall("ask_bot", { bot_id: "bot-helper", message: "A short question" });
-      expect(result.result.content[0].text).toContain("check_delegation or wait_delegation");
-      expect(result.result.content[0].text).not.toMatch(/Finish your turn|after your current turn ends|later turn/);
-      const status = await externalCall("check_delegation", { task_id: `external-${outcome}-123` });
-      expect(status.result.isError).toBeFalsy();
-      expect(status.result.content[0].text).toContain("All done.");
-    } finally { askResponse = { botName: "Helper", text: "hi from helper" }; }
-  });
-
-  it("bounds large replies without calling the out-of-scope result-cache route", async () => {
-    askResponse = { botName: "Helper", text: "x".repeat(30_000) };
-    const before = savedResultWrites;
-    try {
-      const result = await externalCall("ask_bot", { bot_id: "bot-helper", message: "A short question" });
-      expect(result.result.isError).toBeFalsy();
-      expect(result.result.content[0].text.length).toBeLessThan(17_000);
-      expect(result.result.content[0].text).toContain("The original operation was not retried");
-      expect(savedResultWrites).toBe(before);
-    } finally { askResponse = { botName: "Helper", text: "hi from helper" }; }
-  });
-});
 
 describe("with computer sharing off and no Chief of Staff (the defaults)", () => {
   let gated: ChildProcess;
@@ -1941,7 +1539,6 @@ describe("coordinate_bots arguments (room turn)", () => {
         LATERDOG_THREAD_ID: "thread-asker-routine",
         LATERDOG_COMMS_TOKEN: TOKEN,
         LATERDOG_TURN_DEPTH: "0",
-        LATERDOG_ROOM_TURN: "1",
       },
       stdio: ["pipe", "pipe", "inherit"],
     });
@@ -1973,54 +1570,6 @@ describe("coordinate_bots arguments (room turn)", () => {
     expect(lastCoordinateBody).toMatchObject({
       botIds: ["bot-helper"], message: "please review the patch",
     });
-  });
-
-  it("sends cross-bot work one way through the existing thread route", async () => {
-    const listed = await roomRpc("tools/list");
-    const send = listed.result.tools.find((tool: { name: string }) => tool.name === "send_to_bot");
-    expect(send.description).toContain("one way to another bot");
-    const previous = threadResponse;
-    threadResponse = { threadId: "thread-sent", title: "Ship it", botId: "bot-helper", botName: "Helper" };
-    try {
-      const result = await roomRpc("tools/call", { name: "send_to_bot", arguments: {
-        bot_id: "bot-helper", title: "Ship it", message: "Ship the reviewed patch.",
-      } });
-      expect(result.result.isError).toBeFalsy();
-      expect(lastThreadBody).toMatchObject({
-        toBotId: "bot-helper", title: "Ship it", message: "Ship the reviewed patch.", oneWay: true,
-      });
-      expect(result.result.content[0].text).toContain("nothing there will resume you");
-    } finally {
-      threadResponse = previous;
-    }
-  });
-
-  it("reports a cross-bot send that is waiting for approval", async () => {
-    const previous = threadResponse;
-    threadResponse = {
-      threadId: "thread-sent", title: "Ship it", botId: "bot-helper", botName: "Helper",
-      state: "pending", approvalRequired: true,
-    };
-    try {
-      const result = await roomRpc("tools/call", { name: "send_to_bot", arguments: {
-        bot_id: "bot-helper", title: "Ship it", message: "Ship the reviewed patch.",
-      } });
-      expect(result.result.isError).toBeFalsy();
-      expect(result.result.content[0].text).toContain("pending approval");
-      expect(result.result.content[0].text).not.toContain("Ownership moved");
-    } finally {
-      threadResponse = previous;
-    }
-  });
-
-  it("refuses send_to_bot to self without contacting the server", async () => {
-    lastThreadBody = null;
-    const result = await roomRpc("tools/call", { name: "send_to_bot", arguments: {
-      bot_id: "bot-asker", title: "Separate work", message: "Do it.",
-    } });
-    expect(result.result.isError).toBe(true);
-    expect(result.result.content[0].text).toContain("cross-bot only");
-    expect(lastThreadBody).toBeNull();
   });
 
   it("keeps the documented snake_case key when both spellings arrive", async () => {

@@ -25,10 +25,14 @@ In an ordinary bot chat or group conversation, ask the lead to consult named
 teammates or have them build and review a concrete artifact. No new dashboard,
 incoming-route panel or mandatory discussion.
 
-The tools are `list_room_targets` and `coordinate_bots`. Discovery includes
-reachable bots as well as rooms. The latter addresses 1–4 existing bots in this
-room (default), or — in ordinary direct chat without a room — the sender's one
-thread with each recipient for that conversation.
+`coordinate_bots` is the one way dogs work with each other, in direct chats,
+routine runs and group chats alike; `list_bots` gives the ids of reachable dogs
+and the group chats the sender is in. It addresses 1–4 existing dogs in this
+group chat (default), or, in a direct chat or routine run, each recipient's one
+conversation. A direct request also writes the brief and the reply into the
+pair's read-only exchange (a dm group), and the sender's conversation links to
+it with "Sent to …" and "… replied" lines. A routine run that asks another dog
+waits ("Waiting on another dog") and resumes the same run with the result.
 A multi-recipient room request posts its brief once, addressed to all accepted
 recipients. Each recipient still has a separate execution and result. An
 identical retry does not post again; different briefs remain separate. Requests
@@ -102,16 +106,15 @@ pnpm exec vitest run server/drivers/agents-proxy.test.ts --maxWorkers=2
 pnpm exec vitest run server/room-recovery.e2e.test.ts server/testing/room-handoff-agent.test.ts
 pnpm exec vitest run server/direct-coordination.e2e.test.ts --maxWorkers=1
 pnpm exec vitest run server/turn-dispatch-guard.test.ts
-pnpm exec vitest run server/comms.test.ts server/thread-aware-bots.e2e.test.ts server/routine-delegation.e2e.test.ts server/independent-threads-api.test.ts server/peer-allowlist.e2e.test.ts server/steer-queue.test.ts
+pnpm exec vitest run server/thread-aware-bots.e2e.test.ts server/routine-delegation.e2e.test.ts server/routine-results.e2e.test.ts server/independent-threads-api.test.ts server/peer-allowlist.e2e.test.ts server/steer-queue.test.ts
 LATERDOG_UI_E2E=1 pnpm exec vitest run scripts/testing/direct-coordination-ui.e2e.test.ts
 ```
 
 The integration suite launches the disposable control fixture and drives the
 actual injected agents MCP proxy with a scripted provider. It checks same-room
 multi-recipient consultation, cross-room work and return, busy peers, cancellation,
-provider failure, thread pinning, section changes, peer revocation, explicit
-approvals and validation. Multiple required approvals are presented together;
-no recipient starts until all are allowed. It does not claim model judgment or artifact correctness.
+provider failure, thread pinning, section changes, peer revocation and
+validation. The owner's own dogs send without a peer-approval card. It does not claim model judgment or artifact correctness.
 The direct-chat suite exercises Clive → lead → specialist → lead → Clive with
 the real MCP proxy, no room, and no changes to unrelated conversations. It also
 checks that follow-ups from one conversation continue one recipient thread
@@ -123,14 +126,9 @@ selection, steering a live coordination (including an automation turn
 landing in the same conversation), conversation-scoped Stop, source
 deletion, access revocation, and fresh transcript replay after
 revocation. The UI test sends from the real
-composer and clicks the existing handoff receipt into the exact recipient task,
+composer and opens the handoff receipt into the pair's read-only exchange,
 with ordinary tool chips hidden. Screenshots and JSON are retained beside the
 fixture's printed server log; all fixture processes and temporary data are closed.
-The legacy routine `ask_bot` path is covered by `server/comms.test.ts`: a
-gated peer outlives the production 15-second inline budget, the caller finishes
-with an asynchronous receipt, and releasing the peer delivers its late reply
-to the original conversation. This budget releases the caller, not the peer;
-it does not impose a 15-second limit on delegated work.
 Follow-up checks cover retained report context and withholding after peer access
 is revoked, without mirroring a second visible transcript.
 Addressing checks cover what a bot may put in a `bot_ids` slot: an id is always
@@ -138,10 +136,8 @@ an id; a name that means exactly one reachable teammate resolves to it and the
 work runs as if the id had been sent; a name nobody has is refused with the
 argument echoed and `list_bots` named (`No bot with id or name "…"`); a hidden
 teammate is reached by id or name like any other; a name two reachable teammates
-share is refused with the count and the way to the ids, never guessed. The same
-resolution serves `ask_bot` and `delegate_bot`, and every roster line a dog
-reads carries the teammate's `[id: …]`, so the tools can be called
-straight from the prompt.
+share is refused with the count and the way to the ids, never guessed. Every
+`list_bots` line carries the teammate's `[id: …]`.
 Unit checks cover bounded depth/fan-out, idempotent retry, original request
 retention, automatic return, cancellation and restart without replay, and the
 scoped stop: unstarted work cancelled, a running teammate left with its
@@ -274,9 +270,3 @@ When every dog in a tree is the owner's own dog working without asking (Auto-rev
 Everyone else keeps the 4-hour cap, the Continue button, and no replay after a restart; the asking dog's conversation gets one line naming each request to send again.
 
 Checks: `server/room-handoffs.test.ts` (idle, hard cap, honest endings, Continue, long work, retries, restart), `server/laterdog/handoff-budget.test.ts`, `server/laterdog/long-work.test.ts`, `server/turn-watchdog.test.ts`, `src/components/StatusActivityRow.test.ts`.
-
-## One open thread per teammate
-
-When a dog sends work to a teammate through `send_to_bot`, later.dog first looks for a thread that dog already opened on that teammate from the same conversation and that is still open: not archived, and not closed unless it is a work thread, which reopens when new work arrives. If there is one, the request goes into it and runs after anything still running there. The chat says "Added to thread #… on …" instead of "Opened thread", and the dog is told it was added to an open thread instead of opening another. 
-
-New threads are counted per turn only when one is really created, and only to stop a runaway loop: in the owner's own conversations, 40 with teammates; where a guest drives the conversation or the workspace is shared, 15 with teammates and 5 in all. A dog runs up to 10 threads at once by default (`threads.maxConcurrentPerBot`). At the limit the dog is told to finish and say plainly which threads it still wanted, and the conversation gets one line, "This dog opened 40 new threads in one go, so later.dog paused new ones to stop a runaway. Ask again if you want more." (shown once per turn, however many more it tries). The code is in `server/laterdog/work-thread-reuse.ts`; `server/thread-aware-bots.e2e.test.ts` proves the reuse and the chips on a fixture.

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DATA_DIR } from "../config.ts";
 import type { ModelSelection } from "../contracts.ts";
-import { getOrCreateChannel, mirrorExchange, type CommsBus } from "../comms-visibility.ts";
+import { getOrCreateChannel } from "../comms-visibility.ts";
 import { closeMessageDb } from "../message-db.ts";
 import { Store, toWireTask } from "../store.ts";
 
@@ -24,8 +24,7 @@ describe("renaming a dog", () => {
     const boss = store.createBot({ name: "New Bot" });
     const helper = store.createBot({ name: "Study Helper" });
     const channel = getOrCreateChannel(store, boss, helper);
-    const bus: CommsBus = { store, broadcast: () => {} };
-    return { store, boss, helper, channel, bus };
+    return { store, boss, helper, channel };
   };
 
   it("refreshes dependent thread titles on save, reload and Undo without rewriting custom titles", () => {
@@ -101,16 +100,5 @@ describe("renaming a dog", () => {
     const room = store.createGroup("Launch", [boss.id, helper.id], false);
     store.patchBotProfile(helper.id, { name: "Tutor" });
     expect(store.group(room.id)?.name).toBe("Launch");
-  });
-
-  it("keeps old messages as written but tags dog-to-dog lines with a direction", () => {
-    const { store, boss, helper, channel, bus } = pair();
-    mirrorExchange(bus, boss, helper, "what colour is the sky?", channel);
-    store.patchBotProfile(helper.id, { name: "Tutor" });
-    const sent = store.messagesFor(boss.threadId).find((m) => m.comm);
-    const received = store.messagesFor(helper.threadId).find((m) => m.comm);
-    expect(sent?.comm).toMatchObject({ withBotId: helper.id, withName: "Study Helper", direction: "to" });
-    expect(received?.comm).toMatchObject({ withBotId: boss.id, direction: "from" });
-    expect(store.messagesFor(channel.threadId).some((m) => m.text === "what colour is the sky?")).toBe(true);
   });
 });

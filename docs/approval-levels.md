@@ -43,7 +43,7 @@ With either setting:
 A dog is **yours** when it works in your own workspace (not a hosted or
 shared-sign-in workspace), in a conversation no guest drives. Messages from a
 local tool on your Mac count as yours. Your routines and what your other dogs
-hand a dog (`send_to_bot`, `ask_bot`, a room post and `coordinate_bots`) carry
+hand a dog (a room post and `coordinate_bots`) carry
 your authority; the handoff note says "one of <your name>'s own dogs, passing on
 <your name>'s instructions" instead of "not from your user".
 
@@ -192,9 +192,9 @@ silently substitute unrestricted access when a mode is rejected.
 
 ### Read-only integration tools
 
-later.dog's built-in agents MCP server describes seven scoped reads with
+later.dog's built-in agents MCP server describes its scoped reads with
 explicit read-only, non-destructive, idempotent, closed-world metadata:
-`list_bots`, `check_delegation`, `wait_delegation`,
+`list_bots`, `list_shared_computers`, `tool_result_read`,
 `session_search`, `session_read`, `list_routines`, and `skills_list`.
 Session recall still enforces own-bot access and records its existing room
 disclosure audit. These hints do not grant access to another bot's conversations.

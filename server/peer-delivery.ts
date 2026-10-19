@@ -1,5 +1,5 @@
 
-import { clip, peerName } from "./peer-roster.ts";
+import { clip } from "./peer-roster.ts";
 
 export type PeerDeliveryOutcome = "queued" | "injected" | "failed";
 
@@ -25,14 +25,4 @@ export function peerDeliveryReceipt(receipt: PeerDeliveryReceipt): PeerDeliveryR
     ...(receipt.requestId ? { requestId: receipt.requestId } : {}),
     ...(receipt.threadId ? { threadId: receipt.threadId } : {}),
   };
-}
-
-const named = (receipt: PeerDeliveryReceipt): string =>
-  peerName(receipt.botName ?? "") || peerName(receipt.botId) || "teammate";
-
-export function renderPeerDeliveryReceipts(receipts: readonly PeerDeliveryReceipt[]): string {
-  if (!receipts.length) return "";
-  const line = (receipt: PeerDeliveryReceipt) => `${named(receipt)}: ${receipt.outcome} — ${receipt.detail}`;
-  if (receipts.length === 1) return `Delivery to ${line(receipts[0]!)}`;
-  return ["Delivery receipts:", ...receipts.map(receipt => `- ${line(receipt)}`)].join("\n");
 }

@@ -8,13 +8,12 @@ const store = {
 const nameOf = botNames(store as never);
 
 describe("what the working line says", () => {
-  it("names the teammate a dog is checking with or handing work to", () => {
+  it("names the teammate a dog is checking with", () => {
     expect(dogActivityWords("mcp__agents__coordinate_bots", JSON.stringify({ bot_ids: ["b1"], message: "x" }), nameOf)).toBe("checking with Scout");
     expect(dogActivityWords("mcp__agents__coordinate_bots", { bot_ids: ["b1", "rex"] }, nameOf)).toBe("checking with Scout and Rex");
     expect(dogActivityWords("coordinate_bots", { bot_ids: ["b1", "b2", "b3"] }, nameOf)).toBe("checking with 3 dogs");
-    expect(dogActivityWords("mcp__agents__send_to_bot", { bot_id: "b2" }, nameOf)).toBe("handing Rex a task");
-    expect(dogActivityWords("mcp__agents__ask_bot", { bot_id: "ghost" }, nameOf)).toBe("checking with Ghost");
-    expect(dogActivityWords("mcp__agents__ask_bot", { bot_id: "nobody" }, nameOf)).toBe("checking with a teammate");
+    expect(dogActivityWords("mcp__agents__coordinate_bots", { bot_ids: ["ghost"] }, nameOf)).toBe("checking with Ghost");
+    expect(dogActivityWords("mcp__agents__coordinate_bots", { bot_ids: ["nobody"] }, nameOf)).toBe("checking with a teammate");
     expect(dogActivityWords("mcp__agents__coordinate_bots", "not json", nameOf)).toBe("checking with a teammate");
   });
 

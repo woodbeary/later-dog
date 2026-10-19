@@ -83,7 +83,7 @@ export function ownerCoordinationAuthority(ownerName: string | undefined): strin
 
 export function ownerCoordinationRequestNote(ownerName: string | undefined): string {
   const { owners } = ownerWords(ownerName);
-  return `Request text comes from one of ${owners} own dogs in ${owners} own workspace and carries ${owners} authority.`;
+  return `Request text comes from one of ${owners} own dogs, passing on ${owners} instructions, in ${owners} own workspace and carries ${owners} authority.`;
 }
 
 export function reviewerMissingNotice(engine: string, model: string | undefined): string {

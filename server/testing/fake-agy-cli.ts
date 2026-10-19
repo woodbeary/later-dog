@@ -1,117 +1,6 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-
-const mode = process.env.FAKE_AGY_MODE ?? "happy";
-
-type McpEntry = {
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-};
-
-function agentsMcpEntry(): McpEntry | null {
-  const home = process.env.HOME || process.env.USERPROFILE || "";
-  try {
-    const config = JSON.parse(
-      readFileSync(join(home, ".gemini", "config", "mcp_config.json"), "utf8"),
-    );
-    const entry = config.mcpServers?.["laterdog-agents"];
-    if (!entry?.command) return null;
-    return {
-      command: String(entry.command),
-      args: Array.isArray(entry.args) ? entry.args.map(String) : [],
-      env: Object.fromEntries(
-        Object.entries(entry.env ?? {}).map(([name, value]) => [name, String(value)]),
-      ),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function driveMcp(
-  entry: McpEntry,
-  calls: Array<{ name: string; args: (previous: string) => object }>,
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const env = { ...process.env, ...entry.env };
-    const child = spawn(entry.command, entry.args ?? [], {
-      env,
-      stdio: ["pipe", "pipe", "inherit"],
-    });
-    let settled = false;
-    let step = -1;
-    let last = "";
-
-    const finish = (error?: Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      child.kill();
-      if (error) reject(error);
-      else resolve(last);
-    };
-    const timer = setTimeout(() => finish(new Error("mcp timeout")), 60_000);
-    const write = (message: object) => child.stdin.write(`${JSON.stringify(message)}\n`);
-    const next = () => {
-      step += 1;
-      if (step >= calls.length) return finish();
-      const call = calls[step];
-      write({
-        jsonrpc: "2.0",
-        id: step + 2,
-        method: "tools/call",
-        params: { name: call.name, arguments: call.args(last) },
-      });
-    };
-
-    child.on("error", (error) => finish(error));
-    child.on("exit", (code) => {
-      if (!settled) finish(new Error(`mcp exited before completing (code ${code ?? "unknown"})`));
-    });
-    child.stdin.on("error", (error) => finish(error));
-    let buffer = "";
-    child.stdout.on("data", (chunk) => {
-      buffer += chunk;
-      let newline;
-      while ((newline = buffer.indexOf("\n")) !== -1) {
-        const line = buffer.slice(0, newline);
-        buffer = buffer.slice(newline + 1);
-        if (!line.trim()) continue;
-        let message: any;
-        try {
-          message = JSON.parse(line);
-        } catch {
-          continue;
-        }
-        if (message.id === undefined) continue;
-        if (message.error) {
-          finish(new Error(String(message.error.message ?? "MCP call failed")));
-          return;
-        }
-        if (step === -1) {
-          write({ jsonrpc: "2.0", method: "notifications/initialized" });
-          next();
-          continue;
-        }
-        last = String(message.result?.content?.[0]?.text ?? "");
-        next();
-      }
-    });
-    write({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: {
-        protocolVersion: "2024-11-05",
-        capabilities: {},
-        clientInfo: { name: "laterdog-fake-antigravity", version: "1.0.0" },
-      },
-    });
-  });
-}
 
 const argv = process.argv.slice(2);
 if (process.env.FAKE_AGY_IGNORE_SIGTERM === "1") {
@@ -169,33 +58,11 @@ if (process.env.FAKE_AGY_DUMP) {
   writeFileSync(process.env.FAKE_AGY_DUMP, JSON.stringify({ argv, env: process.env, prompt }, null, 2));
 }
 
-const toolName = mode === "ask-peer" ? "ask_bot" : "write_to_file";
-out({ event: "init", conversation_id: CONV, init: { cwd: process.cwd(), tools: ["run_command", "write_to_file", ...(mode === "ask-peer" ? ["list_bots", "ask_bot"] : [])], permission_mode: "accept-edits" } });
+const toolName = "write_to_file";
+out({ event: "init", conversation_id: CONV, init: { cwd: process.cwd(), tools: ["run_command", "write_to_file"], permission_mode: "accept-edits" } });
 out({ event: "step_update", conversation_id: CONV, step_update: { conversation_id: CONV, step_index: 0, state: "ACTIVE", step_type: "tool", tool_name: toolName, tool_info: { name: toolName, parameters: {} } } });
 
-let response = "done from fake agy";
-if (mode === "ask-peer") {
-  const agents = agentsMcpEntry();
-  if (!agents) {
-    response = "peer error: agents MCP not mounted";
-  } else {
-    try {
-      const reply = await driveMcp(agents, [
-        { name: "list_bots", args: () => ({}) },
-        {
-          name: "ask_bot",
-          args: (list) => ({
-            bot_id: /id: ([\w-]+)/.exec(list)?.[1] ?? "",
-            message: "ping from fake Gemini",
-          }),
-        },
-      ]);
-      response = `peer says: ${reply}`;
-    } catch (error) {
-      response = `peer error: ${error instanceof Error ? error.message : String(error)}`;
-    }
-  }
-}
+const response = "done from fake agy";
 
 out({ event: "step_update", conversation_id: CONV, step_update: { conversation_id: CONV, step_index: 0, state: "DONE", step_type: "tool", tool_name: toolName, tool_info: { name: toolName, parameters: {} } } });
 out({ event: "step_update", conversation_id: CONV, step_update: { conversation_id: CONV, step_index: 1, state: "DONE", step_type: "agent_response", usage: { input_tokens: 100, output_tokens: 20, thinking_tokens: 0, cache_read_tokens: 5, total_tokens: 125 } } });

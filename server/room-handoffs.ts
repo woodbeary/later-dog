@@ -18,6 +18,7 @@ const nodeSchema = z.object({
   executions: z.number().int().nonnegative().default(0), startedAt: z.number().optional(),
   lastProgressAt: z.number().optional(),
   approvalGranted: z.boolean().default(false),
+  requestedBy: z.string().optional(),
   kind: z.enum(["work", "assignment"]).default("work"),
   endedBy: z.enum(HANDOFF_ENDS).optional(),
   continueOffered: z.boolean().optional(),
@@ -87,6 +88,10 @@ export class RoomHandoffs {
   }
   children(id: string) { return [...this.nodes.values()].filter(n => n.parentId === id); }
   root(n: RoomHandoff) { return this.nodes.get(n.rootId)!; }
+  runningRequester(threadId: string): string | undefined {
+    const running = [...this.nodes.values()].find(n => n.parentId && n.threadId === threadId && n.status === "running");
+    return running ? this.nodes.get(running.rootId)?.requestedBy : undefined;
+  }
   path(n: RoomHandoff): RoomHandoff[] {
     const path: RoomHandoff[] = [];
     for (let cur: RoomHandoff | undefined = n; cur; cur = cur.parentId ? this.nodes.get(cur.parentId) : undefined) {
@@ -194,7 +199,7 @@ export class RoomHandoffs {
 
   enqueue(source: RoomAddress, generation: string, parentId: string | undefined,
     target: RoomAddress, key: string, text: string, approvalGranted = false,
-    rework = false, sourceText = "", requestBatchKey?: string): { node: RoomHandoff; duplicate: boolean } {
+    rework = false, sourceText = "", requestBatchKey?: string, requestedBy?: string): { node: RoomHandoff; duplicate: boolean } {
     if (this.loadError) throw new Error(this.loadError);
     this.settleRestart();
     let parent = parentId ? this.nodes.get(parentId) : this.nodes.get(generation);
@@ -203,7 +208,8 @@ export class RoomHandoffs {
       throw new Error("The handoff belongs to a different room speaker");
     }
     const fresh = !parent;
-    parent ??= { ...source, id: generation, rootId: generation, key: "root", text: sourceText.slice(0, 12_000), createdAt: this.now(), status: "source", result: "", reported: true, executions: 0, approvalGranted: false, kind: "work" };
+    parent ??= { ...source, id: generation, rootId: generation, key: "root", text: sourceText.slice(0, 12_000), createdAt: this.now(), status: "source", result: "", reported: true, executions: 0, approvalGranted: false, kind: "work",
+      ...(requestedBy ? { requestedBy } : {}) };
     const kind = target.groupId && target.groupId === source.groupId ? "assignment" : "work";
     const path = this.path(parent);
     if (path.some(n => n.botId === target.botId && (!n.groupId || !target.groupId || n.groupId === target.groupId))) {
@@ -302,10 +308,10 @@ export class RoomHandoffs {
       return Boolean(parent && !parent.groupId && parent.threadId === threadId);
     });
   }
-  stopAwaitingDirect(threadId: string, by: HandoffEnd = "person"): RoomHandoff[] {
+  stopAwaitingDirect(threadId: string, by: HandoffEnd = "person", only: (node: RoomHandoff) => boolean = () => true): RoomHandoff[] {
     const left: RoomHandoff[] = [];
     for (const node of this.nodes.values()) {
-      if (node.groupId || node.threadId !== threadId || terminal(node)) continue;
+      if (node.groupId || node.threadId !== threadId || terminal(node) || !only(node)) continue;
       for (const child of this.children(node.id)) {
         if (terminal(child)) continue;
         if (child.status === "queued") this.cancelTree(child, endWords(by, this.limits, true), "cancelled", by);
@@ -345,7 +351,8 @@ export class RoomHandoffs {
     const source = addressOf(old);
     const created: string[] = [];
     const root: RoomHandoff = { ...source, id: generation, rootId: generation, key: "root", text: old.text, createdAt: this.now(),
-      firstCreatedAt: old.firstCreatedAt ?? old.createdAt, status: "source", result: "", reported: true, executions: 0, approvalGranted: false, kind: "work" };
+      firstCreatedAt: old.firstCreatedAt ?? old.createdAt, status: "source", result: "", reported: true, executions: 0, approvalGranted: false, kind: "work",
+      ...(old.requestedBy ? { requestedBy: old.requestedBy } : {}) };
     this.nodes.set(root.id, root);
     created.push(root.id);
     let resent = 0; let kept = 0;

@@ -325,14 +325,14 @@ it("with Auto-review off, a push the coordinator dog passes on to another of the
   expect(minted.status).toBe(201);
   const { token } = await minted.json() as { token: string };
   rmSync(dump(), { force: true });
-  const opened = await fetch(`${base}/api/internal/threads`, {
+  const opened = await fetch(`${base}/api/internal/coordinate-bots`, {
     method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-    body: JSON.stringify({ toBotId: worker.id, title: "Ship the fix", message: "Jacob says: commit the fix to main, push it and ship the beta OTA update.", oneWay: true }),
+    body: JSON.stringify({ botIds: [worker.id], message: "Jacob says: commit the fix to main, push it and ship the beta OTA update." }),
   });
-  const body = await opened.json() as { threadId: string };
-  expect(opened.status, JSON.stringify(body)).toBe(201);
+  const body = await opened.json() as { receipts: Array<{ threadId: string }> };
+  expect(opened.status, JSON.stringify(body)).toBe(200);
   writeFileSync(join(coordinating.launch.cwd, ".release-turn"), "");
-  const turn = await attach(worker, body.threadId);
+  const turn = await attach(worker, body.receipts[0]!.threadId);
   expect(JSON.stringify(turn.launch.prompt)).toContain("one of Jacob's own dogs, passing on Jacob's instructions");
   expect(JSON.stringify(turn.launch.prompt)).not.toContain("not from your user");
   expect(turn.launch.settings.autoMode.allow[1]).toContain("those relayed requests meet the consent bar");

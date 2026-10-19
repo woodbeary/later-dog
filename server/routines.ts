@@ -1541,7 +1541,7 @@ export class RoutineManager {
       }
       const pending = this.options.hasPendingDelegations?.(event.threadId, run.id) === true;
       run.status = pending ? "waiting" : "completed";
-      run.attention = pending ? "Waiting for delegated work to finish" : undefined;
+      run.attention = pending ? "Waiting on another dog" : undefined;
       if (!pending) run.finishedAt = this.now();
       run.error = undefined;
     } else {

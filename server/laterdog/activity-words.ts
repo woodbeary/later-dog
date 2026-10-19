@@ -5,9 +5,6 @@ type NameOf = (idOrName: string) => string | undefined;
 
 const TEAM_TOOLS: Record<string, (input: Record<string, unknown>, nameOf: NameOf) => string> = {
   coordinate_bots: (input, nameOf) => checkingWith(names(input.bot_ids, nameOf)),
-  ask_bot: (input, nameOf) => checkingWith(names(input.bot_id ?? input.target, nameOf)),
-  send_to_bot: (input, nameOf) => handingOff(names(input.bot_id, nameOf)),
-  delegate_bot: (input, nameOf) => handingOff(names(input.bot_id ?? input.target, nameOf)),
   create_bot: (input) => (typeof input.name === "string" && input.name.trim() ? `making ${clipName(input.name)}` : "making a new dog"),
 };
 
@@ -27,11 +24,10 @@ function describedCommand(input: unknown): string | null {
 }
 
 const PHRASES: Array<[RegExp, string]> = [
-  [/^(check_delegation|wait_delegation)$/, "waiting on results"],
   [/^delegate_cloud_job$/, "starting a cloud task"],
   [/^(inspect_cloud_job|review_cloud_job|collect_cloud_diff|reconcile_cloud_task|list_provider_tasks|record_job_observation)$/, "checking on a cloud task"],
   [/^correct_cloud_job$/, "sending a fix to a cloud task"],
-  [/^(list_bots|list_room_targets)$/, "checking who's around"],
+  [/^list_bots$/, "checking who's around"],
   [/^(request_credential|request_takeover|request_secure_form)$/, "needs your input"],
   [/^fill_secure_field$/, "signing in"],
   [/^(select_computer|list_shared_computers)$/, "picking a computer"],
@@ -78,10 +74,6 @@ function checkingWith(found: string[]): string {
   if (found.length === 1) return `checking with ${found[0]}`;
   if (found.length === 2) return `checking with ${found[0]} and ${found[1]}`;
   return found.length > 2 ? `checking with ${found.length} dogs` : "checking with a teammate";
-}
-
-function handingOff(found: string[]): string {
-  return found.length === 1 ? `handing ${found[0]} a task` : "handing off a task";
 }
 
 function record(input: unknown): Record<string, unknown> {

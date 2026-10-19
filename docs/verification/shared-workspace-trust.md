@@ -85,7 +85,7 @@ pnpm exec vitest run server/request-auth.test.ts server/decision-log.test.ts \
   turn: another member is refused on both respond routes, the requester
   approves, the thread's opener declines someone else's request, a thread a
   bot opened mid-way through a member's request (through the real
-  `/api/internal/threads` handoff) leads back to that member, a card that
+  `/api/internal/coordinate-bots` handoff) leads back to that member, a card that
   names nobody is answered by any member, an admin and the owner answer
   anyone's card, and under `LATERDOG_LOOPBACK_TRUST=service` a session-less caller
   cannot approve (or use the bot-scoped route or always-allow) but can
