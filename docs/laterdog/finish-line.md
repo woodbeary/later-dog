@@ -1,5 +1,7 @@
 # Finish line: desktop, iPhone and Cloud
 
+**Start here (2026-10-19):** [handoff-2026-10-19.md](handoff-2026-10-19.md) says what shipped in 0.3.42 and what is next.
+
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
 ## How to resume
