@@ -174,6 +174,18 @@ describe("the routines card", () => {
     expect(card().nodes.some((node) => node.props.role === "menu")).toBe(false);
   });
 
+  it("runs a routine now from the top of its menu and closes the menu", () => {
+    fixture.storeState = { routinesLoadState: "ready", routines: [routine("soon"), routine("napping", { enabled: false })] };
+    pressRow(card(), "napping");
+    const open = card();
+    const actions = open.nodes.filter((node) => node.props.role === "menuitem").map((node) => node.props["data-routine-action"]);
+    expect(actions).toEqual(["run", "pause", "edit", "delete"]);
+    expect(Children.toArray((find(open, "data-routine-action", "run").props.children as ReactNode[]))).toContain("Run now");
+    click(find(open, "data-routine-action", "run"));
+    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "runRoutine", routineId: "napping" });
+    expect(card().nodes.some((node) => node.props.role === "menu")).toBe(false);
+  });
+
   it("turns Edit into a chat draft once and hands the person back to the composer", () => {
     fixture.storeState = { routinesLoadState: "ready", routines: [routine("soon")] };
     pressRow(card(), "soon");

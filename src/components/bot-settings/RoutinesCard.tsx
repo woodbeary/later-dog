@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Pause, Pencil, Play, Trash2 } from "lucide-react";
+import { CirclePlay, Pause, Pencil, Play, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { appendComposerDraft, getDraft } from "@/lib/drafts";
@@ -40,7 +40,7 @@ export function RoutinesCard({ bot }: { bot: Bot }) {
   const menuRoutine = menu ? routines.find((routine) => routine.id === menu.routineId) : undefined;
 
   const openMenu = (routineId: string, x: number, y: number) =>
-    setMenu({ routineId, left: Math.max(8, Math.min(x, window.innerWidth - 188)), top: Math.max(8, Math.min(y, window.innerHeight - 148)) });
+    setMenu({ routineId, left: Math.max(8, Math.min(x, window.innerWidth - 188)), top: Math.max(8, Math.min(y, window.innerHeight - 184)) });
 
   useEffect(() => {
     if (!menu) return;
@@ -158,6 +158,19 @@ export function RoutinesCard({ bot }: { bot: Bot }) {
             }
           }}
         >
+          <button
+            type="button"
+            role="menuitem"
+            data-routine-action="run"
+            onClick={() => {
+              setMenu(null);
+              dispatch({ type: "runRoutine", routineId: menuRoutine.id });
+            }}
+            className={menuItemCls}
+          >
+            <CirclePlay size={15} className="text-ink-secondary" />
+            {t("routines.runNow")}
+          </button>
           <button
             type="button"
             role="menuitem"

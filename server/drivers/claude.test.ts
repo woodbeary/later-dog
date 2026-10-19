@@ -17,6 +17,7 @@ import {
   claudeHookSettings,
   ClaudeDriver,
   createPermissionBroker,
+  fitsUnixSocketPath,
   hookTokenFile,
   parseClaudeCliVersion,
   permissionSocketPath,
@@ -297,6 +298,41 @@ describe("ClaudeDriver.decodeConfig", () => {
       expect(candidates[1]).not.toBe(candidates[0]);
     }
   });
+
+  it.skipIf(process.platform === "win32")(
+    "binds a short socket under /tmp when TMPDIR is too long for a socket path",
+    async () => {
+      const outer = process.env.TMPDIR;
+      const longTemp = join(tmpdir(), `laterdog-long-tmpdir-${"x".repeat(100)}`);
+      mkdirSync(longTemp, { recursive: true });
+      process.env.TMPDIR = longTemp;
+      const candidates = brokerSocketCandidates("t-long-tmpdir");
+      const held = candidates[0]!;
+      let broker: Awaited<ReturnType<typeof createPermissionBroker>> | undefined;
+      try {
+        expect(longTemp.length).toBeGreaterThan(90);
+        expect(candidates.every(fitsUnixSocketPath)).toBe(true);
+        expect(candidates.some((candidate) => candidate.startsWith(longTemp))).toBe(false);
+        expect(candidates.at(-1)).toMatch(/^\/tmp\/ld-[0-9a-f]{16}\.sock$/);
+        mkdirSync(held, { recursive: true });
+        broker = await createPermissionBroker({ socketPaths: candidates, onAsk: () => {}, onResolve: () => {} });
+        expect(broker.socketPath).toBe(candidates.at(-1));
+        const conn = connect(broker.socketPath);
+        await new Promise<void>((resolve, reject) => {
+          conn.on("connect", resolve);
+          conn.on("error", reject);
+        });
+        conn.destroy();
+      } finally {
+        broker?.close();
+        if (outer === undefined) delete process.env.TMPDIR;
+        else process.env.TMPDIR = outer;
+        rmSync(held, { recursive: true, force: true });
+        rmSync(candidates.at(-1)!, { force: true });
+        rmSync(longTemp, { recursive: true, force: true });
+      }
+    },
+  );
 
   it.skipIf(process.platform === "win32")(
     "binds the next candidate when the first is unbindable, and asks round-trip on it",

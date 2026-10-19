@@ -4,7 +4,7 @@ import { useStore, type Bot } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { SleepingDog } from "./AccountCharge";
 import { BotAvatar } from "./Avatar";
-import { pillButton } from "./LocalVmRows";
+import { dangerPillButton, pillButton } from "./LocalVmRows";
 
 export interface CloudComputer {
   boxId: string;
@@ -179,7 +179,7 @@ export function CloudComputerRows() {
                   onClick={() => void remove(computer)}
                   disabled={held}
                   title={t("vm.cloud.deleteTitle")}
-                  className={`${pillButton} flex items-center gap-1.5 text-danger`}
+                  className={`${dangerPillButton} flex items-center gap-1.5`}
                 >
                   {spinning(computer, "delete")}
                   {t("common.delete")}
@@ -203,7 +203,7 @@ export function CloudComputerRows() {
                     onClick={() => void change(computer, "reset")}
                     disabled={held}
                     title={t("vm.cloud.resetTitle")}
-                    className={`${pillButton} flex items-center gap-1.5 text-danger`}
+                    className={`${dangerPillButton} flex items-center gap-1.5`}
                   >
                     {spinning(computer, "reset")}
                     {t("vm.cloud.reset")}

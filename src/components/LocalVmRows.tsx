@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { waitForLocalVmReady } from "@/lib/local-vm-readiness";
 import { SettingRow } from "./SettingsPrimitives";
@@ -31,7 +30,9 @@ export interface LocalVmStatus {
 type VmAction = "start" | "run" | "recreate";
 type Stage = "checking" | "unavailable" | "noRuntime" | "runtimeOff" | "notSetUp" | "settingUp" | "stopped" | "starting" | "ready" | "stuck";
 
-export const pillButton = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45";
+const pillShape = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium hover:bg-control-hover disabled:opacity-45";
+export const pillButton = `${pillShape} text-ink`;
+export const dangerPillButton = `${pillShape} text-danger`;
 
 async function readStatus(signal?: AbortSignal): Promise<LocalVmStatus> {
   const response = await fetch("/api/local-computer", { signal });
@@ -175,7 +176,7 @@ export function LocalVmRows() {
       </div>
       {(stage === "ready" || stage === "stopped" || stage === "starting") && pending === null && (
         <SettingRow title={t("settings.vm.reset")} subtitle={t("settings.vm.resetHint")}>
-          <button type="button" onClick={() => void act("recreate")} disabled={loading} className={cn(pillButton, "text-danger")}>{t("settings.vm.reset")}</button>
+          <button type="button" onClick={() => void act("recreate")} disabled={loading} className={dangerPillButton}>{t("settings.vm.reset")}</button>
         </SettingRow>
       )}
     </div>

@@ -472,6 +472,12 @@ export function permissionSocketPath(threadId: string, botId?: string) {
   return brokerSocketPath(DATA_DIR, `${prefix}${digest}`);
 }
 
+const UNIX_SOCKET_PATH_BYTES = process.platform === "darwin" ? 103 : 107;
+
+export function fitsUnixSocketPath(path: string): boolean {
+  return Buffer.byteLength(path) <= UNIX_SOCKET_PATH_BYTES;
+}
+
 export function brokerSocketCandidates(threadId: string, botId?: string): string[] {
   const base = permissionSocketPath(threadId, botId);
   if (process.platform !== "win32") {
@@ -479,7 +485,9 @@ export function brokerSocketCandidates(threadId: string, botId?: string): string
       .update(`${DATA_DIR}\0${process.pid}\0${botId ?? ""}\0${threadId}`)
       .digest("hex")
       .slice(0, 16);
-    return [base, join(tmpdir(), `laterdog-perm-${scope}.sock`)];
+    const candidates = [base, join(tmpdir(), `laterdog-perm-${scope}.sock`)];
+    const fitting = candidates.filter(fitsUnixSocketPath);
+    return fitting.length === candidates.length ? candidates : [...fitting, `/tmp/ld-${scope}.sock`];
   }
   return [
     base,

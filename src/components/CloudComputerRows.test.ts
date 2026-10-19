@@ -126,6 +126,10 @@ describe("Settings → Computer → Cloud computers", () => {
     expect(resetButton("box-2")).toBeNull();
     expect(updateButton("box-3")!.disabled).toBe(true);
     expect(resetButton("box-3")!.disabled).toBe(true);
+    const colours = (button: HTMLElement) => button.className.split(" ").filter((name) => name === "text-ink" || name === "text-danger");
+    expect(colours(resetButton("box-1")!)).toEqual(["text-danger"]);
+    expect(colours(deleteButton("box-2")!)).toEqual(["text-danger"]);
+    expect(colours(updateButton("box-1")!)).toEqual(["text-ink"]);
   });
 
   it("offers no Update or Reset for a dog's computer that later.dog's computers service does not run", async () => {

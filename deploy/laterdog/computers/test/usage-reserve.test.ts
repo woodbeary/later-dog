@@ -74,9 +74,15 @@ describe("reserving free AI tokens before the call", () => {
   it("holds 60 concurrent calls in flight to the cap, refuses the rest, then keeps only what was used", async () => {
     const { w, key, keySha256, run, gate, release } = await setup();
     gate.held = true;
-    const pending = Array.from({ length: 60 }, () => w.fetch(apiRequest("POST", CHAT, key, { body: chat() })));
-    await vi.waitFor(() => expect(usedToday(w, keySha256, "ai_tokens")).toBeGreaterThan(AI_TRIAL_TOKENS_PER_DAY - reserveOf()));
+    const refused: Response[] = [];
+    const pending = Array.from({ length: 60 }, () => w.fetch(apiRequest("POST", CHAT, key, { body: chat() })).then((answer) => {
+      if (answer.status === 429) refused.push(answer);
+      return answer;
+    }));
+    await vi.waitFor(() => expect(run.mock.calls.length + refused.length).toBe(60), { timeout: 10_000 });
     const fits = Math.floor(AI_TRIAL_TOKENS_PER_DAY / reserveOf());
+    expect(run).toHaveBeenCalledTimes(fits);
+    expect(usedToday(w, keySha256, "ai_tokens")).toBeGreaterThan(AI_TRIAL_TOKENS_PER_DAY - reserveOf());
     expect(usedToday(w, keySha256, "ai_tokens")).toBeLessThanOrEqual(AI_TRIAL_TOKENS_PER_DAY);
     release();
     const answers = await Promise.all(pending);

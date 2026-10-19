@@ -37,7 +37,7 @@ function brokerCandidates(threadId: string, botId: string): string[] {
   const prefix = threadId.replace(/[^\w-]/g, "").slice(0, 4);
   const digest = createHash("sha256").update(`${botId}\0${threadId}`).digest("hex").slice(0, 4);
   const scope = createHash("sha256").update(`${dataDir}\0${child.pid}\0${botId}\0${threadId}`).digest("hex").slice(0, 16);
-  return [join(dataDir, `perm-${prefix}${digest}.sock`), join(tmpdir(), `laterdog-perm-${scope}.sock`)];
+  return [join(dataDir, `perm-${prefix}${digest}.sock`), join(tmpdir(), `laterdog-perm-${scope}.sock`), `/tmp/ld-${scope}.sock`];
 }
 
 async function connectBroker(threadId: string, botId: string): Promise<Socket> {

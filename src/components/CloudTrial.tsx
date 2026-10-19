@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { api } from "@/state/store";
 import { openExternalLink } from "@/lib/app-links";
 import { t } from "@/lib/i18n";
-import { pillButton } from "./LocalVmRows";
+import { dangerPillButton, pillButton } from "./LocalVmRows";
 import { SettingRow } from "./SettingsPrimitives";
 
 export type PlanInfo = { status: "none" | "pending" | "active" | "canceled" | "ended"; periodEnd?: string };
@@ -196,7 +196,7 @@ export function CloudTrialRow() {
               </>
             )}
             {(status.state === "active" || status.state === "used_up") && !paid && (
-              <button type="button" onClick={end} disabled={busy} className={`${pillButton} flex items-center gap-1.5 text-danger`}>
+              <button type="button" onClick={end} disabled={busy} className={`${dangerPillButton} flex items-center gap-1.5`}>
                 {spinner}
                 {t("vm.trial.end")}
               </button>
