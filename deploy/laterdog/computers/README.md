@@ -369,7 +369,7 @@ allowance per key and one for all keys together, reset at midnight UTC and kept 
   `@cf/openai/whisper-large-v3-turbo`. Nova-3 is called straight, not through the AI Gateway, because the gateway takes
   no audio streams (production answered every note with 502 when it tried). Whisper turbo takes base64 audio in JSON,
   so it goes through the gateway like the other calls. Any other value means Nova-3.
-- Requests go through the AI Gateway named by `AI_GATEWAY_ID` (`default`), with logging off. Each call carries gateway
+- Requests go through the AI Gateway named by `AI_GATEWAY_ID` (`laterdog`), with logging off. Each call carries gateway
   metadata `{ user, tier }`: the first 16 hex characters of the key's SHA-256 and `trial`, `home` or `plan`, so spend
   limits and analytics can split by person without logging prompts. Worker logs and traces keep a 10% sample
   (`head_sampling_rate`).
@@ -574,7 +574,7 @@ ones with `wrangler containers images delete <image:tag>`.
   any turn. It also fails, as "eval invalid" rather than a parity result, when either model gave no answer on any run,
   either passed none of its runs, or Kimi passed fewer than half of its runs. The turns are hand-built, use a short
   stand-in system prompt rather than the dog's full one, and use the non-streamed path only. It needs `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (Workers AI and AI Gateway run access) and
-  `AI_GATEWAY_ID` (default `default`) with the Anthropic key stored on that gateway. Kimi is called on the Workers AI
+  `AI_GATEWAY_ID` (`laterdog`) with the Anthropic key stored on that gateway. Kimi is called on the Workers AI
   REST API, Claude on the gateway's Anthropic endpoint, both with the same request translation the Worker uses.
   `test/haiku-parity.test.ts` checks the eval itself against a fake upstream.
 - `pnpm run check`: `wrangler types` and `tsc --noEmit`.

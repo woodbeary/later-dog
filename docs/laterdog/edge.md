@@ -162,16 +162,14 @@ Kimi included once Kimi goes through `laterdog`, and the free AI and voice go da
 `byok_only` ("Require provider credentials") stays off until provider keys for grok and anthropic are stored on the
 gateway; the dry run after that turns it on.
 
-Creating the gateway changes nothing by itself, and its spend limits count nothing yet: the Cloud Worker keeps calling
-`AI_GATEWAY_ID=default` until that var in `deploy/laterdog/computers/wrangler.jsonc` says `laterdog` and the computers
-Worker is deployed. Until then no traffic goes through `laterdog`, so these caps are not a kill switch. Before switching it:
+Since 2026-10-19 the computers Worker calls `laterdog` (`AI_GATEWAY_ID` in `deploy/laterdog/computers/wrangler.jsonc`),
+so these caps count. Grok calls carry the Worker's own key; Anthropic needs its key stored on the gateway before
+`ANTHROPIC_FIRST` is turned on.
 
-1. Open the `laterdog` gateway's spend limits in the dashboard and check each rule reads as one day. The API only says
-   `window` is a whole number; this file sends `86400` on the guess that it means seconds. If the dashboard shows
-   anything else, fix `window` in `ai-gateway.json`, apply `--only=ai-gateway`, and check again. Do not switch the var
-   until it reads one day, because a wrong unit either lets spend through or blocks for weeks.
-2. Store the provider keys on the gateway.
-3. Then switch the var.
+Not verified yet: that each rule reads as one day in the dashboard (AI Gateway > `laterdog` > Settings > Spend limits).
+The API only says `window` is a whole number; this file sends `86400` on the guess that it means seconds, like the
+gateway's other intervals. If the dashboard shows anything else, fix `window` in `ai-gateway.json`, apply
+`--only=ai-gateway`, and check again.
 
 ### 5. DNS
 
@@ -274,15 +272,13 @@ Follow-ups:
    should show `~ managed-all-log.action_parameters` with the `log` override going away, plus the `description` line), then
    apply `--only=managed-rules` and run the dry run again until `managed-rules` reads `ok`. A test in
    `scripts/edge-apply.test.ts` plans exactly this switch against a live rule that still logs.
-2. The gateway caps only count once the computers Worker is deployed with `AI_GATEWAY_ID=laterdog`. Do the window check
-   in section 4 first, then switch the var and deploy.
-3. Run the dry run with a read token: `rate-limits`, `managed-rules` and `ai-gateway` should read `ok`. Anything else means
+2. Run the dry run with a read token: `rate-limits`, `managed-rules` and `ai-gateway` should read `ok`. Anything else means
    the live zone and these files differ; copy the live change back here or apply.
 
 ## Not verified yet
 
-- The spend-limit `window` is taken to be seconds (86400 = one day), like the gateway's other intervals. The check in
-  section 4 must pass before `AI_GATEWAY_ID` is switched.
+- The spend-limit `window` is taken to be seconds (86400 = one day), like the gateway's other intervals. Check it in the
+  dashboard (section 4).
 - Which address Cloud home traffic to `cloud.later.dog` carries, and how many homes share it. R4 leaves the included,
   computer, trial and plan routes out for that reason; R4 and R5 still count whatever else homes send.
 - That the live zone matches the "Applied 2026-10-19" record; no dry run with a token has read it back yet.

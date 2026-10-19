@@ -47,7 +47,7 @@
     "TRIAL_IDLE_SLEEP_MINUTES": "5",
     "TRIAL_COUNTRIES": "",
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFToUIA2DvjWJrmf",
-    "AI_GATEWAY_ID": "default",
+    "AI_GATEWAY_ID": "laterdog",
     "TRIAL_AI_WORKERS_MODEL": "@cf/moonshotai/kimi-k2.6",
     "TRIAL_AI_FIRST": "workers-ai",
     "ANTHROPIC_FIRST": "0",
