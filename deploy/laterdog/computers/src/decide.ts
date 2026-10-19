@@ -23,7 +23,7 @@ export const SCREEN_CHECKS_TOTAL_PER_DAY = 100_000;
 export const TOOL_DECISIONS_PER_DAY = 200;
 export const TOOL_DECISIONS_TOTAL_PER_DAY = 20_000;
 
-export type UsageKind = "decisions" | "voice_chars" | "ai_tokens" | "transcribe_seconds" | "completions" | "screen_checks" | "tool_decisions";
+export type UsageKind = "decisions" | "voice_chars" | "ai_tokens" | "grok_tokens" | "transcribe_seconds" | "completions" | "screen_checks" | "tool_decisions";
 
 export const KEY_CHECK_STATE = { purpose: "later.dog is checking that a decision-model key works." };
 export const KEY_CHECK_QUESTION = "Is this a connection check?";

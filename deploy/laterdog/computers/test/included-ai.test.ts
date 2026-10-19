@@ -70,7 +70,9 @@ async function ai(vars: Record<string, string> = GROK_FIRST, grok: "ok" | "down"
   siteverify();
   const key = trialKey("k");
   expect((await startTrial(w, key)).status).toBe(200);
-  const used = async () => (await w.trials.named("trials").usageLeft({ keySha256: await sha256Hex(key), kind: "ai_tokens", perKey: 1_041, total: 10_000_000 })).ok;
+  const keySha256 = await sha256Hex(key);
+  const registry = w.trials.instances.get("trials") as unknown as { ctx: DurableObjectState };
+  const used = async () => (registry.ctx.storage.sql.exec<{ used: number }>("SELECT used FROM usage WHERE key_sha256 = ? AND kind = 'ai_tokens'", keySha256).toArray()[0]?.used ?? 0) < 1_041;
   return { w, key, gateway, gatewayRun, run, used };
 }
 
@@ -87,7 +89,7 @@ describe("the included AI", () => {
     expect(gateway).toHaveBeenCalledWith("default");
     const sent = gatewayRun.mock.calls[0]![0] as { provider: string; endpoint: string; headers: Record<string, unknown>; query: Record<string, unknown> };
     expect(sent).toMatchObject({ provider: "grok", endpoint: "v1/chat/completions", headers: { Authorization: "Bearer xai-test", "cf-aig-collect-log": false } });
-    expect(sent.query).toEqual({ model: AI_DEFAULT_MODEL, stream: false, messages: chat(false).messages, max_tokens: 32_000 });
+    expect(sent.query).toEqual({ model: AI_DEFAULT_MODEL, stream: false, messages: chat(false).messages, max_tokens: 8_000 });
     expect(await used()).toBe(true);
   });
 
@@ -124,7 +126,7 @@ describe("the included AI", () => {
     expect(response.status).toBe(200);
     expect((await body(response)).choices[0].message.content).toBe("Hi");
     expect(gatewayRun).not.toHaveBeenCalled();
-    expect(run).toHaveBeenCalledWith(AI_WORKERS_MODEL, { stream: false, messages: chat(false).messages, tools: [{ type: "function", function: { name: "f" } }], max_tokens: 32_000, chat_template_kwargs: { thinking: false } }, { gateway: { id: "default", collectLog: false } });
+    expect(run).toHaveBeenCalledWith(AI_WORKERS_MODEL, { stream: false, messages: chat(false).messages, tools: [{ type: "function", function: { name: "f" } }], max_tokens: 8_000, chat_template_kwargs: { thinking: false } }, { gateway: { id: "default", collectLog: false } });
     expect(await used()).toBe(true);
   });
 
@@ -167,11 +169,23 @@ describe("the included AI", () => {
     expect(await none.used()).toBe(true);
   });
 
-  it("asks xAI first when the person picked a Grok model", async () => {
+  it("asks xAI first when a home key picked a Grok model", async () => {
     const { w, key, gatewayRun, run } = await ai({ XAI_API_KEY: "xai-test" });
+    await w.trials.named("trials").grantHome({ keySha256: await sha256Hex(key), limitMs: 60_000, windowMs: DAY });
     expect((await w.fetch(apiRequest("POST", "/v1/ai/chat/completions", key, { body: chat(false, { model: "grok-4.3" }) }))).status).toBe(200);
     expect(gatewayRun).toHaveBeenCalledTimes(1);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("answers a free trial's Grok pick with Workers AI, keeping Grok as the fallback only", async () => {
+    const { w, key, gatewayRun, run } = await ai({ XAI_API_KEY: "xai-test" });
+    expect((await w.fetch(apiRequest("POST", "/v1/ai/chat/completions", key, { body: chat(false, { model: "grok-4.3" }) }))).status).toBe(200);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(gatewayRun).not.toHaveBeenCalled();
+    const down = await ai({ XAI_API_KEY: "xai-test" }, "ok", "down");
+    expect((await down.w.fetch(apiRequest("POST", "/v1/ai/chat/completions", down.key, { body: chat(false, { model: "grok-4.3" }) }))).status).toBe(200);
+    expect(down.run).toHaveBeenCalledTimes(1);
+    expect(down.gatewayRun).toHaveBeenCalledTimes(1);
   });
 
   it("moves on when an answer opens with an error, even inside a 200 stream", async () => {

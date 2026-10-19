@@ -10,14 +10,9 @@ chmod 700 "$dir"
 pnpm install --ignore-workspace --frozen-lockfile
 pnpm exec wrangler types >/dev/null
 
-log=$(mktemp)
-trap 'rm -f "$log"' EXIT
-pnpm exec wrangler deploy 2>&1 | tee "$log"
-url=$(grep -Eo 'https://laterdog-computers\.[A-Za-z0-9-]+\.workers\.dev' "$log" | head -1 || true)
-if [ -z "$url" ]; then
-  echo "Could not find the workers.dev URL in the deploy output; is a workers.dev subdomain enabled on this account?" >&2
-  exit 1
-fi
+url="${LATERDOG_COMPUTERS_URL:-https://cloud.later.dog}"
+url="${url%/}"
+pnpm exec wrangler deploy
 
 if [ ! -s "$key_file" ]; then
   (umask 077 && printf 'ldc_%s' "$(openssl rand -hex 32)" > "$key_file")

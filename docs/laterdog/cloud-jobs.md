@@ -125,7 +125,7 @@ maximum. **Everything in this section is an estimate that assumes snapshots cost
 GB-month.** If Cloudflare prices them differently, these numbers change in proportion.
 
 Whether a job leaves a snapshot at all, from the code: the supervisor deletes the computer once it has collected the
-diff, and it only snapshots when a computer sleeps first, which happens after 15 minutes without API activity or 8
+diff, and it only snapshots when a computer sleeps first, which happens after 10 minutes without API activity or 8
 hours awake. A job the supervisor keeps polling does not sleep, so the usual job leaves no snapshot. A job whose
 computer sleeps leaves one that the Worker API cannot delete, and it expires 30 days after it was taken or last restored
 (deleting the computer only forgets the handle).

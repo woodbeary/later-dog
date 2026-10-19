@@ -11,7 +11,7 @@ import { MAX_ACTIVITY_PAGE_BYTES, cloudTaskStep, parseCloudTaskSteps, type Cloud
 export const LATERDOG_CLOUD_CAPABILITIES: BackendCapabilities = {
   id: "laterdog-cloud", label: "later.dog Cloud", enabled: true, submission: true, continuation: false, cancellation: true,
   activity: "polled", billing: "subscription",
-  limitation: "Runs Claude Code only, signed in with the owner's Claude subscription (CLAUDE_CODE_OAUTH_TOKEN, or the token a profile names), with the model and effort the job asks for, on the owner's own later.dog cloud computers on Cloudflare. Each job boots a fresh Linux computer and installs Claude Code and the repository's setup, so its first minutes are setup. Linux only; no Docker inside a computer. Status is polled from files the job writes; a computer that falls asleep (15 minutes without API activity, or 8 hours awake) or errors is reported failed and kept for inspection. Corrections start a new computer. Stopping a running job deletes its computer; its progress log and full trace are kept, its files are not. Progress is read from the job's own computer while it runs, and its screen can be watched live; a finished job keeps its progress log and its full trace (30 days by default) but not its computer. Computers default to the small size unless a job asks for more.",
+  limitation: "Runs Claude Code only, signed in with the owner's Claude subscription (CLAUDE_CODE_OAUTH_TOKEN, or the token a profile names), with the model and effort the job asks for, on the owner's own later.dog cloud computers on Cloudflare. Each job boots a fresh Linux computer and installs Claude Code and the repository's setup, so its first minutes are setup. Linux only; no Docker inside a computer. Status is polled from files the job writes; a computer that falls asleep (10 minutes without API activity, or 8 hours awake) or errors is reported failed and kept for inspection. Corrections start a new computer. Stopping a running job deletes its computer; its progress log and full trace are kept, its files are not. Progress is read from the job's own computer while it runs, and its screen can be watched live; a finished job keeps its progress log and its full trace (30 days by default) but not its computer. Computers default to the small size unless a job asks for more.",
 };
 
 export const COMPUTER_SIZES = JOB_COMPUTER_SIZES;
@@ -281,7 +281,7 @@ class LaterdogComputers {
   }
 }
 
-const SLEEPING = "Its later.dog cloud computer fell asleep (15 minutes without API activity, or 8 hours awake), which stops the job's processes; the files are kept.";
+const SLEEPING = "Its later.dog cloud computer fell asleep (10 minutes without API activity, or 8 hours awake), which stops the job's processes; the files are kept.";
 
 export class LaterdogCloudAdapter implements ExecutionAdapter {
   readonly capabilities = LATERDOG_CLOUD_CAPABILITIES;

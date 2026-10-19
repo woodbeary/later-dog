@@ -61,7 +61,7 @@ export function trialPolicy(env: TrialEnv): TrialPolicy {
     limitMs: Math.round(bounded(env.TRIAL_MINUTES, 30, 5, 600)) * MINUTE,
     windowMs: Math.round(bounded(env.TRIAL_DAYS, 7, 1, 90)) * DAY,
     perDay,
-    perNetwork: Math.floor(bounded(env.TRIALS_PER_NETWORK, 3, 1, 50)),
+    perNetwork: Math.floor(bounded(env.TRIALS_PER_NETWORK, 2, 1, 50)),
     idleSleepMs: Math.round(bounded(env.TRIAL_IDLE_SLEEP_MINUTES, 5, 1, 60)) * MINUTE,
     countries: [...new Set((env.TRIAL_COUNTRIES ?? "").split(",").map((code) => code.trim().toUpperCase()))].filter((code) => /^[A-Z]{2}$/.test(code)),
   };

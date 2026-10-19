@@ -4,15 +4,16 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "assets": { "directory": "../../../third_party/novnc/public" },
-  "observability": { "enabled": true },
-  "workers_dev": true,
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 },
+  "workers_dev": false,
+  "preview_urls": false,
   "routes": [{ "pattern": "cloud.later.dog", "custom_domain": true }],
   "containers": [
     {
       "class_name": "DogComputer",
       "scheduling_policy": "durable_object",
       "images": {
-        "desktop": { "dockerfile": "./container/Dockerfile", "build_context": "./container" }
+        "desktop": { "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-computers-dogcomputer-desktop@sha256:4b84bac6db3e5c4352521c623036fa01415fcb6b0530b34243f7f1d5c4f46ff7" }
       },
       "observability": { "enabled": true }
     }
@@ -36,13 +37,13 @@
     "TrialRegistry": { "type": "durable-object", "storage": "sqlite" }
   },
   "vars": {
-    "IDLE_SLEEP_MINUTES": "15",
+    "IDLE_SLEEP_MINUTES": "10",
     "MAX_AWAKE_HOURS": "8",
     "TRIALS_ENABLED": "true",
     "TRIAL_MINUTES": "30",
     "TRIAL_DAYS": "7",
-    "TRIALS_PER_DAY": "300",
-    "TRIALS_PER_NETWORK": "3",
+    "TRIALS_PER_DAY": "100",
+    "TRIALS_PER_NETWORK": "2",
     "TRIAL_IDLE_SLEEP_MINUTES": "5",
     "TRIAL_COUNTRIES": "",
     "TURNSTILE_SITE_KEY": "0x4AAAAAAFToUIA2DvjWJrmf",

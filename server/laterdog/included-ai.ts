@@ -10,8 +10,9 @@ export const INCLUDED_GROK_DRIVER = "laterdogGrok";
 export const INCLUDED_GROK_INSTANCE = "laterdogGrok";
 export const INCLUDED_AI_INSTANCES: readonly string[] = [INCLUDED_AI_INSTANCE, INCLUDED_GROK_INSTANCE];
 const FALLBACK_URL = "https://cloud.later.dog/v1/ai";
-const KIMI_MODELS = { default: "kimi-k2.6", options: [{ id: "kimi-k2.6", label: "Kimi K2.6", contextWindow: 256_000 }] };
-const GROK_MODELS = { default: "grok-4.3", options: [{ id: "grok-4.3", label: "Grok (free)", contextWindow: 256_000 }] };
+const INCLUDED_CONTEXT_WINDOW = 100_000;
+const KIMI_MODELS = { default: "kimi-k2.6", options: [{ id: "kimi-k2.6", label: "Kimi K2.6", contextWindow: INCLUDED_CONTEXT_WINDOW }] };
+const GROK_MODELS = { default: "grok-4.3", options: [{ id: "grok-4.3", label: "Grok (free)", contextWindow: INCLUDED_CONTEXT_WINDOW }] };
 const ACCOUNTS = "Claude, ChatGPT, Grok or Cursor";
 const onCloudHome = () => process.env.LATERDOG_CLOUD_ROLE === "home";
 const NOT_STARTED = "Start the free trial to use the free models.";
@@ -24,12 +25,13 @@ const DAILY = `You've used today's free messages. They come back tomorrow, or si
 const BUSY = `The free model is busy right now. Try again in a minute, or sign in to ${ACCOUNTS}.`;
 const FULL_TODAY = `The free models are at today's limit for everyone. They're back tomorrow, or sign in to ${ACCOUNTS} to keep going now.`;
 const TOO_LARGE = "That was too much for the free model to take in at once, most likely a large screenshot. Try again, or start a new chat.";
+const CHAT_TOO_LONG = `This chat is now too long for the free model. Start a new chat, or sign in to ${ACCOUNTS} to keep going here.`;
 
 export function includedAiError(status: number, body: string): string | undefined {
   let code = "";
   try { code = String((JSON.parse(body) as { error?: { code?: unknown } }).error?.code ?? ""); } catch { code = ""; }
   if (status === 401) return ended();
-  if (status === 413) return TOO_LARGE;
+  if (status === 413) return code === "prompt_too_large" ? CHAT_TOO_LONG : TOO_LARGE;
   if (status === 429 && code === "daily_limit") return DAILY;
   if (code === "busy_today") return FULL_TODAY;
   if (status === 429 || status === 503 || status === 502) return BUSY;

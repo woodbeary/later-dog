@@ -55,14 +55,16 @@ describe("a free trial's budget", () => {
 });
 
 describe("configuration", () => {
-  it("defaults to 15 idle minutes and 8 awake hours", () => {
-    expect(idlePolicy({})).toEqual(policy);
+  const defaults = { idleSleepMs: 10 * MINUTE, maxAwakeMs: 8 * 60 * MINUTE };
+
+  it("defaults to 10 idle minutes and 8 awake hours", () => {
+    expect(idlePolicy({})).toEqual(defaults);
   });
 
   it("reads the vars and keeps them in bounds", () => {
     expect(idlePolicy({ IDLE_SLEEP_MINUTES: "5", MAX_AWAKE_HOURS: "2" })).toEqual({ idleSleepMs: 5 * MINUTE, maxAwakeMs: 120 * MINUTE });
     expect(idlePolicy({ IDLE_SLEEP_MINUTES: "0", MAX_AWAKE_HOURS: "1000" })).toEqual({ idleSleepMs: MINUTE, maxAwakeMs: 72 * 60 * MINUTE });
-    expect(idlePolicy({ IDLE_SLEEP_MINUTES: "soon", MAX_AWAKE_HOURS: " " })).toEqual(policy);
+    expect(idlePolicy({ IDLE_SLEEP_MINUTES: "soon", MAX_AWAKE_HOURS: " " })).toEqual(defaults);
   });
 
   it("keeps the platform's inactivity timeout beyond the idle policy and within six hours", () => {

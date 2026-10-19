@@ -79,6 +79,7 @@ describe("when later.dog AI can't answer", () => {
     expect(includedAiError(401, "{}")).toBe("Your free trial has ended. Sign in to Claude, ChatGPT, Grok or Cursor to keep going.");
     expect(includedAiError(503, "{}")).toContain("busy right now");
     expect(includedAiError(413, JSON.stringify({ error: { code: "too_large" } }))).toContain("too much for the free model");
+    expect(includedAiError(413, JSON.stringify({ error: { code: "prompt_too_large" } }))).toBe("This chat is now too long for the free model. Start a new chat, or sign in to Claude, ChatGPT, Grok or Cursor to keep going here.");
     expect(includedAiError(400, "{}")).toBeUndefined();
   });
 

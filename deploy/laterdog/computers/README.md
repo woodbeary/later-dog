@@ -7,9 +7,15 @@ nothing but its snapshot. Waking it restores the files.
 
 ## Live deployment
 
-- API: `https://laterdog-computers.<subdomain>.workers.dev/v1`
-- Worker `laterdog-computers`, version `ec1b0c67-ef33-4737-8ee4-4a2a2122cd9a` (deployed 2026-10-08).
-- Image `laterdog-computers-dogcomputer-desktop@sha256:546522aba5ca2fe2ec91662f5d6abda2c18269986d30574aaeb452ed82ed11fa`.
+- API: `https://cloud.later.dog/v1`, the Worker's custom domain. `wrangler.jsonc` turns its `workers.dev` address and
+  preview URLs off (`workers_dev` and `preview_urls` are `false`), so every request passes the zone's rules. The live
+  Worker still had both on when read on 2026-10-19; they go off with the next `wrangler deploy` of this config. Before
+  that deploy, run `scripts/deploy.sh` (or check that `~/.laterdog/computers.json` names `https://cloud.later.dog/v1`),
+  because a file written by an older `deploy.sh` may still name the `workers.dev` address.
+- Worker `laterdog-computers`, version `2c2a5686-59f7-4f6e-88cc-77c83a6e998f` (deployed 2026-10-16).
+- Image `laterdog-computers-dogcomputer-desktop@sha256:4b84bac6db3e5c4352521c623036fa01415fcb6b0530b34243f7f1d5c4f46ff7`,
+  as that version names it (read from the Workers versions API on 2026-10-19). The container application itself showed
+  an empty configuration that day, so a full `wrangler deploy` with the pinned image is needed before computers start.
 - The key is in `~/.laterdog/computers-key` and the base URL in `~/.laterdog/computers.json` (both mode 600).
 - later.dog's server uses these computers instead of Boat as soon as `~/.laterdog/computers.json` exists
   (`server/laterdog/cloud-computers.ts`). Delete that file to go back to Boat.
@@ -64,7 +70,7 @@ person's browser ──/desktop/<id>/<token>/──▶ Worker ──fetch──�
 
 ## API
 
-Base URL `https://laterdog-computers.<your-subdomain>.workers.dev/v1`. Every request needs
+Base URL `https://cloud.later.dog/v1`, or your own deployment's domain. Every request needs
 `Authorization: Bearer ldc_…`, or a free-trial key `ldt_…` (see Free trials). The Worker stores only the key's SHA-256 (secret `COMPUTERS_KEY_SHA256`). It compares
 digests in constant time. The API is for servers: a request with an `Origin` header is refused (403). So a browser can
 never call it, even with a leaked key.
@@ -72,7 +78,7 @@ never call it, even with a leaked key.
 Errors are JSON `{ "error": { "code": "…", "message": "…" } }` with a matching status: 400 `invalid_*`, 401
 `unauthorized`, 403 `browser_origin` / `trial_size`, 404 `not_found` / `file_not_found` / `no_trial`, 405
 `method_not_allowed`, 409 `asleep` / `updating` / `limit_reached` / `is_directory` / `trial_ended` / `trial_used_up`, 413
-`too_large`, 502 `start_failed` / `snapshot_failed` / `pack_failed` / `screenshot_failed` / `container_error`, 503 `not_configured` /
+`too_large` / `prompt_too_large`, 502 `start_failed` / `snapshot_failed` / `pack_failed` / `screenshot_failed` / `container_error`, 503 `not_configured` /
 `trials_off` / `trial_unavailable`.
 
 A computer looks like:
@@ -140,7 +146,7 @@ Other Workers on the same Cloudflare account can call the API through a service 
 "services": [{ "binding": "COMPUTERS", "service": "laterdog-computers", "entrypoint": "ComputersApi" }]
 ```
 
-and calls `env.COMPUTERS.fetch("https://laterdog-computers.<subdomain>.workers.dev/v1/computers", …)`. It serves the
+and calls `env.COMPUTERS.fetch("https://cloud.later.dog/v1/computers", …)`. It serves the
 same `/v1/...` API as the public route and acts as the owner. It skips the bearer key check, and ignores any
 `Authorization` header (a trial key is not a trial there). It still refuses a request with an `Origin` header (403
 `browser_origin`). `/healthz` answers; any other path outside `/v1/` answers 404 `not_found`, so desktop links and the
@@ -150,7 +156,7 @@ entrypoint: wrangler reads `exports` entries for entrypoints only to configure c
 exported `WorkerEntrypoint` class (read in wrangler 4.149's code, not seen in a deploy).
 
 ```sh
-API=https://laterdog-computers.<subdomain>.workers.dev/v1
+API=https://cloud.later.dog/v1
 AUTH="Authorization: Bearer $(cat ~/.laterdog/computers-key)"
 id=$(curl -s -X POST -H "$AUTH" -H 'content-type: application/json' -d '{"name":"Rex"}' "$API/computers" | jq -r .computer.id)
 until [ "$(curl -s -H "$AUTH" "$API/computers/$id" | jq -r .computer.state)" = running ]; do sleep 2; done
@@ -286,7 +292,7 @@ Activity is any API call that uses the computer (exec, files, screenshot, deskto
 viewer. Reading a computer's state with `GET` is not activity. The `DogComputer` alarm checks at least every five minutes:
 
 - An open viewer or a running request keeps the computer awake.
-- Otherwise it sleeps (snapshot, then stop) after `IDLE_SLEEP_MINUTES` (default 15) without activity.
+- Otherwise it sleeps (snapshot, then stop) after `IDLE_SLEEP_MINUTES` (default 10) without activity.
 - Whatever happens, it sleeps after `MAX_AWAKE_HOURS` (default 8) awake, even with a viewer open. This catches a forgotten
   tab.
 - The platform's own inactivity timeout is the idle time plus 45 minutes. It is a backstop in case the alarm cannot run.
@@ -295,6 +301,35 @@ viewer. Reading a computer's state with `GET` is not activity. The `DogComputer`
 There is no cap on how many computers exist; every dog gets its own. Both are `vars` in
 `wrangler.jsonc`. The rules are unit tested in `test/idle.test.ts`. The first two were also seen working live (see
 Measured).
+
+## Included services and their allowances
+
+Trial, home and plan keys (`ldt_…`) may use later.dog's included AI, voice, dictation and decisions. Each has a daily
+allowance per key and one for all keys together, reset at midnight UTC and kept in `TrialRegistry`.
+
+- Chat (`POST /v1/ai/chat/completions`): Kimi K2.6 on Workers AI first, xAI Grok when Kimi does not answer. A free
+  trial key gets 300,000 tokens a day, a home or plan key 1,500,000, and all keys together 100,000,000. Before calling a
+  model the Worker reserves the request's estimate: its JSON size divided by 3 (an inline image counts as 2,000 tokens,
+  not its base64 text) plus `max_tokens`. When the answer's usage arrives it keeps only what was used, or the whole
+  reservation if no usage is reported; when no model answers, it gives the reservation back. Concurrent calls therefore
+  cannot overshoot the allowance.
+- Bodies over 1 MB get 413 `too_large`. Prompts over 100,000 tokens get 413 `prompt_too_large`, measured as the
+  request's JSON size divided by 4 (inline images still 2,000 each): the same bytes-per-token the desktop uses before it
+  compacts a chat at 80% of the free models' 100,000-token window, so a chat compacts well before it reaches the cap. The
+  reservation keeps the stricter divide-by-3. Output is capped at 8,000 tokens.
+- Message content is text or inline images: `image_url` parts whose URL is a base64 `data:` URL of a PNG, JPEG, WebP
+  or GIF, which is all the desktop sends. Image links (`https://…`), audio, files and other part types get 400
+  `invalid_request`, so no model fetches anything the estimate did not count. Every image counts as 2,000 tokens, so
+  more than 50 images in one request get 413 `prompt_too_large`.
+- Asking for a `grok…` model sends a home or plan key to Grok first, from its own allowance of 200,000 Grok tokens a day
+  (20,000,000 for all keys). When that is used up, the request goes to Kimi. A free trial key's Grok pick goes to Kimi;
+  it reaches Grok only when Kimi does not answer. `TRIAL_AI_FIRST` set to `xai` still puts Grok first for everyone.
+  Grok used as Kimi's fallback, or first through `TRIAL_AI_FIRST`, is charged to the chat allowance above, not to the
+  Grok allowance, so the 20,000,000 Grok total covers only Grok picked by name.
+- When the rate limiter (`INCLUDED_LIMIT`, `TRIAL_FORM_LIMIT`) cannot be reached, chat, speech, dictation and trial
+  starts are refused with 429 rather than allowed. Decisions, typing suggestions and the computers API stay open.
+- Requests go through the AI Gateway named by `AI_GATEWAY_ID` (`default`), with logging off. Worker logs and traces
+  keep a 10% sample (`head_sampling_rate`).
 
 ## Free trials
 
@@ -343,7 +378,7 @@ Home and plan keys use the same `ldt_` form and the same metered minutes, but no
 
 Who gets one:
 
-- One trial per network per `TRIAL_DAYS`: per IPv4 address, or per IPv6 /64. The Worker keeps an HMAC-SHA256 of the
+- `TRIALS_PER_NETWORK` (default 2) trials per network per `TRIAL_DAYS`: per IPv4 address, or per IPv6 /64. The Worker keeps an HMAC-SHA256 of the
   network (secret `TRIAL_NETWORK_KEY`), never the address, and forgets it when the window ends.
 - At most `TRIALS_PER_DAY` (default 20) new trials per UTC day for the whole deployment.
 
@@ -352,6 +387,7 @@ Who gets one:
 | `GET /v1/trials`, no key | `{ offered, minutes, days }`. Like the rest of the API, refused with an `Origin` header. |
 | `GET /v1/trial` | `{ trial: { state, minutes, minutesLeft, expiresAt } }`. `state` is `active`, or `used_up` with under a minute left. 401 once the trial has ended, or before it starts. 404 `no_trial` for the owner's key. |
 | `DELETE /v1/trial` | `{ ended: true }`. Deletes the trial's computers and ends it now. Its network stays used until the window ends. |
+| `POST /v1/trials/start`, no key | Body `{ "claim": "<64 hex>", "turnstile": "<token>" }`. Starts a trial for an app that ran the Turnstile check itself, with the same checks as the page: the token must pass siteverify for this hostname, the action `trial` and this claim. 201 with `{ trial, included }`, 200 when that claim already has one, 403 `check_needed` without a token (the app then opens `/trial` instead), 403 `check_failed`, 429 when the network or the day is used up or the rate limiter is down, 502 when siteverify cannot be reached. |
 | `POST /v1/trials/grant`, owner's key | Body `{ "claim": "<64 hex>" }`, the claim from a trial link. Starts that trial without the browser check and without using a network's trial or the day's count, for gifting a trial or testing the whole flow. 201 with `{ trial }`, 200 when that claim already has one, 403 `owner_only` for a trial key. |
 | `POST /v1/complete`, a trial or plan key | Typing suggestions. Body `{ prefix, dog?, messages?: [{ role: "person" \| "dog", text }], phrasing?: string[] }`: the text typed so far, the dog's name, at most 6 recent messages (400 characters each) and at most 3 of the person's own phrases. It answers `{ completion, model }`, where `completion` is the next few words (empty when the model has nothing to add). It runs `TYPING_AI_MODEL` (default `@cf/meta/llama-3.2-3b-instruct`) on Workers AI through the AI Gateway with 20 output tokens and temperature 0.2, logs and stores no text, and counts one `completions` use per call against `COMPLETIONS_PER_DAY` (4,000) per installation. 401 without a live key, 403 with an `Origin`, 413 over 16 KB, 422 for a bad body, 429 over the day's allowance, 502 when the model does not answer, 503 without the `AI` binding. |
 | `GET /trial?claim=` | The page with the check (HTML). |
@@ -411,9 +447,13 @@ separately and are small next to the container.
 
 ## Deploy to your own Cloudflare account
 
-You need a Workers Paid account with Containers, a workers.dev subdomain, `wrangler login`, a running Docker engine,
+You need a Workers Paid account with Containers, a domain on that account, `wrangler login`, a running Docker engine,
 Node 24 and pnpm. The image is built locally for linux/amd64. On Apple silicon that build is emulated and takes several
 minutes the first time.
+
+`wrangler.jsonc` pins `images.desktop` to the image later.dog's deployment runs, by digest in the account's registry,
+so a deploy never rebuilds or drops it. For your own account, or to ship a change under `container/`, set it back to
+`{ "dockerfile": "./container/Dockerfile", "build_context": "./container" }`.
 
 ```sh
 cd deploy/laterdog/computers
@@ -427,7 +467,8 @@ pnpm run setup
 3. creates the API key once, in `~/.laterdog/computers-key` (mode 600), and sets the secret `COMPUTERS_KEY_SHA256` to its
    SHA-256 (the key never leaves the machine);
 4. sets `DESKTOP_SIGNING_KEY` to a random value if the Worker has none;
-5. waits until the Worker accepts the key, then writes `~/.laterdog/computers.json` (mode 600).
+5. waits until the Worker accepts the key at `LATERDOG_COMPUTERS_URL` (default `https://cloud.later.dog`), then writes
+   `~/.laterdog/computers.json` (mode 600).
 
 Secrets go to wrangler on stdin and are never printed. Run it again to redeploy; it keeps the key. On 2026-10-08 it took
 2 minutes 29 seconds with Docker's build cache warm.
@@ -440,7 +481,7 @@ It keeps the image the last deploy prepared. It took 7 seconds.
 Trials stay off until all of this is done. Nothing here prints a secret.
 
 1. In the Cloudflare dashboard, open **Turnstile** and choose **Add widget**. Use the hostname
-   `laterdog-computers.<subdomain>.workers.dev` and the mode **Managed**. Put its site key, which is public, in
+   your Worker's domain and the mode **Managed**. Put its site key, which is public, in
    `TURNSTILE_SITE_KEY` in `wrangler.jsonc`.
 2. Set the two secrets. Paste the widget's secret key when wrangler asks for it:
 
@@ -453,13 +494,13 @@ Trials stay off until all of this is done. Nothing here prints a secret.
 3. To limit countries, set `TRIAL_COUNTRIES` to two-letter codes, such as `"US,CA"`. A request whose country is not
    known is then refused.
 4. Set `TRIALS_ENABLED` to `"true"` and run `pnpm run deploy:worker`.
-5. `curl -s https://laterdog-computers.<subdomain>.workers.dev/v1/trials` should answer `{"offered":true,...}`.
+5. `curl -s https://<your domain>/v1/trials` should answer `{"offered":true,...}`.
 6. To offer trials from your own fork of the app, set `DEFAULT_TRIAL_API` in `server/laterdog/cloud-trial.ts` to your
    service, `https://<your domain>/v1`, change the test that names it, and release. To try it first, start later.dog
    with `LATERDOG_TRIAL_API` set to that address.
 
-`wrangler.jsonc` is later.dog's own deployment: it serves `cloud.later.dog` as a custom domain beside its `workers.dev`
-address, with trials on and later.dog's public Turnstile site key. For your own deployment, point `routes` at a domain
+`wrangler.jsonc` is later.dog's own deployment: it serves `cloud.later.dog` as a custom domain only,
+with trials on and later.dog's public Turnstile site key. For your own deployment, point `routes` at a domain
 on your account (or remove it) and set your own site key.
 
 `TrialRegistry` is declared in `exports` like the other classes. Wrangler 4.149 treats `exports` as the Durable Object

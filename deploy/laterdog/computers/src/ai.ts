@@ -1,13 +1,17 @@
 import type { Refusal } from "./auth";
 
-export const AI_MAX_BODY_BYTES = 16 * 1024 * 1024;
+export const AI_MAX_BODY_BYTES = 1024 * 1024;
+export const AI_MAX_PROMPT_TOKENS = 100_000;
 export const AI_TOKENS_PER_DAY = 1_500_000;
+export const AI_TRIAL_TOKENS_PER_DAY = 300_000;
 export const AI_TOKENS_TOTAL_PER_DAY = 100_000_000;
+export const GROK_TOKENS_PER_DAY = 200_000;
+export const GROK_TOKENS_TOTAL_PER_DAY = 20_000_000;
 export const AI_DEFAULT_MODEL = "grok-4-1-fast-reasoning";
 export const AI_WORKERS_MODEL = "@cf/moonshotai/kimi-k2.6";
 export const AI_BUSY = "later.dog AI is busy right now. Try again in a minute.";
 const BUSY_ERROR = { message: AI_BUSY, type: "server_error", code: "upstream_failed" };
-export const AI_MAX_OUTPUT_TOKENS = 32_000;
+export const AI_MAX_OUTPUT_TOKENS = 8_000;
 const MAX_MESSAGES = 1_000;
 const MAX_TOOLS = 256;
 const PASSED = ["messages", "tools", "tool_choice", "parallel_tool_calls", "temperature", "top_p", "response_format", "stop", "seed", "reasoning_effort"] as const;
@@ -18,12 +22,23 @@ const refuse = (message: string): { ok: false; refusal: Refusal } => ({ ok: fals
 
 export type ChatRequest = Record<string, unknown> & { model: string; stream: boolean };
 
+const INLINE_IMAGE_URL = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]*={0,2}$/;
+
+const isInlineImageUrl = (url: unknown): boolean => typeof url === "string" && INLINE_IMAGE_URL.test(url);
+
+const isAllowedPart = (part: unknown): boolean =>
+  isRecord(part) && ((part.type === "text" && typeof part.text === "string") || (part.type === "image_url" && isRecord(part.image_url) && isInlineImageUrl(part.image_url.url)));
+
+const hasAllowedContent = (message: Record<string, unknown>): boolean =>
+  message.content === undefined || message.content === null || typeof message.content === "string" || (Array.isArray(message.content) && message.content.every(isAllowedPart));
+
 export function chatRequest(body: unknown, model: string): { ok: true; request: ChatRequest } | { ok: false; refusal: Refusal } {
   if (!isRecord(body)) return refuse("Send a chat completion request.");
   const messages = body.messages;
   if (!Array.isArray(messages) || messages.length === 0 || messages.length > MAX_MESSAGES || !messages.every(isRecord)) {
     return refuse(`Send 1 to ${MAX_MESSAGES} messages.`);
   }
+  if (!messages.every(hasAllowedContent)) return refuse("Message content can be text and inline PNG, JPEG, WebP or GIF images sent as base64 data URLs.");
   if (body.tools !== undefined && (!Array.isArray(body.tools) || body.tools.length > MAX_TOOLS)) return refuse(`Send at most ${MAX_TOOLS} tools.`);
   const stream = body.stream === true;
   const request: ChatRequest = { model, stream };

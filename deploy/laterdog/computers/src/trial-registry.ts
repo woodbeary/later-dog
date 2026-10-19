@@ -30,6 +30,8 @@ export function planPolicy(env: { PLAN_HOURS?: string; PLAN_GRACE_DAYS?: string 
   };
 }
 
+export type UsageHold = { ok: true; day: string; amount: number };
+
 export type Activation = { ok: true; trial: TrialRecord; replayed: boolean } | { ok: false; refusal: Refusal };
 
 type Row = {
@@ -84,6 +86,29 @@ export class TrialRegistry extends DurableObject<Env> {
   }
 
   allowUsage(input: { keySha256: string; kind: UsageKind; amount: number; perKey: number; total: number }): { ok: true } | { ok: false; refusal: Refusal } {
+    const taken = this.take(input);
+    return taken.ok ? { ok: true } : taken;
+  }
+
+  reserveUsage(input: { keySha256: string; kind: UsageKind; amount: number; perKey: number; perFullKey: number; total: number }): UsageHold | { ok: false; refusal: Refusal } {
+    const full = this.homeGrant(input.keySha256) || this.planPaid(input.keySha256);
+    return this.take({ keySha256: input.keySha256, kind: input.kind, amount: input.amount, perKey: full ? input.perFullKey : input.perKey, total: input.total });
+  }
+
+  settleUsage(input: { keySha256: string; kind: UsageKind; day: string; reserved: number; used: number }): void {
+    const used = Number.isFinite(input.used) && input.used > 0 ? Math.ceil(input.used) : 0;
+    const delta = used - input.reserved;
+    if (delta === 0) return;
+    if (input.day !== utcDay(Date.now())) {
+      if (delta > 0) this.chargeUsage({ keySha256: input.keySha256, kind: input.kind, amount: delta });
+      return;
+    }
+    const sql = this.ctx.storage.sql;
+    sql.exec("UPDATE usage SET used = MAX(0, used + ?) WHERE key_sha256 = ? AND day = ? AND kind = ?", delta, input.keySha256, input.day, input.kind);
+    sql.exec("UPDATE usage_totals SET used = MAX(0, used + ?) WHERE day = ? AND kind = ?", delta, input.day, input.kind);
+  }
+
+  private take(input: { keySha256: string; kind: UsageKind; amount: number; perKey: number; total: number }): UsageHold | { ok: false; refusal: Refusal } {
     const sql = this.ctx.storage.sql;
     const now = Date.now();
     if (sql.exec("SELECT 1 FROM trials WHERE key_sha256 = ? AND expires_at > ?", input.keySha256, now).toArray().length === 0) {
@@ -99,7 +124,7 @@ export class TrialRegistry extends DurableObject<Env> {
     if (all + amount > input.total) return { ok: false, refusal: { status: 503, code: "busy_today", message: "later.dog's included service is at today's limit. Try again tomorrow, or add your own key." } };
     sql.exec("INSERT INTO usage (key_sha256, day, kind, used) VALUES (?, ?, ?, ?) ON CONFLICT (key_sha256, day, kind) DO UPDATE SET used = used + ?", input.keySha256, day, input.kind, amount, amount);
     sql.exec("INSERT INTO usage_totals (day, kind, used) VALUES (?, ?, ?) ON CONFLICT (day, kind) DO UPDATE SET used = used + ?", day, input.kind, amount, amount);
-    return { ok: true };
+    return { ok: true, day, amount };
   }
 
   planPending(input: { keySha256: string; ref: string; linkId: string; orderId: string }): void {
@@ -147,20 +172,6 @@ export class TrialRegistry extends DurableObject<Env> {
 
   markPlan(keySha256: string, status: "canceled" | "ended"): void {
     this.ctx.storage.sql.exec("UPDATE plans SET status = ?, checked_at = ? WHERE key_sha256 = ?", status, Date.now(), keySha256);
-  }
-
-  usageLeft(input: { keySha256: string; kind: UsageKind; perKey: number; total: number }): { ok: true } | { ok: false; refusal: Refusal } {
-    const sql = this.ctx.storage.sql;
-    const now = Date.now();
-    if (sql.exec("SELECT 1 FROM trials WHERE key_sha256 = ? AND expires_at > ?", input.keySha256, now).toArray().length === 0) {
-      return { ok: false, refusal: { status: 401, code: "unauthorized", message: "This free trial has ended or has not started yet." } };
-    }
-    const day = utcDay(now);
-    const mine = sql.exec<{ used: number }>("SELECT used FROM usage WHERE key_sha256 = ? AND day = ? AND kind = ?", input.keySha256, day, input.kind).toArray()[0]?.used ?? 0;
-    if (mine >= input.perKey) return { ok: false, refusal: { status: 429, code: "daily_limit", message: "This installation has used today's allowance. It resets at midnight UTC." } };
-    const all = sql.exec<{ used: number }>("SELECT used FROM usage_totals WHERE day = ? AND kind = ?", day, input.kind).toArray()[0]?.used ?? 0;
-    if (all >= input.total) return { ok: false, refusal: { status: 503, code: "busy_today", message: "later.dog's included service is at today's limit. Try again tomorrow, or add your own key." } };
-    return { ok: true };
   }
 
   chargeUsage(input: { keySha256: string; kind: UsageKind; amount: number }): void {

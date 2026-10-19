@@ -39,7 +39,7 @@ export function bounded(raw: string | undefined, fallback: number, min: number, 
 
 export function idlePolicy(env: { IDLE_SLEEP_MINUTES?: string; MAX_AWAKE_HOURS?: string }): IdlePolicy {
   return {
-    idleSleepMs: bounded(env.IDLE_SLEEP_MINUTES, 15, 1, 240) * MINUTE,
+    idleSleepMs: bounded(env.IDLE_SLEEP_MINUTES, 10, 1, 240) * MINUTE,
     maxAwakeMs: bounded(env.MAX_AWAKE_HOURS, 8, 0.25, 72) * 60 * MINUTE,
   };
 }

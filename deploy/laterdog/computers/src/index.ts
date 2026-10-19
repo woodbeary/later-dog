@@ -3,7 +3,8 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { BROWSER_ORIGIN, type Refusal, bearerToken, refuseApiRequest, sha256Hex } from "./auth";
 import type { DogComputer, Result } from "./computer";
 import { TooLarge, apiError, json, readLimited } from "./http";
-import { AI_DEFAULT_MODEL, AI_MAX_BODY_BYTES, AI_TOKENS_PER_DAY, AI_TOKENS_TOTAL_PER_DAY, AI_WORKERS_MODEL, chatRequest, grokRequest, openAiStream, plainErrors, streamedTokens, tokensOf, usableStream, workersInput, type ChatRequest } from "./ai";
+import { AI_DEFAULT_MODEL, AI_MAX_BODY_BYTES, AI_MAX_PROMPT_TOKENS, AI_WORKERS_MODEL, chatRequest, grokRequest, openAiStream, plainErrors, streamedTokens, tokensOf, usableStream, workersInput, type ChatRequest } from "./ai";
+import { AI_BUDGET, GROK_BUDGET, type Reservation, type TokenBudget, chatEstimate, reserveTokens } from "./usage-reserve";
 import { DECIDE_MAX_IMAGE_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY, SCREEN_CHECKS_PER_DAY, SCREEN_CHECKS_TOTAL_PER_DAY, TOOL_DECISIONS_PER_DAY, TOOL_DECISIONS_TOTAL_PER_DAY, type Decision, type UsageKind, VOICE_CHARS_TOTAL_PER_DAY, clefInput, clefModelId, decisionFrom, toolDecisionFrom } from "./decide";
 import { COMPLETE_DEFAULT_MODEL, COMPLETE_MAX_BODY_BYTES, COMPLETIONS_PER_DAY, COMPLETIONS_TOTAL_PER_DAY, completeInput, completeRequest, completionFrom } from "./complete";
 import { FILE_MAX_BYTES, JSON_MAX_BYTES, parseCreate, parseExec, parseIdempotencyKey, parsePath, parseRename } from "./inputs";
@@ -15,6 +16,7 @@ import {
   TRIAL_CLAIM,
   TRIAL_FORM_MAX_BYTES,
   TRIAL_TOKEN,
+  TURNSTILE_TOKEN_MAX_CHARS,
   type TrialRecord,
   allowedCountry,
   networkDigest,
@@ -68,12 +70,14 @@ const NO_COMPUTER: Refusal = { status: 404, code: "not_found", message: "No comp
 const NO_TRIAL: Refusal = { status: 401, code: "unauthorized", message: "This free trial has ended or has not started yet." };
 const TOO_MANY: Refusal = { status: 429, code: "rate_limited", message: "Too many requests from this network. Wait a minute, then try again." };
 
-async function allowed(limiter: RateLimit | undefined, key: string): Promise<boolean> {
+type LimiterDown = "allow" | "refuse";
+
+async function allowed(limiter: RateLimit | undefined, key: string, whenDown: LimiterDown = "allow"): Promise<boolean> {
   if (!limiter) return true;
   try {
     return (await limiter.limit({ key })).success;
   } catch {
-    return true;
+    return whenDown === "allow";
   }
 }
 
@@ -369,6 +373,8 @@ async function planDonePage(env: Env, url: URL): Promise<Response> {
   return page(202, "Almost there", "Square hasn't confirmed the payment yet. Refresh this page in a moment.");
 }
 
+const CHECK_NEEDED: Refusal = { status: 403, code: "check_needed", message: "Start the free trial from the page later.dog opens, which runs a quick browser check." };
+
 async function startTrialFromApp(request: Request, env: Env): Promise<Response> {
   if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
   const policy = trialPolicy(env);
@@ -376,11 +382,18 @@ async function startTrialFromApp(request: Request, env: Env): Promise<Response> 
   if (!allowedCountry(policy, countryOf(request))) return apiError({ status: 403, code: "trials_not_here", message: "Free trials are not offered in your country yet." });
   const network = networkOf(request.headers.get("cf-connecting-ip") ?? undefined);
   if (!network) return apiError({ status: 400, code: "no_network", message: "Your network could not be identified." });
-  if (!(await allowed(env.TRIAL_FORM_LIMIT, network))) return apiError(TOO_MANY);
+  if (!(await allowed(env.TRIAL_FORM_LIMIT, network, "refuse"))) return apiError(TOO_MANY);
   const body = await readJson(request);
   if (!body.ok) return body.response;
-  const claim = (body.value as { claim?: unknown } | undefined)?.claim;
+  const fields = (body.value ?? {}) as { claim?: unknown; turnstile?: unknown };
+  const claim = fields.claim;
   if (typeof claim !== "string" || !TRIAL_CLAIM.test(claim)) return apiError({ status: 400, code: "invalid_claim", message: "Send { \"claim\": \"<64-character claim>\" }." });
+  const token = fields.turnstile;
+  if (typeof token !== "string" || token.length === 0 || token.length > TURNSTILE_TOKEN_MAX_CHARS) return apiError(CHECK_NEEDED);
+  const ip = request.headers.get("cf-connecting-ip") ?? undefined;
+  const verdict = await verifyTurnstile({ secret: env.TURNSTILE_SECRET_KEY?.trim() ?? "", token, ...(ip === undefined ? {} : { ip }), hostname: new URL(request.url).hostname, cdata: claim });
+  if (verdict === "unavailable") return apiError({ status: 502, code: "check_unavailable", message: "The browser check could not be confirmed. Try again in a minute." });
+  if (verdict === "failed") return apiError({ status: 403, code: "check_failed", message: "The browser check did not pass. Start the free trial from the page later.dog opens." });
   const activation = await trials(env).activate({
     keySha256: claim,
     network: await networkDigest(env.TRIAL_NETWORK_KEY?.trim() ?? "", network),
@@ -452,7 +465,7 @@ async function trialPageRequest(request: Request, env: Env, url: URL): Promise<R
   const ip = request.headers.get("cf-connecting-ip") ?? undefined;
   const network = networkOf(ip);
   if (!network) return page(400, "Your network could not be identified", "Try again from another network.");
-  if (!(await allowed(env.TRIAL_FORM_LIMIT, network))) return page(429, "Too many tries", "Wait a minute, then try again.");
+  if (!(await allowed(env.TRIAL_FORM_LIMIT, network, "refuse"))) return page(429, "Too many tries", "Wait a minute, then try again.");
   const verdict = await verifyTurnstile({
     secret: env.TURNSTILE_SECRET_KEY?.trim() ?? "",
     token: form.token,
@@ -629,7 +642,7 @@ async function speakRequest(request: Request, env: Env, url: URL, voiceId: strin
   const token = includedKey(request);
   if (!token) return apiError(NO_TRIAL, CHALLENGE);
   const keySha256 = await sha256Hex(token);
-  if (!(await allowed(env.INCLUDED_LIMIT, keySha256))) return apiError(TOO_MANY);
+  if (!(await allowed(env.INCLUDED_LIMIT, keySha256, "refuse"))) return apiError(TOO_MANY);
   const body = await readBody(request, 32 * 1024);
   if (!body.ok) return body.response;
   const parsed = speechRequest(voiceId, url.searchParams, body.value);
@@ -662,7 +675,7 @@ async function transcribeRequest(request: Request, env: Env): Promise<Response> 
   const token = includedKey(request);
   if (!token) return apiError(NO_TRIAL, CHALLENGE);
   const keySha256 = await sha256Hex(token);
-  if (!(await allowed(env.INCLUDED_LIMIT, keySha256))) return apiError(TOO_MANY);
+  if (!(await allowed(env.INCLUDED_LIMIT, keySha256, "refuse"))) return apiError(TOO_MANY);
   const form = await readForm(request, TRANSCRIBE_MAX_BYTES + 64 * 1024);
   if (!form.ok) return form.response;
   const parsed = await transcriptionRequest(form.value);
@@ -724,40 +737,59 @@ async function workersAnswer(env: Env, request: ChatRequest): Promise<ChatAnswer
   return null;
 }
 
+const PROMPT_TOO_LARGE: Refusal = { status: 413, code: "prompt_too_large", message: `The free model takes prompts of up to about ${AI_MAX_PROMPT_TOKENS / 1000}k tokens. Start a new chat or send less.` };
+
+type ChatAttempt = { provider: "grok" | "workers"; budget: TokenBudget; answer: () => Promise<ChatAnswer | null> };
+
+function chatAttempts(env: Env, request: ChatRequest, asked: string): ChatAttempt[] {
+  const workers: ChatAttempt = { provider: "workers", budget: AI_BUDGET, answer: () => workersAnswer(env, request) };
+  const key = env.XAI_API_KEY?.trim();
+  if (!key) return [workers];
+  const grok = (budget: TokenBudget): ChatAttempt => ({ provider: "grok", budget, answer: () => grokAnswer(env, request, key) });
+  if (asked.startsWith("grok")) return [grok(GROK_BUDGET), workers, grok(AI_BUDGET)];
+  if (!asked.startsWith("kimi") && env.TRIAL_AI_FIRST?.trim() === "xai") return [grok(AI_BUDGET), workers];
+  return [workers, grok(AI_BUDGET)];
+}
+
+function deliverChat(result: ChatAnswer, reservation: Reservation, waitUntil: (work: Promise<unknown>) => void): Promise<Response> | Response {
+  if ("answer" in result) return reservation.settle(tokensOf(result.answer.usage)).then(() => json(result.answer));
+  const [toClient, toCount] = result.stream.tee();
+  waitUntil(streamedTokens(toCount).then((tokens) => reservation.settle(tokens)).catch((error) => console.error(`laterdog computers: counting chat tokens failed: ${String(error)}`)));
+  return new Response(toClient, { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
+}
+
 async function chatRequestHandler(request: Request, env: Env, waitUntil: (work: Promise<unknown>) => void): Promise<Response> {
   if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
   const token = includedKey(request);
   if (!token) return apiError(NO_TRIAL, CHALLENGE);
   const keySha256 = await sha256Hex(token);
-  if (!(await allowed(env.INCLUDED_LIMIT, keySha256))) return apiError(TOO_MANY);
+  if (!(await allowed(env.INCLUDED_LIMIT, keySha256, "refuse"))) return apiError(TOO_MANY);
   if (!env.AI) return apiError(NOT_INCLUDED);
   const body = await readBody(request, AI_MAX_BODY_BYTES);
   if (!body.ok) return body.response;
   const parsed = chatRequest(body.value, env.TRIAL_AI_MODEL?.trim() || AI_DEFAULT_MODEL);
   if (!parsed.ok) return apiError(parsed.refusal);
+  const estimate = chatEstimate(parsed.request);
+  if (estimate.prompt > AI_MAX_PROMPT_TOKENS) return apiError(PROMPT_TOO_LARGE);
   const registry = trials(env);
-  const left = await registry.usageLeft({ keySha256, kind: "ai_tokens", perKey: AI_TOKENS_PER_DAY, total: AI_TOKENS_TOTAL_PER_DAY });
-  if (!left.ok) return apiError(left.refusal, left.refusal.status === 401 ? CHALLENGE : {});
-  const charge = (amount: number) => registry.chargeUsage({ keySha256, kind: "ai_tokens", amount });
-  const key = env.XAI_API_KEY?.trim();
-  const workers = () => workersAnswer(env, parsed.request);
-  const grok = key ? () => grokAnswer(env, parsed.request, key) : null;
   const asked = body.value && typeof body.value === "object" ? String((body.value as { model?: unknown }).model ?? "") : "";
-  const grokFirst = asked.startsWith("grok") || (!asked.startsWith("kimi") && env.TRIAL_AI_FIRST?.trim() === "xai");
-  const order = !grok ? [workers] : grokFirst ? [grok, workers] : [workers, grok];
-  let result: ChatAnswer | null = null;
-  for (const answer of order) {
-    result = await answer();
-    if (result) break;
+  const tried = new Set<ChatAttempt["provider"]>();
+  let refusal: Refusal | null = null;
+  for (const attempt of chatAttempts(env, parsed.request, asked)) {
+    if (tried.has(attempt.provider)) continue;
+    const held = await reserveTokens(registry, keySha256, attempt.budget, estimate.reserve);
+    if (!held.ok) {
+      if (held.refusal.status === 401) return apiError(held.refusal, CHALLENGE);
+      if (attempt.budget === AI_BUDGET || !refusal) refusal = held.refusal;
+      continue;
+    }
+    tried.add(attempt.provider);
+    const result = await attempt.answer();
+    if (result) return await deliverChat(result, held.reservation, waitUntil);
+    await held.reservation.refund();
   }
-  if (!result) return apiError({ status: 502, code: "upstream_failed", message: "The model did not answer. Try again." });
-  if ("answer" in result) {
-    await charge(tokensOf(result.answer.usage));
-    return json(result.answer);
-  }
-  const [toClient, toCount] = result.stream.tee();
-  waitUntil(streamedTokens(toCount).then((tokens) => charge(tokens)).catch((error) => console.error(`laterdog computers: counting chat tokens failed: ${String(error)}`)));
-  return new Response(toClient, { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
+  if (tried.size === 0 && refusal) return apiError(refusal);
+  return apiError({ status: 502, code: "upstream_failed", message: "The model did not answer. Try again." });
 }
 
 async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContext): Promise<Response> {
