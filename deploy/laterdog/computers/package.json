@@ -8,6 +8,7 @@
     "types": "wrangler types",
     "check": "wrangler types && tsc --noEmit",
     "test": "vitest run",
+    "eval:haiku": "HAIKU_PARITY=1 vitest run test/haiku-parity.eval.test.ts",
     "dry-run": "wrangler deploy --dry-run",
     "setup": "bash scripts/deploy.sh",
     "deploy": "wrangler deploy",

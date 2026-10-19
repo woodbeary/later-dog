@@ -67,3 +67,16 @@ export async function reserveTokens(
     },
   };
 }
+
+export function jointReservation(main: Reservation, ...others: Reservation[]): Reservation {
+  const all = [main, ...others];
+  return {
+    tier: main.tier,
+    settle: async (used) => {
+      await Promise.all(all.map((reservation) => reservation.settle(used)));
+    },
+    refund: async () => {
+      await Promise.all(all.map((reservation) => reservation.refund()));
+    },
+  };
+}

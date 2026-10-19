@@ -50,6 +50,8 @@
     "AI_GATEWAY_ID": "default",
     "TRIAL_AI_WORKERS_MODEL": "@cf/moonshotai/kimi-k2.6",
     "TRIAL_AI_FIRST": "workers-ai",
+    "ANTHROPIC_FIRST": "0",
+    "ANTHROPIC_TOKENS_PER_DAY": "40000000",
     "TYPING_AI_MODEL": "@cf/meta/llama-3.2-3b-instruct",
     "ELEVENLABS_MODE": "off",
     "ELEVENLABS_CHARS_PER_DAY": "0",

@@ -4,7 +4,7 @@ import { BROWSER_ORIGIN, type Refusal, bearerToken, refuseApiRequest, sha256Hex 
 import type { DogComputer, Result } from "./computer";
 import { TooLarge, apiError, json, readLimited } from "./http";
 import { AI_DEFAULT_MODEL, AI_MAX_BODY_BYTES, AI_MAX_PROMPT_TOKENS, AI_WORKERS_MODEL, chatRequest, grokRequest, openAiStream, plainErrors, streamedTokens, tokensOf, usableStream, workersInput, type ChatRequest } from "./ai";
-import { AI_BUDGET, GROK_BUDGET, type Reservation, type TokenBudget, chatEstimate, reserveTokens } from "./usage-reserve";
+import { AI_BUDGET, GROK_BUDGET, type Reservation, type TokenBudget, chatEstimate, jointReservation, reserveTokens } from "./usage-reserve";
 import { DECIDE_MAX_IMAGE_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY, SCREEN_CHECKS_PER_DAY, SCREEN_CHECKS_TOTAL_PER_DAY, TOOL_DECISIONS_PER_DAY, TOOL_DECISIONS_TOTAL_PER_DAY, type Decision, type UsageKind, VOICE_CHARS_TOTAL_PER_DAY, clefInput, clefModelId, decisionFrom, toolDecisionFrom } from "./decide";
 import { COMPLETE_DEFAULT_MODEL, COMPLETE_MAX_BODY_BYTES, COMPLETIONS_PER_DAY, COMPLETIONS_TOTAL_PER_DAY, completeInput, completeRequest, completionFrom } from "./complete";
 import { FILE_MAX_BYTES, JSON_MAX_BYTES, parseCreate, parseExec, parseIdempotencyKey, parsePath, parseRename } from "./inputs";
@@ -35,6 +35,7 @@ import { messagePage, newNonce } from "./viewer";
 import { AURA_FORMAT, ELEVENLABS_ENGINE, type ElevenLabsVoice, type SpeechRequest, VOICE_CHARS_PER_DAY, VOICE_MODEL, audioBytes, auraSpeaker, elevenLabsRequest, elevenLabsVoice, includedVoices, speechRequest, voiceInput } from "./voice";
 import { TRANSCRIBE_MAX_BYTES, TRANSCRIBE_SECONDS_PER_DAY, TRANSCRIBE_SECONDS_TOTAL_PER_DAY, takesGateway, transcribeInput, transcribeModel, transcriptFrom, transcriptionRequest } from "./transcribe";
 import { type GatewayMetadata, gatewayId, gatewayMetadata, gatewayOptions, withMetadata } from "./gateway";
+import { type MessagesRequest, anthropicBudget, anthropicFirst, anthropicGatewayRequest, anthropicModel, chatCompletion, chatCompletionStream, messagesRequest } from "./anthropic";
 import { type Audio, SpeechCache, type SpeechKey, edgeSpeechStore } from "./speech-cache";
 
 export { DogComputer } from "./computer";
@@ -58,6 +59,8 @@ declare global {
     XAI_API_KEY?: string;
     TRIAL_AI_MODEL?: string;
     TRIAL_AI_WORKERS_MODEL?: string;
+    TRIAL_AI_ANTHROPIC_MODEL?: string;
+    ANTHROPIC_FIRST?: string;
     TYPING_AI_MODEL?: string;
   }
 }
@@ -776,11 +779,34 @@ async function workersAnswer(env: Env, request: ChatRequest, metadata: GatewayMe
   return null;
 }
 
+async function anthropicAnswer(env: Env, body: MessagesRequest, metadata: GatewayMetadata): Promise<ChatAnswer | null> {
+  try {
+    const upstream = await env.AI.gateway(gatewayId(env)).run(withMetadata(anthropicGatewayRequest(body), metadata));
+    if (upstream.ok && upstream.body) {
+      if (body.stream) {
+        const stream = await usableStream(chatCompletionStream(upstream.body));
+        if (stream) return { stream };
+        console.error("laterdog computers: Claude chat stream opened with an error or a refusal");
+        return null;
+      }
+      const answer = chatCompletion(await upstream.json());
+      if (answer) return { answer };
+      console.error("laterdog computers: Claude chat returned nothing usable or refused");
+      return null;
+    }
+    const detail = (await upstream.text().catch(() => "")).slice(0, 500);
+    console.error(`laterdog computers: Claude chat answered ${upstream.status}: ${detail}`);
+  } catch (error) {
+    console.error(`laterdog computers: Claude chat failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return null;
+}
+
 const PROMPT_TOO_LARGE: Refusal = { status: 413, code: "prompt_too_large", message: `The free model takes prompts of up to about ${AI_MAX_PROMPT_TOKENS / 1000}k tokens. Start a new chat or send less.` };
 
-type ChatAttempt = { provider: "grok" | "workers"; budget: TokenBudget; answer: (metadata: GatewayMetadata) => Promise<ChatAnswer | null> };
+type ChatAttempt = { provider: "anthropic" | "grok" | "workers"; budget: TokenBudget; cap?: TokenBudget; answer: (metadata: GatewayMetadata) => Promise<ChatAnswer | null> };
 
-function chatAttempts(env: Env, request: ChatRequest, asked: string): ChatAttempt[] {
+function standingAttempts(env: Env, request: ChatRequest, asked: string): ChatAttempt[] {
   const workers: ChatAttempt = { provider: "workers", budget: AI_BUDGET, answer: (metadata) => workersAnswer(env, request, metadata) };
   const key = env.XAI_API_KEY?.trim();
   if (!key) return [workers];
@@ -788,6 +814,14 @@ function chatAttempts(env: Env, request: ChatRequest, asked: string): ChatAttemp
   if (asked.startsWith("grok")) return [grok(GROK_BUDGET), workers, grok(AI_BUDGET)];
   if (!asked.startsWith("kimi") && env.TRIAL_AI_FIRST?.trim() === "xai") return [grok(AI_BUDGET), workers];
   return [workers, grok(AI_BUDGET)];
+}
+
+function chatAttempts(env: Env, request: ChatRequest, asked: string): ChatAttempt[] {
+  const standing = standingAttempts(env, request, asked);
+  if (!anthropicFirst(env) || asked.startsWith("grok")) return standing;
+  const body = messagesRequest(request, anthropicModel(env));
+  if (!body) return standing;
+  return [{ provider: "anthropic", budget: AI_BUDGET, cap: anthropicBudget(env), answer: (metadata) => anthropicAnswer(env, body, metadata) }, ...standing];
 }
 
 function deliverChat(result: ChatAnswer, reservation: Reservation, waitUntil: (work: Promise<unknown>) => void): Promise<Response> | Response {
@@ -816,16 +850,20 @@ async function chatRequestHandler(request: Request, env: Env, waitUntil: (work: 
   let refusal: Refusal | null = null;
   for (const attempt of chatAttempts(env, parsed.request, asked)) {
     if (tried.has(attempt.provider)) continue;
+    const capped = attempt.cap ? await reserveTokens(registry, keySha256, attempt.cap, estimate.reserve) : null;
+    if (capped && !capped.ok) continue;
     const held = await reserveTokens(registry, keySha256, attempt.budget, estimate.reserve);
     if (!held.ok) {
+      await capped?.reservation.refund();
       if (held.refusal.status === 401) return apiError(held.refusal, CHALLENGE);
       if (attempt.budget === AI_BUDGET || !refusal) refusal = held.refusal;
       continue;
     }
     tried.add(attempt.provider);
+    const reservation = capped ? jointReservation(held.reservation, capped.reservation) : held.reservation;
     const result = await attempt.answer(gatewayMetadata(keySha256, held.reservation.tier));
-    if (result) return await deliverChat(result, held.reservation, waitUntil);
-    await held.reservation.refund();
+    if (result) return await deliverChat(result, reservation, waitUntil);
+    await reservation.refund();
   }
   if (tried.size === 0 && refusal) return apiError(refusal);
   return apiError({ status: 502, code: "upstream_failed", message: "The model did not answer. Try again." });

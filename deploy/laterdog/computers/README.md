@@ -326,6 +326,29 @@ allowance per key and one for all keys together, reset at midnight UTC and kept 
   it reaches Grok only when Kimi does not answer. `TRIAL_AI_FIRST` set to `xai` still puts Grok first for everyone.
   Grok used as Kimi's fallback, or first through `TRIAL_AI_FIRST`, is charged to the chat allowance above, not to the
   Grok allowance, so the 20,000,000 Grok total covers only Grok picked by name.
+- Claude Haiku first (`src/anthropic.ts`), off by default. With `ANTHROPIC_FIRST` set to `1`, chat that did not pick a
+  `grok…` model goes to Claude Haiku 5.5 (`claude-haiku-5-5`, or `TRIAL_AI_ANTHROPIC_MODEL`) first, then the order
+  above (Kimi, then Grok). It goes through the AI Gateway's `anthropic` provider at `v1/messages` with no
+  `x-api-key`, so the gateway adds its stored Anthropic key (BYOK, stored under the `default` alias), and with
+  `cf-aig-no-wholesale: true`, so a missing key is a 400 that falls through to Kimi, never Unified Billing. The Worker turns the OpenAI request into a Messages
+  request and the answer, streamed or not, back into OpenAI chunks with tool calls and one final usage, so the desktop
+  sees the same contract. Thinking is off (an OpenAI client cannot hand thinking blocks back with tool results), the
+  prompt is cached (`cache_control`), and `temperature`, `top_p` and `seed` are dropped because Haiku 5.5 refuses
+  anything but their defaults. `reasoning_effort` becomes `output_config.effort`. Requests it cannot carry faithfully
+  go straight to Kimi without calling Claude: a last assistant turn (prefill), a system message after the first turn,
+  non-function tools, tool names outside `[A-Za-z0-9_-]{1,128}`, unparseable tool arguments, image links, or
+  `response_format` `json_object`. Tool-call ids Claude would refuse (Kimi writes ids like
+  `functions.computer_list:0`) are rewritten the same way on the call and on its result: characters outside
+  `[A-Za-z0-9_-]` become `_` and a short hash of the original id is added, so conversations Kimi started still reach
+  Claude. A streamed tool call Claude gave no input arrives with `{}` as its arguments. A streamed Claude answer
+  that has not started within 20 seconds (`cf-aig-request-timeout`, which counts to the first byte) falls through to
+  Kimi; an answer that is not streamed gets 120 seconds. A Claude error, an
+  empty answer or a refusal before any text falls through to Kimi; a refusal after text ends the stream with
+  `finish_reason` `content_filter`. Tokens count against the same chat allowance, and also against
+  `ANTHROPIC_TOKENS_PER_DAY` (40,000,000 by default), one daily total of Claude tokens for all keys together.
+  When that total is used up, Claude is skipped and Kimi answers; `0` turns Claude off without a flag change. That
+  total and the gateway's per-provider spend limit are what cap the Anthropic bill. `pnpm run eval:haiku` replays recorded chat, tool and computer turns against
+  Kimi and Claude and fails unless Claude matches Kimi on every turn and the run is valid (see Checks).
 - When the rate limiter (`INCLUDED_LIMIT`, `TRIAL_FORM_LIMIT`) cannot be reached, chat, speech, dictation and trial
   starts are refused with 429 rather than allowed. Decisions, typing suggestions and the computers API stay open.
 - Speech (`POST /v1/voice/text-to-speech/:voice`) runs on Aura-2 (`@cf/deepgram/aura-2-en`), 10,000 characters a day
@@ -540,6 +563,18 @@ ones with `wrangler containers images delete <image:tag>`.
   `test/trial-flow.test.ts`, `test/trial-registry.test.ts` and those two also run the Worker's own request handling and Durable Object classes against in-memory stand-ins (`test/fakes.ts`:
   SQLite from `node:sqlite`, a fake container and a clock that fires alarms). The stand-ins are not Cloudflare, so
   passing them says nothing about the live platform.
+- `pnpm run eval:haiku`: the Claude Haiku against Kimi parity eval (`test/haiku-parity.ts`), live and never part of
+  `pnpm test`. Six recorded later.dog turns with the real computer tools: a plain answer, picking `computer_list`,
+  filling `computer_exec`'s arguments, waking a sleeping computer after a list, clicking the green button on a
+  generated screenshot, and answering in words after a tool result. The two turns with tool history carry Kimi-style
+  tool-call ids (`functions.computer_list:0`). Each runs `HAIKU_PARITY_RUNS` times (3) per model;
+  it prints a table, writes JSON to `HAIKU_PARITY_REPORT` when set, and fails when Claude passes fewer runs than Kimi on
+  any turn. It also fails, as "eval invalid" rather than a parity result, when either model gave no answer on any run,
+  either passed none of its runs, or Kimi passed fewer than half of its runs. The turns are hand-built, use a short
+  stand-in system prompt rather than the dog's full one, and use the non-streamed path only. It needs `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (Workers AI and AI Gateway run access) and
+  `AI_GATEWAY_ID` (default `default`) with the Anthropic key stored on that gateway. Kimi is called on the Workers AI
+  REST API, Claude on the gateway's Anthropic endpoint, both with the same request translation the Worker uses.
+  `test/haiku-parity.test.ts` checks the eval itself against a fake upstream.
 - `pnpm run check`: `wrangler types` and `tsc --noEmit`.
 - `pnpm exec oxlint --deny-warnings deploy/laterdog/computers`, from the repository root.
 - `pnpm run dry-run`: `wrangler deploy --dry-run`. This builds the image too.
@@ -576,6 +611,11 @@ Also not seen live yet, added after the last deploy and only unit tested against
   own logs (Workers Logs, container observability, the runtime) never record exec options.
 - The `xlarge` size (`standard-4`). Whether this account's Containers limits allow it was not checked.
 - The `ComputersApi` entrypoint and a service binding to it.
+
+Claude Haiku first has not run live: no Anthropic key is stored on the gateway yet and `ANTHROPIC_FIRST` is `0`. Only
+the fake-upstream tests cover it. Not verified: that the binding's universal `run()` picks up the gateway's stored
+Anthropic key and honours `cf-aig-no-wholesale`, the exact tool-call id format Kimi K2.6 on Workers AI writes, the real Messages stream against the translation, cache hits on real traffic, and whether Haiku matches
+Kimi on tool and computer turns (`pnpm run eval:haiku` has not been run).
 
 Free trials have not been deployed or seen live. Not verified: the Turnstile widget and siteverify with real keys
 (Cloudflare's test keys cannot pass the hostname, action and claim checks), `cf-connecting-ip` and the country on real

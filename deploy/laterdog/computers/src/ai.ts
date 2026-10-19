@@ -10,7 +10,7 @@ export const GROK_TOKENS_TOTAL_PER_DAY = 20_000_000;
 export const AI_DEFAULT_MODEL = "grok-4-1-fast-reasoning";
 export const AI_WORKERS_MODEL = "@cf/moonshotai/kimi-k2.6";
 export const AI_BUSY = "later.dog AI is busy right now. Try again in a minute.";
-const BUSY_ERROR = { message: AI_BUSY, type: "server_error", code: "upstream_failed" };
+export const AI_BUSY_ERROR = { message: AI_BUSY, type: "server_error", code: "upstream_failed" };
 export const AI_MAX_OUTPUT_TOKENS = 8_000;
 const MAX_MESSAGES = 1_000;
 const MAX_TOOLS = 256;
@@ -121,7 +121,7 @@ export function openAiStream(stream: ReadableStream<Uint8Array>): ReadableStream
     if (!isRecord(chunk)) return;
     if (!Array.isArray(chunk.choices)) {
       if (isRecord(chunk.usage)) usage = chunk.usage;
-      else send(controller, chunk.error !== undefined ? { error: BUSY_ERROR } : chunk);
+      else send(controller, chunk.error !== undefined ? { error: AI_BUSY_ERROR } : chunk);
       return;
     }
     if (isRecord(chunk.usage)) {
@@ -160,7 +160,7 @@ export function plainErrors(stream: ReadableStream<Uint8Array>): ReadableStream<
     if (!data.startsWith("{")) return text;
     try {
       const chunk: unknown = JSON.parse(data);
-      return isRecord(chunk) && chunk.error !== undefined ? `data: ${JSON.stringify({ error: BUSY_ERROR })}` : text;
+      return isRecord(chunk) && chunk.error !== undefined ? `data: ${JSON.stringify({ error: AI_BUSY_ERROR })}` : text;
     } catch {
       return text;
     }
