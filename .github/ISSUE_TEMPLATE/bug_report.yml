@@ -36,7 +36,7 @@ body:
     attributes:
       label: Version and install
       description: App version (About / release tag) and whether you run the .dmg or from source
-      placeholder: later.dog 0.3.41 · macOS 15.5
+      placeholder: later.dog 0.3.42 · macOS 15.5
     validations:
       required: true
   - type: textarea

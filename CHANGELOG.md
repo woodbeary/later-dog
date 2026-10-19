@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.42 — 2026-10-19
+
+- **One conversation per dog.** Threads are gone: routine runs, group work and what other dogs hand back all land in that dog's chat.
+- **Use the AI you already have.** Add Claude, ChatGPT, Grok or Cursor from one place, on your Mac and in My Cloud, or start with the free AI.
+- **Every dog has its own computer.** Watch it work, take control, reset it or update it.
+- **A sidebar you can find things in.** Pinned dogs up top, sections with counts, Hide, Read and Unread, search and keyboard shortcuts.
+- **One main dog** instead of Chief of Staff, and no teams or templates gallery.
+- **Sign in and go.** No setup checklist.
+- **Updates install when you say so**, and later.dog tells you whether it worked.
+- **Approval cards show the exact command**, and a No stays a No.
+- **Your Mac: Never, Ask or Always allow**, chosen per computer. Auto-review does what it says.
+- **Messages you send while offline are kept** and go out by themselves.
+- **Reactions on the desktop**, same as the phone, and one voice button that is always there (Esc cancels).
+- **Routines run in your Mac's time zone**, show their last run, and have Run now.
+- **Errors show where they happened**, each with its own Try again, and links to dogs, chats and settings open the right place.
+- **Hidden dogs keep working**, and a damaged dogs file is kept instead of replaced.
+- **Faster start:** your last sidebar and chat appear right away while My Cloud answers.
+
 ## 0.3.41 — 2026-10-15
 
 - **Your dogs in My Cloud don't stop to ask.** Pushes, pull requests, commits to main and work your coordinator passes on go through without a card. Only force-pushing main, deleting a repository and deleting outside a dog's folder are refused, in one line.
