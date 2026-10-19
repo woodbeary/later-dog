@@ -1,0 +1,116 @@
+name: Cloud home delta image
+on:
+  workflow_dispatch:
+    inputs:
+      base_sha:
+        description: Commit whose Cloud home image is already in Cloudflare's registry
+        type: string
+        default: 38ca13c53e9c181e386e5fa2f28d0185ce86379f
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: cloud-home-delta-image
+  cancel-in-progress: false
+jobs:
+  delta:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      FULL: laterdog-home-full:${{ github.sha }}
+      BASE: ghcr.io/${{ github.repository_owner }}/later-dog-home:${{ inputs.base_sha }}
+      DELTA: ghcr.io/${{ github.repository_owner }}/later-dog-home:${{ github.sha }}-on-${{ inputs.base_sha }}
+      HOME_HOST: h000000000000000000000000-home.later.dog
+    steps:
+      - name: Make room for three images and two exported file trees
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Build the full Cloud home image
+        run: |
+          docker build --target cloud-home -t laterdog-cloud-home:latest .
+          docker build -f deploy/laterdog/home/Dockerfile -t "$FULL" .
+      - name: Pull the image Cloudflare already has
+        run: docker pull "$BASE"
+      - name: Both images start the same way
+        run: |
+          shape() { docker inspect --format '{{json .Config.Env}} {{json .Config.Entrypoint}} {{json .Config.Cmd}} {{json .Config.WorkingDir}} {{json .Config.User}} {{json .Config.ExposedPorts}} {{json .Config.StopSignal}} {{json .Config.Healthcheck}}' "$1"; }
+          shape "$BASE" > base-shape.txt
+          shape "$FULL" > full-shape.txt
+          diff base-shape.txt full-shape.txt
+      - name: Find every file that changed
+        working-directory: ${{ runner.temp }}
+        run: |
+          export_tree() { mkdir -p "$2"; id=$(docker create "$1"); docker export "$id" | sudo tar -C "$2" --numeric-owner -xpf -; docker rm "$id" >/dev/null; }
+          export_tree "$BASE" base-fs
+          export_tree "$FULL" full-fs
+          sudo rsync -rlpgoD --checksum --numeric-ids --delete --dry-run --exclude=/proc --exclude=/sys --exclude=/dev --exclude=/.dockerenv --exclude=/etc/hosts --exclude=/etc/hostname --exclude=/etc/resolv.conf --out-format='%i|%n' full-fs/ base-fs/ > changes.txt
+          grep -v '^\*deleting|' changes.txt | cut -d'|' -f2- | sed 's#/$##' | grep -v '^\.\?$' > changed.txt || true
+          grep '^\*deleting|' changes.txt | cut -d'|' -f2- | sed 's#/$##' > deleted.txt || true
+          mkdir -p ctx
+          sudo tar -C full-fs --numeric-owner --no-recursion -cpf ctx/delta.tar -T changed.txt
+          sudo chown "$(id -u)" ctx/delta.tar
+          cp deleted.txt ctx/deleted.txt
+          echo "changed $(wc -l < changed.txt), deleted $(wc -l < deleted.txt), layer $(du -h ctx/delta.tar | cut -f1) before compression"
+      - name: Build the delta image on top of it
+        working-directory: ${{ runner.temp }}
+        run: |
+          {
+            echo "FROM $BASE"
+            echo "ADD delta.tar /"
+            if [ -s deleted.txt ]; then echo 'RUN --mount=type=bind,source=deleted.txt,target=/tmp/deleted.txt xargs -d "\n" -a /tmp/deleted.txt rm -rf --'; fi
+          } > ctx/Dockerfile
+          cat ctx/Dockerfile
+          DOCKER_BUILDKIT=1 docker build -t "$DELTA" ctx
+      - name: The delta image has exactly the full image's files
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir -p delta-fs
+          id=$(docker create "$DELTA"); docker export "$id" | sudo tar -C delta-fs --numeric-owner -xpf -; docker rm "$id" >/dev/null
+          sudo rsync -rlpgoD --checksum --numeric-ids --delete --dry-run --exclude=/proc --exclude=/sys --exclude=/dev --exclude=/.dockerenv --exclude=/etc/hosts --exclude=/etc/hostname --exclude=/etc/resolv.conf --out-format='%i|%n' full-fs/ delta-fs/ > leftover.txt
+          if [ -s leftover.txt ]; then head -50 leftover.txt; exit 1; fi
+          sudo rm -rf base-fs full-fs delta-fs
+      - name: Install what the desktop fixture runs on
+        run: pnpm install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      - name: Boot the delta image and check pairing, sessions, live updates and a desktop's first trip
+        timeout-minutes: 10
+        run: |
+          secret="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("base64url"))')"
+          docker run -d --name home -p 8080:8080 \
+            -e LATERDOG_CLOUD_ROLE=home \
+            -e LATERDOG_CLOUD_MACHINE_ID=h000000000000000000000000 \
+            -e LATERDOG_CLOUD_ADMIN_URL=https://accounts.later.dog \
+            -e LATERDOG_CLOUD_BOOTSTRAP_SECRET="$secret" \
+            -e LATERDOG_PUBLIC_URL="https://$HOME_HOST" \
+            "$DELTA"
+          HOME_BOOTSTRAP_SECRET="$secret" node deploy/laterdog/home/smoke.mjs || { docker logs home; exit 1; }
+          HOME_BOOTSTRAP_SECRET="$secret" timeout 240 node scripts/cloud-home-trip-check.mjs || { docker logs home 2>&1 | tail -200; exit 1; }
+      - name: Stopped dogs leave no processes behind
+        run: |
+          check="$PWD/deploy/laterdog/home/reaping-check.mjs"
+          docker run --rm --entrypoint node -v "$check:/check.mjs:ro" "$DELTA" /check.mjs --expect-leak
+          docker run --rm -v "$check:/check.mjs:ro" "$DELTA" node /check.mjs
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push the delta image
+        run: |
+          docker push "$DELTA"
+          base_layers=$(docker inspect --format '{{len .RootFS.Layers}}' "$BASE")
+          delta_layers=$(docker inspect --format '{{len .RootFS.Layers}}' "$DELTA")
+          {
+            echo "Delta image: \`$DELTA\`"
+            echo "Layers on top of the base: $((delta_layers - base_layers))"
+          } >> "$GITHUB_STEP_SUMMARY"
