@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { soulPatchFor, utf8Bytes } from "@/lib/soul";
 import { useStore, type Bot } from "@/state/store";
+import { dogPanelPane } from "@/state/pane-errors";
 import { useBotEditor } from "./bot-settings/BotEditorContext";
 
 type SoulRead = { soul: string; revision: string; bytes: number; limit: number; file: string; drift: boolean; fileText?: string };
@@ -46,7 +47,7 @@ export function SoulField({ bot, onPatch }: { bot: Bot; onPatch: (patch: { soul?
         body: JSON.stringify({ fileText: info.fileText, expectedRevision: info.revision }),
       });
     } catch (error: unknown) {
-      dispatch({ type: "error", message: error instanceof Error ? error.message : String(error) });
+      dispatch({ type: "reportError", error, pane: dogPanelPane(bot.id) });
     } finally {
       await refresh();
       setResolving(false);

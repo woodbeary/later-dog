@@ -38,6 +38,8 @@ import { botEngine, failedTurnCause } from "@/lib/failed-turn";
 import { CitationSelectionToolbar, SentCitations } from "./CitationUI";
 import { Composer } from "./Composer";
 import { ChatFindBar } from "./ChatFindBar";
+import { PaneErrorLine } from "./PaneErrorLine";
+import { chatPane } from "@/state/pane-errors";
 import { ReplyQuote } from "./ReplyQuote";
 import { MessageActions, messageActionClass } from "./MessageActions";
 import { ReactionPicker } from "./ReactionPicker";
@@ -734,6 +736,7 @@ export function GroupView({ group }: { group: Group }) {
       )}
 
       <div ref={composerDockRef} className="absolute inset-x-0 bottom-0 z-[2]">
+      <PaneErrorLine panes={[chatPane(group.threadId)]} look="tray" />
       <Composer
         key={group.threadId}
         group={group}

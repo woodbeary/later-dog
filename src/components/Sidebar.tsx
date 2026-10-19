@@ -38,6 +38,7 @@ import { peerLine } from "@/lib/peer-message";
 import { BotAvatar } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
 import { cn } from "@/lib/cn";
+import { PaneErrorLine } from "./PaneErrorLine";
 import { useHeldMenuMotion, useMenuMotion } from "./MenuMotion";
 import { UpdatePill } from "./UpdateButton";
 import { lastNonReceipt } from "@/lib/receipts";
@@ -1439,6 +1440,12 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
       </div>
 
       <OrganizationIdentity compact={iconRail} />
+      <PaneErrorLine
+        panes={["sidebar"]}
+        look="icon"
+        quietLine={iconRail}
+        className={iconRail ? "justify-center px-2 pb-2" : "pb-2 pl-4 pr-2"}
+      />
 
       {pinnedBots.length > 0 && (
         <div

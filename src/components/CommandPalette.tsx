@@ -131,7 +131,7 @@ export function CommandPalette() {
       try {
         await landOnSearchHit(entry.hit, state, dispatch);
       } catch (error) {
-        dispatch({ type: "error", message: error instanceof Error ? error.message : String(error) });
+        dispatch({ type: "reportError", error });
       }
     } else if (entry.kind === "app") {
       dispatch({ type: "togglePlugins", open: true, surface: "apps" });

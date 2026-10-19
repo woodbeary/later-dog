@@ -21,6 +21,8 @@ import { ComputerTab } from "./bot-settings/ComputerTab";
 import { DogShareButton } from "./bot-settings/DogShare";
 import { ProfileAvatar } from "./bot-settings/ProfileAvatar";
 import { RoutinesCard } from "./bot-settings/RoutinesCard";
+import { PaneErrorLine } from "./PaneErrorLine";
+import { dogPanelPane } from "@/state/pane-errors";
 import { TEACH_TRICK_LINE } from "../../shared/learn-request";
 import { BOT_SECTIONS, tabForSection } from "./bot-settings/sections";
 import { SkillReviewDialog, useManagedSkills } from "./bot-settings/SkillsSection";
@@ -141,6 +143,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
         )}
       >
         <div className={cn("flex shrink-0 items-center justify-end gap-1 px-4 py-3", padClass)}>
+          <PaneErrorLine panes={[dogPanelPane(bot.id), "dogPanel"]} className="mr-2 flex-1" />
           <span id="bot-settings-title" className="sr-only">
             {bot.name}
           </span>

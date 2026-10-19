@@ -43,7 +43,7 @@ describe("reacting to a message from the Mac", () => {
     const { dispatch, actions, roomReactions } = harness();
     await expect(reactToMessage(dispatch, "room-thread", reply, "🎉")).resolves.toBe(false);
     expect(roomReactions()).toBeUndefined();
-    expect(actions.at(-1)).toEqual({ type: "error", message: t("chat.reaction.failed") });
+    expect(actions.at(-1)).toEqual({ type: "reportError", error: null, pane: "chat:room-thread", line: t("chat.reaction.failed") });
   });
 
   it("puts back the reactions the message had when the server refuses", async () => {

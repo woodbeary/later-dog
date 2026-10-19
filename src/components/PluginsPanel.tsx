@@ -16,6 +16,7 @@ import { ComposioKeyNotice } from "./ApiKeys";
 import { BotAvatar } from "./Avatar";
 import { McpConnectorCards } from "./McpConnectorCards";
 import { McpServersPanel } from "./McpServersPanel";
+import { PaneErrorLine } from "./PaneErrorLine";
 import { SponsoredApps } from "./SponsoredApps";
 import { useMenuMotion } from "./MenuMotion";
 
@@ -819,6 +820,7 @@ export function PluginsPanel() {
             </div>
           )}
           {error && <div role="alert" className="mb-2 mt-1 rounded-lg bg-danger/10 px-3 py-2 text-[12px] text-danger">{typeof error === "string" ? error : t(error.key)}</div>}
+          <PaneErrorLine panes={["plugins"]} className="mb-2 mt-1" />
           {grouped && <SponsoredApps />}
 
           {filter !== "mcp" && (

@@ -52,7 +52,7 @@ export function SignOutDialog({ targets, onClose, returnFocusRef }: {
     const failed = await signOutAll(targets);
     setPending(false);
     onClose();
-    if (failed.length) dispatch({ type: "error", message: failed.join(" ") });
+    if (failed.length) dispatch({ type: "reportError", error: null, pane: "sidebar", line: failed.join(" ") });
   };
   return (
     <ConfirmDialog

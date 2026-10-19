@@ -164,7 +164,7 @@ describe("the new dog dialog", () => {
     (lastNewBot().onCreated as (bot: Bot) => void)(bot);
     await flush();
     expect(fixture.dispatch).toHaveBeenCalledWith({ type: "toggleNewBot", open: false });
-    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "error", message: "Caller failed" });
+    expect(fixture.dispatch).toHaveBeenCalledWith({ type: "reportError", error: new Error("Caller failed"), pane: "sidebar" });
   });
 
   it("closes through the caller's onClose when it has one", () => {

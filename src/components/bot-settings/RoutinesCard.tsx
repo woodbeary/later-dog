@@ -10,6 +10,7 @@ import type { Routine } from "@/lib/routines";
 import { scheduleLabel } from "@/lib/schedule-label";
 import { useStore, type Bot } from "@/state/store";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { PaneErrorLine } from "../PaneErrorLine";
 import { Switch } from "../SettingsPrimitives";
 
 const cardCls = "rounded-xl bg-card";
@@ -75,10 +76,9 @@ export function RoutinesCard({ bot }: { bot: Bot }) {
   return (
     <>
       <div className={cardCls} data-simple-routines>
+        <PaneErrorLine panes={["routines"]} className={cn(rowCls, routines.length > 0 && "border-b border-hairline/40")} />
         {routines.length === 0 ? (
-          state.routinesLoadState === "error" ? (
-            <div role="alert" className={cn(rowCls, "text-[12px] text-danger")}>{t("routines.loadError")}</div>
-          ) : state.routinesLoadState === "loading" ? (
+          state.paneErrors.routines ? null : state.routinesLoadState !== "ready" ? (
             <div role="status" className={cn(rowCls, "text-[13px] text-ink-secondary")}>{t("routines.loading")}</div>
           ) : (
             <div className={cn(rowCls, "text-[13px] leading-relaxed text-ink-secondary")}>

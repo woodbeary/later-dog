@@ -261,6 +261,7 @@ describe("bot patch queue", () => {
     expect(authoritative).toHaveBeenCalledWith(serverBot, {});
     expect(onError).toHaveBeenCalledWith(
       expect.objectContaining({ message: "name must be at most 100 characters" }),
+      "bot-1",
     );
   });
 

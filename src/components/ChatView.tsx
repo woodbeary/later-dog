@@ -94,6 +94,8 @@ import { LiveCallBar } from "./LiveCallBar";
 import { LiveCallChip } from "./LiveCallPill";
 import { effectivePlace, toolPlace, type EffectivePlace } from "@/lib/place";
 import { cn } from "@/lib/cn";
+import { chatPane } from "@/state/pane-errors";
+import { PaneErrorLine } from "./PaneErrorLine";
 import { activeLocale, t } from "@/lib/i18n";
 import { groupTranscript, isStatusActivity, planTranscript, type TranscriptPlan } from "@/lib/activity-runs";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
@@ -1018,14 +1020,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       </div>}
       {findOpen && <ChatFindBar threadId={bot.threadId} onClose={() => setFindOpen(false)} />}
 
-      {state.error && (
-        <div className="w-full px-5">
-          <div className="mb-2 rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-[13px] text-danger">
-            {state.error}
-          </div>
-        </div>
-      )}
-
       </GlassBar>
 
       <div
@@ -1164,6 +1158,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       <div ref={composerDockRef} className="pointer-events-none absolute inset-x-0 bottom-0 z-[2]">
       <LiveCallBar bot={bot} />
       {!takeoverOpen && <NeedsYouRow botId={bot.id} name={bot.name} />}
+      <PaneErrorLine panes={[chatPane(bot.threadId)]} look="tray" />
       {canWrite === false ? (
         <p className="pointer-events-auto mx-5 mb-4 rounded-2xl border border-hairline/60 bg-raised px-4 py-3 text-[13px] text-ink-secondary" data-testid="cloud-guest-composer">{t("chat.cloudGuest.notYours")}</p>
       ) : (

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { ModelPicker } from "./ModelPicker";
 import { ArrowUp, BookOpen, Loader2, Mic, Square, Users, X } from "lucide-react";
 import { useStore, visibleMessages, currentTaskBot, type Bot, type Group, type Message } from "@/state/store";
+import { chatPane } from "@/state/pane-errors";
 import { waitingOnPerson } from "@/lib/waiting-on-person";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
@@ -114,6 +115,7 @@ export function Composer({
   const busy = group ? Boolean(group.working || group.busyBotId) : Boolean(bot?.busy);
   const asking = !group && waitingOnPerson(bot);
   const threadId = group?.threadId ?? bot?.threadId ?? "";
+  const errorPane = threadId ? chatPane(threadId) : undefined;
   const approvals = pendingApprovals(group ? group.messages : bot ? visibleMessages(bot) : []);
   const approval = approvals[0];
   const approvalBot = group
@@ -459,7 +461,7 @@ export function Composer({
   const expanded = textWrapped || attachments.length > 0 || Boolean(attachmentNotice) || Boolean(replyTo);
   const retryFailedSend = (failed: FailedComposerSend) => {
     if (failed.requestText.includes("<attached-image ") && !imageTargetsSupport(failed.requestText)) {
-      dispatch({ type: "error", message: t("composer.error.noImages") });
+      dispatch({ type: "reportError", error: null, pane: errorPane, line: t("composer.error.noImages") });
       return;
     }
     forgetFailedComposerSend(draftId, failed.id);
@@ -491,7 +493,7 @@ export function Composer({
       attachments.some((attachment) => attachment.kind === "image") &&
       !imageTargetsSupport(text)
     ) {
-      dispatch({ type: "error", message: t("composer.error.noImages") });
+      dispatch({ type: "reportError", error: null, pane: errorPane, line: t("composer.error.noImages") });
       return;
     }
     const body = composeMessage(text, attachments);
@@ -552,14 +554,11 @@ export function Composer({
     if (imageFiles.length > 0 || clipboardHasImages(e.clipboardData)) {
       e.preventDefault();
       if (!engineSupportsImages) {
-        dispatch({
-          type: "error",
-          message: t("composer.error.noImages"),
-        });
+        dispatch({ type: "reportError", error: null, pane: errorPane, line: t("composer.error.noImages") });
         return;
       }
       if (!imageFiles.length) {
-        dispatch({ type: "error", message: t("composer.error.clipboardImage") });
+        dispatch({ type: "reportError", error: null, pane: errorPane, line: t("composer.error.clipboardImage") });
         return;
       }
       if (imageFiles.length > 0) {
@@ -572,10 +571,7 @@ export function Composer({
             const results = await Promise.allSettled(admitted.files.map(uploadImage));
             for (const result of results) {
               if (result.status === "rejected") {
-                dispatch({
-                  type: "error",
-                  message: result.reason instanceof Error ? result.reason.message : "image upload failed",
-                });
+                dispatch({ type: "reportError", error: result.reason, pane: errorPane });
               }
             }
           } finally {

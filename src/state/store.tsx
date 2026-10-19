@@ -47,7 +47,20 @@ import { speaker } from "@/lib/tts";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import type { OnboardingStatus } from "@/lib/onboarding";
 import { openLiveEvents, publishLiveFrame, publishMissedFrames } from "@/lib/live-events";
-import { plainClientError, statusFallback } from "@/lib/plain-client-error";
+import { statusFallback } from "@/lib/plain-client-error";
+import { t } from "@/lib/i18n";
+import type { LocaleKey } from "@/locales";
+import {
+  afterPaneRefresh,
+  chatPane,
+  createPaneErrorReporter,
+  dogPanelPane,
+  withoutPaneError,
+  withPaneError,
+  type PaneErrorAction,
+  type PaneErrors,
+  type PaneKey,
+} from "./pane-errors";
 import { HOME_WAKE_WORDS, WAKE_LIMIT_MS, WAKE_TOO_LONG, homeWake, retryAfterMs, wakeDelayMs, type HomeWake } from "../../shared/home-wake";
 import type { OutboxItem, OutboxRecovery } from "@/lib/outbox";
 import { createSendOutbox, type SendOutbox } from "./send-outbox";
@@ -718,7 +731,7 @@ export interface AppState {
   connected: boolean;
   hydrated?: boolean;
   restored?: boolean;
-  error: string | null;
+  paneErrors: PaneErrors;
   mascotMotion: {
     botId: string;
     nonce: number;
@@ -834,8 +847,9 @@ export type Action =
   | {
       type: "patchGroup";
       groupId: string;
-      patch: Partial<Pick<Group, "name" | "memberIds" | "defaultResponder" | "pinnedMessageId" | "section" | "unread">>;
+      patch: GroupPatch;
     }
+  | { type: "groupPatchFailed"; groupId: string; patch: GroupPatch; previous: GroupPatch }
   | { type: "deleteGroup"; groupId: string }
   | { type: "interruptGroup"; groupId: string; threadId?: string; onError?: () => void }
   | { type: "instances"; instances: InstanceInfo[] }
@@ -902,7 +916,9 @@ export type Action =
   | { type: "interrupt"; botId: string; threadId?: string; onError?: () => void }
   | { type: "connected"; value: boolean }
   | { type: "firstPaintDropped" }
-  | { type: "error"; message: string | null }
+  | PaneErrorAction
+  | { type: "reportError"; error: unknown; pane?: PaneKey; line?: string }
+  | { type: "retryPane"; pane: PaneKey }
   | { type: "toggleSettings"; open?: boolean; section?: BotSettingsSection; botId?: string }
   | { type: "togglePlugins"; open?: boolean; surface?: "apps" | "mcp" }
   | { type: "toggleNewBot"; open?: boolean }
@@ -1098,6 +1114,46 @@ function showHeldSend(state: AppState, item: OutboxItem): AppState {
 export const CLOUD_LINK_SETTINGS = { type: "toggleAppSettings", open: true, section: "general" } as const satisfies Action;
 export const LENDING_SETTINGS = { type: "toggleAppSettings", open: true, section: "computer" } as const satisfies Action;
 
+const PERIPHERAL_PANES: Partial<Record<"instances" | "config" | "routines" | "helpers", { pane: PaneKey; line: LocaleKey }>> = {
+  instances: { pane: "dogPanel", line: "pane.loadFailed" },
+  config: { pane: "dogPanel", line: "pane.loadFailed" },
+  routines: { pane: "routines", line: "pane.routinesFailed" },
+};
+
+type GroupPatch = Partial<Pick<Group, "name" | "memberIds" | "defaultResponder" | "pinnedMessageId" | "section" | "unread">>;
+
+function groupPatchOf(group: Group, patch: GroupPatch): GroupPatch {
+  return Object.fromEntries((Object.keys(patch) as (keyof GroupPatch)[]).map((key) => [key, group[key]]));
+}
+
+export function revertGroupPatch(group: Group, patch: GroupPatch, previous: GroupPatch): Group {
+  const unchanged = (Object.keys(patch) as (keyof GroupPatch)[]).filter((key) => Object.is(group[key], patch[key]));
+  if (!unchanged.length) return group;
+  return { ...group, ...Object.fromEntries(unchanged.map((key) => [key, previous[key]])) };
+}
+
+function shownOwner(state: Pick<AppState, "bots" | "groups" | "selectedId">): { id: string; threadId?: string } | undefined {
+  return state.groups.find((group) => group.id === state.selectedId)
+    ?? state.bots.find((bot) => bot.id === state.selectedId)
+    ?? state.bots[0];
+}
+
+export function selectedPane(state: Pick<AppState, "bots" | "groups" | "selectedId">): PaneKey {
+  const owner = shownOwner(state);
+  return owner?.threadId ? chatPane(owner.threadId) : "sidebar";
+}
+
+export function dogChangePane(state: Pick<AppState, "bots" | "groups" | "selectedId" | "settingsOpen" | "pluginsOpen">, botId: string): PaneKey {
+  if (state.pluginsOpen) return "plugins";
+  if (state.settingsOpen && shownOwner(state)?.id === botId) return dogPanelPane(botId);
+  return selectedPane(state);
+}
+
+export function shownPaneOr(state: Pick<AppState, "bots" | "groups" | "selectedId">, pane: PaneKey | undefined): PaneKey {
+  const shown = selectedPane(state);
+  return pane === shown ? pane : shown;
+}
+
 export function reducer(state: AppState, action: Action): AppState {
   if (action.type === "messageAdded" || action.type === "messagePatched" || action.type === "threadActive" || action.type === "optimisticMessageRemoved") {
     const owner = state.bots.find((bot) => (bot.threadId !== action.threadId || bot.awaitingThreadSnapshot) && bot.tasks?.some((task) => task.threadId === action.threadId));
@@ -1132,6 +1188,7 @@ export function reducer(state: AppState, action: Action): AppState {
         loadingOlder: {},
         transcriptGeneration: {},
         modelVariantSessions: {},
+        paneErrors: afterPaneRefresh(state.paneErrors, "chat"),
       };
       return reconcileSnapshotQueues(
         action.botQueuedMessages ? replaceBotQueues(hydrated, action.botQueuedMessages) : hydrated,
@@ -1175,7 +1232,13 @@ export function reducer(state: AppState, action: Action): AppState {
     case "botQueues":
       return reconcileSnapshotQueues(replaceBotQueues(state, action.queues), [...state.bots, ...state.groups]);
     case "routinesHydrated":
-      return { ...state, routines: action.routines, routineRuns: trimRoutineRuns(action.runs), routinesLoadState: "ready" };
+      return {
+        ...state,
+        routines: action.routines,
+        routineRuns: trimRoutineRuns(action.runs),
+        routinesLoadState: "ready",
+        paneErrors: afterPaneRefresh(state.paneErrors, "routines"),
+      };
     case "routinesLoadFailed":
       return { ...state, routinesLoadState: "error" };
     case "routinePatched": {
@@ -1222,9 +1285,9 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, groups, selectedId };
     }
     case "instances":
-      return { ...state, instances: action.instances };
+      return { ...state, instances: action.instances, paneErrors: afterPaneRefresh(state.paneErrors, "models") };
     case "configStatus":
-      return { ...state, config: action.config };
+      return { ...state, config: action.config, paneErrors: afterPaneRefresh(state.paneErrors, "models") };
     case "liveCall":
       return { ...state, liveCall: action.call, liveCallVersion: state.liveCallVersion + 1 };
     case "liveCallLookup":
@@ -1563,13 +1626,19 @@ export function reducer(state: AppState, action: Action): AppState {
       return state.hydrated || !state.restored
         ? state
         : { ...state, restored: false, bots: [], groups: [], sections: [], selectedId: "" };
-    case "error":
-      return {
-        ...(action.message && state.selectedId
-          ? withMascotMotion(state, state.selectedId, "alert")
-          : state),
-        error: action.message,
-      };
+    case "paneError": {
+      const next = { ...state, paneErrors: withPaneError(state.paneErrors, action.pane, action.error) };
+      return action.pane.startsWith("chat:") && state.selectedId && action.pane === selectedPane(state)
+        ? withMascotMotion(next, state.selectedId, "alert")
+        : next;
+    }
+    case "paneErrorCleared": {
+      const paneErrors = withoutPaneError(state.paneErrors, action.pane, action.id);
+      return paneErrors === state.paneErrors ? state : { ...state, paneErrors };
+    }
+    case "reportError":
+    case "retryPane":
+      return state;
     case "toggleSettings": {
       if (action.botId !== undefined && !state.bots.some((bot) => bot.id === action.botId && !bot.hidden)) return state;
       const selectedId = action.botId ?? state.selectedId;
@@ -1708,6 +1777,11 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         groups: state.groups.map((g) => (g.id === action.groupId ? { ...g, ...action.patch } : g)),
+      };
+    case "groupPatchFailed":
+      return {
+        ...state,
+        groups: state.groups.map((g) => (g.id === action.groupId ? revertGroupPatch(g, action.patch, action.previous) : g)),
       };
     case "pendingQueued": {
       if (state.consumedQueueIds[action.queueId]) {
@@ -1870,7 +1944,7 @@ export const initialState: AppState = {
   takeoverIntent: null,
   focusMessage: null,
   connected: false,
-  error: null,
+  paneErrors: {},
   mascotMotion: null,
   pendingQueued: {},
   consumedQueueIds: {},
@@ -2196,6 +2270,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     firstPaint.current ? withFirstPaint(base, firstPaint.current) : base);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const paneErrors = useMemo(() => createPaneErrorReporter({
+    dispatch: rawDispatch,
+    fallbackPane: () => selectedPane(stateRef.current),
+  }), []);
   const botPatchQueue = useMemo(
     () =>
       createBotPatchQueue({
@@ -2208,12 +2286,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         onAuthoritative: (bot, optimisticOverlay) => {
           rawDispatch({ type: "botPatched", bot: withTaskWrites({ ...bot, ...optimisticOverlay }) });
         },
-        onError: (error) => {
-          rawDispatch({ type: "error", message: error.message });
-          setTimeout(() => rawDispatch({ type: "error", message: null }), 6000);
-        },
+        onError: (error, botId) => paneErrors.report(error, dogChangePane(stateRef.current, botId)),
       }),
-    [],
+    [paneErrors],
   );
 
   useEffect(() => {
@@ -2226,13 +2301,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     sendOutboxRef.current ??= createSendOutbox({
       request: api,
       dispatch: rawDispatch,
-      showError: (error) => {
-        rawDispatch({ type: "error", message: plainClientError(error) });
-        setTimeout(() => rawDispatch({ type: "error", message: null }), 6000);
-      },
+      showError: (error, threadId) => paneErrors.report(error, threadId ? chatPane(threadId) : undefined),
     });
     return sendOutboxRef.current;
-  }, []);
+  }, [paneErrors]);
 
   useEffect(() => {
     const resume = () => sendOutbox().resume();
@@ -2249,9 +2321,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const dispatch = useMemo(() => {
     const olderPagesInFlight = new Set<string>();
     let creatingBot = false;
-    const showError = (e: unknown) => {
-      rawDispatch({ type: "error", message: plainClientError(e) });
-      setTimeout(() => rawDispatch({ type: "error", message: null }), 6000);
+    const reportError = paneErrors.report;
+    const botChat = (botId: string, threadId?: string): PaneKey | undefined => {
+      const thread = threadId ?? stateRef.current.bots.find((bot) => bot.id === botId)?.threadId;
+      return thread ? chatPane(thread) : undefined;
+    };
+    const groupChat = (groupId: string, threadId?: string): PaneKey | undefined => {
+      const thread = threadId ?? stateRef.current.groups.find((group) => group.id === groupId)?.threadId;
+      return thread ? chatPane(thread) : undefined;
     };
     const cardTarget = (action: { botId: string; messageId: string; groupId?: string }) => {
       const host = action.groupId
@@ -2310,7 +2387,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         taskWrites.delete(threadId);
         if (bot) rawDispatch({ type: "botPatched", bot: withTaskWrites(bot) });
       }).catch((error) => {
-        showError(error);
+        reportError(error, shownPaneOr(stateRef.current, chatPane(threadId)));
         if (taskWrites.get(threadId) === pending) {
           pending.patch = {};
           void api(`/api/bots?messages=${MESSAGE_PAGE_SIZE}`).then(({ bots }) => {
@@ -2342,7 +2419,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
 
     const wrapped: React.Dispatch<Action> = (action) => {
+      if (action.type === "reportError") {
+        reportError(action.error, action.pane, action.line ? { line: action.line } : {});
+        return;
+      }
+      if (action.type === "retryPane") {
+        paneErrors.retry(action.pane);
+        return;
+      }
       action = pinBotThreadAction(action, stateRef.current.bots);
+      const again = () => wrapped(action);
+      const failIn = (pane: PaneKey | undefined) => (error: unknown) => reportError(error, pane, { retry: again });
       if (action.type === "taskSwitched") action = { ...action, bot: withTaskWrites(action.bot) as Bot };
       if (action.type === "botPatched") action = { ...action, bot: withTaskWrites(action.bot) };
       if ((action.type === "send" || action.type === "sendGroup") && !action.sendId) {
@@ -2356,6 +2443,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         action.type === "send"
           ? stateRef.current.bots.find((candidate) => candidate.id === action.botId)
           : undefined;
+      const groupBeforePatch = action.type === "patchGroup"
+        ? stateRef.current.groups.find((candidate) => candidate.id === action.groupId)
+        : undefined;
       const executionBotsBeforeAction = (() => {
         if (action.type === "answerCard") {
           const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
@@ -2420,21 +2510,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             }))
             .catch((error) => {
               rawDispatch({ type: "olderMessages", threadId: action.threadId, generation, messages: [], hasMore: true });
-              showError(error);
+              failIn(chatPane(action.threadId))(error);
             });
           break;
         }
         case "createRoutine":
-          api("/api/routines", { method: "POST", body: JSON.stringify(action.input) }).catch(showError);
+          api("/api/routines", { method: "POST", body: JSON.stringify(action.input) }).catch(failIn("routines"));
           break;
         case "updateRoutine":
           api(`/api/routines/${action.routineId}`, {
             method: "PATCH",
             body: JSON.stringify(action.patch),
-          }).catch(showError);
+          }).catch(failIn("routines"));
           break;
         case "deleteRoutine":
-          api(`/api/routines/${action.routineId}`, { method: "DELETE" }).catch(showError);
+          api(`/api/routines/${action.routineId}`, { method: "DELETE" }).catch(failIn("routines"));
           break;
         case "runRoutine":
           void waitForExecutionSettings(executionBotsBeforeAction)
@@ -2442,12 +2532,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             .then(({ run }) => action.onStarted?.(run))
             .catch((error) => {
               if (action.onError) action.onError(error);
-              else showError(error);
+              else failIn("routines")(error);
             })
             .finally(() => action.onSettled?.());
           break;
         case "cancelRoutineRun":
-          api(`/api/routine-runs/${action.runId}/cancel`, { method: "POST" }).catch(showError);
+          api(`/api/routine-runs/${action.runId}/cancel`, { method: "POST" }).catch(failIn("routines"));
           break;
         case "cancelQueued":
           void api(`/api/bots/${action.botId}/queue/${action.queueId}`, { method: "DELETE", body: JSON.stringify({ threadId: action.threadId }) })
@@ -2455,7 +2545,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               rawDispatch(action);
               action.onCancelled?.();
             })
-            .catch(showError);
+            .catch(failIn(botChat(action.botId, action.threadId)));
           break;
         case "cancelGroupQueued":
           void api(`/api/groups/${action.groupId}/queue/${action.queueId}`, { method: "DELETE" })
@@ -2463,7 +2553,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               rawDispatch(action);
               action.onCancelled?.();
             })
-            .catch(showError);
+            .catch(failIn(groupChat(action.groupId, action.threadId)));
           break;
         case "send": {
           if (quizBeforeSend) persistCard(action.botId, quizBeforeSend.id, { dismissed: true });
@@ -2511,17 +2601,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                   });
                 } catch (error) {
                   grantSaved = false;
-                  showError(error);
+                  reportError(error, chatPane(action.threadId));
                 }
               }
               const response = await respond(grantSaved || action.scope !== "always" ? action.scope : "once");
               if (response?.settlementPending && typeof response.message === "string") {
-                showError(new Error(response.message));
+                reportError(new Error(response.message), chatPane(action.threadId));
               }
             })
             .catch((error) => {
-              showError(error);
-              action.onError?.(error instanceof Error ? error.message : String(error));
+              if (action.onError) {
+                reportError(error, chatPane(action.threadId));
+                action.onError(error instanceof Error ? error.message : String(error));
+              } else {
+                failIn(chatPane(action.threadId))(error);
+              }
             });
           break;
         }
@@ -2551,7 +2645,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 body: JSON.stringify({ text: action.answer, threadId: action.threadId }),
               });
             })
-            .catch(showError);
+            .catch((error) => {
+              const pane = action.groupId ? groupChat(action.groupId, action.threadId) : botChat(action.botId, action.threadId ?? host?.threadId);
+              if (card?.requestId) failIn(pane)(error);
+              else reportError(error, pane);
+            });
           break;
         }
         case "dismissCard": {
@@ -2578,7 +2676,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             })
             .catch((error) => {
               if (action.onError) action.onError(error instanceof Error ? error.message : String(error));
-              else showError(error);
+              else failIn("sidebar")(error);
             })
             .finally(() => {
               creatingBot = false;
@@ -2605,7 +2703,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 rawDispatch({ type: "botAdded", bot: { ...bot, ...patched, messages: bot.messages } }),
               ),
             )
-            .catch(showError);
+            .catch(failIn("sidebar"));
           break;
         }
         case "deleteBot":
@@ -2621,7 +2719,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               rawDispatch({ type: "deleteBot", botId });
             },
           )
-            .catch(showError)
+            .catch(failIn("sidebar"))
             .finally(() => rawDispatch({ type: "botDeletionPending", botId: action.botId, on: false }));
           break;
         case "markUnread":
@@ -2638,7 +2736,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           api("/api/sidebar-sections/order", { method: "PUT", body: JSON.stringify({ sections: action.sections }) })
             .then(({ sections }) => rawDispatch({ type: "sections", sections }))
             .catch((error) => {
-              showError(error);
+              reportError(error, "sidebar");
               api("/api/sidebar-sections")
                 .then(({ sections }) => rawDispatch({ type: "sections", sections }))
                 .catch(() => {});
@@ -2673,7 +2771,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               rawDispatch({ type: "groupPatched", group });
               rawDispatch({ type: "select", id: group.id });
             })
-            .catch(showError);
+            .catch(failIn("sidebar"));
           break;
         case "sendGroup": {
           const threadId =
@@ -2692,14 +2790,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           });
           break;
         }
-        case "patchGroup":
-          api(`/api/groups/${action.groupId}`, {
+        case "patchGroup": {
+          const { groupId, patch } = action;
+          api(`/api/groups/${groupId}`, {
             method: "PATCH",
-            body: JSON.stringify(action.patch),
-          }).catch(showError);
+            body: JSON.stringify(patch),
+          }).catch((error: unknown) => {
+            if (groupBeforePatch) rawDispatch({ type: "groupPatchFailed", groupId, patch, previous: groupPatchOf(groupBeforePatch, patch) });
+            failIn(shownPaneOr(stateRef.current, groupChat(groupId)))(error);
+          });
           break;
+        }
         case "deleteGroup":
-          api(`/api/groups/${action.groupId}`, { method: "DELETE" }).catch(showError);
+          api(`/api/groups/${action.groupId}`, { method: "DELETE" }).catch(failIn("sidebar"));
           break;
         case "setModel":
           if (action.threadId) {
@@ -2725,7 +2828,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const bot = stateRef.current.bots.find((candidate) => candidate.id === action.botId);
           const task = bot?.tasks?.find((candidate) => candidate.threadId === action.threadId);
           if (!bot || !task) {
-            showError(new Error("That thread is no longer available"));
+            reportError(new Error("That thread is no longer available"), chatPane(action.threadId));
             break;
           }
           const mode = approvalModeFor(bot);
@@ -2744,7 +2847,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             }).then((result) => result.bot);
           void refreshed.then((updated) => {
             if (updated) rawDispatch({ type: "botPatched", bot: withTaskWrites(updated) });
-          }).catch(showError);
+          }).catch(failIn(chatPane(action.threadId)));
           break;
         }
         case "interrupt":
@@ -2752,7 +2855,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             method: "POST",
             body: action.threadId ? JSON.stringify({ threadId: action.threadId }) : undefined,
           }).catch((error) => {
-            showError(error);
+            failIn(botChat(action.botId, action.threadId))(error);
             action.onError?.();
           });
           break;
@@ -2761,7 +2864,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             method: "POST",
             body: action.threadId ? JSON.stringify({ threadId: action.threadId }) : undefined,
           }).catch((error) => {
-            showError(error);
+            failIn(groupChat(action.groupId, action.threadId))(error);
             action.onError?.();
           });
           break;
@@ -2776,7 +2879,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
     };
     return wrapped;
-  }, [botPatchQueue, sendOutbox]);
+  }, [botPatchQueue, sendOutbox, paneErrors]);
 
   useEffect(() => {
     let alive = true;
@@ -2840,6 +2943,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (refresh.timer) return;
       if (error !== undefined) {
         if (part.key === "routines") rawDispatch({ type: "routinesLoadFailed" });
+        const pane = PERIPHERAL_PANES[part.key];
+        if (pane) {
+          paneErrors.report(error, pane.pane, {
+            line: t(pane.line),
+            retry: () => void loadPeripheral(part, false).catch((nextError) => schedulePeripheralRetry(part, nextError)),
+          });
+        }
         console.warn(`snapshot: ${part.key} refresh failed; retrying`, error);
       }
       const delay = Math.min(30_000, 1_000 * 2 ** Math.min(refresh.attempt, 5));
@@ -2927,6 +3037,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           rehydrateRequested = false;
           loaded = await loadAll();
         } while (alive && rehydrateRequested);
+        if (alive && !loaded) {
+          paneErrors.report(null, "sidebar", { line: t("pane.refreshFailed"), retry: () => void hydrate() });
+        }
         if (!alive || !loaded) return false;
         hydrated = true;
         for (const frame of pendingFrames.splice(0)) handleFrame(frame);
@@ -3103,7 +3216,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       stopLive();
     };
-  }, [sendOutbox]);
+  }, [sendOutbox, paneErrors]);
 
   const firstPaintAccount = useRef<Promise<string | null> | null>(null);
   const knownAccount = useRef<string | null | undefined>(undefined);

@@ -37,7 +37,7 @@ vi.mock("react", async (original) => {
 });
 vi.mock("@/state/store", () => ({
   api: vi.fn(() => new Promise(() => {})),
-  useStore: () => ({ state: { pluginsSurface: fixture.surface, bots: [], instances: [] }, dispatch: fixture.dispatch }),
+  useStore: () => ({ state: { pluginsSurface: fixture.surface, bots: [], instances: [], paneErrors: {} }, dispatch: fixture.dispatch }),
 }));
 vi.mock("./McpServersPanel", () => ({
   McpServersPanel: (props: { embedded?: boolean; refreshKey?: number }) => {

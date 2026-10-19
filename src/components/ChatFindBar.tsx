@@ -5,6 +5,7 @@ import { landOnSearchHit } from "@/lib/focus-message";
 import { t } from "@/lib/i18n";
 import type { SearchHit } from "@/lib/search-hit";
 import { api, useStore } from "@/state/store";
+import { chatPane } from "@/state/pane-errors";
 
 export function ChatFindBar({ threadId, onClose }: { threadId: string; onClose: () => void }) {
   const { state, dispatch } = useStore();
@@ -40,7 +41,7 @@ export function ChatFindBar({ threadId, onClose }: { threadId: string; onClose: 
         .catch((error) => {
           if (request !== requestRef.current) return;
           setHits([]);
-          dispatch({ type: "error", message: error instanceof Error ? error.message : t("chat.find.failed") });
+          dispatch({ type: "reportError", error, pane: chatPane(threadId), ...(error instanceof Error ? {} : { line: t("chat.find.failed") }) });
         })
         .finally(() => {
           if (request === requestRef.current) setLoading(false);
@@ -54,7 +55,7 @@ export function ChatFindBar({ threadId, onClose }: { threadId: string; onClose: 
     if (!hit) return;
     setIndex(next);
     void landOnSearchHit(hit, state, dispatch).catch((error) =>
-      dispatch({ type: "error", message: error instanceof Error ? error.message : t("chat.find.unavailable") }),
+      dispatch({ type: "reportError", error, pane: chatPane(threadId), ...(error instanceof Error ? {} : { line: t("chat.find.unavailable") }) }),
     );
   };
   const move = (delta: number) => {

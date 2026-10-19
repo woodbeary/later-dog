@@ -1,4 +1,5 @@
 import { api, type Action, type Message } from "@/state/store";
+import { chatPane } from "@/state/pane-errors";
 import { t } from "@/lib/i18n";
 import { OPTIMISTIC_PREFIX } from "@/lib/dog-status";
 import { toggledReactions } from "@/lib/reactions";
@@ -26,7 +27,7 @@ export async function reactToMessage(
     return true;
   } catch {
     dispatch({ type: "reactionsSet", threadId, messageId, reactions: before });
-    dispatch({ type: "error", message: t("chat.reaction.failed") });
+    dispatch({ type: "reportError", error: null, pane: chatPane(threadId), line: t("chat.reaction.failed") });
     return false;
   }
 }

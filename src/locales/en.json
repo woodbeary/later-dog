@@ -1580,7 +1580,6 @@
   "routines.skippedRuns": "Scheduled occurrences skipped while busy: {count}",
   "routines.lastSkipped": "Last: {date}",
   "routines.loading": "Loading routines…",
-  "routines.loadError": "Couldn't refresh routines. Retrying… Saved information may be out of date.",
   "routines.empty": "No schedules yet.",
   "routines.noRuns": "No runs recorded yet. Results will appear here after a routine starts.",
   "routines.noMatchingRuns": "No runs match these filters.",
@@ -2506,5 +2505,9 @@
   "credentialStore.retry": "Try unlocking again",
   "credentialStore.retryFailed": "Saved sign-ins still cannot be read. Try again, or quit and reopen {app}.",
   "credentialStore.saveFailed": "The key could not be saved securely. It is still in this field. Try saving again.",
-  "composer.suggestion.announce": "Suggestion: {text}. Press Tab to accept, Escape to dismiss."
+  "composer.suggestion.announce": "Suggestion: {text}. Press Tab to accept, Escape to dismiss.",
+  "pane.refreshFailed": "Couldn't refresh",
+  "pane.loadFailed": "Couldn't load",
+  "pane.routinesFailed": "Couldn't load routines",
+  "pane.tryAgain": "Try again"
 }

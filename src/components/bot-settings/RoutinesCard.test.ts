@@ -110,8 +110,19 @@ describe("the routines card", () => {
   it("waits for routines to load, says when the load failed, and explains when the dog has none", () => {
     fixture.storeState = { routinesLoadState: "loading" };
     expect(card().html).toContain("Loading routines…");
-    fixture.storeState = { routinesLoadState: "error" };
-    expect(find(card(), "role", "alert").props.children).toBe("Couldn't refresh routines. Retrying… Saved information may be out of date.");
+    const failed = { routines: { id: 1, line: "Couldn't load routines", retryable: true } };
+    fixture.storeState = { routinesLoadState: "error", paneErrors: failed };
+    const rendered = card();
+    expect(rendered.html).toContain('data-pane-error="routines"');
+    expect(rendered.html).toContain("Couldn&#x27;t load routines");
+    expect(rendered.html).toContain("Try again");
+    expect(rendered.html).not.toContain("Loading routines…");
+    fixture.storeState = { routinesLoadState: "error", paneErrors: {} };
+    expect(card().html).toContain("Loading routines…");
+    fixture.storeState = { routinesLoadState: "error", paneErrors: failed, routines: [routine("soon")] };
+    const stale = card();
+    expect(stale.html).toContain("Couldn&#x27;t load routines");
+    expect(stale.html).toContain("Routine soon");
     fixture.storeState = { routinesLoadState: "ready" };
     expect(card().html).toContain("Ask Scout to do something every morning, or every Friday, and it shows up here.");
   });

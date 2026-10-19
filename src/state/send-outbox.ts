@@ -15,7 +15,7 @@ type Store = ReturnType<typeof browserStore>;
 export interface SendOutboxDeps {
   request: (path: string, init: ApiInit) => Promise<any>;
   dispatch: (action: Action) => void;
-  showError: (error: unknown) => void;
+  showError: (error: unknown, threadId: string) => void;
   store?: Store;
   after?: (ms: number, run: () => void) => () => void;
 }
@@ -113,7 +113,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
       const onError = hooks.get(item.sendId)?.onError;
       hooks.delete(item.sendId);
       deps.dispatch({ type: "optimisticMessageRemoved", threadId: item.threadId, sendId: item.sendId });
-      deps.showError(error);
+      deps.showError(error, item.threadId);
       if (onError) onError();
       else if (item.recovery) {
         rememberFailedComposerSend(item.recovery.draftId, {

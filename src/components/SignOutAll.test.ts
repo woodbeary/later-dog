@@ -77,7 +77,7 @@ describe("the Sign out question", () => {
     await act(async () => finish());
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(store.api).not.toHaveBeenCalled();
-    expect(store.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: "error" }));
+    expect(store.dispatch).not.toHaveBeenCalledWith(expect.objectContaining({ type: "reportError" }));
   });
 
   it("says what did not sign out", async () => {
@@ -85,7 +85,7 @@ describe("the Sign out question", () => {
     await act(async () => root.render(createElement(SignOutDialog, { targets: { cloud: cloud(async () => { throw new Error("offline"); }) }, onClose })));
     await act(async () => button("Sign out").click());
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(store.dispatch).toHaveBeenCalledWith({ type: "error", message: "later.dog Cloud did not sign out: offline" });
+    expect(store.dispatch).toHaveBeenCalledWith({ type: "reportError", error: null, pane: "sidebar", line: "later.dog Cloud did not sign out: offline" });
   });
 
   it("lets the person back out", async () => {

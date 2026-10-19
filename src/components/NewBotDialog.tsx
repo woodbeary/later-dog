@@ -88,7 +88,7 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
       preserveSelection,
       onCreated: (bot) => {
         Promise.resolve().then(() => onCreated?.(bot)).catch((cause: unknown) => {
-          dispatch({ type: "error", message: cause instanceof Error ? cause.message : String(cause) });
+          dispatch({ type: "reportError", error: cause, pane: "sidebar" });
         });
         if (alive.current) closeRef.current();
       },

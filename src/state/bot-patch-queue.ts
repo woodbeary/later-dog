@@ -78,7 +78,7 @@ export interface BotPatchQueueOptions {
   ) => Promise<BotAnnouncement>;
   reconcile: (botId: string, signal: AbortSignal) => Promise<BotAnnouncement | null>;
   onAuthoritative: (bot: BotAnnouncement, optimisticOverlay: BotStatePatch) => void;
-  onError: (error: Error) => void;
+  onError: (error: Error, botId: string) => void;
 }
 
 export interface BotPatchQueue {
@@ -156,7 +156,7 @@ export function createBotPatchQueue(options: BotPatchQueueOptions): BotPatchQueu
         } catch {}
         if (disposed || entry.cancelled) return;
         if (bot) options.onAuthoritative(bot, stateOverlay(entry.pending));
-        options.onError(caught instanceof Error ? caught : new Error(String(caught)));
+        options.onError(caught instanceof Error ? caught : new Error(String(caught)), entry.botId);
       }
     } finally {
       entry.controller = null;

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { SettingsModal } from "../components/SettingsModal";
 import { BotSettingsDialog } from "../components/BotSettingsDialog";
 import { NewBotDialog } from "../components/NewBotDialog";
+import { PaneErrorLine } from "../components/PaneErrorLine";
 import { StoreProvider, api, useStore, type Bot } from "../state/store";
 import { applySkin } from "../lib/skins";
 import { setLocale } from "../lib/i18n";
@@ -76,7 +77,7 @@ function Fixture() {
     {state.appSettingsOpen && <SettingsModal />}
     <button className="rounded bg-control px-3 py-2" onClick={() => dispatch({ type: "toggleNewBot", open: true })}>New dog</button>
     {state.newBotOpen && <NewBotDialog />}
-    {state.error && <p role="alert" className="text-danger">{state.error}</p>}
+    <PaneErrorLine panes={["sidebar"]} />
     <pre aria-label="Saved profiles" className="my-4 whitespace-pre-wrap">{JSON.stringify(saved.map(({ id, name, description, soul }) => ({ id, name, description, soul })), null, 2)}</pre>
     {state.settingsOpen && bot && <BotSettingsDialog key={bot.id} bot={bot} />}
   </main>;

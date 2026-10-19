@@ -33,7 +33,7 @@ vi.mock("react", async (original) => {
 vi.mock("@/state/store", () => ({
   api: vi.fn(() => new Promise(() => {})),
   useStore: () => ({
-    state: { pluginsSurface: fixture.surface, bots: fixture.bots, instances: fixture.instances },
+    state: { pluginsSurface: fixture.surface, bots: fixture.bots, instances: fixture.instances, paneErrors: {} },
     dispatch: fixture.dispatch,
   }),
 }));

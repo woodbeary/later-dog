@@ -179,7 +179,7 @@ describe("the saved desktop outbox", () => {
     const outbox = createSendOutbox({ request: vi.fn(async () => { throw refusal; }), dispatch: vi.fn(), showError, store });
     outbox.resume();
     for (let i = 0; i < 10; i++) await Promise.resolve();
-    expect(showError).toHaveBeenCalledWith(refusal);
+    expect(showError).toHaveBeenCalledWith(refusal, "thread");
     expect(failedComposerSends("bot:bot:thread")).toEqual([
       expect.objectContaining({ sendId: "held-send", text: "still here", requestText: "still here", threadId: "thread" }),
     ]);
