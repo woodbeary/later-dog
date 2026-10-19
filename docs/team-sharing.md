@@ -10,8 +10,7 @@ later.dog package link opens the same sheet. There is no templates gallery and
 no pack sharing in the app, and T7's "Share a template link" waits for a share
 host.
 
-The file format can hold several dogs (organization packages still do, see
-[org-library.md](org-library.md)); a file saved from a dog's panel holds that
+The file format can hold several dogs (organization packages still do); a file saved from a dog's panel holds that
 dog, every skill of it that fits, its routines and its connections, and no
 group chats or shared instructions. The details below describe the format.
 
@@ -50,8 +49,7 @@ group chats or shared instructions. The details below describe the format.
 - **Your New bot defaults as a preset**, only over the API with
   `includeDefaultsPreset: true` (the app no longer offers it): their name,
   look, standing instructions, skills and (with starter notes) notes, never
-  their model, folder, computer, approval level or connected apps. See
-  [presets.md](presets.md).
+  their model, folder, computer, approval level or connected apps.
 
 ## What never goes in the file
 
@@ -97,13 +95,9 @@ Nothing in the file can change a dog, group chat or section you already have.
   the rest of the team is added. Finish connections in **Plugins → MCP
   servers**.
 - Starter notes are written once, through the normal memory writer.
-- Preset bots in a file appear in **New bot** under **Imported presets**; a
-  bot made from one gets the preset's skills switched off
-  ([presets.md](presets.md)).
-- A preset file (skills and presets, no bots) adds its presets to New bot and
-  nothing else. A file with only skills has nothing to add here and is
-  refused with a pointer to the organization shelf (**Templates → From
-  {Organization}**, see [org-library.md](org-library.md)).
+- Preset bots in a file are saved with the import, but no screen shows them
+  yet, so a preset file (skills and presets, no bots) adds nothing you can
+  see. A file with only skills has nothing to add here and is refused.
 
 If any step fails, everything the import created is removed again.
 
@@ -129,6 +123,6 @@ by bot id) and `dryRun` (count without recording keys). The response is
 version 2 body also carries `choices: {skills}` (every skill name on the
 team's bots), so a client can offer a different choice. `includeDefaultsPreset:
 true` adds the New bot defaults preset, and `kind: "library"` (instead of
-`team`) saves a preset file; both are described in [presets.md](presets.md).
+`team`) saves a preset file. The app offers neither.
 A body without `version: 2` keeps the original whole-installation Markdown
 export.

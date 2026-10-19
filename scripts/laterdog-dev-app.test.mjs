@@ -47,24 +47,6 @@ describe("the Dev build", () => {
     expect(files["SHA256SUMS.txt"]).toContain(DEV_ZIP_NAME);
     expect(files["NOTES.md"]).toContain("Dev build of 012345678: Fix a thing");
   });
-
-  it("keeps the workflow on the dev branch, with the release's secrets by name and nothing new", () => {
-    const dev = parse(read(".github/workflows/dev-app.yml"));
-    expect(dev.on).toEqual({ push: { branches: ["dev"] } });
-    expect(dev.jobs.package.env.LATERDOG_VARIANT).toBe("dev");
-    const secrets = (text) => new Set([...text.matchAll(/secrets\.([A-Z0-9_]+)/g)].map((match) => match[1]));
-    const used = secrets(read(".github/workflows/dev-app.yml"));
-    const allowed = secrets(read(".github/workflows/macos.yml"));
-    expect([...used].filter((name) => !allowed.has(name))).toEqual([]);
-    expect(used.has("MAC_DEVELOPER_ID_P12") && used.has("APPLE_API_KEY_P8")).toBe(true);
-    const text = read(".github/workflows/dev-app.yml");
-    expect(text).toContain("releases/download/dev-latest/");
-    expect(text).not.toContain("releases/latest/download");
-    expect(text).toContain("--prerelease");
-    expect(text).toContain("dog.later.app.dev");
-    expect(text).toContain("test \"$SCHEME\" != 'laterdog'");
-    expect(text).toContain("test \"$SCHEMES\" = 'laterdog-dev'");
-  });
 });
 
 describe("the Dev update cache", () => {

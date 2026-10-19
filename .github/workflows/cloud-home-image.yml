@@ -1,17 +1,6 @@
 name: Cloud home image
 on:
   workflow_dispatch:
-  push:
-    branches: [laterdog/home]
-    paths:
-      - deploy/laterdog/home/**
-      - deploy/cloud-home/**
-      - Dockerfile
-      - server/**
-      - electron/cloud-move.mjs
-      - electron/cloud-auto-move.mjs
-      - scripts/cloud-home-trip-check.mjs
-      - .github/workflows/cloud-home-image.yml
 permissions:
   contents: read
   packages: write

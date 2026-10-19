@@ -1,9 +1,10 @@
 # Using later.dog
 
-later.dog is a free, open-source Mac app where AI agents, which we call dogs, do real work for you. Each dog is a
-contact in your sidebar with its own conversation, memory and computer. You start free on the Kimi K2.6 and Grok 4.3
-models with no account, and bring the Claude or ChatGPT plan you already have whenever you like. There are no API keys
-to paste.
+later.dog is a free, open-source app for the Mac and the iPhone where AI agents, which we call dogs, do real work for
+you. Each dog is a contact in your sidebar with its own conversation, memory and computer. Sign in with your email and
+your dogs live in your Cloud home, one workspace that the Mac and the iPhone both open. Dogs start on the included free
+AI (Kimi K2.6, with Grok as backup), and you can bring the Claude, ChatGPT, Grok or Cursor plan you already have
+whenever you like. There are no API keys to paste.
 
 ## Install
 
@@ -17,11 +18,17 @@ You need a Mac with Apple silicon.
 If you open later.dog straight from the disk image, it offers to move itself into Applications, where it stays put and
 keeps itself up to date.
 
+On the iPhone, install the TestFlight beta linked from [later.dog](https://later.dog) and sign in with the same email.
+
 ## First run
 
-The welcome asks your name and lets you pick your first dog. It says hello right away on the free Kimi K2.6 model. The
-free trial lasts 7 days: chatting on Kimi K2.6 and Grok 4.3 (with a daily allowance), a voice, sharper dictation, and a
-cloud computer for 30 minutes, with no account and no card.
+later.dog asks for your email and sends you a code. Type it in and your Cloud home opens with your dogs: there is no
+setup checklist and nothing to pair. Your Mac and your iPhone show the same dogs and chats, and the Mac becomes a second
+computer your dogs can use while it is signed in.
+
+You can also choose **Use this Mac without an account**. Your dogs then live on this Mac only. After a quick check in
+your browser they chat on the free AI with a daily allowance, and the free trial includes one cloud computer for 30
+minutes, to use within 7 days.
 
 ## Make a dog
 
@@ -37,8 +44,8 @@ See [approval levels](../approval-levels.md).
 
 ## Cloud tasks
 
-A dog can hand a coding job to its own temporary cloud computer (later.dog Cloud, on your own Cloudflare account). The
-work runs there, not on your Mac, so your Mac stays free and several tasks can run at the same time.
+A dog can hand a coding job to its own temporary cloud computer. The work runs there, not on your Mac, so your Mac stays
+free and several tasks can run at the same time.
 
 To start one, ask a dog in plain words, for example "do this in the cloud" or "split this into cloud tasks and run them
 in parallel".
@@ -53,19 +60,21 @@ cloud tasks too.
 The result goes to GitHub as a draft for you to review: the dog publishes it, or you can press **Publish** beside the
 chat. Merging stays with you.
 
-A cloud task needs later.dog Cloud set up on your Cloudflare account, and a GitHub repository its GitHub login can read.
-The repository needs no setup: the first task connects it, starts from its default branch and installs its dependencies
+A cloud task needs the later.dog supervisor ([cloudflare.md](cloudflare.md)) and a GitHub repository its GitHub login
+can read. The repository needs no setup: the first task connects it, starts from its default branch and installs its dependencies
 itself.
 
-## Add a Claude or ChatGPT account
+## Add a Claude, ChatGPT, Grok or Cursor account
 
 Go to **Settings → General → Accounts** and choose **Add account**.
 
 - **Claude** opens your browser. Approve the sign-in there and later.dog finishes by itself. If your browser is on
   another device, choose **Use a code instead** and paste the code it shows.
 - **ChatGPT** shows a web address and a code. Open the address in your browser, enter the code and approve.
+- **Grok** opens the Grok sign-in page in your browser with a code to enter there.
+- **Cursor** opens the Cursor sign-in page in your browser.
 
-You can also just pick Claude or ChatGPT for a chat and send a message: later.dog asks you to sign in first, then sends
+You can also just pick an account for a chat and send a message: later.dog asks you to sign in first, then sends
 it. Codes expire after a few minutes; if one does, start the sign-in again. later.dog never asks for your password.
 
 ## Switch accounts
@@ -78,7 +87,7 @@ at** a time (**Back around** when the provider did not say when the limit resets
 
 ## Usage limits
 
-Your plan's usage limits are set by Claude or ChatGPT, not by later.dog. When an account runs out, the conversation says
+Your plan's usage limits are set by its provider, not by later.dog. When an account runs out, the conversation says
 so. To keep going automatically, sign in to more than one account of the same kind and switch on **Keep going when an
 account runs out**. later.dog then continues the conversation on your next account and returns to the first one once its
 limit resets. If every account is out, it waits and picks up where it stopped. Whether rotating accounts is allowed
@@ -92,11 +101,15 @@ at the bottom of the sidebar. Click it to see what's new and choose **Restart to
 
 ## Cloud computers
 
-Every dog has its own computer. Open it with the screen button at the top of a chat: it starts (or wakes) and you see
-its screen. The free trial includes one cloud computer for 30 minutes, to use within 7 days, and Settings, Computer shows
-the minutes left. If another dog already has the trial's computer, later.dog offers later.dog Cloud ($10 a month), which
-gives every dog its own. When the trial ends, its computer and the files on it are deleted. You can also deploy the
-computers service to your own Cloudflare account ([deploy/laterdog/computers](../../deploy/laterdog/computers/README.md)).
+Every dog has its own computer. Open it from the dog's **Computer** tab: it starts (or wakes) and you see its screen,
+and you can take control when you want to. On your Cloud home every dog gets its own cloud computer, which sleeps when
+it is idle. Your signed-in Mac is a second computer the dogs can use too.
+
+Without an account, the free trial includes one cloud computer for 30 minutes, to use within 7 days, and Settings,
+Computer shows the minutes left. If another dog already has the trial's computer, later.dog offers later.dog Cloud ($10
+a month), which gives every dog its own. When the trial ends, its computer and the files on it are deleted. You can also
+deploy the computers service to your own Cloudflare account
+([deploy/laterdog/computers](../../deploy/laterdog/computers/README.md)).
 
 Settings, Computer lists every cloud computer with the dog it belongs to (asleep when its computer is). **Sleep** puts an
 awake one to sleep now instead of waiting for it to idle; **Delete** removes it and its files, after you confirm. Both

@@ -15,7 +15,7 @@ body:
         - Chat UI (src/)
         - Harness server / API (server/)
         - Provider drivers (claude / codex / grok)
-        - Computer use (cloud box / local)
+        - Computer use (Cloud home / Mac)
         - Connected apps (Composio)
         - Desktop shell / packaging (electron/)
         - Docs
@@ -36,7 +36,7 @@ body:
     attributes:
       label: Version and install
       description: App version (About / release tag) and whether you run the .dmg or from source
-      placeholder: v0.2.0 zip · macOS 15.5
+      placeholder: later.dog 0.3.41 · macOS 15.5
     validations:
       required: true
   - type: textarea

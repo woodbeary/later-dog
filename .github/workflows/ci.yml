@@ -1,7 +1,7 @@
 name: later.dog CI
 on:
   push:
-    branches: [main, staging, dev]
+    branches: [main]
   pull_request:
 permissions:
   contents: read

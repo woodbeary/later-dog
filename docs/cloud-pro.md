@@ -1,18 +1,58 @@
 # later.dog Cloud: the home machine
 
-> **Not offered by later.dog.** This page documents code that later.dog carries but does not run as a service: there is no later.dog Cloud, hosted account service, phone app or paid plan. It stays until that code is removed or replaced; see [docs/laterdog/roadmap.md](laterdog/roadmap.md).
+later.dog Cloud gives one person an always-on later.dog server of their own:
+their Cloud home. It holds the account's one workspace (dogs, chats, routines,
+memory), and the Mac app, the iPhone app and the web are screens onto it.
+Every account that signs in gets one. Using the Mac app without an account
+stays free.
 
-later.dog Cloud (the Personal, Pro and Max plans) gives one person an always-on
-later.dog server of their own. The plans differ in machine size, disk and
-included allowances; everything on this page applies to all of them. Each
-customer gets one Fly app with one `home` machine that is always on, a volume
-at `/data`, and TLS at `https://<app>.fly.dev`. The desktop app, the phone and
-the web are windows onto it. Local use of the app is unchanged and free.
+`cloud.later.dog` knows three tiers (`Tier` in
+`deploy/laterdog/computers/src/gateway.ts`):
 
-later.dog Cloud includes no AI usage. The person signs in on their machine with their
-own Claude or ChatGPT subscription, or an API key, through the same sign-in
-flows as any later.dog server. Nothing on a Cloud home is routed to a
-platform model gateway.
+- **trial**: no account. The included AI with a small daily allowance and one
+  short cloud-computer trial.
+- **home**: a signed-in account's Cloud home. The full allowance: every dog
+  gets its own computer (`PLAN_HOURS` of computer time, granted for 90 days at
+  a time) and the included AI at the full daily limits.
+- **plan**: the $10-a-month later.dog Cloud plan through Square
+  (`PLAN_PRICE_CENTS`). The same allowance as a home, for a key that has none:
+  the app offers it when a trial runs low or ends. Whether the website shows
+  the price is an open launch decision.
+
+Speech runs on Aura-2 for every tier. ElevenLabs voice is used only when
+`ELEVENLABS_MODE` is `byok` or `secret` and `ELEVENLABS_CHARS_PER_DAY` is above
+0; the defaults (`off`, `0`) keep every tier on Aura-2. `ELEVENLABS_TIERS`
+narrows it to the tiers it names, and empty means all tiers, so it is not an off
+switch. See `deploy/laterdog/computers/README.md` for the budget.
+
+## Today, on Cloudflare
+
+The home runs on Cloudflare, not Fly. The pieces:
+
+- **accounts.later.dog** (`cloudflare/control-plane/`): email-code sign-in,
+  accounts, and the device token each Mac and iPhone holds.
+- **The home Worker** (`deploy/laterdog/home/`), routed at
+  `<id>-home.later.dog`: a Worker, a Durable Object per home and a Container
+  running this repository's `cloud-home` image. The Worker starts a sleeping
+  home only for a request it can check (see Security summary), and the home
+  sleeps 30 minutes after its person's last request. Its state is saved to
+  R2 and restored when it wakes.
+- **cloud.later.dog** (`deploy/laterdog/computers/`): each dog's own cloud
+  computer, the included AI (Kimi K2.6 on Workers AI, with Grok as backup,
+  through AI Gateway), voice (Aura-2, or ElevenLabs when it is switched on)
+  and the plan. The home holds an included key for these, so every dog on
+  a home gets its own computer and the free AI works with no sign-in. The
+  person can also sign in to Claude, ChatGPT, Grok or Cursor on the home.
+
+The rest of this page is contract version 1, written when the home was a Fly
+machine. The boot variables, the loopback rule, pairing, lending the Mac and
+the security rules still describe the server in the `cloud-home` image. Read
+these parts as history: the Fly app, volume and `fly.dev` origin (the home is
+a Container with R2 state at `<id>-home.later.dog`), "includes no AI usage"
+(the home now has the included AI above), the Personal, Pro and Max plans
+(there is one plan), and the published image (the image is built by
+`.github/workflows/cloud-home-image.yml`, run by hand, and pushed to
+Cloudflare's registry).
 
 This page is the later.dog half of a contract with three parties:
 

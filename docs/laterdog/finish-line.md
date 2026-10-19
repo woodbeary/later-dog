@@ -104,4 +104,4 @@ Owned by one session ("App regression review"). Other sessions: do not start lan
 ## Evidence
 
 - Archive of every branch tip before this work: kept off GitHub on the person's backup drive.
-- Cloud image build: GitHub Actions "Cloud home image" on `laterdog/home`.
+- Cloud image build: GitHub Actions "Cloud home image", started by hand (workflow_dispatch).

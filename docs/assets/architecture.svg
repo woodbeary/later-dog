@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" width="960" height="560" role="img" aria-labelledby="title desc">
+  <title id="title">How later.dog fits together</title>
+  <desc id="desc">The Mac and the iPhone sign in at accounts.later.dog and open one Cloud home: a Worker, a Durable Object and a Container running the later.dog server. Your own Claude, ChatGPT, Grok or Cursor sign-ins run inside that Container and talk straight to the provider. cloud.later.dog gives each dog its own cloud computer, the included AI (Kimi K2.6 on Workers AI with Grok as backup, through AI Gateway) and voice (Aura-2, or ElevenLabs when it is switched on). The signed-in Mac is a second computer.</desc>
+  <style>
+    .bg { fill: #ffffff; }
+    .box { fill: #ffffff; stroke: #111111; stroke-width: 1.5; }
+    .inner { fill: #f4f4f4; stroke: #111111; stroke-width: 1; }
+    .group { fill: none; stroke: #111111; stroke-width: 1; stroke-dasharray: 5 5; }
+    .line { fill: none; stroke: #111111; stroke-width: 1.5; }
+    .head { fill: #111111; }
+    .title { font: 600 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #111111; }
+    .text { font: 400 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #444444; }
+    .label { font: 500 11.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #444444; }
+    .mono { font: 500 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #111111; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .box { fill: #0d1117; stroke: #e6e6e6; }
+      .inner { fill: #161b22; stroke: #e6e6e6; }
+      .group, .line { stroke: #e6e6e6; }
+      .head { fill: #e6e6e6; }
+      .title, .mono { fill: #f0f0f0; }
+      .text, .label { fill: #b8b8b8; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="head" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="960" height="560" rx="12"/>
+
+  <rect class="box" x="24" y="150" width="200" height="96" rx="10"/>
+  <text class="title" x="44" y="184">Your Mac</text>
+  <text class="text" x="44" y="206">A screen onto your home,</text>
+  <text class="text" x="44" y="224">and a second computer</text>
+
+  <rect class="box" x="24" y="302" width="200" height="96" rx="10"/>
+  <text class="title" x="44" y="336">Your iPhone</text>
+  <text class="text" x="44" y="358">The same dogs and chats,</text>
+  <text class="text" x="44" y="376">wherever you are</text>
+
+  <rect class="box" x="300" y="24" width="340" height="72" rx="10"/>
+  <text class="mono" x="320" y="54">accounts.later.dog</text>
+  <text class="text" x="320" y="76">Sign in with a code sent to your email</text>
+
+  <rect class="box" x="300" y="140" width="340" height="356" rx="12"/>
+  <text class="title" x="320" y="170">Your Cloud home</text>
+  <text class="mono" x="320" y="190">&lt;id&gt;-home.later.dog</text>
+
+  <rect class="inner" x="320" y="202" width="300" height="50" rx="8"/>
+  <text class="title" x="336" y="223">Worker</text>
+  <text class="text" x="336" y="242">Checks who is asking, wakes the home</text>
+
+  <rect class="inner" x="320" y="262" width="300" height="50" rx="8"/>
+  <text class="title" x="336" y="283">Durable Object</text>
+  <text class="text" x="336" y="302">One home per account, asleep when idle</text>
+
+  <rect class="inner" x="320" y="322" width="300" height="160" rx="8"/>
+  <text class="title" x="336" y="345">Container: the later.dog server</text>
+  <text class="text" x="336" y="366">Your dogs, chats, routines and memory.</text>
+  <text class="text" x="336" y="384">One workspace for every screen,</text>
+  <text class="text" x="336" y="402">backed up to R2 storage.</text>
+  <text class="text" x="336" y="426">Your own Claude, ChatGPT, Grok or</text>
+  <text class="text" x="336" y="444">Cursor sign-ins run here and talk</text>
+  <text class="text" x="336" y="462">straight to that provider.</text>
+
+  <rect class="group" x="688" y="112" width="252" height="384" rx="12"/>
+  <text class="mono" x="704" y="134">cloud.later.dog</text>
+
+  <rect class="box" x="704" y="148" width="220" height="96" rx="10"/>
+  <text class="title" x="720" y="176">Each dog's computer</text>
+  <text class="text" x="720" y="198">A cloud desktop per dog that</text>
+  <text class="text" x="720" y="216">you can watch or take over,</text>
+  <text class="text" x="720" y="234">asleep when idle</text>
+
+  <rect class="box" x="704" y="258" width="220" height="114" rx="10"/>
+  <text class="title" x="720" y="286">Included AI</text>
+  <text class="text" x="720" y="308">Kimi K2.6 on Workers AI,</text>
+  <text class="text" x="720" y="326">with Grok as backup,</text>
+  <text class="text" x="720" y="344">through AI Gateway.</text>
+  <text class="text" x="720" y="362">No AI sign-in needed.</text>
+
+  <rect class="box" x="704" y="386" width="220" height="96" rx="10"/>
+  <text class="title" x="720" y="414">Voice</text>
+  <text class="text" x="720" y="436">Aura-2, or ElevenLabs</text>
+  <text class="text" x="720" y="454">when it is switched on</text>
+
+  <path class="line" d="M124 150 V60 H296" marker-end="url(#arrow)"/>
+  <path class="line" d="M24 350 H12 V60 H124"/>
+  <text class="label" x="134" y="120">sign in</text>
+
+  <path class="line" d="M470 96 V136" marker-end="url(#arrow)"/>
+  <text class="label" x="480" y="122">opens your home</text>
+
+  <path class="line" d="M228 198 H296" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text class="label" x="232" y="190">screen +</text>
+  <text class="label" x="232" y="216">computer</text>
+
+  <path class="line" d="M224 350 H296" marker-end="url(#arrow)"/>
+  <text class="label" x="232" y="342">screen</text>
+
+  <path class="line" d="M640 196 H700" marker-end="url(#arrow)"/>
+  <path class="line" d="M640 315 H700" marker-end="url(#arrow)"/>
+  <path class="line" d="M640 434 H700" marker-end="url(#arrow)"/>
+
+  <text class="label" x="24" y="524">Every hosted part runs on Cloudflare: Workers, Durable Objects, Containers, AI Gateway and Workers AI.</text>
+  <text class="label" x="24" y="544">Without an account, the Mac runs dogs on its own.</text>
+</svg>

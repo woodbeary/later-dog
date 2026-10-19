@@ -76,7 +76,7 @@ filter only on the server is a separate change.
 
 ## Sections and the main dog
 
-Sections, their menu and the two-item **+** menu are in [Sections](teams.md).
+Sections, their menu and the two-item **+** menu are in [Sections](sections.md).
 `src/components/SidebarSectionHeader.test.ts` checks that the delete control
 coexists with the header's context menu and does not nest inside the collapse
 button. Deleting a section asks first; Cancel gets initial focus and its dogs

@@ -89,17 +89,11 @@ is implied by the protocol test.
 
 ## Installing it
 
-1. Push to the `dev` branch (the workflow file must be on `dev`). `.github/workflows/dev-app.yml` builds the app, signs it with the release's Developer ID secrets, notarizes and staples it, then replaces the rolling prerelease `dev-latest`.
-2. On the repository's Releases page, open **later.dog Dev (rolling build of dev)**, download `later.dog-Dev-macOS-arm64.dmg`, and drag **later.dog Dev** into Applications. It sits beside later.dog and can run at the same time.
-3. Open it. It starts empty. Nothing is copied from later.dog (see First run below).
-
-The prerelease is never marked "latest", so the released app's updater and release check never see it.
+The rolling `dev-latest` build stopped when its workflow was removed on 2026-10-19, and the `dev` branch is retired with it. Build Dev locally when it is needed: `LATERDOG_VARIANT=dev pnpm laterdog:package` uses `electron-builder.dev.yml`, bakes in `laterdogVariant`, and installs Dev's own `app-update.yml` through the after-pack hook. Drag **later.dog Dev** into Applications; it sits beside later.dog, can run at the same time and starts empty (see First run below). Day-to-day testing runs on isolated fixtures instead ([docs/verification/README.md](../verification/README.md)).
 
 ## How updates arrive
 
-Every push to `dev` builds `X.Y.Z-dev.N` (N is the workflow run number), uploads the zip, the disk image, `SHA256SUMS.txt` and `dev-mac.yml`, and replaces `dev-latest`. The app's feed is baked in as `https://github.com/<repo>/releases/download/dev-latest/` on channel `dev`, so it checks `dev-mac.yml` an hour apart, downloads in the background, and offers the usual **Restart to update** pill. A Dev build is a prerelease of its own version, so it never offers a release as an update.
-
-Local packaging is not meant for this Mac. `LATERDOG_VARIANT=dev pnpm laterdog:package` follows the same path as CI (config `electron-builder.dev.yml`, `laterdogVariant` baked in, its own `app-update.yml` installed by the after-pack hook) if it is ever needed.
+A Dev app's feed is baked in as `https://github.com/<repo>/releases/download/dev-latest/` on channel `dev`. Nothing publishes there any more, so a local Dev build offers no updates; build it again instead. A Dev build is a prerelease of its own version, so it never offers a release as an update.
 
 ## Running dev scripts safely
 
