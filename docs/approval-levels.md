@@ -1,99 +1,29 @@
 # Approval levels
 
-Approval levels belong to a bot and apply to its next provider turn, including
-when that provider resumes an existing native thread. Each level is one of the
-provider's own permission modes, passed through. In the app the two everyday levels
-are **Heel** (Ask for approval) and **Off-leash** (Approve for me); the others show
-only where a dog already uses them. A native tool request that reaches you is one
-the provider left for you. In Full Access, later.dog also applies its own
-configuration tools without another approval.
+## Auto-review: one switch for your dogs
 
-You set a dog's level in its profile, or every dog's at once under Settings →
-Computer → **Execution on this computer** in the desktop app. Both change the
-same default and follow the same rules: a dog that uses this computer shows the
-Off-leash warning first, a dog that is working keeps its level until its turn
-stops, and Full access and Custom are only shown there for a dog that already
-has them. The list is not shown on a paired remote client or in a browser.
+Settings → General → **Dogs** → **Auto-review** decides how every one of your
+own dogs works. There is no per-dog Heel or Off-leash picker any more.
 
-Engines with no reviewer of their own (the free Kimi and Grok models, and other
-OpenAI-compatible chat engines) get one app-side rule: Off-leash runs the tools of
-the dog's own computer (its cloud computer, a Local VM or its own server) and
-built-in browser without a card, while your own Mac, connected apps and custom
-tools still ask before each action. Heel asks for every tool.
-
-| Level | Behavior |
+| Auto-review | What your dogs do |
 | --- | --- |
-| **Heel** (Ask for approval) | Requests approval for commands and file changes, the way the provider's supervised mode does. |
-| **Auto-accept edits** | Approves file edits automatically; other actions can still require approval. Offered where the provider has such a mode (Claude, Grok, Antigravity). |
-| **Off-leash** (Approve for me) | Uses the provider's automatic review on Codex, Claude, Cursor, and Grok to approve routine actions and ask about others. Chat engines without a reviewer run the dog's own computer and browser without asking, and ask about everything else, your Mac included. |
-| **Full access** | Enables the provider's permissive mode for commands, edits, and selected-computer actions, including potentially destructive or sensitive work. Residual native permission prompts are answered for you. later.dog profile changes, routine actions, team setup, bot deletion, and enabled skill authoring apply without a second approval. Peer-review prompts are skipped within the bot's authorized scope. Delegation uses the receiving bot's setting, never the sender's — except from a Chief of Staff, whose level flows down (below). Actual questions and missing credentials still need your input. |
-| **Custom (`config.toml`)** | Codex only. later.dog reads and reapplies the effective approval and sandbox settings from your Codex configuration. |
+| **On** | The engine's own AI reviewer checks each step (Codex `auto_review`, Claude `auto`, Cursor `--auto-review`, Grok `auto`). You see a card only for what the reviewer leaves for you. Engines without a reviewer (the free Kimi and Grok models, OpenAI-compatible chat engines) card each request, and the chat says so once. |
+| **Off** | No asks. The engine still starts with its reviewer, and later.dog answers whatever it leaves for you at once, with no card. The decision log records each one with source `owner-auto`. |
 
-Full access is an elevated-risk standing approval. Full and Custom can only be
-enabled from a packaged local desktop app, where the choice crosses a private
-process channel rather than the bot-accessible HTTP API. They are hidden in
-development, standalone web, and remote pages. Full access does not bypass operating
-system privacy controls, authentication, CAPTCHA or MFA, service permissions,
-or workspace/team ownership and computer-sharing grants. Full Access controls
-approval prompts; it does not sign in for you, enable a feature you disabled,
-or grant another bot access to a different workspace.
+The switch is saved in the config as `features.autoReview` and changed with
+`PATCH /api/config`. It is set once on the first start that has the switch. On
+a Cloud home it starts off when any dog was already Off-leash, because there
+those dogs already worked without asking. Everywhere else it starts on,
+including a new install and a Mac whose dogs were Off-leash, because on a Mac
+Off-leash already meant the engine's reviewer decided and its escalations
+became cards. A dog's saved `approvalMode` no longer
+changes how your own dogs work, except **Full access** and **Custom**, which
+keep their own behaviour.
 
-The effective setting belongs to the source conversation. An existing Ask
-thread remains Ask even if the bot default is Full; a Full thread works without
-these extra prompts even if the bot default is Ask. Ask, Auto, and Custom retain
-their existing later.dog configuration review cards. Full actions return an applied
-result and leave a settled receipt, so the bot continues in the same turn.
-Invalid input, unavailable services, or failed writes return errors, not a
-request to approve again. An expired native permission request is not turned
-into another Allow/Deny card.
+With either setting:
 
-A turn a webhook, a routine, or another bot started runs in the bot's level
-like any other turn. The decision log records that nobody was at the keyboard
-when such a turn asked.
-
-### Delegated work keeps the teammate's own level
-
-Work one dog hands to another runs at the teammate's own level. The main dog
-has no extra authority: its level never flows down to the dogs it asks.
-
-### Your own Off-leash dogs work without you
-
-A dog is **yours** when it works in your own workspace (not a hosted or
-shared-sign-in workspace), in a conversation no guest drives. Messages from a
-local tool on your Mac count as yours. Then three things carry your
-authority, not only what you type: your routines, and what your
-coordinator dog or any other of your dogs hands it (`send_to_bot`,
-`ask_bot`, a room post and `coordinate_bots`). The handoff note
-says "one of <your name>'s own dogs, passing on <your name>'s instructions"
-instead of "not from your user".
-
-An Off-leash dog of yours also gets a **standing grant**: you authorize it to
-commit, push branches, commit and push to the default branch, open, update and
-comment on pull requests, and run the repository's build, test and release
-scripts (beta and over-the-air updates included) when you, your coordinator
-dog, a routine or another of your dogs asks. The grant is in the dog's system
-prompt, which Codex's reviewer reads as developer instructions, and Claude
-Code's auto-mode reviewer gets it in the session's `--settings` as
-`autoMode.environment` and `autoMode.allow` entries after `"$defaults"`. Claude
-Code 2.1.293 lists both in `claude auto-mode config`. Whether a reviewer then
-approves a given action is still its own decision. later.dog cannot overrule a
-reviewer that denies outright. It only answers the actions a reviewer leaves
-for you.
-
-In a Cloud home, later.dog answers for your Off-leash dogs at once, with no
-card and no wait:
-
-- Every request the engine leaves for you is approved, including a sandbox
-  exit, a sending tool and every action of a dog whose engine reviewer is off
-  for its model or account. The chat gets no line per approval. The decision
-  log records each one with source `owner-auto`.
-- A question is never answered for you. The dog decides whether to ask; when
-  it does, its question card waits for you, the same as everywhere else.
-- Sends through a connected app (an email, a message, a post) go out with no
-  "Send on your behalf?" card, for your Off-leash and Full access dogs alike,
-  within the dog's daily limit (25 unless you change it under its
-  Permissions). Code run through the catch-all workbench, which later.dog
-  cannot read as one send, still asks.
+- A question is never answered for you. The dog decides whether to ask; when it
+  does, its card waits for you.
 - Only a small guard is refused, at once and with one plain line in the chat
   (decision log source `owner-guard`): force-pushing a repository's default
   branch (its `origin/HEAD`, or `main` and `master` when that is unknown),
@@ -101,18 +31,78 @@ card and no wait:
   a tool that deletes a repository) and recursive deletes outside the dog's
   workspace or `/tmp`. A recursive delete whose target is a variable later.dog
   cannot see is refused too, with a request to write the literal path.
+- A routine a dog sets up, for itself or for another of your dogs, applies at
+  once with an Undo on its receipt. There is no limit on how many routines a
+  dog keeps, and no Confirm card. later.dog's own tools are pre-allowed on
+  every engine, so the engine's reviewer does not see them.
+- Sends through a connected app (an email, a message, a post) go out with no
+  "Send on your behalf?" card in a Cloud home while Auto-review is off, and
+  always for a Full access dog, within the dog's daily limit. While it is on,
+  each send asks.
 
-Nothing changes for Heel or Auto-accept edits dogs, guests and the
-conversations they drive, hosted or shared workspaces, your Mac's own setting for `mac_*` and computer control, and a dog
-changing another dog or your team. On a later.dog that runs only on your Mac,
-your Off-leash dogs get the grant and the handoff authority, the reviewer's
-requests still reach you as cards (a dog's Full access answers those), and
-connected-app sends ask unless the dog's sends are set to Allow under its
-Permissions.
+A dog is **yours** when it works in your own workspace (not a hosted or
+shared-sign-in workspace), in a conversation no guest drives. Messages from a
+local tool on your Mac count as yours. Your routines and what your other dogs
+hand a dog (`send_to_bot`, `ask_bot`, a room post and `coordinate_bots`) carry
+your authority; the handoff note says "one of <your name>'s own dogs, passing on
+<your name>'s instructions" instead of "not from your user".
+
+Your dogs also get a **standing grant**: you authorize them to commit, push
+branches, commit and push to the default branch, open, update and comment on
+pull requests, and run the repository's build, test and release scripts (beta
+and over-the-air updates included) when you, a routine or another of your dogs
+asks. The grant is in the dog's system prompt, which Codex's reviewer reads as
+developer instructions, and Claude Code's auto-mode reviewer gets it in the
+session's `--settings` as `autoMode.environment` and `autoMode.allow` entries
+after `"$defaults"`. Whether a reviewer then approves a given action is still
+its own decision; later.dog cannot overrule a reviewer that denies outright.
+
+Guests, the conversations they drive, and hosted or shared workspaces keep each
+dog's saved level, and a guest-driven turn always runs as Heel. In a shared
+workspace, turning on Off-leash for a dog that uses the server's own computer
+still needs `acknowledgeLocalAuto: true`.
+
+## Your Mac: a choice per Mac
+
+Each Mac connected to your Cloud home has its own choice, under Settings →
+Computer → **Your Macs**:
+
+| Choice | What happens when a dog wants to use that Mac |
+| --- | --- |
+| **Always allow** (the default) | It goes ahead with no card. |
+| **Ask every time** | A card names the Mac and what the dog wants (the folder, file, command or app). **Allow once** covers that kind of action for the rest of the same request, **Always allow** switches that Mac to Always allow, and **Never** switches it to Never and refuses this one. These are the only three choices. In a group chat the card offers Allow once and Never. |
+| **Never** | The call is refused with no card, and the dog says so in one line. |
+
+The choice is saved in `mac-access.json` (`{ version: 2, mode, computers }`,
+where `mode` is the choice for a Mac with none of its own) and read and changed
+with `GET` and `PUT /api/mac-access` (the owner's own devices only; `PUT` takes
+`{ computers: { "<mac id>": "ask" | "always" | "never" } }`). A first-version
+file moves over once: Never stays Never, and Ask, which never asked the owner,
+becomes Always allow. Auto-review does not change this choice.
 
 Saved command approvals ("Always allow this command") belong to the dog,
 command and folder. They keep matching after the dog moves to another account
 of the same engine.
+
+## Levels underneath
+
+Each level is one of the provider's own permission modes, passed through. The
+switch above runs your dogs as **Off-leash** (`auto`); the others stay for
+guests, shared workspaces and dogs that already use them.
+
+| Level | Behavior |
+| --- | --- |
+| **Heel** (Ask for approval) | Requests approval for commands and file changes, the way the provider's supervised mode does. |
+| **Auto-accept edits** | Approves file edits automatically; other actions can still require approval. Offered where the provider has such a mode (Claude, Grok, Antigravity). |
+| **Off-leash** (Approve for me) | Uses the provider's automatic review on Codex, Claude, Cursor, and Grok to approve routine actions and ask about others. |
+| **Full access** | Enables the provider's permissive mode for commands, edits, and selected-computer actions, including potentially destructive or sensitive work. Residual native permission prompts are answered for you. later.dog profile changes, routine actions, team setup, bot deletion, and enabled skill authoring apply without a second approval. Actual questions and missing credentials still need your input. |
+| **Custom (`config.toml`)** | Codex only. later.dog reads and reapplies the effective approval and sandbox settings from your Codex configuration. |
+
+Full access is an elevated-risk standing approval. Full and Custom can only be
+enabled from a packaged local desktop app, where the choice crosses a private
+process channel rather than the bot-accessible HTTP API. Full access does not
+bypass operating system privacy controls, authentication, CAPTCHA or MFA,
+service permissions, or workspace ownership and computer-sharing grants.
 
 ## Answering a request
 
@@ -136,10 +126,10 @@ mode is unavailable to the session, starts in Manual without an error. On
 Claude Code 2.1.266 that is the case for Claude Haiku 4.5 and Sonnet 4.5,
 and for any organization that set `disableAutoMode`. In that session the bot
 asks before each action. The Claude driver reads the mode the session actually
-runs in from the CLI's `init` frame; when Approve for me was requested and the
-session runs Manual, the chat shows one notice per session naming the model.
-Choose a model the reviewer supports, Auto-accept edits, or Full access to
-stop the prompts.
+runs in from the CLI's `init` frame; when Auto-review is on and the session
+runs Manual, the chat shows one notice per session naming the model. Choose a
+model the reviewer supports, or turn Auto-review off, to stop the prompts. With
+Auto-review off later.dog answers those requests and shows no notice.
 
 ### Antigravity: Ask, Edits, or Auto (full access)
 

@@ -364,7 +364,7 @@ it("runs teammate work on the recipient's own model and level, never the sender'
   expect(lead.tasks).toHaveLength(1);
   expect(lead.tasks[0].approvalMode ?? "ask").toBe("ask");
   expect((await f.messages(f.lead.activeTaskId)).some((message: any) => /delegated by/.test(message.tool?.name ?? ""))).toBe(false);
-  expect(f.evidence().filter((turn: any) => turn.botId === f.lead.id).every((turn: any) => turn.model === f.lead.modelSelection.model && turn.permissionMode === "default")).toBe(true);
+  expect(f.evidence().filter((turn: any) => turn.botId === f.lead.id).every((turn: any) => turn.model === f.lead.modelSelection.model && turn.permissionMode === "auto")).toBe(true);
 }), 45_000);
 
 const sendReceipts = (f: any, botId: string) => f.evidence().filter((turn: any) => turn.botId === botId)

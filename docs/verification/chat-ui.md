@@ -114,7 +114,8 @@ teammate opens that teammate's chat. A routine a dog creates reads
 `Created routine ⏲ name` and opens that routine in Routines. An answered
 permission folds to `Allowed once`, `Always allowed`, `Allowed for this chat`
 or `Denied` with the tool's short name; the open card offers Allow once
-(primary), Don't allow, and then, set apart and outlined, Always allow. The
+(primary), Don't allow, and then, set apart and outlined, Always allow; a card
+about one of the owner's Macs offers Allow once, Always allow and Never. The
 exact command shows open in a mono block of capped height, one plain line under
 the lasting choice says how far it reaches, and the dog's sidebar line reads
 `Waiting for you: <action>`. Don't allow always hands the engine the same fixed

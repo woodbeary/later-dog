@@ -111,11 +111,11 @@ describe("General", () => {
     expect(html).not.toContain("data-phone-pairing");
   });
 
-  it("stacks later.dog Cloud, AI accounts, Profile, Appearance, System and Help, in that order", () => {
+  it("stacks later.dog Cloud, AI accounts, Profile, Dogs, Appearance, System and Help, in that order", () => {
     const html = render();
-    expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "profile", "appearance", "system", "help"]);
+    expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "profile", "dogs", "appearance", "system", "help"]);
     expect(markers(html)).toEqual(["accounts", "permissions=microphone"]);
-    const order = ["later.dog Cloud", "AI accounts", "Profile", "Your name", "Appearance", "Theme", "Language", "Notification sounds", "System", "Help"].map((word) => html.indexOf(`>${word}</div>`));
+    const order = ["later.dog Cloud", "AI accounts", "Profile", "Your name", "Dogs", "Auto-review", "Appearance", "Theme", "Language", "Notification sounds", "System", "Help"].map((word) => html.indexOf(`>${word}</div>`));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(html).toContain('aria-label="Your name"');
@@ -127,7 +127,20 @@ describe("General", () => {
     const html = render();
     for (const gone of ["About me", "Voice mode", "Step-by-step updates", "Show every update", "Typing suggestions", "Smarter suggestions", "Sharper dictation", "Learned"]) expect(html).not.toContain(gone);
     expect(html).not.toContain('data-settings-group="typing-suggestions"');
-    expect(html.match(/role="switch"/g) ?? []).toHaveLength(1);
+    expect(html.match(/role="switch"/g) ?? []).toHaveLength(2);
+    expect(html).toContain('data-auto-review="on"');
+  });
+
+  it("puts the one Auto-review switch under Dogs, saying what on and off mean", () => {
+    const on = render();
+    expect(on).toContain('aria-label="Auto-review"');
+    expect(on).toContain('aria-checked="true"');
+    expect(on).toContain("An AI reviewer checks each step first. You&#x27;re asked only when it isn&#x27;t sure.");
+    fixture.config = { ...fixture.config, features: { browser: false, autoReview: false } };
+    const off = render();
+    expect(off).toContain('data-auto-review="off"');
+    expect(off).toContain("Dogs act without asking you first. A few risky steps are always refused.");
+    for (const gone of ["Heel", "Off-leash"]) expect(off).not.toContain(gone);
   });
 
   it("picks the theme from System, Light and Dark", () => {
@@ -143,7 +156,7 @@ describe("General", () => {
       { instanceId: "mistral", driverKind: "mistral", displayName: "Mistral", access: "api", snapshot: { state: "unavailable", authenticated: false }, models },
     ];
     const html = render();
-    expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "api-keys", "profile", "appearance", "system", "help"]);
+    expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "api-keys", "profile", "dogs", "appearance", "system", "help"]);
     expect(markers(html)).toEqual(["accounts", "api-keys=openai", "permissions=microphone"]);
     expect(html).toContain(">API keys</div>");
   });
@@ -157,9 +170,9 @@ describe("General", () => {
 
   it("leaves System out where it would be empty", () => {
     vi.stubGlobal("window", {});
-    expect(groups(render())).toEqual(["later-dog-cloud", "accounts", "profile", "appearance", "help"]);
+    expect(groups(render())).toEqual(["later-dog-cloud", "accounts", "profile", "dogs", "appearance", "help"]);
     fixture.analytics = true;
-    expect(groups(render())).toEqual(["later-dog-cloud", "accounts", "profile", "appearance", "system", "help"]);
+    expect(groups(render())).toEqual(["later-dog-cloud", "accounts", "profile", "dogs", "appearance", "system", "help"]);
   });
 
   it("ends with Help: Keyboard shortcuts, Help Center, Send Feedback and About", () => {
@@ -221,7 +234,7 @@ describe("Settings in the Cloud's window", () => {
   it("is the same Settings: the account card, and this Mac's permission rows on General and on Computer", () => {
     vi.stubGlobal("window", CLOUD);
     const general = render();
-    expect(groups(general)).toEqual(["later-dog-cloud", "accounts", "profile", "appearance", "system", "help"]);
+    expect(groups(general)).toEqual(["later-dog-cloud", "accounts", "profile", "dogs", "appearance", "system", "help"]);
     expect(general).toContain('data-cloud-account="on-cloud"');
     expect(markers(general)).toEqual(["accounts", "permissions=microphone"]);
     expect(general).not.toContain("You&#x27;re on My Cloud");

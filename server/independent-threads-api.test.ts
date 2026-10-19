@@ -316,7 +316,7 @@ describe("independent bot tasks through the isolated control surface", () => {
     expect(launchedA.pid).not.toBe(launchedB.pid);
     expect(launchedA.argv[launchedA.argv.indexOf("--model") + 1]).toBe(models[0]);
     expect(launchedB.argv[launchedB.argv.indexOf("--model") + 1]).toBe(models[1]);
-    expect(launchedA.argv[launchedA.argv.indexOf("--permission-mode") + 1]).toBe("default");
+    expect(launchedA.argv[launchedA.argv.indexOf("--permission-mode") + 1]).toBe("auto");
     expect(launchedB.argv[launchedB.argv.indexOf("--permission-mode") + 1]).toBe("auto");
     evidence.push({ providerSelections: [models[0], models[1]], distinctProcesses: true });
     expect(launchedA.env.LATERDOG_FIXTURE_CWD).toBe(realpathSync(join(session.info.dataDir, "task-workspaces", botId, taskA)));

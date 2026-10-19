@@ -150,7 +150,7 @@ describe("remembering exact command approvals", () => {
     const ownChat = { ...bot, tasks: [{ threadId: "thread-1" }] } as Bot;
     expect(line(view({ allowKey: "ask_bot:kiwi" }, ownChat).html)).toBe("Always allow lets Scout do this again without asking in this chat.");
     expect(line(view({ allowKey: "ask_bot:kiwi" }).html)).toBe("Always allow lets Scout do this again without asking in group chats and in new chats.");
-    expect(line(view({ allowKey: "mac" }).html)).toBe("Always allow lets every dog use your Mac without asking.");
+    expect(line(view({ allowKey: "mac" }).html)).toBe("Always allow lets every dog use this Mac without asking. Never stops them using it.");
     for (const button of command.buttons) expect((button.props as { title?: string }).title).toBeUndefined();
     expect(line(view({ commandAllowlist: undefined, allowSession: false }).html)).toBeUndefined();
   });
@@ -160,5 +160,29 @@ describe("remembering exact command approvals", () => {
       operation: { action: "run_now", routineId: "routine-1", expectedUpdatedAt: 1 } } });
     expect(result.html).not.toContain("Always allow");
     expect(result.html).toContain("Confirm");
+  });
+});
+
+describe("a card about the owner's Mac", () => {
+  const mac = { tool: "mac_run_command", allowKey: "mac", approvalScope: "local-computer" as const, commandAllowlist: undefined, allowSession: undefined };
+
+  it("offers the three choices Allow once, Always allow and Never, with Never as its only refusal", () => {
+    expect(view(mac).buttons.map((button) => button.props.children)).toEqual(["Allow once", "Always allow", "Never"]);
+    expect(view({ ...mac, allowKey: undefined }).buttons.map((button) => button.props.children)).toEqual(["Allow once", "Never"]);
+  });
+
+  it("keeps Don't allow on every other card", () => {
+    expect(view().buttons.map((button) => button.props.children)).toContain("Don't allow");
+  });
+
+  it("sends Never as a refusal that sets that Mac to Never, and Always allow as that Mac's lasting yes", () => {
+    view(mac).buttons.find((button) => button.props.children === "Never")!.props.onClick!();
+    expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ behavior: "deny", scope: "never", alwaysAllow: undefined }));
+    view(mac).buttons.find((button) => button.props.children === "Always allow")!.props.onClick!();
+    expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({ behavior: "allow", scope: "always", alwaysAllow: { botId: "bot-1", key: "mac" } }));
+  });
+
+  it("offers no Never on any other card", () => {
+    expect(view().buttons.map((button) => button.props.children)).not.toContain("Never");
   });
 });

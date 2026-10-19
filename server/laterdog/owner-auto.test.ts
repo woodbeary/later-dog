@@ -7,13 +7,13 @@ import type { RequestOutcome } from "../contracts.ts";
 import { peerProvenanceAuthor, peerProvenanceNote, withPeerProvenance } from "../peer-provenance.ts";
 import {
   claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerCoordinationRequestNote, ownerGrantApplies,
-  ownerGrantPrompt, ownerReviewerOffNotice, ownerSendsWithoutAsking, type OwnerAutoScope,
+  ownerGrantPrompt, ownerSendsWithoutAsking, reviewerMissingNotice, type OwnerAutoScope,
 } from "./owner-auto.ts";
 import { settleOwnerAutoPermission, type OwnerAutoPermissionDeps } from "./owner-auto-request.ts";
 import type { GitLookup } from "./owner-guard.ts";
 import { sameEngineAcrossAccounts } from "./saved-command-engine.ts";
 
-const owner: OwnerAutoScope = { cloudHome: true, sharedWorkspace: false, guestDriven: false };
+const owner: OwnerAutoScope = { cloudHome: true, sharedWorkspace: false, guestDriven: false, autoReview: false };
 
 describe("whose authority a dog's turn carries", () => {
   it("is the owner's for his own dogs, his routines and handoffs between his dogs", () => {
@@ -25,18 +25,21 @@ describe("whose authority a dog's turn carries", () => {
     expect(ownerAuthority({ ...owner, sharedWorkspace: true })).toBe(false);
   });
 
-  it("gives the standing grant only to Off-leash dogs, and answers for them only in the Cloud home", () => {
+  it("gives the standing grant to the owner's reviewed dogs, and answers for them only while Auto-review is off", () => {
     expect(ownerGrantApplies("auto", owner)).toBe(true);
     for (const mode of ["ask", "edits", "full", "custom"] as const) expect(ownerGrantApplies(mode, owner), mode).toBe(false);
     expect(ownerAutoAnswers("auto", owner)).toBe(true);
-    expect(ownerAutoAnswers("auto", { ...owner, cloudHome: false })).toBe(false);
+    expect(ownerAutoAnswers("auto", { ...owner, cloudHome: false })).toBe(true);
+    expect(ownerAutoAnswers("auto", { ...owner, autoReview: true })).toBe(false);
     expect(ownerAutoAnswers("ask", owner)).toBe(false);
     expect(ownerAutoAnswers("auto", { ...owner, guestDriven: true })).toBe(false);
   });
 
-  it("lets the owner's Off-leash and Full access dogs in the Cloud send through his connected apps without asking", () => {
+  it("lets the owner's dogs in the Cloud send through his connected apps without asking while Auto-review is off, and Full access always", () => {
     expect(ownerSendsWithoutAsking("auto", owner)).toBe(true);
     expect(ownerSendsWithoutAsking("full", owner)).toBe(true);
+    expect(ownerSendsWithoutAsking("auto", { ...owner, autoReview: true })).toBe(false);
+    expect(ownerSendsWithoutAsking("full", { ...owner, autoReview: true })).toBe(true);
     for (const mode of ["ask", "edits", "custom"] as const) expect(ownerSendsWithoutAsking(mode, owner), mode).toBe(false);
     expect(ownerSendsWithoutAsking("auto", { ...owner, cloudHome: false })).toBe(false);
     expect(ownerSendsWithoutAsking("full", { ...owner, guestDriven: true })).toBe(false);
@@ -138,9 +141,9 @@ describe("an escalation from an owner Off-leash dog", () => {
     expect(await run({ tool: "Bash", command: "pnpm test" }, "rejected")).toEqual({ settled: "failed", calls: ["allow", "failed: rejected"] });
   });
 
-  it("tells the person later.dog answers for a dog whose engine reviewer is off", () => {
-    expect(ownerReviewerOffNotice("Claude", "claude-haiku-4-5")).toBe(
-      "Off-leash: Claude's automatic reviewer is not available for claude-haiku-4-5, so later.dog approves each action for you, except force-pushing a repository's default branch, deleting a remote repository, or deleting recursively outside the dog's workspace or /tmp.",
+  it("tells the person a dog asks before each action when its engine has no reviewer and Auto-review is on", () => {
+    expect(reviewerMissingNotice("Claude", "claude-haiku-4-5")).toBe(
+      "Auto-review: Claude's automatic reviewer is not available for claude-haiku-4-5, so this dog checks with you before each action. Choose a model that has one, or turn Auto-review off in Settings, to stop the prompts.",
     );
   });
 });

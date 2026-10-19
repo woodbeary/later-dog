@@ -16,7 +16,7 @@ import { draftSummary, foldPoint } from "./compaction-summary.ts";
 import { compactBudget, contextWindowFor, shouldCompact } from "./context-budget.ts";
 import { autoCompactWindow } from "./drivers/claude.ts";
 import { completeSharedOperation, provenRequestPerson, SharedComputers, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerRegistration, sharedComputerScopeRefusal, type SharedComputerOperation } from "./shared-computers.ts";
-import { MAC_ALLOW_KEY, MacApprovals } from "./mac-approval.ts";
+import { MAC_ALLOW_KEY, MacApprovals, type MacLasting } from "./mac-approval.ts";
 import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, type CloudLendingTurn } from "./cloud-lending.ts";
 import { botMemoryFiles, createLendingMemory } from "./lending-memory.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
@@ -478,7 +478,7 @@ import {
 import { createScreenFrameSource, type ScreenCapture } from "./screen-frame-source.ts";
 import { screenFrameHash, screenSurfaceForTool, screenTouchingTool, settledFrameIsNews } from "./screen-frame-gate.ts";
 import { asSchedule, RoutineRequestService } from "./routine-requests.ts";
-import { directApply, UNDO_STALE, type DirectApply } from "./direct-apply.ts";
+import { directApply, routineApply, UNDO_STALE, type DirectApply } from "./direct-apply.ts";
 import { createOptionsCard } from "./options-card.ts";
 import { buildBotOverview, type BotOverview, connectedAppsFacts } from "./bot-overview.ts";
 import { submitProfileAvatar } from "./profile-avatar.ts";
@@ -625,7 +625,8 @@ import {
 import { guardBody, json, onJsonBody, parsedBodyOf, readBody } from "./harness/http.ts";
 import { LOCAL_TOOLS_TOKEN_PATTERN, localToolsBodyRefusal, signsItselfOut, typedMessageAuthority } from "./laterdog/local-tools-scope.ts";
 import { EDIT_REFUSAL } from "./laterdog/local-tool-message.ts";
-import { claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerCoordinationAuthority, ownerCoordinationRequestNote, ownerGrantApplies, ownerGrantPrompt, ownerReviewerOffNotice, ownerSendsWithoutAsking, type OwnerAutoScope } from "./laterdog/owner-auto.ts";
+import { claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerCoordinationAuthority, ownerCoordinationRequestNote, ownerGrantApplies, ownerGrantPrompt, ownerSendsWithoutAsking, reviewerMissingNotice, type OwnerAutoScope } from "./laterdog/owner-auto.ts";
+import { autoReviewFromDogs, autoReviewOn, ownerTurnMode } from "./laterdog/auto-review.ts";
 import { settleOwnerAutoPermission } from "./laterdog/owner-auto-request.ts";
 import { ownerGuardRequest, ownerWorkspaceRoots, type OwnerGuardContext } from "./laterdog/owner-guard.ts";
 import { sameEngineAcrossAccounts } from "./laterdog/saved-command-engine.ts";
@@ -1012,18 +1013,23 @@ function cloudLendingRefusal(capability: Pick<InternalCapability, "botId" | "thr
   return lendingMemory?.reconcile(capability.botId, foreignTurnRunning(capability.botId), { cached: true }).changedBySomeoneElse ? "memory-changed" : null;
 }
 
+const macMode = z.enum(["ask", "always", "never"]);
 const macAccessUpdate = z.object({
-  mode: z.enum(["ask", "always", "never"]).optional(),
-  dogs: z.array(z.string().min(1).max(128)).max(500).optional(),
+  mode: macMode.optional(),
+  computers: z.record(z.string().min(1).max(128), macMode).optional(),
 }).strict();
 
 function macAccessView() {
-  const access = macApprovals.settings();
   return {
-    mode: access.mode,
-    dogs: access.dogs.flatMap((id) => { const bot = store.bot(id); return bot ? [{ id, name: bot.name }] : []; }),
-    macs: sharedComputers.known(CLOUD_HOME_LENDER).map((computer) => ({ id: computer.id, name: computer.name, online: computer.online, lastSeenAt: computer.lastSeenAt })),
+    mode: macApprovals.settings().mode,
+    macs: sharedComputers.known(CLOUD_HOME_LENDER).map((computer) => ({
+      id: computer.id, name: computer.name, online: computer.online, lastSeenAt: computer.lastSeenAt, mode: macApprovals.modeFor(computer.id),
+    })),
   };
+}
+
+function macLasting(scope: unknown): MacLasting | undefined {
+  return scope === "never" ? "never" : undefined;
 }
 
 function macRequestMessageId(capability: Pick<InternalCapability, "threadId" | "generation">): string | undefined {
@@ -1081,7 +1087,7 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
   if (!bot) throw Object.assign(new Error("This dog is gone."), { status: 404 });
   const requestMessageId = macRequestMessageId(capability);
   const verdict = await macApprovals.check({
-    bot, threadId: capability.threadId, computer: target.name, operation, active, ownersOwnMac: principal === CLOUD_HOME_LENDER,
+    bot, threadId: capability.threadId, computer: target.name, computerId: target.id, operation, active,
     ...(requestMessageId ? { requestMessageId } : {}),
   });
   if (!verdict.ok) throw Object.assign(new Error(verdict.error), { status: verdict.status });
@@ -3350,6 +3356,11 @@ else enginesRead = defaultSelection().then(
   (selection) => { bootSelection = selection; },
   (error) => console.warn(`[engines] reading the engines at start failed: ${error instanceof Error ? error.message : String(error)}`),
 ).finally(() => { enginesRead = null; });
+if (cfg.features?.autoReview === undefined) {
+  const autoReview = autoReviewFromDogs(store.bots, Boolean(CLOUD_HOME));
+  saveConfig({ features: { autoReview } });
+  cfg.features = { ...cfg.features, autoReview };
+}
 store.seedIfEmpty();
 hostedModels?.reconcile(store);
 if (skillsLibraryEnabled(cfg)) {
@@ -3532,20 +3543,30 @@ async function botOverview(bot: BotRecord): Promise<BotOverview> {
 }
 
 const approvalModeForTurn = (bot: BotRecord, peerInitiated = false, threadId = bot.threadId): ApprovalMode => {
-  if (cloudGuestDriven(threadId)) return "ask";
-  const mode = approvalModeForOrigin(approvalModeFor(bot), { peerInitiated });
+  const guestDriven = cloudGuestDriven(threadId);
+  if (guestDriven) return "ask";
+  const mode = ownerTurnMode(approvalModeForOrigin(approvalModeFor(bot), { peerInitiated }), ownerAuthority(ownerAutoScope(threadId, guestDriven)));
   if (!supportsApprovalMode(bot.modelSelection, mode)) {
     return "ask";
   }
   return mode;
 };
 
+function ownerWorkspaceShared(): boolean {
+  return workspaceShared({ hosted: HOSTED_WORKSPACE, cloudHome: Boolean(CLOUD_HOME), signIn: signInAllowList() });
+}
+
 function ownerAutoScope(threadId: string, guestDriven = cloudGuestDriven(threadId)): OwnerAutoScope {
   return {
     cloudHome: Boolean(CLOUD_HOME),
-    sharedWorkspace: workspaceShared({ hosted: HOSTED_WORKSPACE, cloudHome: Boolean(CLOUD_HOME), signIn: signInAllowList() }),
+    sharedWorkspace: ownerWorkspaceShared(),
     guestDriven,
+    autoReview: autoReviewOn(cfg.features),
   };
+}
+
+function localAutoNeedsWarning(acknowledged: unknown): boolean {
+  return ownerWorkspaceShared() && acknowledged !== true;
 }
 
 function ownerAuthorityFor(threadId: string): { name: string | undefined } | undefined {
@@ -3587,6 +3608,15 @@ function appliesDirectly(botId: string, threadId: string, targetBotId: string): 
     botId,
     targetBotId,
     blocked: selfApplyBlocked(threadId) || !connectorThread(botId, threadId),
+  });
+}
+
+function routineAppliesDirectly(botId: string, threadId: string, targetBotId: string): DirectApply | null {
+  const guestDriven = cloudGuestDriven(threadId);
+  return routineApply({
+    direct: appliesDirectly(botId, threadId, targetBotId),
+    owner: ownerAuthority(ownerAutoScope(threadId, guestDriven)),
+    blocked: guestDriven || !connectorThread(botId, threadId),
   });
 }
 
@@ -3867,10 +3897,6 @@ function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
       respond({ ok: false, error: "This thread's provider does not support that approval level" });
       return true;
     }
-    if (mode === "auto" && target.computer === "local" && approvalModeFor(target) !== "auto" && message.acknowledgeLocalAuto !== true) {
-      respond({ ok: false, error: "Auto mode on this computer requires confirming the warning" });
-      return true;
-    }
     if (mode === "full" || mode === "custom") {
       store.patchBot(botId, { approvalGrant: { requestId, mode, phase: "prepared", threadId: target.threadId, threadOnly: true, refreshPermissions: true } });
     } else if (!store.refreshTaskPermissions(botId, target.threadId)) {
@@ -3893,10 +3919,6 @@ function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
     }
     if (!supportsApprovalMode(target.modelSelection, mode)) {
       respond({ ok: false, error: "This thread's provider does not support that approval level" });
-      return true;
-    }
-    if (mode === "auto" && target.computer === "local" && approvalModeFor(target) !== "auto" && message.acknowledgeLocalAuto !== true) {
-      respond({ ok: false, error: "Auto mode on this computer requires confirming the warning" });
       return true;
     }
     if (mode === "full" || mode === "custom") {
@@ -3953,15 +3975,6 @@ function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
         ? "This provider does not support Full access"
         : "Custom approval settings are available only for Codex dogs",
     });
-    return true;
-  }
-  if (
-    mode === "auto" &&
-    existing.computer === "local" &&
-    approvalModeFor(existing) !== "auto" &&
-    message.acknowledgeLocalAuto !== true
-  ) {
-    respond({ ok: false, error: "Auto mode on this computer requires confirming the warning" });
     return true;
   }
   const updated = store.patchBot(botId, {
@@ -4247,7 +4260,7 @@ function handoffLongWork(node: RoomHandoff): boolean {
   if (!node.parentId) return true;
   const bot = store.bot(node.botId);
   if (!bot) return false;
-  return runsUnattended(approvalModeForTurn(node.groupId ? bot : store.projectBotForTask(bot.id, node.threadId) ?? bot, true, node.threadId));
+  return runsUnattended(approvalModeForTurn(node.groupId ? bot : store.projectBotForTask(bot.id, node.threadId) ?? bot, true, node.threadId), autoReviewOn(cfg.features));
 }
 
 function handoffLine(root: RoomHandoff, name: string): void {
@@ -5269,7 +5282,8 @@ const promiseNudges = createPromiseNudges({
     const owner = store.botByThread(threadId);
     if (!owner || store.groupByThread(threadId) || !personAskAt.has(threadId) || isUnattended(owner.id, threadId) || routineRunForTurn(threadId)) return null;
     if (CLOUD_HOME && (!cloudOwnerOnlyThread(threadId) || cloudGuestDriven(threadId))) return null;
-    return ["auto", "full", "custom"].includes(approvalModeForTurn(botForThread(owner.id, threadId) ?? owner, false, threadId)) ? owner.id : null;
+    const mode = approvalModeForTurn(botForThread(owner.id, threadId) ?? owner, false, threadId);
+    return mode === "full" || mode === "custom" || ownerAutoAnswers(mode, ownerAutoScope(threadId)) ? owner.id : null;
   },
   free: (botId, threadId) => !threadBusy(botId, threadId) && !hasQueuedSteeredMessages(botId, threadId) && !botAtThreadCapacity(botId) &&
     !activeGroupTurnForBot(botId) && !roomHandoffs.activeDirect(threadId) && !pendingThreads().includes(threadId) &&
@@ -6525,6 +6539,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         asker &&
         event.nativeReview === "inactive" &&
         effectiveApprovalMode === "auto" &&
+        !ownerAuto &&
         !nativeReviewNoticed.has(event.threadId)
       ) {
         nativeReviewNoticed.add(event.threadId);
@@ -6533,12 +6548,12 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           role: "bot",
           kind: "activity",
           tool: {
-            name: ownerAuto ? ownerReviewerOffNotice(providerLabel(event.provider), model) : `Off-leash: ${providerLabel(event.provider)}'s automatic reviewer is not available${model ? ` for ${model}` : ""}, so this dog checks with you before each action, as Heel does. Choose a model it supports, or Full access, to stop the prompts.`,
+            name: reviewerMissingNotice(providerLabel(event.provider), model),
             ok: true,
           },
         });
       }
-      if (ownerAuto && permission && asker && event.requestId && event.approvalScope !== "local-computer") {
+      if (ownerAuto && permission && asker && event.requestId) {
         const requestId = event.requestId;
         const instance = registry.get(event.providerInstanceId ?? asker.modelSelection.instanceId);
         const sourceGeneration = directTurnGenerationByThread.get(event.threadId);
@@ -9388,7 +9403,7 @@ async function cloudRoutineReadiness(botId: string, threadId?: string): Promise<
 const routineRequests = new RoutineRequestService({
   store,
   routines,
-  autoApply: appliesDirectly,
+  autoApply: routineAppliesDirectly,
   cloudReady: cloudRoutineReadiness,
   canPersist: proposalPersistence,
   validateTarget: (proposerBotId, target) => {
@@ -10603,7 +10618,7 @@ async function runGroupMemberTurn(
     override: liveGroup.dm
       ? liveGroup.turnTimeoutMinutes
       : store.groupTaskByThread(liveGroup.id, threadId)?.turnTimeoutMinutes,
-    longWork: ownerWorkThread(threadId) && runsUnattended(roomTurnApprovalMode(readyBot, threadId, orchestration)),
+    longWork: ownerWorkThread(threadId) && runsUnattended(roomTurnApprovalMode(readyBot, threadId, orchestration), autoReviewOn(cfg.features)),
   });
   const outcome = await new Promise<GroupMemberTurnOutcome>((resolve) => {
     let done = false;
@@ -12395,6 +12410,7 @@ function configStatus() {
       cloudDictation: cloudDictationEnabled(cfg),
       typingSuggestions: typingSuggestionsEnabled(cfg),
       smarterSuggestions: smarterSuggestionsEnabled(cfg),
+      autoReview: autoReviewOn(cfg.features),
     },
     onboarding: {
       completedAt: cfg.onboarding?.completedAt ?? "",
@@ -12798,6 +12814,7 @@ ROUTES.push(createComputerChangeRoutes({
 }));
 ROUTES.push(createMacAccessRoutes({
   cloudHome: Boolean(CLOUD_HOME),
+  mayChange: (auth) => cloudOwnerSession(auth),
   update: (body) => {
     const parsed = macAccessUpdate.safeParse(body);
     if (!parsed.success) return false;
@@ -16816,7 +16833,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (settings.approvalMode === "full" || settings.approvalMode === "custom") {
         return json(res, 403, { error: "This approval level requires the desktop permission flow. Use the bot creation dialog or explicitly choose Ask/Auto for API creation." });
       }
-      if (settings.computer === "local" && settings.approvalMode === "auto" && body.acknowledgeLocalAuto !== true) {
+      if (settings.computer === "local" && settings.approvalMode === "auto" && localAutoNeedsWarning(body.acknowledgeLocalAuto)) {
         return json(res, 400, { error: "Auto mode on this computer requires confirming the warning first (acknowledgeLocalAuto)" });
       }
       if (settings.avatarUrl && !storedAvatarExists(settings.avatarUrl)) {
@@ -17072,8 +17089,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const refusal = cardAnswerRefusal(auth, bot.threadId, pending.card!.requestId!, "allow");
       if (refusal) return json(res, 403, { error: refusal });
       if (allowKey === MAC_ALLOW_KEY) {
-        const mac = macApprovals.update({ mode: "always" });
-        return json(res, 200, { bot: wireBot(store.bot(bot.id)!), mac });
+        if (!macApprovals.choose(pending.card!.requestId!, "always")) return json(res, 409, { error: "that grant is not on a pending approval for this bot" });
+        return json(res, 200, { bot: wireBot(store.bot(bot.id)!), mac: macAccessView() });
       }
       store.patchTask(bot.id, bot.threadId, {
         alwaysAllow: [...new Set([...(bot.alwaysAllow ?? []), allowKey])].slice(0, 200),
@@ -17362,7 +17379,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const wantsAuto = requestedApprovalMode === "auto";
       const alreadyGranted =
         existingBot?.computer === "local" && approvalModeFor(existingBot) === "auto";
-      if (wantsComputer === "local" && wantsAuto === true && !alreadyGranted && body.acknowledgeLocalAuto !== true) {
+      if (wantsComputer === "local" && wantsAuto === true && !alreadyGranted && localAutoNeedsWarning(body.acknowledgeLocalAuto)) {
         return json(res, 400, {
           error: "Auto mode on this computer requires confirming the warning first (acknowledgeLocalAuto)",
         });
@@ -18199,7 +18216,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 200, { ok: true, outcome: behavior === "allow" ? "allowed-once" : "rejected" });
         }
         if (store.messagesFor(bot.threadId).some((message) => message.card?.requestId === String(body.requestId)) &&
-          macApprovals.resolve(String(body.requestId), behavior)) {
+          macApprovals.resolve(String(body.requestId), behavior, macLasting(body.scope))) {
           return json(res, 200, { ok: true, outcome: behavior === "allow" ? "allowed-once" : "rejected" });
         }
         const requestId = String(body.requestId);
@@ -18310,7 +18327,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 200, { ok: true, outcome: behavior === "allow" ? "allowed-once" : "rejected" });
         }
         if (store.messagesFor(threadId).some((message) => message.card?.requestId === requestId) &&
-          macApprovals.resolve(requestId, behavior)) {
+          macApprovals.resolve(requestId, behavior, macLasting(body.scope))) {
           return json(res, 200, { ok: true, outcome: behavior === "allow" ? "allowed-once" : "rejected" });
         }
         const group = store.groupByThread(threadId);
@@ -18543,7 +18560,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!supportsApprovalMode(current.modelSelection, nextMode)) {
           return json(res, 400, { error: "This provider does not support the selected approval level" });
         }
-        if (nextMode === "auto" && current.computer === "local" && approvalModeFor(current) !== "auto" && body.acknowledgeLocalAuto !== true) {
+        if (nextMode === "auto" && current.computer === "local" && approvalModeFor(current) !== "auto" && localAutoNeedsWarning(body.acknowledgeLocalAuto)) {
           return json(res, 400, { error: "Auto mode on this computer requires confirming the warning first (acknowledgeLocalAuto)" });
         }
         const approvalRank = { ask: 0, edits: 1, auto: 2, full: 3, custom: 4 } as const;
@@ -18615,7 +18632,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (mode === "auto" && approvalModeFor(current) !== "auto" && auth.kind === "loopback" && !DESKTOP_MANAGED && !req.headers.origin && store.bots.some((bot) => bot.busy)) {
           return json(res, 409, { error: "Change the approval level from the app or a paired device while dogs are working." });
         }
-        if (mode === "auto" && current.computer === "local" && approvalModeFor(current) !== "auto" && body.acknowledgeLocalAuto !== true) {
+        if (mode === "auto" && current.computer === "local" && approvalModeFor(current) !== "auto" && localAutoNeedsWarning(body.acknowledgeLocalAuto)) {
           return json(res, 400, { error: "Auto mode on this computer requires confirming the warning first (acknowledgeLocalAuto)" });
         }
         patch.approvalMode = mode;

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { json, readBody } from "../harness/http.ts";
 import type { RequestAuth } from "../request-auth.ts";
-import { createMacAccessRoutes, MAC_ACCESS_HELP, type MacAccessRouteDeps } from "./mac-access.ts";
+import { createMacAccessRoutes, MAC_ACCESS_HELP, MAC_ACCESS_OWNER_ONLY, type MacAccessRouteDeps } from "./mac-access.ts";
 import { dispatchRoutes } from "./table.ts";
 
 const servers: Server[] = [];
@@ -15,8 +15,9 @@ afterEach(async () => {
 async function serve(overrides: Partial<MacAccessRouteDeps> = {}) {
   const deps: MacAccessRouteDeps = {
     cloudHome: true,
+    mayChange: vi.fn(() => true),
     update: vi.fn(() => true),
-    view: vi.fn(() => ({ mode: "ask", alwaysAllowed: [] })),
+    view: vi.fn(() => ({ mode: "always", macs: [{ id: "mac-1", name: "Jo's MacBook Air", mode: "ask" }] })),
     ...overrides,
   };
   const routes = [createMacAccessRoutes(deps)];
@@ -38,14 +39,23 @@ describe("who may use the person's Mac, from a Cloud home", () => {
     const { base } = await serve();
     const response = await fetch(`${base}/api/mac-access`);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ mode: "ask", alwaysAllowed: [] });
+    expect(await response.json()).toEqual({ mode: "always", macs: [{ id: "mac-1", name: "Jo's MacBook Air", mode: "ask" }] });
   });
 
   it("saves a valid change and shows the result", async () => {
     const { base, deps } = await serve();
-    const response = await put(base, { mode: "always" });
+    const response = await put(base, { computers: { "mac-1": "never" } });
     expect(response.status).toBe(200);
-    expect(deps.update).toHaveBeenCalledWith({ mode: "always" });
+    expect(deps.update).toHaveBeenCalledWith({ computers: { "mac-1": "never" } });
+  });
+
+  it("lets only the owner change it", async () => {
+    const { base, deps } = await serve({ mayChange: vi.fn(() => false) });
+    const response = await put(base, { computers: { "mac-1": "always" } });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: MAC_ACCESS_OWNER_ONLY });
+    expect(deps.update).not.toHaveBeenCalled();
+    expect((await fetch(`${base}/api/mac-access`)).status).toBe(200);
   });
 
   it("says what it needs when the change is not valid", async () => {

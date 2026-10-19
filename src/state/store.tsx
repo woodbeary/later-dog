@@ -516,7 +516,7 @@ export interface ConfigStatus {
   };
   profile?: { name: string; email: string };
   language?: string;
-  features?: { skillAuthoring: boolean; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean };
+  features?: { skillAuthoring: boolean; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean; autoReview?: boolean };
   onboarding?: OnboardingStatus;
   browserEngine?: BrowserEngineSummary;
   browserProfiles?: BrowserProfile[];
@@ -872,7 +872,7 @@ export type Action =
       alwaysAllow?: { botId: string; key: string };
       always?: boolean;
       rememberCommand?: boolean;
-      scope?: "once" | "always" | "chat";
+      scope?: "once" | "always" | "chat" | "never";
       onError?: (message: string) => void;
     }
   | { type: "taskSwitched"; bot: Bot }

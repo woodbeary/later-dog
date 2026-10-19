@@ -262,9 +262,9 @@ When a tree ends for time, the asking dog's conversation gets one line, "Ran out
 
 A handoff turn that times out (a room turn past its deadline, or a turn the stall watchdog stops) is tried once more, told to check what is already done and carry on. A second timeout ends it as `timeout`. The stall watchdog counts a tool call that is still running as alive, up to 4 hours for one call.
 
-### The owner's own dogs on auto
+### The owner's own dogs working without asking
 
-When every dog in a tree is the owner's own dog in Off-leash (`auto`) or Full access, in a conversation no guest drives and on a workspace that is not shared (`server/laterdog/long-work.ts`):
+When every dog in a tree is the owner's own dog working without asking (Auto-review off, or Full access), in a conversation no guest drives and on a workspace that is not shared (`server/laterdog/long-work.ts`):
 
 - a room turn and a room handoff turn get 4 hours instead of the 5-minute room default, unless the conversation set its own limit;
 - the 4-hour cap does not apply; the tree runs until 12 hours after its first attempt began, then ends with one plain line and no Continue button;

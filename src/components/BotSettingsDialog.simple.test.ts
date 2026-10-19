@@ -43,7 +43,6 @@ vi.mock("react", async (original) => ({
 }));
 vi.mock("@/lib/use-owner-or-admin", () => ({ useOwnerOrAdmin: () => false }));
 vi.mock("./bot-settings/useBotSettingsDerived", () => ({ useBotSettingsDerived: () => fixture.derived }));
-vi.mock("./LocalComputerAutoWarning", () => ({ LocalComputerAutoWarning: () => null }));
 vi.mock("./bot-settings/BotEditorContext", () => ({ useBotEditor: () => ({ request: fixture.request }) }));
 vi.mock("./DesktopCapabilities", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./DesktopCapabilities")>()),
@@ -76,7 +75,6 @@ const { BotSettingsDialog, looksLikeSkillSource } = await import("./BotSettingsD
 const { botLibraryItems } = await import("./bot-settings/library");
 const { BOT_SECTIONS, tabForSection } = await import("./bot-settings/sections");
 const { SoulField } = await import("./SoulField");
-const { LocalComputerAutoWarning } = await import("./LocalComputerAutoWarning");
 const { ModelPicker } = await import("./ModelPicker");
 const { SimpleMemory } = await import("./bot-settings/SimpleMemory");
 const { RoutinesCard } = await import("./bot-settings/RoutinesCard");
@@ -141,7 +139,7 @@ beforeEach(() => {
   };
   patch.mockReset();
   fixture.derived = {
-    patch, approvalMode: "ask", engine: { driverKind: "claudeAgent" }, trustedModesAvailable: false, activeState: "idle",
+    patch, activeState: "idle",
   };
 });
 
@@ -218,7 +216,7 @@ describe("the dog editor's tabs", () => {
 });
 
 describe("Details", () => {
-  it("shows the look, the plain fields, what it runs on and the ask/decide control", () => {
+  it("shows the look, the plain fields and what it runs on, with no per-dog approval control", () => {
     const { html } = dialog(makeBot());
     expect(html).toContain(">Look</span>");
     expect(html).toContain('aria-label="Breed"');
@@ -230,10 +228,7 @@ describe("Details", () => {
     expect(html).toContain(">Instructions</label>");
     expect(html).toContain("Be brief.");
     expect(html).toContain(">Runs on</span>");
-    expect(html).toContain("Before Scout acts");
-    expect(html).toContain("Heel");
-    expect(html).toContain("Off-leash");
-    for (const gone of ["Shape", "Expression", "Upload", "Generate with AI", "Image provider", "Job"]) {
+    for (const gone of ["Shape", "Expression", "Upload", "Generate with AI", "Image provider", "Job", "Before Scout acts", "Heel", "Off-leash", "data-approval-choice"]) {
       expect(html).not.toContain(gone);
     }
   });
@@ -273,50 +268,6 @@ describe("Details", () => {
     expect(picker.props.threadId).toBeUndefined();
     const at = (text: string) => rendered.html.indexOf(text);
     expect(at(">Instructions</label>")).toBeLessThan(at("data-simple-default-model"));
-    expect(at("data-simple-default-model")).toBeLessThan(at("Before Scout acts"));
-  });
-
-  it("maps the two choices onto Ask and Decide for the dog", () => {
-    const rendered = dialog(makeBot());
-    expect(find(rendered, "data-approval-choice", "ask").props["aria-pressed"]).toBe(true);
-    expect(find(rendered, "data-approval-choice", "auto").props["aria-pressed"]).toBe(false);
-    click(find(rendered, "data-approval-choice", "auto"));
-    expect(patch).toHaveBeenLastCalledWith({ approvalMode: "auto" });
-
-    fixture.derived.approvalMode = "auto";
-    click(find(dialog(makeBot()), "data-approval-choice", "ask"));
-    expect(patch).toHaveBeenLastCalledWith({ approvalMode: "ask" });
-  });
-
-  it("shows legacy Antigravity Auto as Ask without changing the saved mode", () => {
-    fixture.derived.engine = { driverKind: "antigravityAgent" };
-    fixture.derived.approvalMode = "auto";
-    const rendered = dialog(makeBot({ approvalMode: "auto" }));
-    expect(find(rendered, "data-approval-choice", "ask").props["aria-pressed"]).toBe(true);
-    expect(find(rendered, "data-approval-choice", "auto").props["aria-pressed"]).toBe(false);
-    expect(find(rendered, "data-approval-choice", "auto").props.disabled).toBe(true);
-    expect(patch).not.toHaveBeenCalled();
-  });
-
-  it("warns before Decide on this computer", () => {
-    const bot = makeBot({ computer: "local" });
-    click(find(dialog(bot), "data-approval-choice", "auto"));
-    expect(patch).not.toHaveBeenCalled();
-    const warning = dialog(bot).nodes.find((node) => node.type === LocalComputerAutoWarning)!;
-    expect(warning.props.open).toBe(true);
-    (warning.props.onConfirm as () => void)();
-    expect(fixture.dispatch).toHaveBeenLastCalledWith({
-      type: "updateBot", botId: "scout", patch: { approvalMode: "auto", acknowledgeLocalAuto: true },
-    });
-  });
-
-  it("selects neither choice and says so when another level is in use", () => {
-    fixture.derived.approvalMode = "full";
-    const rendered = dialog(makeBot());
-    expect(find(rendered, "data-approval-choice", "ask").props["aria-pressed"]).toBe(false);
-    expect(find(rendered, "data-approval-choice", "auto").props["aria-pressed"]).toBe(false);
-    expect(find(rendered, "data-approval-custom").props.children).toBe("A custom setting is in use. Pick one above to replace it.");
-    expect(patch).not.toHaveBeenCalled();
   });
 });
 

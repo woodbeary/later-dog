@@ -8,13 +8,14 @@ import type { BotRecord, Store } from "./store.ts";
 
 export type MacMode = "ask" | "always" | "never";
 export type MacTool = "mac_list_files" | "mac_read_file" | "mac_write_file" | "mac_run_command" | "mac_computer_call";
-export type MacAccess = { mode: MacMode; dogs: string[] };
+export type MacAccess = { mode: MacMode; computers: Record<string, MacMode> };
+export type MacLasting = "always" | "never";
 export type MacVerdict = { ok: true } | { ok: false; status: number; error: string };
 export { MAC_ALLOW_KEY };
 type MacKind = "look" | "save" | "command" | "apps";
 
 export const MAC_CARD_MS = 210_000;
-export const MAC_NEVER = "The person set their Mac to Never in Settings, so you can't use it. Tell them in one line and don't retry.";
+export const MAC_NEVER = "The person set this Mac to Never, so you can't use it. Tell them in one line and don't retry.";
 export const MAC_DENIED = "The person didn't allow it, so this didn't happen. Tell them in one line and don't retry unless they ask again.";
 export const MAC_EXPIRED = "The person didn't answer the card about their Mac in time, so this didn't happen. Tell them in one line; they can ask again.";
 export const MAC_CANCELLED = "The request to use the person's Mac was cancelled, so this didn't happen.";
@@ -43,11 +44,19 @@ export const MAC_WORDS: Record<MacTool, string> = {
 };
 
 const ALLOWED: MacVerdict = { ok: true };
-const settingsFile = z.object({
+const MAC_MODE = z.enum(["ask", "always", "never"]);
+const MAX_COMPUTERS = 50;
+const firstSettingsFile = z.object({
   version: z.literal(1),
-  mode: z.enum(["ask", "always", "never"]),
+  mode: MAC_MODE,
   dogs: z.array(z.string().min(1).max(128)).max(500),
 }).strict();
+const settingsFile = z.object({
+  version: z.literal(2),
+  mode: MAC_MODE,
+  computers: z.record(z.string().min(1).max(128), MAC_MODE),
+}).strict();
+const DEFAULT_ACCESS: MacAccess = { mode: "always", computers: {} };
 
 export function macTool(action: string): MacTool | null {
   return Object.hasOwn(TOOLS, action) ? TOOLS[action]! : null;
@@ -85,6 +94,7 @@ interface OpenCard {
   messageId: string;
   threadId: string;
   botId: string;
+  computerId: string;
   requestMessageId: string | undefined;
   kind: MacKind;
   waiters: Set<Waiter>;
@@ -103,9 +113,9 @@ export interface MacCheck {
   bot: BotRecord;
   threadId: string;
   computer: string;
+  computerId: string;
   operation: MacOperation;
   requestMessageId?: string;
-  ownersOwnMac: boolean;
   active: () => boolean;
 }
 
@@ -114,7 +124,7 @@ export class MacApprovals {
   private access: MacAccess;
   private readonly open = new Map<string, OpenCard>();
   private readonly grants = new Map<string, { messageId: string | undefined; kinds: Set<MacKind> }>();
-  private readonly allowedAlways = new Set<string>();
+  private readonly settledByChoice = new Set<string>();
   private sweeper: ReturnType<typeof setInterval> | null = null;
 
   constructor(deps: MacApprovalDeps) {
@@ -123,40 +133,37 @@ export class MacApprovals {
   }
 
   settings(): MacAccess {
-    return { mode: this.access.mode, dogs: [...this.access.dogs] };
+    return { mode: this.access.mode, computers: { ...this.access.computers } };
   }
 
-  update(input: { mode?: MacMode; dogs?: string[] }): MacAccess {
-    const dogs = input.dogs === undefined ? this.access.dogs : [...new Set(input.dogs)].filter((id) => this.access.dogs.includes(id));
-    this.access = { mode: input.mode ?? this.access.mode, dogs };
+  modeFor(computerId: string): MacMode {
+    return Object.hasOwn(this.access.computers, computerId) ? this.access.computers[computerId]! : this.access.mode;
+  }
+
+  update(input: { mode?: MacMode; computers?: Record<string, MacMode> }): MacAccess {
+    const computers = Object.entries({ ...this.access.computers, ...input.computers }).slice(-MAX_COMPUTERS);
+    this.access = { mode: input.mode ?? this.access.mode, computers: Object.fromEntries(computers) };
     this.save();
-    if (this.access.mode !== "ask") {
-      const verdict: MacVerdict = this.access.mode === "always" ? ALLOWED : { ok: false, status: 403, error: MAC_NEVER };
-      for (const card of this.open.values()) this.settle(card, { answered: "unavailable", dismissed: true }, verdict);
+    for (const card of this.open.values()) {
+      const mode = this.modeFor(card.computerId);
+      if (mode !== "ask") this.settle(card, { answered: "unavailable", dismissed: true }, mode === "always" ? ALLOWED : { ok: false, status: 403, error: MAC_NEVER });
     }
     return this.settings();
   }
 
-  allowAlways(botId: string): void {
-    if (!this.access.dogs.includes(botId)) {
-      this.access = { ...this.access, dogs: [...this.access.dogs, botId].slice(-500) };
-      this.save();
-    }
-    for (const card of this.open.values()) {
-      if (card.botId !== botId) continue;
-      this.allowedAlways.add(card.requestId);
-      this.settle(card, { answered: "allow" }, ALLOWED);
-    }
-    for (const requestId of [...this.allowedAlways].slice(0, -100)) this.allowedAlways.delete(requestId);
+  choose(requestId: string, choice: MacLasting): boolean {
+    const card = this.open.get(requestId);
+    if (!card) return false;
+    this.settle(card, { answered: choice === "always" ? "allow" : "deny" }, choice === "always" ? ALLOWED : { ok: false, status: 403, error: MAC_NEVER });
+    this.settledByChoice.add(requestId);
+    for (const stale of [...this.settledByChoice].slice(0, -100)) this.settledByChoice.delete(stale);
+    this.update({ computers: { [card.computerId]: choice } });
+    return true;
   }
 
   forgetDog(botId: string): void {
-    if (this.access.dogs.includes(botId)) {
-      this.access = { ...this.access, dogs: this.access.dogs.filter((id) => id !== botId) };
-      this.save();
-    }
     for (const card of this.open.values()) if (card.botId === botId) this.cancel(card);
-    for (const key of this.grants.keys()) if (key.endsWith(`\n${botId}`)) this.grants.delete(key);
+    for (const key of this.grants.keys()) if (key.split("\n")[1] === botId) this.grants.delete(key);
   }
 
   pending(threadId: string, botId?: string): boolean {
@@ -166,16 +173,17 @@ export class MacApprovals {
   async check(input: MacCheck): Promise<MacVerdict> {
     const tool = macTool(input.operation.action);
     if (!tool) return ALLOWED;
-    if (this.access.mode === "never") return { ok: false, status: 403, error: MAC_NEVER };
-    if (input.ownersOwnMac) return ALLOWED;
-    if (this.access.mode === "always" || this.access.dogs.includes(input.bot.id)) return ALLOWED;
+    const mode = this.modeFor(input.computerId);
+    if (mode === "never") return { ok: false, status: 403, error: MAC_NEVER };
+    if (mode === "always") return ALLOWED;
     const kind = KINDS[tool];
     const requestMessageId = input.requestMessageId ?? this.latestPerson(input.threadId);
-    const grant = this.grants.get(grantKey(input.threadId, input.bot.id));
+    const grant = this.grants.get(grantKey(input.threadId, input.bot.id, input.computerId));
     if (grant && grant.kinds.has(kind) && grant.messageId === requestMessageId) return ALLOWED;
     if (!input.active()) return { ok: false, status: 401, error: TURN_ENDED };
     const card = [...this.open.values()].find((candidate) =>
-      candidate.threadId === input.threadId && candidate.botId === input.bot.id && candidate.kind === kind && candidate.requestMessageId === requestMessageId)
+      candidate.threadId === input.threadId && candidate.botId === input.bot.id && candidate.computerId === input.computerId &&
+      candidate.kind === kind && candidate.requestMessageId === requestMessageId)
       ?? this.openCard(input, tool, kind, requestMessageId);
     return await new Promise<MacVerdict>((resolve) => {
       card.waiters.add({ resolve, active: input.active });
@@ -183,12 +191,13 @@ export class MacApprovals {
     });
   }
 
-  resolve(requestId: string, behavior: string | undefined): boolean {
+  resolve(requestId: string, behavior: string | undefined, lasting?: MacLasting): boolean {
     const card = this.open.get(requestId);
-    if (!card) return this.allowedAlways.delete(requestId);
+    if (!card) return this.settledByChoice.delete(requestId);
+    if (lasting === "never" && behavior !== "allow") return this.choose(requestId, "never");
     const allow = behavior === "allow";
     if (allow) {
-      const key = grantKey(card.threadId, card.botId);
+      const key = grantKey(card.threadId, card.botId, card.computerId);
       const messageId = card.requestMessageId;
       const current = this.grants.get(key);
       const kinds = current && current.messageId === messageId ? current.kinds : new Set<MacKind>();
@@ -245,7 +254,7 @@ export class MacApprovals {
       },
     });
     const card: OpenCard = {
-      requestId, messageId: message.id, threadId, botId: bot.id, requestMessageId, kind, waiters: new Set(),
+      requestId, messageId: message.id, threadId, botId: bot.id, computerId: input.computerId, requestMessageId, kind, waiters: new Set(),
       timer: setTimeout(() => {
         const open = this.open.get(requestId);
         if (open) this.settle(open, { answered: "unavailable", expired: true }, { ok: false, status: 408, error: MAC_EXPIRED });
@@ -323,21 +332,24 @@ export class MacApprovals {
       if (existsSync(this.deps.file)) {
         const stat = lstatSync(this.deps.file);
         if (stat.isFile() && !stat.isSymbolicLink() && stat.size <= 100_000) {
-          const parsed = settingsFile.parse(JSON.parse(readFileSync(this.deps.file, "utf8")));
-          return { mode: parsed.mode, dogs: parsed.dogs };
+          const raw: unknown = JSON.parse(readFileSync(this.deps.file, "utf8"));
+          const first = firstSettingsFile.safeParse(raw);
+          if (first.success) return { mode: first.data.mode === "never" ? "never" : "always", computers: {} };
+          const parsed = settingsFile.parse(raw);
+          return { mode: parsed.mode, computers: parsed.computers };
         }
       }
     } catch (error) {
       console.warn(`mac access: could not read settings: ${(error as Error).message}`);
     }
-    return { mode: "ask", dogs: [] };
+    return { ...DEFAULT_ACCESS, computers: {} };
   }
 
   private save(): void {
-    writeFileAtomic(this.deps.file, JSON.stringify({ version: 1, mode: this.access.mode, dogs: this.access.dogs }), { mode: 0o600 });
+    writeFileAtomic(this.deps.file, JSON.stringify({ version: 2, mode: this.access.mode, computers: this.access.computers }), { mode: 0o600 });
   }
 }
 
-function grantKey(threadId: string, botId: string): string {
-  return `${threadId}\n${botId}`;
+function grantKey(threadId: string, botId: string, computerId: string): string {
+  return `${threadId}\n${botId}\n${computerId}`;
 }

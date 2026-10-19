@@ -43,7 +43,7 @@ it("runs a teammate's work in its own conversation at its own level, whatever th
     await api("PATCH", `/api/bots/${chief.id}/tasks/${chief.activeTaskId}`, { approvalMode: "auto", acknowledgeLocalAuto: true });
     const adaTurn = await bringIn(chief, chief.activeTaskId, ada, "check-auto");
     expect(adaTurn.threadId).toBe(ada.activeTaskId);
-    expect(adaTurn.permissionMode).toBe("default");
+    expect(adaTurn.permissionMode).toBe("auto");
     expect(persistedTask(ada.id, adaTurn.threadId)?.approvalMode ?? "ask").toBe("ask");
     expect((await messages(adaTurn.threadId)).some(message => message.kind === "activity" && /delegated by/.test(message.tool?.name ?? ""))).toBe(false);
     expect((await api("GET", "/api/bots")).bots.find((bot: any) => bot.id === ada.id).approvalMode ?? "ask").toBe("ask");
@@ -51,7 +51,7 @@ it("runs a teammate's work in its own conversation at its own level, whatever th
     const askThread = (await api("POST", `/api/bots/${chief.id}/tasks`, { title: "Plain Ask work" }, 201)).task;
     const beaTurn = await bringIn(chief, askThread.threadId, bea, "check-ask");
     expect(beaTurn.threadId).toBe(bea.activeTaskId);
-    expect(beaTurn.permissionMode).toBe("default");
+    expect(beaTurn.permissionMode).toBe("auto");
     expect(persistedTask(bea.id, beaTurn.threadId)?.approvalMode ?? "ask").toBe("ask");
     expect((await messages(beaTurn.threadId)).some(message => message.kind === "activity" && /delegated by/.test(message.tool?.name ?? ""))).toBe(false);
   } finally {

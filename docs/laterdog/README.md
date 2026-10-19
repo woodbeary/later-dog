@@ -31,9 +31,9 @@ switch between the dog, a picture you upload, or one generated for it (when pict
 name or **Add a label** under it to change them. The profile's **Computer** tab shows the dog's own computer: its screen
 when it is awake, or a sleeping dog with **Wake** when it is not.
 
-Keep a dog on **Heel** and it checks with you before it runs commands or changes files. Let it go **Off-leash** and it
-acts first, then tells you. Choose with the **+** beside the message field, where you also attach files and connect
-apps.
+**Auto-review** in Settings → General is one switch for all your dogs. On, an AI reviewer checks each step and you are
+asked only when it isn't sure. Off, your dogs act without asking you first, and a few risky steps are always refused.
+See [approval levels](../approval-levels.md).
 
 ## Cloud tasks
 
@@ -100,8 +100,8 @@ computers service to your own Cloudflare account ([deploy/laterdog/computers](..
 
 Settings, Computer lists every cloud computer with the dog it belongs to (asleep when its computer is). **Sleep** puts an
 awake one to sleep now instead of waiting for it to idle; **Delete** removes it and its files, after you confirm. Both
-wait while a dog is using that computer. The same page names your own computer and, under **Execution on this
-computer**, lets you set each dog to Heel or Off-leash, the same setting as in the dog's profile.
+wait while a dog is using that computer. On a Cloud home, **Your Macs** in Settings gives each of your Macs its own
+choice for dogs using it: **Always allow** (the default), **Ask every time** or **Never**.
 
 When a dog needs to sign in to a site on its cloud computer, it opens the sign-in page and asks you in the chat with a
 **Secure Form**. Click **Open**, fill in what it asks for and choose **Continue**. later.dog types each value straight

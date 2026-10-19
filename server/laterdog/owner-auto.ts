@@ -7,6 +7,7 @@ export interface OwnerScope {
 
 export interface OwnerAutoScope extends OwnerScope {
   cloudHome: boolean;
+  autoReview: boolean;
 }
 
 export interface ReviewerGrant {
@@ -23,11 +24,11 @@ export function ownerGrantApplies(mode: ApprovalMode, scope: OwnerScope): boolea
 }
 
 export function ownerAutoAnswers(mode: ApprovalMode, scope: OwnerAutoScope): boolean {
-  return scope.cloudHome && ownerGrantApplies(mode, scope);
+  return !scope.autoReview && ownerGrantApplies(mode, scope);
 }
 
 export function ownerSendsWithoutAsking(mode: ApprovalMode, scope: OwnerAutoScope): boolean {
-  return scope.cloudHome && (mode === "auto" || mode === "full") && ownerAuthority(scope);
+  return scope.cloudHome && ownerAuthority(scope) && (mode === "full" || ownerAutoAnswers(mode, scope));
 }
 
 const NO_NAME = "The owner";
@@ -92,6 +93,6 @@ export function ownerCoordinationRequestNote(ownerName: string | undefined): str
   return `Request text comes from one of ${owners} own dogs in ${owners} own workspace and carries ${owners} authority.`;
 }
 
-export function ownerReviewerOffNotice(engine: string, model: string | undefined): string {
-  return `Off-leash: ${engine}'s automatic reviewer is not available${model ? ` for ${model}` : ""}, so later.dog approves each action for you, except ${GUARDED}.`;
+export function reviewerMissingNotice(engine: string, model: string | undefined): string {
+  return `Auto-review: ${engine}'s automatic reviewer is not available${model ? ` for ${model}` : ""}, so this dog checks with you before each action. Choose a model that has one, or turn Auto-review off in Settings, to stop the prompts.`;
 }

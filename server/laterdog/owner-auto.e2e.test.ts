@@ -126,6 +126,12 @@ afterAll(async () => {
   if (broker) await new Promise<void>((resolve) => broker!.close(() => resolve()));
 });
 
+async function autoReview(on: boolean) {
+  const saved = await api("PATCH", "/api/config", { features: { autoReview: on } });
+  expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+  expect(saved.body.features.autoReview).toBe(on);
+}
+
 async function newDog(name: string, approvalMode: "ask" | "auto") {
   const created = await api("POST", "/api/bots", { name, modelSelection: { instanceId: "held", model: "claude-sonnet-5" }, settings: { approvalMode } });
   expect(created.status, JSON.stringify(created.body)).toBe(201);
@@ -172,7 +178,13 @@ async function startTurn(bot: { id: string }, text: string) {
   return attach(bot, threadId);
 }
 
-it("an owner Off-leash dog gets the standing grant its reviewer can see, escalations no longer wait, and its questions wait for the person", async () => {
+it("starts with Auto-review on for a home whose dogs never worked Off-leash", async () => {
+  expect((await api("GET", "/api/config")).body.features.autoReview).toBe(true);
+  expect(JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8")).features.autoReview).toBe(true);
+});
+
+it("with Auto-review off, an owner dog gets the standing grant its reviewer can see, nothing waits for the person, and its questions still do", async () => {
+  await autoReview(false);
   const dog = await newDog("Shipper", "auto");
   const turn = await startTurn(dog, "Commit the fix to main and open the release PR.");
   expect(turn.launch.argv[turn.launch.argv.indexOf("--permission-mode") + 1]).toBe("auto");
@@ -236,7 +248,8 @@ function relay(token: string, name: string, args: unknown) {
 const sendCards = async (threadId: string) => ((await api("GET", `/api/threads/${threadId}/messages?limit=100`)).body.messages as any[])
   .filter((message) => message.card?.outboundRequest);
 
-it("an owner Off-leash dog sends through a connected app with no card, and a Heel dog still asks", async () => {
+it("with Auto-review off an owner dog sends through a connected app with no card, and with it on the send asks", async () => {
+  await autoReview(false);
   const mailer = await newDog("Mailer", "auto");
   const before = relayed.length;
   const sent = await relay(await mintConnectors(mailer.id, mailer.threadId), "GMAIL_SEND_EMAIL", { to: "friend@example.test", body: "On my way." });
@@ -246,7 +259,8 @@ it("an owner Off-leash dog sends through a connected app with no card, and a Hee
   expect(await sendCards(mailer.threadId)).toHaveLength(0);
   expect((await api("GET", `/api/bots/${mailer.id}/outbound`)).body.today).toBe(1);
 
-  const careful = await newDog("Careful mailer", "ask");
+  await autoReview(true);
+  const careful = await newDog("Careful mailer", "auto");
   const held = relay(await mintConnectors(careful.id, careful.threadId), "GMAIL_SEND_EMAIL", { to: "friend@example.test" });
   await expect.poll(async () => (await sendCards(careful.threadId)).length, { timeout: 10_000 }).toBe(1);
   const [card] = await sendCards(careful.threadId);
@@ -255,18 +269,53 @@ it("an owner Off-leash dog sends through a connected app with no card, and a Hee
   expect(relayed).toHaveLength(before + 1);
 }, 60_000);
 
-it("a Heel dog still asks the person", async () => {
-  const heel = await newDog("Careful", "ask");
-  const turn = await startTurn(heel, "Commit the fix to main.");
-  expect(turn.launch.settings?.autoMode).toBeUndefined();
-  expect(turn.launch.systemPrompt ?? "").not.toContain("Standing grant from Jacob");
+it("with Auto-review on, every owner dog runs under the engine's reviewer and what it leaves for the person becomes one card", async () => {
+  await autoReview(true);
+  const once = await newDog("Careful", "ask");
+  const turn = await startTurn(once, "Commit the fix to main.");
+  expect(turn.launch.argv[turn.launch.argv.indexOf("--permission-mode") + 1]).toBe("auto");
+  expect(turn.launch.settings.autoMode.allow[1]).toMatch(/^Owner Standing Authorization \(later\.dog\)/);
+  expect(turn.launch.systemPrompt).toContain("Standing grant from Jacob");
   const asked = turn.ask("Bash", { command: "git push origin main" });
   await expect.poll(() => turn.card(asked), { timeout: 15_000 }).toMatchObject({ requestType: "permission" });
+  await new Promise((resolve) => setTimeout(resolve, 1000));
   expect(turn.answers.has(asked)).toBe(false);
+  expect((await turn.messages()).filter((message) => message.card?.requestType === "permission" && !message.card.answered)).toHaveLength(1);
+  await api("POST", `/api/threads/${turn.threadId}/respond`, { requestId: (await turn.card(asked)).requestId, behavior: "allow" });
+  await expect.poll(() => turn.answers.get(asked)?.behavior, { timeout: 10_000 }).toBe("allow");
   await turn.stop();
 }, 60_000);
 
-it("a push the coordinator dog passes on to another of the owner's dogs now goes through", async () => {
+it("applies 21 of an owner dog's own routines with no card, each with an Undo", async () => {
+  await autoReview(true);
+  const dog = await newDog("Planner", "auto");
+  const minted = await fetch(`${base}/api/testing/internal-capability`, {
+    method: "POST", headers: { "content-type": "application/json", "x-laterdog-test-capability": CAPABILITY_KEY },
+    body: JSON.stringify({ botId: dog.id, threadId: dog.threadId }),
+  });
+  expect(minted.status).toBe(201);
+  const { token } = await minted.json() as { token: string };
+  for (let index = 0; index < 21; index += 1) {
+    const proposed = await fetch(`${base}/api/internal/routine-requests`, {
+      method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ fromBotId: dog.id, fromThreadId: dog.threadId, action: "create", routine: {
+        name: `Check ${index + 1}`, instructions: `Look at queue ${index + 1}.`, schedule: { type: "weekly", time: "09:00", weekdays: ["monday"] },
+      } }),
+    });
+    const body = await proposed.json() as { state?: string; appliedBy?: string };
+    expect(proposed.status, JSON.stringify(body)).toBe(201);
+    expect(body).toMatchObject({ state: "applied", appliedBy: "self" });
+  }
+  const routines = ((await api("GET", "/api/routines")).body.routines as Array<{ botId: string; enabled: boolean }>).filter((routine) => routine.botId === dog.id);
+  expect(routines.filter((routine) => routine.enabled)).toHaveLength(21);
+  const receipts = (await api("GET", `/api/threads/${dog.threadId}/messages?limit=100`)).body.messages.filter((message: any) => message.card?.routineRequest);
+  expect(receipts).toHaveLength(21);
+  expect(receipts.every((message: any) => message.card.autoApplied === true && message.card.routineRequest.undo)).toBe(true);
+  expect(receipts.some((message: any) => !message.card.answered && !message.card.dismissed)).toBe(false);
+}, 60_000);
+
+it("with Auto-review off, a push the coordinator dog passes on to another of the owner's dogs goes through", async () => {
+  await autoReview(false);
   const coordinator = await newDog("Coordinator", "auto");
   const worker = await newDog("Worker", "auto");
   const coordinating = await startTurn(coordinator, "Have Worker commit the fix to main and ship the beta OTA update.");

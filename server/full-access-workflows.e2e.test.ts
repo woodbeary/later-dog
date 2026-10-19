@@ -175,7 +175,7 @@ it("applies requested Full Access workflows through MCP without duplicate approv
     expect(providerTurns().filter(turn => turn.botId === peer.id)).toHaveLength(1);
     const peerTurn = providerTurns().find(turn => turn.botId === peer.id)!;
     expect(peerTurn.threadId).toBe(peer.activeTaskId);
-    expect(peerTurn.permissionMode).toBe("default");
+    expect(peerTurn.permissionMode).toBe("auto");
     expect((await bots()).find(bot => bot.id === peer.id).approvalMode ?? "ask").toBe("ask");
     expect(await unanswered(peerTurn.threadId)).toHaveLength(0);
     expect((await messages(peerTurn.threadId)).some(message => message.kind === "activity" && /delegated by/.test(message.tool?.name ?? ""))).toBe(false);

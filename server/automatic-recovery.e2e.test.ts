@@ -132,7 +132,7 @@ it("recovers once on the same thread with its history and permissions, leaving t
     expect(prompt).toContain("REMEMBER_AUTOMATIC_RECOVERY_7Q");
     expect(prompt).toContain("hello from fake acp");
     expect(prompt.split(text)).toHaveLength(2);
-    expect(receipt.argv[receipt.argv.indexOf("--permission-mode") + 1]).toBe("default");
+    expect(receipt.argv[receipt.argv.indexOf("--permission-mode") + 1]).toBe("auto");
     const messages = (await api("GET", `/api/threads/${threadId}/messages?limit=100`)).messages as any[];
     expect(messages.filter((message) => message.role === "user" && message.text === text)).toHaveLength(1);
     expect(messages.find((message) => message.role === "user" && message.text === text).requestPending).toBe(false);
@@ -186,7 +186,7 @@ it("recovers a dog asked by the main dog in its one conversation and returns its
     expect(turns.filter((turn) => turn.botId === main.id)).toHaveLength(2);
     expect(turns.filter((turn) => turn.botId === specialist.id)).toHaveLength(1);
     expect(turns.find((turn) => turn.botId === specialist.id)).toMatchObject({
-      threadId: child.threadId, model: backup.model, permissionMode: "default",
+      threadId: child.threadId, model: backup.model, permissionMode: "auto",
     });
     expect(calls().filter((call) => call.method === "initialize.error")).toHaveLength(1);
     expect(calls().some((call) => call.method === "session/prompt")).toBe(false);

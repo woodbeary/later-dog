@@ -6073,38 +6073,19 @@ describe("harness HTTP API", () => {
     expect(cleared.body.bot.modelSelection).toEqual(selection);
   });
 
-  it("grants Auto on this computer only through the warning acknowledgement", async () => {
+  it("lets the owner put an Off-leash dog on this computer without a warning", async () => {
     const created = await api("POST", "/api/bots");
     const bot = created.body.bot;
-    expect((await api("PATCH", `/api/bots/${bot.id}`, { autoApprove: true })).body.bot.autoApprove).toBe(
-      true,
-    );
-
-    const blind = await api("PATCH", `/api/bots/${bot.id}`, { computer: "local" });
-    expect(blind.status).toBe(400);
-    const oneShot = await api("PATCH", `/api/bots/${bot.id}`, { computer: "local", autoApprove: true });
-    expect(oneShot.status).toBe(400);
-    const after = (await api("GET", "/api/bots")).body.bots.find((b: { id: string }) => b.id === bot.id);
-    expect(after.computer).not.toBe("local");
-
-    const local = await api("PATCH", `/api/bots/${bot.id}`, { computer: "local", acknowledgeLocalAuto: true });
+    expect((await api("PATCH", `/api/bots/${bot.id}`, { autoApprove: true })).body.bot.autoApprove).toBe(true);
+    const local = await api("PATCH", `/api/bots/${bot.id}`, { computer: "local" });
     expect(local.status).toBe(200);
     expect(local.body.bot).toMatchObject({ computer: "local", autoApprove: true });
-    expect(local.body.bot.acknowledgeLocalAuto).toBeUndefined();
-
-    const enabled = await api("PATCH", `/api/bots/${bot.id}`, { autoApprove: true });
-    expect(enabled.status).toBe(200);
-    expect(enabled.body.bot.autoApprove).toBe(true);
-
     await api("PATCH", `/api/bots/${bot.id}`, { autoApprove: false });
-    const autoBlind = await api("PATCH", `/api/bots/${bot.id}`, { autoApprove: true });
-    expect(autoBlind.status).toBe(400);
-    const autoAcked = await api("PATCH", `/api/bots/${bot.id}`, { autoApprove: true, acknowledgeLocalAuto: true });
-    expect(autoAcked.status).toBe(200);
-
-    await api("PATCH", `/api/bots/${bot.id}`, { computer: "off" });
-    const back = await api("PATCH", `/api/bots/${bot.id}`, { computer: "local" });
-    expect(back.status).toBe(400);
+    const again = await api("PATCH", `/api/bots/${bot.id}`, { autoApprove: true });
+    expect(again.status).toBe(200);
+    const acknowledged = await api("PATCH", `/api/bots/${bot.id}`, { computer: "local", acknowledgeLocalAuto: true });
+    expect(acknowledged.status).toBe(200);
+    expect(acknowledged.body.bot.acknowledgeLocalAuto).toBeUndefined();
     await api("DELETE", `/api/bots/${bot.id}`);
   });
 
@@ -7288,8 +7269,8 @@ describe("harness HTTP API", () => {
       expect(card.allowKey).toBeUndefined();
       expect(card.allowSession).toBe(true);
       expect((await messages()).some((m) => m.tool?.name.startsWith("auto-approved"))).toBe(false);
-      await expect.poll(async () => (await messages()).filter((m) => m.tool?.name.startsWith("Off-leash: Claude's automatic reviewer is not available")).length).toBe(1);
-      const notices = (await messages()).filter((m) => m.tool?.name.startsWith("Off-leash: Claude's automatic reviewer is not available"));
+      await expect.poll(async () => (await messages()).filter((m) => m.tool?.name.startsWith("Auto-review: Claude's automatic reviewer is not available")).length).toBe(1);
+      const notices = (await messages()).filter((m) => m.tool?.name.startsWith("Auto-review: Claude's automatic reviewer is not available"));
       expect(notices).toHaveLength(1);
       expect(notices[0].tool!.name).toContain("claude-haiku-4-5");
       expect(notices[0].tool!.name).toContain("checks with you before each action");
@@ -7299,7 +7280,7 @@ describe("harness HTTP API", () => {
 
       const second = raise("ask-ls", "ls memory");
       await expect.poll(async () => (await messages()).find((m) => m.card?.subtitle === "ls memory")?.card?.title).toBe("Approval needed");
-      expect((await messages()).filter((m) => m.tool?.name.startsWith("Off-leash: Claude's automatic reviewer"))).toHaveLength(1);
+      expect((await messages()).filter((m) => m.tool?.name.startsWith("Auto-review: Claude's automatic reviewer"))).toHaveLength(1);
       const secondCard = (await messages()).find((m) => m.card?.subtitle === "ls memory")!.card!;
       expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: secondCard.requestId, behavior: "allow" })).status).toBe(200);
       const plain = await second;
@@ -7311,6 +7292,128 @@ describe("harness HTTP API", () => {
       await api("DELETE", `/api/bots/${bot.id}`);
     }
   });
+
+  it("with Auto-review off answers an owner dog's request at once outside a Cloud home too, and with it on cards it", async () => {
+    const bot = (await api("POST", "/api/bots", { name: "Hands" })).body.bot;
+    const conns: Socket[] = [];
+    const raiseIn = async (id: string, tool: string, input: Record<string, unknown>) => {
+      const dump = z.object({
+        mcpConfig: z.object({ mcpServers: z.object({ dog: z.object({ args: z.array(z.string()) }) }) }),
+      }).parse(await readJsonFileWhenReady(fakeClaudeDump));
+      const conn = connect(dump.mcpConfig.mcpServers.dog.args[1]!);
+      conns.push(conn);
+      const answered = new Promise<{ behavior: string }>((resolve) => {
+        let buf = "";
+        conn.on("data", (chunk) => {
+          buf += chunk;
+          const nl = buf.indexOf("\n");
+          if (nl !== -1) resolve(JSON.parse(buf.slice(0, nl)));
+        });
+      });
+      await new Promise<void>((resolve, reject) => {
+        conn.on("connect", resolve);
+        conn.on("error", reject);
+      });
+      conn.write(JSON.stringify({ t: "ask", id, tool, input }) + "\n");
+      return answered;
+    };
+    type Msg = { card?: { subtitle: string; requestId?: string; answered?: string } };
+    const messages = async (): Promise<Msg[]> =>
+      (await api("GET", "/api/bots?messages=40")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id).messages;
+    const turn = async (text: string) => {
+      await expect.poll(async () => (await api("GET", "/api/bots?messages=0")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id)?.busy).toBeFalsy();
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text })).status).toBe(202);
+    };
+    try {
+      expect((await api("PATCH", `/api/bots/${bot.id}`, {
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      })).status).toBe(200);
+      expect((await api("PATCH", "/api/config", { features: { autoReview: false } })).body.features.autoReview).toBe(false);
+      await turn("count my notes");
+      await expect(raiseIn("ask-wc-off", "Bash", { command: "wc -l notes.md" })).resolves.toMatchObject({ behavior: "allow" });
+      expect((await messages()).some((m) => m.card?.subtitle === "wc -l notes.md")).toBe(false);
+      for (const conn of conns.splice(0)) conn.destroy();
+      await api("POST", `/api/bots/${bot.id}/interrupt`);
+
+      expect((await api("PATCH", "/api/config", { features: { autoReview: true } })).body.features.autoReview).toBe(true);
+      await turn("count them again");
+      const held = raiseIn("ask-wc-on", "Bash", { command: "wc -l notes.md" });
+      await expect.poll(async () => (await messages()).some((m) => m.card?.subtitle === "wc -l notes.md")).toBe(true);
+      const card = (await messages()).find((m) => m.card?.subtitle === "wc -l notes.md")!.card!;
+      expect((await api("POST", `/api/bots/${bot.id}/respond`, { requestId: card.requestId, behavior: "allow" })).status).toBe(200);
+      await expect(held).resolves.toMatchObject({ behavior: "allow" });
+    } finally {
+      for (const conn of conns) conn.destroy();
+      await api("PATCH", "/api/config", { features: { autoReview: true } });
+      await api("POST", `/api/bots/${bot.id}/interrupt`);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
+  it("starts a Mac install with Off-leash dogs on Auto-review once, keeping the engine's reviewer and its cards", async () => {
+    const isolatedHome = mkdtempSync(join(tmpdir(), "laterdog-auto-review-start-"));
+    const isolatedData = join(isolatedHome, ".laterdog");
+    const isolatedStatic = join(isolatedHome, "static");
+    const isolatedPort = await freePortBlock([0, 1]);
+    mkdirSync(join(isolatedStatic, "assets"), { recursive: true });
+    mkdirSync(isolatedData, { recursive: true });
+    writeFileSync(join(isolatedStatic, "index.html"), "<!doctype html><title>Auto-review start test</title>");
+    writeFileSync(join(isolatedStatic, "assets", "smoke.css"), "body{}");
+    writeFileSync(join(isolatedData, "config.json"), JSON.stringify({
+      instances: {
+        claude: { driver: "claudeAgent", displayName: "Fixture Claude", config: { cli: FAKE_CLAUDE_CLI } },
+      },
+    }));
+    writeFileSync(join(isolatedData, "bots.json"), JSON.stringify([{
+      id: "off-leash-bot",
+      threadId: "off-leash-thread",
+      name: "Off-leash bot",
+      title: "",
+      description: "",
+      notifications: true,
+      color: "blue",
+      unread: false,
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      resumeCursors: {},
+      createdAt: 1,
+      approvalMode: "auto",
+      autoApprove: true,
+    }]));
+    let isolatedStderr = "";
+    const isolatedChild = spawn(
+      process.execPath,
+      [join(SERVER_DIR, "index.ts")],
+      {
+        cwd: ROOT,
+        env: {
+          ...(process.env.PATH ? { PATH: process.env.PATH } : {}),
+          ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
+          HOME: isolatedHome,
+          USERPROFILE: isolatedHome,
+          LATERDOG_SERVER_PORT: String(isolatedPort),
+          LATERDOG_WEBHOOK_PORT: String(isolatedPort + 1),
+          LATERDOG_STATIC_DIR: isolatedStatic,
+          LATERDOG_AGENT_BROWSER_PATH: join(isolatedHome, "missing-agent-browser"),
+          FAKE_CLAUDE_MODE: "hang",
+          FAKE_CLAUDE_DUMP: join(isolatedHome, "fake-claude-dump.json"),
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    isolatedChild.stderr!.on("data", (chunk) => (isolatedStderr += chunk));
+    try {
+      await waitForIsolatedServer(isolatedChild, isolatedPort, () => isolatedStderr);
+      const config = await (await fetch(`http://127.0.0.1:${isolatedPort}/api/config`)).json() as { features: { autoReview: boolean } };
+      expect(config.features.autoReview).toBe(true);
+      const saved = JSON.parse(readFileSync(join(isolatedData, "config.json"), "utf8")) as { features?: { autoReview?: boolean } };
+      expect(saved.features?.autoReview).toBe(true);
+    } finally {
+      await waitForExit(isolatedChild, { signal: "SIGTERM" });
+      await removeTempDir(isolatedHome);
+    }
+    expectStoppedTestServerCleanly(isolatedChild, isolatedStderr);
+  }, 30_000);
 
   it("mounts the verification skill into a real turn when its trigger appears", async () => {
     const bot = (await api("POST", "/api/bots", {})).body.bot;
@@ -7563,7 +7666,7 @@ describe("harness HTTP API", () => {
   it("keeps skill authoring on by default and persists an explicit opt-out", async () => {
     const before = await api("GET", "/api/config");
     expect(before.status).toBe(200);
-    expect(before.body.features).toEqual({ browser: false, skillAuthoring: true, skillsLibrary: false, showToolCalls: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: false, smarterSuggestions: false });
+    expect(before.body.features).toEqual({ browser: false, skillAuthoring: true, skillsLibrary: false, showToolCalls: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: false, smarterSuggestions: false, autoReview: true });
     const untouched = JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8"));
     expect(untouched.features?.skillAuthoring).toBeUndefined();
     expect(untouched.features?.sharedComputers).toBeUndefined();
@@ -7572,14 +7675,14 @@ describe("harness HTTP API", () => {
       features: { skillAuthoring: false },
     });
     expect(saved.status).toBe(200);
-    expect(saved.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: false, smarterSuggestions: false });
+    expect(saved.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: false, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: false, smarterSuggestions: false, autoReview: true });
 
     const disk = JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8"));
     expect(disk.features).toEqual({ ...untouched.features, skillAuthoring: false });
 
     const tools = await api("PATCH", "/api/config", { features: { showToolCalls: true } });
     expect(tools.status).toBe(200);
-    expect(tools.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: true, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: false, smarterSuggestions: false });
+    expect(tools.body.features).toEqual({ browser: false, skillAuthoring: false, skillsLibrary: false, showToolCalls: true, sharedComputers: false, claudeUserMcp: false, autoRecall: true, llmThreadTitles: true, cloudDictation: true, typingSuggestions: false, smarterSuggestions: false, autoReview: true });
 
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     try {
@@ -10733,7 +10836,6 @@ describe("bot memory API", () => {
       expect(fresh.status).toBe(200);
       expect(fresh.body.who.name).toBe("Kiwi");
       expect(fresh.body.wont).toEqual([
-        "Command approvals use Heel, so it checks with you before commands and file changes; saved permissions and provider rules still apply.",
         "Cannot initiate contact with other dogs.",
         "Has no connected apps.",
         "Can't use a computer.",

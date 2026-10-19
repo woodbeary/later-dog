@@ -20,12 +20,12 @@ export function ownersWork(owner: WorkOwner): boolean {
   return !owner.sharedWorkspace && !owner.guestDriven;
 }
 
-export function runsUnattended(mode: ApprovalMode): boolean {
-  return mode === "auto" || mode === "full";
+export function runsUnattended(mode: ApprovalMode, autoReview: boolean): boolean {
+  return mode === "full" || (mode === "auto" && !autoReview);
 }
 
-export function ownerAutoWork(owner: WorkOwner, mode: ApprovalMode): boolean {
-  return ownersWork(owner) && runsUnattended(mode);
+export function ownerAutoWork(owner: WorkOwner, mode: ApprovalMode, autoReview: boolean): boolean {
+  return ownersWork(owner) && runsUnattended(mode, autoReview);
 }
 
 export function roomTurnMinutes(input: { configured: number; override: number | null | undefined; longWork: boolean }): number {

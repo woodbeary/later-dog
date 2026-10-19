@@ -17,7 +17,7 @@ import {
 } from "./routine-requests.ts";
 import { RoutineManager, type RoutineInput } from "./routines.ts";
 import type { JsonValue } from "./schema.ts";
-import { directApply, type DirectApplyCheck } from "./direct-apply.ts";
+import { directApply, routineApply, type DirectApplyCheck } from "./direct-apply.ts";
 
 class MemoryStore implements RoutineRequestStore {
   readonly threads = new Map<string, RoutineRequestMessage[]>();
@@ -1862,8 +1862,10 @@ describe("consequenceLine", () => {
 });
 
 describe("a bot's own routine changes", () => {
-  const rule: DirectApplyCheck = (botId, threadId, targetBotId) => directApply({
-    fullAccess: threadId === "full-thread", botId, targetBotId, blocked: threadId === "guest-thread",
+  const rule: DirectApplyCheck = (botId, threadId, targetBotId) => routineApply({
+    direct: directApply({ fullAccess: threadId === "full-thread", botId, targetBotId, blocked: threadId === "guest-thread" }),
+    owner: threadId === "owner-thread",
+    blocked: threadId === "guest-thread",
   });
   const own = () => harness(undefined, undefined, undefined, rule);
   const openCards = (store: { messagesFor(threadId: string): RoutineRequestMessage[] }, threadId: string) =>
@@ -1908,37 +1910,23 @@ describe("a bot's own routine changes", () => {
     expect(routines.listRoutines().find((routine) => routine.id === peers.id)?.enabled).toBe(true);
   });
 
-  it("shows the card past 20 enabled routines at Ask, but not at Full access", async () => {
+  it("applies every one of 21 own routines with no card, and a routine for another of the owner's dogs too", async () => {
     const { service, routines, store } = own();
-    for (let index = 0; index < 20; index += 1) {
-      routines.create({ botId: "bot-a", name: `Routine ${index}`, prompt: `Task ${index}.`, schedule: { type: "daily", time: "09:00", weekdays: [1] } });
+    for (let index = 0; index < 21; index += 1) {
+      expect(await service.submit({ botId: "bot-a", threadId: "ask-thread", proposal: createProposal({ instructions: `Task ${index}.` }) }))
+        .toMatchObject({ state: "applied", appliedBy: "self" });
     }
-    const paused = routines.create({ botId: "bot-a", name: "Paused", prompt: "Paused task.", enabled: false, schedule: { type: "daily", time: "09:00", weekdays: [1] } });
-    expect(await service.submit({ botId: "bot-a", threadId: "ask-thread", proposal: createProposal() })).toMatchObject({ state: "pending" });
-    expect(await service.submit({ botId: "bot-a", threadId: "ask-thread", proposal: { action: "resume", routineId: paused.id } })).toMatchObject({ state: "pending" });
-    expect(openCards(store, "ask-thread")).toHaveLength(2);
-    expect(await service.submit({ botId: "bot-a", threadId: "ask-thread", proposal: { action: "pause", routineId: routines.listRoutines().find((routine) => routine.enabled)!.id } }))
-      .toMatchObject({ state: "applied" });
-    expect(await service.submit({ botId: "bot-a", threadId: "full-thread", proposal: createProposal({ instructions: "At Full access." }) }))
-      .toMatchObject({ state: "applied", appliedBy: "full-access" });
+    expect(routines.listRoutines().filter((routine) => routine.botId === "bot-a" && routine.enabled)).toHaveLength(21);
+    const proposal = createProposal({ instructions: "For the owner's other dog." });
+    if (proposal.action !== "create") throw new Error("Expected create");
+    expect(await service.submit({ botId: "bot-a", threadId: "owner-thread", proposal: { ...proposal, forBot: { botId: "bot-b", name: "Peer" } } }))
+      .toMatchObject({ state: "applied", appliedBy: "owner-auto" });
+    expect(routines.listRoutines().filter((routine) => routine.botId === "bot-b")).toHaveLength(1);
+    expect(openCards(store, "ask-thread")).toHaveLength(0);
+    expect(openCards(store, "owner-thread")).toHaveLength(0);
   });
 
-  it("counts only the bot's own enabled routines, and allows the 20th", async () => {
-    const { service, routines, store } = own();
-    const daily = { type: "daily" as const, time: "09:00", weekdays: [1] };
-    for (let index = 0; index < 25; index += 1) routines.create({ botId: "bot-b", name: `Peer ${index}`, prompt: `Peer ${index}.`, schedule: daily });
-    for (let index = 0; index < 19; index += 1) routines.create({ botId: "bot-a", name: `Own ${index}`, prompt: `Own ${index}.`, schedule: daily });
-    const paused = routines.create({ botId: "bot-a", name: "Paused", prompt: "Paused task.", enabled: false, schedule: daily });
-    expect(await service.submit({ botId: "bot-a", threadId: "ask-thread", proposal: createProposal() }))
-      .toMatchObject({ state: "applied", appliedBy: "self" });
-    expect(await service.submit({ botId: "bot-a", threadId: "ask-thread", proposal: createProposal({ instructions: "The 21st." }) }))
-      .toMatchObject({ state: "pending" });
-    expect(await service.submit({ botId: "bot-a", threadId: "ask-thread", proposal: { action: "resume", routineId: paused.id } }))
-      .toMatchObject({ state: "pending" });
-    expect(openCards(store, "ask-thread")).toHaveLength(2);
-  });
-
-  it("is not held back by the open-card budget, which still holds a card past the cap", async () => {
+  it("is not held back by the open-card budget, which still holds a card for another bot's routine", async () => {
     const canPersist = vi.fn((_botId: string, _threadId: string, opensCard: boolean) =>
       opensCard ? { ok: false as const, status: 429, error: "confirm or cancel an existing proposal first" } : { ok: true as const });
     const { service, routines } = harness(undefined, undefined, canPersist, rule);
@@ -1949,7 +1937,11 @@ describe("a bot's own routine changes", () => {
     for (let index = 0; index < 20; index += 1) {
       routines.create({ botId: "bot-a", name: `Routine ${index}`, prompt: `Task ${index}.`, schedule: { type: "daily", time: "09:00", weekdays: [1] } });
     }
-    await expect(service.submit({ botId: "bot-a", threadId: "ask-thread", proposal: createProposal({ instructions: "Past the cap." }) }))
+    expect(await service.submit({ botId: "bot-a", threadId: "ask-thread", proposal: createProposal({ instructions: "The 22nd." }) }))
+      .toMatchObject({ state: "applied", appliedBy: "self" });
+    const peer = createProposal({ instructions: "For a peer." });
+    if (peer.action !== "create") throw new Error("Expected create");
+    await expect(service.submit({ botId: "bot-a", threadId: "ask-thread", proposal: { ...peer, forBot: { botId: "bot-b", name: "Peer" } } }))
       .rejects.toThrow("confirm or cancel an existing proposal first");
   });
 

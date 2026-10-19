@@ -12,14 +12,16 @@ import {
 const owner = { sharedWorkspace: false, guestDriven: false };
 
 describe("whose work runs long", () => {
-  it("is only the owner's dogs in auto or full access, never a guest's or a shared workspace's", () => {
-    expect(APPROVAL_MODES.filter(runsUnattended)).toEqual(["auto", "full"]);
-    expect(ownerAutoWork(owner, "auto")).toBe(true);
-    expect(ownerAutoWork(owner, "full")).toBe(true);
-    expect(ownerAutoWork(owner, "ask")).toBe(false);
-    expect(ownerAutoWork(owner, "edits")).toBe(false);
-    expect(ownerAutoWork({ ...owner, guestDriven: true }, "auto")).toBe(false);
-    expect(ownerAutoWork({ ...owner, sharedWorkspace: true }, "full")).toBe(false);
+  it("is only the owner's dogs that work without asking: Auto-review off, or full access; never a guest's or a shared workspace's", () => {
+    expect(APPROVAL_MODES.filter((mode) => runsUnattended(mode, false))).toEqual(["auto", "full"]);
+    expect(APPROVAL_MODES.filter((mode) => runsUnattended(mode, true))).toEqual(["full"]);
+    expect(ownerAutoWork(owner, "auto", false)).toBe(true);
+    expect(ownerAutoWork(owner, "auto", true)).toBe(false);
+    expect(ownerAutoWork(owner, "full", true)).toBe(true);
+    expect(ownerAutoWork(owner, "ask", false)).toBe(false);
+    expect(ownerAutoWork(owner, "edits", false)).toBe(false);
+    expect(ownerAutoWork({ ...owner, guestDriven: true }, "auto", false)).toBe(false);
+    expect(ownerAutoWork({ ...owner, sharedWorkspace: true }, "full", false)).toBe(false);
     expect(ownersWork(owner)).toBe(true);
     expect(ownersWork({ sharedWorkspace: true, guestDriven: false })).toBe(false);
   });

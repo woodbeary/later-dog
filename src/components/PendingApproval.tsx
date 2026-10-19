@@ -202,7 +202,8 @@ export function PendingApprovalActions({
   const reviewedSha256 = pending.message.card?.skillRequest
     ? reviewedSkillSha256(pending.message.card.skillRequest)
     : undefined;
-  const decide = (behavior: "allow" | "deny", always = false, rememberCommand = false) => {
+  const macRequest = pending.tool.startsWith("mac_");
+  const decide = (behavior: "allow" | "deny", always = false, rememberCommand = false, never = false) => {
     const grant = always && bot && pending.allowKey ? { botId: bot.id, key: pending.allowKey } : undefined;
     const forChat = always && !pending.allowKey && pending.allowSession ? true : undefined;
     dispatch({
@@ -215,7 +216,7 @@ export function PendingApprovalActions({
       alwaysAllow: grant,
       always: forChat,
       rememberCommand: rememberCommand || undefined,
-      scope: behavior !== "allow" ? undefined : grant || rememberCommand ? "always" : forChat ? "chat" : "once",
+      scope: never ? "never" : behavior !== "allow" ? undefined : grant || rememberCommand ? "always" : forChat ? "chat" : "once",
     });
   };
 
@@ -246,18 +247,29 @@ export function PendingApprovalActions({
               ? t("approval.action.confirm")
               : t("approval.action.allowOnce")}
         </button>
-        <button
-          onClick={() => decide("deny")}
-          className={cn(base, quiet)}
-        >
-          {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : t("approval.action.deny")}
-        </button>
+        {!macRequest && (
+          <button
+            onClick={() => decide("deny")}
+            className={cn(base, quiet)}
+          >
+            {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : t("approval.action.deny")}
+          </button>
+        )}
         {!durableRequest && bot && pending.allowKey && (
           <button
             onClick={() => decide("allow", true)}
             className={cn(base, durable)}
           >
             {t("approval.action.alwaysAllow")}
+          </button>
+        )}
+        {macRequest && (
+          <button
+            onClick={() => decide("deny", false, false, true)}
+            data-mac-never=""
+            className={cn(base, durable)}
+          >
+            {t("approval.action.never")}
           </button>
         )}
         {!durableRequest && !pending.allowKey && !canRememberCommand && pending.allowSession && (

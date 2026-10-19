@@ -21,6 +21,8 @@ import { ThisComputerRow } from "./ComputerSettings";
 import { PermissionChecklist } from "./PermissionChecklist";
 import { SettingRow, SettingsGroup, SettingsRows, Switch } from "./SettingsPrimitives";
 import { CloudLending } from "./CloudLending";
+import { AutoReviewRow } from "./AutoReviewSettings";
+import { MacAccessGroup } from "./MacAccessGroup";
 import { cloudLendingBridge } from "@/lib/cloud-plan-summary";
 import { shortcutLabel } from "./ShortcutHint";
 import { UsageSection } from "./UsageSection";
@@ -240,6 +242,11 @@ function GeneralPage({ mac }: { mac: boolean }) {
           <NameRow />
         </SettingsRows>
       </SettingsGroup>
+      <SettingsGroup label={t("settings.group.dogs")} testId="dogs">
+        <SettingsRows>
+          <AutoReviewRow />
+        </SettingsRows>
+      </SettingsGroup>
       <SettingsGroup label={t("settings.section.appearance")} testId="appearance">
         <SettingsRows>
           <ThemeRow />
@@ -268,10 +275,12 @@ function GeneralPage({ mac }: { mac: boolean }) {
 }
 
 function ComputerPage({ mac }: { mac: boolean }) {
+  const { state } = useStore();
   const desktop = Boolean(window.laterdog);
   const lending = cloudLendingBridge();
   return (
     <>
+      {state.config?.cloudHome === true && <MacAccessGroup />}
       {desktop && (
         <SettingsGroup label={t("settings.group.yourComputer")} testId="your-computer">
           <SettingsRows>

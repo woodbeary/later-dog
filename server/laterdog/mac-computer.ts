@@ -3,7 +3,7 @@ import { CONNECT_MAC } from "./connect-mac.ts";
 export const MAC_OFFLINE_RESULT = "The Mac isn't connected: the later.dog app isn't open on it. Tell the person in one line: \"Open the later.dog app on your Mac.\"";
 export const MAC_PLACE = "mac";
 export const MAC_LABEL = "Your Mac";
-export const COMPUTER_RULE = "You have your own cloud computer. The person's Mac is also yours to use while it is online: use it when a task needs something only that Mac has (files in Downloads, Desktop or Documents, a local project folder, an app signed in there); otherwise use your own computer. Don't ask which one to use.";
+export const COMPUTER_RULE = "You have your own cloud computer. The person's Mac is also yours to use while it is online: use it when a task needs something only that Mac has (files in Downloads, Desktop or Documents, a local project folder, an app signed in there); otherwise use your own computer. Don't ask which one to use. If the person set that Mac to ask first, later.dog shows them a card and your call waits for the answer.";
 
 export type KnownMac = { name: string; online: boolean };
 

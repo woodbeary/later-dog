@@ -18,7 +18,7 @@ The focused tests cover the card's one atomic remember-and-allow action,
 owner/admin gating and the existing once/session/peer choices:
 
 ```sh
-pnpm exec vitest run src/components/PendingApproval.command-allowlist.test.ts src/components/ApprovalModeSelector.allowlist.test.ts
+pnpm exec vitest run src/components/PendingApproval.command-allowlist.test.ts
 ```
 
 ## Server and provider verification

@@ -8,12 +8,9 @@ import { skillsLibraryEnabled } from "@/lib/feature-flags";
 import { DOG_COLOR_NAMES, DOG_COLORS } from "@/lib/mascot";
 import { BOT_PROFILE_LIMITS } from "../../shared/bot-profile";
 import { DEFAULT_MASCOT_BODY, MASCOT_BODIES, MASCOT_BODY_IDS } from "../../shared/mascot-bodies";
-import type { ApprovalMode } from "../../shared/approval-mode";
-import { approvalModeOptionsFor } from "./ApprovalModeSelector";
 import { DogAvatar } from "./Avatar";
 import { isDogBreed } from "./DogAvatar";
 import { useCaptionChrome } from "./DesktopCapabilities";
-import { LocalComputerAutoWarning } from "./LocalComputerAutoWarning";
 import { ModelPicker } from "./ModelPicker";
 import { Switch } from "./SettingsPrimitives";
 import { SoulField } from "./SoulField";
@@ -50,32 +47,18 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const { state, dispatch } = useStore();
   const { request: api } = useBotEditor();
   const derived = useBotSettingsDerived(bot);
-  const { patch, approvalMode, engine, trustedModesAvailable } = derived;
+  const { patch } = derived;
   const dialogRef = useRef<HTMLElement | null>(null);
   const { padClass } = useCaptionChrome();
   const tab = state.botSettingsExpandAccordion ? tabForSection(state.botSettingsSection) : "details";
   const memoryPage = tab === "library" && state.botSettingsSection === "memory";
   const skills = useManagedSkills(bot);
   const libraryOn = skillsLibraryEnabled(state.config);
-  const [localAutoWarning, setLocalAutoWarning] = useState<string | null>(null);
   const [teaching, setTeaching] = useState(false);
   const [source, setSource] = useState("");
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const teachButton = useRef<HTMLButtonElement | null>(null);
-
-  const displayedApprovalMode = engine?.driverKind === "antigravityAgent" && approvalMode === "auto" ? "ask" : approvalMode;
-  const autoOffered = approvalModeOptionsFor(engine?.driverKind ?? "", trustedModesAvailable)
-    .some((option) => option.mode === "auto");
-  const chooseMode = (mode: Extract<ApprovalMode, "ask" | "auto">) => {
-    if (bot.busy || mode === approvalMode) return;
-    if (mode === "auto" && bot.computer === "local") {
-      setLocalAutoWarning(bot.id);
-      return;
-    }
-    patch({ approvalMode: mode });
-  };
-  const customMode = displayedApprovalMode !== "ask" && displayedApprovalMode !== "auto";
 
   const stopTeaching = () => {
     setTeaching(false);
@@ -143,12 +126,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
   const close = () => dispatch({ type: "toggleSettings", open: false });
   const breed = bot.mascotBody ?? DEFAULT_MASCOT_BODY;
   const library = tab === "library" ? botLibraryItems(bot) : [];
-  const approvalHint = customMode
-    ? t("botSettings.simple.customMode")
-    : displayedApprovalMode === "auto"
-      ? t("botSettings.simple.decideHint")
-      : t("botSettings.simple.askHint");
-
   return (
     <>
       <aside
@@ -290,38 +267,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                 <div className={cardCls}>
                   <div className={rowCls} data-simple-default-model>
                     <ModelPicker bot={bot} contained label={<span className="text-[14px] text-ink">{t("botSettings.simple.runsOn")}</span>} />
-                  </div>
-                  <div className={dividedRowCls}>
-                    <div className="flex items-center justify-between gap-3">
-                      <div className={itemTextCls}>
-                        <div className="text-[14px] text-ink">{t("botSettings.simple.beforeActs", { name: bot.name })}</div>
-                        <div className="text-[12px] text-ink-secondary" data-approval-custom={customMode || undefined}>{approvalHint}</div>
-                      </div>
-                      <div role="group" aria-label={t("botSettings.simple.beforeActs", { name: bot.name })} className="inline-flex shrink-0 rounded-full bg-inset p-1">
-                        {([
-                          { mode: "ask", title: t("botSettings.simple.ask"), offered: true },
-                          { mode: "auto", title: t("botSettings.simple.decide"), offered: autoOffered },
-                        ] as const).map((choice) => {
-                          const selected = displayedApprovalMode === choice.mode;
-                          return (
-                            <button
-                              key={choice.mode}
-                              type="button"
-                              data-approval-choice={choice.mode}
-                              aria-pressed={selected}
-                              disabled={Boolean(bot.busy) || !choice.offered}
-                              onClick={() => chooseMode(choice.mode)}
-                              className={cn(
-                                "rounded-full px-3 py-1 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45",
-                                selected ? "bg-raised text-ink shadow-sm" : "text-ink-secondary enabled:hover:text-ink",
-                              )}
-                            >
-                              {choice.title}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -483,16 +428,6 @@ export function BotSettingsDialog({ bot, overlay = false }: {
           onEnable={() => void skills.enableReviewed()}
         />
       )}
-      <LocalComputerAutoWarning
-        open={localAutoWarning !== null}
-        onCancel={() => setLocalAutoWarning(null)}
-        onConfirm={() => {
-          const target = localAutoWarning;
-          setLocalAutoWarning(null);
-          if (!target) return;
-          dispatch({ type: "updateBot", botId: target, patch: { approvalMode: "auto", acknowledgeLocalAuto: true } });
-        }}
-      />
     </>
   );
 }

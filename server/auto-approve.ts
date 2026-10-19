@@ -76,7 +76,7 @@ export const HELD_NOTE = {
   "approval.held.sandbox":
     "This changes the provider sandbox, so only Full access can approve it automatically.",
   "approval.held.undeliveredFull": "Full access couldn't deliver this approval.",
-  "approval.held.undelivered": "Off-leash couldn't answer this one.",
+  "approval.held.undelivered": "later.dog couldn't answer this one for you.",
 } as const;
 
 export type HeldNoteKey = keyof typeof HELD_NOTE;

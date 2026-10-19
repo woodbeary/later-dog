@@ -33,9 +33,9 @@ appears at the bottom of the sidebar, and **Restart to update** installs it.
 ## The first five minutes
 
 - **Talk to a dog like a teammate.** It answers, runs commands in its working folder, works with its files and uses its
-  own computer. New dogs start **Off-leash**: they act, then tell you (connected apps still ask first). Put a dog on
-  **Heel** from the **+** beside the message field and it checks with you before commands and file changes (changes to
-  its own routines, tricks and profile apply at once, with Undo).
+  own computer. With **Auto-review** on (Settings → General), an AI reviewer checks each step and you are asked only
+  when it isn't sure; turn it off and your dogs act without asking. Changes to a dog's own routines, tricks and profile
+  apply at once, with Undo.
 - **Make more dogs.** New dog → a name and what it should help with. Its look, instructions and memory live in its
   profile.
 - **Teach it tricks.** A trick is a skill: a playbook the dog follows when asked. Library → Teach a trick takes one

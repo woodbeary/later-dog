@@ -6,7 +6,7 @@ import { z } from "zod";
 import { cronScheduleLabel } from "../shared/cron-label.ts";
 import { normalizeCronSchedule, nextCronRuns } from "../shared/routine-schedule.ts";
 import { newId } from "./contracts.ts";
-import { SELF_ROUTINE_CAP, UNDO_STALE, type DirectApply, type DirectApplyCheck } from "./direct-apply.ts";
+import { UNDO_STALE, type DirectApply, type DirectApplyCheck } from "./direct-apply.ts";
 import { redactSecretsInText } from "./redact.ts";
 import { parseJson, schemaIssue, type JsonObject, type JsonValue } from "./schema.ts";
 import {
@@ -1179,7 +1179,7 @@ export class RoutineRequestService {
     if (args.from) messageInput.from = args.from;
     const owner = operation.forBot?.botId ?? botId;
     const grant = submitted ? this.autoApply?.(botId, threadId, owner) ?? null : null;
-    const automatic = grant === "full-access" || (grant === "self" && !this.overSelfCap(operation, owner));
+    const automatic = grant !== null;
     const persistence = this.canPersist?.(botId, threadId, !automatic);
     if (persistence && !persistence.ok) {
       throw new RoutineRequestError(persistence.error, persistence.status);
@@ -1224,12 +1224,6 @@ export class RoutineRequestService {
       }, ...(grant ? { appliedBy: grant } : {}) };
     }
     throw new RoutineRequestError(result.state === "invalid" ? result.error : "The routine change could not be applied", result.state === "invalid" ? result.status : 409);
-  }
-
-  private overSelfCap(operation: RoutineRequestOperation, owner: string): boolean {
-    if (operation.action !== "create" && operation.action !== "resume") return false;
-    const enabled = this.routines.listRoutines().filter((routine) => routine.botId === owner && routine.enabled).length;
-    return enabled + 1 > SELF_ROUTINE_CAP;
   }
 
   private snapshotOf(routineId: string, owner: string): RoutineRequestSnapshot | undefined {

@@ -9,11 +9,9 @@ vi.mock("@/state/store", async (importOriginal) => {
 });
 
 const { AboutDialog } = await import("./AboutDialog");
-const { LocalComputerAutoWarning } = await import("./LocalComputerAutoWarning");
 
 const dialogs: Array<[string, () => ReactElement]> = [
   ["About", () => createElement(AboutDialog, { open: true, onClose: () => {} })],
-  ["the computer warning", () => createElement(LocalComputerAutoWarning, { open: true, onCancel: () => {}, onConfirm: () => {} })],
 ];
 
 let bar: HTMLDivElement;

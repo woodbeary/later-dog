@@ -174,7 +174,7 @@ posixOnly("authorization decisions are logged", () => {
 
       const shown = await waitForDecision((r) => r.decision === "card-shown" && r.requestId === requestId);
       expect(shown, "the card was shown but never logged").not.toBeNull();
-      expect(shown!.source).toBe("no-grant");
+      expect(shown!.source).toBe("native-approval");
       expect(shown!.botId).toBe(bot.id);
       expect(shown!.tool).toBe("shell");
 

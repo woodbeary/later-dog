@@ -96,5 +96,5 @@ it("persists one visible review timeout while reply completes", async () => {
   }
   expect(bot.messages.filter((message: any) => message.kind === "text" && message.text === "done from fake codex")).toHaveLength(2);
   expect(bot.messages.filter((message: any) => message.tool?.name?.startsWith("error: Codex automatic review"))).toHaveLength(1);
-  expect(nativeTurn().params.approvalsReviewer).toBe("user");
+  expect(nativeTurn().params.approvalsReviewer).toBe("auto_review");
 }, 40_000);

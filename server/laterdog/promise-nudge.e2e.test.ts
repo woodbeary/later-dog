@@ -15,7 +15,7 @@ const REPLIES = [
   "This reply must never be asked for.",
 ];
 
-it.skipIf(process.platform === "win32")("carries an Off-leash dog on once when its turn ends on a promise, and never a Heel dog or a question", async () => {
+it.skipIf(process.platform === "win32")("with Auto-review off carries an owner's dog on once when its turn ends on a promise, never after a question, and never with Auto-review on", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "laterdog-promise-"));
   const promptsPath = join(scratch, "prompts.jsonl");
   const fixture = await launchVerificationServer({
@@ -46,10 +46,10 @@ it.skipIf(process.platform === "win32")("carries an Off-leash dog on once when i
   };
   const busy = async (botId: string) => (await api("GET", "/api/bots?messages=0")).bots.find((entry: any) => entry.id === botId)?.busy === true;
   try {
+    expect((await api("PATCH", "/api/config", { features: { autoReview: false } })).features.autoReview).toBe(false);
     const { bot: offLeash } = await control("new-bot", "--name", "Scout");
     const thread = offLeash.activeTaskId as string;
     await api("PATCH", `/api/bots/${offLeash.id}/tasks/${thread}`, { modelSelection: CLAUDE, updateBotDefault: true });
-    await api("PATCH", `/api/bots/${offLeash.id}/tasks/${thread}`, { approvalMode: "auto", acknowledgeLocalAuto: true });
 
     await control("send", "--bot", offLeash.id, "--task", thread, "--text", "Is Cloudflare healthy?");
     await expect.poll(() => replies(thread), { timeout: 30_000, interval: 250 }).toEqual([REPLIES[0], REPLIES[1]]);
@@ -64,11 +64,12 @@ it.skipIf(process.platform === "win32")("carries an Off-leash dog on once when i
     await expect.poll(() => replies(thread), { timeout: 30_000, interval: 250 }).toContain(REPLIES[2]);
     await expect.poll(() => busy(offLeash.id), { timeout: 20_000 }).toBe(false);
 
-    const { bot: heel } = await control("new-bot", "--name", "Heeler");
-    await api("PATCH", `/api/bots/${heel.id}/tasks/${heel.activeTaskId}`, { modelSelection: CLAUDE, updateBotDefault: true });
-    await control("send", "--bot", heel.id, "--task", heel.activeTaskId, "--text", "Look at the DNS.");
-    await expect.poll(() => replies(heel.activeTaskId), { timeout: 30_000, interval: 250 }).toEqual([REPLIES[3]]);
-    await expect.poll(() => busy(heel.id), { timeout: 20_000 }).toBe(false);
+    expect((await api("PATCH", "/api/config", { features: { autoReview: true } })).features.autoReview).toBe(true);
+    const { bot: reviewed } = await control("new-bot", "--name", "Reviewed");
+    await api("PATCH", `/api/bots/${reviewed.id}/tasks/${reviewed.activeTaskId}`, { modelSelection: CLAUDE, updateBotDefault: true });
+    await control("send", "--bot", reviewed.id, "--task", reviewed.activeTaskId, "--text", "Look at the DNS.");
+    await expect.poll(() => replies(reviewed.activeTaskId), { timeout: 30_000, interval: 250 }).toEqual([REPLIES[3]]);
+    await expect.poll(() => busy(reviewed.id), { timeout: 20_000 }).toBe(false);
     await new Promise((resolve) => setTimeout(resolve, 2_000));
     expect(prompts()).toHaveLength(4);
     expect(prompts().filter((prompt) => prompt.includes("none of it has happened yet"))).toHaveLength(1);
