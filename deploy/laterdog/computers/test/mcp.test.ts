@@ -5,7 +5,7 @@ import { MINUTE } from "../src/idle";
 import { type McpBackend, type McpComputerOp, handleMcp } from "../src/mcp";
 import { MCP_PROTOCOL_VERSIONS, TOOLS } from "../src/mcp-tools";
 import { ROOM_ROUTING_INSTRUCTIONS } from "../src/decide";
-import { ORIGIN, OWNER_KEY, type World, apiRequest, body, siteverify, startTrial, trialKey, world } from "./fakes";
+import { ORIGIN, OWNER_KEY, type World, apiRequest, body, siteverify, startTrial, trialKey, world, viaGateway } from "./fakes";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -315,7 +315,7 @@ describe("computer_action over MCP", () => {
     expect(input.images).toHaveLength(2);
     expect(input.state).toMatchObject({ action: "click at (640, 400)", expected: "The menu is open." });
     expect(Object.keys(input.questions)).toEqual(["screen", "changed", "matches_expectation"]);
-    expect(options).toEqual({ gateway: { id: "default", collectLog: false } });
+    expect(options).toEqual(await viaGateway(key));
   });
 
   it("builds each kind of action as an xdotool command and never sends typed text to the model", async () => {
@@ -357,7 +357,7 @@ describe("computer_action over MCP", () => {
     const id = await makeRunning(w, key);
     const keySha256 = await sha256Hex(key);
     const registry = w.trials.named("trials");
-    expect(await registry.allowUsage({ keySha256, kind: "screen_checks", amount: 1000, perKey: 1000, total: 100_000 })).toEqual({ ok: true });
+    expect(await registry.allowUsage({ keySha256, kind: "screen_checks", amount: 1000, perKey: 1000, total: 100_000 })).toEqual({ ok: true, tier: "trial" });
     const spent = await call(w, key, "computer_action", { computer_id: id, action: "key", key: "Return" });
     expect(spent.isError).toBeUndefined();
     expect(spent.content[1]).toMatchObject({ type: "image" });
@@ -426,7 +426,7 @@ describe("decide over MCP", () => {
         questions: { fit: question, bad: { type: "score", instructions: "How bad?", criteria: ["low", "high"] }, ok: { type: "noul", instructions: "Fine?", criteria: { true: "yes", false: "no" } } },
         images: [png],
       },
-      { gateway: { id: "default", collectLog: false } },
+      await viaGateway(key, "plan"),
     );
   });
 
@@ -471,7 +471,7 @@ describe("decide over MCP", () => {
     const { w, run, key } = await withDecisions(undefined, true);
     const registry = w.trials.named("trials");
     const keySha256 = await sha256Hex(key);
-    expect(await registry.allowUsage({ keySha256, kind: "tool_decisions", amount: 200, perKey: 200, total: 20_000 })).toEqual({ ok: true });
+    expect(await registry.allowUsage({ keySha256, kind: "tool_decisions", amount: 200, perKey: 200, total: 20_000 })).toEqual({ ok: true, tier: "plan" });
     const used = await call(w, key, "decide", { state: {}, questions: { q: question } });
     expect(used.isError).toBe(true);
     expect(say(used)).toBe("This installation has used today's allowance. It resets at midnight UTC.");

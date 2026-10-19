@@ -328,8 +328,26 @@ allowance per key and one for all keys together, reset at midnight UTC and kept 
   Grok allowance, so the 20,000,000 Grok total covers only Grok picked by name.
 - When the rate limiter (`INCLUDED_LIMIT`, `TRIAL_FORM_LIMIT`) cannot be reached, chat, speech, dictation and trial
   starts are refused with 429 rather than allowed. Decisions, typing suggestions and the computers API stay open.
-- Requests go through the AI Gateway named by `AI_GATEWAY_ID` (`default`), with logging off. Worker logs and traces
-  keep a 10% sample (`head_sampling_rate`).
+- Speech (`POST /v1/voice/text-to-speech/:voice`) runs on Aura-2 (`@cf/deepgram/aura-2-en`), 10,000 characters a day
+  per key and 400,000 for all keys. ElevenLabs (Flash v2.5) is used only when `ELEVENLABS_MODE` is `byok` (the AI
+  Gateway adds its stored ElevenLabs key, so the Worker sends no `xi-api-key`) or `secret` (the Worker sends its
+  `ELEVENLABS_API_KEY` secret), and `ELEVENLABS_CHARS_PER_DAY` is above 0. That number is one daily budget of ElevenLabs
+  characters for all keys together, reserved before each call and given back when ElevenLabs fails. `ELEVENLABS_TIERS`
+  (comma-separated `trial`, `home`, `plan`; empty means all) limits which keys get it. When the budget is used up, the
+  key's tier is left out, or ElevenLabs answers anything but audio, the speech comes from Aura-2. The defaults
+  (`off`, `0`, empty) keep everyone on Aura-2. The ElevenLabs key's own credit quota stays the hard cap.
+- Spoken audio is kept in the edge Cache API for 30 days, keyed by the SHA-256 of engine, voice, format and text, because
+  the AI Gateway does not cache audio. A repeat is served from the cache with no model call and no ElevenLabs
+  characters; it still counts against the key's own daily characters. Responses say which engine spoke in
+  `x-speech-engine` (`elevenlabs` or `aura`) and whether it came from the cache in `x-speech-cache` (`hit` or `miss`).
+- Dictation (`POST /v1/voice/speech-to-text`) runs `TRANSCRIBE_AI_MODEL`: `@cf/deepgram/nova-3` (the default) or
+  `@cf/openai/whisper-large-v3-turbo`. Nova-3 is called straight, not through the AI Gateway, because the gateway takes
+  no audio streams (production answered every note with 502 when it tried). Whisper turbo takes base64 audio in JSON,
+  so it goes through the gateway like the other calls. Any other value means Nova-3.
+- Requests go through the AI Gateway named by `AI_GATEWAY_ID` (`default`), with logging off. Each call carries gateway
+  metadata `{ user, tier }`: the first 16 hex characters of the key's SHA-256 and `trial`, `home` or `plan`, so spend
+  limits and analytics can split by person without logging prompts. Worker logs and traces keep a 10% sample
+  (`head_sampling_rate`).
 
 ## Free trials
 

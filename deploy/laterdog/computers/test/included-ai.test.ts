@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { sha256Hex } from "../src/auth";
 import { AI_BUSY, AI_DEFAULT_MODEL, AI_WORKERS_MODEL, chatRequest, openAiStream, plainErrors, streamedTokens, tokensOf, usableStream } from "../src/ai";
 import { DAY } from "../src/trial";
-import { ORIGIN, apiRequest, body, siteverify, startTrial, trialKey, world } from "./fakes";
+import { ORIGIN, apiRequest, body, siteverify, startTrial, trialKey, world, viaGateway } from "./fakes";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -88,7 +88,7 @@ describe("the included AI", () => {
     expect((await body(response)).choices[0].message.content).toBe("Hi");
     expect(gateway).toHaveBeenCalledWith("default");
     const sent = gatewayRun.mock.calls[0]![0] as { provider: string; endpoint: string; headers: Record<string, unknown>; query: Record<string, unknown> };
-    expect(sent).toMatchObject({ provider: "grok", endpoint: "v1/chat/completions", headers: { Authorization: "Bearer xai-test", "cf-aig-collect-log": false } });
+    expect(sent).toMatchObject({ provider: "grok", endpoint: "v1/chat/completions", headers: { Authorization: "Bearer xai-test", "cf-aig-collect-log": false, "cf-aig-metadata": JSON.stringify((await viaGateway(key)).gateway.metadata) } });
     expect(sent.query).toEqual({ model: AI_DEFAULT_MODEL, stream: false, messages: chat(false).messages, max_tokens: 8_000 });
     expect(await used()).toBe(true);
   });
@@ -126,7 +126,7 @@ describe("the included AI", () => {
     expect(response.status).toBe(200);
     expect((await body(response)).choices[0].message.content).toBe("Hi");
     expect(gatewayRun).not.toHaveBeenCalled();
-    expect(run).toHaveBeenCalledWith(AI_WORKERS_MODEL, { stream: false, messages: chat(false).messages, tools: [{ type: "function", function: { name: "f" } }], max_tokens: 8_000, chat_template_kwargs: { thinking: false } }, { gateway: { id: "default", collectLog: false } });
+    expect(run).toHaveBeenCalledWith(AI_WORKERS_MODEL, { stream: false, messages: chat(false).messages, tools: [{ type: "function", function: { name: "f" } }], max_tokens: 8_000, chat_template_kwargs: { thinking: false } }, await viaGateway(key));
     expect(await used()).toBe(true);
   });
 

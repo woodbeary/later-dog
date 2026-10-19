@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sha256Hex } from "../src/auth";
 import { DAY } from "../src/trial";
-import { TRANSCRIBE_MODEL, TRANSCRIBE_SECONDS_PER_DAY, base64, transcriptFrom, wavSeconds } from "../src/transcribe";
-import { ORIGIN, body, siteverify, startTrial, trialKey, world } from "./fakes";
+import { TRANSCRIBE_MODEL, TRANSCRIBE_SECONDS_PER_DAY, WHISPER_TURBO_MODEL, base64, transcribeModel, transcriptFrom, wavSeconds } from "../src/transcribe";
+import { ORIGIN, body, siteverify, startTrial, trialKey, viaGateway, world } from "./fakes";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -66,9 +66,9 @@ const wav = (seconds: number, options: Parameters<typeof fmt>[0] = {}) =>
 
 const whisperAnswer = { results: { channels: [{ alternatives: [{ transcript: " Hello from later.dog. ", confidence: 0.99 }], detected_language: "en", language_confidence: 0.98 }] } };
 
-async function included() {
-  const run = vi.fn(async () => whisperAnswer);
-  const w = await world({ AI: { run, gateway: vi.fn() } } as unknown as Record<string, string>);
+async function included(vars: Record<string, string> = {}, answer: unknown = whisperAnswer) {
+  const run = vi.fn(async () => answer);
+  const w = await world({ AI: { run, gateway: vi.fn() }, ...vars } as unknown as Record<string, string>);
   siteverify();
   const key = trialKey("k");
   expect((await startTrial(w, key)).status).toBe(200);
@@ -96,6 +96,22 @@ describe("included transcription", () => {
       { audio: { body: expect.any(ReadableStream), contentType: "audio/wav" }, smart_format: true, punctuate: true, language: "en" },
     );
     expect(run.mock.calls[0]).toHaveLength(2);
+  });
+
+  it("moves to Whisper turbo through the AI Gateway, tagged with the key's user and tier, when TRANSCRIBE_AI_MODEL names it", async () => {
+    const { w, run, key } = await included({ TRANSCRIBE_AI_MODEL: WHISPER_TURBO_MODEL }, { text: " Hola desde later.dog. ", transcription_info: { language: "es", language_probability: 0.91 } });
+    const audio = wav(1);
+    const response = await w.fetch(transcribe(key, { file: note(audio), language_code: "es" }));
+    expect(response.status).toBe(200);
+    expect(await body(response)).toEqual({ language_code: "es", language_probability: 0.91, text: "Hola desde later.dog.", words: [] });
+    expect(run).toHaveBeenCalledWith(WHISPER_TURBO_MODEL, { audio: base64(audio), task: "transcribe", language: "es" }, await viaGateway(key));
+  });
+
+  it("stays on Nova-3 unless TRANSCRIBE_AI_MODEL names a model it knows", () => {
+    const env = (model?: string) => (model === undefined ? {} : { TRANSCRIBE_AI_MODEL: model }) as unknown as Env;
+    expect(transcribeModel(env())).toBe(TRANSCRIBE_MODEL);
+    expect(transcribeModel(env("@cf/openai/whisper"))).toBe(TRANSCRIBE_MODEL);
+    expect(transcribeModel(env(` ${WHISPER_TURBO_MODEL} `))).toBe(WHISPER_TURBO_MODEL);
   });
 
   it("leaves the language to the model when none is named, or Nova-3 doesn't know it", async () => {
@@ -151,7 +167,7 @@ describe("included transcription", () => {
     expect((await w.fetch(transcribe(key, { file: note(wav(2.5)) }))).status).toBe(200);
     const registry = w.trials.named("trials");
     const keySha256 = await sha256Hex(key);
-    expect(await registry.allowUsage({ keySha256, kind: "transcribe_seconds", amount: TRANSCRIBE_SECONDS_PER_DAY - 3, perKey: TRANSCRIBE_SECONDS_PER_DAY, total: 1_000_000 })).toEqual({ ok: true });
+    expect(await registry.allowUsage({ keySha256, kind: "transcribe_seconds", amount: TRANSCRIBE_SECONDS_PER_DAY - 3, perKey: TRANSCRIBE_SECONDS_PER_DAY, total: 1_000_000 })).toEqual({ ok: true, tier: "trial" });
     const spent = await w.fetch(transcribe(key, { file: note(wav(1)) }));
     expect(spent.status).toBe(429);
     expect((await body(spent)).error.code).toBe("daily_limit");
@@ -193,11 +209,12 @@ describe("how long a WAV recording is", () => {
   });
 });
 
-describe("what Nova-3 answers", () => {
+describe("what the transcription models answer", () => {
   it("reads the text with or without the result wrapper and keeps the detected language", () => {
     expect(transcriptFrom({ result: whisperAnswer })).toEqual({ language_code: "en", language_probability: 0.98, text: "Hello from later.dog.", words: [] });
     expect(transcriptFrom({ results: { channels: [{ alternatives: [{ transcript: "hola" }] }] } })).toEqual({ language_code: null, language_probability: null, text: "hola", words: [] });
     expect(transcriptFrom({ text: 3 })).toBeNull();
+    expect(transcriptFrom({ result: { text: " hi ", transcription_info: {} } })).toEqual({ language_code: null, language_probability: null, text: "hi", words: [] });
     expect(transcriptFrom("text")).toBeNull();
   });
 

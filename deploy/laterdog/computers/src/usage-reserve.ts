@@ -1,6 +1,7 @@
 import type { Refusal } from "./auth";
 import { AI_TOKENS_PER_DAY, AI_TOKENS_TOTAL_PER_DAY, AI_TRIAL_TOKENS_PER_DAY, GROK_TOKENS_PER_DAY, GROK_TOKENS_TOTAL_PER_DAY, type ChatRequest } from "./ai";
 import type { UsageKind } from "./decide";
+import type { Tier } from "./gateway";
 import type { TrialRegistry } from "./trial-registry";
 
 export const RESERVE_BYTES_PER_TOKEN = 3;
@@ -38,6 +39,7 @@ export function chatEstimate(request: ChatRequest): { prompt: number; reserve: n
 }
 
 export interface Reservation {
+  tier: Tier;
   settle(used: number): Promise<void>;
   refund(): Promise<void>;
 }
@@ -59,6 +61,7 @@ export async function reserveTokens(
   return {
     ok: true,
     reservation: {
+      tier: hold.tier,
       settle: (used) => close(used > 0 ? used : hold.amount),
       refund: () => close(0),
     },

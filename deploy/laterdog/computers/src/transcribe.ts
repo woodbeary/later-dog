@@ -1,6 +1,9 @@
 import type { Refusal } from "./auth";
 
 export const TRANSCRIBE_MODEL = "@cf/deepgram/nova-3";
+export const WHISPER_TURBO_MODEL = "@cf/openai/whisper-large-v3-turbo";
+export const TRANSCRIBE_MODELS = [TRANSCRIBE_MODEL, WHISPER_TURBO_MODEL] as const;
+export type TranscribeModel = (typeof TRANSCRIBE_MODELS)[number];
 export const TRANSCRIBE_MAX_SECONDS = 1_800;
 export const TRANSCRIBE_MAX_BYTES = 60 * 1024 * 1024;
 export const TRANSCRIBE_SECONDS_PER_DAY = 3_600;
@@ -70,9 +73,28 @@ export function base64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-export function transcribeInput(request: TranscriptionRequest) {
+export const takesGateway = (model: TranscribeModel) => model === WHISPER_TURBO_MODEL;
+
+export function transcribeModel(env: Env): TranscribeModel {
+  const named = env.TRANSCRIBE_AI_MODEL?.trim();
+  return TRANSCRIBE_MODELS.find((model) => model === named) ?? TRANSCRIBE_MODEL;
+}
+
+export function transcribeInput(request: TranscriptionRequest, model: TranscribeModel = TRANSCRIBE_MODEL) {
+  if (model === WHISPER_TURBO_MODEL) return { audio: base64(request.audio), task: "transcribe", ...(request.language ? { language: request.language } : {}) };
   const language = request.language && NOVA_LANGUAGES.has(request.language) ? { language: request.language } : {};
   return { audio: { body: new Blob([request.audio]).stream(), contentType: "audio/wav" }, smart_format: true, punctuate: true, ...language };
+}
+
+function whisperTranscript(result: Record<string, unknown>): Transcript | null {
+  if (typeof result.text !== "string") return null;
+  const info = isRecord(result.transcription_info) ? result.transcription_info : {};
+  return {
+    language_code: typeof info.language === "string" ? info.language : null,
+    language_probability: typeof info.language_probability === "number" ? info.language_probability : null,
+    text: result.text.trim(),
+    words: [],
+  };
 }
 
 export function transcriptFrom(raw: unknown): Transcript | null {
@@ -80,6 +102,7 @@ export function transcriptFrom(raw: unknown): Transcript | null {
   const result = isRecord(raw.result) ? raw.result : raw;
   const channel = isRecord(result.results) && Array.isArray(result.results.channels) && isRecord(result.results.channels[0]) ? result.results.channels[0] : null;
   const best = channel && Array.isArray(channel.alternatives) && isRecord(channel.alternatives[0]) ? channel.alternatives[0] : null;
+  if (!channel) return whisperTranscript(result);
   if (!best || typeof best.transcript !== "string") return null;
   return {
     language_code: typeof channel?.detected_language === "string" ? channel.detected_language : null,

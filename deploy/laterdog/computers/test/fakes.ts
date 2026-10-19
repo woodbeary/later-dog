@@ -267,3 +267,7 @@ export async function startTrial(w: World, key: string, ip = IP): Promise<Respon
 export async function body(response: Response): Promise<any> {
   return response.json();
 }
+
+export async function viaGateway(key: string, tier: "trial" | "home" | "plan" = "trial") {
+  return { gateway: { id: "default", collectLog: false, metadata: { user: (await sha256Hex(key)).slice(0, 16), tier } } };
+}

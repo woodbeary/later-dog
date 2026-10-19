@@ -1,4 +1,5 @@
 import type { Refusal } from "./auth";
+import { TIERS, type Tier } from "./gateway";
 
 export const VOICE_MODEL = "@cf/deepgram/aura-2-en";
 export const VOICE_MAX_CHARS = 2_500;
@@ -63,13 +64,34 @@ export function speechRequest(voiceId: string, query: URLSearchParams, body: unk
 }
 
 export const ELEVENLABS_MODEL_ID = "eleven_flash_v2_5";
+export const ELEVENLABS_ENGINE = `elevenlabs/${ELEVENLABS_MODEL_ID}`;
+export const AURA_FORMAT = "mp3";
 
-export function elevenLabsRequest(request: SpeechRequest, key: string) {
+export type ElevenLabsVoice = { key?: string; charsPerDay: number; tiers: readonly Tier[] };
+
+function tiersFrom(value: string | undefined): readonly Tier[] {
+  const named = (value ?? "").split(",").map((tier) => tier.trim()).filter(Boolean);
+  if (named.length === 0) return TIERS;
+  return TIERS.filter((tier) => named.includes(tier));
+}
+
+export function elevenLabsVoice(env: Env): ElevenLabsVoice | null {
+  const charsPerDay = Number.parseInt(env.ELEVENLABS_CHARS_PER_DAY?.trim() ?? "", 10);
+  if (!Number.isSafeInteger(charsPerDay) || charsPerDay <= 0) return null;
+  const tiers = tiersFrom(env.ELEVENLABS_TIERS);
+  const mode = env.ELEVENLABS_MODE?.trim();
+  if (mode === "byok") return { charsPerDay, tiers };
+  const key = env.ELEVENLABS_API_KEY?.trim();
+  if (mode === "secret" && key) return { key, charsPerDay, tiers };
+  return null;
+}
+
+export function elevenLabsRequest(request: SpeechRequest, key?: string) {
   return {
     provider: "elevenlabs",
     endpoint: `v1/text-to-speech/${request.voiceId}?output_format=${request.outputFormat}`,
     headers: {
-      "xi-api-key": key,
+      ...(key ? { "xi-api-key": key } : {}),
       "Content-Type": "application/json",
       accept: "audio/mpeg",
       "cf-aig-collect-log": false,
@@ -79,8 +101,10 @@ export function elevenLabsRequest(request: SpeechRequest, key: string) {
   };
 }
 
+export const auraSpeaker = (request: SpeechRequest) => AURA[request.voiceId]?.speaker ?? "draco";
+
 export function voiceInput(request: SpeechRequest) {
-  return { text: request.text, speaker: AURA[request.voiceId]?.speaker ?? "draco", encoding: "mp3" };
+  return { text: request.text, speaker: auraSpeaker(request), encoding: AURA_FORMAT };
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);

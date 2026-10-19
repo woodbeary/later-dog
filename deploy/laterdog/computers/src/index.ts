@@ -32,8 +32,10 @@ import { trialPage, trialPageHeaders } from "./trial-page";
 import { type PlanRow, planPolicy, trials } from "./trial-registry";
 import { cancelSubscription, createPlanLink, customerPlan, orderCustomer, paidThrough, squareConfigured, subscription } from "./square";
 import { messagePage, newNonce } from "./viewer";
-import { VOICE_CHARS_PER_DAY, VOICE_MODEL, audioBytes, elevenLabsRequest, includedVoices, speechRequest, voiceInput } from "./voice";
-import { TRANSCRIBE_MAX_BYTES, TRANSCRIBE_MODEL, TRANSCRIBE_SECONDS_PER_DAY, TRANSCRIBE_SECONDS_TOTAL_PER_DAY, transcribeInput, transcriptFrom, transcriptionRequest } from "./transcribe";
+import { AURA_FORMAT, ELEVENLABS_ENGINE, type ElevenLabsVoice, type SpeechRequest, VOICE_CHARS_PER_DAY, VOICE_MODEL, audioBytes, auraSpeaker, elevenLabsRequest, elevenLabsVoice, includedVoices, speechRequest, voiceInput } from "./voice";
+import { TRANSCRIBE_MAX_BYTES, TRANSCRIBE_SECONDS_PER_DAY, TRANSCRIBE_SECONDS_TOTAL_PER_DAY, takesGateway, transcribeInput, transcribeModel, transcriptFrom, transcriptionRequest } from "./transcribe";
+import { type GatewayMetadata, gatewayId, gatewayMetadata, gatewayOptions, withMetadata } from "./gateway";
+import { type Audio, SpeechCache, type SpeechKey, edgeSpeechStore } from "./speech-cache";
 
 export { DogComputer } from "./computer";
 export { ComputerRegistry } from "./registry";
@@ -47,6 +49,10 @@ declare global {
     TRIAL_NETWORK_KEY?: string;
     AI_GATEWAY_ID?: string;
     ELEVENLABS_API_KEY?: string;
+    ELEVENLABS_MODE?: string;
+    ELEVENLABS_CHARS_PER_DAY?: string;
+    ELEVENLABS_TIERS?: string;
+    TRANSCRIBE_AI_MODEL?: string;
     SQUARE_ACCESS_TOKEN?: string;
     SQUARE_ENVIRONMENT?: string;
     XAI_API_KEY?: string;
@@ -500,8 +506,6 @@ function includedKey(request: Request): string | null {
   return token && TRIAL_TOKEN.test(token) ? token : null;
 }
 
-const aiGateway = (env: Env) => ({ gateway: { id: env.AI_GATEWAY_ID?.trim() || "default", collectLog: false } });
-
 async function readBody(request: Request, limit: number): Promise<{ ok: true; value: unknown } | { ok: false; response: Response }> {
   let bytes: Uint8Array;
   try {
@@ -564,7 +568,7 @@ async function runDecision(env: Env, keySha256: string, decision: Decision, budg
     return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
   }
   try {
-    return json(await env.AI.run(clefModelId(decision), clefInput(decision), aiGateway(env)));
+    return json(await env.AI.run(clefModelId(decision), clefInput(decision), gatewayOptions(env, gatewayMetadata(keySha256, allowance.tier))));
   } catch (error) {
     console.error(`laterdog computers: decision failed: ${error instanceof Error ? error.message : String(error)}`);
     return apiError(INCLUDED_FAILED);
@@ -622,7 +626,7 @@ async function completeHandler(request: Request, env: Env): Promise<Response> {
   if (!allowance.ok) return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
   try {
     const model = env.TYPING_AI_MODEL?.trim() || COMPLETE_DEFAULT_MODEL;
-    const raw = await (env.AI.run as (model: string, input: Record<string, unknown>, options: unknown) => Promise<unknown>)(model, completeInput(parsed.request), aiGateway(env));
+    const raw = await (env.AI.run as (model: string, input: Record<string, unknown>, options: unknown) => Promise<unknown>)(model, completeInput(parsed.request), gatewayOptions(env, gatewayMetadata(keySha256, allowance.tier)));
     const completion = completionFrom(parsed.request.prefix, raw);
     return completion === null ? apiError(INCLUDED_FAILED) : json({ completion, model });
   } catch (error) {
@@ -634,10 +638,46 @@ async function completeHandler(request: Request, env: Env): Promise<Response> {
 async function voicesRequest(request: Request, env: Env): Promise<Response> {
   if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
   if (!includedKey(request)) return apiError(NO_TRIAL, CHALLENGE);
-  return json({ voices: includedVoices(Boolean(env.ELEVENLABS_API_KEY?.trim())) });
+  return json({ voices: includedVoices(Boolean(elevenLabsVoice(env))) });
 }
 
-async function speakRequest(request: Request, env: Env, url: URL, voiceId: string): Promise<Response> {
+function audioResponse(audio: Audio, engine: "elevenlabs" | "aura", cached: boolean): Response {
+  return new Response(audio, { headers: { "content-type": "audio/mpeg", "cache-control": "no-store", "x-speech-engine": engine, "x-speech-cache": cached ? "hit" : "miss" } });
+}
+
+async function elevenLabsSpeech(env: Env, voice: ElevenLabsVoice, request: SpeechRequest, keySha256: string, metadata: GatewayMetadata, cache: SpeechCache): Promise<Response | null> {
+  const key: SpeechKey = { engine: ELEVENLABS_ENGINE, voice: request.voiceId, format: request.outputFormat, text: request.text };
+  const cached = await cache.find(key);
+  if (cached) return audioResponse(cached, "elevenlabs", true);
+  const budget = { kind: "elevenlabs_chars" as const, perKey: voice.charsPerDay, perFullKey: voice.charsPerDay, total: voice.charsPerDay };
+  const held = await reserveTokens(trials(env), keySha256, budget, request.text.length);
+  if (!held.ok) return null;
+  const upstream = await env.AI.gateway(gatewayId(env)).run(withMetadata(elevenLabsRequest(request, voice.key), metadata)).catch((error: unknown) => {
+    console.error(`laterdog computers: speech failed: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  });
+  if (upstream?.ok && upstream.body) {
+    const [toClient, toCache] = upstream.body.tee();
+    cache.keep(key, toCache);
+    return audioResponse(toClient, "elevenlabs", false);
+  }
+  if (upstream) console.error(`laterdog computers: speech failed: ElevenLabs answered ${upstream.status}`);
+  await upstream?.body?.cancel().catch(() => {});
+  await held.reservation.refund();
+  return null;
+}
+
+async function auraSpeech(env: Env, request: SpeechRequest, metadata: GatewayMetadata, cache: SpeechCache): Promise<Response> {
+  const key: SpeechKey = { engine: VOICE_MODEL, voice: auraSpeaker(request), format: AURA_FORMAT, text: request.text };
+  const cached = await cache.find(key);
+  if (cached) return audioResponse(cached, "aura", true);
+  const bytes = await audioBytes(await (env.AI.run as (model: string, input: Record<string, unknown>, options: unknown) => Promise<unknown>)(VOICE_MODEL, voiceInput(request), gatewayOptions(env, metadata)));
+  if (!bytes || bytes.byteLength === 0) return apiError(INCLUDED_FAILED);
+  cache.keep(key, bytes);
+  return audioResponse(bytes, "aura", false);
+}
+
+async function speakRequest(request: Request, env: Env, url: URL, voiceId: string, waitUntil: (work: Promise<unknown>) => void): Promise<Response> {
   if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
   const token = includedKey(request);
   if (!token) return apiError(NO_TRIAL, CHALLENGE);
@@ -650,20 +690,15 @@ async function speakRequest(request: Request, env: Env, url: URL, voiceId: strin
   if (!env.AI) return apiError(NOT_INCLUDED);
   const allowance = await trials(env).allowUsage({ keySha256, kind: "voice_chars", amount: parsed.request.text.length, perKey: VOICE_CHARS_PER_DAY, total: VOICE_CHARS_TOTAL_PER_DAY });
   if (!allowance.ok) return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
+  const metadata = gatewayMetadata(keySha256, allowance.tier);
+  const cache = new SpeechCache(edgeSpeechStore(), url.origin, waitUntil);
   try {
-    const key = env.ELEVENLABS_API_KEY?.trim();
-    if (key) {
-      const upstream = await env.AI.gateway(aiGateway(env).gateway.id).run(elevenLabsRequest(parsed.request, key)).catch((error: unknown) => {
-        console.error(`laterdog computers: speech failed: ${error instanceof Error ? error.message : String(error)}`);
-        return null;
-      });
-      if (upstream?.ok && upstream.body) return new Response(upstream.body, { headers: { "content-type": "audio/mpeg", "cache-control": "no-store" } });
-      if (upstream) console.error(`laterdog computers: speech failed: ElevenLabs answered ${upstream.status}`);
-      await upstream?.body?.cancel().catch(() => {});
+    const voice = elevenLabsVoice(env);
+    if (voice?.tiers.includes(allowance.tier)) {
+      const spoken = await elevenLabsSpeech(env, voice, parsed.request, keySha256, metadata, cache);
+      if (spoken) return spoken;
     }
-    const bytes = await audioBytes(await (env.AI.run as (model: string, input: Record<string, unknown>, options: unknown) => Promise<unknown>)(VOICE_MODEL, voiceInput(parsed.request), aiGateway(env)));
-    if (!bytes || bytes.byteLength === 0) return apiError(INCLUDED_FAILED);
-    return new Response(bytes, { headers: { "content-type": "audio/mpeg", "cache-control": "no-store" } });
+    return await auraSpeech(env, parsed.request, metadata, cache);
   } catch (error) {
     console.error(`laterdog computers: speech failed: ${error instanceof Error ? error.message : String(error)}`);
     return apiError(INCLUDED_FAILED);
@@ -684,7 +719,11 @@ async function transcribeRequest(request: Request, env: Env): Promise<Response> 
   const allowance = await trials(env).allowUsage({ keySha256, kind: "transcribe_seconds", amount: parsed.request.seconds, perKey: TRANSCRIBE_SECONDS_PER_DAY, total: TRANSCRIBE_SECONDS_TOTAL_PER_DAY });
   if (!allowance.ok) return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
   try {
-    const transcript = transcriptFrom(await (env.AI.run as (model: string, input: Record<string, unknown>) => Promise<unknown>)(TRANSCRIBE_MODEL, transcribeInput(parsed.request)));
+    const model = transcribeModel(env);
+    const run = env.AI.run.bind(env.AI) as (model: string, input: Record<string, unknown>, options?: unknown) => Promise<unknown>;
+    const input = transcribeInput(parsed.request, model);
+    const raw = takesGateway(model) ? await run(model, input, gatewayOptions(env, gatewayMetadata(keySha256, allowance.tier))) : await run(model, input);
+    const transcript = transcriptFrom(raw);
     return transcript ? json(transcript) : apiError(INCLUDED_FAILED);
   } catch (error) {
     console.error(`laterdog computers: transcription failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -696,9 +735,9 @@ type ChatAnswer = { stream: ReadableStream<Uint8Array> } | { answer: Record<stri
 
 const isAnswer = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value) && !(value instanceof ReadableStream);
 
-async function grokAnswer(env: Env, request: ChatRequest, key: string): Promise<ChatAnswer | null> {
+async function grokAnswer(env: Env, request: ChatRequest, key: string, metadata: GatewayMetadata): Promise<ChatAnswer | null> {
   try {
-    const upstream = await env.AI.gateway(aiGateway(env).gateway.id).run(grokRequest(request, key));
+    const upstream = await env.AI.gateway(gatewayId(env)).run(withMetadata(grokRequest(request, key), metadata));
     if (upstream.ok && upstream.body) {
       if (request.stream) {
         const stream = await usableStream(plainErrors(upstream.body));
@@ -719,10 +758,10 @@ async function grokAnswer(env: Env, request: ChatRequest, key: string): Promise<
   return null;
 }
 
-async function workersAnswer(env: Env, request: ChatRequest): Promise<ChatAnswer | null> {
+async function workersAnswer(env: Env, request: ChatRequest, metadata: GatewayMetadata): Promise<ChatAnswer | null> {
   try {
     const model = env.TRIAL_AI_WORKERS_MODEL?.trim() || AI_WORKERS_MODEL;
-    const result: unknown = await (env.AI.run as (model: string, input: Record<string, unknown>, options: unknown) => Promise<unknown>)(model, workersInput(request), aiGateway(env));
+    const result: unknown = await (env.AI.run as (model: string, input: Record<string, unknown>, options: unknown) => Promise<unknown>)(model, workersInput(request), gatewayOptions(env, metadata));
     if (result instanceof ReadableStream) {
       const stream = await usableStream(openAiStream(result as ReadableStream<Uint8Array>));
       if (stream) return { stream };
@@ -739,13 +778,13 @@ async function workersAnswer(env: Env, request: ChatRequest): Promise<ChatAnswer
 
 const PROMPT_TOO_LARGE: Refusal = { status: 413, code: "prompt_too_large", message: `The free model takes prompts of up to about ${AI_MAX_PROMPT_TOKENS / 1000}k tokens. Start a new chat or send less.` };
 
-type ChatAttempt = { provider: "grok" | "workers"; budget: TokenBudget; answer: () => Promise<ChatAnswer | null> };
+type ChatAttempt = { provider: "grok" | "workers"; budget: TokenBudget; answer: (metadata: GatewayMetadata) => Promise<ChatAnswer | null> };
 
 function chatAttempts(env: Env, request: ChatRequest, asked: string): ChatAttempt[] {
-  const workers: ChatAttempt = { provider: "workers", budget: AI_BUDGET, answer: () => workersAnswer(env, request) };
+  const workers: ChatAttempt = { provider: "workers", budget: AI_BUDGET, answer: (metadata) => workersAnswer(env, request, metadata) };
   const key = env.XAI_API_KEY?.trim();
   if (!key) return [workers];
-  const grok = (budget: TokenBudget): ChatAttempt => ({ provider: "grok", budget, answer: () => grokAnswer(env, request, key) });
+  const grok = (budget: TokenBudget): ChatAttempt => ({ provider: "grok", budget, answer: (metadata) => grokAnswer(env, request, key, metadata) });
   if (asked.startsWith("grok")) return [grok(GROK_BUDGET), workers, grok(AI_BUDGET)];
   if (!asked.startsWith("kimi") && env.TRIAL_AI_FIRST?.trim() === "xai") return [grok(AI_BUDGET), workers];
   return [workers, grok(AI_BUDGET)];
@@ -784,7 +823,7 @@ async function chatRequestHandler(request: Request, env: Env, waitUntil: (work: 
       continue;
     }
     tried.add(attempt.provider);
-    const result = await attempt.answer();
+    const result = await attempt.answer(gatewayMetadata(keySha256, held.reservation.tier));
     if (result) return await deliverChat(result, held.reservation, waitUntil);
     await held.reservation.refund();
   }
@@ -828,7 +867,7 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
       case "complete":
         return await completeHandler(request, env);
       case "speak":
-        return await speakRequest(request, env, url, target.voiceId);
+        return await speakRequest(request, env, url, target.voiceId, (work) => (ctx ? ctx.waitUntil(work) : void work));
       case "transcribe":
         return await transcribeRequest(request, env);
       case "trial_start":

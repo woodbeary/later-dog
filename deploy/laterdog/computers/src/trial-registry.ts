@@ -3,6 +3,7 @@ import type { Refusal } from "./auth";
 import { newTrialId } from "./ids";
 import { MINUTE } from "./idle";
 import { type UsageKind, utcDay } from "./decide";
+import type { Tier } from "./gateway";
 import { paidThrough, squareConfigured, subscription } from "./square";
 import { type TrialRecord, trialListing } from "./trial";
 
@@ -30,7 +31,7 @@ export function planPolicy(env: { PLAN_HOURS?: string; PLAN_GRACE_DAYS?: string 
   };
 }
 
-export type UsageHold = { ok: true; day: string; amount: number };
+export type UsageHold = { ok: true; day: string; amount: number; tier: Tier };
 
 export type Activation = { ok: true; trial: TrialRecord; replayed: boolean } | { ok: false; refusal: Refusal };
 
@@ -85,14 +86,14 @@ export class TrialRegistry extends DurableObject<Env> {
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS usage_totals (day TEXT NOT NULL, kind TEXT NOT NULL, used INTEGER NOT NULL, PRIMARY KEY (day, kind))");
   }
 
-  allowUsage(input: { keySha256: string; kind: UsageKind; amount: number; perKey: number; total: number }): { ok: true } | { ok: false; refusal: Refusal } {
+  allowUsage(input: { keySha256: string; kind: UsageKind; amount: number; perKey: number; total: number }): { ok: true; tier: Tier } | { ok: false; refusal: Refusal } {
     const taken = this.take(input);
-    return taken.ok ? { ok: true } : taken;
+    return taken.ok ? { ok: true, tier: taken.tier } : taken;
   }
 
   reserveUsage(input: { keySha256: string; kind: UsageKind; amount: number; perKey: number; perFullKey: number; total: number }): UsageHold | { ok: false; refusal: Refusal } {
-    const full = this.homeGrant(input.keySha256) || this.planPaid(input.keySha256);
-    return this.take({ keySha256: input.keySha256, kind: input.kind, amount: input.amount, perKey: full ? input.perFullKey : input.perKey, total: input.total });
+    const tier = this.tierOf(input.keySha256);
+    return this.take({ keySha256: input.keySha256, kind: input.kind, amount: input.amount, perKey: tier === "trial" ? input.perKey : input.perFullKey, total: input.total, tier });
   }
 
   settleUsage(input: { keySha256: string; kind: UsageKind; day: string; reserved: number; used: number }): void {
@@ -108,7 +109,7 @@ export class TrialRegistry extends DurableObject<Env> {
     sql.exec("UPDATE usage_totals SET used = MAX(0, used + ?) WHERE day = ? AND kind = ?", delta, input.day, input.kind);
   }
 
-  private take(input: { keySha256: string; kind: UsageKind; amount: number; perKey: number; total: number }): UsageHold | { ok: false; refusal: Refusal } {
+  private take(input: { keySha256: string; kind: UsageKind; amount: number; perKey: number; total: number; tier?: Tier }): UsageHold | { ok: false; refusal: Refusal } {
     const sql = this.ctx.storage.sql;
     const now = Date.now();
     if (sql.exec("SELECT 1 FROM trials WHERE key_sha256 = ? AND expires_at > ?", input.keySha256, now).toArray().length === 0) {
@@ -124,7 +125,7 @@ export class TrialRegistry extends DurableObject<Env> {
     if (all + amount > input.total) return { ok: false, refusal: { status: 503, code: "busy_today", message: "later.dog's included service is at today's limit. Try again tomorrow, or add your own key." } };
     sql.exec("INSERT INTO usage (key_sha256, day, kind, used) VALUES (?, ?, ?, ?) ON CONFLICT (key_sha256, day, kind) DO UPDATE SET used = used + ?", input.keySha256, day, input.kind, amount, amount);
     sql.exec("INSERT INTO usage_totals (day, kind, used) VALUES (?, ?, ?) ON CONFLICT (day, kind) DO UPDATE SET used = used + ?", day, input.kind, amount, amount);
-    return { ok: true, day, amount };
+    return { ok: true, day, amount, tier: input.tier ?? this.tierOf(input.keySha256) };
   }
 
   planPending(input: { keySha256: string; ref: string; linkId: string; orderId: string }): void {
@@ -258,6 +259,11 @@ export class TrialRegistry extends DurableObject<Env> {
       return true;
     }
     return false;
+  }
+
+  private tierOf(keySha256: string): Tier {
+    if (this.planPaid(keySha256)) return "plan";
+    return this.homeGrant(keySha256) ? "home" : "trial";
   }
 
   private homeGrant(keySha256: string): boolean {

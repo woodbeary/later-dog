@@ -3,7 +3,7 @@ import { sha256Hex } from "../src/auth";
 import { CLEF_MODEL, KEY_CHECK_QUESTION, KEY_CHECK_STATE, ROOM_ROUTING_INSTRUCTIONS } from "../src/decide";
 import { DAY } from "../src/trial";
 import { INCLUDED_VOICES, VOICE_MODEL, audioBytes } from "../src/voice";
-import { ORIGIN, apiRequest, body, siteverify, startTrial, trialKey, world } from "./fakes";
+import { ORIGIN, apiRequest, body, siteverify, startTrial, trialKey, world, viaGateway } from "./fakes";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -53,6 +53,8 @@ async function included(vars: Record<string, string> = {}, elevenLabs: "ok" | "d
   return { w, run, key, gateway, gatewayRun };
 }
 
+const OWN_ELEVENLABS_KEY = { ELEVENLABS_MODE: "secret", ELEVENLABS_API_KEY: "sk_test_voice", ELEVENLABS_CHARS_PER_DAY: "10000" };
+
 const speak = (key: string, voiceId: string, text: string, headers: Record<string, string> = {}) =>
   new Request(`${ORIGIN}/v1/voice/text-to-speech/${voiceId}?output_format=mp3_44100_64`, {
     method: "POST",
@@ -76,7 +78,7 @@ describe("included decisions", () => {
     const response = await w.fetch(apiRequest("POST", "/v1/systemone", key, { body: routing() }));
     expect(response.status).toBe(200);
     expect(await body(response)).toEqual(clefAnswer);
-    expect(run).toHaveBeenCalledWith(CLEF_MODEL, { model: "clef", state: roomState, questions: routing().questions }, { gateway: { id: "default", collectLog: false } });
+    expect(run).toHaveBeenCalledWith(CLEF_MODEL, { model: "clef", state: roomState, questions: routing().questions }, await viaGateway(key));
     const check = await w.fetch(apiRequest("POST", "/v1/systemone", key, {
       body: { state: KEY_CHECK_STATE, model: "jev-latest", questions: { answer: { type: "noul", instructions: KEY_CHECK_QUESTION } } },
     }));
@@ -103,11 +105,11 @@ describe("included decisions", () => {
       run.mockClear();
       const response = await w.fetch(apiRequest("POST", "/v1/systemone", key, { body: { ...routing(), model: selector, images: photos } }));
       expect(response.status).toBe(200);
-      expect(run).toHaveBeenCalledWith(id, { model: selector, state: roomState, questions: routing().questions, images: photos }, { gateway: { id: "default", collectLog: false } });
+      expect(run).toHaveBeenCalledWith(id, { model: selector, state: roomState, questions: routing().questions, images: photos }, await viaGateway(key));
     }
     run.mockClear();
     expect((await w.fetch(apiRequest("POST", "/v1/systemone", key, { body: { ...routing(), model: "gpt-9" } }))).status).toBe(200);
-    expect(run).toHaveBeenCalledWith(CLEF_MODEL, { model: "clef", state: roomState, questions: routing().questions }, { gateway: { id: "default", collectLog: false } });
+    expect(run).toHaveBeenCalledWith(CLEF_MODEL, { model: "clef", state: roomState, questions: routing().questions }, await viaGateway(key));
   });
 
   it("refuses unusable images before any model is called", async () => {
@@ -146,7 +148,7 @@ describe("included decisions", () => {
     const keySha256 = await sha256Hex(key);
     expect(await registry.allowUsage({ keySha256, kind: "decisions", amount: 1, perKey: 1, total: 100 })).toMatchObject({ ok: false, refusal: { status: 429, code: "daily_limit" } });
     expect(await registry.allowUsage({ keySha256, kind: "decisions", amount: 1, perKey: 2, total: 1 })).toMatchObject({ ok: false, refusal: { status: 503, code: "busy_today" } });
-    expect(await registry.allowUsage({ keySha256, kind: "decisions", amount: 1, perKey: 2, total: 2 })).toEqual({ ok: true });
+    expect(await registry.allowUsage({ keySha256, kind: "decisions", amount: 1, perKey: 2, total: 2 })).toEqual({ ok: true, tier: "trial" });
   });
 
   it("serves only live free trials, never a browser, and stops when the trial window ends", async () => {
@@ -173,21 +175,21 @@ describe("included voice", () => {
     expect(audio.status).toBe(200);
     expect(audio.headers.get("content-type")).toBe("audio/mpeg");
     expect(new TextDecoder().decode(await audio.arrayBuffer())).toBe("ID3-mp3-bytes");
-    expect(run).toHaveBeenCalledWith(VOICE_MODEL, { text: "Hello from later.dog.", speaker: "draco", encoding: "mp3" }, { gateway: { id: "default", collectLog: false } });
+    expect(run).toHaveBeenCalledWith(VOICE_MODEL, { text: "Hello from later.dog.", speaker: "draco", encoding: "mp3" }, await viaGateway(key));
     expect(gatewayRun).not.toHaveBeenCalled();
   });
 
   it("falls back to the Aura voices when ElevenLabs refuses", async () => {
-    const { w, run, key, gatewayRun } = await included({ ELEVENLABS_API_KEY: "sk_test_voice" }, "down");
+    const { w, run, key, gatewayRun } = await included(OWN_ELEVENLABS_KEY, "down");
     const audio = await w.fetch(speak(key, INCLUDED_VOICES[7]!.voice_id, "Hello."));
     expect(audio.status).toBe(200);
     expect(new TextDecoder().decode(await audio.arrayBuffer())).toBe("ID3-mp3-bytes");
     expect(gatewayRun).toHaveBeenCalledTimes(1);
-    expect(run).toHaveBeenCalledWith(VOICE_MODEL, { text: "Hello.", speaker: "zeus", encoding: "mp3" }, { gateway: { id: "default", collectLog: false } });
+    expect(run).toHaveBeenCalledWith(VOICE_MODEL, { text: "Hello.", speaker: "zeus", encoding: "mp3" }, await viaGateway(key));
   });
 
-  it("speaks with later.dog's own ElevenLabs key through the AI Gateway when one is set, logging no content", async () => {
-    const { w, run, key, gateway, gatewayRun } = await included({ ELEVENLABS_API_KEY: "sk_test_voice" });
+  it("speaks with later.dog's own ElevenLabs key through the AI Gateway when switched on, logging no content", async () => {
+    const { w, run, key, gateway, gatewayRun } = await included(OWN_ELEVENLABS_KEY);
     const audio = await w.fetch(speak(key, INCLUDED_VOICES[1]!.voice_id, "Hello."));
     expect(audio.status).toBe(200);
     expect(await audio.text()).toBe("mp3-from-elevenlabs");
@@ -217,13 +219,13 @@ describe("included voice", () => {
     const registry = w.trials.named("trials");
     const keySha256 = await sha256Hex(trialKey("k"));
     const allow = (amount: number, perKey: number, total: number) => registry.allowUsage({ keySha256, kind: "voice_chars", amount, perKey, total });
-    expect(await allow(6_000, 10_000, 1_000_000)).toEqual({ ok: true });
+    expect(await allow(6_000, 10_000, 1_000_000)).toEqual({ ok: true, tier: "trial" });
     expect(await allow(5_000, 10_000, 1_000_000)).toMatchObject({ ok: false, refusal: { status: 429, code: "daily_limit" } });
-    expect(await allow(4_000, 10_000, 1_000_000)).toEqual({ ok: true });
-    expect(await registry.allowUsage({ keySha256, kind: "decisions", amount: 1, perKey: 500, total: 1 })).toEqual({ ok: true });
+    expect(await allow(4_000, 10_000, 1_000_000)).toEqual({ ok: true, tier: "trial" });
+    expect(await registry.allowUsage({ keySha256, kind: "decisions", amount: 1, perKey: 500, total: 1 })).toEqual({ ok: true, tier: "trial" });
     expect(await registry.allowUsage({ keySha256, kind: "decisions", amount: 1, perKey: 500, total: 1 })).toMatchObject({ ok: false, refusal: { status: 503, code: "busy_today" } });
     await w.advance(DAY);
-    expect(await allow(6_000, 10_000, 1_000_000)).toEqual({ ok: true });
+    expect(await allow(6_000, 10_000, 1_000_000)).toEqual({ ok: true, tier: "trial" });
   });
 
   it("reads speech as bytes, a stream, base64 or a short-lived link", async () => {

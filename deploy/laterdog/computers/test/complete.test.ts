@@ -12,7 +12,7 @@ import {
 } from "../src/complete";
 import { route } from "../src/routes";
 import { DAY } from "../src/trial";
-import { apiRequest, body, siteverify, startTrial, trialKey, world } from "./fakes";
+import { apiRequest, body, siteverify, startTrial, trialKey, world, viaGateway } from "./fakes";
 
 vi.mock("cloudflare:workers", () => ({
   DurableObject: class {
@@ -129,7 +129,7 @@ describe("included completions", () => {
     expect(model).toBe(COMPLETE_DEFAULT_MODEL);
     expect(input.max_tokens).toBe(COMPLETE_MAX_OUTPUT_TOKENS);
     expect(input.temperature).toBe(COMPLETE_TEMPERATURE);
-    expect(options).toEqual({ gateway: { id: "default", collectLog: false } });
+    expect(options).toEqual(await viaGateway(key));
     const logged = [...w.logs.mock.calls, ...w.errors.mock.calls].flat().join(" ");
     expect(logged).not.toContain("Please fix");
     expect(logged).not.toContain("Two tests fail");
@@ -177,7 +177,7 @@ describe("included completions", () => {
     expect((await w.fetch(complete(key, { prefix: "Please fix" }))).status).toBe(200);
     const registry = w.trials.named("trials");
     const keySha256 = await sha256Hex(key);
-    expect(await registry.allowUsage({ keySha256, kind: "completions", amount: COMPLETIONS_PER_DAY - 2, perKey: COMPLETIONS_PER_DAY, total: 100_000_000 })).toEqual({ ok: true });
+    expect(await registry.allowUsage({ keySha256, kind: "completions", amount: COMPLETIONS_PER_DAY - 2, perKey: COMPLETIONS_PER_DAY, total: 100_000_000 })).toEqual({ ok: true, tier: "trial" });
     expect((await w.fetch(complete(key, { prefix: "Please fix" }))).status).toBe(200);
     const spent = await w.fetch(complete(key, { prefix: "Please fix" }));
     expect(spent.status).toBe(429);
