@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, readFileSync, mkdirSync, rmSync, statSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 import { writeFileAtomic, writeFileAtomicIfChanged } from "./atomic.ts";
@@ -34,6 +34,8 @@ import type {
 import { CONNECTOR_SLUG_PATTERN, CONNECTOR_TOOL_NAME_PATTERN } from "../shared/wire.ts";
 import { sameModelSelection } from "../shared/thread-model.ts";
 import { exchangeName, formerNamesAfterRename } from "./laterdog/former-names.ts";
+import { readOwnedJson } from "./laterdog/owned-file.ts";
+import type { DamagedData } from "../shared/damaged-data.ts";
 export type {
   BotActivity, ConnectorCardData, GroupDefaultResponder, OptionCardData,
   SecretRequestCardData, Surface, TaskClosedBy, TaskOpenedBy, TaskUsage,
@@ -350,6 +352,10 @@ export function parseConnectorTools(value: unknown): { ok: true; grants: Record<
   return { ok: true, grants };
 }
 
+function recordList<T>(raw: unknown): T[] | undefined {
+  return Array.isArray(raw) && raw.every((item) => item !== null && typeof item === "object" && !Array.isArray(item)) ? raw as T[] : undefined;
+}
+
 const BOTS_FILE = join(DATA_DIR, "bots.json");
 const GROUPS_FILE = join(DATA_DIR, "groups.json");
 const THREAD_MODEL_COPIES_CLEARED = join(DATA_DIR, "thread-model-copies-cleared");
@@ -478,6 +484,7 @@ export class Store {
   private registeringInitialSections = true;
   private legacyActivities = new Map<string, BotActivity>();
   private mainId: string | null = null;
+  readonly damaged: DamagedData[] = [];
 
   constructor(
     defaultSelection: () => ModelSelection,
@@ -491,18 +498,13 @@ export class Store {
     this.newDogComputer = newDogComputer;
     mkdirSync(DATA_DIR, { recursive: true });
     for (const file of [BOTS_FILE, GROUPS_FILE]) tightenRegistryFile(file);
-    let botsLoaded = false;
-    try {
-      this.bots = JSON.parse(readFileSync(BOTS_FILE, "utf8"));
-      botsLoaded = Array.isArray(this.bots);
-    } catch {
-      this.bots = [];
-    }
-    try {
-      this.groups = JSON.parse(readFileSync(GROUPS_FILE, "utf8"));
-    } catch {
-      this.groups = [];
-    }
+    const bots = readOwnedJson(BOTS_FILE, recordList<BotRecord>);
+    const groups = readOwnedJson(GROUPS_FILE, recordList<GroupRecord>);
+    const botsLoaded = bots.state === "ok";
+    this.bots = bots.state === "ok" ? bots.value : [];
+    this.groups = groups.state === "ok" ? groups.value : [];
+    if (bots.state === "damaged") this.damaged.push({ name: "bots", keptAs: bots.keptAs });
+    if (groups.state === "damaged") this.damaged.push({ name: "groups", keptAs: groups.keptAs });
     this.rememberSections([...this.bots, ...this.groups].map((record) => record.section));
     let botsMigrated = false;
     const browserProfileAliases = loadBrowserProfileIdAliases();
@@ -2288,7 +2290,7 @@ export class Store {
   }
 
   needsSeed() {
-    return this.bots.length === 0;
+    return this.bots.length === 0 && !this.damaged.some((file) => file.name === "bots");
   }
 
   seedIfEmpty() {

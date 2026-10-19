@@ -11,6 +11,7 @@ import {
 import { flushSync } from "react-dom";
 import type { BotVisibility, CardAnswerer, CloudBackend, ConnectorToolGrant, EffortLevel, InstalledPackageMetadata, LiveCallState, LiveSettings, ServerFrame, GroupThreadUsage, SteerQueueReason } from "../../shared/wire";
 import type { TurnDigest } from "../../shared/digest";
+import type { DamagedData } from "../../shared/damaged-data";
 import { mainDogId } from "../../shared/main-dog";
 import type { AppLinkSettingsSection } from "../../shared/app-link";
 import type { ToolScope } from "../../shared/tool-scope";
@@ -536,6 +537,7 @@ export interface ConfigStatus {
   browserProfiles?: BrowserProfile[];
   managedPolicy?: ManagedPolicySummary | null;
   cloudHome?: boolean;
+  damagedData?: DamagedData[];
 }
 
 export interface ManagedPolicySummary {
@@ -565,7 +567,7 @@ export interface BrowserProfile {
 
 export type ConfigStatusFrame = Pick<
   ConfigStatus,
-  "xai" | "mistral" | "cerebras" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "fleet" | "composio" | "box" | "vps" | "rooms" | "mcp" | "threads" | "automaticRecovery" | "accountBattery" | "localVm" | "opencodeGo" | "tts" | "decider" | "typing" | "imageGen" | "live" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "managedPolicy" | "cloudHome"
+  "xai" | "mistral" | "cerebras" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "fleet" | "composio" | "box" | "vps" | "rooms" | "mcp" | "threads" | "automaticRecovery" | "accountBattery" | "localVm" | "opencodeGo" | "tts" | "decider" | "typing" | "imageGen" | "live" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "managedPolicy" | "cloudHome" | "damagedData"
 >;
 
 export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
@@ -604,6 +606,7 @@ export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
     billing: frame.billing,
     managedPolicy: frame.managedPolicy,
     ...(frame.cloudHome ? { cloudHome: true } : {}),
+    ...(frame.damagedData?.length ? { damagedData: frame.damagedData } : {}),
   };
 }
 
@@ -893,7 +896,7 @@ export type Action =
       onError?: (message: string) => void;
     }
   | { type: "taskSwitched"; bot: Bot }
-  | { type: "newBot"; name?: string; title?: string; avatarUrl?: string | null; avatarCrop?: Bot["avatarCrop"]; modelSelection?: ModelSelection; visibility?: BotVisibility; section?: string; offLeash?: boolean; preserveSelection?: boolean; onCreated?: (bot: Bot) => void; onError?: (message: string) => void }
+  | { type: "newBot"; createId?: string; name?: string; title?: string; avatarUrl?: string | null; avatarCrop?: Bot["avatarCrop"]; modelSelection?: ModelSelection; visibility?: BotVisibility; section?: string; offLeash?: boolean; preserveSelection?: boolean; onCreated?: (bot: Bot) => void; onError?: (message: string) => void }
   | { type: "botCreationPending"; on: boolean }
   | { type: "updateTask"; botId: string; threadId: string; patch: TaskUpdatePatch }
   | { type: "refreshTaskPermissions"; botId: string; threadId: string; acknowledgeLocalAuto?: boolean }
@@ -1993,12 +1996,15 @@ export interface NewDogFields {
   visibility?: BotVisibility;
   section?: string;
   offLeash?: boolean;
+  createId?: string;
 }
 
 export async function createDog(fields: NewDogFields = {}, request: typeof api = api): Promise<{ bot: Bot }> {
   const name = fields.name?.trim();
   const title = fields.title?.trim();
   const body = {
+    createId: fields.createId ?? crypto.randomUUID(),
+    hello: true,
     ...(name ? { name } : {}),
     ...(title ? { title } : {}),
     ...(fields.modelSelection ? { modelSelection: fields.modelSelection, requireAvailableModel: true } : {}),
@@ -2009,10 +2015,7 @@ export async function createDog(fields: NewDogFields = {}, request: typeof api =
       ...(fields.avatarUrl ? { avatarUrl: fields.avatarUrl, avatarCrop: fields.avatarCrop ?? "circle" } : {}),
     } } : {}),
   };
-  const { bot } = await request("/api/bots", {
-    method: "POST",
-    ...(Object.keys(body).length ? { body: JSON.stringify(body) } : {}),
-  });
+  const { bot } = await request("/api/bots", { method: "POST", body: JSON.stringify(body) });
   return { bot };
 }
 
@@ -2669,11 +2672,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (creatingBot) break;
           creatingBot = true;
           rawDispatch({ type: "botCreationPending", on: true });
-          void createDog({ name: action.name, title: action.title, avatarUrl: action.avatarUrl, avatarCrop: action.avatarCrop, modelSelection: action.modelSelection, visibility: action.visibility, section: action.section, offLeash: action.offLeash })
+          void createDog({ createId: action.createId, name: action.name, title: action.title, avatarUrl: action.avatarUrl, avatarCrop: action.avatarCrop, modelSelection: action.modelSelection, visibility: action.visibility, section: action.section, offLeash: action.offLeash })
             .then(({ bot }) => {
               rawDispatch({ type: "botAdded", bot, preserveSelection: action.preserveSelection });
               action.onCreated?.(bot);
-              void api(`/api/bots/${bot.id}/hello`, { method: "POST" }).catch(() => {});
             })
             .catch((error) => {
               if (action.onError) action.onError(error instanceof Error ? error.message : String(error));

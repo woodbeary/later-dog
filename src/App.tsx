@@ -16,6 +16,7 @@ import {
   BotSettingsDialog, CloudTaskPanel, KeyboardShortcutsModal, NewBotDialog, preloadScreens, SettingsModal,
 } from "@/components/lazy-screens";
 import { CredentialStoreNotice } from "@/components/CredentialStoreNotice";
+import { DamagedDataNotice } from "@/components/DamagedDataNotice";
 import { DesktopCapabilitiesProvider, useDesktopCapabilities } from "@/components/DesktopCapabilities";
 import { WindowCaptionButtons } from "@/components/WindowCaptionButtons";
 import { NoEngines } from "@/components/NoEngines";
@@ -212,7 +213,10 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
 
   return (
     <div className="flex h-full flex-col">
-      <CredentialStoreNotice />
+      <div className="pointer-events-none fixed bottom-4 left-4 z-50 flex w-[300px] max-w-[calc(100vw-2rem)] flex-col gap-2 [&>*]:pointer-events-auto">
+        <CredentialStoreNotice />
+        <DamagedDataNotice />
+      </div>
       <div className="relative flex min-h-0 flex-1">
       <button
         type="button"

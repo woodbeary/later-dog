@@ -29,6 +29,7 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
   const [error, setError] = useState("");
   const [avatar, setAvatar] = useState<Pick<Bot, "avatarUrl" | "avatarCrop" | "avatarZoom" | "avatarFocusX" | "avatarFocusY">>({});
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const [createId] = useState(() => crypto.randomUUID());
   const saving = state.botCreationPending;
   const dialog = useRef<HTMLDivElement>(null);
   const alive = useRef(true);
@@ -78,6 +79,7 @@ export function NewBotDialog({ onClose, section, onCreated, preserveSelection = 
     setError("");
     dispatch({
       type: "newBot",
+      createId,
       name: trimmedName,
       title: purpose.trim() || undefined,
       avatarUrl: avatar.avatarUrl,

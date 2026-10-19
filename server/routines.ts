@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 
@@ -11,6 +11,8 @@ import type { RoutineRequestOperation } from "../shared/routine-request.ts";
 import { normalizeCronSchedule, nextCronRuns, type RoutineCronSchedule } from "../shared/routine-schedule.ts";
 import { isRoutineProblemRun, type RoutineGoalStatus } from "../shared/routines.ts";
 import { ROUTINE_PARTS, type PartPair, type RoutinePart } from "./package-parts.ts";
+import { readOwnedJson } from "./laterdog/owned-file.ts";
+import type { DamagedData } from "../shared/damaged-data.ts";
 
 export interface RoutineIntervalWindow {
   start: string;
@@ -708,13 +710,15 @@ export class RoutineManager {
   private webhookRunReceipts: WebhookRunReceipt[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticking = false;
+  damaged: DamagedData | null = null;
 
   constructor(options: RoutineManagerOptions) {
     this.options = options;
     this.file = options.file ?? join(DATA_DIR, "routines.json");
     this.now = options.now ?? Date.now;
-    try {
-      const disk = JSON.parse(readFileSync(this.file, "utf8")) as Partial<RoutineFile>;
+    const read = readOwnedJson(this.file, (raw) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+      const disk = raw as Partial<RoutineFile>;
       this.routines = Array.isArray(disk.routines)
         ? disk.routines.flatMap((routine) => {
             const schedule = loadSchedule(routine.schedule, this.now());
@@ -786,7 +790,10 @@ export class RoutineManager {
         this.webhookRunReceipts.push({ webhookId: run.webhookId, deliveryId: run.deliveryId, runId: run.id, acceptedAt: run.createdAt });
         known.add(key);
       }
-    } catch {
+      return true;
+    });
+    if (read.state === "damaged") this.damaged = { name: "routines", keptAs: read.keptAs };
+    if (read.state !== "ok") {
       this.routines = [];
       this.runs = [];
       this.routineRequestReceipts = [];

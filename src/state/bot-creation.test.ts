@@ -23,53 +23,76 @@ function mount(request: typeof fetch) {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("createDog", () => {
+  const bot = { id: "created", name: "Scout", messages: [] };
+  const sent = (request: { mock: { calls: unknown[][] } }) => {
+    expect(request.mock.calls).toHaveLength(1);
+    const [path, init] = request.mock.calls[0] as [string, { method: string; body: string }];
+    expect(path).toBe("/api/bots");
+    expect(init.method).toBe("POST");
+    return JSON.parse(init.body) as Record<string, unknown>;
+  };
+  const once = { createId: expect.stringMatching(/^[A-Za-z0-9_-]{16,80}$/), hello: true };
+
   it("keeps the generated picture in the creation request", async () => {
     const request = vi.fn(async () => ({ bot: { id: "generated-dog" } })) as unknown as Parameters<typeof createDog>[1];
     await createDog({ name: "Scout", avatarUrl: "/api/attachments/generated.png", avatarCrop: "circle", offLeash: true }, request);
-    expect(request).toHaveBeenCalledWith("/api/bots", expect.objectContaining({ body: JSON.stringify({ name: "Scout", settings: { approvalMode: "auto", avatarUrl: "/api/attachments/generated.png", avatarCrop: "circle" } }) }));
+    expect(sent(request as never)).toEqual({ ...once, name: "Scout", settings: { approvalMode: "auto", avatarUrl: "/api/attachments/generated.png", avatarCrop: "circle" } });
   });
 
-  const bot = { id: "created", name: "Scout", messages: [] };
-
-  it("creates a dog with one bare request when nothing is chosen", async () => {
+  it("creates a dog with one request that carries its own create id and asks the server to say hello", async () => {
     const request = vi.fn().mockResolvedValue({ bot });
     expect(await createDog({}, request)).toEqual({ bot });
-    expect(request).toHaveBeenCalledExactlyOnceWith("/api/bots", { method: "POST" });
+    expect(sent(request)).toEqual(once);
+  });
+
+  it("sends the create id it was given, so a retry of the same sheet makes one dog", async () => {
+    const request = vi.fn().mockResolvedValue({ bot });
+    await createDog({ createId: "sheet-0123456789abcdef" }, request);
+    await createDog({ createId: "sheet-0123456789abcdef" }, request);
+    expect(request.mock.calls.map(([, init]) => JSON.parse(init.body).createId)).toEqual(["sheet-0123456789abcdef", "sheet-0123456789abcdef"]);
+  });
+
+  it("mints a different create id for each call without one", async () => {
+    const first = vi.fn().mockResolvedValue({ bot });
+    const second = vi.fn().mockResolvedValue({ bot });
+    await createDog({}, first);
+    await createDog({}, second);
+    expect(sent(first).createId).not.toBe(sent(second).createId);
   });
 
   it("sends the name and purpose trimmed, and the host model with requireAvailableModel", async () => {
     const request = vi.fn().mockResolvedValue({ bot });
     const modelSelection = { instanceId: "claude", model: "claude-sonnet-5" };
     await createDog({ name: " Scout ", title: " Trips ", modelSelection }, request);
-    expect(JSON.parse(request.mock.calls[0]![1].body)).toEqual({ name: "Scout", title: "Trips", modelSelection, requireAvailableModel: true });
+    expect(sent(request)).toEqual({ ...once, name: "Scout", title: "Trips", modelSelection, requireAvailableModel: true });
   });
 
   it("leaves blank fields to the server's own defaults", async () => {
     const request = vi.fn().mockResolvedValue({ bot });
     await createDog({ name: "  ", title: "" }, request);
-    expect(request).toHaveBeenCalledExactlyOnceWith("/api/bots", { method: "POST" });
+    expect(sent(request)).toEqual(once);
   });
 
   it("asks for Off-leash in the same POST when the dialog starts the dog off-leash", async () => {
     const request = vi.fn().mockResolvedValue({ bot });
     await createDog({ name: "Scout", offLeash: true }, request);
-    expect(JSON.parse(request.mock.calls[0]![1].body)).toEqual({ name: "Scout", settings: { approvalMode: "auto" } });
+    expect(sent(request)).toEqual({ ...once, name: "Scout", settings: { approvalMode: "auto" } });
   });
 
   it("creates directly in the selected team in the one POST", async () => {
     const request = vi.fn().mockResolvedValue({ bot: { ...bot, section: "Studio" } });
     const created = await createDog({ section: "Studio" }, request);
-    expect(request).toHaveBeenCalledExactlyOnceWith("/api/bots", { method: "POST", body: JSON.stringify({ section: "Studio" }) });
+    expect(sent(request)).toEqual({ ...once, section: "Studio" });
     expect(created.bot.section).toBe("Studio");
   });
 
   it("creates a restricted dog already restricted; everyone is the default and is not sent", async () => {
     const request = vi.fn().mockResolvedValue({ bot });
     await createDog({ visibility: "admins" }, request);
-    expect(request).toHaveBeenCalledExactlyOnceWith("/api/bots", { method: "POST", body: JSON.stringify({ visibility: "admins" }) });
+    expect(sent(request)).toEqual({ ...once, visibility: "admins" });
     const open = vi.fn().mockResolvedValue({ bot });
     await createDog({ visibility: "everyone" }, open);
-    expect(open).toHaveBeenCalledExactlyOnceWith("/api/bots", { method: "POST" });
+    expect(sent(open)).toEqual(once);
   });
 
   it("surfaces a failed creation as is", async () => {
@@ -89,31 +112,27 @@ describe("duplicateProfileFor", () => {
 describe("shared bot creation guard", () => {
   const bot = { id: "created", name: "Scout", messages: [] };
 
-  it.each([false, true])("blocks duplicates across dismissal until creation settles; the hello follows and may fail (%s)", async (helloFails) => {
+  it("blocks duplicates across dismissal until creation settles, with no second hello call", async () => {
     const post = deferred();
-    const hello = deferred();
-    const request = vi.fn<typeof fetch>().mockReturnValueOnce(post.promise).mockReturnValueOnce(hello.promise).mockResolvedValue(response({ bot }));
+    const request = vi.fn<typeof fetch>().mockReturnValueOnce(post.promise).mockResolvedValue(response({ bot }));
     const dispatch = mount(request);
     const onCreated = vi.fn();
     const onError = vi.fn();
-    dispatch({ type: "newBot", name: "Scout", title: "Trips", onCreated, onError });
+    dispatch({ type: "newBot", createId: "sheet-0123456789abcdef", name: "Scout", title: "Trips", onCreated, onError });
     dispatch({ type: "toggleNewBot", open: false });
     dispatch({ type: "toggleNewBot", open: true });
     dispatch({ type: "newBot" });
     expect(request).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(String(request.mock.calls[0]![1]?.body))).toEqual({ name: "Scout", title: "Trips" });
+    expect(JSON.parse(String(request.mock.calls[0]![1]?.body))).toEqual({ createId: "sheet-0123456789abcdef", hello: true, name: "Scout", title: "Trips" });
     post.resolve(response({ bot }));
     await flush();
-    expect(request).toHaveBeenCalledTimes(2);
-    expect(request.mock.calls[1]![0]).toBe("/api/bots/created/hello");
-    expect(request.mock.calls[1]![1]?.method).toBe("POST");
+    expect(request).toHaveBeenCalledTimes(1);
     expect(onCreated).toHaveBeenCalledExactlyOnceWith(bot);
-    hello.resolve(response(helloFails ? { error: "guests cannot introduce a dog" } : { ok: true }, helloFails ? 403 : 200));
-    await flush();
     expect(onError).not.toHaveBeenCalled();
     dispatch({ type: "newBot" });
     await flush();
-    expect(request).toHaveBeenCalledTimes(4);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request.mock.calls.map(([path]) => path)).toEqual(["/api/bots", "/api/bots"]);
   });
 
   it("releases the guard after POST failure so a fresh attempt can succeed", async () => {

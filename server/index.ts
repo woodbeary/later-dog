@@ -631,6 +631,9 @@ import { sameEngineAcrossAccounts } from "./laterdog/saved-command-engine.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLaterDogRoutes } from "./routes/laterdog.ts";
 import { createDogHelloRoutes } from "./routes/dog-hello.ts";
+import type { DamagedData } from "../shared/damaged-data.ts";
+import { sayFirstHello, type FirstHelloDeps } from "./laterdog/first-hello.ts";
+import { DogCreateJournal, parseCreateId, parseHello } from "./laterdog/dog-create-once.ts";
 import { createHelpersRoutes } from "./routes/helpers.ts";
 import { availableDogMcpEnvironment } from "./laterdog/dog-access.ts";
 import { dogJobEnvironment } from "./laterdog/job-defaults.ts";
@@ -12339,6 +12342,7 @@ function configStatus() {
     profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "" },
     managedPolicy: managedPolicy.summary(),
     ...(CLOUD_HOME ? { cloudHome: true } : {}),
+    ...damagedDataStatus(),
     language: cfg.language ?? "",
     rooms: { turnTimeoutMinutes: roomTurnTimeoutMinutes(cfg) },
     mcp: { callTimeoutMinutes: mcpCallTimeoutMinutes(cfg) },
@@ -12381,6 +12385,11 @@ function configStatus() {
     signIn: { admins: cfg.signIn?.admins ?? [], members: cfg.signIn?.members ?? [] },
     membership: workspaceMembership(),
   };
+}
+
+function damagedDataStatus(): { damagedData?: DamagedData[] } {
+  const damagedData = [...store.damaged, ...(routines?.damaged ? [routines.damaged] : [])];
+  return damagedData.length ? { damagedData } : {};
 }
 
 function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean) {
@@ -12744,7 +12753,7 @@ ROUTES.push(createHelpersRoutes({
     return threadId => visible.thread(threadId);
   },
 }));
-ROUTES.push(createDogHelloRoutes({
+const firstHelloDeps: FirstHelloDeps = {
   bot: (id) => store.bot(id) ?? undefined,
   messages: (threadId) => store.messagesFor(threadId),
   patchMessage: (threadId, messageId, patch) => { store.patchMessage(threadId, messageId, patch); },
@@ -12752,7 +12761,19 @@ ROUTES.push(createDogHelloRoutes({
   canRun: async (instanceId) => (await describeInstances()).some((instance) =>
     instance.instanceId === instanceId && instance.snapshot.state === "available" && instance.snapshot.authenticated !== false),
   start: (botId, threadId, prompt) => startTurn(botId, prompt, { threadId, cardContinuation: true }),
-}));
+};
+ROUTES.push(createDogHelloRoutes(firstHelloDeps));
+const dogCreates = new DogCreateJournal(join(DATA_DIR, "dog-create-requests.json"));
+function createdBotView(bot: BotRecord) {
+  return { ...wireBot(bot), messages: store.messagesFor(bot.threadId), activeLeafId: store.activeLeaf(bot.threadId) };
+}
+function dogMadeFor(createId: string): { status: number; body: unknown } | null {
+  const botId = dogCreates.find(createId);
+  if (!botId) return null;
+  const bot = store.bot(botId);
+  if (!bot) return { status: 409, body: { error: "That dog was already made and has since been removed." } };
+  return { status: 200, body: { bot: createdBotView(bot) } };
+}
 startWakeupPull({
   bots: () => store.bots.map((bot) => bot.id),
   send: (wakeup) => acceptDirectSend({ botId: wakeup.botId, threadId: wakeup.threadId, text: wakeup.text, sendId: wakeup.sendId, trigger: { kind: "owner" }, personPresent: false }),
@@ -16765,6 +16786,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!body || typeof body !== "object" || Array.isArray(body)) {
         return json(res, 400, { error: "bot must be a JSON object" });
       }
+      const createId = parseCreateId(body.createId);
+      const hello = parseHello(body.hello);
+      const madeBefore = createId ? dogMadeFor(createId) : null;
+      if (madeBefore) return json(res, madeBefore.status, madeBefore.body);
       const template = resolveBotCreationDefaults(cfg.newBotDefaults, body);
       const settings = template.profile;
       if (auth.kind === "session" && !auth.scopes.includes("admin")) {
@@ -16834,6 +16859,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (dogLimit) return json(res, 409, { error: dogLimit });
       const created = body.visibility === undefined ? null : parseVisibility(body.visibility);
       if (created && !created.ok) return json(res, 400, { error: created.error });
+      const madeMeanwhile = createId ? dogMadeFor(createId) : null;
+      if (madeMeanwhile) return json(res, madeMeanwhile.status, madeMeanwhile.body);
       const bot = store.createBot({ ...profile.patch, soul: settings.soul, section, modelSelection: selection,
         toolScope: settings.toolScope ?? undefined,
         ...(created?.ok ? { visibility: created.visibility } : {}) });
@@ -16889,13 +16916,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         try { routines!.update(routine.id, { enabled: true }); }
         catch { warnings.push(`Dog created; routine ${routine.id} could not be activated.`); }
       }
+      if (createId) dogCreates.remember(createId, bot.id);
+      if (hello && auth.scopes.includes("admin")) {
+        void sayFirstHello(firstHelloDeps, bot.id).catch((error: unknown) =>
+          console.warn(`[first-hello] ${bot.id}: ${error instanceof Error ? error.message : String(error)}`));
+      }
       return json(res, 201, {
         ...(warnings.length ? { warnings } : {}),
-        bot: {
-          ...wireBot(bot),
-          messages: store.messagesFor(bot.threadId),
-          activeLeafId: store.activeLeaf(bot.threadId),
-        },
+        bot: createdBotView(bot),
       });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/avatar\/generate$/);
