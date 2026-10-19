@@ -180,6 +180,7 @@ export interface Message {
   parentId?: string | null;
   replyToId?: string;
   sendId?: string;
+  held?: boolean;
   from?: { botId: string; name: string; color: DogColor };
   peerAsk?: { botId: string; name: string; unattended?: boolean };
   reactions?: Array<{ emoji: string; by: string }>;
@@ -909,6 +910,7 @@ export type Action =
   | { type: "messagePatched"; threadId: string; message: Message }
   | { type: "reactionsSet"; threadId: string; messageId: string; reactions: Message["reactions"] }
   | { type: "optimisticMessageRemoved"; threadId: string; sendId: string }
+  | { type: "sendHeld"; threadId: string; sendId: string }
   | { type: "outboxShown"; items: OutboxItem[] }
   | { type: "computerStart"; botId: string; start: ComputerStart | null }
   | { type: "computerControl"; botId: string; held: boolean; helpReason: string | null }
@@ -1098,7 +1100,7 @@ function showHeldSend(state: AppState, item: OutboxItem): AppState {
   const bot = state.bots.find((candidate) => candidate.threadId === item.threadId);
   if (bot) {
     if (bot.messages.some((message) => message.sendId === item.sendId)) return state;
-    const message = { ...optimisticUserMessage(item.text, item.sendId, item.replyToId, bot.activeLeafId), at: item.queuedAt };
+    const message = { ...optimisticUserMessage(item.text, item.sendId, item.replyToId, bot.activeLeafId), at: item.queuedAt, held: true };
     return updateBot(state, bot.id, (current) => ({ ...current, messages: [...current.messages, message], activeLeafId: message.id }));
   }
   const group = state.groups.find((candidate) => candidate.threadId === item.threadId);
@@ -1106,11 +1108,23 @@ function showHeldSend(state: AppState, item: OutboxItem): AppState {
   const message = {
     ...optimisticUserMessage(item.text, item.sendId, item.replyToId, null),
     at: item.queuedAt,
+    held: true,
   };
   return {
     ...state,
     groups: state.groups.map((candidate) => candidate.id === group.id ? { ...candidate, messages: [...candidate.messages, message] } : candidate),
   };
+}
+
+function markSendHeld(state: AppState, threadId: string, sendId: string): AppState {
+  const id = optimisticMessageId(sendId);
+  const hold = (messages: Message[]) => messages.map((message) => message.id === id && !message.held ? { ...message, held: true } : message);
+  const holds = (messages: readonly Message[]) => messages.some((message) => message.id === id && !message.held);
+  const bot = state.bots.find((candidate) => candidate.threadId === threadId);
+  if (bot) return holds(bot.messages) ? updateBot(state, bot.id, (current) => ({ ...current, messages: hold(current.messages) })) : state;
+  const group = state.groups.find((candidate) => candidate.threadId === threadId);
+  if (!group || !holds(group.messages)) return state;
+  return { ...state, groups: state.groups.map((candidate) => candidate.id === group.id ? { ...candidate, messages: hold(candidate.messages) } : candidate) };
 }
 
 export const CLOUD_LINK_SETTINGS = { type: "toggleAppSettings", open: true, section: "general" } as const satisfies Action;
@@ -1499,6 +1513,8 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "outboxShown":
       return action.items.reduce(showHeldSend, state);
+    case "sendHeld":
+      return markSendHeld(state, action.threadId, action.sendId);
     case "optimisticMessageRemoved": {
       const id = optimisticMessageId(action.sendId);
       const bot = state.bots.find((candidate) => candidate.threadId === action.threadId);

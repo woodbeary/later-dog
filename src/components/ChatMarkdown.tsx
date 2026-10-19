@@ -907,7 +907,7 @@ export function samePeers(previous: readonly MentionPeer[], next: readonly Menti
   return previous.every((peer, index) => {
     const other = next[index]!;
     return peer.name === other.name && peer.hidden === other.hidden && peer.color === other.color
-      && peer.id === other.id && peer.mascotBody === other.mascotBody
+      && peer.id === other.id && peer.mascotBody === other.mascotBody && peer.self === other.self
       && (peer.formerNames ?? []).join("\n") === (other.formerNames ?? []).join("\n");
   });
 }

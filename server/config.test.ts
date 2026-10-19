@@ -699,6 +699,18 @@ describe("default fleet", () => {
     expect(env).toEqual({ KEEP: "yes" });
   });
 
+  it("gives a saved config that lists Claude but not Grok the Grok own-account engine back", () => {
+    const map = instanceConfigs({ instances: { claude: { driver: "claudeAgent" } } });
+    expect(map.grok).toMatchObject({ driver: "grokAgent" });
+    expect(instanceConfigs({ instances: { codex: { driver: "codex" } } }).grok).toMatchObject({ driver: "grokAgent" });
+    expect(instanceConfigs({ instances: { standalone: { driver: "fake" } } })).not.toHaveProperty("grok");
+  });
+
+  it("keeps a saved Grok instance as it was saved", () => {
+    const map = instanceConfigs({ instances: { claude: { driver: "claudeAgent" }, grok: { driver: "grokAgent", displayName: "My Grok" } } });
+    expect(map.grok).toMatchObject({ driver: "grokAgent", displayName: "My Grok" });
+  });
+
   it("ships only Claude, ChatGPT, Grok, Cursor, the included AI and the three API-key engines", () => {
     expect(Object.keys(instanceConfigs({})).sort()).toEqual(
       ["chatgpt", "claude", "claudeApi", "codex", "cursor", "grok", "laterdogAi", "laterdogGrok", "openai", "xaiApi"]);

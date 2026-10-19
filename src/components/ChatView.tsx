@@ -18,6 +18,7 @@ import { WorkingDots } from "@/components/WorkingIndicator";
 import { MessageActions, messageActionClass } from "@/components/MessageActions";
 import { ReactionPicker } from "@/components/ReactionPicker";
 import { ReactionPills } from "@/components/ReactionPills";
+import type { MentionPeer } from "@/lib/mentions";
 import { myReactions } from "@/lib/reactions";
 import { canReactTo, reactToMessage } from "@/lib/react-to-message";
 import { useSpeech } from "@/lib/tts/useSpeech";
@@ -59,7 +60,7 @@ import { dogTint, normalizeState, restingStateForBot, turnState } from "@/lib/ma
 import { peerLine, type PeerLine } from "@/lib/peer-message";
 import { useWorkingDots } from "@/lib/working-dots";
 import { StatusDot } from "./StatusDot";
-import { OPTIMISTIC_PREFIX, dogStatusKind, sendInFlight } from "@/lib/dog-status";
+import { OPTIMISTIC_PREFIX, dogStatusKind } from "@/lib/dog-status";
 import { SendingTrack } from "./SendingTrack";
 import { MOTION } from "@/lib/motion";
 import { useArrivals } from "@/lib/arrivals";
@@ -134,7 +135,7 @@ interface ChatRows {
   threadId: string;
   botName: string;
   bots: readonly Bot[];
-  mentionPeers: readonly Bot[];
+  mentionPeers: readonly MentionPeer[];
   focus: AppState["focusMessage"];
   showToolCalls: boolean;
   locale: string;
@@ -520,7 +521,7 @@ const Bubble = memo(function Bubble({
         </span>
       </div>
       <ReactionPills reactions={message.reactions} side={user ? "user" : "bot"} nameOf={reactionName} onToggle={reactable ? react : undefined} />
-      {user && message.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={message.at} />}
+      {user && message.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={message.at} held={message.held} />}
     </div>
   );
 });
@@ -781,7 +782,7 @@ const MessagesList = memo(function MessagesList({
 
 function HeaderStatusDot({ bot }: { bot: Bot }) {
   const waiting = bot.activity === "waiting-on-you";
-  const working = Boolean(bot.busy) || sendInFlight(bot.messages);
+  const working = Boolean(bot.busy);
   return <StatusDot kind={dogStatusKind({ waiting, working })} ring="border-composer" announce />;
 }
 
@@ -877,7 +878,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const belowShown = belowCount > belowDismissed ? belowCount : 0;
 
   const bots = useDrawnBots(state.bots);
-  const mentionPeers = useMemo(() => bots.filter((peer) => peer.id !== bot.id), [bots, bot.id]);
+  const mentionPeers = useMemo<MentionPeer[]>(() => bots.map((peer) => (peer.id === bot.id ? { ...peer, self: true } : peer)), [bots, bot.id]);
   const focus = state.focusMessage?.threadId === bot.threadId ? state.focusMessage : null;
   const locale = activeLocale();
   const branch = useRef(messages);
@@ -924,8 +925,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       setPopping((current) => current === messageId ? null : current);
     }, MOTION.enter + MOTION.base);
   }, [lastMessage?.id, lastMessage?.role, lastMessage?.kind]);
-  const sending = sendInFlight(messages);
-  const presenceVisible = waiting || popping !== null || sending;
+  const presenceVisible = waiting || popping !== null;
   const announcement = useMemo((): TranscriptSnapshot => {
     const approval = pendingApprovals(messages)[0];
     const question = openQuestion(messages);
@@ -944,7 +944,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const turnSince = busySince ?? lastUserMessage?.at ?? null;
   const steps = useMemo(() => (presenceVisible ? turnSteps(messages, turnSince) : []), [presenceVisible, messages, turnSince]);
   const updates = useMemo(() => (presenceVisible ? turnUpdates(messages, plan.hiddenIds, turnSince) : []), [presenceVisible, messages, plan, turnSince]);
-  const sendingSince = lastUserMessage?.at ?? null;
 
   const resend = useCallback(() => {
     if (lastUserMessage?.text && !bot.busy && !lastUserMessage.id.startsWith("optimistic-")) {
@@ -1115,7 +1114,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             label={live.spoken ?? undefined}
             kind={live.kind}
             answering={popping !== null}
-            since={busySince ?? (sending ? sendingSince : null)}
+            since={busySince}
             steps={steps}
             updates={updates}
           />

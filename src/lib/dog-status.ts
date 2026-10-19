@@ -1,5 +1,3 @@
-import type { Message } from "@/state/store";
-
 export type DogStatusKind = "waiting" | "working" | "teammates" | "queued";
 
 export interface DogStatusFacts {
@@ -18,8 +16,3 @@ export function dogStatusKind(facts: DogStatusFacts): DogStatusKind | null {
 }
 
 export const OPTIMISTIC_PREFIX = "optimistic-";
-
-export function sendInFlight(messages: readonly Pick<Message, "id" | "role">[]): boolean {
-  const last = messages.at(-1);
-  return last !== undefined && last.role === "user" && last.id.startsWith(OPTIMISTIC_PREFIX);
-}

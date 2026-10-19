@@ -3,6 +3,7 @@ import { isMentionBoundary, isMentionNameContinuation } from "../../shared/menti
 
 export type MentionPeer = {
   id?: string; name: string; formerNames?: readonly string[]; hidden?: boolean; color?: DogColor; mascotBody?: string | null;
+  self?: boolean;
 };
 export type MentionRange = {
   start: number; end: number; color?: string; botId?: string; display?: string; dog?: DogColor; body?: string;
@@ -12,7 +13,16 @@ type MentionCandidate = { name: string; peer: MentionPeer; former: boolean; ambi
 
 const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
-function mentionCandidates(peers: readonly MentionPeer[], historical: boolean): MentionCandidate[] {
+const byPrecedence = (a: MentionCandidate, b: MentionCandidate) =>
+  b.name.length - a.name.length || Number(Boolean(b.peer.self)) - Number(Boolean(a.peer.self)) || Number(a.former) - Number(b.former);
+
+function mentionCandidates(everyPeer: readonly MentionPeer[], historical: boolean): MentionCandidate[] {
+  const own = everyPeer.filter((peer) => peer.self && peer.name.trim())
+    .map((peer): MentionCandidate => ({ name: peer.name, peer, former: false }));
+  return [...own, ...peerCandidates(everyPeer.filter((peer) => !peer.self), historical)].sort(byPrecedence);
+}
+
+function peerCandidates(peers: readonly MentionPeer[], historical: boolean): MentionCandidate[] {
   if (historical) {
     const all = peers.flatMap((peer) => [peer.name, ...(peer.formerNames ?? [])]
       .filter((name) => name.trim())
@@ -21,7 +31,7 @@ function mentionCandidates(peers: readonly MentionPeer[], historical: boolean): 
       ...candidate,
       ambiguous: candidate.peer.hidden || all.some((other) => sameName(other.name, candidate.name)
         && other.peer !== candidate.peer && !(other.peer.id && other.peer.id === candidate.peer.id)),
-    })).sort((a, b) => b.name.length - a.name.length || Number(a.former) - Number(b.former));
+    }));
   }
   const visible = peers.filter((p) => !p.hidden && p.name.trim());
   const current = visible.map((peer): MentionCandidate => ({ name: peer.name, peer, former: false }));
@@ -30,7 +40,7 @@ function mentionCandidates(peers: readonly MentionPeer[], historical: boolean): 
     .map((name): MentionCandidate => ({ name, peer, former: true })));
   const unambiguous = aliases.filter((alias) =>
     aliases.every((other) => other === alias || other.peer === alias.peer || !sameName(other.name, alias.name)));
-  return [...current, ...unambiguous].sort((a, b) => b.name.length - a.name.length || Number(a.former) - Number(b.former));
+  return [...current, ...unambiguous];
 }
 
 export function mentionChoicesForQuery<T extends { name: string }>(pool: readonly T[], query: string): T[] {
@@ -53,7 +63,7 @@ export function mentionRanges(text: string, peers: readonly MentionPeer[], every
       && !isMentionNameContinuation(rest.slice(8));
     const length = all ? 8 : found?.name.length;
     if (length === undefined) continue;
-    if (!all && found?.ambiguous) { at += length; continue; }
+    if (!all && (found?.ambiguous || peer?.self)) { at += length; continue; }
     const color = !all && peer?.color && Object.hasOwn(DOG_COLORS, peer.color) ? DOG_COLORS[peer.color] : undefined;
     ranges.push({
       start: at, end: at + length + 1, ...(color ? { color } : {}),

@@ -41,7 +41,8 @@ import { cn } from "@/lib/cn";
 import { PaneErrorLine } from "./PaneErrorLine";
 import { useHeldMenuMotion, useMenuMotion } from "./MenuMotion";
 import { UpdatePill } from "./UpdateButton";
-import { lastNonReceipt } from "@/lib/receipts";
+import { lastShownRow } from "@/lib/room-activity";
+import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { activityPreview, botEngine } from "@/lib/failed-turn";
 import { activeLocale, t } from "@/lib/i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -118,11 +119,11 @@ export function waitingLine(visible: Message[]): string {
   return open ? t("sidebar.preview.waitingFor", { action: approvalAction(open) }) : t("sidebar.preview.waiting");
 }
 
-function preview(bot: Bot, visible: Message[], instances: InstanceInfo[]): string {
+function preview(bot: Bot, visible: Message[], instances: InstanceInfo[], showToolCalls: boolean): string {
   if (bot.activity === "waiting-on-you") return waitingLine(visible);
   if (bot.waitingForTeammates) return t("sidebar.preview.waitingOnTeammate");
   if (bot.busy) return t("sidebar.preview.working");
-  const last = lastNonReceipt(visible);
+  const last = lastShownRow(visible, showToolCalls);
   if (!last) return "";
   if (last.kind === "options" && last.card) {
     return (last.card.requestId && last.card.tool && !last.card.questionRequest && approvalCardOutcome(last.card)) || last.card.title;
@@ -149,14 +150,14 @@ function openBotContextMenu(onMenu: (menu: MenuState) => void, botId: string, ev
   onMenu({ botId, x: event.clientX, y: event.clientY });
 }
 
-function groupPreview(group: Group, bots: Bot[], instances: InstanceInfo[]): string {
+function groupPreview(group: Group, bots: Bot[], instances: InstanceInfo[], showToolCalls: boolean): string {
   if (group.busyBotId) {
     return t("sidebar.preview.botWorking", {
       name: bots.find((b) => b.id === group.busyBotId)?.name ?? t("sidebar.preview.aBot"),
     });
   }
   if (group.working) return t("sidebar.preview.teamWorking");
-  const last = lastNonReceipt(group.messages);
+  const last = lastShownRow(group.messages, showToolCalls);
   if (!last) return t("sidebar.preview.noMessages");
   const readable = last.kind === "activity" && last.tool
     ? activityPreview(last.tool, botEngine(bots.find((bot) => bot.id === last.from?.botId), instances))
@@ -256,7 +257,7 @@ export function GroupListItem({
           {selected && last && <span className="shrink-0 text-[10px] text-ink-secondary">{formatTime(last.at)}</span>}
         </div>
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-[11px] text-ink-secondary">{groupPreview(group, state.bots, state.instances)}</span>
+          <span className="truncate text-[11px] text-ink-secondary">{groupPreview(group, state.bots, state.instances, showToolCallsEnabled(state.config))}</span>
           {group.unread && <span className="size-2 shrink-0 rounded-full bg-accent" aria-label={t("task.unread")} />}
         </div>
       </div>
@@ -490,7 +491,7 @@ function NewRoomPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-function SectionPicker({
+export function SectionPicker({
   current,
   anchor,
   onClose,
@@ -503,6 +504,11 @@ function SectionPicker({
 }) {
   const { state } = useStore();
   const [name, setName] = useState("");
+  const [openedFor, setOpenedFor] = useState(anchor);
+  if (anchor !== openedFor) {
+    setOpenedFor(anchor);
+    if (anchor) setName("");
+  }
   const motion = useHeldMenuMotion(anchor);
   const shown = motion.value;
   const heldCurrent = useRef(current);
@@ -535,6 +541,7 @@ function SectionPicker({
 
   const assign = (section: string) => {
     onAssign(section);
+    setName("");
     onClose();
   };
 
@@ -785,6 +792,7 @@ export interface BotRowProps {
   mascotMotion: AppState["mascotMotion"];
   pendingQueued: AppState["pendingQueued"];
   instances: InstanceInfo[];
+  showToolCalls: boolean;
   liveCall: AppState["liveCall"];
   locale: string;
   density: SidebarDensity;
@@ -812,6 +820,7 @@ export function botRowProps(
     mascotMotion: selected && state.mascotMotion?.botId === bot.id ? state.mascotMotion : null,
     pendingQueued: state.pendingQueued,
     instances: state.instances,
+    showToolCalls: showToolCallsEnabled(state.config),
     liveCall: state.liveCall,
     locale: activeLocale(),
     dispatch,
@@ -914,7 +923,7 @@ function PinnedBotRoster({
 }
 
 export const BotListItem = memo(function BotListItem(props: BotRowProps) {
-  const { bot, selected, deleting, mascotMotion, pendingQueued, instances, liveCall, density, dispatch, onMenu, draggableToSection = false, renameRequest = 0, onRenameHandled } = props;
+  const { bot, selected, deleting, mascotMotion, pendingQueued, instances, showToolCalls, liveCall, density, dispatch, onMenu, draggableToSection = false, renameRequest = 0, onRenameHandled } = props;
   const liveMedia = useLiveMedia();
   const [renaming, setRenaming] = useState(false);
   const iconOnly = density === "icons";
@@ -1000,7 +1009,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
                   <span className="sr-only">{t("sidebar.preview.working")}</span>
                 </span>
               ) : (
-                <span className="truncate">{waiting ? waitingLine(visible) : teammateWait ? t("sidebar.preview.waitingOnTeammate") : queued ? t("task.queued") : preview(bot, visible, instances)}</span>
+                <span className="truncate">{waiting ? waitingLine(visible) : teammateWait ? t("sidebar.preview.waitingOnTeammate") : queued ? t("task.queued") : preview(bot, visible, instances, showToolCalls)}</span>
               )}
             </span>
           )}

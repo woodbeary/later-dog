@@ -109,6 +109,24 @@ describe("historical mention identity", () => {
     expect(mentionRanges("@Pixel", peers, false, true)).toEqual([]);
   });
 
+  it("keeps a dog's own name as itself in its own chat when another dog once had that name", () => {
+    const peers = [
+      { id: "scout", name: "Scout", self: true },
+      { id: "atlas", name: "Atlas", formerNames: ["Scout"], color: "blue" as const },
+    ];
+    expect(mentionRanges("Hi @Scout", peers, false, true)).toEqual([]);
+    expect(mentionRanges("Hi @Scout", peers)).toEqual([]);
+    expect(mentionRanges("@Atlas and @Scout", peers, false, true)).toEqual([{ start: 0, end: 6, botId: "atlas", color: expect.any(String), dog: "blue" }]);
+  });
+
+  it("still lets another dog's current name win over the own dog's former name", () => {
+    const peers = [
+      { id: "scout", name: "Scout", formerNames: ["Pixel"], self: true },
+      { id: "pixel", name: "Pixel" },
+    ];
+    expect(mentionRanges("@Pixel", peers)).toEqual([{ start: 0, end: 6, botId: "pixel" }]);
+  });
+
   it("still displays an unambiguous old name as the renamed bot", () => {
     expect(mentionRanges("@Pixel", [{ id: "a", name: "Scout", formerNames: ["Pixel"] }], false, true))
       .toEqual([{ start: 0, end: 6, botId: "a", display: "@Scout" }]);

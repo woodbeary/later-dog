@@ -16,7 +16,7 @@ import { AccountsPanel, AccountsRefresh } from "./AccountsPanel";
 import { SavedApiKeys, savedKeyEngines } from "./SavedApiKeys";
 import { HelpRows } from "./SettingsHelp";
 import { CloudComputerRows } from "./CloudComputerRows";
-import { CloudAccountSettings } from "./CloudAccountSettings";
+import { CloudAccountSettings, cloudAccountShown } from "./CloudAccountSettings";
 import { ThisComputerRow } from "./ComputerSettings";
 import { PermissionChecklist } from "./PermissionChecklist";
 import { SettingRow, SettingsGroup, SettingsRows, Switch } from "./SettingsPrimitives";
@@ -224,11 +224,13 @@ function GeneralPage({ mac }: { mac: boolean }) {
   const analytics = analyticsConfigured();
   return (
     <>
-      <SettingsGroup label={t("settings.section.cloudAccount")} testId="later-dog-cloud">
-        <SettingsRows>
-          <CloudAccountSettings />
-        </SettingsRows>
-      </SettingsGroup>
+      {cloudAccountShown() && (
+        <SettingsGroup label={t("settings.section.cloudAccount")} testId="later-dog-cloud">
+          <SettingsRows>
+            <CloudAccountSettings />
+          </SettingsRows>
+        </SettingsGroup>
+      )}
       <SettingsGroup label={t("settings.group.accounts")} testId="accounts" action={<AccountsRefresh />}>
         <AccountsPanel />
       </SettingsGroup>

@@ -56,6 +56,7 @@ export interface OutboxOptions {
   attempt(item: OutboxItem): Promise<void>;
   save(items: readonly OutboxItem[]): void;
   onFinal(item: OutboxItem, error: unknown): void;
+  onHeld?(item: OutboxItem): void;
   after?(ms: number, run: () => void): () => void;
 }
 
@@ -140,11 +141,13 @@ export function createOutbox(options: OutboxOptions): Outbox {
           if (outcome.kind === "hold") {
             lane.holds += 1;
             schedule(threadId, lane, outcome.afterMs ?? holdDelay(lane.holds));
+            options.onHeld?.(head);
             return;
           }
           if (outcome.kind === "retry" && lane.failures + 1 < MAX_SERVER_FAILURES) {
             lane.failures += 1;
             schedule(threadId, lane, holdDelay(lane.failures));
+            options.onHeld?.(head);
             return;
           }
           drop(threadId, head.sendId);

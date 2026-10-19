@@ -61,6 +61,22 @@ describe("BotListItem", () => {
     expect(markup).not.toContain("[digest]");
   });
 
+  it("previews the reply, not a tool call that followed it, while tool calls are hidden", () => {
+    const messages = [
+      { id: "u1", role: "user", kind: "text", text: "list the files", at: 1 },
+      { id: "b1", role: "bot", kind: "text", text: "Here are the files.", at: 2 },
+      { id: "a1", role: "bot", kind: "activity", at: 3, tool: { name: "Bash", ok: true } },
+    ] as Bot["messages"];
+    const hidden = renderRow(bot({ messages }));
+    expect(hidden).toContain("Here are the files.");
+    expect(hidden).not.toContain(">Bash<");
+    const shown = renderToStaticMarkup(createElement(BotListItem, botRowProps(
+      { ...initialState, config: { features: { skillAuthoring: false, showToolCalls: true } } } as typeof initialState,
+      vi.fn(), bot({ messages }), { density: "comfortable", onMenu: vi.fn() },
+    )));
+    expect(shown).toContain(">Bash<");
+  });
+
   it("previews a failed turn without its error marker", () => {
     const markup = renderRow(bot({
       messages: [

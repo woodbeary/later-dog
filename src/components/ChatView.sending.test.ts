@@ -43,4 +43,15 @@ describe("a message that is not delivered yet", () => {
     expect(markup).toContain('aria-label="Sending…"');
     expect(markup).toContain("animation-delay:0ms");
   });
+
+  it("says Not sent yet under a message the outbox is holding, and the dog does not look busy", () => {
+    const markup = renderToStaticMarkup(createElement(ChatView, {
+      bot: bot([message("optimistic-b", "held words", { sendId: "b", held: true })]),
+    }));
+    expect(markup).toContain("data-send-held");
+    expect(markup).toContain("Not sent yet");
+    expect(markup).not.toContain("data-sending-track");
+    expect(markup).not.toContain("data-turn-presence");
+    expect(markup).not.toContain("Thinking it over");
+  });
 });

@@ -45,6 +45,10 @@ function CloudPageAccount({ plan }: { plan: CloudPlanBridge }) {
   </div>;
 }
 
+export function cloudAccountShown(): boolean {
+  return Boolean(cloudAccountBridge() || (typeof window !== "undefined" && window.laterdog?.cloudPlan));
+}
+
 export function CloudAccountSettings() {
   const bridge = cloudAccountBridge();
   if (!bridge) {

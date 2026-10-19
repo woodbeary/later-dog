@@ -84,7 +84,13 @@ type Row = { id: string; role?: "user" | "bot" };
 const rows = (count: number, from = 0): Row[] => Array.from({ length: count }, (_, index) => ({ id: `m${from + index}` }));
 
 const ROW = 50;
+const page = { body: { name: "body" }, documentElement: { name: "html" } };
 class Scroller {
+  ownerDocument = page;
+  inside = new Set<unknown>();
+  contains(node: unknown) {
+    return node === this || this.inside.has(node);
+  }
   rows = 0;
   extra = 0;
   scrollTop = 0;
@@ -168,11 +174,13 @@ beforeEach(() => {
   });
   vi.stubGlobal("HTMLTextAreaElement", class {});
   vi.stubGlobal("HTMLInputElement", class {});
+  vi.stubGlobal("HTMLElement", class {});
+  vi.stubGlobal("Node", class {});
   return () => vi.unstubAllGlobals();
 });
 
-const press = (key: string, target: unknown = {}) => {
-  for (const listener of keyListeners) listener({ key, target } as unknown as KeyboardEvent);
+const press = (key: string, target: unknown = page.body, extra: Partial<KeyboardEvent> = {}) => {
+  for (const listener of keyListeners) listener({ key, target, ...extra } as unknown as KeyboardEvent);
 };
 
 describe("transcript viewport", () => {
@@ -436,6 +444,27 @@ describe("transcript viewport", () => {
     expect(view.current.following).toBe(true);
     expect(view.current.hiddenCount).toBe(180);
     expect(scroller.calls.at(-1)).toEqual({ top: 120 * ROW, behavior: "smooth" });
+  });
+
+  it("keeps following when ArrowUp lands outside the transcript, is already handled, or has nothing to scroll", () => {
+    const view = mount({ messages: rows(30) });
+    const sectionHeader = new Node();
+    view.act(() => press("ArrowUp", sectionHeader, { altKey: true }));
+    view.act(() => press("ArrowUp", sectionHeader));
+    expect(view.current.following).toBe(true);
+    view.act(() => press("ArrowUp", page.body, { defaultPrevented: true }));
+    expect(view.current.following).toBe(true);
+    const row = new Node();
+    scroller.inside.add(row);
+    view.act(() => press("ArrowUp", row));
+    expect(view.current.following).toBe(false);
+  });
+
+  it("keeps following on ArrowUp when the transcript is too short to scroll", () => {
+    const view = mount({ messages: rows(3) });
+    view.act(() => press("ArrowUp"));
+    view.act(() => press("PageUp"));
+    expect(view.current.following).toBe(true);
   });
 
   it("re-arms following when another bot or room opens", () => {

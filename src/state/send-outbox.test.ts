@@ -5,6 +5,7 @@ import { OUTBOX_KEY, type OutboxItem } from "@/lib/outbox";
 import { failedComposerSends } from "@/lib/drafts";
 import { api, initialState, reducer, StoreProvider, useStore, type Action, type AppState, type Bot } from "./store";
 import { createSendOutbox } from "./send-outbox";
+import { SendingTrack } from "@/components/SendingTrack";
 
 function mount(request: typeof fetch) {
   vi.useFakeTimers();
@@ -170,6 +171,30 @@ describe("the saved desktop outbox", () => {
     outbox.queued({ thread: [{ queueId: "q", text: "still here", sendId: "held-send" }] });
     expect(dispatched).toEqual([{ type: "optimisticMessageRemoved", threadId: "thread", sendId: "held-send" }]);
     expect(store.values.has(OUTBOX_KEY)).toBe(false);
+  });
+
+  it("shows an undelivered message as Not sent yet and leaves the dog idle until the server takes it", async () => {
+    const store = memoryStore();
+    let state = { ...initialState, bots: [{ id: "bot", threadId: "thread", messages: [], activeLeafId: null, busy: false } as unknown as Bot] } as AppState;
+    const apply = (action: Action) => { state = reducer(state, action); };
+    const request = vi.fn(async () => { throw new TypeError("Failed to fetch"); });
+    const outbox = createSendOutbox({ request, dispatch: apply, showError: vi.fn(), store, after: () => () => {} });
+    apply({ type: "send", botId: "bot", threadId: "thread", text: "ship it", sendId: "s1" });
+    expect(state.bots[0]!.messages[0]).toMatchObject({ id: "optimistic-s1" });
+    expect(state.bots[0]!.messages[0]!.held).toBeUndefined();
+    outbox.send({ sendId: "s1", threadId: "thread", target: { kind: "bot", botId: "bot" }, text: "ship it", queuedAt: 1 });
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(state.bots[0]!.messages[0]).toMatchObject({ id: "optimistic-s1", held: true });
+    expect(state.bots[0]!.busy).toBe(false);
+    expect(renderToStaticMarkup(createElement(SendingTrack, { at: 1, held: true }))).toContain("Not sent yet");
+    expect(renderToStaticMarkup(createElement(SendingTrack, { at: 1 }))).not.toContain("Not sent yet");
+    outbox.dispose();
+  });
+
+  it("brings a reloaded outbox message back already marked Not sent yet", () => {
+    const bot = { id: "bot", threadId: "thread", messages: [], activeLeafId: null } as unknown as Bot;
+    const shown = reducer({ ...initialState, bots: [bot] } as AppState, { type: "outboxShown", items: [held] });
+    expect(shown.bots[0]!.messages[0]).toMatchObject({ id: "optimistic-held-send", held: true });
   });
 
   it("puts a refused message that came back from a reload in the Not sent row", async () => {

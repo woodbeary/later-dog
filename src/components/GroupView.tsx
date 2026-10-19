@@ -379,7 +379,7 @@ export const Transcript = memo(function Transcript({
                 nameOf={(by) => memberOf(by)?.name ?? (by === m.from?.botId ? m.from.name : by)}
                 onToggle={!readOnly && canReactTo(m) ? (emoji) => void reactToMessage(dispatch, group.threadId, m, emoji) : undefined}
               />
-              {user && m.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={m.at} />}
+              {user && m.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={m.at} held={m.held} />}
             </div>
           ) : null;
         if (!row) return null;

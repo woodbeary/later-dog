@@ -109,6 +109,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
       hooks.delete(item.sendId);
       settle(item, body);
     },
+    onHeld: (item) => deps.dispatch({ type: "sendHeld", threadId: item.threadId, sendId: item.sendId }),
     onFinal: (item, error) => {
       const onError = hooks.get(item.sendId)?.onError;
       hooks.delete(item.sendId);

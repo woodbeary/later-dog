@@ -2,8 +2,11 @@ import { useState } from "react";
 import { PROGRESS_AFTER_MS } from "@/lib/outbox";
 import { t } from "@/lib/i18n";
 
-export function SendingTrack({ at }: { at: number }) {
+export function SendingTrack({ at, held = false }: { at: number; held?: boolean }) {
   const [wait] = useState(() => Math.max(0, PROGRESS_AFTER_MS - (Date.now() - at)));
+  if (held) {
+    return <div data-send-held role="status" className="mt-1 pr-1 text-[11px] text-ink-tertiary">{t("chat.queued.waiting")}</div>;
+  }
   return (
     <div
       data-sending-track

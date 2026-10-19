@@ -35,6 +35,21 @@ export function endKeyScrolls(event: Pick<KeyboardEvent, "key" | "metaKey" | "ct
   return !(target instanceof HTMLElement && target.isContentEditable);
 }
 
+const LEAVE_BOTTOM_KEYS = new Set(["PageUp", "Home", "ArrowUp"]);
+
+export function scrollKeyLeavesBottom(
+  event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "defaultPrevented">,
+  target: EventTarget | null,
+  scroller: HTMLElement | null,
+): boolean {
+  if (!LEAVE_BOTTOM_KEYS.has(event.key) || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return false;
+  if (!scroller || scroller.scrollHeight <= scroller.clientHeight) return false;
+  if (target === scroller.ownerDocument.body || target === scroller.ownerDocument.documentElement) return true;
+  if (!(target instanceof Node) || !scroller.contains(target)) return false;
+  const typing = target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement || (target instanceof HTMLElement && target.isContentEditable);
+  return !typing;
+}
+
 export function useTranscriptViewport<T extends { id: string; role?: string }>({
   ownerId,
   threadId,
@@ -154,10 +169,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   const jumpRef = useRef<() => void>(() => {});
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const typing = e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement;
-      if (e.key === "PageUp" || ((e.key === "Home" || e.key === "ArrowUp") && !typing)) {
-        setBottomFollow(false);
-      }
+      if (scrollKeyLeavesBottom(e, e.target, scrollRef.current)) setBottomFollow(false);
       if (endKeyScrolls(e, e.target) && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
         e.preventDefault();
         jumpRef.current();

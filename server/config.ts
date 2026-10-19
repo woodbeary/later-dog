@@ -1277,6 +1277,7 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
     ...API_KEY_FLEET,
   };
   const PRODUCT_FLEET_ADDITIONS = {
+    grok: { driver: "grokAgent" },
     chatgpt: { driver: "codex", displayName: "ChatGPT plan", config: { authMode: "chatgpt-plan" } },
     cursor: { driver: "cursorAgent" },
     ...API_KEY_FLEET,

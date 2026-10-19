@@ -41,7 +41,13 @@ vi.mock("@/lib/use-desktop-permissions", () => ({
 
 import { SETTINGS_PAGES, SettingsModal } from "./SettingsModal";
 
-const MAC = { laterdog: { platform: "darwin", permissions: { status: vi.fn(), request: vi.fn(), openSettings: vi.fn() }, updater: { check: vi.fn(), install: vi.fn(), onState: vi.fn() }, relaunch: vi.fn() } };
+const MAC = { laterdog: {
+  platform: "darwin",
+  permissions: { status: vi.fn(), request: vi.fn(), openSettings: vi.fn() },
+  updater: { check: vi.fn(), install: vi.fn(), onState: vi.fn() },
+  relaunch: vi.fn(),
+  cloudAccount: { state: vi.fn(() => new Promise<never>(() => {})), onState: vi.fn(() => () => {}) },
+} };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -170,9 +176,17 @@ describe("General", () => {
 
   it("leaves System out where it would be empty", () => {
     vi.stubGlobal("window", {});
-    expect(groups(render())).toEqual(["later-dog-cloud", "accounts", "profile", "dogs", "appearance", "help"]);
+    expect(groups(render())).toEqual(["accounts", "profile", "dogs", "appearance", "help"]);
     fixture.analytics = true;
-    expect(groups(render())).toEqual(["later-dog-cloud", "accounts", "profile", "dogs", "appearance", "system", "help"]);
+    expect(groups(render())).toEqual(["accounts", "profile", "dogs", "appearance", "system", "help"]);
+  });
+
+  it("leaves the later.dog Cloud group out when there is no Cloud bridge to fill it", () => {
+    const { cloudAccount: _bridge, ...plain } = MAC.laterdog;
+    vi.stubGlobal("window", { laterdog: plain });
+    const html = render();
+    expect(groups(html)).toEqual(["accounts", "profile", "dogs", "appearance", "system", "help"]);
+    expect(html).not.toContain(">later.dog Cloud</div>");
   });
 
   it("ends with Help: Keyboard shortcuts, Help Center, Send Feedback and About", () => {
