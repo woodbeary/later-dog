@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 484 530" width="484" height="530" role="img" aria-labelledby="title desc">
+  <title id="title">How later.dog works</title>
+  <desc id="desc">The Mac app and the iPhone app sign in once with your email and a code. They open your Cloud home, which keeps your dogs, chats, routines and memory and stays on when your Mac is closed. Each dog gets its own computer in the cloud. For AI, your dogs use the Claude, ChatGPT, Grok or Cursor plan you already have, or the free AI that comes with later.dog. Voice lets you talk to a dog and hear it answer.</desc>
+  <style>
+    .title { font: 600 16px -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif; fill: #1f2328; }
+    .text { font: 400 14px -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, &quot;Noto Sans&quot;, Helvetica, Arial, sans-serif; fill: #59636e; }
+    .line { fill: none; stroke: #1f2328; stroke-opacity: 0.5; stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M1 1.5L9 5L1 8.5" fill="none" stroke="#1f2328" stroke-opacity="0.7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <rect x="0.5" y="0.5" width="227" height="71" rx="14" fill="#ffffff" stroke="#1f2328" stroke-opacity="0.22" stroke-width="1"/>
+  <text x="114" y="32" class="title" text-anchor="middle">Mac app</text>
+  <text x="114" y="53" class="text" text-anchor="middle">On your desk</text>
+  <rect x="252.5" y="0.5" width="227" height="71" rx="14" fill="#ffffff" stroke="#1f2328" stroke-opacity="0.22" stroke-width="1"/>
+  <text x="366" y="32" class="title" text-anchor="middle">iPhone app</text>
+  <text x="366" y="53" class="text" text-anchor="middle">In your pocket</text>
+  <path d="M114 72V88H366V72M240 88V106" class="line" marker-end="url(#arrow)"/>
+  <rect x="90.5" y="110.5" width="299" height="63" rx="14" fill="#ffffff" stroke="#1f2328" stroke-opacity="0.22" stroke-width="1"/>
+  <text x="240" y="138" class="title" text-anchor="middle">Sign in once</text>
+  <text x="240" y="159" class="text" text-anchor="middle">Your email and a code. No keys.</text>
+  <path d="M240 174V196" class="line" marker-end="url(#arrow)"/>
+  <rect x="0.5" y="200.5" width="479" height="71" rx="14" fill="#f6f8fa" stroke="#1f2328" stroke-opacity="0.6" stroke-width="1.5"/>
+  <text x="240" y="232" class="title" text-anchor="middle">Your Cloud home</text>
+  <text x="240" y="253" class="text" text-anchor="middle">Your dogs, chats, routines and memory, always on</text>
+  <path d="M22 272V492" class="line"/>
+  <path d="M22 332H48" class="line" marker-end="url(#arrow)"/>
+  <path d="M22 412H48" class="line" marker-end="url(#arrow)"/>
+  <path d="M22 492H48" class="line" marker-end="url(#arrow)"/>
+  <rect x="52.5" y="300.5" width="427" height="63" rx="14" fill="#ffffff" stroke="#1f2328" stroke-opacity="0.22" stroke-width="1"/>
+  <text x="70" y="328" class="title">A computer for each dog</text>
+  <text x="70" y="349" class="text">A desktop in the cloud that you can watch</text>
+  <rect x="52.5" y="380.5" width="427" height="63" rx="14" fill="#ffffff" stroke="#1f2328" stroke-opacity="0.22" stroke-width="1"/>
+  <text x="70" y="408" class="title">AI</text>
+  <text x="70" y="429" class="text">Your Claude, ChatGPT, Grok or Cursor plan, or free AI</text>
+  <rect x="52.5" y="460.5" width="427" height="63" rx="14" fill="#ffffff" stroke="#1f2328" stroke-opacity="0.22" stroke-width="1"/>
+  <text x="70" y="488" class="title">Voice</text>
+  <text x="70" y="509" class="text">Talk to a dog and hear it answer</text>
+</svg>
