@@ -129,7 +129,7 @@ describe("errors stay in the pane that failed", () => {
     failing.add("PATCH /api/bots/bot");
     expect(seen.settingsOpen).toBe(false);
     dispatch({ type: "updateBot", botId: "bot", patch: { name: "Renamed" } });
-    for (let waited = 0; waited < 40 && !seen.paneErrors["chat:thread"]; waited++) await settle();
+    await vi.waitFor(() => expect(seen.paneErrors["chat:thread"]).toBeTruthy(), { timeout: 3_000, interval: 25 });
     expect(Object.keys(seen.paneErrors)).toEqual(["chat:thread"]);
     expect(seen.paneErrors["chat:thread"]?.line).toBeTruthy();
     failing.clear();
@@ -142,7 +142,7 @@ describe("errors stay in the pane that failed", () => {
     dispatch({ type: "toggleSettings", botId: "bot", open: true });
     await settle();
     dispatch({ type: "updateBot", botId: "bot", patch: { name: "Renamed again" } });
-    for (let waited = 0; waited < 40 && !seen.paneErrors["dogPanel:bot"]; waited++) await settle();
+    await vi.waitFor(() => expect(seen.paneErrors["dogPanel:bot"]).toBeTruthy(), { timeout: 3_000, interval: 25 });
     expect(Object.keys(seen.paneErrors)).toEqual(["dogPanel:bot"]);
     failing.clear();
     dispatch({ type: "paneErrorCleared", pane: "dogPanel:bot" });
