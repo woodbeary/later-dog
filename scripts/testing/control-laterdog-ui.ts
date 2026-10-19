@@ -207,6 +207,14 @@ async function afterSplash(binary: string, env: NodeJS.ProcessEnv): Promise<void
   await agentBrowser(binary, env, ["wait", "--fn", SPLASH_GONE], 30_000);
 }
 
+async function openSeededDog(binary: string, env: NodeJS.ProcessEnv, botId: string): Promise<void> {
+  const row = `document.querySelector(${JSON.stringify(`[data-sidebar-bot-row=${JSON.stringify(botId)}]`)})`;
+  const composer = `document.querySelector(${JSON.stringify(`textarea[aria-label=${JSON.stringify(`Message ${SEEDED_BOT}`)}]`)})`;
+  await agentBrowser(binary, env, ["wait", "--fn", `!!${row}`], 30_000);
+  await agentBrowser(binary, env, ["eval", `${row}.click(); true`], 30_000);
+  await agentBrowser(binary, env, ["wait", "--fn", `!!${composer}`], 30_000);
+}
+
 async function resolveTarget(handle: UiHandle, values: Record<string, unknown>, verb: string): Promise<{ target: string; name?: string }> {
   const ref = typeof values.ref === "string" ? values.ref.trim() : "";
   const name = typeof values.name === "string" ? values.name : "";
@@ -451,6 +459,7 @@ export async function launchUi(
       return open();
     });
     await afterSplash(binary, env);
+    if (entryName === "threads") await openSeededDog(binary, env, created.bot.id);
     checkpoint();
     const handle: UiHandle = {
       url: fixture.info.url,

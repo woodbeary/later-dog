@@ -23,7 +23,9 @@ them. `LATERDOG_AGENT_BROWSER_PATH` and `AGENT_BROWSER_EXECUTABLE_PATH` take
 precedence when set. The launcher then starts the fixture, pins its language
 to English (`PATCH /api/config`), creates Pepper through the same `new-bot`
 path as [Chat turns](chat-turns.md), mounts the preview, opens it in a headless
-session named `laterdog-ui-<port>`, and prints a handle:
+session named `laterdog-ui-<port>`, clicks Pepper's sidebar row (the app itself
+opens on the main dog, which is the fixture's starter dog), waits for
+`Message Pepper`, and prints a handle:
 
 ```json
 {

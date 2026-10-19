@@ -12,7 +12,7 @@ import { UI_TOOLS_DIR } from "./control-laterdog-ui.ts";
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const enabled = process.env.LATERDOG_UI_E2E === "1" || Boolean(resolveAgentBrowserBinary({ dataDir: UI_TOOLS_DIR, env: process.env }));
 
-(enabled ? it : it.skip)("coordinates from the real composer and opens the exact child task from its existing inline receipt", async () => {
+(enabled ? it : it.skip)("coordinates from the real composer and opens the other dog's conversation from the inline receipt", async () => {
   const temporary = mkdtempSync(join(tmpdir(), "laterdog-direct-ui-plan-"));
   const planPath = join(temporary, "plan.json");
   writeFileSync(planPath, "{}");

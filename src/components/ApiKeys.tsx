@@ -246,6 +246,7 @@ export function ApiKeyRow({
   const [verdict, setVerdict] = useState<string | null>(null);
   const testGeneration = useRef(0);
   const savingRef = useRef(false);
+  const draftRef = useRef("");
   const saveAfterPaste = useRef(false);
 
   const configured = state.config ? SECTIONS[section].flag(state.config) : false;
@@ -275,7 +276,7 @@ export function ApiKeyRow({
   };
 
   const save = (remove = false) => {
-    const next = remove ? "" : value.trim();
+    const next = remove ? "" : draftRef.current.trim();
     if (savingRef.current || (!remove && !next)) return;
     if (!remove && !looksLikeKey(next)) {
       setError(t("keys.notAKey"));
@@ -296,6 +297,7 @@ export function ApiKeyRow({
     request
       .then((status: ConfigStatus) => {
         dispatch({ type: "configStatus", config: status });
+        draftRef.current = "";
         setValue("");
         const nowConfigured = SECTIONS[section].flag(status);
         onSaved?.(nowConfigured);
@@ -326,7 +328,7 @@ export function ApiKeyRow({
           <input
             type="password"
             value={value}
-            onChange={(e) => { testGeneration.current++; setVerdict(null); setError(null); setValue(e.target.value); }}
+            onChange={(e) => { testGeneration.current++; setVerdict(null); setError(null); draftRef.current = e.target.value; setValue(e.target.value); }}
             onPaste={() => { saveAfterPaste.current = true; }}
             onBlur={() => save()}
             disabled={saving}

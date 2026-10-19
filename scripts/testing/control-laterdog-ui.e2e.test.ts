@@ -37,6 +37,8 @@ interface Launched {
   stderr: () => string;
 }
 
+const launches: Launched[] = [];
+
 function launch(args: string[]): Promise<Launched> {
   return new Promise((done, fail) => {
     const child = spawn(process.execPath, ["--experimental-strip-types", CLI, "ui", "launch", ...args], {
@@ -68,7 +70,9 @@ function launch(args: string[]): Promise<Launched> {
         const info = JSON.parse(stdout.slice(start));
         settled = true;
         clearTimeout(timer);
-        done({ child, info, stderr: () => stderr });
+        const launched = { child, info, stderr: () => stderr };
+        launches.push(launched);
+        done(launched);
       } catch {}
     });
     child.once("close", (code) => {
@@ -92,8 +96,8 @@ describe("control-laterdog ui drives the real renderer", () => {
   let launched: Launched | undefined;
 
   afterAll(async () => {
-    if (launched && launched.child.exitCode === null && launched.child.signalCode === null) {
-      await waitForExit(launched.child, { signal: "SIGINT", graceMs: 30_000 });
+    for (const { child } of launches) {
+      if (child.exitCode === null && child.signalCode === null) await waitForExit(child, { signal: "SIGINT", graceMs: 30_000 });
     }
     if (ownsEvidenceDir) await removeTempDir(evidenceDir);
   });
@@ -141,19 +145,19 @@ describe("control-laterdog ui drives the real renderer", () => {
     launched = await launch([]);
     const { info } = launched;
     await fixtureApi(info.url)("PUT", "/api/config", {
-      openaiCompat: { key: "fixture-saved-key", url: "http://127.0.0.1:1/v1" },
+      xai: { key: "fixture-saved-key", url: "http://127.0.0.1:1/v1" },
     });
     const evaluate = async (js: string) => (await ui("eval", info.ui, "--js", js)).result;
     const click = (name: string) => ui("click", info.ui, "--name", name);
-    const input = `document.querySelector('input[aria-label="OpenAI-compatible API key"]')`;
+    const input = `document.querySelector('input[aria-label="xAI API key"]')`;
     const testButton = `[...${input}.closest('[data-api-key-row]').querySelectorAll('button')].find(b => b.textContent === 'Test')`;
     const verdict = () => evaluate(`${input}.closest('[data-api-key-row]').querySelector('[role="status"]')?.textContent`);
     const rowText = () => evaluate(`${input}.closest('[data-api-key-row]').textContent`);
     const type = async (text: string) => {
-      await click("OpenAI-compatible API key");
+      await click("xAI API key");
       await evaluate(`${input}.select(); true`);
       await ui("press", info.ui, "--keys", "Backspace");
-      if (text) await ui("type", info.ui, "--name", "OpenAI-compatible API key", "--text", text);
+      if (text) await ui("type", info.ui, "--name", "xAI API key", "--text", text);
     };
     const enter = () => ui("press", info.ui, "--keys", "Enter");
     await evaluate(`(() => {
@@ -166,7 +170,7 @@ describe("control-laterdog ui drives the real renderer", () => {
           window.keyTests.push(JSON.parse(init.body));
           return Promise.resolve(Response.json({ ok: true, check: 'models', models: ['fixture-model'] }));
         }
-        if (String(url) === '/api/config' && init.method === 'PUT' && String(init.body).includes('"openaiCompat"')) {
+        if (String(url) === '/api/config' && init.method === 'PUT' && String(init.body).includes('"xai"')) {
           window.keySaves++;
           if (window.rejectKeySave) return Promise.resolve(Response.json({ error: 'Fixture save rejected' }, { status: 503 }));
         }
@@ -177,21 +181,21 @@ describe("control-laterdog ui drives the real renderer", () => {
     await click("You");
     await click("Settings");
     await expect.poll(() => evaluate(`(() => {
-      const change = document.querySelector('[data-saved-api-key="openaiCompat"] button[aria-expanded="false"]');
+      const change = document.querySelector('[data-saved-api-key="xaiApi"] button[aria-expanded="false"]');
       change?.click();
       return Boolean(change);
     })()`), { timeout: 10_000 }).toBe(true);
-    await expect.poll(() => evaluate(`document.querySelector('[data-api-key-row="openaiCompat"]') !== null`), { timeout: 10_000 }).toBe(true);
+    await expect.poll(() => evaluate(`document.querySelector('[data-api-key-row="xai"]') !== null`), { timeout: 10_000 }).toBe(true);
 
     await expect.poll(() => evaluate(`${testButton}?.disabled ?? null`), { timeout: 10_000 }).toBe(false);
     await click("Test");
-    await expect.poll(() => evaluate("window.keyTests")).toEqual([{ provider: "openaiCompat" }]);
+    await expect.poll(() => evaluate("window.keyTests")).toEqual([{ provider: "xai" }]);
     await expect.poll(verdict).toBe("Saved key: Model catalog reachable: fixture-model. Authentication and chat not verified.");
 
     await type("  fixture-draft-key  ");
     await enter();
     await expect.poll(() => evaluate(`${input}?.value ?? null`), { timeout: 10_000 }).toBe("");
-    await expect.poll(() => evaluate("window.keyTests")).toEqual([{ provider: "openaiCompat" }, { provider: "openaiCompat" }]);
+    await expect.poll(() => evaluate("window.keyTests")).toEqual([{ provider: "xai" }, { provider: "xai" }]);
     expect(await evaluate("window.keySaves")).toBe(1);
 
     await type("not a key at all");
@@ -207,7 +211,7 @@ describe("control-laterdog ui drives the real renderer", () => {
     await expect.poll(rowText, { timeout: 10_000 }).toContain("Fixture save rejected");
     await expect.poll(() => evaluate(`${input}?.value ?? null`), { timeout: 10_000 }).toBe("fixture-replacement-key");
     await evaluate("window.rejectKeySave = false");
-    await click("OpenAI-compatible API key");
+    await click("xAI API key");
     await enter();
     await expect.poll(() => evaluate(`${input}?.value ?? null`), { timeout: 10_000 }).toBe("");
     await expect.poll(() => evaluate("window.keyTests.length")).toBe(3);
