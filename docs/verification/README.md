@@ -142,8 +142,8 @@ roles and device revocation through the real HTTP API with a stubbed email
 service, and the `laterdog access` command. The app has no People page.
 
 The [sidebar fixture](sidebar.md) checks Hide from sidebar, Show in sidebar and
-the delete confirmation against two disposable bots, and lists the Grok Bot
-sidebar parity checks (pins, sections, search, More unreads, footer, shortcuts).
+the delete confirmation against two disposable bots, and lists the sidebar's
+layout checks (pins, sections, search, More unreads, footer, shortcuts).
 
 The [app links check](app-links.md) opens dog, chat and Settings links in the
 source Dev desktop, cold and warm, including Not found and ignored links.

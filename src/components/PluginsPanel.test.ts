@@ -87,7 +87,7 @@ describe("connected apps a bot cannot see", () => {
   });
 
   it("leaves out a bot whose engine could never mount the tools", () => {
-    const bots = [bot("grok-bot", { composio: false, modelSelection: { instanceId: "grok" } as Bot["modelSelection"] })];
+    const bots = [bot("grok-dog", { composio: false, modelSelection: { instanceId: "grok" } as Bot["modelSelection"] })];
     expect(botsMissingConnectedApps(bots, instances)).toEqual([]);
     expect(botsMissingConnectedApps([bot("orphan", { composio: false, modelSelection: { instanceId: "gone" } as Bot["modelSelection"] })], instances)).toEqual([]);
   });

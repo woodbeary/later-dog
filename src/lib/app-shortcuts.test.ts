@@ -11,7 +11,7 @@ const press = (key: string, mods: Partial<ShortcutEvent> = {}): ShortcutEvent =>
 });
 const cmd = (key: string, mods: Partial<ShortcutEvent> = {}) => appShortcut(press(key, { metaKey: true, ...mods }), true)?.kind;
 
-describe("Grok Bot's desktop shortcuts", () => {
+describe("desktop shortcuts", () => {
   it("maps every chord from the shortcut table on a Mac", () => {
     expect(cmd("k")).toBe("search");
     expect(cmd("f", { shiftKey: true })).toBe("search");

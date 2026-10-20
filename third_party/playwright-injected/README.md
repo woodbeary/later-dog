@@ -8,7 +8,7 @@ Vendored, unmodified sources from [Microsoft Playwright](https://github.com/micr
 
 `entry.ts` is later.dog's: it exposes Playwright's accessibility-tree
 snapshot (the `[ref=eN]` YAML that playwright-mcp hands models) on
-`window.__ombBrowser` for the built-in browser surface, and resolves refs
+`window.__laterdogBrowser` for the built-in browser surface, and resolves refs
 back to elements for clicks and fills.
 
 `scripts/build-browser-snapshot.mjs` bundles this into

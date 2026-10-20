@@ -54,7 +54,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("the sidebar, like Grok Bot's", () => {
+describe("the sidebar's layout", () => {
   it("shows pins only as the avatar grid, with the main dog first", async () => {
     await draw({
       bots: [dog("a", "Atlas", { pinned: true }), dog("m", "Main", { pinned: true, chiefOfStaff: true }), dog("s", "Scout")],

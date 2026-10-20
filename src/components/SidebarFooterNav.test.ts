@@ -6,7 +6,7 @@ const dispatch = vi.hoisted(() => vi.fn());
 vi.mock("@/state/store", () => ({ useStore: () => ({ state: { bots: [], groups: [] }, dispatch }) }));
 import { ConnectAppsPill, SidebarFooterNav } from "./SidebarFooterNav";
 
-describe("footer, like Grok Bot's", () => {
+describe("the sidebar footer", () => {
   it("shows a Connect apps pill that opens the apps panel", () => {
     const html = renderToStaticMarkup(createElement(ConnectAppsPill));
     expect(html).toContain('data-sidebar-nav="connect-apps"');

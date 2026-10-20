@@ -59,7 +59,7 @@ describe("keyboard-shortcuts", () => {
     expect(items.find((item) => item.id === "live-call-hang-up")).toMatchObject({ macKeys: ["⌘", "⇧", "H"], winKeys: ["Ctrl", "Shift", "H"] });
   });
 
-  it("lists the Grok Bot chords for moving around, and no pointer gestures", () => {
+  it("lists the chords for moving around, and no pointer gestures", () => {
     const items = SHORTCUT_GROUPS.flatMap((group) => group.items);
     const keys = (id: string) => items.find((item) => item.id === id)?.macKeys;
     expect(keys("switch-bot")).toEqual(["⌥", "↑ / ↓"]);

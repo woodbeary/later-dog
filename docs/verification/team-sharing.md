@@ -69,6 +69,6 @@ On macOS (arm64), against disposable fixtures only, for the finalize slice
 Evidence: `/Volumes/laterdog-phone/tmp/finalize-2026-10-18/d3-chief-packs-teams/`
 (`11-dog-share-menu.png` to `17-create-copy.txt`).
 
-Not verified: a real link from a share host (there is none yet, so T7's
+Not verified: a real link from a share host (there is none yet, so
 "Share a template link" is not offered), the native save dialog in the packaged
 app, and a real Finder drag (the drop was synthesized in the page).

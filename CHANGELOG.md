@@ -52,7 +52,7 @@
 
 ## 0.3.38 — 2026-10-15
 
-- **Grok Bot, Claude Code and other apps on your Mac can use your dogs in My Cloud.** Add later.dog's MCP server to the app; while your Mac is signed in to later.dog Cloud it reaches your Cloud with full access.
+- **Claude Code, Cursor and other apps on your Mac can use your dogs in My Cloud.** Add later.dog's MCP server to the app; while your Mac is signed in to later.dog Cloud it reaches your Cloud with full access.
 - **Codex dogs keep working in My Cloud.** A chat whose Codex history stayed on your Mac picks up from the later.dog transcript.
 - **Dogs in My Cloud have their later.dog tools again**, including your Mac and cloud jobs.
 
@@ -245,8 +245,8 @@
 
 ## 0.3.15 — 2026-10-12
 
-- **Model and effort the way Claude Code does them.** Beside the message field, the model button lists a few models by name, the current one checked and the others numbered (press 1-4), with More models for the rest. It shows every model you can use now: the free Kimi K2.6 and Grok 4.3, and the models of any account you've signed in. Effort is its own button: a Faster to Smarter slider with the recommended level marked.
-- **Choose which models show**, as in Cursor: Settings, Models lists every model of your signed-in accounts with a switch, and a chat's model menu shows only the ones switched on.
+- **Model and effort beside the message field.** Next to it, the model button lists a few models by name, the current one checked and the others numbered (press 1-4), with More models for the rest. It shows every model you can use now: the free Kimi K2.6 and Grok 4.3, and the models of any account you've signed in. Effort is its own button: a Faster to Smarter slider with the recommended level marked.
+- **Choose which models show**: Settings, Models lists every model of your signed-in accounts with a switch, and a chat's model menu shows only the ones switched on.
 - **Fast mode** for the models that have it (Claude's Opus models, through Claude Code's own fast mode), in the effort popup.
 - **Accounts on top, nothing repeated.** The chat header's account button lists the accounts you're signed in to (and the free Kimi and Grok), under the names you gave them, with Add account at the end.
 - **Sign in when you need to.** Pick Claude or ChatGPT before you've signed in and the first message you send opens their sign-in; it sends once you're in.
@@ -453,6 +453,6 @@ later.dog made simpler: four settings pages, one list of accounts, and a shorter
 - An organization link no longer leaves Settings opening on every launch.
 
 ### Under the hood
-- Every code comment this branch added is gone. Upstream comments remain for now.
+- Every code comment this branch added is gone.
 - The continue-on route lives in `server/routes/continue-on.ts`.
 - Compared with `main`: 430 files changed, about 9,000 lines added and 43,000 removed.

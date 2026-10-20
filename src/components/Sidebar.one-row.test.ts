@@ -127,7 +127,7 @@ const menuProps = (botId = bot.id) => ({
 });
 const menuLabels = (markup: string) => [...markup.matchAll(/role="menuitem"[^>]*>(?:<svg.*?<\/svg>)?([^<]+)</g)].map((match) => match[1]);
 
-describe("the dog's menu, like Grok Bot's", () => {
+describe("the dog's menu", () => {
   it("lists Pin, Move to, Read or Unread, Rename, Copy ID, Hide from sidebar and Delete in that order", () => {
     fixture.state.bots = [{ ...bot, unread: false, tasks: undefined }];
     expect(menuLabels(renderToStaticMarkup(createElement(BotContextMenu, menuProps())))).toEqual([

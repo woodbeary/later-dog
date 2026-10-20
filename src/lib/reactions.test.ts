@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { EMOJI_CATALOG, QUICK_REACTIONS, myReactions, reactionSummary, searchEmoji, toggledReactions } from "./reactions";
 
 describe("reactions", () => {
-  it("offers five quick reactions like the desktop T7 menu, all in the catalog search", () => {
+  it("offers five quick reactions, all in the catalog search", () => {
     expect(QUICK_REACTIONS).toEqual(["👍", "👎", "❤️", "😂", "🎉"]);
     for (const emoji of QUICK_REACTIONS) expect(searchEmoji(emoji).map((entry) => entry.emoji)).toContain(emoji);
   });

@@ -13,8 +13,7 @@ later.dog opens three kinds of link, on the Mac and on a Cloud home window:
 `shared/app-link.ts`) parses and builds them. A dog that is gone, or not shared
 with you, shows **Not found** with "This dog was removed or isn't shared with
 you." and a Close button, over the conversation that was already open. A link
-that does not parse does nothing. Like Grok Bot (T7 study C-LIVE-18, C-LIVE-19,
-C-LIVE-22).
+that does not parse does nothing.
 
 Main keeps one link at a time (the latest wins) in `electron/app-links.mjs`
 until the main window's page subscribes through `window.laterdog.onAppLink`,

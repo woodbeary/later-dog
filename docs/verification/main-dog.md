@@ -51,6 +51,5 @@ old main dog's menu got Delete back, and `DELETE /api/bots/<Pepper>` returned
 409. Evidence: `/Volumes/laterdog-phone/tmp/finalize-2026-10-18/d3-chief-packs-teams/`
 (`03-main-dog-menu.png`, `07-choose-main-dog.png`, `08-after-replace.png`,
 `09-menus-after-replace.txt`).
-The menu has since been reordered to Grok Bot's: "Pin | Move to | Mark as Unread |
-Rename Dog | Copy conversation ID | Hide from sidebar | Replace with different dog…"
-([Sidebar](sidebar.md#like-grok-bots-sidebar)).
+The menu now reads "Pin | Move to | Mark as Unread | Rename Dog | Copy conversation ID |
+Hide from sidebar | Replace with different dog…" ([Sidebar](sidebar.md#how-the-sidebar-is-laid-out)).

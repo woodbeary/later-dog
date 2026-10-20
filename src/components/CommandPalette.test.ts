@@ -47,7 +47,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("search, like Grok Bot's", () => {
+describe("the search dialog", () => {
   it("lists hidden dogs only for a typed search, after the visible ones, tagged Hidden", () => {
     const bots = [dog("a", "Desk Notes", { hidden: true }), dog("b", "Desktop Helper"), dog("c", "Pepper")];
     expect(searchDogs(bots, "").map((bot) => bot.id)).toEqual(["b", "c"]);

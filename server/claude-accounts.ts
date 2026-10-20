@@ -79,7 +79,7 @@ export function claudeSignInCommand(cli: string, directory: string, platform: No
   if (platform === "win32") {
     const quote = (value: string) => `'${value.replaceAll("'", "''")}'`;
     const keys = [...CLAUDE_ACCOUNT_ENV_KEYS, "CLAUDE_CONFIG_DIR"];
-    return `& { $ombKeys = ${keys.map(quote).join(",")}; $ombSaved = @{}; foreach ($k in $ombKeys) { $ombSaved[$k] = [Environment]::GetEnvironmentVariable($k, 'Process'); [Environment]::SetEnvironmentVariable($k, $null, 'Process') }; try { ${directory ? `$env:CLAUDE_CONFIG_DIR = ${quote(directory)}; ` : ""}& ${[resolved.command, ...resolved.args].map(quote).join(" ")} } finally { foreach ($k in $ombKeys) { [Environment]::SetEnvironmentVariable($k, $ombSaved[$k], 'Process') } } }`;
+    return `& { $laterdogKeys = ${keys.map(quote).join(",")}; $laterdogSaved = @{}; foreach ($k in $laterdogKeys) { $laterdogSaved[$k] = [Environment]::GetEnvironmentVariable($k, 'Process'); [Environment]::SetEnvironmentVariable($k, $null, 'Process') }; try { ${directory ? `$env:CLAUDE_CONFIG_DIR = ${quote(directory)}; ` : ""}& ${[resolved.command, ...resolved.args].map(quote).join(" ")} } finally { foreach ($k in $laterdogKeys) { [Environment]::SetEnvironmentVariable($k, $laterdogSaved[$k], 'Process') } } }`;
   }
   const quote = (value: string) => `'${value.replaceAll("'", "'\"'\"'")}'`;
   return `(unset ${[...CLAUDE_ACCOUNT_ENV_KEYS, "CLAUDE_CONFIG_DIR"].join(" ")}; ${directory ? `export CLAUDE_CONFIG_DIR=${quote(directory)}; ` : ""}${[resolved.command, ...resolved.args].map(quote).join(" ")})`;

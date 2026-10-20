@@ -7,8 +7,7 @@ what goes in, which connection addresses travel and what was removed or left
 out. Whoever gets the file drops it on later.dog's sidebar; **Add this dog?**
 lists the dog and **Add** brings it in as a new copy outside any section. A
 later.dog package link opens the same sheet. There is no templates gallery and
-no pack sharing in the app, and T7's "Share a template link" waits for a share
-host.
+no pack sharing in the app, and "Share a template link" waits for a share host.
 
 The file format can hold several dogs (organization packages still do); a file saved from a dog's panel holds that
 dog, every skill of it that fits, its routines and its connections, and no

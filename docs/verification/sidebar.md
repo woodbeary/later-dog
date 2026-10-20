@@ -25,10 +25,7 @@ menu order for shown and hidden dogs. This fixture covers the sidebar only; it
 does not exercise Settings > Computers deletion or provider completion polling.
 Those paths are covered by the computer-section and server Boat inventory tests.
 
-## Like Grok Bot's sidebar
-
-The sidebar follows Grok Bot's desktop sidebar (T7 study, D-LIVE-25, D-LIVE-29,
-C-LIVE-16, C-LIVE-29):
+## How the sidebar is laid out
 
 - **Top row:** Search and **+** (New dog, New group chat). Search opens one
   dialog for dogs, group chats, apps, commands and messages. Hidden dogs show
@@ -67,7 +64,7 @@ C-LIVE-16, C-LIVE-29):
   the printed key on any keyboard layout.
 
 ```sh
-pnpm exec vitest run src/components/Sidebar.parity.test.ts src/components/CommandPalette.test.ts src/lib/app-shortcuts.test.ts src/components/MoreUnreadsPills.test.ts src/components/Sidebar.one-row.test.ts src/components/SidebarProfileMenu.test.ts server/routes/sidebar-section-order.test.ts src/components/Sidebar.rename.test.ts electron/menu.test.mjs
+pnpm exec vitest run src/components/Sidebar.layout.test.ts src/components/CommandPalette.test.ts src/lib/app-shortcuts.test.ts src/components/MoreUnreadsPills.test.ts src/components/Sidebar.one-row.test.ts src/components/SidebarProfileMenu.test.ts server/routes/sidebar-section-order.test.ts src/components/Sidebar.rename.test.ts electron/menu.test.mjs
 ```
 
 Hidden is a list filter only. On the server a hidden dog keeps working: it

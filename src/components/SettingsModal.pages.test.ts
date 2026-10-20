@@ -73,7 +73,7 @@ const groups = (html: string) => [...html.matchAll(/data-settings-group="([^"]+)
 const markers = (html: string) => [...html.matchAll(/MARKER:([^;]+);/g)].map((match) => match[1]);
 
 describe("the Settings rail", () => {
-  it("lists T7's four pages, with icons, and the same four in the narrow-window picker", () => {
+  it("lists the four settings pages, with icons, and the same four in the narrow-window picker", () => {
     const html = render();
     expect(SETTINGS_PAGES.map((page) => page.id)).toEqual(["general", "computer", "usage", "updates"]);
     expect(pages(html)).toEqual(["general", "computer", "usage", "updates"]);

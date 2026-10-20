@@ -1,13 +1,3 @@
-// The page-side half of the built-in browser's snapshot: Playwright's
-// accessibility-tree snapshot (the `[ref=e12]` YAML that playwright-mcp
-// hands models), bundled into one script and evaluated in a bot's tab over
-// CDP. Nothing here talks to Electron; it only knows the DOM.
-//
-// Everything under ./src and ./isomorphic is vendored from Microsoft
-// Playwright (Apache-2.0, see LICENSE and UPSTREAM_COMMIT) unmodified. This
-// file is ours: it exposes the pieces the surface needs on `window.__ombBrowser`
-// and keeps the ref → element table of the last snapshot so a click on
-// `e12` resolves to the element the model was shown.
 import { generateAriaTree, renderAriaTreeAsJSON, type AriaSnapshot } from "./src/ariaSnapshot";
 import { renderAriaSnapshotAsYaml } from "./isomorphic/ariaSnapshotRenderer";
 
@@ -45,9 +35,6 @@ function nodesByRef(root: AriaSnapshot["root"]): Map<string, AriaSnapshot["root"
   return byRef;
 }
 
-/** Facts the model reviewed before receiving a ref. Keep coordinates and
- * live values out (normal layout and typing may change those), but bind the
- * ref to the same DOM object, accessible meaning and actionability. */
 function integritySignature(node: AriaSnapshot["root"], element: Element): string {
   const attributes = Array.from(element.attributes)
     .map(attribute => [attribute.name, attribute.value] as const)
@@ -95,10 +82,6 @@ function snapshot(maxChars: number = DEFAULT_MAX_CHARS): SnapshotResult {
   let yaml = renderAriaSnapshotAsYaml(json);
   let truncated = false;
   if (yaml.length > maxChars) {
-    // Do not point at browser_read here: it caps lower than this snapshot
-    // does, so it returns a shorter prefix, never the remainder. Say what
-    // this is (document order, not the viewport) so the reader does not try
-    // to scroll for the rest.
     yaml = `${yaml.slice(0, maxChars)}\n…(snapshot truncated at ${maxChars} characters — the start of the page in document order, not the visible part. Scrolling does not reveal the rest; work from a narrower page.)`;
     truncated = true;
   }
@@ -109,9 +92,6 @@ function elementForRef(ref: string): Element | null {
   return last?.info.get(ref)?.element ?? null;
 }
 
-/** Rebuild the current accessibility facts without replacing the reviewed
- * snapshot. A ref is usable only while it still names the exact same DOM
- * element with the same role, name and actionability. */
 function validateRef(ref: string): boolean {
   const element = elementForRef(ref);
   const reviewed = lastIntegrity.get(ref);
@@ -147,8 +127,6 @@ function deepestElementAtPoint(x: number, y: number): Element | null {
   return hit;
 }
 
-/** The reviewed target must still be what Chromium will hit. This catches a
- * page that places a transparent/full-page overlay after the snapshot. */
 function hitTestRef(ref: string, x: number, y: number): boolean {
   const element = elementForRef(ref);
   const hit = deepestElementAtPoint(x, y);
@@ -157,8 +135,6 @@ function hitTestRef(ref: string, x: number, y: number): boolean {
   return composedContains(element, hit) || composedContains(hit, element);
 }
 
-/** Two presented frames, or a short wait when the view is throttled (an
- * occluded or unfocused view may never run requestAnimationFrame). */
 const nextFrames = (count: number, maxMs = 150): Promise<void> =>
   new Promise((resolve) => {
     let done = false;
@@ -173,19 +149,13 @@ const nextFrames = (count: number, maxMs = 150): Promise<void> =>
     setTimeout(finish, maxMs);
   });
 
-/** Where a ref is on screen right now. Scrolls it into view first, the
- * same way a person would before clicking, then lets the compositor catch
- * up: synthetic input is hit-tested against the last presented frame, so a
- * click dispatched in the same task as the scroll lands on stale pixels. */
 async function boxForRef(ref: string): Promise<BoxResult> {
   const element = elementForRef(ref);
   if (!element) return { found: false };
   if (!element.isConnected) return { found: true, connected: false };
   try {
     element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" as ScrollBehavior });
-  } catch {
-    // some elements refuse; the rect below is still the truth
-  }
+  } catch {}
   await nextFrames(2);
   const rect = element.getBoundingClientRect();
   const visible = rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
@@ -210,7 +180,7 @@ function focusRef(ref: string): boolean {
 
 declare global {
   interface Window {
-    __ombBrowser?: {
+    __laterdogBrowser?: {
       version: number;
       snapshot: typeof snapshot;
       elementForRef: typeof elementForRef;
@@ -222,4 +192,4 @@ declare global {
   }
 }
 
-window.__ombBrowser = { version: VERSION, snapshot, elementForRef, validateRef, hitTestRef, boxForRef, focusRef };
+window.__laterdogBrowser = { version: VERSION, snapshot, elementForRef, validateRef, hitTestRef, boxForRef, focusRef };

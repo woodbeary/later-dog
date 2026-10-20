@@ -12,6 +12,12 @@ No comments in code. Say it with names, types and tests; only lines tools read
 `scripts/no-comments.test.ts` fails on any other; `node scripts/no-comments.ts --write`
 removes them.
 
+Describe later.dog on its own terms. Name another product only where later.dog works
+with it (an engine it runs, an app that connects to it), never as a model to follow or a
+comparison, and never cite studies, captures or reference material. That holds for code,
+tests, docs, commit messages and pull requests. `scripts/brand-links.test.ts` keeps known
+names out; the attribution the licence requires stays in NOTICE.
+
 
 Work in progress, its gates, and how to resume any lane: [`docs/laterdog/finish-line.md`](docs/laterdog/finish-line.md). Read it before starting.
 
