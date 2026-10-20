@@ -12,6 +12,7 @@ import { readConfig, type ControlPlaneConfig } from "./config";
 import { turnstileSecret, turnstileSiteKey } from "./turnstile";
 import { errorResponse, HTTPError, json, preflight, secureResponse, withBoundedRequestBody } from "./http";
 import { gateCodeRequest, releaseNewEmailSend, type NewEmailSend } from "./otp-rate-limit";
+import { alertOwner, alertOwnerOnServerError, ownerAlerts, serverErrorAlert } from "./owner-alerts";
 import type { CloudflareFetch } from "./cloudflare-api";
 import {
   cleanupEndpointForInstallation,
@@ -90,6 +91,7 @@ async function route(
     };
     if (gate.response) {
       if (!gate.response.ok) release(gate.counted);
+      if (gate.response.status === 429) ctx.waitUntil(alertOwner(env, ownerAlerts.signUpsCapped()));
       return gate.response;
     }
     const auth = createAuth(env, ctx, config, requestId, request);
@@ -106,6 +108,7 @@ async function route(
     if (homes && accountId) {
       ctx.waitUntil(warmHomeForAccount(env, homes, accountId).catch(() => {
         console.error(JSON.stringify({ message: "home warm-up on sign-in failed", requestId }));
+        return alertOwner(env, ownerAlerts.homeStartFailed());
       }));
     }
     if (
@@ -226,18 +229,14 @@ export function createWorker(
           return secureResponse(errorResponse(403, "origin_not_allowed"), request, config, requestId);
         }
         const boundedRequest = await withBoundedRequestBody(request);
-        return secureResponse(
-          await route(boundedRequest, env, ctx, config, requestId, cloudflareFetch, homesFor(env)),
-          request,
-          config,
-          requestId,
-        );
+        const response = await route(boundedRequest, env, ctx, config, requestId, cloudflareFetch, homesFor(env));
+        ctx.waitUntil(alertOwnerOnServerError(env, serverErrorAlert(request, response)));
+        return secureResponse(response, request, config, requestId);
       } catch (error) {
-        if (error instanceof HTTPError) {
-          return secureResponse(errorResponse(error.status, error.code), request, config, requestId);
-        }
-        console.error(JSON.stringify({ message: "request failed", requestId }));
-        return secureResponse(errorResponse(500, "internal_error"), request, config, requestId);
+        const failure = error instanceof HTTPError ? errorResponse(error.status, error.code) : errorResponse(500, "internal_error");
+        if (!(error instanceof HTTPError)) console.error(JSON.stringify({ message: "request failed", requestId }));
+        ctx.waitUntil(alertOwnerOnServerError(env, serverErrorAlert(request, failure)));
+        return secureResponse(failure, request, config, requestId);
       }
     },
     scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): void {

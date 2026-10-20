@@ -266,6 +266,30 @@ Known limits, until the S2 edge rate limits and an S7 signal from the home land:
 - The 200 a day default is sized against an Email Service quota that has not
   been confirmed. Raise `NEW_EMAIL_CODES_PER_DAY` before a launch day.
 
+### Alerts to the owner
+
+When a step of signing in breaks, the Worker emails the address in the
+`ALERT_EMAIL` secret (`pnpm exec wrangler secret put ALERT_EMAIL --config
+wrangler.production.json`). It is a secret so the address stays out of this
+repository; without it nothing is sent. It writes when:
+
+- a sign-in code email fails to send (the email names the Email Service error
+  code);
+- a new address is refused a code because the day's `NEW_EMAIL_CODES_PER_DAY`
+  is used up;
+- someone goes on the waitlist because all `CLOUD_HOME_CAP` homes are taken;
+- a Cloud home fails to start right after its owner signs in, or `POST
+  /api/cloud/home` finds it `failed`;
+- an `/api/auth/` or `/api/cloud/` route answers 5xx, except the
+  `503 email_unavailable` that follows a failed code email.
+
+Each kind sends at most one email an hour per Cloudflare data center (the Cache
+API keeps the hour), and names the step and the time, never the person. Alerts
+go out through the same Email Sending binding, so when the account's daily email
+quota is what ran out, the alert cannot go out either, unless `ALERT_EMAIL` is a
+verified destination address in Email Routing, whose sends are free and outside
+the daily limit.
+
 ## Local checks
 
 Install from the repository root, then run:

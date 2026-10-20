@@ -3,6 +3,7 @@ import { applyD1Migrations, type D1Migration } from "cloudflare:test";
 import { afterEach, beforeAll } from "vitest";
 
 import { readConfig } from "../src/config";
+import { forgetOwnerAlerts } from "../src/owner-alerts";
 import { forgetCachedCapacity } from "../src/tunnel-capacity";
 
 declare global {
@@ -19,6 +20,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await forgetCachedCapacity(readConfig(env));
+  await forgetOwnerAlerts(readConfig(env));
   await env.DB.batch([
     env.DB.prepare("DELETE FROM cloud_device_authorizations"),
     env.DB.prepare("DELETE FROM cloud_devices"),

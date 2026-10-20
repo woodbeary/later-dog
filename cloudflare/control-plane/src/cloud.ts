@@ -6,6 +6,7 @@ import { INVITE_HOLD_MS, joinWaitlist } from "./waitlist";
 import { markHomeUsed } from "./home-slots";
 import { errorResponse, HTTPError, json, readBoundedJSON, type JSONValue } from "./http";
 import { sha256 } from "./installations";
+import { alertOwner, ownerAlerts } from "./owner-alerts";
 
 export const CLOUD_CONTRACT_VERSION = 1;
 const USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -99,6 +100,7 @@ export async function homeAllowed(env: Env, accountId: string, now = Date.now())
   ).bind(accountId, now, now - INVITE_HOLD_MS, accountId, homeCap(env)).run();
   if (result.meta.changes === 1) return true;
   await joinWaitlist(env, accountId, now);
+  await alertOwner(env, ownerAlerts.homesFull(homeCap(env), now));
   return false;
 }
 
@@ -274,6 +276,7 @@ async function accountHome(request: Request, env: Env, auth: ControlPlaneAuth, h
   const session = await requireAccount(request, auth);
   const allowed = await homeAllowed(env, session.user.id);
   const summary = allowed ? await homes.open(session.user.id) : null;
+  if (summary?.state === "failed") await alertOwner(env, ownerAlerts.homeStartFailed());
   return json({
     cloudContractVersion: CLOUD_CONTRACT_VERSION,
     account: { id: session.user.id, email: session.user.email },

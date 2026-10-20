@@ -4,6 +4,7 @@ import { bearer, emailOTP } from "better-auth/plugins";
 import type { ControlPlaneConfig } from "./config";
 import { sendOTPEmail } from "./email";
 import { noteEmailFailure } from "./email-health";
+import { alertOwner, emailServiceCode, ownerAlerts } from "./owner-alerts";
 import { isReviewEmail, reviewSignIn } from "./review-signin";
 import { captchaPlugins } from "./turnstile";
 
@@ -63,7 +64,10 @@ export function createAuth(
             async send(message) {
               await env.EMAIL.send(message);
             },
-          }, config.emailFrom, input, requestId, (error) => noteEmailFailure(env.DB, error));
+          }, config.emailFrom, input, requestId, (error) => Promise.all([
+            noteEmailFailure(env.DB, error),
+            alertOwner(env, ownerAlerts.codeEmailFailed(emailServiceCode(error))),
+          ]));
         },
       }),
       bearer({ requireSignature: true }),
