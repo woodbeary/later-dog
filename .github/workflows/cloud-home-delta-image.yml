@@ -37,7 +37,7 @@ jobs:
       - name: Build the full Cloud home image
         run: |
           docker build --target cloud-home -t laterdog-cloud-home:latest .
-          docker build -f deploy/laterdog/home/Dockerfile -t "$FULL" .
+          docker build -f deploy/laterdog/home/Dockerfile --build-arg LATERDOG_BUILD=${{ github.sha }} -t "$FULL" .
       - name: Pull the image Cloudflare already has
         run: docker pull "$BASE"
       - name: Both images start the same way

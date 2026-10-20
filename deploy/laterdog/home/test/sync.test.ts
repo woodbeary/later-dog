@@ -4,14 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { CHUNK_BYTES, collectGarbage, createHttpStore, parseManifest, referencedBlobs, restore, settleWithin, skipped, snapshot, transient } from "../runtime/sync.mjs";
+import { CHUNK_BYTES, collectGarbage, createHttpStore, parseManifest, referencedBlobs, restore, settleWithin, skipped, snapshot, StoreRefused, transient } from "../runtime/sync.mjs";
 
 function memoryStore() {
   const blobs = new Map<string, Uint8Array>();
+  const kept = new Map<string, unknown>();
   let manifest: unknown = null;
   const counts = { puts: 0, manifests: 0 };
   return {
     blobs,
+    kept,
     counts,
     async manifest() {
       return manifest ? parseManifest(JSON.parse(JSON.stringify(manifest))) : null;
@@ -40,6 +42,19 @@ function memoryStore() {
     },
     async deleteBlob(hash: string) {
       blobs.delete(hash);
+    },
+    async restorePoints() {
+      return [...kept.keys()].sort((left, right) => parseInt(left) - parseInt(right));
+    },
+    async restorePoint(name: string) {
+      if (!kept.has(name)) throw new StoreRefused("restore point read failed: 404", 404);
+      return parseManifest(JSON.parse(JSON.stringify(kept.get(name))));
+    },
+    async putRestorePoint(name: string, point: unknown) {
+      kept.set(name, point);
+    },
+    async deleteRestorePoint(name: string) {
+      kept.delete(name);
     },
   };
 }
@@ -466,5 +481,85 @@ describe("cleaning up saved pieces", () => {
     writeFileSync(join(home, "a.txt"), "alpha again");
     const again = await snapshot(home, store, saved.manifest);
     expect(store.blobs.size).toBe(referencedBlobs(again.manifest).size);
+  });
+});
+
+describe("keeping restore points safe from cleanup", () => {
+  it("stamps each save with the app that wrote it, and saves again when only the app changed", async () => {
+    const home = folder();
+    const store = memoryStore();
+    writeFileSync(join(home, "bots.json"), "[]");
+    const first = await snapshot(home, store, null, { app: "0.3.42+81e55420b249" });
+    expect(first.manifest.app).toBe("0.3.42+81e55420b249");
+    const unchanged = await snapshot(home, store, first.manifest, { app: "0.3.42+81e55420b249" });
+    expect(unchanged.written).toBe(false);
+    const upgraded = await snapshot(home, store, first.manifest, { app: "0.3.43+5e1f00c0ffee" });
+    expect(upgraded.written).toBe(true);
+    expect(upgraded.uploaded).toBe(0);
+    expect(upgraded.manifest.app).toBe("0.3.43+5e1f00c0ffee");
+    expect((await snapshot(home, store, null)).manifest).not.toHaveProperty("app");
+  });
+
+  it("keeps every piece a kept or still-waiting restore point needs, and drops the rest", async () => {
+    const home = folder();
+    const store = memoryStore();
+    writeFileSync(join(home, "bots.json"), "before the upgrade");
+    writeFileSync(join(home, "notes.md"), "first notes");
+    const kept = await snapshot(home, store, null, { app: "0.3.41" });
+    store.kept.set(`${kept.manifest.createdAt}.json`, kept.manifest);
+    writeFileSync(join(home, "bots.json"), "after the upgrade, migrated");
+    const waiting = await snapshot(home, store, kept.manifest, { app: "0.3.42" });
+    writeFileSync(join(home, "bots.json"), "changed again since");
+    writeFileSync(join(home, "notes.md"), "notes written later");
+    const latest = await snapshot(home, store, waiting.manifest, { app: "0.3.42" });
+    const removed = await collectGarbage(store, latest.manifest, { pending: [waiting.manifest] });
+    const needed = new Set([...referencedBlobs(kept.manifest), ...referencedBlobs(waiting.manifest), ...referencedBlobs(latest.manifest)]);
+    expect(removed).toBe(0);
+    expect(new Set(store.blobs.keys())).toEqual(needed);
+    expect(await collectGarbage(store, latest.manifest)).toBe(1);
+    expect(new Set(store.blobs.keys())).toEqual(new Set([...referencedBlobs(kept.manifest), ...referencedBlobs(latest.manifest)]));
+    await store.putManifest(kept.manifest);
+    const rolledBack = folder();
+    await restore(rolledBack, store);
+    expect(readFileSync(join(rolledBack, "bots.json"), "utf8")).toBe("before the upgrade");
+    expect(readFileSync(join(rolledBack, "notes.md"), "utf8")).toBe("first notes");
+  });
+
+  it("removes nothing when the restore points cannot be read, so a kept restore point never loses a piece", async () => {
+    const home = folder();
+    const store = memoryStore();
+    writeFileSync(join(home, "a.txt"), "alpha");
+    const saved = await snapshot(home, store, null);
+    const unreadable = { ...store, restorePoints: async () => { throw new StoreRefused("restore point list failed: 400", 400); } };
+    await expect(collectGarbage(unreadable, { version: 1, createdAt: 0, entries: [] })).rejects.toThrow("restore point list failed: 400");
+    expect(store.blobs.size).toBe(referencedBlobs(saved.manifest).size);
+    store.kept.set("5.json", saved.manifest);
+    const lost = { ...store, restorePoint: async () => { throw new StoreRefused("restore point read failed: 500", 500); } };
+    await expect(collectGarbage(lost, { version: 1, createdAt: 0, entries: [] })).rejects.toThrow("restore point read failed: 500");
+    expect(store.blobs.size).toBe(referencedBlobs(saved.manifest).size);
+  });
+
+  it("reads, writes, lists and deletes restore points over HTTP, oldest first, and says why the store refused", async () => {
+    const seen: string[] = [];
+    const answering = (async (url: string, init: RequestInit = {}) => {
+      seen.push(`${init.method ?? "GET"} ${url}`);
+      if (url.endsWith("/restore-points/")) return Response.json({ names: ["1760000000000.json", "999.json", "../manifest.json", "1700000000000.json"] });
+      if (url.endsWith("/restore-points/1.json") && (init.method ?? "GET") === "GET") return Response.json({ version: 1, createdAt: 1, entries: [] });
+      if (url.endsWith("/restore-points/2.json")) return new Response("Invalid state key", { status: 400 });
+      return new Response(null, { status: init.method === "DELETE" ? 204 : 201 });
+    }) as unknown as typeof fetch;
+    const store = createHttpStore("https://state.invalid/home", "test-token", answering);
+    expect(await store.restorePoints()).toEqual(["999.json", "1700000000000.json", "1760000000000.json"]);
+    expect(await store.restorePoint("1.json")).toEqual({ version: 1, createdAt: 1, entries: [] });
+    await store.putRestorePoint("1.json", { version: 1, createdAt: 1, entries: [] });
+    await store.deleteRestorePoint("1.json");
+    await expect(store.putRestorePoint("2.json", { version: 1, createdAt: 2, entries: [] })).rejects.toMatchObject({ status: 400 });
+    expect(seen).toEqual([
+      "GET https://state.invalid/home/restore-points/",
+      "GET https://state.invalid/home/restore-points/1.json",
+      "PUT https://state.invalid/home/restore-points/1.json",
+      "DELETE https://state.invalid/home/restore-points/1.json",
+      "PUT https://state.invalid/home/restore-points/2.json",
+    ]);
   });
 });

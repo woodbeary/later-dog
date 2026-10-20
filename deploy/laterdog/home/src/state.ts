@@ -2,10 +2,13 @@ import { sha256 } from "./encoding.ts";
 
 export const STATE_HOST = "state.r2";
 export const EMAIL_HOST = "email.internal";
-const STATE_KEY = /^(?:manifest\.json|blobs\/[a-f0-9]{64})$/;
+const STATE_KEY = /^(?:manifest\.json|blobs\/[a-f0-9]{64}|restore-points\/\d{1,16}\.json)$/;
 const BLOB_KEY = /\/blobs\/[a-f0-9]{64}$/;
+const RESTORE_POINT_KEY = /\/restore-points\/\d{1,16}\.json$/;
 const BLOB_HASH = /^[a-f0-9]{64}$/;
+const RESTORE_POINT_NAME = /^\d{1,16}\.json$/;
 const BLOB_LIST_PATH = "/blobs/";
+const RESTORE_POINT_LIST_PATH = "/restore-points/";
 const CONTAINER_ID = /^[a-f0-9]{16,128}$/;
 
 export interface StateBucket {
@@ -39,6 +42,9 @@ export async function handleState(request: Request, bucket: StateBucket, contain
     const hashes = page.objects.map((object) => object.key.slice(prefix.length)).filter((hash) => BLOB_HASH.test(hash));
     return Response.json({ hashes, ...(page.truncated && page.cursor ? { cursor: page.cursor } : {}) });
   }
+  if (url.pathname === RESTORE_POINT_LIST_PATH && request.method === "GET") {
+    return Response.json({ names: await restorePointNames(bucket, containerId) });
+  }
   const key = stateKey(containerId, request.url);
   if (!key) return new Response("Invalid state key", { status: 400 });
   if (request.method === "HEAD") return new Response(null, { status: (await bucket.head(key)) ? 200 : 404 });
@@ -51,11 +57,23 @@ export async function handleState(request: Request, bucket: StateBucket, contain
     await bucket.put(key, await request.arrayBuffer(), { httpMetadata: { contentType: "application/octet-stream" } });
     return new Response("Stored", { status: 201 });
   }
-  if (request.method === "DELETE" && BLOB_KEY.test(key)) {
+  if (request.method === "DELETE" && (BLOB_KEY.test(key) || RESTORE_POINT_KEY.test(key))) {
     await bucket.delete(key);
     return new Response(null, { status: 204 });
   }
   return new Response("Method not allowed", { status: 405 });
+}
+
+async function restorePointNames(bucket: StateBucket, containerId: string): Promise<string[]> {
+  const prefix = `${homePrefix(containerId)}restore-points/`;
+  const names: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await bucket.list({ prefix, cursor, limit: 1000 });
+    names.push(...page.objects.map((object) => object.key.slice(prefix.length)).filter((name) => RESTORE_POINT_NAME.test(name)));
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return names;
 }
 
 export async function forgetHomeState(bucket: StateBucket, containerId: string): Promise<number> {

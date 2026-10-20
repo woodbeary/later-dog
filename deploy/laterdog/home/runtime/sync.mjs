@@ -16,6 +16,18 @@ const SKIPPED_SUFFIXES = ["-wal", "-shm", "-journal"];
 const REFRESH_LOCK_NAMES = new Set([".oauth_refresh.lock", ".oauth_refresh.lock.owner"]);
 const LOCK_DIRECTORY_SUFFIX = ".lock";
 const HASH = /^[a-f0-9]{64}$/;
+const RESTORE_POINT_NAME = /^\d{1,16}\.json$/;
+
+export class StoreRefused extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function restorePointAge(name) {
+  return Number(name.slice(0, -".json".length));
+}
 
 export function skipped(name) {
   return SKIPPED_NAMES.has(name) || REFRESH_LOCK_NAMES.has(name) || name.startsWith(RESTORING_PREFIX) || SKIPPED_SUFFIXES.some((suffix) => name.endsWith(suffix));
@@ -73,6 +85,26 @@ export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { bl
     async deleteBlob(hash) {
       const response = await call(`blobs/${hash}`, { method: "DELETE" });
       if (!response.ok && response.status !== 404) throw new Error(`blob delete failed: ${response.status}`);
+    },
+    async restorePoints() {
+      const response = await call("restore-points/");
+      if (!response.ok) throw new StoreRefused(`restore point list failed: ${response.status}`, response.status);
+      const page = await response.json();
+      const names = Array.isArray(page?.names) ? page.names.filter((name) => RESTORE_POINT_NAME.test(name)) : [];
+      return names.sort((left, right) => restorePointAge(left) - restorePointAge(right));
+    },
+    async restorePoint(name) {
+      const response = await call(`restore-points/${name}`);
+      if (!response.ok) throw new StoreRefused(`restore point read failed: ${response.status}`, response.status);
+      return parseManifest(await response.json());
+    },
+    async putRestorePoint(name, manifest) {
+      const response = await call(`restore-points/${name}`, { method: "PUT", body: JSON.stringify(manifest) });
+      if (!response.ok) throw new StoreRefused(`restore point write failed: ${response.status}`, response.status);
+    },
+    async deleteRestorePoint(name) {
+      const response = await call(`restore-points/${name}`, { method: "DELETE" });
+      if (!response.ok && response.status !== 404) throw new StoreRefused(`restore point delete failed: ${response.status}`, response.status);
     },
   };
 }
@@ -160,7 +192,7 @@ async function databaseCopy(path, scratch) {
   return copy;
 }
 
-export async function snapshot(root, store, previous, { scratch, now = Date.now } = {}) {
+export async function snapshot(root, store, previous, { scratch, now = Date.now, app } = {}) {
   const known = new Map((previous?.entries ?? []).filter((entry) => entry.type === "file").map((entry) => [entry.path, entry]));
   const entries = [];
   const unsaved = [];
@@ -189,8 +221,8 @@ export async function snapshot(root, store, previous, { scratch, now = Date.now 
       if (error?.code !== "ENOENT") unsaved.push(entry.path);
     }
   }
-  const manifest = { version: MANIFEST_VERSION, createdAt: now(), entries };
-  if (uploaded > 0 || !previous || previous.entries.length !== entries.length || changedShape(previous.entries, entries)) {
+  const manifest = { version: MANIFEST_VERSION, createdAt: now(), ...(app ? { app } : {}), entries };
+  if (uploaded > 0 || !previous || (app && previous.app !== app) || previous.entries.length !== entries.length || changedShape(previous.entries, entries)) {
     await store.putManifest(manifest);
     return { manifest, written: true, uploaded, unsaved };
   }
@@ -318,9 +350,16 @@ export function referencedBlobs(manifest) {
   return keep;
 }
 
-export async function collectGarbage(store, manifest) {
+export async function keptRestorePoints(store) {
+  const kept = [];
+  for (const name of await store.restorePoints()) kept.push(await store.restorePoint(name));
+  return kept;
+}
+
+export async function collectGarbage(store, manifest, { pending = [] } = {}) {
   if (!manifest) return 0;
   const keep = referencedBlobs(manifest);
+  for (const kept of [...pending, ...(await keptRestorePoints(store))]) for (const hash of referencedBlobs(kept)) keep.add(hash);
   const unused = [];
   let cursor;
   do {

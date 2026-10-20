@@ -84,3 +84,31 @@ describe("cleaning up a home's saved pieces", () => {
     expect(bucket.objects.has(`homes/${CONTAINER}/manifest.json`)).toBe(true);
   });
 });
+
+describe("restore points in a home's state store", () => {
+  it("keeps restore points beside the manifest, lists only this home's, and deletes them on request", async () => {
+    const bucket = memoryBucket();
+    const other = "b".repeat(64);
+    expect(stateKey(CONTAINER, "http://state.r2/restore-points/1760900000000.json")).toBe(`homes/${CONTAINER}/restore-points/1760900000000.json`);
+    const put = await handleState(new Request("http://state.r2/restore-points/1760900000000.json", { method: "PUT", body: "{\"version\":1}" }), bucket, CONTAINER);
+    expect(put.status).toBe(201);
+    await handleState(new Request("http://state.r2/restore-points/1760000000000.json", { method: "PUT", body: "{}" }), bucket, CONTAINER);
+    bucket.objects.set(`homes/${other}/restore-points/1.json`, new ArrayBuffer(1));
+    bucket.objects.set(`homes/${CONTAINER}/restore-points/notes.txt`, new ArrayBuffer(1));
+    const listed = await handleState(new Request("http://state.r2/restore-points/"), bucket, CONTAINER);
+    expect(await listed.json()).toEqual({ names: ["1760900000000.json", "1760000000000.json"] });
+    const got = await handleState(new Request("http://state.r2/restore-points/1760900000000.json"), bucket, CONTAINER);
+    expect(await got.text()).toBe("{\"version\":1}");
+    expect((await handleState(new Request("http://state.r2/restore-points/1760000000000.json", { method: "DELETE" }), bucket, CONTAINER)).status).toBe(204);
+    expect(bucket.objects.has(`homes/${CONTAINER}/restore-points/1760000000000.json`)).toBe(false);
+    expect(bucket.objects.has(`homes/${other}/restore-points/1.json`)).toBe(true);
+    expect(await forgetHomeState(bucket, CONTAINER)).toBe(2);
+  });
+
+  it("refuses any other name under restore points", () => {
+    expect(stateKey(CONTAINER, "http://state.r2/restore-points/latest.json")).toBeNull();
+    expect(stateKey(CONTAINER, "http://state.r2/restore-points/12.json.bak")).toBeNull();
+    expect(stateKey(CONTAINER, "http://state.r2/restore-points/12345678901234567.json")).toBeNull();
+    expect(stateKey(CONTAINER, "http://state.r2/restore-points/")).toBeNull();
+  });
+});

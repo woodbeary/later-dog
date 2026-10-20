@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { seedIncluded } from "./included.mjs";
+import { RESTORE_POINTS, appRelease, upgradeFrom, upgradeKeeper } from "./restore-points.mjs";
 import { FINAL_SAVE_MS, collectGarbage, createHttpStore, restore, settleWithin, snapshot } from "./sync.mjs";
 
 const DATA = process.env.HOME || "/data";
@@ -10,6 +11,8 @@ const LAUNCHER = "/app/dist-server/cloud-home-start.js";
 const INTERVAL_MS = Number(process.env.LATERDOG_SYNC_INTERVAL_MS || 60_000);
 const RESTORE_ATTEMPTS = 5;
 const GC_EVERY_SAVES = Number(process.env.LATERDOG_GC_EVERY_SAVES || 30);
+const KEPT_RESTORE_POINTS = Number(process.env.LATERDOG_RESTORE_POINTS || RESTORE_POINTS);
+const APP = appRelease();
 
 function log(message) {
   process.stderr.write(`laterdog home: ${message}\n`);
@@ -40,10 +43,13 @@ async function main() {
   const token = process.env.LATERDOG_STATE_TOKEN;
   const store = url && token ? createHttpStore(url, token) : null;
   let manifest = null;
+  let upgraded = null;
   if (store) {
     const restored = await restoreWithRetries(store, dogOwner());
     manifest = restored.manifest;
+    upgraded = upgradeFrom(manifest, APP);
     log(restored.manifest ? `restored ${restored.files} files` : "a new home: nothing to restore");
+    if (upgraded) log(`${APP} replaces ${upgraded.app ?? "an earlier version"}; keeping a restore point before the first save`);
   } else {
     log("no state store: this home keeps nothing across restarts");
   }
@@ -54,15 +60,18 @@ async function main() {
   delete environment.LATERDOG_STATE_TOKEN;
   delete environment.LATERDOG_SYNC_INTERVAL_MS;
   delete environment.LATERDOG_GC_EVERY_SAVES;
+  delete environment.LATERDOG_RESTORE_POINTS;
   delete environment.LATERDOG_INCLUDED_KEY;
   delete environment.LATERDOG_INCLUDED_API;
   const child = spawn(process.execPath, [LAUNCHER], { stdio: "inherit", env: environment });
   let running = null;
   let saves = 0;
+  const restorePoints = upgradeKeeper(store, upgraded, { app: APP, limit: KEPT_RESTORE_POINTS, log });
   const save = ({ final = false } = {}) => {
     if (!store) return Promise.resolve();
     if (running) return running;
-    running = snapshot(DATA, store, manifest, { scratch: SCRATCH })
+    running = restorePoints.keep()
+      .then(() => snapshot(DATA, store, manifest, { scratch: SCRATCH, app: APP }))
       .then(async (result) => {
         manifest = result.manifest;
         if (result.written) log(`saved (${result.uploaded} changed files)`);
@@ -70,7 +79,7 @@ async function main() {
         saves += 1;
         if (final || saves % GC_EVERY_SAVES !== 0) return;
         try {
-          const removed = await collectGarbage(store, manifest);
+          const removed = await collectGarbage(store, manifest, { pending: restorePoints.pending() });
           if (removed) log(`removed ${removed} saved pieces nothing uses any more`);
         } catch (error) {
           log(`cleanup failed: ${error.message}`);

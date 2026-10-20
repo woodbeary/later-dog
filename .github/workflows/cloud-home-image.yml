@@ -27,7 +27,7 @@ jobs:
       - name: Build the Cloud home base image
         run: docker build --target cloud-home -t laterdog-cloud-home:latest .
       - name: Add the Cloudflare runtime
-        run: docker build -f deploy/laterdog/home/Dockerfile -t "$IMAGE" .
+        run: docker build -f deploy/laterdog/home/Dockerfile --build-arg LATERDOG_BUILD=${{ github.sha }} -t "$IMAGE" .
       - name: Install what the desktop fixture runs on
         run: pnpm install --frozen-lockfile
         env:
