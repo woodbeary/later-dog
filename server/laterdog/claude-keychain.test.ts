@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CLAUDE_KEYCHAIN_SERVICE, claudeCredentialsFile, claudeKeychainAccount, claudeKeychainService } from "./claude-keychain.ts";
 
 describe("where the Claude CLI keeps a sign-in on this computer", () => {
-  it("names the Keychain item the way Claude Code 2.1.293 does", () => {
+  it("uses the Keychain item name that Claude Code 2.1.293 reads", () => {
     expect(claudeKeychainService({})).toBe(CLAUDE_KEYCHAIN_SERVICE);
     expect(claudeKeychainService({ CLAUDE_CONFIG_DIR: "" })).toBe(CLAUDE_KEYCHAIN_SERVICE);
     expect(claudeKeychainService({ CLAUDE_CONFIG_DIR: "/Users/jacoblopez/.claude" })).toBe("Claude Code-credentials-d6b39fe8");
