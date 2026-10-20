@@ -26,6 +26,7 @@ Repository: https://github.com/woodbeary/later-dog
 - [docs/laterdog/cloudflare.md](docs/laterdog/cloudflare.md): the cloud-task supervisor on Cloudflare Containers.
 - [docs/laterdog/motion.md](docs/laterdog/motion.md): motion tokens, the dog's state → ear motion table, reduced motion.
 - [docs/laterdog/support.md](docs/laterdog/support.md): how later.dog is funded and where sponsorships go.
+- [skills/laterdog/quarantine-agent-bait/SKILL.md](skills/laterdog/quarantine-agent-bait/SKILL.md): when files planted in a repository make defending agents refuse, judge them with Llama Guard 3 on Cloudflare Workers AI without reading them into context, quarantine the flagged ones with a manifest and restore them later. Works in any repository.
 
 ## Proof and plans
 

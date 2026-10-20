@@ -96,6 +96,7 @@ Owned by one session ("App regression review"). Other sessions: do not start lan
 | L16 Local hot reload | local `main` | | command ready: `pnpm dev:desktop` starts isolated source services and Electron on Vite; focused tests and HMR protocol edit/undo pass; Mac window verification awaits this conversation's local Computer connection |
 | L17 Repeated chat statuses | local `main` | | repeated teammate failures collapse into one consistently red count with individual results; repeated sends collapse across hidden tool calls with each destination retained. Renderer Message now shares the existing wire roomRequest type; full typecheck, lint and 185 focused regression checks pass for both UI fixes. Dev-window screenshot remains blocked by Computer Off (`canSelect: false`) |
 | L18 Thread mention chips | local `main` | | inline thread references use compact pills with a thread icon, teammate avatar and truncated label; navigation and full accessible titles retained. 115 focused renderer tests and focused lint pass; Dev-window screenshot remains blocked by Computer Off (`canSelect: false`) |
+| L19 Agent-bait sweep | `laterdog/agent-bait-skill` | | skill `quarantine-agent-bait`: Llama Guard 3 on Workers AI judges prose and agent-instruction files without the agent reading them; flagged files move to a sibling quarantine folder with a manifest and come back with hash checks. 14 tests with a fake classifier pass; not yet run against a live Workers AI account |
 
 ## Notes for whoever picks this up
 
