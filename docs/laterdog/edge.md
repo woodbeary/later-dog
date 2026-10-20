@@ -166,6 +166,24 @@ Since 2026-10-19 the computers Worker calls `laterdog` (`AI_GATEWAY_ID` in `depl
 so these caps count. Grok calls carry the Worker's own key; Anthropic needs its key stored on the gateway before
 `ANTHROPIC_FIRST` is turned on.
 
+**Storing the Anthropic key.** The Worker sends Claude Haiku calls without a key, so the gateway adds the one it stores
+for `anthropic` under the `default` alias. AI Gateway finds a stored key by its Secrets Store secret's name,
+`<gateway>_<provider>_<alias>`, so the secret must be named `laterdog_anthropic_default`. A secret under any other name,
+such as `LATERDOG_ANTHROPIC`, is never found, whatever `secret_id` a provider config names. Either:
+
+1. In the dashboard, AI Gateway > `laterdog` > Provider Keys > Add API Key, provider Anthropic, alias `default`. The
+   dashboard names the secret itself.
+2. Without typing the key again, copy the stored secret under the right name, then add the provider key for `anthropic`
+   with alias `default` on `laterdog` that uses it (Provider Keys in the dashboard, or the gateway's provider configs):
+   `wrangler secrets-store secret duplicate <store id> --secret-id <id of LATERDOG_ANTHROPIC> --name
+   laterdog_anthropic_default --scopes ai-gateway --remote`.
+
+Attaching a secret to a gateway counts as a write to Secrets Store, so the role or token needs Secrets Store Edit. The
+dry run's `ai-gateway` step says so while the key is missing. Turn Claude Haiku first on only after that line is gone:
+set `ANTHROPIC_FIRST` to `"1"` in `deploy/laterdog/computers/wrangler.jsonc`, run `pnpm run eval:haiku` there, and
+deploy the computers Worker. Without the key, every chat would first get a 400 from the gateway and then fall through to
+Kimi.
+
 Not verified yet: that each rule reads as one day in the dashboard (AI Gateway > `laterdog` > Settings > Spend limits).
 The API only says `window` is a whole number; this file sends `86400` on the guess that it means seconds, like the
 gateway's other intervals. If the dashboard shows anything else, fix `window` in `ai-gateway.json`, apply

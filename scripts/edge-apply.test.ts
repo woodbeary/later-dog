@@ -8,6 +8,7 @@ import {
   byokOnly,
   createReplayApi,
   effectiveRecords,
+  haikuKeyNote,
   loadDesired,
   logModeDue,
   main,
@@ -389,6 +390,15 @@ describe("planning against the zone", () => {
     expect(byId(plan(desired, state, { origins: failing }), "ssl-strict")).toMatchObject({ status: "blocked", calls: [] });
     const passing = [{ name: "later.dog", content: "203.0.113.9", ok: true }];
     expect(byId(plan(desired, state, { origins: passing }), "ssl-strict").calls).toEqual([{ method: "PATCH", path: `/zones/${ZONE}/settings/ssl`, body: { value: "strict" } }]);
+  });
+
+  it("says Claude Haiku first must stay off until the Anthropic key is on the gateway under the name AI Gateway looks up", async () => {
+    const { desired, state } = await liveState();
+    const bare = byId(plan(desired, { ...appliedState(desired, state), providerKeys: [] }), "ai-gateway");
+    expect(bare.notes).toContain(haikuKeyNote("laterdog"));
+    expect(haikuKeyNote("laterdog")).toContain("laterdog_anthropic_default");
+    const keyed = byId(plan(desired, { ...appliedState(desired, state), providerKeys: ["anthropic"] }), "ai-gateway");
+    expect(keyed.notes).not.toContain(haikuKeyNote("laterdog"));
   });
 
   it("turns byok_only on only when keys for every required provider are stored", async () => {

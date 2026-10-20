@@ -339,6 +339,10 @@ export function byokOnly(gateway, providerKeys) {
   return { on: missing.length === 0, missing };
 }
 
+export function haikuKeyNote(gatewayId) {
+  return `no anthropic key on ${gatewayId}, so keep ANTHROPIC_FIRST at 0 on laterdog-computers: Claude Haiku first needs the key under the default alias, in a Secrets Store secret named ${gatewayId}_anthropic_default`;
+}
+
 function gatewayStep(desired, state, accountPath) {
   const result = step("ai-gateway", `AI Gateway ${desired.gateway.id} and its spend limits`);
   const gatewaysPath = `${accountPath}/ai-gateway/gateways`;
@@ -354,6 +358,7 @@ function gatewayStep(desired, state, accountPath) {
     const byok = byokOnly(desired.gateway, state.providerKeys);
     body = { ...desired.gateway.settings, byok_only: byok.on, spend_limits: desired.gateway.spendLimits };
     result.notes.push(byok.on ? "byok_only turns on: every required provider key is stored on the gateway" : `byok_only stays off until provider keys exist for: ${byok.missing.join(", ")}`);
+    if (!state.providerKeys.includes("anthropic")) result.notes.push(haikuKeyNote(desired.gateway.id));
     result.notes.push(...desired.notes);
   }
   if (!state.gateway) {
