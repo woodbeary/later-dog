@@ -28,5 +28,4 @@ jobs:
       - name: Deploy the Worker, leaving every container and its image as they are
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm exec wrangler deploy --config wrangler.production.json --containers-rollout=none
