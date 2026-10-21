@@ -10,6 +10,7 @@ export class WorkerEntrypoint<E> {
 
 export interface FakeMachine {
   running: boolean;
+  serving: boolean;
   starts: number;
   signals: number;
   exit: (() => void) | null;
@@ -39,7 +40,8 @@ function presentedSession(request: Request): string | undefined {
   return /laterdog_session_[^=]*=([^;\s]+)/.exec(request.headers.get("cookie") ?? "")?.[1];
 }
 
-function homeAnswer(namespace: string, request: Request): Response {
+function homeAnswer(namespace: string, request: Request, machine: FakeMachine): Response {
+  if (!machine.serving) return new Response(null, { status: 502 });
   const path = new URL(request.url).pathname;
   if (path === "/api/health") return Response.json({ app: "laterdog" });
   if (path === "/api/auth/session") {
@@ -79,7 +81,7 @@ export class FakeStorage {
 }
 
 export function fakeContext(id: FakeId, storage = new FakeStorage()) {
-  const machine: FakeMachine = { running: false, starts: 0, signals: 0, exit: null };
+  const machine: FakeMachine = { running: false, serving: true, starts: 0, signals: 0, exit: null };
   const pending: Promise<unknown>[] = [];
   return {
     id,
@@ -90,7 +92,7 @@ export function fakeContext(id: FakeId, storage = new FakeStorage()) {
       get running() {
         return machine.running;
       },
-      getTcpPort: () => ({ fetch: async (url: string, init: Request) => homeAnswer(id.namespace, new Request(url, init)) }),
+      getTcpPort: () => ({ fetch: async (url: string, init: Request) => homeAnswer(id.namespace, new Request(url, init), machine) }),
     },
     blockConcurrencyWhile: async (work: () => Promise<unknown>) => {
       const done = work();
@@ -187,7 +189,7 @@ export class Container<E> {
         return new Response(`Failed to start container: ${error instanceof Error ? error.message : String(error)}`, { status: 500 });
       }
     }
-    return homeAnswer(this.ctx.id.namespace, request);
+    return homeAnswer(this.ctx.id.namespace, request, this.machine);
   }
 
   async fetch(request: Request): Promise<Response> {

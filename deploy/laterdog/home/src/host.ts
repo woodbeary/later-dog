@@ -64,6 +64,8 @@ export type PairOutcome =
   | ({ ok: true; origin: string } & PairingGrant)
   | { ok: false; summary: HomeSummary | null; status?: number };
 
+type MachineState = "stopped" | "starting" | "serving";
+
 export class CloudHomeHost extends Container<Env> {
   defaultPort = HOME_PORT;
   sleepAfter = PERSON_SLEEP_AFTER;
@@ -74,6 +76,7 @@ export class CloudHomeHost extends Container<Env> {
   private lastStart: { wake: HomeWake; at: number } | null = null;
   private storedStanding: HomeStanding | null = null;
   private signalled = false;
+  private serverUp = false;
   private removed = false;
   private wakers: Wakers = {};
   private pairingOpenUntil = 0;
@@ -91,6 +94,7 @@ export class CloudHomeHost extends Container<Env> {
   });
 
   override onStop({ exitCode, reason }: { exitCode: number; reason: string }): void {
+    this.serverUp = false;
     console.error(`laterdog home ${this.record?.machineId ?? "unknown"}: stopped (${reason}, exit ${exitCode})`);
   }
 
@@ -229,7 +233,7 @@ export class CloudHomeHost extends Container<Env> {
     const slow = Date.now() - record.createdAt > SLOW_SETUP_MS ? { slow: true as const } : {};
     const { status } = await this.getState();
     if (status === "running" || status === "healthy") {
-      if (await this.healthy(record)) {
+      if (await this.serves(record)) {
         await this.markReady(record);
         return { state: "ready", origin: record.origin };
       }
@@ -315,7 +319,8 @@ export class CloudHomeHost extends Container<Env> {
     const background = isBackground(request);
     const credential = background ? null : wakeCredential(request);
     const key = credential ? await wakerKey(credential) : null;
-    const running = await this.running();
+    const state = await this.machineState();
+    const running = state === "serving";
     const wakes = !background && (await this.mayWake(key, !running));
     if (wakes) this.sleepAfter = PERSON_SLEEP_AFTER;
     if (running) {
@@ -323,9 +328,9 @@ export class CloudHomeHost extends Container<Env> {
       if (credential && key) this.learn(record, credential, key, response);
       return response;
     }
-    if (wakes) this.boot(record, true);
+    if (wakes && state === "stopped") this.boot(record, true);
     const busy = this.lastStart?.wake === "busy" && Date.now() - this.lastStart.at < BUSY_MEMORY_MS;
-    return wakeResponse(request, busy ? "busy" : wakes || this.booting ? "waking" : "asleep");
+    return wakeResponse(request, busy ? "busy" : wakes || this.booting || state === "starting" ? "waking" : "asleep");
   }
 
   async knowsWaker(key: string): Promise<boolean> {
@@ -400,14 +405,29 @@ export class CloudHomeHost extends Container<Env> {
     return port.fetch(request.url.replace("https:", "http:"), request);
   }
 
-  private async running(): Promise<boolean> {
+  private async machineState(): Promise<MachineState> {
     const { status } = await this.getState();
-    return this.ctx.container?.running === true && status === "healthy";
+    const record = this.record;
+    if (this.ctx.container?.running !== true || status !== "healthy" || !record) {
+      this.serverUp = false;
+      return "stopped";
+    }
+    return (await this.serves(record)) ? "serving" : "starting";
+  }
+
+  private async running(): Promise<boolean> {
+    return (await this.machineState()) === "serving";
+  }
+
+  private async serves(record: HomeRecord): Promise<boolean> {
+    if (!this.serverUp) this.serverUp = await this.healthy(record);
+    return this.serverUp;
   }
 
   private async awake(record: HomeRecord, waitMs: number): Promise<boolean> {
-    if (await this.running()) return true;
-    this.boot(record, true);
+    const state = await this.machineState();
+    if (state === "serving") return true;
+    if (state === "stopped") this.boot(record, true);
     let timer: ReturnType<typeof setTimeout> | null = null;
     await Promise.race([this.booting, new Promise<void>((resolve) => { timer = setTimeout(resolve, waitMs); })]);
     if (timer !== null) clearTimeout(timer);
@@ -424,6 +444,7 @@ export class CloudHomeHost extends Container<Env> {
       },
       start: async () => {
         this.signalled = false;
+        this.serverUp = false;
         await this.startAndWaitForPorts(HOME_PORT, { portReadyTimeoutMS: BOOT_PORT_TIMEOUT_MS });
       },
       stop: () => this.quiet(),
@@ -432,7 +453,7 @@ export class CloudHomeHost extends Container<Env> {
         if (!started) return;
         this.lastStart = null;
         await this.ctx.storage.put(STARTED_KEY, record.includedKey ?? "");
-        if (await this.healthy(record)) await this.markReady(record);
+        if (await this.serves(record)) await this.markReady(record);
       })
       .catch((error: unknown) => {
         this.lastStart = { wake: startFailure(error), at: Date.now() };

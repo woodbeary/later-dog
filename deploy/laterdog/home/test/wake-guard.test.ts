@@ -189,6 +189,61 @@ describe("a sleeping home, by default", () => {
   });
 });
 
+describe("a home whose server is still starting after its port opens", () => {
+  it("answers waking instead of the edge's 502 until later.dog answers, and starts the machine once", async () => {
+    const { visit, sleep, machine } = await awakeHome();
+    await sleep();
+    machine.serving = false;
+    const starts = machine.starts;
+    expect((await visit("/api/bots", asOwner())).headers.get(WAKE_HEADER)).toBe("waking");
+    expect(machine.running).toBe(true);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const early = await visit("/api/bots", asOwner());
+      expect(early.status).toBe(503);
+      expect(early.headers.get(WAKE_HEADER)).toBe("waking");
+    }
+    machine.serving = true;
+    expect(await (await visit("/api/bots", asOwner())).text()).toBe("home HOMES /api/bots");
+    expect(machine.starts).toBe(starts + 1);
+  });
+
+  it("tells a request without a session that the home is waking, without passing it through", async () => {
+    const { home, visit, sleep, machine } = await awakeHome();
+    await sleep();
+    machine.serving = false;
+    await visit("/api/bots", asOwner());
+    const proxied = vi.spyOn(home as unknown as { containerFetch(request: Request): Promise<Response> }, "containerFetch");
+    const page = await visit("/", browserPage);
+    expect(page.status).toBe(503);
+    expect(page.headers.get(WAKE_HEADER)).toBe("waking");
+    expect(proxied.mock.calls.map(([request]) => new URL(request.url).pathname)).toEqual(["/api/health"]);
+  });
+
+  it("pairs a device only once later.dog answers", async () => {
+    const { api, visit, sleep, machine } = await awakeHome();
+    await sleep();
+    machine.serving = false;
+    await visit("/api/bots", asOwner());
+    expect(await api.pair(OWNER, { label: "Phone", ttlSeconds: 120 })).toMatchObject({ ok: false });
+    machine.serving = true;
+    expect(await api.pair(OWNER, { label: "Phone", ttlSeconds: 120 })).toMatchObject({ ok: true, code: "ABCD-EFGH-JKMN" });
+  });
+
+  it("checks the server once after the Durable Object restarts beside a running container", async () => {
+    const { env, HOMES, machineId, visit } = await awakeHome();
+    const key = HOMES.idFromName(machineId).toString();
+    const ctx = HOMES.contexts.get(key)!;
+    const restarted = new CloudHomeHost(ctx as never, env as never);
+    await Promise.all(ctx.pending.splice(0));
+    Object.assign(restarted, { status: "healthy" });
+    HOMES.objects.set(key, restarted);
+    const proxied = vi.spyOn(restarted as unknown as { containerFetch(request: Request): Promise<Response> }, "containerFetch");
+    expect(await (await visit("/api/bots", asOwner())).text()).toBe("home HOMES /api/bots");
+    expect(await (await visit("/api/bots", asOwner())).text()).toBe("home HOMES /api/bots");
+    expect(proxied.mock.calls.map(([request]) => new URL(request.url).pathname)).toEqual(["/api/health", "/api/bots", "/api/bots"]);
+  });
+});
+
 describe("an awake home", () => {
   it("answers a stranger without letting the request keep it awake", async () => {
     const { home, visit } = await awakeHome();
