@@ -114,6 +114,7 @@ import { roomTurnEnd, type RoomClaimEnd } from "./room-turn-end.ts";
 import { pickComputer } from "./computer-selection.ts";
 import { isMacOffline, macOfflineResult, macOptions, macSelectReply, type KnownMac } from "./laterdog/mac-computer.ts";
 import { requestGone } from "./laterdog/request-gone.ts";
+import { createSharedJoins } from "./laterdog/shared-join.ts";
 import { configuredSpeechKey, SpeechCache } from "./laterdog/speech-cache.ts";
 import { mp3DurationMs } from "./laterdog/mp3-duration.ts";
 import { startHomeHealthLog } from "./laterdog/home-health-log.ts";
@@ -6115,6 +6116,8 @@ function claimManagedBoatMutation(instance: boat.ManagedBoatInventoryInstance): 
   }
   return claimBotComputerLifecycle(ownerBotId);
 }
+
+const computerJoins = createSharedJoins<Awaited<ReturnType<typeof boat.joinBoat>>>();
 
 function claimBotComputerLifecycle(botId: string, allowPreview = false): () => void {
   if (boatLifecycleBusyBots.has(botId)) {
@@ -19493,13 +19496,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (m[2] === "remove") {
         return json(res, 409, { error: "a cloud computer has no container to remove — put it to sleep instead" });
       }
+      const joining = m[2] === "join" ? computerJoins.pending(botId) : undefined;
+      if (joining) return json(res, 200, await joining);
       const releaseComputerLifecycle = claimBotComputerLifecycle(botId);
       try {
         switch (m[2]) {
           case "provision":
             return json(res, 200, await boat.provisionBoat(cfg, botId, bot.name));
           case "join":
-            return json(res, 200, await (activeBoatTurn || threadPreview ? boat.joinReadyBoat(cfg, botId) : boat.joinBoat(cfg, botId)));
+            return json(res, 200, await computerJoins.run(botId, () => (activeBoatTurn || threadPreview ? boat.joinReadyBoat(cfg, botId) : boat.joinBoat(cfg, botId))));
           case "sleep":
             return json(res, 200, await boat.sleepBoat(cfg, botId));
           case "exec":
