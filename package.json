@@ -33,6 +33,7 @@
     "control:laterdog": "node --experimental-strip-types scripts/control-laterdog.ts",
     "eval": "node --experimental-strip-types evals/runners/run-evals.ts",
     "dev:desktop": "node scripts/dev-desktop.mjs",
+    "dev:home": "node scripts/dev-home.mjs",
     "build": "tsc -b && tsc -p tsconfig.server.json && vite build",
     "typecheck": "tsc -b && tsc -p tsconfig.server.json",
     "test": "vitest run && pnpm broker:test && pnpm test:electron && pnpm test:packaged-server",

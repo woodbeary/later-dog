@@ -8,6 +8,7 @@ import { handleOwnerEmail, type OwnerMail } from "./email.ts";
 import { Handover, type HandoverPeer, type HomeStanding } from "./handover.ts";
 import { homeNamespace, otherSize, type HomeSize } from "./size.ts";
 import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, stateOwner } from "./state.ts";
+import { devCodeOn, handleDevCode } from "./dev-code.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
 import {
   hookAccepted,
@@ -153,6 +154,7 @@ export class CloudHomeHost extends Container<Env> {
       LATERDOG_STATE_TOKEN: record.stateToken,
       ...(record.emailToken ? { LATERDOG_CLOUD_EMAIL_URL: `http://${EMAIL_HOST}/send`, LATERDOG_CLOUD_EMAIL_TOKEN: record.emailToken } : {}),
       ...(record.includedKey ? { LATERDOG_INCLUDED_KEY: record.includedKey, LATERDOG_INCLUDED_API: this.env.INCLUDED_API } : {}),
+      ...(devCodeOn(this.env.DEV_CODE) ? { LATERDOG_DEV_CODE: "1" } : {}),
     };
   }
 
@@ -488,7 +490,8 @@ export class CloudHomeHost extends Container<Env> {
 CloudHomeHost.outboundHandlers = {
   state: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; home?: string }>) => {
     if (!(await authorizedState(request, context.params?.token))) return new Response("Unauthorized", { status: 401 });
-    return handleState(request, env.STATE, stateOwner(context));
+    const devCode = devCodeOn(env.DEV_CODE) ? await handleDevCode(request, env.STATE) : null;
+    return devCode ?? handleState(request, env.STATE, stateOwner(context));
   },
   email: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; accountId: string }>) =>
     handleOwnerEmail(request, context.params, env.ACCOUNTS as unknown as OwnerMail),

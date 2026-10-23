@@ -102,6 +102,18 @@ export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { bl
       const response = await call(`restore-points/${name}`, { method: "PUT", body: JSON.stringify(manifest) });
       if (!response.ok) throw new StoreRefused(`restore point write failed: ${response.status}`, response.status);
     },
+    async devCode() {
+      const response = await call("dev-code.json");
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error(`dev code read failed: ${response.status}`);
+      const pointer = await response.json().catch(() => null);
+      return typeof pointer?.hash === "string" && HASH.test(pointer.hash) ? { hash: pointer.hash, ...(typeof pointer.label === "string" ? { label: pointer.label } : {}) } : null;
+    },
+    async devBundle(hash) {
+      const response = await call(`dev-code/${hash}.tgz`, {}, blobTimeoutMs);
+      if (!response.ok) throw new Error(`dev code bundle read failed: ${response.status}`);
+      return new Uint8Array(await response.arrayBuffer());
+    },
     async deleteRestorePoint(name) {
       const response = await call(`restore-points/${name}`, { method: "DELETE" });
       if (!response.ok && response.status !== 404) throw new StoreRefused(`restore point delete failed: ${response.status}`, response.status);

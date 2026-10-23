@@ -1,13 +1,17 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { devCodeWatcher } from "./dev-code.mjs";
 import { seedIncluded } from "./included.mjs";
 import { RESTORE_POINTS, appRelease, upgradeFrom, upgradeKeeper } from "./restore-points.mjs";
 import { FINAL_SAVE_MS, collectGarbage, createHttpStore, restore, settleWithin, snapshot } from "./sync.mjs";
 
 const DATA = process.env.HOME || "/data";
 const SCRATCH = "/tmp/laterdog-sync";
-const LAUNCHER = "/app/dist-server/cloud-home-start.js";
+const SERVER_DIR = "/app/dist-server";
+const LAUNCHER = join(SERVER_DIR, "cloud-home-start.js");
+const DEV_CODE_DIR = "/tmp/laterdog-dev-server";
+const STOP_CHILD_MS = 20_000;
 const INTERVAL_MS = Number(process.env.LATERDOG_SYNC_INTERVAL_MS || 60_000);
 const RESTORE_ATTEMPTS = 5;
 const GC_EVERY_SAVES = Number(process.env.LATERDOG_GC_EVERY_SAVES || 30);
@@ -63,7 +67,14 @@ async function main() {
   delete environment.LATERDOG_RESTORE_POINTS;
   delete environment.LATERDOG_INCLUDED_KEY;
   delete environment.LATERDOG_INCLUDED_API;
-  const child = spawn(process.execPath, [LAUNCHER], { stdio: "inherit", env: environment });
+  const devCode = store && process.env.LATERDOG_DEV_CODE === "1"
+    ? devCodeWatcher({ store, base: SERVER_DIR, root: DEV_CODE_DIR, log, onCode: (next) => reload(next) })
+    : null;
+  const pushed = devCode ? await devCode.first() : null;
+  if (pushed) log(`running pushed server code ${pushed.hash.slice(0, 12)}${pushed.label ? ` (${pushed.label})` : ""}`);
+  let launcher = pushed?.launcher ?? LAUNCHER;
+  let child = null;
+  let reloading = false;
   let running = null;
   let saves = 0;
   const restorePoints = upgradeKeeper(store, upgraded, { app: APP, limit: KEPT_RESTORE_POINTS, log });
@@ -92,18 +103,43 @@ async function main() {
     return running;
   };
   const timer = setInterval(() => void save(), INTERVAL_MS);
+  const alive = () => child && child.exitCode === null && child.signalCode === null;
   const forward = (signal) => () => {
-    if (child.exitCode === null && child.signalCode === null) child.kill(signal);
+    reloading = false;
+    if (alive()) child.kill(signal);
   };
   process.on("SIGTERM", forward("SIGTERM"));
   process.on("SIGINT", forward("SIGINT"));
-  child.on("exit", async (code, signal) => {
+  const stopped = async (code, signal) => {
+    if (reloading) return;
     log(`the launcher stopped (exit code ${code ?? "none"}, signal ${signal ?? "none"})`);
     clearInterval(timer);
+    devCode?.stop();
     const finished = await settleWithin((running ?? Promise.resolve()).then(() => save({ final: true })), FINAL_SAVE_MS);
     if (finished === "late") log(`the last save did not finish within ${FINAL_SAVE_MS / 1000} seconds; stopping anyway`);
     process.exit(code ?? (signal ? 1 : 0));
-  });
+  };
+  const start = () => {
+    child = spawn(process.execPath, [launcher], { stdio: "inherit", env: environment });
+    child.on("exit", stopped);
+  };
+  const reload = async (next) => {
+    reloading = true;
+    const previous = child;
+    const exited = new Promise((resolve) => previous.once("exit", resolve));
+    if (alive()) previous.kill("SIGTERM");
+    const late = setTimeout(() => { if (previous.exitCode === null) previous.kill("SIGKILL"); }, STOP_CHILD_MS);
+    await exited;
+    clearTimeout(late);
+    if (!reloading) return;
+    await (running ?? Promise.resolve()).then(() => save());
+    launcher = next.launcher;
+    reloading = false;
+    log(`running pushed server code ${next.hash.slice(0, 12)}${next.label ? ` (${next.label})` : ""}`);
+    start();
+  };
+  start();
+  devCode?.start();
 }
 
 main().catch((error) => {
