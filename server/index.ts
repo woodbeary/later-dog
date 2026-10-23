@@ -18188,6 +18188,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       resetPathCache();
       return json(res, 200, { instances: await describeInstances() });
     }
+    const touchedInstance = /^\/api\/instances\/([\w.-]+)\//.exec(path);
+    if (touchedInstance) registry.forgetSnapshot(touchedInstance[1]);
     const companyMutation = /^\/api\/instances\/(company\.[\w.-]+)(?:\/|$)/.exec(path);
     if (hostedModels && path.startsWith("/api/instances/") && method !== "GET") return json(res, 403, { error: HOSTED_PROVIDER_SETTINGS_ERROR });
     if (companyMutation && method !== "GET") return json(res, 403, { error: "Company accounts are read-only here. Manage this connection in desktop Settings." });

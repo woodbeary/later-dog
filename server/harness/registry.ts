@@ -1,6 +1,7 @@
 import { findCliCandidates } from "../env-path.ts";
 import { installNpmEngine, npmAvailable, serverInstallFor } from "../engine-install.ts";
 import { installNative, nativeInstallFor } from "../laterdog/native-install.ts";
+import { createSnapshotCache } from "../laterdog/snapshot-cache.ts";
 import type {
   AnyProviderDriver,
   EngineAccess,
@@ -51,6 +52,7 @@ export class ProviderRegistry {
   private byId = new Map<InstanceId, RegistryEntry>();
   private cliByInstance = new Map<InstanceId, string>();
   private lastSnapshots = new Map<InstanceId, ProviderSnapshot>();
+  private snapshots = createSnapshotCache<ProviderSnapshot>();
   private driversByKind: Map<string, AnyProviderDriver>;
   private readonly enginesBaseDir: string | undefined;
   private readonly npmPresent: () => boolean;
@@ -134,6 +136,10 @@ export class ProviderRegistry {
 
   get(instanceId: InstanceId): ProviderInstance | null {
     return this.byId.get(instanceId)?.live ?? null;
+  }
+
+  forgetSnapshot(instanceId: InstanceId): void {
+    this.snapshots.forget(instanceId);
   }
 
   lastSnapshot(instanceId: InstanceId): ProviderSnapshot | undefined {
@@ -245,12 +251,13 @@ export class ProviderRegistry {
           };
         }
         const inst = entry.live;
-        let snapshot: ProviderSnapshot;
-        try {
-          snapshot = await inst.snapshot();
-        } catch (e) {
-          snapshot = { state: "unavailable", reason: e instanceof Error ? e.message : String(e) };
-        }
+        const snapshot = await this.snapshots.read(inst.instanceId, inst, async (): Promise<ProviderSnapshot> => {
+          try {
+            return await inst.snapshot();
+          } catch (e) {
+            return { state: "unavailable", reason: e instanceof Error ? e.message : String(e) };
+          }
+        });
         if (this.byId.get(inst.instanceId)?.live === inst) this.lastSnapshots.set(inst.instanceId, snapshot);
         return {
           instanceId: inst.instanceId,
@@ -297,6 +304,7 @@ export class ProviderRegistry {
     this.byId.clear();
     this.cliByInstance.clear();
     this.lastSnapshots.clear();
+    this.snapshots.clear();
   }
 
   async dispose(instanceId: InstanceId) {
@@ -304,6 +312,7 @@ export class ProviderRegistry {
     this.byId.delete(instanceId);
     this.cliByInstance.delete(instanceId);
     this.lastSnapshots.delete(instanceId);
+    this.snapshots.forget(instanceId);
     await entry?.live?.dispose();
   }
 }
