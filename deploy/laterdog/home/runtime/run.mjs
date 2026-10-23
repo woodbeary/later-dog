@@ -12,6 +12,7 @@ const SERVER_DIR = "/app/dist-server";
 const LAUNCHER = join(SERVER_DIR, "cloud-home-start.js");
 const DEV_CODE_DIR = "/tmp/laterdog-dev-server";
 const STOP_CHILD_MS = 20_000;
+const PUSHED_CODE_GRACE_MS = 30_000;
 const INTERVAL_MS = Number(process.env.LATERDOG_SYNC_INTERVAL_MS || 60_000);
 const RESTORE_ATTEMPTS = 5;
 const GC_EVERY_SAVES = Number(process.env.LATERDOG_GC_EVERY_SAVES || 30);
@@ -110,8 +111,15 @@ async function main() {
   };
   process.on("SIGTERM", forward("SIGTERM"));
   process.on("SIGINT", forward("SIGINT"));
+  let startedAt = 0;
   const stopped = async (code, signal) => {
     if (reloading) return;
+    if (launcher !== LAUNCHER && code !== 0 && Date.now() - startedAt < PUSHED_CODE_GRACE_MS) {
+      log(`the pushed server code stopped right away (exit code ${code ?? "none"}, signal ${signal ?? "none"}); going back to this image's server`);
+      launcher = LAUNCHER;
+      start();
+      return;
+    }
     log(`the launcher stopped (exit code ${code ?? "none"}, signal ${signal ?? "none"})`);
     clearInterval(timer);
     devCode?.stop();
@@ -120,6 +128,7 @@ async function main() {
     process.exit(code ?? (signal ? 1 : 0));
   };
   const start = () => {
+    startedAt = Date.now();
     child = spawn(process.execPath, [launcher], { stdio: "inherit", env: environment });
     child.on("exit", stopped);
   };

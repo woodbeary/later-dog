@@ -16,12 +16,13 @@ export async function unpackDevCode({ hash, bytes, base, root }) {
   if (await access(launcher).then(() => true, () => false)) return launcher;
   const staging = `${dir}.unpacking`;
   await rm(staging, { recursive: true, force: true });
-  await mkdir(root, { recursive: true });
+  await mkdir(root, { recursive: true, mode: 0o755 });
   await cp(base, staging, { recursive: true, preserveTimestamps: true });
   const archive = join(root, `${hash}.tgz`);
   await writeFile(archive, bytes);
   try {
-    await run("tar", ["-xzf", archive, "-C", staging]);
+    await run("tar", ["--no-same-owner", "--no-same-permissions", "-xzf", archive, "-C", staging]);
+    await run("chmod", ["-R", "go-w", staging]);
   } finally {
     await rm(archive, { force: true });
   }
