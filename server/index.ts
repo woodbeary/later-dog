@@ -19430,6 +19430,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (computerProviderConfigTransitions.has(remoteProvider)) {
         return json(res, 409, { error: providerTransitionMessage(remoteProvider) });
       }
+      const joining = m[2] === "join" && bot.cloudBackend !== "vps" ? computerJoins.pending(botId) : undefined;
+      if (joining) return json(res, 200, await joining);
       if (boatLifecycleBusyBots.has(botId)) {
         return json(res, 409, { error: "this bot's cloud computer is being changed — wait for it to finish" });
       }
@@ -19498,8 +19500,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (m[2] === "remove") {
         return json(res, 409, { error: "a cloud computer has no container to remove — put it to sleep instead" });
       }
-      const joining = m[2] === "join" ? computerJoins.pending(botId) : undefined;
-      if (joining) return json(res, 200, await joining);
       const releaseComputerLifecycle = claimBotComputerLifecycle(botId);
       try {
         switch (m[2]) {

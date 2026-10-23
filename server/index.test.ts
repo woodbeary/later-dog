@@ -3226,6 +3226,35 @@ describe("harness HTTP API", () => {
     }
   }, 30_000);
 
+  it("lets a second open of a waking computer wait for the first instead of refusing it", async () => {
+    let botId = "";
+    try {
+      expect((await api("PUT", "/api/config", { box: { token: "box_route" } })).status).toBe(200);
+      const bot = (await api("POST", "/api/bots")).body.bot;
+      botId = bot.id;
+      expect((await api("PATCH", `/api/bots/${bot.id}`, { computer: "cloud", cloudBackend: "box" })).status).toBe(200);
+      managedBoatRows = [{ id: "bx_456789ab", name: managedBoatNameForFixture(bot.id), state: "idle" }];
+      const gate = deferredGate();
+      managedBoatListGate = gate;
+      const first = api("POST", `/api/bots/${bot.id}/computer/join`, {});
+      await gate.entered;
+      const second = api("POST", `/api/bots/${bot.id}/computer/join`, {});
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      managedBoatListGate = null;
+      gate.release();
+      const [one, two] = await Promise.all([first, second]);
+      expect(one).toMatchObject({ status: 200, body: { joinUrl: "https://desktop.invalid/bx_456789ab" } });
+      expect(two).toMatchObject({ status: 200, body: { joinUrl: "https://desktop.invalid/bx_456789ab" } });
+    } finally {
+      managedBoatListGate?.release();
+      managedBoatListGate = null;
+      managedBoatRows = [];
+      if (botId) await api("DELETE", `/api/bots/${botId}`).catch(() => undefined);
+      await api("PUT", "/api/config", { box: { token: "" } });
+      boatRouteCalls.length = 0;
+    }
+  });
+
   it("blocks bot-scoped Boat lifecycle changes after a direct turn claims the bot", async () => {
     let botId = "";
     try {
