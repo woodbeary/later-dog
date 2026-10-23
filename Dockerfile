@@ -1,7 +1,7 @@
 FROM caddy:2.10.2 AS edge
 RUN cp /usr/bin/caddy /caddy
 
-FROM node:24-bookworm-slim AS build
+FROM node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS build
 WORKDIR /src
 RUN npm install -g pnpm@10.33.0
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
@@ -12,7 +12,7 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build:server && pnpm exec vite build && chmod -R go-w dist dist-server
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS runtime
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl git tini \
     libxcb-shm0 libx11-xcb1 libx11-6 libxcb1 libxext6 libxrandr2 \
