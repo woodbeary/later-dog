@@ -116,6 +116,39 @@ describe("ACP decodeConfig", () => {
     });
     await instance.dispose();
   });
+  it("starts with its built-in models when the catalog is slow, then takes the catalog once it answers", async () => {
+    let answer!: (catalog: { default: string; options: { id: string; label: string }[] }) => void;
+    const catalog = new Promise<{ default: string; options: { id: string; label: string }[] }>((resolve) => { answer = resolve; });
+    const support: AcpSupport = {
+      driverKind: "slow-catalog-test",
+      displayName: "Slow Catalog Test",
+      models: { default: "fallback", options: [{ id: "fallback", label: "Fallback" }] },
+      defaultCli: FAKE_CLI,
+      nativeSource: "slow-catalog-test.acp",
+      loginNote: "not authenticated",
+      spawnArgs: () => [],
+      pickAuthMethod: () => null,
+      authFailure: "continue",
+      isAuthenticated: () => true,
+      resolveModels: () => catalog,
+    };
+    const driver = createAcpDriver(support);
+    const started = Date.now();
+    const instance = await driver.create({
+      instanceId: "slow-catalog-test",
+      displayName: "Slow Catalog Test",
+      environment: {},
+      enabled: true,
+      config: driver.defaultConfig(),
+    });
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(instance.models.default).toBe("fallback");
+    answer({ default: "late-model", options: [{ id: "late-model", label: "Late model" }] });
+    await catalog;
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(instance.models.default).toBe("late-model");
+    await instance.dispose();
+  });
   it("grok defaults to the grok binary", () => {
     expect(GrokAgentDriver.decodeConfig({})).toEqual({ cli: "grok", fullAuto: false, workspace: undefined });
   });
