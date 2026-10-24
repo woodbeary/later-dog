@@ -51,7 +51,7 @@ export function deskSend(request: Request): boolean {
 }
 
 export function savable(kind: Exclude<DeskKind, null>, response: Response): boolean {
-  if (response.status !== 200 || response.headers.has("set-cookie")) return false;
+  if (response.status !== 200) return false;
   const type = response.headers.get("content-type") ?? "";
   if (kind === "read") return type.startsWith("application/json");
   return SHELL_TYPES.test(type) && !/no-store/i.test(response.headers.get("cache-control") ?? "");

@@ -152,13 +152,15 @@ describe("which devices the desk trusts", () => {
   const COOKIE = `laterdog_session_8799_abc123=laterdog_sess_${"k".repeat(43)}`;
   const asBrowser = { headers: { accept: "application/json", cookie: COOKIE } };
 
-  it("serves a browser signed in by cookie once the home has answered it", async () => {
+  it("serves a browser signed in by cookie once the home has answered it, never replaying its cookie", async () => {
     const h = await home();
+    world.answers.set("GET /api/bots", () => Response.json(DOGS, { headers: { "set-cookie": "laterdog_session_8799_abc123=renewed; HttpOnly" } }));
     await h.visit("/api/bots", asBrowser);
     now += 10_000;
     await h.sleep();
     const response = await h.visit("/api/bots", asBrowser);
     expect(response.status).toBe(200);
+    expect(response.headers.get("set-cookie")).toBeNull();
     expect(await response.json()).toEqual(DOGS);
   });
 
@@ -223,7 +225,7 @@ describe("what the desk keeps", () => {
     expect(desk.savable("read", Response.json({}))).toBe(true);
     expect(desk.savable("read", new Response("x", { headers: { "content-type": "text/plain" } }))).toBe(false);
     expect(desk.savable("read", Response.json({}, { status: 401 }))).toBe(false);
-    expect(desk.savable("read", Response.json({}, { headers: { "set-cookie": "a=b" } }))).toBe(false);
+    expect(desk.savable("read", Response.json({}, { headers: { "set-cookie": "a=b" } }))).toBe(true);
     expect(desk.savable("shell", new Response("", { headers: { "content-type": "text/html", "cache-control": "no-store" } }))).toBe(false);
   });
 
