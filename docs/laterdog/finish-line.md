@@ -1,6 +1,6 @@
 # Finish line: desktop, iPhone and Cloud
 
-**Start here (2026-10-23):** [handoff-2026-10-23.md](handoff-2026-10-23.md) says what went live on 2026-10-23. To work on later.dog with hot reload and every log in one file, see [dev-loop.md](dev-loop.md). [handoff-2026-10-20.md](handoff-2026-10-20.md) says what landed after 0.3.42 and what waits on you. [handoff-2026-10-19.md](handoff-2026-10-19.md) covers the 0.3.42 ship.
+**Start here (2026-10-24):** [handoff-2026-10-24.md](handoff-2026-10-24.md) says what changed on 2026-10-24 (faster wakes, free-model dogs answering while their home sleeps); [handoff-2026-10-23.md](handoff-2026-10-23.md) says what went live on 2026-10-23. To work on later.dog with hot reload and every log in one file, see [dev-loop.md](dev-loop.md). [handoff-2026-10-20.md](handoff-2026-10-20.md) says what landed after 0.3.42 and what waits on you. [handoff-2026-10-19.md](handoff-2026-10-19.md) covers the 0.3.42 ship.
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
