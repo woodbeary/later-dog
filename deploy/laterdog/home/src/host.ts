@@ -9,7 +9,7 @@ import { Handover, type HandoverPeer, type HomeStanding } from "./handover.ts";
 import { homeNamespace, otherSize, type HomeSize } from "./size.ts";
 import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, stateOwner } from "./state.ts";
 import { devCodeOn, handleDevCode } from "./dev-code.ts";
-import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter } from "./always-on.ts";
+import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter, RESTART_AFTER_STOP_S } from "./always-on.ts";
 import {
   DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskPrefix, deskSend, forgetScope, queuedReceipt, queuedSend,
   refusedSend, saveAnswer, savable, savedAnswer, withQueued, type DeskBucket, type DeskKind, type QueuedSend,
@@ -127,6 +127,10 @@ export class CloudHomeHost extends Container<Env> {
   override onStop({ exitCode, reason }: { exitCode: number; reason: string }): void {
     this.serverUp = false;
     console.error(`laterdog home ${this.record?.machineId ?? "unknown"}: stopped (${reason}, exit ${exitCode})`);
+    const record = this.record;
+    if (record && !this.removed && this.handover.holds() && alwaysOn(this.env.ALWAYS_ON_ACCOUNTS, record.accountId)) {
+      this.ctx.waitUntil(this.schedule(RESTART_AFTER_STOP_S, "keepUp"));
+    }
   }
 
   constructor(ctx: DurableObjectState<{}>, env: Env) {

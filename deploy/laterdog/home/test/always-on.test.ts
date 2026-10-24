@@ -14,8 +14,8 @@ describe("homes that never sleep", () => {
     expect(alwaysOn(OWNER, "b26c934e-da5d-426a-ade3-0dc5fcf761a8")).toBe(false);
   });
 
-  it("check on themselves every ten minutes", () => {
-    expect(KEEP_UP_EVERY_S).toBe(600);
+  it("check on themselves every minute", () => {
+    expect(KEEP_UP_EVERY_S).toBe(60);
   });
 
   it("keep only the owner's home awake in production, and nobody's elsewhere", () => {

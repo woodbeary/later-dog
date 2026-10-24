@@ -1,6 +1,7 @@
 import { largeHomeAccounts } from "./size.ts";
 
-export const KEEP_UP_EVERY_S = 10 * 60;
+export const KEEP_UP_EVERY_S = 60;
+export const RESTART_AFTER_STOP_S = 5;
 
 export function alwaysOn(list: string | undefined, accountId: string): boolean {
   return largeHomeAccounts(list).includes(accountId);
