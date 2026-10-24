@@ -97,6 +97,7 @@
     "INCLUDED_API": "https://cloud.later.dog/v1",
     "LARGE_HOME_ACCOUNTS": "",
     "ALWAYS_ON_ACCOUNTS": "",
+    "HOME_SLEEP_AFTER": "2m",
     "HOME_WAKE_GUARD": "learning",
     "DEV_CODE": "1"
   },

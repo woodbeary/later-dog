@@ -9,7 +9,7 @@ import { Handover, type HandoverPeer, type HomeStanding } from "./handover.ts";
 import { homeNamespace, otherSize, type HomeSize } from "./size.ts";
 import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, stateOwner } from "./state.ts";
 import { devCodeOn, handleDevCode } from "./dev-code.ts";
-import { alwaysOn, KEEP_UP_EVERY_S } from "./always-on.ts";
+import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter } from "./always-on.ts";
 import {
   DESK_SAVE_EVERY_MS, deliveryOutcome, deskKey, deskKind, deskPrefix, deskSend, forgetScope, queuedReceipt, queuedSend,
   saveAnswer, savable, savedAnswer, withQueued, type DeskBucket, type DeskKind, type QueuedSend,
@@ -357,7 +357,7 @@ export class CloudHomeHost extends Container<Env> {
     const state = await this.machineState();
     const running = state === "serving";
     const wakes = !background && (await this.mayWake(key, !running));
-    if (wakes) this.sleepAfter = PERSON_SLEEP_AFTER;
+    if (wakes) this.sleepAfter = personSleepAfter(this.env.HOME_SLEEP_AFTER);
     if (wakes && alwaysOn(this.env.ALWAYS_ON_ACCOUNTS, record.accountId)) await this.armKeepUp();
     if (running) {
       if (this.outbox.length) await this.deliverDesk(record);
