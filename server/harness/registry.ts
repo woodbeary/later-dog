@@ -52,13 +52,20 @@ export class ProviderRegistry {
   private byId = new Map<InstanceId, RegistryEntry>();
   private cliByInstance = new Map<InstanceId, string>();
   private lastSnapshots = new Map<InstanceId, ProviderSnapshot>();
-  private snapshots = createSnapshotCache<ProviderSnapshot>();
+  private snapshots: ReturnType<typeof createSnapshotCache<ProviderSnapshot>>;
   private driversByKind: Map<string, AnyProviderDriver>;
   private readonly enginesBaseDir: string | undefined;
   private readonly npmPresent: () => boolean;
   private readonly heldReason: (instanceId: InstanceId) => string | null;
 
-  constructor(drivers: readonly AnyProviderDriver[], options: { enginesBaseDir?: string; npmAvailable?: () => boolean; held?: (instanceId: InstanceId) => string | null } = {}) {
+  constructor(drivers: readonly AnyProviderDriver[], options: { enginesBaseDir?: string; npmAvailable?: () => boolean; held?: (instanceId: InstanceId) => string | null; snapshotFile?: string } = {}) {
+    this.snapshots = createSnapshotCache<ProviderSnapshot>({
+      file: options.snapshotFile,
+      identity: (owner) => {
+        const instance = owner as ProviderInstance;
+        return `${instance.instanceId}:${instance.driverKind}`;
+      },
+    });
     this.enginesBaseDir = options.enginesBaseDir;
     this.npmPresent = options.npmAvailable ?? npmAvailable;
     this.heldReason = options.held ?? (() => null);

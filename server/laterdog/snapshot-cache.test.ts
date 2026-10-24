@@ -1,5 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { createSnapshotCache } from "./snapshot-cache.ts";
+
+const dirs: string[] = [];
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 const later = <T>(ms: number, value: T) => new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
 
@@ -43,5 +51,32 @@ describe("account status for the accounts list", () => {
     const take = () => { checks += 1; return later(20, "ready"); };
     await expect(Promise.all([cache.read("kimi", owner, take), cache.read("kimi", owner, take)])).resolves.toEqual(["ready", "ready"]);
     expect(checks).toBe(1);
+  });
+
+  it("answers at once for an account whose checks are slow, and still checks behind it", async () => {
+    const cache = createSnapshotCache<string>({ waitMs: 50 });
+    const owner = {};
+    await cache.read("claude", owner, () => later(120, "signed in"));
+    const started = Date.now();
+    await expect(cache.read("claude", owner, () => later(120, "signed in, new usage"))).resolves.toBe("signed in");
+    expect(Date.now() - started).toBeLessThan(40);
+    await later(160, null);
+    await expect(cache.read("claude", owner, () => later(120, "later"))).resolves.toBe("signed in, new usage");
+  });
+
+  it("keeps the last answers across a restart for the same account only", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "snapshot-cache-"));
+    dirs.push(dir);
+    const file = join(dir, "account-snapshots.json");
+    const identity = (owner: object) => (owner as { name: string }).name;
+    const before = createSnapshotCache<string>({ waitMs: 50, file, identity });
+    await before.read("claude", { name: "claude:claudeAgent" }, async () => "signed in as ada");
+    await later(1_200, null);
+    const after = createSnapshotCache<string>({ waitMs: 50, file, identity });
+    const started = Date.now();
+    await expect(after.read("claude", { name: "claude:claudeAgent" }, () => later(300, "fresh"))).resolves.toBe("signed in as ada");
+    expect(Date.now() - started).toBeLessThan(200);
+    const another = createSnapshotCache<string>({ waitMs: 50, file, identity });
+    await expect(another.read("claude", { name: "claude:codex" }, () => later(30, "a different engine"))).resolves.toBe("a different engine");
   });
 });

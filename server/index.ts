@@ -878,7 +878,7 @@ function customDomainStatus() {
   };
 }
 const HELD_ACCOUNTS_FILE = join(DATA_DIR, "providers", "held-accounts.json");
-const registry = new ProviderRegistry(BUILT_IN_DRIVERS, { held: (instanceId) => heldAccountReason(HELD_ACCOUNTS_FILE, instanceId) });
+const registry = new ProviderRegistry(BUILT_IN_DRIVERS, { held: (instanceId) => heldAccountReason(HELD_ACCOUNTS_FILE, instanceId), snapshotFile: join(DATA_DIR, "account-snapshots.json") });
 const supportsApprovalMode = createApprovalModeSupport(registry);
 registerEnginesBinDir();
 registerNativeBinDir();
