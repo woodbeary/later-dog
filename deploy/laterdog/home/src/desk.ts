@@ -11,6 +11,7 @@ export const SAVED_HEADER = "x-laterdog-saved-at";
 const NEVER_SAVED = /^\/api\/(?:events|health|auth\/(?:pair|status|sessions|sign-out|code)|cloud\/|computer|bots\/[^/]+\/computer|files|attachments|assets|tts\/speak|live\/token)/;
 const SEND_PATH = /^\/api\/(?:bots|groups)\/[^/]+\/messages$/;
 const SHELL_TYPES = /^(?:text\/html|text\/css|(?:application|text)\/javascript|application\/(?:json|manifest\+json)|font\/|image\/)/;
+const SEND_ID = /^[A-Za-z0-9_-]{16,80}$/;
 const KEPT_HEADERS = ["content-security-policy", "x-frame-options", "referrer-policy", "x-content-type-options", "permissions-policy"];
 const FORWARDED = ["authorization", "cookie", "content-type", "accept", "accept-language", "user-agent", "x-laterdog-client"];
 
@@ -111,7 +112,7 @@ export async function forgetScope(bucket: DeskBucket, prefix: string): Promise<n
   return removed;
 }
 
-export async function queuedSend(request: Request, now: number): Promise<QueuedSend | null> {
+export async function queuedSend(request: Request, now: number): Promise<QueuedSend | "refused" | null> {
   const body = await request.text();
   if (body.length > DESK_SEND_MAX_BYTES) return null;
   let parsed: unknown;
@@ -121,6 +122,7 @@ export async function queuedSend(request: Request, now: number): Promise<QueuedS
     return null;
   }
   const sendId = (parsed as { sendId?: unknown } | null)?.sendId;
+  if (sendId !== undefined && (typeof sendId !== "string" || !SEND_ID.test(sendId))) return "refused";
   const headers: Record<string, string> = {};
   for (const name of FORWARDED) {
     const value = request.headers.get(name);
@@ -133,6 +135,10 @@ export function withQueued(outbox: readonly QueuedSend[], next: QueuedSend): Que
   if (outbox.some((queued) => queued.id === next.id)) return [...outbox];
   if (outbox.length >= DESK_OUTBOX_MAX) return null;
   return [...outbox, next];
+}
+
+export function refusedSend(): Response {
+  return Response.json({ error: "sendId must be a client-generated id" }, { status: 400, headers: { "cache-control": "no-store" } });
 }
 
 export function queuedReceipt(queued: QueuedSend): Response {

@@ -12,7 +12,7 @@ import { devCodeOn, handleDevCode } from "./dev-code.ts";
 import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter } from "./always-on.ts";
 import {
   DESK_SAVE_EVERY_MS, deliveryOutcome, deskKey, deskKind, deskPrefix, deskSend, forgetScope, queuedReceipt, queuedSend,
-  saveAnswer, savable, savedAnswer, withQueued, type DeskBucket, type DeskKind, type QueuedSend,
+  refusedSend, saveAnswer, savable, savedAnswer, withQueued, type DeskBucket, type DeskKind, type QueuedSend,
 } from "./desk.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
 import {
@@ -410,6 +410,7 @@ export class CloudHomeHost extends Container<Env> {
     if (deskSend(request)) {
       if (!key || !remembered(this.wakers, key, Date.now())) return null;
       const queued = await queuedSend(request.clone(), Date.now());
+      if (queued === "refused") return refusedSend();
       const next = queued ? withQueued(this.outbox, queued) : null;
       if (!queued || !next) return null;
       this.outbox = next;

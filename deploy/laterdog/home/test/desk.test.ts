@@ -160,16 +160,17 @@ describe("sending while the home sleeps", () => {
     await h.sleep();
     h.machine.serving = false;
     const send = (text: string, sendId: string) => h.visit("/api/bots/rex/messages", asOwner({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, sendId }) }));
-    const first = await send("first", "s1");
+    const first = await send("first", "send-0000000000001");
     expect(first.status).toBe(202);
-    expect(await first.json()).toEqual({ ok: true, queued: true, queueId: "s1" });
-    expect((await send("second", "s2")).status).toBe(202);
-    expect((await send("first", "s1")).status).toBe(202);
+    expect(await first.json()).toEqual({ ok: true, queued: true, queueId: "send-0000000000001" });
+    expect((await send("second", "send-0000000000002")).status).toBe(202);
+    expect((await send("first", "send-0000000000001")).status).toBe(202);
+    expect((await send("bad id", "s3")).status).toBe(400);
     expect(received).toEqual([]);
     h.machine.serving = true;
     now += 6_000;
     await h.deliver();
-    expect(received).toEqual([{ text: "first", sendId: "s1" }, { text: "second", sendId: "s2" }]);
+    expect(received).toEqual([{ text: "first", sendId: "send-0000000000001" }, { text: "second", sendId: "send-0000000000002" }]);
   });
 
   it("does not queue a stranger's message", async () => {
