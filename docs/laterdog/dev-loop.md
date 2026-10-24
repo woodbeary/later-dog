@@ -20,12 +20,12 @@ pnpm dev:loop --home test-<name>   # a test home that also reloads server code
 | Server push (test homes only) | `pnpm dev:home watch --account test-<name>` | each save under `server/` or `shared/` runs on the test home in about 25-50 s | `push` |
 | iPhone device log | `idevicesyslog -n`, Expo Go and later.dog processes only | | `iphone` (file only) |
 
-Everything goes to `~/.laterdog-dev/logs/all.log` as `HH:MM:SS source | line`, and each part also keeps its own
+Everything goes to `~/.laterdog-dev-tools/logs/all.log` as `HH:MM:SS source | line`, and each part also keeps its own
 `<source>.log` beside it. Colour codes are removed.
 
 ## The two homes
 
-- **Your own home** (`pnpm dev:connect` once). The session is in `~/.laterdog-dev/my-home.session.json`, mode 600,
+- **Your own home** (`pnpm dev:connect` once). The session is in `~/.laterdog-dev-tools/my-home.session.json`, mode 600,
   as the signed-in device "later.dog dev tools"; sign it out from Settings, Account. The desktop and the phone show your
   real dogs and chats with hot-reloading screens. Server code there changes only with an image deploy.
 - **A test home** (`node scripts/test-home.mjs sign-in test-<name>` first). Its Worker runs with `DEV_CODE=1`

@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const DEV_DIR = process.env.LATERDOG_DEV_DIR ?? join(homedir(), ".laterdog-dev");
+export const DEV_DIR = process.env.LATERDOG_DEV_DIR ?? join(homedir(), ".laterdog-dev-tools");
 export const MY_HOME_SESSION = join(DEV_DIR, "my-home.session.json");
 const ORIGIN = process.env.LATERDOG_CLOUD_ORIGIN?.trim() || "https://accounts.later.dog";
 const DEVICE_NAME = "later.dog dev tools";
