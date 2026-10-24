@@ -11,7 +11,7 @@ import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, 
 import { devCodeOn, handleDevCode } from "./dev-code.ts";
 import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter } from "./always-on.ts";
 import {
-  DESK_SAVE_EVERY_MS, deliveryOutcome, deskKey, deskKind, deskPrefix, deskSend, forgetScope, queuedReceipt, queuedSend,
+  DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskKey, deskKind, deskPrefix, deskSend, forgetScope, queuedReceipt, queuedSend,
   refusedSend, saveAnswer, savable, savedAnswer, withQueued, type DeskBucket, type DeskKind, type QueuedSend,
 } from "./desk.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
@@ -41,6 +41,8 @@ const REMOVED_KEY = "removed";
 const REMOVED = "This home was removed.";
 const WAKERS_KEY = "wakers";
 const OUTBOX_KEY = "desk-outbox";
+const DESK_DEVICES_KEY = "desk-devices";
+const DESK_DEVICES_KEPT = 50;
 const DESK_RETRY_S = 5;
 const DESK_GIVE_UP_MS = 60 * 60 * 1000;
 const PAIRING_OPEN_KEY = "pairing-open-until";
@@ -89,6 +91,7 @@ export class CloudHomeHost extends Container<Env> {
   private removed = false;
   private wakers: Wakers = {};
   private outbox: QueuedSend[] = [];
+  private deskDevices: Record<string, number> = {};
   private delivering: Promise<void> | null = null;
   private readonly lastSaved = new Map<string, { digest: string; at: number }>();
   private pairingOpenUntil = 0;
@@ -118,6 +121,7 @@ export class CloudHomeHost extends Container<Env> {
       this.removed = (await ctx.storage.get<boolean>(REMOVED_KEY)) === true;
       this.wakers = (await ctx.storage.get<Wakers>(WAKERS_KEY)) ?? {};
       this.outbox = (await ctx.storage.get<QueuedSend[]>(OUTBOX_KEY)) ?? [];
+      this.deskDevices = (await ctx.storage.get<Record<string, number>>(DESK_DEVICES_KEY)) ?? {};
       this.pairingOpenUntil = (await ctx.storage.get<number>(PAIRING_OPEN_KEY)) ?? 0;
       if (this.record) this.envVars = await this.environment(this.record);
     });
@@ -365,7 +369,7 @@ export class CloudHomeHost extends Container<Env> {
       const response = wakes ? await super.fetch(request) : await this.quietly(request);
       if (credential && key) this.learn(record, credential, key, response);
       if (key && credential?.kind === "session" && (response.status === 401 || response.status === 403)) {
-        this.ctx.waitUntil(forgetScope(this.desk(), deskPrefix(this.stateHome(record.machineId), key)).catch(() => 0));
+        this.ctx.waitUntil(this.forgetDevice(record, key));
       }
       return kind ? this.keepAnswer(record, kind, key, request, response) : response;
     }
@@ -382,12 +386,36 @@ export class CloudHomeHost extends Container<Env> {
 
   private deskScope(kind: Exclude<DeskKind, null>, key: string | null): string | null {
     if (kind === "shell") return "ui";
-    return key && remembered(this.wakers, key, Date.now()) ? key : null;
+    return key && this.knownDevice(key) ? key : null;
+  }
+
+  private knownDevice(key: string): boolean {
+    const seen = this.deskDevices[key];
+    return seen !== undefined && Date.now() - seen < DESK_KEPT_MS;
+  }
+
+  private async noteDevice(key: string): Promise<void> {
+    const now = Date.now();
+    if (now - (this.deskDevices[key] ?? 0) < 60 * 60 * 1000) return;
+    const kept = Object.entries({ ...this.deskDevices, [key]: now }).sort((a, b) => b[1] - a[1]).slice(0, DESK_DEVICES_KEPT);
+    this.deskDevices = Object.fromEntries(kept);
+    await this.ctx.storage.put(DESK_DEVICES_KEY, this.deskDevices);
+  }
+
+  private async forgetDevice(record: HomeRecord, key: string): Promise<void> {
+    if (key in this.deskDevices) {
+      const { [key]: _, ...rest } = this.deskDevices;
+      this.deskDevices = rest;
+      await this.ctx.storage.put(DESK_DEVICES_KEY, this.deskDevices);
+    }
+    await forgetScope(this.desk(), deskPrefix(this.stateHome(record.machineId), key)).catch(() => 0);
   }
 
   private keepAnswer(record: HomeRecord, kind: Exclude<DeskKind, null>, key: string | null, request: Request, response: Response): Response {
-    const scope = this.deskScope(kind, key);
-    if (!scope || !savable(kind, response)) return response;
+    if (!savable(kind, response)) return response;
+    if (kind === "read" && key) this.ctx.waitUntil(this.noteDevice(key));
+    const scope = kind === "shell" ? "ui" : key;
+    if (!scope) return response;
     const copy = response.clone();
     this.ctx.waitUntil((async () => {
       const where = await deskKey(this.stateHome(record.machineId), scope, request.url);
@@ -408,7 +436,7 @@ export class CloudHomeHost extends Container<Env> {
 
   private async answerAsleep(record: HomeRecord, request: Request, key: string | null): Promise<Response | null> {
     if (deskSend(request)) {
-      if (!key || !remembered(this.wakers, key, Date.now())) return null;
+      if (!key || !this.knownDevice(key)) return null;
       const queued = await queuedSend(request.clone(), Date.now());
       if (queued === "refused") return refusedSend();
       const next = queued ? withQueued(this.outbox, queued) : null;

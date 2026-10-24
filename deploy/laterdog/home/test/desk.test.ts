@@ -148,6 +148,32 @@ describe("chats while the home sleeps", () => {
   });
 });
 
+describe("which devices the desk trusts", () => {
+  const COOKIE = `laterdog_session_8799_abc123=laterdog_sess_${"k".repeat(43)}`;
+  const asBrowser = { headers: { accept: "application/json", cookie: COOKIE } };
+
+  it("serves a browser signed in by cookie once the home has answered it", async () => {
+    const h = await home();
+    await h.visit("/api/bots", asBrowser);
+    now += 10_000;
+    await h.sleep();
+    const response = await h.visit("/api/bots", asBrowser);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(DOGS);
+  });
+
+  it("forgets a device the home stops accepting, and what it kept for it", async () => {
+    const h = await home();
+    await knownOwner(h);
+    world.answers.set("GET /api/bots", () => Response.json({ error: "unauthorized" }, { status: 401 }));
+    now += 10_000;
+    expect((await h.visit("/api/bots", asOwner())).status).toBe(401);
+    await h.sleep();
+    expect((await h.visit("/api/bots", asOwner())).status).toBe(503);
+    expect([...h.STATE.objects.keys()].filter((key) => !key.includes("/desk/ui/"))).toEqual([]);
+  });
+});
+
 describe("sending while the home sleeps", () => {
   it("takes the message at once and hands it to the home, in order, once it answers", async () => {
     const h = await home();
