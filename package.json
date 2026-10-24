@@ -34,6 +34,8 @@
     "eval": "node --experimental-strip-types evals/runners/run-evals.ts",
     "dev:desktop": "node scripts/dev-desktop.mjs",
     "dev:home": "node scripts/dev-home.mjs",
+    "dev:connect": "node scripts/dev-connect.mjs",
+    "dev:loop": "node scripts/dev-loop.mjs",
     "build": "tsc -b && tsc -p tsconfig.server.json && vite build",
     "typecheck": "tsc -b && tsc -p tsconfig.server.json",
     "test": "vitest run && pnpm broker:test && pnpm test:electron && pnpm test:packaged-server",

@@ -14,6 +14,7 @@ const { version } = JSON.parse(
 const { SCRIPT_DEFAULTS, scriptTarget } = createRequire(import.meta.url)("./electron/app-variant.cjs") as typeof import("./electron/app-variant.mjs");
 const devTarget = scriptTarget();
 const proxyPort = devTarget.refusal ? SCRIPT_DEFAULTS.serverPort : devTarget.serverPort ?? (devTarget.live ? 8799 : SCRIPT_DEFAULTS.serverPort);
+const apiTarget = process.env.LATERDOG_DEV_API_URL || `http://127.0.0.1:${proxyPort}`;
 
 const refuseLiveDevServer = (): Plugin => ({
   name: "laterdog-refuse-live-dev-server",
@@ -58,10 +59,10 @@ export default defineConfig({
       proxy: {
         "/api": {
           ws: true,
-          target: `http://127.0.0.1:${proxyPort}`,
+          target: apiTarget,
         },
         "/.well-known/laterdog/environment": {
-          target: `http://127.0.0.1:${proxyPort}`,
+          target: apiTarget,
         },
       },
     },

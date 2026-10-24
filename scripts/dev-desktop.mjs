@@ -31,9 +31,20 @@ export function desktopPlan({ env = process.env, home = homedir(), root = projec
   const environment = { ...isolated, PATH: `${dirname(node)}${delimiter}${env.PATH ?? ""}`, LATERDOG_VARIANT: "dev", LATERDOG_USER_DATA: join(target.home, "desktop"), LATERDOG_BRIDGE_DIR: join(target.home, "bridge"), LATERDOG_BIND: "127.0.0.1", ELECTRON_START_URL: uiUrl, LATERDOG_WORKSPACE_URL: serverUrl };
   const step = (...args) => ({ file: node, args });
   const electron = process.platform === "darwin" ? "Electron.app/Contents/MacOS/Electron" : process.platform === "win32" ? "electron.exe" : "electron";
+  const vite = step(join(root, "node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", String(uiPort), "--strictPort");
+  const homeSession = env.LATERDOG_DEV_HOME_SESSION?.trim();
+  if (homeSession) {
+    const proxyPort = target.serverPort;
+    const proxyUrl = `http://127.0.0.1:${proxyPort}`;
+    return {
+      root, node, env: { ...environment, LATERDOG_DEV_API_URL: proxyUrl, LATERDOG_WORKSPACE_URL: proxyUrl }, ports: [proxyPort, uiPort], serverUrl: proxyUrl, supervisorUrl: null, uiUrl, homeSession,
+      services: [step(join(root, "scripts/dev-home-proxy.mjs"), homeSession, String(proxyPort)), vite],
+      electron: { file: join(root, "node_modules/electron/dist", electron), args: [root] },
+    };
+  }
   return {
     root, node, env: environment, ports: [target.serverPort, target.serverPort + 1, target.supervisorPort, uiPort], serverUrl, supervisorUrl, uiUrl,
-    services: [step(join(root, "server/laterdog/main.ts")), step(join(root, "server/index.ts")), step(join(root, "node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", String(uiPort), "--strictPort")],
+    services: [step(join(root, "server/laterdog/main.ts")), step(join(root, "server/index.ts")), vite],
     electron: { file: join(root, "node_modules/electron/dist", electron), args: [root] },
   };
 }
@@ -113,9 +124,9 @@ export async function runDesktop(plan, { spawnProcess = spawn, assertPorts: chec
     await checkPorts(plan.ports);
     if (stopping) throw new Error("Dev startup cancelled.");
     if (!stopping) for (const service of plan.services) launch(service);
-    if (!stopping) await Promise.all([ready(`${plan.supervisorUrl}/v1/workspace`, abort.signal), ready(`${plan.serverUrl}/api/health`, abort.signal), ready(`${plan.uiUrl}/@vite/client`, abort.signal)]);
+    if (!stopping) await Promise.all([...(plan.supervisorUrl ? [ready(`${plan.supervisorUrl}/v1/workspace`, abort.signal)] : []), ready(`${plan.serverUrl}/api/health`, abort.signal), ready(`${plan.uiUrl}/@vite/client`, abort.signal)]);
     if (!stopping) {
-      console.log(`later.dog Dev: ${plan.uiUrl} (renderer hot reload). Data: ${plan.env.LATERDOG_HOME}. Quit the app or press Ctrl-C to stop this session.`);
+      console.log(`later.dog Dev: ${plan.uiUrl} (renderer hot reload). ${plan.homeSession ? `Home: ${plan.homeSession}` : `Data: ${plan.env.LATERDOG_HOME}`}. Quit the app or press Ctrl-C to stop this session.`);
       launch(plan.electron, false, true);
     }
   } catch (error) {
