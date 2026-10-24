@@ -1,4 +1,5 @@
 import { hex, sha256 } from "./encoding.ts";
+import { deskReplyLine, deskUserLine } from "./desk-stream.ts";
 
 export const DESK_KEPT_MS = 7 * 24 * 60 * 60 * 1000;
 export const DESK_READ_MAX_BYTES = 4 * 1024 * 1024;
@@ -37,6 +38,7 @@ export interface QueuedSend {
   body: string;
   at: number;
   threadId?: string;
+  reply?: { text: string; model: string };
 }
 
 export type DeskKind = "read" | "shell" | null;
@@ -175,10 +177,29 @@ function sentWords(queued: QueuedSend): { text: string; sendId?: string } | null
   }
 }
 
-export function withDeskQueue(chats: unknown, outbox: readonly QueuedSend[]): unknown {
+interface SavedDog {
+  id?: unknown;
+  threadId?: unknown;
+  messages?: unknown;
+  activeLeafId?: unknown;
+}
+
+function withDeskLines(dog: SavedDog, queued: QueuedSend, words: { text: string; sendId?: string }): SavedDog {
+  const messages = Array.isArray(dog.messages) ? (dog.messages as Array<{ id?: unknown; sendId?: unknown }>) : null;
+  if (!messages || !words.sendId || messages.some((message) => message?.sendId === words.sendId)) return dog;
+  const last = messages.at(-1)?.id;
+  const parentId = typeof dog.activeLeafId === "string" ? dog.activeLeafId : typeof last === "string" ? last : null;
+  const lines = [
+    deskUserLine({ sendId: words.sendId, text: words.text, at: queued.at, parentId }),
+    ...(queued.reply ? [deskReplyLine({ sendId: words.sendId, text: queued.reply.text, at: queued.at + 1 })] : []),
+  ];
+  return { ...dog, messages: [...messages, ...lines], ...("activeLeafId" in dog ? { activeLeafId: lines.at(-1)!.id } : {}) };
+}
+
+export function withDeskQueue(chats: unknown, outbox: readonly QueuedSend[], answering: ReadonlySet<string> = new Set()): unknown {
   if (!chats || typeof chats !== "object" || Array.isArray(chats)) return chats;
   const answer = chats as { bots?: unknown; botQueuedMessages?: unknown };
-  const bots = Array.isArray(answer.bots) ? (answer.bots as Array<{ id?: unknown; threadId?: unknown }>) : [];
+  let bots = Array.isArray(answer.bots) ? (answer.bots as SavedDog[]) : [];
   const known = answer.botQueuedMessages && typeof answer.botQueuedMessages === "object" && !Array.isArray(answer.botQueuedMessages)
     ? (answer.botQueuedMessages as Record<string, unknown>)
     : {};
@@ -188,22 +209,26 @@ export function withDeskQueue(chats: unknown, outbox: readonly QueuedSend[]): un
   for (const queued of outbox) {
     const botId = BOT_SEND_PATH.exec(queued.path)?.[1];
     if (!botId) continue;
-    const threadId = queued.threadId ?? bots.find((bot) => bot.id === botId && typeof bot.threadId === "string")?.threadId;
     const words = sentWords(queued);
+    if (words && (queued.reply || answering.has(queued.id))) {
+      bots = bots.map((bot) => (bot.id === botId ? withDeskLines(bot, queued, words) : bot));
+      continue;
+    }
+    const threadId = queued.threadId ?? bots.find((bot) => bot.id === botId && typeof bot.threadId === "string")?.threadId;
     if (typeof threadId !== "string" || !words) continue;
     const rows = queues[threadId] ?? [];
     if (rows.some((row) => row?.queueId === queued.id || (words.sendId !== undefined && row?.sendId === words.sendId))) continue;
     queues[threadId] = [...rows, { queueId: queued.id, text: words.text, ...(words.sendId ? { sendId: words.sendId } : {}) }];
   }
-  return { ...answer, botQueuedMessages: queues };
+  return { ...answer, ...(Array.isArray(answer.bots) ? { bots } : {}), botQueuedMessages: queues };
 }
 
-export async function deskAnswerWithQueue(saved: Response, outbox: readonly QueuedSend[]): Promise<Response> {
+export async function deskAnswerWithQueue(saved: Response, outbox: readonly QueuedSend[], answering: ReadonlySet<string> = new Set()): Promise<Response> {
   const chats = await saved.clone().json().catch(() => null);
   if (chats === null) return saved;
   const headers = new Headers(saved.headers);
   headers.delete("content-length");
-  return new Response(JSON.stringify(withDeskQueue(chats, outbox)), { status: saved.status, headers });
+  return new Response(JSON.stringify(withDeskQueue(chats, outbox, answering)), { status: saved.status, headers });
 }
 
 export type Delivery = "delivered" | "refused" | "retry";

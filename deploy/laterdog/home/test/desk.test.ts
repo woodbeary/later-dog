@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeskBucket, DeskObject } from "../src/desk.ts";
+import { base64url, hex, hmacSha256, sha256 } from "../src/encoding.ts";
+import { bootstrapSecret } from "../src/identity.ts";
 
 vi.mock("cloudflare:workers", async () => await import("./fake-containers.ts"));
 vi.mock("@cloudflare/containers", async () => await import("./fake-containers.ts"));
@@ -79,7 +81,12 @@ async function home() {
     await (host as unknown as { deliverQueued(): Promise<void> }).deliverQueued();
     await settle();
   };
-  return { STATE, machine, visit, sleep, deliver, settle };
+  const sleepAfterIdle = async () => {
+    await (host as unknown as { onActivityExpired(): Promise<void> }).onActivityExpired();
+    machine.exit?.();
+    await settle();
+  };
+  return { STATE, machine, machineId, visit, sleep, sleepAfterIdle, deliver, settle };
 }
 
 const asOwner = (extra: RequestInit = {}) => ({ ...extra, headers: { accept: "application/json", authorization: `Bearer ${OWNER_TOKEN}`, ...(extra.headers as Record<string, string> | undefined) } });
@@ -97,6 +104,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 async function knownOwner(h: Awaited<ReturnType<typeof home>>) {
@@ -261,5 +269,101 @@ describe("what the desk keeps", () => {
     expect(desk.deliveryOutcome(503)).toBe("retry");
     expect(desk.deliveryOutcome(202)).toBe("delivered");
     expect(desk.deliveryOutcome(400)).toBe("refused");
+  });
+});
+
+describe("answering while the home sleeps", () => {
+  const SEND_ID = "send-0000000000001";
+  const REX = { botId: "rex", threadId: "t-rex", name: "Rex", instanceId: "laterdogAi", model: "kimi-k2.6", system: "You are Rex.", transcript: [], leafId: "m1" };
+  const CHATS = { bots: [{ id: "rex", name: "Rex", threadId: "t-rex", activeLeafId: "m1", messages: [{ id: "m1", at: T0, role: "user", kind: "text", text: "Good morning" }] }], botQueuedMessages: {} };
+  const send = (h: Awaited<ReturnType<typeof home>>, text = "hello?") =>
+    h.visit("/api/bots/rex/messages", asOwner({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, sendId: SEND_ID, threadId: "t-rex" }) }));
+  const model = (frames: unknown[]) => {
+    const body = frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join("") + "data: [DONE]\n\n";
+    return new Response(body, { headers: { "content-type": "text/event-stream" } });
+  };
+  const words = (content: string) => ({ model: "kimi-k2.6", choices: [{ index: 0, delta: { content } }] });
+
+  async function asleepWithNotes(answer: () => Response) {
+    const h = await home();
+    world.answers.set("GET /api/bots", () => Response.json(CHATS));
+    world.answers.set("GET /api/cloud/desk/brain", () => Response.json({ at: T0, dogs: [REX] }));
+    const delivered: Array<{ body: Record<string, unknown>; headers: Headers }> = [];
+    world.answers.set("POST /api/bots/rex/messages", async (request) => {
+      delivered.push({ body: await request.json() as Record<string, unknown>, headers: request.headers });
+      return Response.json({ ok: true }, { status: 202 });
+    });
+    const asked: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      asked.push(String(url));
+      return answer();
+    });
+    await knownOwner(h);
+    await h.sleepAfterIdle();
+    h.machine.serving = false;
+    return { h, delivered, asked };
+  }
+
+  it("answers a free-model dog at once, and the home records that answer when it wakes instead of answering again", async () => {
+    const { h, delivered, asked } = await asleepWithNotes(() => model([words("Woof! "), words("Hello.")]));
+    expect((await send(h)).status).toBe(202);
+    await h.settle();
+    expect(asked).toEqual(["https://cloud.later.dog/v1/ai/chat/completions"]);
+    const chats = await (await h.visit("/api/bots", asOwner())).json() as { bots: Array<{ activeLeafId: string; messages: Array<Record<string, unknown>> }>; botQueuedMessages: unknown };
+    expect(chats.bots[0]!.messages.slice(-2)).toMatchObject([
+      { id: `desk-${SEND_ID}`, role: "user", kind: "text", text: "hello?", sendId: SEND_ID, parentId: "m1" },
+      { id: `desk-${SEND_ID}-reply`, role: "bot", kind: "text", text: "Woof! Hello.", turnTerminal: true, parentId: `desk-${SEND_ID}` },
+    ]);
+    expect(chats.bots[0]!.activeLeafId).toBe(`desk-${SEND_ID}-reply`);
+    expect(chats.botQueuedMessages).toEqual({});
+    h.machine.serving = true;
+    now += 6_000;
+    await h.deliver();
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]!.body).toEqual({ text: "hello?", sendId: SEND_ID, threadId: "t-rex", deskReply: { text: "Woof! Hello.", model: "kimi-k2.6" } });
+    const headers = delivered[0]!.headers;
+    const timestamp = headers.get("x-laterdog-cloud-timestamp")!;
+    const nonce = headers.get("x-laterdog-cloud-nonce")!;
+    const secret = await bootstrapSecret(SECRET, h.machineId);
+    const signed = base64url(await hmacSha256(secret, ["v1", timestamp, nonce, "POST", "/api/bots/rex/messages", SEND_ID, hex(await sha256("Woof! Hello."))].join("\n")));
+    expect(headers.get("x-laterdog-cloud-signature")).toBe(`v1=${signed}`);
+    expect(headers.get("authorization")).toBe(`Bearer ${OWNER_TOKEN}`);
+  });
+
+  it("leaves the message for the home when the dog needs its computer", async () => {
+    const { h, delivered } = await asleepWithNotes(() => model([{ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "c1", type: "function", function: { name: "wake_up", arguments: "{}" } }] } }] }]));
+    expect((await send(h, "list my files")).status).toBe(202);
+    await h.settle();
+    const chats = await (await h.visit("/api/bots", asOwner())).json() as { botQueuedMessages: Record<string, unknown[]> };
+    expect(chats.botQueuedMessages["t-rex"]).toEqual([{ queueId: SEND_ID, text: "list my files", sendId: SEND_ID }]);
+    h.machine.serving = true;
+    now += 6_000;
+    await h.deliver();
+    expect(delivered.map((entry) => entry.body)).toEqual([{ text: "list my files", sendId: SEND_ID, threadId: "t-rex" }]);
+  });
+
+  it("streams the answer to the owner's open app and closes that stream once the home is up", async () => {
+    const { h } = await asleepWithNotes(() => model([words("<think>Say hello.</think>"), words("Hi "), words("there!")]));
+    const live = await h.visit("/api/events?screens=off", asOwner({ headers: { accept: "text/event-stream" } }));
+    expect(live.status).toBe(200);
+    expect(live.headers.get("content-type")).toBe("text/event-stream");
+    const stranger = await h.visit("/api/events", asStranger);
+    expect(stranger.status).toBe(503);
+    expect((await send(h)).status).toBe(202);
+    await h.settle();
+    const reader = live.body!.pipeThrough(new TextDecoderStream()).getReader();
+    let text = "";
+    for (let reads = 0; reads < 20 && !text.includes("turn.completed"); reads++) text += (await reader.read()).value ?? "";
+    const frames = text.split("\n\n").flatMap((block) => block.split("\n").filter((line) => line.startsWith("data: ")).map((line) => JSON.parse(line.slice(6))));
+    expect(frames[0]).toMatchObject({ kind: "hello", resumed: false });
+    expect(frames.slice(1).map((frame) => frame.kind === "runtime" ? `${frame.event.type}${frame.event.delta ? `:${frame.event.delta}` : ""}` : `${frame.kind}:${frame.message.role}`)).toEqual([
+      "message:user", "turn.started", "content.delta:Hi ", "content.delta:there!", "message:bot", "turn.completed",
+    ]);
+    expect(frames[1].message).toMatchObject({ sendId: SEND_ID, queueId: SEND_ID, parentId: "m1" });
+    expect(frames[1].threadId).toBe("t-rex");
+    h.machine.serving = true;
+    await h.visit("/api/bots", asOwner());
+    for (let reads = 0; reads < 5; reads++) if ((await reader.read()).done) return;
+    throw new Error("the desk stream stayed open after the home came up");
   });
 });

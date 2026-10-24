@@ -15,6 +15,11 @@ import {
   refusedSend, saveAnswer, savable, savedAnswer, withQueued, type DeskBucket, type DeskKind, type QueuedSend,
 } from "./desk.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
+import { answerable, answerOnDesk, deskConversation, deskReplyHeaders, parseBrain, sentText, signedBrainRequest, type DeskBrain, type DeskDog } from "./desk-answer.ts";
+import {
+  DESK_PING_EVERY_TICKS, DESK_STREAM_TICK_MS, deskEvents, deskFrame, deskHello, deskPing, deskReplyId, deskReplyLine, deskRuntime, deskStreamResponse,
+  deskUserLine, type DeskStream,
+} from "./desk-stream.ts";
 import {
   hookAccepted,
   remember,
@@ -45,6 +50,7 @@ const DESK_DEVICES_KEY = "desk-devices";
 const DESK_DEVICES_KEPT = 50;
 const DESK_RETRY_S = 5;
 const DESK_GIVE_UP_MS = 60 * 60 * 1000;
+const BRAIN_KEY = "desk-brain";
 const PAIRING_OPEN_KEY = "pairing-open-until";
 const REFUSED_KEPT = 256;
 const CHECKS_AT_ONCE = 4;
@@ -93,6 +99,14 @@ export class CloudHomeHost extends Container<Env> {
   private outbox: QueuedSend[] = [];
   private deskDevices: Record<string, number> = {};
   private delivering: Promise<void> | null = null;
+  private brain: DeskBrain | null = null;
+  private readonly answering = new Set<string>();
+  private readonly deskChains = new Map<string, Promise<void>>();
+  private readonly streams = new Set<DeskStream>();
+  private readonly streamName = `desk-${randomToken(6)}`;
+  private streamSeq = 0;
+  private streamTicks = 0;
+  private streamTimer: ReturnType<typeof setInterval> | null = null;
   private readonly lastSaved = new Map<string, { digest: string; at: number }>();
   private pairingOpenUntil = 0;
   private readonly checking = new Set<string>();
@@ -122,6 +136,7 @@ export class CloudHomeHost extends Container<Env> {
       this.wakers = (await ctx.storage.get<Wakers>(WAKERS_KEY)) ?? {};
       this.outbox = (await ctx.storage.get<QueuedSend[]>(OUTBOX_KEY)) ?? [];
       this.deskDevices = (await ctx.storage.get<Record<string, number>>(DESK_DEVICES_KEY)) ?? {};
+      this.brain = (await ctx.storage.get<DeskBrain>(BRAIN_KEY)) ?? null;
       this.pairingOpenUntil = (await ctx.storage.get<number>(PAIRING_OPEN_KEY)) ?? 0;
       if (this.record) this.envVars = await this.environment(this.record);
     });
@@ -315,6 +330,7 @@ export class CloudHomeHost extends Container<Env> {
   private async erase(): Promise<void> {
     await this.ctx.storage.deleteAll();
     this.record = null;
+    this.brain = null;
     this.storedStanding = null;
     this.wakers = {};
     this.pairingOpenUntil = 0;
@@ -336,6 +352,7 @@ export class CloudHomeHost extends Container<Env> {
     }
     this.deleteSchedules("wakeForRoutine");
     if (decision.wakeAt !== null) await this.schedule(new Date(decision.wakeAt), "wakeForRoutine");
+    await this.learnBrain(record);
     await super.onActivityExpired();
   }
 
@@ -364,6 +381,7 @@ export class CloudHomeHost extends Container<Env> {
     if (wakes) this.sleepAfter = personSleepAfter(this.env.HOME_SLEEP_AFTER);
     if (wakes && alwaysOn(this.env.ALWAYS_ON_ACCOUNTS, record.accountId)) await this.armKeepUp();
     if (running) {
+      if (this.streams.size && !this.answering.size) this.closeDeskStreams();
       if (this.outbox.length) await this.deliverDesk(record);
       const kind = deskKind(request);
       const response = wakes ? await super.fetch(request) : await this.quietly(request);
@@ -374,6 +392,7 @@ export class CloudHomeHost extends Container<Env> {
       return kind ? this.keepAnswer(record, kind, key, request, response) : response;
     }
     if (wakes && state === "stopped") this.boot(record, true);
+    if (deskEvents(request) && key && remembered(this.wakers, key, Date.now())) return this.openDeskStream();
     const saved = await this.answerAsleep(record, request, key);
     if (saved) return saved;
     const busy = this.lastStart?.wake === "busy" && Date.now() - this.lastStart.at < BUSY_MEMORY_MS;
@@ -439,11 +458,15 @@ export class CloudHomeHost extends Container<Env> {
       if (!key || !this.knownDevice(key)) return null;
       const queued = await queuedSend(request.clone(), Date.now());
       if (queued === "refused") return refusedSend();
+      if (queued && this.outbox.some((earlier) => earlier.id === queued.id)) return queuedReceipt(queued);
       const next = queued ? withQueued(this.outbox, queued) : null;
       if (!queued || !next) return null;
+      const dog = record.includedKey && remembered(this.wakers, key, Date.now()) ? answerable(queued, this.brain, Date.now()) : null;
+      if (dog) this.answering.add(queued.id);
       this.outbox = next;
       await this.ctx.storage.put(OUTBOX_KEY, this.outbox);
       await this.armDesk();
+      if (dog && record.includedKey) this.ctx.waitUntil(this.answerInTurn(record, record.includedKey, dog, queued));
       return queuedReceipt(queued);
     }
     const kind = deskKind(request);
@@ -451,7 +474,113 @@ export class CloudHomeHost extends Container<Env> {
     if (!kind || !scope) return null;
     const saved = await savedAnswer(this.desk(), await deskKey(this.stateHome(record.machineId), scope, request.url), Date.now());
     if (!saved || !this.outbox.length || new URL(request.url).pathname !== "/api/bots") return saved;
-    return deskAnswerWithQueue(saved, this.outbox);
+    return deskAnswerWithQueue(saved, this.outbox, this.answering);
+  }
+
+  private async learnBrain(record: HomeRecord): Promise<void> {
+    if (!this.ctx.container?.running) return;
+    try {
+      const secret = await bootstrapSecret(this.env.HOME_SECRET, record.machineId);
+      const response = await this.containerFetch(await signedBrainRequest(record.origin, secret), HOME_PORT);
+      const brain = response.ok ? parseBrain(await response.json().catch(() => null)) : null;
+      if (!brain) return;
+      this.brain = brain;
+      await this.ctx.storage.put(BRAIN_KEY, brain);
+    } catch (error) {
+      console.error(`laterdog home ${record.machineId}: could not read the dogs' desk notes: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private answerInTurn(record: HomeRecord, key: string, dog: DeskDog, queued: QueuedSend): Promise<void> {
+    const before = this.deskChains.get(dog.botId) ?? Promise.resolve();
+    const turn = before.then(() => this.answerFromDesk(record, key, dog, queued)).catch(() => undefined);
+    this.deskChains.set(dog.botId, turn);
+    return turn.finally(() => {
+      if (this.deskChains.get(dog.botId) === turn) this.deskChains.delete(dog.botId);
+    });
+  }
+
+  private deskLeaf(dog: DeskDog, queued: QueuedSend): string | null {
+    const earlier = this.outbox.slice(0, this.outbox.findIndex((entry) => entry.id === queued.id)).filter((entry) => entry.path === queued.path && entry.reply);
+    const last = earlier.at(-1);
+    const words = last ? sentText(last) : null;
+    return words ? deskReplyId(words.sendId) : dog.leafId;
+  }
+
+  private async answerFromDesk(record: HomeRecord, key: string, dog: DeskDog, queued: QueuedSend): Promise<void> {
+    const words = sentText(queued);
+    if (!words) {
+      this.answering.delete(queued.id);
+      return;
+    }
+    const earlier = this.outbox
+      .slice(0, this.outbox.findIndex((entry) => entry.id === queued.id))
+      .filter((entry) => entry.path === queued.path && entry.reply)
+      .flatMap((entry) => {
+        const said = sentText(entry);
+        return said && entry.reply ? [{ text: said.text, reply: entry.reply.text }] : [];
+      });
+    try {
+      this.broadcast({ kind: "message", threadId: dog.threadId, message: deskUserLine({ sendId: words.sendId, text: words.text, at: queued.at, parentId: this.deskLeaf(dog, queued) }) });
+      this.broadcast(deskRuntime("turn.started", dog.threadId, words.sendId));
+      const outcome = await answerOnDesk({
+        api: this.env.INCLUDED_API,
+        key,
+        dog,
+        messages: deskConversation(dog, earlier, words.text),
+        onText: (delta) => this.broadcast(deskRuntime("content.delta", dog.threadId, words.sendId, { streamKind: "assistant_text", delta })),
+      });
+      if (outcome.kind === "reply") {
+        this.outbox = this.outbox.map((entry) => (entry.id === queued.id ? { ...entry, reply: { text: outcome.text, model: dog.model } } : entry));
+        await this.ctx.storage.put(OUTBOX_KEY, this.outbox);
+        this.broadcast({ kind: "message", threadId: dog.threadId, message: deskReplyLine({ sendId: words.sendId, text: outcome.text, at: Date.now() }) });
+      } else {
+        console.error(`laterdog home ${record.machineId}: left a message for the home to answer (${outcome.reason})`);
+      }
+    } finally {
+      this.answering.delete(queued.id);
+      this.broadcast(deskRuntime("turn.completed", dog.threadId, words.sendId));
+    }
+    if ((await this.machineState()) === "serving") await this.deliverDesk(record);
+  }
+
+  private openDeskStream(): Response {
+    const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+    const stream: DeskStream = { writer: writable.getWriter() };
+    this.streams.add(stream);
+    this.write(stream, deskHello(this.streamName, this.streamSeq));
+    this.streamTimer ??= setInterval(() => this.ctx.waitUntil(this.tendDeskStreams()), DESK_STREAM_TICK_MS);
+    return deskStreamResponse(readable);
+  }
+
+  private write(stream: DeskStream, bytes: Uint8Array): void {
+    stream.writer.write(bytes).catch(() => this.dropDeskStream(stream));
+  }
+
+  private broadcast(payload: Record<string, unknown>): void {
+    if (!this.streams.size) return;
+    const seq = ++this.streamSeq;
+    for (const stream of this.streams) this.write(stream, deskFrame(this.streamName, seq, payload));
+  }
+
+  private dropDeskStream(stream: DeskStream): void {
+    this.streams.delete(stream);
+    stream.writer.close().catch(() => undefined);
+    if (!this.streams.size && this.streamTimer !== null) {
+      clearInterval(this.streamTimer);
+      this.streamTimer = null;
+    }
+  }
+
+  private closeDeskStreams(): void {
+    for (const stream of this.streams) this.dropDeskStream(stream);
+  }
+
+  private async tendDeskStreams(): Promise<void> {
+    this.streamTicks += 1;
+    if (this.streamTicks % DESK_PING_EVERY_TICKS === 0) for (const stream of this.streams) this.write(stream, deskPing());
+    if (this.answering.size || !this.streams.size) return;
+    if ((await this.machineState()) === "serving") this.closeDeskStreams();
   }
 
   private async armDesk(): Promise<void> {
@@ -480,7 +609,8 @@ export class CloudHomeHost extends Container<Env> {
     this.delivering ??= (async () => {
       while (this.outbox.length) {
         const queued = this.outbox[0]!;
-        const status = await this.containerFetch(new Request(`${record.origin}${queued.path}`, { method: "POST", headers: queued.headers, body: queued.body }), HOME_PORT)
+        if (this.answering.has(queued.id)) break;
+        const status = await this.containerFetch(await this.deliveryRequest(record, queued), HOME_PORT)
           .then((response) => response.status, () => null);
         const outcome = deliveryOutcome(status);
         if (outcome === "retry") break;
@@ -492,6 +622,18 @@ export class CloudHomeHost extends Container<Env> {
       this.delivering = null;
     });
     return this.delivering;
+  }
+
+  private async deliveryRequest(record: HomeRecord, queued: QueuedSend): Promise<Request> {
+    const words = queued.reply ? sentText(queued) : null;
+    if (!queued.reply || !words) return new Request(`${record.origin}${queued.path}`, { method: "POST", headers: queued.headers, body: queued.body });
+    const secret = await bootstrapSecret(this.env.HOME_SECRET, record.machineId);
+    const body = { ...(JSON.parse(queued.body) as Record<string, unknown>), deskReply: queued.reply };
+    return new Request(`${record.origin}${queued.path}`, {
+      method: "POST",
+      headers: { ...queued.headers, ...(await deskReplyHeaders(secret, queued.path, words.sendId, queued.reply.text)) },
+      body: JSON.stringify(body),
+    });
   }
 
   async knowsWaker(key: string): Promise<boolean> {
