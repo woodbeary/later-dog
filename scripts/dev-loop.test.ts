@@ -55,3 +55,19 @@ describe("the dev home proxy", () => {
     expect(() => readSession(join(dir, "none.json"))).toThrow(/no home session/);
   });
 });
+
+describe("pairing while the home wakes", async () => {
+  const { pairingGrant } = await import("./dev-connect.mjs");
+
+  it("asks again while the home is not ready and stops on any other answer", async () => {
+    let asks = 0;
+    const grant = await pairingGrant(async () => {
+      asks += 1;
+      if (asks < 3) throw new CloudRefusal(409, "not_ready");
+      return { code: "ABCD-EFGH-JKLM" };
+    }, { waitMs: 1_000, retryMs: 1 });
+    expect(grant).toEqual({ code: "ABCD-EFGH-JKLM" });
+    expect(asks).toBe(3);
+    await expect(pairingGrant(async () => { throw new CloudRefusal(403, "forbidden"); }, { waitMs: 1_000, retryMs: 1 })).rejects.toThrow(/403/);
+  });
+});
