@@ -73,6 +73,17 @@ describe("answering on the desk", () => {
     ]);
   });
 
+  it("streams a free Grok reply as it comes, since only Kimi writes its reasoning inline", async () => {
+    const seen: string[] = [];
+    const grok = { ...REX, model: "grok-4.3" };
+    const outcome = await answerOnDesk({
+      api: "https://cloud.later.dog/v1", key: "k", dog: grok, messages: deskConversation(grok, [], "hi"), onText: (text) => seen.push(text),
+      fetcher: async () => sse([{ model: "grok-4.3", choices: [{ index: 0, delta: { content: "Hey" } }] }, { model: "grok-4.3", choices: [{ index: 0, delta: { content: " there!" } }] }]),
+    });
+    expect(outcome).toEqual({ kind: "reply", text: "Hey there!" });
+    expect(seen).toEqual(["Hey", " there!"]);
+  });
+
   it("hands the message to the home when the dog needs its computer, or the model fails", async () => {
     const wake = await answerOnDesk({
       api: "https://cloud.later.dog/v1", key: "k", dog: REX, messages: deskConversation(REX, [], "list my files"), onText: () => undefined,

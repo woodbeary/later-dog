@@ -1,4 +1,4 @@
-import { inlineReasoning } from "../../../../server/laterdog/inline-reasoning.ts";
+import { inlineReasoning, reasonsInContent } from "../../../../server/laterdog/inline-reasoning.ts";
 import { base64url, hex, hmacSha256, randomToken, sha256 } from "./encoding.ts";
 import type { QueuedSend } from "./desk.ts";
 
@@ -135,7 +135,7 @@ export async function answerOnDesk(input: {
   if (!response.ok || !response.body) return { kind: "home", reason: `the free model answered ${response.status}` };
   let reply = "";
   let wakes = false;
-  const split = inlineReasoning(true, (text, stream) => {
+  const split = inlineReasoning(reasonsInContent(input.dog.model), (text, stream) => {
     if (stream !== "assistant_text" || wakes) return;
     reply += text;
     input.onText(text);
