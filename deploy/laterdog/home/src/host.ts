@@ -51,6 +51,7 @@ const DESK_DEVICES_KEPT = 50;
 const DESK_RETRY_S = 5;
 const DESK_GIVE_UP_MS = 60 * 60 * 1000;
 const BRAIN_KEY = "desk-brain";
+const BRAIN_REFRESH_MS = 5 * 60 * 1000;
 const PAIRING_OPEN_KEY = "pairing-open-until";
 const REFUSED_KEPT = 256;
 const CHECKS_AT_ONCE = 4;
@@ -100,6 +101,7 @@ export class CloudHomeHost extends Container<Env> {
   private deskDevices: Record<string, number> = {};
   private delivering: Promise<void> | null = null;
   private brain: DeskBrain | null = null;
+  private brainLearnedAt = 0;
   private readonly answering = new Set<string>();
   private readonly deskChains = new Map<string, Promise<void>>();
   private readonly streams = new Set<DeskStream>();
@@ -433,6 +435,10 @@ export class CloudHomeHost extends Container<Env> {
   private keepAnswer(record: HomeRecord, kind: Exclude<DeskKind, null>, key: string | null, request: Request, response: Response): Response {
     if (!savable(kind, response)) return response;
     if (kind === "read" && key) this.ctx.waitUntil(this.noteDevice(key));
+    if (kind === "read" && Date.now() - this.brainLearnedAt > BRAIN_REFRESH_MS) {
+      this.brainLearnedAt = Date.now();
+      this.ctx.waitUntil(this.learnBrain(record));
+    }
     const scope = kind === "shell" ? "ui" : key;
     if (!scope) return response;
     const copy = response.clone();
@@ -485,6 +491,7 @@ export class CloudHomeHost extends Container<Env> {
       const brain = response.ok ? parseBrain(await response.json().catch(() => null)) : null;
       if (!brain) return;
       this.brain = brain;
+      this.brainLearnedAt = Date.now();
       await this.ctx.storage.put(BRAIN_KEY, brain);
     } catch (error) {
       console.error(`laterdog home ${record.machineId}: could not read the dogs' desk notes: ${error instanceof Error ? error.message : String(error)}`);

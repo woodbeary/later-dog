@@ -330,6 +330,20 @@ describe("answering while the home sleeps", () => {
     expect(headers.get("authorization")).toBe(`Bearer ${OWNER_TOKEN}`);
   });
 
+  it("keeps its notes fresh while the home is in use, so an abrupt stop still leaves recent ones", async () => {
+    const h = await home();
+    world.answers.set("GET /api/bots", () => Response.json(CHATS));
+    world.answers.set("GET /api/cloud/desk/brain", () => Response.json({ at: T0, dogs: [REX] }));
+    vi.stubGlobal("fetch", async () => model([words("Hi!")]));
+    await knownOwner(h);
+    await h.sleep();
+    h.machine.serving = false;
+    expect((await send(h)).status).toBe(202);
+    await h.settle();
+    const chats = await (await h.visit("/api/bots", asOwner())).json() as { bots: Array<{ messages: Array<{ text?: string }> }> };
+    expect(chats.bots[0]!.messages.at(-1)?.text).toBe("Hi!");
+  });
+
   it("leaves the message for the home when the dog needs its computer", async () => {
     const { h, delivered } = await asleepWithNotes(() => model([{ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "c1", type: "function", function: { name: "wake_up", arguments: "{}" } }] } }] }]));
     expect((await send(h, "list my files")).status).toBe(202);
