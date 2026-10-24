@@ -37,8 +37,10 @@ describe("which sends the desk answers", () => {
     expect(answerable(send({ text: "hi", sendId: "send-0000000000001" }), null, T0)).toBeNull();
   });
 
-  it("reads only well-formed notes from the home", () => {
+  it("reads only well-formed notes from the home, and only as many dogs as it can keep", () => {
     expect(parseBrain({ at: T0, dogs: [REX, { botId: "broken" }] })).toEqual(BRAIN);
+    const big = { ...REX, botId: "big", system: "x".repeat(2_000) };
+    expect(parseBrain({ at: T0, dogs: [big, REX] }, 1_000)?.dogs.map((dog) => dog.botId)).toEqual(["rex"]);
     expect(parseBrain({ dogs: [REX] })).toBeNull();
     expect(parseBrain(null)).toBeNull();
   });

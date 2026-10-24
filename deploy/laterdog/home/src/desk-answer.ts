@@ -6,6 +6,7 @@ export const DESK_BRAIN_PATH = "/api/cloud/desk/brain";
 export const DESK_BRAIN_KEPT_MS = 7 * 24 * 60 * 60 * 1000;
 export const DESK_ANSWER_TIMEOUT_MS = 45_000;
 export const DESK_TEXT_MAX_CHARS = 8_000;
+export const DESK_BRAIN_MAX_CHARS = 1_500_000;
 export const WAKE_TOOL = "wake_up";
 const ANSWERABLE_FIELDS = new Set(["text", "sendId", "threadId"]);
 const DESK_NOTE = `Your computer is starting up, so you have no tools for this one reply. If the message is conversation you can answer from what you already know, answer it as you normally would. If answering needs your computer, files, apps, the web, anything you have not been shown here, or any other tool, call ${WAKE_TOOL} and write nothing else.`;
@@ -65,11 +66,21 @@ function deskDog(input: unknown): DeskDog | null {
   };
 }
 
-export function parseBrain(input: unknown): DeskBrain | null {
+export function parseBrain(input: unknown, maxChars = DESK_BRAIN_MAX_CHARS): DeskBrain | null {
   if (!input || typeof input !== "object") return null;
   const { at, dogs } = input as { at?: unknown; dogs?: unknown };
   if (typeof at !== "number" || !Number.isFinite(at) || !Array.isArray(dogs)) return null;
-  return { at, dogs: dogs.flatMap((dog) => deskDog(dog) ?? []) };
+  const kept: DeskDog[] = [];
+  let chars = 0;
+  for (const candidate of dogs) {
+    const dog = deskDog(candidate);
+    if (!dog) continue;
+    const size = JSON.stringify(dog).length;
+    if (chars + size > maxChars) continue;
+    chars += size;
+    kept.push(dog);
+  }
+  return { at, dogs: kept };
 }
 
 const BOT_SEND = /^\/api\/bots\/([^/]+)\/messages$/;
