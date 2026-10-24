@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { CLOUD_IGNORED_KEYS, cloudHomePlaceRefusal, cloudPairingSignature } from "./cloud-home.ts";
 import { cloudHomePrompt } from "./system-prompt.ts";
+import { DESK_BRAIN_PATH, deskSignature, sha256Hex } from "./laterdog/desk-brain.ts";
 import { removeTempDir, waitForExit } from "./testing/cleanup.ts";
 import { freePortBlock } from "./testing/ports.ts";
 
@@ -373,4 +374,47 @@ it("refuses a bot still set to this computer, saying what is true on a Cloud hom
     };
     await expect.poll(failure, { timeout: 15_000 }).toBe(`error: ${cloudHomePlaceRefusal(computer)}`);
   }
+});
+
+function deskHeaders(parts: string[]) {
+  const timestamp = String(Math.floor(Date.now() / 1000)), nonce = randomBytes(16).toString("base64url");
+  return {
+    "x-laterdog-cloud-timestamp": timestamp, "x-laterdog-cloud-nonce": nonce,
+    "x-laterdog-cloud-signature": `v1=${deskSignature(secret, [timestamp, nonce, ...parts])}`,
+  };
+}
+
+it("tells only its signed Worker which dogs can answer while it sleeps", async () => {
+  expect((await api("GET", DESK_BRAIN_PATH, { remote: true })).status).toBe(401);
+  const brain = await api("GET", DESK_BRAIN_PATH, { remote: true, headers: deskHeaders(["GET", DESK_BRAIN_PATH]) });
+  expect(brain.status, JSON.stringify(brain.body)).toBe(200);
+  expect(brain.body).toMatchObject({ at: expect.any(Number), dogs: [] });
+});
+
+it("records a reply its Worker signed while it slept as the dog's answer, without running the dog", async () => {
+  const created = await api("POST", "/api/bots", { body: { name: "Desk fixture", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, requireAvailableModel: true } });
+  expect(created.status, JSON.stringify(created.body)).toBe(201);
+  const { id: botId, threadId } = created.body.bot as { id: string; threadId: string };
+  const dump = join(home, "spawn.json");
+  rmSync(dump, { force: true });
+  const path = `/api/bots/${botId}/messages`;
+  const reply = { text: "Hi! I'm right here.", model: "kimi-k2.6" };
+  const sendId = `desk-${randomBytes(8).toString("hex")}`;
+  const forged = await api("POST", path, { body: { text: "hello?", sendId: `${sendId}-x`, threadId, deskReply: reply }, headers: deskHeaders(["POST", path, `${sendId}-x`, sha256Hex("Something else.")]) });
+  expect(forged.status).toBe(202);
+  const sent = await api("POST", path, { body: { text: "hello?", sendId, threadId, deskReply: reply }, headers: deskHeaders(["POST", path, sendId, sha256Hex(reply.text)]) });
+  expect(sent.status, JSON.stringify(sent.body)).toBe(202);
+  expect(sent.body).toMatchObject({ ok: true, threadId, message: { role: "user", text: "hello?", sendId } });
+  const lines = async () => {
+    const { bots } = (await api("GET", "/api/bots?messages=10")).body as { bots: Array<{ id: string; messages: Array<{ role: string; kind: string; text?: string; sendId?: string; turnTerminal?: boolean }> }> };
+    return bots.find((bot) => bot.id === botId)?.messages ?? [];
+  };
+  const mine = (await lines()).filter((message) => message.sendId === sendId || message.text === reply.text);
+  expect(mine.map(({ role, text, turnTerminal }) => ({ role, text, turnTerminal: turnTerminal ?? false }))).toEqual([
+    { role: "user", text: "hello?", turnTerminal: false },
+    { role: "bot", text: reply.text, turnTerminal: true },
+  ]);
+  const again = await api("POST", path, { body: { text: "hello?", sendId, threadId, deskReply: reply }, headers: deskHeaders(["POST", path, sendId, sha256Hex(reply.text)]) });
+  expect(again.body.message.id).toBe(sent.body.message.id);
+  expect((await lines()).filter((message) => message.text === reply.text)).toHaveLength(1);
 });

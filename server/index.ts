@@ -639,6 +639,8 @@ import { cloudEmailDelivery } from "./laterdog/email-me.ts";
 import { CONNECT_MAC, macOffline, withConnectMac } from "./laterdog/connect-mac.ts";
 import { createHomeActivity, HOME_ACTIVITY_HORIZON_MS, homeActivityFrom } from "./laterdog/home-activity.ts";
 import { createHomeActivityRoute } from "./routes/home-activity.ts";
+import { createDeskPrompts, createDeskVerifier, deskDogs, deskReplyFrom } from "./laterdog/desk-brain.ts";
+import { createDeskBrainRoute, recordDeskExchange } from "./laterdog/desk-exchange.ts";
 import { createEmailMeRoute } from "./routes/email-me.ts";
 import { createPhonePushRoutes } from "./routes/phone-push.ts";
 import { startWakeupPull } from "./laterdog/wakeups.ts";
@@ -795,6 +797,19 @@ const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivit
   secret: CLOUD_HOME.bootstrapSecret,
   activity: () => withWaitingRuns(homeActivityFrom(routines?.wakeHold(HOME_ACTIVITY_HORIZON_MS) ?? { hold: false }, store.bots.some((bot) => botHasActiveTurn(bot.id))), limitHold.nextAt()),
 })) : null;
+const deskVerify = CLOUD_HOME ? createDeskVerifier({ secret: CLOUD_HOME.bootstrapSecret }) : null;
+const deskPrompts = CLOUD_HOME ? createDeskPrompts(join(DATA_DIR, "desk-prompts.json")) : null;
+const deskBrainRoute = deskVerify && deskPrompts ? createDeskBrainRoute({
+  verify: deskVerify,
+  dogs: () => deskDogs({
+    bots: store.bots,
+    prompt: (threadId) => deskPrompts.get(threadId),
+    path: (threadId) => store.activePath(threadId),
+    leaf: (threadId) => store.activeLeaf(threadId),
+    answers: INCLUDED_AI_INSTANCES,
+    busy: (botId) => botHasActiveTurn(botId),
+  }),
+}) : null;
 if (CLOUD_HOME) {
   delete process.env.LATERDOG_CLOUD_BOOTSTRAP_SECRET;
   for (const key of CLOUD_IGNORED_KEYS) delete process.env[key];
@@ -8313,6 +8328,7 @@ async function startTurn(
         { id: "mentions", label: "Mentions", text: mentionPrompt(tagged) },
       ], cfg.profile?.name);
       turnPromptBytes.set(threadId, { stable: Buffer.byteLength(prompt.stable), volatile: Buffer.byteLength(prompt.volatile) });
+      if (deskPrompts && threadId === bot.threadId && INCLUDED_AI_INSTANCES.includes(instanceId)) deskPrompts.remember(threadId, { instanceId, model, system: prompt.stable || prompt.text });
       const recalled = autoRecallPrompt(bot, threadId, resolvedImages.text, {
         conversations: commsDepth === 0 && !coordinationNode && !opts?.automationSource && !opts?.unattended,
         userName: cfg.profile?.name?.trim() || "User",
@@ -12582,6 +12598,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, result.status, result.body);
     }
     if (homeActivityRoute?.(req, res, path, method, json)) return;
+    if (deskBrainRoute?.(req, res, path, method, json)) return;
     if (method === "POST" && path === "/api/auth/pair") {
       if (!/^application\/json\b/i.test(String(req.headers["content-type"] ?? ""))) {
         return json(res, 415, { error: "send the pairing code as JSON (content-type: application/json)" });
@@ -16903,6 +16920,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const sendId = parseSendId(body.sendId);
       const replyTo = resolveReplyTarget(threadId, body.replyToId);
       const sender = messageSender(auth);
+      const deskReply = deskVerify && !guarded ? deskReplyFrom({ verify: deskVerify, headers: req.headers, path, sendId, reply: body.deskReply }) : null;
+      if (deskReply && sendId) return json(res, 202, recordDeskExchange(store, { threadId, text, sendId, replyToId: replyTo?.id, sender, reply: deskReply }));
       const deliver = z.enum(SEND_DELIVERIES).optional().safeParse(body.deliver);
       if (!deliver.success) return json(res, 400, { error: "deliver must be steer, queue or stop" });
       const guardedStart = guarded
