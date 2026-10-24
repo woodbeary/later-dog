@@ -14,7 +14,7 @@ describe("the dev loop", () => {
   });
 
   it("pushes server code only to a test home", () => {
-    const names = (home: Parameters<typeof plan>[0]["home"]) => plan({ home, lan: "192.168.1.20", phoneRepo: "/nowhere" }).map((service) => service.name);
+    const names = (home: Parameters<typeof plan>[0]["home"]) => plan({ home, lan: "192.168.1.20", phoneRepo: "/nowhere", tunnel: null }).map((service) => service.name);
     expect(names({ kind: "mine", account: null, session: "/x/my-home.session.json" })).toEqual(["desktop", "proxy", "iphone"]);
     expect(names({ kind: "test", account: "test-pup", session: "/t/test-pup.session.json" })).toEqual(["desktop", "proxy", "push", "iphone"]);
   });
@@ -69,5 +69,28 @@ describe("pairing while the home wakes", async () => {
     expect(grant).toEqual({ code: "ABCD-EFGH-JKLM" });
     expect(asks).toBe(3);
     await expect(pairingGrant(async () => { throw new CloudRefusal(403, "forbidden"); }, { waitMs: 1_000, retryMs: 1 })).rejects.toThrow(/403/);
+  });
+});
+
+describe("the phone away from home", async () => {
+  const { phoneAddresses, plan, savedTunnel } = await import("./dev-loop.mjs");
+
+  it("uses the private tunnel addresses when this Mac has the tunnel, and this Wi-Fi otherwise", () => {
+    expect(phoneAddresses({ lan: "192.168.1.20", tunnel: { token: "x".repeat(60) } })).toEqual({ metro: "https://dev-metro.later.dog", probe: "https://dev-probe.later.dog", open: "exps://dev-metro.later.dog" });
+    expect(phoneAddresses({ lan: "192.168.1.20", tunnel: null }).open).toBe("http://192.168.1.20:8081/_expo/link?choice=expo-go&platform=ios");
+  });
+
+  it("runs the tunnel with its token in the environment, never on the command line, and keeps the Mac awake", () => {
+    const tunnel = { token: "t".repeat(60) };
+    const services = plan({ home: { kind: "mine", account: null, session: "/x/my-home.session.json" }, lan: "192.168.1.20", phoneRepo: "/nowhere", tunnel });
+    const run = services.find((service) => service.name === "tunnel")!;
+    expect(run.args).toEqual(["tunnel", "--no-autoupdate", "run"]);
+    expect(run.env.TUNNEL_TOKEN).toBe(tunnel.token);
+    expect(services.map((service) => service.name)).toContain("awake");
+  });
+
+  it("ignores a missing or broken tunnel file", () => {
+    expect(savedTunnel("/nowhere.json", () => { throw new Error("missing"); })).toBeNull();
+    expect(savedTunnel("/x.json", () => "{\"token\":\"short\"}")).toBeNull();
   });
 });

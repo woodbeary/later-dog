@@ -38,6 +38,19 @@ Everything goes to `~/.laterdog-dev-tools/logs/all.log` as `HH:MM:SS source | li
 To point the phone at a test home, have the probe connect it: `node scripts/probe.mjs connect` in the phone repo uses
 `EXPO_PUBLIC_LATERDOG_TEST_SERVER`, which the loop sets to the proxy.
 
+## Away from home
+
+When `~/.laterdog-dev-tools/tunnel.json` exists (mode 600, the run token of the Cloudflare Tunnel `laterdog-dev`), the
+loop also runs that tunnel and `caffeinate -i -s` so the Mac stays awake, and the phone uses
+`https://dev-metro.later.dog` (Metro, through `EXPO_PACKAGER_PROXY_URL`) and `https://dev-probe.later.dog` (the probe)
+from any network. Open `exps://dev-metro.later.dog` in Expo Go.
+
+Both hostnames sit behind the Access app "later.dog dev loop (phone)", whose only policy is a non-identity rule on the
+Gateway posture check "later.dog dev: through this Zero Trust team": a request passes only from a device enrolled in the
+`lucky-math-521d` Zero Trust team with the Cloudflare One client on, and anything else gets 403. Enrollment ("Warp
+Login App") allows lopez731@gmail.com and jacob@lopez.com.ai, by one-time PIN or Cloudflare login. The home session proxy
+is not on the tunnel.
+
 ## Home and Worker logs
 
 Container stdout and stderr (the home server, its runtime, the edge) and Worker events are in Cloudflare Workers

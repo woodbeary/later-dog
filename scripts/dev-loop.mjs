@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir, networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,23 @@ const PHONE_REPO = process.env.LATERDOG_PHONE_REPO ?? join(homedir(), "code", "l
 const PHONE_PROXY_PORT = 8096;
 const PROBE_PORT = 8093;
 const METRO_PORT = 8081;
+export const TUNNEL_FILE = join(DEV_DIR, "tunnel.json");
+export const AWAY = { metro: "https://dev-metro.later.dog", probe: "https://dev-probe.later.dog" };
+
+export function savedTunnel(file = TUNNEL_FILE, read = readFileSync) {
+  try {
+    const saved = JSON.parse(read(file, "utf8"));
+    return typeof saved?.token === "string" && saved.token.length > 40 ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+export function phoneAddresses({ lan, tunnel }) {
+  return tunnel
+    ? { metro: AWAY.metro, probe: AWAY.probe, open: `exps://${new URL(AWAY.metro).host}` }
+    : { metro: null, probe: `http://${lan}:${PROBE_PORT}`, open: `http://${lan}:${METRO_PORT}/_expo/link?choice=expo-go&platform=ios` };
+}
 
 export function chooseHome(argv, { mySession = MY_HOME_SESSION, testDir = TEST_SESSIONS, exists = existsSync } = {}) {
   const at = argv.indexOf("--home");
@@ -40,8 +57,9 @@ export function stamp(source, line, at = new Date()) {
   return `${at.toTimeString().slice(0, 8)} ${source.padEnd(8)} | ${line.replace(COLOUR, "")}`;
 }
 
-export function plan({ home, lan, node = process.execPath, phoneRepo = PHONE_REPO }) {
+export function plan({ home, lan, node = process.execPath, phoneRepo = PHONE_REPO, tunnel = savedTunnel() }) {
   const env = { ...process.env, PATH: process.env.PATH };
+  const phone = phoneAddresses({ lan, tunnel });
   const services = [
     { name: "desktop", cwd: root, file: "pnpm", args: ["dev:desktop"], env: { ...env, LATERDOG_DEV_HOME_SESSION: home.session } },
     { name: "proxy", cwd: root, file: node, args: [join(root, "scripts", "dev-home-proxy.mjs"), home.session, String(PHONE_PROXY_PORT), "0.0.0.0"], env },
@@ -50,7 +68,13 @@ export function plan({ home, lan, node = process.execPath, phoneRepo = PHONE_REP
     const shots = join(LOG_DIR, "phone-shots");
     services.push(
       { name: "probe", cwd: phoneRepo, file: node, args: ["scripts/probe-server.mjs"], env: { ...env, PORT: String(PROBE_PORT), HOST: "0.0.0.0", SHOTS_DIR: shots } },
-      { name: "metro", cwd: phoneRepo, file: "pnpm", args: ["exec", "expo", "start", "--go", "--port", String(METRO_PORT)], env: { ...env, EXPO_PUBLIC_LATERDOG_PROBE: `http://${lan}:${PROBE_PORT}`, EXPO_PUBLIC_LATERDOG_TEST_SERVER: `http://${lan}:${PHONE_PROXY_PORT}`, ...(existsSync("/Volumes/laterdog-phone") ? {} : { npm_config_store_dir: join(homedir(), "Library", "pnpm", "store") }) } },
+      { name: "metro", cwd: phoneRepo, file: "pnpm", args: ["exec", "expo", "start", "--go", "--port", String(METRO_PORT)], env: { ...env, EXPO_PUBLIC_LATERDOG_PROBE: phone.probe, ...(phone.metro ? { EXPO_PACKAGER_PROXY_URL: phone.metro } : {}), EXPO_PUBLIC_LATERDOG_TEST_SERVER: `http://${lan}:${PHONE_PROXY_PORT}`, ...(existsSync("/Volumes/laterdog-phone") ? {} : { npm_config_store_dir: join(homedir(), "Library", "pnpm", "store") }) } },
+    );
+  }
+  if (tunnel) {
+    services.push(
+      { name: "tunnel", cwd: root, file: "cloudflared", args: ["tunnel", "--no-autoupdate", "run"], env: { ...env, TUNNEL_TOKEN: tunnel.token } },
+      { name: "awake", cwd: root, file: "caffeinate", args: ["-i", "-s"], env, optional: true },
     );
   }
   if (home.kind === "test") services.push({ name: "push", cwd: root, file: node, args: [join(root, "scripts", "dev-home.mjs"), "watch", "--account", home.account], env });
@@ -99,7 +123,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     process.stdout.write([
       `later.dog dev loop on ${home.kind === "mine" ? "your home" : home.account}`,
       `  desktop  later.dog Dev with hot reload against that home`,
-      `  phone    Expo Go: http://${lan}:${METRO_PORT}/_expo/link?choice=expo-go&platform=ios`,
+      `  phone    Expo Go: ${phoneAddresses({ lan, tunnel: savedTunnel() }).open}${savedTunnel() ? " (anywhere, on your enrolled iPhone)" : " (this Wi-Fi only)"}`,
       ...(home.kind === "test" ? [`  server   every save under server/ and shared/ reloads on ${home.account} (pnpm dev:home)`] : []),
       `  logs     ${join(LOG_DIR, "all.log")} (one line per event, every source)`,
       "",
