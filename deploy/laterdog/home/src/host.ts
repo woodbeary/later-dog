@@ -11,7 +11,7 @@ import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, 
 import { devCodeOn, handleDevCode } from "./dev-code.ts";
 import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter } from "./always-on.ts";
 import {
-  DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskKey, deskKind, deskPrefix, deskSend, forgetScope, queuedReceipt, queuedSend,
+  DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskPrefix, deskSend, forgetScope, queuedReceipt, queuedSend,
   refusedSend, saveAnswer, savable, savedAnswer, withQueued, type DeskBucket, type DeskKind, type QueuedSend,
 } from "./desk.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
@@ -449,7 +449,9 @@ export class CloudHomeHost extends Container<Env> {
     const kind = deskKind(request);
     const scope = kind ? this.deskScope(kind, key) : null;
     if (!kind || !scope) return null;
-    return savedAnswer(this.desk(), await deskKey(this.stateHome(record.machineId), scope, request.url), Date.now());
+    const saved = await savedAnswer(this.desk(), await deskKey(this.stateHome(record.machineId), scope, request.url), Date.now());
+    if (!saved || !this.outbox.length || new URL(request.url).pathname !== "/api/bots") return saved;
+    return deskAnswerWithQueue(saved, this.outbox);
   }
 
   private async armDesk(): Promise<void> {

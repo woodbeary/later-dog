@@ -12,6 +12,8 @@ const NEVER_SAVED = /^\/api\/(?:events|health|auth\/(?:pair|status|sessions|sign
 const SEND_PATH = /^\/api\/(?:bots|groups)\/[^/]+\/messages$/;
 const SHELL_TYPES = /^(?:text\/html|text\/css|(?:application|text)\/javascript|application\/(?:json|manifest\+json)|font\/|image\/)/;
 const SEND_ID = /^[A-Za-z0-9_-]{16,80}$/;
+const THREAD_ID = /^[\w-]+$/;
+const BOT_SEND_PATH = /^\/api\/bots\/([^/]+)\/messages$/;
 const KEPT_HEADERS = ["content-security-policy", "x-frame-options", "referrer-policy", "x-content-type-options", "permissions-policy"];
 const FORWARDED = ["authorization", "cookie", "content-type", "accept", "accept-language", "user-agent", "x-laterdog-client"];
 
@@ -34,6 +36,7 @@ export interface QueuedSend {
   headers: Record<string, string>;
   body: string;
   at: number;
+  threadId?: string;
 }
 
 export type DeskKind = "read" | "shell" | null;
@@ -123,12 +126,20 @@ export async function queuedSend(request: Request, now: number): Promise<QueuedS
   }
   const sendId = (parsed as { sendId?: unknown } | null)?.sendId;
   if (sendId !== undefined && (typeof sendId !== "string" || !SEND_ID.test(sendId))) return "refused";
+  const threadId = (parsed as { threadId?: unknown } | null)?.threadId;
   const headers: Record<string, string> = {};
   for (const name of FORWARDED) {
     const value = request.headers.get(name);
     if (value) headers[name] = value;
   }
-  return { id: typeof sendId === "string" && sendId ? sendId : crypto.randomUUID(), path: new URL(request.url).pathname, headers, body, at: now };
+  return {
+    id: typeof sendId === "string" && sendId ? sendId : crypto.randomUUID(),
+    path: new URL(request.url).pathname,
+    headers,
+    body,
+    at: now,
+    ...(typeof threadId === "string" && THREAD_ID.test(threadId) ? { threadId } : {}),
+  };
 }
 
 export function withQueued(outbox: readonly QueuedSend[], next: QueuedSend): QueuedSend[] | null {
@@ -142,7 +153,57 @@ export function refusedSend(): Response {
 }
 
 export function queuedReceipt(queued: QueuedSend): Response {
-  return Response.json({ ok: true, queued: true, queueId: queued.id }, { status: 202, headers: { "cache-control": "no-store" } });
+  return Response.json(
+    { ok: true, queued: true, queueId: queued.id, ...(queued.threadId ? { threadId: queued.threadId } : {}) },
+    { status: 202, headers: { "cache-control": "no-store" } },
+  );
+}
+
+interface QueuedRow {
+  queueId: string;
+  text: string;
+  sendId?: string;
+}
+
+function sentWords(queued: QueuedSend): { text: string; sendId?: string } | null {
+  try {
+    const parsed = JSON.parse(queued.body) as { text?: unknown; sendId?: unknown } | null;
+    if (typeof parsed?.text !== "string") return null;
+    return { text: parsed.text, ...(typeof parsed.sendId === "string" ? { sendId: parsed.sendId } : {}) };
+  } catch {
+    return null;
+  }
+}
+
+export function withDeskQueue(chats: unknown, outbox: readonly QueuedSend[]): unknown {
+  if (!chats || typeof chats !== "object" || Array.isArray(chats)) return chats;
+  const answer = chats as { bots?: unknown; botQueuedMessages?: unknown };
+  const bots = Array.isArray(answer.bots) ? (answer.bots as Array<{ id?: unknown; threadId?: unknown }>) : [];
+  const known = answer.botQueuedMessages && typeof answer.botQueuedMessages === "object" && !Array.isArray(answer.botQueuedMessages)
+    ? (answer.botQueuedMessages as Record<string, unknown>)
+    : {};
+  const queues: Record<string, QueuedRow[]> = Object.fromEntries(
+    Object.entries(known).map(([threadId, rows]) => [threadId, Array.isArray(rows) ? [...(rows as QueuedRow[])] : []]),
+  );
+  for (const queued of outbox) {
+    const botId = BOT_SEND_PATH.exec(queued.path)?.[1];
+    if (!botId) continue;
+    const threadId = queued.threadId ?? bots.find((bot) => bot.id === botId && typeof bot.threadId === "string")?.threadId;
+    const words = sentWords(queued);
+    if (typeof threadId !== "string" || !words) continue;
+    const rows = queues[threadId] ?? [];
+    if (rows.some((row) => row?.queueId === queued.id || (words.sendId !== undefined && row?.sendId === words.sendId))) continue;
+    queues[threadId] = [...rows, { queueId: queued.id, text: words.text, ...(words.sendId ? { sendId: words.sendId } : {}) }];
+  }
+  return { ...answer, botQueuedMessages: queues };
+}
+
+export async function deskAnswerWithQueue(saved: Response, outbox: readonly QueuedSend[]): Promise<Response> {
+  const chats = await saved.clone().json().catch(() => null);
+  if (chats === null) return saved;
+  const headers = new Headers(saved.headers);
+  headers.delete("content-length");
+  return new Response(JSON.stringify(withDeskQueue(chats, outbox)), { status: saved.status, headers });
 }
 
 export type Delivery = "delivered" | "refused" | "retry";

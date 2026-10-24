@@ -201,6 +201,33 @@ describe("sending while the home sleeps", () => {
     expect(received).toEqual([{ text: "first", sendId: "send-0000000000001" }, { text: "second", sendId: "send-0000000000002" }]);
   });
 
+  it("names the thread in its receipt so the desktop shows the message as waiting", async () => {
+    const h = await home();
+    await knownOwner(h);
+    await h.sleep();
+    const response = await h.visit("/api/bots/rex/messages", asOwner({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "hi", sendId: "send-0000000000001", threadId: "t-rex" }) }));
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ ok: true, queued: true, queueId: "send-0000000000001", threadId: "t-rex" });
+  });
+
+  it("keeps a waiting message in the saved chat list, so a refresh while the home sleeps does not drop it", async () => {
+    const h = await home();
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [{ id: "rex", name: "Rex", threadId: "t-rex", messages: [] }], botQueuedMessages: {} }));
+    await knownOwner(h);
+    await h.sleep();
+    h.machine.serving = false;
+    const send = (body: Record<string, string>) => h.visit("/api/bots/rex/messages", asOwner({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+    expect((await send({ text: "from the phone", sendId: "phone-00000000000001" })).status).toBe(202);
+    expect((await send({ text: "from the desktop", sendId: "send-0000000000002", threadId: "t-rex" })).status).toBe(202);
+    const chats = await (await h.visit("/api/bots", asOwner())).json() as { botQueuedMessages: Record<string, unknown[]> };
+    expect(chats.botQueuedMessages).toEqual({
+      "t-rex": [
+        { queueId: "phone-00000000000001", text: "from the phone", sendId: "phone-00000000000001" },
+        { queueId: "send-0000000000002", text: "from the desktop", sendId: "send-0000000000002" },
+      ],
+    });
+  });
+
   it("does not queue a stranger's message", async () => {
     const h = await home();
     await knownOwner(h);
