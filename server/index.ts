@@ -641,6 +641,7 @@ import { createHomeActivity, HOME_ACTIVITY_HORIZON_MS, homeActivityFrom } from "
 import { createHomeActivityRoute } from "./routes/home-activity.ts";
 import { createDeskPrompts, createDeskVerifier, deskDogs, deskReplyFrom } from "./laterdog/desk-brain.ts";
 import { createDeskBrainRoute, recordDeskExchange } from "./laterdog/desk-exchange.ts";
+import { createTurnTiming } from "./laterdog/turn-timing.ts";
 import { createEmailMeRoute } from "./routes/email-me.ts";
 import { createPhonePushRoutes } from "./routes/phone-push.ts";
 import { startWakeupPull } from "./laterdog/wakeups.ts";
@@ -797,6 +798,7 @@ const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivit
   secret: CLOUD_HOME.bootstrapSecret,
   activity: () => withWaitingRuns(homeActivityFrom(routines?.wakeHold(HOME_ACTIVITY_HORIZON_MS) ?? { hold: false }, store.bots.some((bot) => botHasActiveTurn(bot.id))), limitHold.nextAt()),
 })) : null;
+const turnTiming = createTurnTiming({ log: (line) => console.log(line) });
 const deskVerify = CLOUD_HOME ? createDeskVerifier({ secret: CLOUD_HOME.bootstrapSecret }) : null;
 const deskPrompts = CLOUD_HOME ? createDeskPrompts(join(DATA_DIR, "desk-prompts.json")) : null;
 const deskBrainRoute = deskVerify && deskPrompts ? createDeskBrainRoute({
@@ -6347,6 +6349,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
 
   if (bot && !carryingOn) handoffs.onEvent(event);
 
+  turnTiming.event(event);
   if (event.turnId) liveTurnByThread.set(event.threadId, event.turnId);
   const requestOwner = bot ? directRequestOwners.get(event.threadId) : undefined;
   if (requestOwner && event.turnId && !requestOwner.turnId && event.type === "turn.started" &&
@@ -7652,6 +7655,7 @@ async function startTurn(
   if (providerInstancesChanging.has(instanceId)) {
     throw Object.assign(new Error("this provider account is being updated — try again shortly"), { status: 409 });
   }
+  turnTiming.asked(threadId, instance.driverKind);
   const model = bot.modelSelection.model;
   const chosenEffort = bot.modelSelection.effort;
   const variant = bot.modelSelection.variant;
