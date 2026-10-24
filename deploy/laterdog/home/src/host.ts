@@ -9,6 +9,7 @@ import { Handover, type HandoverPeer, type HomeStanding } from "./handover.ts";
 import { homeNamespace, otherSize, type HomeSize } from "./size.ts";
 import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, stateOwner } from "./state.ts";
 import { devCodeOn, handleDevCode } from "./dev-code.ts";
+import { alwaysOn, KEEP_UP_EVERY_S } from "./always-on.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
 import {
   hookAccepted,
@@ -199,6 +200,22 @@ export class CloudHomeHost extends Container<Env> {
     if (activity && !activity.busy) await this.stop();
   }
 
+  async keepUp(): Promise<void> {
+    const record = this.record;
+    if (!record || this.removed || !alwaysOn(this.env.ALWAYS_ON_ACCOUNTS, record.accountId)) {
+      this.deleteSchedules("keepUp");
+      return;
+    }
+    if (!this.handover.holds()) return;
+    await this.armKeepUp();
+    if (!this.ctx.container?.running) this.boot(record, false);
+  }
+
+  private async armKeepUp(): Promise<void> {
+    this.deleteSchedules("keepUp");
+    await this.schedule(KEEP_UP_EVERY_S, "keepUp");
+  }
+
   private async armMaintenance(): Promise<void> {
     this.deleteSchedules("maintain");
     await this.schedule(MAINTAIN_EVERY_S, "maintain");
@@ -292,6 +309,11 @@ export class CloudHomeHost extends Container<Env> {
   override async onActivityExpired(): Promise<void> {
     const record = this.record;
     if (!record || !this.handover.holds()) return super.onActivityExpired();
+    if (alwaysOn(this.env.ALWAYS_ON_ACCOUNTS, record.accountId)) {
+      this.renewActivityTimeout();
+      await this.armKeepUp();
+      return;
+    }
     const decision = sleepDecision(await this.activity(record).catch(() => null), Date.now());
     if (decision.stay) {
       this.renewActivityTimeout();
@@ -325,6 +347,7 @@ export class CloudHomeHost extends Container<Env> {
     const running = state === "serving";
     const wakes = !background && (await this.mayWake(key, !running));
     if (wakes) this.sleepAfter = PERSON_SLEEP_AFTER;
+    if (wakes && alwaysOn(this.env.ALWAYS_ON_ACCOUNTS, record.accountId)) await this.armKeepUp();
     if (running) {
       const response = wakes ? await super.fetch(request) : await this.quietly(request);
       if (credential && key) this.learn(record, credential, key, response);

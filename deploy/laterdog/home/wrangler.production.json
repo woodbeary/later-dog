@@ -79,6 +79,7 @@
     "ADMIN_ORIGIN": "https://accounts.later.dog",
     "INCLUDED_API": "https://cloud.later.dog/v1",
     "LARGE_HOME_ACCOUNTS": "",
+    "ALWAYS_ON_ACCOUNTS": "7eaec07f-4e74-4682-81c2-d3bf10549606",
     "HOME_WAKE_GUARD": "learning",
     "DEV_CODE": ""
   },
