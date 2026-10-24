@@ -22,9 +22,10 @@ export interface FakeWorld {
   sessions: Set<string>;
   hooks: Set<string>;
   sessionChecks: number;
+  answers: Map<string, (request: Request) => Response | Promise<Response>>;
 }
 
-export const world: FakeWorld = { live: new Map(), overlaps: [], sessions: new Set(), hooks: new Set(), sessionChecks: 0 };
+export const world: FakeWorld = { live: new Map(), overlaps: [], sessions: new Set(), hooks: new Set(), sessionChecks: 0, answers: new Map() };
 
 export function resetWorld(): void {
   world.live.clear();
@@ -32,6 +33,7 @@ export function resetWorld(): void {
   world.sessions.clear();
   world.hooks.clear();
   world.sessionChecks = 0;
+  world.answers.clear();
 }
 
 function presentedSession(request: Request): string | undefined {
@@ -40,9 +42,11 @@ function presentedSession(request: Request): string | undefined {
   return /laterdog_session_[^=]*=([^;\s]+)/.exec(request.headers.get("cookie") ?? "")?.[1];
 }
 
-function homeAnswer(namespace: string, request: Request, machine: FakeMachine): Response {
+function homeAnswer(namespace: string, request: Request, machine: FakeMachine): Response | Promise<Response> {
   if (!machine.serving) return new Response(null, { status: 502 });
   const path = new URL(request.url).pathname;
+  const custom = world.answers.get(`${request.method} ${path}`);
+  if (custom) return custom(request);
   if (path === "/api/health") return Response.json({ app: "laterdog" });
   if (path === "/api/auth/session") {
     world.sessionChecks += 1;

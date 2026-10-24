@@ -10,6 +10,10 @@ import { homeNamespace, otherSize, type HomeSize } from "./size.ts";
 import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, stateOwner } from "./state.ts";
 import { devCodeOn, handleDevCode } from "./dev-code.ts";
 import { alwaysOn, KEEP_UP_EVERY_S } from "./always-on.ts";
+import {
+  DESK_SAVE_EVERY_MS, deliveryOutcome, deskKey, deskKind, deskPrefix, deskSend, forgetScope, queuedReceipt, queuedSend,
+  saveAnswer, savable, savedAnswer, withQueued, type DeskBucket, type DeskKind, type QueuedSend,
+} from "./desk.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
 import {
   hookAccepted,
@@ -36,6 +40,9 @@ const STANDING_KEY = "standing";
 const REMOVED_KEY = "removed";
 const REMOVED = "This home was removed.";
 const WAKERS_KEY = "wakers";
+const OUTBOX_KEY = "desk-outbox";
+const DESK_RETRY_S = 5;
+const DESK_GIVE_UP_MS = 60 * 60 * 1000;
 const PAIRING_OPEN_KEY = "pairing-open-until";
 const REFUSED_KEPT = 256;
 const CHECKS_AT_ONCE = 4;
@@ -81,6 +88,9 @@ export class CloudHomeHost extends Container<Env> {
   private serverUp = false;
   private removed = false;
   private wakers: Wakers = {};
+  private outbox: QueuedSend[] = [];
+  private delivering: Promise<void> | null = null;
+  private readonly lastSaved = new Map<string, { digest: string; at: number }>();
   private pairingOpenUntil = 0;
   private readonly checking = new Set<string>();
   private readonly refused = new Set<string>();
@@ -107,6 +117,7 @@ export class CloudHomeHost extends Container<Env> {
       this.storedStanding = (await ctx.storage.get<HomeStanding>(STANDING_KEY)) ?? null;
       this.removed = (await ctx.storage.get<boolean>(REMOVED_KEY)) === true;
       this.wakers = (await ctx.storage.get<Wakers>(WAKERS_KEY)) ?? {};
+      this.outbox = (await ctx.storage.get<QueuedSend[]>(OUTBOX_KEY)) ?? [];
       this.pairingOpenUntil = (await ctx.storage.get<number>(PAIRING_OPEN_KEY)) ?? 0;
       if (this.record) this.envVars = await this.environment(this.record);
     });
@@ -349,13 +360,107 @@ export class CloudHomeHost extends Container<Env> {
     if (wakes) this.sleepAfter = PERSON_SLEEP_AFTER;
     if (wakes && alwaysOn(this.env.ALWAYS_ON_ACCOUNTS, record.accountId)) await this.armKeepUp();
     if (running) {
+      if (this.outbox.length) await this.deliverDesk(record);
+      const kind = deskKind(request);
       const response = wakes ? await super.fetch(request) : await this.quietly(request);
       if (credential && key) this.learn(record, credential, key, response);
-      return response;
+      if (key && credential?.kind === "session" && (response.status === 401 || response.status === 403)) {
+        this.ctx.waitUntil(forgetScope(this.desk(), deskPrefix(this.stateHome(record.machineId), key)).catch(() => 0));
+      }
+      return kind ? this.keepAnswer(record, kind, key, request, response) : response;
     }
     if (wakes && state === "stopped") this.boot(record, true);
+    const saved = await this.answerAsleep(record, request, key);
+    if (saved) return saved;
     const busy = this.lastStart?.wake === "busy" && Date.now() - this.lastStart.at < BUSY_MEMORY_MS;
     return wakeResponse(request, busy ? "busy" : wakes || this.booting || state === "starting" ? "waking" : "asleep");
+  }
+
+  private desk(): DeskBucket {
+    return this.env.STATE as unknown as DeskBucket;
+  }
+
+  private deskScope(kind: Exclude<DeskKind, null>, key: string | null): string | null {
+    if (kind === "shell") return "ui";
+    return key && remembered(this.wakers, key, Date.now()) ? key : null;
+  }
+
+  private keepAnswer(record: HomeRecord, kind: Exclude<DeskKind, null>, key: string | null, request: Request, response: Response): Response {
+    const scope = this.deskScope(kind, key);
+    if (!scope || !savable(kind, response)) return response;
+    const copy = response.clone();
+    this.ctx.waitUntil((async () => {
+      const where = await deskKey(this.stateHome(record.machineId), scope, request.url);
+      const now = Date.now();
+      const last = this.lastSaved.get(where);
+      if (last && now - last.at < DESK_SAVE_EVERY_MS) return;
+      const bytes = new Uint8Array(await copy.arrayBuffer());
+      const digest = hex(await sha256(bytes));
+      if (last?.digest === digest) {
+        this.lastSaved.set(where, { digest, at: now });
+        return;
+      }
+      const stored = await saveAnswer(this.desk(), where, new Response(bytes, { headers: copy.headers }), kind, now);
+      if (stored) this.lastSaved.set(where, { digest: stored, at: now });
+    })().catch(() => undefined));
+    return response;
+  }
+
+  private async answerAsleep(record: HomeRecord, request: Request, key: string | null): Promise<Response | null> {
+    if (deskSend(request)) {
+      if (!key || !remembered(this.wakers, key, Date.now())) return null;
+      const queued = await queuedSend(request.clone(), Date.now());
+      const next = queued ? withQueued(this.outbox, queued) : null;
+      if (!queued || !next) return null;
+      this.outbox = next;
+      await this.ctx.storage.put(OUTBOX_KEY, this.outbox);
+      await this.armDesk();
+      return queuedReceipt(queued);
+    }
+    const kind = deskKind(request);
+    const scope = kind ? this.deskScope(kind, key) : null;
+    if (!kind || !scope) return null;
+    return savedAnswer(this.desk(), await deskKey(this.stateHome(record.machineId), scope, request.url), Date.now());
+  }
+
+  private async armDesk(): Promise<void> {
+    this.deleteSchedules("deliverQueued");
+    await this.schedule(DESK_RETRY_S, "deliverQueued");
+  }
+
+  async deliverQueued(): Promise<void> {
+    const record = this.record;
+    if (!record || this.removed || !this.outbox.length) return;
+    const now = Date.now();
+    const kept = this.outbox.filter((queued) => now - queued.at < DESK_GIVE_UP_MS);
+    if (kept.length !== this.outbox.length) {
+      console.error(`laterdog home ${record.machineId}: dropped ${this.outbox.length - kept.length} message(s) the home never took within an hour`);
+      this.outbox = kept;
+      await this.ctx.storage.put(OUTBOX_KEY, this.outbox);
+    }
+    if (!this.outbox.length) return;
+    const state = await this.machineState();
+    if (state === "serving") await this.deliverDesk(record);
+    else if (state === "stopped") this.boot(record, true);
+    if (this.outbox.length) await this.armDesk();
+  }
+
+  private deliverDesk(record: HomeRecord): Promise<void> {
+    this.delivering ??= (async () => {
+      while (this.outbox.length) {
+        const queued = this.outbox[0]!;
+        const status = await this.containerFetch(new Request(`${record.origin}${queued.path}`, { method: "POST", headers: queued.headers, body: queued.body }), HOME_PORT)
+          .then((response) => response.status, () => null);
+        const outcome = deliveryOutcome(status);
+        if (outcome === "retry") break;
+        if (outcome === "refused") console.error(`laterdog home ${record.machineId}: the home refused a message sent while it slept (${status})`);
+        this.outbox = this.outbox.slice(1);
+        await this.ctx.storage.put(OUTBOX_KEY, this.outbox);
+      }
+    })().finally(() => {
+      this.delivering = null;
+    });
+    return this.delivering;
   }
 
   async knowsWaker(key: string): Promise<boolean> {
