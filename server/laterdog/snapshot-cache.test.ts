@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createSnapshotCache } from "./snapshot-cache.ts";
+import { createSnapshotCache, instanceTouchedBy } from "./snapshot-cache.ts";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -113,6 +113,13 @@ describe("account status for the accounts list", () => {
     await later(0, null);
     expect(checks).toBe(1);
     await expect(after.read("claude", owner, async () => "signed in again")).resolves.toBe("signed in again");
+  });
+
+  it("knows which account a request to an account's own route changes", () => {
+    expect(instanceTouchedBy("/api/instances/claude-2/auth/complete")).toBe("claude-2");
+    expect(instanceTouchedBy("/api/instances/codex/install")).toBe("codex");
+    expect(instanceTouchedBy("/api/instances")).toBeNull();
+    expect(instanceTouchedBy("/api/bots/rex/messages")).toBeNull();
   });
 });
 

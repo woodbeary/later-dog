@@ -6,6 +6,11 @@ export const SNAPSHOT_KEPT_MS = 24 * 60 * 60_000;
 export const SLOW_CHECK_MS = 500;
 export const SLOW_RECHECK_MS = 30_000;
 const SAVE_AFTER_MS = 1_000;
+const INSTANCE_PATH = /^\/api\/instances\/([\w.-]+)\//;
+
+export function instanceTouchedBy(path: string): string | null {
+  return INSTANCE_PATH.exec(path)?.[1] ?? null;
+}
 
 interface Kept<S> {
   owner: object;
