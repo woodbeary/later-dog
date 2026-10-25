@@ -1810,6 +1810,22 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.argv).not.toContain("--dangerously-skip-permissions");
   });
 
+  it("keeps each chat's prompt cached for an hour, so a reply after a short break does not resend the whole prompt", async () => {
+    const dump = join(scratch, "cache-hour.json");
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump });
+    await instance.adapter.sendTurn({ threadId: "t-cache-hour", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(JSON.parse(readFileSync(dump, "utf8")).env.ENABLE_PROMPT_CACHING_1H).toBe("1");
+  });
+
+  it("leaves the hour-long cache off for an account that turned it off", async () => {
+    const dump = join(scratch, "cache-hour-off.json");
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump, ENABLE_PROMPT_CACHING_1H: "0" });
+    await instance.adapter.sendTurn({ threadId: "t-cache-hour-off", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(JSON.parse(readFileSync(dump, "utf8")).env.ENABLE_PROMPT_CACHING_1H).toBe("0");
+  });
+
   it.each([false, true])("holds helpers open and resumes exactly once (reordered: %s)", async (reorder) => {
     const gate = join(scratch, "helpers-finish");
     await create("puppies", { FAKE_CLAUDE_PUPPIES_GATE: gate, FAKE_CLAUDE_PUPPIES_STAGGER_MS: "10", FAKE_CLAUDE_PUPPIES_REORDER: reorder ? "1" : "0", FAKE_CLAUDE_PUPPIES_ECHO: "1" });

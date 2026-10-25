@@ -1177,6 +1177,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         ? join(dirname(mcpConfigPath), "auth-settings.json") : null;
       if (authSettingsPath) args.push("--settings", authSettingsPath);
       env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = "1";
+      env.ENABLE_PROMPT_CACHING_1H ??= "1";
       Object.assign(env, quietWorkEnvironment(turn.quietWork));
       const cwd = turn.cwd ?? homedir();
       const commandCwd = permissionLaunchCwd(cwd);
