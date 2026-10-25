@@ -59,7 +59,7 @@ import {
   questionChoices,
   type AskQuestion,
 } from "../../shared/ask-question.ts";
-import { ENGINE_MODELS_WAIT_MS, waitAtMost } from "../laterdog/wait-at-most.ts";
+import { readEngineModels } from "../laterdog/wait-at-most.ts";
 
 function claudeAuthStatus(
   cli: string,
@@ -870,7 +870,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (resolved.options.length) models = resolved;
       } catch {}
     };
-    await waitAtMost(refreshModels(), ENGINE_MODELS_WAIT_MS);
+    await readEngineModels(refreshModels);
 
     let cliVersion: ClaudeCliVersion | null = null;
     let cliVersionChecked = false;

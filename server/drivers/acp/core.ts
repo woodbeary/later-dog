@@ -54,7 +54,7 @@ import { sessionIdlePolicy } from "../session-idle.ts";
 import { classifyError } from "../retry.ts";
 import { canUseMcpServer, narrowsNativeTools, parseToolScope } from "../../../shared/tool-scope.ts";
 import { gateServer } from "../../mcp-gate-config.ts";
-import { ENGINE_MODELS_WAIT_MS, waitAtMost } from "../../laterdog/wait-at-most.ts";
+import { readEngineModels } from "../../laterdog/wait-at-most.ts";
 
 export type AccountErrorCode = Extract<ProviderErrorCode,
   "invalid_credentials" | "inactive_subscription" | "insufficient_funds" | "quota_or_region_restriction">;
@@ -457,7 +457,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           }
         } catch {}
       };
-      if (support.resolveModelsOnCreate !== false) await waitAtMost(refreshModels(), ENGINE_MODELS_WAIT_MS);
+      if (support.resolveModelsOnCreate !== false) await readEngineModels(refreshModels);
       const deviceSignIn = support.deviceSignIn
         ? new DeviceAuthController(support.deviceSignIn, { cli: config.cli, environment: () => childEnv(), onAuthenticated: refreshModels })
         : null;

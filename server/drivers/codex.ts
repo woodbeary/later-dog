@@ -52,7 +52,7 @@ import { canUseMcpServer } from "../../shared/tool-scope.ts";
 import { assertToolScopeSupported } from "../../shared/tool-scope-support.ts";
 import { gateServer, mcpStdioServer } from "../mcp-gate-config.ts";
 import { CALL_TOOL, DESCRIBE_TOOL, SEARCH_TOOL, directoryCallTarget } from "../mcp-directory.ts";
-import { ENGINE_MODELS_WAIT_MS, waitAtMost } from "../laterdog/wait-at-most.ts";
+import { readEngineModels } from "../laterdog/wait-at-most.ts";
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 
@@ -640,7 +640,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       } catch {}
     };
     if (planAuth) { try { await refreshModels(); } catch {} }
-    else await waitAtMost(refreshModels(), ENGINE_MODELS_WAIT_MS);
+    else await readEngineModels(refreshModels);
     const ownLogin = !plan && !config.managed;
     const loginMark = (): [string, string] | null => {
       const home = ownLogin ? codexHome(childEnv()) : null;

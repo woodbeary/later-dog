@@ -3,6 +3,8 @@ import { writeFileAtomic } from "../atomic.ts";
 
 export const SNAPSHOT_WAIT_MS = 1_500;
 export const SNAPSHOT_KEPT_MS = 24 * 60 * 60_000;
+export const SLOW_CHECK_MS = 500;
+export const SLOW_RECHECK_MS = 30_000;
 const SAVE_AFTER_MS = 1_000;
 
 interface Kept<S> {
@@ -33,12 +35,16 @@ export function createSnapshotCache<S>(options: {
   now?: () => number;
   waitMs?: number;
   keptMs?: number;
+  slowMs?: number;
+  recheckSlowMs?: number;
   file?: string;
   identity?: (owner: object) => string;
 } = {}) {
   const now = options.now ?? Date.now;
   const waitMs = options.waitMs ?? SNAPSHOT_WAIT_MS;
   const keptMs = options.keptMs ?? SNAPSHOT_KEPT_MS;
+  const slowMs = options.slowMs ?? SLOW_CHECK_MS;
+  const recheckSlowMs = options.recheckSlowMs ?? SLOW_RECHECK_MS;
   const kept = new Map<string, Kept<S>>();
   const saved = savedAnswers<S>(options.file);
   const running = new Map<string, { owner: object; check: Promise<S> }>();
@@ -77,21 +83,24 @@ export function createSnapshotCache<S>(options: {
     return started;
   };
 
-  const lastAnswer = (id: string, owner: object): { snapshot: S; took: number } | null => {
+  const lastAnswer = (id: string, owner: object): { snapshot: S; took: number; at: number; fromBefore: boolean } | null => {
     const last = kept.get(id);
-    if (last) return last.owner === owner && now() - last.at < keptMs ? last : null;
+    if (last) return last.owner === owner && now() - last.at < keptMs ? { ...last, fromBefore: false } : null;
     const earlier = saved.get(id);
     if (!earlier || !options.identity || earlier.identity !== options.identity(owner) || now() - earlier.at >= keptMs) return null;
-    return earlier;
+    return { ...earlier, fromBefore: true };
   };
 
   return {
     read(id: string, owner: object, take: () => Promise<S>): Promise<S> {
-      const fresh = check(id, owner, take);
       const last = lastAnswer(id, owner);
+      if (last && last.took >= slowMs) {
+        if (last.fromBefore || now() - last.at >= recheckSlowMs) check(id, owner, take).catch(() => undefined);
+        return Promise.resolve(last.snapshot);
+      }
+      const fresh = check(id, owner, take);
       if (!last) return fresh;
       fresh.catch(() => undefined);
-      if (last.took >= waitMs) return Promise.resolve(last.snapshot);
       return new Promise<S>((resolve, reject) => {
         const timer = setTimeout(() => resolve(last.snapshot), waitMs);
         timer.unref?.();
