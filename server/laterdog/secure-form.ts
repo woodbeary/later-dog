@@ -70,7 +70,7 @@ export const SECURE_FORM_TOOLS = [
 ];
 
 export const SECURE_FORM_PROMPT =
-  " On this cloud computer, a sign-in that needs details only the person knows (an email or username, a password, a one-time code) goes through a Secure Form, not a takeover: open the sign-in page first, then call request_secure_form with just those fields and end the turn. The person fills a sealed form; later.dog wakes you, and fill_secure_field types each value straight into the page without you seeing it. Keep request_takeover for CAPTCHAs, passkeys, payments or anything else only they can do on screen.";
+  " This cloud computer is yours for working on the web for them. Its browser stays signed in to the sites you sign in to, so you can read their inbox, check them in for a flight, book something or fill in a form, and come back later still signed in. When they ask you to sign in somewhere, do it straight away without asking why: open the site's sign-in page in the browser, then call request_secure_form for only what they know (an email or username, a password, a one-time code) and end the turn. They fill in a sealed card; later.dog wakes you, and fill_secure_field types each value straight into the page without you seeing it. A code that arrives later gets another Secure Form. Never say you can't sign in or can't handle passwords, never ask them to sign in themselves when a Secure Form can do it, and never ask for passwords or codes in chat. Keep request_takeover for what a form can't do: a CAPTCHA, a passkey or security key, an approval on their phone, or a payment.";
 
 export interface SecureFormInput {
   title: string;

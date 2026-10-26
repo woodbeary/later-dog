@@ -41,7 +41,8 @@ describe("computerPrompt", () => {
     expect(computerPrompt(null)).toBe("");
     expect(computerPrompt("box")).toContain("You control the assigned cloud computer");
     expect(computerPrompt("local")).toContain("act on the user's computer");
-    expect(computerPrompt("box").endsWith(SIGN_IN_PROMPT + SECURE_FORM_PROMPT)).toBe(true);
+    expect(computerPrompt("box").endsWith(SECURE_FORM_PROMPT)).toBe(true);
+    expect(computerPrompt("box")).not.toContain(SIGN_IN_PROMPT);
     expect(computerPrompt("local").endsWith(SIGN_IN_PROMPT)).toBe(true);
     expect(computerPrompt("box")).not.toBe(computerPrompt("local"));
   });
@@ -49,6 +50,16 @@ describe("computerPrompt", () => {
   it("offers the Secure Form only where its tools exist, the cloud computer", () => {
     expect(computerPrompt("box")).toContain("request_secure_form");
     expect(computerPrompt("local")).not.toContain("request_secure_form");
+  });
+
+  it("has a dog on its cloud computer sign in when asked, with a Secure Form for what only the person knows, instead of handing the sign-in back", () => {
+    const box = computerPrompt("box");
+    expect(box).toContain("When they ask you to sign in somewhere, do it straight away without asking why");
+    expect(box).toContain("call request_secure_form for only what they know (an email or username, a password, a one-time code)");
+    expect(box).toContain("Never say you can't sign in or can't handle passwords, never ask them to sign in themselves when a Secure Form can do it, and never ask for passwords or codes in chat.");
+    expect(box).toContain("Keep request_takeover for what a form can't do: a CAPTCHA, a passkey or security key, an approval on their phone, or a payment.");
+    expect(box).toContain("stays signed in");
+    expect(box).not.toMatch(/explicitly authorized|hand just that step/);
   });
 
   it("no longer describes a Local VM sandbox or a self-hosted VPS", () => {
@@ -167,7 +178,7 @@ describe("computerPrompt", () => {
     expect(computerPrompt("box")).toContain("You control the assigned cloud computer");
     expect(computerPrompt("local")).toContain("act on the user's computer");
     for (const kind of ["box", "local"] as const) {
-      expect(computerPrompt(kind).endsWith(kind === "box" ? SIGN_IN_PROMPT + SECURE_FORM_PROMPT : SIGN_IN_PROMPT)).toBe(true);
+      expect(computerPrompt(kind).endsWith(kind === "box" ? SECURE_FORM_PROMPT : SIGN_IN_PROMPT)).toBe(true);
       expect(computerPrompt(kind).startsWith(" ")).toBe(true);
     }
     expect(BUILT_IN_BROWSER_SYSTEM_PROMPT.endsWith(SIGN_IN_PROMPT)).toBe(true);
@@ -264,7 +275,8 @@ describe("cloudHomePrompt", () => {
       const text = cloudHomePrompt(tools);
       expect(text).toMatch(/^ You run on the user's My Cloud, their always-on later\.dog in the cloud, not on their own computer\./);
       expect(text.startsWith(` You run on ${CLOUD_HOME_PLACE}.`)).toBe(true);
-      expect(text).toContain("Offer what works here: the built-in browser and their cloud computer, a desktop in the cloud. Call it their cloud computer, as the app does.");
+      expect(text).toContain("Offer what works here: their cloud computer, a desktop in the cloud with its own browser, where you can sign in to sites and do things on the web for them. Call it their cloud computer, as the app does.");
+      expect(text).not.toContain("built-in browser");
       expect(text).not.toMatch(/\blaterdog\b|\bBoat\b|\bbox\b/);
       expect(text).toContain("Never ask them to set up this computer or a Local VM; neither exists here.");
       expect(text).not.toMatch(/Computer panel|container runtime|configure/i);

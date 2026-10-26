@@ -514,10 +514,15 @@ export class Store {
     const browserProfileAliases = loadBrowserProfileIdAliases();
     let groupsMigrated = false;
     if (setAsideRemovedDogSettings(DATA_DIR, this.bots)) botsMigrated = true;
+    const homeComputer = this.newDogComputer();
     for (const b of this.bots) {
       if (b.busy || (b.activity !== undefined && b.activity !== "idle")) botsMigrated = true;
       b.busy = false;
       b.activity = "idle";
+      if (b.computer === undefined && homeComputer) {
+        b.computer = homeComputer;
+        botsMigrated = true;
+      }
       if (typeof b.soul !== "string") {
         b.soul = "";
         botsMigrated = true;

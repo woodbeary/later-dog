@@ -31,6 +31,18 @@ describe("a new dog's computer", () => {
     expect(storeOn(true).bot(dog.id)?.computer).toBe("off");
   });
 
+  it("is given to a dog that came over without a computer when the Cloud home opens, so it can sign in and browse like a new dog", () => {
+    const mac = storeOn(false);
+    const old = mac.createBot({ name: "Biscuit" });
+    const off = mac.createBot({ name: "Quiet" });
+    mac.patchBot(off.id, { computer: "off" });
+    expect(storeOn(false).bot(old.id)).not.toHaveProperty("computer");
+    const home = storeOn(true);
+    expect(home.bot(old.id)?.computer).toBe("cloud");
+    expect(home.bot(off.id)?.computer).toBe("off");
+    expect(storeOn(true).bot(old.id)?.computer).toBe("cloud");
+  });
+
   it("is left for the Mac to decide when later.dog runs on a Mac", () => {
     const store = storeOn(false);
     expect(store.createBot({ name: "Scout" })).not.toHaveProperty("computer");
