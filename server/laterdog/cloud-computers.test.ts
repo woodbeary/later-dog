@@ -148,6 +148,35 @@ describe("the computers API", () => {
     expect(untouched.calls).toHaveLength(0);
   });
 
+  it("asks once more when a read meets a passing server error, and never repeats a change", async () => {
+    let lists = 0;
+    let wakes = 0;
+    const { fetch, calls } = service((call) => {
+      if (call.url.pathname.endsWith("/wake")) {
+        wakes += 1;
+        return json(500, { error: { message: "Something went wrong; the error was logged." } });
+      }
+      lists += 1;
+      return lists === 1 ? json(500, { error: { message: "Something went wrong; the error was logged." } }) : json(200, { computers: [computer()] });
+    });
+    const client = new ComputersClient(connection, { fetch });
+    expect(await client.list()).toEqual([computer()]);
+    expect(lists).toBe(2);
+    expect(await rejection(client.wake("cmp_one"))).toMatchObject({ httpStatus: 500 });
+    expect(wakes).toBe(1);
+    expect(calls.filter((call) => call.method === "POST")).toHaveLength(1);
+  });
+
+  it("does not ask again after a refusal or a missing computer", async () => {
+    let reads = 0;
+    const { fetch } = service(() => {
+      reads += 1;
+      return json(404, { error: { code: "not_found", message: "No computer with that id." } });
+    });
+    expect(await new ComputersClient(connection, { fetch }).get("cmp_one")).toBeNull();
+    expect(reads).toBe(1);
+  });
+
   it("reads refusals as the service's status, code and words, and a rejected key by its file", async () => {
     const { fetch } = service((call) => call.url.pathname.endsWith("/exec")
       ? json(409, { error: { code: "asleep", message: "the computer is asleep" } })

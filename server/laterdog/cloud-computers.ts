@@ -154,6 +154,8 @@ export async function readCapped(response: Response, maxBytes: number, tooLarge:
   }
 }
 
+const READ_RETRY_MS = 400;
+
 type Send = { method?: string; body?: RequestInit["body"]; headers?: Record<string, string>; accept?: string; timeoutMs?: number; signal?: AbortSignal };
 
 export class ComputersClient {
@@ -166,7 +168,18 @@ export class ComputersClient {
     this.api = connection.api; this.keyFile = connection.keyFile; this.#key = computersKey(connection); this.#trial = connection.source === "trial"; this.#fetch = options.fetch ?? fetch;
   }
 
-  async #send(path: string, { method = "GET", body, headers = {}, accept = "application/json", timeoutMs = 20_000, signal }: Send = {}): Promise<Response> {
+  async #send(path: string, options: Send = {}): Promise<Response> {
+    try {
+      return await this.#once(path, options);
+    } catch (error) {
+      const read = (options.method ?? "GET") === "GET";
+      if (!read || options.signal?.aborted || !(error instanceof ComputersApiError) || error.httpStatus < 500) throw error;
+      await new Promise((resolve) => setTimeout(resolve, READ_RETRY_MS));
+      return this.#once(path, options);
+    }
+  }
+
+  async #once(path: string, { method = "GET", body, headers = {}, accept = "application/json", timeoutMs = 20_000, signal }: Send = {}): Promise<Response> {
     const timeout = AbortSignal.timeout(timeoutMs);
     let response: Response;
     try {
