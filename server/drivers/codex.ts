@@ -29,6 +29,7 @@ import type {
 import { newEventId, newId } from "../contracts.ts";
 import { decodeCodexSelection, OFFICIAL_CODEX_PROVIDER, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 import { codexLocalProviderArgs } from "./local-inject.ts";
+import { readCliVersion, unreadCli } from "../laterdog/cli-version.ts";
 import { augmentedPath, splitCliString } from "../env-path.ts";
 import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 import { appendNative } from "./native.ts";
@@ -1697,12 +1698,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
   const snapshot = async (): Promise<ProviderSnapshot> => {
     if (planUnavailable) return { state: "unavailable", authenticated: false, chatgptPlan: true, reason: planUnavailable, authenticationUnavailableReason: planUnavailable };
     const env = childEnv();
-    const version = await new Promise<string | null>((resolve) => {
-      execCli(config.cli, ["--version"], { timeout: 8000, env }, (err, stdout) =>
-        resolve(err ? null : stdout.trim()),
-      );
-    });
-    if (!version) return { state: "unavailable", reason: `\`${config.cli}\` CLI not found`, ...(plan ? { chatgptPlan: true } : {}) };
+    const read = await readCliVersion(config.cli, env);
+    if (!("version" in read)) return { ...unreadCli(config.cli, read), ...(plan ? { chatgptPlan: true } : {}) };
+    const version = read.version;
     if (planAuth) return { state: "available", version, chatgptPlan: true, billing: "subscription", ...await planAuth.snapshot(), update: await codexReleaseUpdate(version, config.cli),
       ...(planWarning ? { warning: { title: "Check ChatGPT connection", message: planWarning } } : {}) };
     if (config.managed) return { state: "available", version, authenticated: Boolean(input.environment.LATERDOG_COMPANY_API_KEY && input.environment.CODEX_HOME), billing: "metered" };

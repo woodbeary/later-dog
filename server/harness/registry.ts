@@ -65,6 +65,7 @@ export class ProviderRegistry {
         const instance = owner as ProviderInstance;
         return `${instance.instanceId}:${instance.driverKind}`;
       },
+      settled: (snapshot) => snapshot.starting !== true,
     });
     this.enginesBaseDir = options.enginesBaseDir;
     this.npmPresent = options.npmAvailable ?? npmAvailable;

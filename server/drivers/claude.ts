@@ -60,6 +60,7 @@ import {
   type AskQuestion,
 } from "../../shared/ask-question.ts";
 import { readEngineModels } from "../laterdog/wait-at-most.ts";
+import { readCliVersion as readCliVersionOf, unreadCli } from "../laterdog/cli-version.ts";
 
 function claudeAuthStatus(
   cli: string,
@@ -876,12 +877,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     let cliVersionChecked = false;
     let cliHasAutocompact: boolean | null = null;
     let cliHelpVersion: string | null = null;
-    const readCliVersion = (env: NodeJS.ProcessEnv): Promise<string | null> =>
-      new Promise((resolve) => {
-        execCli(config.cli, ["--version"], { timeout: 8000, env }, (err, stdout) =>
-          resolve(err ? null : stdout.trim() || null),
-        );
-      });
+    const readCliVersion = async (env: NodeJS.ProcessEnv): Promise<string | null> => {
+      const read = await readCliVersionOf(config.cli, env);
+      return "version" in read ? read.version : null;
+    };
     let helpRead: { version: string; done: Promise<void> } | null = null;
     const readCliHelp = (version: string, env: NodeJS.ProcessEnv): Promise<void> => {
       if (helpRead?.version === version) return helpRead.done;
@@ -1930,8 +1929,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
 
     const snapshot = async (): Promise<ProviderSnapshot> => {
       const env = environment();
-      const version = await readCliVersion(env);
-      if (!version) return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
+      const read = await readCliVersionOf(config.cli, env);
+      if (!("version" in read)) return unreadCli(config.cli, read);
+      const version = read.version;
       cliVersion = parseClaudeCliVersion(version);
       cliVersionChecked = true;
       if (version !== cliHelpVersion) await readCliHelp(version, env);

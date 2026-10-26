@@ -8,7 +8,7 @@ import { decodeInjectId } from "../local-inject.ts";
 import { DeviceAuthController, type DeviceSignIn } from "../device-auth.ts";
 import { deletePromptSplitReceipt, promptHalves, readPromptSplitReceipt, splitSessionPrompt, writePromptSplitReceipt } from "../prompt-split.ts";
 import type { PromptSplitReceipt } from "../prompt-split.ts";
-import { describeSpawnFailure, execCli, killCliTree, spawnCli } from "../../procs.ts";
+import { describeSpawnFailure, killCliTree, spawnCli } from "../../procs.ts";
 import {
   classifyQuiet, describeQuiet, lastSeenPhrase, LogTail, quietKey, sampleProcessTree,
   type LogSignal, type ProcessSample, type QuietState,
@@ -55,6 +55,7 @@ import { classifyError } from "../retry.ts";
 import { canUseMcpServer, narrowsNativeTools, parseToolScope } from "../../../shared/tool-scope.ts";
 import { gateServer } from "../../mcp-gate-config.ts";
 import { readEngineModels } from "../../laterdog/wait-at-most.ts";
+import { readCliVersion, unreadCli } from "../../laterdog/cli-version.ts";
 
 export type AccountErrorCode = Extract<ProviderErrorCode,
   "invalid_credentials" | "inactive_subscription" | "insufficient_funds" | "quota_or_region_restriction">;
@@ -1764,13 +1765,9 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       const snapshot = async (): Promise<ProviderSnapshot> => {
         const env = childEnv();
         if (support.snapshot) return support.snapshot(env, config, instanceId);
-        const version = await new Promise<string | null>((resolve) => {
-          execCli(config.cli, ["--version"], { timeout: 8000, env }, (err, stdout, stderr) =>
-            resolve(err ? null : versionFromProbe(stdout, stderr)),
-          );
-        });
-        if (!version) return { state: "unavailable", reason: `\`${config.cli}\` CLI not found` };
-        return { state: "available", version, authenticated: await support.isAuthenticated(env, config, instanceId) };
+        const read = await readCliVersion(config.cli, env, (stdout, stderr) => versionFromProbe(stdout, stderr ?? ""));
+        if (!("version" in read)) return unreadCli(config.cli, read);
+        return { state: "available", version: read.version, authenticated: await support.isAuthenticated(env, config, instanceId) };
       };
 
       return {

@@ -44,12 +44,14 @@ export function createSnapshotCache<S>(options: {
   recheckSlowMs?: number;
   file?: string;
   identity?: (owner: object) => string;
+  settled?: (snapshot: S) => boolean;
 } = {}) {
   const now = options.now ?? Date.now;
   const waitMs = options.waitMs ?? SNAPSHOT_WAIT_MS;
   const keptMs = options.keptMs ?? SNAPSHOT_KEPT_MS;
   const slowMs = options.slowMs ?? SLOW_CHECK_MS;
   const recheckSlowMs = options.recheckSlowMs ?? SLOW_RECHECK_MS;
+  const settled = options.settled ?? (() => true);
   const kept = new Map<string, Kept<S>>();
   const saved = savedAnswers<S>(options.file);
   const running = new Map<string, { owner: object; check: Promise<S> }>();
@@ -76,6 +78,7 @@ export function createSnapshotCache<S>(options: {
     if (current?.owner === owner) return current.check;
     const startedAt = now();
     const started = take().then((snapshot) => {
+      if (!settled(snapshot)) return lastAnswer(id, owner)?.snapshot ?? snapshot;
       if (running.get(id)?.check === started) {
         kept.set(id, { owner, snapshot, at: now(), took: now() - startedAt });
         save();

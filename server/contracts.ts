@@ -179,6 +179,7 @@ export interface ProviderSnapshot {
   authenticationUnavailableReason?: string;
   state: "available" | "unavailable";
   reason?: string;
+  starting?: boolean;
   authenticated?: boolean;
   account?: { email?: string; organization?: string; method?: "login" | "api-key" };
   version?: string | null;

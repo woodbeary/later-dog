@@ -115,6 +115,31 @@ describe("account status for the accounts list", () => {
     await expect(after.read("claude", owner, async () => "signed in again")).resolves.toBe("signed in again");
   });
 
+  it("keeps showing an account's last answer while its program is still starting after a restart, and takes the next real answer", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "snapshot-cache-"));
+    dirs.push(dir);
+    const file = join(dir, "account-snapshots.json");
+    const identity = (owner: object) => (owner as { name: string }).name;
+    const settled = (snapshot: string) => snapshot !== "still starting";
+    const before = createSnapshotCache<string>({ waitMs: 50, slowMs: 100, file, identity, settled });
+    await before.read("claude", { name: "claude:claudeAgent" }, () => later(150, "signed in"));
+    await later(1_200, null);
+    const after = createSnapshotCache<string>({ waitMs: 50, slowMs: 100, file, identity, settled });
+    const owner = { name: "claude:claudeAgent" };
+    await expect(after.read("claude", owner, () => later(150, "still starting"))).resolves.toBe("signed in");
+    await later(200, null);
+    await expect(after.read("claude", owner, () => later(150, "still starting"))).resolves.toBe("signed in");
+    await later(200, null);
+    await expect(after.read("claude", owner, async () => "signed in, checked")).resolves.toBe("signed in");
+    await later(0, null);
+    await expect(after.read("claude", owner, async () => "signed in, checked")).resolves.toBe("signed in, checked");
+  });
+
+  it("shows a still-starting answer only when there is nothing earlier to show", async () => {
+    const cache = createSnapshotCache<string>({ waitMs: 200, settled: (snapshot) => snapshot !== "still starting" });
+    await expect(cache.read("codex", {}, async () => "still starting")).resolves.toBe("still starting");
+  });
+
   it("knows which account a request to an account's own route changes", () => {
     expect(instanceTouchedBy("/api/instances/claude-2/auth/complete")).toBe("claude-2");
     expect(instanceTouchedBy("/api/instances/codex/install")).toBe("codex");
