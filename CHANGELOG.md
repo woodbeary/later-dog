@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.43 — 2026-10-26
+
+- **Start every chat from one place.** The + (and ⌘N) opens a To: field: make a new dog in one step, start a group chat, or open any dog. Type a name nobody has yet to make that dog.
+- **Every dog in My Cloud has its own computer**, including dogs that came over from your Mac.
+- **Dogs sign in for you.** Ask a dog to log in somewhere and it opens the site on its computer, asks only for your email, password or code in a sealed form, and types them in without seeing them. You step in only for a CAPTCHA, a passkey, an approval on your phone or a payment.
+- **Computers open again in My Cloud** for homes that came over from a Mac.
+- **My Cloud answers while it sleeps.** Chats open and messages go through at once, dogs on the free AI reply straight away, and waking takes about 10 seconds.
+- **Accounts stay signed in when My Cloud restarts**, and the accounts list answers at once.
+- **Errors say what went wrong**, in the provider's own words, such as "HTTP 401: Incorrect API key provided".
+- **Claude chats keep their prompt cached for an hour**, so a reply after a short break costs far less.
+- **Dogs in My Cloud know your time zone**, so "the weather tomorrow" doesn't need a city.
+- **An always-on My Cloud comes back within seconds** if its computer stops.
+
 ## 0.3.42 — 2026-10-19
 
 - **One conversation per dog.** Threads are gone: routine runs, group work and what other dogs hand back all land in that dog's chat.
