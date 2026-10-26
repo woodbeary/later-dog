@@ -45,7 +45,10 @@ function plainCause(cause: string): string {
   const said = (value: unknown): string | null => (typeof value === "string" && value.trim() ? value.trim() : null);
   const record = body && typeof body === "object" ? body as Record<string, unknown> : null;
   const inner = record?.error && typeof record.error === "object" ? record.error as Record<string, unknown> : null;
-  return said(inner?.message) ?? said(record?.error) ?? said(record?.message) ?? said(record?.detail) ?? cause;
+  const sentence = said(inner?.message) ?? said(record?.error) ?? said(record?.message) ?? said(record?.detail);
+  if (!sentence) return cause;
+  const lead = cause.slice(0, start).trimEnd();
+  return lead ? `${lead} ${sentence}` : sentence;
 }
 
 const quotaOf = (quota: FailedTurnQuota): FailedTurnQuota => ({
