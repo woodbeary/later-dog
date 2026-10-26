@@ -1323,9 +1323,9 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
           {searchButton}
           <button
             onClick={() => dispatch({ type: "toggleNewBot", open: true })}
-            aria-label={t("newChat.title")}
+            aria-label={t("sidebar.new")}
             className="flex size-8 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
-            title={t("newChat.title")}
+            title={t("sidebar.new")}
           >
             <Plus size={17} strokeWidth={2} />
           </button>

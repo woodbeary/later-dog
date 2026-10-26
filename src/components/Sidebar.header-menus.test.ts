@@ -66,14 +66,14 @@ afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("the sidebar +", () => {
   it("opens the To: picker straight away instead of a menu", () => {
-    trigger("New chat").props.onClick!();
+    trigger("New").props.onClick!();
     expect(dispatch).toHaveBeenCalledWith({ type: "toggleNewBot", open: true });
     const words = text(render());
     for (const gone of ["New dog", "New group chat", "Templates", "Create a pack", "Archived dogs"]) expect(words).not.toContain(gone);
   });
 
   it("does not cover the window with a click-eating backdrop", () => {
-    trigger("New chat").props.onClick!();
+    trigger("New").props.onClick!();
     expect(render().some((node) => /\bfixed\b/.test(node.props.className ?? "") && /\binset-0\b/.test(node.props.className ?? ""))).toBe(false);
   });
 });

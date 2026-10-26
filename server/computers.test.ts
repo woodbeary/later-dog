@@ -27,7 +27,7 @@ describe("the cloud computer facade", () => {
   const fleet = new Map<string, FakeComputer>();
   const keys = new Map<string, FakeComputer>();
   const requests: Recorded[] = [];
-  const failures = new Map<string, { status: number; error?: { code?: string; message?: string } }>();
+  const failures = new Map<string, { status: number; error?: { code?: string; message?: string }; times?: number }>();
   let nextId = 1;
   let wakeTo: State = "running";
   let startsOnPoll = false;
@@ -64,7 +64,8 @@ describe("the cloud computer facade", () => {
         if (req.headers.authorization !== `Bearer ${KEY}` && req.headers.authorization !== `Bearer ${TRIAL_KEY}`) return send(401, { error: { code: "unauthorized", message: "unknown key" } });
         const failure = failures.get(`${method} ${url.pathname}`);
         if (failure) {
-          failures.delete(`${method} ${url.pathname}`);
+          if ((failure.times ?? 1) > 1) failure.times = (failure.times ?? 1) - 1;
+          else failures.delete(`${method} ${url.pathname}`);
           return send(failure.status, { error: failure.error ?? {} });
         }
         const [, id, action] = /^\/v1\/computers(?:\/(cmp_[\w-]+)(?:\/(\w+))?)?$/.exec(url.pathname) ?? [];
@@ -430,6 +431,8 @@ describe("the cloud computer facade", () => {
     ] });
     expect(JSON.stringify(inventory)).not.toMatch(/other-123456|my-production-box/);
     failures.set("GET /v1/computers", { status: 503 });
+    expect(await computers.listManagedBoats(noBoat, [])).toMatchObject({ available: true, problem: null });
+    failures.set("GET /v1/computers", { status: 503, times: 2 });
     expect(await computers.listManagedBoats(noBoat, [])).toMatchObject({ configured: true, available: false, problem: expect.stringMatching(/503/), credentialRejected: false, instances: [] });
     failures.set("GET /v1/computers", { status: 401 });
     expect(await computers.listManagedBoats(noBoat, [])).toMatchObject({ available: false, credentialRejected: true, problem: expect.stringContaining("computers-key") });
