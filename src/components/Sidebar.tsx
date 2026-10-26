@@ -1,5 +1,4 @@
 import { cloudWakeupOf, wakeupLine } from "@/lib/cloud-tasks";
-import { track } from "@/lib/analytics";
 import { OrganizationIdentity } from "./OrganizationIdentity";
 import { approvalAction, approvalCardOutcome } from "./ApprovalCard";
 import { pendingApprovals } from "./PendingApproval";
@@ -9,7 +8,6 @@ import {
   ArrowLeftRight,
   Bell,
   BellDot,
-  Bot as BotIcon,
   Check,
   ChevronDown,
   ChevronRight,
@@ -39,7 +37,7 @@ import { BotAvatar } from "./Avatar";
 import { stateForBot } from "@/lib/mascot";
 import { cn } from "@/lib/cn";
 import { PaneErrorLine } from "./PaneErrorLine";
-import { useHeldMenuMotion, useMenuMotion } from "./MenuMotion";
+import { useHeldMenuMotion } from "./MenuMotion";
 import { UpdatePill } from "./UpdateButton";
 import { lastShownRow } from "@/lib/room-activity";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
@@ -53,7 +51,6 @@ import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { AddDogSheet, droppedDogFile, type AddDogResult, type AddDogSource } from "./AddDogSheet";
 import { SectionRenameDialog } from "./SectionRenameDialog";
 import { RenameTitle } from "./RenameTitle";
-import { BotPickerList } from "./BotPickerList";
 import { MainDogBadge } from "./MainDogBadge";
 import { MainDogPicker } from "./MainDogPicker";
 import { navigateMenu } from "@/lib/menu-keys";
@@ -99,10 +96,8 @@ import { dogRowFacts } from "@/lib/dog-row";
 import { botShowsUnread } from "@/lib/bot-unread";
 import { useLiveMedia } from "@/lib/live-call-media";
 import { LiveCallPill, liveBadgeFor } from "./LiveCallPill";
-import { ShortcutHint } from "./ShortcutHint";
 import { citationPreviewText } from "@/lib/citations";
 import { markdownPreview } from "../../shared/markdown-preview";
-import { usePopoverDismiss } from "@/hooks/use-popover-dismiss";
 import { StatusDot } from "./StatusDot";
 import { Collapsible } from "./Collapsible";
 import { copyConversationId } from "@/lib/copy-conversation-id";
@@ -425,69 +420,6 @@ function RoomContextMenu({
       </button>
     </div>,
     document.body,
-  );
-}
-
-function NewRoomPanel({ onClose }: { onClose: () => void }) {
-  const { state, dispatch } = useStore();
-  const [name, setName] = useState("");
-  const [picked, setPicked] = useState<Set<string>>(new Set());
-  const bots = state.bots.filter((b) => !b.hidden);
-  const toggle = (id: string) =>
-    setPicked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const create = () => {
-    if (!picked.size) return;
-    dispatch({
-      type: "createGroup",
-      memberIds: [...picked],
-      name: name.trim() || undefined,
-    });
-    track("room_created", { members: picked.size });
-    onClose();
-  };
-  return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div className="w-[340px] rounded-2xl border border-hairline/50 bg-card p-4 shadow-2xl">
-        <div className="mb-3 text-[15px] font-semibold text-ink">{t("sidebar.newChannel.title")}</div>
-        <input
-          autoFocus
-          maxLength={100}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") create();
-            if (e.key === "Escape") onClose();
-          }}
-          placeholder={t("sidebar.newChannel.name")}
-          className="mb-3 w-full rounded-lg bg-raised/70 px-3 py-2 text-[14px] text-ink placeholder:text-ink-secondary focus:outline-none"
-        />
-        <BotPickerList
-          bots={bots}
-          picked={picked}
-          onToggle={toggle}
-          emptyHint={t("sidebar.newChannel.emptyHint")}
-        />
-        <button
-          onClick={create}
-          disabled={!picked.size}
-          className="mt-3 w-full rounded-lg bg-accent py-2 text-[14px] font-medium text-white hover:brightness-110 disabled:opacity-40"
-        >
-          {picked.size === 0
-            ? t("sidebar.newChannel.create")
-            : picked.size === 1
-              ? t("sidebar.newChannel.createOne")
-              : t("sidebar.newChannel.createMany", { count: picked.size })}
-        </button>
-      </div>
-    </div>
   );
 }
 
@@ -1137,9 +1069,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
   const [roomSectionPicker, setRoomSectionPicker] = useState<{ groupId: string; x: number; y: number } | null>(null);
   const [deletingRoomId, setDeletingRoomId] = useState<string | null>(null);
   const deletingRoom = deletingRoomId ? state.groups.find((g) => g.id === deletingRoomId) : undefined;
-  const [plusOpen, setPlusOpen] = useState(false);
-  const plusMotion = useMenuMotion(plusOpen);
-  const [newRoom, setNewRoom] = useState(false);
   const [addDogSource, setAddDogSource] = useState<AddDogSource | null>(null);
   const [hiddenOpen, setHiddenOpen] = useState(false);
   const [feedback, setFeedback] = useState<{ error: boolean; text: string } | null>(null);
@@ -1187,12 +1116,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
     document.addEventListener("keydown", closeOnEscape);
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [open, onClose, confirm, deletingRoom]);
-
-  const plusMenuRef = useRef<HTMLDivElement>(null);
-  usePopoverDismiss(plusOpen, plusMenuRef, () => setPlusOpen(false));
-  useEffect(() => {
-    if (plusOpen) plusMenuRef.current?.querySelector<HTMLButtonElement>("[role=menuitem]")?.focus();
-  }, [plusOpen]);
 
   useEffect(() => {
     return window.laterdog?.onPackageInstall?.((url) => setAddDogSource({ url }));
@@ -1398,53 +1321,14 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
             <PanelLeftOpen size={17} />
           </button>}
           {searchButton}
-          <div ref={plusMenuRef} className="contents">
           <button
-            onClick={() => setPlusOpen((o) => !o)}
-            aria-label={t("sidebar.new")}
-            aria-haspopup="menu"
-            aria-expanded={plusOpen}
+            onClick={() => dispatch({ type: "toggleNewBot", open: true })}
+            aria-label={t("newChat.title")}
             className="flex size-8 items-center justify-center rounded-md text-ink-secondary hover:bg-raised hover:text-ink"
-            title={t("sidebar.new")}
+            title={t("newChat.title")}
           >
             <Plus size={17} strokeWidth={2} />
           </button>
-          {plusMotion.shown && (
-            <>
-              <div role="menu" aria-label={t("sidebar.new")} onKeyDown={navigateMenu} className={cn(
-                "absolute top-full z-40 mt-1 w-52 overflow-hidden rounded-xl border border-hairline/50 bg-menu py-1.5 shadow-2xl shadow-black/60",
-                iconRail ? "left-0" : "right-0",
-                plusMotion.className,
-              )} {...plusMotion.exitProps}>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setPlusOpen(false);
-                    dispatch({ type: "toggleNewBot", open: true });
-                  }}
-                  className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
-                >
-                  <BotIcon size={16} className="text-ink-secondary" />
-                  <span className="flex-1">{t("sidebar.newBot")}</span>
-                  <ShortcutHint id="new-bot" />
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setPlusOpen(false);
-                    setNewRoom(true);
-                  }}
-                  className="flex w-full items-center gap-3 px-3.5 py-2 text-left text-[14px] text-ink hover:bg-raised/70"
-                >
-                  <Users size={16} className="text-ink-secondary" />
-                  <span className="flex-1">{t("sidebar.newChannel.title")}</span>
-                </button>
-              </div>
-            </>
-          )}
-          </div>
         </div>
       </div>
 
@@ -1775,7 +1659,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
             dispatch({ type: "patchGroup", groupId: roomSectionPicker.groupId, patch: { section } });
           }}
         />
-      {newRoom && <NewRoomPanel onClose={() => setNewRoom(false)} />}
       {addDogSource !== null && (
         <AddDogSheet
           source={addDogSource}

@@ -231,7 +231,7 @@ describe("launch bundle", () => {
     expect(reached.has("components/Sidebar.tsx")).toBe(true);
     const deferred = [
       "BotSettingsDialog", "CloudTaskPanel", "KeyboardShortcutsModal",
-      "NewBotDialog", "SettingsModal",
+      "NewBotDialog", "NewChatPicker", "SettingsModal",
     ].map((name) => `components/${name}.tsx`);
     expect(deferred.filter((file) => reached.has(file))).toEqual([]);
   });

@@ -13,7 +13,7 @@ import { GroupView } from "@/components/GroupView";
 import { SIDEBAR_AND_PANEL_FIT, TWO_SIDE_PANELS_FIT, useMediaQuery } from "@/lib/use-media-query";
 import { PluginsPanel, preloadConnectedApps } from "@/components/PluginsPanel";
 import {
-  BotSettingsDialog, CloudTaskPanel, KeyboardShortcutsModal, NewBotDialog, preloadScreens, SettingsModal,
+  BotSettingsDialog, CloudTaskPanel, KeyboardShortcutsModal, NewChatPicker, preloadScreens, SettingsModal,
 } from "@/components/lazy-screens";
 import { CredentialStoreNotice } from "@/components/CredentialStoreNotice";
 import { DamagedDataNotice } from "@/components/DamagedDataNotice";
@@ -276,7 +276,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       )}
       {state.appSettingsOpen && <SettingsModal />}
       {state.pluginsOpen && <PluginsPanel />}
-      {state.newBotOpen && <NewBotDialog />}
+      {state.newBotOpen && <NewChatPicker />}
       {state.shortcutsOpen && (
         <KeyboardShortcutsModal
           open={state.shortcutsOpen}
