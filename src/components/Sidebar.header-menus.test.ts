@@ -30,9 +30,10 @@ vi.mock("./DesktopCapabilities", async () => {
   const { initialDesktopCapabilities } = await import("@/lib/desktop");
   return { useDesktopCapabilities: () => ({ capabilities: initialDesktopCapabilities() }) };
 });
+const dispatch = vi.hoisted(() => vi.fn());
 vi.mock("@/state/store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/state/store")>();
-  return { ...original, useStore: () => ({ state: original.initialState, dispatch: vi.fn() }) };
+  return { ...original, useStore: () => ({ state: original.initialState, dispatch }) };
 });
 
 import { Sidebar } from "./Sidebar";
@@ -52,86 +53,27 @@ function render() {
 const trigger = (label: string) => render().find((node) => node.type === "button" && node.props["aria-label"] === label)!;
 
 let window: EventTarget;
-function runEffects() {
-  for (const effect of fixture.effects) {
-    try { effect(); } catch {}
-  }
-}
-function key(name: string, prevented = false) {
-  const event = new Event("keydown", { cancelable: true });
-  Object.assign(event, { key: name, isComposing: false });
-  if (prevented) event.preventDefault();
-  window.dispatchEvent(event);
-  return event;
-}
-function press(target: unknown) {
-  const event = new Event("pointerdown");
-  Object.defineProperty(event, "target", { value: target });
-  window.dispatchEvent(event);
-}
-
-const menus = [
-  { name: "New", label: "New", item: "New group chat" },
-];
 const text = (tree: ReactElement<Props>[]) => tree.map((node) => Children.toArray(node.props.children).filter((child) => typeof child === "string").join(" ")).join(" ");
 
 beforeEach(() => {
   fixture.values = [];
+  dispatch.mockClear();
   window = new EventTarget();
   vi.stubGlobal("window", Object.assign(window, { innerWidth: 1280, innerHeight: 800, laterdog: undefined, setTimeout, clearTimeout }));
   vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {}, removeItem: () => {} });
 });
 afterEach(() => { vi.unstubAllGlobals(); });
 
-describe.each(menus)("sidebar header menu: $name", ({ label, item }) => {
-  const open = () => {
-    trigger(label).props.onClick!();
-    const tree = render();
-    expect(text(tree)).toContain(item);
-    return tree;
-  };
-
-  it("offers only New dog and New group chat", () => {
-    const words = text(open());
-    expect(words).toContain("New dog");
-    expect(words).toContain("New group chat");
-    for (const gone of ["Templates", "Create a pack", "Archived dogs", "Share"]) expect(words).not.toContain(gone);
+describe("the sidebar +", () => {
+  it("opens the To: picker straight away instead of a menu", () => {
+    trigger("New chat").props.onClick!();
+    expect(dispatch).toHaveBeenCalledWith({ type: "toggleNewBot", open: true });
+    const words = text(render());
+    for (const gone of ["New dog", "New group chat", "Templates", "Create a pack", "Archived dogs"]) expect(words).not.toContain(gone);
   });
 
   it("does not cover the window with a click-eating backdrop", () => {
-    const tree = open();
-    expect(tree.some((node) => /\bfixed\b/.test(node.props.className ?? "") && /\binset-0\b/.test(node.props.className ?? ""))).toBe(false);
-  });
-
-  it("closes on Escape and marks the Escape handled", () => {
-    open();
-    runEffects();
-    expect(key("Escape").defaultPrevented).toBe(true);
-    expect(text(render())).not.toContain(item);
-  });
-
-  it("leaves an Escape that an editor already handled alone", () => {
-    open();
-    runEffects();
-    key("Escape", true);
-    expect(text(render())).toContain(item);
-  });
-
-  it("closes on a press outside it, and not on one inside it", () => {
-    const tree = open();
-    const INSIDE = { closest: () => null };
-    const root = tree.filter((node) => {
-      const ref = node.props.ref as { current: unknown } | undefined;
-      if (!ref || typeof ref !== "object") return false;
-      const inner = nodes(node.props.children);
-      return inner.some((child) => child.props["aria-label"] === label) && text(inner).includes(item);
-    }).at(-1);
-    expect(root).toBeDefined();
-    (root!.props.ref as { current: unknown }).current = { contains: (target: unknown) => target === INSIDE };
-    runEffects();
-    press(INSIDE);
-    expect(text(render())).toContain(item);
-    press({ closest: () => null });
-    expect(text(render())).not.toContain(item);
+    trigger("New chat").props.onClick!();
+    expect(render().some((node) => /\bfixed\b/.test(node.props.className ?? "") && /\binset-0\b/.test(node.props.className ?? ""))).toBe(false);
   });
 });
