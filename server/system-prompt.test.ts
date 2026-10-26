@@ -283,6 +283,11 @@ describe("cloudHomePrompt", () => {
     }
   });
 
+  it("tells the dog the person's time zone as where they are, and says nothing for none or plain UTC", () => {
+    expect(cloudHomePrompt(false, "America/Los_Angeles")).toContain("Their time zone is America/Los_Angeles; take that as where they are, for the weather or opening hours, unless they say otherwise.");
+    for (const zone of [undefined, "UTC", "Etc/UTC", "GMT", "Not/A_Zone"]) expect(cloudHomePrompt(false, zone)).not.toContain("time zone");
+  });
+
   it("points to the person's Mac only when the turn has the shared-computer tools", () => {
     expect(cloudHomePrompt(true)).toContain("use shared_computer: it reaches the Mac where later.dog is open and signed in to this account. Just use it; if they set that Mac to ask first, later.dog shows them a card and your call waits for the answer.");
     expect(cloudHomePrompt(true)).not.toMatch(/approve it on a card/);

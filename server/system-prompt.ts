@@ -2,6 +2,7 @@ import { soulSystemPrompt } from "./bot-folder.ts";
 import { DOG_CREATION_PROMPT } from "./laterdog/dog-creation.ts";
 import { SECURE_FORM_PROMPT } from "./laterdog/secure-form.ts";
 import { TAKEOVER_PROMPT } from "./laterdog/takeover.ts";
+import { isTimeZone } from "./laterdog/time-zone.ts";
 import type { ConnectorToolGrant } from "../shared/wire.ts";
 
 export type PromptPart = { id: string; label: string; text: string };
@@ -59,11 +60,17 @@ export function computerPrompt(kind: ComputerPromptKind | null): string {
 
 export const CLOUD_HOME_PLACE = "the user's My Cloud, their always-on later.dog in the cloud, not on their own computer";
 
-export function cloudHomePrompt(sharedComputerTools: boolean): string {
+export function cloudHomePrompt(sharedComputerTools: boolean, timeZone: string | undefined = process.env.TZ): string {
   return ` You run on ${CLOUD_HOME_PLACE}.` + (sharedComputerTools
     ? " If they ask for something on their own Mac, such as a file in Downloads, an app or a command, use shared_computer: it reaches the Mac where later.dog is open and signed in to this account. Just use it; if they set that Mac to ask first, later.dog shows them a card and your call waits for the answer. If no Mac is connected, say so in one sentence: they install later.dog on the Mac and sign in with the same email, and it connects by itself."
     : " You cannot see or use their Mac or PC, its screen or its files from here. If they ask for something on it, say so in one sentence.")
-    + " Offer what works here: their cloud computer, a desktop in the cloud with its own browser, where you can sign in to sites and do things on the web for them. Call it their cloud computer, as the app does. Never ask them to set up this computer or a Local VM; neither exists here.";
+    + " Offer what works here: their cloud computer, a desktop in the cloud with its own browser, where you can sign in to sites and do things on the web for them. Call it their cloud computer, as the app does. Never ask them to set up this computer or a Local VM; neither exists here."
+    + whereTheyAre(timeZone);
+}
+
+function whereTheyAre(timeZone: string | undefined): string {
+  if (!timeZone || /^(?:Etc\/)?(?:UTC|GMT)$/.test(timeZone) || !isTimeZone(timeZone)) return "";
+  return ` Their time zone is ${timeZone}; take that as where they are, for the weather or opening hours, unless they say otherwise.`;
 }
 
 export const COMPOSIO_PROMPT =
