@@ -49,6 +49,11 @@ describe("choosing later.dog's computers", () => {
     expect(computersConnection()).toEqual({ api: "http://127.0.0.1:8787/v1", keyFile: "/tmp/fixture-key", source: "environment" });
   });
 
+  it("reaches later.dog's computers at their current address when computers.json saved the retired one", () => {
+    writeFileSync(join(home, "computers.json"), JSON.stringify({ api: "https://laterdog-computers.lopez731.workers.dev/v1" }));
+    expect(computersConnection()).toEqual({ api: "https://cloud.later.dog/v1", keyFile: join(home, "computers-key"), source: "file" });
+  });
+
   it("refuses a service it must not send the key to, without echoing what was written", () => {
     const refused = (api: string) => {
       writeFileSync(join(home, "computers.json"), JSON.stringify({ api }));

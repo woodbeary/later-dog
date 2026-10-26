@@ -3,10 +3,10 @@ import { readFileSync, rmSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
 import {
-  ComputersClient, INCLUDED_SERVICES, TRIAL_KEY, readCapped, savedTrial, serviceApi, trialKeyFile, trialStateFile, type IncludedService, type PlanInfo, type SavedTrial, type TrialView,
+  COMPUTERS_SERVICE_ORIGIN, ComputersClient, INCLUDED_SERVICES, TRIAL_KEY, readCapped, savedTrial, serviceApi, trialKeyFile, trialStateFile, type IncludedService, type PlanInfo, type SavedTrial, type TrialView,
 } from "./cloud-computers.ts";
 
-export const DEFAULT_TRIAL_API = "https://cloud.later.dog/v1";
+export const DEFAULT_TRIAL_API = `${COMPUTERS_SERVICE_ORIGIN}/v1`;
 
 export type TrialStatus =
   | { state: "none" }

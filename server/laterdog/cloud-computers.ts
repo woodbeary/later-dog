@@ -79,13 +79,17 @@ export function computersConnection(): ComputersConnection | null {
   return { api: serviceApi(saved.data.api), keyFile: saved.data.keyFile ?? defaultKeyFile(), source: "file" };
 }
 
+export const COMPUTERS_SERVICE_ORIGIN = "https://cloud.later.dog";
+const RETIRED_SERVICE_ORIGINS = new Set(["https://laterdog-computers.lopez731.workers.dev"]);
+
 export function serviceApi(raw: string): string {
   let url: URL | null = null;
   try { url = new URL(raw); } catch {}
   if (!url || url.username || url.password || url.search || url.hash || !httpsOrLoopback(url)) {
     throw new ComputersConfigError("Use a credential-free HTTPS later.dog computers API, or loopback HTTP");
   }
-  return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+  const origin = RETIRED_SERVICE_ORIGINS.has(url.origin) ? COMPUTERS_SERVICE_ORIGIN : url.origin;
+  return `${origin}${url.pathname.replace(/\/+$/, "")}`;
 }
 const httpsOrLoopback = (url: URL) => url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK.has(url.hostname));
 

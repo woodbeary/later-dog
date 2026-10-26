@@ -33,10 +33,10 @@ const EXCLUDED = new Set([
   "team-computers.json",
   "laterdog-server.lease", "box-create-requests.lock", "messages.db-wal", "messages.db-shm",
   "decider-log",
-  "cloud-owner.json", "cloud-hold.json", "computers-trial-key", "computers-trial.json",
+  "cloud-owner.json", "cloud-hold.json", "computers-trial-key", "computers-trial.json", "computers.json", "computers-key",
   "turns-running.json",
 ]);
-const KEPT_ON_EACH_COMPUTER = new Set(["computers-trial-key", "computers-trial.json"]);
+const KEPT_ON_EACH_COMPUTER = new Set(["computers-trial-key", "computers-trial.json", "computers.json", "computers-key"]);
 const keptOnEachComputer = (path: string): boolean => KEPT_ON_EACH_COMPUTER.has(path.toLowerCase());
 const EXCLUSION_NOTES = [
   "Device pairing, server identity, live leases and runtime files (existing destination identities are preserved).",

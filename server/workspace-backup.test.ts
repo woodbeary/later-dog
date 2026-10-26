@@ -87,6 +87,8 @@ describe("encrypted full workspace backups", () => {
     db.close();
     try {
       json(join(source, "team-computers.json"), { version: 1, environmentId: "source-environment", computers: [{ id: "source-computer", name: "Source desktop", section: "Design" }] });
+      json(join(source, "computers.json"), { api: "https://source-computers.example/v1" });
+      writeFileSync(join(source, "computers-key"), "SOURCE_COMPUTERS_KEY");
       const originalDb = readFileSync(join(source, "messages.db"));
       const exported = await createWorkspaceBackup(source, {
         password: PASSWORD, appVersion: "test",
@@ -110,6 +112,8 @@ describe("encrypted full workspace backups", () => {
       writeFileSync(join(target, "laterdog-server.lease"), "live-lease");
       writeFileSync(join(target, "computers-trial-key"), "home-included-key");
       json(join(target, "computers-trial.json"), { api: "https://included.example/v1" });
+      json(join(target, "computers.json"), { api: "https://destination-computers.example/v1" });
+      writeFileSync(join(target, "computers-key"), "DESTINATION_COMPUTERS_KEY");
       writeFileSync(join(target, "messages.db-wal"), "old database WAL must not enter the new DB");
       writeFileSync(join(target, "messages.db-shm"), "old database shared memory");
       const staged = await stageWorkspaceBackup(target, exported.path, { password: PASSWORD });
@@ -118,6 +122,8 @@ describe("encrypted full workspace backups", () => {
       expect(readStagedWorkspaceBackup(target, staged.id)).not.toHaveProperty("credentials");
       const data = join(target, ".backups", staged.id, "staged", "data");
       expect(existsSync(join(data, "team-computers.json"))).toBe(false);
+      expect(existsSync(join(data, "computers.json"))).toBe(false);
+      expect(existsSync(join(data, "computers-key"))).toBe(false);
       expect(existsSync(join(data, "bots.json"))).toBe(true);
       expect(existsSync(join(data, "cloud-owner.json"))).toBe(false);
       expect(existsSync(join(data, "turns-running.json"))).toBe(false);
@@ -141,6 +147,8 @@ describe("encrypted full workspace backups", () => {
       expect(readFileSync(join(target, "laterdog-server.lease"), "utf8")).toBe("live-lease");
       expect(readFileSync(join(target, "computers-trial-key"), "utf8")).toBe("home-included-key");
       expect(readJson(join(target, "computers-trial.json"))).toEqual({ api: "https://included.example/v1" });
+      expect(readJson(join(target, "computers.json"))).toEqual({ api: "https://destination-computers.example/v1" });
+      expect(readFileSync(join(target, "computers-key"), "utf8")).toBe("DESTINATION_COMPUTERS_KEY");
       expect(existsSync(join(target, "messages.db-wal"))).toBe(false);
       expect(readFileSync(join(result.safetyCopyPath!, "data", "messages.db-wal"), "utf8")).toBe("old database WAL must not enter the new DB");
       expect(existsSync(join(target, "tools"))).toBe(false);
