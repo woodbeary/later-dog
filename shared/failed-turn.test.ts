@@ -17,6 +17,15 @@ describe("a failed turn's row", () => {
     expect(failedTurnCause(failedTurnTool(cause).name)).toBe(cause);
   });
 
+  it("shows the sentence inside a provider's JSON refusal instead of the JSON", () => {
+    const refusal = JSON.stringify({ type: "error", status: 400, error: { type: "invalid_request_error", message: "The 'gpt-6-astra' model is not supported when using Codex with a ChatGPT account.", code: "model_not_found" } });
+    expect(failedTurnCause(failedTurnTool(refusal).name)).toBe("The 'gpt-6-astra' model is not supported when using Codex with a ChatGPT account.");
+    expect(failedTurnCause(failedTurnTool(`unexpected status 401 Unauthorized: ${JSON.stringify({ detail: "Your session expired. Sign in again." })}`).name)).toBe("Your session expired. Sign in again.");
+    expect(failedTurnCause(failedTurnTool(JSON.stringify({ error: "Rate limited, try again in a minute." })).name)).toBe("Rate limited, try again in a minute.");
+    expect(failedTurnCause(failedTurnTool("Codex exited {unexpectedly}").name)).toBe("Codex exited {unexpectedly}");
+    expect(failedTurnCause(failedTurnTool(JSON.stringify({ status: 500 })).name)).toBe(JSON.stringify({ status: 500 }));
+  });
+
   it("bounds only a pathological message, and says it was cut", () => {
     const words = failedTurnCause(failedTurnTool("x".repeat(30_000)).name)!;
     expect(words).toHaveLength(FAILED_TURN_MAX_CHARS);

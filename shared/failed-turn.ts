@@ -24,7 +24,8 @@ export function failedTurnTool(
   cause: string,
   flags: { setup?: boolean; terminal?: boolean; claudeUpdate?: boolean; place?: PlaceRow; quota?: FailedTurnQuota } = {},
 ): FailedTurnTool {
-  const words = cause.length > FAILED_TURN_MAX_CHARS ? `${cause.slice(0, FAILED_TURN_MAX_CHARS - 1)}…` : cause;
+  const readable = plainCause(cause);
+  const words = readable.length > FAILED_TURN_MAX_CHARS ? `${readable.slice(0, FAILED_TURN_MAX_CHARS - 1)}…` : readable;
   return {
     name: `${MARKER} ${words}`,
     ok: false,
@@ -34,6 +35,17 @@ export function failedTurnTool(
     ...(flags.place ? { place: flags.place } : {}),
     ...(flags.quota ? { quota: quotaOf(flags.quota) } : {}),
   };
+}
+
+function plainCause(cause: string): string {
+  const start = cause.indexOf("{");
+  if (start < 0) return cause;
+  let body: unknown;
+  try { body = JSON.parse(cause.slice(start)); } catch { return cause; }
+  const said = (value: unknown): string | null => (typeof value === "string" && value.trim() ? value.trim() : null);
+  const record = body && typeof body === "object" ? body as Record<string, unknown> : null;
+  const inner = record?.error && typeof record.error === "object" ? record.error as Record<string, unknown> : null;
+  return said(inner?.message) ?? said(record?.error) ?? said(record?.message) ?? said(record?.detail) ?? cause;
 }
 
 const quotaOf = (quota: FailedTurnQuota): FailedTurnQuota => ({
