@@ -158,7 +158,8 @@ describe("what every dog with later.dog's tools knows up front", () => {
     expect(TAKEOVER_PROMPT).toMatch(/a sign-in or code you have no Secure Form for/);
     expect(TAKEOVER_PROMPT).toMatch(/call request_takeover with that one step and end the turn/);
     expect(TAKEOVER_PROMPT).toMatch(/never a reason to refuse or stop/);
-    expect(TAKEOVER_PROMPT).toMatch(/passwords and codes never belong in chat/);
+    expect(TAKEOVER_PROMPT).toMatch(/passwords, codes and keys never belong in chat/);
+    expect(TAKEOVER_PROMPT).toMatch(/new account or a new API key, set it up yourself in the browser/);
     expect(SIGN_IN_PROMPT).toMatch(/with request_takeover when you have it/);
   });
 });
