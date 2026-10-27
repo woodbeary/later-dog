@@ -344,3 +344,117 @@ describe("sharper dictation", () => {
     expect(transcribe).not.toHaveBeenCalled();
   });
 });
+
+describe("the dictation strip", () => {
+  let threads = 0;
+  let talker: Bot;
+  beforeEach(() => { talker = { ...bot, threadId: `thread-strip-${++threads}` }; });
+  afterEach(() => { vi.useRealTimers(); });
+  const mic = () => host.querySelector<HTMLButtonElement>("[data-composer-mic]")!;
+  const box = () => host.querySelector("textarea")!;
+  const strip = () => host.querySelector<HTMLElement>("[data-dictation-strip]");
+  const composer = () => host.querySelector<HTMLElement>("[data-tour='composer']")!;
+  const heights = () => [...host.querySelectorAll<HTMLElement>("[data-dictation-level]")].map((bar) => parseFloat(bar.style.height));
+  const clock = () => host.querySelector("[data-dictation-clock]")!.textContent;
+  const wait = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+  const type = async (value: string) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(box(), value);
+      box().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+
+  it("is hidden until you start dictating, then sits inside the box with cancel, level bars and a clock", async () => {
+    await act(async () => root.render(createElement(Composer, { bot: talker })));
+    expect(strip()).toBeNull();
+    await act(async () => mic().click());
+    expect(composer().contains(strip())).toBe(true);
+    expect(strip()!.getAttribute("role")).toBe("group");
+    expect(strip()!.getAttribute("aria-label")).toBe("Dictation in progress");
+    expect(strip()!.querySelector("button[aria-label='Cancel dictation']")).not.toBeNull();
+    expect(heights()).toHaveLength(28);
+    expect(strip()!.querySelector("[data-dictation-levels]")!.getAttribute("aria-hidden")).toBe("true");
+    expect(clock()).toBe("0:00");
+  });
+
+  it("turns the mic into a quiet check that keeps what was heard, with no red pulse", async () => {
+    await act(async () => root.render(createElement(Composer, { bot: talker })));
+    await act(async () => mic().click());
+    expect(mic().className).not.toContain("animate-pulse");
+    expect(mic().className).not.toContain("danger");
+    expect(mic().querySelector("svg.lucide-check")).not.toBeNull();
+    await act(async () => speech.transcript!({ partial: true, text: "ship the beta" }));
+    await act(async () => mic().click());
+    expect(strip()).toBeNull();
+    expect(box().value).toBe("ship the beta");
+    expect(mic().querySelector("svg.lucide-mic")).not.toBeNull();
+  });
+
+  it("counts the time and lifts the bars while words come in", async () => {
+    vi.useFakeTimers();
+    await act(async () => root.render(createElement(Composer, { bot: talker })));
+    await act(async () => mic().click());
+    await wait(400);
+    expect(Math.max(...heights())).toBeLessThanOrEqual(3);
+    await act(async () => speech.transcript!({ partial: true, text: "remind me to call the vet tomorrow" }));
+    await wait(160);
+    expect(Math.max(...heights())).toBeGreaterThan(8);
+    await wait(1_000);
+    expect(clock()).toBe("0:01");
+    await wait(2_000);
+    expect(Math.max(...heights().slice(-4))).toBeLessThanOrEqual(3);
+  });
+
+  it("keeps the bars still when reduced motion is on, while the clock still counts", async () => {
+    vi.useFakeTimers();
+    document.documentElement.dataset.reducedMotion = "true";
+    try {
+      await act(async () => root.render(createElement(Composer, { bot: talker })));
+      await act(async () => mic().click());
+      await act(async () => speech.transcript!({ partial: true, text: "remind me to call the vet tomorrow" }));
+      await wait(1_200);
+      expect(heights().every((height) => height === 3)).toBe(true);
+      expect(clock()).toBe("0:01");
+    } finally {
+      delete document.documentElement.dataset.reducedMotion;
+    }
+  });
+
+  it("cancels like Esc: the words heard are dropped and the earlier text comes back", async () => {
+    await act(async () => root.render(createElement(Composer, { bot: talker })));
+    await type("Hi team,");
+    await act(async () => mic().click());
+    await act(async () => speech.transcript!({ partial: true, text: "never mind" }));
+    expect(box().value).toBe("Hi team, never mind");
+    await act(async () => strip()!.querySelector<HTMLButtonElement>("[data-dictation-cancel]")!.click());
+    expect(box().value).toBe("Hi team,");
+    expect(strip()).toBeNull();
+    expect(speech.stop).toHaveBeenCalled();
+    expect(speech.transcript).toBeNull();
+    expect(mic().getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("shows Transcribing… in the same place inside the box while the cloud is working", async () => {
+    let release: (response: Response) => void = () => {};
+    vi.stubGlobal("laterdog", { ...(globalThis as unknown as { laterdog: object }).laterdog, speechAudio: vi.fn(async () => new Uint8Array([1])) });
+    vi.stubGlobal("fetch", vi.fn((url: string | URL | Request) =>
+      String(url).startsWith("/api/voice/transcribe")
+        ? new Promise<Response>((resolve) => { release = resolve; })
+        : Promise.resolve(new Response("{}", { status: 200 }))));
+    const settle = () => act(async () => { for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0)); });
+    await act(async () => root.render(createElement(Composer, { bot: talker })));
+    await act(async () => mic().click());
+    await act(async () => speech.transcript!({ partial: true, text: "draft the lunch post" }));
+    speech.stop.mockImplementationOnce(async () => ({ recording: "/notes/strip.caf" }));
+    await act(async () => mic().click());
+    await settle();
+    const status = host.querySelector<HTMLElement>("[data-dictation-status]")!;
+    expect(composer().contains(status)).toBe(true);
+    expect(status.textContent).toBe("Transcribing…");
+    expect(strip()).toBeNull();
+    release(Response.json({ text: "Draft the launch post." }));
+    await settle();
+    expect(host.querySelector("[data-dictation-status]")).toBeNull();
+    expect(box().value).toBe("Draft the launch post.");
+  });
+});

@@ -1,7 +1,7 @@
 import { track } from "@/lib/analytics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { ModelPicker } from "./ModelPicker";
-import { ArrowUp, BookOpen, Loader2, Mic, Square, Users, X } from "lucide-react";
+import { ArrowUp, BookOpen, Check, Loader2, Mic, Square, Users, X } from "lucide-react";
 import { useStore, visibleMessages, currentTaskBot, type Bot, type Group, type Message } from "@/state/store";
 import { chatPane } from "@/state/pane-errors";
 import { waitingOnPerson } from "@/lib/waiting-on-person";
@@ -64,6 +64,7 @@ import { needsCli, needsSignIn } from "./EngineSetup";
 import { signInFamily } from "@/lib/engine-rail";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { ReplyQuote } from "./ReplyQuote";
+import { DictationStrip, useDictationMeter } from "./DictationStrip";
 import { cloudDictationEnabled, skillAuthoringEnabled, voiceNoteButtonShown } from "@/lib/feature-flags";
 import { sharperTranscriptOutcome } from "@/lib/sharper-dictation";
 import { useComposerSuggestion } from "@/lib/use-composer-suggestion";
@@ -189,6 +190,7 @@ export function Composer({
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [sharpening, setSharpening] = useState(0);
   const sharpenOnStop = useRef(false);
+  const dictationMeter = useDictationMeter(recording, text.length);
   const [caret, setCaret] = useState(0);
   const [highlight, setHighlight] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
@@ -698,12 +700,6 @@ export function Composer({
 
   return (
     <div className="pointer-events-none relative px-5 pb-3">
-      {sharpening > 0 && !recording && !retryingNote && (
-        <div data-dictation-status role="status" className="pointer-events-auto mb-2 flex w-full items-center gap-2 rounded-lg border border-hairline/40 bg-raised px-3 py-2 text-[12px] text-ink-secondary">
-          <Loader2 size={12} className="shrink-0 animate-spin" aria-hidden="true" />
-          <span className="min-w-0 flex-1">{t("composer.dictation.transcribing")}</span>
-        </div>
-      )}
       {(speechError || retryingNote) && (
         <div data-voice-note className="pointer-events-auto mb-2 flex w-full items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[12px] text-warning">
           <span className="min-w-0 flex-1">
@@ -873,6 +869,14 @@ export function Composer({
           uploadImage={uploadImage}
           admitFiles={admitFiles}
         />
+        {(recording || (sharpening > 0 && !retryingNote)) && (
+          <DictationStrip
+            phase={recording ? "recording" : "transcribing"}
+            levels={dictationMeter.levels}
+            elapsedMs={dictationMeter.elapsedMs}
+            onCancel={cancelDictation}
+          />
+        )}
         <div data-composer-row className={cn("flex items-end gap-1 @max-[30rem]/composer:flex-wrap", expanded && "flex-wrap")}>
           <input
             ref={fileInput}
@@ -1009,12 +1013,12 @@ export function Composer({
             className={cn(
               "flex size-8 shrink-0 items-center justify-center rounded-full",
               recording
-                ? "animate-pulse bg-danger/20 text-danger"
+                ? "bg-raised text-ink hover:bg-raised-hover"
                 : "text-ink-secondary hover:bg-raised hover:text-ink",
             )}
             title={recording ? t("composer.dictation.stopHint") : sharpening > 0 ? t("composer.dictation.transcribing") : t("composer.dictation.hint")}
           >
-            {sharpening > 0 && !recording ? <Loader2 size={18} className="animate-spin" /> : <Mic size={18} />}
+            {recording ? <Check size={17} strokeWidth={2.5} /> : sharpening > 0 ? <Loader2 size={18} className="animate-spin motion-reduce:animate-none" /> : <Mic size={18} />}
           </button>
         )}
         {bot && !group && <CallButton bot={bot} />}
