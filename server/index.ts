@@ -5155,11 +5155,6 @@ bus.subscribe((event: RuntimeEvent) => {
 
 const statusLines = createStatusLines({
   work: threadWork(store, (threadId) => watchdog.snapshot(threadId)),
-  append: (threadId, message) => {
-    const owner = directRequestOwners.get(threadId);
-    const ownTurn = owner?.messageId && !owner.stopped && owner.turnId && owner.turnId === message.turnId;
-    return store.appendMessage(threadId, ownTurn ? { ...message, requestMessageId: owner.messageId } : message);
-  },
   patch: (threadId, messageId, patch) => store.patchMessage(threadId, messageId, patch),
   ledger: fileStatusLineLedger(join(DATA_DIR, "status-lines.json")),
   changed: (threadId) => {
@@ -5214,7 +5209,7 @@ const restartPickupHost: RestartPickupHost = {
 };
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
-  if (event.type === "turn.started") statusLines.begin(event.threadId, event.turnId);
+  if (event.type === "turn.started") statusLines.begin(event.threadId);
   else if (event.type === "turn.completed") statusLines.settle(event.threadId);
 });
 statusLines.start();

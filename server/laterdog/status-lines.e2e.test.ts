@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
@@ -10,7 +10,7 @@ import { waitForExit } from "../testing/cleanup.ts";
 const QUICK = { LATERDOG_STATUS_LINE_QUIET_MS: "1500", LATERDOG_STATUS_LINE_EVERY_MS: "1000", LATERDOG_STATUS_LINE_CHECK_MS: "200" };
 const LONG_TEST = [{ name: "Bash", input: { command: "pnpm test", description: "Run the focused tests" }, pending: true }];
 
-it.skipIf(process.platform === "win32")("posts one quiet status line while a dog works silently, then folds it when the dog replies or the server restarts", async () => {
+it.skipIf(process.platform === "win32")("keeps a quiet dog's status in its task for the phone without posting anything into the chat", async () => {
   const fixture = await launchVerificationServer({});
   const { dataDir, url, logPath } = fixture.info;
   const evidence: unknown[] = [{ url }];
@@ -66,45 +66,17 @@ it.skipIf(process.platform === "win32")("posts one quiet status line while a dog
       ?.tasks?.find((task: any) => task.threadId === threadId)?.statusLine;
 
     await control("send", "--bot", bot.id, "--task", threadId, "--text", "Run the tests and tell me when they pass.");
-    await expect.poll(async () => (await lines()).length, { timeout: 20_000, interval: 200 }).toBe(1);
-    const [live] = await lines();
-    expect(live).toMatchObject({
-      role: "bot", kind: "activity",
-      tool: { name: "notice: Still on it: running the focused tests", ok: true, statusLine: "live", spoken: "running the focused tests" },
-    });
+    await expect.poll(taskLine, { timeout: 20_000, interval: 200 }).toBe("Still on it: running the focused tests");
     expect(await busy()).toBe(true);
-    expect(await taskLine()).toBe("Still on it: running the focused tests");
-    expect(live.requestMessageId).toBe((await messages()).findLast((message) => message.role === "user").id);
     await new Promise((resolve) => setTimeout(resolve, 2_500));
-    expect(await lines()).toHaveLength(1);
-    evidence.push({ live });
+    expect(await lines()).toEqual([]);
+    evidence.push({ whileWorking: await taskLine() });
 
     writeFileSync(finishGate, "done");
-    await expect.poll(async () => (await lines()).map((line) => line.tool.statusLine), { timeout: 20_000, interval: 200 }).toEqual(["folded"]);
-    expect((await lines())[0]).toMatchObject({ id: live.id, tool: { name: "Still on it: running the focused tests", ok: true, statusLine: "folded" } });
     await expect.poll(busy, { timeout: 20_000 }).toBe(false);
     expect(await taskLine()).toBeUndefined();
-    const transcriptAfterReply = await messages();
-    const lineAt = transcriptAfterReply.findIndex((message) => message.id === live.id);
-    expect(transcriptAfterReply.slice(lineAt + 1).some((message) => message.role === "bot" && message.kind === "text" && message.text.startsWith("reply to:"))).toBe(true);
-    rmSync(finishGate);
-
-    await control("send", "--bot", bot.id, "--task", threadId, "--text", "Run them once more.");
-    await expect.poll(async () => (await lines()).filter((line) => line.tool.statusLine === "live").length, { timeout: 20_000, interval: 200 }).toBe(1);
-    const second = (await lines()).find((line) => line.tool.statusLine === "live");
-    expect(JSON.parse(readFileSync(join(dataDir, "status-lines.json"), "utf8"))).toEqual([
-      expect.objectContaining({ threadId, messageId: second.id, text: "Still on it: running the focused tests" }),
-    ]);
-    await waitForExit(server, { signal: "SIGKILL" });
-    writeFileSync(finishGate, "done");
-    start();
-    await healthy();
-    await expect.poll(async () => (await lines()).map((line) => line.tool.statusLine), { timeout: 20_000, interval: 200 }).toEqual(["folded", "folded"]);
-    expect(JSON.parse(readFileSync(join(dataDir, "status-lines.json"), "utf8"))).toEqual([]);
-    await expect.poll(async () => (await messages()).some((message) => message.tool?.pickup === "restart"), { timeout: 20_000, interval: 200 }).toBe(true);
-    await expect.poll(busy, { timeout: 20_000 }).toBe(false);
-    expect((await lines()).map((line) => line.tool.statusLine)).toEqual(["folded", "folded"]);
-    evidence.push({ afterRestart: await lines() });
+    expect(await lines()).toEqual([]);
+    expect((await messages()).some((message) => message.role === "bot" && message.kind === "text" && message.text.startsWith("reply to:"))).toBe(true);
   } finally {
     evidence.push({ transcript: await transcript().catch((error: unknown) => String(error)) });
     const evidencePath = `${logPath}.status-lines.json`;

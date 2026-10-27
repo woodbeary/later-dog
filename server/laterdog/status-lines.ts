@@ -12,7 +12,6 @@ export const STATUS_LINE_MAX_WORDS = 12;
 const RECENT_STEPS = 8;
 
 type Tool = NonNullable<WireMessage["tool"]>;
-type NewMessage = Omit<WireMessage, "id" | "at">;
 
 export type ThreadWork = "working" | "waiting" | "idle";
 
@@ -30,7 +29,6 @@ export interface StatusLineLedger {
 
 export interface StatusLineHost {
   work(threadId: string): ThreadWork;
-  append(threadId: string, message: NewMessage): WireMessage;
   patch(threadId: string, messageId: string, patch: Partial<WireMessage>): WireMessage | null;
   ledger?: StatusLineLedger;
   changed?: (threadId: string) => void;
@@ -79,10 +77,6 @@ export function statusLineFor(recentSteps: readonly string[]): { text: string; w
   return { text: `${STATUS_LINE_LEAD}: ${words}`, words };
 }
 
-export function liveStatusTool(line: { text: string; words?: string }): Tool {
-  return { name: `notice: ${line.text}`, ok: true, statusLine: "live", ...(line.words ? { spoken: line.words } : {}) };
-}
-
 export function foldedStatusTool(line: { text: string; words?: string }): Tool {
   return { name: line.text, ok: true, statusLine: "folded", ...(line.words ? { spoken: line.words } : {}) };
 }
@@ -116,8 +110,7 @@ function stepWords(message: WireMessage): string | null {
 interface QuietStretch {
   since: number;
   steps: string[];
-  turnId?: string;
-  line: { id: string; text: string; words?: string; at: number } | null;
+  line: { text: string; at: number } | null;
 }
 
 export function createStatusLines(host: StatusLineHost, timing: StatusLineTiming = {}) {
@@ -134,48 +127,16 @@ export function createStatusLines(host: StatusLineHost, timing: StatusLineTiming
     }
   };
 
-  const remember = () => {
-    if (!host.ledger) return;
-    const open = [...stretches].flatMap(([threadId, stretch]) => stretch.line
-      ? [{ threadId, messageId: stretch.line.id, text: stretch.line.text, ...(stretch.line.words ? { words: stretch.line.words } : {}) }]
-      : []);
-    try { host.ledger.write(open); } catch (error) {
-      console.error("[status-lines] could not save open status lines", error);
-    }
-  };
-
-  const fold = (threadId: string, stretch: QuietStretch) => {
-    const line = stretch.line;
-    if (!line) return;
+  const clear = (threadId: string, stretch: QuietStretch) => {
+    if (!stretch.line) return;
     stretch.line = null;
-    host.patch(threadId, line.id, { tool: foldedStatusTool(line) });
-    remember();
     changed(threadId);
   };
 
   const say = (threadId: string, stretch: QuietStretch, at: number) => {
-    const next = statusLineFor(stretch.steps);
-    if (!stretch.line) {
-      const message = host.append(threadId, {
-        role: "bot",
-        kind: "activity",
-        ...(stretch.turnId ? { turnId: stretch.turnId } : {}),
-        tool: liveStatusTool(next),
-      });
-      stretch.line = { id: message.id, ...next, at };
-      remember();
-      changed(threadId);
-      return;
-    }
-    if (at - stretch.line.at < everyMs || next.text === stretch.line.text) return;
-    if (!host.patch(threadId, stretch.line.id, { tool: liveStatusTool(next) })) {
-      stretch.line = null;
-      remember();
-      changed(threadId);
-      return;
-    }
-    stretch.line = { id: stretch.line.id, ...next, at };
-    remember();
+    const { text } = statusLineFor(stretch.steps);
+    if (stretch.line && (at - stretch.line.at < everyMs || text === stretch.line.text)) return;
+    stretch.line = { text, at };
     changed(threadId);
   };
 
@@ -185,7 +146,7 @@ export function createStatusLines(host: StatusLineHost, timing: StatusLineTiming
       const work = host.work(threadId);
       if (work === "idle") {
         stretches.delete(threadId);
-        fold(threadId, stretch);
+        clear(threadId, stretch);
         continue;
       }
       if (work === "waiting") {
@@ -197,13 +158,8 @@ export function createStatusLines(host: StatusLineHost, timing: StatusLineTiming
   };
 
   return {
-    begin(threadId: string, turnId?: string): void {
-      const stretch = stretches.get(threadId);
-      if (stretch) {
-        if (turnId) stretch.turnId = turnId;
-        return;
-      }
-      stretches.set(threadId, { since: now(), steps: [], line: null, ...(turnId ? { turnId } : {}) });
+    begin(threadId: string): void {
+      if (!stretches.has(threadId)) stretches.set(threadId, { since: now(), steps: [], line: null });
     },
 
     observe(threadId: string, message: WireMessage): void {
@@ -215,9 +171,8 @@ export function createStatusLines(host: StatusLineHost, timing: StatusLineTiming
         stretch = { since: now(), steps: [], line: null };
         stretches.set(threadId, stretch);
       }
-      if (message.turnId) stretch.turnId = message.turnId;
       if (speaksToPerson(message)) {
-        fold(threadId, stretch);
+        clear(threadId, stretch);
         stretch.since = now();
         stretch.steps = [];
         return;
@@ -229,7 +184,7 @@ export function createStatusLines(host: StatusLineHost, timing: StatusLineTiming
       const stretch = stretches.get(threadId);
       if (!stretch) return;
       stretches.delete(threadId);
-      fold(threadId, stretch);
+      clear(threadId, stretch);
     },
 
     tick,
@@ -243,12 +198,12 @@ export function createStatusLines(host: StatusLineHost, timing: StatusLineTiming
           console.error("[status-lines] could not fold a status line left open", error);
         }
       }
-      if (leftovers.length) remember();
+      if (leftovers.length) {
+        try { host.ledger?.write([]); } catch (error) {
+          console.error("[status-lines] could not clear open status lines", error);
+        }
+      }
       return leftovers.length;
-    },
-
-    open(threadId: string): string | null {
-      return stretches.get(threadId)?.line?.id ?? null;
     },
 
     current(threadId: string): string | undefined {

@@ -11,7 +11,6 @@ import {
   createStatusLines,
   fileStatusLineLedger,
   foldedStatusTool,
-  liveStatusTool,
   speaksToPerson,
   statusLineFor,
   statusLineTimingFromEnv,
@@ -32,12 +31,6 @@ function fixture(options: { ledger?: OpenStatusLine[]; changed?: (threadId: stri
   let ledger = options.ledger ?? [];
   const lines = createStatusLines({
     work: (threadId) => work.get(threadId) ?? "idle",
-    append: (threadId, message) => {
-      const full = { ...message, id: `m${++nextId}`, at: clock } as WireMessage;
-      messages.push(full);
-      lines.observe(threadId, full);
-      return full;
-    },
     patch: (_threadId, messageId, patch) => {
       const at = messages.findIndex((message) => message.id === messageId);
       if (at === -1) return null;
@@ -92,12 +85,9 @@ describe("the words in a status line", () => {
     expect(line.text).not.toContain("abcdefghijklmnop");
   });
 
-  it("is a status line every screen already shows while live, and an ordinary step once folded", () => {
-    const live = liveStatusTool({ text: "Still on it: running the tests", words: "running the tests" });
-    expect(live).toEqual({ name: "notice: Still on it: running the tests", ok: true, statusLine: "live", spoken: "running the tests" });
+  it("turns a line an older version left in a chat into an ordinary step", () => {
     expect(foldedStatusTool({ text: "Still on it: running the tests", words: "running the tests" }))
       .toEqual({ name: "Still on it: running the tests", ok: true, statusLine: "folded", spoken: "running the tests" });
-    expect(liveStatusTool({ text: "Still on it" })).toEqual({ name: "notice: Still on it", ok: true, statusLine: "live" });
   });
 });
 
@@ -112,155 +102,124 @@ describe("what counts as the dog speaking to the person", () => {
     expect(speaksToPerson(bot({ kind: "activity", tool: { name: "notice: switched account", ok: true } }))).toBe(true);
     expect(speaksToPerson(bot({ kind: "activity", tool: { name: "error: no activity", ok: false } }))).toBe(true);
     expect(speaksToPerson(bot({ kind: "activity", tool: { name: "Bash", spoken: "running a few commands" } }))).toBe(false);
-    expect(speaksToPerson(bot({ kind: "activity", tool: liveStatusTool({ text: "Still on it" }) }))).toBe(false);
+    expect(speaksToPerson(bot({ kind: "activity", tool: { name: "notice: Still on it", ok: true, statusLine: "live" } }))).toBe(false);
     expect(speaksToPerson(bot({ kind: "screen" }))).toBe(false);
   });
 });
 
 describe("a quiet status line while a dog works", () => {
-  it("says nothing during the first few quiet minutes", () => {
-    const { lines, step, advance, statusLines } = fixture();
-    lines.begin(THREAD, "turn-1");
+  it("never posts anything into the chat", () => {
+    const { lines, step, advance, messages, statusLines } = fixture();
+    lines.begin(THREAD);
     step("running the tests");
-    advance(STATUS_LINE_QUIET_MS - 1);
+    advance(STATUS_LINE_QUIET_MS * 10);
+    expect(lines.current(THREAD)).toBe("Still on it: running the tests");
     expect(statusLines()).toHaveLength(0);
+    expect(messages).toHaveLength(1);
   });
 
-  it("posts one plain line from the latest step once the dog has been quiet a while", () => {
-    const { lines, step, advance, statusLines, ledger } = fixture();
-    lines.begin(THREAD, "turn-1");
+  it("says nothing during the first few quiet minutes", () => {
+    const { lines, step, advance } = fixture();
+    lines.begin(THREAD);
+    step("running the tests");
+    advance(STATUS_LINE_QUIET_MS - 1);
+    expect(lines.current(THREAD)).toBeUndefined();
+  });
+
+  it("follows the latest step at most every few minutes", () => {
+    const { lines, step, advance } = fixture();
+    lines.begin(THREAD);
     step("doing some reading");
     step("run the focused tests");
     advance(STATUS_LINE_QUIET_MS);
-    expect(statusLines()).toEqual([expect.objectContaining({
-      role: "bot", kind: "activity", turnId: "turn-1",
-      tool: { name: "notice: Still on it: running the focused tests", ok: true, statusLine: "live", spoken: "running the focused tests" },
-    })]);
-    expect(ledger()).toEqual([{ threadId: THREAD, messageId: statusLines()[0]!.id, text: "Still on it: running the focused tests", words: "running the focused tests" }]);
-  });
-
-  it("updates the same line in place, at most every few minutes and only when the words change", () => {
-    const { lines, step, advance, statusLines, patches } = fixture();
-    lines.begin(THREAD, "turn-1");
-    step("running the tests");
-    advance(STATUS_LINE_QUIET_MS);
-    const first = statusLines()[0]!.id;
+    expect(lines.current(THREAD)).toBe("Still on it: running the focused tests");
     step("making edits");
     advance(STATUS_LINE_EVERY_MS - 1);
-    expect(patches).toHaveLength(0);
+    expect(lines.current(THREAD)).toBe("Still on it: running the focused tests");
     advance(1);
-    expect(statusLines()).toHaveLength(1);
-    expect(statusLines()[0]).toMatchObject({ id: first, tool: { name: "notice: Still on it: making edits", statusLine: "live" } });
-    advance(STATUS_LINE_EVERY_MS * 4);
-    expect(patches).toHaveLength(1);
+    expect(lines.current(THREAD)).toBe("Still on it: making edits");
   });
 
-  it("folds the line into the turn's progress when the dog speaks, then starts a fresh quiet stretch", () => {
-    const { lines, post, step, advance, statusLines, ledger } = fixture();
-    lines.begin(THREAD, "turn-1");
+  it("clears when the dog speaks, then starts a fresh quiet stretch", () => {
+    const { lines, post, step, advance } = fixture();
+    lines.begin(THREAD);
     step("running the tests");
     advance(STATUS_LINE_QUIET_MS);
     post({ role: "bot", kind: "text", turnId: "turn-1", text: "The tests pass; fixing the build next." });
-    expect(statusLines()).toEqual([expect.objectContaining({ tool: foldedStatusTool({ text: "Still on it: running the tests", words: "running the tests" }) })]);
-    expect(ledger()).toEqual([]);
+    expect(lines.current(THREAD)).toBeUndefined();
     step("building the app");
     advance(STATUS_LINE_QUIET_MS - 1);
-    expect(statusLines()).toHaveLength(1);
+    expect(lines.current(THREAD)).toBeUndefined();
     advance(1);
-    expect(statusLines()).toHaveLength(2);
-    expect(statusLines()[1]!.tool).toMatchObject({ name: "notice: Still on it: building the app", statusLine: "live" });
+    expect(lines.current(THREAD)).toBe("Still on it: building the app");
   });
 
-  it("folds the line when the turn ends", () => {
-    const { lines, step, advance, statusLines } = fixture();
-    lines.begin(THREAD, "turn-1");
-    step("running the tests");
-    advance(STATUS_LINE_QUIET_MS);
-    lines.settle(THREAD);
-    expect(statusLines()[0]!.tool?.statusLine).toBe("folded");
-    advance(STATUS_LINE_QUIET_MS * 2);
-    expect(statusLines()).toHaveLength(1);
-  });
+  it("clears when the turn ends or the dog stops working", () => {
+    const ended = fixture();
+    ended.lines.begin(THREAD);
+    ended.step("running the tests");
+    ended.advance(STATUS_LINE_QUIET_MS);
+    ended.lines.settle(THREAD);
+    expect(ended.lines.current(THREAD)).toBeUndefined();
 
-  it("folds the line when the dog stops working without a turn end", () => {
-    const { lines, step, advance, statusLines, work } = fixture();
-    lines.begin(THREAD, "turn-1");
-    step("running the tests");
-    advance(STATUS_LINE_QUIET_MS);
-    work.set(THREAD, "idle");
-    advance(1);
-    expect(statusLines()[0]!.tool?.statusLine).toBe("folded");
-    expect(lines.open(THREAD)).toBeNull();
+    const stopped = fixture();
+    stopped.lines.begin(THREAD);
+    stopped.step("running the tests");
+    stopped.advance(STATUS_LINE_QUIET_MS);
+    stopped.work.set(THREAD, "idle");
+    stopped.advance(1);
+    expect(stopped.lines.current(THREAD)).toBeUndefined();
   });
 
   it("stays silent while the dog waits on the person, and restarts the quiet clock after", () => {
-    const { lines, step, advance, statusLines, work } = fixture();
-    lines.begin(THREAD, "turn-1");
+    const { lines, step, advance, work } = fixture();
+    lines.begin(THREAD);
     step("running the tests");
     work.set(THREAD, "waiting");
     advance(STATUS_LINE_QUIET_MS * 5);
-    expect(statusLines()).toHaveLength(0);
+    expect(lines.current(THREAD)).toBeUndefined();
     work.set(THREAD, "working");
     advance(STATUS_LINE_QUIET_MS - 1);
-    expect(statusLines()).toHaveLength(0);
+    expect(lines.current(THREAD)).toBeUndefined();
     advance(1);
-    expect(statusLines()).toHaveLength(1);
+    expect(lines.current(THREAD)).toBe("Still on it: running the tests");
   });
 
-  it("picks up a thread whose turn start it missed, from its first step", () => {
-    const { step, advance, statusLines } = fixture();
-    step("making edits");
-    advance(STATUS_LINE_QUIET_MS);
-    expect(statusLines()).toHaveLength(1);
+  it("picks up a thread whose turn start it missed, and ignores threads where no dog is working", () => {
+    const missed = fixture();
+    missed.step("making edits");
+    missed.advance(STATUS_LINE_QUIET_MS);
+    expect(missed.lines.current(THREAD)).toBe("Still on it: making edits");
+
+    const idle = fixture();
+    idle.work.set(THREAD, "idle");
+    idle.step("making edits");
+    idle.advance(STATUS_LINE_QUIET_MS);
+    expect(idle.lines.current(THREAD)).toBeUndefined();
   });
 
-  it("ignores threads where no dog is working", () => {
-    const { step, advance, statusLines, work } = fixture();
-    work.set(THREAD, "idle");
-    step("making edits");
-    advance(STATUS_LINE_QUIET_MS);
-    expect(statusLines()).toHaveLength(0);
-  });
-
-  it("says just 'Still on it' when no step had words worth repeating", () => {
-    const { lines, advance, statusLines } = fixture();
-    lines.begin(THREAD, "turn-1");
-    advance(STATUS_LINE_QUIET_MS);
-    expect(statusLines()[0]!.tool).toEqual({ name: "notice: Still on it", ok: true, statusLine: "live" });
-  });
-
-  it("keeps the live line in the thread's state and says each time it changes, so the phone sees it too", () => {
+  it("says each time the line changes, so the phone's status row follows it, and survives a failed share", () => {
     const changes: string[] = [];
     const { lines, step, advance, post } = fixture({ changed: (threadId) => changes.push(threadId) });
-    lines.begin(THREAD, "turn-1");
+    lines.begin(THREAD);
     step("running the tests");
-    expect(lines.current(THREAD)).toBeUndefined();
     advance(STATUS_LINE_QUIET_MS);
-    expect(lines.current(THREAD)).toBe("Still on it: running the tests");
-    expect(changes).toEqual([THREAD]);
     step("making edits");
     advance(STATUS_LINE_EVERY_MS);
-    expect(lines.current(THREAD)).toBe("Still on it: making edits");
-    expect(changes).toEqual([THREAD, THREAD]);
     post({ role: "bot", kind: "text", turnId: "turn-1", text: "All green." });
-    expect(lines.current(THREAD)).toBeUndefined();
     expect(changes).toEqual([THREAD, THREAD, THREAD]);
-  });
 
-  it("keeps going when sharing a change fails", () => {
-    const { lines, step, advance, statusLines } = fixture({ changed: () => { throw new Error("no clients"); } });
-    lines.begin(THREAD, "turn-1");
-    step("running the tests");
-    advance(STATUS_LINE_QUIET_MS);
-    expect(statusLines()).toHaveLength(1);
-    lines.settle(THREAD);
-    expect(statusLines()[0]!.tool?.statusLine).toBe("folded");
+    const failing = fixture({ changed: () => { throw new Error("no clients"); } });
+    failing.lines.begin(THREAD);
+    failing.step("running the tests");
+    failing.advance(STATUS_LINE_QUIET_MS);
+    expect(failing.lines.current(THREAD)).toBe("Still on it: running the tests");
   });
 
   it("folds a line left open when the server stopped mid-turn", () => {
     const open = { threadId: THREAD, messageId: "m-old", text: "Still on it: running the tests", words: "running the tests" };
     const { lines, messages, ledger } = fixture({ ledger: [open] });
-    messages.push({ id: "m-old", at: 1, role: "bot", kind: "activity", tool: liveStatusTool(open) });
+    messages.push({ id: "m-old", at: 1, role: "bot", kind: "activity", tool: { name: `notice: ${open.text}`, ok: true, statusLine: "live", spoken: open.words } });
     expect(lines.foldLeftovers()).toBe(1);
     expect(messages[0]!.tool).toEqual(foldedStatusTool(open));
     expect(ledger()).toEqual([]);
