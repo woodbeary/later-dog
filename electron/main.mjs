@@ -29,6 +29,7 @@ import {
   readSafeLogTail,
 } from "./diagnostics.mjs";
 import { migrateWorkspaceCredentials, workspaceCredentialEnv } from "./workspace-credentials.mjs";
+import { createSavedKeys } from "./saved-keys.mjs";
 import { evictStartupCacheOnce } from "./startup-cache-eviction.mjs";
 import { activateExistingWindow, releaseSingleInstanceLock } from "./single-instance.mjs";
 import { pollServerIdentity } from "./server-boot-probe.mjs";
@@ -2760,6 +2761,11 @@ async function saveWorkspaceCredential(name, value) {
 }
 
 ipcMain.handle("credential:set", localOnly("credential:set", (_event, name, value) => saveWorkspaceCredential(name, value)));
+
+const savedKeys = createSavedKeys();
+ipcMain.handle("credential:find-saved", localOnly("credential:find-saved", (_event, name) => savedKeys.find(name)));
+ipcMain.handle("credential:use-saved", localOnly("credential:use-saved", async (_event, name, id) =>
+  saveWorkspaceCredential(name, await savedKeys.read(name, id))));
 
 async function restoreWorkspaceCredentials(credentials) {
   if (app.isPackaged && serverReady) {

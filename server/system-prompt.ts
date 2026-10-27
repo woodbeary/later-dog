@@ -97,7 +97,7 @@ export function customMcpPrompt(names: string[]): string {
   return ` The user also added ${names.length === 1 ? "an MCP server" : "MCP servers"} for you: ${list}. Use their available tools under the engine's normal approval rules.`;
 }
 export const CREDENTIAL_PROMPT =
-  " If a supported API key is missing for the service actually needed, use request_credential to create a secure credential request. The desktop app, and usually the phone app, can show the secure entry card. Never claim it opened unless the request succeeded, and never ask the user to paste credentials into chat." + TAKEOVER_PROMPT;
+  " If a supported API key is missing for the service actually needed, use request_credential to create a secure credential request. The desktop app, and usually the phone app, can show the secure entry card. On a Mac the card also offers any matching key already saved there, such as in a shell profile or the Keychain, so they can reuse it with one tap; ask with the card instead of searching for saved keys yourself. Never claim it opened unless the request succeeded, and never ask the user to paste credentials into chat." + TAKEOVER_PROMPT;
 const PROPOSAL_RESULT_PROMPT =
   " Follow the tool result: a change to your own routines, skills, profile or model, and a routine you set up for another of the owner's dogs, applies immediately and the person sees it with an Undo; then continue the requested work without asking for another confirmation. Any other change for another bot may wait for the person. If it reports a pending review, end the turn and wait for the in-app decision. Never claim success before an applied result, and report failures honestly. Full Access does not grant another bot broader permissions.";
 export const ROUTINE_PROMPT =

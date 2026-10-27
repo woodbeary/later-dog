@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Check, ExternalLink, KeyRound, Loader2, LockKeyhole, RefreshCw, X } from "lucide-react";
 
 import { credentialConfigPatch, credentialResumeOutcome } from "../../shared/credential-request";
@@ -22,6 +22,7 @@ export function SecretRequestCard({
   const [saving, setSaving] = useState(false);
   const [savedLocally, setSavedLocally] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [savedOnMac, setSavedOnMac] = useState<Array<{ id: string; label: string; hint: string | null }>>([]);
   const endpoint = `/api/bots/${encodeURIComponent(botId)}/secret-cards/${encodeURIComponent(message.id)}`;
   const error = localError ?? secret.error;
   const outcome = credentialResumeOutcome(secret);
@@ -45,6 +46,18 @@ export function SecretRequestCard({
       : error
         ? "The key is safe; resuming failed"
         : "Waiting to resume safely";
+
+  useEffect(() => {
+    const find = window.laterdog?.findSavedCredential;
+    if (!pending || !find) return;
+    let live = true;
+    void find(secret.target).then((found) => {
+      if (live) setSavedOnMac(found);
+    });
+    return () => {
+      live = false;
+    };
+  }, [pending, secret.target]);
 
   if (declined && (secret.resumed || !error)) return null;
 
@@ -99,6 +112,24 @@ export function SecretRequestCard({
     }
   };
 
+  const useSaved = async (id: string) => {
+    const use = window.laterdog?.useSavedCredential;
+    if (saving || !use) return;
+    setSaving(true);
+    setLocalError(null);
+    try {
+      if (!savedLocally) {
+        dispatch({ type: "configStatus", config: await use(secret.target, id) });
+        setSavedLocally(true);
+      }
+      await notifyProvided();
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : t("credentialStore.saveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const dismiss = () => {
     void api(`${endpoint}/dismiss`, {
       method: "POST",
@@ -131,6 +162,23 @@ export function SecretRequestCard({
       <div className="px-3.5 pb-3.5">
         <p className="text-[12.5px] leading-[18px] text-ink-secondary">{description}</p>
         {error && <p role="alert" className="mt-2 text-[12px] text-danger">{error}</p>}
+        {pending && savedOnMac.length > 0 && !savedLocally && (
+          <div className="mt-3 flex flex-col gap-1.5" data-saved-keys="">
+            {savedOnMac.map((found) => (
+              <div key={found.id} className="flex items-center justify-between gap-2 rounded-xl bg-composer px-3 py-2 ring-[0.5px] ring-ink/10">
+                <span className="min-w-0 truncate text-[12.5px] text-ink">
+                  {found.label}
+                  {found.hint && <span className="ml-1.5 font-mono text-ink-tertiary">{found.hint}</span>}
+                </span>
+                <button type="button" onClick={() => void useSaved(found.id)} disabled={saving} className={REQUEST_PRIMARY}>
+                  {saving && <Loader2 size={13} className="animate-spin" />}
+                  Use this key
+                </button>
+              </div>
+            ))}
+            <p className="text-[11.5px] text-ink-tertiary">Found on this Mac. Your dog never sees it.</p>
+          </div>
+        )}
         {pending && (
           <form onSubmit={(event) => void save(event)} className="mt-3">
             <input

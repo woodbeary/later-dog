@@ -241,6 +241,12 @@ const bridge = {
       throw new Error(value && detail.includes(value) ? "The key could not be saved securely. Try again." : detail);
     }
   },
+  findSavedCredential: (name) => ipcRenderer.invoke("credential:find-saved", name).catch(() => []),
+  useSavedCredential: (name, id) =>
+    ipcRenderer.invoke("credential:use-saved", name, id).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(message.replace(/^Error invoking remote method 'credential:use-saved': (?:Error: )?/, ""));
+    }),
   retryCredentialStore: () => ipcRenderer.invoke("credential:retry"),
 
   updater: {
