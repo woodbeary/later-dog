@@ -11859,6 +11859,7 @@ function configStatus() {
       typingSuggestions: typingSuggestionsEnabled(cfg),
       smarterSuggestions: smarterSuggestionsEnabled(cfg),
       autoReview: autoReviewOn(cfg.features),
+      voiceNoteButton: cfg.features?.voiceNoteButton !== false,
     },
     onboarding: {
       completedAt: cfg.onboarding?.completedAt ?? "",

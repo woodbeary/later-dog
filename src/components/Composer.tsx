@@ -64,7 +64,7 @@ import { needsCli, needsSignIn } from "./EngineSetup";
 import { signInFamily } from "@/lib/engine-rail";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { ReplyQuote } from "./ReplyQuote";
-import { cloudDictationEnabled, skillAuthoringEnabled } from "@/lib/feature-flags";
+import { cloudDictationEnabled, skillAuthoringEnabled, voiceNoteButtonShown } from "@/lib/feature-flags";
 import { sharperTranscript } from "@/lib/sharper-dictation";
 import { useComposerSuggestion } from "@/lib/use-composer-suggestion";
 import { TypingGhost, TypingGhostAnnouncement } from "./TypingGhost";
@@ -994,7 +994,7 @@ export function Composer({
             <Square size={14} className="fill-current" />
           </button>
         )}
-        {!locked && capabilities.dictation.available && (recording || (!busy && !retryingNote)) && (
+        {!locked && capabilities.dictation.available && (recording || (voiceNoteButtonShown(state.config) && !busy && !retryingNote)) && (
           <button
             type="button"
             data-composer-mic

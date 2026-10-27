@@ -28,6 +28,13 @@ function HelperDetails({ helper }: { helper: Helper | HelperMember }) {
       <div className="flex items-start justify-between gap-3"><span className="break-words text-[12px] font-medium leading-5 text-ink">{helper.label}</span><span className="shrink-0 pt-0.5 text-[10.5px] text-ink-tertiary">{helperStateText(helper.state)}</span></div>
       {"phase" in helper && helper.phase && <p className="text-[11px] text-ink-tertiary">{helper.phase}</p>}
       {helper.activity && <p className="break-words text-[12px] leading-relaxed text-ink-secondary">{helper.activity}</p>}
+      {helper.recentActivity && helper.recentActivity.length > 1 && (
+        <ul className="space-y-0.5">
+          {helper.recentActivity.slice(0, -1).reverse().map((line, index) => (
+            <li key={index} className="break-words text-[11px] leading-relaxed text-ink-tertiary">{line}</li>
+          ))}
+        </ul>
+      )}
       <div className="flex flex-wrap gap-x-3 text-[10.5px] leading-4 tabular-nums text-ink-tertiary">
         {helper.toolUses !== undefined && <span>{t("chat.helpers.tools", { count: helper.toolUses })}</span>}
         {helper.tokens !== undefined && <span>{t("chat.helpers.tokens", { count: helper.tokens.toLocaleString() })}</span>}

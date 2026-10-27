@@ -51,7 +51,6 @@ import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { AddDogSheet, droppedDogFile, type AddDogResult, type AddDogSource } from "./AddDogSheet";
 import { SectionRenameDialog } from "./SectionRenameDialog";
 import { RenameTitle } from "./RenameTitle";
-import { MainDogBadge } from "./MainDogBadge";
 import { MainDogPicker } from "./MainDogPicker";
 import { navigateMenu } from "@/lib/menu-keys";
 import {
@@ -817,7 +816,6 @@ export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, ma
         {unread && (
           <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full border-2 border-panel bg-accent" aria-label={t("task.unreadMany")} />
         )}
-        {bot.chiefOfStaff && <MainDogBadge />}
         <StatusDot kind={dogStatusKind({ waiting, working })} ring="border-panel" size="size-3" announce={waiting} />
       </span>
       <span className="w-full truncate text-center text-[11px] leading-4 text-ink">{bot.name}</span>
@@ -887,7 +885,6 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
           animated={working || unread || (mascotMotion?.kind ?? "none") !== "none"}
         />
         <StatusDot kind={dogStatusKind({ waiting, working, teammates: teammateWait, queued })} ring="border-panel" size={iconOnly ? "size-3" : "size-2.5"} announce={waiting || teammateWait || (queued && !working)} />
-        {bot.chiefOfStaff && <MainDogBadge size={iconOnly ? "size-3" : "size-2.5"} />}
         {onLiveCall && iconOnly && (
           <span className="absolute -right-1 -top-1 flex rounded-full bg-panel p-0.5">
             <Phone className="size-3 shrink-0 text-success" role="img" aria-label={t("call.live.badge")} data-testid="live-call-badge">

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, RefreshCw, X } from "lucide-react";
+import { GripVertical, Loader2, RefreshCw, X } from "lucide-react";
 import { api, useStore, type ConfigStatus, type InstanceInfo } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
@@ -15,6 +15,7 @@ import { IncludedAiAccount } from "./IncludedAiAccount";
 import { usageLines, usageReading, usePlanUsage, type PlanProvider, resetDistance } from "./PlanUsage";
 import { backAt, restSummary, SleepingDog, usageLeft } from "./AccountCharge";
 import { AccountCharge } from "./AccountBattery";
+import { useAccountDrag, type AccountDrag } from "./account-drag";
 
 type Battery = NonNullable<ConfigStatus["accountBattery"]>;
 type Rest = NonNullable<Battery["resting"]>[string];
@@ -120,6 +121,16 @@ export function accountOrder(accounts: readonly InstanceInfo[]): Record<string, 
   return order;
 }
 
+export function shownOrder(accounts: readonly InstanceInfo[], shown: readonly string[]): Record<string, string[]> {
+  const order = accountOrder(accounts);
+  for (const [kind, ids] of Object.entries(order)) {
+    const moved = shown.filter((id) => ids.includes(id));
+    let next = 0;
+    order[kind] = ids.map((id) => (moved.includes(id) ? moved[next++]! : id));
+  }
+  return order;
+}
+
 export async function pollSignedIn(isSignedIn: () => boolean, fetchSignedIn: () => Promise<boolean>, delays: readonly number[] = [500, 1000, 2000, 4000]): Promise<boolean> {
   if (isSignedIn()) return true;
   for (const delay of delays) {
@@ -135,21 +146,30 @@ export function useCarryOn() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const accounts = subscriptionAccounts(state.instances, battery);
-  const set = async (enabled: boolean) => {
+  const save = async (enabled: boolean, order: Record<string, string[]>, shown?: ConfigStatus, auto = battery?.auto === true, sequence = accounts.map((account) => account.instanceId)) => {
     if (saving) return;
     setSaving(true);
     setError(null);
+    if (shown) dispatch({ type: "configStatus", config: shown });
     try {
-      const accountBattery = { enabled, auto: battery?.auto === true, order: accountOrder(accounts), sequence: accounts.map((account) => account.instanceId) };
-      const config = await api<ConfigStatus>("/api/config", { method: "PUT", body: JSON.stringify({ accountBattery }) });
+      const config = await api<ConfigStatus>("/api/config", { method: "PUT", body: JSON.stringify({ accountBattery: { enabled, auto, order, sequence } }) });
       dispatch({ type: "configStatus", config });
     } catch (cause) {
+      if (shown && state.config) dispatch({ type: "configStatus", config: state.config });
       setError(cause instanceof Error ? cause.message : t("accounts.carryOnError"));
     } finally {
       setSaving(false);
     }
   };
-  return { on: battery?.enabled === true, auto: battery?.enabled === true && battery.auto === true, saving, error, set };
+  const set = (enabled: boolean) => save(enabled, accountOrder(accounts));
+  const reorder = async (shown: readonly string[]) => {
+    if (!battery || !state.config || (battery.enabled && battery.auto)) return;
+    const order = shownOrder(accounts, shown);
+    const sequence = [...shown.filter((id) => accounts.some((account) => account.instanceId === id)), ...accounts.map((account) => account.instanceId).filter((id) => !shown.includes(id))];
+    await save(battery.enabled, order, { ...state.config, accountBattery: { ...battery, order, sequence } }, false, sequence);
+  };
+  const setAuto = (auto: boolean) => save(battery?.enabled === true, accountOrder(accounts), undefined, auto);
+  return { on: battery?.enabled === true, auto: battery?.enabled === true && battery.auto === true, saving, error, set, setAuto, reorder, canReorder: battery !== undefined && !(battery.enabled && battery.auto) };
 }
 
 export function AccountMark({ kind, size = 20 }: { kind: string; size?: number }) {
@@ -159,12 +179,13 @@ export function AccountMark({ kind, size = 20 }: { kind: string; size?: number }
   return <ClaudeMark size={size} />;
 }
 
-function AccountRow({ instance, provider, rest, now, only, onSignIn, onGone }: {
+function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGone }: {
   instance: InstanceInfo;
   provider: PlanProvider | undefined;
   rest: Rest | undefined;
   now: number;
   only: boolean;
+  drag: AccountDrag;
   onSignIn: () => void;
   onGone: () => void;
 }) {
@@ -183,6 +204,7 @@ function AccountRow({ instance, provider, rest, now, only, onSignIn, onGone }: {
   const usage = isSignedIn ? rowUsage(provider, rest, now) : null;
   const name = instance.displayName;
   const id = encodeURIComponent(instance.instanceId);
+  const dragRow = drag.row(instance.instanceId);
 
   useEffect(() => {
     if (asking || !refocus.current) return;
@@ -235,7 +257,25 @@ function AccountRow({ instance, provider, rest, now, only, onSignIn, onGone }: {
   };
 
   return (
-    <li data-account={instance.instanceId} className="group relative">
+    <li
+      data-account={instance.instanceId}
+      {...dragRow}
+      draggable={draft === null && !asking ? dragRow.draggable : undefined}
+      className={cn("group relative", drag.dragging === instance.instanceId && "opacity-50")}
+    >
+      {drag.movable(instance.instanceId) && !asking && (
+        <button
+          type="button"
+          data-account-grip
+          aria-label={t("accounts.move", { name })}
+          aria-keyshortcuts="ArrowUp ArrowDown"
+          title={t("accounts.dragHint")}
+          onKeyDown={(event) => drag.step(event, instance.instanceId, true)}
+          className="absolute inset-y-0 left-0 flex w-4 cursor-grab items-center justify-center rounded-md text-ink-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus touch:opacity-100"
+        >
+          <GripVertical size={12} />
+        </button>
+      )}
       <div data-account-row className={ROW}>
         <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-control text-ink">
           {usage && (usage.rest || usage.used >= 100) ? <SleepingDog size={25} /> : <AccountMark kind={instance.driverKind} />}
@@ -496,6 +536,15 @@ export function AccountsPanel() {
   const carryOnCount = accounts.filter((account) => signedIn(account) && carriesOn(account)).length;
   const { report, now } = usePlanUsage();
   const carryOn = useCarryOn();
+  const drag = useAccountDrag(
+    accounts.map((instance) => ({
+      id: instance.instanceId,
+      kind: "account",
+      movable: carryOn.canReorder && accounts.filter(carriesOn).length > 1 && carriesOn(instance),
+    })),
+    (ids) => void carryOn.reorder(ids),
+  );
+  const rows = drag.order.flatMap((id) => accounts.filter((instance) => instance.instanceId === id));
 
   return (
     <section className="flex flex-col" data-accounts-panel>
@@ -513,8 +562,8 @@ export function AccountsPanel() {
             <p className="min-w-0 text-[13px] leading-5 text-ink-secondary">{t("accounts.empty")}</p>
           </div>
         ) : (
-          <ul className="divide-y divide-hairline/40">
-            {accounts.map((instance) => (
+          <ul className="divide-y divide-hairline/40" {...drag.list}>
+            {rows.map((instance) => (
               <AccountRow
                 key={instance.instanceId}
                 instance={instance}
@@ -522,6 +571,7 @@ export function AccountsPanel() {
                 rest={battery?.resting?.[instance.instanceId]}
                 now={now}
                 only={signedIn(instance) && signedInCount === 1}
+                drag={drag}
                 onSignIn={() => requestAccountSignIn(instance.instanceId)}
                 onGone={() => forget(instance.instanceId)}
               />
@@ -541,6 +591,10 @@ export function AccountsPanel() {
             <Switch checked={carryOn.on} disabled={carryOn.saving} aria-label={t("accounts.carryOn")} onClick={() => void carryOn.set(!carryOn.on)} />
           </div>
         )}
+        {carryOn.on && <div className="flex items-center justify-between gap-3 border-t border-hairline/40 px-4 py-3">
+          <div><div className="text-[13px] text-ink">{t("accounts.mostLeft")}</div><p className="text-[12px] text-ink-secondary">{t(carryOn.auto ? "accounts.automatic" : "accounts.manualOrder")}</p></div>
+          <Switch checked={carryOn.auto} disabled={carryOn.saving} aria-label={t("accounts.mostLeft")} onClick={() => void carryOn.setAuto(!carryOn.auto)} />
+        </div>}
         {carryOn.error && <p role="alert" className="px-4 pb-3 text-[12px] text-danger">{carryOn.error}</p>}
       </div>
     </section>

@@ -57,6 +57,13 @@ test("the checklist reads each grant live and never prompts", () => {
   assert.equal(permissionChecklist(macHost({ accessibility: false }).host).accessibility, "denied");
 });
 
+test("a Mac bundle whose own mic grant lags the speech helper's still shows granted once dictation has worked", () => {
+  const { host } = macHost({ microphone: "not-determined" });
+  assert.equal(permissionChecklist(host).microphone, "notDetermined");
+  assert.equal(permissionChecklist({ ...host, everGrantedSpeech: true }).microphone, "granted");
+  assert.equal(permissionChecklist({ ...host, everGrantedSpeech: false }).microphone, "notDetermined");
+});
+
 test("anywhere but macOS there is nothing to ask for", async () => {
   for (const platform of ["win32", "linux", "other"]) {
     const unavailable = { microphone: "unavailable", accessibility: "unavailable", screen: "unavailable" };
@@ -97,7 +104,7 @@ test("only the three known grants can be requested", async () => {
 test("the app wires the checklist to local-only channels and the same privacy panes", () => {
   const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.match(main, /import \{ permissionChecklist, requestPermission \} from "\.\/mac-permissions\.mjs";/);
-  assert.match(main, /const macPermissionHost = \(\) => \(\{ platform: process\.platform, systemPreferences, desktopCapturer \}\);/);
+  assert.match(main, /const macPermissionHost = \(\) => \(\{ platform: process\.platform, systemPreferences, desktopCapturer, everGrantedSpeech: speechEverGranted\(app\.getPath\("userData"\)\) \}\);/);
   assert.match(main, /import \{ cuaStartsAfterGrant \} from "\.\/cua-grant\.mjs";/);
   assert.match(main, /ipcMain\.handle\("perm:checklist", localOnly\("perm:checklist", \(\) => startCuaWhenGranted\(permissionChecklist\(macPermissionHost\(\)\)\)\)\);/);
   assert.match(main, /ipcMain\.handle\("perm:request", localOnly\("perm:request", async \(_event, permission\) => startCuaWhenGranted\(await requestPermission\(permission, macPermissionHost\(\)\)\)\)\);/);

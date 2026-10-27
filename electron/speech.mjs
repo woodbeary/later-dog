@@ -21,6 +21,9 @@ import {
   speechHelperBundle,
 } from "./build-speech-helper.mjs";
 import { speechTranscript } from "./speech-transcript.mjs";
+import { forgetSpeechGranted, rememberSpeechGranted } from "./speech-grant.mjs";
+
+const PERMISSION_ERRORS = new Set(["speech-not-authorized", "mic-failed"]);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(__dirname, "resources", "speech-helper.swift");
@@ -186,8 +189,10 @@ export function startSpeech(win, options = {}) {
     if (child !== speechSession) return;
     child = null;
     if (reportedError) {
+      if (PERMISSION_ERRORS.has(reportedError)) forgetSpeechGranted(app.getPath("userData"));
       sendEnd(win, { code: 1, reason: reportedError, ...kept });
     } else if (completed && code === 0) {
+      rememberSpeechGranted(app.getPath("userData"));
       sendEnd(win, { code: 0, reason: "completed", ...kept });
     } else {
       sendEnd(win, { code: 1, reason: "helper-exited", ...kept });

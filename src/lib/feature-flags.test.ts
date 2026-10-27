@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { builtInBrowserEnabled, llmThreadTitlesEnabled, sharedComputersEnabled, showToolCallsEnabled, skillAuthoringEnabled } from "./feature-flags";
+import { builtInBrowserEnabled, llmThreadTitlesEnabled, sharedComputersEnabled, showToolCallsEnabled, skillAuthoringEnabled, voiceNoteButtonShown } from "./feature-flags";
 
 describe("experimental feature flags", () => {
+  it("shows the voice note mic unless it is switched off", () => {
+    expect(voiceNoteButtonShown(null)).toBe(true);
+    expect(voiceNoteButtonShown({ features: {} })).toBe(true);
+    expect(voiceNoteButtonShown({ features: { voiceNoteButton: true } })).toBe(true);
+    expect(voiceNoteButtonShown({ features: { voiceNoteButton: false } })).toBe(false);
+  });
+
   it("keeps skill authoring on by default, before and after the config arrives", () => {
     expect(skillAuthoringEnabled(null)).toBe(true);
     expect(skillAuthoringEnabled({})).toBe(true);

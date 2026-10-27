@@ -133,8 +133,17 @@ describe("General", () => {
     const html = render();
     for (const gone of ["About me", "Voice mode", "Step-by-step updates", "Show every update", "Typing suggestions", "Smarter suggestions", "Sharper dictation", "Learned"]) expect(html).not.toContain(gone);
     expect(html).not.toContain('data-settings-group="typing-suggestions"');
-    expect(html.match(/role="switch"/g) ?? []).toHaveLength(2);
+    expect(html.match(/role="switch"/g) ?? []).toHaveLength(3);
     expect(html).toContain('data-auto-review="on"');
+    expect(html).toContain('data-voice-note-button="on"');
+  });
+
+  it("shows the voice note mic by default and lets you hide it", () => {
+    const on = render();
+    expect(on).toContain('aria-label="Voice note button"');
+    expect(on).toContain('data-voice-note-button="on"');
+    fixture.config = { ...fixture.config, features: { browser: false, voiceNoteButton: false } };
+    expect(render()).toContain('data-voice-note-button="off"');
   });
 
   it("puts the one Auto-review switch under Dogs, saying what on and off mean", () => {

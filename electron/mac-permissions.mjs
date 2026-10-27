@@ -34,10 +34,11 @@ function accessibilityStatus(systemPreferences) {
   }
 }
 
-export function permissionChecklist({ platform, systemPreferences }) {
+export function permissionChecklist({ platform, systemPreferences, everGrantedSpeech }) {
   if (platform !== "darwin") return { ...UNAVAILABLE };
+  const microphone = mediaStatus(systemPreferences, "microphone");
   return {
-    microphone: mediaStatus(systemPreferences, "microphone"),
+    microphone: microphone === "granted" || everGrantedSpeech === true ? "granted" : microphone,
     accessibility: accessibilityStatus(systemPreferences),
     screen: mediaStatus(systemPreferences, "screen"),
   };

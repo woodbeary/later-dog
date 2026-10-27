@@ -101,7 +101,7 @@ export function TurnPresence({
           className="thinking-row flex min-h-9 items-center gap-2 rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-4 disabled:pointer-events-none"
         >
           {avatar}
-          {showWorking && activity.phrase && <span key={activity.phrase} className="thinking-shimmer thinking-phrase animate-shimmer text-[13px] motion-reduce:animate-none">{activity.phrase}</span>}
+          {showWorking && activity.phrase && <span className="thinking-shimmer thinking-phrase animate-shimmer max-w-[200px] overflow-hidden text-ellipsis whitespace-nowrap text-[13px] motion-reduce:animate-none">{activity.phrase}</span>}
           {visible && activity.elapsed && <span className="text-[11.5px] tabular-nums text-ink-tertiary">{activity.elapsed}</span>}
           <Puppies helpers={shownHelpers} color={color} bodyId={bodyId} />
         </button>

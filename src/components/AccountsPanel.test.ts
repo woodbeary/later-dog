@@ -58,7 +58,7 @@ vi.mock("./DeviceSignIn", () => ({
   deviceSignInProvider: (driverKind: string) => ({ grokAgent: "grok", cursorAgent: "cursor", codex: "codex" } as Record<string, string>)[driverKind] ?? null,
 }));
 
-const { AccountsPanel, AccountsRefresh, accountOrder, pollSignedIn, realAccount, removable, subscriptionAccounts } = await import("./AccountsPanel");
+const { AccountsPanel, AccountsRefresh, accountOrder, pollSignedIn, realAccount, removable, shownOrder, subscriptionAccounts, useCarryOn } = await import("./AccountsPanel");
 const { requestAddAccount } = await import("@/lib/add-account-request");
 const { AddAccountHost } = await import("./AddAccountHost");
 const Settings = () => createElement(Fragment, null, createElement(AccountsRefresh), createElement(AccountsPanel), createElement(AddAccountHost));
@@ -250,6 +250,12 @@ describe("account helpers", () => {
     expect(removable(leftover)).toBe(true);
     expect(realAccount(leftover)).toBe(false);
     expect(realAccount({ ...leftover, snapshot: { ...leftover.snapshot, authenticated: true } })).toBe(true);
+  });
+
+  it("puts the shown accounts in their new order and leaves a hidden one where it was", () => {
+    const rows = [claude("claude", "Personal"), claude("claude-old", "Old", { authenticated: false }), claude("claude-work", "Work"), chatgpt("chatgpt", "ChatGPT")];
+    expect(shownOrder(rows, ["claude-work", "claude", "chatgpt"])).toEqual({ claudeAgent: ["claude-work", "claude-old", "claude"], codex: ["chatgpt"] });
+    expect(shownOrder(rows, ["chatgpt"])).toEqual({ claudeAgent: ["claude", "claude-old", "claude-work"], codex: ["chatgpt"] });
   });
 
   it("checks the fetched list after each wait until the account reads as signed in", async () => {
@@ -823,10 +829,120 @@ describe("the Add account sheet", () => {
   });
 });
 
-describe("Keep going", () => {
-  it("is one switch with no account handles, drag or second switch", async () => {
-    await act(async () => publish({ config: { accountBattery: { ...fixture.state.config.accountBattery!, enabled: true, auto: false } } }));
-    expect(all("[data-accounts-panel] [role='switch']")).toHaveLength(1);
+describe("reordering accounts", () => {
+  let carryOn: ReturnType<typeof useCarryOn>;
+  function Probe() {
+    carryOn = useCarryOn();
+    return null;
+  }
+  const reordered = { claudeAgent: ["claude-new", "claude-work", "claude"], codex: ["chatgpt"] };
+
+  beforeEach(async () => {
+    await act(async () => publish({ instances: [...fixture.state.instances, claude("claude-new", "New")] }));
+    await act(async () => root.render(createElement(Probe)));
+  });
+
+  it("shows the new order at once, keeps a hidden account in its place, and takes the server's config", async () => {
+    let answer!: (config: unknown) => void;
+    fixture.api.mockReturnValueOnce(new Promise((resolve) => { answer = resolve; }));
+    await act(async () => { void carryOn.reorder(["claude-new", "claude", "chatgpt"]); });
+    expect(fixture.state.config.accountBattery!.order).toEqual(reordered);
+    expect(fixture.api).toHaveBeenCalledWith("/api/config", { method: "PUT", body: JSON.stringify({ accountBattery: { enabled: false, auto: false, order: reordered, sequence: ["claude-new", "claude", "chatgpt", "claude-work"] } }) });
+    expect(carryOn.saving).toBe(true);
+    const saved = { accountBattery: { enabled: false, order: reordered, resting: {} } };
+    await act(async () => answer(saved));
+    await settle();
+    expect(fixture.state.config).toEqual(saved);
+    expect(carryOn.saving).toBe(false);
+  });
+
+  it("puts the old order back and says why when it could not be saved", async () => {
+    const before = fixture.state.config;
+    fixture.api.mockRejectedValueOnce(new Error("Could not reach this server."));
+    await act(async () => { await carryOn.reorder(["claude-new", "claude", "chatgpt"]); });
+    await settle();
+    expect(fixture.state.config).toEqual(before);
+    expect(carryOn.error).toBe("Could not reach this server.");
+  });
+
+  it("locks ordering only while automatic management is enabled", async () => {
+    await act(async () => publish({ config: { accountBattery: { ...fixture.state.config.accountBattery!, enabled: true, auto: true } } }));
+    expect(carryOn.canReorder).toBe(false);
+    await act(async () => carryOn.reorder(["chatgpt", "claude"]));
+    expect(fixture.api).not.toHaveBeenCalled();
+    await act(async () => publish({ config: { accountBattery: { ...fixture.state.config.accountBattery!, enabled: false } } }));
+    expect(carryOn.canReorder).toBe(true);
+  });
+
+  it("can reorder only once the server has said how accounts carry on", async () => {
+    expect(carryOn.canReorder).toBe(true);
+    await act(async () => publish({ config: {} }));
+    expect(carryOn.canReorder).toBe(false);
+    await act(async () => { await carryOn.reorder(["claude-new", "claude", "chatgpt"]); });
+    expect(fixture.api).not.toHaveBeenCalled();
+  });
+});
+
+describe("moving an account in Settings", () => {
+  const grip = (instanceId: string) => row(instanceId)?.querySelector<HTMLButtonElement>("[data-account-grip]") ?? null;
+  const saved = (claudeAgent: string[]) => ["/api/config", { method: "PUT", body: JSON.stringify({ accountBattery: { enabled: false, auto: false, order: { claudeAgent, codex: ["chatgpt"] }, sequence: [...claudeAgent, "chatgpt"] } }) }];
+  const answer = (claudeAgent: string[]) => ({ accountBattery: { enabled: false, order: { claudeAgent, codex: ["chatgpt"] }, resting: {} } });
+  const drag = async (element: Element, kind: "dragstart" | "dragover" | "drop" | "dragend", transfer: DataTransfer) => {
+    const event = new Event(kind, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", { value: transfer });
+    await act(async () => { element.dispatchEvent(event); });
+  };
+
+  it("moves an account with its handle and preserves keyboard focus", async () => {
+    fixture.api.mockResolvedValueOnce(answer(["claude-work", "claude"]));
+    const handle = grip("claude")!;
+    expect(handle.getAttribute("aria-label")).toBe("Move Personal");
+    expect(handle.getAttribute("title")).toBe("Drag to reorder");
+    expect(grip("chatgpt")).not.toBeNull();
+    handle.focus();
+    await press(handle, "ArrowUp");
+    expect(fixture.api).not.toHaveBeenCalled();
+    await press(handle, "ArrowDown");
+    expect(fixture.api).toHaveBeenCalledWith(...saved(["claude-work", "claude"]));
+    expect(ids()).toEqual(["claude-work", "claude", "chatgpt"]);
+    expect(document.activeElement).toBe(handle);
+    await press(grip("chatgpt")!, "ArrowDown");
+    expect(fixture.api).toHaveBeenCalledTimes(1);
+    expect(ids()).toEqual(["claude-work", "claude", "chatgpt"]);
+  });
+
+  it("drags an account onto another of its engine, shows the order at once, and saves it on the drop", async () => {
+    fixture.api.mockResolvedValueOnce(answer(["claude-work", "claude"]));
+    expect(row("claude")!.getAttribute("draggable")).toBe("true");
+    expect(row("chatgpt")!.getAttribute("draggable")).toBe("true");
+    const transfer = new DataTransfer();
+    await drag(row("claude-work")!, "dragstart", transfer);
+    await drag(row("chatgpt")!, "dragover", transfer);
+    expect(ids()).toEqual(["claude", "chatgpt", "claude-work"]);
+    await drag(row("claude")!, "dragover", transfer);
+    expect(ids()).toEqual(["claude-work", "claude", "chatgpt"]);
+    expect(fixture.api).not.toHaveBeenCalled();
+    await drag(row("claude")!, "drop", transfer);
+    await drag(row("claude-work")!, "dragend", transfer);
+    await settle();
+    expect(fixture.api).toHaveBeenCalledTimes(1);
+    expect(fixture.api).toHaveBeenCalledWith(...saved(["claude-work", "claude"]));
+    expect(ids()).toEqual(["claude-work", "claude", "chatgpt"]);
+  });
+
+  it("holds a row still while its name is being edited, so dragging text in the field moves nothing", async () => {
+    await click(row("claude")!.querySelector<HTMLButtonElement>('[aria-label="Rename Personal"]'));
+    const input = row("claude")!.querySelector("input")!;
+    expect(row("claude")!.getAttribute("draggable")).toBeNull();
+    const transfer = new DataTransfer();
+    await drag(input, "dragstart", transfer);
+    await drag(row("claude-work")!, "dragover", transfer);
+    expect(transfer.getData("application/x-laterdog-account")).toBe("");
+    expect(ids()).toEqual(["claude", "claude-work", "chatgpt"]);
+  });
+
+  it("offers no handle or drag until the server has said how accounts carry on", async () => {
+    await act(async () => publish({ config: {} }));
     expect(document.body.querySelector("[data-account-grip]")).toBeNull();
     expect(document.body.querySelector("[data-account][draggable]")).toBeNull();
   });

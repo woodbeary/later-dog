@@ -50,6 +50,7 @@ import { collisionFreeDownloadPath, defaultSaveName, revealDownloadWhenDone, rev
 import { desktopViewerPermissionAllowed } from "./desktop-viewer-permissions.mjs";
 import { appPermissionHandlers, externalWebUrl } from "./app-permissions.mjs";
 import { permissionChecklist, requestPermission } from "./mac-permissions.mjs";
+import { speechEverGranted } from "./speech-grant.mjs";
 import { cuaStartsAfterGrant } from "./cua-grant.mjs";
 import { writeClipboardText } from "./clipboard-write.mjs";
 import {
@@ -2122,7 +2123,7 @@ ipcMain.handle("perm:request-mic", localOnly("perm:request-mic", async () => {
   }
 }));
 
-const macPermissionHost = () => ({ platform: process.platform, systemPreferences, desktopCapturer });
+const macPermissionHost = () => ({ platform: process.platform, systemPreferences, desktopCapturer, everGrantedSpeech: speechEverGranted(app.getPath("userData")) });
 let cuaGrantStart = null;
 function startCuaWhenGranted(checklist) {
   void (async () => {

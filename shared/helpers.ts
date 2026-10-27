@@ -6,6 +6,7 @@ export interface HelperMember {
   state: HelperState;
   phase?: string;
   activity?: string;
+  recentActivity?: string[];
   toolUses?: number;
   tokens?: number;
   durationMs?: number;
@@ -20,6 +21,7 @@ export interface Helper {
   startedAt: number;
   endedAt?: number;
   activity?: string;
+  recentActivity?: string[];
   summary?: string;
   toolUses?: number;
   tokens?: number;

@@ -160,14 +160,10 @@ describe("BotListItem", () => {
     expect(markup).not.toContain('aria-label="Hide Atlas"');
   });
 
-  it("marks the main dog with a small badge on its avatar and no extra line", () => {
+  it("puts no second dot on the main dog's avatar", () => {
     const main = renderRow(bot({ chiefOfStaff: true, title: "Developer" }));
-    expect(main).toContain('data-testid="main-dog-badge"');
-    expect(main).toContain('aria-label="Main dog"');
-    expect(main.indexOf('data-testid="main-dog-badge"')).toBeLessThan(main.indexOf(">Atlas<"));
+    expect(main).not.toContain('data-testid="main-dog-badge"');
     expect(main).not.toContain("Chief of Staff");
-
-    expect(renderRow(bot())).not.toContain('data-testid="main-dog-badge"');
   });
 
   const titleLine = /<div class="truncate text-\[11px\][^"]*">([^<]*)<\/div>/;

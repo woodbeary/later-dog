@@ -22,6 +22,7 @@ import { PermissionChecklist } from "./PermissionChecklist";
 import { SettingRow, SettingsGroup, SettingsRows, Switch } from "./SettingsPrimitives";
 import { CloudLending } from "./CloudLending";
 import { AutoReviewRow } from "./AutoReviewSettings";
+import { VoiceNoteButtonRow } from "./VoiceNoteButtonSettings";
 import { MacAccessGroup } from "./MacAccessGroup";
 import { cloudLendingBridge } from "@/lib/cloud-plan-summary";
 import { shortcutLabel } from "./ShortcutHint";
@@ -255,6 +256,7 @@ function GeneralPage({ mac }: { mac: boolean }) {
           <LanguageRow />
           <TimeZoneRow />
           <NotificationSoundsRow />
+          <VoiceNoteButtonRow />
         </SettingsRows>
       </SettingsGroup>
       {(mac || analytics) && (
