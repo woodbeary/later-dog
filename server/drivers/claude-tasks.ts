@@ -1,4 +1,4 @@
-import type { Helper, HelperMember, HelperState } from "../../shared/helpers.ts";
+import type { Helper, HelperMember, HelperState, HelperStep } from "../../shared/helpers.ts";
 
 type Fields = Record<string, unknown>;
 const fields = (value: unknown): Fields => value && typeof value === "object" && !Array.isArray(value) ? value as Fields : {};
@@ -6,6 +6,14 @@ const text = (value: unknown): string | undefined => typeof value === "string" &
 const count = (value: unknown): number | undefined => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 const state = (value: unknown): HelperState => value === "completed" || value === "done" ? "done" : value === "failed" || value === "error" ? "failed" : value === "stopped" ? "stopped" : "running";
 const RECENT_ACTIVITY_LIMIT = 8;
+export const HELPER_STEP_LIMIT = 40;
+const STEP_FIELDS = ["description", "command", "file_path", "path", "pattern", "url", "query"] as const;
+
+export function helperStep(name: unknown, input: unknown): HelperStep {
+  const given = fields(input);
+  const detail = STEP_FIELDS.map(key => text(given[key])).find(Boolean)?.replace(/\s+/g, " ").slice(0, 160);
+  return { tool: text(name) ?? "Tool", ...(detail ? { summary: detail } : {}) };
+}
 
 function members(value: unknown): HelperMember[] | undefined {
   if (!Array.isArray(value)) return undefined;
@@ -33,6 +41,7 @@ export function mapClaudeTask(previous: Helper | undefined, value: unknown, now 
     : previous?.recentActivity;
   return {
     ...previous, id, kind: flow ? "workflow" : "agent",
+    ...(previous?.toolUseId ?? text(event.tool_use_id) ? { toolUseId: previous?.toolUseId ?? text(event.tool_use_id) } : {}),
     label: previous?.label ?? text(event.description) ?? text(event.workflow_name) ?? text(event.subagent_type) ?? "Helper",
     state: status,
     background: typeof event.is_backgrounded === "boolean" ? event.is_backgrounded : previous?.background ?? flow,
@@ -92,6 +101,18 @@ export class ClaudeTasks {
     if (last && next.state === "running" && next.state === last.helper.state && memberState(next) === memberState(last.helper) && this.now() - last.at < 750) return;
     this.published.set(id, { at: this.now(), helper: next });
     this.emit(next);
+  }
+
+  noteStep(parentToolUseId: unknown, step: HelperStep): boolean {
+    const parent = text(parentToolUseId);
+    if (!parent) return false;
+    const helper = [...this.helpers.values()].find(candidate => candidate.toolUseId === parent);
+    if (!helper) return false;
+    const next: Helper = { ...helper, steps: [...(helper.steps ?? []), step].slice(-HELPER_STEP_LIMIT) };
+    this.helpers.set(helper.id, next);
+    this.published.set(helper.id, { at: this.now(), helper: next });
+    this.emit(next);
+    return true;
   }
 
   continuationLimitReached(): boolean { return this.continuations >= 3 && [...this.helpers.values()].some(helper => helper.background && helper.state !== "running" && !this.consumed.has(helper.id)); }

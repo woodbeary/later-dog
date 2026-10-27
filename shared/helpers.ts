@@ -12,8 +12,15 @@ export interface HelperMember {
   durationMs?: number;
 }
 
+export interface HelperStep {
+  tool: string;
+  summary?: string;
+}
+
 export interface Helper {
   id: string;
+  toolUseId?: string;
+  steps?: HelperStep[];
   kind: "agent" | "workflow";
   label: string;
   state: HelperState;

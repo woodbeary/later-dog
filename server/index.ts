@@ -13870,7 +13870,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           secret: {
             target: credentialId,
             label: target.label,
-            description: `${reason ? `${target.description} ${reason}` : target.description} ${from.name} can use it but never read it back.`,
+            description: `${reason || target.description} ${from.name} can use it but never read it back.`,
             placeholder: target.placeholder,
             helpUrl: target.helpUrl,
             requestKey: randomUUID(),

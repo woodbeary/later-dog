@@ -30,7 +30,7 @@ import { assertToolScopeSupported } from "../../shared/tool-scope-support.ts";
 import { newEventId, newId } from "../contracts.ts";
 import { askInputSummary, commandSummary, toolDetailPreview } from "../tool-summary.ts";
 import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS } from "./retry.ts";
-import { ClaudeTasks } from "./claude-tasks.ts";
+import { ClaudeTasks, helperStep } from "./claude-tasks.ts";
 import { sessionIdlePolicy } from "./session-idle.ts";
 import { parseVersionTriple, versionAtLeast } from "./acp/core.ts";
 import {
@@ -1570,6 +1570,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               emit({ ...base(threadId, currentTurnId()), ...synthetic, type: "item.completed", itemType: "assistant_text", text });
             }
             for (const b of Array.isArray(msg.content) ? msg.content : []) {
+              if (b.type === "tool_use" && o.parent_tool_use_id) session.helpers.noteStep(o.parent_tool_use_id, helperStep(b.name, b.input));
               if (b.type === "tool_use") {
                 emit({
                   ...base(threadId, currentTurnId()),

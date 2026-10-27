@@ -211,3 +211,18 @@ it("merges consecutive finished steps with the same label into a counted row and
   const rows = [...document.querySelectorAll('[data-peek-steps] li')].map(row => row.textContent);
   expect(rows).toEqual(["Running a few commands×3", "Making edits", "Running a few commands", "Running a few commands", "Running a few commands", "Running a few commands"]);
 });
+
+it("lets you click into a helper to see each tool call it made", async () => {
+  const helper = { id: "h", kind: "agent" as const, label: "Checker", state: "running" as const, startedAt: Date.now(), background: true, steps: [{ tool: "Bash", summary: "git status" }, { tool: "Read", summary: "/notes.md" }] };
+  await act(async () => root.render(createElement(ActivityPeek, { label: "Working", since: null, helpers: [helper], reasoning: NO_REASONING, anchor: createRef<HTMLButtonElement>(), onClose: () => {} })));
+  const work = document.querySelector("[data-helper-work]")!;
+  const toggle = work.querySelector("button")!;
+  expect(toggle.textContent).toContain("Show work · 2 steps");
+  expect(work.querySelector("ol")!.hidden).toBe(true);
+  await act(async () => toggle.click());
+  expect(work.getAttribute("data-helper-work")).toBe("open");
+  expect(work.querySelector("ol")!.hidden).toBe(false);
+  expect(work.textContent).toContain("Bash");
+  expect(work.textContent).toContain("git status");
+  expect(work.textContent).toContain("/notes.md");
+});

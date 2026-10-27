@@ -21,6 +21,27 @@ function HelperStateIcon({ state }: { state: HelperState }) {
   )} />;
 }
 
+function HelperWork({ helper }: { helper: Helper }) {
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const steps = helper.steps ?? [];
+  if (!steps.length) return null;
+  return <div data-helper-work={open ? "open" : "closed"}>
+    <button type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)} className="-mx-1 flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px] font-medium text-ink-secondary transition-colors hover:bg-control hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2">
+      <ChevronRight size={12} aria-hidden="true" className={cn("shrink-0 transition-transform motion-reduce:transition-none", open && "rotate-90")} />
+      {t("chat.helpers.work", { count: steps.length })}
+    </button>
+    <ol id={id} hidden={!open} className="mt-1 space-y-1 border-s border-hairline/60 ps-2.5">
+      {steps.map((step, index) => (
+        <li key={index} className="min-w-0 text-[11px] leading-4">
+          <span className="font-medium text-ink-secondary">{step.tool}</span>
+          {step.summary && <span className="ms-1.5 break-words font-mono text-[10.5px] text-ink-tertiary">{step.summary}</span>}
+        </li>
+      ))}
+    </ol>
+  </div>;
+}
+
 function HelperDetails({ helper }: { helper: Helper | HelperMember }) {
   return <div className="grid min-w-0 grid-cols-[16px_minmax(0,1fr)] gap-x-2.5">
     <span className="relative z-1 flex h-5 items-center justify-center bg-panel"><HelperStateIcon state={helper.state} /></span>
@@ -35,6 +56,7 @@ function HelperDetails({ helper }: { helper: Helper | HelperMember }) {
           ))}
         </ul>
       )}
+      {"steps" in helper && <HelperWork helper={helper} />}
       <div className="flex flex-wrap gap-x-3 text-[10.5px] leading-4 tabular-nums text-ink-tertiary">
         {helper.toolUses !== undefined && <span>{t("chat.helpers.tools", { count: helper.toolUses })}</span>}
         {helper.tokens !== undefined && <span>{t("chat.helpers.tokens", { count: helper.tokens.toLocaleString() })}</span>}

@@ -905,6 +905,7 @@
   "chat.activity.thinkingTokens": "About {count} thinking tokens",
   "chat.helpers.count": "{count} helpers",
   "chat.helpers.tools": "{count} tool uses",
+  "chat.helpers.work": "Show work · {count} steps",
   "chat.helpers.tokens": "{count} tokens",
   "chat.helpers.running": "Working",
   "chat.helpers.done": "Done",

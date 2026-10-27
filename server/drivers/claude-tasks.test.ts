@@ -1,10 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeTasks, mapClaudeTask } from "./claude-tasks.ts";
+import { ClaudeTasks, HELPER_STEP_LIMIT, helperStep, mapClaudeTask } from "./claude-tasks.ts";
 import type { Helper } from "../../shared/helpers.ts";
 
 const start = { subtype: "task_started", task_id: "a", task_type: "local_agent", description: "Check the outline", is_backgrounded: true };
 
 describe("Claude helpers", () => {
+  it("collects each helper's own tool calls under it, newest last, without prompts", () => {
+    const emitted: Helper[] = [];
+    const tasks = new ClaudeTasks(helper => emitted.push(helper), () => 0);
+    tasks.receive({ ...start, tool_use_id: "toolu_1" });
+    expect(tasks.noteStep("toolu_1", helperStep("Bash", { command: "git  status", description: "Check the tree" }))).toBe(true);
+    expect(tasks.noteStep("toolu_1", helperStep("Agent", { prompt: "secret plan" }))).toBe(true);
+    expect(tasks.noteStep("toolu_other", helperStep("Read", { file_path: "/a" }))).toBe(false);
+    expect(emitted.at(-1)?.steps).toEqual([{ tool: "Bash", summary: "Check the tree" }, { tool: "Agent" }]);
+    for (let i = 0; i < HELPER_STEP_LIMIT + 5; i += 1) tasks.noteStep("toolu_1", helperStep("Read", { file_path: `/f${i}` }));
+    expect(emitted.at(-1)?.steps).toHaveLength(HELPER_STEP_LIMIT);
+    expect(emitted.at(-1)?.steps?.at(-1)).toEqual({ tool: "Read", summary: `/f${HELPER_STEP_LIMIT + 4}` });
+  });
+
   it("maps foreground agents, workflow phases and usage without prompts or output paths", () => {
     expect(mapClaudeTask(undefined, { ...start, is_backgrounded: false }, 10)).toMatchObject({ kind: "agent", background: false, startedAt: 10 });
     const flow = mapClaudeTask(undefined, { ...start, task_type: "local_workflow", prompt: "private", output_file: "/private" }, 10)!;
