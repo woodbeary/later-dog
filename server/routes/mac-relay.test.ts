@@ -46,9 +46,9 @@ describe("the Mac relay routes on a Cloud home", () => {
     expect(await mirrored.json()).toEqual({ botId: "relayed", created: true });
     expect(deps.mirrors.ensure).toHaveBeenCalledWith("local-1", { name: "Rex", title: "Fixer" });
     const reply = deps.queue.requestTurn("relayed", "thread-1", "fix it");
-    const { job } = await (await send(base, "GET", "/api/mac-relay/bots/relayed/job")).json();
+    const { job } = await (await send(base, "GET", "/api/mac-relay/bots/relayed/job")).json() as { job: { id: string } };
     expect(job).toMatchObject({ botId: "relayed", threadId: "thread-1", text: "fix it" });
-    expect((await send(base, "GET", "/api/mac-relay/bots/relayed/job").then((r) => r.json())).job).toBeNull();
+    expect((await send(base, "GET", "/api/mac-relay/bots/relayed/job").then((r) => r.json() as Promise<{ job: unknown }>)).job).toBeNull();
     expect((await send(base, "POST", `/api/mac-relay/jobs/${job.id}/result`, { text: "fixed" })).status).toBe(200);
     await expect(reply).resolves.toBe("fixed");
     const again = await send(base, "POST", `/api/mac-relay/jobs/${job.id}/result`, { text: "fixed" });
@@ -59,7 +59,7 @@ describe("the Mac relay routes on a Cloud home", () => {
   it("passes a failure from the Mac to the waiting turn", async () => {
     const { base, deps } = await serve();
     const outcome = deps.queue.requestTurn("relayed", "thread-1", "fix it").then(() => "answered", (error: Error) => error.message);
-    const { job } = await (await send(base, "GET", "/api/mac-relay/bots/relayed/job")).json();
+    const { job } = await (await send(base, "GET", "/api/mac-relay/bots/relayed/job")).json() as { job: { id: string } };
     expect((await send(base, "POST", `/api/mac-relay/jobs/${job.id}/fail`, { message: "the Mac dog stopped" })).status).toBe(200);
     expect(await outcome).toBe("the Mac dog stopped");
   });

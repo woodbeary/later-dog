@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
 import { MAC_RELAY_INSTANCE_ID } from "./mac-relay.ts";
+import type { DogColor } from "../../shared/wire.ts";
 
 export const MAC_RELAY_MIRRORS_FILE = "mac-relay-mirrors.json";
 
@@ -9,7 +10,7 @@ export const mirrorProfileSchema = z.object({
   name: z.string().trim().min(1).max(80),
   title: z.string().max(200).optional(),
   description: z.string().max(4000).optional(),
-  color: z.string().max(32).optional(),
+  color: z.enum(["green", "blue", "red", "orange", "purple", "cyan", "pink", "yellow", "teal", "coral"] as const satisfies readonly DogColor[]).optional(),
 }).strict();
 
 export type MirrorProfile = z.infer<typeof mirrorProfileSchema>;
