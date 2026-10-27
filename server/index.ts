@@ -687,6 +687,10 @@ import { createThreadModelRoutes } from "./routes/thread-models.ts";
 import { createContinueOnRoutes } from "./routes/continue-on.ts";
 import { createHandoffContinueRoutes } from "./routes/handoff-continue.ts";
 import { createMacAccessRoutes } from "./routes/mac-access.ts";
+import { createMacRelayRoutes } from "./routes/mac-relay.ts";
+import { createMacRelayMirrors, MAC_RELAY_MIRRORS_FILE } from "./laterdog/mac-relay-mirrors.ts";
+import { macRelayQueue } from "./drivers/mac-relay.ts";
+import { MAC_RELAY_INSTANCE_ID } from "./laterdog/mac-relay.ts";
 import { createComputerChangeRoutes } from "./routes/computer-change.ts";
 import { createCloudTrialRoutes } from "./routes/cloud-trial.ts";
 import { autoStartTrial } from "./laterdog/cloud-trial.ts";
@@ -12283,6 +12287,23 @@ ROUTES.push(createMacAccessRoutes({
     return true;
   },
   view: () => macAccessView(),
+}));
+ROUTES.push(createMacRelayRoutes({
+  cloudHome: Boolean(CLOUD_HOME),
+  mayRelay: (auth) => cloudOwnerSession(auth),
+  queue: macRelayQueue,
+  mirrors: createMacRelayMirrors({
+    file: join(DATA_DIR, MAC_RELAY_MIRRORS_FILE),
+    bot: (id) => store.bot(id) ?? undefined,
+    create: (profile) => {
+      const created = store.createBot(
+        { ...profile, modelSelection: { instanceId: MAC_RELAY_INSTANCE_ID, model: MAC_RELAY_INSTANCE_ID } },
+        { seedMessages: false },
+      );
+      return store.patchBot(created.id, { computer: "off" }) ?? created;
+    },
+    update: (id, profile) => { store.patchBot(id, profile); },
+  }),
 }));
 ROUTES.push(createHandoffContinueRoutes({
   root: (id) => roomHandoffs.nodes.get(id),

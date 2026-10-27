@@ -5,6 +5,8 @@ import { z } from "zod";
 import { normalizeImageGenerationUrl, type ImageGenerationConfig } from "../shared/image-generation.ts";
 
 import { writeFileAtomic } from "./atomic.ts";
+import { cloudHomeConfigured } from "./cloud-home.ts";
+import { MAC_RELAY_INSTANCE_ID } from "./laterdog/mac-relay.ts";
 import { withoutComputerEngine } from "./computer-engine-removal.ts";
 import { withoutRetiredEngines } from "./laterdog/engine-trim.ts";
 import { newBotDefaultsSchema, type NewBotDefaults } from "./new-bot-defaults.ts";
@@ -1343,6 +1345,9 @@ export function instanceConfigs(cfg: AppConfig): InstanceConfigMap {
         entry.config = merged;
       }
     }
+  }
+  if (cloudHomeConfigured() && !map[MAC_RELAY_INSTANCE_ID]) {
+    map[MAC_RELAY_INSTANCE_ID] = { driver: MAC_RELAY_INSTANCE_ID, displayName: "This Mac (relayed)" };
   }
   return map;
 }

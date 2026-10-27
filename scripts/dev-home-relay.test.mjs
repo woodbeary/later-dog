@@ -1,147 +1,110 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import http from "node:http";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { MacRelayQueue } from "../server/laterdog/mac-relay.ts";
-import { macRelayRoutes } from "../server/laterdog/mac-relay-routes.ts";
-import { relayOneJob, runRelayLoop } from "./dev-home-relay.mjs";
+import { askLocalDog, createRelay, mirrorProfile, syncMirrors } from "./dev-home-relay.mjs";
 
-function readJsonBody(req) {
-  return new Promise((resolve) => {
-    let raw = "";
-    req.on("data", (chunk) => (raw += chunk));
-    req.on("end", () => resolve(raw ? JSON.parse(raw) : {}));
-  });
+function fakeHome(queue) {
+  const mirrors = new Map();
+  const calls = [];
+  const home = async (method, path, body) => {
+    calls.push([method, path]);
+    let m = path.match(/^\/api\/mac-relay\/mirrors\/([\w-]+)$/);
+    if (method === "PUT" && m) {
+      const known = mirrors.get(m[1]);
+      const botId = known ?? `home-${m[1]}`;
+      mirrors.set(m[1], botId);
+      return { botId, created: !known, profile: body };
+    }
+    m = path.match(/^\/api\/mac-relay\/bots\/([\w-]+)\/job$/);
+    if (method === "GET" && m) return { job: queue.nextJob(m[1]) };
+    m = path.match(/^\/api\/mac-relay\/jobs\/([\w-]+)\/(result|fail)$/);
+    if (method === "POST" && m) return m[2] === "result" ? { ok: queue.completeJob(m[1], body.text) } : { ok: queue.failJob(m[1], body.message) };
+    throw new Error(`unexpected ${method} ${path}`);
+  };
+  return { home, calls };
 }
 
-function startHomeFixture(queue, token) {
-  const routes = macRelayRoutes(queue, (bearer) => (bearer === token ? { botId: "bot-1" } : null));
-  const server = http.createServer(async (req, res) => {
-    const bearer = req.headers.authorization?.replace(/^Bearer /, "");
-    const url = new URL(req.url, "http://localhost");
-    let result;
-    if (req.method === "GET" && url.pathname === "/api/internal/mac-relay/jobs") result = await routes.nextJob(bearer);
-    else if (req.method === "POST" && url.pathname.endsWith("/result")) result = await routes.completeJob(bearer, url.pathname.split("/").at(-2), await readJsonBody(req));
-    else if (req.method === "POST" && url.pathname.endsWith("/fail")) result = await routes.failJob(bearer, url.pathname.split("/").at(-2), await readJsonBody(req));
-    else result = { status: 404, body: { error: "not found" } };
-    res.writeHead(result.status, { "content-type": "application/json" });
-    res.end(JSON.stringify(result.body));
-  });
-  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
+function fakeLocal({ answer = (text) => `done: ${text}`, silent = false } = {}) {
+  const bots = [
+    { id: "rex", threadId: "rex-main", name: "Rex", title: "Fixer", description: "Fixes bugs", color: "#d97706", busy: false },
+    { id: "ada", threadId: "ada-main", name: "Ada", busy: false },
+  ];
+  const threads = new Map([["rex-main", [{ id: "old", role: "bot", kind: "text", text: "an old answer" }]], ["ada-main", []]]);
+  const posted = [];
+  let next = 0;
+  const local = async (method, path, body) => {
+    if (method === "GET" && path === "/api/bots") return { bots: bots.map((bot) => ({ ...bot })) };
+    let m = path.match(/^\/api\/threads\/([\w-]+)\/messages/);
+    if (method === "GET" && m) return { messages: [...threads.get(m[1])] };
+    m = path.match(/^\/api\/bots\/([\w-]+)\/messages$/);
+    if (method === "POST" && m) {
+      posted.push([m[1], body]);
+      const bot = bots.find((candidate) => candidate.id === m[1]);
+      const thread = threads.get(body.threadId);
+      thread.push({ id: `u${++next}`, role: "user", kind: "text", text: body.text });
+      bot.busy = true;
+      setTimeout(() => {
+        thread.push({ id: `b${next}a`, role: "bot", kind: "activity", text: "working" });
+        if (!silent) thread.push({ id: `b${next}`, role: "bot", kind: "text", text: answer(body.text) });
+        bot.busy = false;
+      }, 15);
+      return { ok: true };
+    }
+    throw new Error(`unexpected local ${method} ${path}`);
+  };
+  return { local, posted, threads };
 }
 
-function startLocalFixture({ reply, failWith } = {}) {
-  let busy = true;
-  const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url, "http://localhost");
-    if (req.method === "POST" && url.pathname === "/api/bots/local-dog/messages") {
-      await readJsonBody(req);
-      busy = true;
-      setTimeout(() => (busy = false), 20);
-      res.writeHead(200, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ ok: true }));
-    }
-    if (req.method === "GET" && url.pathname === "/api/bots") {
-      res.writeHead(200, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ bots: [{ id: "local-dog", busy }] }));
-    }
-    if (req.method === "GET" && url.pathname === "/api/threads/thread-1/messages") {
-      res.writeHead(200, { "content-type": "application/json" });
-      if (failWith) return res.end(JSON.stringify({ messages: [] }));
-      return res.end(JSON.stringify({ messages: [{ role: "bot", text: reply ?? "done" }] }));
-    }
-    res.writeHead(404, { "content-type": "application/json" });
-    res.end(JSON.stringify({ error: "not found" }));
-  });
-  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
-}
+const quick = { sleep: (ms) => new Promise((resolve) => setTimeout(resolve, Math.min(ms, 5))) };
 
-describe("dev-home-relay", () => {
-  let dir;
-  let sessionFile;
-  const token = "laterdog_sess_fixturetoken123";
-
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "laterdog-mac-relay-"));
-    sessionFile = join(dir, "my-home.session.json");
+describe("the dev home relay", () => {
+  it("mirrors every local dog with only the profile fields the home accepts", async () => {
+    const { home } = fakeHome(new MacRelayQueue());
+    const { local } = fakeLocal();
+    const mirrors = await syncMirrors({ home, local });
+    expect([...mirrors]).toEqual([["home-rex", { id: "rex", threadId: "rex-main" }], ["home-ada", { id: "ada", threadId: "ada-main" }]]);
+    expect(mirrorProfile({ id: "x", name: "  ", soul: "secret", busy: true, color: "x".repeat(40) })).toEqual({ name: "Mac dog" });
   });
 
-  afterEach(() => rmSync(dir, { recursive: true, force: true }));
-
-  it("carries a phone-posted nudge from the home queue to the local dog and the reply back", async () => {
+  it("carries a phone message to the local dog's own thread and its new reply back", async () => {
     const queue = new MacRelayQueue();
-    const home = await startHomeFixture(queue, token);
-    const local = await startLocalFixture({ reply: "fixed it on the Mac" });
-
-    const turn = queue.requestTurn("bot-1", "thread-1", "fix the bug, please");
-    const picked = await relayOneJob({
-      home: { url: new URL(`http://127.0.0.1:${home.address().port}`), token },
-      localUrl: `http://127.0.0.1:${local.address().port}`,
-      localBotId: "local-dog",
-      log: () => {},
-    });
-
-    expect(picked).toBe(true);
-    await expect(turn).resolves.toBe("fixed it on the Mac");
-    await new Promise((resolve) => home.close(resolve));
-    await new Promise((resolve) => local.close(resolve));
+    const { home } = fakeHome(queue);
+    const { local, posted } = fakeLocal();
+    const relay = createRelay({ home, local, localPoll: quick });
+    await relay.sync();
+    const reply = queue.requestTurn("home-rex", "home-thread-9", "fix the bug, please");
+    expect(await relay.poll()).toBe(1);
+    await relay.idle();
+    await expect(reply).resolves.toBe("done: fix the bug, please");
+    expect(posted).toEqual([["rex", { text: "fix the bug, please", threadId: "rex-main" }]]);
+    expect(await relay.poll()).toBe(0);
   });
 
-  it("reports nothing to relay when the queue is empty", async () => {
+  it("relays two dogs at once without one waiting on the other", async () => {
     const queue = new MacRelayQueue();
-    const home = await startHomeFixture(queue, token);
-    const picked = await relayOneJob({
-      home: { url: new URL(`http://127.0.0.1:${home.address().port}`), token },
-      localUrl: "http://127.0.0.1:1",
-      localBotId: "local-dog",
-      log: () => {},
-    });
-    expect(picked).toBe(false);
-    await new Promise((resolve) => home.close(resolve));
+    const { home } = fakeHome(queue);
+    const { local } = fakeLocal();
+    const relay = createRelay({ home, local, localPoll: quick });
+    await relay.sync();
+    const replies = [queue.requestTurn("home-rex", "t1", "one"), queue.requestTurn("home-ada", "t2", "two")];
+    expect(await relay.poll()).toBe(2);
+    await relay.idle();
+    expect(await Promise.all(replies)).toEqual(["done: one", "done: two"]);
   });
 
-  it("tells the home the Mac failed the turn when the local dog never replies", async () => {
+  it("fails the home turn when the local dog never answers", async () => {
     const queue = new MacRelayQueue();
-    const home = await startHomeFixture(queue, token);
-    const local = await startLocalFixture({ failWith: true });
-    const turn = queue.requestTurn("bot-1", "thread-1", "fix the bug");
-    turn.catch(() => {});
+    const { home } = fakeHome(queue);
+    const { local } = fakeLocal({ silent: true });
+    const outcome = queue.requestTurn("home-rex", "t1", "hello").then(() => "answered", (error) => error.message);
+    const relay = createRelay({ home, local, localPoll: { ...quick, deadline: Date.now() + 100 } });
+    await relay.sync();
+    await relay.poll();
+    await relay.idle();
+    expect(await outcome).toMatch(/did not answer/);
+  });
 
-    const picked = await relayOneJob({
-      home: { url: new URL(`http://127.0.0.1:${home.address().port}`), token },
-      localUrl: `http://127.0.0.1:${local.address().port}`,
-      localBotId: "local-dog",
-      log: () => {},
-      localPoll: { deadline: Date.now() + 50, sleep: () => new Promise((resolve) => setTimeout(resolve, 5)) },
-    });
-    expect(picked).toBe(true);
-    await expect(turn).rejects.toThrow();
-    await new Promise((resolve) => home.close(resolve));
-    await new Promise((resolve) => local.close(resolve));
-  }, 10_000);
-
-  it("runs the loop end to end from a saved session file until the signal aborts", async () => {
-    const queue = new MacRelayQueue();
-    const home = await startHomeFixture(queue, token);
-    const local = await startLocalFixture({ reply: "looped reply" });
-    writeFileSync(sessionFile, JSON.stringify({ url: `http://127.0.0.1:${home.address().port}`, token }), { mode: 0o600 });
-
-    const controller = new AbortController();
-    const turn = queue.requestTurn("bot-1", "thread-1", "nudge from the phone");
-    const loop = runRelayLoop({
-      session: sessionFile,
-      localUrl: `http://127.0.0.1:${local.address().port}`,
-      localBotId: "local-dog",
-      signal: controller.signal,
-      sleep: () => new Promise((resolve) => setTimeout(resolve, 5)),
-      log: () => {},
-    });
-
-    await expect(turn).resolves.toBe("looped reply");
-    controller.abort();
-    await loop.catch(() => {});
-    await new Promise((resolve) => home.close(resolve));
-    await new Promise((resolve) => local.close(resolve));
+  it("never mistakes an earlier answer for the new one", async () => {
+    const { local } = fakeLocal({ silent: true });
+    await expect(askLocalDog({ local, bot: { id: "rex", threadId: "rex-main" }, text: "hi", ...quick, deadline: Date.now() + 80 })).rejects.toThrow(/did not answer/);
   });
 });
