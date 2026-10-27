@@ -305,7 +305,7 @@ export interface ClaudeConfig {
 const CLAUDE_5_EFFORT: readonly EffortLevel[] = ["low", "medium", "high", "xhigh", "max", "ultra"];
 
 export const STATIC_CLAUDE_MODELS: ModelCatalog = {
-  default: "claude-sonnet-5",
+  default: "claude-opus-5-5",
   options: [
     { id: "claude-fable-5-1", label: "Claude Fable 5.1", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
     { id: "claude-fable-5", label: "Claude Fable 5", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },

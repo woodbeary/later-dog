@@ -36,7 +36,7 @@ describe("readClaudeModelCatalog", () => {
       defaultEffort: "medium",
     });
     expect(ids.indexOf("claude-sonnet-5-5")).toBe(ids.indexOf("claude-sonnet-5") - 1);
-    expect(STATIC_CLAUDE_MODELS.default).toBe("claude-sonnet-5");
+    expect(STATIC_CLAUDE_MODELS.default).toBe("claude-opus-5-5");
     expect(STATIC_CLAUDE_MODELS.options[ids.indexOf("claude-haiku-4-5")]?.effortLevels).toEqual([]);
     expect(STATIC_CLAUDE_MODELS.options[ids.indexOf("claude-haiku-5-5")]).toEqual({
       id: "claude-haiku-5-5",
@@ -70,7 +70,7 @@ describe("readClaudeModelCatalog", () => {
     );
 
     expect(readClaudeModelCatalog({ HOME: home })).toEqual({
-      default: "claude-sonnet-5",
+      default: "claude-opus-5-5",
       options: [
         ...STATIC_CLAUDE_MODELS.options,
         { id: "my-local-opus", label: "Local Opus", custom: true },

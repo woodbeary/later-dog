@@ -65,6 +65,13 @@ describe("configuration boundaries", () => {
       expect(() => parseConfigPatch({ automaticRecovery: invalid })).toThrow("automaticRecovery");
     }
   });
+  it("changes the default model for new dogs without stopping running turns", () => {
+    const defaultModelSelection = { instanceId: "claude", model: "claude-opus-5-5", effort: "medium" };
+    expect(providerReloadKeys({ defaultModelSelection })).toEqual([]);
+    expect(providerReloadKeys({ newBots: { effort: "medium" } })).toEqual([]);
+    expect(providerReloadKeys({ newBotDefaults: { profile: { modelSelection: defaultModelSelection }, skills: [] } })).toEqual([]);
+    expect(providerReloadKeys({ instances: {} })).toEqual(["instances"]);
+  });
   it("accepts shared user context, including clearing, without reloading providers", () => {
     const profile = { aboutMe: "I prefer short answers.\nMy time zone is Europe/Berlin." };
     expect(parseConfigPatch({ profile })).toEqual({ profile });

@@ -738,6 +738,9 @@ export const FLEET_NEUTRAL_KEYS: ReadonlySet<string> = new Set([
   "features",
   "browserProfiles",
   "onboarding",
+  "defaultModelSelection",
+  "newBotDefaults",
+  "newBots",
 ]);
 
 export function providerReloadKeys(patch: object): string[] {
