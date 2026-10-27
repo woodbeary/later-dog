@@ -4,6 +4,36 @@ later.dog Dev is a second copy of the desktop app that installs beside the relea
 
 Everything that names the app goes through one file, `electron/app-variant.cjs` (read as `electron/app-variant.mjs`). It decides `release` or `dev` before `electron/main.mjs` does anything else, and every name, folder, port and scheme below comes from it.
 
+## The app you work in
+
+`pnpm dev:app` installs **later.dog Dev** in `~/Applications`. Open it like any app, from the Dock, Spotlight or Applications. It runs this checkout from source (the `pnpm dev:desktop` session below), so its dogs can work on later.dog from inside it:
+
+- A file saved under `src/` shows up in the open window within about a second. Nothing is built.
+- Changes under `server/` and `electron/`, and `shared/` code the server uses, load with **later.dog Dev → Restart later.dog Dev**, which takes a few seconds.
+- Its data is `~/.laterdog-dev`. The released later.dog, its dogs and its sign-ins are never touched. The engines' own sign-ins on this Mac (Claude, ChatGPT and the rest) are shared, so its dogs work straight away.
+
+When a change breaks it:
+
+- Each time it opens, it saves the code it ran, uncommitted and new files included, as `refs/laterdog-dev/opened/<time>` in this repository and keeps the newest 12. Your branch, index and files are not touched.
+- If it can't start, it shows the file, line and error, and offers **Try Again** or **Open an Earlier Version…**.
+- **later.dog Dev → Open an Earlier Version…** does the same from a running app, for a change that broke the window rather than the start.
+- An earlier version runs from its own checkout, `~/.laterdog-dev-tools/app/earlier`, with the same dogs and chats, so a dog there can fix this checkout. **Back to the Latest Code** in the same menu returns.
+
+How it is put together: the app is an APFS clone of this checkout's Electron, so it takes no extra disk, renamed later.dog Dev (`dog.later.app.dev.source`) with the Dev icon and a small launcher as its executable. The launcher starts a keeper, `scripts/dev-app.mjs` copied into the app so a broken checkout can't break it, which runs `scripts/dev-desktop.mjs` with `LATERDOG_DEV_ELECTRON` pointing at the renamed Electron. The window, Dock tile and menu bar therefore all say later.dog Dev, and clicking the icon while it is open brings it to the front. The two menu items, from `electron/dev-session-menu.mjs`, quit through the normal shutdown with exit code 75 (restart) or 76 (earlier version), and the keeper acts on the code. When `pnpm install` moves Electron to a new version, the keeper rebuilds the app before the next start. Run `pnpm dev:app` again after changing `scripts/dev-app.mjs`. Logs are in `~/Library/Logs/later.dog Dev`: `keeper.log`, `session.log`, and `session.previous.log` for the session before.
+
+Verified on 2026-10-27 on a throwaway clone with its own data:
+- opening from the icon took 11.6 s cold and about 3 s warm;
+- a Claude dog edited the clone's `src/locales/en.json` from inside the app, and the window changed a second later;
+- Restart brought the window back in 2.2 s;
+- a broken server showed the dialog with its file, line and error;
+- the last version that worked opened with the same chat, and going back to the latest code worked;
+- a second click on the icon focused the open app without starting another.
+
+Not verified:
+- clicking the menu items themselves (the test made the same quit-with-code call they make);
+- the Electron rebuild after a version change;
+- macOS permission prompts, such as the microphone or the screen, for the renamed app.
+
 ## How the variant is chosen
 
 | Where it runs | Variant |
@@ -88,6 +118,8 @@ release/Dev windows still need a check on the selected Mac; no screen verificati
 is implied by the protocol test.
 
 ## Installing it
+
+For everyday work use `pnpm dev:app` ([the app you work in](#the-app-you-work-in)). A packaged Dev build is only for checking packaging.
 
 The rolling `dev-latest` build stopped when its workflow was removed on 2026-10-19, and the `dev` branch is retired with it. Build Dev locally when it is needed: `LATERDOG_VARIANT=dev pnpm laterdog:package` uses `electron-builder.dev.yml`, bakes in `laterdogVariant`, and installs Dev's own `app-update.yml` through the after-pack hook. Drag **later.dog Dev** into Applications; it sits beside later.dog, can run at the same time and starts empty (see First run below). Day-to-day testing runs on isolated fixtures instead ([docs/verification/README.md](../verification/README.md)).
 

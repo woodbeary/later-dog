@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import environments from "./environments.cjs";
 import { createCloudOffer, leaveHomeNow, parseOffer } from "./cloud-default-home.mjs";
+import { devSessionItems } from "./dev-session-menu.mjs";
 
 const HOME = "https://home.fixture.test";
 const connected = (machine = { status: "ready", origin: HOME }) => ({ status: "connected", account: { id: "a", email: "a@b.test" }, machine });
@@ -70,12 +71,14 @@ test("the application menu is built without any server selection hooks", () => {
   const context = vm.createContext({
     Menu: { setApplicationMenu: () => {} },
     buildApplicationMenu: value => { options = value; return value; },
+    devSessionItems, quitWithCode: () => {}, app: { name: "later.dog" }, process: { env: {} },
     environmentsState: { activeId: "cloud-1", environments: [{ id: "cloud-1", name: "My Cloud", origin: HOME }] },
     cloudAccount: { state: connected }, mainWindow: null,
   });
   vm.runInContext(source.slice(source.indexOf("function refreshApplicationMenu("), source.indexOf("function currentWindowTitle(")), context);
   context.refreshApplicationMenu();
-  assert.deepEqual(Object.keys(options), ["onOpenSettings"]);
+  assert.deepEqual(Object.keys(options), ["onOpenSettings", "sessionItems"]);
+  assert.deepEqual(options.sessionItems, []);
 });
 
 test("the sign-in screen is offered once: a Mac that said not now, or signed in, is never asked again", () => {

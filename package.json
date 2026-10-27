@@ -33,6 +33,7 @@
     "control:laterdog": "node --experimental-strip-types scripts/control-laterdog.ts",
     "eval": "node --experimental-strip-types evals/runners/run-evals.ts",
     "dev:desktop": "node scripts/dev-desktop.mjs",
+    "dev:app": "node scripts/dev-app.mjs install",
     "dev:home": "node scripts/dev-home.mjs",
     "dev:connect": "node scripts/dev-connect.mjs",
     "dev:loop": "node scripts/dev-loop.mjs",

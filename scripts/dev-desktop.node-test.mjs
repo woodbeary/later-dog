@@ -85,6 +85,14 @@ test("one desktop plan keeps renderer, API and supervisor on the isolated Dev ta
   assert.ok(vite.args.includes("--strictPort"), "Vite cannot silently move away from Electron's origin");
 });
 
+test("the later.dog Dev app can name the Electron that shows the window, in both modes", () => {
+  assert.equal(planFor().electron.file, `${ROOT}/node_modules/electron/dist/${process.platform === "darwin" ? "Electron.app/Contents/MacOS/Electron" : process.platform === "win32" ? "electron.exe" : "electron"}`);
+  const renamed = "/Users/desktop-fixture/Applications/later.dog Dev.app/Contents/MacOS/Electron";
+  assert.equal(planFor({ LATERDOG_DEV_ELECTRON: renamed }).electron.file, renamed);
+  assert.equal(planFor({ LATERDOG_DEV_ELECTRON: renamed, LATERDOG_DEV_HOME_SESSION: "/fixture/home.session.json" }).electron.file, renamed);
+  assert.deepEqual(planFor({ LATERDOG_DEV_ELECTRON: renamed }).electron.args, [ROOT]);
+});
+
 test("inherited release connections cannot redirect the Dev launch", () => {
   const deleted = ["LATERDOG_URL", "LATERDOG_SUPERVISOR_URL", "LATERDOG_TOKEN", "LATERDOG_TOKEN_FILE", "LATERDOG_DATA_DIR", "LATERDOG_HARNESS_URL", "LATERDOG_COMPANION_DIR", "LATERDOG_WEBHOOK_PORT", "ELECTRON_RUN_AS_NODE"];
   const plan = planFor({

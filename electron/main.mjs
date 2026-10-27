@@ -68,6 +68,7 @@ import localOriginModule from "./local-origin.cjs";
 import { speechSender, stopSpeechWhenPageLeaves } from "./speech-sender.mjs";
 import { pageCapabilities, windowPage } from "./page-capabilities.mjs";
 import { buildApplicationMenu } from "./menu.mjs";
+import { devSessionItems, quitWithCode } from "./dev-session-menu.mjs";
 import { computerName as sharedComputerName, createComputerSharing, validateSharedFolders } from "./computer-sharing.mjs";
 import { primeHomeFolders } from "./shared-computer-access.mjs";
 import { acquireDataDirLease } from "./data-dir-lease.mjs";
@@ -1513,6 +1514,7 @@ function refreshApplicationMenu() {
       onOpenSettings: () => {
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("app:open-settings");
       },
+      sessionItems: devSessionItems(process.env, (code) => quitWithCode(app, code), app.name),
     }),
   );
 }

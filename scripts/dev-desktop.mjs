@@ -32,6 +32,7 @@ export function desktopPlan({ env = process.env, home = homedir(), root = projec
   const step = (...args) => ({ file: node, args });
   const electron = process.platform === "darwin" ? "Electron.app/Contents/MacOS/Electron" : process.platform === "win32" ? "electron.exe" : "electron";
   const vite = step(join(root, "node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", String(uiPort), "--strictPort");
+  const electronFile = env.LATERDOG_DEV_ELECTRON?.trim() || join(root, "node_modules/electron/dist", electron);
   const homeSession = env.LATERDOG_DEV_HOME_SESSION?.trim();
   if (homeSession) {
     const proxyPort = target.serverPort;
@@ -39,13 +40,13 @@ export function desktopPlan({ env = process.env, home = homedir(), root = projec
     return {
       root, node, env: { ...environment, LATERDOG_DEV_API_URL: proxyUrl, LATERDOG_WORKSPACE_URL: proxyUrl }, ports: [proxyPort, uiPort], serverUrl: proxyUrl, supervisorUrl: null, uiUrl, homeSession,
       services: [step(join(root, "scripts/dev-home-proxy.mjs"), homeSession, String(proxyPort)), vite],
-      electron: { file: join(root, "node_modules/electron/dist", electron), args: [root] },
+      electron: { file: electronFile, args: [root] },
     };
   }
   return {
     root, node, env: environment, ports: [target.serverPort, target.serverPort + 1, target.supervisorPort, uiPort], serverUrl, supervisorUrl, uiUrl,
     services: [step(join(root, "server/laterdog/main.ts")), step(join(root, "server/index.ts")), vite],
-    electron: { file: join(root, "node_modules/electron/dist", electron), args: [root] },
+    electron: { file: electronFile, args: [root] },
   };
 }
 

@@ -25,4 +25,10 @@ Before claiming a server or conversation change works, follow
 [`docs/verification/README.md`](docs/verification/README.md). Always launch an
 isolated fixture; never verify mutations against the user's live app or data.
 
+The later.dog Dev app ([`docs/laterdog/dev-app.md`](docs/laterdog/dev-app.md)) runs this
+checkout, and its dogs may be editing the app they are running in. A file saved under `src/`
+changes the person's window within a second, so keep every save working and commit working
+steps. `server/` and `electron/` changes wait for later.dog Dev → Restart later.dog Dev; ask
+the person to choose it rather than quitting or restarting the app yourself, which ends your turn.
+
 More specific `AGENTS.md` files override this note within their directories.
