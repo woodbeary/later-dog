@@ -28,6 +28,7 @@ process.env.HOME = home;
 process.env.USERPROFILE = home;
 delete process.env.LATERDOG_HOME;
 delete process.env.HERMES_HOME;
+delete process.env.TZ;
 for (const name of INHERITED_FROM_A_RUNNING_APP) delete process.env[name];
 process.env.LATERDOG_COMPANION_DIR = join(home, ".laterdog-companion");
 process.env.LATERDOG_TRIAL_API = "off";
