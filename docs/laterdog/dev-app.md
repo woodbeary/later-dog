@@ -6,7 +6,7 @@ Everything that names the app goes through one file, `electron/app-variant.cjs` 
 
 ## The app you work in
 
-`pnpm dev:app` installs **later.dog Dev** in `~/Applications`. Open it like any app, from the Dock, Spotlight or Applications. It runs this checkout from source (the `pnpm dev:desktop` session below), so its dogs can work on later.dog from inside it:
+`pnpm dev:app` installs **later.dog Dev** in Applications, next to later.dog (in `~/Applications` when the main folder isn't writable), and removes a copy it installed in the other folder. Open it like any app, from Applications or the Dock. It runs this checkout from source (the `pnpm dev:desktop` session below), so its dogs can work on later.dog from inside it:
 
 - A file saved under `src/` shows up in the open window within about a second. Nothing is built.
 - Changes under `server/` and `electron/`, and `shared/` code the server uses, load with **later.dog Dev → Restart later.dog Dev**, which takes a few seconds.

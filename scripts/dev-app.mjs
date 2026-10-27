@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { appendFileSync, closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { accessSync, appendFileSync, closeSync, constants, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,7 @@ export const EARLIER_CODE = 76;
 export const SNAPSHOT_REFS = "refs/laterdog-dev/opened";
 export const SNAPSHOTS_KEPT = 12;
 export const EARLIER_BUTTON = "Open an Earlier Version…";
+export const SHARED_APPS = "/Applications";
 const READY = /^later\.dog Dev: http/;
 const COLOUR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*[A-Za-z]`, "g");
 const LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
@@ -31,9 +32,18 @@ export function command(file, args, { env } = {}) {
   });
 }
 
-export function defaultSettings({ repo, home = homedir(), env = process.env }) {
+function writable(dir) {
+  try {
+    accessSync(dir, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function defaultSettings({ repo, home = homedir(), env = process.env, canWrite = writable }) {
   const tools = env.LATERDOG_DEV_DIR?.trim() || join(home, ".laterdog-dev-tools");
-  return { repo, apps: join(home, "Applications"), state: join(tools, "app"), logs: join(home, "Library", "Logs", APP_NAME), dataHome: null };
+  return { repo, apps: canWrite(SHARED_APPS) ? SHARED_APPS : join(home, "Applications"), state: join(tools, "app"), logs: join(home, "Library", "Logs", APP_NAME), dataHome: null };
 }
 
 export function plistChanges() {
@@ -68,7 +78,7 @@ export function electronVersion(checkout) {
   }
 }
 
-export async function installApp({ repo, apps, state, logs, dataHome = null, source = fileURLToPath(import.meta.url), run = command }) {
+export async function installApp({ repo, apps, state, logs, dataHome = null, others = [], source = fileURLToPath(import.meta.url), run = command }) {
   const stock = join(repo, "node_modules", "electron", "dist", "Electron.app");
   if (!existsSync(stock)) throw new Error(`Electron isn't installed in ${repo} yet. Run pnpm install there first.`);
   const electronApp = realpathSync(stock);
@@ -96,6 +106,12 @@ export async function installApp({ repo, apps, state, logs, dataHome = null, sou
   renameSync(fresh, target);
   rmSync(staging, { recursive: true, force: true });
   await run(LSREGISTER, ["-f", target]).catch(() => {});
+  for (const folder of others) {
+    const other = join(folder, `${APP_NAME}.app`);
+    if (other === target || !existsSync(join(other, "Contents", "Resources", "laterdog-dev", "install.json"))) continue;
+    rmSync(other, { recursive: true, force: true });
+    await run(LSREGISTER, ["-u", other]).catch(() => {});
+  }
   return target;
 }
 
@@ -468,8 +484,9 @@ async function install(argv) {
     ...(flags.home ? { dataHome: flags.home } : {}),
   };
   if (keeperPid(chosen.state)) throw new Error(`${APP_NAME} is open. Quit it, then run pnpm dev:app again.`);
-  const target = await installApp(chosen);
-  process.stdout.write(`Installed ${target}\nIt runs ${chosen.repo} with hot reload${chosen.dataHome ? ` on ${chosen.dataHome}` : ""}. Open it from Spotlight, Applications or the Dock.\n`);
+  const others = flags.apps ? [] : [SHARED_APPS, join(homedir(), "Applications")];
+  const target = await installApp({ ...chosen, others });
+  process.stdout.write(`Installed ${target}\nIt runs ${chosen.repo} with hot reload${chosen.dataHome ? ` on ${chosen.dataHome}` : ""}. Open it from Applications, Spotlight or the Dock.\n`);
   if (flags.open) await command("open", [target]);
 }
 

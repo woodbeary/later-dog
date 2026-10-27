@@ -13,6 +13,7 @@ import {
   RESTART_CODE,
   SNAPSHOT_REFS,
   command,
+  defaultSettings,
   dialogScript,
   failureDetail,
   failureMessage,
@@ -121,6 +122,29 @@ describe("the later.dog Dev app", () => {
     expect(behind.electron).toBe("43.7.9");
     expect(await refreshElectron({ repo: checkout }, checkout, install)).toBeNull();
     expect(await refreshElectron(current, scratch(), install)).toBeNull();
+  });
+
+  it("installs next to later.dog in Applications, or in the person's own Applications when that is closed", () => {
+    expect(defaultSettings({ repo: "/r", home: "/Users/someone", env: {}, canWrite: () => true })).toMatchObject({ apps: "/Applications", state: "/Users/someone/.laterdog-dev-tools/app", logs: "/Users/someone/Library/Logs/later.dog Dev" });
+    expect(defaultSettings({ repo: "/r", home: "/Users/someone", env: {}, canWrite: () => false }).apps).toBe("/Users/someone/Applications");
+  });
+
+  it("removes its own copy from the other Applications folder and nothing else", async () => {
+    const repo = fixtureCheckout();
+    const home = scratch();
+    const shared = join(home, "shared");
+    const own = join(home, "own");
+    const unrelated = join(home, "unrelated");
+    const earlier = join(own, `${APP_NAME}.app`, "Contents", "Resources", "laterdog-dev");
+    mkdirSync(earlier, { recursive: true });
+    writeFileSync(join(earlier, "install.json"), "{}");
+    mkdirSync(join(unrelated, `${APP_NAME}.app`, "Contents"), { recursive: true });
+    const calls = [];
+    const target = await installApp({ repo, apps: shared, state: join(home, "state"), logs: join(home, "logs"), others: [shared, own, unrelated], run: recordingRun(calls) });
+    expect(existsSync(target)).toBe(true);
+    expect(existsSync(join(own, `${APP_NAME}.app`))).toBe(false);
+    expect(existsSync(join(unrelated, `${APP_NAME}.app`))).toBe(true);
+    expect(calls.filter(([file, flag]) => file.endsWith("lsregister") && flag === "-u").map(([, , path]) => path)).toEqual([join(own, `${APP_NAME}.app`)]);
   });
 
   it("says what to do when the checkout has no Electron yet", async () => {
