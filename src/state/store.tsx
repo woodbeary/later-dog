@@ -480,6 +480,7 @@ export interface ConfigStatus {
   rooms: { turnTimeoutMinutes: number };
   mcp?: { callTimeoutMinutes: number };
   newBots?: { effort?: EffortLevel };
+  defaultModelSelection?: ModelSelection;
   threads?: { maxConcurrentPerBot: number; eventLogMaxBytes?: number; eventLogRetentionDays?: number };
   automaticRecovery?: { enabled: boolean; backup?: ModelSelection };
   accountBattery?: {

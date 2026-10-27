@@ -22,6 +22,7 @@ import { PermissionChecklist } from "./PermissionChecklist";
 import { SettingRow, SettingsGroup, SettingsRows, Switch } from "./SettingsPrimitives";
 import { CloudLending } from "./CloudLending";
 import { AutoReviewRow } from "./AutoReviewSettings";
+import { DefaultModelRow } from "./DefaultModelSettings";
 import { VoiceNoteButtonRow } from "./VoiceNoteButtonSettings";
 import { MacAccessGroup } from "./MacAccessGroup";
 import { cloudLendingBridge } from "@/lib/cloud-plan-summary";
@@ -247,6 +248,7 @@ function GeneralPage({ mac }: { mac: boolean }) {
       </SettingsGroup>
       <SettingsGroup label={t("settings.group.dogs")} testId="dogs">
         <SettingsRows>
+          <DefaultModelRow />
           <AutoReviewRow />
         </SettingsRows>
       </SettingsGroup>

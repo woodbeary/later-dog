@@ -11831,6 +11831,7 @@ function configStatus() {
     automaticRecovery: cfg.automaticRecovery ?? { enabled: false },
     accountBattery: { ...accountBattery.status(batteryAccounts()), waiting: carryOnWaiting() },
     newBots: cfg.newBots?.effort ? { effort: cfg.newBots.effort } : {},
+    ...(cfg.defaultModelSelection?.instanceId ? { defaultModelSelection: cfg.defaultModelSelection } : {}),
     threads: {
       maxConcurrentPerBot: maxConcurrentBotThreads(cfg),
       ...(eventLogMaxBytes !== null ? { eventLogMaxBytes } : {}),
