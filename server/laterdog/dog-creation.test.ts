@@ -7,6 +7,11 @@ import { PROFILE_PROMPT } from "../system-prompt.ts";
 import { DOG_CREATION_PROMPT, dogGreeting, dogMadeDogAccess, greetNewDog } from "./dog-creation.ts";
 
 describe("dogGreeting", () => {
+  it("makes a real dog, not a subagent, when the person asks for another agent", () => {
+    expect(DOG_CREATION_PROMPT).toMatch(/another dog, agent or helper to take on work, make a real dog yourself with create_bot/);
+    expect(DOG_CREATION_PROMPT).toMatch(/Subagents inside your own engine are only for splitting up your own work/);
+  });
+
   it("says hello to the person, names who set it up and for what, and asks where to start", () => {
     expect(dogGreeting({ name: "Scout", role: "research and writing", personName: "Jacob", creatorName: "Biscuit" }))
       .toBe("Hi Jacob, I'm Scout. Biscuit set me up for research and writing. What should I start on?");
@@ -91,7 +96,7 @@ describe("greetNewDog", () => {
 describe("what a dog is told about creating dogs", () => {
   it("every dog's prompt says it may create a dog or a group chat itself, with no pack, Chief or limit", () => {
     expect(PROFILE_PROMPT).toContain(DOG_CREATION_PROMPT);
-    expect(DOG_CREATION_PROMPT).toContain("make it yourself with create_bot");
+    expect(DOG_CREATION_PROMPT).toContain("make a real dog yourself with create_bot");
     expect(DOG_CREATION_PROMPT).toContain("make it with create_room");
     expect(DOG_CREATION_PROMPT).toContain("manage_room");
     expect(DOG_CREATION_PROMPT).toContain("Do not click through this app with computer control");

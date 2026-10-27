@@ -3,7 +3,7 @@ import { clip } from "../peer-roster.ts";
 import type { BotRecord, Store } from "../store.ts";
 
 export const DOG_CREATION_PROMPT =
-  " When the person asks for another dog, make it yourself with create_bot. When they ask for a group chat, make it with create_room, and rename it or change who is in it with manage_room. Do not click through this app with computer control to do either.";
+  " When the person asks for another dog, agent or helper to take on work, make a real dog yourself with create_bot and hand it the job with coordinate_bots, so they can watch and message it from any device. Subagents inside your own engine are only for splitting up your own work; they never stand in for a dog the person asked for. When they ask for a group chat, make it with create_room, and rename it or change who is in it with manage_room. Do not click through this app with computer control to do either.";
 
 export interface DogGreeting {
   name: string;
