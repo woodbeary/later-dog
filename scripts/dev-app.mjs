@@ -1,7 +1,8 @@
 import { execFile, spawn } from "node:child_process";
-import { accessSync, appendFileSync, closeSync, constants, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { accessSync, appendFileSync, closeSync, constants, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { fileURLToPath } from "node:url";
 
 export const APP_NAME = "later.dog Dev";
@@ -18,6 +19,7 @@ const COLOUR = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*[A-Za-z]`, "g");
 const LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
 const OPEN_WAIT_MS = 120_000;
 const TAIL_LINES = 60;
+const SESSION_POLL_MS = 250;
 const NOISE = /^\s*(?:at\s|\^+\s*$|[{}]\s*$|Node\.js v\d|node:internal\/|triggerUncaughtException\(|code: ')/;
 const TELLING = /error|refus|cannot|can't|could not|couldn't|in use|timed out|not found|failed|exception/i;
 const PLACE = /^file:\/\/(\S+?):(\d+)$/;
@@ -115,6 +117,13 @@ export async function installApp({ repo, apps, state, logs, dataHome = null, oth
   return target;
 }
 
+export function refreshLauncher(target, source = fileURLToPath(import.meta.url)) {
+  const own = join(target, "Contents", "Resources", "laterdog-dev");
+  const next = join(own, `dev-app.mjs.${process.pid}`);
+  copyFileSync(source, next);
+  renameSync(next, join(own, "dev-app.mjs"));
+}
+
 export function installedSettings(file = fileURLToPath(import.meta.url)) {
   const saved = JSON.parse(readFileSync(join(dirname(file), "install.json"), "utf8"));
   return { ...saved, bundle: dirname(dirname(dirname(dirname(file)))) };
@@ -142,8 +151,10 @@ export function readState(state) {
 }
 
 function writeState(state, value) {
-  mkdirSync(state, { recursive: true });
-  writeFileSync(stateFile(state), JSON.stringify({ ...value, at: Date.now() }));
+  try {
+    mkdirSync(state, { recursive: true });
+    writeFileSync(stateFile(state), JSON.stringify({ ...value, at: Date.now() }));
+  } catch {}
 }
 
 export function keeperPid(state) {
@@ -312,19 +323,31 @@ export function sessionEnv(settings, version, electron, base = process.env, now 
   return env;
 }
 
-export function runSession({ checkout, env, logs, onReady = () => {}, spawnProcess = spawn, node = process.execPath, signals = process }) {
-  mkdirSync(logs, { recursive: true });
-  const file = join(logs, "session.log");
-  if (existsSync(file)) renameSync(file, join(logs, "session.previous.log"));
+export function openSessionLog(logs) {
+  for (const folder of [logs, tmpdir()]) {
+    const file = join(folder, folder === logs ? "session.log" : "laterdog-dev-session.log");
+    try {
+      mkdirSync(folder, { recursive: true });
+      if (existsSync(file)) renameSync(file, join(folder, folder === logs ? "session.previous.log" : "laterdog-dev-session.previous.log"));
+      const output = openSync(file, "a");
+      return { file, output, reader: openSync(file, "r") };
+    } catch {}
+  }
+  throw new Error(`${APP_NAME} could not open a session log`);
+}
+
+export function runSession({ checkout, env, logs, onReady = () => {}, spawnProcess = spawn, node = process.execPath, signals = process, pollMs = SESSION_POLL_MS }) {
+  const { output, reader } = openSessionLog(logs);
   return new Promise((resolve) => {
-    const child = spawnProcess(node, [join(checkout, "scripts", "dev-desktop.mjs")], { cwd: checkout, env, stdio: ["ignore", "pipe", "pipe"] });
     const tail = [];
+    const decoder = new StringDecoder("utf8");
+    const chunk = Buffer.alloc(64 * 1024);
     let ready = false;
     let interrupted = false;
     let pending = "";
-    const take = (chunk) => {
-      appendFileSync(file, chunk);
-      pending += chunk.toString("utf8");
+    let offset = 0;
+    const take = (text) => {
+      pending += text;
       const lines = pending.split(/\r?\n/);
       pending = lines.pop() ?? "";
       for (const raw of lines) {
@@ -338,16 +361,43 @@ export function runSession({ checkout, env, logs, onReady = () => {}, spawnProce
         }
       }
     };
+    const drain = () => {
+      for (;;) {
+        let read = 0;
+        try {
+          read = readSync(reader, chunk, 0, chunk.length, offset);
+        } catch {
+          return;
+        }
+        if (read <= 0) return;
+        offset += read;
+        take(decoder.write(chunk.subarray(0, read)));
+      }
+    };
+    let child;
+    try {
+      child = spawnProcess(node, [join(checkout, "scripts", "dev-desktop.mjs")], { cwd: checkout, env, stdio: ["ignore", output, output] });
+    } catch (error) {
+      closeSync(reader);
+      resolve({ code: 1, ready: false, interrupted: false, tail: [error.message], checkout });
+      return;
+    } finally {
+      closeSync(output);
+    }
+    const poll = setInterval(drain, pollMs);
     const stop = () => {
       interrupted = true;
       child.kill("SIGTERM");
     };
-    child.stdout.on("data", take);
-    child.stderr.on("data", take);
     signals.on("SIGTERM", stop);
     signals.on("SIGINT", stop);
     child.on("error", (error) => tail.push(error.message));
     child.on("close", (code, signal) => {
+      clearInterval(poll);
+      drain();
+      try {
+        closeSync(reader);
+      } catch {}
       signals.off("SIGTERM", stop);
       signals.off("SIGINT", stop);
       resolve({ code: code ?? (signal ? 1 : 0), ready, interrupted, tail, checkout });
@@ -483,7 +533,13 @@ async function install(argv) {
     ...(flags.logs ? { logs: flags.logs } : {}),
     ...(flags.home ? { dataHome: flags.home } : {}),
   };
-  if (keeperPid(chosen.state)) throw new Error(`${APP_NAME} is open. Quit it, then run pnpm dev:app again.`);
+  if (keeperPid(chosen.state)) {
+    const installed = join(chosen.apps, `${APP_NAME}.app`);
+    if (!existsSync(join(installed, "Contents", "Resources", "laterdog-dev", "dev-app.mjs"))) throw new Error(`${APP_NAME} is open. Quit it, then run pnpm dev:app again.`);
+    refreshLauncher(installed, self);
+    process.stdout.write(`${APP_NAME} is open, so only its launcher was updated. The change takes effect the next time it opens.\n`);
+    return;
+  }
   const others = flags.apps ? [] : [SHARED_APPS, join(homedir(), "Applications")];
   const target = await installApp({ ...chosen, others });
   process.stdout.write(`Installed ${target}\nIt runs ${chosen.repo} with hot reload${chosen.dataHome ? ` on ${chosen.dataHome}` : ""}. Open it from Applications, Spotlight or the Dock.\n`);

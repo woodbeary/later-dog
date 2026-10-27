@@ -1,9 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { EARLIER_CODE as MENU_EARLIER, RESTART_CODE as MENU_RESTART } from "../electron/dev-session-menu.mjs";
 import {
@@ -30,6 +29,7 @@ import {
   readState,
   recordSnapshot,
   refreshElectron,
+  refreshLauncher,
   runSession,
   sessionEnv,
   snapshotLabel,
@@ -46,6 +46,11 @@ const scratch = () => {
 afterEach(() => {
   for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
+
+const until = async (check) => {
+  for (let attempt = 0; attempt < 400 && !check(); attempt++) await new Promise((resolve) => setTimeout(resolve, 5));
+  expect(check()).toBe(true);
+};
 
 const git = (dir, ...args) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", env: { ...process.env, GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.com", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "fixture@example.com" } }).trim();
 
@@ -349,32 +354,76 @@ describe("the keeper", () => {
     expect(sessionEnv({ dataHome: null }, null, null, { LATERDOG_DEV_SESSION_VERSION: "old" })).toEqual({ LATERDOG_DEV_SESSION: "1" });
   });
 
-  it("logs the session, keeps its last lines without colour, and notices once when the app is ready", async () => {
+  it("has the session write its own log, keeps its last lines without colour, and notices once when the app is ready", async () => {
     const logs = scratch();
     writeFileSync(join(logs, "session.log"), "earlier session\n");
-    const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough(), kill: () => {} });
     let readyCalls = 0;
-    const done = runSession({ checkout: "/repo", env: {}, logs, onReady: () => { readyCalls++; }, spawnProcess: () => child, signals: new EventEmitter() });
-    child.stdout.write(`${String.fromCharCode(27)}[32mVITE ready${String.fromCharCode(27)}[0m\n`);
-    child.stdout.write("later.dog Dev: http://127.0.0.1:5299 (renderer hot reload).\n");
-    child.stderr.write("later.dog Dev: http://127.0.0.1:5299 again\n");
-    await new Promise((resolve) => setImmediate(resolve));
+    let options;
+    const child = Object.assign(new EventEmitter(), { kill: () => {} });
+    let out;
+    const done = runSession({ checkout: "/repo", env: {}, logs, pollMs: 1, onReady: () => { readyCalls++; }, spawnProcess: (_file, _args, given) => { options = given; out = openSync(join(logs, "session.log"), "a"); return child; }, signals: new EventEmitter() });
+    const err = out;
+    expect(options.stdio.slice(1).every((fd) => Number.isInteger(fd))).toBe(true);
+    writeSync(out, `${String.fromCharCode(27)}[32mVITE ready${String.fromCharCode(27)}[0m\n`);
+    writeSync(out, "later.dog Dev: http://127.0.0.1:5299 (renderer hot reload).\n");
+    await until(() => readyCalls === 1);
+    writeSync(err, "later.dog Dev: http://127.0.0.1:5299 again\n");
     child.emit("close", 75, null);
     const result = await done;
     expect(result).toEqual({ code: 75, ready: true, interrupted: false, checkout: "/repo", tail: ["VITE ready", "later.dog Dev: http://127.0.0.1:5299 (renderer hot reload).", "later.dog Dev: http://127.0.0.1:5299 again"] });
     expect(readyCalls).toBe(1);
     expect(readFileSync(join(logs, "session.previous.log"), "utf8")).toBe("earlier session\n");
-    expect(readFileSync(join(logs, "session.log"), "utf8")).toContain("later.dog Dev: http://127.0.0.1:5299");
+    expect(readFileSync(join(logs, "session.log"), "utf8")).toContain("later.dog Dev: http://127.0.0.1:5299 again");
+    closeSync(out);
+  });
+
+  it("keeps the session and its readiness when a cleaner deletes the log folder mid-session", async () => {
+    const logs = join(scratch(), "later.dog Dev");
+    let readyCalls = 0;
+    const child = Object.assign(new EventEmitter(), { kill: () => {} });
+    let out;
+    const done = runSession({ checkout: "/repo", env: {}, logs, pollMs: 1, onReady: () => { readyCalls++; }, spawnProcess: () => { out = openSync(join(logs, "session.log"), "a"); return child; }, signals: new EventEmitter() });
+    writeSync(out, "server starting\n");
+    rmSync(logs, { recursive: true, force: true });
+    expect(existsSync(logs)).toBe(false);
+    writeSync(out, "later.dog Dev: http://127.0.0.1:5299 (renderer hot reload).\n");
+    writeSync(out, "[laterdog-turn] bot=dog text=hey\n");
+    await until(() => readyCalls === 1);
+    child.emit("close", 0, null);
+    const result = await done;
+    expect(result.ready).toBe(true);
+    expect(result.tail).toEqual(["server starting", "later.dog Dev: http://127.0.0.1:5299 (renderer hot reload).", "[laterdog-turn] bot=dog text=hey"]);
+    closeSync(out);
+  });
+
+  it("reports a session that could not start at all instead of failing the keeper", async () => {
+    const result = await runSession({ checkout: "/repo", env: {}, logs: scratch(), spawnProcess: () => { throw new Error("spawn node ENOENT"); }, signals: new EventEmitter() });
+    expect(result).toEqual({ code: 1, ready: false, interrupted: false, tail: ["spawn node ENOENT"], checkout: "/repo" });
   });
 
   it("stops the session and quits quietly when the keeper is told to stop", async () => {
     const signals = new EventEmitter();
-    const child = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough(), kill: () => child.emit("close", null, "SIGTERM") });
+    const child = Object.assign(new EventEmitter(), { kill: () => child.emit("close", null, "SIGTERM") });
     const done = runSession({ checkout: "/repo", env: {}, logs: scratch(), spawnProcess: () => child, signals });
     signals.emit("SIGTERM");
     const result = await done;
     expect(result.interrupted).toBe(true);
+    expect(signals.listenerCount("SIGTERM")).toBe(0);
     expect(await nextStep(result, { version: null, logs: "/logs", list: async () => [], ask: async () => "Restart", choose: async () => null })).toEqual({ kind: "quit" });
+  });
+
+  it("updates only the launcher of an open app, atomically", () => {
+    const target = join(scratch(), `${APP_NAME}.app`);
+    const own = join(target, "Contents", "Resources", "laterdog-dev");
+    mkdirSync(own, { recursive: true });
+    writeFileSync(join(own, "dev-app.mjs"), "old launcher");
+    writeFileSync(join(own, "install.json"), "{\"kept\":true}");
+    const source = join(scratch(), "dev-app.mjs");
+    writeFileSync(source, "new launcher");
+    refreshLauncher(target, source);
+    expect(readFileSync(join(own, "dev-app.mjs"), "utf8")).toBe("new launcher");
+    expect(readFileSync(join(own, "install.json"), "utf8")).toBe("{\"kept\":true}");
+    expect(readdirSync(own).sort()).toEqual(["dev-app.mjs", "install.json"]);
   });
 
   it("starts a keeper when none runs and returns once the app is ready", async () => {
