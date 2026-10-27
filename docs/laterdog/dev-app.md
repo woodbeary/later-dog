@@ -10,7 +10,7 @@ Everything that names the app goes through one file, `electron/app-variant.cjs` 
 
 - A file saved under `src/` shows up in the open window within about a second. Nothing is built.
 - Changes under `server/` and `electron/`, and `shared/` code the server uses, load with **later.dog Dev → Restart later.dog Dev**, which takes a few seconds.
-- Its data is `~/.laterdog-dev`. The released later.dog, its dogs and its sign-ins are never touched. The engines' own sign-ins on this Mac (Claude, ChatGPT and the rest) are shared, so its dogs work straight away.
+- Once this Mac is connected to your later.dog Cloud (`pnpm dev:connect`), it shows that workspace: the same chats as later.dog and the phone ([one workspace](#one-workspace-with-laterdog-and-the-phone)). Otherwise its data is `~/.laterdog-dev`. The released later.dog, its dogs and its sign-ins are never touched. The engines' own sign-ins on this Mac (Claude, ChatGPT and the rest) are shared, so its dogs work straight away.
 
 When a change breaks it:
 
@@ -33,6 +33,19 @@ Not verified:
 - clicking the menu items themselves (the test made the same quit-with-code call they make);
 - the Electron rebuild after a version change;
 - macOS permission prompts, such as the microphone or the screen, for the renamed app.
+
+## One workspace with later.dog and the phone
+
+Each account has one later.dog Cloud workspace, and the signed-in later.dog app and the phone are screens onto it. later.dog Dev joins them when `~/.laterdog-dev-tools/my-home.session.json` holds a session for your home, which `pnpm dev:connect` saves after you approve it in the browser. The keeper then runs `pnpm dev:desktop` with `LATERDOG_DEV_HOME_SESSION`: `scripts/dev-home-proxy.mjs` listens on 8999 and sends every later.dog API call to the home as that session, and Vite serves this checkout's renderer on 5299. A chat started in Dev is on the phone straight away, and a nudge from the phone reaches the same dog.
+
+- The window opens as soon as the proxy answers `/__dev-home-proxy/ready`, so a sleeping home doesn't hold it at the start; the first call wakes it.
+- The dogs run in the home. To work in `~/code/dog` they use this Mac through later.dog: it has to be open and signed in, with **Settings → later.dog Cloud → Let My Cloud use this Mac** on.
+- `src/` still hot-reloads. `server/` changes in this checkout don't run on the home until a home image is deployed; switch to this Mac's Dev dogs to try them.
+- **later.dog Dev → Switch to This Mac's Dev Dogs** goes back to the local Dev workspace in `~/.laterdog-dev` (its dogs and chats are untouched and not copied into the home); **Switch to My later.dog Cloud** returns. The choice is saved in `~/.laterdog-dev-tools/app/workspace.json`.
+- With no usable session the keeper runs the local workspace, as before. `pnpm dev:app -- --mac-only` installs a Dev that never uses the home, `--home-session <file>` names another session file, and an install with `--home` (a throwaway clone) never uses one.
+- Changing the keeper needs a fresh start of the app: run `pnpm dev:app`, then quit later.dog Dev and open it again. **Restart later.dog Dev** keeps the keeper that is already running.
+
+Verified on 2026-10-27 against an isolated fixture server: two sessions, one through the Dev proxy and one standing in for the phone, saw the same thread with identical message ids; the phone's nudge was answered by the dog and showed in both. Not verified: a real home, the phone app, and clicking the menu items.
 
 ## How the variant is chosen
 

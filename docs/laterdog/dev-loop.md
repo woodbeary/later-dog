@@ -27,7 +27,8 @@ Everything goes to `~/.laterdog-dev-tools/logs/all.log` as `HH:MM:SS source | li
 
 - **Your own home** (`pnpm dev:connect` once). The session is in `~/.laterdog-dev-tools/my-home.session.json`, mode 600,
   as the signed-in device "later.dog dev tools"; sign it out from Settings, Account. The desktop and the phone show your
-  real dogs and chats with hot-reloading screens. Server code there changes only with an image deploy.
+  real dogs and chats with hot-reloading screens. Server code there changes only with an image deploy. The later.dog Dev
+  app uses the same session, so it shows this home too ([dev-app.md](dev-app.md#one-workspace-with-laterdog-and-the-phone)).
 - **A test home** (`node scripts/test-home.mjs sign-in test-<name>` first). Its Worker runs with `DEV_CODE=1`
   (`deploy/laterdog/home/wrangler.test.json` only; a config test keeps production and bootstrap at `""`), so it also
   takes server code pushed by `pnpm dev:home`: esbuild bundles the server, the bundle and `dev-code/current.json` go to
