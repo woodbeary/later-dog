@@ -12,6 +12,7 @@ it("covers every registered adapter and refuses unsupported native restrictions"
     } else {
       expect(() => assertToolScopeSupported(engine, { allow: [] })).toThrow(/not supported/);
       expect(() => assertToolScopeSupported(engine, { deny: ["native:read"] })).toThrow(/not supported/);
+      if (support === "none") expect(() => assertToolScopeSupported(engine, { allow: ["native:*", "mcp:notes:read"] })).toThrow(/not supported/);
       if (support === "mcp") expect(assertToolScopeSupported(engine, { allow: ["native:*", "mcp:notes:read"] })).toEqual({ allow: ["native:*", "mcp:notes:read"] });
     }
   }
