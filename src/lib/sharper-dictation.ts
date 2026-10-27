@@ -11,15 +11,17 @@ export function dictationLanguage(locale: string | undefined): string | undefine
   return /^[a-z]{2}$/.test(code) ? code : undefined;
 }
 
-export async function sharperTranscript(
+export type SharperOutcome = { text: string } | { miss: "no-audio" | "no-service" | "failed" };
+
+export async function sharperTranscriptOutcome(
   recording: string,
   bridge: VoiceNoteAudio | undefined,
   locale: string | undefined,
   fetcher: typeof fetch = fetch,
-): Promise<string | null> {
+): Promise<SharperOutcome> {
   try {
     const audio = await bridge?.speechAudio?.(recording);
-    if (!audio?.byteLength) return null;
+    if (!audio?.byteLength) return { miss: "no-audio" };
     const language = dictationLanguage(locale);
     const res = await fetcher(`/api/voice/transcribe${language ? `?language=${language}` : ""}`, {
       method: "POST",
@@ -27,11 +29,24 @@ export async function sharperTranscript(
       body: audio,
       signal: AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS),
     });
-    if (!res.ok) return null;
-    const body: unknown = await res.json();
+    const body: unknown = await res.json().catch(() => null);
+    if (!res.ok) {
+      const reason = body && typeof body === "object" && "reason" in body ? body.reason : undefined;
+      return { miss: reason === "no-service" ? "no-service" : "failed" };
+    }
     const text = body && typeof body === "object" && "text" in body && typeof body.text === "string" ? body.text.trim() : "";
-    return text || null;
+    return text ? { text } : { miss: "failed" };
   } catch {
-    return null;
+    return { miss: "failed" };
   }
+}
+
+export async function sharperTranscript(
+  recording: string,
+  bridge: VoiceNoteAudio | undefined,
+  locale: string | undefined,
+  fetcher: typeof fetch = fetch,
+): Promise<string | null> {
+  const outcome = await sharperTranscriptOutcome(recording, bridge, locale, fetcher);
+  return "text" in outcome ? outcome.text : null;
 }

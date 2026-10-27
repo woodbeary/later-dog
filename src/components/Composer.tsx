@@ -65,7 +65,7 @@ import { signInFamily } from "@/lib/engine-rail";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { ReplyQuote } from "./ReplyQuote";
 import { cloudDictationEnabled, skillAuthoringEnabled, voiceNoteButtonShown } from "@/lib/feature-flags";
-import { sharperTranscript } from "@/lib/sharper-dictation";
+import { sharperTranscriptOutcome } from "@/lib/sharper-dictation";
 import { useComposerSuggestion } from "@/lib/use-composer-suggestion";
 import { TypingGhost, TypingGhostAnnouncement } from "./TypingGhost";
 import { mentionChoicesForQuery } from "@/lib/mentions";
@@ -273,9 +273,13 @@ export function Composer({
     return async (recording) => {
       if (!recording) return false;
       setSharpening((count) => count + 1);
-      const said = await sharperTranscript(recording, window.laterdog, navigator.language);
+      const outcome = await sharperTranscriptOutcome(recording, window.laterdog, navigator.language);
       if (!mounted.current) return false;
       setSharpening((count) => count - 1);
+      if ("miss" in outcome && outcome.miss !== "no-audio") {
+        setSpeechError(t(outcome.miss === "no-service" ? "composer.dictation.onDevice" : "composer.dictation.cloudFailed"));
+      }
+      const said = "text" in outcome ? outcome.text : null;
       if (!said || draftIdRef.current !== id || textNow.current !== heard || draftRevision(id) !== revision) return false;
       write(base ? `${base} ${said}` : said);
       return true;

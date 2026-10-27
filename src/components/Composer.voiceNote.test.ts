@@ -305,12 +305,12 @@ describe("sharper dictation", () => {
     expect(box().value).toBe("");
   });
 
-  it("quietly keeps the on-device text when no service can help", async () => {
+  it("keeps the on-device text and says a key would make it cloud dictation when no service can help", async () => {
     transcribe.mockImplementation(async () => Response.json({ error: "No transcription service is set up.", reason: "no-service" }, { status: 409 }));
     await dictate("draft the lunch post");
     await stopWithRecording();
     expect(box().value).toBe("draft the lunch post");
-    expect(host.querySelector("[data-voice-note]")).toBeNull();
+    expect(host.querySelector("[data-voice-note]")!.textContent).toContain("Transcribed on this Mac. Add an xAI or ElevenLabs key");
   });
 
   it("fills the box instead of an error when on-device recognition drops the note", async () => {

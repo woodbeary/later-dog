@@ -949,6 +949,8 @@
   "composer.dictation.stopHint": "Stop dictation · Esc cancels",
   "composer.dictation.hint": "Dictate",
   "composer.dictation.transcribing": "Transcribing…",
+  "composer.dictation.onDevice": "Transcribed on this Mac. Add an xAI or ElevenLabs key in Settings → API keys for cloud dictation.",
+  "composer.dictation.cloudFailed": "Cloud transcription didn't answer, so this is the Mac's version.",
   "composer.failed.notSent": "Not sent: “{text}”",
   "composer.failed.attachment": "attachment",
   "composer.failed.dismiss": "Dismiss",

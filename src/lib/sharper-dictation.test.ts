@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { dictationLanguage, sharperTranscript } from "./sharper-dictation";
+import { dictationLanguage, sharperTranscript, sharperTranscriptOutcome } from "./sharper-dictation";
 
 const WAV = new Uint8Array([82, 73, 70, 70, 9, 9]);
 const bridge = (audio: Uint8Array<ArrayBuffer> | null = WAV) => ({ speechAudio: vi.fn(async (_file: string) => audio) });
@@ -48,5 +48,12 @@ describe("a sharper transcript", () => {
     expect(await sharperTranscript("/notes/a.caf", bridge(), "en", answering(502, { error: "down" }))).toBeNull();
     expect(await sharperTranscript("/notes/a.caf", bridge(), "en", answering(200, { text: "   " }))).toBeNull();
     expect(await sharperTranscript("/notes/a.caf", bridge(), "en", vi.fn(async () => { throw new TypeError("offline"); }))).toBeNull();
+  });
+
+  it("says why the cloud text did not arrive, so the composer can point at the missing key", async () => {
+    expect(await sharperTranscriptOutcome("/notes/a.caf", bridge(), "en", answering(409, { reason: "no-service" }))).toEqual({ miss: "no-service" });
+    expect(await sharperTranscriptOutcome("/notes/a.caf", bridge(), "en", answering(502, { error: "down" }))).toEqual({ miss: "failed" });
+    expect(await sharperTranscriptOutcome("/notes/a.caf", bridge(null), "en", answering(200, { text: "x" }))).toEqual({ miss: "no-audio" });
+    expect(await sharperTranscriptOutcome("/notes/a.caf", bridge(), "en", answering(200, { text: "hi" }))).toEqual({ text: "hi" });
   });
 });
