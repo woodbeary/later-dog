@@ -5,6 +5,7 @@ import { credentialConfigPatch, credentialResumeOutcome } from "../../shared/cre
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { api, useStore, type ConfigStatus, type Message } from "@/state/store";
+import { REQUEST_PRIMARY, REQUEST_QUIET, RequestCard, RequestStatus } from "./RequestCard";
 
 export function SecretRequestCard({
   botId,
@@ -106,108 +107,78 @@ export function SecretRequestCard({
   };
 
   return (
-    <div className="flex w-full justify-start">
-      <div className="w-full max-w-[420px] overflow-hidden rounded-card bg-card ring-[0.5px] ring-ink/10">
-        <div className="flex items-start gap-2.5 px-3.5 pb-2 pt-3">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-control text-ink">
-            <KeyRound size={16} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="truncate text-[14px] font-medium text-ink">{secret.label}</span>
-              {provided && (
-                <span className="flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success">
-                  <Check size={11} /> Saved
-                </span>
-              )}
-              {superseded && (
-                <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning">
-                  Replaced
-                </span>
-              )}
-            </div>
-            <p className="text-[13px] leading-[18px] text-ink-secondary">
-              {description}
-            </p>
-            {pending && (
-              <p className="mt-1 flex items-center gap-1 text-[11.5px] text-ink-tertiary">
-                <LockKeyhole size={11} /> Never shown in chat.
-              </p>
-            )}
-            {error && <p role="alert" className="mt-2 text-[12px] text-danger">{error}</p>}
-          </div>
-          {pending && (
-            <button
-              onClick={dismiss}
-              aria-label="Not now"
-              title="Not now"
-              className="rounded-md p-1 text-ink-secondary hover:bg-control hover:text-ink"
-            >
-              <X size={15} />
-            </button>
-          )}
-        </div>
+    <RequestCard
+      label={secret.label}
+      data={{ "data-secret-card": provided ? "provided" : declined ? "declined" : superseded ? "superseded" : "pending" }}
+      media={<KeyRound size={17} aria-hidden="true" />}
+      title={secret.label}
+      subtitle={pending && (
+        <span className="flex items-center gap-1">
+          <LockKeyhole size={11} aria-hidden="true" /> Never shown in chat.
+        </span>
+      )}
+      active={pending}
+      trailing={pending ? (
+        <button type="button" onClick={dismiss} aria-label="Not now" title="Not now" className={cn(REQUEST_QUIET, "w-8 justify-center px-0")}>
+          <X size={15} />
+        </button>
+      ) : provided ? (
+        <RequestStatus tone="success" leading={<Check size={12} />}>Saved</RequestStatus>
+      ) : superseded ? (
+        <RequestStatus tone="muted">Replaced</RequestStatus>
+      ) : null}
+    >
+      <div className="px-3.5 pb-3.5">
+        <p className="text-[12.5px] leading-[18px] text-ink-secondary">{description}</p>
+        {error && <p role="alert" className="mt-2 text-[12px] text-danger">{error}</p>}
         {pending && (
-          <form onSubmit={(event) => void save(event)} className="px-3.5 pb-3">
-            <div className="flex gap-2">
-              <input
-                type="password"
-                autoComplete="new-password"
-                spellCheck={false}
-                value={value}
-                onChange={(event) => setValue(event.target.value)}
-                placeholder={secret.placeholder}
-                disabled={saving || savedLocally}
-                aria-label={secret.label}
-                className="h-8 min-w-0 flex-1 rounded-full border-[0.5px] border-ink/15 bg-composer px-3 text-[13px] text-ink outline-none placeholder:text-ink-tertiary focus:border-accent disabled:opacity-60"
-              />
-              <button
-                type="submit"
-                disabled={saving || (!value.trim() && !savedLocally)}
-                className="flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-accent px-3 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+          <form onSubmit={(event) => void save(event)} className="mt-3">
+            <input
+              type="password"
+              autoComplete="new-password"
+              spellCheck={false}
+              value={value}
+              onChange={(event) => setValue(event.target.value)}
+              placeholder={secret.placeholder}
+              disabled={saving || savedLocally}
+              aria-label={secret.label}
+              className="h-9 w-full rounded-xl bg-composer px-3 font-mono text-[13px] text-ink outline-none ring-[0.5px] ring-ink/15 transition-shadow placeholder:font-sans placeholder:text-ink-tertiary focus:ring-2 focus:ring-focus disabled:opacity-60 motion-reduce:transition-none"
+            />
+            <div className="mt-2.5 flex items-center justify-between gap-2">
+              <a
+                href={secret.helpUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(REQUEST_QUIET, "-ml-2 px-2 text-[12px]")}
               >
+                Where to get this key <ExternalLink size={11} aria-hidden="true" />
+              </a>
+              <button type="submit" disabled={saving || (!value.trim() && !savedLocally)} className={REQUEST_PRIMARY}>
                 {saving && <Loader2 size={13} className="animate-spin" />}
                 {savedLocally ? "Continue task" : localError ? t("chat.retry") : "Save securely"}
               </button>
             </div>
-            <a
-              href={secret.helpUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-2 inline-flex items-center gap-1 text-[11.5px] text-accent hover:underline"
-            >
-              Where to get this key <ExternalLink size={11} />
-            </a>
           </form>
         )}
         {(provided || declined) && (
-          <div className={cn(
-            "flex items-center justify-between px-3.5 pb-3 text-[12px]",
-            declined ? "text-danger" : "text-success",
-          )}>
+          <div className={cn("mt-2.5 flex items-center justify-between gap-2 text-[12px]", declined ? "text-danger" : "text-ink-secondary")}>
             <span className="flex items-center gap-1.5">
               {secret.resumed ? <Check size={12} /> : error ? <KeyRound size={12} /> : <Loader2 size={12} className="animate-spin" />}
               {footerLabel}
             </span>
             {!secret.resumed && error && (
-              <button
-                onClick={() => void retryResume()}
-                disabled={saving}
-                className="flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-50"
-              >
+              <button type="button" onClick={() => void retryResume()} disabled={saving} className={REQUEST_PRIMARY}>
                 {saving ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Try again
               </button>
             )}
           </div>
         )}
         {superseded && (
-          <div className="flex items-center px-3.5 pb-3 text-[12px] text-ink-secondary">
-            <span className="flex items-center gap-1.5">
-              <X size={12} /> Replaced by a newer request
-            </span>
-          </div>
+          <p className="mt-2.5 flex items-center gap-1.5 text-[12px] text-ink-secondary">
+            <X size={12} /> Replaced by a newer request
+          </p>
         )}
       </div>
-    </div>
+    </RequestCard>
   );
 }
