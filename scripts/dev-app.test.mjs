@@ -4,13 +4,18 @@ import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, rea
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { EARLIER_CODE as MENU_EARLIER, RESTART_CODE as MENU_RESTART } from "../electron/dev-session-menu.mjs";
+import { EARLIER_CODE as MENU_EARLIER, RESTART_CODE as MENU_RESTART, SWITCH_CODE as MENU_SWITCH } from "../electron/dev-session-menu.mjs";
 import {
   APP_NAME,
   EARLIER_BUTTON,
   EARLIER_CODE,
   RESTART_CODE,
   SNAPSHOT_REFS,
+  SWITCH_CODE,
+  chosenWorkspace,
+  homeSessionUsable,
+  installedSettings,
+  switchWorkspace,
   command,
   defaultSettings,
   dialogScript,
@@ -103,7 +108,7 @@ describe("the later.dog Dev app", () => {
     expect(statSync(join(contents, "MacOS", APP_NAME)).mode & 0o111).toBeTruthy();
     expect(readFileSync(join(contents, "Resources", "later-dog-dev.icns"), "utf8")).toBe("icon");
     expect(readFileSync(join(contents, "Resources", "laterdog-dev", "dev-app.mjs"), "utf8")).toBe(readFileSync(new URL("./dev-app.mjs", import.meta.url), "utf8"));
-    expect(JSON.parse(readFileSync(join(contents, "Resources", "laterdog-dev", "install.json"), "utf8"))).toEqual({ ...settings, electron: "43.7.9" });
+    expect(JSON.parse(readFileSync(join(contents, "Resources", "laterdog-dev", "install.json"), "utf8"))).toEqual({ ...settings, homeSession: null, electron: "43.7.9" });
     const plist = calls.filter(([file]) => file === "plutil").map(([, , key, , value]) => [key, value]);
     expect(plist).toEqual(plistChanges());
     expect(Object.fromEntries(plistChanges())).toMatchObject({ CFBundleName: APP_NAME, CFBundleExecutable: APP_NAME, CFBundleIdentifier: "dog.later.app.dev.source" });
@@ -130,7 +135,7 @@ describe("the later.dog Dev app", () => {
   });
 
   it("installs next to later.dog in Applications, or in the person's own Applications when that is closed", () => {
-    expect(defaultSettings({ repo: "/r", home: "/Users/someone", env: {}, canWrite: () => true })).toMatchObject({ apps: "/Applications", state: "/Users/someone/.laterdog-dev-tools/app", logs: "/Users/someone/Library/Logs/later.dog Dev" });
+    expect(defaultSettings({ repo: "/r", home: "/Users/someone", env: {}, canWrite: () => true })).toMatchObject({ apps: "/Applications", state: "/Users/someone/.laterdog-dev-tools/app", logs: "/Users/someone/Library/Logs/later.dog Dev", homeSession: "/Users/someone/.laterdog-dev-tools/my-home.session.json" });
     expect(defaultSettings({ repo: "/r", home: "/Users/someone", env: {}, canWrite: () => false }).apps).toBe("/Users/someone/Applications");
   });
 
@@ -170,6 +175,7 @@ describe("the later.dog Dev app", () => {
   it("asks the menu and the keeper for the same restart and earlier-version codes", () => {
     expect(RESTART_CODE).toBe(MENU_RESTART);
     expect(EARLIER_CODE).toBe(MENU_EARLIER);
+    expect(SWITCH_CODE).toBe(MENU_SWITCH);
   });
 });
 
@@ -352,6 +358,79 @@ describe("the keeper", () => {
     const env = sessionEnv({ dataHome: "/isolated/home" }, { at: new Date(2026, 9, 27, 9, 2).getTime() }, "/Apps/later.dog Dev.app/Contents/MacOS/Electron", { PATH: "/usr/bin", LATERDOG_DEV_ELECTRON: "/stale" }, new Date(2026, 9, 27, 12, 0).getTime());
     expect(env).toEqual({ PATH: "/usr/bin", LATERDOG_DEV_SESSION: "1", LATERDOG_DEV_SESSION_VERSION: "today at 9:02 AM", LATERDOG_DEV_ELECTRON: "/Apps/later.dog Dev.app/Contents/MacOS/Electron", LATERDOG_HOME: "/isolated/home" });
     expect(sessionEnv({ dataHome: null }, null, null, { LATERDOG_DEV_SESSION_VERSION: "old" })).toEqual({ LATERDOG_DEV_SESSION: "1" });
+  });
+
+  it("opens on the later.dog Cloud home when this Mac has a home session, unless the person switched to this Mac's Dev dogs", () => {
+    const tools = scratch();
+    const session = join(tools, "my-home.session.json");
+    const settings = { state: join(tools, "app"), homeSession: session };
+    expect(chosenWorkspace(settings)).toEqual({ workspace: "mac", canUseHome: false });
+    writeFileSync(session, JSON.stringify({ url: "https://h1-home.later.dog", token: "laterdog_sess_abc" }));
+    expect(homeSessionUsable(session)).toBe(true);
+    expect(chosenWorkspace(settings)).toEqual({ workspace: "home", canUseHome: true });
+    expect(switchWorkspace(settings, chosenWorkspace(settings))).toEqual({ workspace: "mac", canUseHome: true });
+    expect(chosenWorkspace(settings)).toEqual({ workspace: "mac", canUseHome: true });
+    expect(switchWorkspace(settings, chosenWorkspace(settings)).workspace).toBe("home");
+    expect(chosenWorkspace(settings).workspace).toBe("home");
+    for (const broken of [{ url: "http://example.test", token: "laterdog_sess_abc" }, { url: "https://h1-home.later.dog", token: "nope" }]) {
+      writeFileSync(session, JSON.stringify(broken));
+      expect(chosenWorkspace(settings)).toEqual({ workspace: "mac", canUseHome: false });
+    }
+    expect(switchWorkspace(settings, { workspace: "mac", canUseHome: false }).workspace).toBe("mac");
+    expect(chosenWorkspace({ state: join(tools, "app"), homeSession: null })).toEqual({ workspace: "mac", canUseHome: false });
+  });
+
+  it("hands the home session to the session only on the home, and never one it inherited", () => {
+    const inherited = { PATH: "/usr/bin", LATERDOG_DEV_HOME_SESSION: "/stale.json", LATERDOG_DEV_WORKSPACE: "home", LATERDOG_DEV_HOME_AVAILABLE: "1" };
+    const settings = { dataHome: null, homeSession: "/tools/my-home.session.json" };
+    expect(sessionEnv(settings, null, null, inherited, 0, { workspace: "home", canUseHome: true })).toEqual({
+      PATH: "/usr/bin", LATERDOG_DEV_SESSION: "1", LATERDOG_DEV_WORKSPACE: "home", LATERDOG_DEV_HOME_AVAILABLE: "1", LATERDOG_DEV_HOME_SESSION: "/tools/my-home.session.json",
+    });
+    expect(sessionEnv(settings, null, null, inherited, 0, { workspace: "mac", canUseHome: true })).toEqual({ PATH: "/usr/bin", LATERDOG_DEV_SESSION: "1", LATERDOG_DEV_HOME_AVAILABLE: "1" });
+    expect(sessionEnv(settings, null, null, inherited, 0, { workspace: "home", canUseHome: false })).toEqual({ PATH: "/usr/bin", LATERDOG_DEV_SESSION: "1" });
+    expect(sessionEnv(settings, null, null, inherited)).toEqual({ PATH: "/usr/bin", LATERDOG_DEV_SESSION: "1" });
+  });
+
+  it("switches between the home and this Mac's Dev dogs from the menu and keeps the version that was running", async () => {
+    const state = join(scratch(), "state");
+    const picked = { ref: `${SNAPSHOT_REFS}/7`, at: 7, commit: "c7" };
+    const ends = [EARLIER_CODE, SWITCH_CODE, SWITCH_CODE, 0];
+    const seen = [];
+    let place = { workspace: "home", canUseHome: true };
+    await keep({ repo: "/fixture/repo", state, logs: join(state, "logs"), homeSession: "/tools/my-home.session.json" }, {
+      session: async ({ checkout, env, onReady }) => {
+        seen.push([checkout, env.LATERDOG_DEV_WORKSPACE ?? "mac", env.LATERDOG_DEV_HOME_SESSION ?? null]);
+        await onReady();
+        return { code: ends.shift(), ready: true, tail: [] };
+      },
+      list: async () => [picked],
+      choose: async (saved) => saved[0],
+      ask: async () => null,
+      snapshot: async () => ({ ref: "saved" }),
+      earlier: async (version) => `/fixture/earlier/${version.commit}`,
+      electron: async () => null,
+      log: () => {},
+      workspace: () => place,
+      flip: (current) => (place = { ...current, workspace: current.workspace === "home" ? "mac" : "home" }),
+    });
+    expect(seen).toEqual([
+      ["/fixture/repo", "home", "/tools/my-home.session.json"],
+      ["/fixture/earlier/c7", "home", "/tools/my-home.session.json"],
+      ["/fixture/earlier/c7", "mac", null],
+      ["/fixture/earlier/c7", "home", "/tools/my-home.session.json"],
+    ]);
+  });
+
+  it("reads the home session from an install made before it was saved, but never for an isolated install", () => {
+    const own = join(scratch(), "Contents", "Resources", "laterdog-dev");
+    mkdirSync(own, { recursive: true });
+    const file = join(own, "dev-app.mjs");
+    writeFileSync(join(own, "install.json"), JSON.stringify({ repo: "/r", state: "/s", logs: "/l", dataHome: null }));
+    expect(installedSettings(file, { home: "/Users/someone", env: {} }).homeSession).toBe("/Users/someone/.laterdog-dev-tools/my-home.session.json");
+    writeFileSync(join(own, "install.json"), JSON.stringify({ repo: "/r", state: "/s", logs: "/l", dataHome: "/isolated" }));
+    expect(installedSettings(file, { home: "/Users/someone", env: {} }).homeSession).toBeNull();
+    writeFileSync(join(own, "install.json"), JSON.stringify({ repo: "/r", state: "/s", logs: "/l", dataHome: null, homeSession: null }));
+    expect(installedSettings(file, { home: "/Users/someone", env: {} }).homeSession).toBeNull();
   });
 
   it("has the session write its own log, keeps its last lines without colour, and notices once when the app is ready", async () => {

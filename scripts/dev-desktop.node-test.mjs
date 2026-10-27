@@ -172,6 +172,23 @@ test("Electron starts only after all owned services are ready and quitting clean
   assert.equal(signals.listenerCount("SIGTERM"), 0);
 });
 
+test("on a later.dog Cloud home the window waits only for the local proxy and renderer, never a sleeping home", { timeout: 5_000 }, async () => {
+  const plan = planFor({ LATERDOG_DEV_HOME_SESSION: "/fixture/home.session.json" });
+  assert.equal(plan.supervisorUrl, null);
+  assert.equal(plan.readyUrl, `${plan.serverUrl}/__dev-home-proxy/ready`);
+  assert.deepEqual(plan.ports, [8999, 5299]);
+  assert.equal(plan.env.LATERDOG_DEV_API_URL, plan.serverUrl);
+  assert.equal(plan.services.length, 2);
+  assert.deepEqual(plan.services[0].args, [`${ROOT}/scripts/dev-home-proxy.mjs`, "/fixture/home.session.json", "8999"]);
+  const processes = fakeProcesses(plan);
+  const checked = [];
+  const result = runDesktop(plan, lifecycleOptions(processes, { waitReady: async (url) => { checked.push(url); } }));
+  await until(() => processes.electron);
+  assert.deepEqual(new Set(checked), new Set([plan.readyUrl, `${plan.uiUrl}/@vite/client`]));
+  processes.electron.finish(0);
+  assert.equal(await result, 0);
+});
+
 test("completion waits for owned service close events, not merely their exit events", { timeout: 5_000 }, async () => {
   const plan = planFor();
   const processes = fakeProcesses(plan, { delayServiceClose: true });

@@ -10,6 +10,9 @@ export const BUNDLE_ID = "dog.later.app.dev.source";
 export const ICON_FILE = "later-dog-dev.icns";
 export const RESTART_CODE = 75;
 export const EARLIER_CODE = 76;
+export const SWITCH_CODE = 77;
+export const HOME_SESSION_FILE = "my-home.session.json";
+const SESSION_TOKEN = /^laterdog_sess_[A-Za-z0-9_-]+$/;
 export const SNAPSHOT_REFS = "refs/laterdog-dev/opened";
 export const SNAPSHOTS_KEPT = 12;
 export const EARLIER_BUTTON = "Open an Earlier Version…";
@@ -45,7 +48,7 @@ function writable(dir) {
 
 export function defaultSettings({ repo, home = homedir(), env = process.env, canWrite = writable }) {
   const tools = env.LATERDOG_DEV_DIR?.trim() || join(home, ".laterdog-dev-tools");
-  return { repo, apps: canWrite(SHARED_APPS) ? SHARED_APPS : join(home, "Applications"), state: join(tools, "app"), logs: join(home, "Library", "Logs", APP_NAME), dataHome: null };
+  return { repo, apps: canWrite(SHARED_APPS) ? SHARED_APPS : join(home, "Applications"), state: join(tools, "app"), logs: join(home, "Library", "Logs", APP_NAME), dataHome: null, homeSession: join(tools, HOME_SESSION_FILE) };
 }
 
 export function plistChanges() {
@@ -80,7 +83,7 @@ export function electronVersion(checkout) {
   }
 }
 
-export async function installApp({ repo, apps, state, logs, dataHome = null, others = [], source = fileURLToPath(import.meta.url), run = command }) {
+export async function installApp({ repo, apps, state, logs, dataHome = null, homeSession = null, others = [], source = fileURLToPath(import.meta.url), run = command }) {
   const stock = join(repo, "node_modules", "electron", "dist", "Electron.app");
   if (!existsSync(stock)) throw new Error(`Electron isn't installed in ${repo} yet. Run pnpm install there first.`);
   const electronApp = realpathSync(stock);
@@ -101,7 +104,7 @@ export async function installApp({ repo, apps, state, logs, dataHome = null, oth
   const own = join(contents, "Resources", "laterdog-dev");
   mkdirSync(own, { recursive: true });
   copyFileSync(source, join(own, "dev-app.mjs"));
-  writeFileSync(join(own, "install.json"), `${JSON.stringify({ repo, apps, state, logs, dataHome, electron: electronVersion(repo) }, null, 2)}\n`);
+  writeFileSync(join(own, "install.json"), `${JSON.stringify({ repo, apps, state, logs, dataHome, homeSession, electron: electronVersion(repo) }, null, 2)}\n`);
   await run("xattr", ["-dr", "com.apple.quarantine", fresh]).catch(() => {});
   const previous = join(staging, "previous.app");
   if (existsSync(target)) renameSync(target, previous);
@@ -124,9 +127,43 @@ export function refreshLauncher(target, source = fileURLToPath(import.meta.url))
   renameSync(next, join(own, "dev-app.mjs"));
 }
 
-export function installedSettings(file = fileURLToPath(import.meta.url)) {
+export function installedSettings(file = fileURLToPath(import.meta.url), { home = homedir(), env = process.env } = {}) {
   const saved = JSON.parse(readFileSync(join(dirname(file), "install.json"), "utf8"));
-  return { ...saved, bundle: dirname(dirname(dirname(dirname(file)))) };
+  const homeSession = "homeSession" in saved ? saved.homeSession : saved.dataHome ? null : defaultSettings({ repo: saved.repo, home, env, canWrite: () => true }).homeSession;
+  return { ...saved, homeSession, bundle: dirname(dirname(dirname(dirname(file)))) };
+}
+
+export function homeSessionUsable(file) {
+  if (!file) return false;
+  try {
+    const saved = JSON.parse(readFileSync(file, "utf8"));
+    const url = new URL(saved.url);
+    const local = ["127.0.0.1", "localhost"].includes(url.hostname);
+    return (url.protocol === "https:" || local) && typeof saved.token === "string" && SESSION_TOKEN.test(saved.token);
+  } catch {
+    return false;
+  }
+}
+
+const workspaceFile = (state) => join(state, "workspace.json");
+
+export function chosenWorkspace(settings, usable = homeSessionUsable) {
+  const canUseHome = usable(settings.homeSession);
+  let saved = null;
+  try {
+    saved = JSON.parse(readFileSync(workspaceFile(settings.state), "utf8")).workspace;
+  } catch {}
+  const workspace = canUseHome && saved !== "mac" ? "home" : "mac";
+  return { workspace, canUseHome };
+}
+
+export function switchWorkspace(settings, place) {
+  const workspace = place.workspace === "home" || !place.canUseHome ? "mac" : "home";
+  try {
+    mkdirSync(settings.state, { recursive: true });
+    writeFileSync(workspaceFile(settings.state), `${JSON.stringify({ workspace })}\n`);
+  } catch {}
+  return { ...place, workspace };
 }
 
 export function alive(pid) {
@@ -313,10 +350,14 @@ export async function refreshElectron(settings, checkout, install = installApp) 
   return join(settings.bundle, "Contents", "MacOS", "Electron");
 }
 
-export function sessionEnv(settings, version, electron, base = process.env, now = Date.now()) {
+export function sessionEnv(settings, version, electron, base = process.env, now = Date.now(), place = { workspace: "mac", canUseHome: false }) {
   const env = { ...base, LATERDOG_DEV_SESSION: "1" };
-  delete env.LATERDOG_DEV_SESSION_VERSION;
-  delete env.LATERDOG_DEV_ELECTRON;
+  for (const key of ["LATERDOG_DEV_SESSION_VERSION", "LATERDOG_DEV_ELECTRON", "LATERDOG_DEV_HOME_SESSION", "LATERDOG_DEV_WORKSPACE", "LATERDOG_DEV_HOME_AVAILABLE"]) delete env[key];
+  if (place.canUseHome) env.LATERDOG_DEV_HOME_AVAILABLE = "1";
+  if (place.workspace === "home" && place.canUseHome && settings.homeSession) {
+    env.LATERDOG_DEV_WORKSPACE = "home";
+    env.LATERDOG_DEV_HOME_SESSION = settings.homeSession;
+  }
   if (version) env.LATERDOG_DEV_SESSION_VERSION = snapshotWhen(version.at, now);
   if (electron) env.LATERDOG_DEV_ELECTRON = electron;
   if (settings.dataHome) env.LATERDOG_HOME = settings.dataHome;
@@ -431,6 +472,7 @@ async function pickEarlier({ list, choose, ask, fallback }) {
 export async function nextStep(result, { version, logs, list, ask, choose }) {
   if (result.interrupted || result.code === 0) return { kind: "quit" };
   if (result.code === RESTART_CODE) return { kind: "start", version: null };
+  if (result.code === SWITCH_CODE) return { kind: "switch", version };
   if (result.code === EARLIER_CODE) return pickEarlier({ list, choose, ask, fallback: version });
   const saved = await list().catch(() => []);
   const again = result.ready ? "Restart" : "Try Again";
@@ -460,10 +502,13 @@ export async function keep(settings, deps = {}) {
     earlier = (picked) => prepareEarlier(settings, picked),
     electron = (checkout) => refreshElectron(settings, checkout),
     log = keeperLog(settings.logs),
+    workspace = () => chosenWorkspace(settings),
+    flip = (place) => switchWorkspace(settings, place),
   } = deps;
   const release = takeLock(settings.state);
   if (!release) return "already running";
   let version = null;
+  let place = workspace();
   try {
     for (;;) {
       writeState(settings.state, { phase: "starting", version: version?.ref ?? null });
@@ -482,10 +527,10 @@ export async function keep(settings, deps = {}) {
         log(`keeping the stock Electron for this session: ${error.message}`);
         return null;
       });
-      log(`starting ${version ? version.ref : "the latest code"} from ${checkout}`);
+      log(`starting ${version ? version.ref : "the latest code"} from ${checkout} on ${place.workspace === "home" ? "the later.dog Cloud home" : "this Mac's Dev dogs"}`);
       const result = await session({
         checkout,
-        env: sessionEnv(settings, version, executable),
+        env: sessionEnv(settings, version, executable, process.env, Date.now(), place),
         logs: settings.logs,
         onReady: async () => {
           writeState(settings.state, { phase: "ready", version: version?.ref ?? null });
@@ -502,6 +547,7 @@ export async function keep(settings, deps = {}) {
       if (!result.ready) writeState(settings.state, { phase: "failed", version: version?.ref ?? null });
       const step = await nextStep(result, { version, logs: settings.logs, list, ask, choose });
       if (step.kind === "quit") break;
+      if (step.kind === "switch") place = flip(place);
       version = step.version;
     }
   } finally {
@@ -516,7 +562,8 @@ function readFlags(argv) {
   for (let at = 0; at < argv.length; at++) {
     const name = argv[at];
     if (name === "--open") flags.open = true;
-    else if (["--apps", "--home", "--state", "--logs"].includes(name) && argv[at + 1]) flags[name.slice(2)] = argv[++at];
+    else if (name === "--mac-only") flags.macOnly = true;
+    else if (["--apps", "--home", "--state", "--logs", "--home-session"].includes(name) && argv[at + 1]) flags[name.slice(2)] = argv[++at];
     else throw new Error(`unknown option ${name}`);
   }
   return flags;
@@ -531,7 +578,9 @@ async function install(argv) {
     ...(flags.apps ? { apps: flags.apps } : {}),
     ...(flags.state ? { state: flags.state } : {}),
     ...(flags.logs ? { logs: flags.logs } : {}),
-    ...(flags.home ? { dataHome: flags.home } : {}),
+    ...(flags.home ? { dataHome: flags.home, homeSession: null } : {}),
+    ...(flags["home-session"] ? { homeSession: flags["home-session"] } : {}),
+    ...(flags.macOnly ? { homeSession: null } : {}),
   };
   if (keeperPid(chosen.state)) {
     const installed = join(chosen.apps, `${APP_NAME}.app`);
@@ -542,7 +591,8 @@ async function install(argv) {
   }
   const others = flags.apps ? [] : [SHARED_APPS, join(homedir(), "Applications")];
   const target = await installApp({ ...chosen, others });
-  process.stdout.write(`Installed ${target}\nIt runs ${chosen.repo} with hot reload${chosen.dataHome ? ` on ${chosen.dataHome}` : ""}. Open it from Applications, Spotlight or the Dock.\n`);
+  const chats = homeSessionUsable(chosen.homeSession) ? "It shows your later.dog Cloud chats, the same ones as later.dog and the phone." : chosen.homeSession ? "It shows this Mac's Dev dogs. Run pnpm dev:connect once to show your later.dog Cloud chats instead." : "It shows this Mac's Dev dogs.";
+  process.stdout.write(`Installed ${target}\nIt runs ${chosen.repo} with hot reload${chosen.dataHome ? ` on ${chosen.dataHome}` : ""}. ${chats} Open it from Applications, Spotlight or the Dock.\n`);
   if (flags.open) await command("open", [target]);
 }
 

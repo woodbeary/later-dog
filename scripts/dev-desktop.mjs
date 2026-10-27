@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describeVariant, LIVE_DATA_ENV, LIVE_DATA_FLAG, ownedPorts } from "../electron/app-variant.mjs";
+import { READY_PATH } from "./dev-home-proxy.mjs";
 import { safeTarget, scriptEnvironment } from "./dev-safe.mjs";
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -38,7 +39,7 @@ export function desktopPlan({ env = process.env, home = homedir(), root = projec
     const proxyPort = target.serverPort;
     const proxyUrl = `http://127.0.0.1:${proxyPort}`;
     return {
-      root, node, env: { ...environment, LATERDOG_DEV_API_URL: proxyUrl, LATERDOG_WORKSPACE_URL: proxyUrl }, ports: [proxyPort, uiPort], serverUrl: proxyUrl, supervisorUrl: null, uiUrl, homeSession,
+      root, node, env: { ...environment, LATERDOG_DEV_API_URL: proxyUrl, LATERDOG_WORKSPACE_URL: proxyUrl }, ports: [proxyPort, uiPort], serverUrl: proxyUrl, readyUrl: `${proxyUrl}${READY_PATH}`, supervisorUrl: null, uiUrl, homeSession,
       services: [step(join(root, "scripts/dev-home-proxy.mjs"), homeSession, String(proxyPort)), vite],
       electron: { file: electronFile, args: [root] },
     };
@@ -125,7 +126,7 @@ export async function runDesktop(plan, { spawnProcess = spawn, assertPorts: chec
     await checkPorts(plan.ports);
     if (stopping) throw new Error("Dev startup cancelled.");
     if (!stopping) for (const service of plan.services) launch(service);
-    if (!stopping) await Promise.all([...(plan.supervisorUrl ? [ready(`${plan.supervisorUrl}/v1/workspace`, abort.signal)] : []), ready(`${plan.serverUrl}/api/health`, abort.signal), ready(`${plan.uiUrl}/@vite/client`, abort.signal)]);
+    if (!stopping) await Promise.all([...(plan.supervisorUrl ? [ready(`${plan.supervisorUrl}/v1/workspace`, abort.signal)] : []), ready(plan.readyUrl ?? `${plan.serverUrl}/api/health`, abort.signal), ready(`${plan.uiUrl}/@vite/client`, abort.signal)]);
     if (!stopping) {
       console.log(`later.dog Dev: ${plan.uiUrl} (renderer hot reload). ${plan.homeSession ? `Home: ${plan.homeSession}` : `Data: ${plan.env.LATERDOG_HOME}`}. Quit the app or press Ctrl-C to stop this session.`);
       launch(plan.electron, false, true);

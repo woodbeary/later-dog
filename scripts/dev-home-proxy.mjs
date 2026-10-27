@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 export const HOME_PATHS = ["/api/", "/.well-known/laterdog/", "/v1/"];
 export const SESSION_TOKEN = /^laterdog_sess_[A-Za-z0-9_-]+$/;
+export const READY_PATH = "/__dev-home-proxy/ready";
 
 export function readSession(file) {
   const saved = JSON.parse(readFileSync(file, "utf8"));
@@ -33,6 +34,10 @@ export function startHomeProxy({ session, port, host = "127.0.0.1", fallback = n
   const secure = home.url.protocol === "https:";
   const homePort = Number(home.url.port) || (secure ? 443 : 80);
   const server = http.createServer((req, res) => {
+    if (req.method === "GET" && req.url === READY_PATH) {
+      res.writeHead(200, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ ok: true, home: home.url.origin }));
+    }
     const toHome = goesToHome(req.url ?? "/");
     if (!toHome && !fallback) {
       res.writeHead(404, { "content-type": "application/json" });

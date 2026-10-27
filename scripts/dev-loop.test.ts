@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { chooseHome, lanAddress, plan, stamp } from "./dev-loop.mjs";
 import { CloudRefusal, nextWait } from "./dev-connect.mjs";
-import { goesToHome, homeHeaders, readSession } from "./dev-home-proxy.mjs";
+import { goesToHome, homeHeaders, READY_PATH, readSession, startHomeProxy } from "./dev-home-proxy.mjs";
 
 describe("the dev loop", () => {
   const exists = (file: string) => file.endsWith("my-home.session.json") || file.endsWith("test-pup.session.json");
@@ -53,6 +53,40 @@ describe("the dev home proxy", () => {
     writeFileSync(join(dir, "none.json"), JSON.stringify({ url: "https://h1-hometest.later.dog", token: "nope" }));
     expect(() => readSession(join(dir, "plain.json"))).toThrow(/https home/);
     expect(() => readSession(join(dir, "none.json"))).toThrow(/no home session/);
+  });
+
+  it("says it is ready without asking a sleeping home, and carries Dev's messages to the home as its session", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    const { createServer } = await import("node:http");
+    const seen: { path?: string; authorization?: string; body: string }[] = [];
+    const home = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => { body += chunk; });
+      req.on("end", () => {
+        seen.push({ path: req.url, authorization: req.headers.authorization, body });
+        res.writeHead(202, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, threadId: "t1" }));
+      });
+    });
+    await new Promise<void>((resolve) => home.listen(0, "127.0.0.1", resolve));
+    const homeUrl = `http://127.0.0.1:${(home.address() as { port: number }).port}`;
+    const dir = mkdtempSync(join(tmpdir(), "dev-session-"));
+    writeFileSync(join(dir, "home.json"), JSON.stringify({ url: homeUrl, token: "laterdog_sess_devtools" }));
+    const proxy = await startHomeProxy({ session: join(dir, "home.json"), port: 0 });
+    try {
+      const ready = await fetch(`${proxy.url}${READY_PATH}`);
+      expect(await ready.json()).toEqual({ ok: true, home: homeUrl });
+      expect(seen).toEqual([]);
+      const sent = await fetch(`${proxy.url}/api/bots/b1/messages`, { method: "POST", headers: { "content-type": "application/json", cookie: "a=b" }, body: JSON.stringify({ text: "from Dev" }) });
+      expect(sent.status).toBe(202);
+      expect(seen).toEqual([{ path: "/api/bots/b1/messages", authorization: "Bearer laterdog_sess_devtools", body: JSON.stringify({ text: "from Dev" }) }]);
+      expect((await fetch(`${proxy.url}/src/main.tsx`)).status).toBe(404);
+    } finally {
+      proxy.server.close();
+      home.close();
+    }
   });
 });
 
