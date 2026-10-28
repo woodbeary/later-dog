@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.44 — 2026-10-27
+
+- **Dogs in My Cloud work in your projects on your Mac.** Builds, test runs and pushes keep going in the background while the dog checks on them, types into them or stops them. Commands run with your own Terminal setup (Homebrew, nvm, pnpm) in the folder the dog names, and dogs can make exact edits in big files, search a project and delete files.
+- **Your Mac answers faster.** A quick step a dog takes on your Mac comes back in about a fifth of a second, and several dogs can use it at once instead of waiting in line.
+- **New dogs start on Opus 5.5 at medium effort.** Pick the model and effort for new dogs in Settings → General → Dogs, and changing it never stops a dog that's working.
+- **Dogs say they're on it before they start**, set up accounts and keys themselves in the browser, and make a real dog you can message when you ask for another agent.
+- **Keys you already saved on this Mac are offered in the key card**, one tap to use, and the card matches the other cards.
+- **Click into a helper** to see each step it took.
+- **Dictation shows a strip** with Cancel, level bars and a clock, and says when it stayed on your Mac instead of the cloud. The voice note button is back, with a switch in Settings → Appearance.
+- **Drag to reorder your accounts** again, in Settings and in the account menu.
+- **Calmer chats:** no more "Still on it" messages, a status line that stays put, and one dot on a dog's picture.
+- **The microphone card says Allowed** once dictation has worked.
+
 ## 0.3.43 — 2026-10-26
 
 - **Start every chat from one place.** The + (and ⌘N) opens a To: field: make a new dog in one step, start a group chat, or open any dog. Type a name nobody has yet to make that dog.
