@@ -38,6 +38,7 @@ import { botEngine, failedTurnCause } from "@/lib/failed-turn";
 import { CitationSelectionToolbar, SentCitations } from "./CitationUI";
 import { Composer } from "./Composer";
 import { ChatFindBar } from "./ChatFindBar";
+import { ExportTranscriptMenu } from "./ExportTranscriptMenu";
 import { PaneErrorLine } from "./PaneErrorLine";
 import { chatPane } from "@/state/pane-errors";
 import { ReplyQuote } from "./ReplyQuote";
@@ -591,6 +592,11 @@ export function GroupView({ group }: { group: Group }) {
           >
             <Search size={18} />
           </button>
+          <ExportTranscriptMenu
+            title={group.name}
+            messages={group.messages}
+            isGroup
+          />
           {group.dm ? (
             memberDogs
           ) : (

@@ -139,7 +139,7 @@ describe("a group chat without the extras", () => {
     createdAt: 1, messages: [], pinnedMessageId: "gone", turnTimeoutMinutes: 30,
   };
 
-  it("has no setup form, responder picker, folder, turn limit, bulletin, export, usage or call in its header", () => {
+  it("has no setup form, responder picker, folder, turn limit, bulletin, usage or call in its header, but keeps export", () => {
     vi.stubGlobal("window", { laterdog: undefined });
     let markup: string;
     try {
@@ -151,7 +151,7 @@ describe("a group chat without the extras", () => {
     expect(markup).not.toContain("<select");
     expect(markup).not.toContain("Ship on Friday");
     expect(markup).not.toContain("data-call-button");
-    expect(markup).not.toContain("Download as .md");
+    expect(markup).toContain('aria-label="Export conversation"');
     expect(markup).toContain(`aria-label="Find in conversation"`);
   });
 
