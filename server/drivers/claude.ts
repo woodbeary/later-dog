@@ -244,6 +244,8 @@ export const CLAUDE_FLAG_FLOORS = {
   "--restricted": [2, 1, 257],
 } as const satisfies Record<string, ClaudeCliVersion>;
 
+const FLAGS_LEARNED_AFTER_LAUNCH = ["--autocompact", "--system-prompt-snapshot"] as const;
+
 const withWhy = (refusal: string, why: string | undefined) => why ? `${refusal} ${why}` : refusal;
 
 export const GUEST_CLAUDE_TOOLS = ["Read", "Grep", "Glob", "Edit", "Write", "WebSearch"] as const;
@@ -1181,8 +1183,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       Object.assign(env, quietWorkEnvironment(turn.quietWork));
       const cwd = turn.cwd ?? homedir();
       const commandCwd = permissionLaunchCwd(cwd);
-      const privateFileFlags = new Set(["--mcp-config", "--settings"]);
-      const keyArgs = args.filter((a, i) => !privateFileFlags.has(a) && !privateFileFlags.has(args[i - 1] ?? ""));
+      const unkeyedFlags = new Set<string>(["--mcp-config", "--settings", ...FLAGS_LEARNED_AFTER_LAUNCH]);
+      const keyArgs = args.filter((a, i) => !unkeyedFlags.has(a) && !unkeyedFlags.has(args[i - 1] ?? ""));
       const argsParts = Object.fromEntries(Object.entries({
         args: keyArgs,
         system: turn.systemStable ?? turn.system ?? null,

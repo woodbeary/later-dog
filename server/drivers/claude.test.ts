@@ -1652,6 +1652,23 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(JSON.parse(readFileSync(dump, "utf8")).argv).not.toContain("--autocompact");
   });
 
+  it("keeps a running engine when a later snapshot confirms --autocompact", async () => {
+    const dump = join(scratch, "learned-autocompact.json");
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump });
+    await instance.adapter.sendTurn({ threadId: "t-learned", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const first = JSON.parse(readFileSync(dump, "utf8"));
+    expect(first.argv).not.toContain("--autocompact");
+    await instance.snapshot();
+    const second = await instance.adapter.sendTurn({ threadId: "t-learned", text: "two" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    expect(dumpedPid(dump)).toBe(first.pid);
+    await instance.adapter.sendTurn({ threadId: "t-learned-fresh", text: "three" });
+    await recorder.until((e) => e.type === "turn.completed" && e.threadId === "t-learned-fresh");
+    const fresh = JSON.parse(readFileSync(dump, "utf8"));
+    expect(fresh.argv[fresh.argv.indexOf("--autocompact") + 1]).toBe("200000");
+  });
+
   it("reads --help once for snapshots that overlap", async () => {
     const probes = join(scratch, "probes.log");
     const release = join(scratch, "release-help");
