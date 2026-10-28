@@ -5,7 +5,7 @@ import os from "node:os";
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { createSharedCua, executeSharedOperation, personalSecretPaths, sharedComputerError } from "./shared-computer-access.mjs";
+import { createSharedCua, executeSharedOperation, personalSecretPaths, SHARED_ACTIONS, sharedComputerError, stopSharedCommands } from "./shared-computer-access.mjs";
 import { createLendingActivity, describeSharedOperation } from "./lending-activity.mjs";
 import { droppedPollRetryMs } from "./lending-poll.mjs";
 
@@ -13,6 +13,8 @@ const uuid = value => typeof value === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-
 const DATA_VOLUME = "/System/Volumes/Data";
 const identify = async candidate => { const info = await fsp.stat(candidate, { bigint: true }); return `${info.dev}:${info.ino}`; };
 const RETRY_MS = 5000;
+export const PARALLEL_JOBS = 6;
+const SCREEN_ACTIONS = new Set(["computer_tools", "computer_call"]);
 const RETRY_MAX_MS = 60_000;
 const PAIR_FIRST_MS = 30_000;
 const PAIR_MAX_MS = 15 * 60_000;
@@ -85,9 +87,13 @@ export async function validateSharedFolders(folders) {
   return result;
 }
 
-const JOB_KEYS = new Set(["computer_id", "action", "folder_id", "path", "content", "encoding", "expected_sha256", "offset", "length", "command", "tool_name", "arguments"]);
+const JOB_KEYS = new Set([
+  "computer_id", "action", "folder_id", "path", "content", "encoding", "expected_sha256", "offset", "length", "command", "tool_name", "arguments",
+  "cwd", "wait_seconds", "command_id", "input", "close_input", "old_text", "new_text", "replace_all", "pattern", "glob", "ignore_case", "max_results",
+]);
 const wholeNumber = (value, max) => value === undefined || (Number.isSafeInteger(value) && value >= 0 && value <= max);
-const JOB_ACTIONS = new Set(["list_files", "read_file", "write_file", "run_command", "computer_tools", "computer_call"]);
+const JOB_ACTIONS = new Set(SHARED_ACTIONS);
+const optionalFlag = value => value === undefined || typeof value === "boolean";
 const optionalText = (value, max) => value === undefined || (typeof value === "string" && value.length <= max);
 export function validSharedOperation(operation, computerId) {
   return Boolean(operation) && typeof operation === "object" && !Array.isArray(operation) &&
@@ -99,7 +105,12 @@ export function validSharedOperation(operation, computerId) {
     (operation.expected_sha256 === undefined || (typeof operation.expected_sha256 === "string" && /^[a-f0-9]{64}$/.test(operation.expected_sha256))) &&
     wholeNumber(operation.offset, 64 * 1024 * 1024) && wholeNumber(operation.length, 256 * 1024) &&
     optionalText(operation.command, 8000) && optionalText(operation.tool_name, 100) &&
-    (operation.arguments === undefined || (Boolean(operation.arguments) && typeof operation.arguments === "object" && !Array.isArray(operation.arguments)));
+    (operation.arguments === undefined || (Boolean(operation.arguments) && typeof operation.arguments === "object" && !Array.isArray(operation.arguments))) &&
+    optionalText(operation.cwd, 2048) && wholeNumber(operation.wait_seconds, 30) && (operation.command_id === undefined || uuid(operation.command_id)) &&
+    optionalText(operation.input, 64 * 1024) && optionalFlag(operation.close_input) &&
+    optionalText(operation.old_text, 350_000) && optionalText(operation.new_text, 350_000) && optionalFlag(operation.replace_all) &&
+    optionalText(operation.pattern, 2000) && optionalText(operation.glob, 300) && optionalFlag(operation.ignore_case) &&
+    (operation.max_results === undefined || (Number.isSafeInteger(operation.max_results) && operation.max_results >= 1 && operation.max_results <= 500));
 }
 
 export function cloudLendingVerdict(binding, current, env) {
@@ -129,7 +140,9 @@ export function createComputerSharing({
   const status = new Map();
   let closed = false;
   let maintainerOff = false;
-  let executing = null;
+  const active = new Map();
+  let screenQueue = Promise.resolve();
+  const busyNow = () => [...active.values()].at(-1) ?? null;
   let homing = null;
   let homeAgain = false;
   let naming = null;
@@ -142,7 +155,7 @@ export function createComputerSharing({
   const changed = () => { if (!closed) try { onChange(summary()); } catch {} };
   const summary = () => ({
     lending: environments().filter(env => records[env.id]?.cloud && records[env.id]?.enabled === true).map(env => env.id),
-    busy: executing,
+    busy: busyNow(),
   });
   const requireEnabled = async () => {
     const allowed = !closed && !maintainerOff && await enabled().catch(() => false);
@@ -175,13 +188,13 @@ export function createComputerSharing({
     fs.chmodSync(temporary, 0o600);
     fs.renameSync(temporary, file); records = next; homeOff = off;
   };
-  const request = async (env, route, body, signal, secret) => {
+  const request = async (env, route, body, signal, secret, extra = {}) => {
     const origin = new URL(env.origin);
     if (origin.protocol !== "https:" && !(origin.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname))) throw new Error("Computer sharing requires an HTTPS server address");
     const response = await fetchImpl(`${env.origin}${route}`, {
       method: body === undefined ? "GET" : "POST", credentials: "include", redirect: "error", cache: "no-store",
       signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(35_000)]) : AbortSignal.timeout(10_000),
-      headers: { origin: env.origin, "x-laterdog-lending": "1", ...(body === undefined ? {} : { "content-type": "application/json" }), ...(secret ? { "x-laterdog-computer-secret": secret } : {}) },
+      headers: { origin: env.origin, "x-laterdog-lending": "1", ...(body === undefined ? {} : { "content-type": "application/json" }), ...(secret ? { "x-laterdog-computer-secret": secret } : {}), ...extra },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     const chunks = []; let bytes = 0;
@@ -227,6 +240,7 @@ export function createComputerSharing({
   const stop = id => {
     const live = running.get(id);
     if (live) { live.abort.abort(); live.cua?.close(); running.delete(id); }
+    if (running.size === 0) stopSharedCommands();
     status.set(id, { connected: false });
   };
   const pairQuietly = async (env, signal) => {
@@ -299,24 +313,14 @@ export function createComputerSharing({
             id: grant.id, name: await macName(), environmentId: grant.environmentId,
             folders: grant.folders.map(({ id, name, write }) => ({ id, name, write })), terminal: grant.terminal, computer: grant.computer,
             ...(grant.home ? { home: true } : {}),
-          }, signal, grant.secret);
+          }, signal, grant.secret, { "x-laterdog-computer-actions": SHARED_ACTIONS.join(",") });
           if (signal.aborted) break;
           failures = 0;
           status.set(env.id, { connected: true });
           changed();
-          while (!signal.aborted) {
-            await gate();
-            const { job } = await pollOnce();
-            await gate();
-            if (!job) continue;
-            if (!uuid(job.id)) throw new Error("Invalid computer request");
-            if (!validSharedOperation(job.operation, grant.id)) {
-              activity.record({ env, action: "invalid", detail: "", ok: false, error: "Refused a malformed request" });
-              await call("result", { jobId: job.id, result: sharedComputerError(new Error("Invalid computer request")) });
-              continue;
-            }
-            if (executing) { await call("result", { jobId: job.id, result: sharedComputerError(new Error("This computer is busy with another server")) }); continue; }
-            executing = { env: env.id, action: job.operation.action };
+          const inflight = new Set();
+          const runJob = async (job, polledAgain) => {
+            active.set(job.id, { env: env.id, action: job.operation.action });
             changed();
             const jobAbort = new AbortController();
             const jobSignal = AbortSignal.any([signal, jobAbort.signal]);
@@ -332,21 +336,24 @@ export function createComputerSharing({
               } catch { jobAbort.abort(); }
               finally { leasing = false; }
             };
+            const firstLease = lease().finally(polledAgain);
             const heartbeat = setInterval(() => void lease(), 1000);
-            let result;
-            try {
-              await lease(); jobSignal.throwIfAborted();
-              if (grant.computer && ["computer_tools", "computer_call"].includes(job.operation.action)) {
-                if (!hostControl) throw new Error("The local computer control gate is unavailable");
-                control = await hostControl(job.id, jobSignal);
-                jobSignal.throwIfAborted();
+            const screen = SCREEN_ACTIONS.has(job.operation.action);
+            const work = async () => {
+              if (screen) {
+                await firstLease; jobSignal.throwIfAborted();
+                if (grant.computer) {
+                  if (!hostControl) throw new Error("The local computer control gate is unavailable");
+                  control = await hostControl(job.id, jobSignal);
+                  jobSignal.throwIfAborted();
+                }
               }
               const stopped = new Promise((_, reject) => {
                 const quit = () => reject(new Error("Computer access was revoked or the requesting turn ended. Inspect the result before retrying."));
                 if (jobSignal.aborted) quit(); else jobSignal.addEventListener("abort", quit, { once: true });
               });
               stopped.catch(() => {});
-              result = await Promise.race([stopped, executeSharedOperation(effectiveGrant, job.operation, jobSignal, async () => {
+              return Promise.race([stopped, executeSharedOperation(effectiveGrant, job.operation, jobSignal, async () => {
                 if (!live.cua) {
                   const connection = await cuaConnection();
                   jobSignal.throwIfAborted();
@@ -355,13 +362,40 @@ export function createComputerSharing({
                 }
                 return live.cua;
               })]);
-            } catch (error) { result = sharedComputerError(error); live.cua?.close(); live.cua = null; }
-            finally { clearInterval(heartbeat); await control?.release().catch(() => {}); executing = null; changed(); }
+            };
+            let result;
+            try {
+              if (screen) {
+                const turn = screenQueue.then(work, work);
+                screenQueue = turn.catch(() => {});
+                result = await turn;
+              } else result = await work();
+            } catch (error) { result = sharedComputerError(error); if (screen) { live.cua?.close(); live.cua = null; } }
+            finally { clearInterval(heartbeat); await control?.release().catch(() => {}); active.delete(job.id); changed(); }
             activity.record({
               env, action: job.operation.action, detail: describeSharedOperation(grant, job.operation), ok: result?.isError !== true,
               error: result?.isError === true ? result?.content?.[0]?.text : undefined,
             });
-            await call("result", { jobId: job.id, result });
+            await call("result", { jobId: job.id, result }).catch(() => {});
+          };
+          while (!signal.aborted) {
+            await gate();
+            if (inflight.size >= PARALLEL_JOBS) { await Promise.race(inflight); continue; }
+            const { job } = await pollOnce();
+            await gate();
+            if (!job) continue;
+            if (!uuid(job.id)) throw new Error("Invalid computer request");
+            if (!validSharedOperation(job.operation, grant.id)) {
+              activity.record({ env, action: "invalid", detail: "", ok: false, error: "Refused a malformed request" });
+              await call("result", { jobId: job.id, result: sharedComputerError(new Error("Invalid computer request")) });
+              continue;
+            }
+            if ([...active.values()].some(other => other.env !== env.id)) { await call("result", { jobId: job.id, result: sharedComputerError(new Error("This computer is busy with another server")) }); continue; }
+            let polledAgain;
+            const leased = new Promise(resolve => { polledAgain = resolve; });
+            const task = runJob(job, polledAgain).catch(() => {}).finally(() => inflight.delete(task));
+            inflight.add(task);
+            await leased;
           }
         } catch (error) {
           if (error instanceof Paused) {
@@ -398,7 +432,7 @@ export function createComputerSharing({
       on: !homeOff,
       ...(shownName ? { name: shownName } : {}),
       enabled: lent?.enabled === true,
-      busy: Boolean(env && executing?.env === env.id),
+      busy: Boolean(env && [...active.values()].some(job => job.env === env.id)),
       ...(env ? status.get(env.id) : {}),
     };
   };

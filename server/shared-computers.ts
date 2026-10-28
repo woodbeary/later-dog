@@ -9,16 +9,39 @@ export const sharedComputerRegistration = z.object({
   folders: z.array(folder).max(20), terminal: z.boolean(), computer: z.boolean(), home: z.boolean().optional(),
 }).strict().refine(registration => !registration.home || registration.folders.length === 1, { message: "A home grant lends exactly one folder" });
 export const MAX_SHARED_COMMAND = 8000;
+export const SHARED_JOBS_PER_COMPUTER = 8;
+export const FIRST_SHARED_ACTIONS = ["list_files", "read_file", "write_file", "run_command", "computer_tools", "computer_call"] as const;
+export const SHARED_ACTIONS = [
+  ...FIRST_SHARED_ACTIONS, "edit_file", "delete_file", "search_files", "command_output", "command_input", "command_stop",
+] as const;
+const COMMAND_ACTIONS: ReadonlySet<string> = new Set(["run_command", "command_output", "command_input", "command_stop"]);
+const FILE_ACTIONS: ReadonlySet<string> = new Set(["list_files", "read_file", "write_file", "edit_file", "delete_file", "search_files"]);
+const WRITING_ACTIONS: ReadonlySet<string> = new Set(["write_file", "edit_file", "delete_file"]);
+
+export function sharedActionsHeader(raw: unknown): ReadonlySet<string> | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  const known: ReadonlySet<string> = new Set(SHARED_ACTIONS);
+  return new Set(raw.split(",").map((action) => action.trim()).filter((action) => known.has(action)));
+}
+
+export function macTooOld(action: string): string {
+  return `This Mac's later.dog app is too old for ${action}. Tell the person in one line to update later.dog on that Mac (later.dog → Check for Updates), and carry on with run_command, read_file and write_file meanwhile.`;
+}
 
 export const sharedComputerOperation = z.object({
   computer_id: z.string().uuid().optional(),
-  action: z.enum(["list_files", "read_file", "write_file", "run_command", "computer_tools", "computer_call"]),
+  action: z.enum(SHARED_ACTIONS),
   folder_id: z.string().uuid().optional(), path: z.string().max(2048).optional(),
   content: z.string().max(350_000).optional(), encoding: z.enum(["utf8", "base64"]).optional(),
   expected_sha256: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   offset: z.number().int().min(0).max(64 * 1024 * 1024).optional(), length: z.number().int().min(1).max(256 * 1024).optional(),
   command: z.string().max(MAX_SHARED_COMMAND).optional(), tool_name: z.string().max(100).optional(),
   arguments: z.record(z.string(), z.unknown()).optional(),
+  cwd: z.string().max(2048).optional(), wait_seconds: z.number().int().min(0).max(30).optional(),
+  command_id: z.string().uuid().optional(), input: z.string().max(64 * 1024).optional(), close_input: z.boolean().optional(),
+  old_text: z.string().max(350_000).optional(), new_text: z.string().max(350_000).optional(), replace_all: z.boolean().optional(),
+  pattern: z.string().max(2000).optional(), glob: z.string().max(300).optional(), ignore_case: z.boolean().optional(),
+  max_results: z.number().int().min(1).max(500).optional(),
 }).strict();
 
 export function sharedComputerOperationProblem(body: unknown, error: z.ZodError): string {
@@ -41,8 +64,9 @@ export type SharedComputerStatus = {
   scopes: { folders: { id: string; name: string; write: boolean }[]; terminal: boolean; screen: boolean };
 };
 type Job = { id: string; operation: Operation; active: () => boolean; sent: boolean; leased: boolean; resolve: (result: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout };
-type Computer = { registration: Registration; owner: SharedComputerOwner; secret: string; seen: number; jobs: Map<string, Job>; wake?: () => void; polls: number };
+type Computer = { registration: Registration; owner: SharedComputerOwner; secret: string; seen: number; jobs: Map<string, Job>; wake?: () => void; polls: number; actions?: ReadonlySet<string> };
 const failure = (message: string, status = 409) => Object.assign(new Error(message), { status });
+const FIRST_ACTIONS: ReadonlySet<string> = new Set(FIRST_SHARED_ACTIONS);
 const TOTAL = 100;
 const RETAIN_MS = 14 * 24 * 60 * 60_000;
 const OFFLINE = "This shared computer is offline. Keep its desktop app open; do not substitute files on the server.";
@@ -56,25 +80,16 @@ const knownFile = z.object({
 }).strict();
 
 export function sharedComputerScopeRefusal(registration: Registration, operation: Pick<Operation, "action" | "folder_id">): string | null {
-  switch (operation.action) {
-    case "run_command":
-      return registration.terminal ? null : "Terminal access is not lent to this server.";
-    case "computer_tools":
-    case "computer_call":
-      return registration.computer ? null : "Apps and screen are not lent to this server.";
-    case "list_files":
-    case "read_file":
-    case "write_file": {
-      if (!operation.folder_id) return "Pass folder_id from list_shared_computers.";
-      const lent = registration.folders.find(entry => entry.id === operation.folder_id);
-      if (!lent) return "This folder has not been shared with this server.";
-      return operation.action === "write_file" && !lent.write ? "This folder is read-only." : null;
-    }
-  }
+  if (COMMAND_ACTIONS.has(operation.action)) return registration.terminal ? null : "Terminal access is not lent to this server.";
+  if (operation.action === "computer_tools" || operation.action === "computer_call") return registration.computer ? null : "Apps and screen are not lent to this server.";
+  if (!operation.folder_id) return "Pass folder_id from list_shared_computers.";
+  const lent = registration.folders.find(entry => entry.id === operation.folder_id);
+  if (!lent) return "This folder has not been shared with this server.";
+  return WRITING_ACTIONS.has(operation.action) && !lent.write ? "This folder is read-only." : null;
 }
 
 export function completeSharedOperation(registration: Registration, operation: Operation): Operation & { computer_id: string } {
-  const files = operation.action === "list_files" || operation.action === "read_file" || operation.action === "write_file";
+  const files = FILE_ACTIONS.has(operation.action);
   const folderId = operation.folder_id ?? (files && registration.folders.length === 1 ? registration.folders[0]!.id : undefined);
   const path = registration.home && operation.path !== undefined ? homeRelative(operation.path) : operation.path;
   return { ...operation, computer_id: registration.id, ...(folderId ? { folder_id: folderId } : {}), ...(path !== undefined ? { path } : {}) };
@@ -107,13 +122,13 @@ export class SharedComputers {
     this.remembered = this.load();
   }
   private static key(session: string, id: string) { return `${session}\n${id}`; }
-  register(registration: Registration, owner: SharedComputerOwner, secret: string) {
+  register(registration: Registration, owner: SharedComputerOwner, secret: string, actions?: ReadonlySet<string>) {
     if (!/^[a-f0-9]{64}$/.test(secret)) throw failure("Invalid computer credential", 400);
     const key = SharedComputers.key(owner.session, registration.id);
     const old = this.computers.get(key);
     if (old) {
       this.authorize(registration.id, owner.session, secret);
-      old.registration = registration; old.seen = Date.now();
+      old.registration = registration; old.seen = Date.now(); old.actions = actions;
       this.remember(registration, owner);
       this.arrived(owner.person);
       return;
@@ -125,7 +140,7 @@ export class SharedComputers {
       for (const job of entry.jobs.values()) this.finish(entry, job, failure("This computer's access changed. An in-flight action may have completed; inspect before retrying."));
     }
     if (this.computers.size >= TOTAL) throw failure("Too many shared computers");
-    this.computers.set(key, { registration, owner: { ...owner }, secret, seen: Date.now(), jobs: new Map(), polls: 0 });
+    this.computers.set(key, { registration, owner: { ...owner }, secret, seen: Date.now(), jobs: new Map(), polls: 0, ...(actions ? { actions } : {}) });
     this.remember(registration, owner);
     this.arrived(owner.person);
   }
@@ -246,7 +261,8 @@ export class SharedComputers {
     const operation = completeSharedOperation(entry.registration, requested);
     const refusal = sharedComputerScopeRefusal(entry.registration, operation);
     if (refusal) return Promise.reject(failure(refusal, 403));
-    if (entry.jobs.size >= 1) return Promise.reject(failure("This shared computer is busy. Wait for its current action to finish."));
+    if (!(entry.actions ?? FIRST_ACTIONS).has(operation.action)) return Promise.reject(failure(macTooOld(operation.action)));
+    if (entry.jobs.size >= SHARED_JOBS_PER_COMPUTER) return Promise.reject(failure("This shared computer is busy with other actions. Wait a moment and try again."));
     if (!active()) return Promise.reject(failure("The requesting turn ended", 401));
     return new Promise((resolve, reject) => {
       const id = randomUUID();

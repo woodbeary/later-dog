@@ -158,6 +158,31 @@ it("explicit edits and terminal work; old credentials and other sessions cannot 
   evidence.push("explicit hash-guarded edit and real terminal; cross-session, stale-secret, CSRF, local-control gate refusals");
 }, 60_000);
 
+it("long commands run in the background, the dog can type into them, and edits, searches and deletes reach the real files", async () => {
+  await connector.save(env, { folders: [{ ...folder, write: true }], terminal: true, computer: false }, await connector.identity(env));
+  await expect.poll(() => connector.state(env.id).connected, { timeout: 8000 }).toBe(true);
+  const started = data(await operation("run_command", { command: "echo begin; sleep 2; echo end", wait_seconds: 1 }));
+  expect(started).toMatchObject({ running: true, output: "begin\n" });
+  const finished = data(await operation("command_output", { command_id: started.command_id, wait_seconds: 10 }));
+  expect(finished).toMatchObject({ running: false, exitCode: 0, output: "end\n" });
+  const asking = data(await operation("run_command", { command: "read answer; echo got:$answer", wait_seconds: 0 }));
+  await operation("command_input", { command_id: asking.command_id, input: "yes\n" });
+  expect(data(await operation("command_output", { command_id: asking.command_id, wait_seconds: 10 })).output).toBe("got:yes\n");
+  writeFileSync(join(folder.path, "notes.md"), "alpha\nbeta\n");
+  expect(data(await operation("edit_file", { path: "notes.md", old_text: "beta", new_text: "gamma" })).replacements).toBe(1);
+  expect(readFileSync(join(folder.path, "notes.md"), "utf8")).toBe("alpha\ngamma\n");
+  expect(data(await operation("search_files", { path: "", pattern: "gamma" })).matches).toEqual(["notes.md:2:gamma"]);
+  expect(data(await operation("delete_file", { path: "notes.md" }))).toEqual({ deleted: true, kind: "file" });
+  expect(existsSync(join(folder.path, "notes.md"))).toBe(false);
+  const slow = operation("run_command", { command: "sleep 2; echo slow", wait_seconds: 10 });
+  await new Promise(resolve => setTimeout(resolve, 300));
+  const began = Date.now();
+  expect(data(await operation("read_file", { path: "brief.txt" })).content).toBeTruthy();
+  expect(Date.now() - began, "a quick read isn't stuck behind a running command").toBeLessThan(1500);
+  expect(data(await slow).output).toBe("slow\n");
+  evidence.push("background command with later output and typed input; exact edit, search and delete on real files; a read answered while another command ran");
+}, 60_000);
+
 it("another person's conversation can neither see nor use the lent desktop", async () => {
   const opened = await api("POST", "/api/auth/pairing", { label: "Another person", scopes: ["client"] });
   const intruder = (await api("POST", "/api/auth/pair", { code: opened.body.code })).body;

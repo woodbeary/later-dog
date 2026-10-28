@@ -98,7 +98,11 @@ test("selected folders are read-only; writes require an explicit grant and fresh
   assert.equal(await readFile(path.join(dir, "note.txt"), "utf8"), "ok");
   await run({ action: "write_file", path: "new.txt", content: "new" });
   assert.equal(await readFile(path.join(dir, "new.txt"), "utf8"), "new");
-  await assert.rejects(run({ action: "delete_file", path: "note.txt" }), /Unsupported/);
+  await assert.rejects(run({ action: "format_disk", path: "note.txt" }), /Unsupported/);
+  folder.write = false;
+  await assert.rejects(run({ action: "delete_file", path: "new.txt" }), /read-only/);
+  await assert.rejects(run({ action: "edit_file", path: "note.txt", old_text: "ok", new_text: "no" }), /read-only/);
+  assert.equal(await readFile(path.join(dir, "note.txt"), "utf8"), "ok");
 });
 
 test("folder boundary rejects traversal, links, oversized files and unknown folder IDs", async t => {

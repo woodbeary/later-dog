@@ -9,12 +9,19 @@ export function describeSharedOperation(grant, operation) {
   switch (operation?.action) {
     case "list_files":
     case "read_file":
-    case "write_file": {
+    case "write_file":
+    case "edit_file":
+    case "delete_file":
+    case "search_files": {
       const folder = grant?.folders?.find?.(entry => entry.id === operation.folder_id);
       const where = typeof operation.path === "string" && operation.path ? `/${operation.path}` : "";
-      return clean(`${folder?.name ?? "unknown folder"}${where}`, 300);
+      const looking = operation.action === "search_files" && typeof operation.pattern === "string" ? ` for ${operation.pattern}` : "";
+      return clean(`${folder?.name ?? "unknown folder"}${where}${looking}`, 300);
     }
-    case "run_command": return clean(operation.command, 300);
+    case "run_command": return clean(operation.cwd ? `${operation.command} (in ${operation.cwd})` : operation.command, 300);
+    case "command_output":
+    case "command_input":
+    case "command_stop": return clean(`command ${String(operation.command_id ?? "").slice(0, 8)}`, 60);
     case "computer_call": return clean(operation.tool_name, 100);
     default: return "";
   }

@@ -6,6 +6,17 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { lentScreenArguments, lentScreenToolListing } from "./lent-screen-tools.mjs";
+import { createCommandRunner, createLoginEnvironment } from "./mac-commands.mjs";
+import { searchFolder } from "./mac-search.mjs";
+
+const commands = createCommandRunner({ environment: createLoginEnvironment() });
+export const stopSharedCommands = () => commands.stopAll();
+export const SHARED_ACTIONS = Object.freeze([
+  "list_files", "read_file", "write_file", "edit_file", "delete_file", "search_files",
+  "run_command", "command_output", "command_input", "command_stop", "computer_tools", "computer_call",
+]);
+const COMMAND_ACTIONS = new Set(["run_command", "command_output", "command_input", "command_stop"]);
+const FILE_ACTIONS = new Set(["list_files", "read_file", "write_file", "edit_file", "delete_file", "search_files"]);
 
 const LIMIT = 256 * 1024;
 export const LENT_FILE_MAX = 25 * 1024 * 1024;
@@ -248,22 +259,47 @@ export function createSharedCua(connection) {
   };
 }
 
+export async function commandFolder(grant, cwd, { home = os.homedir() } = {}) {
+  const base = grant.folders[0]?.path ?? home;
+  if (cwd === undefined || cwd === "") return base;
+  if (typeof cwd !== "string" || cwd.length > 2048 || cwd.includes("\0")) throw new Error("Give cwd as a folder path on the Mac");
+  const trimmed = cwd.trim();
+  const target = trimmed === "~" ? home : trimmed.startsWith("~/") ? path.join(home, trimmed.slice(2)) : path.isAbsolute(trimmed) ? trimmed : path.join(base, trimmed);
+  let real;
+  try { real = await fs.realpath(target); } catch (error) { throw absent(error) ? new Error(`There's no folder ${trimmed} on this Mac`) : error; }
+  if (!(await fs.stat(real)).isDirectory()) throw new Error(`${trimmed} is a file, not a folder`);
+  return real;
+}
+
+async function commandOperation(grant, operation, signal, access) {
+  const runner = access.commands ?? commands;
+  if (operation.action === "run_command") {
+    const cwd = await commandFolder(grant, operation.cwd, access);
+    if (grant.home === true && typeof operation.command === "string") {
+      const home = grant.folders[0]?.path ?? os.homedir();
+      for (const name of PRIVATE_FOLDERS) {
+        if (new RegExp(`\\b${name}\\b`, "i").test(operation.command) || privateFolderIn(path.relative(home, cwd).split(path.sep).join("/")) === name) await macFolderAccess(home, name, access);
+      }
+    }
+    return text(await runner.start({ command: operation.command, cwd, waitSeconds: operation.wait_seconds, signal }));
+  }
+  if (operation.action === "command_output") return text(await runner.output({ id: operation.command_id, waitSeconds: operation.wait_seconds, signal }));
+  if (operation.action === "command_input") return text(runner.input({ id: operation.command_id, input: operation.input, close: operation.close_input === true }));
+  return text(await runner.stop({ id: operation.command_id }));
+}
+
 export async function executeSharedOperation(grant, operation, signal, cua, access = {}) {
   signal.throwIfAborted();
   if (grant.enabled !== true) throw new Error("Computer sharing is off");
-  if (operation.action === "run_command") {
+  if (COMMAND_ACTIONS.has(operation.action)) {
     if (grant.terminal !== true) throw new Error("Terminal access is not enabled for this server");
-    const cwd = grant.folders[0]?.path ?? process.env.HOME ?? process.env.USERPROFILE;
-    if (grant.home === true && typeof operation.command === "string") {
-      for (const name of PRIVATE_FOLDERS) if (new RegExp(`\\b${name}\\b`, "i").test(operation.command)) await macFolderAccess(cwd, name, access);
-    }
-    return sharedCommand(operation.command, cwd, signal);
+    return commandOperation(grant, operation, signal, access);
   }
   if (["computer_tools", "computer_call"].includes(operation.action)) {
     if (grant.computer !== true) throw new Error("Computer control is not enabled for this server");
     return (await cua()).call(operation, signal);
   }
-  if (!["list_files", "read_file", "write_file"].includes(operation.action)) throw new Error("Unsupported shared-computer operation");
+  if (!FILE_ACTIONS.has(operation.action)) throw new Error("Unsupported shared-computer operation");
   const folder = grant.folders.find(entry => entry.id === operation.folder_id);
   if (!folder) throw new Error("This folder has not been shared with this server");
   try {
@@ -278,6 +314,82 @@ export async function executeSharedOperation(grant, operation, signal, cua, acce
   }
 }
 
+function occurrences(haystack, needle) {
+  let count = 0;
+  for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + needle.length)) count++;
+  return count;
+}
+
+async function readWhole(file, size) {
+  const buffer = Buffer.alloc(size);
+  let total = 0;
+  while (total < size) {
+    const { bytesRead } = await file.read(buffer, total, size - total, total);
+    if (!bytesRead) break;
+    total += bytesRead;
+  }
+  return buffer.subarray(0, total);
+}
+
+async function writeWhole(file, data, signal) {
+  for (let offset = 0; offset < data.length;) {
+    signal.throwIfAborted();
+    const { bytesWritten } = await file.write(data, offset, data.length - offset, offset);
+    if (!bytesWritten) throw new Error("File write did not make progress; inspect before retrying");
+    offset += bytesWritten;
+  }
+  await file.truncate(data.length);
+  await file.sync();
+}
+
+async function editShared(folder, relative, target, protectedRoots, operation, signal) {
+  if (folder.write !== true) throw new Error("This folder is read-only");
+  if (insideGitInternals(folder.path, relative ?? "")) throw new Error(GIT_INTERNALS);
+  const { old_text: before, new_text: after } = operation;
+  if (typeof before !== "string" || !before) throw new Error("Give old_text: the exact text to replace");
+  if (typeof after !== "string") throw new Error("Give new_text: the text to put in its place");
+  if (before === after) throw new Error("old_text and new_text are the same, so nothing would change");
+  const file = await fs.open(target, constants.O_RDWR | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    const stat = await file.stat({ bigint: true });
+    if (!stat.isFile() || stat.nlink !== 1n) throw new Error("Only regular, single-link files can be shared");
+    if (stat.size > BigInt(LENT_FILE_MAX)) throw new Error("Files over 25 MiB can't be edited here");
+    await sharedPath(folder, relative);
+    const named = await fs.lstat(target, { bigint: true });
+    if (named.ino !== stat.ino || named.dev !== stat.dev || named.isSymbolicLink()) throw new Error("The file changed while opening it; retry after inspecting the folder");
+    if (protectedRoots.has(`${stat.dev}:${stat.ino}`)) throw new Error(PROTECTED);
+    const current = await readWhole(file, Number(stat.size));
+    if (current.subarray(0, 8192).includes(0)) throw new Error("This looks like a binary file; edit_file changes text files only");
+    const original = current.toString("utf8");
+    const found = occurrences(original, before);
+    if (found === 0) throw new Error("old_text wasn't found. Read the file again and copy the text exactly, including spaces and line breaks.");
+    if (found > 1 && operation.replace_all !== true) throw new Error(`old_text appears ${found} times. Add more of the surrounding text so it's unique, or pass replace_all to change all ${found}.`);
+    const edited = operation.replace_all === true ? original.split(before).join(after) : original.replace(before, () => after);
+    const data = Buffer.from(edited, "utf8");
+    await writeWhole(file, data, signal);
+    return { edited: true, replacements: operation.replace_all === true ? found : 1, bytes: data.length, sha256: hash(data) };
+  } finally { await file.close(); }
+}
+
+async function deleteShared(folder, relative, target, protectedRoots, signal) {
+  if (folder.write !== true) throw new Error("This folder is read-only");
+  if (insideGitInternals(folder.path, relative ?? "")) throw new Error(GIT_INTERNALS);
+  if (target === folder.path) throw new Error("Give the path of a file or folder inside the shared folder");
+  const info = await fs.lstat(target, { bigint: true });
+  if (info.isSymbolicLink()) throw new Error("Symbolic links cannot be followed in shared folders");
+  if (protectedRoots.has(`${info.dev}:${info.ino}`)) throw new Error(PROTECTED);
+  signal.throwIfAborted();
+  if (info.isDirectory()) {
+    try { await fs.rmdir(target); } catch (error) {
+      if (error.code === "ENOTEMPTY" || error.code === "EEXIST") throw new Error("That folder isn't empty. Delete what's inside first, or use run_command if you mean to remove the whole folder.");
+      throw error;
+    }
+    return { deleted: true, kind: "folder" };
+  }
+  await fs.unlink(target);
+  return { deleted: true, kind: "file" };
+}
+
 async function fileOperation(grant, folder, operation, signal, access) {
   const relative = grant.home === true ? homeRelative(folder, operation.path) : operation.path;
   if (grant.home === true) {
@@ -289,6 +401,14 @@ async function fileOperation(grant, folder, operation, signal, access) {
   const protectedRoots = await protectedIdentities(grant.protectedPaths);
   await assertOutsideProtected(protectedRoots, target);
   signal.throwIfAborted();
+  if (operation.action === "search_files") {
+    return text(await searchFolder({
+      target, protectedPaths: grant.protectedPaths, pattern: operation.pattern, glob: operation.glob,
+      ignoreCase: operation.ignore_case === true, maxResults: operation.max_results, signal,
+    }));
+  }
+  if (operation.action === "delete_file") return text(await deleteShared(folder, relative, target, protectedRoots, signal));
+  if (operation.action === "edit_file") return text(await editShared(folder, relative, target, protectedRoots, operation, signal));
   if (operation.action === "list_files") {
     const entries = await fs.readdir(target, { withFileTypes: true });
     const shown = await Promise.all(entries.slice(0, 200).map(async entry => {

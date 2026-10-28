@@ -14,7 +14,7 @@ import { selectReplay, DEFAULT_REBUILD_BYTES, MAX_SUMMARY_BYTES } from "./contex
 import { draftSummary, foldPoint } from "./compaction-summary.ts";
 import { compactBudget, contextWindowFor, shouldCompact } from "./context-budget.ts";
 import { autoCompactWindow } from "./drivers/claude.ts";
-import { completeSharedOperation, provenRequestPerson, SharedComputers, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerRegistration, sharedComputerScopeRefusal, type SharedComputerOperation } from "./shared-computers.ts";
+import { completeSharedOperation, provenRequestPerson, SharedComputers, sharedActionsHeader, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerRegistration, sharedComputerScopeRefusal, type SharedComputerOperation } from "./shared-computers.ts";
 import { MAC_ALLOW_KEY, MacApprovals, type MacLasting } from "./mac-approval.ts";
 import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, type CloudLendingTurn } from "./cloud-lending.ts";
 import { botMemoryFiles, createLendingMemory } from "./lending-memory.ts";
@@ -12857,7 +12857,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const registration = parsed.data;
         if (registration.environmentId !== ENVIRONMENT_ID) return json(res, 409, { error: "Workspace identity changed. Pair again before sharing this computer." });
         if (CLOUD_HOME && !auth.scopes.includes("admin")) return json(res, 403, { error: "Only your own Macs can connect to your later.dog Cloud. Sign in to later.dog on this Mac with the same email." });
-        sharedComputers.register(registration, { session: auth.session.id, person: CLOUD_HOME ? CLOUD_HOME_LENDER : personKey(auth.session) }, secret);
+        sharedComputers.register(registration, { session: auth.session.id, person: CLOUD_HOME ? CLOUD_HOME_LENDER : personKey(auth.session) }, secret, sharedActionsHeader(req.headers["x-laterdog-computer-actions"]));
         return json(res, 200, { ok: true });
       }
       const route = /^\/api\/shared-computers\/([\w-]+)\/(poll|lease|result|disconnect)$/.exec(path);

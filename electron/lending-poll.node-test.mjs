@@ -77,7 +77,8 @@ test("a poll My Cloud dropped is asked again at once, without reconnecting or sh
   const started = Date.now();
   await until(() => server.results.length === 1, "the command's result", 3000);
   assert.ok(Date.now() - started < 2000, "the work arrives in seconds, not after a reconnect back-off");
-  assert.deepEqual(JSON.parse(server.results[0].content[0].text), { exitCode: 0, output: "from the Mac" });
+  const ran = JSON.parse(server.results[0].content[0].text);
+  assert.deepEqual([ran.exitCode, ran.output, ran.running], [0, "from the Mac", false]);
   assert.equal(server.connects, 1, "a dropped poll is not a disconnect");
   assert.equal(states.slice(seen).includes(false), false, "the Mac never shows as disconnected");
 });

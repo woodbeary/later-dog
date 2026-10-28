@@ -464,15 +464,18 @@ with no confirmation. The switch and the chosen scopes are the consent.
 
 - **Folders**: chosen with the folder picker. Read-only by default; **Can
   edit** lets bots create files and overwrite them, but only after reading the
-  current version (the overwrite is checked against its hash). Nothing is ever
-  deleted. At most 256 KiB per file, no symbolic or hard links. The home folder
-  and anything above it cannot be chosen.
+  current version (the overwrite is checked against its hash), change exact
+  text in a file, and delete a file or an empty folder. A whole-file write is
+  at most 256 KiB; an exact edit works on text files up to 25 MiB. No symbolic
+  or hard links. The home folder and anything above it cannot be chosen.
 - **Apps and screen**: bots see the screen and use apps as the person, through
   this app's own computer control (the signed app holds Accessibility and
   Screen Recording; the Cloud never does). This is broad by nature, since it
   reaches anything those apps can, and the switch says so. It needs local
   computer control set up first.
-- **No terminal.** The shell grant of maintainer sharing is never offered here.
+- **Terminal**: a Mac signed in to later.dog Cloud lends its home folder,
+  its apps and a terminal. Commands run as the person, in the shell setup
+  their own Terminal has (see below).
 
 The switch can be turned on before the first **Open My Cloud**; lending
 starts once this Mac is signed in to the Cloud. Lending runs while the app is
@@ -531,6 +534,45 @@ On the Mac (the authority; `electron/computer-sharing.mjs`,
   ran. Never contents, output or typed text. The app only ever appends to it
   (never through a link); a full file of 500 entries is moved to
   `lending-activity.jsonl.1` intact. No folder or screen argument reaches it.
+
+### Working on code on the Mac
+
+A bot works in a repository on the Mac through the same lending, with the
+tools a coding agent needs (`electron/mac-commands.mjs`,
+`electron/mac-search.mjs`):
+
+- **Commands** run under `/bin/bash -c` with the person's login environment,
+  read once per app session from their shell (`$SHELL -ilc`, so `PATH` has
+  Homebrew, nvm and the rest; a shell that hangs falls back to a plain
+  environment after 6 seconds), in the folder the bot names with `cwd`.
+  `GIT_TERMINAL_PROMPT=0` keeps git from waiting for a password nobody can type.
+- **Long commands keep running.** A command answers within the time the bot
+  asks for, at most 30 seconds. If it is still going, the answer says so with
+  a command id and the command carries on in the background; the bot reads
+  the new output with `command_output`, types into it with `command_input`
+  and stops it with `command_stop`. Builds, test runs and pushes work this
+  way. The Mac keeps the newest 1 MiB of unread output per command, runs at
+  most 12 at once, forgets finished ones after an hour, and stops them all
+  when lending stops or the app quits. If the bot's turn ends while it is
+  still waiting on a command, the command is stopped.
+- **Exact edits** (`edit_file`) swap one exact piece of text, or every
+  occurrence when asked, in a text file; the text must be found, and found
+  once unless every occurrence is meant. Never in a binary file or inside
+  `.git`.
+- **Search** (`search_files`) runs ripgrep when the Mac has it and `grep`
+  otherwise, as a separate process with a 20-second limit, skipping `.git`,
+  `node_modules` and other generated folders. It refuses a folder that holds
+  protected places, such as the whole home folder.
+- **Delete** (`delete_file`) removes a file or an empty folder, never the lent
+  folder itself, never a protected place, never inside `.git`.
+- **Several at once.** The Mac runs up to 6 actions side by side (screen
+  actions one at a time) and starts each as soon as it arrives, checking that
+  it is still wanted in parallel. The Cloud queues up to 8 per Mac.
+- **Older apps.** The Mac lists the actions it supports when it connects
+  (`x-laterdog-computer-actions`). The Cloud gives an app that lists none only
+  the original six (`list_files`, `read_file`, `write_file`, `run_command`,
+  `computer_tools`, `computer_call`) and tells the bot to ask the person to
+  update later.dog for the rest.
 
 On the Cloud home (`server/shared-computers.ts`, `server/index.ts`):
 

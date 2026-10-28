@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MAX_SHARED_COMMAND, provenRequestPerson, SharedComputers, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerScopeRefusal } from "./shared-computers.ts";
+import { MAX_SHARED_COMMAND, macTooOld, provenRequestPerson, SHARED_ACTIONS, SHARED_JOBS_PER_COMPUTER, SharedComputers, sharedActionsHeader, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerScopeRefusal } from "./shared-computers.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
 import { TurnResources } from "./turn-resources.ts";
 
@@ -18,6 +18,42 @@ const nothingQueued = async (broker: SharedComputers, id: string) => {
   return poll;
 };
 describe("shared computer authority and lifecycle", () => {
+  it("sends a Mac only the actions its later.dog app says it can do", async () => {
+    const broker = new SharedComputers(() => true);
+    const folder = { id: randomUUID(), name: "Home", write: true };
+    const old = registration({ folders: [folder], terminal: true }); broker.register(old, alice, secret);
+    const edit = { computer_id: old.id, folder_id: folder.id, action: "edit_file" as const, path: "a.ts", old_text: "a", new_text: "b" };
+    await expect(broker.request(edit, alice.person, () => true)).rejects.toThrow(macTooOld("edit_file"));
+    const listed = broker.request({ computer_id: old.id, folder_id: folder.id, action: "list_files" }, alice.person, () => true);
+    const job = await broker.poll(old.id, "owner", secret);
+    broker.complete(old.id, "owner", secret, job!.id, { ok: true });
+    await expect(listed).resolves.toEqual({ ok: true });
+    broker.register(old, alice, secret, sharedActionsHeader(SHARED_ACTIONS.join(",")));
+    const edited = broker.request(edit, alice.person, () => true);
+    const sent = await broker.poll(old.id, "owner", secret);
+    expect(sent?.operation).toMatchObject({ action: "edit_file", old_text: "a", new_text: "b" });
+    broker.complete(old.id, "owner", secret, sent!.id, { ok: true });
+    await expect(edited).resolves.toEqual({ ok: true });
+    expect([...sharedActionsHeader("run_command, command_output,format_disk,,")!]).toEqual(["run_command", "command_output"]);
+    expect(sharedActionsHeader(undefined)).toBeUndefined();
+    broker.close();
+  });
+  it("needs the terminal for command follow-ups, a writable folder for edits and deletes, and a folder for searches", () => {
+    const readOnly = { id: randomUUID(), name: "Docs", write: false };
+    const lent = registration({ folders: [readOnly], terminal: false });
+    for (const action of ["run_command", "command_output", "command_input", "command_stop"] as const) {
+      expect(sharedComputerScopeRefusal(lent, { action })).toMatch(/Terminal access/);
+    }
+    for (const action of ["edit_file", "delete_file", "write_file"] as const) {
+      expect(sharedComputerScopeRefusal(lent, { action, folder_id: readOnly.id })).toMatch(/read-only/);
+    }
+    expect(sharedComputerScopeRefusal(lent, { action: "search_files", folder_id: readOnly.id })).toBeNull();
+    expect(sharedComputerScopeRefusal(lent, { action: "search_files" })).toMatch(/folder_id/);
+    expect(sharedComputerOperation.safeParse({ action: "run_command", command: "pnpm test", cwd: "~/code/app", wait_seconds: 30 }).success).toBe(true);
+    expect(sharedComputerOperation.safeParse({ action: "run_command", command: "pnpm test", wait_seconds: 31 }).success).toBe(false);
+    expect(sharedComputerOperation.safeParse({ action: "command_input", command_id: randomUUID(), input: "y\n", close_input: true }).success).toBe(true);
+    expect(sharedComputerOperation.safeParse({ action: "search_files", pattern: "TODO", glob: "*.ts", max_results: 501 }).success).toBe(false);
+  });
   it("requires both the owning paired session and the connector secret", async () => {
     const broker = new SharedComputers(id => id === "owner");
     const computer = registration(); broker.register(computer, alice, secret);
@@ -27,12 +63,14 @@ describe("shared computer authority and lifecycle", () => {
     expect(JSON.stringify(broker.list(alice.person))).not.toContain(secret);
     broker.close();
   });
-  it("delivers a job once, refuses concurrent work, and never replays after disconnect", async () => {
+  it("delivers a job once, runs several side by side up to a limit, and never replays after disconnect", async () => {
     const broker = new SharedComputers(() => true);
     const computer = registration(); broker.register(computer, alice, secret);
     const operation = { computer_id: computer.id, action: "computer_tools" as const };
     const lent = registration({ computer: true }); lent.id = computer.id; broker.register(lent, alice, secret);
     const result = broker.request(operation, alice.person, () => true);
+    const alongside = Array.from({ length: SHARED_JOBS_PER_COMPUTER - 1 }, () => broker.request(operation, alice.person, () => true));
+    for (const other of alongside) other.catch(() => {});
     await expect(broker.request(operation, alice.person, () => true)).rejects.toThrow(/busy/);
     const job = await broker.poll(computer.id, "owner", secret);
     expect(job?.operation).toEqual(operation);

@@ -40,6 +40,7 @@ const TOOL_PHRASES: Record<string, string> = {
   mac_list_files: "look in a folder on your Mac",
   mac_read_file: "open a file on your Mac",
   mac_write_file: "save a file on your Mac",
+  mac_delete_file: "delete a file on your Mac",
   mac_run_command: "run a command on your Mac",
   mac_computer_call: "use apps on your Mac",
 };

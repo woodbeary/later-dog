@@ -7,7 +7,7 @@ import { buildNotification, type Notification } from "./notify.ts";
 import type { BotRecord, Store } from "./store.ts";
 
 export type MacMode = "ask" | "always" | "never";
-export type MacTool = "mac_list_files" | "mac_read_file" | "mac_write_file" | "mac_run_command" | "mac_computer_call";
+export type MacTool = "mac_list_files" | "mac_read_file" | "mac_write_file" | "mac_delete_file" | "mac_run_command" | "mac_computer_call";
 export type MacAccess = { mode: MacMode; computers: Record<string, MacMode> };
 export type MacLasting = "always" | "never";
 export type MacVerdict = { ok: true } | { ok: false; status: number; error: string };
@@ -23,15 +23,22 @@ const TURN_ENDED = "The requesting turn ended";
 
 const TOOLS: Record<string, MacTool> = {
   list_files: "mac_list_files",
+  search_files: "mac_list_files",
   read_file: "mac_read_file",
   write_file: "mac_write_file",
+  edit_file: "mac_write_file",
+  delete_file: "mac_delete_file",
   run_command: "mac_run_command",
+  command_output: "mac_run_command",
+  command_input: "mac_run_command",
+  command_stop: "mac_run_command",
   computer_call: "mac_computer_call",
 };
 const KINDS: Record<MacTool, MacKind> = {
   mac_list_files: "look",
   mac_read_file: "look",
   mac_write_file: "save",
+  mac_delete_file: "save",
   mac_run_command: "command",
   mac_computer_call: "apps",
 };
@@ -39,6 +46,7 @@ export const MAC_WORDS: Record<MacTool, string> = {
   mac_list_files: "look in a folder on your Mac",
   mac_read_file: "open a file on your Mac",
   mac_write_file: "save a file on your Mac",
+  mac_delete_file: "delete a file on your Mac",
   mac_run_command: "run a command on your Mac",
   mac_computer_call: "use apps on your Mac",
 };
@@ -67,9 +75,11 @@ export function isMacTool(tool: string | undefined): tool is MacTool {
 }
 
 type MacOperation = { action: string; path?: string; command?: string; tool_name?: string; arguments?: Record<string, unknown> };
+const FOLLOW_UPS = new Set(["command_output", "command_input", "command_stop"]);
 
 export function macDetail(operation: MacOperation): string {
-  const text = operation.action === "run_command" ? (operation.command ?? "").trim()
+  const text = FOLLOW_UPS.has(operation.action) ? "a command it already started"
+    : operation.action === "run_command" ? (operation.command ?? "").trim()
     : operation.action === "computer_call" ? appLabel(operation)
       : macPathLabel(operation.path);
   return text.length > 200 ? `${text.slice(0, 200)}…` : text;

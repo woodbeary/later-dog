@@ -19,11 +19,13 @@ async function scratch(t) {
 function scriptedServer(jobs) {
   const env = { id: "cloud-fixture", name: "Fixture Cloud", origin: "https://cloud.fixture.test" };
   const json = value => ({ ok: true, status: 200, body: (async function* () { yield Buffer.from(JSON.stringify(value)); })() });
-  const results = [];
+  const sent = [];
+  const answered = new Map();
   let registration = null;
   let finished;
   const done = new Promise(resolve => { finished = resolve; });
   const queue = [...jobs];
+  const settle = () => { if (queue.length === 0 && answered.size === jobs.length) finished(sent.map(id => answered.get(id))); };
   const fetchImpl = async (url, init) => {
     const route = new URL(url).pathname;
     if (route === "/api/auth/session") return json({ kind: "session", id: env.sessionId });
@@ -32,12 +34,14 @@ function scriptedServer(jobs) {
     if (route === "/api/shared-computers/connect") { registration = body; return json({}); }
     if (route.endsWith("/poll")) {
       const next = queue.shift();
-      if (!next) { finished(results); throw new Error("no more work"); }
+      if (!next) { settle(); throw new Error("no more work"); }
       const operation = typeof next === "function" ? next(registration) : { computer_id: registration.id, folder_id: registration.folders[0]?.id, ...next };
-      return json({ job: { id: randomUUID(), operation } });
+      const id = randomUUID();
+      sent.push(id);
+      return json({ job: { id, operation } });
     }
     if (route.endsWith("/lease")) return json({ active: true });
-    if (route.endsWith("/result")) { results.push(body.result); return json({}); }
+    if (route.endsWith("/result")) { answered.set(body.jobId, body.result); settle(); return json({}); }
     if (route.endsWith("/disconnect")) return json({});
     throw new Error(`no route ${route}`);
   };
@@ -86,11 +90,11 @@ test("a read-only folder never reaches a shell, a write or the screen, whatever 
   await assert.rejects(stat(path.join(shared, "new.md")), { code: "ENOENT" });
   await assert.rejects(stat(path.join(dir, "pwned")), { code: "ENOENT" });
   const log = sharing.activity();
-  assert.deepEqual(log.map(entry => [entry.action, entry.ok]).reverse(), [
+  assert.deepEqual(log.map(entry => [entry.action, entry.ok]).sort(), [
     ["run_command", false], ["write_file", false], ["write_file", false], ["computer_tools", false], ["computer_call", false], ["read_file", true],
-  ]);
-  assert.equal(log[0].detail, "Docs/plan.md");
-  assert.equal(log.at(-1).detail.startsWith("echo pwned"), true);
+  ].sort());
+  assert.equal(log.find(entry => entry.action === "read_file").detail, "Docs/plan.md");
+  assert.equal(log.find(entry => entry.action === "run_command").detail.startsWith("echo pwned"), true);
   assert.ok(log.every(entry => entry.server === "Fixture Cloud" && entry.origin === "https://cloud.fixture.test"));
   assert.doesNotMatch(JSON.stringify(log), /original|changed|planted|rm -rf/);
 });
@@ -281,7 +285,10 @@ test("malformed jobs are refused before anything runs, and the connector keeps s
   assert.equal(JSON.parse(text(results[4])).content, "fine");
   assert.equal(sharing.activity().filter(entry => entry.action === "invalid").length, 4);
   assert.equal(validSharedOperation({ computer_id: "x", action: "read_file" }, "x"), true);
-  assert.equal(validSharedOperation({ computer_id: "x", action: "delete_file" }, "x"), false);
+  assert.equal(validSharedOperation({ computer_id: "x", action: "format_disk" }, "x"), false);
+  assert.equal(validSharedOperation({ computer_id: "x", action: "delete_file" }, "x"), true);
+  assert.equal(validSharedOperation({ computer_id: "x", action: "run_command", wait_seconds: 31 }, "x"), false);
+  assert.equal(validSharedOperation({ computer_id: "x", action: "command_output", command_id: "not-a-uuid" }, "x"), false);
   assert.equal(validSharedOperation({ computer_id: "x", action: "read_file", encoding: "hex" }, "x"), false);
   assert.equal(validSharedOperation({ computer_id: "x", action: "read_file", offset: 524288, length: 262144 }, "x"), true);
   assert.equal(validSharedOperation({ computer_id: "x", action: "read_file", offset: 0, length: 262145 }, "x"), false);

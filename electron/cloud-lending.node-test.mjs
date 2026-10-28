@@ -50,8 +50,9 @@ function cloudHome({ cloudHome = true, scopes = ["admin", "client"], paired = tr
   });
   const state = {
     paired, asleep, environmentId: randomUUID(), sessionId: randomUUID(), pollStatus: 200, restingHits: 0,
-    connects: [], secrets: [], pairs: [], codes: new Set(), routes: new Set(), disconnects: 0, results: [], queue: [], waiting: null, unmarked: [],
+    connects: [], secrets: [], pairs: [], codes: new Set(), routes: new Set(), disconnects: 0, sent: [], answered: new Map(), queue: [], waiting: null, unmarked: [],
   };
+  Object.defineProperty(state, "results", { get: () => state.sent.filter(id => state.answered.has(id)).map(id => state.answered.get(id)) });
   const nextJob = () => new Promise(resolve => {
     const timer = setTimeout(() => { if (state.waiting === wake) state.waiting = null; resolve(null); }, 200);
     const wake = job => { clearTimeout(timer); resolve(job); };
@@ -59,6 +60,7 @@ function cloudHome({ cloudHome = true, scopes = ["admin", "client"], paired = tr
   });
   state.push = operation => {
     const job = { id: randomUUID(), operation: { computer_id: state.connects.at(-1).id, ...operation } };
+    state.sent.push(job.id);
     if (state.waiting) { const wake = state.waiting; state.waiting = null; wake(job); } else state.queue.push(job);
   };
   state.mint = () => { const code = randomUUID(); state.codes.add(code); return code; };
@@ -88,7 +90,7 @@ function cloudHome({ cloudHome = true, scopes = ["admin", "client"], paired = tr
       return reply({ job });
     }
     if (route.endsWith("/lease")) return reply({ active: true });
-    if (route.endsWith("/result")) { state.results.push(body.result); return reply({ ok: true }); }
+    if (route.endsWith("/result")) { state.answered.set(body.jobId, body.result); return reply({ ok: true }); }
     if (route.endsWith("/disconnect")) { state.disconnects++; return reply({ ok: true }); }
     throw new Error(`no route ${route}`);
   };
@@ -177,12 +179,13 @@ test("a Mac signed in to later.dog Cloud connects to My Cloud by itself: its hom
   await until(() => server.results.length === 3, "three results");
   assert.equal(output(server.results[0]).content, "from the Mac");
   assert.equal(output(server.results[1]).content, "from the Mac");
-  assert.deepEqual(output(server.results[2]), { exitCode: 0, output: "from the Mac" });
+  const ran = output(server.results[2]);
+  assert.deepEqual([ran.exitCode, ran.output, ran.running], [0, "from the Mac", false]);
   assert.equal(maintainerChecks(), 0, "My Cloud never depends on the maintainer flag");
   assert.equal(pairings(), 0);
   assert.equal(primes(), 1, "macOS asks about Downloads, Desktop and Documents once, up front");
   assert.ok(summaries.some(summary => summary.lending.includes(env.id)));
-  assert.deepEqual(sharing.activity(env.id).map(entry => [entry.action, entry.ok]), [["run_command", true], ["read_file", true], ["read_file", true]]);
+  assert.deepEqual(sharing.activity(env.id).map(entry => [entry.action, entry.ok]).sort(), [["read_file", true], ["read_file", true], ["run_command", true]]);
   const record = (await saved()).records[env.id];
   assert.equal(record.home, true);
   assert.deepEqual(record.cloud, binding);
