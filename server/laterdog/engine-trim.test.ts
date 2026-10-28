@@ -5,14 +5,12 @@ import { SHOWN_ENGINES } from "../../shared/account-engines.ts";
 import { DATA_DIR, instanceConfigs, persistableInstanceConfigs, type AppConfig } from "../config.ts";
 import { BUILT_IN_DRIVERS } from "../drivers/builtIn.ts";
 import { Store } from "../store.ts";
-import { MAC_RELAY_INSTANCE_ID } from "./mac-relay.ts";
 import { OFFERED_DRIVERS, RETIRED_DRIVERS, retiredEngineMoveText, retiredInstanceIds, withoutRetiredEngines } from "./engine-trim.ts";
 
 describe("the engines later.dog offers", () => {
-  it("registers exactly Claude, ChatGPT, Grok, Cursor, the included AI, the two API-key drivers and the Mac relay", () => {
+  it("registers exactly Claude, ChatGPT, Grok, Cursor, the included AI and the two API-key drivers", () => {
     const registered = BUILT_IN_DRIVERS.map((driver) => driver.driverKind).sort();
-    expect(registered).toEqual([...OFFERED_DRIVERS, MAC_RELAY_INSTANCE_ID].sort());
-    expect(OFFERED_DRIVERS.has(MAC_RELAY_INSTANCE_ID)).toBe(false);
+    expect(registered).toEqual([...OFFERED_DRIVERS].sort());
     for (const engine of SHOWN_ENGINES) expect(registered).toContain(engine);
     for (const driver of RETIRED_DRIVERS) expect(registered).not.toContain(driver);
   });

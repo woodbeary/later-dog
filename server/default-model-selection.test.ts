@@ -24,13 +24,6 @@ const claude = {
 };
 
 describe("new bot default model selection", () => {
-  it("never starts a new dog on the Mac relay, even when no account is signed in yet", () => {
-    const relay = { instanceId: "mac-relay", driverKind: "mac-relay", snapshot: { state: "available" } satisfies ProviderSnapshot,
-      models: { default: "mac-relay", options: [{ id: "mac-relay", label: "This Mac, relayed" }] } };
-    const signedOutClaude = { ...claude, snapshot: { state: "available", authenticated: false } satisfies ProviderSnapshot };
-    expect(selectDefaultModelSelection([relay, signedOutClaude])).toEqual({ instanceId: "claude", model: "claude-default" });
-    expect(selectDefaultModelSelection([relay])).toEqual({ instanceId: "", model: "" });
-  });
   it("accepts a configured API-key provider", () => {
     const instance = { ...codex, instanceId: "mistral", driverKind: "mistral", access: "api" as const };
     const preferred = { instanceId: "mistral", model: "selected-model" };

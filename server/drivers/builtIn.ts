@@ -6,7 +6,6 @@ import { GrokAgentDriver } from "./acp/grok.ts";
 import { CursorAgentDriver } from "./acp/cursor.ts";
 import { OpenAICompatDriver } from "./openai-compat.ts";
 import { IncludedAiDriver, IncludedGrokDriver } from "../laterdog/included-ai.ts";
-import { MacRelayDriver } from "./mac-relay.ts";
 
 export const BUILT_IN_DRIVERS: readonly AnyProviderDriver[] = [
   ClaudeDriver,
@@ -17,5 +16,4 @@ export const BUILT_IN_DRIVERS: readonly AnyProviderDriver[] = [
   IncludedGrokDriver,
   GrokDriver,
   OpenAICompatDriver,
-  MacRelayDriver,
 ];

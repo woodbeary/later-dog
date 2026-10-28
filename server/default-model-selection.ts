@@ -1,7 +1,6 @@
 import type { EffortLevel, EngineAccess, ModelCatalog, ModelSelection, ProviderSnapshot } from "./contracts.ts";
 import { fitEffort, modelEffortLevels } from "../shared/effort.ts";
 import { isIncludedEngine } from "../shared/account-engines.ts";
-import { MAC_RELAY_INSTANCE_ID } from "./laterdog/mac-relay.ts";
 
 export interface SelectableInstance {
   instanceId: string;
@@ -56,7 +55,7 @@ export function selectDefaultModelSelection(
     return selection;
   }
   const available = instances.filter((instance) =>
-    instance.snapshot.state === "available" && instance.driverKind !== MAC_RELAY_INSTANCE_ID && context.refusal?.(instance) === undefined);
+    instance.snapshot.state === "available" && context.refusal?.(instance) === undefined);
   const ready = available.filter((instance) => readyToRun(instance, context));
   const company = context.company;
   const personal = company && instances.some((instance) => company(instance.instanceId))
