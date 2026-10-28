@@ -12,6 +12,7 @@ import { appVersion, openExternalLink } from "@/lib/app-links";
 import { brand } from "../lib/brand";
 import { ReleaseCheckRow, releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { updateReceiptLine } from "./UpdateButton";
+import { AboutMeSettings } from "./AboutMeSettings";
 import { AccountsPanel, AccountsRefresh } from "./AccountsPanel";
 import { SavedApiKeys, savedKeyEngines } from "./SavedApiKeys";
 import { HelpRows } from "./SettingsHelp";
@@ -244,6 +245,9 @@ function GeneralPage({ mac }: { mac: boolean }) {
       <SettingsGroup label={t("settings.profile.title")} testId="profile">
         <SettingsRows>
           <NameRow />
+          <div className="border-t border-hairline/40 py-4">
+            <AboutMeSettings />
+          </div>
         </SettingsRows>
       </SettingsGroup>
       <SettingsGroup label={t("settings.group.dogs")} testId="dogs">

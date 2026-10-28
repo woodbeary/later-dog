@@ -185,8 +185,7 @@ describe("MemoryUpkeepRows", () => {
   it("says in one line what upkeep does and hides the tidy button while off", () => {
     const markup = render(createElement(MemoryUpkeepRows, { enabled: false, status: null, tidying: false, onToggle: noop, onTidy: noop }));
     expect(markup).toContain("Memory upkeep");
-    expect(markup).toContain("tidies up each night");
-    expect(markup).not.toContain("About me");
+    expect(markup).toContain("About me");
     expect(markup).toContain('role="switch"');
     expect(markup).not.toContain("Tidy up now");
   });
@@ -202,7 +201,7 @@ describe("MemoryUpkeepRows", () => {
     expect(markup).toContain("Tidy up now");
     expect(markup).toContain("archived 1 expired note, merged 2 duplicates");
     expect(markup).toContain("can only archive expired notes");
-    const noticed = render(createElement(MemoryUpkeepRows, { enabled: true, status: { enabled: true, modelSteps: true, lastCapture: { at: Date.now() - 60_000, added: 1, topics: 2 } }, tidying: false, onToggle: noop, onTidy: noop }));
+    const noticed = render(createElement(MemoryUpkeepRows, { enabled: true, status: { enabled: true, modelSteps: true, lastCapture: { at: Date.now() - 60_000, added: 1, topics: 2, aboutMe: 1 } }, tidying: false, onToggle: noop, onTidy: noop }));
     expect(noticed).toContain("Last noticed 3 facts");
     expect(noticed).toContain("Not tidied yet.");
     expect(noticed).not.toContain("can only archive");

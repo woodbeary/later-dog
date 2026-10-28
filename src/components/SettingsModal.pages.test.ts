@@ -25,6 +25,7 @@ vi.mock("@/lib/app-links", async (importOriginal) => ({ ...await importOriginal<
 vi.mock("../lib/brand", () => ({ brand: () => ({ name: "later.dog" }) }));
 const { marker } = vi.hoisted(() => ({ marker: (name: string) => () => `MARKER:${name};` }));
 vi.mock("./AccountsPanel", () => ({ AccountsPanel: marker("accounts"), AccountsRefresh: () => createElement("button", { "aria-label": "Refresh accounts" }) }));
+vi.mock("./AboutMeSettings", () => ({ AboutMeSettings: marker("about-me") }));
 vi.mock("./SavedApiKeys", async (importOriginal) => ({
   ...await importOriginal<typeof import("./SavedApiKeys")>(),
   SavedApiKeys: ({ instances }: { instances: readonly InstanceInfo[] }) => `MARKER:api-keys=${instances.map((instance) => instance.instanceId).join("+")};`,
@@ -120,7 +121,7 @@ describe("General", () => {
   it("stacks later.dog Cloud, AI accounts, Profile, Dogs, Appearance, System and Help, in that order", () => {
     const html = render();
     expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "profile", "dogs", "appearance", "system", "help"]);
-    expect(markers(html)).toEqual(["accounts", "permissions=microphone"]);
+    expect(markers(html)).toEqual(["accounts", "about-me", "permissions=microphone"]);
     const order = ["later.dog Cloud", "AI accounts", "Profile", "Your name", "Dogs", "Auto-review", "Appearance", "Theme", "Language", "Notification sounds", "System", "Help"].map((word) => html.indexOf(`>${word}</div>`));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
@@ -128,10 +129,10 @@ describe("General", () => {
     expect(html).not.toContain("Email");
   });
 
-  it("has none of the extra rows: no About me, Voice mode, Step-by-step updates, Show every update, Typing suggestions or Sharper dictation", () => {
+  it("has none of the extra rows: no Voice mode, Step-by-step updates, Show every update, Typing suggestions or Sharper dictation", () => {
     fixture.config = { ...fixture.config, features: { browser: false, showToolCalls: true, cloudDictation: true, typingSuggestions: true } };
     const html = render();
-    for (const gone of ["About me", "Voice mode", "Step-by-step updates", "Show every update", "Typing suggestions", "Smarter suggestions", "Sharper dictation", "Learned"]) expect(html).not.toContain(gone);
+    for (const gone of ["Voice mode", "Step-by-step updates", "Show every update", "Typing suggestions", "Smarter suggestions", "Sharper dictation"]) expect(html).not.toContain(gone);
     expect(html).not.toContain('data-settings-group="typing-suggestions"');
     expect(html.match(/role="switch"/g) ?? []).toHaveLength(3);
     expect(html).toContain('data-auto-review="on"');
@@ -172,15 +173,15 @@ describe("General", () => {
     ];
     const html = render();
     expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "api-keys", "profile", "dogs", "appearance", "system", "help"]);
-    expect(markers(html)).toEqual(["accounts", "api-keys=openai", "permissions=microphone"]);
+    expect(markers(html)).toEqual(["accounts", "api-keys=openai", "about-me", "permissions=microphone"]);
     expect(html).toContain(">API keys</div>");
   });
 
   it("asks for the microphone only on a Mac with the desktop bridge", () => {
     vi.stubGlobal("window", {});
-    expect(markers(render())).toEqual(["accounts"]);
+    expect(markers(render())).toEqual(["accounts", "about-me"]);
     vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, platform: "win32" } });
-    expect(markers(render())).toEqual(["accounts"]);
+    expect(markers(render())).toEqual(["accounts", "about-me"]);
   });
 
   it("leaves System out where it would be empty", () => {
@@ -259,7 +260,7 @@ describe("Settings in the Cloud's window", () => {
     const general = render();
     expect(groups(general)).toEqual(["later-dog-cloud", "accounts", "profile", "dogs", "appearance", "system", "help"]);
     expect(general).toContain('data-cloud-account="on-cloud"');
-    expect(markers(general)).toEqual(["accounts", "permissions=microphone"]);
+    expect(markers(general)).toEqual(["accounts", "about-me", "permissions=microphone"]);
     expect(general).not.toContain("You&#x27;re on My Cloud");
     fixture.section = "computer";
     const computer = render();
