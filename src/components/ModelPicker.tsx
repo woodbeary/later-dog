@@ -27,7 +27,7 @@ import { COMPACT_SQUARE } from "@/lib/compact-chip";
 import { subscriptionAccounts, useCarryOn } from "./AccountsPanel";
 import { SleepingDog } from "./AccountCharge";
 import { AccountBadge, AccountSwitcher, accountUsageLines, activeRest, shownAccounts, UsageRing, usageRingFor } from "./AccountSwitcher";
-import { usePlanUsage, useRefreshAfterTurn } from "./PlanUsage";
+import { usePlanUsage, useRefreshAfterTurn, warmPlanUsage } from "./PlanUsage";
 
 type ModelOption = InstanceInfo["models"]["options"][number];
 const COMPACT_MODEL_COUNT = 5;
@@ -483,7 +483,8 @@ export function ModelPicker({
   const inUse = state.instances.find((instance) => instance.instanceId === routed?.on) ?? active;
   const switcherAccounts = subscriptionAccounts(state.instances, battery)
     .filter((account) => pickerInstances.some((instance) => instance.instanceId === account.instanceId));
-  const usage = usePlanUsage({ enabled: simpleUpdatesBotDefault && switcherAccounts.length > 0 });
+  const usageWanted = simpleUpdatesBotDefault && switcherAccounts.length > 0;
+  const usage = usePlanUsage({ enabled: usageWanted });
   const carryOn = useCarryOn();
   useRefreshAfterTurn(bot.busy);
   const selectedVariantLabel = selection.variant === undefined ? undefined : variantLabel(
@@ -799,6 +800,8 @@ export function ModelPicker({
           return next;
         });
       }}
+      onPointerEnter={() => { if (usageWanted) warmPlanUsage(); }}
+      onFocus={() => { if (usageWanted) warmPlanUsage(); }}
       aria-expanded={open}
       aria-haspopup="dialog"
       className={cn(

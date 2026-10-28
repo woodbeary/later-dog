@@ -22,6 +22,19 @@ describe("what the dog did this turn", () => {
     ]);
   });
 
+  it("leaves out steps it can only call working, unless they failed", () => {
+    const steps = turnSteps([
+      tool("ToolSearch", true, 5),
+      tool("Read", true, 6),
+      tool("ToolSearch", undefined, 7),
+      tool("ToolSearch", false, 8),
+    ], 1);
+    expect(steps.map((step) => [step.label, step.state])).toEqual([
+      ["Reading a file", "done"],
+      ["Working", "failed"],
+    ]);
+  });
+
   it("leaves out earlier turns, navigation chips and status notes", () => {
     const steps = turnSteps([
       tool("Read", true, 1),

@@ -160,7 +160,7 @@ it("keeps disclosure controls in the focus loop and dismisses only an outside po
   expect(onClose).toHaveBeenCalledTimes(1);
 });
 
-it("repositions the measured panel when a disclosure expands", async () => {
+it("stays where it opened when a disclosure expands", async () => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     if (this.getAttribute("role") === "dialog") return new DOMRect(0, 0, 384, this.querySelector('button[aria-expanded="true"]') ? 240 : 100);
     return new DOMRect(100, 400, 180, 30);
@@ -175,7 +175,7 @@ it("repositions the measured panel when a disclosure expands", async () => {
   const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
   expect(dialog.style.getPropertyValue("--peek-top")).toBe("292px");
   await act(async () => dialog.querySelector<HTMLButtonElement>("button[aria-controls]")!.click());
-  expect(dialog.style.getPropertyValue("--peek-top")).toBe("152px");
+  expect(dialog.style.getPropertyValue("--peek-top")).toBe("292px");
 });
 
 it("keeps completed, active and failed steps distinct as live results arrive", async () => {

@@ -6,7 +6,36 @@ type NameOf = (idOrName: string) => string | undefined;
 const TEAM_TOOLS: Record<string, (input: Record<string, unknown>, nameOf: NameOf) => string> = {
   coordinate_bots: (input, nameOf) => checkingWith(names(input.bot_ids, nameOf)),
   create_bot: (input) => (typeof input.name === "string" && input.name.trim() ? `making ${clipName(input.name)}` : "making a new dog"),
+  shared_computer: (input) => onTheMac(input),
 };
+
+function fileName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const base = value.trim().replace(/\/+$/, "").split("/").pop();
+  return base ? clipName(base) : null;
+}
+
+function commandName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const words = value.replace(/^\s*(export\s+\S+\s*;\s*|cd\s+\S+\s*(&&|;)\s*)+/, "").trim().split(/\s+/);
+  const head = words[0] === "pnpm" && words[1] === "exec" ? words[2] : words[0] === "git" || words[0] === "pnpm" ? `${words[0]} ${words[1] ?? ""}`.trim() : words[0];
+  return head ? clipName(head.split("/").pop()!) : null;
+}
+
+function onTheMac(input: Record<string, unknown>): string {
+  const file = fileName(input.path);
+  switch (input.action) {
+    case "run_command": { const name = commandName(input.command); return name ? `running ${name} on your Mac` : "running a command on your Mac"; }
+    case "command_output": case "command_input": return "checking a command on your Mac";
+    case "command_stop": return "stopping a command on your Mac";
+    case "read_file": return file ? `reading ${file} on your Mac` : "reading a file on your Mac";
+    case "write_file": case "edit_file": return file ? `editing ${file} on your Mac` : "editing a file on your Mac";
+    case "delete_file": return file ? `deleting ${file} on your Mac` : "deleting a file on your Mac";
+    case "list_files": case "search_files": return "looking through files on your Mac";
+    case "computer_tools": case "computer_call": return "using your Mac's screen";
+    default: return "using your Mac";
+  }
+}
 
 const SHELL_TOOL = /^(bash|shell|terminal|run_command|execute|exec_command|computer_exec|vm_exec|local_shell)$/;
 const DESCRIPTION_CHARS = 60;
@@ -31,7 +60,6 @@ const PHRASES: Array<[RegExp, string]> = [
   [/^(request_credential|request_takeover|request_secure_form)$/, "needs your input"],
   [/^fill_secure_field$/, "signing in"],
   [/^(select_computer|list_shared_computers)$/, "picking a computer"],
-  [/^shared_computer$/, "using your Mac"],
   [/^(memory_update|memory_log)$/, "making a note"],
   [/^(session_search|session_read)$/, "looking back through chats"],
   [/^(skills_list|skill_manage)$/, "learning a trick"],

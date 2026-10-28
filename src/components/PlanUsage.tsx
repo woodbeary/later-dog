@@ -62,6 +62,7 @@ export function dueResetDeadlines(report: PlanUsageReport, now: number, seen: Se
 }
 
 export const PLAN_USAGE_POLL_MS = 120_000;
+const PLAN_USAGE_WARM_MS = 60_000;
 const PLAN_USAGE_AFTER_TURN_MS = 30_000;
 const LAST_GOOD_MS = 10 * 60_000;
 
@@ -114,6 +115,10 @@ export function reloadPlanUsage(refresh = false): Promise<void> {
     });
   planUsageRequest = request;
   return request;
+}
+
+export function warmPlanUsage(): void {
+  if (Date.now() - planUsage.fetchedAt >= PLAN_USAGE_WARM_MS) void reloadPlanUsage();
 }
 
 export function refreshPlanUsageAfterTurn(): void {

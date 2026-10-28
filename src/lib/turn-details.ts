@@ -1,6 +1,7 @@
 import type { Message } from "@/state/store";
 import { isFoldedStatusLine, isStatusActivity } from "./activity-runs";
 import { stepLabel } from "./live-activity";
+import { t } from "./i18n";
 
 export interface TurnStep {
   id: string;
@@ -23,7 +24,9 @@ export function turnSteps(messages: readonly Message[], since: number | null, li
     if (message.comm || message.threadRef || message.cloudTask || isStatusActivity(message) || isFoldedStatusLine(message)) continue;
     if (!inTurn(message, since)) continue;
     const { ok } = message.tool;
-    steps.push({ id: message.id, label: stepLabel(message), state: ok === undefined ? "running" : ok ? "done" : "failed" });
+    const label = stepLabel(message);
+    if (label === t("chat.activity.working") && ok !== false) continue;
+    steps.push({ id: message.id, label, state: ok === undefined ? "running" : ok ? "done" : "failed" });
   }
   return steps.slice(-limit);
 }

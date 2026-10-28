@@ -48,7 +48,7 @@ function HelperDetails({ helper }: { helper: Helper | HelperMember }) {
     <div className="min-w-0 space-y-1">
       <div className="flex items-start justify-between gap-3"><span className="break-words text-[12px] font-medium leading-5 text-ink">{helper.label}</span><span className="shrink-0 pt-0.5 text-[10.5px] text-ink-tertiary">{helperStateText(helper.state)}</span></div>
       {"phase" in helper && helper.phase && <p className="text-[11px] text-ink-tertiary">{helper.phase}</p>}
-      {helper.activity && <p className="break-words text-[12px] leading-relaxed text-ink-secondary">{helper.activity}</p>}
+      {helper.activity && helper.activity !== helper.label && <p className="break-words text-[12px] leading-relaxed text-ink-secondary">{helper.activity}</p>}
       {helper.recentActivity && helper.recentActivity.length > 1 && (
         <ul className="space-y-0.5">
           {helper.recentActivity.slice(0, -1).reverse().map((line, index) => (
@@ -138,9 +138,9 @@ export function ActivityPeek({ label, since, helpers, reasoning, steps = [], upd
     const below = (box?.bottom ?? 0) + 8;
     const top = above >= 12 ? above : Math.max(12, Math.min(below, window.innerHeight - height - 12));
     setPlace({ left, top });
-  }, [anchor, helpers.length, reasoning.text, steps.length, updates.length, updatesOpen, summaryOpen]);
+  }, [anchor]);
   return createPortal(<div className="fixed inset-0 z-50 bg-black/10" onPointerDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <section ref={panel} role="dialog" aria-modal="true" aria-labelledby={title} className="fixed inset-x-3 bottom-3 flex max-h-[min(70vh,420px)] flex-col overflow-hidden rounded-2xl border border-hairline/70 bg-panel text-[13px] shadow-xl sm:inset-x-auto sm:bottom-auto sm:left-(--peek-left) sm:top-(--peek-top) sm:w-96" style={{ "--peek-left": `${place?.left ?? 12}px`, "--peek-top": `${place?.top ?? 12}px`, visibility: place ? undefined : "hidden" } as React.CSSProperties}>
+    <section ref={panel} role="dialog" aria-modal="true" aria-labelledby={title} className="fixed inset-x-3 bottom-3 flex h-[min(70vh,420px)] flex-col overflow-hidden rounded-2xl border border-hairline/70 bg-panel text-[13px] shadow-xl sm:inset-x-auto sm:bottom-auto sm:left-(--peek-left) sm:top-(--peek-top) sm:w-96" style={{ "--peek-left": `${place?.left ?? 12}px`, "--peek-top": `${place?.top ?? 12}px`, visibility: place ? undefined : "hidden" } as React.CSSProperties}>
       <div className="flex shrink-0 items-center justify-between gap-3 px-4 pt-3 pb-2"><h2 id={title} className="text-[12px] font-medium text-ink-secondary">{t("chat.activity.peek")}</h2><button ref={close} type="button" className="rounded-lg p-1.5 text-ink-tertiary transition-colors hover:bg-control hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2" aria-label={t("common.close")} onClick={onClose}><X size={15} aria-hidden="true" /></button></div>
       <div tabIndex={0} className="min-h-0 space-y-3.5 overflow-y-auto overscroll-contain px-4 pb-4 focus-visible:outline-2 focus-visible:-outline-offset-2">
         <div className="grid grid-cols-[16px_minmax(0,1fr)] gap-x-2.5">
