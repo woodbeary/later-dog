@@ -44,7 +44,7 @@ it('starts a real conversation’s laterdog MCP server with that dog’s own tok
     const mounted=dump.mcpConfig.mcpServers.laterdog;
     const upstream=mounted.env.LATERDOG_GATE_UPSTREAM ? JSON.parse(mounted.env.LATERDOG_GATE_UPSTREAM) as McpLaunch : mounted;
     expect(upstream.args.at(-1)).toMatch(/server\/laterdog\/mcp\.ts$/);
-    expect(upstream.env).toEqual({LATERDOG_SUPERVISOR_URL:origin,LATERDOG_TOKEN:dogToken(token,bot.id),LATERDOG_BOT_ID:bot.id,LATERDOG_CONVERSATION_ID:bot.threadId,LATERDOG_REPOSITORIES:'fixture/repo',LATERDOG_ACCOUNT:'claude',LATERDOG_MODEL:'claude-sonnet-5'});
+    expect(upstream.env).toEqual({LATERDOG_SUPERVISOR_URL:origin,LATERDOG_TOKEN:dogToken(token,bot.id),LATERDOG_BOT_ID:bot.id,LATERDOG_CONVERSATION_ID:bot.threadId,LATERDOG_REPOSITORIES:'fixture/repo',LATERDOG_ACCOUNT:'claude',LATERDOG_MODEL:'claude-opus-5-5'});
     const holding=(value:unknown,path:string):string[]=>typeof value==='string' ? (value.includes(token) ? [path] : [])
       : value && typeof value==='object' ? Object.entries(value).flatMap(([key,child])=>holding(child,`${path}.${key}`)) : [];
     expect(holding(dump,'engine')).toEqual([]);

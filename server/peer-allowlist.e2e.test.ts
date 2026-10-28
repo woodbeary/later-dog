@@ -170,7 +170,7 @@ describe("peer allow-list", () => {
       expect(systemPrompt).not.toContain("[TEAM ROSTER]");
       expect(systemPrompt).not.toContain("Team availability");
       expect(systemPrompt).not.toMatch(/delegate_bot|ask_bot|send_to_bot/);
-      expect(systemPrompt).toContain("make it yourself with create_bot");
+      expect(systemPrompt).toContain("make a real dog yourself with create_bot");
       expect(systemPrompt).not.toContain("list_team_setup");
 
       const providerToken = String(dump.mcpConfig?.mcpServers?.agents?.env?.LATERDOG_COMMS_TOKEN ?? "");

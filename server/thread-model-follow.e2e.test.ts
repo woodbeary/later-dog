@@ -103,10 +103,10 @@ it.each([
     expect(fixture.prompts(SPARE)).toHaveLength(0);
     expect(messages.filter(notice)).toHaveLength(1);
     expect(messages.find(notice).tool.name).toBe(
-      `notice: This thread's model (${ownName}) isn't available, so it now uses Ada's model (Verification fixture · Claude Sonnet 5).`,
+      `notice: This thread's model (${ownName}) isn't available, so it now uses Ada's model (Verification fixture · Claude Opus 5.5).`,
     );
     expect(messages.findLast((message) => message.role === "bot" && message.kind === "text")).toMatchObject({ turnSucceeded: true });
-    expect(bot.modelSelection).toEqual({ instanceId: "claude", model: "claude-sonnet-5" });
+    expect(bot.modelSelection).toEqual({ instanceId: "claude", model: "claude-opus-5-5" });
     expect(await thread()).toMatchObject({ modelSelection: bot.modelSelection, followsBotModel: true });
     const again = await sendAndSettle(fixture, bot.id, threadId, "STILL_FOLLOWING_5L");
     expect(again.filter(notice)).toHaveLength(1);
