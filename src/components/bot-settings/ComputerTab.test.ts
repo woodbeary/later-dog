@@ -8,12 +8,13 @@ import { CLOUD_COMPUTER_BUSY_ERROR } from "../../../shared/computer-contention";
 type FixtureState = {
   computerControl: Record<string, { held: boolean; helpReason: string | null }>;
   takeoverIntent: { botId: string; at: number } | null;
+  computerStarts: Record<string, { state: string; place?: string }>;
 };
 const fixture = vi.hoisted(() => ({
   api: vi.fn(),
   dispatch: vi.fn(),
   flushBotPatches: vi.fn(async () => null),
-  state: { computerControl: {}, takeoverIntent: null } as FixtureState,
+  state: { computerControl: {}, takeoverIntent: null, computerStarts: {} } as FixtureState,
 }));
 vi.mock("@/state/store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/state/store")>(),
@@ -74,7 +75,7 @@ beforeEach(() => {
     return next(init);
   });
   fixture.dispatch.mockReset();
-  fixture.state = { computerControl: {}, takeoverIntent: null };
+  fixture.state = { computerControl: {}, takeoverIntent: null, computerStarts: {} };
   fixture.dispatch.mockImplementation((action: { type: string; botId?: string; held?: boolean; helpReason?: string | null; intent?: FixtureState["takeoverIntent"] }) => {
     if (action.type === "computerControl") {
       fixture.state = { ...fixture.state, computerControl: { ...fixture.state.computerControl, [action.botId!]: { held: action.held === true, helpReason: action.helpReason ?? null } } };
@@ -286,6 +287,31 @@ describe("the Computer tab", () => {
     expect(panel().querySelector("img")).toBeNull();
     await act(async () => publishLiveFrame({ kind: "screen", botId: "scout", threadId: "thread-scout", png: "BBBB", mime: "image/png" }));
     expect(panel().querySelector("img")!.getAttribute("src")).toBe("data:image/png;base64,BBBB");
+  });
+
+  it("shows the dog's screen as soon as its own turn sends a frame, even from asleep", async () => {
+    reply(STATUS, () => box("stopped"));
+    reply(SHOT, () => ({ png: "AAAA", format: "png" }));
+    await show(scout());
+    expect(panel().getAttribute("data-simple-computer")).toBe("asleep");
+
+    await act(async () => publishLiveFrame({ kind: "screen", botId: "scout", threadId: "thread-scout", png: "BBBB", mime: "image/png" }));
+    await settle();
+    expect(panel().getAttribute("data-simple-computer")).toBe("awake");
+    expect(panel().querySelector("img")).not.toBeNull();
+  });
+
+  it("checks again when the dog starts its computer, instead of staying asleep", async () => {
+    reply(STATUS, () => box("stopped"), () => box("stopped"), () => box("running"));
+    reply(SHOT, () => ({ png: "AAAA", format: "png" }));
+    await show(scout());
+    expect(panel().getAttribute("data-simple-computer")).toBe("asleep");
+
+    fixture.state = { ...fixture.state, computerStarts: { scout: { state: "waking", place: "cloud" } } };
+    await act(async () => rerender());
+    await settle();
+    expect(panel().getAttribute("data-simple-computer")).toBe("waking");
+    expect(calls(WAKE)).toHaveLength(0);
   });
 });
 

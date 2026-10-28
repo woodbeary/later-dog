@@ -14,7 +14,6 @@ import {
   Webhook,
   X,
 } from "lucide-react";
-import { WorkingDots } from "@/components/WorkingIndicator";
 import { MessageActions, messageActionClass } from "@/components/MessageActions";
 import { ReactionPicker } from "@/components/ReactionPicker";
 import { ReactionPills } from "@/components/ReactionPills";
@@ -22,7 +21,6 @@ import type { MentionPeer } from "@/lib/mentions";
 import { myReactions } from "@/lib/reactions";
 import { canReactTo, reactToMessage } from "@/lib/react-to-message";
 import { useSpeech } from "@/lib/tts/useSpeech";
-import { computerStartLine } from "@/lib/computer-start";
 import { useCaptionChrome, useDesktopCapabilities } from "@/components/DesktopCapabilities";
 import {
   currentTaskBot,
@@ -796,7 +794,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const composerDock = useComposerDockPad(composerDockRef);
   const canWrite = useCanWriteIn(bot.threadId);
 
-  const computerStarting = computerStartLine(state.computerStarts[bot.id], bot.name);
   const [findOpen, setFindOpen] = useState(false);
   const { replyTo, selectReply, clearReply, consumeReply, restoreReply } = useReplyDraft(
     bot.threadId,
@@ -1086,14 +1083,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
               >
                 {t("chat.showLater", { count: laterCount })}
               </button>
-            </div>
-          )}
-          {computerStarting && (
-            <div className="flex justify-start">
-              <div className="flex items-center gap-2 rounded-full border border-hairline/40 bg-panel px-3 py-1.5 text-[13px] text-ink-secondary">
-                <WorkingDots size={3.5} />
-                {computerStarting}
-              </div>
             </div>
           )}
           <TurnPresence

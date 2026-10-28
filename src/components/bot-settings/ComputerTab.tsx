@@ -70,7 +70,7 @@ function Middle({ children, status = false }: { children: ReactNode; status?: bo
 }
 
 export function ComputerTab({ bot }: { bot: Bot }) {
-  const { dispatch, flushBotPatches } = useStore();
+  const { state, dispatch, flushBotPatches } = useStore();
   const [card, setCard] = useState<ComputerCard>({ kind: "checking" });
   const [round, setRound] = useState(0);
   const [frame, setFrame] = useState<string | null>(null);
@@ -82,6 +82,8 @@ export function ComputerTab({ bot }: { bot: Bot }) {
   const flush = useRef(flushBotPatches);
   flush.current = flushBotPatches;
   const { id, threadId, computer, autoStartVps, cloudBackend } = bot;
+  const starting = state.computerStarts[id]?.state ?? null;
+  const working = Boolean(bot.busy);
   const query = `?threadId=${encodeURIComponent(threadId)}`;
 
   useEffect(() => {
@@ -103,7 +105,7 @@ export function ComputerTab({ bot }: { bot: Bot }) {
           void wake(next.fresh);
           return;
         }
-        setCard(next);
+        setCard(starting && next.kind === "asleep" ? { kind: "waking", fresh: next.fresh, polling: true } : next);
       })
       .catch(() => {
         if (controller.signal.aborted) return;
@@ -111,7 +113,7 @@ export function ComputerTab({ bot }: { bot: Bot }) {
         setCard({ kind: "unreachable" });
       });
     return () => controller.abort();
-  }, [id, query, computer, autoStartVps, cloudBackend, round]);
+  }, [id, query, computer, autoStartVps, cloudBackend, round, starting, working]);
 
   const polling = card.kind === "waking" && card.polling;
   useEffect(() => {
@@ -151,20 +153,20 @@ export function ComputerTab({ bot }: { bot: Bot }) {
       if (!controller.signal.aborted) timer = setTimeout(() => void shoot(), busy.current ? BUSY_SHOT_MS : IDLE_SHOT_MS);
     };
     void shoot();
-    const stop = listenLiveFrames({
-      onFrame: (live) => {
-        if (live.kind !== "screen" || live.botId !== id || live.threadId !== threadId) return;
-        seen = true;
-        setFrame(`data:${live.mime ?? "image/png"};base64,${live.png}`);
-        setShotFailed(false);
-      },
-    });
     return () => {
       controller.abort();
       clearTimeout(timer);
-      stop();
     };
   }, [awake, id, threadId, query, round]);
+
+  useEffect(() => listenLiveFrames({
+    onFrame: (live) => {
+      if (live.kind !== "screen" || live.botId !== id || live.threadId !== threadId) return;
+      setFrame(`data:${live.mime ?? "image/png"};base64,${live.png}`);
+      setShotFailed(false);
+      setCard((current) => current.kind === "awake" ? current : { kind: "awake" });
+    },
+  }), [id, threadId]);
 
   const hands = useComputerHands(bot, card.kind === "awake");
   const retry = () => {
