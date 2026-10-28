@@ -824,6 +824,7 @@
   "routines.skippedRuns": "忙碌期间略过的调度次数：{count}",
   "routines.lastSkipped": "上次：{date}",
   "routines.loading": "正在加载例行工作…",
+  "routines.loadError": "无法刷新例行工作。正在重试…已保存的信息可能不是最新的。",
   "routines.empty": "尚无调度。",
   "routines.noRuns": "尚未记录任何运行记录。例行工作开始后，结果会显示在这里。",
   "routines.noMatchingRuns": "没有符合这些筛选条件的运行记录。",
