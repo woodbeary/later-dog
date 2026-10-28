@@ -78,7 +78,7 @@
     "HOME_HOST_SUFFIX": "-home.later.dog",
     "ADMIN_ORIGIN": "https://accounts.later.dog",
     "INCLUDED_API": "https://cloud.later.dog/v1",
-    "LARGE_HOME_ACCOUNTS": "",
+    "LARGE_HOME_ACCOUNTS": "7eaec07f-4e74-4682-81c2-d3bf10549606",
     "ALWAYS_ON_ACCOUNTS": "7eaec07f-4e74-4682-81c2-d3bf10549606",
     "HOME_SLEEP_AFTER": "",
     "HOME_WAKE_GUARD": "learning",

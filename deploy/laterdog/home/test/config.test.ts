@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const here = new URL("../", import.meta.url);
+const OWNER = "7eaec07f-4e74-4682-81c2-d3bf10549606";
 
 function config(name: string) {
   return JSON.parse(readFileSync(new URL(name, here), "utf8"));
@@ -31,8 +32,8 @@ describe.each(["wrangler.jsonc", "wrangler.production.json", "wrangler.bootstrap
     expect(worker.migrations).toBeUndefined();
   });
 
-  it("lists nobody for a large home unless the deploy says so", () => {
-    expect(worker.vars.LARGE_HOME_ACCOUNTS).toBe("");
+  it("gives the large computer to the owner's home in production and to nobody elsewhere", () => {
+    expect(worker.vars.LARGE_HOME_ACCOUNTS).toBe(name === "wrangler.production.json" ? OWNER : "");
   });
 
   it("keeps a tenth of the Worker's logs", () => {
