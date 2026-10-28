@@ -350,4 +350,10 @@ describe("Mac card wording", () => {
     expect(long).toHaveLength(201);
     expect(long.endsWith("…")).toBe(true);
   });
+
+  it("shows what a search looks for", () => {
+    expect(macDetail({ action: "search_files", path: "code/app", pattern: " TODO " })).toBe("~/code/app for TODO");
+    expect(macDetail({ action: "search_files", path: "code/app" })).toBe("~/code/app");
+    expect(macDetail({ action: "search_files", pattern: "x".repeat(300) })).toHaveLength(201);
+  });
 });

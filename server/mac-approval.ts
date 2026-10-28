@@ -74,14 +74,15 @@ export function isMacTool(tool: string | undefined): tool is MacTool {
   return tool !== undefined && Object.hasOwn(KINDS, tool);
 }
 
-type MacOperation = { action: string; path?: string; command?: string; tool_name?: string; arguments?: Record<string, unknown> };
+type MacOperation = { action: string; path?: string; pattern?: string; command?: string; tool_name?: string; arguments?: Record<string, unknown> };
 const FOLLOW_UPS = new Set(["command_output", "command_input", "command_stop"]);
 
 export function macDetail(operation: MacOperation): string {
   const text = FOLLOW_UPS.has(operation.action) ? "a command it already started"
     : operation.action === "run_command" ? (operation.command ?? "").trim()
     : operation.action === "computer_call" ? appLabel(operation)
-      : macPathLabel(operation.path);
+      : operation.action === "search_files" ? searchLabel(operation)
+        : macPathLabel(operation.path);
   return text.length > 200 ? `${text.slice(0, 200)}…` : text;
 }
 
@@ -90,6 +91,12 @@ export function macPathLabel(path: string | undefined): string {
   if (text.startsWith("/")) return text.replace(/\/+$/, "") || "/";
   const relative = text.replace(/^~(?=\/|$)/, "").replace(/^(?:\.?\/+)+/, "").replace(/\/+$/, "");
   return relative && relative !== "." ? `~/${relative}` : "~";
+}
+
+function searchLabel(operation: MacOperation): string {
+  const folder = macPathLabel(operation.path);
+  const words = (operation.pattern ?? "").trim();
+  return words ? `${folder} for ${words}` : folder;
 }
 
 function appLabel(operation: MacOperation): string {
