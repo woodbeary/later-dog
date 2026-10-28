@@ -36,6 +36,7 @@ export function createPuppies(host: PuppiesHost): (promptText: string) => void {
   const echo = env.FAKE_CLAUDE_PUPPIES_ECHO === "1";
   const failFlow = env.FAKE_CLAUDE_PUPPIES_FAIL === "1";
   const foreground = env.FAKE_CLAUDE_PUPPIES_FOREGROUND === "1";
+  const reportsItself = env.FAKE_CLAUDE_PUPPIES_REPORTS_ITSELF === "1";
   const { out } = host;
   let stage: Stage = "idle";
   let round = 0;
@@ -74,6 +75,9 @@ export function createPuppies(host: PuppiesHost): (promptText: string) => void {
     ];
   };
   const elapsed = () => Math.max(1, Date.now() - startedAt);
+  const backMessage = () => failFlow
+    ? "Both helpers are back. The survey found three things worth a closer look, but the draft did not pass its check."
+    : "Both helpers are back. The survey found three things worth a closer look, and the draft passed its check.";
   const member = (index: number, label: string, phaseIndex: number, phaseTitle: string, state: string, steps: number) => ({
     type: "workflow_agent", index, label, phaseIndex, phaseTitle, agentId: `puppy-${label.toLowerCase()}-${round}`, model: host.model,
     state, lastToolName: phaseIndex === 0 ? "Write" : "Read", lastToolSummary: FLOW_STEPS[phaseIndex], tokens: 800 * steps,
@@ -132,6 +136,7 @@ export function createPuppies(host: PuppiesHost): (promptText: string) => void {
       notified();
       changed();
     }
+    if (reportsItself) say(agentDone && flowDone ? backMessage() : "The survey is back. Still waiting on the draft.");
     notificationResult();
     if (!agentDone || !flowDone) return;
     if (ticker) clearInterval(ticker);
@@ -207,9 +212,7 @@ export function createPuppies(host: PuppiesHost): (promptText: string) => void {
       return;
     }
     stage = "idle";
-    say(failFlow
-      ? "Both helpers are back. The survey found three things worth a closer look, but the draft did not pass its check."
-      : "Both helpers are back. The survey found three things worth a closer look, and the draft passed its check.");
+    say(backMessage());
     result();
   };
 }

@@ -117,6 +117,10 @@ export class ClaudeTasks {
 
   continuationLimitReached(): boolean { return this.continuations >= 3 && [...this.helpers.values()].some(helper => helper.background && helper.state !== "running" && !this.consumed.has(helper.id)); }
 
+  markReported(): void {
+    for (const helper of this.helpers.values()) if (helper.background && helper.state !== "running") this.consumed.add(helper.id);
+  }
+
   takeContinuation(): boolean {
     if (this.backgroundRunning() || this.continuations >= 3) return false;
     const done = [...this.helpers.values()].filter(helper => helper.background && helper.state !== "running" && !this.consumed.has(helper.id));

@@ -153,6 +153,7 @@ export interface ProviderAdapter {
     customMcp?: boolean;
     strictResume?: boolean;
     hooks?: boolean;
+    backgroundWork?: boolean;
     guestTurns?: "confined";
   };
   sendTurn(input: SendTurnInput): Promise<TurnStartResult>;

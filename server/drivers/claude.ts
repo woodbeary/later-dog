@@ -936,6 +936,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       helperTurnId: string;
       helpers: ClaudeTasks;
       helperTimer: ReturnType<typeof setTimeout> | null;
+      repliedSinceResult: boolean;
       closing: boolean;
       stderr: string;
       costTotal: number | null | undefined;
@@ -1179,7 +1180,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const authSettingsPath = mcpConfigPath && Object.keys(settings).length
         ? join(dirname(mcpConfigPath), "auth-settings.json") : null;
       if (authSettingsPath) args.push("--settings", authSettingsPath);
-      env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS = "1";
       env.ENABLE_PROMPT_CACHING_1H ??= "1";
       Object.assign(env, quietWorkEnvironment(turn.quietWork));
       const cwd = turn.cwd ?? homedir();
@@ -1364,6 +1364,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         helperTurnId: turnId,
         helpers: new ClaudeTasks((helper) => emit({ ...base(threadId, session.turn?.turnId ?? session.helperTurnId), type: "helper.updated", helper })),
         helperTimer: null,
+        repliedSinceResult: false,
         closing: false,
         stderr: "",
         costTotal: undefined,
@@ -1571,6 +1572,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               break;
             }
             if (text.trim()) {
+              if (!o.parent_tool_use_id) session.repliedSinceResult = true;
               const synthetic = o.is_api_error_message === true || typeof o.error === "string" ? { synthetic: true } : {};
               if (!session.turn?.sawStreamDelta) {
                 emit({ ...base(threadId, currentTurnId()), ...synthetic, type: "content.delta", streamKind: "assistant_text", delta: text });
@@ -1627,9 +1629,14 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             break;
           }
           case "result": {
+            const replied = session.repliedSinceResult;
+            session.repliedSinceResult = false;
             if (o.origin?.kind === "task-notification") {
-              continueAfterHelpers();
-              break;
+              if (!replied || !session.turn?.deferred) {
+                continueAfterHelpers();
+                break;
+              }
+              session.helpers.markReported();
             }
             if (recoverRefreshLock(o)) break;
             noteCostState(o.total_cost_usd, o.modelUsage, {
@@ -2078,6 +2085,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           },
           localComputerMcp: true,
           hooks: true,
+          backgroundWork: true,
         },
         sendTurn,
         steer,

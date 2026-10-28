@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { KEEP_GOING_PROMPT, MILESTONE_PROMPT, ON_IT_NOTE, QUIET_WORK_PROMPT, quietWorkEnvironment, withOnItNote, workUpdatesPrompt } from "./work-updates.ts";
+import { BACKGROUND_WORK_PROMPT, KEEP_GOING_PROMPT, KEEP_GOING_WITH_BACKGROUND_PROMPT, MILESTONE_PROMPT, ON_IT_NOTE, QUIET_WORK_PROMPT, quietWorkEnvironment, withOnItNote, workUpdatesPrompt } from "./work-updates.ts";
 
 describe("how a dog keeps the person posted", () => {
   it("always works quietly", () => {
@@ -21,6 +21,16 @@ describe("how a dog keeps the person posted", () => {
   it("tells every dog never to end a turn on what it is about to do", () => {
     expect(workUpdatesPrompt()).toMatch(/Never end your turn on a line about what you will do next/);
     expect(workUpdatesPrompt()).toMatch(/nothing happens after your turn ends/);
+    expect(workUpdatesPrompt()).not.toMatch(/in the background/);
+  });
+
+  it("tells a dog whose engine can work in the background to run long jobs there and stay free to answer", () => {
+    const prompt = workUpdatesPrompt({ background: true });
+    expect(prompt).toBe(QUIET_WORK_PROMPT + MILESTONE_PROMPT + BACKGROUND_WORK_PROMPT + KEEP_GOING_WITH_BACKGROUND_PROMPT);
+    expect(prompt).toMatch(/in the background, so you stay free to answer the person while it runs/);
+    expect(prompt).toMatch(/You may end your turn while background work runs: you are told when it finishes/);
+    expect(prompt).toMatch(/Apart from background work, never end your turn on a line about what you will do next/);
+    expect(prompt).not.toContain(KEEP_GOING_PROMPT);
   });
 
   it("puts the on-it note after the person's message, where the engine reads it last", () => {

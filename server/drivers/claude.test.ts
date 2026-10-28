@@ -1816,13 +1816,14 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.mcpConfig.mcpServers.dog).toBeTruthy();
   });
 
-  it("keeps native background workers inside the harness-owned turn", async () => {
+  it("lets Claude run helpers and commands in the background, so the dog stays free to answer", async () => {
     const dump = join(scratch, "background-policy.json");
-    await create(undefined, { FAKE_CLAUDE_DUMP: dump, CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "0" });
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump });
+    expect(instance.adapter.capabilities.backgroundWork).toBe(true);
     await instance.adapter.sendTurn({ threadId: "t-background-policy", text: "hi" });
     await recorder.until((e) => e.type === "turn.completed");
     const seen = JSON.parse(readFileSync(dump, "utf8"));
-    expect(seen.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBe("1");
+    expect(seen.env.CLAUDE_CODE_DISABLE_BACKGROUND_TASKS).toBeUndefined();
     expect(seen.argv[seen.argv.indexOf("--permission-mode") + 1]).toBe("acceptEdits");
     expect(seen.argv).not.toContain("--dangerously-skip-permissions");
   });
@@ -1855,6 +1856,34 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(recorder.events.filter(e => e.type === "turn.completed")).toEqual([expect.objectContaining({ turnId, ok: true })]);
     expect(recorder.events.filter(e => e.type === "item.completed" && e.itemType === "assistant_text" && e.text.includes("Both helpers are back"))).toHaveLength(1);
     expect(recorder.events.filter(e => e.type === "helper.updated" && e.helper.state === "done").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("answers a message sent while its helpers work, and still closes the turn once when they are back", async () => {
+    const gate = join(scratch, "helpers-finish-after-ping");
+    await create("puppies", { FAKE_CLAUDE_PUPPIES_GATE: gate, FAKE_CLAUDE_PUPPIES_STAGGER_MS: "10" });
+    const { turnId } = await instance.adapter.sendTurn({ threadId: "t-ping-puppies", text: "Check these notes" });
+    await recorder.until(e => e.type === "item.completed" && e.itemType === "assistant_text" && e.text.includes("working now"));
+    await expect(instance.adapter.steer!("t-ping-puppies", "are you still working?")).resolves.toBe("steered");
+    await recorder.until(e => e.type === "item.completed" && e.itemType === "assistant_text" && e.text.includes("Still waiting on the helpers. Noted: are you still working?"));
+    expect(recorder.events.some(e => e.type === "turn.completed")).toBe(false);
+    writeFileSync(gate, "done");
+    await recorder.until(e => e.type === "turn.completed", 30_000);
+    expect(recorder.events.filter(e => e.type === "turn.completed")).toEqual([expect.objectContaining({ turnId, ok: true })]);
+    expect(recorder.events.filter(e => e.type === "item.completed" && e.itemType === "assistant_text" && e.text.includes("Both helpers are back"))).toHaveLength(1);
+  }, 40_000);
+
+  it("closes the turn on Claude's own report when its helpers are back, without asking it to report again", async () => {
+    const gate = join(scratch, "helpers-report-themselves");
+    const prompts = join(scratch, "helpers-report-prompts.ndjson");
+    await create("puppies", { FAKE_CLAUDE_PUPPIES_GATE: gate, FAKE_CLAUDE_PUPPIES_STAGGER_MS: "10", FAKE_CLAUDE_PUPPIES_REPORTS_ITSELF: "1", FAKE_CLAUDE_PROMPTS: prompts });
+    const { turnId } = await instance.adapter.sendTurn({ threadId: "t-self-report", text: "Check these notes" });
+    await recorder.until(e => e.type === "item.completed" && e.itemType === "assistant_text" && e.text.includes("working now"));
+    writeFileSync(gate, "done");
+    await recorder.until(e => e.type === "turn.completed");
+    expect(recorder.events.filter(e => e.type === "turn.completed")).toEqual([expect.objectContaining({ turnId, ok: true })]);
+    expect(recorder.events.filter(e => e.type === "item.completed" && e.itemType === "assistant_text" && e.text.includes("Both helpers are back"))).toHaveLength(1);
+    expect(recorder.events.some(e => e.type === "item.completed" && e.itemType === "assistant_text" && e.text.includes("Still waiting on the draft"))).toBe(true);
+    expect(readFileSync(prompts, "utf8")).not.toContain("Your background helpers have finished");
   });
 
   it.each(["stop", "cap"])("reports stopped helpers after %s", async (reason) => {
