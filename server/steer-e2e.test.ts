@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { withOnItNote } from "./laterdog/work-updates.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
@@ -335,7 +336,7 @@ posixOnly("mid-turn steering e2e", () => {
         type: "image",
         source: { type: "base64", media_type: "image/png", data: "[image data: 16 base64 chars]" },
       },
-      { type: "text", text: "look at this\n\n\n\nand this\n\n" },
+      { type: "text", text: withOnItNote("look at this\n\n\n\nand this\n\n") },
     ]);
   }, 40_000);
 

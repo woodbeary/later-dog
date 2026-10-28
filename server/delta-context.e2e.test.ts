@@ -7,6 +7,7 @@ import { expect, it } from "vitest";
 
 import { launchVerificationServer, runControlLaterDog, verificationServerEnvironment } from "../scripts/control-laterdog.ts";
 import { request } from "../scripts/mcp-server.ts";
+import { withOnItNote } from "./laterdog/work-updates.ts";
 import { waitForExit } from "./testing/cleanup.ts";
 
 const count = (text: string, needle: string) => text.split(needle).length - 1;
@@ -792,7 +793,7 @@ it("keeps resuming an ordinary turn after a soul change, as before", () => fixtu
   await f.send("Second message.");
   await f.wait();
   expect(f.launches().at(-1).resume).not.toBeNull();
-  expect(f.prompt(f.turns().at(-1))).toBe("Second message.");
+  expect(f.prompt(f.turns().at(-1))).toBe(withOnItNote("Second message."));
 }), 60_000);
 
 it("offers a steer written into a resume the provider then rejected on the next turn", () => fixture(async (f) => {

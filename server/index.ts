@@ -670,7 +670,7 @@ import { finishTakeover, TakeoverWaits, takeoverResumePrompt, type TakeoverCards
 import { SecureForms, secureFormMessageText } from "./laterdog/secure-form.ts";
 import { transcribeRoute } from "./laterdog/transcribe.ts";
 import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
-import { workUpdatesPrompt } from "./laterdog/work-updates.ts";
+import { withOnItNote, workUpdatesPrompt } from "./laterdog/work-updates.ts";
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
 import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
@@ -8330,8 +8330,9 @@ async function startTurn(
       ], cfg.profile?.name);
       turnPromptBytes.set(threadId, { stable: Buffer.byteLength(prompt.stable), volatile: Buffer.byteLength(prompt.volatile) });
       if (deskPrompts && threadId === bot.threadId && INCLUDED_AI_INSTANCES.includes(instanceId)) deskPrompts.remember(threadId, { instanceId, model, system: prompt.stable || prompt.text });
+      const fromPerson = commsDepth === 0 && !coordinationNode && !opts?.automationSource && !opts?.unattended;
       const recalled = autoRecallPrompt(bot, threadId, resolvedImages.text, {
-        conversations: commsDepth === 0 && !coordinationNode && !opts?.automationSource && !opts?.unattended,
+        conversations: fromPerson,
         userName: cfg.profile?.name?.trim() || "User",
       });
       runningTurnEngines.set(threadId, instance);
@@ -8343,7 +8344,7 @@ async function startTurn(
         botId: bot.id,
         startupRecovery: cfg.automaticRecovery?.enabled === true &&
           (opts?.automaticRecoveryIndex ?? 0) < ((liveBot ?? bot).fallback?.length || (cfg.automaticRecovery.backup ? 1 : 0)),
-        text: withRecalled(recalled, dispatchContext.turnText),
+        text: withRecalled(recalled, fromPerson ? withOnItNote(dispatchContext.turnText) : dispatchContext.turnText),
         images: turnImages,
         approvalMode: approvalModeForTurn(bot, commsDepth > 0, threadId),
         ...(ownerGrant ? { reviewerGrant: claudeReviewerGrant(cfg.profile?.name) } : {}),

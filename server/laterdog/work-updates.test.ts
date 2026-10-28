@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { KEEP_GOING_PROMPT, MILESTONE_PROMPT, QUIET_WORK_PROMPT, quietWorkEnvironment, workUpdatesPrompt } from "./work-updates.ts";
+import { KEEP_GOING_PROMPT, MILESTONE_PROMPT, ON_IT_NOTE, QUIET_WORK_PROMPT, quietWorkEnvironment, withOnItNote, workUpdatesPrompt } from "./work-updates.ts";
 
 describe("how a dog keeps the person posted", () => {
   it("always works quietly", () => {
@@ -21,6 +21,11 @@ describe("how a dog keeps the person posted", () => {
   it("tells every dog never to end a turn on what it is about to do", () => {
     expect(workUpdatesPrompt()).toMatch(/Never end your turn on a line about what you will do next/);
     expect(workUpdatesPrompt()).toMatch(/nothing happens after your turn ends/);
+  });
+
+  it("puts the on-it note after the person's message, where the engine reads it last", () => {
+    expect(withOnItNote("Which branch is ~/code/dog on?")).toBe(`Which branch is ~/code/dog on?\n\n${ON_IT_NOTE}`);
+    expect(ON_IT_NOTE).toMatch(/if this needs a tool, send your one short on-it line first, before the first tool call/);
   });
 
   it("switches off the engine's own nudge to post status lines only while quiet", () => {

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 import { launchVerificationServer, runControlLaterDog, VERIFICATION_COMPAT_INSTANCE } from "../scripts/control-laterdog.ts";
+import { withOnItNote } from "./laterdog/work-updates.ts";
 
 const MCP_FIXTURE = `
 import { createInterface } from 'node:readline';
@@ -146,7 +147,7 @@ it("runs structured MCP calls through real harness approval and continuation, pr
       }
       const messages = await control(["messages", "--bot", bot.id, "--task", bot.activeTaskId, "--limit", "20"]);
       const first = delivered(requests[before]!);
-      expectMemoryInTurn(requests[before]!, "Write the verification artifact if a structured tool is requested.");
+      expectMemoryInTurn(requests[before]!, withOnItNote("Write the verification artifact if a structured tool is requested."));
       if (mode === "ordinary") expect(first.all).not.toContain(AVAILABILITY);
       expect(first.all).not.toContain("update it with your file tools");
       expect(first.all).not.toContain("Your folders (absolute paths)");

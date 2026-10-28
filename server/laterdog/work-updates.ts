@@ -7,6 +7,12 @@ export const MILESTONE_PROMPT =
 export const KEEP_GOING_PROMPT =
   " Never end your turn on a line about what you will do next, such as \"I'm checking it now\": nothing happens after your turn ends. Do the work in this turn, or say in one line what is stopping you.";
 
+export const ON_IT_NOTE = "[later.dog: if this needs a tool, send your one short on-it line first, before the first tool call.]";
+
+export function withOnItNote(text: string): string {
+  return `${text}\n\n${ON_IT_NOTE}`;
+}
+
 export function workUpdatesPrompt(): string {
   return QUIET_WORK_PROMPT + MILESTONE_PROMPT + KEEP_GOING_PROMPT;
 }
