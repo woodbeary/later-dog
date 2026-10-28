@@ -880,6 +880,7 @@
   "routines.skippedRuns": "忙碌期間略過的排程次數：{count}",
   "routines.lastSkipped": "上次：{date}",
   "routines.loading": "正在載入例行工作…",
+  "routines.loadError": "無法重新整理例行工作。正在重試…已儲存的資訊可能不是最新的。",
   "routines.empty": "尚無排程。",
   "routines.noRuns": "尚未記錄任何執行紀錄。例行工作開始後，結果會顯示在這裡。",
   "routines.noMatchingRuns": "沒有符合這些篩選條件的執行紀錄。",

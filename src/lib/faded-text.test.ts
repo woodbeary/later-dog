@@ -44,6 +44,7 @@ function sources(dir: string): string[] {
 
 const DECORATIVE: Record<string, string> = {
   "components/AttachmentGallery.tsx text-ink-secondary/50": "decorative placeholder glyph",
+  "components/routines/CalendarSidebar.tsx text-ink-secondary/35": "decorative drag grip",
 };
 
 describe("faded text", () => {

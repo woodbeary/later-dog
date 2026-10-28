@@ -1109,6 +1109,34 @@ describe("optimistic sent messages", () => {
 });
 
 describe("cross-client bot creation", () => {
+  it("opens a bot's logs without retaining stale filters on a later global visit", () => {
+    const focused = reducer(initialState, { type: "showRoutines", section: "logs", view: "list", botId: "echo", routineId: "routine-1" });
+    expect(focused.routinesOpen).toBe(true);
+    expect(focused.routinesFocus).toEqual({ section: "logs", view: "list", botId: "echo", routineId: "routine-1", nonce: 1 });
+    const all = reducer(focused, { type: "showRoutines" });
+    expect(all.routinesFocus).toEqual({ section: undefined, view: undefined, botId: undefined, routineId: undefined, nonce: 2 });
+    const failures = reducer(focused, { type: "showRoutines", section: "logs" });
+    expect(failures.routinesFocus).toEqual({ section: "logs", view: undefined, botId: undefined, routineId: undefined, nonce: 2 });
+  });
+
+  it("carries the problems filter and drops it on a plain visit", () => {
+    const focused = reducer(initialState, { type: "showRoutines", section: "logs", runStatus: "problems" });
+    expect(focused.routinesFocus).toEqual({ section: "logs", view: undefined, botId: undefined, routineId: undefined, runStatus: "problems", nonce: 1 });
+    const plain = reducer(focused, { type: "showRoutines", section: "logs" });
+    expect(plain.routinesFocus).toEqual({ section: "logs", view: undefined, botId: undefined, routineId: undefined, runStatus: undefined, nonce: 2 });
+  });
+
+  it("closes the routines calendar when a chat is selected or it is dismissed", () => {
+    const open = reducer({ ...initialState, settingsOpen: true }, { type: "showRoutines" });
+    expect(open.settingsOpen).toBe(false);
+    expect(reducer(open, { type: "closeRoutines" }).routinesOpen).toBe(false);
+    expect(reducer(open, { type: "select", id: "echo" }).routinesOpen).toBe(false);
+  });
+
+  it("leaves the bulk-seen sweep to the server's emitted receipts", () => {
+    expect(reducer(initialState, { type: "markAllRoutineRunsSeen" })).toBe(initialState);
+  });
+
   it("adds an announced bot before its greeting frames arrive", () => {
     const announced = {
       id: "phone-bot",

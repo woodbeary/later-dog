@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CirclePlay, Pause, Pencil, Play, Trash2 } from "lucide-react";
+import { CalendarDays, ChevronRight, CirclePlay, History, Pause, Pencil, Play, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { appendComposerDraft, getDraft } from "@/lib/drafts";
@@ -40,7 +40,7 @@ export function RoutinesCard({ bot }: { bot: Bot }) {
   const menuRoutine = menu ? routines.find((routine) => routine.id === menu.routineId) : undefined;
 
   const openMenu = (routineId: string, x: number, y: number) =>
-    setMenu({ routineId, left: Math.max(8, Math.min(x, window.innerWidth - 188)), top: Math.max(8, Math.min(y, window.innerHeight - 184)) });
+    setMenu({ routineId, left: Math.max(8, Math.min(x, window.innerWidth - 188)), top: Math.max(8, Math.min(y, window.innerHeight - 220)) });
 
   useEffect(() => {
     if (!menu) return;
@@ -71,6 +71,11 @@ export function RoutinesCard({ bot }: { bot: Bot }) {
     const text = t("routines.editDraft", { name: routine.name });
     if (!draftHas(draftId, text)) appendComposerDraft(draftId, text);
     dispatch({ type: "toggleSettings", open: false });
+  };
+
+  const showRuns = (routine: Routine) => {
+    setMenu(null);
+    dispatch({ type: "showRoutines", section: "logs", routineId: routine.id, botId: bot.id });
   };
 
   return (
@@ -142,6 +147,16 @@ export function RoutinesCard({ bot }: { bot: Bot }) {
             );
           })
         )}
+        <button
+          type="button"
+          data-routines-calendar
+          onClick={() => dispatch({ type: "showRoutines", botId: bot.id })}
+          className={cn(dividedRowCls, "flex w-full items-center gap-3 text-left text-[13px] text-ink hover:bg-raised/60")}
+        >
+          <CalendarDays size={15} className="shrink-0 text-ink-secondary" />
+          <span className="min-w-0 flex-1 truncate">{t("routines.openCalendar")}</span>
+          <ChevronRight size={15} className="shrink-0 text-ink-tertiary" />
+        </button>
       </div>
       {menu && menuRoutine && createPortal(
         <div
@@ -183,6 +198,10 @@ export function RoutinesCard({ bot }: { bot: Bot }) {
           >
             {menuRoutine.enabled ? <Pause size={15} className="text-ink-secondary" /> : <Play size={15} className="text-ink-secondary" />}
             {menuRoutine.enabled ? t("routines.pause") : t("routines.resume")}
+          </button>
+          <button type="button" role="menuitem" data-routine-action="runs" onClick={() => showRuns(menuRoutine)} className={menuItemCls}>
+            <History size={15} className="text-ink-secondary" />
+            {t("routines.runHistory")}
           </button>
           <button type="button" role="menuitem" data-routine-action="edit" onClick={() => edit(menuRoutine)} className={menuItemCls}>
             <Pencil size={15} className="text-ink-secondary" />

@@ -40,6 +40,7 @@ export const SEARCH_COMMANDS: readonly SearchCommand[] = [
     shortcut: "toggle-sidebar",
     run: () => setSidebarDensity(loadSidebarDensity() === "icons" ? "comfortable" : "icons"),
   },
+  { id: "routines", label: "search.command.routines", shortcut: "routines-calendar", run: (dispatch) => dispatch({ type: "showRoutines" }) },
   { id: "shortcuts", label: "search.command.shortcuts", shortcut: "shortcuts-cheat-sheet", run: (dispatch) => dispatch({ type: "toggleShortcuts", open: true }) },
 ];
 

@@ -13,7 +13,7 @@ import { GroupView } from "@/components/GroupView";
 import { SIDEBAR_AND_PANEL_FIT, TWO_SIDE_PANELS_FIT, useMediaQuery } from "@/lib/use-media-query";
 import { PluginsPanel, preloadConnectedApps } from "@/components/PluginsPanel";
 import {
-  BotSettingsDialog, CloudTaskPanel, KeyboardShortcutsModal, NewChatPicker, preloadScreens, SettingsModal,
+  BotSettingsDialog, CloudTaskPanel, KeyboardShortcutsModal, NewChatPicker, preloadScreens, RoutinesPage, SettingsModal,
 } from "@/components/lazy-screens";
 import { CredentialStoreNotice } from "@/components/CredentialStoreNotice";
 import { DamagedDataNotice } from "@/components/DamagedDataNotice";
@@ -81,6 +81,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const cloudTaskOpen = state.computerOpen && state.cloudTaskId !== null;
   const sidePanelOpen = (Boolean(bot) && state.settingsOpen) || cloudTaskOpen;
   const collapseSidebar = sidePanelOpen && !sidebarAndPanelFit;
+  const calendarFocus = state.routinesOpen;
 
   const noEngines =
     state.connected &&
@@ -218,7 +219,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         <DamagedDataNotice />
       </div>
       <div className="relative flex min-h-0 flex-1">
-      <button
+      {!calendarFocus && <button
         type="button"
         ref={menuButtonRef}
         aria-label="Open dog list"
@@ -227,23 +228,25 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         className="absolute left-3 top-3 z-30 rounded-md p-1.5 text-ink-secondary hover:bg-raised hover:text-ink md:hidden"
       >
         <Menu size={18} />
-      </button>
-      {drawerOpen && (
+      </button>}
+      {drawerOpen && !calendarFocus && (
         <div
           aria-hidden
           onMouseDown={(e) => e.target === e.currentTarget && setDrawerOpen(false)}
           className="absolute inset-0 z-30 bg-black/50 md:hidden"
         />
       )}
-      <Sidebar
+      {!calendarFocus && <Sidebar
         collapseToIcons={collapseSidebar}
         open={drawerOpen}
         onClose={() => {
           setDrawerOpen(false);
           menuButtonRef.current?.focus();
         }}
-      />
-      {cloudSignIn ? (
+      />}
+      {calendarFocus ? (
+        <RoutinesPage onBack={() => dispatch({ type: "closeRoutines" })} onOpenRoom={(id) => dispatch({ type: "select", id })} />
+      ) : cloudSignIn ? (
         <CloudEngineSignIn />
       ) : noEngines ? (
         <NoEngines />
@@ -268,7 +271,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
           ) : null}
         </main>
       )}
-      {state.settingsOpen && bot && (
+      {state.settingsOpen && bot && !calendarFocus && (
         <BotSettingsDialog key={`settings:${bot.id}`} bot={bot} overlay={cloudTaskOpen && !twoSidePanelsFit} />
       )}
       {cloudTaskOpen && state.cloudTaskId && (

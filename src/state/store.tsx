@@ -36,7 +36,7 @@ import {
   skillRequestBehavior,
   type SkillRequestCardData,
 } from "../../shared/skill-request";
-import type { Routine, RoutineInput, RoutineRun } from "@/lib/routines";
+import type { Routine, RoutineInput, RoutineRun, RoutineRunStatusFilter } from "@/lib/routines";
 import { botShowsUnread } from "@/lib/bot-unread";
 import { personIsLooking, readWhenBack } from "@/lib/viewing";
 import { jevRoomRoutingOn } from "@/lib/group-routing";
@@ -714,6 +714,8 @@ export interface AppState {
   routines: Routine[];
   routineRuns: RoutineRun[];
   routinesLoadState: "loading" | "ready" | "error";
+  routinesOpen: boolean;
+  routinesFocus: { section?: "schedule" | "logs"; view?: "calendar" | "list"; botId?: string; routineId?: string; runStatus?: RoutineRunStatusFilter; nonce: number };
   settingsOpen: boolean;
   pluginsOpen: boolean;
   pluginsSurface: "apps" | "mcp";
@@ -828,6 +830,8 @@ export type Action =
   | { type: "sectionDeleted"; section: string; sections: string[] }
   | { type: "routinesHydrated"; routines: Routine[]; runs: RoutineRun[] }
   | { type: "routinesLoadFailed" }
+  | { type: "showRoutines"; section?: "schedule" | "logs"; view?: "calendar" | "list"; botId?: string; routineId?: string; runStatus?: RoutineRunStatusFilter }
+  | { type: "closeRoutines" }
   | { type: "routinePatched"; routine: Routine }
   | { type: "routineDeleted"; routineId: string }
   | { type: "routineRunPatched"; run: RoutineRun }
@@ -836,6 +840,8 @@ export type Action =
   | { type: "deleteRoutine"; routineId: string }
   | { type: "runRoutine"; routineId: string; onStarted?: (run: RoutineRun) => void; onError?: (error: unknown) => void; onSettled?: () => void }
   | { type: "cancelRoutineRun"; runId: string }
+  | { type: "markRoutineRunSeen"; runId: string }
+  | { type: "markAllRoutineRunsSeen" }
   | { type: "groupPatched"; group: Partial<Group> & { id: string } }
   | { type: "groupDeleted"; groupId: string }
   | { type: "createGroup"; memberIds: string[]; name?: string; section?: string }
@@ -978,8 +984,9 @@ interface NotificationRoutingState {
 }
 
 export function visibleNotificationThread(
-  state: NotificationRoutingState & Pick<AppState, "selectedId">,
+  state: NotificationRoutingState & Pick<AppState, "selectedId"> & Partial<Pick<AppState, "routinesOpen">>,
 ): string | null {
+  if (state.routinesOpen) return null;
   return (
     state.bots.find((candidate) => candidate.id === state.selectedId)?.threadId ??
     state.groups.find((candidate) => candidate.id === state.selectedId)?.threadId ??
@@ -1321,10 +1328,24 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         config: { ...state.config, profile: { name: "", email: "", ...state.config.profile, ...action.profile } },
       } : state;
+    case "showRoutines":
+      return {
+        ...state,
+        routinesOpen: true,
+        routinesFocus: { section: action.section, view: action.view, botId: action.botId, routineId: action.routineId, runStatus: action.runStatus, nonce: state.routinesFocus.nonce + 1 },
+        settingsOpen: false,
+        computerOpen: false,
+        appSettingsOpen: false,
+        pluginsOpen: false,
+        newBotOpen: false,
+      };
+    case "closeRoutines":
+      return state.routinesOpen ? { ...state, routinesOpen: false } : state;
     case "select": {
       if (state.groups.some((g) => g.id === action.id)) {
         return {
           ...state,
+          routinesOpen: false,
           selectedId: action.id,
           botSettingsSection: action.id !== state.selectedId ? "overview" : state.botSettingsSection,
           groups: state.groups.map((g) => (g.id === action.id ? { ...g, unread: false } : g)),
@@ -1334,6 +1355,7 @@ export function reducer(state: AppState, action: Action): AppState {
         withMascotMotion(
           {
             ...state,
+            routinesOpen: false,
             selectedId: action.id,
             botSettingsSection: action.id !== state.selectedId ? "overview" : state.botSettingsSection,
           },
@@ -1939,6 +1961,8 @@ export function reducer(state: AppState, action: Action): AppState {
     case "deleteRoutine":
     case "runRoutine":
     case "cancelRoutineRun":
+    case "markRoutineRunSeen":
+    case "markAllRoutineRunsSeen":
     case "refreshTaskPermissions":
       return state;
     case "sendGroup": {
@@ -1980,6 +2004,8 @@ export const initialState: AppState = {
   routines: [],
   routineRuns: [],
   routinesLoadState: "loading",
+  routinesOpen: false,
+  routinesFocus: { nonce: 0 },
   settingsOpen: false,
   pluginsOpen: false,
   pluginsSurface: "apps",
@@ -2606,6 +2632,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "cancelRoutineRun":
           api(`/api/routine-runs/${action.runId}/cancel`, { method: "POST" }).catch(failIn("routines"));
           break;
+        case "markRoutineRunSeen":
+          api(`/api/routine-runs/${action.runId}/seen`, { method: "POST" }).catch(failIn("routines"));
+          break;
+        case "markAllRoutineRunsSeen":
+          api("/api/routine-runs/seen-all", { method: "POST" }).catch(failIn("routines"));
+          break;
         case "cancelQueued":
           void api(`/api/bots/${action.botId}/queue/${action.queueId}`, { method: "DELETE", body: JSON.stringify({ threadId: action.threadId }) })
             .then(() => {
@@ -3217,7 +3249,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const bot = frame.bot as BotAnnouncement;
           const selected = stateRef.current.bots.find((candidate) => candidate.id === bot.id);
           const selectedTask = bot.tasks?.find((task) => task.threadId === selected?.threadId);
-          if (bot.id === stateRef.current.selectedId && personIsLooking() &&
+          if (bot.id === stateRef.current.selectedId && !stateRef.current.routinesOpen && personIsLooking() &&
               (selectedTask?.unread || (!bot.tasks && bot.unread))) {
             if (selectedTask) selectedTask.unread = false;
             bot.unread = botShowsUnread(bot);
