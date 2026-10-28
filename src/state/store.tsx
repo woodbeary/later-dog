@@ -529,7 +529,7 @@ export interface ConfigStatus {
     xaiConfigured?: boolean;
     customKeyConfigured?: boolean;
   };
-  profile?: { name: string; email: string };
+  profile?: { name: string; email: string; aboutMe?: string };
   language?: string;
   features?: { skillAuthoring: boolean; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean; autoReview?: boolean; voiceNoteButton?: boolean };
   onboarding?: OnboardingStatus;

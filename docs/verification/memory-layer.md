@@ -1,8 +1,8 @@
 # Memory: recall, upkeep and the tidy-up
 
 Automatic recall, the topic index and until dates only read memory. Memory
-upkeep (background capture into MEMORY.md and topic files, and the nightly
-tidy-up) is on unless a bot's switch
+upkeep (background capture into MEMORY.md and topic files, About me learned
+from the person's words, and the nightly tidy-up) is on unless a bot's switch
 is off, and every memory write is a journaled, undoable row. See [the memory guide](../memory.md).
 
 ## Exercise the real path
@@ -29,9 +29,9 @@ Evidence covers:
 - A rejected settings update does not discard a queued capture or change the upkeep switch.
 - Upkeep on: core facts are appended as dated, `(noticed)` entries with their until date; detail is filed into a topic file created with a title and aliases; all journaled as upkeep.
 - `Balance is -10` captured twice is kept once; `Balance is 10` is a different fact.
-- Nothing is written to the profile's About me text, `/api/config` no longer returns it, saved About me text never reaches a dog's prompt (`server/saved-about-me.e2e.test.ts`), and the old learned-facts route is gone.
+- A fact about the person reaches About me on its own as a dated, attributed line in the prompt; Remove takes it out and a second Remove is refused.
 - The tidy-up archives the expired entry and strikes the contradicted one, reports it, and Undo restores the file.
-- A routine run is not captured as a person's conversation.
+- A routine run is not captured as a person's conversation and never adds owner facts to About me.
 - Background calls book their actual helper model, tokens and cost to the bot's usage. Capture, organization and contradiction checks each respect the configured monthly cap; free deterministic cleanup still runs at the cap.
 
 Unit tests add the share limit on small notebooks (no contradiction change below

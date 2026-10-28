@@ -103,7 +103,7 @@
   "server/routine-run-broadcast.e2e.test.ts": 1,
   "server/routines-startup.test.ts": 11,
   "server/routines.test.ts": 9,
-  "server/saved-about-me.e2e.test.ts": 4,
+  "server/shared-user-profile.e2e.test.ts": 4,
   "server/session-credentials.e2e.test.ts": 26,
   "server/shared-computers.e2e.test.ts": 9,
   "server/skills-library-config.e2e.test.ts": 2,

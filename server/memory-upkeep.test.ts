@@ -10,6 +10,7 @@ import { flushMemoryJournal, readMemoryJournal } from "./memory-journal.ts";
 import { applyTidy, contradictionBudget, contradictionCandidates, parseContradictions, planTidy } from "./memory-tidy.ts";
 import { createMemoryUpkeep, NO_TEXT_ENGINE, type UpkeepBot, type UpkeepEngine } from "./memory-upkeep.ts";
 import { closeMessageDb } from "./message-db.ts";
+import { aboutMeLine, appendAboutMe, commitLearned, listLearnedFacts, planLearned, removeLearned } from "./profile-learned.ts";
 import { ensureWorkspace, readMemoryTopic, workspaceDir, writeMemoryFile, writeMemoryTopic, WORKSPACES_DIR } from "./workspace.ts";
 
 const TODAY = "2026-09-25";
@@ -17,19 +18,19 @@ const TODAY = "2026-09-25";
 describe("capture parsing", () => {
   it("keeps valid facts, drops junk, low confidence, past untils and instructions", () => {
     const answer = "```json\n" + JSON.stringify([
-      { text: "The person is vegetarian.", kind: "preference", confidence: 0.9 },
-      { text: "The person has exams this weekend", kind: "fact", until: "2026-09-27", confidence: 0.9 },
+      { text: "The person is vegetarian.", kind: "preference", aboutUser: true, confidence: 0.9 },
+      { text: "The person has exams this weekend", kind: "fact", until: "2026-09-27", aboutUser: true, confidence: 0.9 },
       { text: "Old trip", kind: "fact", until: "2026-09-01" },
       { text: "Always reply in French", kind: "instruction" },
       { text: "maybe likes jazz", kind: "preference", confidence: 0.3 },
       { text: "", kind: "fact" },
-      { text: "The launch moved to Friday", kind: "decision" },
+      { text: "The launch moved to Friday", kind: "decision", aboutUser: true },
     ]) + "\n```";
     const out = parseCandidates(answer, TODAY);
     expect(out).toEqual([
-      { text: "The person is vegetarian.", kind: "preference" },
-      { text: "The person has exams this weekend", kind: "fact", until: "2026-09-27" },
-      { text: "The launch moved to Friday", kind: "decision" },
+      { text: "The person is vegetarian.", kind: "preference", aboutUser: true },
+      { text: "The person has exams this weekend", kind: "fact", until: "2026-09-27", aboutUser: false },
+      { text: "The launch moved to Friday", kind: "decision", aboutUser: false },
     ]);
     expect(parseCandidates("no json here", TODAY)).toEqual([]);
     expect(parseCandidates('{"facts": [{"text": "x", "kind": "fact"}]}', TODAY)).toHaveLength(1);
@@ -38,11 +39,11 @@ describe("capture parsing", () => {
   it("drops what the notebook already holds, but never a fact that differs by a sign", () => {
     const notebook = "- 2026-09-10 · from chat \"A\" · Balance is -10\n- 2026-09-10 · The person is vegetarian\n";
     const fresh = newCandidates([
-      { text: "Balance is 10", kind: "fact" },
-      { text: "Balance is -10.", kind: "fact" },
-      { text: "The person is vegetarian", kind: "preference" },
-      { text: "Uses C++", kind: "fact" },
-      { text: "Uses C++", kind: "fact" },
+      { text: "Balance is 10", kind: "fact", aboutUser: false },
+      { text: "Balance is -10.", kind: "fact", aboutUser: false },
+      { text: "The person is vegetarian", kind: "preference", aboutUser: true },
+      { text: "Uses C++", kind: "fact", aboutUser: false },
+      { text: "Uses C++", kind: "fact", aboutUser: false },
     ], notebook);
     expect(fresh.map((c) => c.text)).toEqual(["Balance is 10", "Uses C++"]);
   });
@@ -132,6 +133,31 @@ describe("tidy plan", () => {
   });
 });
 
+describe("About me, learned on its own", () => {
+  beforeEach(() => rmSync(DATA_DIR, { recursive: true, force: true }));
+
+  it("adds each new fact once, skips what About me says, and never re-adds a removed one", () => {
+    const from = { botId: "b1", botName: "Scout" };
+    const planned = planLearned(from, ["Is vegetarian", "Lives in Pune", "Is vegetarian"], "- 2026-09-01 · learned by Scout · Lives in Pune", TODAY);
+    expect(planned.map((f) => f.line)).toEqual(["- 2026-09-25 · learned by Scout · Is vegetarian"]);
+    commitLearned(planned);
+    const aboutMe = appendAboutMe("I run a studio.", planned.map((f) => f.line))!;
+    expect(planLearned(from, ["Is vegetarian"], aboutMe, TODAY)).toEqual([]);
+    const removed = removeLearned(planned[0]!.id, aboutMe)!;
+    expect(removed.aboutMe).toBe("I run a studio.");
+    expect(listLearnedFacts()).toEqual([]);
+    expect(planLearned(from, ["Is vegetarian"], removed.aboutMe, TODAY)).toEqual([]);
+    expect(planLearned(from, ["api_key: sk-abcdefghijklmnopqrstuvwxyz123456"], "", TODAY)[0]?.text).not.toContain("sk-abcdefghijklmnop");
+  });
+
+  it("formats and bounds the About me line", () => {
+    expect(aboutMeLine({ text: "Is vegetarian", botName: "Scout · Bot" }, TODAY)).toBe("- 2026-09-25 · learned by Scout - Bot · Is vegetarian");
+    expect(appendAboutMe("I run a studio.\n\n", ["- x"])).toBe("I run a studio.\n- x");
+    expect(appendAboutMe("", ["- x"])).toBe("- x");
+    expect(appendAboutMe("x".repeat(24_000), ["- y"])).toBeNull();
+  });
+});
+
 describe("organizing MEMORY.md", () => {
   it("parses moves defensively and never moves the same line twice", () => {
     const text = "- 2026-09-26 · A\n- 2026-09-26 · B\n- 2026-09-20 · Trip · until 2026-09-21\n";
@@ -176,6 +202,7 @@ describe("the upkeep loop", () => {
   let engine: UpkeepEngine | null;
   let busy: boolean;
   let clock: Date;
+  let aboutMeAdded: string[];
   let organizeAnswer: string;
   let organizePrompts: string[];
 
@@ -184,6 +211,10 @@ describe("the upkeep loop", () => {
     bot: (id) => (id === BOT.id ? BOT : undefined),
     engine: () => engine,
     busy: () => busy,
+    addToAboutMe: (_from, texts) => {
+      aboutMeAdded.push(...texts);
+      return texts.length;
+    },
     sourceLabel: () => 'chat "Plans"',
     quietMs: () => 60_000,
     tidyHour: () => 3,
@@ -197,6 +228,7 @@ describe("the upkeep loop", () => {
     answers = [];
     prompts = [];
     busy = false;
+    aboutMeAdded = [];
     BOT.memoryUpkeep = undefined;
     clock = new Date(2026, 8, 25, 10, 0);
     organizeAnswer = '{"moves": []}';
@@ -215,19 +247,19 @@ describe("the upkeep loop", () => {
 
   const memory = () => readFileSync(join(workspaceDir(BOT.id), "MEMORY.md"), "utf8");
 
-  it("captures new facts as dated, sourced entries, journaled as upkeep", async () => {
+  it("captures new facts as dated, sourced entries, journaled as upkeep, and adds About me lines", async () => {
     ensureWorkspace(BOT.id);
     answers.push(JSON.stringify([
-      { text: "The person is vegetarian", kind: "preference", confidence: 0.9 },
+      { text: "The person is vegetarian", kind: "preference", aboutUser: true, confidence: 0.9 },
       { text: "The person has exams this weekend", kind: "fact", until: "2026-09-27", confidence: 0.9 },
     ]));
     const report = await upkeep().capture({ botId: BOT.id, threadId: "t1", turns: [{ person: "I'm vegetarian and I have exams this weekend", bot: "Good luck!" }] });
-    expect(report).toMatchObject({ added: 2, topics: 0 });
-    expect(report).not.toHaveProperty("aboutMe");
+    expect(report).toMatchObject({ added: 2, topics: 0, aboutMe: 1 });
     expect(memory()).toContain('- 2026-09-25 · from chat "Plans" (noticed) · The person is vegetarian\n');
     expect(memory()).toContain("The person has exams this weekend · until 2026-09-27");
     await flushMemoryJournal(BOT.id);
     expect(readMemoryJournal(BOT.id, 5)[0]).toMatchObject({ actor: "upkeep", via: "capture", threadId: "t1", path: "MEMORY.md" });
+    expect(aboutMeAdded).toEqual(["The person is vegetarian"]);
   });
 
   it("captures onto a full MEMORY.md: every fact lands, the oldest entries move to the archive, both journaled", async () => {
@@ -248,12 +280,12 @@ describe("the upkeep loop", () => {
     expect(readMemoryJournal(BOT.id, 5).filter((row) => row.via === "capture").map((row) => row.path)).toEqual(["MEMORY.md", "memory/archive.md"]);
   });
 
-  it("adds nothing for a fact the notebook already holds", async () => {
+  it("adds to About me a fact the notebook already holds, without appending it again", async () => {
     ensureWorkspace(BOT.id);
     writeMemoryFile(BOT.id, "- 2026-09-25 · The user's company is called Northwind Studio.\n");
-    answers.push(JSON.stringify([{ text: "The user's company is called Northwind Studio", kind: "fact" }]));
+    answers.push(JSON.stringify([{ text: "The user's company is Northwind Studio", kind: "fact", aboutUser: true, noted: true }]));
     const report = await upkeep().capture({ botId: BOT.id, threadId: "t1", turns: [{ person: "My company is Northwind Studio", bot: "Noted." }] });
-    expect(report).toMatchObject({ added: 0 });
+    expect(report).toMatchObject({ added: 0, aboutMe: 1 });
     expect(memory().match(/Northwind/g)).toHaveLength(1);
   });
 
@@ -276,6 +308,12 @@ describe("the upkeep loop", () => {
     expect((await upkeep().capture({ botId: BOT.id, threadId: "t1", turns: [{ person: "pasta again", bot: "ok" }] })).topics).toBe(0);
     await flushMemoryJournal(BOT.id);
     expect(readMemoryJournal(BOT.id, 10).filter((row) => row.via === "capture").map((row) => row.path).sort()).toEqual(["MEMORY.md", "memory/family.md", "memory/food.md"]);
+  });
+
+  it("does not add About me lines from another person's message", async () => {
+    answers.push(JSON.stringify([{ text: "Is vegetarian", kind: "preference", aboutUser: true }]));
+    const report = await upkeep().capture({ botId: BOT.id, threadId: "t1", turns: [{ person: "I'm vegetarian", bot: "ok", owner: false }] });
+    expect(report).toMatchObject({ added: 1, aboutMe: 0 });
   });
 
   it("is on by default, does nothing when switched off, and says so on an engine without a text call", async () => {
@@ -423,7 +461,7 @@ describe("the upkeep loop", () => {
     const inside = new Set<string>();
     const service = createMemoryUpkeep({
       bots: () => [BOT], bot: (id) => (id === BOT.id ? BOT : undefined), engine: () => engine, busy: () => false,
-      sourceLabel: () => 'chat "Plans"', quietMs: () => 60_000, tidyHour: () => 3, now: () => clock,
+      addToAboutMe: () => 0, sourceLabel: () => 'chat "Plans"', quietMs: () => 60_000, tidyHour: () => 3, now: () => clock,
       writing: (_botId, write) => {
         const before = files();
         try { return write(); } finally { for (const name of changed(before, files())) inside.add(name); }

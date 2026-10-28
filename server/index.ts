@@ -141,6 +141,7 @@ import { withMainDogRouting } from "./laterdog/main-dog-prompt.ts";
 import { MAIN_DOG_DELETE_REFUSAL, MAIN_DOG_REQUIRED } from "../shared/main-dog.ts";
 import { buildRecall } from "./recall.ts";
 import { createMemoryUpkeep, upkeepEnabled } from "./memory-upkeep.ts";
+import { appendAboutMe, commitLearned, planLearned } from "./profile-learned.ts";
 import { canAccessTeam, canReachPeer, livePeerRoster, livePeerRosterBlock, peerAllowed, peerName, PEERS_PROMPT, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomRosterLine } from "./peer-roster.ts";
 import {
   containerComputerAction,
@@ -371,7 +372,7 @@ import {
   readMemoryOnlyFromRegularFiles,
   workspaceDir,
 } from "./workspace.ts";
-import { listMemoryTopics, readMemoryFile, readMemoryTopic, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
+import { listMemoryTopics, memoryDate, readMemoryFile, readMemoryTopic, writeMemoryFile, writeMemoryTopic } from "./workspace.ts";
 import {
   beginMemoryTurn,
   endMemoryTurn,
@@ -416,6 +417,7 @@ import type { SkillRequestCardData } from "../shared/skill-request.ts";
 import { checkSoulDrift, readSoulDrift, soulFile, writeSoulMirror } from "./bot-folder.ts";
 import {
   buildSystemPrompt,
+  userProfileSystemPrompt,
   cloudHomePrompt,
   computerPrompt,
   composioSystemPrompt,
@@ -3346,6 +3348,7 @@ function previewSystemPrompt(bot: BotRecord) {
   });
   const privateWorkspace = instance && supportsWorkspaceFiles(instance.driverKind);
   const built = buildSystemPrompt(persona, bot.soul ?? "", [
+    { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
     { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
     { id: "plan", label: "Surface", text: previewPlan.computer === undefined ? "" : surfacePrompt({
       computer: previewPlan.computer && previewPlan.computer !== "off" && computerPromptKind ? previewPlan.computer : null,
@@ -5264,6 +5267,17 @@ const memoryUpkeep = createMemoryUpkeep({
     } : {};
   },
   busy: (botId) => botHasActiveTurn(botId),
+  addToAboutMe: (from, texts) => {
+    const current = cfg.profile?.aboutMe ?? "";
+    const facts = planLearned(from, texts, current, memoryDate());
+    const next = appendAboutMe(current, facts.map((fact) => fact.line));
+    if (!facts.length || next === null) return 0;
+    saveConfig({ profile: { ...cfg.profile, aboutMe: next } });
+    Object.assign(cfg, loadConfig());
+    commitLearned(facts);
+    broadcast({ kind: "config", ...configStatus() });
+    return facts.length;
+  },
   sourceLabel: (botId, threadId) => memorySourceLabel({ task: store.taskByThread(botId, threadId), threadId }),
   ...(lendingMemory ? { writing: <T>(botId: string, write: () => T): T => lendingMemory.trustedWrite(botId, write) } : {}),
   quietMs: () => captureQuietMs(cfg),
@@ -5303,6 +5317,7 @@ bus.subscribe((event: RuntimeEvent) => {
     memoryUpkeep.noteTurn(bot.id, event.threadId, {
       person: extractTurnImages(asked.text ?? "").text,
       bot: path[replyAt]!.text ?? "",
+      owner: !asked.sender,
     });
   } catch (error) {
     console.warn(`memory upkeep: could not queue a turn for capture: ${(error as Error).message}`);
@@ -8304,6 +8319,7 @@ async function startTurn(
       }
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const prompt = buildSystemPrompt(persona, liveBot?.soul ?? bot.soul ?? "", [
+        { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
         { id: "owner-grant", label: "Owner's standing grant", text: ownerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
         { id: "files", label: "File locations", text: worksInWorkspace ? workspaceLocationsPrompt(bot.id, cwd, liveBot?.cwd ?? bot.cwd) : "" },
         { id: "computer", label: "Computer", text: computerPrompt(computerPromptKind) },
@@ -10033,6 +10049,7 @@ async function runGroupMemberTurn(
   }
   const roomOwnerGrant = ownerGrantFor(roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomSystem = buildSystemPrompt(system, store.bot(bot.id)?.soul ?? bot.soul ?? "", [
+    { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
     { id: "owner-grant", label: "Owner's standing grant", text: roomOwnerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
     { id: "coordination", label: "Team", text: roomCoordination },
     { id: "credential", label: "Credentials", text: integrations.agents ? `\n${CREDENTIAL_PROMPT.trim()}` : "" },
@@ -11823,7 +11840,7 @@ function configStatus() {
     typing: typingSuggestions.describe(),
     imageGen: avatarImageStatus(cfg),
     live: liveSettingsFor(cfg),
-    profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "" },
+    profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "", aboutMe: cfg.profile?.aboutMe ?? "" },
     managedPolicy: managedPolicy.summary(),
     ...(CLOUD_HOME ? { cloudHome: true } : {}),
     ...damagedDataStatus(),
@@ -12224,6 +12241,12 @@ ROUTES.push(createBotMemoryRoutes({
     ownersWrite: <T,>(auth: RequestAuth, botId: string, write: () => T): T =>
       cloudOwnerSession(auth) ? lendingMemory.trustedWrite(botId, write) : write(),
   } : {}),
+  aboutMe: () => cfg.profile?.aboutMe ?? "",
+  saveAboutMe: (aboutMe) => {
+    saveConfig({ profile: { ...cfg.profile, aboutMe } });
+    Object.assign(cfg, loadConfig());
+    broadcast({ kind: "config", ...configStatus() });
+  },
 }));
 ROUTES.push(createDeciderRoutes({ decider }));
 ROUTES.push(createJobTraceRoutes());
