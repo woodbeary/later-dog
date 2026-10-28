@@ -2,7 +2,6 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ON_IT_NOTE } from "../laterdog/work-updates.ts";
 import { createPuppies } from "./fake-claude-puppies.ts";
 import { runRoomHandoffAgent } from "./room-handoff-agent.ts";
 
@@ -263,7 +262,7 @@ const armSteerGate = () => {
   }, 10);
 };
 
-const personWords = (text: string): string => text.endsWith(`\n\n${ON_IT_NOTE}`) ? text.slice(0, -(ON_IT_NOTE.length + 2)) : text;
+const personWords = (text: string): string => text.replace(/\n\n\[later\.dog: [^\]\n]*\]$/, "");
 
 const promptText = (prompt: JsonValue): string => {
   const m = prompt && typeof prompt === "object" && !Array.isArray(prompt) ? (prompt as { message?: { content?: unknown } }).message : undefined;
