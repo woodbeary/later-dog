@@ -2793,6 +2793,7 @@ function controlIntegration(
   machine: "this computer" | { localVmTarget?: LocalVmTarget; boxId?: string | null } = {},
 ) {
   const { localVmTarget, boxId } = machine === "this computer" ? {} : machine;
+  const reconnectEachTurn = machine !== "this computer" && boxId === undefined;
   return {
     url: `http://127.0.0.1:${PORT}/api/internal/computer-control?botId=${encodeURIComponent(botId)}`,
     token: mintInternalCapability({
@@ -2807,7 +2808,7 @@ function controlIntegration(
       skillAuthoring: false,
       createdBots: 0,
       openedThreads: 0,
-    }, { perTurn: machine !== "this computer" }),
+    }, { perTurn: reconnectEachTurn }),
   };
 }
 

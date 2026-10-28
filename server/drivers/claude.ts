@@ -906,6 +906,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       mcpConfigPath: string | null;
       systemPromptPath: string | null;
       argsKey: string;
+      argsParts: Record<string, string>;
       volatile: string;
       sessionId: string | null;
       sawInit: boolean;
@@ -1182,7 +1183,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const commandCwd = permissionLaunchCwd(cwd);
       const privateFileFlags = new Set(["--mcp-config", "--settings"]);
       const keyArgs = args.filter((a, i) => !privateFileFlags.has(a) && !privateFileFlags.has(args[i - 1] ?? ""));
-      const argsKey = JSON.stringify({
+      const argsParts = Object.fromEntries(Object.entries({
         args: keyArgs,
         system: turn.systemStable ?? turn.system ?? null,
         mcpServers,
@@ -1198,7 +1199,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           settings: authSettings,
           env: Object.fromEntries(CLAUDE_ACCOUNT_ENV_KEYS.map((key) => [key, env[key]])),
         })).digest("hex"),
-      });
+      }).map(([key, value]) => [key, JSON.stringify(value)]));
+      const argsKey = JSON.stringify(argsParts);
 
       await claudeRefreshGate.enter(env);
       const live = sessions.get(threadId);
@@ -1229,7 +1231,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         }
         return { turnId };
       }
-      if (live) closeSession(threadId, turn.sessionReset ? "context reset" : "spawn contract changed");
+      if (live) {
+        const changed = Object.keys(argsParts).filter((key) => live.argsParts[key] !== argsParts[key]);
+        closeSession(threadId, turn.sessionReset ? "context reset" : `spawn contract changed${changed.length ? `: ${changed.join(", ")}` : ""}`);
+      }
 
       const cleanupUnownedLaunch = () => {
         broker?.close();
@@ -1345,6 +1350,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         mcpConfigPath,
         systemPromptPath,
         argsKey,
+        argsParts,
         volatile: turn.systemVolatile ?? "",
         sessionId: sessionId ?? newSessionId,
         sawInit: false,
