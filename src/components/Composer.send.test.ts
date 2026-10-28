@@ -76,11 +76,11 @@ describe("the composer while a dog works", () => {
     expect(textarea.value).toBe("");
   });
 
-  it("shows one plain Send button and no extra ways to send", async () => {
+  it("shows one Send button that sends into the running turn, and no extra ways to send", async () => {
     await mount(biscuit(true));
-    expect(host.querySelector("button[aria-label='Send message']")).not.toBeNull();
+    expect(host.querySelector("button[aria-label='Send into the running turn']")).not.toBeNull();
     expect(host.querySelector("button[aria-label='More ways to send']")).toBeNull();
-    expect(host.querySelector("textarea")!.placeholder).toBe("Message Biscuit");
+    expect(host.querySelector("textarea")!.placeholder).toBe("Message Biscuit while it works");
   });
 
   it("does nothing on the up arrow in an empty composer", async () => {

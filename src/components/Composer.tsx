@@ -1,7 +1,7 @@
 import { track } from "@/lib/analytics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { ModelPicker } from "./ModelPicker";
-import { ArrowUp, BookOpen, Check, Loader2, Mic, Square, Users, X } from "lucide-react";
+import { ArrowUp, BookOpen, Check, Clock, Loader2, Mic, Square, Users, X } from "lucide-react";
 import { useStore, visibleMessages, currentTaskBot, type Bot, type Group, type Message } from "@/state/store";
 import { chatPane } from "@/state/pane-errors";
 import { waitingOnPerson } from "@/lib/waiting-on-person";
@@ -32,6 +32,7 @@ import { BotAvatar } from "./Avatar";
 import { MentionTextarea } from "./MentionTextarea";
 import { ComposerAttachments, pathForFile } from "./ComposerAttachments";
 import type { CitationAttachment } from "@/lib/citations";
+import { editableMessage, restoreEditableMessage } from "@/lib/composer-message-edit";
 import {
   appendPastedText,
   handoffAttachmentImagePreview,
@@ -64,6 +65,12 @@ import { needsCli, needsSignIn } from "./EngineSetup";
 import { signInFamily } from "@/lib/engine-rail";
 import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { ReplyQuote } from "./ReplyQuote";
+import {
+  QueuedComposerMessages,
+  composerCanSteerQueuedMessages,
+  doubleEnterSteerWindowExpiresAt,
+  doubleEnterSteersQueue,
+} from "./ComposerQueuedMessages";
 import { DictationStrip, useDictationMeter } from "./DictationStrip";
 import { cloudDictationEnabled, skillAuthoringEnabled, voiceNoteButtonShown } from "@/lib/feature-flags";
 import { sharperTranscriptOutcome } from "@/lib/sharper-dictation";
@@ -96,6 +103,7 @@ export function Composer({
   bot: profile,
   group,
   members,
+  onEditLast,
   replyTo,
   onClearReply,
   onConsumeReply,
@@ -104,6 +112,7 @@ export function Composer({
   bot?: Bot;
   group?: Group;
   members?: Bot[];
+  onEditLast?: () => void;
   replyTo?: Message | null;
   onClearReply?: () => void;
   onConsumeReply?: () => void;
@@ -115,6 +124,11 @@ export function Composer({
   const { capabilities } = useDesktopCapabilities();
   const busy = group ? Boolean(group.working || group.busyBotId) : Boolean(bot?.busy);
   const asking = !group && waitingOnPerson(bot);
+  const steerInstanceId = group
+    ? members?.find((member) => member.id === group.busyBotId)?.modelSelection.instanceId
+    : bot?.modelSelection.instanceId;
+  const steerCapabilities = state.instances.find((i) => i.instanceId === steerInstanceId)?.capabilities;
+  const canSteer = steerCapabilities?.queueing === true;
   const threadId = group?.threadId ?? bot?.threadId ?? "";
   const errorPane = threadId ? chatPane(threadId) : undefined;
   const approvals = pendingApprovals(group ? group.messages : bot ? visibleMessages(bot) : []);
@@ -123,6 +137,10 @@ export function Composer({
     ? members?.find((member) => member.id === approval?.message.from?.botId) ??
       members?.find((member) => member.id === group.busyBotId)
     : bot;
+  const busyName = group
+    ? (members?.find((b) => b.id === group.busyBotId)?.name ??
+      (group.working ? t("composer.busy.team") : t("composer.busy.aBot")))
+    : (bot?.name ?? t("composer.busy.theBot"));
   const draftId = group
     ? `group:${group.id}:${group.threadId}`
     : `bot:${bot?.id ?? ""}:${bot?.threadId ?? ""}`;
@@ -407,10 +425,74 @@ export function Composer({
     });
   };
 
+  const queuedMessages = state.pendingQueued[threadId] ?? [];
+  const pendingCount = queuedMessages.length;
+  const canSteerQueued = composerCanSteerQueuedMessages(
+    busy,
+    locked,
+    pendingCount,
+    Boolean(approval),
+  );
+  const [steering, setSteering] = useState(false);
   const interruptTurn = () => {
     if (group) dispatch({ type: "interruptGroup", groupId: group.id, threadId });
     else if (bot) dispatch({ type: "interrupt", botId: bot.id, threadId });
   };
+  const queueHeadId = queuedMessages[0]?.queueId;
+  const steerLive =
+    canSteer &&
+    (steerCapabilities?.steerImages === true ||
+      !(group ? queuedMessages.slice(0, 1) : queuedMessages).some((item) => item.text.includes("<attached-image")));
+  const steerQueued = () => {
+    if (!queueHeadId) return;
+    setSteering(true);
+    const settle = () => setSteering(false);
+    if (group) {
+      dispatch({ type: "steerGroupQueued", groupId: group.id, threadId, queueId: queueHeadId, onError: settle, onSettled: settle });
+    } else if (bot) {
+      dispatch({ type: "steerQueued", botId: bot.id, threadId, queueId: queueHeadId, onError: settle, onSettled: settle });
+    }
+  };
+  useEffect(() => setSteering(false), [threadId, queueHeadId]);
+  const editQueued = (queueId: string) => {
+    const queued = queuedMessages.find((item) => item.queueId === queueId);
+    if (!queued) return;
+    const targetDraftId = draftId;
+    const onCancelled = () => {
+      const editable = editableMessage(queued.text);
+      restoreEditableMessage(targetDraftId, editable);
+      if (targetDraftId !== draftIdRef.current) return;
+      requestAnimationFrame(() => {
+        const input = inputRef.current;
+        if (!input) return;
+        input.focus();
+        input.setSelectionRange(editable.text.length, editable.text.length);
+      });
+    };
+    if (group) dispatch({ type: "cancelGroupQueued", groupId: group.id, threadId, queueId, onCancelled });
+    else if (bot) dispatch({ type: "cancelQueued", botId: bot.id, threadId, queueId, onCancelled });
+  };
+  const steerAgainUntilRef = useRef(0);
+  const prevPendingCountRef = useRef(pendingCount);
+  useEffect(() => {
+    const expiresAt = doubleEnterSteerWindowExpiresAt(
+      prevPendingCountRef.current,
+      pendingCount,
+      busy,
+      canSteer,
+    );
+    if (expiresAt !== null) steerAgainUntilRef.current = expiresAt;
+    prevPendingCountRef.current = pendingCount;
+  }, [pendingCount, busy, canSteer]);
+  useEffect(() => {
+    if (!busy || pendingCount === 0) {
+      setSteering(false);
+      return;
+    }
+    if (!steering) return;
+    const timeout = window.setTimeout(() => setSteering(false), 20_000);
+    return () => window.clearTimeout(timeout);
+  }, [busy, pendingCount, steering]);
   const fileInput = useRef<HTMLInputElement>(null);
   const [signingIn, setSigningIn] = useState<string | null>(null);
   const sendAfterSignIn = useRef<() => void>(() => {});
@@ -544,7 +626,7 @@ export function Composer({
         recovery: { draftId, text },
         onError: () => restoreDraft(sentDraft),
       });
-      track("message_sent", { driver: bot.modelSelection?.instanceId, queued: busy });
+      track("message_sent", { driver: bot.modelSelection?.instanceId, queued: busy && !canSteer });
     }
     suggestion.sent(text);
     setRecording(false);
@@ -833,6 +915,18 @@ export function Composer({
             />
           </div>
         )}
+        <QueuedComposerMessages
+          items={queuedMessages}
+          onSteer={canSteerQueued ? steerQueued : undefined}
+          steerInterrupts={!steerLive}
+          steerMode={group ? "next" : "all"}
+          steering={steering}
+          onCancel={(queueId) => {
+            if (group) dispatch({ type: "cancelGroupQueued", groupId: group.id, threadId, queueId });
+            else if (bot) dispatch({ type: "cancelQueued", botId: bot.id, threadId, queueId });
+          }}
+          onEdit={locked ? undefined : editQueued}
+        />
         <div className="relative">
           <div
             aria-hidden
@@ -962,8 +1056,18 @@ export function Composer({
                 return;
               }
             }
+            if (e.key === "ArrowUp" && !hasContent && onEditLast) {
+              e.preventDefault();
+              onEditLast();
+              return;
+            }
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
+              if (doubleEnterSteersQueue(steerAgainUntilRef.current, Date.now(), pendingCount, hasContent)) {
+                steerAgainUntilRef.current = 0;
+                steerQueued();
+                return;
+              }
               send();
             }
           }}
@@ -978,6 +1082,14 @@ export function Composer({
               ? t("composer.placeholder.listening")
               : sharpening > 0
               ? t("composer.dictation.transcribing")
+              : busy && canSteer && !asking
+                ? pendingCount > 0
+                  ? t("composer.placeholder.steerQueued", { name: busyName })
+                  : t("composer.placeholder.steer", { name: busyName })
+              : busy && !asking
+                ? group
+                  ? t("composer.placeholder.queueGroup", { name: busyName })
+                  : t("composer.placeholder.queue", { name: busyName })
               : group
                 ? t("composer.placeholder.group", {
                     name: group.name,
@@ -1028,16 +1140,30 @@ export function Composer({
             data-composer-send
             onClick={() => send()}
             disabled={attachmentPending || !hasContent}
-            aria-label={t("composer.send.message")}
-            title={t("chat.send")}
+            aria-label={
+              busy && canSteer
+                ? t("composer.send.steer")
+                : busy
+                  ? t("composer.send.queue")
+                  : t("composer.send.message")
+            }
+            title={
+              busy && canSteer
+                ? t("composer.send.steer")
+                : busy
+                  ? t("composer.send.queueHint")
+                  : t("chat.send")
+            }
             className={cn(
               "flex size-8 shrink-0 items-center justify-center rounded-full text-white transition-colors",
               !hasContent
                 ? "cursor-default bg-raised text-ink-tertiary"
-                : "bg-accent hover:brightness-110",
+                : busy && !canSteer
+                  ? "bg-raised text-ink-secondary hover:bg-raised-hover"
+                  : "bg-accent hover:brightness-110",
             )}
           >
-            <ArrowUp size={17} />
+            {busy && !canSteer ? <Clock size={15} /> : <ArrowUp size={17} />}
           </button>
           )}
           </div>

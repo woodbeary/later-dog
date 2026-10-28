@@ -136,11 +136,11 @@ describe("chat transcript rows", () => {
     expect(document.body.textContent).not.toContain("Today");
   });
 
-  it("shows only React, Copy and Reply on hover, with no More menu or edit", () => {
+  it("shows React, Copy and Reply on hover, plus Edit on the person's messages, with no More menu", () => {
     const row = (mid: string) => [...document.querySelectorAll(`[data-mid="${mid}"] [data-testid="message-actions"] > button`)]
       .map((button) => button.getAttribute("aria-label"));
     expect(row("m5")).toEqual([t("chat.reaction.open"), t("chat.copyMessage"), t("chat.replyToMessage")]);
-    expect(row("m3")).toEqual([t("chat.reaction.open"), t("chat.copyMessage"), t("chat.replyToMessage")]);
+    expect(row("m3")).toEqual([t("chat.editMessage"), t("chat.reaction.open"), t("chat.copyMessage"), t("chat.replyToMessage")]);
     expect(document.querySelectorAll(`[data-mid] [aria-label="${t("chat.messageActions")}"]`)).toHaveLength(0);
   });
 

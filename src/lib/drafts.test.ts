@@ -21,6 +21,7 @@ import {
   isDraftAttachmentPending,
   markDraftEdited,
   placeDraftPosition,
+  prependComposerDraft,
   recoverFailedComposerSend,
   replaceDraftAttachment,
   restoredSendId,
@@ -322,6 +323,39 @@ describe("appendComposerDraft", () => {
   });
 });
 
+describe("prependComposerDraft", () => {
+  it("puts a queued message into an empty draft and marks it edited", () => {
+    const store = memoryStorage();
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: store });
+    const draftId = "bot:edit-queued:empty";
+    const revision = draftRevision(draftId);
+    prependComposerDraft(draftId, "actually stop at 10");
+    expect(getDraft(store, draftId)).toBe("actually stop at 10");
+    expect(draftRevision(draftId)).toBe(revision + 1);
+  });
+
+  it("leads with the queued words and keeps what the person already typed below", () => {
+    const store = memoryStorage();
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: store });
+    const draftId = "bot:edit-queued:typed";
+    setDraft(store, draftId, "and use the smaller model");
+    prependComposerDraft(draftId, "actually stop at 10");
+    expect(getDraft(store, draftId)).toBe("actually stop at 10\n\nand use the smaller model");
+  });
+
+  it("treats a whitespace-only draft as empty and leaves attachments alone", () => {
+    const store = memoryStorage();
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: store });
+    const draftId = "group:edit-queued:attached";
+    const attachment = { kind: "file" as const, id: "file-1", path: "/private/attachments/log.txt", name: "log.txt", size: 12 };
+    setDraft(store, draftId, "  \n");
+    setDraftAttachments(store, draftId, [attachment]);
+    prependComposerDraft(draftId, "check the log");
+    expect(getDraft(store, draftId)).toBe("check the log");
+    expect(getDraftAttachments(store, draftId)).toEqual([attachment]);
+  });
+});
+
 describe("saving typed drafts", () => {
   function countedStorage() {
     const store = memoryStorage();
@@ -481,6 +515,9 @@ describe("keeping the composer's place in a long draft", () => {
     setDraft(store, draftId, "first part");
     setDraftPosition(store, draftId, { start: 2, end: 2, scrollTop: 0 });
     appendComposerDraft(draftId, "added by a button");
+    expect(getDraftPosition(store, draftId)).toBeNull();
+    setDraftPosition(store, draftId, { start: 3, end: 3, scrollTop: 0 });
+    prependComposerDraft(draftId, "edited from the queue");
     expect(getDraftPosition(store, draftId)).toBeNull();
     leavePage();
     expect(JSON.parse(store.getItem("laterdog-draft-positions")!)[draftId]).toBeUndefined();

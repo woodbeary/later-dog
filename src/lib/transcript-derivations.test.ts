@@ -4,6 +4,12 @@ import { formatTime } from "@/state/store";
 import { setLocale, t } from "./i18n";
 import { dayLabel, localDay, transcriptLookups } from "./transcript-derivations";
 
+function versionsBefore(all: Message[], message: Message): Message[] {
+  if (message.role !== "user" || message.kind !== "text") return [message];
+  return all
+    .filter((m) => m.role === "user" && m.kind === "text" && (m.parentId ?? null) === (message.parentId ?? null))
+    .sort((a, b) => a.at - b.at);
+}
 const replyTargetBefore = (all: Message[], message: Message) =>
   message.replyToId ? all.find((candidate) => candidate.id === message.replyToId) : undefined;
 const retryableBefore = (branch: Message[]) =>
@@ -36,6 +42,18 @@ const branch = [root, q3, a3, follow, chip, pick, digest, compaction];
 
 describe("transcriptLookups", () => {
   const lookups = transcriptLookups(all, branch);
+
+  it("gives every message the edit versions the per-bubble scan gave", () => {
+    for (const message of all) {
+      expect(lookups.editVersions(message) ?? [message]).toEqual(versionsBefore(all, message));
+    }
+    expect(lookups.editVersions(q3)!.map((m) => m.id)).toEqual(["q1", "q2", "q3"]);
+  });
+
+  it("leaves a question that was never edited without versions", () => {
+    expect(lookups.editVersions(follow)).toBeUndefined();
+    expect(lookups.editVersions(a3)).toBeUndefined();
+  });
 
   it("finds reply targets on any branch, as the per-bubble find did", () => {
     for (const message of all) expect(lookups.replyTarget(message)).toBe(replyTargetBefore(all, message));

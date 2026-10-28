@@ -28,6 +28,7 @@ import {
   type Message,
   type Action,
 } from "./store";
+import { transcriptLookups } from "@/lib/transcript-derivations";
 import { openLiveEvents, type LiveEventSourceLike, type LiveEventsPlatform } from "../lib/live-events";
 import type { ModelVariantState, RuntimeEvent } from "../../shared/runtime-events";
 import type { ConnectorToolGrant } from "../../shared/wire";
@@ -121,9 +122,10 @@ describe("independent bot threads", () => {
     expect(updated.bots[0]?.tasks?.[1]).toEqual(bot.tasks?.[1]);
   });
 
-  it("pins send, stop, approval and queued-message actions before navigation", () => {
+  it("pins send, stop, edit, approval and queued-message actions before navigation", () => {
     const actions: Action[] = [
       { type: "send", botId: bot.id, text: "Go" }, { type: "interrupt", botId: bot.id },
+      { type: "editMessage", botId: bot.id, messageId: "first-message", text: "Changed" },
       { type: "answerCard", botId: bot.id, messageId: "approval", answer: "Allow" },
       { type: "dismissCard", botId: bot.id, messageId: "approval" },
       { type: "cancelQueued", botId: bot.id, queueId: "queued" },
@@ -1015,6 +1017,50 @@ describe("optimistic sent messages", () => {
     const reply: Message = { id: "a2", role: "bot", kind: "text", text: "new answer", at: 5, parentId: fork.id };
     const branched = { ...bot, messages: [root, question, answer, fork, reply], activeLeafId: reply.id };
     expect(visibleMessages(branched).map((message) => message.text)).toEqual(["Ready", "second try", "new answer"]);
+  });
+
+  describe("edits", () => {
+    const question: Message = { id: "q1", role: "user", kind: "text", text: "first try", at: 2, parentId: root.id };
+    const answer: Message = { id: "a1", role: "bot", kind: "text", text: "old answer", at: 3, parentId: question.id };
+    const conversation = (): AppState => ({
+      ...initialState,
+      bots: [{ ...bot, messages: [root, question, answer], activeLeafId: answer.id }],
+    });
+
+    it("swaps the edited question in immediately and hides the old answer", () => {
+      const edited = reducer(conversation(), {
+        type: "editMessage", botId: bot.id, threadId: bot.threadId, messageId: question.id, text: " second try ", sendId: "edit-1",
+      });
+      const visible = visibleMessages(edited.bots[0]!);
+      expect(visible.map((message) => message.text)).toEqual(["Ready", "second try"]);
+      expect(edited.bots[0]?.activeLeafId).toBe("optimistic-edit-1");
+      expect(transcriptLookups(edited.bots[0]!.messages, visible).editVersions(question)?.map((message) => message.id)).toEqual([question.id, "optimistic-edit-1"]);
+    });
+
+    it("hands the swap to the server fork and keeps its reply visible", () => {
+      const edited = reducer(conversation(), {
+        type: "editMessage", botId: bot.id, threadId: bot.threadId, messageId: question.id, text: "second try", sendId: "edit-2",
+      });
+      const fork: Message = { id: "q2", role: "user", kind: "text", text: "second try", at: 4, parentId: root.id, sendId: "edit-2" };
+      const reconciled = reducer(edited, { type: "messageAdded", threadId: bot.threadId, message: fork });
+      const confirmed = reducer(reconciled, { type: "threadActive", threadId: bot.threadId, activeLeafId: fork.id });
+      const reply: Message = { id: "a2", role: "bot", kind: "text", text: "new answer", at: 5, parentId: fork.id };
+      const answered = reducer(confirmed, { type: "messageAdded", threadId: bot.threadId, message: reply });
+      const late = reducer(answered, { type: "messageAdded", threadId: bot.threadId, message: fork });
+      expect(visibleMessages(late.bots[0]!).map((message) => message.text)).toEqual(["Ready", "second try", "new answer"]);
+      expect(late.bots[0]?.messages.some((message) => message.id.startsWith("optimistic-"))).toBe(false);
+    });
+
+    it("puts the old question and answer back when the edit fails", () => {
+      const edited = reducer(conversation(), {
+        type: "editMessage", botId: bot.id, threadId: bot.threadId, messageId: question.id, text: "second try", sendId: "edit-3",
+      });
+      const restored = reducer(edited, {
+        type: "optimisticMessageRemoved", threadId: bot.threadId, sendId: "edit-3", restoreLeafId: answer.id,
+      });
+      expect(visibleMessages(restored.bots[0]!).map((message) => message.text)).toEqual(["Ready", "first try", "old answer"]);
+      expect(restored.bots[0]?.messages).toEqual([root, question, answer]);
+    });
   });
 
   it("uses the same immediate reconciliation for a channel", () => {

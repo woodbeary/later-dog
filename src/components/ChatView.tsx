@@ -5,10 +5,12 @@ import {
   AlertTriangle,
   ArrowDown,
   Check,
+  ChevronLeft,
   ChevronRight,
   Copy,
   Hand,
   MessageSquareReply,
+  Pencil,
   RefreshCw,
   Search,
   Webhook,
@@ -103,7 +105,8 @@ import { StatusActivityRow } from "@/components/StatusActivityRow";
 import { ActivityRun } from "./ActivityRun";
 import { TurnNarrationRun } from "./TurnNarrationRun";
 import { webhookMessageView } from "@/lib/webhook-message";
-import { splitTranscriptAttachments } from "@/lib/composer-attachments";
+import { composeMessage, splitTranscriptAttachments } from "@/lib/composer-attachments";
+import { editableGallery, editableMessage } from "@/lib/composer-message-edit";
 import { useComposerDockPad } from "@/lib/composer-dock";
 import { GlassBar, GlassScrollFrame } from "./GlassScrollFrame";
 import { useTranscriptViewport } from "@/hooks/use-transcript-viewport";
@@ -121,7 +124,6 @@ import { latestReply, type TranscriptSnapshot } from "@/lib/transcript-announcer
 import { openQuestion } from "@/lib/open-question";
 import { pendingApprovals } from "./PendingApproval";
 import { TranscriptAnnouncer } from "./TranscriptAnnouncer";
-import { QueuedBubbles } from "./QueuedBubbles";
 import { tabForSection } from "./bot-settings/sections";
 
 const USER_COLLAPSE_CHARS = 600;
@@ -132,6 +134,7 @@ interface ChatRows {
   botId: string;
   threadId: string;
   botName: string;
+  busy: boolean;
   bots: readonly Bot[];
   mentionPeers: readonly MentionPeer[];
   focus: AppState["focusMessage"];
@@ -321,20 +324,87 @@ class MessageBoundary extends Component<{ children: ReactNode; fallbackText: str
   }
 }
 
+function BubbleEditor({
+  initial,
+  allowEmpty = false,
+  onCancel,
+  onSubmit,
+}: {
+  initial: string;
+  allowEmpty?: boolean;
+  onCancel: () => void;
+  onSubmit: (text: string) => void;
+}) {
+  const [draft, setDraft] = useState(initial);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }, []);
+  const submit = () => {
+    if (draft.trim() || allowEmpty) onSubmit(draft.trim());
+  };
+  return (
+    <div className="w-full max-w-[min(42rem,78%)] rounded-bubble border border-hairline/40 bg-bubble-user px-3 py-2">
+      <textarea
+        ref={ref}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            submit();
+          }
+          if (e.key === "Escape") onCancel();
+        }}
+        rows={Math.min(10, Math.max(2, draft.split("\n").length))}
+        className="w-full resize-none bg-transparent text-[15px] leading-relaxed text-ink focus:outline-none"
+      />
+      <div className="mt-2 flex items-center justify-end gap-2">
+        <button
+          onClick={onCancel}
+          className="rounded-full px-3 py-1 text-[13px] text-ink-secondary hover:bg-raised hover:text-ink"
+        >
+          {t("common.cancel")}
+        </button>
+        <button
+          onClick={submit}
+          disabled={!draft.trim() && !allowEmpty}
+          className="rounded-full bg-accent px-3 py-1 text-[13px] font-medium text-white disabled:opacity-40 transition-[filter] enabled:hover:brightness-110"
+        >
+          {t("chat.send")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const Bubble = memo(function Bubble({
   message,
   emerging = false,
   eagerAttachments = false,
+  editing,
+  versions,
+  onStartEdit,
+  onCancelEdit,
+  onSubmitEdit,
   replyTarget,
   onReply,
 }: {
   message: Message;
   emerging?: boolean;
   eagerAttachments?: boolean;
+  editing: boolean;
+  versions?: readonly Message[];
+  onStartEdit: (messageId: string) => void;
+  onCancelEdit: () => void;
+  onSubmitEdit: (messageId: string, text: string) => void;
   replyTarget?: Message;
   onReply: (message: Message) => void;
 }) {
-  const { botId, threadId, botName, mentionPeers, focus, dispatch, onBranch, bots, canWrite } = useChatRows();
+  const { botId, threadId, botName, busy, mentionPeers, focus, dispatch, onBranch, bots, canWrite } = useChatRows();
   const peer = peerLine(message);
   const user = message.role === "user" && !peer;
   const [expanded, setExpanded] = useState(false);
@@ -373,6 +443,30 @@ const Bubble = memo(function Bubble({
     if (focusedSearch && collapsible) setExpanded(true);
   }, [focusedSearch, collapsible, focus?.nonce]);
 
+  const editable = user && editing && !webhookView && !cited?.citations.length ? editableMessage(text) : null;
+  if (editable) {
+    const kept = editableGallery(editable.attachments);
+    return (
+      <div className="flex w-full flex-col items-end">
+        {kept.images.length + kept.files.length > 0 && (
+          <AttachmentGallery sent images={kept.images} files={kept.files} message={{ threadId, messageId: message.id }} eager={eagerAttachments} className="mb-1.5 max-w-[min(42rem,78%)]" />
+        )}
+        <BubbleEditor
+          initial={editable.text}
+          allowEmpty={editable.attachments.length > 0}
+          onCancel={onCancelEdit}
+          onSubmit={(edited) => onSubmitEdit(message.id, composeMessage(edited, editable.attachments))}
+        />
+      </div>
+    );
+  }
+
+  const forks = user && versions ? versions : [message];
+  const versionIndex = forks.findIndex((v) => v.id === message.id);
+  const switchTo = (v: Message | undefined) => {
+    if (v && !busy && !v.id.startsWith(OPTIMISTIC_PREFIX)) dispatch({ type: "switchBranch", botId, threadId, messageId: v.id });
+  };
+
   return (
     <div data-from={user ? "user" : "agent"} className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
       {peer && <PeerLabel peer={peer} />}
@@ -382,6 +476,17 @@ const Bubble = memo(function Bubble({
       <div className={cn("flex w-full items-center gap-1.5", user ? "justify-end" : "justify-start")}>
         {user && (
           <MessageActions side="user" forceOpen={picking}>
+            {message.kind === "text" && canWrite !== false && !webhookView && !cited?.citations.length && !busy && !message.id.startsWith(OPTIMISTIC_PREFIX) && (
+              <button
+                type="button"
+                onClick={() => onStartEdit(message.id)}
+                aria-label={t("chat.editMessage")}
+                title={t("chat.editMessage")}
+                className={messageActionClass}
+              >
+                <Pencil size={14} />
+              </button>
+            )}
             {reactable && <ReactionPicker reacted={myReactions(message.reactions)} onReact={react} onOpenChange={setPicking} align="end" />}
             {Boolean(visibleText.trim()) && <CopyButton text={visibleText} className="opacity-100" />}
             <button
@@ -461,6 +566,11 @@ const Bubble = memo(function Bubble({
                   return highlightCitationSource(citation);
                 }}
               />}
+              {message.steered && (
+                <div className="mt-1 text-[11px] text-ink-tertiary" title={t("chat.sentMidTurnHint")}>
+                  {t("chat.sentMidTurn")}
+                </div>
+              )}
               {message.via === "call" && (
                 <span className="mt-1 text-[11px] text-ink-tertiary" title={t("chat.viaCall")}>
                   {t("chat.viaCall")}
@@ -520,6 +630,33 @@ const Bubble = memo(function Bubble({
       </div>
       <ReactionPills reactions={message.reactions} side={user ? "user" : "bot"} nameOf={reactionName} onToggle={reactable ? react : undefined} />
       {user && message.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={message.at} held={message.held} />}
+      {forks.length > 1 && (
+        <div className="mt-1 flex items-center gap-0.5 pr-1 text-[12px] text-ink-secondary">
+          <button
+            type="button"
+            onClick={() => switchTo(forks[versionIndex - 1])}
+            disabled={versionIndex <= 0 || busy}
+            className="rounded p-0.5 hover:bg-raised hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent"
+            aria-label={t("chat.previousVersion")}
+            title={t("chat.previousVersion")}
+          >
+            <ChevronLeft size={14} />
+          </button>
+          <span className="tabular-nums">
+            {versionIndex + 1}/{forks.length}
+          </span>
+          <button
+            type="button"
+            onClick={() => switchTo(forks[versionIndex + 1])}
+            disabled={versionIndex >= forks.length - 1 || busy}
+            className="rounded p-0.5 hover:bg-raised hover:text-ink disabled:opacity-30 disabled:hover:bg-transparent"
+            aria-label={t("chat.nextVersion")}
+            title={t("chat.nextVersion")}
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 });
@@ -607,6 +744,10 @@ const MessagesList = memo(function MessagesList({
   engine,
   unreadSince,
   groupIds,
+  editingId,
+  onStartEdit,
+  onCancelEdit,
+  onSubmitEdit,
   onRetry,
   onReply,
 }: {
@@ -620,6 +761,10 @@ const MessagesList = memo(function MessagesList({
   canRetryLast: boolean;
   engine: InstanceInfo | undefined;
   groupIds: string;
+  editingId: string | null;
+  onStartEdit: (id: string) => void;
+  onCancelEdit: () => void;
+  onSubmitEdit: (id: string, text: string) => void;
   onRetry: () => void;
   onReply: (message: Message) => void;
   unreadSince: number | null;
@@ -667,6 +812,10 @@ const MessagesList = memo(function MessagesList({
                   <div key={message.id} className="contents" data-mid={message.id} data-arriving={arriving(message.id) ? "" : undefined}>
                     <Bubble
                       message={message}
+                      editing={false}
+                      onStartEdit={onStartEdit}
+                      onCancelEdit={onCancelEdit}
+                      onSubmitEdit={onSubmitEdit}
                       replyTarget={lookups.replyTarget(message)}
                       onReply={onReply}
                     />
@@ -758,6 +907,11 @@ const MessagesList = memo(function MessagesList({
                   message={m}
                   emerging={m.id === emergingId}
                   eagerAttachments={m.id === newestMessageId || m.id === newestUserMessageId}
+                  editing={editingId === m.id}
+                  versions={lookups.editVersions(m)}
+                  onStartEdit={onStartEdit}
+                  onCancelEdit={onCancelEdit}
+                  onSubmitEdit={onSubmitEdit}
                   replyTarget={lookups.replyTarget(m)}
                   onReply={onReply}
                 />
@@ -881,15 +1035,31 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const branch = useRef(messages);
   branch.current = messages;
   const onBranch = useCallback((messageId: string) => branch.current.some((m) => m.id === messageId), []);
+  const busy = Boolean(bot.busy);
   const rows = useMemo<ChatRows>(
-    () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite }),
-    [bot.id, bot.threadId, bot.name, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite],
+    () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite }),
+    [bot.id, bot.threadId, bot.name, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite],
   );
   const place = effectivePlace(bot, bot.tasks?.find((task) => task.threadId === bot.threadId));
 
+  const [editingId, setEditingId] = useState<string | null>(null);
+  useEffect(() => setEditingId(null), [bot.id, bot.threadId]);
+  const startEdit = useCallback((id: string) => setEditingId(id), []);
+  const cancelEdit = useCallback(() => setEditingId(null), []);
+  const submitEdit = useCallback(
+    (messageId: string, text: string) => {
+      setEditingId(null);
+      dispatch({ type: "editMessage", botId: bot.id, threadId: bot.threadId, messageId, text });
+    },
+    [bot.id, bot.threadId, dispatch],
+  );
   const lastUserMessage = useMemo(
     () => [...messages].reverse().find((m) => m.role === "user" && m.kind === "text" && !peerLine(m)),
     [messages],
+  );
+  const lastUserMessageCites = useMemo(
+    () => Boolean(lastUserMessage?.text && splitTranscriptCitations(lastUserMessage.text).citations.length > 0),
+    [lastUserMessage],
   );
 
   const lastMessage = shownMessages.at(-1);
@@ -942,12 +1112,11 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const steps = useMemo(() => (presenceVisible ? turnSteps(messages, turnSince) : []), [presenceVisible, messages, turnSince]);
   const updates = useMemo(() => (presenceVisible ? turnUpdates(messages, plan.hiddenIds, turnSince) : []), [presenceVisible, messages, plan, turnSince]);
 
-  const resend = useCallback(() => {
+  const regenerate = useCallback(() => {
     if (lastUserMessage?.text && !bot.busy && !lastUserMessage.id.startsWith("optimistic-")) {
-      dispatch({ type: "send", botId: bot.id, threadId: bot.threadId, text: lastUserMessage.text, replyToId: lastUserMessage.replyToId });
+      dispatch({ type: "editMessage", botId: bot.id, threadId: bot.threadId, messageId: lastUserMessage.id, text: lastUserMessage.text });
     }
   }, [lastUserMessage, bot.busy, bot.id, bot.threadId, dispatch]);
-  const queued = state.pendingQueued[bot.threadId] ?? [];
 
   const executionRunId = bot.tasks?.find((task) => task.threadId === bot.threadId)?.routineRunId;
   const routineExecution = executionRunId ? state.routineRuns.find((run) => run.id === executionRunId && run.threadId === bot.threadId) : undefined;
@@ -1066,15 +1235,14 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
               engine={state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId)}
               unreadSince={unreadSince}
               groupIds={groupIds}
-              onRetry={resend}
+              editingId={editingId}
+              onStartEdit={startEdit}
+              onCancelEdit={cancelEdit}
+              onSubmitEdit={submitEdit}
+              onRetry={regenerate}
               onReply={selectReply}
             />
           </ChatRowsContext.Provider>
-          <QueuedBubbles
-            items={queued}
-            tint={dogTint(bot.color)}
-            onCancel={(queueId) => dispatch({ type: "cancelQueued", botId: bot.id, threadId: bot.threadId, queueId })}
-          />
           {laterCount > 0 && (
             <div className="flex justify-center">
               <button
@@ -1157,6 +1325,9 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
         onClearReply={clearReply}
         onConsumeReply={consumeReply}
         onRestoreReply={restoreReply}
+        onEditLast={lastUserMessage && !lastUserMessageCites && !bot.busy && !lastUserMessage.id.startsWith("optimistic-")
+          ? () => setEditingId(lastUserMessage.id)
+          : undefined}
       />
       )}
       {canWrite !== false && (

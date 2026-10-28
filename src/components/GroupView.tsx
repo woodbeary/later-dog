@@ -78,7 +78,6 @@ import { latestReply, type TranscriptSnapshot } from "@/lib/transcript-announcer
 import { openQuestion } from "@/lib/open-question";
 import { pendingApprovals } from "./PendingApproval";
 import { TranscriptAnnouncer } from "./TranscriptAnnouncer";
-import { QueuedBubbles } from "./QueuedBubbles";
 import { dayLabel, localDay } from "@/lib/transcript-derivations";
 
 export function RoomToolChip({ message, roomId }: { message: Message; roomId?: string }) {
@@ -403,7 +402,7 @@ export const Transcript = memo(function Transcript({
 });
 
 export function GroupView({ group }: { group: Group }) {
-  const { state, dispatch } = useStore();
+  const { state } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
   const countsInWindow = useCallback((message: Message) => transcriptRowShown(message, showToolCalls), [showToolCalls]);
   const { dragStyle: headerDragStyle, noDragStyle: headerNoDragStyle, controlsShiftStyle } = useCaptionChrome();
@@ -682,10 +681,6 @@ export function GroupView({ group }: { group: Group }) {
             transcript={group.messages}
             emergingId={popping?.id}
             onReply={selectReply}
-          />
-          <QueuedBubbles
-            items={state.pendingQueued[group.threadId] ?? []}
-            onCancel={(queueId) => dispatch({ type: "cancelGroupQueued", groupId: group.id, threadId: group.threadId, queueId })}
           />
           {laterCount > 0 && (
             <div className="flex justify-center">

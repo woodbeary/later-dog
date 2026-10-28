@@ -69,11 +69,11 @@ afterEach(async () => {
 });
 
 describe("a dog's chat without the extras", () => {
-  it("has no edit on sent messages and the up arrow opens nothing", async () => {
+  it("offers edit on sent messages and the up arrow opens the last one", async () => {
     await mount(conversation);
-    expect(host.querySelector('button[aria-label="Edit message"]')).toBeNull();
+    expect(row("m3").querySelector(`button[aria-label="${t("chat.editMessage")}"]`)).not.toBeNull();
     await act(async () => composer().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
-    expect(host.querySelectorAll("textarea")).toHaveLength(1);
+    expect(row("m3").querySelector("textarea")?.value).toBe("and this?");
     expect(actions()).toEqual([]);
   });
 
@@ -85,19 +85,18 @@ describe("a dog's chat without the extras", () => {
     expect(host.textContent).not.toContain("Pinned");
   });
 
-  it("resends the last message on Retry after a failed turn, instead of forking it", async () => {
+  it("retries the last message as a new version after a failed turn", async () => {
     await mount(conversation);
     const retry = [...row("m4").querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes(t("chat.retry")))!;
     await act(async () => retry.click());
-    expect(actions()).toEqual([expect.objectContaining({ type: "send", botId: "pepper", threadId: "pepper-thread", text: "and this?", replyToId: "m2" })]);
+    expect(actions()).toEqual([expect.objectContaining({ type: "editMessage", botId: "pepper", threadId: "pepper-thread", messageId: "m3", text: "and this?" })]);
   });
 
-  it("shows a message sent while the dog works as a bubble that can be cancelled", async () => {
+  it("lists a message sent while the dog works above the message box, where it can be deleted", async () => {
     await mount(conversation.slice(0, 2), { busy: true }, { "pepper-thread": [{ queueId: "q1", text: "also check the logs" }] });
-    const bubble = host.querySelector<HTMLElement>('[data-queued-bubble="q1"]')!;
-    expect(bubble.textContent).toContain("also check the logs");
-    expect(bubble.textContent).toContain(t("chat.queued.waiting"));
-    await act(async () => bubble.querySelector<HTMLButtonElement>("button")!.click());
+    const list = host.querySelector<HTMLElement>(`ul[aria-label="${t("composer.queued.list")}"]`)!;
+    expect(list.textContent).toContain("also check the logs");
+    await act(async () => list.querySelector<HTMLButtonElement>(`button[aria-label="${t("composer.queued.deleteAria", { index: 1, count: 1 })}"]`)!.click());
     expect(actions()).toEqual([{ type: "cancelQueued", botId: "pepper", threadId: "pepper-thread", queueId: "q1" }]);
   });
 });

@@ -335,6 +335,16 @@ export function appendComposerDraft(id: string, text: string): void {
   });
 }
 
+export function prependComposerDraft(id: string, text: string): void {
+  const store = getStore();
+  const current = getDraft(store, id);
+  markDraftEdited(id);
+  restoreComposerDraft(id, {
+    text: current.trim() ? `${text}\n\n${current}` : text,
+    attachments: getDraftAttachments(store, id),
+  });
+}
+
 export function appendDraftAttachments(id: string, additions: Attachment[]): void {
   if (additions.length === 0) return;
   markDraftEdited(id);
