@@ -533,7 +533,7 @@ it("a provider reload judges a running turn in a conversation a guest left behin
   await toolsFor(() => say(owner, bot, "Save a note.", guests));
   appendFileSync(ws(bot, "MEMORY.md"), `\n- ${INJECTED}\n`);
   const before = log.length;
-  const patched = await api("PATCH", "/api/config", { token: owner, body: { defaultModelSelection: { instanceId: "done", model: "claude-sonnet-5" } } });
+  const patched = await api("PATCH", "/api/config", { token: owner, body: { mistral: { key: "fixture-key-that-reloads-every-engine" } } });
   expect(patched.status, JSON.stringify(patched.body)).toBe(200);
   await expect.poll(() => log.slice(before), { timeout: 15_000 }).toContain(`memory of bot ${bot.id} changed`);
 }, 60_000);
