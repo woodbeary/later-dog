@@ -38,13 +38,9 @@ export function desktopPlan({ env = process.env, home = homedir(), root = projec
   if (homeSession) {
     const proxyPort = target.serverPort;
     const proxyUrl = `http://127.0.0.1:${proxyPort}`;
-    const enginePort = dev.ports.server[1];
-    const engineUrl = `http://127.0.0.1:${enginePort}`;
-    const engineEnv = { ...environment, LATERDOG_SERVER_PORT: String(enginePort), LATERDOG_WEBHOOK_PORT: String(enginePort + 1), LATERDOG_WORKSPACE_URL: engineUrl };
-    const engineStep = (file) => ({ ...step(join(root, file)), env: engineEnv });
     return {
-      root, node, env: { ...environment, LATERDOG_DEV_API_URL: proxyUrl, LATERDOG_WORKSPACE_URL: proxyUrl }, ports: [proxyPort, enginePort, enginePort + 1, target.supervisorPort, uiPort], serverUrl: proxyUrl, readyUrl: `${proxyUrl}${READY_PATH}`, supervisorUrl: null, uiUrl, homeSession, engineUrl,
-      services: [engineStep("server/laterdog/main.ts"), engineStep("server/index.ts"), step(join(root, "scripts/dev-home-proxy.mjs"), homeSession, String(proxyPort)), step(join(root, "scripts/dev-home-relay.mjs"), homeSession, engineUrl), vite],
+      root, node, env: { ...environment, LATERDOG_DEV_API_URL: proxyUrl, LATERDOG_WORKSPACE_URL: proxyUrl }, ports: [proxyPort, uiPort], serverUrl: proxyUrl, readyUrl: `${proxyUrl}${READY_PATH}`, supervisorUrl: null, uiUrl, homeSession,
+      services: [step(join(root, "scripts/dev-home-proxy.mjs"), homeSession, String(proxyPort)), vite],
       electron: { file: electronFile, args: [root] },
     };
   }

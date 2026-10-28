@@ -4,18 +4,15 @@ import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, rea
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { EARLIER_CODE as MENU_EARLIER, RESTART_CODE as MENU_RESTART, SWITCH_CODE as MENU_SWITCH } from "../electron/dev-session-menu.mjs";
+import { EARLIER_CODE as MENU_EARLIER, RESTART_CODE as MENU_RESTART } from "../electron/dev-session-menu.mjs";
 import {
   APP_NAME,
   EARLIER_BUTTON,
   EARLIER_CODE,
   RESTART_CODE,
   SNAPSHOT_REFS,
-  SWITCH_CODE,
-  chosenWorkspace,
   homeSessionUsable,
   installedSettings,
-  switchWorkspace,
   command,
   defaultSettings,
   dialogScript,
@@ -175,7 +172,6 @@ describe("the later.dog Dev app", () => {
   it("asks the menu and the keeper for the same restart and earlier-version codes", () => {
     expect(RESTART_CODE).toBe(MENU_RESTART);
     expect(EARLIER_CODE).toBe(MENU_EARLIER);
-    expect(SWITCH_CODE).toBe(MENU_SWITCH);
   });
 });
 
@@ -360,65 +356,44 @@ describe("the keeper", () => {
     expect(sessionEnv({ dataHome: null }, null, null, { LATERDOG_DEV_SESSION_VERSION: "old" })).toEqual({ LATERDOG_DEV_SESSION: "1" });
   });
 
-  it("opens on the later.dog Cloud home when this Mac has a home session, unless the person switched to this Mac's Dev dogs", () => {
+  it("is a window onto the later.dog Cloud whenever this Mac has a usable home session, and the local Dev workspace otherwise", () => {
     const tools = scratch();
     const session = join(tools, "my-home.session.json");
-    const settings = { state: join(tools, "app"), homeSession: session };
-    expect(chosenWorkspace(settings)).toEqual({ workspace: "mac", canUseHome: false });
+    const settings = { dataHome: null, homeSession: session };
+    const inherited = { PATH: "/usr/bin", LATERDOG_DEV_HOME_SESSION: "/stale.json" };
+    expect(sessionEnv(settings, null, null, inherited)).toEqual({ PATH: "/usr/bin", LATERDOG_DEV_SESSION: "1" });
     writeFileSync(session, JSON.stringify({ url: "https://h1-home.later.dog", token: "laterdog_sess_abc" }));
     expect(homeSessionUsable(session)).toBe(true);
-    expect(chosenWorkspace(settings)).toEqual({ workspace: "home", canUseHome: true });
-    expect(switchWorkspace(settings, chosenWorkspace(settings))).toEqual({ workspace: "mac", canUseHome: true });
-    expect(chosenWorkspace(settings)).toEqual({ workspace: "mac", canUseHome: true });
-    expect(switchWorkspace(settings, chosenWorkspace(settings)).workspace).toBe("home");
-    expect(chosenWorkspace(settings).workspace).toBe("home");
+    expect(sessionEnv(settings, null, null, inherited)).toEqual({ PATH: "/usr/bin", LATERDOG_DEV_SESSION: "1", LATERDOG_DEV_HOME_SESSION: session });
     for (const broken of [{ url: "http://example.test", token: "laterdog_sess_abc" }, { url: "https://h1-home.later.dog", token: "nope" }]) {
       writeFileSync(session, JSON.stringify(broken));
-      expect(chosenWorkspace(settings)).toEqual({ workspace: "mac", canUseHome: false });
+      expect(sessionEnv(settings, null, null, inherited)).toEqual({ PATH: "/usr/bin", LATERDOG_DEV_SESSION: "1" });
     }
-    expect(switchWorkspace(settings, { workspace: "mac", canUseHome: false }).workspace).toBe("mac");
-    expect(chosenWorkspace({ state: join(tools, "app"), homeSession: null })).toEqual({ workspace: "mac", canUseHome: false });
+    expect(sessionEnv({ dataHome: null, homeSession: null }, null, null, inherited)).toEqual({ PATH: "/usr/bin", LATERDOG_DEV_SESSION: "1" });
   });
 
-  it("hands the home session to the session only on the home, and never one it inherited", () => {
-    const inherited = { PATH: "/usr/bin", LATERDOG_DEV_HOME_SESSION: "/stale.json", LATERDOG_DEV_WORKSPACE: "home", LATERDOG_DEV_HOME_AVAILABLE: "1" };
-    const settings = { dataHome: null, homeSession: "/tools/my-home.session.json" };
-    expect(sessionEnv(settings, null, null, inherited, 0, { workspace: "home", canUseHome: true })).toEqual({
-      PATH: "/usr/bin", LATERDOG_DEV_SESSION: "1", LATERDOG_DEV_WORKSPACE: "home", LATERDOG_DEV_HOME_AVAILABLE: "1", LATERDOG_DEV_HOME_SESSION: "/tools/my-home.session.json",
-    });
-    expect(sessionEnv(settings, null, null, inherited, 0, { workspace: "mac", canUseHome: true })).toEqual({ PATH: "/usr/bin", LATERDOG_DEV_SESSION: "1", LATERDOG_DEV_HOME_AVAILABLE: "1" });
-    expect(sessionEnv(settings, null, null, inherited, 0, { workspace: "home", canUseHome: false })).toEqual({ PATH: "/usr/bin", LATERDOG_DEV_SESSION: "1" });
-    expect(sessionEnv(settings, null, null, inherited)).toEqual({ PATH: "/usr/bin", LATERDOG_DEV_SESSION: "1" });
-  });
-
-  it("switches between the home and this Mac's Dev dogs from the menu and keeps the version that was running", async () => {
+  it("checks the home session at every start, so connecting later takes effect on the next restart", async () => {
     const state = join(scratch(), "state");
-    const picked = { ref: `${SNAPSHOT_REFS}/7`, at: 7, commit: "c7" };
-    const ends = [EARLIER_CODE, SWITCH_CODE, SWITCH_CODE, 0];
+    const ends = [RESTART_CODE, 0];
     const seen = [];
-    let place = { workspace: "home", canUseHome: true };
+    let connected = false;
     await keep({ repo: "/fixture/repo", state, logs: join(state, "logs"), homeSession: "/tools/my-home.session.json" }, {
-      session: async ({ checkout, env, onReady }) => {
-        seen.push([checkout, env.LATERDOG_DEV_WORKSPACE ?? "mac", env.LATERDOG_DEV_HOME_SESSION ?? null]);
+      session: async ({ env, onReady }) => {
+        seen.push(env.LATERDOG_DEV_HOME_SESSION ?? null);
+        connected = true;
         await onReady();
         return { code: ends.shift(), ready: true, tail: [] };
       },
-      list: async () => [picked],
-      choose: async (saved) => saved[0],
+      list: async () => [],
+      choose: async () => null,
       ask: async () => null,
       snapshot: async () => ({ ref: "saved" }),
-      earlier: async (version) => `/fixture/earlier/${version.commit}`,
+      earlier: async () => "/unused",
       electron: async () => null,
       log: () => {},
-      workspace: () => place,
-      flip: (current) => (place = { ...current, workspace: current.workspace === "home" ? "mac" : "home" }),
+      usable: () => connected,
     });
-    expect(seen).toEqual([
-      ["/fixture/repo", "home", "/tools/my-home.session.json"],
-      ["/fixture/earlier/c7", "home", "/tools/my-home.session.json"],
-      ["/fixture/earlier/c7", "mac", null],
-      ["/fixture/earlier/c7", "home", "/tools/my-home.session.json"],
-    ]);
+    expect(seen).toEqual([null, "/tools/my-home.session.json"]);
   });
 
   it("reads the home session from an install made before it was saved, but never for an isolated install", () => {

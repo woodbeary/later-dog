@@ -176,23 +176,15 @@ test("on a later.dog Cloud home the window waits only for the local proxy and re
   const plan = planFor({ LATERDOG_DEV_HOME_SESSION: "/fixture/home.session.json" });
   assert.equal(plan.supervisorUrl, null);
   assert.equal(plan.readyUrl, `${plan.serverUrl}/__dev-home-proxy/ready`);
-  assert.deepEqual(plan.ports, [8999, 18999, 19000, 9110, 5299]);
+  assert.deepEqual(plan.ports, [8999, 5299]);
   assert.equal(plan.env.LATERDOG_DEV_API_URL, plan.serverUrl);
-  assert.equal(plan.services.length, 5);
-  assert.deepEqual(plan.services.map((service) => service.args[0]), ["server/laterdog/main.ts", "server/index.ts", "scripts/dev-home-proxy.mjs", "scripts/dev-home-relay.mjs", "node_modules/vite/bin/vite.js"].map((file) => `${ROOT}/${file}`));
-  assert.deepEqual(plan.services[2].args, [`${ROOT}/scripts/dev-home-proxy.mjs`, "/fixture/home.session.json", "8999"]);
-  assert.deepEqual(plan.services[3].args, [`${ROOT}/scripts/dev-home-relay.mjs`, "/fixture/home.session.json", "http://127.0.0.1:18999"]);
-  for (const engine of plan.services.slice(0, 2)) {
-    assert.equal(engine.env.LATERDOG_SERVER_PORT, "18999");
-    assert.equal(engine.env.LATERDOG_WEBHOOK_PORT, "19000");
-    assert.equal(engine.env.LATERDOG_HOME, plan.env.LATERDOG_HOME);
-  }
+  assert.equal(plan.services.length, 2);
+  assert.deepEqual(plan.services[0].args, [`${ROOT}/scripts/dev-home-proxy.mjs`, "/fixture/home.session.json", "8999"]);
   const processes = fakeProcesses(plan);
   const checked = [];
   const result = runDesktop(plan, lifecycleOptions(processes, { waitReady: async (url) => { checked.push(url); } }));
   await until(() => processes.electron);
   assert.deepEqual(new Set(checked), new Set([plan.readyUrl, `${plan.uiUrl}/@vite/client`]));
-  assert.equal(processes.calls.find((call) => call.args[0] === `${ROOT}/server/index.ts`).options.env.LATERDOG_SERVER_PORT, "18999");
   processes.electron.finish(0);
   assert.equal(await result, 0);
 });

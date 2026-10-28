@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
-import { EARLIER_CODE, RESTART_CODE, SWITCH_CODE, devSessionItems, quitWithCode } from "./dev-session-menu.mjs";
+import { EARLIER_CODE, RESTART_CODE, devSessionItems, quitWithCode } from "./dev-session-menu.mjs";
 
 describe("the later.dog Dev app menu", () => {
   it("adds nothing outside a later.dog Dev app session", () => {
@@ -27,22 +27,6 @@ describe("the later.dog Dev app menu", () => {
     ]);
     items[2].click();
     expect(codes).toEqual([RESTART_CODE]);
-  });
-
-  it("switches between the later.dog Cloud chats and this Mac's Dev dogs", () => {
-    const codes = [];
-    const onHome = devSessionItems({ LATERDOG_DEV_SESSION: "1", LATERDOG_DEV_WORKSPACE: "home", LATERDOG_DEV_HOME_AVAILABLE: "1" }, (code) => codes.push(code), "later.dog Dev");
-    expect(onHome.slice(3).map((item) => [item.label ?? item.type, item.enabled ?? true])).toEqual([
-      ["separator", true],
-      ["Showing your later.dog Cloud chats", false],
-      ["Switch to This Mac's Dev Dogs", true],
-    ]);
-    onHome.at(-1).click();
-    const onMac = devSessionItems({ LATERDOG_DEV_SESSION: "1", LATERDOG_DEV_HOME_AVAILABLE: "1" }, (code) => codes.push(code), "later.dog Dev");
-    expect(onMac.slice(3).map((item) => item.label ?? item.type)).toEqual(["separator", "Switch to My later.dog Cloud"]);
-    onMac.at(-1).click();
-    expect(codes).toEqual([SWITCH_CODE, SWITCH_CODE]);
-    expect(devSessionItems({ LATERDOG_DEV_SESSION: "1" }, () => {}, "later.dog Dev")).toHaveLength(3);
   });
 
   it("quits through the normal shutdown and only then exits with the chosen code", () => {

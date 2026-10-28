@@ -10,7 +10,6 @@ export const BUNDLE_ID = "dog.later.app.dev.source";
 export const ICON_FILE = "later-dog-dev.icns";
 export const RESTART_CODE = 75;
 export const EARLIER_CODE = 76;
-export const SWITCH_CODE = 77;
 export const HOME_SESSION_FILE = "my-home.session.json";
 const SESSION_TOKEN = /^laterdog_sess_[A-Za-z0-9_-]+$/;
 export const SNAPSHOT_REFS = "refs/laterdog-dev/opened";
@@ -143,27 +142,6 @@ export function homeSessionUsable(file) {
   } catch {
     return false;
   }
-}
-
-const workspaceFile = (state) => join(state, "workspace.json");
-
-export function chosenWorkspace(settings, usable = homeSessionUsable) {
-  const canUseHome = usable(settings.homeSession);
-  let saved = null;
-  try {
-    saved = JSON.parse(readFileSync(workspaceFile(settings.state), "utf8")).workspace;
-  } catch {}
-  const workspace = canUseHome && saved !== "mac" ? "home" : "mac";
-  return { workspace, canUseHome };
-}
-
-export function switchWorkspace(settings, place) {
-  const workspace = place.workspace === "home" || !place.canUseHome ? "mac" : "home";
-  try {
-    mkdirSync(settings.state, { recursive: true });
-    writeFileSync(workspaceFile(settings.state), `${JSON.stringify({ workspace })}\n`);
-  } catch {}
-  return { ...place, workspace };
 }
 
 export function alive(pid) {
@@ -350,14 +328,10 @@ export async function refreshElectron(settings, checkout, install = installApp) 
   return join(settings.bundle, "Contents", "MacOS", "Electron");
 }
 
-export function sessionEnv(settings, version, electron, base = process.env, now = Date.now(), place = { workspace: "mac", canUseHome: false }) {
+export function sessionEnv(settings, version, electron, base = process.env, now = Date.now(), usable = homeSessionUsable) {
   const env = { ...base, LATERDOG_DEV_SESSION: "1" };
-  for (const key of ["LATERDOG_DEV_SESSION_VERSION", "LATERDOG_DEV_ELECTRON", "LATERDOG_DEV_HOME_SESSION", "LATERDOG_DEV_WORKSPACE", "LATERDOG_DEV_HOME_AVAILABLE"]) delete env[key];
-  if (place.canUseHome) env.LATERDOG_DEV_HOME_AVAILABLE = "1";
-  if (place.workspace === "home" && place.canUseHome && settings.homeSession) {
-    env.LATERDOG_DEV_WORKSPACE = "home";
-    env.LATERDOG_DEV_HOME_SESSION = settings.homeSession;
-  }
+  for (const key of ["LATERDOG_DEV_SESSION_VERSION", "LATERDOG_DEV_ELECTRON", "LATERDOG_DEV_HOME_SESSION"]) delete env[key];
+  if (settings.homeSession && usable(settings.homeSession)) env.LATERDOG_DEV_HOME_SESSION = settings.homeSession;
   if (version) env.LATERDOG_DEV_SESSION_VERSION = snapshotWhen(version.at, now);
   if (electron) env.LATERDOG_DEV_ELECTRON = electron;
   if (settings.dataHome) env.LATERDOG_HOME = settings.dataHome;
@@ -472,7 +446,6 @@ async function pickEarlier({ list, choose, ask, fallback }) {
 export async function nextStep(result, { version, logs, list, ask, choose }) {
   if (result.interrupted || result.code === 0) return { kind: "quit" };
   if (result.code === RESTART_CODE) return { kind: "start", version: null };
-  if (result.code === SWITCH_CODE) return { kind: "switch", version };
   if (result.code === EARLIER_CODE) return pickEarlier({ list, choose, ask, fallback: version });
   const saved = await list().catch(() => []);
   const again = result.ready ? "Restart" : "Try Again";
@@ -502,13 +475,11 @@ export async function keep(settings, deps = {}) {
     earlier = (picked) => prepareEarlier(settings, picked),
     electron = (checkout) => refreshElectron(settings, checkout),
     log = keeperLog(settings.logs),
-    workspace = () => chosenWorkspace(settings),
-    flip = (place) => switchWorkspace(settings, place),
+    usable = homeSessionUsable,
   } = deps;
   const release = takeLock(settings.state);
   if (!release) return "already running";
   let version = null;
-  let place = workspace();
   try {
     for (;;) {
       writeState(settings.state, { phase: "starting", version: version?.ref ?? null });
@@ -527,10 +498,10 @@ export async function keep(settings, deps = {}) {
         log(`keeping the stock Electron for this session: ${error.message}`);
         return null;
       });
-      log(`starting ${version ? version.ref : "the latest code"} from ${checkout} on ${place.workspace === "home" ? "the later.dog Cloud home" : "this Mac's Dev dogs"}`);
+      log(`starting ${version ? version.ref : "the latest code"} from ${checkout}${settings.homeSession && usable(settings.homeSession) ? " as a window onto your later.dog Cloud" : ""}`);
       const result = await session({
         checkout,
-        env: sessionEnv(settings, version, executable, process.env, Date.now(), place),
+        env: sessionEnv(settings, version, executable, process.env, Date.now(), usable),
         logs: settings.logs,
         onReady: async () => {
           writeState(settings.state, { phase: "ready", version: version?.ref ?? null });
@@ -547,7 +518,6 @@ export async function keep(settings, deps = {}) {
       if (!result.ready) writeState(settings.state, { phase: "failed", version: version?.ref ?? null });
       const step = await nextStep(result, { version, logs: settings.logs, list, ask, choose });
       if (step.kind === "quit") break;
-      if (step.kind === "switch") place = flip(place);
       version = step.version;
     }
   } finally {
