@@ -47,8 +47,10 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
 
 FROM runtime AS cloud-home
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ripgrep gh jq \
-  && rm -rf /var/lib/apt/lists/*
+  && apt-get install -y --no-install-recommends ripgrep gh jq python3 python3-pip python3-venv build-essential \
+  && rm -rf /var/lib/apt/lists/* \
+  && corepack enable pnpm \
+  && test -L /usr/local/bin/pnpm
 COPY --from=edge /caddy /usr/local/bin/caddy
 ARG GROK_VERSION=1.0.41
 RUN if [ -n "$GROK_VERSION" ]; then \
