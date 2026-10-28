@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { CHUNK_BYTES, collectGarbage, createHttpStore, parseManifest, referencedBlobs, restore, settleWithin, skipped, snapshot, StoreRefused, transient } from "../runtime/sync.mjs";
+import { CHUNK_BYTES, collectGarbage, createHttpStore, parseManifest, referencedBlobs, restore, settleWithin, skipped, skippedPath, snapshot, StoreRefused, transient } from "../runtime/sync.mjs";
 
 function memoryStore() {
   const blobs = new Map<string, Uint8Array>();
@@ -264,6 +264,47 @@ describe("home data sync", () => {
     const second = await snapshot(source, store, first.manifest, { scratch: folder() });
     expect(second.unsaved).toEqual([]);
     expect(second.manifest.entries.map((entry: { path: string }) => entry.path).sort()).toEqual(["chats.json", "stuck.bin"]);
+  });
+
+  it("never saves pnpm's package store, which one install fills with tens of thousands of files", async () => {
+    const source = folder();
+    mkdirSync(join(source, ".local", "share", "pnpm", "store", "v10", "files", "00"), { recursive: true });
+    writeFileSync(join(source, ".local", "share", "pnpm", "store", "v10", "files", "00", "a1b2"), "a package file");
+    mkdirSync(join(source, ".local", "share", "notes"), { recursive: true });
+    writeFileSync(join(source, ".local", "share", "notes", "keep.md"), "kept");
+    const store = memoryStore();
+    const saved = await snapshot(source, store, null, { scratch: folder() });
+    const paths = saved.manifest.entries.map((entry: { path: string }) => entry.path);
+    expect(paths).toContain(".local/share/notes/keep.md");
+    expect(paths.some((path: string) => path.startsWith(".local/share/pnpm"))).toBe(false);
+    expect(skippedPath(".local/share/pnpm")).toBe(true);
+    expect(skippedPath(".local/share/pnpm-notes")).toBe(false);
+    expect(transient({ path: ".local/share/pnpm/store/v10/index.json", type: "file" })).toBe(true);
+  });
+
+  it("keeps what it saved when a save runs out of time, and the next save carries on from there", async () => {
+    const source = folder();
+    writeFileSync(join(source, "a-chats.db.json"), "the chats");
+    writeFileSync(join(source, "b-notes.md"), "notes, first version");
+    const store = memoryStore();
+    const before = await snapshot(source, store, null, { scratch: folder() });
+    writeFileSync(join(source, "a-chats.db.json"), "the chats, with today's messages");
+    writeFileSync(join(source, "b-notes.md"), "notes, second version");
+    writeFileSync(join(source, "c-new.txt"), "a new file");
+    let clock = 0;
+    const slow = await snapshot(source, store, before.manifest, { scratch: folder(), now: () => (clock += 10), budgetMs: 15 });
+    expect(slow.written).toBe(true);
+    expect(slow.uploaded).toBe(1);
+    expect(slow.deferred).toBe(2);
+    const files = (manifest: { entries: Array<{ path: string; type: string; chunks?: string[] }> }) =>
+      Object.fromEntries(manifest.entries.filter((entry) => entry.type === "file").map((entry) => [entry.path, entry.chunks]));
+    expect(files(slow.manifest)["a-chats.db.json"]).not.toEqual(files(before.manifest)["a-chats.db.json"]);
+    expect(files(slow.manifest)["b-notes.md"]).toEqual(files(before.manifest)["b-notes.md"]);
+    expect(files(slow.manifest)["c-new.txt"]).toBeUndefined();
+    const next = await snapshot(source, store, slow.manifest, { scratch: folder() });
+    expect(next.deferred).toBe(0);
+    expect(next.uploaded).toBe(2);
+    expect(Object.keys(files(next.manifest)).sort()).toEqual(["a-chats.db.json", "b-notes.md", "c-new.txt"]);
   });
 
   it("never uploads the throwaway .tmp folders engines fill on every start", async () => {

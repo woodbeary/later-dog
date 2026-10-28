@@ -14,6 +14,8 @@ const DEV_CODE_DIR = "/tmp/laterdog-dev-server";
 const STOP_CHILD_MS = 20_000;
 const PUSHED_CODE_GRACE_MS = 30_000;
 const INTERVAL_MS = Number(process.env.LATERDOG_SYNC_INTERVAL_MS || 60_000);
+const SAVE_BUDGET_MS = Math.max(5_000, INTERVAL_MS - 15_000);
+const FINAL_SAVE_BUDGET_MS = FINAL_SAVE_MS - 30_000;
 const RESTORE_ATTEMPTS = 5;
 const GC_EVERY_SAVES = Number(process.env.LATERDOG_GC_EVERY_SAVES || 30);
 const KEPT_RESTORE_POINTS = Number(process.env.LATERDOG_RESTORE_POINTS || RESTORE_POINTS);
@@ -83,11 +85,12 @@ async function main() {
     if (!store) return Promise.resolve();
     if (running) return running;
     running = restorePoints.keep()
-      .then(() => snapshot(DATA, store, manifest, { scratch: SCRATCH, app: APP }))
+      .then(() => snapshot(DATA, store, manifest, { scratch: SCRATCH, app: APP, budgetMs: final ? FINAL_SAVE_BUDGET_MS : SAVE_BUDGET_MS }))
       .then(async (result) => {
         manifest = result.manifest;
         if (result.written) log(`saved (${result.uploaded} changed files)`);
         if (result.unsaved.length) log(`could not save ${result.unsaved.length} file(s) this time, first ${result.unsaved[0]}; the next save tries again`);
+        if (result.deferred) log(`${result.deferred} changed file(s) wait for the next save, which carries on where this one stopped`);
         saves += 1;
         if (final || saves % GC_EVERY_SAVES !== 0) return;
         try {

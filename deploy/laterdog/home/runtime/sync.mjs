@@ -13,6 +13,7 @@ const RESTORING_PREFIX = ".laterdog-restoring-";
 const SQLITE = /\.(?:sqlite3?|db)$/;
 const SKIPPED_NAMES = new Set(["node_modules", ".cache", ".tmp", ".npm", ".pnpm-store", "Cache", "Code Cache", "GPUCache", "ShaderCache", "Crashpad", ".Trash", "lost+found"]);
 const SKIPPED_SUFFIXES = ["-wal", "-shm", "-journal"];
+const SKIPPED_PATHS = [".local/share/pnpm"];
 const REFRESH_LOCK_NAMES = new Set([".oauth_refresh.lock", ".oauth_refresh.lock.owner"]);
 const LOCK_DIRECTORY_SUFFIX = ".lock";
 const HASH = /^[a-f0-9]{64}$/;
@@ -33,13 +34,17 @@ export function skipped(name) {
   return SKIPPED_NAMES.has(name) || REFRESH_LOCK_NAMES.has(name) || name.startsWith(RESTORING_PREFIX) || SKIPPED_SUFFIXES.some((suffix) => name.endsWith(suffix));
 }
 
+export function skippedPath(path) {
+  return SKIPPED_PATHS.some((skippedRoot) => path === skippedRoot || path.startsWith(`${skippedRoot}/`));
+}
+
 export function heldLock(name, type) {
   return type === "dir" && name.endsWith(LOCK_DIRECTORY_SUFFIX);
 }
 
 export function transient(entry) {
   const names = entry.path.split("/");
-  return names.some((name, index) => skipped(name) || heldLock(name, index < names.length - 1 ? "dir" : entry.type));
+  return skippedPath(entry.path) || names.some((name, index) => skipped(name) || heldLock(name, index < names.length - 1 ? "dir" : entry.type));
 }
 
 export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { blobTimeoutMs = BLOB_TIMEOUT_MS, requestTimeoutMs = REQUEST_TIMEOUT_MS, uploadTimeoutMs = UPLOAD_TIMEOUT_MS } = {}) {
@@ -142,6 +147,7 @@ async function walk(root, directory, found) {
   for (const name of names.sort()) {
     if (skipped(name)) continue;
     const path = join(directory, name);
+    if (skippedPath(relative(root, path))) continue;
     let info;
     try {
       info = await lstat(path);
@@ -204,11 +210,13 @@ async function databaseCopy(path, scratch) {
   return copy;
 }
 
-export async function snapshot(root, store, previous, { scratch, now = Date.now, app } = {}) {
+export async function snapshot(root, store, previous, { scratch, now = Date.now, app, budgetMs = Infinity } = {}) {
   const known = new Map((previous?.entries ?? []).filter((entry) => entry.type === "file").map((entry) => [entry.path, entry]));
   const entries = [];
   const unsaved = [];
   let uploaded = 0;
+  let deferred = 0;
+  const deadline = now() + budgetMs;
   if (scratch) await mkdir(scratch, { recursive: true, mode: 0o700 });
   for (const entry of await scan(root)) {
     if (entry.type !== "file") {
@@ -220,6 +228,11 @@ export async function snapshot(root, store, previous, { scratch, now = Date.now,
     const stamp = database ? await databaseStamp(join(root, entry.path), entry) : undefined;
     if (before && before.size === entry.size && before.mtimeMs === entry.mtimeMs && before.stamp === stamp) {
       entries.push({ ...entry, ...(stamp ? { stamp } : {}), chunks: before.chunks });
+      continue;
+    }
+    if (now() > deadline) {
+      if (before) entries.push(before);
+      deferred += 1;
       continue;
     }
     try {
@@ -236,9 +249,9 @@ export async function snapshot(root, store, previous, { scratch, now = Date.now,
   const manifest = { version: MANIFEST_VERSION, createdAt: now(), ...(app ? { app } : {}), entries };
   if (uploaded > 0 || !previous || (app && previous.app !== app) || previous.entries.length !== entries.length || changedShape(previous.entries, entries)) {
     await store.putManifest(manifest);
-    return { manifest, written: true, uploaded, unsaved };
+    return { manifest, written: true, uploaded, unsaved, deferred };
   }
-  return { manifest: previous, written: false, uploaded, unsaved };
+  return { manifest: previous, written: false, uploaded, unsaved, deferred };
 }
 
 export function settleWithin(work, ms) {
