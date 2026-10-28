@@ -50,13 +50,13 @@ const FULL = { direct: "direct+skills+shared+voice" } as const;
 const BUDGET_BASELINE: Record<string, number> = {
   "direct": 33176,
   "direct+voice": 33917,
-  "direct+shared": 35905,
-  "direct+shared+voice": 36646,
+  "direct+shared": 36740,
+  "direct+shared+voice": 37481,
   "direct+skills": 35229,
   "direct+skills+voice": 35970,
-  "direct+skills+shared": 37958,
-  "direct+skills+shared+voice": 38699,
-  "direct+skills+shared+voice+cloud-home": 38756,
+  "direct+skills+shared": 38793,
+  "direct+skills+shared+voice": 39534,
+  "direct+skills+shared+voice+cloud-home": 39591,
 };
 
 const RPC_PREFIX = '{"jsonrpc":"2.0","id":1,"result":';
