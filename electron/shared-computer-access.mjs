@@ -11,6 +11,7 @@ import { searchFolder } from "./mac-search.mjs";
 
 const commands = createCommandRunner({ environment: createLoginEnvironment() });
 export const stopSharedCommands = () => commands.stopAll();
+export const warmSharedCommands = () => commands.warm();
 export const SHARED_ACTIONS = Object.freeze([
   "list_files", "read_file", "write_file", "edit_file", "delete_file", "search_files",
   "run_command", "command_output", "command_input", "command_stop", "computer_tools", "computer_call",
@@ -259,15 +260,15 @@ export function createSharedCua(connection) {
   };
 }
 
-export async function commandFolder(grant, cwd, { home = os.homedir() } = {}) {
+export async function commandFolder(grant, cwd, { home = grant.home === true && grant.folders[0]?.path ? grant.folders[0].path : os.homedir() } = {}) {
   const base = grant.folders[0]?.path ?? home;
   if (cwd === undefined || cwd === "") return base;
   if (typeof cwd !== "string" || cwd.length > 2048 || cwd.includes("\0")) throw new Error("Give cwd as a folder path on the Mac");
   const trimmed = cwd.trim();
   const target = trimmed === "~" ? home : trimmed.startsWith("~/") ? path.join(home, trimmed.slice(2)) : path.isAbsolute(trimmed) ? trimmed : path.join(base, trimmed);
   let real;
-  try { real = await fs.realpath(target); } catch (error) { throw absent(error) ? new Error(`There's no folder ${trimmed} on this Mac`) : error; }
-  if (!(await fs.stat(real)).isDirectory()) throw new Error(`${trimmed} is a file, not a folder`);
+  try { real = await fs.realpath(target); } catch (error) { throw absent(error) ? new Error("The cwd folder doesn't exist on this Mac. list_files shows what's there.") : error; }
+  if (!(await fs.stat(real)).isDirectory()) throw new Error("cwd names a file, not a folder");
   return real;
 }
 

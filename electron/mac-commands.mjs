@@ -180,6 +180,7 @@ export function createCommandRunner({ environment, spawnImpl = spawn, now = Date
       }
       return report(id, entry);
     },
+    warm: () => environment().then(() => {}, () => {}),
     running: () => [...commands.values()].filter(entry => !entry.done).length,
     stopAll() {
       for (const entry of commands.values()) if (!entry.done) signalGroup(entry.child, "SIGKILL");

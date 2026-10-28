@@ -82,9 +82,19 @@ test("cwd picks the folder a command runs in, relative to the lent folder or ~",
   assert.equal((await run({ action: "run_command", command: "pwd -P" })).output.trim(), dir);
   assert.equal((await run({ action: "run_command", command: "pwd -P", cwd: "code/app" })).output.trim(), path.join(dir, "code", "app"));
   assert.equal((await run({ action: "run_command", command: "pwd -P", cwd: "~/code" })).output.trim(), path.join(dir, "code"));
-  await assert.rejects(run({ action: "run_command", command: "pwd", cwd: "nowhere" }), /no folder nowhere/);
+  await assert.rejects(run({ action: "run_command", command: "pwd", cwd: "nowhere" }), /cwd folder doesn't exist/);
   await writeFile(path.join(dir, "file.txt"), "x");
-  await assert.rejects(run({ action: "run_command", command: "pwd", cwd: "file.txt" }), /is a file, not a folder/);
+  await assert.rejects(run({ action: "run_command", command: "pwd", cwd: "file.txt" }), /names a file, not a folder/);
+});
+
+test("on a home grant, ~ in cwd is the lent home folder", async t => {
+  const { dir, folder } = await fixture(t);
+  await mkdir(path.join(dir, "proj"));
+  const grant = { enabled: true, home: true, folders: [{ ...folder, name: "Home" }], terminal: true, computer: false };
+  const commands = createCommandRunner({ environment: async () => ({ PATH: process.env.PATH }) });
+  t.after(() => commands.stopAll());
+  const ran = await executeSharedOperation(grant, { folder_id: folder.id, action: "run_command", command: "pwd -P", cwd: "~/proj" }, new AbortController().signal, undefined, { commands, platform: "linux" });
+  assert.equal(JSON.parse(ran.content[0].text).output.trim(), path.join(dir, "proj"));
 });
 
 test("command tools need the terminal grant", async t => {

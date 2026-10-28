@@ -5,7 +5,7 @@ import os from "node:os";
 import { execFile } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { createSharedCua, executeSharedOperation, personalSecretPaths, SHARED_ACTIONS, sharedComputerError, stopSharedCommands } from "./shared-computer-access.mjs";
+import { createSharedCua, executeSharedOperation, personalSecretPaths, SHARED_ACTIONS, sharedComputerError, stopSharedCommands, warmSharedCommands } from "./shared-computer-access.mjs";
 import { createLendingActivity, describeSharedOperation } from "./lending-activity.mjs";
 import { droppedPollRetryMs } from "./lending-poll.mjs";
 
@@ -316,6 +316,7 @@ export function createComputerSharing({
           }, signal, grant.secret, { "x-laterdog-computer-actions": SHARED_ACTIONS.join(",") });
           if (signal.aborted) break;
           failures = 0;
+          if (grant.terminal) void warmSharedCommands();
           status.set(env.id, { connected: true });
           changed();
           const inflight = new Set();
