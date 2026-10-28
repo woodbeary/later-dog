@@ -13,9 +13,9 @@ const provider: PlanProvider = { id: "a", name: "a", driver: "claude", plan: nul
 const rest = { since: new Date(now - 3_600_000).toISOString(), until: new Date(now + 3_600_000).toISOString() };
 function render(auto = false, used = 27) {
   const host = document.createElement("div");
-  host.innerHTML = renderToStaticMarkup(createElement(AccountMenu, { auto, now, onPick: vi.fn(), rows: [
-    { instance: instance("a"), label: "Personal", selected: true, rest },
-    { instance: instance("b"), label: "Work", selected: false, inUse: true, provider: { ...provider, weekly: { ...provider.weekly, usedPercent: used, remainingPercent: 100 - used } } },
+  host.innerHTML = renderToStaticMarkup(createElement(AccountMenu, { auto, now, onPick: vi.fn(), onReorder: vi.fn(), rows: [
+    { instance: instance("a"), label: "Personal", selected: true, movable: true, rest },
+    { instance: instance("b"), label: "Work", selected: false, movable: true, inUse: true, provider: { ...provider, weekly: { ...provider.weekly, usedPercent: used, remainingPercent: 100 - used } } },
   ] }));
   return host;
 }
@@ -27,6 +27,7 @@ describe("compact account batteries", () => {
     expect(row.textContent).toContain("Resting · back at");
     expect(row.querySelector("[data-charging-bolt]")).not.toBeNull();
     expect(row.querySelector("[data-account-check]")?.getAttribute("data-account-check")).toBe("off");
+    expect(row.querySelector("[data-account-grip]")?.className).not.toContain("opacity-0");
   });
   it("shows the tighter remaining window and identifies the account actually in use", () => {
     const row = render().querySelector('[data-account-row="b"]')!;
@@ -75,7 +76,7 @@ describe("compact account batteries", () => {
     expect(row.querySelector("[data-recharge]")).toBeNull();
     expect(render(false, 99.6).querySelector('[data-account-row="b"] [data-sleeping-dog]')).toBeNull();
   });
-  it("says when the server manages priority, with nothing to drag", () => {
+  it("locks dragging while the server manages priority", () => {
     const host = render(true);
     expect(host.querySelector("[data-account-managed]")?.textContent).toContain("Automatically managed");
     expect(host.querySelector("[data-account-grip]")).toBeNull();
@@ -86,12 +87,12 @@ describe("compact account batteries", () => {
 describe("account menu details", () => {
   const stamp = (minutes: number) => new Date(now + minutes * 60_000).toISOString();
   const detailed: PlanProvider = { ...provider, plan: "Max", fiveHour: { available: true, usedPercent: 38, remainingPercent: 62, resetsAt: stamp(190) }, weekly: { available: true, usedPercent: 22, remainingPercent: 78, resetsAt: stamp(5000) } };
-  async function mount(manage = vi.fn(), extra: readonly { instance: InstanceInfo; label: string; selected: boolean; provider?: PlanProvider }[] = []) {
+  async function mount(extra: readonly { instance: InstanceInfo; label: string; selected: boolean; provider?: PlanProvider }[] = []) {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
-    await act(async () => root.render(createElement(AccountMenu, { now, onPick: vi.fn(), onManageUsage: manage, rows: [
+    await act(async () => root.render(createElement(AccountMenu, { now, onPick: vi.fn(), rows: [
       { instance: instance("a"), label: "Personal", selected: true, provider: detailed },
       ...extra,
     ] })));
@@ -107,33 +108,18 @@ describe("account menu details", () => {
     host.remove();
   });
 
-  it("opens the usage card when the row is reached, with both reset times and Manage usage", async () => {
-    const manage = vi.fn();
-    const { host, root } = await mount(manage);
-    expect(host.querySelector("[data-account-hover-card]")).toBeNull();
-    await act(async () => host.querySelector('[data-account-row="a"]')!.dispatchEvent(new FocusEvent("focusin", { bubbles: true })));
-    const card = host.querySelector("[data-account-hover-card]")!;
-    expect(card.textContent).toContain("Max");
-    expect(card.querySelector('[data-usage-window="fiveHour"]')?.textContent).toContain("resets in 3h 10m");
-    expect(card.querySelector('[data-usage-window="weekly"]')?.textContent).toContain("78%");
-    expect(card.querySelector('[data-usage-window="weekly"] [data-usage-reset]')?.textContent).toContain("resets in 3d 11h");
-    await act(async () => card.querySelector<HTMLElement>("[data-account-manage-usage]")!.click());
-    expect(manage).toHaveBeenCalledOnce();
-    await act(async () => root.unmount());
-    host.remove();
-  });
-
-  it("opens the usage card on hover after a short pause and closes it after the pointer leaves", async () => {
+  it("keeps usage in the row instead of opening a second card", async () => {
     vi.useFakeTimers();
     try {
       const { host, root } = await mount();
-      const row = host.querySelector('[data-account-row="a"]')!.parentElement!;
-      await act(async () => { row.dispatchEvent(new MouseEvent("pointerover", { bubbles: true })); });
+      const row = host.querySelector('[data-account-row="a"]')!;
+      await act(async () => {
+        row.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+        row.parentElement!.dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+        vi.advanceTimersByTime(500);
+      });
       expect(host.querySelector("[data-account-hover-card]")).toBeNull();
-      await act(async () => { vi.advanceTimersByTime(100); });
-      expect(host.querySelector("[data-account-hover-card]")).not.toBeNull();
-      await act(async () => { row.dispatchEvent(new MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body })); vi.advanceTimersByTime(300); });
-      expect(host.querySelector("[data-account-hover-card]")).toBeNull();
+      expect(row.getAttribute("aria-haspopup")).toBeNull();
       await act(async () => root.unmount());
       host.remove();
     } finally {
@@ -141,9 +127,19 @@ describe("account menu details", () => {
     }
   });
 
+  it("says when a spent account is back, from its plan's reset time", async () => {
+    const spent: PlanProvider = { ...detailed, fiveHour: { available: true, usedPercent: 100, remainingPercent: 0, resetsAt: stamp(77) } };
+    const { host, root } = await mount([{ instance: instance("b"), label: "Spare", selected: false, provider: spent }]);
+    const row = host.querySelector('[data-account-row="b"]')!;
+    expect(row.querySelector("[data-account-status]")?.textContent).toMatch(/^Back at /);
+    expect(row.querySelector("[data-sleeping-dog]")).not.toBeNull();
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
   it("lists an account once even when two groups hand it over", async () => {
     const twin = { instance: instance("a"), label: "Personal", selected: true, provider: detailed };
-    const { host, root } = await mount(vi.fn(), [twin]);
+    const { host, root } = await mount([twin]);
     expect(host.querySelectorAll('[data-account-row="a"]')).toHaveLength(1);
     await act(async () => root.unmount());
     host.remove();
@@ -156,16 +152,16 @@ describe("account names come first", () => {
   const usage = (id: string, used: number): PlanProvider => ({ ...provider, id, weekly: { ...provider.weekly, usedPercent: used, remainingPercent: 100 - used } });
   const kinds = (instanceId: string, driverKind: string): InstanceInfo => ({ ...instance(instanceId), driverKind });
   const jacobs: AccountMenuRow[] = [
-    { instance: kinds("claude", "claudeAgent"), label: "Claude", selected: true, inUse: true, provider: usage("claude", 0) },
-    { instance: kinds("claude-2", "claudeAgent"), label: "jacob.lopez.work.account@example.com", selected: false, rest },
-    { instance: kinds("claude-3", "claudeAgent"), label: "A very long Claude account name for the team", selected: false, provider: usage("claude-3", 64) },
+    { instance: kinds("claude", "claudeAgent"), label: "Claude", selected: true, inUse: true, movable: true, provider: usage("claude", 0) },
+    { instance: kinds("claude-2", "claudeAgent"), label: "jacob.lopez.work.account@example.com", selected: false, movable: true, rest },
+    { instance: kinds("claude-3", "claudeAgent"), label: "A very long Claude account name for the team", selected: false, movable: true, provider: usage("claude-3", 64) },
     { instance: kinds("codex", "codex"), label: "ChatGPT", selected: false, provider: usage("codex", 0) },
     { instance: kinds("laterdogAi", "laterdogAi"), label: "Kimi", selected: false },
     { instance: kinds("grok", "grokAgent"), label: "Grok", selected: false },
   ];
   const draw = (rows: readonly AccountMenuRow[]) => {
     const host = document.createElement("div");
-    host.innerHTML = renderToStaticMarkup(createElement(AccountMenu, { now, onPick: vi.fn(), onAdd: vi.fn(), rows }));
+    host.innerHTML = renderToStaticMarkup(createElement(AccountMenu, { now, onPick: vi.fn(), onReorder: vi.fn(), onAdd: vi.fn(), rows }));
     return host;
   };
   const fixedWidth = (element: Element) => {
