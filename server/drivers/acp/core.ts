@@ -50,11 +50,11 @@ import { commandSummary, toolDetailPreview } from "../../tool-summary.ts";
 import { extractMcpImages } from "../../mcp-tool-images.ts";
 import { redactSecretsInText } from "../../redact.ts";
 import { recoveryPromptFor } from "../../resume-recovery.ts";
-import { sessionIdlePolicy } from "../session-idle.ts";
 import { classifyError } from "../retry.ts";
 import { canUseMcpServer, narrowsNativeTools, parseToolScope } from "../../../shared/tool-scope.ts";
 import { gateServer } from "../../mcp-gate-config.ts";
 import { readEngineModels } from "../../laterdog/wait-at-most.ts";
+import { ENGINE_BYTES, engineIdleLimit, warmEngines } from "../../laterdog/warm-engines.ts";
 import { readCliVersion, unreadCli } from "../../laterdog/cli-version.ts";
 
 export type AccountErrorCode = Extract<ProviderErrorCode,
@@ -147,7 +147,6 @@ interface AcpSession {
   sessionConfigResult: any;
   initResult: any;
   authenticated: boolean;
-  idleTimer: ReturnType<typeof setTimeout> | null;
   closing: boolean;
   dead: boolean;
   stderr: string;
@@ -483,13 +482,13 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         }
         return stopped;
       };
-      const { idleMs: SESSION_IDLE_MS } = sessionIdlePolicy("ACP");
+      const SESSION_IDLE_MS = engineIdleLimit("ACP");
 
       const closeSession = (threadId: string, why: string) => {
         const session = sessions.get(threadId);
         if (!session || session.closing) return;
         session.closing = true;
-        if (session.idleTimer) clearTimeout(session.idleTimer);
+        warmEngines.forget(session);
         appendNative(threadId, { dir: "out", source: SOURCE, msg: { close: why } });
         sessions.delete(threadId);
         session.acp.close();
@@ -507,9 +506,11 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
       const armIdle = (threadId: string) => {
         const session = sessions.get(threadId);
         if (!session) return;
-        if (session.idleTimer) clearTimeout(session.idleTimer);
-        session.idleTimer = setTimeout(() => closeSession(threadId, "idle"), SESSION_IDLE_MS);
-        session.idleTimer.unref?.();
+        warmEngines.rest(session, {
+          pid: session.child.pid,
+          idleMs: SESSION_IDLE_MS,
+          close: (why) => { if (sessions.get(threadId) === session) closeSession(threadId, why); },
+        });
       };
       const sessionAllows = new Map<string, Set<string>>();
 
@@ -724,6 +725,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         contractKey: string,
       ): AcpSession => {
         const commandCwd = permissionLaunchCwd(cwd);
+        warmEngines.makeRoom(ENGINE_BYTES);
         const child = spawnCli(launch.command, argv, {
           cwd,
           env,
@@ -1108,7 +1110,6 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
           sessionConfigResult: null,
           initResult: null,
           authenticated: false,
-          idleTimer: null,
           closing: false,
           dead: false,
           stderr: "",
@@ -1172,6 +1173,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         });
         child.on("close", (code) => {
           session.dead = true;
+          warmEngines.forget(session);
           const current = session.current;
           if (current) {
             emit({
@@ -1276,8 +1278,7 @@ export function createAcpDriver(support: AcpSupport): ProviderDriver<AcpConfig> 
         let session: AcpSession;
         if (pooled && !pooled.dead && !pooled.closing && pooled.contractKey === contractKey
             && (!support.restartOnMcpChange || pooled.sessionKey === sessionKey)) {
-          if (pooled.idleTimer) clearTimeout(pooled.idleTimer);
-          pooled.idleTimer = null;
+          warmEngines.wake(pooled);
           session = pooled;
         } else {
           if (pooled) {

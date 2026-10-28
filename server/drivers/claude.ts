@@ -31,7 +31,6 @@ import { newEventId, newId } from "../contracts.ts";
 import { askInputSummary, commandSummary, toolDetailPreview } from "../tool-summary.ts";
 import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 import { ClaudeTasks, helperStep } from "./claude-tasks.ts";
-import { sessionIdlePolicy } from "./session-idle.ts";
 import { parseVersionTriple, versionAtLeast } from "./acp/core.ts";
 import {
   applyClaudeInject,
@@ -49,6 +48,7 @@ import { laterdogPreallowedTools } from "../laterdog/own-tools.ts";
 import { claudeEffortArg, claudeEffortLevels } from "../laterdog/effort-levels.ts";
 import { machineClaudeMemoryExcludes } from "../laterdog/claude-memory-isolation.ts";
 import { quietWorkEnvironment } from "../laterdog/work-updates.ts";
+import { ENGINE_BYTES, engineIdleLimit, warmEngines } from "../laterdog/warm-engines.ts";
 import { leftoverProgramsNotice } from "../laterdog/unconfirmed-stop.ts";
 import { extractMcpImages } from "../mcp-tool-images.ts";
 import {
@@ -936,7 +936,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       helperTurnId: string;
       helpers: ClaudeTasks;
       helperTimer: ReturnType<typeof setTimeout> | null;
-      idleTimer: ReturnType<typeof setTimeout> | null;
       closing: boolean;
       stderr: string;
       costTotal: number | null | undefined;
@@ -944,7 +943,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       closed: Promise<void>;
     }
     const sessions = new Map<string, Session>();
-    const { idleMs: SESSION_IDLE_MS } = sessionIdlePolicy("CLAUDE");
+    const SESSION_IDLE_MS = engineIdleLimit("CLAUDE");
 
     const stopSession = (session: Session) => {
       void killCliTree(session.child).then((stopped) => {
@@ -955,7 +954,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const s = sessions.get(threadId);
       if (!s || s.closing) return;
       s.closing = true;
-      if (s.idleTimer) clearTimeout(s.idleTimer);
+      warmEngines.forget(s);
       const broker = s.broker;
       s.broker = undefined;
       broker?.close();
@@ -971,9 +970,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     const armIdle = (threadId: string) => {
       const s = sessions.get(threadId);
       if (!s || s.helpers.running()) return;
-      if (s.idleTimer) clearTimeout(s.idleTimer);
-      s.idleTimer = setTimeout(() => closeSession(threadId, "idle"), SESSION_IDLE_MS);
-      s.idleTimer.unref?.();
+      warmEngines.rest(s, {
+        pid: s.child.pid,
+        idleMs: SESSION_IDLE_MS,
+        close: (why) => { if (sessions.get(threadId) === s) closeSession(threadId, why); },
+      });
     };
     const writeUser = (s: Session, threadId: string, promptMsg: ClaudeUserMessage): Promise<boolean> => {
       if (!s.child.stdin.writable || s.child.stdin.destroyed) return Promise.resolve(false);
@@ -1207,7 +1208,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       await claudeRefreshGate.enter(env);
       const live = sessions.get(threadId);
       if (!turn.sessionReset && live && !live.turn && !live.closing && live.child.exitCode === null && live.argsKey === argsKey && (!sessionId || sessionId === live.sessionId)) {
-        if (live.idleTimer) clearTimeout(live.idleTimer);
+        warmEngines.wake(live);
         live.helpers.beginTurn();
         live.helperTurnId = turnId;
         live.turn = { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, awaitingInit: true, pendingSteers: new Set(), deferred: null, continuationGrace: null, continuationSilence: null };
@@ -1334,6 +1335,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
 
       let child: ReturnType<typeof spawnCli>;
+      warmEngines.makeRoom(ENGINE_BYTES);
       try {
         child = spawnCli(config.cli, args, {
           cwd,
@@ -1362,7 +1364,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         helperTurnId: turnId,
         helpers: new ClaudeTasks((helper) => emit({ ...base(threadId, session.turn?.turnId ?? session.helperTurnId), type: "helper.updated", helper })),
         helperTimer: null,
-        idleTimer: null,
         closing: false,
         stderr: "",
         costTotal: undefined,
@@ -1474,7 +1475,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         switch (o.type) {
           case "system":
             if (session.helpers.receive(o)) {
-              if (session.helpers.running() && session.idleTimer) { clearTimeout(session.idleTimer); session.idleTimer = null; }
+              if (session.helpers.running()) warmEngines.wake(session);
               if (session.helpers.running() && !session.helperTimer) {
                 const helperMaxMs = Math.min(2_147_483_647, Math.max(1_000, Number(input.environment.LATERDOG_HELPERS_MAX_MS ?? process.env.LATERDOG_HELPERS_MAX_MS) || 4 * 60 * 60_000));
                 session.helperTimer = setTimeout(() => {
@@ -1887,7 +1888,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           });
           settle(false, "exit_before_result");
         }
-        if (session.idleTimer) clearTimeout(session.idleTimer);
+        warmEngines.forget(session);
         session.broker?.close();
         if (session.mcpConfigPath) {
           try {
