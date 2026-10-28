@@ -5,12 +5,20 @@ an internet outage. Browser capabilities also expire when their owning turn
 ends; “unauthorized” after that boundary must not be repaired by giving a
 worker permanent browser credentials.
 
-The Claude driver keeps native background tasks disabled. Native subagents
-can still work within the active turn; asynchronous work across bots uses
-later.dog's `coordinate_bots` path, which owns each recipient's turn, approvals,
-and the result that resumes the sender. Long-running native Bash commands can no longer
-auto-background past the owning turn. This does not change approval modes or
-disable sandbox protections.
+The Claude driver lets Claude run helpers and Bash commands in the background,
+so a dog stays free to answer the person while long work runs. Claude dogs are
+told to put anything longer than a minute or two there. The later.dog turn stays
+open while any background task runs: Claude's own results are held, the turn's
+approvals and integration credentials stay valid, and a message the person sends
+meanwhile reaches the engine at once and is answered. When the last background
+task finishes, Claude replies on its own and then emits a result with
+`origin.kind = "task-notification"`; that closes the turn without asking again.
+If Claude ends such a round without replying, later.dog asks it once to review
+the results and reply. Stop ends the turn with every background task, and helpers
+are stopped after `LATERDOG_HELPERS_MAX_MS` (four hours by default).
+Asynchronous work across bots still uses later.dog's `coordinate_bots` path,
+which owns each recipient's turn, approvals, and the result that resumes the
+sender. This does not change approval modes or disable sandbox protections.
 
 Claude can emit a synthetic result with `origin.kind = "task-notification"`.
 That result must not settle a submitted user turn or consume its permissions.

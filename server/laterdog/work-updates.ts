@@ -7,14 +7,20 @@ export const MILESTONE_PROMPT =
 export const KEEP_GOING_PROMPT =
   " Never end your turn on a line about what you will do next, such as \"I'm checking it now\": nothing happens after your turn ends. Do the work in this turn, or say in one line what is stopping you.";
 
+export const BACKGROUND_WORK_PROMPT =
+  " Run anything that will take more than a minute or two, such as a build, a test run or a helper's whole job, in the background, so you stay free to answer the person while it runs. You may end your turn while background work runs: you are told when it finishes, and then you report the result.";
+
+export const KEEP_GOING_WITH_BACKGROUND_PROMPT =
+  " Apart from background work, never end your turn on a line about what you will do next, such as \"I'm checking it now\": nothing else happens after your turn ends. Do the work in this turn, or say in one line what is stopping you.";
+
 export const ON_IT_NOTE = "[later.dog: if this needs a tool, send your one short on-it line first, before the first tool call.]";
 
 export function withOnItNote(text: string): string {
   return `${text}\n\n${ON_IT_NOTE}`;
 }
 
-export function workUpdatesPrompt(): string {
-  return QUIET_WORK_PROMPT + MILESTONE_PROMPT + KEEP_GOING_PROMPT;
+export function workUpdatesPrompt({ background = false }: { background?: boolean } = {}): string {
+  return QUIET_WORK_PROMPT + MILESTONE_PROMPT + (background ? BACKGROUND_WORK_PROMPT + KEEP_GOING_WITH_BACKGROUND_PROMPT : KEEP_GOING_PROMPT);
 }
 
 export function quietWorkEnvironment(quiet: boolean | undefined): Record<string, string> {
