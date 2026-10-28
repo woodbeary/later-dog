@@ -56,6 +56,7 @@ function tokenFileHere(tokenFile: string, folder: string): string {
   return existsSync(here) ? here : tokenFile;
 }
 export function supervisorConnectionFile(): string { return join(process.env.LATERDOG_HOME ?? join(homedir(), ".laterdog"), "supervisor.json"); }
+export function connectedRepositoriesFile(): string { return join(process.env.LATERDOG_HOME ?? join(homedir(), ".laterdog"), "connected-repositories.json"); }
 export function supervisorConnection(): SupervisorConnection {
   if (process.env.LATERDOG_SUPERVISOR_URL) {
     return { origin: validOrigin(process.env.LATERDOG_SUPERVISOR_URL), ...(process.env.LATERDOG_TOKEN_FILE ? { tokenFile: process.env.LATERDOG_TOKEN_FILE } : {}), source: "environment" };

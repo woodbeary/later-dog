@@ -1,7 +1,10 @@
 import { once } from "node:events";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createConnectedRepositories, repositoriesEnvironment, repositoriesForTurn, repositoriesFromEnvironment, supervisorRepositorySlugs } from "./connected-repositories.ts";
+import { createConnectedRepositories, repositoriesEnvironment, repositoriesForTurn, repositoriesFromEnvironment, savedRepositoriesFile, supervisorRepositorySlugs } from "./connected-repositories.ts";
 
 const servers: Server[] = [];
 afterEach(async () => {
@@ -28,6 +31,41 @@ describe("connected repositories", () => {
     const repositories = createConnectedRepositories(async () => { throw new Error("connection refused"); });
     expect(await repositories.refresh()).toEqual([]);
     expect(repositories.known()).toEqual([]);
+  });
+
+  it("keeps the repositories it knew when the supervisor can't be asked, so a dog's tools don't flicker", async () => {
+    let clock = 0;
+    const answers: (() => Promise<string[]>)[] = [async () => ["acme/web"], async () => { throw new Error("connection refused"); }];
+    const repositories = createConnectedRepositories(() => answers.shift()!(), 1_000, () => clock);
+    expect(await repositories.refresh()).toEqual(["acme/web"]);
+    clock = 2_000;
+    expect(await repositories.refresh()).toEqual(["acme/web"]);
+    expect(repositories.known()).toEqual(["acme/web"]);
+  });
+
+  it("starts a turn after a restart on the repositories saved before it, without waiting for the supervisor", async () => {
+    const saved = { load: () => ["acme/web"], save: vi.fn() };
+    const read = vi.fn(() => new Promise<string[]>(() => {}));
+    const repositories = createConnectedRepositories(read, 1_000, () => 0, saved);
+    expect(repositories.checked()).toBe(true);
+    expect(await repositoriesForTurn(repositories)).toEqual(["acme/web"]);
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves each answer and reads it back after a restart, ignoring a damaged file", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "laterdog-repositories-"));
+    try {
+      const file = join(dir, "data", "connected-repositories.json");
+      await createConnectedRepositories(async () => ["acme/web", "acme/api"], 1_000, () => 0, savedRepositoriesFile(file)).refresh();
+      const restarted = createConnectedRepositories(async () => { throw new Error("not up yet"); }, 1_000, () => 0, savedRepositoriesFile(file));
+      expect(restarted.known()).toEqual(["acme/web", "acme/api"]);
+      expect(await restarted.refresh()).toEqual(["acme/web", "acme/api"]);
+      writeFileSync(file, "{ not json");
+      expect(savedRepositoriesFile(file).load()).toBeNull();
+      expect(createConnectedRepositories(async () => [], 1_000, () => 0, savedRepositoriesFile(file)).checked()).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("asks again right after the person connects a repository", async () => {
@@ -91,6 +129,18 @@ describe("connected repositories", () => {
     vi.stubEnv("LATERDOG_TOKEN", "fixture-admin-token");
     expect(await supervisorRepositorySlugs()).toEqual(["acme/web", "acme/api"]);
     expect(seen).toEqual(["Bearer fixture-admin-token"]);
+  });
+
+  it("counts a supervisor that answers with an error as unreachable, not as no repositories", async () => {
+    const server = createServer((_req, res) => { res.statusCode = 503; res.end("starting"); });
+    servers.push(server);
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("no fixture port");
+    vi.stubEnv("LATERDOG_SUPERVISOR_URL", `http://127.0.0.1:${address.port}`);
+    vi.stubEnv("LATERDOG_TOKEN", "fixture-admin-token");
+    await expect(supervisorRepositorySlugs()).rejects.toThrow("503");
   });
 
   it("hands the slugs to a dog's MCP server through one variable", () => {

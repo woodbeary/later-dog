@@ -1,4 +1,7 @@
-import { desktopSupervisorToken, supervisorOrigin } from "./config.ts";
+import { mkdirSync, readFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { writeFileAtomic } from "../atomic.ts";
+import { connectedRepositoriesFile, desktopSupervisorToken, supervisorOrigin } from "./config.ts";
 
 export const REPOSITORIES_ENV = "LATERDOG_REPOSITORIES";
 
@@ -9,13 +12,37 @@ export interface ConnectedRepositories {
   forget(): void;
 }
 
+export interface SavedRepositories {
+  load(): readonly string[] | null;
+  save(slugs: readonly string[]): void;
+}
+
+export function savedRepositoriesFile(file: string): SavedRepositories {
+  return {
+    load() {
+      try {
+        const value: unknown = JSON.parse(readFileSync(file, "utf8"));
+        return Array.isArray(value) && value.every((slug) => typeof slug === "string") ? value : null;
+      } catch {
+        return null;
+      }
+    },
+    save(slugs) {
+      try {
+        mkdirSync(dirname(file), { recursive: true });
+        writeFileAtomic(file, JSON.stringify(slugs), { mode: 0o600 });
+      } catch {}
+    },
+  };
+}
+
 export async function supervisorRepositorySlugs(): Promise<string[]> {
   const response = await fetch(`${supervisorOrigin()}/v1/workspace`, {
     headers: { authorization: `Bearer ${desktopSupervisorToken()}` },
     redirect: "error",
     signal: AbortSignal.timeout(3_000),
   });
-  if (!response.ok) return [];
+  if (!response.ok) throw new Error(`the supervisor answered ${response.status}`);
   const body = await response.json() as { repositories?: unknown };
   return Array.isArray(body.repositories)
     ? body.repositories.flatMap((repository: unknown) => {
@@ -29,22 +56,35 @@ export function createConnectedRepositories(
   read: () => Promise<readonly string[]> = supervisorRepositorySlugs,
   freshForMs = 15_000,
   now: () => number = Date.now,
+  saved?: SavedRepositories,
 ): ConnectedRepositories {
-  let slugs: readonly string[] = [];
+  const remembered = saved?.load() ?? null;
+  let slugs: readonly string[] = remembered ?? [];
   let checkedAt = Number.NEGATIVE_INFINITY;
   let generation = 0;
   let pending: Promise<readonly string[]> | null = null;
   return {
     known: () => slugs,
-    checked: () => checkedAt !== Number.NEGATIVE_INFINITY,
+    checked: () => checkedAt !== Number.NEGATIVE_INFINITY || remembered !== null,
     refresh() {
       if (now() - checkedAt < freshForMs) return Promise.resolve(slugs);
       if (pending) return pending;
       const started = generation;
-      const current: Promise<readonly string[]> = read().catch(() => []).then((found) => {
-        if (started === generation) { slugs = [...found]; checkedAt = now(); }
+      const current: Promise<readonly string[]> = read().then(
+        (found) => {
+          if (started === generation) {
+            slugs = [...found];
+            checkedAt = now();
+            saved?.save(slugs);
+          }
+          return found;
+        },
+        () => {
+          if (started === generation) checkedAt = now();
+          return slugs;
+        },
+      ).finally(() => {
         if (pending === current) pending = null;
-        return found;
       });
       pending = current;
       return current;
@@ -57,7 +97,9 @@ export function createConnectedRepositories(
   };
 }
 
-export const connectedRepositories = createConnectedRepositories();
+export const connectedRepositories = createConnectedRepositories(
+  supervisorRepositorySlugs, 15_000, Date.now, savedRepositoriesFile(connectedRepositoriesFile()),
+);
 
 export async function repositoriesForTurn(repositories: ConnectedRepositories = connectedRepositories): Promise<readonly string[]> {
   if (!repositories.checked()) return repositories.refresh();
