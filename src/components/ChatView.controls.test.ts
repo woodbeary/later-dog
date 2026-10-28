@@ -56,13 +56,14 @@ const bot: Bot = {
 };
 
 describe("the header", () => {
-  it("has no More menu, no export or usage, and no computer button", () => {
+  it("has a More menu with only the export, no usage, and no computer button", () => {
     fixture.menus = [];
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
-    expect(fixture.menus.find((menu) => menu.ariaLabel === "More")).toBeUndefined();
+    const more = fixture.menus.find((menu) => menu.ariaLabel === "More")!;
+    expect(more.items.map((item) => item.key)).toEqual(["copy", "download"]);
+    expect(more.items[0].heading).toBe("Share");
     expect(markup).not.toContain('data-tour="computer"');
     expect(markup).not.toContain('data-testid="usage-chip"');
-    expect(markup).not.toContain("Download as .md");
   });
 });
 
@@ -149,7 +150,7 @@ describe("thread control placement", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
     expect(markup).not.toContain('aria-label="All threads"');
     expect(markup).toContain('data-testid="chat-find"');
-    expect(markup).not.toContain('data-testid="chat-more"');
+    expect(markup).toContain('data-testid="chat-more"');
   });
 
   it("says in the chat when the dog needs your hands on its computer, with Open, unless its Computer tab is showing", () => {

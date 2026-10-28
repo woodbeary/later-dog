@@ -77,10 +77,10 @@ describe("a dog's chat without the extras", () => {
     expect(actions()).toEqual([]);
   });
 
-  it("keeps only the dog's pill, the account, the call chip and Find in the header", async () => {
+  it("keeps only the dog's pill, the account, the call chip, Find and More in the header", async () => {
     await mount(conversation);
     expect(host.querySelector(`button[title="${t("chat.computer")}"]`)).toBeNull();
-    expect(host.querySelector('[data-testid="chat-more"]')).toBeNull();
+    expect(host.querySelector('[data-testid="chat-more"]')).not.toBeNull();
     expect(host.querySelector('[data-testid="chat-find"]')?.getAttribute("aria-label")).toBe(t("chat.find"));
     expect(host.textContent).not.toContain("Pinned");
   });

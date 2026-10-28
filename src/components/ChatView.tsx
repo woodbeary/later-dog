@@ -7,10 +7,13 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Code,
   Copy,
+  Download,
   Hand,
   MessageSquareReply,
   Pencil,
+  MoreHorizontal,
   RefreshCw,
   Search,
   Webhook,
@@ -90,6 +93,14 @@ import { CompactionChip, DigestChip } from "./DigestChip";
 import { CitationSelectionToolbar, SentCitations } from "./CitationUI";
 
 import { StopSpeakingButton } from "./SpeakButton";
+import { RawMarkdownView, RawToggleAction } from "./RawMarkdownToggle";
+import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
+import {
+  copyTranscriptToClipboard,
+  downloadMarkdownTranscript,
+  formatTranscriptMarkdown,
+  slugifyTranscriptFilename,
+} from "@/lib/export-transcript";
 import { CallOverlay } from "./CallView";
 import { LiveCallBar } from "./LiveCallBar";
 import { LiveCallChip } from "./LiveCallPill";
@@ -413,6 +424,7 @@ const Bubble = memo(function Bubble({
   const react = (emoji: string) => void reactToMessage(dispatch, threadId, message, emoji);
   const reactionName = (by: string) => (by === botId ? botName : bots.find((candidate) => candidate.id === by)?.name ?? by);
   const focusedSearch = focus?.messageId === message.id && Boolean(focus.matchText);
+  const [viewRaw, setViewRaw] = useState(false);
   const speech = useSpeech();
   const speaking = speech.messageId === message.id && speech.status !== "idle";
   const text = peer ? peer.body : (message.text ?? "");
@@ -466,6 +478,9 @@ const Bubble = memo(function Bubble({
   const switchTo = (v: Message | undefined) => {
     if (v && !busy && !v.id.startsWith(OPTIMISTIC_PREFIX)) dispatch({ type: "switchBranch", botId, threadId, messageId: v.id });
   };
+  const botMore: SidebarMenuItem[] = text && !viewRaw
+    ? [{ key: "source", label: t("chat.action.viewSource"), icon: <Code size={16} />, onSelect: () => setViewRaw(true) }]
+    : [];
 
   return (
     <div data-from={user ? "user" : "agent"} className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
@@ -588,7 +603,7 @@ const Bubble = memo(function Bubble({
               )}
             </>
           ) : (
-            <MessageBoundary fallbackText={text || t("chat.generatedImage")}>
+            <MessageBoundary key={viewRaw ? "raw" : "rendered"} fallbackText={text || t("chat.generatedImage")}>
               {voiceNotes.length > 0 && (
                 <div className={cn("flex flex-col", (text || generatedPaths.length > 0 || linkedFiles.length > 0) && "mb-2")}>
                   {voiceNotes.map((note) => (
@@ -597,15 +612,18 @@ const Bubble = memo(function Bubble({
                 </div>
               )}
               <AttachmentGallery images={generatedPaths} files={linkedFiles} message={{ threadId, messageId: message.id }} className={text ? undefined : "mb-0"} eager={eagerAttachments} />
-              {text ? (
+              {viewRaw && text ? (
+                <div data-citation-source={message.id} data-citation-owner-type="bot" data-citation-owner={botId} data-citation-thread={threadId}><RawMarkdownView text={text} /></div>
+              ) : text ? (
                 <div data-citation-source={message.id} data-citation-owner-type="bot" data-citation-owner={botId} data-citation-thread={threadId}><ChatMarkdown text={text} mentionPeers={mentionPeers} message={{ threadId, messageId: message.id }} /></div>
               ) : null}
             </MessageBoundary>
           )}
         </div>
         {!user && (
-          <MessageActions side="bot" forceOpen={speaking || picking}>
+          <MessageActions side="bot" forceOpen={viewRaw || speaking || picking} more={botMore}>
             {speaking && <StopSpeakingButton preparing={speech.status === "preparing"} />}
+            {viewRaw && text && <RawToggleAction active onToggle={() => setViewRaw(false)} className="opacity-100" />}
             {reactable && <ReactionPicker reacted={myReactions(message.reactions)} onReact={react} onOpenChange={setPicking} />}
             {text && <CopyButton text={text} className="opacity-100" />}
             <button
@@ -1175,6 +1193,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           >
             <Search size={18} />
           </button>
+          <ChatHeaderMenu key={`menu:${bot.threadId}`} bot={bot} messages={messages} />
         </div>
         </div>
       </div>
@@ -1341,6 +1360,51 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
       </GlassScrollFrame>
 
     </main>
+  );
+}
+
+function ChatHeaderMenu({ bot, messages }: { bot: Bot; messages: readonly Message[] }) {
+  const [copyStatus, setCopyStatus] = useState<"copied" | "failed" | null>(null);
+  const hasMessages = messages.length > 0;
+  const transcript = () => formatTranscriptMarkdown({ title: bot.name, messages, botName: bot.name, isGroup: false });
+  const items: SidebarMenuItem[] = [
+    {
+      key: "copy",
+      heading: t("chat.export.heading"),
+      label: t("chat.export.copy"),
+      icon: <Copy size={16} />,
+      disabled: !hasMessages,
+      keepOpen: true,
+      trailing: copyStatus && <span role="status" className="text-[11px] text-ink-secondary">{t(copyStatus === "copied" ? "chat.export.copied" : "chat.export.copyFailed")}</span>,
+      onSelect: () => { void copyTranscriptToClipboard(transcript()).then((ok) => setCopyStatus(ok ? "copied" : "failed")); },
+    },
+    {
+      key: "download",
+      label: t("chat.export.download"),
+      icon: <Download size={16} />,
+      disabled: !hasMessages,
+      onSelect: () => downloadMarkdownTranscript(slugifyTranscriptFilename(bot.name), transcript()),
+    },
+  ];
+  return (
+    <SidebarPopoverMenu
+      items={items}
+      ariaLabel={t("chat.more")}
+      openOnHover
+      placement="below"
+      renderTrigger={({ open }) => (
+        <span
+          data-testid="chat-more"
+          className={cn(
+            "flex rounded-md p-1.5 hover:bg-raised",
+            open ? "text-accent" : "text-ink-secondary hover:text-ink",
+          )}
+          title={t("chat.more")}
+        >
+          <MoreHorizontal size={18} />
+        </span>
+      )}
+    />
   );
 }
 
