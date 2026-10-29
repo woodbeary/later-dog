@@ -561,7 +561,8 @@ export function Composer({
   };
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
   // Stop and Send share the last slot, so nothing jumps around while a dog works: Stop until you type, then Send.
-  const stopShown = working && !hasContent;
+  // While you dictate the slot stays Send, so finishing a recording can never land on Stop.
+  const stopShown = working && !hasContent && !recording && sharpening === 0;
   const expanded = textWrapped || attachments.length > 0 || Boolean(attachmentNotice) || Boolean(replyTo);
   const retryFailedSend = (failed: FailedComposerSend) => {
     if (failed.requestText.includes("<attached-image ") && !imageTargetsSupport(failed.requestText)) {

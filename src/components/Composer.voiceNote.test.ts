@@ -170,6 +170,20 @@ describe("cloud dictation", () => {
     expect(actions().at(-1)).toBe(sendButton());
   });
 
+  it("never offers Stop while you dictate, so finishing a recording can't stop the dog", async () => {
+    talker = { ...talker, busy: true };
+    answerLater();
+    await render();
+    await click(micButton());
+    expect(host.querySelector("[data-composer-stop]")).toBeNull();
+    await click(micButton());
+    expect(host.querySelector("[data-composer-stop]")).toBeNull();
+    release(Response.json({ text: HEARD, language: "en", included: true }));
+    await settle();
+    expect(box().value).toBe(HEARD);
+    expect(sendButton()).not.toBeNull();
+  });
+
   it("says Transcribing once, in the strip, not again in the message box", async () => {
     answerLater();
     await render();
