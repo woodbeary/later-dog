@@ -57,8 +57,6 @@ export function desktopPlan({ env = process.env, home = homedir(), root = projec
   };
 }
 
-// On macOS, run Electron through dev-disclaim so it owns its microphone
-// permission. Without it, node is the responsible process and macOS mutes the mic.
 export function disclaimedElectron(electron, { platform = process.platform, root = projectRoot, home = homedir(), build = execFileSync } = {}) {
   if (platform !== "darwin") return electron;
   const source = join(root, "scripts", "dev-disclaim.c");

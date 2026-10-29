@@ -258,7 +258,6 @@ const featureConfigSchema = z.object({
   typingSuggestions: z.boolean().optional(),
   smarterSuggestions: z.boolean().optional(),
   autoReview: z.boolean().optional(),
-  // Older configs saved this when the mic could be hidden; the mic always shows now.
   voiceNoteButton: z.boolean().optional(),
   callButton: z.boolean().optional(),
 });
