@@ -338,7 +338,6 @@
   "composer.error.clipboardImage": "Não foi possível ler a imagem da área de transferência. Tente anexar o arquivo da imagem.",
   "composer.picturesLimit": "Uma mensagem pode ter até {max} imagens.",
   "composer.dictation.macOnly": "O ditado só está disponível no macOS por enquanto.",
-  "composer.dictation.permission": "O ditado precisa de acesso ao Microfone e ao Reconhecimento de Fala — Ajustes do Sistema → Privacidade e Segurança.",
   "composer.dictation.saved": "Sua nota de voz está salva.",
   "composer.dictation.retrying": "Convertendo sua nota de voz salva em texto…",
   "composer.dictation.unavailable": "O ditado não está disponível nesta versão.",

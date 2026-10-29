@@ -338,7 +338,6 @@
   "composer.error.clipboardImage": "Impossible de lire l'image du presse-papiers. Joignez plutôt le fichier image.",
   "composer.picturesLimit": "Un message peut contenir jusqu'à {max} images.",
   "composer.dictation.macOnly": "La dictée n'est disponible que sur macOS pour l'instant.",
-  "composer.dictation.permission": "La dictée a besoin de l'accès au Micro et à la Reconnaissance vocale — Réglages Système → Confidentialité et sécurité.",
   "composer.dictation.saved": "Ta note vocale est enregistrée.",
   "composer.dictation.retrying": "Conversion de ta note vocale enregistrée en texte…",
   "composer.dictation.unavailable": "La dictée n'est pas disponible dans cette version.",

@@ -52,7 +52,7 @@ test("dictation stops when the page that started it navigates to another documen
   leave({}, "https://other.example", false, true);
   assert.equal(stops, 2);
   const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8");
-  assert.match(main, /stopSpeechWhenPageLeaves\(win\.webContents, stopSpeech\);\n  startSpeech\(/);
+  assert.match(main, /stopSpeechWhenPageLeaves\(win\.webContents, stopSpeech\);\n  return startSpeech\(/);
 });
 
 test("a remote page gets the speech bridge but still not permissions or local controls", () => {

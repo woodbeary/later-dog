@@ -340,7 +340,6 @@
   "composer.error.clipboardImage": "クリップボードの画像を読み取れませんでした。代わりに画像ファイルを添付してください。",
   "composer.picturesLimit": "1 つのメッセージに添付できる画像は {max} 枚までです。",
   "composer.dictation.macOnly": "音声入力は今のところ macOS でのみ利用できます。",
-  "composer.dictation.permission": "音声入力にはマイクと音声認識の許可が必要です — システム設定 → プライバシーとセキュリティ。",
   "composer.dictation.saved": "音声メモを保存しました。",
   "composer.dictation.retrying": "保存した音声メモを文字に変換中…",
   "composer.dictation.unavailable": "このビルドでは音声入力を利用できません。",

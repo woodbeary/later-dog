@@ -11,17 +11,15 @@ export function dictationLanguage(locale: string | undefined): string | undefine
   return /^[a-z]{2}$/.test(code) ? code : undefined;
 }
 
-export type SharperOutcome = { text: string } | { miss: "no-audio" | "no-service" | "failed" };
+export type SharperOutcome = { text: string } | { miss: "no-audio" | "no-service" | "off" | "failed" };
 
-export async function sharperTranscriptOutcome(
-  recording: string,
-  bridge: VoiceNoteAudio | undefined,
+export async function transcribeDictation(
+  audio: Uint8Array<ArrayBuffer>,
   locale: string | undefined,
   fetcher: typeof fetch = fetch,
 ): Promise<SharperOutcome> {
   try {
-    const audio = await bridge?.speechAudio?.(recording);
-    if (!audio?.byteLength) return { miss: "no-audio" };
+    if (!audio.byteLength) return { miss: "no-audio" };
     const language = dictationLanguage(locale);
     const res = await fetcher(`/api/voice/transcribe${language ? `?language=${language}` : ""}`, {
       method: "POST",
@@ -32,13 +30,29 @@ export async function sharperTranscriptOutcome(
     const body: unknown = await res.json().catch(() => null);
     if (!res.ok) {
       const reason = body && typeof body === "object" && "reason" in body ? body.reason : undefined;
-      return { miss: reason === "no-service" ? "no-service" : "failed" };
+      return { miss: reason === "no-service" ? "no-service" : reason === "off" ? "off" : "failed" };
     }
     const text = body && typeof body === "object" && "text" in body && typeof body.text === "string" ? body.text.trim() : "";
     return text ? { text } : { miss: "failed" };
   } catch {
     return { miss: "failed" };
   }
+}
+
+export async function sharperTranscriptOutcome(
+  recording: string,
+  bridge: VoiceNoteAudio | undefined,
+  locale: string | undefined,
+  fetcher: typeof fetch = fetch,
+): Promise<SharperOutcome> {
+  let audio: Uint8Array<ArrayBuffer> | null | undefined;
+  try {
+    audio = await bridge?.speechAudio?.(recording);
+  } catch {
+    return { miss: "failed" };
+  }
+  if (!audio?.byteLength) return { miss: "no-audio" };
+  return transcribeDictation(audio, locale, fetcher);
 }
 
 export async function sharperTranscript(

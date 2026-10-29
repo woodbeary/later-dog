@@ -338,7 +338,6 @@
   "composer.error.clipboardImage": "क्लिपबोर्ड की छवि पढ़ी नहीं जा सकी। इसके बजाय छवि फ़ाइल संलग्न करें।",
   "composer.picturesLimit": "एक संदेश में अधिकतम {max} तस्वीरें हो सकती हैं।",
   "composer.dictation.macOnly": "फ़िलहाल श्रुतलेख सिर्फ़ macOS पर उपलब्ध है।",
-  "composer.dictation.permission": "श्रुतलेख के लिए माइक्रोफ़ोन और स्पीच रिकग्निशन की अनुमति चाहिए — System Settings → Privacy & Security।",
   "composer.dictation.saved": "आपका वॉइस नोट सहेज लिया गया है।",
   "composer.dictation.retrying": "आपके सहेजे हुए वॉइस नोट को टेक्स्ट में बदला जा रहा है…",
   "composer.dictation.unavailable": "इस बिल्ड में श्रुतलेख उपलब्ध नहीं है।",

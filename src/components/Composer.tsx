@@ -63,7 +63,6 @@ import { ComposerPlusMenu } from "./ComposerPlusMenu";
 import { EffortButton } from "./EffortButton";
 import { needsCli, needsSignIn } from "./EngineSetup";
 import { signInFamily } from "@/lib/engine-rail";
-import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { ReplyQuote } from "./ReplyQuote";
 import {
   QueuedComposerMessages,
@@ -72,8 +71,9 @@ import {
   doubleEnterSteersQueue,
 } from "./ComposerQueuedMessages";
 import { DictationStrip, useDictationMeter } from "./DictationStrip";
-import { cloudDictationEnabled, skillAuthoringEnabled, voiceNoteButtonShown } from "@/lib/feature-flags";
-import { sharperTranscriptOutcome } from "@/lib/sharper-dictation";
+import { skillAuthoringEnabled, voiceNoteButtonShown } from "@/lib/feature-flags";
+import { transcribeDictation, type SharperOutcome } from "@/lib/sharper-dictation";
+import { micRecordingSupported, MicUnavailableError, startMicRecorder, type MicRecorder } from "@/lib/mic-recorder";
 import { useComposerSuggestion } from "@/lib/use-composer-suggestion";
 import { TypingGhost, TypingGhostAnnouncement } from "./TypingGhost";
 import { mentionChoicesForQuery } from "@/lib/mentions";
@@ -121,7 +121,6 @@ export function Composer({
   const bot = profile ? currentTaskBot(profile) : undefined;
   const locked = Boolean(bot?.awaitingThreadSnapshot);
   const { state, dispatch } = useStore();
-  const { capabilities } = useDesktopCapabilities();
   const busy = group ? Boolean(group.working || group.busyBotId) : Boolean(bot?.busy);
   const asking = !group && waitingOnPerson(bot);
   const steerInstanceId = group
@@ -203,12 +202,14 @@ export function Composer({
   const [recording, setRecording] = useState(false);
   const [voiceNote, setVoiceNote] = useState<string | null>(null);
   const [retryingNote, setRetryingNote] = useState<string | null>(null);
-  const retryFile = useRef<string | null>(null);
   const listening = recording || retryingNote !== null;
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [sharpening, setSharpening] = useState(0);
-  const sharpenOnStop = useRef(false);
-  const dictationMeter = useDictationMeter(recording, text.length);
+  const recorder = useRef<MicRecorder | null>(null);
+  const recorderGeneration = useRef(0);
+  const micLevel = useRef<number | null>(null);
+  const savedNotes = useRef(new Map<string, Uint8Array<ArrayBuffer>>());
+  const dictationMeter = useDictationMeter(recording, text.length, micLevel);
   const [caret, setCaret] = useState(0);
   const [highlight, setHighlight] = useState(0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
@@ -282,27 +283,37 @@ export function Composer({
       mounted.current = false;
     };
   }, []);
-  const sharpenLater = useRef<() => ((recording: string | undefined) => Promise<boolean>) | null>(() => null);
-  sharpenLater.current = () => {
-    if (!cloudDictationEnabled(state.config) || !window.laterdog?.speechAudio) return null;
+  const keepVoiceNote = (audio: Uint8Array<ArrayBuffer>, key?: string) => {
+    const notes = savedNotes.current;
+    const id = key ?? `note-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    notes.delete(id);
+    notes.set(id, audio);
+    while (notes.size > 10) notes.delete(notes.keys().next().value!);
+    return id;
+  };
+  // Captures the draft as it is now, so the transcript only lands if nobody typed over it meanwhile.
+  const transcribeLater = () => {
     const id = draftId;
     const heard = text;
     const revision = draftRevision(id);
     const base = baseText.current;
     const write = editText;
-    return async (recording) => {
-      if (!recording) return false;
+    return async (audio: Uint8Array<ArrayBuffer>, key?: string) => {
       setSharpening((count) => count + 1);
-      const outcome = await sharperTranscriptOutcome(recording, window.laterdog, navigator.language);
-      if (!mounted.current) return false;
+      const outcome: SharperOutcome = await transcribeDictation(audio, navigator.language);
+      if (!mounted.current) return;
       setSharpening((count) => count - 1);
-      if ("miss" in outcome && outcome.miss !== "no-audio") {
-        setSpeechError(t(outcome.miss === "no-service" ? "composer.dictation.onDevice" : "composer.dictation.cloudFailed"));
-      }
       const said = "text" in outcome ? outcome.text : null;
-      if (!said || draftIdRef.current !== id || textNow.current !== heard || draftRevision(id) !== revision) return false;
-      write(base ? `${base} ${said}` : said);
-      return true;
+      if (said) {
+        if (key) savedNotes.current.delete(key);
+        if (draftIdRef.current !== id || textNow.current !== heard || draftRevision(id) !== revision) return;
+        write(base ? `${base} ${said}` : said);
+        return;
+      }
+      if ("miss" in outcome && outcome.miss === "no-audio") return;
+      const miss = "miss" in outcome ? outcome.miss : "failed";
+      setVoiceNote(keepVoiceNote(audio, key));
+      setSpeechError(t(miss === "no-service" ? "composer.dictation.noService" : miss === "off" ? "composer.dictation.off" : "composer.dictation.cloudFailed"));
     };
   };
 
@@ -681,77 +692,54 @@ export function Composer({
     editAttachments((prev) => [...prev, pasteAttachment(pasted)]);
   };
 
+  const dropRecorder = () => {
+    recorderGeneration.current += 1;
+    micLevel.current = null;
+    recorder.current?.cancel();
+    recorder.current = null;
+  };
+
   useEffect(() => {
-    if (!listening) return;
-    const bridge = window.laterdog;
-    if (!bridge) {
-      setRecording(false);
-      setRetryingNote(null);
-      return;
-    }
-    const file = retryFile.current;
-    sharpenOnStop.current = false;
-    setSpeechError(null);
-    const offTranscript = bridge.onSpeechTranscript((line) => {
-      if (dictationCancelled.current) return;
-      if (typeof line.text === "string") {
-        const base = baseText.current;
-        editText(base ? `${base} ${line.text}` : line.text);
-      }
-    });
-    const offEnd = bridge.onSpeechEnd(({ code, reason, recording: saved }) => {
-      setRecording(false);
-      setRetryingNote(null);
-      retryFile.current = null;
-      if (dictationCancelled.current) return;
-      const keep = () => {
-        setVoiceNote(code === 1 && saved ? saved : null);
-        if (code === 2) {
-          setSpeechError(t("composer.dictation.macOnly"));
-        } else if (code === 1) {
-          setSpeechError(t(
-            reason === "dictation-disabled"
-              ? "composer.dictation.disabled"
-              : reason === "speech-not-authorized"
-                ? "composer.dictation.permission"
-                : "composer.dictation.failed",
-          ));
-        }
-      };
-      const sharpen = !file && saved ? sharpenLater.current() : null;
-      if (!sharpen) return keep();
-      setVoiceNote(null);
-      void sharpen(saved).then((replaced) => {
-        if (!replaced && code === 1 && mounted.current) keep();
-      });
-    });
-    void bridge.speechStart(file ? { file } : undefined);
-    return () => {
-      offTranscript();
-      offEnd();
-      const stopped = Promise.resolve(bridge.speechStop());
-      const sharpen = sharpenOnStop.current ? sharpenLater.current() : null;
-      sharpenOnStop.current = false;
-      if (sharpen) void stopped.then((result) => sharpen(result?.recording));
-    };
-  }, [listening, editText]);
+    // Sending or switching drafts turns recording off without a stop: drop the audio.
+    if (!recording && recorder.current) dropRecorder();
+  }, [recording]);
+  useEffect(() => () => dropRecorder(), []);
 
   const retryVoiceNote = () => {
     if (!voiceNote || listening) return;
-    dictationCancelled.current = false;
-    retryFile.current = voiceNote;
+    const audio = savedNotes.current.get(voiceNote);
     setVoiceNote(null);
+    setSpeechError(null);
+    if (!audio) return;
+    baseText.current = text.trim();
     setRetryingNote(voiceNote);
+    void transcribeLater()(audio, voiceNote).finally(() => {
+      if (mounted.current) setRetryingNote(null);
+    });
   };
 
   const stopDictation = () => {
-    sharpenOnStop.current = true;
+    const active = recorder.current;
+    recorder.current = null;
+    recorderGeneration.current += 1;
+    micLevel.current = null;
     setRecording(false);
+    if (!active) return;
+    const finish = transcribeLater();
+    void active.stop().then(
+      (audio) => {
+        if (audio && !dictationCancelled.current) return finish(audio);
+      },
+      (error: unknown) => {
+        if (!mounted.current || dictationCancelled.current) return;
+        setSpeechError(t(error instanceof MicUnavailableError && error.reason === "denied" ? "composer.dictation.permission" : "composer.dictation.failed"));
+      },
+    );
   };
 
   const cancelDictation = useCallback(() => {
     dictationCancelled.current = true;
-    sharpenOnStop.current = false;
+    dropRecorder();
     setRecording(false);
     editText(textBeforeDictation.current);
   }, [editText]);
@@ -769,7 +757,7 @@ export function Composer({
   }, [recording, cancelDictation]);
 
   const toggleMic = () => {
-    if (!capabilities.dictation.available || !window.laterdog) {
+    if (!micRecordingSupported()) {
       setSpeechError(t("composer.dictation.unavailable"));
       return;
     }
@@ -777,7 +765,24 @@ export function Composer({
     dictationCancelled.current = false;
     textBeforeDictation.current = text;
     baseText.current = text.trim();
+    setSpeechError(null);
+    setVoiceNote(null);
     setRecording(true);
+    const generation = ++recorderGeneration.current;
+    startMicRecorder((level) => {
+      if (generation === recorderGeneration.current) micLevel.current = level;
+    }).then(
+      (started) => {
+        if (generation !== recorderGeneration.current) return started.cancel();
+        recorder.current = started;
+      },
+      (error: unknown) => {
+        if (generation !== recorderGeneration.current || !mounted.current) return;
+        setRecording(false);
+        const reason = error instanceof MicUnavailableError ? error.reason : "failed";
+        setSpeechError(t(reason === "denied" ? "composer.dictation.permission" : reason === "unsupported" ? "composer.dictation.unavailable" : "composer.dictation.failed"));
+      },
+    );
   };
 
   return (
@@ -1114,7 +1119,7 @@ export function Composer({
             <Square size={14} className="fill-current" />
           </button>
         )}
-        {!locked && capabilities.dictation.available && (recording || (voiceNoteButtonShown(state.config) && !busy && !retryingNote)) && (
+        {!locked && micRecordingSupported() && (recording || (voiceNoteButtonShown(state.config) && !busy && !retryingNote)) && (
           <button
             type="button"
             data-composer-mic

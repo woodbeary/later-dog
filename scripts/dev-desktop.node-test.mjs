@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import test from "node:test";
-import { desktopPlan, runDesktop } from "./dev-desktop.mjs";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { desktopPlan, disclaimedElectron, runDesktop } from "./dev-desktop.mjs";
 
 const fixtureHome = "/Users/desktop-fixture";
 const ROOT = "/fixtures/laterdog";
@@ -294,4 +297,19 @@ test("SIGINT shuts down the owned app and services", { timeout: 5_000 }, async (
   for (const child of processes.services) assert.equal(child.closed, true);
   assert.equal(signals.listenerCount("SIGINT"), 0);
   assert.equal(signals.listenerCount("SIGTERM"), 0);
+});
+
+test("on macOS Electron starts through dev-disclaim so the mic permission is its own, not node's", () => {
+  const home = mkdtempSync(join(tmpdir(), "disclaim-"));
+  const electron = { file: "/Apps/Dev.app/Contents/MacOS/Electron", args: ["/repo"] };
+  const built = [];
+  const build = (_clang, args) => { built.push(args); writeFileSync(args[2], ""); };
+  const wrapped = disclaimedElectron(electron, { platform: "darwin", home, build });
+  assert.match(wrapped.file, /dev-disclaim-[0-9a-f]{12}$/);
+  assert.deepEqual(wrapped.args, [electron.file, "/repo"]);
+  assert.equal(disclaimedElectron(electron, { platform: "darwin", home, build }).file, wrapped.file);
+  assert.equal(built.length, 1);
+  assert.equal(disclaimedElectron(electron, { platform: "linux", home, build }), electron);
+  const failed = disclaimedElectron(electron, { platform: "darwin", home: join(home, "other"), build: () => { throw new Error("no clang"); } });
+  assert.equal(failed, electron);
 });

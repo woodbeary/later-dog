@@ -412,7 +412,6 @@
   "composer.error.clipboardImage": "無法讀取剪貼簿中的圖片。請改為附加該圖片檔案。",
   "composer.picturesLimit": "一則訊息最多可附 {max} 張圖片。",
   "composer.dictation.macOnly": "語音輸入目前僅在 macOS 上提供。",
-  "composer.dictation.permission": "語音輸入需要麥克風與語音辨識權限——請前往「系統設定」→「隱私權與安全性」。",
   "composer.dictation.saved": "語音筆記已儲存。",
   "composer.dictation.retrying": "正在將已儲存的語音筆記轉成文字…",
   "composer.dictation.unavailable": "此版本不支援語音輸入。",

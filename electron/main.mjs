@@ -2180,7 +2180,7 @@ ipcMain.handle("speech:start", speechPage("speech:start", (event, options) => {
     return;
   }
   stopSpeechWhenPageLeaves(win.webContents, stopSpeech);
-  startSpeech(win, options && typeof options === "object"
+  return startSpeech(win, options && typeof options === "object"
     ? { endpointMs: options.endpointMs, ...(typeof options.file === "string" ? { file: options.file } : {}) }
     : undefined);
 }));

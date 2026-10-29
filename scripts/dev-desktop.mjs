@@ -1,5 +1,6 @@
-import { spawn } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
@@ -54,6 +55,27 @@ export function desktopPlan({ env = process.env, home = homedir(), root = projec
     services: [step(join(root, "server/laterdog/main.ts")), step(join(root, "server/index.ts")), vite],
     electron: { file: electronFile, args: [root] },
   };
+}
+
+// On macOS, run Electron through dev-disclaim so it owns its microphone
+// permission. Without it, node is the responsible process and macOS mutes the mic.
+export function disclaimedElectron(electron, { platform = process.platform, root = projectRoot, home = homedir(), build = execFileSync } = {}) {
+  if (platform !== "darwin") return electron;
+  const source = join(root, "scripts", "dev-disclaim.c");
+  try {
+    const hash = createHash("sha256").update(readFileSync(source)).digest("hex").slice(0, 12);
+    const folder = join(home, describeVariant("dev").dataDirName, "bin");
+    const helper = join(folder, `dev-disclaim-${hash}`);
+    if (!existsSync(helper)) {
+      mkdirSync(folder, { recursive: true });
+      build("/usr/bin/clang", ["-O2", "-o", `${helper}.partial`, source], { stdio: "pipe", timeout: 60_000 });
+      renameSync(`${helper}.partial`, helper);
+    }
+    return { ...electron, file: helper, args: [electron.file, ...electron.args] };
+  } catch (error) {
+    console.error(`later.dog Dev: dictation may not hear the microphone (${error.message.split("\n")[0]}).`);
+    return electron;
+  }
 }
 
 export async function assertPorts(ports) {
@@ -149,6 +171,7 @@ export async function runDesktop(plan, { spawnProcess = spawn, assertPorts: chec
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
     if (process.argv.includes(LIVE_DATA_FLAG) || process.argv.length > 2) throw new Error("Run pnpm dev:desktop without live-data flags or extra arguments.");
-    process.exitCode = await runDesktop(desktopPlan({ node: runtimeBinary() }));
+    const plan = desktopPlan({ node: runtimeBinary() });
+    process.exitCode = await runDesktop({ ...plan, electron: disclaimedElectron(plan.electron) });
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

@@ -338,7 +338,6 @@
   "composer.error.clipboardImage": "Das Bild aus der Zwischenablage ließ sich nicht lesen. Häng stattdessen die Bilddatei an.",
   "composer.picturesLimit": "Eine Nachricht kann bis zu {max} Bilder enthalten.",
   "composer.dictation.macOnly": "Diktieren gibt es vorerst nur unter macOS.",
-  "composer.dictation.permission": "Diktieren braucht Zugriff auf Mikrofon und Spracherkennung — Systemeinstellungen → Datenschutz & Sicherheit.",
   "composer.dictation.saved": "Deine Sprachnotiz ist gespeichert.",
   "composer.dictation.retrying": "Deine gespeicherte Sprachnotiz wird in Text umgewandelt…",
   "composer.dictation.unavailable": "Diktieren ist in diesem Build nicht verfügbar.",

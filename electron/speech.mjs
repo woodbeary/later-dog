@@ -60,20 +60,34 @@ export function isVoiceNote(file) {
   return path.dirname(resolved) === voiceNotesDir() && existsSync(resolved);
 }
 
+// Dev only: the helper is compiled on first use. The build runs off the main thread and is
+// shared by overlapping starts, so a slow or broken swiftc can no longer freeze the window.
+let building = null;
 function ensureBuilt() {
-  if (app.isPackaged) return;
+  if (app.isPackaged) return null;
   const binaryMtime = existsSync(BIN) ? statSync(BIN).mtimeMs : 0;
   const stale = binaryMtime < Math.max(statSync(SRC).mtimeMs, statSync(INFO).mtimeMs);
-  if (!stale) return;
-  buildSpeechHelper();
+  if (!stale) return null;
+  building ??= buildSpeechHelper()
+    .catch((error) => {
+      console.error("[speech] helper build failed:", error?.message ?? error);
+      throw error;
+    })
+    .finally(() => {
+      building = null;
+    });
+  return building;
 }
+
+let startGeneration = 0;
 
 function sendEnd(win, info) {
   if (!win.isDestroyed()) win.webContents.send("speech:end", info);
 }
 
-export function startSpeech(win, options = {}) {
+export async function startSpeech(win, options = {}) {
   stopSpeech();
+  const generation = ++startGeneration;
   if (process.platform !== "darwin") {
     sendEnd(win, { code: 2, reason: "unsupported-platform" });
     return;
@@ -92,11 +106,13 @@ export function startSpeech(win, options = {}) {
   const note = file ?? recording;
 
   try {
-    ensureBuilt();
+    await ensureBuilt();
   } catch {
-    sendEnd(win, { code: 1, reason: "helper-build-failed" });
+    if (generation === startGeneration && !win.isDestroyed()) sendEnd(win, { code: 1, reason: "helper-build-failed" });
     return;
   }
+  // Stopped, restarted, or the window closed while the helper was building.
+  if (generation !== startGeneration || win.isDestroyed()) return;
 
   const sessionDir = mkdtempSync(path.join(app.getPath("temp"), "laterdog-speech-"));
   const outputPath = path.join(sessionDir, "stdout.ndjson");
@@ -208,6 +224,7 @@ export function startSpeech(win, options = {}) {
 }
 
 export function stopSpeech() {
+  startGeneration += 1;
   if (!child) return Promise.resolve({});
   const speechSession = child;
   child = null;

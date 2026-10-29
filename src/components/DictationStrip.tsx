@@ -4,8 +4,10 @@ import { t } from "@/lib/i18n";
 import {
   DICTATION_TICK_MS,
   dictationClock,
+  DICTATION_REST_LEVEL,
   freshDictationMeter,
   paddedDictationLevels,
+  pushDictationLevel,
   stepDictationMeter,
   type DictationMeter,
 } from "@/lib/dictation-meter";
@@ -19,7 +21,12 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 }
 
-export function useDictationMeter(active: boolean, heard: number): { levels: number[]; elapsedMs: number } {
+// With a live microphone level the bars follow your voice; without one they pulse as text arrives.
+export function useDictationMeter(
+  active: boolean,
+  heard: number,
+  liveLevel?: { readonly current: number | null },
+): { levels: number[]; elapsedMs: number } {
   const heardNow = useRef(heard);
   heardNow.current = heard;
   const [meter, setMeter] = useState<DictationMeter>(() => freshDictationMeter(heard));
@@ -32,7 +39,11 @@ export function useDictationMeter(active: boolean, heard: number): { levels: num
     setElapsedMs(0);
     const timer = window.setInterval(() => {
       setElapsedMs(Date.now() - startedAt);
-      if (!still) setMeter((current) => stepDictationMeter(current, heardNow.current));
+      if (still) return;
+      const level = liveLevel?.current;
+      setMeter((current) => typeof level === "number"
+        ? { ...current, levels: pushDictationLevel(current.levels, DICTATION_REST_LEVEL + level * (1 - DICTATION_REST_LEVEL)) }
+        : stepDictationMeter(current, heardNow.current));
     }, DICTATION_TICK_MS);
     return () => window.clearInterval(timer);
   }, [active]);
