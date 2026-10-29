@@ -96,7 +96,7 @@ export function phoneWants(kind: PhoneJobKind): string {
 
 export const PHONE_NOT_YOURS = "Only the person who owns this later.dog can let a dog use their phone, and only in their own conversations.";
 
-export const NO_PHONE = "later.dog isn't open on the person's iPhone yet, so there is no phone to use. Tell them in one line: open later.dog on their iPhone, signed in with the same email, then ask again.";
+export const NO_PHONE = "No iPhone has connected to lend itself yet: later.dog isn't open on their iPhone, or it's a version from before dogs could use the phone. Tell them in one line to open later.dog on their iPhone, updated and signed in with the same email, then ask again.";
 
 export function phoneTooOld(kind: PhoneJobKind): string {
   return `later.dog on the person's iPhone can't ${ACTIVITY[kind]} yet: that needs the next version of the iPhone app. Tell them in one line, and do it another way meanwhile if you can.`;
