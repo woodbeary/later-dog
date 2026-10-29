@@ -29,6 +29,7 @@ function setup({ app = { version: 1, records: { [APP_ENV]: appRecord() } } as un
     const sharing = { options, calls: [] as string[] };
     made.push(sharing);
     return {
+      state: () => ({ connected: sharing.calls.includes("connected") }),
       start: () => { sharing.calls.push("start"); },
       forget: (env: { id: string }) => { sharing.calls.push(`forget ${env.id}`); },
       close: () => { sharing.calls.push("close"); },
@@ -88,13 +89,29 @@ describe("later.dog Dev connecting this Mac to the person's Cloud", () => {
     expect(mac.lending()).toBe(true);
     expect(made).toHaveLength(2);
     expect(lines).toEqual([
-      "this Mac is connected to he6e3bd4d404f3dfb6be1a40b-home.later.dog from later.dog Dev",
+      "connecting this Mac to he6e3bd4d404f3dfb6be1a40b-home.later.dog from later.dog Dev",
       "later.dog is open and connects this Mac, so later.dog Dev stands by",
-      "this Mac is connected to he6e3bd4d404f3dfb6be1a40b-home.later.dog from later.dog Dev",
+      "connecting this Mac to he6e3bd4d404f3dfb6be1a40b-home.later.dog from later.dog Dev",
     ]);
 
     await mac.stop();
     expect(made[1]!.calls).toEqual(["start", `forget ${APP_ENV}`, "close"]);
+  });
+
+  it("says the Mac is connected only once the home has taken it", async () => {
+    const { dir, sessionFile, appFile, made, create } = setup();
+    const lines: string[] = [];
+    const mac = startDevMac({ sessionFile, dataDir: dir, appFile, appRunning: async () => false, create: create as never, log: (line: string) => lines.push(line), checkMs: 60_000 });
+    await mac.check();
+    made[0]!.options.onChange();
+    made[0]!.calls.push("connected");
+    made[0]!.options.onChange();
+    made[0]!.options.onChange();
+    expect(lines).toEqual([
+      "connecting this Mac to he6e3bd4d404f3dfb6be1a40b-home.later.dog from later.dog Dev",
+      "this Mac is connected to he6e3bd4d404f3dfb6be1a40b-home.later.dog",
+    ]);
+    await mac.stop();
   });
 
   it("signs every call to the home with the Dev session", async () => {

@@ -83,14 +83,23 @@ export function startDevMac({
       writeFileSync(file, JSON.stringify({ version: 1, records: { [env.id]: devRecord(lent.record) } }), { mode: 0o600 });
     }
     const current = { status: "connected", accountId, origin: session.origin };
-    sharing = create({
+    const host = new URL(session.origin).hostname;
+    let connected = false;
+    const created = create({
       file, fetch: authorized, environments: () => [env], cloud: () => current,
       enabled: async () => false, cuaConnection: async () => null,
       hostControl: async () => ({ renew: async () => {}, release: async () => {} }),
       protectedPaths: devProtectedPaths(home), home,
+      onChange: () => {
+        const now = created?.state?.(env.id)?.connected === true;
+        if (now === connected || sharing !== created) return;
+        connected = now;
+        log(now ? `this Mac is connected to ${host}` : `this Mac lost its connection to ${host}; trying again`);
+      },
     });
+    sharing = created;
+    log(`connecting this Mac to ${host} from later.dog Dev`);
     sharing.start({ maintainer: false });
-    log(`this Mac is connected to ${new URL(session.origin).hostname} from later.dog Dev`);
   };
 
   const standBy = () => {
