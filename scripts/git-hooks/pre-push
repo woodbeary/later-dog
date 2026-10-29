@@ -15,7 +15,8 @@ if [ "$only_deletes" = true ]; then
   exit 0
 fi
 cd "$(git rev-parse --show-toplevel)"
-echo "pre-push: lint, typecheck, locale check (git push --no-verify to skip)"
+echo "pre-push: no comments, lint, typecheck, locale check (git push --no-verify to skip)"
+node scripts/no-comments.ts --check
 pnpm lint
 pnpm typecheck
 pnpm i18n:check
