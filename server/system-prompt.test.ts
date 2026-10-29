@@ -293,9 +293,14 @@ describe("cloudHomePrompt", () => {
     }
   });
 
-  it("tells the dog the person's time zone as where they are, and says nothing for none or plain UTC", () => {
-    expect(cloudHomePrompt(false, "America/Los_Angeles")).toContain("Their time zone is America/Los_Angeles; take that as where they are, for the weather or opening hours, unless they say otherwise.");
-    for (const zone of [undefined, "UTC", "Etc/UTC", "GMT", "Not/A_Zone"]) expect(cloudHomePrompt(false, zone)).not.toContain("time zone");
+  it("tells the dog the person's time zone and today's date there, and the UTC date when there is no zone", () => {
+    const lateEvening = new Date("2026-10-30T05:30:00Z");
+    expect(cloudHomePrompt(false, "America/Los_Angeles", lateEvening)).toContain("Their time zone is America/Los_Angeles, where today is Thursday, October 29, 2026; take that as where they are and when it is, for the weather, opening hours or their calendar, unless they say otherwise.");
+    for (const zone of [undefined, "UTC", "Etc/UTC", "GMT", "Not/A_Zone"]) {
+      const text = cloudHomePrompt(false, zone, lateEvening);
+      expect(text).not.toContain("time zone");
+      expect(text).toContain("Today is Friday, October 30, 2026 (UTC).");
+    }
   });
 
   it("points to the person's Mac only when the turn has the shared-computer tools", () => {
