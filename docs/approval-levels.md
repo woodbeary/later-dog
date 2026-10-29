@@ -194,7 +194,7 @@ silently substitute unrestricted access when a mode is rejected.
 
 later.dog's built-in agents MCP server describes its scoped reads with
 explicit read-only, non-destructive, idempotent, closed-world metadata:
-`list_bots`, `list_shared_computers`, `tool_result_read`,
+`list_bots`, `list_shared_computers`, `read_phone`, `tool_result_read`,
 `session_search`, `session_read`, `list_routines`, and `skills_list`.
 Session recall still enforces own-bot access and records its existing room
 disclosure audit. These hints do not grant access to another bot's conversations.

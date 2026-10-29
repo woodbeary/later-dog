@@ -723,6 +723,38 @@ restarts, until the Mac registers again (within seconds of being online).
 Server code can call `sharedComputers.status(principal)` directly. Bots use
 the `list_shared_computers` and `shared_computer` tools.
 
+## The person's iPhone
+
+While later.dog is open on the owner's iPhone, the app lends the phone to their
+dogs the same way a Mac lends itself: it registers, long-polls for work and
+posts each answer back (`server/laterdog/phone-desk.ts`,
+`server/routes/phone-desk.ts`). Only the owner's own signed-in phone can
+connect (an admin session), and only the owner's own conversations can use it.
+
+| Route | What it does |
+|---|---|
+| `POST /api/phone/device/connect` | `{ id, name, can }`: the phone's install id, its name and the jobs this build of the app can run. `x-laterdog-phone-secret` binds the later calls to this run of the app |
+| `POST /api/phone/device/:id/poll` | Waits up to 20 seconds and answers `{ job }`, `{ id, kind, arguments }` or `null` |
+| `POST /api/phone/device/:id/result` | `{ jobId, ok: true, result }` or `{ jobId, ok: false, error }`; answers over 200 KB are refused |
+| `POST /api/phone/device/:id/disconnect` | The app went to the background |
+| `GET /api/phone/device` | The owner's phones: `id`, `name`, `online`, `can`, `lastSeenAt` |
+
+Dogs get two tools. `read_phone` reads the calendar, reminders, contacts or
+location; it is read-only and never asks. `add_to_phone` adds a calendar
+event or a reminder and asks like any other action. Jobs belong to the person,
+so whichever of their phones is open takes them. When none is open, the home
+sends a notification ("Wants to check your calendar. Open later.dog to let
+it.") and waits up to a minute for the app to open; past that the dog is told
+to say it needs later.dog open. iOS asks for each permission the first time
+a dog needs it. If the app closes or restarts with a read in hand, the read
+is asked again; an add is never replayed, and the dog is told to check
+before adding it again.
+
+A phone is online while it has polled in the last 40 seconds. Phones are
+remembered in `known-phones.json` for 30 days, as long as the phone's sign-in
+lasts. A phone whose app predates these modules registers with an empty
+`can`, and dogs are told it needs the next version of the iPhone app.
+
 ## The image
 
 The `Dockerfile`'s `cloud-home` target shares the server image's runtime
