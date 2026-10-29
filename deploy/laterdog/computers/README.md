@@ -365,7 +365,11 @@ allowance per key and one for all keys together, reset at midnight UTC and kept 
   the AI Gateway does not cache audio. A repeat is served from the cache with no model call and no ElevenLabs
   characters; it still counts against the key's own daily characters. Responses say which engine spoke in
   `x-speech-engine` (`elevenlabs` or `aura`) and whether it came from the cache in `x-speech-cache` (`hit` or `miss`).
-- Dictation (`POST /v1/voice/speech-to-text`) runs `TRANSCRIBE_AI_MODEL`: `@cf/deepgram/nova-3` (the default) or
+- Dictation (`POST /v1/voice/speech-to-text`) goes to ElevenLabs Scribe v2 (`scribe_v2`) first when `TRANSCRIBE_ENGINE`
+  is `elevenlabs` and the `ELEVENLABS_API_KEY` secret is set; it is called straight at `api.elevenlabs.io`, since the
+  AI Gateway takes no multipart audio. If ElevenLabs refuses, fails or times out, the same note falls back to Workers AI
+  below. Responses say which engine wrote it in `x-transcribe-engine` (`elevenlabs`, `nova-3` or `whisper`). The
+  Workers AI fallback runs `TRANSCRIBE_AI_MODEL`: `@cf/deepgram/nova-3` (the default) or
   `@cf/openai/whisper-large-v3-turbo`. Nova-3 is called straight, not through the AI Gateway, because the gateway takes
   no audio streams (production answered every note with 502 when it tried). Whisper turbo takes base64 audio in JSON,
   so it goes through the gateway like the other calls. Any other value means Nova-3.

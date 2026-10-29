@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sha256Hex } from "../src/auth";
 import { DAY } from "../src/trial";
-import { TRANSCRIBE_MODEL, TRANSCRIBE_SECONDS_PER_DAY, WHISPER_TURBO_MODEL, base64, transcribeModel, transcriptFrom, wavSeconds } from "../src/transcribe";
+import { SCRIBE_URL, TRANSCRIBE_MODEL, TRANSCRIBE_SECONDS_PER_DAY, WHISPER_TURBO_MODEL, base64, transcribeModel, transcriptFrom, wavSeconds } from "../src/transcribe";
 import { ORIGIN, body, siteverify, startTrial, trialKey, viaGateway, world } from "./fakes";
 
 vi.mock("cloudflare:workers", () => ({
@@ -182,6 +182,57 @@ describe("included transcription", () => {
     expect((await w.fetch(transcribe(key, { file: note(wav(1)) }))).status).toBe(502);
     run.mockResolvedValueOnce({ segments: [] } as unknown as typeof whisperAnswer);
     expect((await w.fetch(transcribe(key, { file: note(wav(1)) }))).status).toBe(502);
+  });
+});
+
+describe("included transcription with ElevenLabs Scribe", () => {
+  const scribeVars = { TRANSCRIBE_ENGINE: "elevenlabs", ELEVENLABS_API_KEY: "xi-secret" };
+
+  function scribe(answer: () => Promise<Response>) {
+    const fetcher = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(answer);
+    vi.stubGlobal("fetch", fetcher);
+    return fetcher;
+  }
+
+  it("writes the note down with Scribe v2 when TRANSCRIBE_ENGINE is elevenlabs, leaving Workers AI alone", async () => {
+    const { w, run, key } = await included(scribeVars);
+    const fetcher = scribe(async () => Response.json({ language_code: "eng", language_probability: 0.97, text: " Hello from Scribe. ", words: [{ text: "Hello" }] }));
+    const response = await w.fetch(transcribe(key, { file: note(wav(1.5)), language_code: "en" }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-transcribe-engine")).toBe("elevenlabs");
+    expect(await body(response)).toEqual({ language_code: "eng", language_probability: 0.97, text: "Hello from Scribe.", words: [] });
+    expect(run).not.toHaveBeenCalled();
+    const [url, init] = fetcher.mock.calls[0]!;
+    expect(url).toBe(SCRIBE_URL);
+    expect(init?.headers).toEqual({ "xi-api-key": "xi-secret" });
+    const sent = init?.body as FormData;
+    expect(sent.get("model_id")).toBe("scribe_v2");
+    expect(sent.get("language_code")).toBe("en");
+    expect(sent.get("tag_audio_events")).toBe("false");
+    expect(sent.get("file")).toBeInstanceOf(Blob);
+  });
+
+  it("falls back to Nova-3 when ElevenLabs refuses, fails or answers without text", async () => {
+    const { w, run, key } = await included(scribeVars);
+    const answers = [async () => new Response("quota", { status: 401 }), async () => Promise.reject(new Error("network down")), async () => Response.json({ detail: "odd" })];
+    for (const answer of answers) {
+      scribe(answer);
+      const response = await w.fetch(transcribe(key, { file: note(wav(1)) }));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("x-transcribe-engine")).toBe("nova-3");
+      expect((await body(response)).text).toBe("Hello from later.dog.");
+    }
+    expect(run).toHaveBeenCalledTimes(3);
+  });
+
+  it("stays on Workers AI without the engine switch or without a key", async () => {
+    for (const vars of [{ ELEVENLABS_API_KEY: "xi-secret" }, { TRANSCRIBE_ENGINE: "elevenlabs" }]) {
+      const { w, run, key } = await included(vars);
+      const fetcher = scribe(async () => Response.json({ text: "never" }));
+      expect((await w.fetch(transcribe(key, { file: note(wav(1)) }))).status).toBe(200);
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(run).toHaveBeenCalledTimes(1);
+    }
   });
 });
 

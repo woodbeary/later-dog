@@ -73,6 +73,36 @@ export function base64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+export const SCRIBE_MODEL = "scribe_v2";
+export const SCRIBE_URL = "https://api.elevenlabs.io/v1/speech-to-text";
+
+export function scribeKey(env: Env): string | null {
+  if (env.TRANSCRIBE_ENGINE?.trim() !== "elevenlabs") return null;
+  return env.ELEVENLABS_API_KEY?.trim() || null;
+}
+
+export const scribeTimeout = (request: TranscriptionRequest) => 20_000 + Math.ceil(request.seconds) * 200;
+
+export function scribeForm(request: TranscriptionRequest): FormData {
+  const form = new FormData();
+  form.append("model_id", SCRIBE_MODEL);
+  form.append("file", new Blob([request.audio], { type: "audio/wav" }), "dictation.wav");
+  form.append("tag_audio_events", "false");
+  form.append("timestamps_granularity", "none");
+  if (request.language) form.append("language_code", request.language);
+  return form;
+}
+
+export function scribeTranscript(raw: unknown): Transcript | null {
+  if (!isRecord(raw) || typeof raw.text !== "string") return null;
+  return {
+    language_code: typeof raw.language_code === "string" ? raw.language_code : null,
+    language_probability: typeof raw.language_probability === "number" ? raw.language_probability : null,
+    text: raw.text.trim(),
+    words: [],
+  };
+}
+
 export const takesGateway = (model: TranscribeModel) => model === WHISPER_TURBO_MODEL;
 
 export function transcribeModel(env: Env): TranscribeModel {

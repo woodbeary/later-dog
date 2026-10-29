@@ -33,7 +33,7 @@ import { type PlanRow, planPolicy, trials } from "./trial-registry";
 import { cancelSubscription, createPlanLink, customerPlan, orderCustomer, paidThrough, squareConfigured, subscription } from "./square";
 import { messagePage, newNonce } from "./viewer";
 import { AURA_FORMAT, ELEVENLABS_ENGINE, type ElevenLabsVoice, type SpeechRequest, VOICE_CHARS_PER_DAY, VOICE_MODEL, audioBytes, auraSpeaker, elevenLabsBudget, elevenLabsFor, elevenLabsRequest, elevenLabsVoice, includedVoices, speechRequest, voiceInput } from "./voice";
-import { TRANSCRIBE_MAX_BYTES, TRANSCRIBE_SECONDS_PER_DAY, TRANSCRIBE_SECONDS_TOTAL_PER_DAY, takesGateway, transcribeInput, transcribeModel, transcriptFrom, transcriptionRequest } from "./transcribe";
+import { SCRIBE_URL, TRANSCRIBE_MAX_BYTES, TRANSCRIBE_MODEL, TRANSCRIBE_SECONDS_PER_DAY, TRANSCRIBE_SECONDS_TOTAL_PER_DAY, type Transcript, type TranscriptionRequest, scribeForm, scribeKey, scribeTimeout, scribeTranscript, takesGateway, transcribeInput, transcribeModel, transcriptFrom, transcriptionRequest } from "./transcribe";
 import { type GatewayMetadata, gatewayId, gatewayMetadata, gatewayOptions, withMetadata } from "./gateway";
 import { type MessagesRequest, anthropicBudget, anthropicFirst, anthropicGatewayRequest, anthropicModel, chatCompletion, chatCompletionStream, messagesRequest } from "./anthropic";
 import { type Audio, SpeechCache, type SpeechKey, edgeSpeechStore } from "./speech-cache";
@@ -54,6 +54,7 @@ declare global {
     ELEVENLABS_CHARS_PER_DAY?: string;
     ELEVENLABS_PLAN_CHARS_PER_DAY?: string;
     TRANSCRIBE_AI_MODEL?: string;
+    TRANSCRIBE_ENGINE?: string;
     SQUARE_ACCESS_TOKEN?: string;
     SQUARE_ENVIRONMENT?: string;
     XAI_API_KEY?: string;
@@ -709,6 +710,21 @@ async function speakRequest(request: Request, env: Env, url: URL, voiceId: strin
   }
 }
 
+async function scribeTranscribe(request: TranscriptionRequest, key: string): Promise<Transcript | null> {
+  try {
+    const response = await fetch(SCRIBE_URL, { method: "POST", headers: { "xi-api-key": key }, body: scribeForm(request), signal: AbortSignal.timeout(scribeTimeout(request)) });
+    if (!response.ok) {
+      console.error(`laterdog computers: Scribe failed: ElevenLabs answered ${response.status}`);
+      await response.body?.cancel().catch(() => {});
+      return null;
+    }
+    return scribeTranscript(await response.json());
+  } catch (error) {
+    console.error(`laterdog computers: Scribe failed: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
 async function transcribeRequest(request: Request, env: Env): Promise<Response> {
   if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
   const token = includedKey(request);
@@ -722,13 +738,18 @@ async function transcribeRequest(request: Request, env: Env): Promise<Response> 
   if (!env.AI) return apiError(NOT_INCLUDED);
   const allowance = await trials(env).allowUsage({ keySha256, kind: "transcribe_seconds", amount: parsed.request.seconds, perKey: TRANSCRIBE_SECONDS_PER_DAY, total: TRANSCRIBE_SECONDS_TOTAL_PER_DAY });
   if (!allowance.ok) return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
+  const scribe = scribeKey(env);
+  if (scribe) {
+    const transcript = await scribeTranscribe(parsed.request, scribe);
+    if (transcript) return json(transcript, 200, { "x-transcribe-engine": "elevenlabs" });
+  }
   try {
     const model = transcribeModel(env);
     const run = env.AI.run.bind(env.AI) as (model: string, input: Record<string, unknown>, options?: unknown) => Promise<unknown>;
     const input = transcribeInput(parsed.request, model);
     const raw = takesGateway(model) ? await run(model, input, gatewayOptions(env, gatewayMetadata(keySha256, allowance.tier))) : await run(model, input);
     const transcript = transcriptFrom(raw);
-    return transcript ? json(transcript) : apiError(INCLUDED_FAILED);
+    return transcript ? json(transcript, 200, { "x-transcribe-engine": model === TRANSCRIBE_MODEL ? "nova-3" : "whisper" }) : apiError(INCLUDED_FAILED);
   } catch (error) {
     console.error(`laterdog computers: transcription failed: ${error instanceof Error ? error.message : String(error)}`);
     return apiError(INCLUDED_FAILED);
