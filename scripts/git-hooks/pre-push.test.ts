@@ -19,7 +19,7 @@ describe("pre-push hook", () => {
 
   it("runs the checks when a branch is pushed", () => {
     const result = prePush(`refs/heads/main ${sha} refs/heads/main ${zeros}\n`);
-    expect(result.stdout).toContain("lint, typecheck, locale check");
+    expect(result.stdout).toContain("no comments, lint, typecheck, locale check");
     expect(result.status).not.toBe(0);
   });
 });

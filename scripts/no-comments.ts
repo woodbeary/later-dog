@@ -383,6 +383,10 @@ if (import.meta.main) {
     }
   }
   console.log(`${write ? "removed" : "would remove"} ${total} comments in ${changed} files`);
+  if (process.argv.includes("--check") && total) {
+    console.log("later.dog's code has no comments: node scripts/no-comments.ts --write removes them.");
+    process.exitCode = 1;
+  }
   if (failures.length) {
     console.log(`${failures.length} files left alone:\n${failures.join("\n")}`);
     process.exitCode = 1;

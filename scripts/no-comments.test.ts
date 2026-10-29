@@ -1,4 +1,7 @@
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { remainingComments, strip, trackedFiles } from "./no-comments.ts";
 
@@ -8,6 +11,21 @@ describe("later.dog's code has no comments", () => {
       remainingComments(file, readFileSync(file, "utf8")).map((comment) => `${file}:${comment.line} ${comment.text}`),
     );
     expect(found, "Say it in code, names and tests. node scripts/no-comments.ts --write removes them.").toEqual([]);
+  });
+
+  it("stops a push that brings comments in, and lets a clean one through", () => {
+    const folder = mkdtempSync(join(tmpdir(), "no-comments-"));
+    try {
+      writeFileSync(join(folder, "noted.ts"), "export const answer = 42; // the answer\n");
+      writeFileSync(join(folder, "clean.ts"), "export const answer = 42;\n");
+      const check = (file: string) => spawnSync(process.execPath, ["scripts/no-comments.ts", "--check", join(folder, file)], { encoding: "utf8" });
+      const noted = check("noted.ts");
+      expect(noted.status).toBe(1);
+      expect(noted.stdout).toContain("node scripts/no-comments.ts --write removes them");
+      expect(check("clean.ts").status).toBe(0);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
   });
 });
 
