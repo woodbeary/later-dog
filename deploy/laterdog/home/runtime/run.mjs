@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { devCodeWatcher } from "./dev-code.mjs";
 import { seedIncluded } from "./included.mjs";
 import { RESTORE_POINTS, appRelease, upgradeFrom, upgradeKeeper } from "./restore-points.mjs";
-import { FINAL_SAVE_MS, collectGarbage, createHttpStore, restore, settleWithin, snapshot } from "./sync.mjs";
+import { FINAL_SAVE_MS, collectGarbageWithin, createHttpStore, restore, settleWithin, snapshot } from "./sync.mjs";
 
 const DATA = process.env.HOME || "/data";
 const SCRATCH = "/tmp/laterdog-sync";
@@ -18,6 +18,7 @@ const SAVE_BUDGET_MS = Math.max(5_000, INTERVAL_MS - 15_000);
 const FINAL_SAVE_BUDGET_MS = FINAL_SAVE_MS - 30_000;
 const RESTORE_ATTEMPTS = 5;
 const GC_EVERY_SAVES = Number(process.env.LATERDOG_GC_EVERY_SAVES || 30);
+const CLEANUP_BUDGET_MS = 15_000;
 const KEPT_RESTORE_POINTS = Number(process.env.LATERDOG_RESTORE_POINTS || RESTORE_POINTS);
 const APP = appRelease();
 
@@ -80,6 +81,7 @@ async function main() {
   let reloading = false;
   let running = null;
   let saves = 0;
+  let cleanupLeft = false;
   const restorePoints = upgradeKeeper(store, upgraded, { app: APP, limit: KEPT_RESTORE_POINTS, log });
   const save = ({ final = false } = {}) => {
     if (!store) return Promise.resolve();
@@ -92,10 +94,11 @@ async function main() {
         if (result.unsaved.length) log(`could not save ${result.unsaved.length} file(s) this time, first ${result.unsaved[0]}; the next save tries again`);
         if (result.deferred) log(`${result.deferred} changed file(s) wait for the next save, which carries on where this one stopped`);
         saves += 1;
-        if (final || saves % GC_EVERY_SAVES !== 0) return;
+        if (final || (!cleanupLeft && saves % GC_EVERY_SAVES !== 0)) return;
         try {
-          const removed = await collectGarbage(store, manifest, { pending: restorePoints.pending() });
-          if (removed) log(`removed ${removed} saved pieces nothing uses any more`);
+          const cleanup = await collectGarbageWithin(store, manifest, { pending: restorePoints.pending(), budgetMs: CLEANUP_BUDGET_MS });
+          cleanupLeft = !cleanup.finished;
+          if (cleanup.removed) log(`removed ${cleanup.removed} saved pieces nothing uses any more${cleanupLeft ? "; the next save removes more" : ""}`);
         } catch (error) {
           log(`cleanup failed: ${error.message}`);
         }

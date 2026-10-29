@@ -1,10 +1,10 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { CHUNK_BYTES, collectGarbage, createHttpStore, parseManifest, referencedBlobs, restore, settleWithin, skipped, skippedPath, snapshot, StoreRefused, transient } from "../runtime/sync.mjs";
+import { CHUNK_BYTES, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, parseManifest, referencedBlobs, restore, settleWithin, skipped, skippedPath, snapshot, StoreRefused, transient } from "../runtime/sync.mjs";
 
 function memoryStore() {
   const blobs = new Map<string, Uint8Array>();
@@ -509,6 +509,41 @@ describe("cleaning up saved pieces", () => {
     await restore(restoredTo, store);
     expect(readFileSync(join(restoredTo, "notes.md"), "utf8")).toBe("second, longer");
     expect(readFileSync(join(restoredTo, "big.bin")).equals(Buffer.alloc(CHUNK_BYTES + 10, 2))).toBe(true);
+  });
+
+  it("removes old pieces in short rounds, so a save never waits long behind a cleanup, and later rounds finish it", async () => {
+    const home = folder();
+    const store = memoryStore();
+    writeFileSync(join(home, "notes.md"), "kept");
+    const saved = await snapshot(home, store, null);
+    for (let index = 0; index < 20; index += 1) store.blobs.set(createHash("sha256").update(`old ${index}`).digest("hex"), new Uint8Array([index]));
+    let clock = 0;
+    const slow = { ...store, deleteBlob: async (hash: string) => { clock += 100; await store.deleteBlob(hash); } };
+    const first = await collectGarbageWithin(slow, saved.manifest, { budgetMs: 1_000, now: () => clock });
+    expect(first).toEqual({ removed: 16, finished: false });
+    const second = await collectGarbageWithin(slow, saved.manifest, { budgetMs: 1_000, now: () => clock });
+    expect(second).toEqual({ removed: 4, finished: true });
+    expect(new Set(store.blobs.keys())).toEqual(referencedBlobs(saved.manifest));
+  });
+
+  it("deletes eight pieces at a time, and still removes one round when the time is already up", async () => {
+    const home = folder();
+    const store = memoryStore();
+    writeFileSync(join(home, "notes.md"), "kept");
+    const saved = await snapshot(home, store, null);
+    for (let index = 0; index < 30; index += 1) store.blobs.set(createHash("sha256").update(`stale ${index}`).digest("hex"), new Uint8Array([index]));
+    let inFlight = 0;
+    let most = 0;
+    const counting = { ...store, deleteBlob: async (hash: string) => {
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      await store.deleteBlob(hash);
+      inFlight -= 1;
+    } };
+    expect(await collectGarbageWithin(counting, saved.manifest, { budgetMs: 0 })).toEqual({ removed: CLEANUP_PARALLEL, finished: false });
+    expect(most).toBe(CLEANUP_PARALLEL);
+    expect(await collectGarbageWithin(counting, saved.manifest)).toEqual({ removed: 30 - CLEANUP_PARALLEL, finished: true });
   });
 
   it("does nothing without a saved home, and a later save re-uploads anything it needs", async () => {
