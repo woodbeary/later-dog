@@ -673,6 +673,7 @@ import { SecureForms, secureFormMessageText } from "./laterdog/secure-form.ts";
 import { transcribeRoute } from "./laterdog/transcribe.ts";
 import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
 import { withOnItNote, workUpdatesPrompt } from "./laterdog/work-updates.ts";
+import { createMacWaits } from "./laterdog/mac-waits.ts";
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
 import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
@@ -777,6 +778,7 @@ if (CLOUD_HOME) startHomeHealthLog();
 const TIME_ZONE_FILE = join(DATA_DIR, "time-zone.json");
 restoreTimeZone(TIME_ZONE_FILE);
 const sharedComputers = new SharedComputers(id => sessions.isLive(id), CLOUD_HOME ? { file: join(DATA_DIR, "known-macs.json") } : {});
+const macWaits = createMacWaits();
 const MAC_WAIT_MS = 25_000;
 if (CLOUD_HOME) sessions.requireAdmin(CLOUD_PERSONAL_REFUSAL);
 const lendingEnabled = () => sharedComputersEnabled(cfg) || CLOUD_HOME !== null;
@@ -1082,7 +1084,8 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
   const unavailable = macLendingNotice(capability, principal);
   if (unavailable) throw Object.assign(new Error(unavailable), { status: 403 });
   const active = () => lendingEnabled() && internalCapabilityIsActive(capability);
-  if (!CLOUD_HOME) return await sharedComputers.request(requested, principal, active);
+  const send = (operation: SharedComputerOperation) => sharedComputers.request(operation, principal, active);
+  if (!CLOUD_HOME) return await macWaits.run(capability.threadId, requested, send);
   let target = sharedComputers.pick(principal, requested.computer_id);
   if (!target) {
     const known = sharedComputers.known(principal);
@@ -1102,7 +1105,7 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
     ...(requestMessageId ? { requestMessageId } : {}),
   });
   if (!verdict.ok) throw Object.assign(new Error(verdict.error), { status: verdict.status });
-  return await sharedComputers.request(operation, principal, active);
+  return await macWaits.run(capability.threadId, operation, send);
 }
 
 function cloudThreadStarters(threadId: string): (string | undefined)[] {
@@ -7299,6 +7302,7 @@ async function acceptDirectSend(
             );
           }
           if (personPresent) clearUnattended(threadId);
+          macWaits.messageSent(threadId);
           const message = store.appendMessage(threadId, {
             role: "user",
             kind: "text",
