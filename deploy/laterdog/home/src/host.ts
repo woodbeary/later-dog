@@ -53,6 +53,7 @@ const DESK_GIVE_UP_MS = 60 * 60 * 1000;
 const BRAIN_KEY = "desk-brain";
 const BRAIN_REFRESH_MS = 5 * 60 * 1000;
 const PAIRING_OPEN_KEY = "pairing-open-until";
+const STATE_ROUTE_DEV_CODE_KEY = "state-route-dev-code";
 const REFUSED_KEPT = 256;
 const CHECKS_AT_ONCE = 4;
 export const PERSON_SLEEP_AFTER = "30m";
@@ -145,7 +146,15 @@ export class CloudHomeHost extends Container<Env> {
       this.brain = (await ctx.storage.get<DeskBrain>(BRAIN_KEY)) ?? null;
       this.pairingOpenUntil = (await ctx.storage.get<number>(PAIRING_OPEN_KEY)) ?? 0;
       if (this.record) this.envVars = await this.environment(this.record);
+      if (this.record) await this.routeState(this.record);
     });
+  }
+
+  private async routeState(record: HomeRecord, { always = false } = {}): Promise<void> {
+    const devCode = devCodeOn(this.env.DEV_CODE, record.accountId);
+    if (!always && (await this.ctx.storage.get<boolean>(STATE_ROUTE_DEV_CODE_KEY)) === devCode) return;
+    await this.setOutboundByHost(STATE_HOST, "state", { token: record.stateToken, home: this.stateHome(record.machineId), ...(devCode ? { devCode: true } : {}) });
+    await this.ctx.storage.put(STATE_ROUTE_DEV_CODE_KEY, devCode);
   }
 
   private stateHome(machineId: string): string {
@@ -212,7 +221,7 @@ export class CloudHomeHost extends Container<Env> {
       return;
     }
     const record: HomeRecord = { ...identity, createdAt: Date.now(), stateToken: randomToken(32), emailToken: randomToken(32) };
-    await this.setOutboundByHost(STATE_HOST, "state", { token: record.stateToken, home: this.stateHome(identity.machineId), ...(devCodeOn(this.env.DEV_CODE, record.accountId) ? { devCode: true } : {}) });
+    await this.routeState(record, { always: true });
     await this.setOutboundByHost(EMAIL_HOST, "email", { token: record.emailToken, accountId: record.accountId });
     await this.ctx.storage.put(RECORD_KEY, record);
     this.record = record;
