@@ -1,7 +1,7 @@
 import { t } from "./i18n";
 
 export interface FeatureFlagConfig {
-  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean; voiceNoteButton?: boolean };
+  features?: { skillAuthoring?: boolean; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean; callButton?: boolean };
   browserEngine?: { kind: "engine" | "unavailable"; reason?: string; installable?: boolean; installing?: boolean; installError?: string };
 }
 
@@ -52,6 +52,6 @@ export function skillsLibraryEnabled(config: FeatureFlagConfig | null | undefine
   return config?.features?.skillsLibrary === true;
 }
 
-export function voiceNoteButtonShown(config: FeatureFlagConfig | null | undefined): boolean {
-  return config?.features?.voiceNoteButton !== false;
+export function callButtonShown(config: FeatureFlagConfig | null | undefined): boolean {
+  return config?.features?.callButton !== false;
 }

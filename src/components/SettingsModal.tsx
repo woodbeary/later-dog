@@ -24,7 +24,7 @@ import { SettingRow, SettingsGroup, SettingsRows, Switch } from "./SettingsPrimi
 import { CloudLending } from "./CloudLending";
 import { AutoReviewRow } from "./AutoReviewSettings";
 import { DefaultModelRow } from "./DefaultModelSettings";
-import { VoiceNoteButtonRow } from "./VoiceNoteButtonSettings";
+import { CallButtonRow } from "./CallButtonSettings";
 import { MacAccessGroup } from "./MacAccessGroup";
 import { cloudLendingBridge } from "@/lib/cloud-plan-summary";
 import { shortcutLabel } from "./ShortcutHint";
@@ -262,7 +262,7 @@ function GeneralPage({ mac }: { mac: boolean }) {
           <LanguageRow />
           <TimeZoneRow />
           <NotificationSoundsRow />
-          <VoiceNoteButtonRow />
+          <CallButtonRow />
         </SettingsRows>
       </SettingsGroup>
       {(mac || analytics) && (

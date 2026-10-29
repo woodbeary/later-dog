@@ -162,7 +162,7 @@ describe("QueuedComposerMessages", () => {
     );
 
     expect(markup.match(/Steer all 2 queued messages now/g)).toHaveLength(2);
-    expect(markup.match(/>Steer all</g)).toHaveLength(1);
+    expect(markup.match(/>Send all now</g)).toHaveLength(1);
     expect(markup).toContain('aria-label="Delete queued message 1 of 2"');
     expect(markup).toContain('aria-label="Delete queued message 2 of 2"');
   });
@@ -181,7 +181,7 @@ describe("QueuedComposerMessages", () => {
     );
 
     expect(markup).toContain('aria-label="Steer the next queued message now"');
-    expect(markup).toContain("Steer next");
+    expect(markup).toContain("Send next now");
   });
 
   it("omits Steer when this conversation cannot be interrupted", () => {
@@ -203,7 +203,7 @@ describe("QueuedComposerMessages", () => {
       }),
     );
 
-    expect(markup).toContain("Steering…");
+    expect(markup).toContain("Sending…");
     expect(markup).toContain("disabled");
   });
 

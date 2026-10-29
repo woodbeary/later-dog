@@ -1,4 +1,6 @@
 import { track } from "@/lib/analytics";
+import { shortcutLabel } from "./ShortcutHint";
+import type { SendDelivery } from "../../shared/send-delivery";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { ModelPicker } from "./ModelPicker";
 import { ArrowUp, BookOpen, Check, Clock, Loader2, Mic, Square, Users, X } from "lucide-react";
@@ -71,7 +73,7 @@ import {
   doubleEnterSteersQueue,
 } from "./ComposerQueuedMessages";
 import { DictationStrip, useDictationMeter } from "./DictationStrip";
-import { skillAuthoringEnabled, voiceNoteButtonShown } from "@/lib/feature-flags";
+import { callButtonShown, skillAuthoringEnabled } from "@/lib/feature-flags";
 import { transcribeDictation, type SharperOutcome } from "@/lib/sharper-dictation";
 import { micRecordingSupported, MicUnavailableError, startMicRecorder, type MicRecorder } from "@/lib/mic-recorder";
 import { useComposerSuggestion } from "@/lib/use-composer-suggestion";
@@ -586,7 +588,7 @@ export function Composer({
       dispatch({ type: "send", botId: bot.id, ...retry });
     }
   };
-  const send = (signedInNow = false) => {
+  const send = (signedInNow = false, deliver?: SendDelivery) => {
     if (locked || attachmentPending) return;
     if (
       attachments.some((attachment) => attachment.kind === "image") &&
@@ -599,7 +601,7 @@ export function Composer({
     if (!body) return;
     const account = !group && bot ? state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId) : undefined;
     if (!signedInNow && account?.snapshot && signInFamily(account) && (needsSignIn(account) || needsCli(account))) {
-      sendAfterSignIn.current = () => send(true);
+      sendAfterSignIn.current = () => send(true, deliver);
       setSigningIn(account.instanceId);
       return;
     }
@@ -631,13 +633,14 @@ export function Composer({
         type: "send",
         botId: bot.id,
         text: body,
+        ...(deliver ? { deliver } : {}),
         sendId: sentDraft.sendId,
         replyToId: replyTo?.id,
         threadId,
         recovery: { draftId, text },
         onError: () => restoreDraft(sentDraft),
       });
-      track("message_sent", { driver: bot.modelSelection?.instanceId, queued: busy && !canSteer });
+      track("message_sent", { driver: bot.modelSelection?.instanceId, queued: busy && (!canSteer || deliver === "queue") });
     }
     suggestion.sent(text);
     setRecording(false);
@@ -1068,6 +1071,10 @@ export function Composer({
             }
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
+              if (e.metaKey || e.ctrlKey) {
+                send(false, busy && !group ? "queue" : undefined);
+                return;
+              }
               if (doubleEnterSteersQueue(steerAgainUntilRef.current, Date.now(), pendingCount, hasContent)) {
                 steerAgainUntilRef.current = 0;
                 steerQueued();
@@ -1119,7 +1126,7 @@ export function Composer({
             <Square size={14} className="fill-current" />
           </button>
         )}
-        {!locked && micRecordingSupported() && (recording || (voiceNoteButtonShown(state.config) && !busy && !retryingNote)) && (
+        {!locked && micRecordingSupported() && (recording || !retryingNote) && (
           <button
             type="button"
             data-composer-mic
@@ -1138,7 +1145,7 @@ export function Composer({
             {recording ? <Check size={17} strokeWidth={2.5} /> : sharpening > 0 ? <Loader2 size={18} className="animate-spin motion-reduce:animate-none" /> : <Mic size={18} />}
           </button>
         )}
-        {bot && !group && <CallButton bot={bot} />}
+        {bot && !group && callButtonShown(state.config) && <CallButton bot={bot} />}
         {!locked && (hasContent || !busy) && (
           <button
             type="button"
@@ -1153,8 +1160,8 @@ export function Composer({
                   : t("composer.send.message")
             }
             title={
-              busy && canSteer
-                ? t("composer.send.steer")
+              busy && canSteer && !group
+                ? t("composer.send.steerHint", { shortcut: shortcutLabel("queue-message") ?? "" })
                 : busy
                   ? t("composer.send.queueHint")
                   : t("chat.send")

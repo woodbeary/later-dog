@@ -45,7 +45,7 @@ const mount = async () => {
   await act(async () => root.render(createElement(Composer, { bot: coordinator })));
 };
 const steerButton = () =>
-  [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "Steer");
+  [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "Send now");
 const actions = () => fixture.dispatch.mock.calls.map(([action]) => action.type);
 
 beforeEach(() => {

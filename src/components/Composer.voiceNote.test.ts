@@ -134,6 +134,29 @@ describe("cloud dictation", () => {
     expect(micButton()).not.toBeNull();
   });
 
+  it("keeps the mic while the dog is working, so you can dictate a follow-up", async () => {
+    talker = { ...talker, busy: true };
+    await render();
+    expect(micButton()).not.toBeNull();
+    await click(micButton());
+    await click(micButton());
+    expect(box().value).toBe(HEARD);
+  });
+
+  it("sends into the running turn on Return and queues it for later on Command-Return", async () => {
+    talker = { ...talker, busy: true };
+    await render();
+    const press = (init: KeyboardEventInit) => act(async () => {
+      box().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...init }));
+    });
+    await type("steer this");
+    await press({});
+    await type("queue this");
+    await press({ metaKey: true });
+    const sends = fixture.dispatch.mock.calls.map(([action]) => action).filter((action) => action.type === "send");
+    expect(sends.map((action) => [action.text, action.deliver])).toEqual([["steer this", undefined], ["queue this", "queue"]]);
+  });
+
   it("hides the mic where the page can't record", async () => {
     mic.supported = false;
     await render();

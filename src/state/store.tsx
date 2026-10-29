@@ -532,7 +532,7 @@ export interface ConfigStatus {
   };
   profile?: { name: string; email: string; aboutMe?: string };
   language?: string;
-  features?: { skillAuthoring: boolean; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean; autoReview?: boolean; voiceNoteButton?: boolean };
+  features?: { skillAuthoring: boolean; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean; autoReview?: boolean; callButton?: boolean };
   onboarding?: OnboardingStatus;
   browserEngine?: BrowserEngineSummary;
   browserProfiles?: BrowserProfile[];

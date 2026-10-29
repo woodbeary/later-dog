@@ -32,6 +32,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { id: "focus-composer", description: "Go to the message box", macKeys: ["⌘", "I"], winKeys: ["Ctrl", "I"] },
       { id: "send-message", description: "Send message", macKeys: ["Return"], winKeys: ["Enter"] },
       { id: "new-line", description: "New line without sending", macKeys: ["⇧", "Return"], winKeys: ["Shift", "Enter"] },
+      { id: "queue-message", description: "Queue a message for when the dog finishes", macKeys: ["⌘", "Return"], winKeys: ["Ctrl", "Enter"] },
       { id: "edit-last-message", description: "Edit your last message (when the message box is empty)", macKeys: ["↑"], winKeys: ["↑"] },
       { id: "quote-selection", description: "Quote the selected text in your reply", macKeys: ["⌘", "L"], winKeys: ["Ctrl", "L"] },
       { id: "find-conversation", description: "Find in conversation", macKeys: ["⌘", "F"], winKeys: ["Ctrl", "F"] },

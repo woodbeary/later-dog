@@ -136,15 +136,15 @@ describe("General", () => {
     expect(html).not.toContain('data-settings-group="typing-suggestions"');
     expect(html.match(/role="switch"/g) ?? []).toHaveLength(3);
     expect(html).toContain('data-auto-review="on"');
-    expect(html).toContain('data-voice-note-button="on"');
+    expect(html).toContain('data-call-button="on"');
   });
 
-  it("shows the voice note mic by default and lets you hide it", () => {
+  it("shows the call button by default and lets you hide it", () => {
     const on = render();
-    expect(on).toContain('aria-label="Voice note button"');
-    expect(on).toContain('data-voice-note-button="on"');
-    fixture.config = { ...fixture.config, features: { browser: false, voiceNoteButton: false } };
-    expect(render()).toContain('data-voice-note-button="off"');
+    expect(on).toContain('aria-label="Call button"');
+    expect(on).toContain('data-call-button="on"');
+    fixture.config = { ...fixture.config, features: { browser: false, callButton: false } };
+    expect(render()).toContain('data-call-button="off"');
   });
 
   it("puts the one Auto-review switch under Dogs, saying what on and off mean", () => {

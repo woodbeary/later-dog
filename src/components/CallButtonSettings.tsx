@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { api, useStore, type ConfigStatus } from "@/state/store";
 import { t } from "@/lib/i18n";
-import { voiceNoteButtonShown } from "@/lib/feature-flags";
+import { callButtonShown } from "@/lib/feature-flags";
 import { SettingRow, Switch } from "./SettingsPrimitives";
 
-export function VoiceNoteButtonRow() {
+export function CallButtonRow() {
   const { state, dispatch } = useStore();
-  const on = voiceNoteButtonShown(state.config);
+  const on = callButtonShown(state.config);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -15,7 +15,7 @@ export function VoiceNoteButtonRow() {
     setSaving(true);
     setFailed(false);
     try {
-      const config = await api<ConfigStatus>("/api/config", { method: "PATCH", body: JSON.stringify({ features: { voiceNoteButton: !on } }) });
+      const config = await api<ConfigStatus>("/api/config", { method: "PATCH", body: JSON.stringify({ features: { callButton: !on } }) });
       dispatch({ type: "configStatus", config });
     } catch {
       setFailed(true);
@@ -26,11 +26,11 @@ export function VoiceNoteButtonRow() {
 
   return (
     <SettingRow
-      title={t("settings.voiceNoteButton.title")}
-      subtitle={t(on ? "settings.voiceNoteButton.on" : "settings.voiceNoteButton.off")}
+      title={t("settings.callButton.title")}
+      subtitle={t(on ? "settings.callButton.on" : "settings.callButton.off")}
       message={failed && <span role="alert" className="text-danger">{t("settings.autoReview.error")}</span>}
     >
-      <Switch checked={on} disabled={saving} aria-label={t("settings.voiceNoteButton.title")} data-voice-note-button={on ? "on" : "off"} onClick={() => void toggle()} />
+      <Switch checked={on} disabled={saving} aria-label={t("settings.callButton.title")} data-call-button={on ? "on" : "off"} onClick={() => void toggle()} />
     </SettingRow>
   );
 }
