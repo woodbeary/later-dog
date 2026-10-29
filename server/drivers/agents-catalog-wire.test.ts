@@ -39,6 +39,7 @@ function profiles(): Record<string, Profile> {
     }
   }
   all["direct+skills+shared+voice+cloud-home"] = { family: "direct", env: { ...all["direct+skills+shared+voice"]!.env, LATERDOG_CLOUD_HOME: "1" } };
+  all["direct+skills+shared+voice+cloud-home+phone"] = { family: "direct", env: { ...all["direct+skills+shared+voice+cloud-home"]!.env, LATERDOG_PHONE: "1" } };
   return all;
 }
 
@@ -46,6 +47,7 @@ const PROFILES = profiles();
 const REMOVED_TEAM_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
 const REMOVED_PEER_TOOLS = ["ask_bot", "delegate_bot", "check_delegation", "wait_delegation", "send_to_bot", "list_room_targets"];
 const FULL = { direct: "direct+skills+shared+voice" } as const;
+const PHONE_TOOLS = ["read_phone", "add_to_phone"];
 
 const BUDGET_BASELINE: Record<string, number> = {
   "direct": 33176,
@@ -57,6 +59,7 @@ const BUDGET_BASELINE: Record<string, number> = {
   "direct+skills+shared": 38793,
   "direct+skills+shared+voice": 39534,
   "direct+skills+shared+voice+cloud-home": 39591,
+  "direct+skills+shared+voice+cloud-home+phone": 41737,
 };
 
 const RPC_PREFIX = '{"jsonrpc":"2.0","id":1,"result":';
@@ -143,9 +146,22 @@ describe("agents proxy tools/list golden", () => {
       const full = new Map(toolsOf(wires[FULL[profile.family]]!).map((tool) => [tool.name, JSON.stringify(tool)]));
       for (const tool of toolsOf(wires[name]!)) {
         if (profile.env.LATERDOG_CLOUD_HOME === "1" && tool.name === "select_computer") continue;
+        if (profile.env.LATERDOG_PHONE === "1" && PHONE_TOOLS.includes(tool.name)) continue;
         expect(JSON.stringify(tool), `${name}: ${tool.name}`).toBe(full.get(tool.name));
       }
     }
+  });
+
+  it("gives a Cloud home's dogs the person's iPhone as two tools, and only reading goes unasked", () => {
+    type Annotated = Tool & { annotations?: { readOnlyHint?: boolean } };
+    const cloud = toolsOf(wires["direct+skills+shared+voice+cloud-home"]!) as Annotated[];
+    const phone = toolsOf(wires["direct+skills+shared+voice+cloud-home+phone"]!) as Annotated[];
+    expect(phone.map((tool) => tool.name).filter((name) => !cloud.some((tool) => tool.name === name))).toEqual(PHONE_TOOLS);
+    for (const wire of Object.values(wires).filter((wire) => wire !== wires["direct+skills+shared+voice+cloud-home+phone"])) {
+      expect(toolsOf(wire).map((tool) => tool.name).filter((name) => PHONE_TOOLS.includes(name))).toEqual([]);
+    }
+    expect(phone.find((tool) => tool.name === "read_phone")?.annotations?.readOnlyHint).toBe(true);
+    expect(phone.find((tool) => tool.name === "add_to_phone")?.annotations).toBeUndefined();
   });
 
   it("shows a Cloud home's bots no this computer, and every other server both places", () => {

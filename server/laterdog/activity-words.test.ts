@@ -17,6 +17,14 @@ describe("what the working line says", () => {
     expect(dogActivityWords("mcp__agents__coordinate_bots", "not json", nameOf)).toBe("checking with a teammate");
   });
 
+  it("says what a dog is doing on the person's iPhone", () => {
+    expect(dogActivityWords("mcp__agents__read_phone", { what: "calendar" }, nameOf)).toBe("checking your calendar");
+    expect(dogActivityWords("mcp__agents__read_phone", { what: "contacts", query: "Ana Ruiz" }, nameOf)).toBe("looking up Ana Ruiz");
+    expect(dogActivityWords("mcp__agents__read_phone", { what: "location" }, nameOf)).toBe("checking where you are");
+    expect(dogActivityWords("mcp__agents__add_to_phone", { what: "reminder", title: "Call mom" }, nameOf)).toBe("adding a reminder");
+    expect(dogActivityWords("mcp__agents__add_to_phone", { what: "calendar_event", title: "Dentist" }, nameOf)).toBe("adding to your calendar");
+  });
+
   it("says which dog is being made instead of the tool's name", () => {
     expect(dogActivityWords("mcp__agents__create_bot", { name: "Scout", role: "research" }, nameOf)).toBe("making Scout");
     expect(dogActivityWords("mcp__agents__create_bot", {}, nameOf)).toBe("making a new dog");

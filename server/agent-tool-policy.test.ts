@@ -6,6 +6,7 @@ describe("built-in agent tool read policy", () => {
     expect([...READ_ONLY_AGENT_TOOL_NAMES]).toEqual([
       "list_bots",
       "list_shared_computers",
+      "read_phone",
       "session_search",
       "session_read",
       "tool_result_read",
@@ -24,7 +25,7 @@ describe("built-in agent tool read policy", () => {
   });
 
   it.each([
-    "shared_computer", "coordinate_bots", "post_to_room",
+    "shared_computer", "add_to_phone", "coordinate_bots", "post_to_room",
     "create_bot", "request_credential", "memory_update", "propose_routine",
     "propose_routine_action", "propose_profile", "skill_manage",
     "propose_team_setup", "propose_bot_deletion",

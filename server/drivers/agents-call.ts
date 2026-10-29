@@ -335,6 +335,11 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const attached = Array.isArray(body.attachments) && body.attachments.length ? ` with ${body.attachments.join(", ")}` : "";
     return { text: `Emailed the person${attached}. It goes to the email they use for later.dog.` };
   }
+  if (name === "read_phone" || name === "add_to_phone") {
+    const { ok, body } = await apiResponse(name === "read_phone" ? "/api/internal/phone/read" : "/api/internal/phone/add", { method: "POST", body: JSON.stringify(args) });
+    if (!ok) return { text: String(body.error ?? "The phone could not be used."), isError: true };
+    return { text: JSON.stringify(body.result) };
+  }
   if (name === "list_shared_computers") {
     return { text: JSON.stringify(await api("/api/internal/shared-computers")) };
   }

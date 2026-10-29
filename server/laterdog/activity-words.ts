@@ -7,6 +7,8 @@ const TEAM_TOOLS: Record<string, (input: Record<string, unknown>, nameOf: NameOf
   coordinate_bots: (input, nameOf) => checkingWith(names(input.bot_ids, nameOf)),
   create_bot: (input) => (typeof input.name === "string" && input.name.trim() ? `making ${clipName(input.name)}` : "making a new dog"),
   shared_computer: (input) => onTheMac(input),
+  read_phone: (input) => onThePhone(input),
+  add_to_phone: (input) => onThePhone(input),
 };
 
 function fileName(value: unknown): string | null {
@@ -20,6 +22,18 @@ function commandName(value: unknown): string | null {
   const words = value.replace(/^\s*(export\s+\S+\s*;\s*|cd\s+\S+\s*(&&|;)\s*)+/, "").trim().split(/\s+/);
   const head = words[0] === "pnpm" && words[1] === "exec" ? words[2] : words[0] === "git" || words[0] === "pnpm" ? `${words[0]} ${words[1] ?? ""}`.trim() : words[0];
   return head ? clipName(head.split("/").pop()!) : null;
+}
+
+function onThePhone(input: Record<string, unknown>): string {
+  switch (input.what) {
+    case "calendar": return "checking your calendar";
+    case "reminders": return "checking your reminders";
+    case "contacts": return typeof input.query === "string" && input.query.trim() ? `looking up ${clipName(input.query.trim())}` : "looking through your contacts";
+    case "location": return "checking where you are";
+    case "calendar_event": return "adding to your calendar";
+    case "reminder": return "adding a reminder";
+    default: return "using your iPhone";
+  }
 }
 
 function onTheMac(input: Record<string, unknown>): string {

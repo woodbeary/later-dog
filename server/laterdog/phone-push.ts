@@ -7,7 +7,7 @@ import { replyable } from "../../shared/notification.ts";
 export const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 export const EXPO_PUSH_TOKEN = /^Expo(?:nent)?PushToken\[[A-Za-z0-9_-]{8,128}\]$/;
 const MAX_TOKENS = 20;
-const URGENT = new Set<string>(["approval", "question", "takeover"]);
+const URGENT = new Set<string>(["approval", "question", "takeover", "phone"]);
 export const REPLY_CATEGORY = "reply";
 
 export interface PhonePush {
