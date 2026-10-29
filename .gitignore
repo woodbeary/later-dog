@@ -10,6 +10,7 @@ deploy/laterdog/credentials/
 *.sqlite-wal
 .worktrees/
 dist
+dist-companion
 dist-electron
 dist-native
 dist-server
