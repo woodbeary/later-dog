@@ -17,6 +17,7 @@ import {
   safeDownloadFilename,
   wrappedImageIndex,
 } from "./AttachmentPreview";
+import { handoffAttachmentImagePreview, releaseAttachmentImagePreview } from "@/lib/composer-attachments";
 
 describe("attachment image navigation", () => {
   it("wraps previous and next navigation", () => {
@@ -142,6 +143,17 @@ describe("attachment preview surfaces", () => {
       "/store/123e4567-e89b-12d3-a456-426614174000.png",
       "quarterly-report.pdf",
     )?.downloadName).toBe("quarterly-report.png");
+  });
+
+  it("keeps the saved copy of a just-sent screenshot ready for when its local preview is let go", () => {
+    const path = "/store/0d6a9f9e-3c1b-4f7e-9a51-2b8c4d6e7f80.png";
+    const saved = "/api/attachments/0d6a9f9e-3c1b-4f7e-9a51-2b8c4d6e7f80.png";
+    expect(previewImage(path)).toMatchObject({ src: saved, downloadUrl: saved });
+    expect(previewImage(path)).not.toHaveProperty("fallbackSrc");
+    handoffAttachmentImagePreview(path, "blob:http://localhost/7c1e0b5a");
+    expect(previewImage(path)).toMatchObject({ src: "blob:http://localhost/7c1e0b5a", fallbackSrc: saved, downloadUrl: saved });
+    releaseAttachmentImagePreview({ kind: "image", id: "sent", path, name: "Screenshot.png", size: 15930, mime: "image/png", previewUrl: "blob:http://localhost/7c1e0b5a" });
+    expect(previewImage(path)?.src).toBe(saved);
   });
 
   it("keeps legacy transcript file chips visible but inert", () => {

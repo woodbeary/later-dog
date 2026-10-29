@@ -674,12 +674,14 @@ export function releaseAttachmentImagePreview(attachment: ImageAttachment): void
   revokeBlobUrl(attachment.previewUrl);
 }
 
-export function attachmentImageUrl(path: string): string | null {
-  const local = previewHandoffs.get(path);
-  if (local) return local.url;
+export function savedAttachmentImageUrl(path: string): string | null {
   const name = attachmentBasename(path);
   if (!/^[A-Za-z0-9-]+\.(png|jpg|gif|webp)$/.test(name)) return null;
   return `/api/attachments/${encodeURIComponent(name)}`;
+}
+
+export function attachmentImageUrl(path: string): string | null {
+  return previewHandoffs.get(path)?.url ?? savedAttachmentImageUrl(path);
 }
 
 export function attachmentAudioUrl(path: string): string | null {

@@ -25,6 +25,7 @@ import {
 import {
   attachmentBasename,
   attachmentImageUrl,
+  savedAttachmentImageUrl,
   type TranscriptFileAttachment,
   type TranscriptImageAttachment,
 } from "@/lib/composer-attachments";
@@ -34,6 +35,7 @@ import { TableFileButton } from "./TableFilePreview";
 
 export interface PreviewImage {
   src: string;
+  fallbackSrc?: string;
   name: string;
   downloadUrl?: string;
   downloadName?: string;
@@ -45,10 +47,12 @@ export interface MessageAttachmentContext { threadId: string; messageId: string 
 export function previewImage(path: string, name = attachmentBasename(path)): PreviewImage | null {
   const src = attachmentImageUrl(path);
   if (!src) return null;
+  const saved = savedAttachmentImageUrl(path);
   return {
     src,
+    ...(saved && saved !== src ? { fallbackSrc: saved } : {}),
     name,
-    downloadUrl: src,
+    downloadUrl: saved ?? src,
     downloadName: canonicalDownloadFilename({ fallback: name, source: path }),
   };
 }
@@ -439,6 +443,7 @@ export function AttachmentPreviewDialog({
   const closeRef = useRef(onClose);
   const [loadedSources, setLoadedSources] = useState<Set<string>>(() => new Set());
   const [failedSource, setFailedSource] = useState<string | null>(null);
+  const [savedCopyFor, setSavedCopyFor] = useState<Set<string>>(() => new Set());
   const [attempt, setAttempt] = useState(0);
 
   useLayoutEffect(() => {
@@ -490,13 +495,18 @@ export function AttachmentPreviewDialog({
     };
   }, [items.length, navigate]);
 
-  const loaded = loadedSources.has(current.src);
+  const shownSrc = current.fallbackSrc && savedCopyFor.has(current.src) ? current.fallbackSrc : current.src;
+  const loaded = loadedSources.has(shownSrc);
   const failed = failedSource === current.src;
+  const imageFailed = () => {
+    if (current.fallbackSrc && !savedCopyFor.has(current.src)) setSavedCopyFor((sources) => new Set(sources).add(current.src));
+    else setFailedSource(current.src);
+  };
   const retry = () => {
     setFailedSource(null);
     setLoadedSources((sources) => {
       const next = new Set(sources);
-      next.delete(current.src);
+      next.delete(shownSrc);
       return next;
     });
     setAttempt((value) => value + 1);
@@ -582,11 +592,11 @@ export function AttachmentPreviewDialog({
             </div>
           ) : (
             <img
-              key={`${current.src}:${attempt}`}
-              src={current.src}
+              key={`${shownSrc}:${attempt}`}
+              src={shownSrc}
               alt={current.name}
-              onLoad={() => setLoadedSources((sources) => new Set(sources).add(current.src))}
-              onError={() => setFailedSource(current.src)}
+              onLoad={() => setLoadedSources((sources) => new Set(sources).add(shownSrc))}
+              onError={imageFailed}
               className={cn(
                 "block max-h-full max-w-full rounded-lg object-contain shadow-2xl transition-opacity duration-150",
                 loaded ? "opacity-100" : "opacity-0",
