@@ -1,10 +1,7 @@
-// Records the microphone in the page itself, so dictation works the same in the desktop app,
-// the phone app and the browser, and the audio goes to cloud transcription as 16 kHz WAV.
 export const DICTATION_SAMPLE_RATE = 16_000;
 const FRAME = 4096;
 
 export interface MicRecorder {
-  // Rejects with MicUnavailableError("denied") when the recording is pure digital silence.
   stop(): Promise<Uint8Array<ArrayBuffer> | null>;
   cancel(): void;
 }
@@ -33,7 +30,6 @@ export async function startMicRecorder(onLevel?: (level: number) => void): Promi
   }
   const context = new AudioContext();
   const source = context.createMediaStreamSource(stream);
-  // ScriptProcessor is deprecated but runs everywhere the app does without shipping a worklet file.
   const processor = context.createScriptProcessor(FRAME, 1, 1);
   const chunks: Float32Array[] = [];
   processor.onaudioprocess = (event) => {
@@ -65,7 +61,6 @@ export async function startMicRecorder(onLevel?: (level: number) => void): Promi
       const rate = context.sampleRate;
       release();
       const samples = joinChunks(chunks);
-      // A mic the OS has blocked still records, but every sample is exactly zero.
       if (samples.length >= rate / 2 && samples.every((sample) => sample === 0)) throw new MicUnavailableError("denied");
       return samples.length ? encodeWav(resample(samples, rate, DICTATION_SAMPLE_RATE), DICTATION_SAMPLE_RATE) : null;
     },
@@ -83,7 +78,6 @@ function joinChunks(chunks: Float32Array[]): Float32Array {
   return out;
 }
 
-// Averages each output sample's window, which doubles as a low-pass filter when downsampling.
 export function resample(samples: Float32Array, from: number, to: number): Float32Array {
   if (from === to) return samples;
   const ratio = from / to;

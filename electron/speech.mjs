@@ -60,8 +60,6 @@ export function isVoiceNote(file) {
   return path.dirname(resolved) === voiceNotesDir() && existsSync(resolved);
 }
 
-// Dev only: the helper is compiled on first use. The build runs off the main thread and is
-// shared by overlapping starts, so a slow or broken swiftc can no longer freeze the window.
 let building = null;
 function ensureBuilt() {
   if (app.isPackaged) return null;
@@ -111,7 +109,6 @@ export async function startSpeech(win, options = {}) {
     if (generation === startGeneration && !win.isDestroyed()) sendEnd(win, { code: 1, reason: "helper-build-failed" });
     return;
   }
-  // Stopped, restarted, or the window closed while the helper was building.
   if (generation !== startGeneration || win.isDestroyed()) return;
 
   const sessionDir = mkdtempSync(path.join(app.getPath("temp"), "laterdog-speech-"));

@@ -21,7 +21,6 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 }
 
-// With a live microphone level the bars follow your voice; without one they pulse as text arrives.
 export function useDictationMeter(
   active: boolean,
   heard: number,

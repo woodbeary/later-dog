@@ -294,7 +294,6 @@ export function Composer({
     while (notes.size > 10) notes.delete(notes.keys().next().value!);
     return id;
   };
-  // Captures the draft as it is now, so the transcript only lands if nobody typed over it meanwhile.
   const transcribeLater = () => {
     const id = draftId;
     const heard = text;
@@ -707,7 +706,6 @@ export function Composer({
   };
 
   useEffect(() => {
-    // Sending or switching drafts turns recording off without a stop: drop the audio.
     if (!recording && recorder.current) dropRecorder();
   }, [recording]);
   useEffect(() => () => dropRecorder(), []);

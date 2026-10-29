@@ -10,7 +10,6 @@ const resourcesDir = path.join(electronDir, "resources");
 export const speechHelperBundle = path.join(resourcesDir, "later.dog Speech.app");
 export const speechHelperBinary = path.join(speechHelperBundle, "Contents", "MacOS", "speech-helper");
 
-// Async so a dev build started from the Electron main process never blocks its event loop.
 function run(command, args, timeout) {
   return new Promise((resolve, reject) => {
     execFile(command, args, { timeout, maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
