@@ -142,7 +142,7 @@ export function createMacWaits() {
     messageSent(threadId: string): void {
       const waiting = wakers.get(threadId);
       if (!waiting) return;
-      for (const wake of [...waiting]) wake();
+      for (const wake of waiting) wake();
     },
   };
 }
