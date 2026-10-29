@@ -10,6 +10,7 @@ export interface CatalogProfile {
   voiceNotes: boolean;
   cloudHome: boolean;
   emailMe?: boolean;
+  phone?: boolean;
   memoryEnabled?: boolean;
   botId: string;
 }
@@ -21,6 +22,7 @@ export function catalogProfileFromEnv(env: NodeJS.ProcessEnv): CatalogProfile {
     voiceNotes: env.LATERDOG_VOICE_NOTES === "1",
     cloudHome: env.LATERDOG_CLOUD_HOME === "1",
     emailMe: env.LATERDOG_EMAIL_ME === "1",
+    phone: env.LATERDOG_PHONE === "1",
     memoryEnabled: env.LATERDOG_MEMORY_ENABLED !== "0",
     botId: env.LATERDOG_BOT_ID ?? "",
   };
@@ -212,6 +214,29 @@ const TOOL_DEFINITIONS = [
         computer_id: { type: "string" }, folder_id: { type: "string" }, path: { type: "string" },
       } } },
     }, required: ["subject", "body"] },
+  },
+  {
+    name: "read_phone",
+    description: "Read the person's iPhone through later.dog on it, when they ask about their schedule, reminders, someone's number or where they are. what: calendar (events from..to, default the next 7 days), reminders (open ones), contacts (people matching query) or location (where the phone is, with the address). If the app is closed they get a notification and this waits up to a minute; iOS asks them for permission the first time. Times are in the phone's time zone; pass dates as 2026-11-03 or 2026-11-03T14:30.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      what: { type: "string", enum: ["calendar", "reminders", "contacts", "location"] },
+      from: { type: "string" }, to: { type: "string" },
+      search: { type: "string", maxLength: 200, description: "Words to match in calendar or reminder titles." },
+      query: { type: "string", maxLength: 100, description: "contacts: the name to look up." },
+      include_completed: { type: "boolean" },
+      limit: { type: "integer", minimum: 1, maximum: 100 },
+    }, required: ["what"] },
+  },
+  {
+    name: "add_to_phone",
+    description: "Add a calendar_event (title, start, end or all_day; optional location, notes, calendar name) or a reminder (title; optional due, notes, list name) to the person's iPhone, when they ask for it or agreed. Same rules as read_phone. Say what you added and when.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      what: { type: "string", enum: ["calendar_event", "reminder"] },
+      title: { type: "string", minLength: 1, maxLength: 300 },
+      start: { type: "string" }, end: { type: "string" }, all_day: { type: "boolean" }, due: { type: "string" },
+      location: { type: "string", maxLength: 500 }, notes: { type: "string", maxLength: 4000 },
+      calendar: { type: "string", maxLength: 200 }, list: { type: "string", maxLength: 200 },
+    }, required: ["what", "title"] },
   },
   {
     name: "coordinate_bots",
@@ -654,6 +679,7 @@ const TOOL_DEFINITIONS = [
 const SKILL_TOOL_NAMES = new Set(["skills_list", "skill_manage"]);
 export const SHARED_COMPUTER_TOOL_NAMES = new Set(["list_shared_computers", "shared_computer"]);
 const EMAIL_TOOL_NAMES = new Set(["email_me"]);
+const PHONE_TOOL_NAMES = new Set(["read_phone", "add_to_phone"]);
 const VOICE_TOOL_NAMES = new Set(["send_voice_note"]);
 const WATCHER_TOOL_NAMES = new Set(["create_options_card"]);
 
@@ -688,7 +714,10 @@ function catalogTools(profile: CatalogProfile) {
   const EMAIL_READY_TOOLS = profile.emailMe
     ? SHAREABLE_TOOLS
     : SHAREABLE_TOOLS.filter((tool) => !EMAIL_TOOL_NAMES.has(tool.name));
-  return profile.voiceNotes
+  const PHONE_READY_TOOLS = profile.phone
     ? EMAIL_READY_TOOLS
-    : EMAIL_READY_TOOLS.filter((tool) => !VOICE_TOOL_NAMES.has(tool.name));
+    : EMAIL_READY_TOOLS.filter((tool) => !PHONE_TOOL_NAMES.has(tool.name));
+  return profile.voiceNotes
+    ? PHONE_READY_TOOLS
+    : PHONE_READY_TOOLS.filter((tool) => !VOICE_TOOL_NAMES.has(tool.name));
 }

@@ -8,7 +8,8 @@ export type NotifyKind =
   | "incident"
   | "takeover"
   | "delegation-settled"
-  | "spend";
+  | "spend"
+  | "phone";
 
 export interface Notification {
   kind: NotifyKind;
@@ -22,7 +23,7 @@ export interface Notification {
 }
 
 
-const NOT_REPLYABLE: ReadonlySet<NotifyKind> = new Set<NotifyKind>(["approval", "takeover"]);
+const NOT_REPLYABLE: ReadonlySet<NotifyKind> = new Set<NotifyKind>(["approval", "takeover", "phone"]);
 
 export function replyable(kind: NotifyKind): boolean {
   return !NOT_REPLYABLE.has(kind);

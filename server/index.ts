@@ -114,6 +114,8 @@ import { roomTurnEnd, type RoomClaimEnd } from "./room-turn-end.ts";
 import { pickComputer } from "./computer-selection.ts";
 import { isMacOffline, macOfflineResult, macOptions, macSelectReply, type KnownMac } from "./laterdog/mac-computer.ts";
 import { requestGone } from "./laterdog/request-gone.ts";
+import { PHONE_NOT_YOURS, PhoneDesk, phoneWants, type PhoneJob, type PhoneOwner } from "./laterdog/phone-desk.ts";
+import { createPhoneDeviceRoutes, createPhoneToolRoute, isPhoneDevicePath } from "./routes/phone-desk.ts";
 import { createSharedJoins } from "./laterdog/shared-join.ts";
 import { configuredSpeechKey, SpeechCache } from "./laterdog/speech-cache.ts";
 import { mp3DurationMs } from "./laterdog/mp3-duration.ts";
@@ -779,6 +781,8 @@ const TIME_ZONE_FILE = join(DATA_DIR, "time-zone.json");
 restoreTimeZone(TIME_ZONE_FILE);
 const sharedComputers = new SharedComputers(id => sessions.isLive(id), CLOUD_HOME ? { file: join(DATA_DIR, "known-macs.json") } : {});
 const macWaits = createMacWaits();
+const phoneDesk = new PhoneDesk(id => sessions.isLive(id), { file: join(DATA_DIR, "known-phones.json") });
+const phoneToolsEnabled = () => CLOUD_HOME !== null;
 const MAC_WAIT_MS = 25_000;
 if (CLOUD_HOME) sessions.requireAdmin(CLOUD_PERSONAL_REFUSAL);
 const lendingEnabled = () => sharedComputersEnabled(cfg) || CLOUD_HOME !== null;
@@ -1077,6 +1081,20 @@ async function macListing(capability: InternalCapability): Promise<Record<string
   const offline = CLOUD_HOME && principal && computers.length === 0 ? sharedComputers.known(principal).filter((computer) => !computer.online) : [];
   if (offline.length) return { computers, offline: offline.map((computer) => ({ name: computer.name, lastSeenAt: new Date(computer.lastSeenAt).toISOString() })), note: macOffline(offline) };
   return withConnectMac({ computers }, Boolean(CLOUD_HOME) && !macKnown());
+}
+
+function phoneOwner(auth: RequestAuth): PhoneOwner | { error: string; status: number } {
+  if (auth.kind !== "session" || !sessions.isLive(auth.session.id)) return { error: "Sign in to later.dog on this phone first.", status: 403 };
+  if (!auth.scopes.includes("admin")) return { error: "Only your own phone can connect to your later.dog Cloud.", status: 403 };
+  return { session: auth.session.id, person: CLOUD_HOME_LENDER };
+}
+
+async function usePhone(job: PhoneJob, capability: InternalCapability, sender: BotRecord): Promise<unknown> {
+  const principal = sharedComputerPrincipal(capability);
+  if (!principal) throw Object.assign(new Error(PHONE_NOT_YOURS), { status: 403 });
+  return await phoneDesk.request(principal, job, () => internalCapabilityIsActive(capability), async (kind) => {
+    await phonePush.send({ kind: "phone", botId: sender.id, botName: sender.name, threadId: capability.threadId, title: sender.name, body: `Wants to ${phoneWants(kind)}. Open later.dog to let it.` });
+  });
 }
 
 async function useMac(requested: SharedComputerOperation, capability: InternalCapability): Promise<unknown> {
@@ -2220,6 +2238,7 @@ function agentsIntegration(
       LATERDOG_SHARED_COMPUTERS_ENABLED: lendingEnabled() ? "1" : "0",
       LATERDOG_CLOUD_HOME: CLOUD_HOME ? "1" : "0",
       LATERDOG_EMAIL_ME: CLOUD_HOME && deliverOwnerEmail ? "1" : "0",
+      LATERDOG_PHONE: phoneToolsEnabled() ? "1" : "0",
       LATERDOG_VOICE_NOTES: (() => {
         const speaking = botForThread(botId, threadId) ?? store.bot(botId);
         return tts.voiceReady(cfg, speaking?.voice) && speaking?.voiceNotes !== false ? "1" : "0";
@@ -12390,6 +12409,12 @@ ROUTES.push(createTakeoverRoutes({
 }));
 ROUTES.push(createSecureFormRoutes({ forms: secureForms }));
 ROUTES.push(createPhonePushRoutes({ push: phonePush }));
+ROUTES.push(createPhoneDeviceRoutes({ desk: phoneDesk, enabled: phoneToolsEnabled, owner: phoneOwner, gone: requestGone }));
+INTERNAL_ROUTES.push(createPhoneToolRoute({
+  enabled: phoneToolsEnabled,
+  active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+  request: (job, capability, sender) => usePhone(job, capability as InternalCapability, sender),
+}));
 INTERNAL_ROUTES.push(createEmailMeRoute({
   deliver: CLOUD_HOME ? deliverOwnerEmail : null,
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
@@ -12731,7 +12756,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (await workspaceBackupRoutes(req, res, path, auth)) return;
     if (await cloudMoveRoutes(req, res, path, auth)) return;
     if (await cloudHoldRoutes(req, res, path, auth)) return;
-    if (path.startsWith("/api/") && path !== "/api/events" && path !== "/api/health" && !path.startsWith("/api/shared-computers/") && !isWorkspaceBackupSessionControl(method, path)) {
+    if (path.startsWith("/api/") && path !== "/api/events" && path !== "/api/health" && !path.startsWith("/api/shared-computers/") && !isPhoneDevicePath(path) && !isWorkspaceBackupSessionControl(method, path)) {
       releaseWorkspaceRequest = workspaceMaintenance.request();
     }
 
@@ -19723,6 +19748,7 @@ const gracefulShutdown = createGracefulShutdown({
       if (workspaceAccessTimer) clearInterval(workspaceAccessTimer);
       revokeAllInternalCapabilities();
       sharedComputers.close();
+      phoneDesk.close();
       sharedComputerControl.close();
       browserLive.closeAll();
       desktopViewer.closeAll();

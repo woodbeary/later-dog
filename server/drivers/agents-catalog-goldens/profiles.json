@@ -257,5 +257,38 @@
       "skill_manage",
       "add_mcp_server"
     ]
+  },
+  "direct+skills+shared+voice+cloud-home+phone": {
+    "bytes": 41737,
+    "sha256": "4ad07b2304fa540523df270671205839174fca194a0d30bf13d02853e850928d",
+    "tools": [
+      "tool_result_read",
+      "list_shared_computers",
+      "shared_computer",
+      "read_phone",
+      "add_to_phone",
+      "coordinate_bots",
+      "list_bots",
+      "select_computer",
+      "attach_file",
+      "create_bot",
+      "create_room",
+      "manage_room",
+      "request_credential",
+      "request_takeover",
+      "send_voice_note",
+      "memory_update",
+      "memory_log",
+      "session_search",
+      "session_read",
+      "list_routines",
+      "propose_routine",
+      "propose_routine_action",
+      "propose_profile",
+      "propose_model",
+      "skills_list",
+      "skill_manage",
+      "add_mcp_server"
+    ]
   }
 }
