@@ -226,7 +226,8 @@ describe("included transcription with ElevenLabs Scribe", () => {
   });
 
   it("stays on Workers AI without the engine switch or without a key", async () => {
-    for (const vars of [{ ELEVENLABS_API_KEY: "xi-secret" }, { TRANSCRIBE_ENGINE: "elevenlabs" }]) {
+    const variants: Record<string, string>[] = [{ ELEVENLABS_API_KEY: "xi-secret" }, { TRANSCRIBE_ENGINE: "elevenlabs" }];
+    for (const vars of variants) {
       const { w, run, key } = await included(vars);
       const fetcher = scribe(async () => Response.json({ text: "never" }));
       expect((await w.fetch(transcribe(key, { file: note(wav(1)) }))).status).toBe(200);
