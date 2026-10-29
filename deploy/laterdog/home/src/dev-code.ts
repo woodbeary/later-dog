@@ -1,10 +1,12 @@
+import { largeHomeAccounts } from "./size.ts";
 import type { StateBucket } from "./state.ts";
 
 export const DEV_CODE_PREFIX = "dev-code/";
 const DEV_CODE_PATH = /^\/dev-code(?:\.json|\/([a-f0-9]{64})\.tgz)$/;
 
-export function devCodeOn(flag: string | undefined): boolean {
-  return flag === "1";
+export function devCodeOn(flag: string | undefined, accountId?: string): boolean {
+  if (flag === "1") return true;
+  return accountId !== undefined && largeHomeAccounts(flag).includes(accountId);
 }
 
 export function devCodeKey(url: string): string | null {

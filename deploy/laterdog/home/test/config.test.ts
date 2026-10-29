@@ -47,9 +47,15 @@ describe.each(["wrangler.jsonc", "wrangler.production.json", "wrangler.bootstrap
   });
 });
 
-describe.each(["wrangler.jsonc", "wrangler.production.json", "wrangler.bootstrap.json"])("%s dev code", (name) => {
+describe.each(["wrangler.jsonc", "wrangler.bootstrap.json"])("%s dev code", (name) => {
   it("never runs server code pushed for testing", () => {
     expect(config(name).vars.DEV_CODE).toBe("");
+  });
+});
+
+describe("wrangler.production.json dev code", () => {
+  it("runs server code pushed from later.dog Dev on the owner's home only", () => {
+    expect(config("wrangler.production.json").vars.DEV_CODE).toBe(OWNER);
   });
 });
 

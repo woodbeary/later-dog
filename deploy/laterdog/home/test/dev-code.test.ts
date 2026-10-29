@@ -21,6 +21,17 @@ describe("server code pushed to test homes", () => {
     expect(devCodeOn(undefined)).toBe(false);
   });
 
+  it("is on for a listed account's home only, never for anyone else", () => {
+    const owner = "7eaec07f-4e74-4682-81c2-d3bf10549606";
+    const someone = "0b6f3c1e-2d4a-4f5b-8c7d-9e0f1a2b3c4d";
+    expect(devCodeOn(owner, owner)).toBe(true);
+    expect(devCodeOn(` ${owner} , `, owner)).toBe(true);
+    expect(devCodeOn(owner, someone)).toBe(false);
+    expect(devCodeOn(owner)).toBe(false);
+    expect(devCodeOn("", owner)).toBe(false);
+    expect(devCodeOn("1", someone)).toBe(true);
+  });
+
   it("reads the shared pointer and bundles, and nothing else", () => {
     expect(devCodeKey("http://state.r2/dev-code.json")).toBe("dev-code/current.json");
     expect(devCodeKey(`http://state.r2/dev-code/${HASH}.tgz`)).toBe(`dev-code/${HASH}.tgz`);

@@ -191,7 +191,7 @@ export class CloudHomeHost extends Container<Env> {
       LATERDOG_STATE_TOKEN: record.stateToken,
       ...(record.emailToken ? { LATERDOG_CLOUD_EMAIL_URL: `http://${EMAIL_HOST}/send`, LATERDOG_CLOUD_EMAIL_TOKEN: record.emailToken } : {}),
       ...(record.includedKey ? { LATERDOG_INCLUDED_KEY: record.includedKey, LATERDOG_INCLUDED_API: this.env.INCLUDED_API } : {}),
-      ...(devCodeOn(this.env.DEV_CODE) ? { LATERDOG_DEV_CODE: "1" } : {}),
+      ...(devCodeOn(this.env.DEV_CODE, record.accountId) ? { LATERDOG_DEV_CODE: "1" } : {}),
     };
   }
 
@@ -212,7 +212,7 @@ export class CloudHomeHost extends Container<Env> {
       return;
     }
     const record: HomeRecord = { ...identity, createdAt: Date.now(), stateToken: randomToken(32), emailToken: randomToken(32) };
-    await this.setOutboundByHost(STATE_HOST, "state", { token: record.stateToken, home: this.stateHome(identity.machineId) });
+    await this.setOutboundByHost(STATE_HOST, "state", { token: record.stateToken, home: this.stateHome(identity.machineId), ...(devCodeOn(this.env.DEV_CODE, record.accountId) ? { devCode: true } : {}) });
     await this.setOutboundByHost(EMAIL_HOST, "email", { token: record.emailToken, accountId: record.accountId });
     await this.ctx.storage.put(RECORD_KEY, record);
     this.record = record;
@@ -800,9 +800,9 @@ export class CloudHomeHost extends Container<Env> {
 }
 
 CloudHomeHost.outboundHandlers = {
-  state: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; home?: string }>) => {
+  state: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; home?: string; devCode?: boolean }>) => {
     if (!(await authorizedState(request, context.params?.token))) return new Response("Unauthorized", { status: 401 });
-    const devCode = devCodeOn(env.DEV_CODE) ? await handleDevCode(request, env.STATE) : null;
+    const devCode = context.params?.devCode === true || devCodeOn(env.DEV_CODE) ? await handleDevCode(request, env.STATE) : null;
     return devCode ?? handleState(request, env.STATE, stateOwner(context));
   },
   email: async (request: Request, env: Env, context: OutboundHandlerContext<{ token: string; accountId: string }>) =>
