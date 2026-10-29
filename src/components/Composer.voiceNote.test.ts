@@ -157,6 +157,30 @@ describe("cloud dictation", () => {
     expect(sends.map((action) => [action.text, action.deliver])).toEqual([["steer this", undefined], ["queue this", "queue"]]);
   });
 
+  it("keeps Stop in the send slot while a dog works and turns it into Send once you type", async () => {
+    talker = { ...talker, busy: true };
+    await render();
+    const stop = () => host.querySelector("[data-composer-stop]");
+    const actions = () => [...host.querySelector("[data-composer-actions]")!.querySelectorAll("button")];
+    expect(stop()).not.toBeNull();
+    expect(sendButton()).toBeNull();
+    expect(actions().at(-1)).toBe(stop());
+    await type("one more thing");
+    expect(stop()).toBeNull();
+    expect(actions().at(-1)).toBe(sendButton());
+  });
+
+  it("says Transcribing once, in the strip, not again in the message box", async () => {
+    answerLater();
+    await render();
+    await click(micButton());
+    await click(micButton());
+    expect(host.querySelector("[data-dictation-status]")!.textContent).toBe("Transcribing…");
+    expect(box().placeholder).not.toContain("Transcribing");
+    release(Response.json({ text: HEARD, language: "en", included: true }));
+    await settle();
+  });
+
   it("hides the mic where the page can't record", async () => {
     mic.supported = false;
     await render();

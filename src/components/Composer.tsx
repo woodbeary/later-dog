@@ -125,6 +125,7 @@ export function Composer({
   const { state, dispatch } = useStore();
   const busy = group ? Boolean(group.working || group.busyBotId) : Boolean(bot?.busy);
   const asking = !group && waitingOnPerson(bot);
+  const working = (busy || Boolean(bot?.waitingForTeammates)) && !asking;
   const steerInstanceId = group
     ? members?.find((member) => member.id === group.busyBotId)?.modelSelection.instanceId
     : bot?.modelSelection.instanceId;
@@ -559,6 +560,8 @@ export function Composer({
     refocusInput();
   };
   const hasContent = Boolean(text.trim()) || attachments.length > 0;
+  // Stop and Send share the last slot, so nothing jumps around while a dog works: Stop until you type, then Send.
+  const stopShown = working && !hasContent;
   const expanded = textWrapped || attachments.length > 0 || Boolean(attachmentNotice) || Boolean(replyTo);
   const retryFailedSend = (failed: FailedComposerSend) => {
     if (failed.requestText.includes("<attached-image ") && !imageTargetsSupport(failed.requestText)) {
@@ -1092,8 +1095,6 @@ export function Composer({
               ? t("composer.placeholder.attaching")
               : recording
               ? t("composer.placeholder.listening")
-              : sharpening > 0
-              ? t("composer.dictation.transcribing")
               : busy && canSteer && !asking
                 ? pendingCount > 0
                   ? t("composer.placeholder.steerQueued", { name: busyName })
@@ -1116,16 +1117,6 @@ export function Composer({
           <div data-composer-actions className="ml-auto flex items-center gap-1">
           {!locked && bot && !group && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} above part="model" />}
           {!locked && bot && !group && <EffortButton bot={bot} threadId={bot.threadId} />}
-          {(busy || bot?.waitingForTeammates) && !locked && !asking && (
-          <button
-            onClick={interruptTurn}
-            aria-label={t("chat.stopTurn")}
-            className="flex size-8 shrink-0 items-center justify-center rounded-full text-ink-secondary hover:bg-raised hover:text-ink"
-            title={t("chat.stop")}
-          >
-            <Square size={14} className="fill-current" />
-          </button>
-        )}
         {!locked && micRecordingSupported() && (recording || !retryingNote) && (
           <button
             type="button"
@@ -1146,7 +1137,19 @@ export function Composer({
           </button>
         )}
         {bot && !group && callButtonShown(state.config) && <CallButton bot={bot} />}
-        {!locked && (hasContent || !busy) && (
+        {!locked && stopShown && (
+          <button
+            type="button"
+            data-composer-stop
+            onClick={interruptTurn}
+            aria-label={t("chat.stopTurn")}
+            className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-app hover:brightness-110"
+            title={t("chat.stop")}
+          >
+            <Square size={12} className="fill-current" />
+          </button>
+        )}
+        {!locked && !stopShown && (
           <button
             type="button"
             data-composer-send
