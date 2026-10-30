@@ -720,6 +720,7 @@ import { engineAnswer } from "./laterdog/person-denied.ts";
 import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeover.ts";
 import { createSecureFormRoutes } from "./routes/secure-forms.ts";
 import { createVaultRoutes } from "./routes/vault.ts";
+import { RoutinePauses } from "./laterdog/routine-pause.ts";
 import { createDeviceRoutes } from "./routes/devices.ts";
 import { dispatchInternalRoutes, INTERNAL_ROUTES } from "./routes/internal.ts";
 import { createDesktopViewer, desktopViewerUrl } from "./routes/desktop-viewer.ts";
@@ -5600,6 +5601,13 @@ function isInternalTurn(threadId: string): boolean {
 }
 const personAskAt = new Map<string, number>();
 let routines: RoutineManager | null = null;
+const routinePauses = new RoutinePauses({
+  file: join(DATA_DIR, "routine-pauses.json"),
+  now: Date.now,
+  routines: { listRoutines: () => routines?.listRoutines() ?? [], update: (id, patch) => routines?.update(id, patch) },
+  bot: (botId) => store.bot(botId),
+  appendMessage: (threadId, message) => store.appendMessage(threadId, message),
+});
 let calendarCalls: CalendarCallManager | null = null;
 const localVmOwnerBusy = (botId: string) => store.bot(botId)?.busy === true;
 const localVmLeases = new LocalVmLeasePool(30 * 60_000);
@@ -8775,6 +8783,7 @@ function syncRoutineRunToSource(run: RoutineRun): string | null {
   if (statusChanged && ["waiting", "completed", "failed", "missed"].includes(run.status)) {
     store.patchTask(source.bot.id, threadId, { unread: true });
   }
+  if (statusChanged && run.status === "completed") routinePauses.result(source.bot.id);
   return threadId;
 }
 
@@ -16198,6 +16207,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       requirePinnedClientThread(m[1], body?.threadId);
       const current = requestedTaskBot(m[1], body?.threadId);
       store.patchTask(current.id, current.threadId, { unread: false });
+      routinePauses.seen(current.id);
       const bot = store.bot(current.id)!;
       const visible = wireBot(bot);
       broadcast({ kind: "bot", bot: visible });
@@ -17036,6 +17046,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ...(CLOUD_HOME && body.answered !== undefined ? { answeredBy: cardAnswererFor(auth) } : {}),
         },
       });
+      const settled = patched?.card && typeof body.answered === "string" ? routinePauses.answer(bot.id, patched.card, body.answered) : null;
+      if (settled) return json(res, 200, { message: store.patchMessage(bot.threadId, m[2], { card: settled }) });
       return json(res, 200, { message: patched });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/requests\/([A-Za-z0-9_-]{16,80})(\/interrupt)?$/);

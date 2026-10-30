@@ -317,6 +317,13 @@ export interface OptionCardData {
   skillRequest?: SkillRequestCardData;
   questionRequest?: QuestionRequestCardData;
   takeoverRequest?: TakeoverRequestCardData;
+  routinePause?: RoutinePauseCardData;
+}
+
+export interface RoutinePauseCardData {
+  version: 1;
+  routineIds: string[];
+  outcome?: "resumed" | "keep-running" | "kept";
 }
 
 export type LiveClient = "desktop" | "web" | "ios" | "android";
