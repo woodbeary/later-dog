@@ -27,6 +27,9 @@ export type Route =
   | { kind: "plan_done" }
   | { kind: "speak"; voiceId: string }
   | { kind: "transcribe" }
+  | { kind: "usage" }
+  | { kind: "usage_owner" }
+  | { kind: "usage_grants" }
   | { kind: "not_found"; api: boolean }
   | { kind: "method_not_allowed"; allow: string[] };
 
@@ -75,6 +78,9 @@ export function route(method: string, pathname: string): Route {
   if (pathname === "/plan/done") return method === "GET" ? { kind: "plan_done" } : { kind: "method_not_allowed", allow: ["GET"] };
   const speak = VOICE_PATH.exec(pathname);
   if (speak) return method === "POST" ? { kind: "speak", voiceId: speak[1]! } : { kind: "method_not_allowed", allow: ["POST"] };
+  if (pathname === "/v1/usage") return method === "GET" ? { kind: "usage" } : { kind: "method_not_allowed", allow: ["GET"] };
+  if (pathname === "/v1/usage/owner") return method === "GET" ? { kind: "usage_owner" } : { kind: "method_not_allowed", allow: ["GET"] };
+  if (pathname === "/v1/usage/owner/grants") return method === "PUT" ? { kind: "usage_grants" } : { kind: "method_not_allowed", allow: ["PUT"] };
   if (pathname === "/v1/trial") {
     const op = allow(TRIAL, method) as TrialOp | undefined;
     return op ? { kind: "trial", op } : { kind: "method_not_allowed", allow: Object.keys(TRIAL) };

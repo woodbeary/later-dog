@@ -4,10 +4,41 @@ import { newTrialId } from "./ids";
 import { MINUTE } from "./idle";
 import { type UsageKind, utcDay } from "./decide";
 import type { Tier } from "./gateway";
+import { ownerKeys } from "./owner";
 import { paidThrough, squareConfigured, subscription } from "./square";
 import { type TrialRecord, trialListing } from "./trial";
+import { PROVIDERS, type Provider, type Service, type Spend, isSpend } from "./usage-cost";
 
 const RETRY_MS = 60 * MINUTE;
+const DAY_MS = 24 * 60 * MINUTE;
+export const HISTORY_DAYS = 90;
+export const OWNER_RENEW_DAYS = 30;
+export const TOP_INSTALLS = 10;
+
+export function historyDays(asked: number): number {
+  return Number.isInteger(asked) && asked >= 1 ? Math.min(asked, HISTORY_DAYS) : 30;
+}
+
+export function dayList(now: number, days: number): string[] {
+  return Array.from({ length: days }, (_, index) => utcDay(now - (days - 1 - index) * DAY_MS));
+}
+
+export type UsageDay = { day: string; used: Partial<Record<UsageKind, number>>; micros?: number };
+
+export type InstallUsage = { owner: boolean; tier: Tier; today: string; days: UsageDay[] };
+
+export type Grant = { provider: Provider; usd: number; since: string };
+
+export type OwnerReport = {
+  today: string;
+  days: string[];
+  usage: { day: string; kind: UsageKind; used: number }[];
+  active: { day: string; installs: number }[];
+  activeInstalls: number;
+  spend: { day: string; service: Service; provider: Provider; units: number; micros: number }[];
+  top: { label: string; tier: Tier | null; owner: boolean; micros: number; services: { service: Service; units: number; micros: number }[] }[];
+  grants: (Grant & { spentMicros: number })[];
+};
 
 export type PlanRow = {
   key_sha256: string;
@@ -84,9 +115,73 @@ export class TrialRegistry extends DurableObject<Env> {
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS usage (key_sha256 TEXT NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, used INTEGER NOT NULL, PRIMARY KEY (key_sha256, day, kind))");
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS homes (key_sha256 TEXT PRIMARY KEY)");
     ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS usage_totals (day TEXT NOT NULL, kind TEXT NOT NULL, used INTEGER NOT NULL, PRIMARY KEY (day, kind))");
+    ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS usage_day ON usage (day)");
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS spend (
+      key_sha256 TEXT NOT NULL,
+      day TEXT NOT NULL,
+      service TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      units INTEGER NOT NULL,
+      micros INTEGER NOT NULL,
+      PRIMARY KEY (key_sha256, day, service, provider)
+    )`);
+    ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS spend_day ON spend (day)");
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS spend_totals (
+      day TEXT NOT NULL,
+      service TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      units INTEGER NOT NULL,
+      micros INTEGER NOT NULL,
+      PRIMARY KEY (day, service, provider)
+    )`);
+    ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS grants (provider TEXT PRIMARY KEY, usd REAL NOT NULL, since TEXT NOT NULL)");
   }
 
-  allowUsage(input: { keySha256: string; kind: UsageKind; amount: number; perKey: number; total: number }): { ok: true; tier: Tier } | { ok: false; refusal: Refusal } {
+  private prunedDay = "";
+
+  private isOwner(keySha256: string): boolean {
+    return ownerKeys(this.env).has(keySha256);
+  }
+
+  private prune(now: number): void {
+    const day = utcDay(now);
+    if (this.prunedDay === day) return;
+    const sql = this.ctx.storage.sql;
+    const cutoff = utcDay(now - (HISTORY_DAYS - 1) * DAY_MS);
+    sql.exec("DELETE FROM usage WHERE day < ?", cutoff);
+    sql.exec("DELETE FROM spend WHERE day < ?", cutoff);
+    this.prunedDay = day;
+  }
+
+  private count(keySha256: string, day: string, kind: UsageKind, amount: number): void {
+    const sql = this.ctx.storage.sql;
+    sql.exec("INSERT INTO usage (key_sha256, day, kind, used) VALUES (?, ?, ?, ?) ON CONFLICT (key_sha256, day, kind) DO UPDATE SET used = used + ?", keySha256, day, kind, amount, amount);
+    sql.exec("INSERT INTO usage_totals (day, kind, used) VALUES (?, ?, ?) ON CONFLICT (day, kind) DO UPDATE SET used = used + ?", day, kind, amount, amount);
+  }
+
+  private addSpend(keySha256: string, day: string, spend: Spend): void {
+    if (!isSpend(spend)) return;
+    const units = Math.round(spend.units);
+    const micros = Math.round(spend.micros);
+    if (units === 0 && micros === 0) return;
+    const sql = this.ctx.storage.sql;
+    sql.exec(
+      "INSERT INTO spend (key_sha256, day, service, provider, units, micros) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (key_sha256, day, service, provider) DO UPDATE SET units = units + excluded.units, micros = micros + excluded.micros",
+      keySha256, day, spend.service, spend.provider, units, micros,
+    );
+    sql.exec(
+      "INSERT INTO spend_totals (day, service, provider, units, micros) VALUES (?, ?, ?, ?, ?) ON CONFLICT (day, service, provider) DO UPDATE SET units = units + excluded.units, micros = micros + excluded.micros",
+      day, spend.service, spend.provider, units, micros,
+    );
+  }
+
+  recordSpend(input: { keySha256: string; spend: Spend }): void {
+    const now = Date.now();
+    this.prune(now);
+    this.addSpend(input.keySha256, utcDay(now), input.spend);
+  }
+
+  allowUsage(input: { keySha256: string; kind: UsageKind; amount: number; perKey: number; total: number; spend?: Spend }): { ok: true; tier: Tier } | { ok: false; refusal: Refusal } {
     const taken = this.take(input);
     return taken.ok ? { ok: true, tier: taken.tier } : taken;
   }
@@ -96,12 +191,13 @@ export class TrialRegistry extends DurableObject<Env> {
     return this.take({ keySha256: input.keySha256, kind: input.kind, amount: input.amount, perKey: tier === "trial" ? input.perKey : input.perFullKey, total: input.total, tier });
   }
 
-  settleUsage(input: { keySha256: string; kind: UsageKind; day: string; reserved: number; used: number }): void {
+  settleUsage(input: { keySha256: string; kind: UsageKind; day: string; reserved: number; used: number; spend?: Spend }): void {
+    if (input.spend) this.addSpend(input.keySha256, input.day, input.spend);
     const used = Number.isFinite(input.used) && input.used > 0 ? Math.ceil(input.used) : 0;
     const delta = used - input.reserved;
     if (delta === 0) return;
-    if (input.day !== utcDay(Date.now())) {
-      if (delta > 0) this.chargeUsage({ keySha256: input.keySha256, kind: input.kind, amount: delta });
+    if (input.day !== utcDay(Date.now()) && delta > 0) {
+      this.chargeUsage({ keySha256: input.keySha256, kind: input.kind, amount: delta });
       return;
     }
     const sql = this.ctx.storage.sql;
@@ -109,22 +205,24 @@ export class TrialRegistry extends DurableObject<Env> {
     sql.exec("UPDATE usage_totals SET used = MAX(0, used + ?) WHERE day = ? AND kind = ?", delta, input.day, input.kind);
   }
 
-  private take(input: { keySha256: string; kind: UsageKind; amount: number; perKey: number; total: number; tier?: Tier }): UsageHold | { ok: false; refusal: Refusal } {
+  private take(input: { keySha256: string; kind: UsageKind; amount: number; perKey: number; total: number; tier?: Tier; spend?: Spend }): UsageHold | { ok: false; refusal: Refusal } {
     const sql = this.ctx.storage.sql;
     const now = Date.now();
-    if (sql.exec("SELECT 1 FROM trials WHERE key_sha256 = ? AND expires_at > ?", input.keySha256, now).toArray().length === 0) {
+    const owner = this.isOwner(input.keySha256);
+    if (!owner && sql.exec("SELECT 1 FROM trials WHERE key_sha256 = ? AND expires_at > ?", input.keySha256, now).toArray().length === 0) {
       return { ok: false, refusal: { status: 401, code: "unauthorized", message: "This free trial has ended or has not started yet." } };
     }
     const amount = Math.max(1, Math.ceil(input.amount));
     const day = utcDay(now);
-    sql.exec("DELETE FROM usage WHERE day <> ?", day);
-    sql.exec("DELETE FROM usage_totals WHERE day <> ?", day);
-    const mine = sql.exec<{ used: number }>("SELECT used FROM usage WHERE key_sha256 = ? AND day = ? AND kind = ?", input.keySha256, day, input.kind).toArray()[0]?.used ?? 0;
-    if (mine + amount > input.perKey) return { ok: false, refusal: { status: 429, code: "daily_limit", message: "This installation has used today's allowance. It resets at midnight UTC." } };
-    const all = sql.exec<{ used: number }>("SELECT used FROM usage_totals WHERE day = ? AND kind = ?", day, input.kind).toArray()[0]?.used ?? 0;
-    if (all + amount > input.total) return { ok: false, refusal: { status: 503, code: "busy_today", message: "later.dog's included service is at today's limit. Try again tomorrow, or add your own key." } };
-    sql.exec("INSERT INTO usage (key_sha256, day, kind, used) VALUES (?, ?, ?, ?) ON CONFLICT (key_sha256, day, kind) DO UPDATE SET used = used + ?", input.keySha256, day, input.kind, amount, amount);
-    sql.exec("INSERT INTO usage_totals (day, kind, used) VALUES (?, ?, ?) ON CONFLICT (day, kind) DO UPDATE SET used = used + ?", day, input.kind, amount, amount);
+    this.prune(now);
+    if (!owner) {
+      const mine = sql.exec<{ used: number }>("SELECT used FROM usage WHERE key_sha256 = ? AND day = ? AND kind = ?", input.keySha256, day, input.kind).toArray()[0]?.used ?? 0;
+      if (mine + amount > input.perKey) return { ok: false, refusal: { status: 429, code: "daily_limit", message: "This installation has used today's allowance. It resets at midnight UTC." } };
+      const all = sql.exec<{ used: number }>("SELECT used FROM usage_totals WHERE day = ? AND kind = ?", day, input.kind).toArray()[0]?.used ?? 0;
+      if (all + amount > input.total) return { ok: false, refusal: { status: 503, code: "busy_today", message: "later.dog's included service is at today's limit. Try again tomorrow, or add your own key." } };
+    }
+    this.count(input.keySha256, day, input.kind, amount);
+    if (input.spend) this.addSpend(input.keySha256, day, input.spend);
     return { ok: true, day, amount, tier: input.tier ?? this.tierOf(input.keySha256) };
   }
 
@@ -178,12 +276,84 @@ export class TrialRegistry extends DurableObject<Env> {
   chargeUsage(input: { keySha256: string; kind: UsageKind; amount: number }): void {
     const amount = Math.ceil(input.amount);
     if (!Number.isFinite(amount) || amount <= 0) return;
+    const now = Date.now();
+    this.prune(now);
+    this.count(input.keySha256, utcDay(now), input.kind, amount);
+  }
+
+  usageFor(keySha256: string, days: number): InstallUsage | null {
+    const owner = this.isOwner(keySha256);
+    if (!owner && !this.find(keySha256)) return null;
     const sql = this.ctx.storage.sql;
-    const day = utcDay(Date.now());
-    sql.exec("DELETE FROM usage WHERE day <> ?", day);
-    sql.exec("DELETE FROM usage_totals WHERE day <> ?", day);
-    sql.exec("INSERT INTO usage (key_sha256, day, kind, used) VALUES (?, ?, ?, ?) ON CONFLICT (key_sha256, day, kind) DO UPDATE SET used = used + ?", input.keySha256, day, input.kind, amount, amount);
-    sql.exec("INSERT INTO usage_totals (day, kind, used) VALUES (?, ?, ?) ON CONFLICT (day, kind) DO UPDATE SET used = used + ?", day, input.kind, amount, amount);
+    const list = dayList(Date.now(), historyDays(days));
+    const byDay = new Map<string, UsageDay>(list.map((day) => [day, { day, used: {}, ...(owner ? { micros: 0 } : {}) }]));
+    for (const row of sql.exec<{ day: string; kind: UsageKind; used: number }>("SELECT day, kind, used FROM usage WHERE key_sha256 = ? AND day >= ?", keySha256, list[0]!)) {
+      const entry = byDay.get(row.day);
+      if (entry) entry.used[row.kind] = row.used;
+    }
+    if (owner) {
+      for (const row of sql.exec<{ day: string; micros: number }>("SELECT day, SUM(micros) AS micros FROM spend WHERE key_sha256 = ? AND day >= ? GROUP BY day", keySha256, list[0]!)) {
+        const entry = byDay.get(row.day);
+        if (entry) entry.micros = row.micros;
+      }
+    }
+    return { owner, tier: this.tierOf(keySha256), today: list[list.length - 1]!, days: [...byDay.values()] };
+  }
+
+  ownerReport(keySha256: string, days: number): OwnerReport | null {
+    if (!this.isOwner(keySha256)) return null;
+    const sql = this.ctx.storage.sql;
+    const list = dayList(Date.now(), historyDays(days));
+    const from = list[0]!;
+    const owners = ownerKeys(this.env);
+    const top = sql.exec<{ key_sha256: string; micros: number }>(
+      "SELECT key_sha256, SUM(micros) AS micros FROM spend WHERE day >= ? GROUP BY key_sha256 ORDER BY micros DESC LIMIT ?", from, TOP_INSTALLS,
+    ).toArray().map((row) => {
+      const trial = sql.exec<{ id: string }>("SELECT id FROM trials WHERE key_sha256 = ?", row.key_sha256).toArray()[0];
+      const live = this.find(row.key_sha256) !== null || owners.has(row.key_sha256);
+      return {
+        label: trial?.id ?? "ended",
+        tier: live ? this.tierOf(row.key_sha256) : null,
+        owner: owners.has(row.key_sha256),
+        micros: row.micros,
+        services: sql.exec<{ service: Service; units: number; micros: number }>(
+          "SELECT service, SUM(units) AS units, SUM(micros) AS micros FROM spend WHERE key_sha256 = ? AND day >= ? GROUP BY service ORDER BY micros DESC", row.key_sha256, from,
+        ).toArray(),
+      };
+    });
+    return {
+      today: list[list.length - 1]!,
+      days: list,
+      usage: sql.exec<{ day: string; kind: UsageKind; used: number }>("SELECT day, kind, used FROM usage_totals WHERE day >= ? ORDER BY day, kind", from).toArray(),
+      active: sql.exec<{ day: string; installs: number }>("SELECT day, COUNT(DISTINCT key_sha256) AS installs FROM usage WHERE day >= ? GROUP BY day ORDER BY day", from).toArray(),
+      activeInstalls: sql.exec<{ installs: number }>("SELECT COUNT(DISTINCT key_sha256) AS installs FROM usage WHERE day >= ?", from).one().installs,
+      spend: sql.exec<{ day: string; service: Service; provider: Provider; units: number; micros: number }>(
+        "SELECT day, service, provider, units, micros FROM spend_totals WHERE day >= ? ORDER BY day, provider, service", from,
+      ).toArray(),
+      top,
+      grants: this.grants(),
+    };
+  }
+
+  private grants(): (Grant & { spentMicros: number })[] {
+    const sql = this.ctx.storage.sql;
+    return sql.exec<Grant>("SELECT provider, usd, since FROM grants ORDER BY provider").toArray().map((grant) => ({
+      provider: grant.provider,
+      usd: grant.usd,
+      since: grant.since,
+      spentMicros: sql.exec<{ micros: number | null }>("SELECT SUM(micros) AS micros FROM spend_totals WHERE provider = ? AND day >= ?", grant.provider, grant.since).one().micros ?? 0,
+    }));
+  }
+
+  setGrants(keySha256: string, grants: Grant[]): (Grant & { spentMicros: number })[] | null {
+    if (!this.isOwner(keySha256)) return null;
+    const sql = this.ctx.storage.sql;
+    sql.exec("DELETE FROM grants");
+    for (const grant of grants) {
+      if (!PROVIDERS.includes(grant.provider)) continue;
+      sql.exec("INSERT INTO grants (provider, usd, since) VALUES (?, ?, ?) ON CONFLICT (provider) DO UPDATE SET usd = excluded.usd, since = excluded.since", grant.provider, grant.usd, grant.since);
+    }
+    return this.grants();
   }
 
   async activate(input: { keySha256: string; network: string; limitMs: number; windowMs: number; perDay: number; perNetwork?: number }): Promise<Activation> {
@@ -245,15 +415,32 @@ export class TrialRegistry extends DurableObject<Env> {
     return { ok: true, trial: { id: prior.id, createdAt: prior.created_at, expiresAt: until, limitMs: input.limitMs, usedMs }, replayed: true };
   }
 
-  holder(keySha256: string): { trial: TrialRecord; fullAllowance: boolean; home: boolean } | null {
-    const trial = this.find(keySha256);
+  async holder(keySha256: string): Promise<{ trial: TrialRecord; fullAllowance: boolean; home: boolean } | null> {
+    const trial = this.find(keySha256) ?? (this.isOwner(keySha256) ? await this.renewOwner(keySha256) : null);
     if (!trial) return null;
     const home = this.homeGrant(keySha256);
-    return { trial, fullAllowance: home || this.planPaid(keySha256), home };
+    return { trial, fullAllowance: home || this.isOwner(keySha256) || this.planPaid(keySha256), home };
   }
 
   tierFor(keySha256: string): Tier | null {
-    return this.find(keySha256) ? this.tierOf(keySha256) : null;
+    return this.isOwner(keySha256) || this.find(keySha256) ? this.tierOf(keySha256) : null;
+  }
+
+  private async renewOwner(keySha256: string): Promise<TrialRecord> {
+    const sql = this.ctx.storage.sql;
+    const now = Date.now();
+    const expiresAt = now + OWNER_RENEW_DAYS * DAY_MS;
+    const prior = sql.exec<Row>("SELECT * FROM trials WHERE key_sha256 = ?", keySha256).toArray()[0];
+    let trial: TrialRecord;
+    if (prior) {
+      sql.exec("UPDATE trials SET expires_at = ?, used_ms = 0 WHERE id = ?", expiresAt, prior.id);
+      trial = { ...trialOf(prior), expiresAt, usedMs: 0 };
+    } else {
+      trial = this.insert(keySha256, now, planPolicy(this.env).limitMs, expiresAt - now);
+    }
+    await this.wakeBy(expiresAt);
+    console.log(`laterdog computers: trial ${trial.id} renewed until ${new Date(expiresAt).toISOString()}`);
+    return trial;
   }
 
   private renewed(id: string): boolean {
@@ -266,6 +453,7 @@ export class TrialRegistry extends DurableObject<Env> {
   }
 
   private tierOf(keySha256: string): Tier {
+    if (this.isOwner(keySha256)) return "owner";
     if (this.planPaid(keySha256)) return "plan";
     return this.homeGrant(keySha256) ? "home" : "trial";
   }
@@ -351,6 +539,10 @@ export class TrialRegistry extends DurableObject<Env> {
     let failed = false;
     for (const { id, key_sha256 } of sql.exec<{ id: string; key_sha256: string }>("SELECT id, key_sha256 FROM trials WHERE expires_at <= ? ORDER BY expires_at", now).toArray()) {
       try {
+        if (this.isOwner(key_sha256)) {
+          await this.renewOwner(key_sha256);
+          continue;
+        }
         if (await this.renewedPlan(key_sha256)) continue;
         await this.end(id, { expiredOnly: true });
       } catch (error) {

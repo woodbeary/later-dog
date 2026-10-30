@@ -270,7 +270,7 @@ export async function body(response: Response): Promise<any> {
   return response.json();
 }
 
-export async function viaGateway(key: string, tier: "trial" | "home" | "plan" = "trial") {
+export async function viaGateway(key: string, tier: "trial" | "home" | "plan" | "owner" = "trial") {
   return { gateway: { id: "default", collectLog: false, metadata: { user: (await sha256Hex(key)).slice(0, 16), tier } } };
 }
 

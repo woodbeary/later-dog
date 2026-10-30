@@ -92,7 +92,7 @@ export function elevenLabsVoice(env: Env): ElevenLabsVoice | null {
 }
 
 export function elevenLabsFor(env: Env, tier: Tier | null): ElevenLabsVoice | null {
-  return tier === ELEVENLABS_TIER ? elevenLabsVoice(env) : null;
+  return tier === ELEVENLABS_TIER || tier === "owner" ? elevenLabsVoice(env) : null;
 }
 
 export function elevenLabsBudget(voice: ElevenLabsVoice) {

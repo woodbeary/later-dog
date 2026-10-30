@@ -1,6 +1,6 @@
-export type Tier = "trial" | "home" | "plan";
+export type Tier = "trial" | "home" | "plan" | "owner";
 
-export const TIERS: readonly Tier[] = ["trial", "home", "plan"];
+export const TIERS: readonly Tier[] = ["trial", "home", "plan", "owner"];
 
 export type GatewayMetadata = { user: string; tier: Tier };
 

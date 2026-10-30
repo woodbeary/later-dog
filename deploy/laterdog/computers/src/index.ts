@@ -3,7 +3,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { BROWSER_ORIGIN, type Refusal, bearerToken, refuseApiRequest, sha256Hex } from "./auth";
 import type { DogComputer, Result } from "./computer";
 import { TooLarge, apiError, json, readLimited } from "./http";
-import { AI_DEFAULT_MODEL, AI_MAX_BODY_BYTES, AI_MAX_PROMPT_TOKENS, AI_WORKERS_MODEL, chatRequest, grokRequest, openAiStream, plainErrors, streamedTokens, tokensOf, usableStream, workersInput, type ChatRequest } from "./ai";
+import { AI_DEFAULT_MODEL, AI_MAX_BODY_BYTES, AI_MAX_PROMPT_TOKENS, AI_TOKENS_PER_DAY, AI_TRIAL_TOKENS_PER_DAY, AI_WORKERS_MODEL, GROK_TOKENS_PER_DAY, chatRequest, grokRequest, openAiStream, plainErrors, streamedUsage, usableStream, usageOf, workersInput, type ChatRequest, type TokenUsage } from "./ai";
 import { AI_BUDGET, GROK_BUDGET, type Reservation, type TokenBudget, chatEstimate, jointReservation, reserveTokens } from "./usage-reserve";
 import { DECIDE_MAX_IMAGE_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY, SCREEN_CHECKS_PER_DAY, SCREEN_CHECKS_TOTAL_PER_DAY, TOOL_DECISIONS_PER_DAY, TOOL_DECISIONS_TOTAL_PER_DAY, type Decision, type UsageKind, VOICE_CHARS_TOTAL_PER_DAY, clefInput, clefModelId, decisionFrom, toolDecisionFrom } from "./decide";
 import { COMPLETE_DEFAULT_MODEL, COMPLETE_MAX_BODY_BYTES, COMPLETIONS_PER_DAY, COMPLETIONS_TOTAL_PER_DAY, completeInput, completeRequest, completionFrom } from "./complete";
@@ -29,7 +29,7 @@ import {
   verifyTurnstile,
 } from "./trial";
 import { trialPage, trialPageHeaders } from "./trial-page";
-import { type PlanRow, planPolicy, trials } from "./trial-registry";
+import { type Grant, type PlanRow, planPolicy, trials } from "./trial-registry";
 import { cancelSubscription, createPlanLink, customerPlan, orderCustomer, paidThrough, squareConfigured, subscription } from "./square";
 import { messagePage, newNonce } from "./viewer";
 import { AURA_FORMAT, ELEVENLABS_ENGINE, type ElevenLabsVoice, type SpeechRequest, VOICE_CHARS_PER_DAY, VOICE_MODEL, audioBytes, auraSpeaker, elevenLabsBudget, elevenLabsFor, elevenLabsRequest, elevenLabsVoice, includedVoices, speechRequest, voiceInput } from "./voice";
@@ -37,6 +37,8 @@ import { SCRIBE_URL, TRANSCRIBE_MAX_BYTES, TRANSCRIBE_MODEL, TRANSCRIBE_SECONDS_
 import { type GatewayMetadata, gatewayId, gatewayMetadata, gatewayOptions, withMetadata } from "./gateway";
 import { type MessagesRequest, anthropicBudget, anthropicFirst, anthropicGatewayRequest, anthropicModel, chatCompletion, chatCompletionStream, messagesRequest } from "./anthropic";
 import { type Audio, SpeechCache, type SpeechKey, edgeSpeechStore } from "./speech-cache";
+import { type ChatSource, PROVIDERS, type Provider, type Spend, callSpend, chatSpend, dictationSpend, voiceSpend } from "./usage-cost";
+import type { Tier } from "./gateway";
 
 export { DogComputer } from "./computer";
 export { ComputerRegistry } from "./registry";
@@ -63,6 +65,7 @@ declare global {
     TRIAL_AI_ANTHROPIC_MODEL?: string;
     ANTHROPIC_FIRST?: string;
     TYPING_AI_MODEL?: string;
+    OWNER_KEY_SHA256S?: string;
   }
 }
 
@@ -560,13 +563,24 @@ async function decideRequest(request: Request, env: Env): Promise<Response> {
 
 type DecisionBudget = { kind: UsageKind; perKey: number; total: number };
 
+type Waiter = (work: Promise<unknown>) => void;
+
+function spendRecorder(env: Env, keySha256: string, waitUntil: Waiter): (spend: Spend | null) => void {
+  return (spend) => {
+    if (!spend) return;
+    waitUntil(Promise.resolve(trials(env).recordSpend({ keySha256, spend })).catch((error: unknown) => {
+      console.error(`laterdog computers: recording spend failed: ${error instanceof Error ? error.message : String(error)}`);
+    }));
+  };
+}
+
 const ROOM_DECISIONS: DecisionBudget = { kind: "decisions", perKey: DECISIONS_PER_DAY, total: DECISIONS_TOTAL_PER_DAY };
 const SCREEN_CHECKS: DecisionBudget = { kind: "screen_checks", perKey: SCREEN_CHECKS_PER_DAY, total: SCREEN_CHECKS_TOTAL_PER_DAY };
 const TOOL_DECISIONS: DecisionBudget = { kind: "tool_decisions", perKey: TOOL_DECISIONS_PER_DAY, total: TOOL_DECISIONS_TOTAL_PER_DAY };
 
 async function runDecision(env: Env, keySha256: string, decision: Decision, budget: DecisionBudget, exhausted?: Refusal): Promise<Response> {
   if (!env.AI) return apiError(NOT_INCLUDED);
-  const allowance = await trials(env).allowUsage({ keySha256, amount: 1, ...budget });
+  const allowance = await trials(env).allowUsage({ keySha256, amount: 1, ...budget, spend: callSpend("decisions") });
   if (!allowance.ok) {
     if (exhausted && allowance.refusal.status !== 401) return apiError(exhausted);
     return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
@@ -626,7 +640,7 @@ async function completeHandler(request: Request, env: Env): Promise<Response> {
   const parsed = completeRequest(body.value);
   if (!parsed.ok) return apiError(parsed.refusal);
   if (!env.AI) return apiError(NOT_INCLUDED);
-  const allowance = await trials(env).allowUsage({ keySha256, kind: "completions", amount: 1, perKey: COMPLETIONS_PER_DAY, total: COMPLETIONS_TOTAL_PER_DAY });
+  const allowance = await trials(env).allowUsage({ keySha256, kind: "completions", amount: 1, perKey: COMPLETIONS_PER_DAY, total: COMPLETIONS_TOTAL_PER_DAY, spend: callSpend("typing") });
   if (!allowance.ok) return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
   try {
     const model = env.TYPING_AI_MODEL?.trim() || COMPLETE_DEFAULT_MODEL;
@@ -651,7 +665,7 @@ function audioResponse(audio: Audio, engine: "elevenlabs" | "aura", cached: bool
   return new Response(audio, { headers: { "content-type": "audio/mpeg", "cache-control": "no-store", "x-speech-engine": engine, "x-speech-cache": cached ? "hit" : "miss" } });
 }
 
-async function elevenLabsSpeech(env: Env, voice: ElevenLabsVoice, request: SpeechRequest, keySha256: string, metadata: GatewayMetadata, cache: SpeechCache): Promise<Response | null> {
+async function elevenLabsSpeech(env: Env, voice: ElevenLabsVoice, request: SpeechRequest, keySha256: string, metadata: GatewayMetadata, cache: SpeechCache, record: (spend: Spend | null) => void): Promise<Response | null> {
   const key: SpeechKey = { engine: ELEVENLABS_ENGINE, voice: request.voiceId, format: request.outputFormat, text: request.text };
   const cached = await cache.find(key);
   if (cached) return audioResponse(cached, "elevenlabs", true);
@@ -664,6 +678,7 @@ async function elevenLabsSpeech(env: Env, voice: ElevenLabsVoice, request: Speec
   if (upstream?.ok && upstream.body) {
     const [toClient, toCache] = upstream.body.tee();
     cache.keep(key, toCache);
+    record(voiceSpend("elevenlabs", request.text.length));
     return audioResponse(toClient, "elevenlabs", false);
   }
   if (upstream) console.error(`laterdog computers: speech failed: ElevenLabs answered ${upstream.status}`);
@@ -672,13 +687,14 @@ async function elevenLabsSpeech(env: Env, voice: ElevenLabsVoice, request: Speec
   return null;
 }
 
-async function auraSpeech(env: Env, request: SpeechRequest, metadata: GatewayMetadata, cache: SpeechCache): Promise<Response> {
+async function auraSpeech(env: Env, request: SpeechRequest, metadata: GatewayMetadata, cache: SpeechCache, record: (spend: Spend | null) => void): Promise<Response> {
   const key: SpeechKey = { engine: VOICE_MODEL, voice: auraSpeaker(request), format: AURA_FORMAT, text: request.text };
   const cached = await cache.find(key);
   if (cached) return audioResponse(cached, "aura", true);
   const bytes = await audioBytes(await (env.AI.run as (model: string, input: Record<string, unknown>, options: unknown) => Promise<unknown>)(VOICE_MODEL, voiceInput(request), gatewayOptions(env, metadata)));
   if (!bytes || bytes.byteLength === 0) return apiError(INCLUDED_FAILED);
   cache.keep(key, bytes);
+  record(voiceSpend("aura", request.text.length));
   return audioResponse(bytes, "aura", false);
 }
 
@@ -697,13 +713,14 @@ async function speakRequest(request: Request, env: Env, url: URL, voiceId: strin
   if (!allowance.ok) return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
   const metadata = gatewayMetadata(keySha256, allowance.tier);
   const cache = new SpeechCache(edgeSpeechStore(), url.origin, waitUntil);
+  const record = spendRecorder(env, keySha256, waitUntil);
   try {
     const voice = elevenLabsFor(env, allowance.tier);
     if (voice) {
-      const spoken = await elevenLabsSpeech(env, voice, parsed.request, keySha256, metadata, cache);
+      const spoken = await elevenLabsSpeech(env, voice, parsed.request, keySha256, metadata, cache, record);
       if (spoken) return spoken;
     }
-    return await auraSpeech(env, parsed.request, metadata, cache);
+    return await auraSpeech(env, parsed.request, metadata, cache, record);
   } catch (error) {
     console.error(`laterdog computers: speech failed: ${error instanceof Error ? error.message : String(error)}`);
     return apiError(INCLUDED_FAILED);
@@ -725,7 +742,7 @@ async function scribeTranscribe(request: TranscriptionRequest, key: string): Pro
   }
 }
 
-async function transcribeRequest(request: Request, env: Env): Promise<Response> {
+async function transcribeRequest(request: Request, env: Env, waitUntil: Waiter): Promise<Response> {
   if (request.headers.has("origin")) return apiError(BROWSER_ORIGIN);
   const token = includedKey(request);
   if (!token) return apiError(NO_TRIAL, CHALLENGE);
@@ -738,10 +755,14 @@ async function transcribeRequest(request: Request, env: Env): Promise<Response> 
   if (!env.AI) return apiError(NOT_INCLUDED);
   const allowance = await trials(env).allowUsage({ keySha256, kind: "transcribe_seconds", amount: parsed.request.seconds, perKey: TRANSCRIBE_SECONDS_PER_DAY, total: TRANSCRIBE_SECONDS_TOTAL_PER_DAY });
   if (!allowance.ok) return apiError(allowance.refusal, allowance.refusal.status === 401 ? CHALLENGE : {});
+  const record = spendRecorder(env, keySha256, waitUntil);
   const scribe = scribeKey(env);
   if (scribe) {
     const transcript = await scribeTranscribe(parsed.request, scribe);
-    if (transcript) return json(transcript, 200, { "x-transcribe-engine": "elevenlabs" });
+    if (transcript) {
+      record(dictationSpend("elevenlabs", parsed.request.seconds));
+      return json(transcript, 200, { "x-transcribe-engine": "elevenlabs" });
+    }
   }
   try {
     const model = transcribeModel(env);
@@ -749,7 +770,10 @@ async function transcribeRequest(request: Request, env: Env): Promise<Response> 
     const input = transcribeInput(parsed.request, model);
     const raw = takesGateway(model) ? await run(model, input, gatewayOptions(env, gatewayMetadata(keySha256, allowance.tier))) : await run(model, input);
     const transcript = transcriptFrom(raw);
-    return transcript ? json(transcript, 200, { "x-transcribe-engine": model === TRANSCRIBE_MODEL ? "nova-3" : "whisper" }) : apiError(INCLUDED_FAILED);
+    if (!transcript) return apiError(INCLUDED_FAILED);
+    const engine = model === TRANSCRIBE_MODEL ? "nova-3" : "whisper";
+    record(dictationSpend(engine, parsed.request.seconds));
+    return json(transcript, 200, { "x-transcribe-engine": engine });
   } catch (error) {
     console.error(`laterdog computers: transcription failed: ${error instanceof Error ? error.message : String(error)}`);
     return apiError(INCLUDED_FAILED);
@@ -826,7 +850,7 @@ async function anthropicAnswer(env: Env, body: MessagesRequest, metadata: Gatewa
 
 const PROMPT_TOO_LARGE: Refusal = { status: 413, code: "prompt_too_large", message: `The free model takes prompts of up to about ${AI_MAX_PROMPT_TOKENS / 1000}k tokens. Start a new chat or send less.` };
 
-type ChatAttempt = { provider: "anthropic" | "grok" | "workers"; budget: TokenBudget; cap?: TokenBudget; answer: (metadata: GatewayMetadata) => Promise<ChatAnswer | null> };
+type ChatAttempt = { provider: ChatSource; budget: TokenBudget; cap?: TokenBudget; answer: (metadata: GatewayMetadata) => Promise<ChatAnswer | null> };
 
 function standingAttempts(env: Env, request: ChatRequest, asked: string): ChatAttempt[] {
   const workers: ChatAttempt = { provider: "workers", budget: AI_BUDGET, answer: (metadata) => workersAnswer(env, request, metadata) };
@@ -846,10 +870,15 @@ function chatAttempts(env: Env, request: ChatRequest, asked: string): ChatAttemp
   return [{ provider: "anthropic", budget: AI_BUDGET, cap: anthropicBudget(env), answer: (metadata) => anthropicAnswer(env, body, metadata) }, ...standing];
 }
 
-function deliverChat(result: ChatAnswer, reservation: Reservation, waitUntil: (work: Promise<unknown>) => void): Promise<Response> | Response {
-  if ("answer" in result) return reservation.settle(tokensOf(result.answer.usage)).then(() => json(result.answer));
+function settleChat(reservation: Reservation, source: ChatSource, usage: TokenUsage): Promise<void> {
+  const counted = usage.total > 0 ? usage : { total: reservation.reserved, output: 0 };
+  return reservation.settle(usage.total, chatSpend(source, counted));
+}
+
+function deliverChat(result: ChatAnswer, reservation: Reservation, waitUntil: Waiter, source: ChatSource): Promise<Response> | Response {
+  if ("answer" in result) return settleChat(reservation, source, usageOf(result.answer.usage)).then(() => json(result.answer));
   const [toClient, toCount] = result.stream.tee();
-  waitUntil(streamedTokens(toCount).then((tokens) => reservation.settle(tokens)).catch((error) => console.error(`laterdog computers: counting chat tokens failed: ${String(error)}`)));
+  waitUntil(streamedUsage(toCount).then((usage) => settleChat(reservation, source, usage)).catch((error) => console.error(`laterdog computers: counting chat tokens failed: ${String(error)}`)));
   return new Response(toClient, { headers: { "content-type": "text/event-stream", "cache-control": "no-store" } });
 }
 
@@ -884,11 +913,84 @@ async function chatRequestHandler(request: Request, env: Env, waitUntil: (work: 
     tried.add(attempt.provider);
     const reservation = capped ? jointReservation(held.reservation, capped.reservation) : held.reservation;
     const result = await attempt.answer(gatewayMetadata(keySha256, held.reservation.tier));
-    if (result) return await deliverChat(result, reservation, waitUntil);
+    if (result) return await deliverChat(result, reservation, waitUntil, attempt.provider);
     await reservation.refund();
   }
   if (tried.size === 0 && refusal) return apiError(refusal);
   return apiError({ status: 502, code: "upstream_failed", message: "The model did not answer. Try again." });
+}
+
+function includedLimits(env: Env, tier: Tier): Partial<Record<UsageKind, number>> | null {
+  if (tier === "owner") return null;
+  const full = tier !== "trial";
+  const voice = elevenLabsFor(env, tier);
+  return {
+    transcribe_seconds: TRANSCRIBE_SECONDS_PER_DAY,
+    voice_chars: VOICE_CHARS_PER_DAY,
+    ai_tokens: full ? AI_TOKENS_PER_DAY : AI_TRIAL_TOKENS_PER_DAY,
+    grok_tokens: full ? GROK_TOKENS_PER_DAY : 0,
+    completions: COMPLETIONS_PER_DAY,
+    decisions: DECISIONS_PER_DAY,
+    screen_checks: SCREEN_CHECKS_PER_DAY,
+    tool_decisions: TOOL_DECISIONS_PER_DAY,
+    ...(voice ? { elevenlabs_chars: voice.planCharsPerDay } : {}),
+  };
+}
+
+async function usageCaller(request: Request, env: Env): Promise<{ ok: true; keySha256: string } | { ok: false; response: Response }> {
+  if (request.headers.has("origin")) return { ok: false, response: apiError(BROWSER_ORIGIN) };
+  const token = includedKey(request);
+  if (!token) return { ok: false, response: apiError(NO_TRIAL, CHALLENGE) };
+  const keySha256 = await sha256Hex(token);
+  if (!(await allowed(env.INCLUDED_LIMIT, keySha256))) return { ok: false, response: apiError(TOO_MANY) };
+  return { ok: true, keySha256 };
+}
+
+const usageDays = (url: URL) => Number(url.searchParams.get("days") ?? "30");
+
+async function usageRequest(request: Request, env: Env, url: URL): Promise<Response> {
+  const caller = await usageCaller(request, env);
+  if (!caller.ok) return caller.response;
+  const usage = await trials(env).usageFor(caller.keySha256, usageDays(url));
+  if (!usage) return apiError(NO_TRIAL, CHALLENGE);
+  return json({ ...usage, limits: includedLimits(env, usage.tier) });
+}
+
+async function ownerUsageRequest(request: Request, env: Env, url: URL): Promise<Response> {
+  const caller = await usageCaller(request, env);
+  if (!caller.ok) return caller.response;
+  const report = await trials(env).ownerReport(caller.keySha256, usageDays(url));
+  return report ? json(report) : apiError(NO_ENDPOINT);
+}
+
+const GRANT_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const GRANT_MAX_USD = 10_000_000;
+
+function grantsFrom(value: unknown): Grant[] | null {
+  const list = value && typeof value === "object" && !Array.isArray(value) ? (value as { grants?: unknown }).grants : undefined;
+  if (!Array.isArray(list) || list.length > PROVIDERS.length) return null;
+  const grants: Grant[] = [];
+  for (const item of list) {
+    if (!item || typeof item !== "object") return null;
+    const { provider, usd, since } = item as { provider?: unknown; usd?: unknown; since?: unknown };
+    if (typeof provider !== "string" || !(PROVIDERS as readonly string[]).includes(provider)) return null;
+    if (typeof usd !== "number" || !Number.isFinite(usd) || usd <= 0 || usd > GRANT_MAX_USD) return null;
+    if (typeof since !== "string" || !GRANT_DAY.test(since) || Number.isNaN(Date.parse(`${since}T00:00:00Z`))) return null;
+    if (grants.some((grant) => grant.provider === provider)) return null;
+    grants.push({ provider: provider as Provider, usd: Math.round(usd * 100) / 100, since });
+  }
+  return grants;
+}
+
+async function grantsRequest(request: Request, env: Env): Promise<Response> {
+  const caller = await usageCaller(request, env);
+  if (!caller.ok) return caller.response;
+  const body = await readBody(request, 8 * 1024);
+  if (!body.ok) return body.response;
+  const grants = grantsFrom(body.value);
+  if (!grants) return apiError({ status: 422, code: "invalid_grants", message: "Send { \"grants\": [{ \"provider\", \"usd\", \"since\": \"YYYY-MM-DD\" }] }." });
+  const saved = await trials(env).setGrants(caller.keySha256, grants);
+  return saved ? json({ grants: saved }) : apiError(NO_ENDPOINT);
 }
 
 async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContext): Promise<Response> {
@@ -929,7 +1031,13 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
       case "speak":
         return await speakRequest(request, env, url, target.voiceId, (work) => (ctx ? ctx.waitUntil(work) : void work));
       case "transcribe":
-        return await transcribeRequest(request, env);
+        return await transcribeRequest(request, env, (work) => (ctx ? ctx.waitUntil(work) : void work));
+      case "usage":
+        return await usageRequest(request, env, url);
+      case "usage_owner":
+        return await ownerUsageRequest(request, env, url);
+      case "usage_grants":
+        return await grantsRequest(request, env);
       case "trial_start":
         return await startTrialFromApp(request, env);
       case "home_grant":

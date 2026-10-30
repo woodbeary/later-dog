@@ -3,6 +3,7 @@ import { AI_TOKENS_PER_DAY, AI_TOKENS_TOTAL_PER_DAY, AI_TRIAL_TOKENS_PER_DAY, GR
 import type { UsageKind } from "./decide";
 import type { Tier } from "./gateway";
 import type { TrialRegistry } from "./trial-registry";
+import type { Spend } from "./usage-cost";
 
 export const RESERVE_BYTES_PER_TOKEN = 3;
 export const SIZE_CHECK_BYTES_PER_TOKEN = 4;
@@ -40,7 +41,8 @@ export function chatEstimate(request: ChatRequest): { prompt: number; reserve: n
 
 export interface Reservation {
   tier: Tier;
-  settle(used: number): Promise<void>;
+  reserved: number;
+  settle(used: number, spend?: Spend | null): Promise<void>;
   refund(): Promise<void>;
 }
 
@@ -53,16 +55,17 @@ export async function reserveTokens(
   const hold = await registry.reserveUsage({ keySha256, amount, ...budget });
   if (!hold.ok) return { ok: false, refusal: hold.refusal };
   let open = true;
-  const close = async (used: number) => {
+  const close = async (used: number, spend?: Spend | null) => {
     if (!open) return;
     open = false;
-    await registry.settleUsage({ keySha256, kind: budget.kind, day: hold.day, reserved: hold.amount, used });
+    await registry.settleUsage({ keySha256, kind: budget.kind, day: hold.day, reserved: hold.amount, used, ...(spend ? { spend } : {}) });
   };
   return {
     ok: true,
     reservation: {
       tier: hold.tier,
-      settle: (used) => close(used > 0 ? used : hold.amount),
+      reserved: hold.amount,
+      settle: (used, spend) => close(used > 0 ? used : hold.amount, spend),
       refund: () => close(0),
     },
   };
@@ -72,8 +75,9 @@ export function jointReservation(main: Reservation, ...others: Reservation[]): R
   const all = [main, ...others];
   return {
     tier: main.tier,
-    settle: async (used) => {
-      await Promise.all(all.map((reservation) => reservation.settle(used)));
+    reserved: main.reserved,
+    settle: async (used, spend) => {
+      await Promise.all([main.settle(used, spend), ...others.map((reservation) => reservation.settle(used))]);
     },
     refund: async () => {
       await Promise.all(all.map((reservation) => reservation.refund()));

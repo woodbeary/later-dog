@@ -56,17 +56,24 @@ export function tokensOf(usage: unknown): number {
   return Math.ceil(count(usage.prompt_tokens) + count(usage.completion_tokens));
 }
 
-export async function streamedTokens(stream: ReadableStream<Uint8Array>): Promise<number> {
+export type TokenUsage = { total: number; output: number };
+
+export function usageOf(usage: unknown): TokenUsage {
+  const total = tokensOf(usage);
+  return { total, output: isRecord(usage) ? Math.min(total, Math.ceil(count(usage.completion_tokens))) : 0 };
+}
+
+export async function streamedUsage(stream: ReadableStream<Uint8Array>): Promise<TokenUsage> {
   const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";
-  let tokens = 0;
+  let usage: TokenUsage = { total: 0, output: 0 };
   const take = (line: string) => {
     const data = line.startsWith("data:") ? line.slice(5).trim() : "";
     if (!data || data === "[DONE]") return;
     try {
       const chunk = JSON.parse(data) as { usage?: unknown };
-      const counted = tokensOf(chunk.usage);
-      if (counted > 0) tokens = counted;
+      const counted = usageOf(chunk.usage);
+      if (counted.total > 0) usage = counted;
     } catch {
       return;
     }
@@ -83,7 +90,11 @@ export async function streamedTokens(stream: ReadableStream<Uint8Array>): Promis
     }
   }
   take(buffer.trim());
-  return tokens;
+  return usage;
+}
+
+export async function streamedTokens(stream: ReadableStream<Uint8Array>): Promise<number> {
+  return (await streamedUsage(stream)).total;
 }
 
 export function workersInput(request: ChatRequest): Record<string, unknown> {
