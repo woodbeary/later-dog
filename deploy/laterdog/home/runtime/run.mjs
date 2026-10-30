@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { devCodeWatcher } from "./dev-code.mjs";
+import { devCodeWatcher, homeIdle } from "./dev-code.mjs";
 import { seedIncluded } from "./included.mjs";
 import { RESTORE_POINTS, appRelease, upgradeFrom, upgradeKeeper } from "./restore-points.mjs";
 import { FINAL_SAVE_MS, collectGarbageWithin, createHttpStore, restore, settleWithin, snapshot } from "./sync.mjs";
@@ -11,6 +11,7 @@ const SCRATCH = "/tmp/laterdog-sync";
 const SERVER_DIR = "/app/dist-server";
 const LAUNCHER = join(SERVER_DIR, "cloud-home-start.js");
 const DEV_CODE_DIR = "/tmp/laterdog-dev-server";
+const SERVER_PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
 const STOP_CHILD_MS = 20_000;
 const PUSHED_CODE_GRACE_MS = 30_000;
 const INTERVAL_MS = Number(process.env.LATERDOG_SYNC_INTERVAL_MS || 60_000);
@@ -72,7 +73,7 @@ async function main() {
   delete environment.LATERDOG_INCLUDED_KEY;
   delete environment.LATERDOG_INCLUDED_API;
   const devCode = store && process.env.LATERDOG_DEV_CODE === "1"
-    ? devCodeWatcher({ store, base: SERVER_DIR, root: DEV_CODE_DIR, log, onCode: (next) => reload(next) })
+    ? devCodeWatcher({ store, base: SERVER_DIR, root: DEV_CODE_DIR, log, onCode: (next) => reload(next), idle: () => homeIdle({ secret: process.env.LATERDOG_CLOUD_BOOTSTRAP_SECRET, port: SERVER_PORT }) })
     : null;
   const pushed = devCode ? await devCode.first() : null;
   if (pushed) log(`running pushed server code ${pushed.hash.slice(0, 12)}${pushed.label ? ` (${pushed.label})` : ""}`);

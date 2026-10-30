@@ -817,7 +817,7 @@ if (CLOUD_HOME) readMemoryOnlyFromRegularFiles();
 const cloudPairing = CLOUD_HOME ? createCloudPairing({ secret: CLOUD_HOME.bootstrapSecret, sessions }) : null;
 const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivity({
   secret: CLOUD_HOME.bootstrapSecret,
-  activity: () => withWaitingRuns(homeActivityFrom(routines?.wakeHold(HOME_ACTIVITY_HORIZON_MS) ?? { hold: false }, store.bots.some((bot) => botHasActiveTurn(bot.id))), limitHold.nextAt()),
+  activity: () => withWaitingRuns(homeActivityFrom(routines?.wakeHold(HOME_ACTIVITY_HORIZON_MS) ?? { hold: false }, pickingUpAfterRestart || store.bots.some((bot) => botHasActiveTurn(bot.id))), limitHold.nextAt()),
 })) : null;
 const turnTiming = createTurnTiming({ log: (line) => console.log(line) });
 const deskVerify = CLOUD_HOME ? createDeskVerifier({ secret: CLOUD_HOME.bootstrapSecret }) : null;
@@ -5244,6 +5244,7 @@ liveStatusLine = (threadId) => statusLines.current(threadId);
 statusLines.foldLeftovers();
 let companyShutdown = false;
 const inflightTurns = createInflightTurns(fileInflightLedger(join(DATA_DIR, "turns-running.json")), { stopping: () => companyShutdown });
+let pickingUpAfterRestart = true;
 store.onChange((change) => {
   if (change.type === "message") statusLines.observe(change.threadId, change.message);
   else if (change.type === "bot") inflightTurns.sync(change.botId, store.tasks(change.botId));
@@ -19876,6 +19877,8 @@ server.listen(PORT, "127.0.0.1", async () => {
   if (waiting.length) console.log(`token battery: ${waiting.length} conversation(s) waiting on a usage limit from a previous run`);
   void pickUpTurnsAfterRestart(restartPickupHost, inflightTurns.takeLeftovers()).then((outcomes) => {
     if (outcomes.length) console.log(`restart pickup: ${outcomes.map((outcome) => `${outcome.threadId} ${outcome.kind}`).join(", ")}`);
+  }).finally(() => {
+    pickingUpAfterRestart = false;
   });
 });
 
