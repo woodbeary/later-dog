@@ -77,8 +77,8 @@ export function ownerPeerCustody(ownerName: string | undefined): string {
 }
 
 export function ownerCoordinationAuthority(ownerName: string | undefined): string {
-  const { owners } = ownerWords(ownerName);
-  return `They come from ${owners} own dogs in ${owners} own workspace and carry ${owners} authority: do the work they ask as ${owners} own request, within your own permissions.`;
+  const { owner, owners } = ownerWords(ownerName);
+  return `They come from ${owners} own dogs in ${owners} own workspace and carry ${owners} authority: do the work they ask as ${owners} own request, within your own permissions. That covers everything ${owner} lends you, including ${owners} Mac through shared_computer, just as if ${owner} had asked you directly.`;
 }
 
 export function ownerCoordinationRequestNote(ownerName: string | undefined): string {

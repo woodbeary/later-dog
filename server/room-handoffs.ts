@@ -19,6 +19,7 @@ const nodeSchema = z.object({
   lastProgressAt: z.number().optional(),
   approvalGranted: z.boolean().default(false),
   requestedBy: z.string().optional(),
+  lender: z.string().optional(),
   routineRunId: z.string().optional(),
   kind: z.enum(["work", "assignment"]).default("work"),
   endedBy: z.enum(HANDOFF_ENDS).optional(),
@@ -200,7 +201,8 @@ export class RoomHandoffs {
 
   enqueue(source: RoomAddress, generation: string, parentId: string | undefined,
     target: RoomAddress, key: string, text: string, approvalGranted = false,
-    rework = false, sourceText = "", requestBatchKey?: string, requestedBy?: string, routineRunId?: string): { node: RoomHandoff; duplicate: boolean } {
+    rework = false, sourceText = "", requestBatchKey?: string, requestedBy?: string, routineRunId?: string,
+    lender?: string): { node: RoomHandoff; duplicate: boolean } {
     if (this.loadError) throw new Error(this.loadError);
     this.settleRestart();
     let parent = parentId ? this.nodes.get(parentId) : this.nodes.get(generation);
@@ -241,7 +243,7 @@ export class RoomHandoffs {
     }
     const node: RoomHandoff = { ...target, id: randomUUID(), rootId: parent.rootId, parentId: parent.id,
       key, text, createdAt: this.now(), status: "queued", result: "", reported: false, executions: 0, approvalGranted,
-      kind, ...(target.groupId && requestBatchKey ? { requestBatchKey } : {}) };
+      kind, ...(target.groupId && requestBatchKey ? { requestBatchKey } : {}), ...(lender ? { lender } : {}) };
     const problem = this.hooks.validate(node, parent);
     if (problem) throw new Error(problem);
     if (routineRunId) root.routineRunId ??= routineRunId;
@@ -368,7 +370,8 @@ export class RoomHandoffs {
       }
       for (const child of children.filter(c => c.status !== "completed")) {
         const { node } = this.enqueue(source, generation, undefined, addressOf(child), child.key,
-          `${child.text.replace(CONTINUE_NOTE, "")}${CONTINUE_NOTE}`, child.approvalGranted, true, old.text, child.requestBatchKey);
+          `${child.text.replace(CONTINUE_NOTE, "")}${CONTINUE_NOTE}`, child.approvalGranted, true, old.text, child.requestBatchKey,
+          undefined, undefined, child.lender);
         created.push(node.id);
         resent++;
       }

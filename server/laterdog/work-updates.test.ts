@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { BACKGROUND_WORK_PROMPT, KEEP_GOING_PROMPT, KEEP_GOING_WITH_BACKGROUND_PROMPT, MILESTONE_PROMPT, ON_IT_NOTE, QUIET_WORK_PROMPT, quietWorkEnvironment, withOnItNote, workUpdatesPrompt } from "./work-updates.ts";
+import { BACKGROUND_WORK_PROMPT, KEEP_GOING_PROMPT, KEEP_GOING_WITH_BACKGROUND_PROMPT, MILESTONE_PROMPT, ON_IT_NOTE, QUIET_WORK_PROMPT, quietWorkEnvironment, STEER_NOTE, withOnItNote, withSteerNote, workUpdatesPrompt } from "./work-updates.ts";
 
 describe("how a dog keeps the person posted", () => {
   it("always works quietly", () => {
@@ -36,6 +36,12 @@ describe("how a dog keeps the person posted", () => {
   it("puts the on-it note after the person's message, where the engine reads it last", () => {
     expect(withOnItNote("Which branch is ~/code/dog on?")).toBe(`Which branch is ~/code/dog on?\n\n${ON_IT_NOTE}`);
     expect(ON_IT_NOTE).toMatch(/if this needs a tool, send your one short on-it line first, before the first tool call/);
+  });
+
+  it("has a dog answer a message sent while it works straight away, not when the work is done", () => {
+    expect(QUIET_WORK_PROMPT).toMatch(/When the person writes to you while you work, reply in a short line straight away, before your next tool call, then carry on/);
+    expect(withSteerNote("also check the logs")).toBe(`also check the logs\n\n${STEER_NOTE}`);
+    expect(STEER_NOTE).toMatch(/sent this while you were working\. Reply to it now in a short line, before your next tool call/);
   });
 
   it("switches off the engine's own nudge to post status lines only while quiet", () => {

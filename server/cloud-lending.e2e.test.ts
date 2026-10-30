@@ -245,6 +245,21 @@ it("the person's Mac connects by itself through the real connector, asks before 
   expect((await api("GET", "/api/mac-access", { token: owner })).body.macs[0].mode).toBe("never");
   expect((await api("PUT", "/api/mac-access", { token: owner, body: { mode: "always", computers: { [status[0].id]: "always" } } })).body.macs[0].mode).toBe("always");
 
+  const helper = await newBot("Helper");
+  const handedOn = await proxyFor(async () => {
+    const sent = await call("coordinate_bots", { bot_ids: [helper.id], message: "Read plan.md from my Mac." });
+    expect(sent.isError, JSON.stringify(sent)).toBeFalsy();
+  });
+  expect(await sees(handedOn)).toBe(1);
+  expect(JSON.parse((await reads(handedOn)).content[0].text).content).toBe("from the Mac");
+
+  const introduced = await proxyFor(async () => {
+    const created = await api("POST", "/api/bots", { token: owner, body: { name: "Newcomer", modelSelection: { instanceId: "claude", model: "claude-sonnet-5" }, hello: true } });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+  });
+  expect(await sees(introduced)).toBe(1);
+  expect(JSON.parse((await reads(introduced)).content[0].text).content).toBe("from the Mac");
+
   const ownersRoutine = await routineFor("Nightly");
   expect(await sees(await run(ownersRoutine))).toBe(1);
 

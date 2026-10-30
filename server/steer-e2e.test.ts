@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { withOnItNote } from "./laterdog/work-updates.ts";
+import { withOnItNote, withSteerNote } from "./laterdog/work-updates.ts";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const FAKE_CLAUDE = join(SERVER_DIR, "testing", "fake-claude-cli.ts");
@@ -518,7 +518,7 @@ posixOnly("mid-turn steering e2e", () => {
     const steerRow = nativeRows.find((row) => row.dir === "out" && row.msg?.method === "turn/steer")?.msg;
     expect(steerRow?.params).toMatchObject({
       threadId: "codex-thread-1",
-      input: [{ type: "text", text: "and also this" }],
+      input: [{ type: "text", text: withSteerNote("and also this") }],
       expectedTurnId: "turn-1",
     });
 
@@ -684,7 +684,7 @@ posixOnly("mid-turn steering e2e", () => {
     const nativeRows = readFileSync(join(home, ".laterdog", "native", `${room.threadId}.ndjson`), "utf8")
       .trim().split("\n").map((line) => JSON.parse(line));
     const steerRow = nativeRows.find((row) => row.dir === "out" && row.msg?.method === "turn/steer")?.msg;
-    expect(steerRow?.params).toMatchObject({ input: [{ type: "text", text: "steer these room words" }] });
+    expect(steerRow?.params).toMatchObject({ input: [{ type: "text", text: withSteerNote("steer these room words") }] });
 
     await api("POST", `/api/groups/${room.id}/interrupt`, {});
     await waitFor(async () => (await getGroup())?.working === false, "the steered room turn to settle");

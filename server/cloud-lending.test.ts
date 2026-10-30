@@ -114,6 +114,19 @@ describe("who may use a Mac lent to a Cloud home (review: guests, webhooks)", ()
     expect(mayLend(turn({ request: request("m1", { automation: "manual" }), thread: routineThread, routineRun: run({ triggerSource: "manual", ownerStarted: true }) }))).toBe(true);
     expect(mayLend(turn({ request: request("m1", { automation: "manual" }), thread: routineThread, routineRun: run({ triggerSource: "manual", ownerStarted: false }) }))).toBe(false);
   });
+  it("work one of the owner's dogs hands on may when the turn that sent it could, and only in the turn it started (review: delegation)", () => {
+    const handoffThread = [reply("hello"), { id: "q1", role: "bot", roomRequest: { id: "n1", phase: "request" } }];
+    const handed = (ownerSent: boolean, extra: Partial<CloudLendingTurn> = {}) =>
+      turn({ request: { generations: new Set(["g1"]) }, thread: handoffThread, handoff: { ownerSent }, ...extra });
+    expect(cloudHomeLendingRefusal(handed(true))).toBeNull();
+    expect(cloudHomeLendingRefusal(handed(false))).toBe("not-owner");
+    expect(cloudHomeLendingRefusal(handed(true, { generation: "g-other" }))).toBe("unproven");
+    expect(cloudHomeLendingRefusal(handed(true, { request: { generations: new Set(["g1"]), stopped: true } }))).toBe("unproven");
+    expect(cloudHomeLendingRefusal(handed(true, { thread: [said("g0", GUEST), ...handoffThread] }))).toBe("someone-else");
+    expect(cloudHomeLendingRefusal(handed(true, { starters: [GUEST] }))).toBe("someone-else");
+    expect(cloudHomeLendingRefusal(handed(true, { reportsFromOthers: true }))).toBe("someone-else");
+    expect(cloudHomeLendingRefusal(turn({ request: { generations: new Set(["g1"]) }, thread: handoffThread }))).toBe("unproven");
+  });
 });
 
 describe("the owner's routines", () => {

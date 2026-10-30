@@ -11,6 +11,7 @@ export interface CloudLendingTurn {
   request: { messageId?: string; generations: ReadonlySet<string>; stopped?: boolean; automation?: RoutineRunTrigger } | undefined;
   generation: string;
   thread: readonly Line[];
+  handoff?: { ownerSent: boolean };
   starters?: readonly (string | undefined)[];
   reportsFromOthers?: boolean;
   ownerPerson: (person: string | undefined) => boolean;
@@ -31,12 +32,14 @@ export type CloudLendingRefusal = "unproven" | "not-owner" | "someone-else";
 
 export function cloudHomeLendingRefusal(turn: CloudLendingTurn): CloudLendingRefusal | null {
   const { request } = turn;
-  if (!request?.messageId || request.stopped || !request.generations.has(turn.generation)) return "unproven";
-  const index = turn.thread.findIndex(line => line.id === request.messageId);
-  if (index < 0) return "unproven";
+  if (!request || request.stopped || !request.generations.has(turn.generation)) return "unproven";
   let owner: boolean;
-  if (request.automation === undefined) {
-    owner = ownersLine(turn.thread[index], turn.ownerPerson, turn.ownersOwnDogs === true);
+  if (turn.handoff) {
+    owner = turn.handoff.ownerSent;
+  } else if (!request.messageId || turn.thread.every(line => line.id !== request.messageId)) {
+    return "unproven";
+  } else if (request.automation === undefined) {
+    owner = ownersLine(turn.thread.find(line => line.id === request.messageId), turn.ownerPerson, turn.ownersOwnDogs === true);
   } else {
     const run = turn.routineRun();
     owner = request.automation !== "webhook" && Boolean(run) && run!.triggerSource !== "webhook" &&

@@ -39,6 +39,12 @@ describe("the first dog speaks first", () => {
     expect(firstHelloPrompt("Jacob", "Biscuit", "  ")).toContain("Code and GitHub");
   });
 
+  it("starts the hello as the person who introduced the dog, so it can do their first ask with their computer", async () => {
+    const { deps } = fixture([seed]);
+    await sayFirstHello(deps, "dog", "cloud-home");
+    expect(deps.start).toHaveBeenCalledWith("dog", "t1", expect.stringContaining("first meeting"), "cloud-home");
+  });
+
   it("keeps the corrected greeting and starts no turn when the dog's engine cannot answer yet", async () => {
     const { deps, patched, started } = fixture([seed], false);
     expect(await sayFirstHello(deps, "dog")).toEqual({ greeted: true, asked: false });

@@ -47,6 +47,15 @@ describe("addressed room request tree", () => {
     expect(engine.runningRequester(lead.threadId)).toBeUndefined();
     expect(new RoomHandoffs(file, hooks).nodes.get("turn")?.requestedBy).toBe("ada@example.test");
   }));
+  it("hands on whose shared computers the sending turn could use with the work it sends, and keeps it across a reload", () => fixture((engine, hooks, file) => {
+    const chief = { botId: "chief", threadId: "chief-chat" };
+    const child = engine.enqueue(chief, "turn", undefined, { botId: "patch", threadId: "patch-chat" }, "fix", "Fix it",
+      false, false, "", undefined, undefined, undefined, "cloud-home").node;
+    expect(child.lender).toBe("cloud-home");
+    expect(engine.nodes.get("turn")?.lender).toBeUndefined();
+    expect(engine.enqueue(chief, "turn", undefined, { botId: "scout", threadId: "scout-chat" }, "look", "Look").node.lender).toBeUndefined();
+    expect(new RoomHandoffs(file, hooks).nodes.get(child.id)?.lender).toBe("cloud-home");
+  }));
   it("keeps same-room work queued until the current speaker settles", () => fixture(async (engine, hooks) => {
     const child = engine.enqueue(addr("A"), "turn", undefined, { ...addr("A"), botId: "peer" }, "review", "Review it").node;
     engine.tick(); await flush();
@@ -594,6 +603,7 @@ describe("room handoff continue", () => {
       expect(engine.continuable("turn")).toBe(true);
       hooks.run = vi.fn(async node => ({ ok: true, text: `${node.key} finished` }));
       nowMs += MIN;
+      slow.lender = "cloud-home";
       const result = engine.continueTree("turn");
       expect(result).toMatchObject({ resent: 1, kept: 1 });
       const root = engine.nodes.get(result.rootId)!;
@@ -604,6 +614,7 @@ describe("room handoff continue", () => {
       expect(again.threadId).toBe(slow.threadId);
       expect(again.text).toContain("Build it");
       expect(again.text).toContain("Continuing");
+      expect(again.lender).toBe("cloud-home");
       expect(copies.find(n => n.key === "scout")?.result).toBe(done.result);
       expect(engine.nodes.get("turn")?.continuedAs).toBe(root.id);
       expect(engine.continuable("turn")).toBe(false);

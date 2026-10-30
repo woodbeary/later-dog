@@ -70,7 +70,7 @@ const FIRST_ACTIONS: ReadonlySet<string> = new Set(FIRST_SHARED_ACTIONS);
 const TOTAL = 100;
 const RETAIN_MS = 14 * 24 * 60 * 60_000;
 const OFFLINE = "This shared computer is offline. Keep its desktop app open; do not substitute files on the server.";
-const NOT_YOURS = "This conversation cannot use a shared computer: only a conversation started by the person who shared it can.";
+const NOT_YOURS = "This turn cannot use a shared computer: only a request sent by the person who shared it, or work their own dogs hand on from one, can. Finish everything else; for a step that needs it, ask them to send that step here as a message, which can use it.";
 const knownFile = z.object({
   version: z.literal(1),
   computers: z.array(z.object({

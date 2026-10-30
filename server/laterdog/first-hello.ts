@@ -32,10 +32,10 @@ export interface FirstHelloDeps {
   patchMessage(threadId: string, messageId: string, patch: { text: string }): void;
   personName(): string | undefined;
   canRun(instanceId: string): Promise<boolean>;
-  start(botId: string, threadId: string, prompt: string): Promise<unknown>;
+  start(botId: string, threadId: string, prompt: string, introducedBy?: string): Promise<unknown>;
 }
 
-export async function sayFirstHello(deps: FirstHelloDeps, botId: string): Promise<{ greeted: boolean; asked: boolean }> {
+export async function sayFirstHello(deps: FirstHelloDeps, botId: string, introducedBy?: string): Promise<{ greeted: boolean; asked: boolean }> {
   const bot = deps.bot(botId);
   if (!bot || bot.hidden) return { greeted: false, asked: false };
   const messages = deps.messages(bot.threadId);
@@ -44,6 +44,6 @@ export async function sayFirstHello(deps: FirstHelloDeps, botId: string): Promis
   const seed = messages.find((message) => message.role === "bot" && message.kind === "text" && SEED_GREETING.test(message.text ?? ""));
   if (seed) deps.patchMessage(bot.threadId, seed.id, { text: personalGreeting(person, bot.name) });
   if (messages.length > 1 || !(await deps.canRun(bot.modelSelection.instanceId))) return { greeted: Boolean(seed), asked: false };
-  await deps.start(bot.id, bot.threadId, firstHelloPrompt(person, bot.name, bot.title));
+  await deps.start(bot.id, bot.threadId, firstHelloPrompt(person, bot.name, bot.title), introducedBy);
   return { greeted: Boolean(seed), asked: true };
 }
