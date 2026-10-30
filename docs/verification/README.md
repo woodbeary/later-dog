@@ -143,6 +143,9 @@ PNG and SVG copies, and place, product and weather cards in a persisted reply.
 The [drafts fixture](drafts.md) checks draft cards in replies: their titles,
 the changes between revisions, editing, copying and asking the dog to send.
 
+The [link previews fixture](link-previews.md) checks the cards under a reply for
+the pages it links, and that pictures and code get none.
+
 The [people invitation fixture](people.md) checks hosted workspace sign-in,
 roles and device revocation through the real HTTP API with a stubbed email
 service, and the `laterdog access` command. The app has no People page.

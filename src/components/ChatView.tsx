@@ -11,6 +11,7 @@ import {
   Copy,
   Download,
   Hand,
+  ListPlus,
   MessageSquareReply,
   Pencil,
   MoreHorizontal,
@@ -20,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { DraftContext, type DraftScope } from "./draft-context";
+import { LinkPreviews } from "./LinkPreviewCard";
 import { MessageActions, messageActionClass } from "@/components/MessageActions";
 import { ReactionPicker } from "@/components/ReactionPicker";
 import { ReactionPills } from "@/components/ReactionPills";
@@ -127,7 +129,8 @@ import { turnSteps, turnUpdates } from "@/lib/turn-details";
 import { dismissKey, useUnreadPosition, useVisitUnreadCount } from "@/lib/unread-pill";
 import { NewMessagesPill } from "./NewMessagesPill";
 import { useScrollAnchor } from "@/lib/scroll-anchor";
-import { appendDraftAttachments, useReplyDraft } from "@/lib/drafts";
+import { appendComposerDraft, appendDraftAttachments, useReplyDraft } from "@/lib/drafts";
+import { taskDraft } from "@/lib/task-from-message";
 import { dayLabel, localDay, transcriptLookups, type TranscriptLookups } from "@/lib/transcript-derivations";
 import { splitTranscriptCitations, type CitationAttachment } from "@/lib/citations";
 import { highlightCitationSource } from "@/lib/citations-dom";
@@ -481,8 +484,15 @@ const Bubble = memo(function Bubble({
   const switchTo = (v: Message | undefined) => {
     if (v && !busy && !v.id.startsWith(OPTIMISTIC_PREFIX)) dispatch({ type: "switchBranch", botId, threadId, messageId: v.id });
   };
+  const draftForTask = text && !viewRaw ? taskDraft(t("chat.action.taskLead"), text) : "";
   const botMore: SidebarMenuItem[] = text && !viewRaw
-    ? [{ key: "source", label: t("chat.action.viewSource"), icon: <Code size={16} />, onSelect: () => setViewRaw(true) }]
+    ? [
+        { key: "source", label: t("chat.action.viewSource"), icon: <Code size={16} />, onSelect: () => setViewRaw(true) },
+        ...(draftForTask && canWrite !== false ? [{ key: "task", label: t("chat.action.startTask"), icon: <ListPlus size={16} />, onSelect: () => {
+          appendComposerDraft(`bot:${botId}:${threadId}`, draftForTask);
+          requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-tour="composer"] textarea')?.focus());
+        } }] : []),
+      ]
     : [];
 
   return (
@@ -613,7 +623,7 @@ const Bubble = memo(function Bubble({
               {viewRaw && text ? (
                 <div data-citation-source={message.id} data-citation-owner-type="bot" data-citation-owner={botId} data-citation-thread={threadId}><RawMarkdownView text={text} /></div>
               ) : text ? (
-                <div data-citation-source={message.id} data-citation-owner-type="bot" data-citation-owner={botId} data-citation-thread={threadId}><ChatMarkdown text={text} mentionPeers={mentionPeers} message={{ threadId, messageId: message.id }} /></div>
+                <><div data-citation-source={message.id} data-citation-owner-type="bot" data-citation-owner={botId} data-citation-thread={threadId}><ChatMarkdown text={text} mentionPeers={mentionPeers} message={{ threadId, messageId: message.id }} /></div><LinkPreviews text={text} /></>
               ) : null}
             </MessageBoundary>
           )}
