@@ -56,12 +56,12 @@ const bot: Bot = {
 };
 
 describe("the header", () => {
-  it("has a More menu with only the export, no usage, and no computer button", () => {
+  it("has a More menu with a new conversation and the export, no usage, and no computer button", () => {
     fixture.menus = [];
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
     const more = fixture.menus.find((menu) => menu.ariaLabel === "More")!;
-    expect(more.items.map((item) => item.key)).toEqual(["copy", "download"]);
-    expect(more.items[0].heading).toBe("Share");
+    expect(more.items.map((item) => item.key)).toEqual(["new", "copy", "download"]);
+    expect(more.items.find((item) => item.key === "copy")?.heading).toBe("Share");
     expect(markup).not.toContain('data-tour="computer"');
     expect(markup).not.toContain('data-testid="usage-chip"');
   });
