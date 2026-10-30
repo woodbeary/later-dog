@@ -109,6 +109,7 @@ import {
 import { CallOverlay } from "./CallView";
 import { LiveCallBar } from "./LiveCallBar";
 import { LiveCallChip } from "./LiveCallPill";
+import { ChatHeaderTasks } from "./ChatHeaderTasks";
 import { effectivePlace, toolPlace, type EffectivePlace } from "@/lib/place";
 import { cn } from "@/lib/cn";
 import { chatPane } from "@/state/pane-errors";
@@ -1197,6 +1198,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
         >
           <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} part="account" />
           <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openNotificationTarget(dispatch, { botId, threadId }, state)} />
+          <ChatHeaderTasks bot={bot} />
           <button
             type="button"
             data-testid="chat-find"

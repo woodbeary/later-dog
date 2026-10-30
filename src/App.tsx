@@ -8,7 +8,7 @@ import { cloudSignInDue, type WelcomeViewer } from "@/lib/onboarding";
 import { LiveCallHost } from "@/components/LiveCallHost";
 import { initAnalytics } from "@/lib/analytics";
 import { Sidebar } from "@/components/Sidebar";
-import { TasksPage } from "@/components/TasksPage";
+import { TaskChat } from "@/components/TaskChat";
 import { ChatView } from "@/components/ChatView";
 import { GroupView } from "@/components/GroupView";
 import { SIDEBAR_AND_PANEL_FIT, TWO_SIDE_PANELS_FIT, useMediaQuery } from "@/lib/use-media-query";
@@ -247,8 +247,8 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
       />}
       {calendarFocus ? (
         <RoutinesPage onBack={() => dispatch({ type: "closeRoutines" })} onOpenRoom={(id) => dispatch({ type: "select", id })} />
-      ) : state.tasksOpen ? (
-        <TasksPage />
+      ) : state.taskView ? (
+        <TaskChat view={state.taskView} />
       ) : cloudSignIn ? (
         <CloudEngineSignIn />
       ) : noEngines ? (
