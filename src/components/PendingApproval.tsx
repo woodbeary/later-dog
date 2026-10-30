@@ -251,7 +251,9 @@ export function PendingApprovalActions({
               ? t("approval.action.confirm")
               : macSend
                 ? t("approval.action.send")
-                : t("approval.action.allowOnce")}
+                : outbound
+                  ? t("approval.action.allow")
+                  : t("approval.action.allowOnce")}
         </button>
         {!macRequest && (
           <button

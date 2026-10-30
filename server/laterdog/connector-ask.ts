@@ -29,7 +29,7 @@ export function connectorAlwaysAllowed(alwaysAllow: readonly string[] | undefine
 }
 
 export type ConnectorSendDecision =
-  | { kind: "send"; rule: "owner-auto" | "always-allow" }
+  | { kind: "send"; rule: "owner-auto" | "always-allow" | "this-turn" }
   | { kind: "skipped"; toolkit: string }
   | { kind: "ask"; toolkit: string | null };
 
@@ -39,6 +39,7 @@ export function connectorSendDecision(input: {
   alwaysAllow: readonly string[] | undefined;
   ownerSends: boolean;
   skipped: (toolkit: string) => boolean;
+  allowedThisTurn: (toolkit: string) => boolean;
 }): ConnectorSendDecision {
   const opaque = input.calls.some((call) => call.slug === OPAQUE_CALL);
   const toolkit = askedConnector(input.calls, input.connected);
@@ -49,21 +50,22 @@ export function connectorSendDecision(input: {
     if (skippedToolkit) return { kind: "skipped", toolkit: skippedToolkit };
     if (input.ownerSends) return { kind: "send", rule: "owner-auto" };
     if (connectorAlwaysAllowed(input.alwaysAllow, toolkit)) return { kind: "send", rule: "always-allow" };
+    if (toolkit !== null && input.allowedThisTurn(toolkit)) return { kind: "send", rule: "this-turn" };
   }
   return { kind: "ask", toolkit };
 }
 
-export class ConnectorSkips {
+export class TurnToolkits {
   private readonly byThread = new Map<string, { generation: string; toolkits: Set<string> }>();
 
-  skip(threadId: string, generation: string, toolkits: Iterable<string>): void {
+  add(threadId: string, generation: string, toolkits: Iterable<string>): void {
     const current = this.byThread.get(threadId);
     const entry = current?.generation === generation ? current : { generation, toolkits: new Set<string>() };
     for (const toolkit of toolkits) entry.toolkits.add(toolkit);
     this.byThread.set(threadId, entry);
   }
 
-  skipped(threadId: string, generation: string, toolkit: string): boolean {
+  has(threadId: string, generation: string, toolkit: string): boolean {
     const entry = this.byThread.get(threadId);
     if (!entry) return false;
     if (entry.generation !== generation) {
