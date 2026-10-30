@@ -178,9 +178,9 @@ async function startTurn(bot: { id: string }, text: string) {
   return attach(bot, threadId);
 }
 
-it("starts with Auto-review on for a home whose dogs never worked Off-leash", async () => {
-  expect((await api("GET", "/api/config")).body.features.autoReview).toBe(true);
-  expect(JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8")).features.autoReview).toBe(true);
+it("starts with Auto-review off for a home whose dogs never worked Off-leash", async () => {
+  expect((await api("GET", "/api/config")).body.features.autoReview).toBe(false);
+  expect(JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8")).features.autoReview).toBe(false);
 });
 
 it("with Auto-review off, an owner dog gets the standing grant its reviewer can see, nothing waits for the person, and its questions still do", async () => {

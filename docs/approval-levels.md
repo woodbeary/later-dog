@@ -11,12 +11,10 @@ own dogs works. There is no per-dog Heel or Off-leash picker any more.
 | **Off** | No asks. The engine still starts with its reviewer, and later.dog answers whatever it leaves for you at once, with no card. The decision log records each one with source `owner-auto`. |
 
 The switch is saved in the config as `features.autoReview` and changed with
-`PATCH /api/config`. It is set once on the first start that has the switch. On
-a Cloud home it starts off when any dog was already Off-leash, because there
-those dogs already worked without asking. Everywhere else it starts on,
-including a new install and a Mac whose dogs were Off-leash, because on a Mac
-Off-leash already meant the engine's reviewer decided and its escalations
-became cards. A dog's saved `approvalMode` no longer
+`PATCH /api/config`. It is off unless you turn it on: the first start that has
+no saved choice saves it off, on a Mac, a Cloud home and a new install alike,
+whatever levels the dogs had before. A home that already saved a choice keeps
+it. Each home keeps its own switch. A dog's saved `approvalMode` no longer
 changes how your own dogs work, except **Full access** and **Custom**, which
 keep their own behaviour.
 

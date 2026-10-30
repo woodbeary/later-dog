@@ -414,7 +414,7 @@ beforeAll(async () => {
   writeFileSync(
     join(home, ".laterdog", "config.json"),
     JSON.stringify({
-      features: { llmThreadTitles: true, browser: false },
+      features: { llmThreadTitles: true, browser: false, autoReview: true },
       instances: {
         ghost: { driver: "not-a-real-driver", displayName: "Ghost" },
         claude: { driver: "claudeAgent", displayName: "Fixture Claude", config: { cli: FAKE_CLAUDE_CLI } },
@@ -7437,7 +7437,7 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("starts a Mac install with Off-leash dogs on Auto-review once, keeping the engine's reviewer and its cards", async () => {
+  it("starts a Mac install with Auto-review off and saves that once, whatever its dogs' old levels were", async () => {
     const isolatedHome = mkdtempSync(join(tmpdir(), "laterdog-auto-review-start-"));
     const isolatedData = join(isolatedHome, ".laterdog");
     const isolatedStatic = join(isolatedHome, "static");
@@ -7491,9 +7491,9 @@ describe("harness HTTP API", () => {
     try {
       await waitForIsolatedServer(isolatedChild, isolatedPort, () => isolatedStderr);
       const config = await (await fetch(`http://127.0.0.1:${isolatedPort}/api/config`)).json() as { features: { autoReview: boolean } };
-      expect(config.features.autoReview).toBe(true);
+      expect(config.features.autoReview).toBe(false);
       const saved = JSON.parse(readFileSync(join(isolatedData, "config.json"), "utf8")) as { features?: { autoReview?: boolean } };
-      expect(saved.features?.autoReview).toBe(true);
+      expect(saved.features?.autoReview).toBe(false);
     } finally {
       await waitForExit(isolatedChild, { signal: "SIGTERM" });
       await removeTempDir(isolatedHome);

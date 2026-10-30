@@ -617,7 +617,7 @@ import { guardBody, json, onJsonBody, parsedBodyOf, readBody } from "./harness/h
 import { LOCAL_TOOLS_TOKEN_PATTERN, localToolsBodyRefusal, signsItselfOut, typedMessageAuthority } from "./laterdog/local-tools-scope.ts";
 import { EDIT_REFUSAL } from "./laterdog/local-tool-message.ts";
 import { claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerCoordinationAuthority, ownerCoordinationRequestNote, ownerGrantApplies, ownerGrantPrompt, ownerSendsWithoutAsking, reviewerMissingNotice, type OwnerAutoScope } from "./laterdog/owner-auto.ts";
-import { autoReviewFromDogs, autoReviewOn, ownerTurnMode } from "./laterdog/auto-review.ts";
+import { autoReviewOn, ownerTurnMode } from "./laterdog/auto-review.ts";
 import { settleOwnerAutoPermission } from "./laterdog/owner-auto-request.ts";
 import { ownerGuardRequest, ownerWorkspaceRoots, type OwnerGuardContext } from "./laterdog/owner-guard.ts";
 import { sameEngineAcrossAccounts } from "./laterdog/saved-command-engine.ts";
@@ -3305,9 +3305,8 @@ else enginesRead = defaultSelection().then(
   (error) => console.warn(`[engines] reading the engines at start failed: ${error instanceof Error ? error.message : String(error)}`),
 ).finally(() => { enginesRead = null; });
 if (cfg.features?.autoReview === undefined) {
-  const autoReview = autoReviewFromDogs(store.bots, Boolean(CLOUD_HOME));
-  saveConfig({ features: { autoReview } });
-  cfg.features = { ...cfg.features, autoReview };
+  saveConfig({ features: { autoReview: false } });
+  cfg.features = { ...cfg.features, autoReview: false };
 }
 store.seedIfEmpty();
 hostedModels?.reconcile(store);

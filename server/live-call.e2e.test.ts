@@ -71,6 +71,7 @@ posixOnly("Live call e2e", () => {
     writeFileSync(
       join(home, ".laterdog", "config.json"),
       JSON.stringify({
+        features: { autoReview: true },
         instances: {
           claude: {
             driver: "claudeAgent",
