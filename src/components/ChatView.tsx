@@ -12,6 +12,7 @@ import {
   Download,
   Hand,
   ListPlus,
+  MessageSquarePlus,
   MessageSquareReply,
   Pencil,
   MoreHorizontal,
@@ -22,6 +23,7 @@ import {
 } from "lucide-react";
 import { DraftContext, type DraftScope } from "./draft-context";
 import { LinkPreviews } from "./LinkPreviewCard";
+import { startNewConversation } from "@/lib/new-conversation";
 import { MessageActions, messageActionClass } from "@/components/MessageActions";
 import { ReactionPicker } from "@/components/ReactionPicker";
 import { ReactionPills } from "@/components/ReactionPills";
@@ -1383,10 +1385,22 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 }
 
 function ChatHeaderMenu({ bot, messages }: { bot: Bot; messages: readonly Message[] }) {
+  const { dispatch } = useStore();
   const [copyStatus, setCopyStatus] = useState<"copied" | "failed" | null>(null);
   const hasMessages = messages.length > 0;
   const transcript = () => formatTranscriptMarkdown({ title: bot.name, messages, botName: bot.name, isGroup: false });
   const items: SidebarMenuItem[] = [
+    {
+      key: "new",
+      label: t("chat.newConversation"),
+      icon: <MessageSquarePlus size={16} />,
+      disabled: !hasMessages,
+      onSelect: () => {
+        void startNewConversation(bot.id)
+          .then((threadId) => dispatch({ type: "openTask", botId: bot.id, threadId }))
+          .catch(() => window.alert(t("chat.newConversationFailed")));
+      },
+    },
     {
       key: "copy",
       heading: t("chat.export.heading"),

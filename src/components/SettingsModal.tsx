@@ -27,6 +27,7 @@ import { DefaultModelRow } from "./DefaultModelSettings";
 import { CallButtonRow } from "./CallButtonSettings";
 import { MacAccessGroup } from "./MacAccessGroup";
 import { PhoneGroup } from "./PhoneGroup";
+import { DevicesGroup } from "./DevicesGroup";
 import { cloudLendingBridge } from "@/lib/cloud-plan-summary";
 import { shortcutLabel } from "./ShortcutHint";
 import { UsageSection } from "./UsageSection";
@@ -298,6 +299,7 @@ function ComputerPage({ mac }: { mac: boolean }) {
     <>
       {state.config?.cloudHome === true && <MacAccessGroup />}
       {state.config?.cloudHome === true && <PhoneGroup />}
+      <DevicesGroup />
       {desktop && (
         <SettingsGroup label={t("settings.group.yourComputer")} testId="your-computer">
           <SettingsRows>
