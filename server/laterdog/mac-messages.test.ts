@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SharedComputerOperation } from "../shared-computers.ts";
 import {
   attributedText, contactsForHandlesCommand, contactsFrom, contactsNamedCommand, handleKey, MAC_MESSAGES_WORDS, macMessagesError,
-  namedTexts, readTexts, readTextsCommand, readTextsInput, recipientFrom, runOnMac, SEND_EMAIL_COMMAND, SEND_TEXT_COMMAND, sendEmail, sendEmailFields,
+  lendingApp, namedTexts, readTexts, readTextsCommand, readTextsInput, recipientFrom, runOnMac, SEND_EMAIL_COMMAND, SEND_TEXT_COMMAND, sendEmail, sendEmailFields,
   sendEmailInput, sendText, sendTextFields, sendTextInput, textHandle, textsFrom, type MacAsk, type MessagesMac,
 } from "./mac-messages.ts";
 
@@ -117,7 +117,8 @@ describe("the commands that run on the Mac", () => {
   const fieldsSeen = (command: string, input: string) => {
     const ran = bash(command.replace("/usr/bin/osascript", stub), { input });
     expect(ran.exitCode).toBe(0);
-    return ran.output.split("\0").slice(0, -1);
+    expect(ran.output).toMatch(/^__LATERDOG_APP__ \S/);
+    return lendingApp(ran.output).rest.split("\0").slice(0, -1);
   };
 
   it("hands the recipient and words to the script as input, never as part of the command", () => {
@@ -251,6 +252,25 @@ describe.skipIf(!hasSqlite)("reading texts from a Messages database", () => {
   });
 });
 
+describe("which program macOS asks about", () => {
+  const node = "/Users/jo/.nvm/versions/node/v24.22.1/bin/node";
+  it("names node with its path under later.dog Dev, and later.dog in the app", () => {
+    expect(lendingApp(`__LATERDOG_APP__ ${node}\n[]`)).toEqual({ app: { label: "node", path: node, restart: "choose later.dog Dev → Restart later.dog Dev" }, rest: "[]" });
+    expect(lendingApp("__LATERDOG_APP__ /Applications/later.dog.app/Contents/MacOS/later.dog\niMessage").app).toEqual({ label: "later.dog", restart: "quit and reopen later.dog" });
+    expect(lendingApp("__LATERDOG_APP__ node\n").app).toEqual({ label: "node", restart: "choose later.dog Dev → Restart later.dog Dev" });
+    expect(lendingApp("no line").app.label).toBe("later.dog");
+  });
+
+  it("tells the person exactly where to turn on access, and that node shares it", () => {
+    const denied = `__LATERDOG_APP__ ${node}\nError: unable to open database "/Users/jo/Library/Messages/chat.db": authorization denied`;
+    const words = macMessagesError(denied, "texts")!;
+    expect(words).toContain("Full Disk Access for node on the Mac, the program later.dog Dev's Mac connection runs on; every script run by that node gets the same access.");
+    expect(words).toContain(`click +, press Command-Shift-G, paste ${node} and choose Open, then choose later.dog Dev → Restart later.dog Dev`);
+    expect(macMessagesError("__LATERDOG_APP__ /Applications/later.dog.app/Contents/MacOS/later.dog\nexecution error: Not authorized to send Apple events to Messages. (-1743)", "Messages"))
+      .toBe("macOS hasn't let later.dog control Messages on the Mac yet. Tell the person: on the Mac, choose OK when macOS asks whether later.dog may control Messages, or turn on Messages under later.dog in System Settings → Privacy & Security → Automation. Then try again.");
+  });
+});
+
 describe("choosing who a text goes to from Contacts", () => {
   const mom = { name: "Mom", key: "5551234567", address: "+1 (555) 123-4567" };
   it("takes the one number, prefers a phone to an email and a mobile to other phones, and asks otherwise", () => {
@@ -331,12 +351,12 @@ describe("sending from the Mac", () => {
   it("explains what macOS or the Mac needs when sending or reading fails", async () => {
     const blocked = "execution error: Not authorized to send Apple events to Messages. (-1743)";
     expect((await sendText({ to: "+15551234567", text: "hi" }, scriptedMac([{ command_id: "c1", running: false, exitCode: 1, output: blocked }]).mac)).body)
-      .toEqual({ error: `${MAC_MESSAGES_WORDS.notSent} ${MAC_MESSAGES_WORDS.automation("Messages")}` });
+      .toEqual({ error: `${MAC_MESSAGES_WORDS.notSent} ${MAC_MESSAGES_WORDS.automation("Messages", lendingApp("").app)}` });
     expect((await sendEmail({ to: ["sam@example.com"], subject: "Hi", body: "hi" }, scriptedMac([{ command_id: "c1", running: false, exitCode: 1, output: "execution error: Mail has no account to send from. (5001)" }]).mac)).body)
       .toEqual({ error: `${MAC_MESSAGES_WORDS.notSent} ${MAC_MESSAGES_WORDS.noMail}` });
     const denied = 'Error: unable to open database "/Users/jo/Library/Messages/chat.db": authorization denied';
     expect(await readTexts({}, scriptedMac([{ command_id: "c1", running: false, exitCode: 1, output: denied }]).mac))
-      .toEqual({ status: 403, body: { error: MAC_MESSAGES_WORDS.fullDiskAccess } });
+      .toEqual({ status: 403, body: { error: MAC_MESSAGES_WORDS.fullDiskAccess(lendingApp("").app) } });
     expect(macMessagesError("execution error: Messages got an error: Can’t get account 1 whose service type = SMS. (-1728)", "Messages")).toBe(MAC_MESSAGES_WORDS.noSms);
     expect(macMessagesError("something else", "Messages")).toBeNull();
     expect((await sendText({ to: "+15551234567", text: "hi" }, scriptedMac([{ command_id: "c1", running: false, exitCode: 1, output: "execution error: odd (-1)" }]).mac)).body)

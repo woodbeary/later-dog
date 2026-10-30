@@ -62,12 +62,20 @@ Terminal can do it.
 
 ## What macOS asks the person
 
-- The first text asks whether later.dog may control Messages, and the first
+macOS asks about the program that lends the Mac. In the later.dog app that is
+later.dog. In later.dog Dev it is `node`, which runs Dev's Mac connection
+(`scripts/dev-mac.mjs`), so a grant to it reaches every script that node runs.
+Every Mac command first prints which program it runs under
+(`ps -o comm= -p $PPID`), and the dog's instructions name that program, with
+its path when it is `node`.
+
+- The first text asks whether that program may control Messages, and the first
   email whether it may control Mail. If it was refused, the dog says where to
   turn it on: System Settings → Privacy & Security → Automation.
-- Reading texts needs Full Disk Access for later.dog (later.dog Dev when that is
-  the app running): System Settings → Privacy & Security → Full Disk Access.
-  Names from Contacts come with it.
+- Reading texts needs Full Disk Access for that program: System Settings →
+  Privacy & Security → Full Disk Access (for `node`: +, Command-Shift-G, its
+  path). It takes effect once the program restarts: quit and reopen later.dog,
+  or later.dog Dev → Restart later.dog Dev. Names from Contacts come with it.
 - SMS needs Text Message Forwarding for this Mac on the iPhone. Mail needs an
   account to send from.
 
