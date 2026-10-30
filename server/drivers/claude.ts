@@ -1055,7 +1055,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const permissionMode = turn.approvalMode === undefined
         ? config.permissionMode
         : turn.approvalMode === "full" ? "bypassPermissions"
-          : turn.approvalMode === "auto" ? "auto"
+          : turn.approvalMode === "auto" ? (turn.ownerAnswers ? "default" : "auto")
             : turn.approvalMode === "edits" ? "acceptEdits" : "default";
       const controlsHost = turn.integrations?.localComputer?.scope === "local-computer";
       if (controlsHost && permissionMode === "bypassPermissions" && turn.approvalMode !== "full") {

@@ -3525,6 +3525,10 @@ function ownerGrantFor(mode: ApprovalMode, threadId: string): boolean {
   return ownerGrantApplies(mode, ownerAutoScope(threadId));
 }
 
+function ownerAnswersFor(mode: ApprovalMode, threadId: string): boolean {
+  return ownerAutoAnswers(mode, ownerAutoScope(threadId));
+}
+
 function ownerGuardContext(bot: BotRecord, threadId: string, commandCwd: string | undefined): OwnerGuardContext {
   const task = store.taskByThread(bot.id, threadId);
   return {
@@ -8408,6 +8412,7 @@ async function startTurn(
         throw new DirectTurnSetupCancelled("Coordination access changed before dispatch");
       }
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
+      const ownerAnswers = ownerAnswersFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const prompt = buildSystemPrompt(persona, liveBot?.soul ?? bot.soul ?? "", [
         { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
         { id: "owner-grant", label: "Owner's standing grant", text: ownerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
@@ -8454,6 +8459,7 @@ async function startTurn(
         images: turnImages,
         approvalMode: approvalModeForTurn(bot, commsDepth > 0, threadId),
         ...(ownerGrant ? { reviewerGrant: claudeReviewerGrant(cfg.profile?.name) } : {}),
+        ...(ownerAnswers ? { ownerAnswers: true } : {}),
         toolScope,
         ...(guestConfined ? { guestConfined: true, confinedWhy: confinedWhy(threadId) } : {}),
         model,
@@ -10149,6 +10155,7 @@ async function runGroupMemberTurn(
     }
   }
   const roomOwnerGrant = ownerGrantFor(roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
+  const roomOwnerAnswers = ownerAnswersFor(roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomSystem = buildSystemPrompt(system, store.bot(bot.id)?.soul ?? bot.soul ?? "", [
     { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
     { id: "owner-grant", label: "Owner's standing grant", text: roomOwnerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
@@ -10272,6 +10279,7 @@ async function runGroupMemberTurn(
         images: turnImages,
         approvalMode: roomTurnApprovalMode(readyBot, threadId, orchestration),
         ...(roomOwnerGrant ? { reviewerGrant: claudeReviewerGrant(cfg.profile?.name) } : {}),
+        ...(roomOwnerAnswers ? { ownerAnswers: true } : {}),
         toolScope: toolScopeForTurn(readyBot.id),
         ...(roomGuestConfined ? { guestConfined: true, confinedWhy: confinedWhy(threadId) } : {}),
         quietWork: true,

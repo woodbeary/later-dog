@@ -3052,6 +3052,26 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(await raise("t-review-ask", "ask-ask")).toHaveProperty("nativeReview", undefined);
   });
 
+  it("starts an auto turn that later.dog answers for its owner in Manual, sending every ask to later.dog with no reviewer grant", async () => {
+    await create();
+    const dump = join(scratch, "owner-answers.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const grant = { environment: ["$defaults"], allow: ["$defaults", "Owner Standing Authorization"] };
+
+    await instance.adapter.sendTurn({ threadId: "t-owner-answers", text: "go", approvalMode: "auto", reviewerGrant: grant, ownerAnswers: true });
+    await recorder.until((e) => e.type === "turn.completed" && e.threadId === "t-owner-answers");
+    const answered = JSON.parse(readFileSync(dump, "utf8"));
+    expect(answered.argv[answered.argv.indexOf("--permission-mode") + 1]).toBe("default");
+    expect(answered.argv[answered.argv.indexOf("--permission-prompt-tool") + 1]).toBe("mcp__dog__approve");
+    expect(answered.settings?.autoMode).toBeUndefined();
+
+    await instance.adapter.sendTurn({ threadId: "t-owner-reviewed", text: "go", approvalMode: "auto", reviewerGrant: grant });
+    await recorder.until((e) => e.type === "turn.completed" && e.threadId === "t-owner-reviewed");
+    const reviewed = JSON.parse(readFileSync(dump, "utf8"));
+    expect(reviewed.argv[reviewed.argv.indexOf("--permission-mode") + 1]).toBe("auto");
+    expect(reviewed.settings.autoMode).toEqual(grant);
+  });
+
   it("attaches exact native Bash command input with the launch directory only to shell permissions", async () => {
     await create("hang");
     const threadId = "t-command-descriptor";
