@@ -10,6 +10,7 @@ import { backup, DatabaseSync } from "node:sqlite";
 import { pipeline } from "node:stream/promises";
 import { Worker } from "node:worker_threads";
 import * as tar from "tar";
+import { presentEntry, presentNames, unlessGone } from "./laterdog/present-entries.ts";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { writeFileAtomic } from "./atomic.ts";
 import { escapeAttribute, splitTranscriptAttachments } from "../src/lib/composer-attachments.ts";
@@ -130,8 +131,7 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function entryExists(path: string): boolean {
-  try { lstatSync(path); return true; }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
+  return presentEntry(path) !== null;
 }
 function privateJson(path: string): unknown {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -313,14 +313,15 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
       try { snapshotDb.exec("PRAGMA journal_mode = DELETE"); } finally { snapshotDb.close(); }
     }
     const walk = (directory: string, prefix = "") => {
-      for (const name of readdirSync(directory).sort()) {
+      for (const name of presentNames(directory).sort()) {
         if (!prefix && (excluded(name) || leftBehindByProfile(name, options.profile))) continue;
         const path = prefix ? `${prefix}/${name}` : name;
         if (excludedWorkspaceAuthPath(path) || ephemeralWorkspaceTokenPath(path) || redownloadedOrgLibraryPath(path)) continue;
         if (forbiddenArchivePath(path)) throw new Error("A workspace filename conflicts with a protected authentication or runtime path.");
         if (!validRelative(path)) throw new Error("A workspace filename cannot be safely restored on supported platforms.");
         const source = join(directory, name);
-        const stat = lstatSync(source);
+        const stat = presentEntry(source);
+        if (!stat) continue;
         if (name === "node_modules" && (stat.isDirectory() || stat.isSymbolicLink())) {
           skippedDependencies++;
           continue;
@@ -350,7 +351,7 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
           entries.push({ path, type: "directory", size: 0, mode: 0o700 });
           walk(source, path);
         } else if (stat.isFile()) {
-          let copied: { size: number; mode: number; sha256: string };
+          let copied: { size: number; mode: number; sha256: string } | null;
           if (path === "config.json" || path === "webhooks.json") {
             const value = privateJson(source);
             if (path === "config.json") writeJson(destination, portableWorkspaceConfig(value));
@@ -360,7 +361,9 @@ export async function createWorkspaceBackupSnapshot(dataDir: string, options: Cr
               writeJson(destination, value);
             }
             copied = { size: lstatSync(destination).size, mode: 0o600, sha256: hashFile(destination) };
-          } else copied = copyRegular(path === "messages.db" ? join(snapshot, "messages-snapshot.db") : source, destination);
+          } else if (path === "messages.db") copied = copyRegular(join(snapshot, "messages-snapshot.db"), destination);
+          else copied = unlessGone(source, () => copyRegular(source, destination), () => rmSync(destination, { force: true }));
+          if (!copied) continue;
           bytes += copied.size;
           if (bytes > MAX_WORKSPACE_BACKUP_BYTES) throw new Error("The workspace exceeds the 10 GB backup limit.");
           entries.push({ path, type: "file", ...copied });
