@@ -5,6 +5,7 @@ import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { DurationSequencer } from "./scripts/testing/duration-sequencer.ts";
+import { DEV_WATCH_IGNORED } from "./scripts/dev-watch.ts";
 import { createRequire } from "node:module";
 
 const { version } = JSON.parse(
@@ -54,7 +55,7 @@ export default defineConfig({
       host: "127.0.0.1",
       port: Number(process.env.LATERDOG_UI_PORT) || 5199,
       watch: {
-        ignored: ["**/release/**", "**/build/**", "**/dist/**", "**/electron/resources/**"],
+        ignored: DEV_WATCH_IGNORED,
       },
       proxy: {
         "/api": {
