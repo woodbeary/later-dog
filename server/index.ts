@@ -490,7 +490,7 @@ import { readThreadEvents } from "./thread-events.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
 import { OutboundRequestService } from "./outbound-requests.ts";
 import { connectorCallsIn, outboundCallsIn } from "../shared/outbound.ts";
-import { ConnectorSkips, connectorAllowKey, connectorSendDecision, toolkitOf } from "./laterdog/connector-ask.ts";
+import { TurnToolkits, connectorAllowKey, connectorSendDecision, toolkitOf } from "./laterdog/connector-ask.ts";
 import { bindThreadLogCapProvider } from "./thread-log-rotation.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
 import { assertModelVariantSupported, memberTurnSelection } from "./member-turn.ts";
@@ -9201,7 +9201,8 @@ const validateModelProposal = (selection: ModelSelection, current?: BotRecord): 
   return null;
 };
 const outboundRequests = new OutboundRequestService();
-const connectorSkips = new ConnectorSkips();
+const connectorSkips = new TurnToolkits();
+const connectorAllows = new TurnToolkits();
 const OUTBOUND_HOLD_MS = 9 * 60_000;
 
 function resolveAndSendTrust(res: ServerResponse, threadId: string, requestId: string, behavior: "allow" | "deny" | "answer"): boolean {
@@ -14152,7 +14153,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           connected: serviceSlugs,
           alwaysAllow: botForThread(sender.id, internalCapability.threadId)?.alwaysAllow,
           ownerSends: ownerSendsWithoutAsking(sourceApprovalMode(sender.id, internalCapability.threadId), ownerAutoScope(internalCapability.threadId)),
-          skipped: (toolkit) => connectorSkips.skipped(internalCapability.threadId, internalCapability.generation, toolkit),
+          skipped: (toolkit) => connectorSkips.has(internalCapability.threadId, internalCapability.generation, toolkit),
+          allowedThisTurn: (toolkit) => connectorAllows.has(internalCapability.threadId, internalCapability.generation, toolkit),
         });
         let outboundApproved = false;
         if (outboundTool) {
@@ -14224,7 +14226,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
                   store.patchMessage(threadId, stale.id, { card: { ...stale.card, answered: "unavailable", dismissed: true } });
                 }
               } else {
-                connectorSkips.skip(threadId, internalCapability.generation, outboundCalls
+                connectorSkips.add(threadId, internalCapability.generation, outboundCalls
                   .map((outbound) => toolkitOf(outbound.slug, serviceSlugs))
                   .filter((toolkit): toolkit is string => toolkit !== null));
               }
@@ -14235,6 +14237,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               );
             }
             outboundApproved = true;
+            if (decision.toolkit) connectorAllows.add(threadId, internalCapability.generation, [decision.toolkit]);
             requireActiveInternalCapability();
           }
         }

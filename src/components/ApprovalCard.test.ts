@@ -559,11 +559,12 @@ describe("ApprovalCard outbound holds", () => {
     message.card!.allowKey = "connector:linear";
     const [pending] = pendingApprovals([message]);
     const actions = renderToStaticMarkup(createElement(StoreProvider, null, createElement(PendingApprovalActions, { pending: pending!, threadId: "thread-1", bot })));
-    expect(actions).toContain("Allow once");
+    expect(actions).toContain(">Allow<");
+    expect(actions).not.toContain("Allow once");
     expect(actions).toContain("Skip");
     expect(actions).not.toContain("Don&#x27;t allow");
     expect(actions).toContain("Always allow");
-    expect(actions).toContain("Always allow lets Kiwi use Linear without asking again. Skip leaves it unused until your next message.");
+    expect(actions).toContain("Allow covers Linear until your next message. Always allow lets Kiwi use it without asking again. Skip leaves it unused until your next message.");
   });
 
   it("reads the subtitle back for a card from an older computer", () => {

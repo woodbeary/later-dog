@@ -237,6 +237,27 @@ it("asks once per connector, remembers Always allow for it, and keeps a skip unt
   expect(state).not.toHaveProperty("connectorScopes");
 });
 
+it("lets one Allow cover that app until the next message, then asks again", async () => {
+  const b = await bot("Connector turn");
+  let token = await mint(b.id, b.threadId);
+  const before = relayed.length;
+  const first = relay(token, "GMAIL_SEND_EMAIL", { to: "first@fixture.test" });
+  const card = await pending(b.threadId);
+  await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: card.card.requestId, behavior: "allow" });
+  expect((await first).body.result.isError).not.toBe(true);
+  const cardsBefore = (await cards(b.threadId)).filter((row: any) => row.card?.outboundRequest).length;
+  expect((await relay(token, "GMAIL_SEND_EMAIL", { to: "second@fixture.test" })).body.result.isError).not.toBe(true);
+  expect(relayed).toHaveLength(before + 2);
+  expect((await cards(b.threadId)).filter((row: any) => row.card?.outboundRequest)).toHaveLength(cardsBefore);
+  token = await mint(b.id, b.threadId);
+  const nextTurn = relay(token, "GMAIL_SEND_EMAIL", { to: "third@fixture.test" });
+  const nextCard = await pending(b.threadId);
+  expect(nextCard.id).not.toBe(card.id);
+  await api("POST", `/api/threads/${b.threadId}/respond`, { requestId: nextCard.card.requestId, behavior: "deny" });
+  expect((await nextTurn).body.result.isError).toBe(true);
+  expect(relayed).toHaveLength(before + 2);
+});
+
 it("always asks before running workbench code, even when the connector is always allowed", async () => {
   const b = await bot("Opaque code");
   await api("PATCH", `/api/bots/${b.id}`, { alwaysAllow: ["connector:gmail"] });
