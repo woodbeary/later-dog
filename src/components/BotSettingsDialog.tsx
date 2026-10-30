@@ -21,6 +21,7 @@ import { ComputerTab } from "./bot-settings/ComputerTab";
 import { DogShareButton } from "./bot-settings/DogShare";
 import { ProfileAvatar } from "./bot-settings/ProfileAvatar";
 import { RoutinesCard } from "./bot-settings/RoutinesCard";
+import { CodingJobs } from "./bot-settings/CodingJobs";
 import { PaneErrorLine } from "./PaneErrorLine";
 import { dogPanelPane } from "@/state/pane-errors";
 import { TEACH_TRICK_LINE } from "../../shared/learn-request";
@@ -211,6 +212,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                 <span className={groupLabelCls}>{t("botSettings.simple.routines")}</span>
                 <RoutinesCard bot={bot} />
               </div>
+              <CodingJobs bot={bot} />
               <div>
                 <span className={groupLabelCls}>{t("botSettings.simple.look")}</span>
                 <div className={cardCls}>
