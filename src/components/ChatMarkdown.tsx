@@ -25,8 +25,10 @@ import { looksLikeThreadRefUrl } from "../lib/thread-refs";
 import { MarkdownImagePreview, MessageFolderFiles, OutsideWorkspaceFile, useLocalFileSave, type MessageAttachmentContext } from "./AttachmentPreview";
 import { MarkdownTable } from "./MarkdownTable";
 import { RichCard } from "./RichCard";
+import { DraftCardView } from "./DraftCard";
 import { TableFileButton } from "./TableFilePreview";
 import { mermaidCode, richCard } from "../lib/rich-cards";
+import { draftCard, type DraftCard } from "../lib/draft-card";
 import { DARK_PIE, diagramPng, exportableDiagram, saveBlob } from "../lib/diagram-export";
 
 const highlightCache = new Map<string, string>();
@@ -814,7 +816,14 @@ function MarkdownCode({ children }: { children?: ReactNode }) {
   if (diagram !== null) return <MermaidDiagram code={diagram} />;
   const card = richCard(lang, code);
   if (card) return <RichCard card={card} />;
+  const draft = draftCard(lang, code);
+  if (draft) return <ScopedDraft card={draft} />;
   return <CodeBlock code={code} lang={lang} />;
+}
+
+function ScopedDraft({ card }: { card: DraftCard }) {
+  const { message } = useContext(MessageScopeContext);
+  return <DraftCardView card={card} messageId={message?.messageId} />;
 }
 
 function MarkdownImage(props: ComponentProps<"img"> & ExtraProps) {

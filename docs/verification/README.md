@@ -140,6 +140,9 @@ interaction in a disposable workspace.
 The [rich replies fixture](rich-replies.md) checks diagrams, charts, math, their
 PNG and SVG copies, and place, product and weather cards in a persisted reply.
 
+The [drafts fixture](drafts.md) checks draft cards in replies: their titles,
+the changes between revisions, editing, copying and asking the dog to send.
+
 The [people invitation fixture](people.md) checks hosted workspace sign-in,
 roles and device revocation through the real HTTP API with a stubbed email
 service, and the `laterdog access` command. The app has no People page.
