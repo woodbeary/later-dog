@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { OptionCard, canDismissOptionCard, shouldHideOnboardingCard } from "./OptionCard";
+import { QUESTION_DISMISS_MESSAGE } from "../../shared/ask-question";
+import { dismissResponse } from "@/lib/card-answer";
 import { t } from "@/lib/i18n";
 import { StoreProvider, type Message } from "@/state/store";
 
@@ -78,14 +80,21 @@ describe("OptionCard", () => {
 });
 
 describe("canDismissOptionCard", () => {
-  it("does not let an unresolved live question be silently dismissed", () => {
-    expect(canDismissOptionCard({
+  it("lets a live question be closed, which tells the dog instead of leaving it waiting", () => {
+    const live: NonNullable<Message["card"]> = {
       title: "Your bot has a question",
       subtitle: "which file?",
-      options: [],
+      options: ["A", "B"],
       requestId: "req-1",
       requestType: "question",
-    })).toBe(false);
+    };
+    expect(canDismissOptionCard(live)).toBe(true);
+    expect(dismissResponse(live)).toEqual({ behavior: "answer", message: QUESTION_DISMISS_MESSAGE, dismiss: true });
+    const markup = renderToStaticMarkup(createElement(StoreProvider, null, createElement(OptionCard, {
+      botId: "atlas", threadId: "thread", message: msg({ id: "ask", kind: "options", card: live }),
+    })));
+    expect(markup).toContain(`aria-label="${t("onboarding.card.dismiss")}"`);
+    expect(canDismissOptionCard({ ...live, answered: "answer", dismissed: true })).toBe(false);
   });
 
   it("keeps approval and settled-card dismissal behavior", () => {

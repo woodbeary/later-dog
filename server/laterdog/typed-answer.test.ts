@@ -23,6 +23,11 @@ describe("a reply typed while the dog is waiting on its question", () => {
     expect(openQuestion([question("no-request", {})], () => true)).toBeUndefined();
   });
 
+  it("also goes to a plain question the dog asked with choices, but never to an approval", () => {
+    expect(openQuestion([{ id: "ask", card: { requestId: "r5", requestType: "question" } }], () => true)?.id).toBe("ask");
+    expect(openQuestion([{ id: "approval", card: { requestId: "r6", requestType: "permission" } }], () => true)).toBeUndefined();
+  });
+
   it("tells the dog the person typed instead of picking, and to reply now", () => {
     const answer = typedReplyAnswer("Can you plan my trip to Lisbon?");
     expect(answer).toContain("Can you plan my trip to Lisbon?");

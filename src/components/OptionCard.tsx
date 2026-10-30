@@ -24,7 +24,7 @@ export function shouldHideOnboardingCard(message: Message, transcript: Message[]
 }
 
 export function canDismissOptionCard(card: NonNullable<Message["card"]>): boolean {
-  if (card.requestId && isPersistentQuestionCard(card)) return card.answered === "answer" && !card.dismissed;
+  if (card.requestId && isPersistentQuestionCard(card)) return !card.dismissed;
   return true;
 }
 

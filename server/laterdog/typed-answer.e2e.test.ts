@@ -45,7 +45,7 @@ describe.skipIf(process.platform === "win32")("typing a reply while a dog waits 
   const messages = async (threadId: string): Promise<any[]> => (await api("GET", `/api/threads/${threadId}/messages`)).body.messages;
   const card = async (threadId: string, requestId: string) => (await messages(threadId)).find((m) => m.card?.requestId === requestId)?.card;
 
-  const dogAskingAQuestion = async () => {
+  const dogAskingAQuestion = async (asks: "form" | "choices" = "form") => {
     rmSync(finishGate, { force: true });
     rmSync(dump, { force: true });
     const created = await api("POST", "/api/bots", {
@@ -82,13 +82,15 @@ describe.skipIf(process.platform === "win32")("typing a reply while a dog waits 
       }
     });
     const requestId = randomUUID();
-    socket.write(JSON.stringify({
-      t: "ask",
-      kind: "question",
-      id: requestId,
-      tool: "AskUserQuestion",
-      input: { questions: [{ question: "What should I help with first?", options: [{ label: "Code and GitHub" }, { label: "Research and writing" }] }] },
-    }) + "\n");
+    socket.write(JSON.stringify(asks === "choices"
+      ? { t: "ask", kind: "question", id: requestId, tool: "ask_user", input: { question: "What should I help with first?", choices: ["Code and GitHub", "Research and writing"] } }
+      : {
+        t: "ask",
+        kind: "question",
+        id: requestId,
+        tool: "AskUserQuestion",
+        input: { questions: [{ question: "What should I help with first?", options: [{ label: "Code and GitHub" }, { label: "Research and writing" }] }] },
+      }) + "\n");
     await waitFor(() => card(bot.threadId, requestId), "the question card");
     return { bot, requestId, replies };
   };
@@ -176,6 +178,24 @@ describe.skipIf(process.platform === "win32")("typing a reply while a dog waits 
     writeFileSync(finishGate, "finish");
     await waitFor(async () => !(await busy(bot.id)), "the turn to settle");
     expect(await card(bot.threadId, requestId)).toMatchObject({ answered: "answer", dismissed: true });
+  }, 60_000);
+
+  it("answers a question the dog asked with plain choices the same way, instead of steering past it", async () => {
+    const { bot, requestId, replies } = await dogAskingAQuestion("choices");
+    expect(await card(bot.threadId, requestId)).toMatchObject({ requestType: "question", options: ["Code and GitHub", "Research and writing"] });
+    expect((await card(bot.threadId, requestId)).questionRequest).toBeUndefined();
+    const typed = "I had a resize tool project.";
+    const sent = await api("POST", `/api/bots/${bot.id}/messages`, { text: typed });
+    expect(sent.status).toBe(202);
+    expect(sent.body).toMatchObject({ ok: true, threadId: bot.threadId, message: { role: "user", text: typed } });
+    expect(sent.body.steered).toBeUndefined();
+
+    const reply = await waitFor(async () => replies.find((entry) => entry.id === requestId), "the dog to get the typed answer");
+    expect(reply).toMatchObject({ t: "answer", behavior: "answer", message: typedReplyAnswer(typed), source: "user" });
+    expect(await card(bot.threadId, requestId)).toMatchObject({ answered: "answer", dismissed: true });
+
+    writeFileSync(finishGate, "finish");
+    await waitFor(async () => !(await busy(bot.id)), "the turn to settle");
   }, 60_000);
 
   it("leaves a question that was already answered alone and steers the next message as before", async () => {
