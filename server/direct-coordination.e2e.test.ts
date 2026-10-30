@@ -344,6 +344,7 @@ it("sends every follow-up to the recipient's one conversation", () => fixture(as
   expect(leadTurns.map((turn: any) => turn.threadId)).toEqual([main, main, main]);
   for (const [index, brief] of briefs.entries()) expect(leadTurns[index].prompt.message.content).toContain(brief);
   expect(leadTurns.every((turn: any) => turn.system.includes("Do the request below in this conversation"))).toBe(true);
+  expect(leadTurns.every((turn: any) => turn.system.includes("A no from the person stays a no."))).toBe(true);
   expect(leadTurns.every((turn: any) => turn.snapshotMode === "off")).toBe(true);
   for (const brief of briefs) expect(leadTurns.every((turn: any) => !turn.system.includes(brief))).toBe(true);
   const receipts = sendReceipts(f, f.chief.id);
