@@ -721,7 +721,9 @@ closed, offline); the entry stays until lending is stopped, the Mac's session
 ends, or 14 days pass. The list is in memory and empty after the Cloud
 restarts, until the Mac registers again (within seconds of being online).
 Server code can call `sharedComputers.status(principal)` directly. Bots use
-the `list_shared_computers` and `shared_computer` tools.
+the `list_shared_computers` and `shared_computer` tools, and read and send
+texts and email on the lent Mac with `read_texts`, `send_text` and
+`send_email` ([texts-and-email.md](texts-and-email.md)).
 
 ## The person's iPhone
 

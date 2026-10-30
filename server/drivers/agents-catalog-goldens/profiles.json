@@ -236,12 +236,15 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home": {
-    "bytes": 40588,
-    "sha256": "7dec186944b63eb07ab5ad8ce288e4cb0aa48c750aebb70b0c64fac129a384c5",
+    "bytes": 42718,
+    "sha256": "81e88b7c0bba051bb8a12dd8b4a113ceeb28df2851c11b4e846e68a4e2793307",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
       "shared_computer",
+      "send_text",
+      "read_texts",
+      "send_email",
       "coordinate_bots",
       "start_tasks",
       "list_bots",
@@ -268,12 +271,15 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home+phone": {
-    "bytes": 42540,
-    "sha256": "b961e318aa1cff8eec8fec74cec6beb2e260fb9093e44c6143337a3b9082610e",
+    "bytes": 44670,
+    "sha256": "3b3fa64e8308572464f0645d0be2d1df389c8056a4798b241d18fbd62f2a55dc",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
       "shared_computer",
+      "send_text",
+      "read_texts",
+      "send_email",
       "read_phone",
       "add_to_phone",
       "coordinate_bots",

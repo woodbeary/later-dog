@@ -14,7 +14,7 @@ import { selectReplay, DEFAULT_REBUILD_BYTES, MAX_SUMMARY_BYTES } from "./contex
 import { draftSummary, foldPoint } from "./compaction-summary.ts";
 import { compactBudget, contextWindowFor, shouldCompact } from "./context-budget.ts";
 import { autoCompactWindow } from "./drivers/claude.ts";
-import { completeSharedOperation, provenRequestPerson, SharedComputers, sharedActionsHeader, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerRegistration, sharedComputerScopeRefusal, type SharedComputerOperation } from "./shared-computers.ts";
+import { completeSharedOperation, provenRequestPerson, SharedComputers, sharedActionsHeader, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerRegistration, sharedComputerScopeRefusal, type SharedComputerOperation, type SharedComputerRegistration } from "./shared-computers.ts";
 import { MAC_ALLOW_KEY, MacApprovals, type MacLasting } from "./mac-approval.ts";
 import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, type CloudLendingTurn } from "./cloud-lending.ts";
 import { botMemoryFiles, createLendingMemory } from "./lending-memory.ts";
@@ -651,6 +651,8 @@ import { createDeskBrainRoute, recordDeskExchange } from "./laterdog/desk-exchan
 import { createTurnTiming } from "./laterdog/turn-timing.ts";
 import { instanceTouchedBy } from "./laterdog/snapshot-cache.ts";
 import { createEmailMeRoute } from "./routes/email-me.ts";
+import { createMacMessagesRoute } from "./routes/mac-messages.ts";
+import type { MacAsk, MessagesMac } from "./laterdog/mac-messages.ts";
 import { createPhonePushRoutes } from "./routes/phone-push.ts";
 import { startWakeupPull } from "./laterdog/wakeups.ts";
 import { offersPlace } from "../shared/places.ts";
@@ -1111,17 +1113,26 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
   const active = () => lendingEnabled() && internalCapabilityIsActive(capability);
   const send = (operation: SharedComputerOperation) => sharedComputers.request(operation, principal, active);
   if (!CLOUD_HOME) return await macWaits.run(capability.threadId, requested, send);
-  let target = sharedComputers.pick(principal, requested.computer_id);
-  if (!target) {
-    const known = sharedComputers.known(principal);
-    if (known.length === 0) throw Object.assign(new Error(CONNECT_MAC), { status: 409 });
-    await sharedComputers.waitOnline(principal, MAC_WAIT_MS);
-    target = sharedComputers.pick(principal, requested.computer_id);
-    if (!target) throw Object.assign(new Error(macOffline(known)), { status: 409, macOffline: true });
-  }
+  const target = await pickMac(principal, requested.computer_id);
   const operation = completeSharedOperation(target, requested);
   const refusal = sharedComputerScopeRefusal(target, operation);
   if (refusal) throw Object.assign(new Error(refusal), { status: 403 });
+  await approveMac(capability, target, operation, active);
+  return await macWaits.run(capability.threadId, operation, send);
+}
+
+async function pickMac(principal: string | null, computerId: string | undefined): Promise<SharedComputerRegistration> {
+  const target = sharedComputers.pick(principal, computerId);
+  if (target) return target;
+  const known = sharedComputers.known(principal);
+  if (known.length === 0) throw Object.assign(new Error(CONNECT_MAC), { status: 409 });
+  await sharedComputers.waitOnline(principal, MAC_WAIT_MS);
+  const online = sharedComputers.pick(principal, computerId);
+  if (!online) throw Object.assign(new Error(macOffline(known)), { status: 409, macOffline: true });
+  return online;
+}
+
+async function approveMac(capability: InternalCapability, target: SharedComputerRegistration, operation: SharedComputerOperation | MacAsk, active: () => boolean): Promise<void> {
   const bot = store.bot(capability.botId);
   if (!bot) throw Object.assign(new Error("This dog is gone."), { status: 404 });
   const requestMessageId = macRequestMessageId(capability);
@@ -1130,7 +1141,23 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
     ...(requestMessageId ? { requestMessageId } : {}),
   });
   if (!verdict.ok) throw Object.assign(new Error(verdict.error), { status: verdict.status });
-  return await macWaits.run(capability.threadId, operation, send);
+}
+
+async function messagesMac(capability: InternalCapability, computerId: string | undefined): Promise<MessagesMac> {
+  const principal = sharedComputerPrincipal(capability);
+  const unavailable = macLendingNotice(capability, principal);
+  if (unavailable) throw Object.assign(new Error(unavailable), { status: 403 });
+  const active = () => lendingEnabled() && internalCapabilityIsActive(capability);
+  const target = await pickMac(principal, computerId);
+  const refusal = sharedComputerScopeRefusal(target, { action: "run_command" });
+  if (refusal) throw Object.assign(new Error(refusal), { status: 403 });
+  return {
+    name: target.name,
+    never: macApprovals.modeFor(target.id) === "never",
+    approve: (ask) => approveMac(capability, target, ask, active),
+    run: (operation) => sharedComputers.request(completeSharedOperation(target, operation), principal, active),
+    active,
+  };
 }
 
 function cloudThreadStarters(threadId: string): (string | undefined)[] {
@@ -12477,6 +12504,11 @@ INTERNAL_ROUTES.push(createEmailMeRoute({
     if (!lendingEnabled()) throw Object.assign(new Error(CONNECT_MAC), { status: 409 });
     return await useMac(sharedComputerOperation.parse(operation), capability as InternalCapability);
   },
+}));
+INTERNAL_ROUTES.push(createMacMessagesRoute({
+  enabled: () => CLOUD_HOME !== null && lendingEnabled(),
+  active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+  mac: (capability, computerId) => messagesMac(capability as InternalCapability, computerId),
 }));
 INTERNAL_ROUTES.push(createTakeoverRequestRoute({
   ...takeoverLease,

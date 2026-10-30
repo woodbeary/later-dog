@@ -10,6 +10,9 @@ const TEAM_TOOLS: Record<string, (input: Record<string, unknown>, nameOf: NameOf
   read_phone: (input) => onThePhone(input),
   add_to_phone: (input) => onThePhone(input),
   start_tasks: (input) => startingTasks(input),
+  send_text: () => "sending a text",
+  read_texts: (input) => (typeof input.with === "string" && input.with.trim() ? `reading texts with ${clipName(input.with)}` : "reading your texts"),
+  send_email: () => "sending an email",
 };
 
 function startingTasks(input: Record<string, unknown>): string {

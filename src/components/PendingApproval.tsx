@@ -203,7 +203,8 @@ export function PendingApprovalActions({
   const reviewedSha256 = pending.message.card?.skillRequest
     ? reviewedSkillSha256(pending.message.card.skillRequest)
     : undefined;
-  const macRequest = pending.tool.startsWith("mac_");
+  const macSend = pending.tool === "mac_send_text" || pending.tool === "mac_send_email";
+  const macRequest = pending.tool.startsWith("mac_") && !macSend;
   const decide = (behavior: "allow" | "deny", always = false, rememberCommand = false, never = false) => {
     const grant = always && bot && pending.allowKey ? { botId: bot.id, key: pending.allowKey } : undefined;
     const forChat = always && !pending.allowKey && pending.allowSession ? true : undefined;
@@ -248,14 +249,16 @@ export function PendingApprovalActions({
               : t("approval.action.enable")
             : isRoutineRequest || isProfileRequest
               ? t("approval.action.confirm")
-              : t("approval.action.allowOnce")}
+              : macSend
+                ? t("approval.action.send")
+                : t("approval.action.allowOnce")}
         </button>
         {!macRequest && (
           <button
             onClick={() => decide("deny")}
             className={cn(base, quiet)}
           >
-            {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : outbound ? t("approval.action.skip") : t("approval.action.deny")}
+            {isRoutineRequest || isProfileRequest ? t("approval.action.cancel") : outbound ? t("approval.action.skip") : macSend ? t("approval.action.dontSend") : t("approval.action.deny")}
           </button>
         )}
         {!durableRequest && bot && pending.allowKey && (
