@@ -146,6 +146,11 @@ the changes between revisions, editing, copying and asking the dog to send.
 The [link previews fixture](link-previews.md) checks the cards under a reply for
 the pages it links, and that pictures and code get none.
 
+The [vault fixture](vault.md) checks saved logins: Settings, a Secure Form filled
+from the vault, a dog that may use a login without asking, and the lookalike
+warning. `LATERDOG_TEST_VAULT_KEY` crosses into the child so a fixture without a
+Cloud home can open a vault.
+
 The [people invitation fixture](people.md) checks hosted workspace sign-in,
 roles and device revocation through the real HTTP API with a stubbed email
 service, and the `laterdog access` command. The app has no People page.

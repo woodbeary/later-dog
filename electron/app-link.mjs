@@ -1,6 +1,6 @@
 export const APP_LINK_SCHEMES = Object.freeze(["laterdog", "laterdog-dev"]);
 export const APP_LINK_HOSTS = Object.freeze(["dog", "chat", "thread", "settings"]);
-export const APP_LINK_SETTINGS_SECTIONS = Object.freeze(["general", "computer", "usage", "updates"]);
+export const APP_LINK_SETTINGS_SECTIONS = Object.freeze(["general", "computer", "vault", "usage", "updates"]);
 export const APP_LINK_MAX_LENGTH = 2048;
 
 const ID = /^[\w-]{1,128}$/;

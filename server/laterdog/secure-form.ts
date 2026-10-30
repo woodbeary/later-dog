@@ -10,6 +10,7 @@ import {
   type SecureFormField,
 } from "../../shared/secure-form.ts";
 import { fitsOnOneLine } from "../../shared/bot-profile.ts";
+import { savesAsLogin, vaultAllowKey, vaultFieldPlan, vaultSite, type VaultFieldPlan, type VaultLogin } from "../../shared/vault.ts";
 
 export const SECURE_FORM_TTL_MS = 10 * 60_000;
 export const SECURE_FORM_AFTER_FILLED_MS = 2 * 60_000;
@@ -24,7 +25,7 @@ export const SECURE_FORM_TOOLS = [
   {
     name: "request_secure_form",
     description:
-      "Ask the person for details only they know (an email or username, a password, a one-time code) with a sealed Secure Form card, to sign in on this cloud computer. Open the sign-in page in the browser first; site is the host shown in its address bar, for example accounts.google.com. Name the step plainly, for example \"Sign in to iCloud\"; when asking again after a failed try, keep the same title and say in one short line what the site said. You never see the values. End your turn right after; later.dog wakes you when they press Continue, then type each value with fill_secure_field.",
+      "Ask the person for details only they know (an email or username, a password, a one-time code) with a sealed Secure Form card, to sign in on this cloud computer. Open the sign-in page in the browser first; site is the host shown in its address bar, for example accounts.google.com. Name the step plainly, for example \"Sign in to iCloud\"; when asking again after a failed try, keep the same title and say in one short line what the site said. You never see the values. End your turn right after; later.dog wakes you when they press Continue, then type each value with fill_secure_field. When they keep a login for the site in their vault and let you use it without asking, the form comes back already filled: then type each value straight away.",
     inputSchema: {
       type: "object",
       properties: {
@@ -70,7 +71,7 @@ export const SECURE_FORM_TOOLS = [
 ];
 
 export const SECURE_FORM_PROMPT =
-  " This cloud computer is yours for working on the web for them. Its browser stays signed in to the sites you sign in to, so you can read their inbox, check them in for a flight, book something or fill in a form, and come back later still signed in. When they ask you to sign in somewhere, do it straight away without asking why: open the site's sign-in page in the browser, then call request_secure_form for only what they know (an email or username, a password, a one-time code) and end the turn. They fill in a sealed card; later.dog wakes you, and fill_secure_field types each value straight into the page without you seeing it. A code that arrives later gets another Secure Form. Never say you can't sign in or can't handle passwords, never ask them to sign in themselves when a Secure Form can do it, and never ask for passwords or codes in chat. Keep request_takeover for what a form can't do: a CAPTCHA, a passkey or security key, an approval on their phone, or a payment.";
+  " This cloud computer is yours for working on the web for them. Its browser stays signed in to the sites you sign in to, so you can read their inbox, check them in for a flight, book something or fill in a form, and come back later still signed in. When they ask you to sign in somewhere, do it straight away without asking why: open the site's sign-in page in the browser, then call request_secure_form for only what they know (an email or username, a password, a one-time code) and end the turn. They fill in a sealed card, or pick a login saved in their later.dog vault; later.dog wakes you, and fill_secure_field types each value straight into the page without you seeing it. A code that arrives later gets another Secure Form. Never say you can't sign in or can't handle passwords, never ask them to sign in themselves when a Secure Form can do it, and never ask for passwords or codes in chat. Keep request_takeover for what a form can't do: a CAPTCHA, a passkey or security key, an approval on their phone, or a payment.";
 
 export interface SecureFormInput {
   title: string;
@@ -250,7 +251,7 @@ export function secureFillProblem(exitCode: number | null, stdout: string, formH
 }
 
 export interface SecureFormDesk {
-  open(input: SecureFormInput): { formId: string } | { error: string };
+  open(input: SecureFormInput): { formId: string; filled?: SecureFormCardData } | { error: string };
   field(formId: string, fieldId: string): { ok: true; host: string; label: string; value: string } | { ok: false; text: string };
   typed(formId: string, fieldId: string): { last: boolean };
 }
@@ -293,6 +294,15 @@ export function secureFormRequestedText(formId: string): string {
   ].join(" ");
 }
 
+export function secureFormFilledText(card: SecureFormCardData, formId: string): string {
+  const fields = card.fields.map((field) => `${field.id} (${field.label})`).join(", ");
+  return [
+    `The person keeps a login for ${card.host} in their vault and lets you use it without asking, so this Secure Form is already filled (form_id ${JSON.stringify(formId)}).`,
+    `Take a screenshot, then call fill_secure_field for each field: ${fields}. You never see the values.`,
+    "Set submit to true on the last field, then take a screenshot to check the result.",
+  ].join(" ");
+}
+
 export function secureFormResumePrompt(card: SecureFormCardData, formId: string): string {
   const fields = card.fields.map((field) => `${field.id} (${field.label})`).join(", ");
   return [
@@ -315,18 +325,39 @@ export interface SecureFormMessage {
   secureForm?: SecureFormCardData;
 }
 
+export interface SecureFormSavedLogins {
+  matching(host: string): readonly VaultLogin[];
+  credentials(id: string): { site: string; username: string; password: string } | null;
+  save(input: { site: string; username: string; password: string }): void;
+}
+
 export interface SecureFormHost {
   inThread(botId: string, threadId: string): { group: boolean } | null;
   messages(threadId: string): readonly SecureFormMessage[];
-  append(botId: string, threadId: string, card: SecureFormCardData): string;
+  append(botId: string, threadId: string, card: SecureFormCardData, options?: { quiet?: boolean }): string;
   patch(threadId: string, messageId: string, card: SecureFormCardData): void;
   resume(entry: { botId: string; threadId: string; messageId: string; prompt: string }): void;
+  savedLogins?: SecureFormSavedLogins;
+  allows?(botId: string, threadId: string, key: string): boolean;
+  grant?(botId: string, threadId: string, key: string): void;
 }
 
-export type SecureFormSubmit = { ok: true; card: SecureFormCardData } | { ok: false; status: 400 | 404 | 409; error: string };
+export type SecureFormSubmit =
+  | { ok: true; card: SecureFormCardData; saved?: boolean }
+  | { ok: false; status: 400 | 404 | 409; error: string };
 
 const formKey = (threadId: string, messageId: string) => `${threadId}:${messageId}`;
 const bareField = (field: SecureFormField): SecureFormField => ({ id: field.id, label: field.label, type: field.type });
+
+function loginValues(plan: VaultFieldPlan, login: { username: string; password: string }): Map<string, string> | null {
+  const values = new Map<string, string>();
+  if (plan.username) {
+    if (!login.username) return null;
+    values.set(plan.username, login.username);
+  }
+  if (plan.password) values.set(plan.password, login.password);
+  return values;
+}
 
 export class SecureForms {
   private readonly vault = new SecureFormVault((key) => this.expire(key));
@@ -348,22 +379,87 @@ export class SecureForms {
     };
   }
 
-  submit(botId: string, threadId: string, messageId: string, raw: unknown): SecureFormSubmit {
+  submit(botId: string, threadId: string, messageId: string, raw: unknown, options: { save?: boolean } = {}): SecureFormSubmit {
+    const card = this.openCard(botId, threadId, messageId);
+    if ("error" in card) return card;
+    const values = parseSecureValues(card.fields, raw);
+    if (!(values instanceof Map)) return { ok: false, status: 400, error: values.error };
+    const saved = options.save ? this.saveLogin(card, values) : undefined;
+    return { ok: true, card: this.send(botId, threadId, messageId, card, values), ...(saved === undefined ? {} : { saved }) };
+  }
+
+  useSaved(botId: string, threadId: string, messageId: string, choice: { login: string; always?: boolean }): SecureFormSubmit {
+    const card = this.openCard(botId, threadId, messageId);
+    if ("error" in card) return card;
+    const vault = this.host.savedLogins;
+    const plan = vaultFieldPlan(card.fields);
+    if (!vault || !plan) return { ok: false, status: 400, error: "A saved login can't fill this form." };
+    if (!vault.matching(card.host).some((login) => login.id === choice.login)) {
+      return { ok: false, status: 404, error: `That login isn't saved for ${card.host}.` };
+    }
+    const login = vault.credentials(choice.login);
+    if (!login || vaultSite(card.host) !== login.site) return { ok: false, status: 404, error: "That login is no longer in your vault." };
+    const values = loginValues(plan, login);
+    if (!values) return { ok: false, status: 400, error: "That saved login has no username to type here." };
+    if (choice.always) this.host.grant?.(botId, threadId, vaultAllowKey(login.site));
+    return { ok: true, card: this.send(botId, threadId, messageId, card, values, { username: login.username }) };
+  }
+
+  private openCard(botId: string, threadId: string, messageId: string): SecureFormCardData | { ok: false; status: 404 | 409; error: string } {
     const card = this.find(botId, threadId, messageId);
     if (!card) return { ok: false, status: 404, error: "This form is no longer available." };
     if (card.status !== "open") {
       return { ok: false, status: 409, error: card.status === "superseded" ? "A newer form replaced this one." : "This form was already sent." };
     }
-    const values = parseSecureValues(card.fields, raw);
-    if (!(values instanceof Map)) return { ok: false, status: 400, error: values.error };
+    return card;
+  }
+
+  private send(
+    botId: string,
+    threadId: string,
+    messageId: string,
+    card: SecureFormCardData,
+    values: Map<string, string>,
+    saved?: { username: string },
+    resume = true,
+  ): SecureFormCardData {
     const key = formKey(threadId, messageId);
     this.vault.hold(key, values, SECURE_FORM_TTL_MS);
     this.sent.set(key, { botId, threadId, messageId });
     this.typings.delete(key);
-    const next: SecureFormCardData = { ...card, fields: card.fields.map(bareField), status: "sending", until: this.now() + SECURE_FORM_TTL_MS };
+    const next: SecureFormCardData = {
+      ...card,
+      fields: card.fields.map(bareField),
+      status: "sending",
+      until: this.now() + SECURE_FORM_TTL_MS,
+      ...(saved ? { saved } : {}),
+    };
     this.host.patch(threadId, messageId, next);
-    this.host.resume({ botId, threadId, messageId, prompt: secureFormResumePrompt(next, messageId) });
-    return { ok: true, card: next };
+    if (resume) this.host.resume({ botId, threadId, messageId, prompt: secureFormResumePrompt(next, messageId) });
+    return next;
+  }
+
+  private saveLogin(card: SecureFormCardData, values: Map<string, string>): boolean {
+    const vault = this.host.savedLogins;
+    const plan = vaultFieldPlan(card.fields);
+    if (!vault || !plan?.username || !plan.password || !savesAsLogin(card.fields)) return false;
+    try {
+      vault.save({ site: card.host, username: values.get(plan.username)!, password: values.get(plan.password)! });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private allowedLogin(botId: string, threadId: string, card: SecureFormCardData): { values: Map<string, string>; username: string } | null {
+    const vault = this.host.savedLogins;
+    const plan = vaultFieldPlan(card.fields);
+    if (!vault || !plan) return null;
+    const logins = vault.matching(card.host);
+    if (logins.length !== 1 || this.host.allows?.(botId, threadId, vaultAllowKey(logins[0]!.site)) !== true) return null;
+    const login = vault.credentials(logins[0]!.id);
+    const values = login ? loginValues(plan, login) : null;
+    return login && values ? { values, username: login.username } : null;
   }
 
   private find(botId: string, threadId: string, messageId: string): SecureFormCardData | null {
@@ -381,7 +477,7 @@ export class SecureForms {
     this.typings.delete(key);
   }
 
-  private open(botId: string, threadId: string, input: SecureFormInput): { formId: string } | { error: string } {
+  private open(botId: string, threadId: string, input: SecureFormInput): { formId: string; filled?: SecureFormCardData } | { error: string } {
     const owner = this.host.inThread(botId, threadId);
     if (!owner) return { error: "This conversation is not available for a Secure Form." };
     for (const message of this.host.messages(threadId)) {
@@ -390,8 +486,11 @@ export class SecureForms {
       this.drop(formKey(threadId, message.id));
       this.host.patch(threadId, message.id, { ...card, status: "superseded" });
     }
-    const formId = this.host.append(botId, threadId, { title: input.title, host: input.host, fields: input.fields.map(bareField), status: "open" });
-    return { formId };
+    const card: SecureFormCardData = { title: input.title, host: input.host, fields: input.fields.map(bareField), status: "open" };
+    const allowed = this.allowedLogin(botId, threadId, card);
+    const formId = allowed ? this.host.append(botId, threadId, card, { quiet: true }) : this.host.append(botId, threadId, card);
+    if (!allowed) return { formId };
+    return { formId, filled: this.send(botId, threadId, formId, card, allowed.values, { username: allowed.username }, false) };
   }
 
   private field(botId: string, threadId: string, formId: string, field: string): ReturnType<SecureFormDesk["field"]> {

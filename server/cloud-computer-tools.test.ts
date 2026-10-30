@@ -176,6 +176,18 @@ describe("cloud computer tools", () => {
       expect(calls).toEqual([]);
     });
 
+    it("tells the dog to type straight away when a saved login already filled the form", async () => {
+      const forms = desk();
+      forms.open.mockReturnValueOnce({
+        formId: "form-1",
+        filled: { title: "Sign in to Example", host: "example.com", fields: [{ id: "password", label: "Password", type: "password" }], status: "sending", until: 1, saved: { username: "kit" } },
+      });
+      const result = await rpc(request("example.com"), { held: false }, undefined, forms).done as { content: Array<{ text: string }> };
+      expect(result.content[0].text).toContain("already filled (form_id \"form-1\")");
+      expect(result.content[0].text).toContain("call fill_secure_field for each field: password (Password)");
+      expect(result.content[0].text).not.toContain("End this turn");
+    });
+
     it("refuses a form where the conversation cannot show one, or for a shared address", async () => {
       expect(await rpc(request("example.com")).done).toEqual({ isError: true, content: [{ type: "text", text: SECURE_FORMS_UNAVAILABLE }] });
       const forms = desk();

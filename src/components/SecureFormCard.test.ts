@@ -2,10 +2,11 @@
 import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Message } from "@/state/store";
 import type { SecureFormCardData } from "../../shared/secure-form";
+import type { VaultOffers } from "../../shared/vault";
 import { SecureFormCard, secureFormReady, secureFormStatusLabel } from "./SecureFormCard";
 
 const form = (patch: Partial<SecureFormCardData> = {}): SecureFormCardData => ({
@@ -49,11 +50,29 @@ const type = (field: HTMLInputElement, value: string) => flushSync(() => {
   field.dispatchEvent(new Event("input", { bubbles: true }));
 });
 
+function later(offers: VaultOffers | null = null) {
+  const sent: unknown[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.startsWith("/api/vault/offers")) {
+      return offers ? new Response(JSON.stringify(offers), { status: 200 }) : new Response(JSON.stringify({ error: "no" }), { status: 404 });
+    }
+    sent.push({ url, body: JSON.parse(String(init?.body)) });
+    return new Response(JSON.stringify({ card: form({ status: "sending" }) }), { status: 200 });
+  }));
+  return sent;
+}
+
+const KIT = { id: "login-1", site: "example.com", username: "kit@example.com", updatedAt: 1 };
+
 function fillIn() {
   press(openButton()!);
   type(input("email"), "kit@example.com");
   type(input("password"), " hunter2 ");
 }
+
+beforeEach(() => {
+  later();
+});
 
 afterEach(() => {
   flushSync(() => root?.unmount());
@@ -149,8 +168,7 @@ describe("the Secure Form card", () => {
   });
 
   it("closes without sending anything from the close button or Escape", () => {
-    const fetch = vi.fn();
-    vi.stubGlobal("fetch", fetch);
+    const sent = later();
     mount(form());
     fillIn();
     press(document.querySelector<HTMLButtonElement>("button[aria-label=Close]")!);
@@ -160,7 +178,57 @@ describe("the Secure Form card", () => {
     expect(input("email").value).toBe("");
     flushSync(() => dialog()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(dialog()).toBeNull();
-    expect(fetch).not.toHaveBeenCalled();
+    expect(sent).toEqual([]);
+  });
+
+  it("offers the login saved for the site and fills the form with it, without the person typing", async () => {
+    const sent = later({ available: true, logins: [KIT], lookalike: null });
+    mount(form());
+    press(openButton()!);
+    await vi.waitFor(() => expect(document.querySelector("[data-vault-offers]")?.textContent).toContain("kit@example.com"));
+    press(document.querySelector<HTMLButtonElement>("button[aria-label='Use the login saved for example.com: kit@example.com']")!);
+    await vi.waitFor(() => expect(dialog()).toBeNull());
+    expect(sent).toEqual([{ url: "/api/bots/pepper/secure-forms/form-1/submit", body: { threadId: "pepper-thread", login: "login-1" } }]);
+  });
+
+  it("lets the dog use the saved login without asking only when the person ticks it", async () => {
+    const sent = later({ available: true, logins: [KIT], lookalike: null });
+    mount(form());
+    press(openButton()!);
+    await vi.waitFor(() => expect(document.querySelector("[data-vault-offers]")).not.toBeNull());
+    const always = [...document.querySelectorAll("label")].find((label) => label.textContent === "Let Pepper use it on example.com without asking")!;
+    press(always.querySelector("input")!);
+    press(document.querySelector<HTMLButtonElement>("[data-vault-offers] button")!);
+    await vi.waitFor(() => expect(dialog()).toBeNull());
+    expect(sent).toEqual([{ url: "/api/bots/pepper/secure-forms/form-1/submit", body: { threadId: "pepper-thread", login: "login-1", always: true } }]);
+  });
+
+  it("warns about a site that only looks like one with a saved login, and offers nothing to save there", async () => {
+    later({ available: true, logins: [], lookalike: "example.org" });
+    mount(form());
+    press(openButton()!);
+    await vi.waitFor(() => expect(document.querySelector("[data-vault-lookalike]")?.textContent).toContain("This is example.com, not example.org"));
+    expect(document.querySelector("[data-vault-offers]")).toBeNull();
+    expect(document.querySelector("[data-vault-save]")).toBeNull();
+  });
+
+  it("saves a typed login to the vault only when the person ticks Save", async () => {
+    const sent = later({ available: true, logins: [], lookalike: null });
+    mount(form());
+    fillIn();
+    await vi.waitFor(() => expect(document.querySelector("[data-vault-save]")).not.toBeNull());
+    press(document.querySelector<HTMLInputElement>("[data-vault-save]")!);
+    press(continueButton());
+    await vi.waitFor(() => expect(dialog()).toBeNull());
+    expect(sent).toEqual([{
+      url: "/api/bots/pepper/secure-forms/form-1/submit",
+      body: { threadId: "pepper-thread", values: { email: "kit@example.com", password: " hunter2 " }, save: true },
+    }]);
+  });
+
+  it("names the saved login that filled the card", () => {
+    mount(form({ status: "sending", until: Date.now() + 60_000, saved: { username: "kit@example.com" } }));
+    expect(card().textContent).toContain("Saved login · kit@example.com");
   });
 
   it.each([

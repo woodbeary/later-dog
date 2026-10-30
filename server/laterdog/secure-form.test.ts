@@ -21,6 +21,7 @@ import {
   type SecureFormHost,
   type SecureFormMessage,
 } from "./secure-form.ts";
+import { vaultSite } from "../../shared/vault.ts";
 
 const SIGN_IN: SecureFormField[] = [
   { id: "email", label: "Email", type: "email" },
@@ -642,5 +643,160 @@ describe("a Secure Form from request to typing", () => {
     expect(forms.submit("dog-1", "thread-1", "form-1", SECRET)).toMatchObject({ ok: true });
     expect(forms.desk("dog-2", "thread-1").field("form-1", "password")).toMatchObject({ ok: false, text: expect.stringContaining("There is no Secure Form") });
     expect(forms.desk("dog-1", "thread-1").field("form-1", "password")).toMatchObject({ ok: true });
+  });
+});
+
+describe("a Secure Form and the person's saved logins", () => {
+  const INPUT = { title: "Sign in to Example", host: "accounts.example.com", fields: SIGN_IN };
+  const KIT = { id: "login-1", site: "example.com", username: "kit@example.com", password: "correct horse battery staple" };
+
+  beforeEach(() => {
+    vi.useFakeTimers({ now: 1_000_000 });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function chat(options: { allowed?: string[]; logins?: Array<typeof KIT> } = {}) {
+    const messages: SecureFormMessage[] = [];
+    const patched: Array<{ messageId: string; card: SecureFormCardData }> = [];
+    const resumed: Array<{ botId: string; threadId: string; messageId: string; prompt: string }> = [];
+    const quiet: boolean[] = [];
+    const granted: string[] = [];
+    const saved: Array<{ site: string; username: string; password: string }> = [];
+    const logins = options.logins ?? [KIT];
+    const host: SecureFormHost = {
+      inThread: (_botId, threadId) => (threadId === "thread-1" ? { group: false } : null),
+      messages: () => messages,
+      append: (botId, _threadId, card, appendOptions) => {
+        const id = `form-${messages.length + 1}`;
+        messages.push({ id, kind: "secret", from: { botId }, secureForm: card });
+        quiet.push(appendOptions?.quiet === true);
+        return id;
+      },
+      patch: (_threadId, messageId, card) => {
+        patched.push({ messageId, card });
+        const message = messages.find((entry) => entry.id === messageId);
+        if (message) message.secureForm = card;
+      },
+      resume: (entry) => {
+        resumed.push(entry);
+      },
+      savedLogins: {
+        matching: (host) => logins.filter((login) => login.site === vaultSite(host)).map(({ id, site, username }) => ({ id, site, username, updatedAt: 1 })),
+        credentials: (id) => {
+          const login = logins.find((candidate) => candidate.id === id);
+          return login ? { site: login.site, username: login.username, password: login.password } : null;
+        },
+        save: (input) => {
+          saved.push(input);
+        },
+      },
+      allows: (_botId, _threadId, key) => (options.allowed ?? []).includes(key),
+      grant: (_botId, _threadId, key) => {
+        granted.push(key);
+      },
+    };
+    const card = (id: string) => messages.find((entry) => entry.id === id)?.secureForm;
+    return { forms: new SecureForms(host), patched, resumed, quiet, granted, saved, card };
+  }
+
+  it("fills the form from the login the person picks and wakes the dog without the values", () => {
+    const { forms, card, patched, resumed, granted } = chat();
+    const desk = forms.desk("dog-1", "thread-1");
+    desk.open(INPUT);
+    expect(forms.useSaved("dog-1", "thread-1", "form-1", { login: "login-1" })).toMatchObject({
+      ok: true,
+      card: { status: "sending", saved: { username: "kit@example.com" } },
+    });
+    expect(card("form-1")).toMatchObject({ status: "sending", saved: { username: "kit@example.com" } });
+    expect(resumed).toEqual([expect.objectContaining({ messageId: "form-1", prompt: expect.stringContaining("call fill_secure_field") })]);
+    expect(desk.field("form-1", "email")).toMatchObject({ ok: true, value: "kit@example.com" });
+    expect(desk.field("form-1", "password")).toMatchObject({ ok: true, value: "correct horse battery staple" });
+    expect(granted).toEqual([]);
+    expect(JSON.stringify([patched, resumed])).not.toContain("correct horse");
+  });
+
+  it("remembers Don't ask again as this dog's permission for the site", () => {
+    const { forms, granted } = chat();
+    forms.desk("dog-1", "thread-1").open(INPUT);
+    forms.useSaved("dog-1", "thread-1", "form-1", { login: "login-1", always: true });
+    expect(granted).toEqual(["vault:example.com"]);
+  });
+
+  it("fills at once, without a notification, when the dog may use the site's only saved login", () => {
+    const { forms, card, quiet, resumed } = chat({ allowed: ["vault:example.com"] });
+    const desk = forms.desk("dog-1", "thread-1");
+    expect(desk.open(INPUT)).toEqual({ formId: "form-1", filled: expect.objectContaining({ status: "sending", saved: { username: "kit@example.com" } }) });
+    expect(quiet).toEqual([true]);
+    expect(card("form-1")?.status).toBe("sending");
+    expect(resumed).toEqual([]);
+    expect(desk.field("form-1", "password")).toMatchObject({ ok: true, value: "correct horse battery staple" });
+  });
+
+  it("asks the person when the site has two saved logins, even for a dog that may use them", () => {
+    const { forms, quiet } = chat({ allowed: ["vault:example.com"], logins: [KIT, { ...KIT, id: "login-2", username: "sam@example.com" }] });
+    expect(forms.desk("dog-1", "thread-1").open(INPUT)).toEqual({ formId: "form-1" });
+    expect(quiet).toEqual([false]);
+  });
+
+  it("asks the person when the dog has no permission for the site", () => {
+    const { forms, quiet } = chat({ allowed: ["vault:other.com", "connector:gmail"] });
+    expect(forms.desk("dog-1", "thread-1").open(INPUT)).toEqual({ formId: "form-1" });
+    expect(quiet).toEqual([false]);
+  });
+
+  it("refuses a login saved for another site", () => {
+    const { forms, card } = chat({ logins: [KIT, { ...KIT, id: "login-2", site: "github.com" }] });
+    forms.desk("dog-1", "thread-1").open(INPUT);
+    expect(forms.useSaved("dog-1", "thread-1", "form-1", { login: "login-2" }))
+      .toEqual({ ok: false, status: 404, error: "That login isn't saved for accounts.example.com." });
+    expect(card("form-1")?.status).toBe("open");
+  });
+
+  it("leaves a form with a code to the person", () => {
+    const { forms } = chat();
+    forms.desk("dog-1", "thread-1").open({ ...INPUT, fields: [...SIGN_IN, { id: "code", label: "Code", type: "code" }] });
+    expect(forms.useSaved("dog-1", "thread-1", "form-1", { login: "login-1" }))
+      .toEqual({ ok: false, status: 400, error: "A saved login can't fill this form." });
+  });
+
+  it("has nothing to type for a username the saved login lacks", () => {
+    const { forms } = chat({ logins: [{ ...KIT, username: "" }] });
+    forms.desk("dog-1", "thread-1").open(INPUT);
+    expect(forms.useSaved("dog-1", "thread-1", "form-1", { login: "login-1" }))
+      .toEqual({ ok: false, status: 400, error: "That saved login has no username to type here." });
+  });
+
+  it("saves what the person typed only when they ask, and only a username with a password", () => {
+    const typed = { email: "kit@example.com", password: "typed by hand" };
+    const first = chat();
+    first.forms.desk("dog-1", "thread-1").open(INPUT);
+    expect(first.forms.submit("dog-1", "thread-1", "form-1", typed, { save: true })).toMatchObject({ ok: true, saved: true });
+    expect(first.saved).toEqual([{ site: "accounts.example.com", username: "kit@example.com", password: "typed by hand" }]);
+    const second = chat();
+    second.forms.desk("dog-1", "thread-1").open(INPUT);
+    expect(second.forms.submit("dog-1", "thread-1", "form-1", typed)).not.toHaveProperty("saved");
+    expect(second.saved).toEqual([]);
+    const third = chat();
+    third.forms.desk("dog-1", "thread-1").open({ ...INPUT, fields: [{ id: "password", label: "Password", type: "password" }] });
+    expect(third.forms.submit("dog-1", "thread-1", "form-1", { password: "x" }, { save: true })).toMatchObject({ ok: true, saved: false });
+    expect(third.saved).toEqual([]);
+  });
+
+  it("cannot use a saved login where the vault is not set up", () => {
+    const messages: SecureFormMessage[] = [];
+    const forms = new SecureForms({
+      inThread: () => ({ group: false }),
+      messages: () => messages,
+      append: (_botId, _threadId, card) => {
+        messages.push({ id: "form-1", kind: "secret", secureForm: card });
+        return "form-1";
+      },
+      patch: () => {},
+      resume: () => {},
+    });
+    forms.desk("dog-1", "thread-1").open(INPUT);
+    expect(forms.useSaved("dog-1", "thread-1", "form-1", { login: "login-1" })).toEqual({ ok: false, status: 400, error: "A saved login can't fill this form." });
   });
 });

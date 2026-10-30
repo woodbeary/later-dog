@@ -19,6 +19,7 @@ export interface SecureFormCardData {
   fields: SecureFormField[];
   status: SecureFormStatus;
   until?: number;
+  saved?: { username: string };
 }
 
 const SHARED_HOSTS = new Set([

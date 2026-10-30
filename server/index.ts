@@ -678,6 +678,7 @@ import { asksToCloseQuestion, closeQuestion } from "./laterdog/close-question.ts
 import { openQuestion, typedReplyAnswer } from "./laterdog/typed-answer.ts";
 import { finishTakeover, TakeoverWaits, takeoverResumePrompt, type TakeoverCards, type TakeoverWait } from "./laterdog/takeover.ts";
 import { SecureForms, secureFormMessageText } from "./laterdog/secure-form.ts";
+import { cloudVaultKey, testVaultKey, VaultStore } from "./laterdog/vault.ts";
 import { transcribeRoute } from "./laterdog/transcribe.ts";
 import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
 import { withOnItNote, withSteerNote, workUpdatesPrompt } from "./laterdog/work-updates.ts";
@@ -717,6 +718,7 @@ import { createMacAccountRoutes } from "./laterdog/mac-accounts.ts";
 import { engineAnswer } from "./laterdog/person-denied.ts";
 import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeover.ts";
 import { createSecureFormRoutes } from "./routes/secure-forms.ts";
+import { createVaultRoutes } from "./routes/vault.ts";
 import { dispatchInternalRoutes, INTERNAL_ROUTES } from "./routes/internal.ts";
 import { createDesktopViewer, desktopViewerUrl } from "./routes/desktop-viewer.ts";
 import { localDesktopTarget, localVmViewerStatus, viewerTargetId } from "./desktop-viewer-targets.ts";
@@ -783,6 +785,10 @@ const CLOUD_ENV: NodeJS.ProcessEnv = { ...process.env, ...CLOUD_SECRETS };
 const deliverOwnerEmail = cloudEmailDelivery(CLOUD_ENV.LATERDOG_CLOUD_EMAIL_URL, CLOUD_ENV.LATERDOG_CLOUD_EMAIL_TOKEN);
 const CLOUD_HOME = cloudHomeConfiguration(CLOUD_ENV);
 if (CLOUD_HOME) startHomeHealthLog();
+const vaultStore = new VaultStore(join(DATA_DIR, "vault.json"), CLOUD_HOME
+  ? cloudVaultKey(CLOUD_HOME.bootstrapSecret, CLOUD_HOME.machineId)
+  : testVaultKey(process.env.LATERDOG_TEST_VAULT_KEY));
+delete process.env.LATERDOG_TEST_VAULT_KEY;
 const TIME_ZONE_FILE = join(DATA_DIR, "time-zone.json");
 restoreTimeZone(TIME_ZONE_FILE);
 const sharedComputers = new SharedComputers(id => sessions.isLive(id), CLOUD_HOME ? { file: join(DATA_DIR, "known-macs.json") } : {});
@@ -10876,6 +10882,17 @@ async function attachmentVmForTurn(capability: InternalCapability): Promise<Loca
   return vm;
 }
 
+function addAlwaysAllow(bot: BotRecord, allowKey: string) {
+  store.patchTask(bot.id, bot.threadId, {
+    alwaysAllow: [...new Set([...(bot.alwaysAllow ?? []), allowKey])].slice(0, 200),
+  });
+  const live = directTurnBots.get(bot.threadId);
+  if (live) live.alwaysAllow = [...new Set([...(live.alwaysAllow ?? []), allowKey])].slice(0, 200);
+  const visible = wireBot(store.bot(bot.id)!);
+  broadcast({ kind: "bot", bot: visible });
+  return visible;
+}
+
 function connectorThread(botId: string, threadId: string) {
   const bot = store.bot(botId);
   if (!bot) return null;
@@ -11746,7 +11763,7 @@ const secureForms = new SecureForms({
     return owner ? { group: Boolean(owner.group) } : null;
   },
   messages: (threadId) => store.activePath(threadId),
-  append: (botId, threadId, card) => {
+  append: (botId, threadId, card, options) => {
     const owner = connectorThread(botId, threadId);
     if (!owner) throw new Error("This conversation is not available for a Secure Form.");
     const { bot, group } = owner;
@@ -11757,13 +11774,27 @@ const secureForms = new SecureForms({
       ...(group ? { from: { botId: bot.id, name: bot.name, color: bot.color } } : {}),
       secureForm: card,
     });
-    notify(buildNotification("takeover", bot, threadId, secureFormMessageText(card), {
-      group: group ? { id: group.id, name: group.name } : undefined,
-    }));
+    if (!options?.quiet) {
+      notify(buildNotification("takeover", bot, threadId, secureFormMessageText(card), {
+        group: group ? { id: group.id, name: group.name } : undefined,
+      }));
+    }
     return message.id;
   },
   patch: (threadId, messageId, card) => store.patchMessage(threadId, messageId, { secureForm: card }),
   resume: (entry) => dispatchTakeoverResume(entry),
+  savedLogins: {
+    matching: (host) => vaultStore.matching(host),
+    credentials: (id) => vaultStore.credentials(id),
+    save: (input) => { vaultStore.save(input); },
+  },
+  allows: (botId, threadId, key) => [store.bot(botId), store.projectBotForTask(botId, threadId)].some((bot) => bot?.alwaysAllow?.includes(key) === true),
+  grant: (botId, _threadId, key) => {
+    const bot = store.bot(botId);
+    if (!bot || bot.alwaysAllow?.includes(key)) return;
+    const updated = store.patchBot(botId, { alwaysAllow: [...(bot.alwaysAllow ?? []), key] });
+    if (updated) broadcast({ kind: "bot", bot: wireBot(updated) });
+  },
 });
 
 bus.subscribe((event: RuntimeEvent) => {
@@ -12480,6 +12511,7 @@ ROUTES.push(createTakeoverRoutes({
   end: endTakeover,
 }));
 ROUTES.push(createSecureFormRoutes({ forms: secureForms }));
+ROUTES.push(createVaultRoutes({ vault: vaultStore }));
 ROUTES.push(createPhonePushRoutes({ push: phonePush }));
 ROUTES.push(createPhoneDeviceRoutes({ desk: phoneDesk, enabled: phoneToolsEnabled, owner: phoneOwner, gone: requestGone }));
 INTERNAL_ROUTES.push(createPhoneToolRoute({
@@ -16213,15 +16245,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!macApprovals.choose(pending.card!.requestId!, "always")) return json(res, 409, { error: "that grant is not on a pending approval for this bot" });
         return json(res, 200, { bot: wireBot(store.bot(bot.id)!), mac: macAccessView() });
       }
-      store.patchTask(bot.id, bot.threadId, {
-        alwaysAllow: [...new Set([...(bot.alwaysAllow ?? []), allowKey])].slice(0, 200),
-      });
-      const live = directTurnBots.get(bot.threadId);
-      if (live) live.alwaysAllow = [...new Set([...(live.alwaysAllow ?? []), allowKey])].slice(0, 200);
-      const updated = store.bot(bot.id)!;
-      const visible = wireBot(updated);
-      broadcast({ kind: "bot", bot: visible });
-      return json(res, 200, { bot: visible });
+      return json(res, 200, { bot: addAlwaysAllow(bot, allowKey) });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)$/);
     if (m && method === "PATCH") {

@@ -74,16 +74,17 @@ const groups = (html: string) => [...html.matchAll(/data-settings-group="([^"]+)
 const markers = (html: string) => [...html.matchAll(/MARKER:([^;]+);/g)].map((match) => match[1]);
 
 describe("the Settings rail", () => {
-  it("lists the four settings pages, with icons, and the same four in the narrow-window picker", () => {
+  it("lists the five settings pages, with icons, and the same five in the narrow-window picker", () => {
     const html = render();
-    expect(SETTINGS_PAGES.map((page) => page.id)).toEqual(["general", "computer", "usage", "updates"]);
-    expect(pages(html)).toEqual(["general", "computer", "usage", "updates"]);
+    expect(SETTINGS_PAGES.map((page) => page.id)).toEqual(["general", "computer", "vault", "usage", "updates"]);
+    expect(pages(html)).toEqual(["general", "computer", "vault", "usage", "updates"]);
     expect(currentPage(html)).toBe("general");
     for (const page of pages(html)) expect(html).toMatch(new RegExp(`data-settings-page="${page}"[^>]*>\\s*<svg`));
     const picker = html.match(/<select aria-label="Settings"[\s\S]*?<\/select>/)![0];
-    expect([...picker.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1])).toEqual(["general", "computer", "usage", "updates"]);
+    expect([...picker.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1])).toEqual(["general", "computer", "vault", "usage", "updates"]);
     expect(picker).toContain(">General<");
     expect(picker).toContain(">Computer<");
+    expect(picker).toContain(">Vault<");
     expect(picker).toContain(">Usage &amp; Billing<");
     expect(picker).toContain(">Updates<");
     expect(html).not.toContain("data-settings-search");
