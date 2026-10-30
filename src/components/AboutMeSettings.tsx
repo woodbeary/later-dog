@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { CircleHelp } from "lucide-react";
+import { Check, CircleHelp, Copy } from "lucide-react";
 import { api, useStore, type ConfigStatus } from "@/state/store";
+import { useCopyFeedback } from "@/lib/copy-text";
 import { t } from "@/lib/i18n";
 import { createAboutMeDraft } from "./about-me-draft";
 
@@ -20,6 +21,7 @@ export function AboutMeSettings() {
     drafts.set(dispatch, controller);
   }
   const { value, status } = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+  const [imports, setImports] = useState(0);
   const { flush } = controller;
   useEffect(() => { controller.confirm(confirmed); }, [controller, confirmed]);
   useEffect(() => () => { void flush(); }, [flush]);
@@ -43,13 +45,89 @@ export function AboutMeSettings() {
         onBlur={() => void flush()}
         className="min-h-[120px] w-full resize-y rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[14px] text-ink focus:outline-none"
       />
-      <LearnedFacts onChanged={(aboutMe) => { controller.confirm(aboutMe); dispatch({ type: "profileSaved", profile: { aboutMe } }); }} />
+      <ImportMemories onImported={(aboutMe) => {
+        controller.confirm(aboutMe);
+        dispatch({ type: "profileSaved", profile: { aboutMe } });
+        setImports((count) => count + 1);
+      }} />
+      <LearnedFacts key={imports} onChanged={(aboutMe) => { controller.confirm(aboutMe); dispatch({ type: "profileSaved", profile: { aboutMe } }); }} />
       <div className="min-h-4 text-[12px]" role="status">
         {status === "saving" && <span className="text-ink-secondary">{t("settings.profile.saving")}</span>}
         {status === "saved" && <span className="text-success">{t("settings.profile.saved")}</span>}
         {status === "error" && <span className="text-danger">{t("settings.profile.saveError")} {" "}
           <button type="button" onClick={() => void flush()} className="underline transition-opacity hover:opacity-80">{t("settings.profile.retry")}</button>
         </span>}
+      </div>
+    </div>
+  );
+}
+
+function ImportMemories({ onImported }: { onImported: (aboutMe: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<{ error: boolean; words: string } | null>(null);
+  const prompt = t("settings.profile.import.prompt");
+  const { state: copied, copy } = useCopyFeedback(prompt);
+
+  const submit = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const result = await api<{ added: number; full: boolean; aboutMe: string }>("/api/profile/import", {
+        method: "POST", body: JSON.stringify({ text }), timeoutMs: 15_000,
+      });
+      onImported(result.aboutMe);
+      setText("");
+      setNote({
+        error: false,
+        words: result.added === 0 ? t("settings.profile.import.nothing")
+          : result.full ? t("settings.profile.import.partly", { count: result.added })
+            : t("settings.profile.import.added", { count: result.added }),
+      });
+    } catch (cause) {
+      setNote({ error: true, words: cause instanceof Error && cause.message ? cause.message : t("settings.profile.import.error") });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <div>
+        <button type="button" data-import-memories onClick={() => setOpen(true)}
+          className="rounded-md px-2 py-1 text-[12.5px] text-ink-secondary hover:bg-control hover:text-ink">
+          {t("settings.profile.import.open")}
+        </button>
+        {note && <span role="status" className={note.error ? "text-[12px] text-danger" : "text-[12px] text-ink-secondary"}>{note.words}</span>}
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-hairline/40 bg-inset p-3" data-import-memories-panel>
+      <div className="text-[13px] font-medium text-ink">{t("settings.profile.import.title")}</div>
+      <p className="mt-1 text-[12.5px] text-ink-secondary">{t("settings.profile.import.ask")}</p>
+      <div className="mt-1.5 flex items-start gap-2 rounded-md bg-card px-2.5 py-2 text-[13px] text-ink">
+        <span className="min-w-0 flex-1">{prompt}</span>
+        <button type="button" onClick={copy} aria-label={t("settings.profile.import.copy")}
+          className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-ink-secondary hover:bg-control hover:text-ink">
+          {copied === "copied" ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
+          {copied === "copied" ? t("settings.profile.import.copied") : t("settings.profile.import.copy")}
+        </button>
+      </div>
+      <label htmlFor="import-memories" className="mt-2.5 block text-[12.5px] text-ink-secondary">{t("settings.profile.import.paste")}</label>
+      <textarea id="import-memories" value={text} rows={5} maxLength={50_000} onChange={(event) => setText(event.target.value)}
+        className="mt-1 min-h-[100px] w-full resize-y rounded-lg border border-hairline/40 bg-card px-3 py-2 text-[13.5px] text-ink focus:outline-none" />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button type="button" disabled={busy || !text.trim()} onClick={() => void submit()}
+          className="rounded-full bg-accent px-3.5 py-1.5 text-[13px] font-medium text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40">
+          {t("settings.profile.import.add")}
+        </button>
+        <button type="button" onClick={() => { setOpen(false); setText(""); }}
+          className="rounded-full bg-control px-3.5 py-1.5 text-[13px] text-ink hover:bg-control-hover">
+          {t("settings.profile.import.cancel")}
+        </button>
+        {note && <span role="status" className={note.error ? "text-[12px] text-danger" : "text-[12px] text-ink-secondary"}>{note.words}</span>}
       </div>
     </div>
   );

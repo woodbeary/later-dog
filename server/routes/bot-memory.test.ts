@@ -125,6 +125,24 @@ describe("the bot-memory module through the route table", () => {
     expect(saved).toEqual(["Handwritten note"]);
   });
 
+  it("brings memories from another assistant into About me, owner-only", async () => {
+    let aboutMe = "Handwritten note";
+    const base = await serve({ aboutMe: () => aboutMe, saveAboutMe: (text) => { aboutMe = text; } });
+    const send = (text: unknown) => fetch(`${base}/api/profile/import`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) });
+    const imported = await send("Sure, here's what I know:\n- Bikes to work\n- Handwritten note");
+    expect(imported.status).toBe(200);
+    const body = await imported.json() as { added: number; skipped: number; aboutMe: string; learned: { id: string; text: string; botName: string }[] };
+    expect(body).toMatchObject({ added: 1, skipped: 1, full: false });
+    expect(aboutMe).toBe(body.aboutMe);
+    expect(aboutMe).toMatch(/^Handwritten note\n- \d{4}-\d{2}-\d{2} · learned by another assistant · Bikes to work$/);
+    expect(body.learned[0]!.text).toBe("Bikes to work");
+    expect((await send("   ")).status).toBe(400);
+    expect((await send("x".repeat(50_001))).status).toBe(400);
+    expect(requiredScope("POST", "/api/profile/import")).toBe("admin");
+    const ours = (body.learned as { id: string; botName: string }[]).filter((fact) => fact.botName === "another assistant");
+    for (const fact of ours) expect((await fetch(`${base}/api/profile/learned/${fact.id}/remove`, { method: "POST" })).status).toBe(200);
+  });
+
   it("keeps a learned fact retryable when saving About me fails", async () => {
     const from = { botId: "bot-123", botName: "Memo" };
     const facts = planLearned(from, ["Prefers quiet cafes"], "", "2026-09-28");

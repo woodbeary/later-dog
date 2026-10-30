@@ -20,6 +20,8 @@ import {
 } from "../memory-journal.ts";
 import { upkeepEnabled, type MemoryUpkeep } from "../memory-upkeep.ts";
 import { listLearnedFacts, removeLearned } from "../profile-learned.ts";
+import { importIntoAboutMe, MAX_IMPORT_CHARS } from "../laterdog/profile-import.ts";
+import { memoryDate } from "../workspace.ts";
 import type { RequestAuth } from "../request-auth.ts";
 import { PASS, type RouteHandler } from "./table.ts";
 
@@ -151,6 +153,13 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
     }
     if (method === "GET" && path === "/api/profile/learned") {
       return json(res, 200, { learned: listLearnedFacts() });
+    }
+    if (method === "POST" && path === "/api/profile/import") {
+      const parsed = z.object({ text: z.string().trim().min(1).max(MAX_IMPORT_CHARS) }).safeParse(await readBody(req));
+      if (!parsed.success) return json(res, 400, { error: "Paste what the other assistant gave you, up to 50,000 characters." });
+      const result = importIntoAboutMe(parsed.data.text, deps.aboutMe(), memoryDate(), deps.saveAboutMe);
+      if (result.full && result.added === 0) return json(res, 413, { error: "About me is full. Remove some facts first, then import again." });
+      return json(res, 200, { ...result, learned: listLearnedFacts() });
     }
     m = path.match(/^\/api\/profile\/learned\/([\w-]+)\/remove$/);
     if (m && method === "POST") {
