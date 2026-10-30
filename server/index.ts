@@ -7837,7 +7837,8 @@ async function startTurn(
     routineTurnOwners.set(threadId, { runId: routineRunId, generation: dispatchClaimId,
       messageId: (opts?.cardContinuation ? undefined : requestMessageId) ?? routineTurnOwners.get(threadId)?.messageId });
   }
-  if (CLOUD_HOME && cloudHomeLendingRefusal(cloudLendingTurn({ botId, threadId, generation: dispatchClaimId })) !== null) noteForeignTurn(botId, threadId, dispatchClaimId);
+  const foreignTurn = Boolean(CLOUD_HOME) && cloudHomeLendingRefusal(cloudLendingTurn({ botId, threadId, generation: dispatchClaimId })) !== null;
+  if (foreignTurn) noteForeignTurn(botId, threadId, dispatchClaimId);
   const pendingSource = requestMessageId ?? store.activePath(threadId).findLast(message => message.role === "user")?.id;
   if (pendingSource) store.patchMessage(threadId, pendingSource, { requestPending: true });
   if (opts?.coordination) directCoordinationSettlers.set(dispatchClaimId, opts.coordination.settle);
@@ -8438,7 +8439,7 @@ async function startTurn(
         { id: "learn", label: "Skill authoring", text: learnPrompt },
         { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance.adapter.capabilities.backgroundWork === true }) },
         { id: "recent", label: "Recent work", text: recentWorkPrompt(recentWork(recentWorkSources(bot), bot, { userName: cfg.profile?.name?.trim() || "User", currentThreadId: threadId, ...recentWorkFilter() })) },
-        { id: "memory", label: "Memory", text: memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false }) },
+        { id: "memory", label: "Memory", text: memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: foreignTurn }) },
         { id: "skills", label: "Skills index", text: privateWorkspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "" },
         { id: "skill-instructions", label: "Skill instructions", text: skillInstructions },
         { id: "webhook", label: "Webhook provenance", text: opts?.automationSource === "webhook" ? WEBHOOK_PROMPT : "" },
@@ -9762,7 +9763,8 @@ async function runGroupMemberTurn(
   }
   const internalGeneration = beginInternalCapabilityGeneration(threadId);
   if (roomGuestConfined) guestDrivenTurns.set(threadId, internalGeneration);
-  if (CLOUD_HOME) noteForeignTurn(bot.id, threadId, internalGeneration);
+  const roomForeign = Boolean(CLOUD_HOME) && (roomGuestConfined || !cloudOwnerOnlyThread(threadId));
+  if (roomForeign) noteForeignTurn(bot.id, threadId, internalGeneration);
   const resourceOwner: TurnOwner = { threadId, generation: internalGeneration };
   turnResourceOwners.set(threadId, resourceOwner);
   let roomClaimFailure: RoomClaimEnd | undefined;
@@ -10133,7 +10135,7 @@ async function runGroupMemberTurn(
     const drift = checkSoulDrift(bot.id, bot.soul ?? "", bot.soulHash ?? "");
     if (drift.drift !== Boolean(bot.soulDrift)) store.patchBot(bot.id, { soulDrift: drift.drift });
   }
-  const roomMemory = memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false });
+  const roomMemory = memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: roomForeign });
   const recentLines = recentWork(recentWorkSources(bot), bot, { userName, currentThreadId: threadId, ...recentWorkFilter() });
   const roomComputerPromptKind = resolveComputerPromptKind(
     roomComputerKind === "box" ? "box" : roomVmTarget ? "vm" : roomComputerKind);
@@ -13220,7 +13222,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if ((path === "/api/internal/memory" || path === "/api/internal/memory/log") && method === "POST") {
         if (CLOUD_HOME && cloudHomeLendingRefusal(cloudLendingTurn(internalCapability)) !== null) {
-          return json(res, 403, { error: "Notes can only be saved from a conversation that only the owner of this Cloud has written in." });
+          return json(res, 403, { error: "Notes can only be saved from a conversation that only the owner of this Cloud has written in. Leave MEMORY.md and the files under memory/ as they are too." });
         }
         if (internalSender.memoryEnabled === false) {
           return json(res, 403, { error: "Memory is disabled for this bot." });

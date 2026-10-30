@@ -680,7 +680,12 @@ On the Cloud home (`server/shared-computers.ts`, `server/index.ts`):
     folder that is a link is read through it, and a folder that could not be
     read is looked at again next time. A
     line someone else steers into the owner's running turn makes that turn
-    count as theirs from then on. A link is judged by where it points, and
+    count as theirs from then on. A room only the owner writes in is theirs,
+    and so is the turn that resumes with the results of work the owner's own
+    turn handed a teammate, also when the owner wrote again in the meantime:
+    what those write flags nothing. A turn that counts as someone else's is
+    told its memory is read-only, to leave MEMORY.md and the files under
+    `memory/` as they are. A link is judged by where it points, and
     on a Cloud home memory is never read through one. A flagged bot's turns
     cannot use the Mac, and the bot says "This bot's memory was changed in a
     conversation you didn't write. Review it in Memory to use your Mac
@@ -690,7 +695,8 @@ On the Cloud home (`server/shared-computers.ts`, `server/index.ts`):
     owner's own devices, never a local process) accepts exactly what was
     shown: if anything changed since, the panel shows it again. The owner's
     own turns, their edits in the Memory panel (save, delete, undo), upkeep
-    on their conversations and the tidy-up never flag it. A damaged record
+    on their conversations and the tidy-up never flag it, and the review lists
+    only what changed outside them. A damaged record
     (`lending-memory.json`) flags every bot that existed when it was found
     until the owner reviews each; a bot created later starts clean.
 - What this cannot stop: any conversation whose bot can run commands without
