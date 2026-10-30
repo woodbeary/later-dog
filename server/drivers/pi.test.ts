@@ -1251,7 +1251,9 @@ describe("PiDriver mid-turn steer (fake CLI)", () => {
     await instance.adapter.sendTurn({ threadId: "t-steer", text: "go" });
     await recorder.until((e) => e.type === "request.opened");
     const envelope = "[aside from @Peer — peer context, not steering]\nheads up\n[end aside]";
-    await expect(instance.adapter.steer!("t-steer", envelope)).resolves.toBe("steered");
+    const onRead = vi.fn();
+    await expect(instance.adapter.steer!("t-steer", envelope, undefined, onRead)).resolves.toBe("steered");
+    await expect.poll(() => onRead.mock.calls.length).toBe(1);
     const rows = readFileSync(dump, "utf8")
       .split("\n")
       .filter(Boolean)
@@ -1268,9 +1270,11 @@ describe("PiDriver mid-turn steer (fake CLI)", () => {
     await create({ FAKE_PI_MODE: "permission", FAKE_PI_STEER_REFUSE: "1" });
     await instance.adapter.sendTurn({ threadId: "t-refuse", text: "go" });
     await recorder.until((e) => e.type === "request.opened");
-    await expect(instance.adapter.steer!("t-refuse", "peer context")).resolves.toBe("refused");
+    const onRead = vi.fn();
+    await expect(instance.adapter.steer!("t-refuse", "peer context", undefined, onRead)).resolves.toBe("refused");
     await instance.adapter.respondToRequest("t-refuse", "ask-1", { behavior: "allow" });
     await recorder.until((e) => e.type === "turn.completed");
+    expect(onRead).not.toHaveBeenCalled();
   });
 
   it("correlates concurrent steers by frame id so a refusal lands only on its own caller", async () => {

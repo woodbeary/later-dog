@@ -44,6 +44,7 @@ import { appendNative } from "./native.ts";
 import { canUseMcpServer, parseToolScope } from "../../shared/tool-scope.ts";
 import { gateServer, mcpStdioServer, resultBudget } from "../mcp-gate-config.ts";
 import { remoteMcpSpec } from "../mcp-http.ts";
+import { SteerReads } from "./steer-reads.ts";
 
 const DRIVER_KIND = "piAgent";
 const PI_ARGS = ["--mode", "rpc", "--no-session"];
@@ -473,7 +474,7 @@ interface PiEvent {
   args?: unknown;
   result?: unknown;
   isError?: boolean;
-  message?: { stopReason?: string; errorMessage?: string; usage?: { input?: number; output?: number } };
+  message?: { role?: string; content?: unknown; stopReason?: string; errorMessage?: string; usage?: { input?: number; output?: number } };
   usage?: { input?: number; output?: number };
   isTerminal?: boolean;
   willRetry?: boolean;
@@ -535,7 +536,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
       turnId: string;
       pending: Map<string, (decision: { behavior: "allow" | "deny" | "answer"; message?: string }) => void>;
       child?: { stdin: { write: (s: string) => void } };
-      steer?: (text: string) => Promise<SteerOutcome>;
+      steer?: (text: string, onRead?: () => void) => Promise<SteerOutcome>;
     }>();
 
     const emit = (event: RuntimeEvent) => {
@@ -616,6 +617,7 @@ export const PiDriver: ProviderDriver<PiConfig> = {
       let compactionObserved = false;
       const responseWaiters = new Map<string, { resolve: (data: unknown) => void; reject: (err: Error) => void; timer: NodeJS.Timeout }>();
       let steerSeq = 0;
+      const steerReads = new SteerReads();
       const rejectWaiters = (err: Error) => {
         for (const waiter of responseWaiters.values()) {
           clearTimeout(waiter.timer);
@@ -702,21 +704,25 @@ export const PiDriver: ProviderDriver<PiConfig> = {
         settle(true, "cancelled");
       };
 
-      const steerActiveTurn = async (text: string): Promise<SteerOutcome> => {
+      const steerActiveTurn = async (text: string, onRead?: () => void): Promise<SteerOutcome> => {
         if (settled || child.exitCode !== null || child.signalCode !== null) return "refused";
+        const forget = steerReads.expect(text, onRead);
         let ack: Promise<unknown>;
         try {
           const id = `steer:${++steerSeq}`;
           ack = awaitResponse("steer", 20_000, id);
           send({ type: "steer", id, message: text });
         } catch {
+          forget();
           return "refused";
         }
         try {
           await ack;
           return "steered";
         } catch (error) {
-          return error instanceof PiRpcRefusalError ? "refused" : "indeterminate";
+          if (!(error instanceof PiRpcRefusalError)) return "indeterminate";
+          forget();
+          return "refused";
         }
       };
       active.set(threadId, { stop, turnId, pending, child, steer: steerActiveTurn });
@@ -733,6 +739,10 @@ export const PiDriver: ProviderDriver<PiConfig> = {
               if (evt.success) waiter.resolve(evt.data);
               else waiter.reject(new PiRpcRefusalError(`pi ${evt.command} failed`));
             }
+            return;
+          }
+          case "message_start": {
+            if (evt.message?.role === "user") steerReads.seen(evt.message.content);
             return;
           }
           case "message_update": {
@@ -1068,9 +1078,9 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           });
           return decision.behavior === "allow" ? "allowed-once" : decision.behavior === "answer" ? "answered" : "rejected";
         },
-        steer: async (threadId, text) => {
+        steer: async (threadId, text, _images, onRead) => {
           const entry = active.get(threadId);
-          return entry?.steer ? await entry.steer(text) : "refused";
+          return entry?.steer ? await entry.steer(text, onRead) : "refused";
         },
         hasSession: (threadId) => active.has(threadId),
         stopAll: async () => {

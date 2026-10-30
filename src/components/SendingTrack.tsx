@@ -19,3 +19,18 @@ export function SendingTrack({ at, held = false }: { at: number; held?: boolean 
     </div>
   );
 }
+
+export function ReadReceipt({ readAt, working, name }: { readAt?: number; working: boolean; name: string }) {
+  const read = readAt !== undefined;
+  if (!read && !working) return null;
+  return (
+    <div
+      data-receipt={read ? "read" : "sent"}
+      role="status"
+      title={t(read ? "chat.receipt.readHint" : "chat.receipt.sentHint", { name })}
+      className="mt-1 pr-1 text-[11px] text-ink-tertiary"
+    >
+      {t(read ? "chat.receipt.read" : "chat.receipt.sent")}
+    </div>
+  );
+}

@@ -348,6 +348,11 @@ function handle(cmd: any) {
         return;
       }
       steerAck(cmd, !process.env.FAKE_PI_STEER_REFUSE);
+      if (!process.env.FAKE_PI_STEER_REFUSE) {
+        const steered = { role: "user", content: [{ type: "text", text: cmd.message }] };
+        send({ type: "message_start", message: steered });
+        send({ type: "message_end", message: steered });
+      }
       return;
     }
     case "extension_ui_response":

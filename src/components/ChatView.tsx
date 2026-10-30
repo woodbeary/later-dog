@@ -64,7 +64,7 @@ import { peerLine, type PeerLine } from "@/lib/peer-message";
 import { useWorkingDots } from "@/lib/working-dots";
 import { StatusDot } from "./StatusDot";
 import { OPTIMISTIC_PREFIX } from "@/lib/dog-status";
-import { SendingTrack } from "./SendingTrack";
+import { ReadReceipt, SendingTrack } from "./SendingTrack";
 import { MOTION } from "@/lib/motion";
 import { useArrivals } from "@/lib/arrivals";
 import { liveActivity } from "@/lib/live-activity";
@@ -403,6 +403,7 @@ const Bubble = memo(function Bubble({
   onSubmitEdit,
   replyTarget,
   onReply,
+  receipt = false,
 }: {
   message: Message;
   emerging?: boolean;
@@ -414,6 +415,7 @@ const Bubble = memo(function Bubble({
   onSubmitEdit: (messageId: string, text: string) => void;
   replyTarget?: Message;
   onReply: (message: Message) => void;
+  receipt?: boolean;
 }) {
   const { botId, threadId, botName, busy, mentionPeers, focus, dispatch, onBranch, bots, canWrite } = useChatRows();
   const peer = peerLine(message);
@@ -581,11 +583,6 @@ const Bubble = memo(function Bubble({
                   return highlightCitationSource(citation);
                 }}
               />}
-              {message.steered && (
-                <div className="mt-1 text-[11px] text-ink-tertiary" title={t("chat.sentMidTurnHint")}>
-                  {t("chat.sentMidTurn")}
-                </div>
-              )}
               {message.via === "call" && (
                 <span className="mt-1 text-[11px] text-ink-tertiary" title={t("chat.viaCall")}>
                   {t("chat.viaCall")}
@@ -648,6 +645,7 @@ const Bubble = memo(function Bubble({
       </div>
       <ReactionPills reactions={message.reactions} side={user ? "user" : "bot"} nameOf={reactionName} onToggle={reactable ? react : undefined} />
       {user && message.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={message.at} held={message.held} />}
+      {user && receipt && message.steered && <ReadReceipt readAt={message.readAt} working={busy} name={botName} />}
       {forks.length > 1 && (
         <div className="mt-1 flex items-center gap-0.5 pr-1 text-[12px] text-ink-secondary">
           <button
@@ -932,6 +930,7 @@ const MessagesList = memo(function MessagesList({
                   onSubmitEdit={onSubmitEdit}
                   replyTarget={lookups.replyTarget(m)}
                   onReply={onReply}
+                  receipt={m.id === newestUserMessageId}
                 />
               );
           }

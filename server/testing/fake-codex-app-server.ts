@@ -346,6 +346,11 @@ process.stdin.on("data", (chunk) => {
           break;
         }
         out({ jsonrpc: "2.0", id: msg.id, result: { turnId: nativeTurnId } });
+        if (!process.env.FAKE_CODEX_STEER_UNREAD) {
+          const steered = { id: `steer-${msg.id}`, type: "userMessage", clientId: null, content: msg.params?.input ?? [] };
+          notify("item/started", { item: steered });
+          notify("item/completed", { item: steered });
+        }
         break;
       }
       case "turn/interrupt":

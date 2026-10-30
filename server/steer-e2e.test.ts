@@ -200,6 +200,7 @@ posixOnly("mid-turn steering e2e", () => {
       ]);
       const steered = bot.messages.find((m: any) => m.text === "and also this");
       expect(steered.steered).toBe(true);
+      expect(typeof steered.readAt).toBe("number");
       expect(bot.messages.filter((m: any) => m.role === "bot" && m.kind === "text" && m.text.startsWith("reply to:"))).toHaveLength(1);
       const chip = bot.messages.find((m: any) => m.kind === "activity" && m.tool?.name === "Bash");
       expect(chip.tool).toMatchObject({ ok: true, summary: "echo hi" });
@@ -512,6 +513,10 @@ posixOnly("mid-turn steering e2e", () => {
     expect(second.body.steered).toBe(true);
     const steered = (await getBot(created.id)).messages.find((m: any) => m.text === "and also this");
     expect(steered.steered).toBe(true);
+    await waitFor(
+      async () => typeof (await getBot(created.id)).messages.find((m: any) => m.text === "and also this")?.readAt === "number",
+      "the steered codex message to be read",
+    );
 
     const nativeRows = readFileSync(join(home, ".laterdog", "native", `${created.threadId}.ndjson`), "utf8")
       .trim().split("\n").map((line) => JSON.parse(line));

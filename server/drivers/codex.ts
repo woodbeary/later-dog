@@ -54,6 +54,7 @@ import { assertToolScopeSupported } from "../../shared/tool-scope-support.ts";
 import { gateServer, mcpStdioServer } from "../mcp-gate-config.ts";
 import { CALL_TOOL, DESCRIBE_TOOL, SEARCH_TOOL, directoryCallTarget } from "../mcp-directory.ts";
 import { readEngineModels } from "../laterdog/wait-at-most.ts";
+import { SteerReads } from "./steer-reads.ts";
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 
@@ -667,7 +668,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
     const listeners = new Set<RuntimeEventListener>();
     interface Turn {
       stop: () => Promise<boolean>;
-      steer?: (text: string, images?: TurnImageInput[]) => Promise<SteerOutcome>;
+      steer?: (text: string, images?: TurnImageInput[], onRead?: () => void) => Promise<SteerOutcome>;
       turnId: string;
       asks: Map<string, (behavior: "allow" | "deny" | "answer", message?: string, source?: "user" | "timeout" | "system") => void>;
     }
@@ -832,6 +833,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       let abandoned = false;
       let codexThreadId: string | null = null;
       let codexTurnId: string | null = null;
+      const steerReads = new SteerReads();
       let startingNativeTurn = false;
       const earlyNotifications: any[] = [];
       const helpers = new CodexHelpers(helper => emit({ ...base(threadId, turnId), type: "helper.updated", helper }));
@@ -964,9 +966,10 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         }
       };
 
-      const steerActiveTurn = async (text: string, images?: TurnImageInput[]): Promise<SteerOutcome> => {
+      const steerActiveTurn = async (text: string, images?: TurnImageInput[], onRead?: () => void): Promise<SteerOutcome> => {
         if (state.settled || abandoned || stopRequested || !codexThreadId || !codexTurnId) return "refused";
         if (child.exitCode !== null || child.signalCode !== null) return "refused";
+        const forget = steerReads.expect(text, onRead);
         try {
           const steerTimeoutMs = Math.max(1, Number(process.env.FAKE_CODEX_STEER_TIMEOUT_MS ?? 10_000) || 10_000);
           await request("turn/steer", {
@@ -981,6 +984,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           if (state.settled || message.includes("timed out")) return "indeterminate";
+          forget();
           return "refused";
         }
       };
@@ -1229,6 +1233,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           case "item/started": {
             const item = p.item ?? {};
             helpers.receive(item);
+            if (item.type === "userMessage") steerReads.seen(item.content);
             const runs = item.type === "mcpToolCall" && item.tool === CALL_TOOL && typeof item.server === "string" && directoryMounts.has(item.server)
               ? directoryCallTarget(CALL_TOOL, item.arguments) : undefined;
             const title =
@@ -1257,6 +1262,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           case "item/completed": {
             const item = p.item ?? {};
             helpers.receive(item);
+            if (item.type === "userMessage") steerReads.seen(item.content);
             if (item.type === "agentMessage") {
               if (item.text?.trim()) {
                 state.lastText = item.text;
@@ -1789,9 +1795,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       interruptTurn: async (threadId) => {
         await active.get(threadId)?.stop();
       },
-      steer: async (threadId, text, images) => {
+      steer: async (threadId, text, images, onRead) => {
         const turn = active.get(threadId);
-        return turn?.steer ? await turn.steer(text, images) : "refused";
+        return turn?.steer ? await turn.steer(text, images, onRead) : "refused";
       },
       respondToRequest: async (threadId, requestId, decision) => {
         const turn = active.get(threadId);

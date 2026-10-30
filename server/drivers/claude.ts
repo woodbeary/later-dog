@@ -927,7 +927,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         usageLimited?: boolean;
         rateLimit?: UsageLimit;
         stopRequested?: boolean;
-        pendingSteers: Set<string>;
+        pendingSteers: Map<string, (() => void) | undefined>;
         deferred: NativeTurnResult | null;
         continuationGrace: ReturnType<typeof setTimeout> | null;
         armGrace?: () => void;
@@ -1211,7 +1211,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         warmEngines.wake(live);
         live.helpers.beginTurn();
         live.helperTurnId = turnId;
-        live.turn = { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, awaitingInit: true, pendingSteers: new Set(), deferred: null, continuationGrace: null, continuationSilence: null };
+        live.turn = { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, awaitingInit: true, pendingSteers: new Map(), deferred: null, continuationGrace: null, continuationSilence: null };
         active.set(threadId, { stop: () => {
           if (live.turn) live.turn.stopRequested = true;
           closeSession(threadId, "interrupted");
@@ -1360,7 +1360,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         sawInit: false,
         nativePermissionMode: null,
         replaysUserMessages,
-        turn: { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, pendingSteers: new Set(), deferred: null, continuationGrace: null, continuationSilence: null },
+        turn: { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, pendingSteers: new Map(), deferred: null, continuationGrace: null, continuationSilence: null },
         helperTurnId: turnId,
         helpers: new ClaudeTasks((helper) => emit({ ...base(threadId, session.turn?.turnId ?? session.helperTurnId), type: "helper.updated", helper })),
         helperTimer: null,
@@ -1615,7 +1615,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           }
           case "user": {
             if (o.isReplay === true) {
-              if (typeof o.uuid === "string") session.turn?.pendingSteers.delete(o.uuid);
+              const steers = session.turn?.pendingSteers;
+              if (typeof o.uuid === "string" && steers?.has(o.uuid)) {
+                const read = steers.get(o.uuid);
+                steers.delete(o.uuid);
+                read?.();
+              }
               break;
             }
             for (const b of Array.isArray(o.message?.content) ? o.message.content : []) {
@@ -1676,7 +1681,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             }
             const queuedTurns = typeof o.queued_turn_count === "number" ? o.queued_turn_count : 0;
             if (t && !t.settled && (queuedTurns > 0 || t.pendingSteers.size > 0)) {
-              if (!session.replaysUserMessages) t.pendingSteers.clear();
+              if (!session.replaysUserMessages) {
+                const reads = [...t.pendingSteers.values()];
+                t.pendingSteers.clear();
+                for (const read of reads) read?.();
+              }
               t.deferred = sumNativeTurnResults(t.deferred, native);
               t.armGrace = () => {
                 if (t.continuationGrace) clearTimeout(t.continuationGrace);
@@ -1928,12 +1937,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       return { turnId };
     };
 
-    const steer = async (threadId: string, text: string, images?: readonly ClaudeImage[]): Promise<SteerOutcome> => {
+    const steer = async (threadId: string, text: string, images?: readonly ClaudeImage[], onRead?: () => void): Promise<SteerOutcome> => {
       const s = sessions.get(threadId);
       if (!s || !s.turn || s.turn.settled || s.closing || s.child.exitCode !== null) return "refused";
       const turn = s.turn;
       const id = randomUUID();
-      turn.pendingSteers.add(id);
+      turn.pendingSteers.set(id, onRead);
       if (!(await writeUser(s, threadId, { ...claudeUserMessage(text, images), uuid: id }))) {
         turn.pendingSteers.delete(id);
         return "refused";

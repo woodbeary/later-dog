@@ -213,7 +213,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
     turnId: string;
     done: Promise<void>;
     approval: ReturnType<typeof createChatToolApproval>;
-    asides: string[];
+    asides: { text: string; onRead?: () => void }[];
   }>();
   const reasoningReplayRejected = new Set<string>();
 
@@ -490,7 +490,7 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
     });
     let resolveDone!: () => void;
     const done = new Promise<void>((resolve) => { resolveDone = resolve; });
-    const turnEntry = { abort, turnId, done, approval, asides: [] as string[] };
+    const turnEntry = { abort, turnId, done, approval, asides: [] as { text: string; onRead?: () => void }[] };
     active.set(turn.threadId, turnEntry);
     emit({ ...base(turn.threadId, turnId), type: "turn.started" });
     emit({ ...base(turn.threadId, turnId), type: "session.started", sessionId: null, model });
@@ -519,7 +519,10 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
         for (let round = 0; round < MAX_CHAT_ROUNDS; round++) {
           abort.signal.throwIfAborted();
           const parked = turnEntry.asides.splice(0);
-          if (parked.length) messages.push({ role: "user", content: parked.join("\n\n") });
+          if (parked.length) {
+            messages.push({ role: "user", content: parked.map((aside) => aside.text).join("\n\n") });
+            for (const aside of parked) aside.onRead?.();
+          }
           native("out", options.nativeLog.outgoing(turn, messages, model, tools.definitions));
           let attempt = 0;
           let completion: Completion;
@@ -793,10 +796,10 @@ export function createOpenAIChatRuntime<Config>(options: RuntimeOptions<Config>)
       },
       respondToRequest: async (threadId, requestId, decision) =>
         active.get(threadId)?.approval.answer(requestId, decision.behavior, decision.message) ?? "unavailable",
-      steer: async (threadId, text) => {
+      steer: async (threadId, text, _images, onRead) => {
         const running = active.get(threadId);
         if (!running) return "refused";
-        running.asides.push(text);
+        running.asides.push({ text, onRead });
         return "steered";
       },
       hasSession: (threadId) => active.has(threadId),

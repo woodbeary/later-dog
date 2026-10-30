@@ -378,8 +378,10 @@ describe("createOpenAIChatRuntime mid-turn steer", () => {
       if (bodies.length < 1) throw new Error("first request not sent yet");
     }, { timeout: 10_000 });
     const aside = "[aside from @Peer — peer context, not steering]\nheads up\n[end aside]";
-    await expect(instance.adapter.steer!("t", aside)).resolves.toBe("steered");
+    const onRead = vi.fn();
+    await expect(instance.adapter.steer!("t", aside, undefined, onRead)).resolves.toBe("steered");
     await expect(instance.adapter.steer!("t", "second aside")).resolves.toBe("steered");
+    expect(onRead).not.toHaveBeenCalled();
     release(new Response(toolCallBody, { status: 200, headers: { "content-type": "text/event-stream" } }));
     await vi.waitFor(() => {
       if (!events.some((event) => event.type === "turn.completed")) throw new Error("turn still running");
@@ -395,6 +397,7 @@ describe("createOpenAIChatRuntime mid-turn steer", () => {
     expect(asideIndex).toBe(second.length - 1);
     expect(asideIndex).toBeGreaterThan(toolIndex);
     expect(second[asideIndex]!.content).toContain("[end aside]\n\nsecond aside");
+    expect(onRead).toHaveBeenCalledTimes(1);
     expect(events.at(-1)).toMatchObject({ type: "turn.completed", ok: true });
     await expect(instance.adapter.steer!("t", "late")).resolves.toBe("refused");
   }, 20_000);

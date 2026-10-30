@@ -362,6 +362,7 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     delete process.env.FAKE_CODEX_RESOLVED_SANDBOX;
     delete process.env.FAKE_CODEX_STEER_ERROR;
     delete process.env.FAKE_CODEX_STEER_ERROR_FILE;
+    delete process.env.FAKE_CODEX_STEER_UNREAD;
     delete process.env.FAKE_CODEX_STEER_HANG;
     delete process.env.FAKE_CODEX_STEER_TIMEOUT_MS;
     delete process.env.FAKE_CODEX_INTERRUPT_SILENT;
@@ -2454,7 +2455,9 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
 
     await instance.adapter.sendTurn({ threadId: "t-codex-steer", text: "one" });
     const opened = await recorder.until((e) => e.type === "request.opened");
-    await expect(instance.adapter.steer?.("t-codex-steer", "and also this")).resolves.toBe("steered");
+    const onRead = vi.fn();
+    await expect(instance.adapter.steer?.("t-codex-steer", "and also this", undefined, onRead)).resolves.toBe("steered");
+    await expect.poll(() => onRead.mock.calls.length).toBe(1);
 
     const snapshot = JSON.parse(readFileSync(dump, "utf8"));
     expect(snapshot.calls.find((c: any) => c.method === "turn/steer")?.params).toEqual({
@@ -2479,12 +2482,26 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     await instance.adapter.sendTurn({ threadId: "t-codex-steer-refused", text: "one" });
     await recorder.until((e) => e.type === "request.opened");
 
-    await expect(instance.adapter.steer?.("t-codex-steer-refused", "queued words")).resolves.toBe("refused");
+    const onRead = vi.fn();
+    await expect(instance.adapter.steer?.("t-codex-steer-refused", "queued words", undefined, onRead)).resolves.toBe("refused");
     expect(processIsAlive(JSON.parse(readFileSync(dump, "utf8")).pid)).toBe(true);
     expect(recorder.events.some((e) => e.type === "runtime.error")).toBe(false);
 
     await instance.adapter.interruptTurn("t-codex-steer-refused");
     await recorder.until((e) => e.type === "turn.completed");
+    expect(onRead).not.toHaveBeenCalled();
+  }, 20_000);
+
+  it("leaves an accepted steer unread until the turn takes it in", async () => {
+    process.env.FAKE_CODEX_STEER_UNREAD = "1";
+    await create({ mode: "approval" });
+    await instance.adapter.sendTurn({ threadId: "t-codex-unread", text: "one" });
+    const opened = await recorder.until((e) => e.type === "request.opened");
+    const onRead = vi.fn();
+    await expect(instance.adapter.steer?.("t-codex-unread", "and also this", undefined, onRead)).resolves.toBe("steered");
+    await instance.adapter.respondToRequest("t-codex-unread", opened.requestId!, { behavior: "deny" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(onRead).not.toHaveBeenCalled();
   }, 20_000);
 
   it("a refused steer queues, and the follow-up turn needs no mid-turn kill", async () => {

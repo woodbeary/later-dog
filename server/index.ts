@@ -7039,6 +7039,23 @@ function directPrompt(text: string, replyTo: Message | undefined): string {
   return promptWithReply(text, replyTo, cfg.profile?.name?.trim() || "User");
 }
 
+function steerReceipt(threadId: string) {
+  let readAt: number | undefined;
+  let bound: readonly string[] = [];
+  const mark = (messageId: string) => store.patchMessage(threadId, messageId, { readAt });
+  return {
+    onRead: () => {
+      if (readAt !== undefined) return;
+      readAt = Date.now();
+      for (const messageId of bound) mark(messageId);
+    },
+    bind: (messages: Message[]): Message[] => {
+      bound = messages.map((message) => message.id);
+      return readAt === undefined ? messages : messages.map((message) => mark(message.id) ?? message);
+    },
+  };
+}
+
 function directContext(bot: BotRecord, threadId: string, messages: Message[]): ContextMessage[] {
   const messagesById = new Map(store.messagesFor(threadId).map(message => [message.id, message]));
   return messages.filter(isContextMessage).map(m => ({
@@ -7300,6 +7317,7 @@ async function acceptDirectSend(
           }
         }
         const steerTarget = handoffs.current(threadId);
+        const receipt = steerReceipt(threadId);
         const busyAdmission = admit("direct-busy", {
           waitsForTurn: waitsForTurn(deliver),
           carriesImages,
@@ -7310,7 +7328,7 @@ async function acceptDirectSend(
         if (busyAdmission.action === "steer" && instance?.adapter.steer) {
           const words = steerWords(withSteerNote(directPrompt(text, replyTo)));
           steered = await instance.adapter
-            .steer(threadId, words.text, words.images)
+            .steer(threadId, words.text, words.images, receipt.onRead)
             .catch((): SteerOutcome => "indeterminate");
         }
         const current = store.projectBotForTask(botId, threadId);
@@ -7328,7 +7346,7 @@ async function acceptDirectSend(
           }
           if (personPresent) clearUnattended(threadId);
           macWaits.messageSent(threadId);
-          const message = store.appendMessage(threadId, {
+          const message = receipt.bind([store.appendMessage(threadId, {
             role: "user",
             kind: "text",
             text,
@@ -7337,7 +7355,7 @@ async function acceptDirectSend(
             steered: true,
             sender,
             ...(via ? { via } : {}),
-          });
+          })])[0]!;
           handoffs.steered(threadId, steerTarget, instance?.instanceId, message.id);
           return { ok: true as const, steered: true as const, threadId, message };
         }
@@ -15638,9 +15656,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         throw error;
       }
       if (words.images && !instance?.adapter.capabilities.steerImages) return json(res, 200, await sendNow());
+      const receipt = steerReceipt(targetThreadId);
       const steered: SteerOutcome = instance?.adapter.steer
         ? await steerWhileRunning(
-            () => instance.adapter.steer!(targetThreadId, words.text, words.images),
+            () => instance.adapter.steer!(targetThreadId, words.text, words.images, receipt.onRead),
             () => groupSpeakers.get(targetThreadId)?.botId === speakerBotId,
           )
         : "refused";
@@ -15651,7 +15670,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         : undefined;
       const delivered = steered !== "refused";
       if (after && delivered && (steered === "indeterminate" || afterSpeakerBotId === speakerBotId)) {
-        const messages = headGroup.map((item) => store.appendMessage(targetThreadId, {
+        const messages = receipt.bind(headGroup.map((item) => store.appendMessage(targetThreadId, {
           role: "user",
           kind: "text",
           text: item.text,
@@ -15661,7 +15680,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           via: item.via,
           steered: true,
           sender: item.sender,
-        }));
+        })));
         settleHeldChannelQueueHead(held);
         return json(res, 200, {
           ok: true,
@@ -17058,6 +17077,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         throw error;
       }
       const steerTarget = handoffs.current(bot.threadId);
+      const receipt = steerReceipt(bot.threadId);
       let steered: SteerOutcome = "refused";
       if (
         currentAtStart?.busy &&
@@ -17066,7 +17086,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         (!words.images || instance.adapter.capabilities.steerImages)
       ) {
         steered = await steerWhileRunning(
-          () => instance.adapter.steer!(bot.threadId, words.text, words.images),
+          () => instance.adapter.steer!(bot.threadId, words.text, words.images, receipt.onRead),
           () => threadBusy(bot.id, bot.threadId),
         );
       }
@@ -17077,7 +17097,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         store.taskByThread(bot.id, bot.threadId)
       ) {
         if (auth.kind === "session" || DESKTOP_MANAGED) clearUnattended(bot.threadId);
-        const messages = held.items.map((item) => store.appendMessage(bot.threadId, {
+        const messages = receipt.bind(held.items.map((item) => store.appendMessage(bot.threadId, {
           role: "user",
           kind: "text",
           text: item.text,
@@ -17088,7 +17108,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           steered: true,
           sender: item.sender,
           ...(item.via ? { via: item.via } : {}),
-        }));
+        })));
         for (const message of messages) handoffs.steered(bot.threadId, steerTarget, instance?.instanceId, message.id);
         const queueIds = held.items.map((item) => item.messageId);
         settleHeldSteeredQueue(held);

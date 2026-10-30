@@ -167,7 +167,7 @@ export interface ProviderAdapter {
       always?: boolean;
     },
   ): Promise<RequestOutcome>;
-  steer?(threadId: ThreadId, text: string, images?: TurnImageInput[]): Promise<SteerOutcome>;
+  steer?(threadId: ThreadId, text: string, images?: TurnImageInput[], onRead?: () => void): Promise<SteerOutcome>;
   hasSession(threadId: ThreadId): boolean;
   stopAll(): Promise<void>;
   onEvent(listener: RuntimeEventListener): () => void;

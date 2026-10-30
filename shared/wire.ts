@@ -259,6 +259,7 @@ export interface WireMessage {
   webhookPost?: boolean;
   ownersRoutine?: boolean;
   steered?: boolean;
+  readAt?: number;
   aside?: boolean;
   via?: "api" | "call";
   relayed?: boolean;

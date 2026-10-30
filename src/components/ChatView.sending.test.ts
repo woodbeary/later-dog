@@ -55,3 +55,34 @@ describe("a message that is not delivered yet", () => {
     expect(markup).not.toContain("Thinking it over");
   });
 });
+
+describe("a message sent while the dog is working", () => {
+  it("says Sent under the newest one until the dog takes it in", () => {
+    const markup = renderToStaticMarkup(createElement(ChatView, {
+      bot: { ...bot([message("m1", "first words", { steered: true }), message("m2", "and also this", { steered: true })]), busy: true },
+    }));
+    expect(markup.match(/data-receipt=/g)).toHaveLength(1);
+    expect(markup).toContain('data-receipt="sent"');
+    expect(markup.indexOf("data-receipt")).toBeGreaterThan(markup.indexOf("and also this"));
+    expect(markup).not.toContain("sent mid-turn");
+  });
+
+  it("says Read once the dog takes it in, and keeps saying it after the turn ends", () => {
+    const markup = renderToStaticMarkup(createElement(ChatView, {
+      bot: bot([message("m1", "and also this", { steered: true, readAt: 1_700_000_000_500 })]),
+    }));
+    expect(markup).toContain('data-receipt="read"');
+    expect(markup).toContain(">Read</div>");
+  });
+
+  it("shows no receipt once the turn ends unread, or under a message sent between turns", () => {
+    const unread = renderToStaticMarkup(createElement(ChatView, {
+      bot: bot([message("m1", "and also this", { steered: true })]),
+    }));
+    const between = renderToStaticMarkup(createElement(ChatView, {
+      bot: { ...bot([message("m1", "hello")]), busy: true },
+    }));
+    expect(unread).not.toContain("data-receipt");
+    expect(between).not.toContain("data-receipt");
+  });
+});

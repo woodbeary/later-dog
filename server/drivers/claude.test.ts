@@ -2282,10 +2282,13 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     const { turnId } = await instance.adapter.sendTurn({ threadId: "t-steer", text: "first" });
     await recorder.until((e) => e.type === "item.completed" && e.itemType === "tool");
     expect(instance.adapter.capabilities.queueing).toBe(true);
-    await expect(instance.adapter.steer!("t-steer", "and also this")).resolves.toBe("steered");
+    const onRead = vi.fn();
+    await expect(instance.adapter.steer!("t-steer", "and also this", undefined, onRead)).resolves.toBe("steered");
     await expect.poll(() => existsSync(received)).toBe(true);
+    expect(onRead).not.toHaveBeenCalled();
     writeFileSync(finishGate, "finish");
     await recorder.until((e) => e.type === "turn.completed");
+    expect(onRead).toHaveBeenCalledTimes(1);
     expect(recorder.events.filter((e) => e.type === "turn.completed")).toHaveLength(1);
     const reply = recorder.events.find(
       (e) => e.type === "item.completed" && e.itemType === "assistant_text" && (e as { text: string }).text.startsWith("reply to:"),
