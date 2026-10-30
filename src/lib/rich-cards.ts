@@ -110,16 +110,20 @@ function weather(data: Record<string, unknown>): WeatherCard | null {
 }
 
 const DIAGRAM_TYPES = new Set([
-  "flowchart", "graph", "sequencediagram", "classdiagram", "classdiagram-v2", "statediagram", "statediagram-v2", "erdiagram",
-  "journey", "gantt", "pie", "quadrantchart", "requirementdiagram", "gitgraph", "mindmap", "timeline", "sankey", "sankey-beta",
-  "xychart", "xychart-beta", "block", "block-beta", "packet", "packet-beta", "kanban", "architecture", "architecture-beta",
-  "radar-beta", "treemap-beta",
+  "flowchart", "graph", "sequencediagram", "classdiagram", "statediagram", "erdiagram", "journey", "gantt", "pie",
+  "quadrantchart", "requirementdiagram", "gitgraph", "mindmap", "timeline", "sankey", "xychart", "block", "packet",
+  "kanban", "architecture", "radar", "treemap",
 ]);
+
+function diagramType(kind: string): boolean {
+  const name = kind.toLowerCase();
+  return DIAGRAM_TYPES.has(name) || DIAGRAM_TYPES.has(name.replace(/-(?:v\d+|[a-z]+)$/, ""));
+}
 
 export function mermaidCode(lang: string, code: string): string | null {
   const kind = lang.trim();
   if (kind.toLowerCase() === "mermaid") return code;
-  if (!DIAGRAM_TYPES.has(kind.toLowerCase())) return null;
+  if (!diagramType(kind)) return null;
   const first = code.split("\n").find((line) => line.trim() && !line.trim().startsWith("%%"))?.trim().toLowerCase() ?? "";
   return first.startsWith(kind.toLowerCase()) ? code : `${kind}\n${code}`;
 }
