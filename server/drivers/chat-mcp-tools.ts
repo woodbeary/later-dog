@@ -1,4 +1,4 @@
-import { isReadOnlyAgentTool } from "../agent-tool-policy.ts";
+import { asksForItself, isReadOnlyAgentTool } from "../agent-tool-policy.ts";
 import type { ValidateFunction } from "ajv";
 import { stripControlPlaneEnv } from "../config.ts";
 import type { SendTurnInput } from "../contracts.ts";
@@ -310,7 +310,7 @@ export async function mountChatTools(integrations: SendTurnInput["integrations"]
     const tool = registered.get(name);
     const runs = tool ? target(tool, args) : name;
     if (runs === undefined) return { title: name, input: args, ask: false };
-    if (tool?.builtInAgents && isReadOnlyAgentTool(tool.name)) return { title: name, input: args, ask: false };
+    if (tool?.builtInAgents && (isReadOnlyAgentTool(tool.name) || asksForItself(tool.name))) return { title: name, input: args, ask: false };
     if (tool?.builtInAgents && tool.name === "select_computer") {
       return { title: name, input: args, ask: false };
     }

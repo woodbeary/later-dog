@@ -292,6 +292,78 @@ describe("Mac approval gate", () => {
     expect(await verdict).toEqual({ ok: false, status: 409, error: MAC_CANCELLED });
   });
 
+  it("asks before every text, showing the recipient and the whole message, even when the Mac is set to Always", async () => {
+    const words = `Running late, there by 7.\n${"x".repeat(300)}`;
+    const sending = ask({ action: "send_text", arguments: { to: "+15551234567", text: words } });
+    const [card] = openCards();
+    expect(card?.card).toMatchObject({
+      title: MAC,
+      subtitle: `To +15551234567\n\n${words}`,
+      options: ["Allow", "Deny"],
+      tool: "mac_send_text",
+      approvalScope: "local-computer",
+    });
+    expect(card?.card?.allowKey).toBeUndefined();
+    expect(notes.at(-1)?.body).toContain("send a text from your Mac: To +15551234567 Running late");
+    expect(notes.at(-1)?.body).not.toContain("\n");
+    gate.resolve(card!.card!.requestId!, "allow");
+    expect(await sending).toEqual({ ok: true });
+    const again = ask({ action: "send_text", arguments: { to: "+15551234567", text: "and one more" } });
+    expect(openCards()).toHaveLength(1);
+    gate.resolve(openCards()[0]!.card!.requestId!, "deny");
+    expect(await again).toEqual({ ok: false, status: 403, error: MAC_DENIED });
+  });
+
+  it("shows an email's recipients, subject and body, and asks for each email on its own", async () => {
+    const first = ask({ action: "send_email", arguments: { to: ["sam@example.com", "kim@example.com"], cc: ["lee@example.com"], subject: "Friday", body: "See you there." } });
+    expect(openCards()[0]?.card).toMatchObject({
+      subtitle: "To sam@example.com, kim@example.com\nCc lee@example.com\nSubject: Friday\n\nSee you there.",
+      tool: "mac_send_email",
+    });
+    const second = ask({ action: "send_email", arguments: { to: ["sam@example.com"], subject: "Also", body: "One more thing." } });
+    const [one, two] = openCards();
+    expect(two?.card?.subtitle).toBe("To sam@example.com\nSubject: Also\n\nOne more thing.");
+    gate.resolve(two!.card!.requestId!, "allow");
+    expect(await second).toEqual({ ok: true });
+    expect(openCards()).toHaveLength(1);
+    gate.resolve(one!.card!.requestId!, "deny");
+    expect(await first).toEqual({ ok: false, status: 403, error: MAC_DENIED });
+  });
+
+  it("refuses a text on a Mac set to Never, and only the person's own answer settles a send card", async () => {
+    const text = { action: "send_text", arguments: { to: "sam@example.com", text: "hi" } };
+    gate.update({ computers: { [MAC_ID]: "never" } });
+    expect(await ask(text)).toEqual({ ok: false, status: 403, error: MAC_NEVER });
+    expect(openCards()).toHaveLength(0);
+    asking();
+    const sending = ask(text);
+    gate.update({ computers: { [MAC_ID]: "always" } });
+    expect(openCards()).toHaveLength(1);
+    expect(gate.resolve(openCards()[0]!.card!.requestId!, "deny", "never")).toBe(true);
+    expect(await sending).toEqual({ ok: false, status: 403, error: MAC_DENIED });
+    expect(gate.modeFor(MAC_ID)).toBe("always");
+    const next = ask(text);
+    expect(openCards()).toHaveLength(1);
+    gate.update({ computers: { [MAC_ID]: "never" } });
+    expect(await next).toEqual({ ok: false, status: 403, error: MAC_NEVER });
+    expect(openCards()).toHaveLength(0);
+  });
+
+  it("reads texts like any other look: no card when set to Always, its own card when set to Ask", async () => {
+    expect(await ask({ action: "read_texts", arguments: { with: "Mom" } })).toEqual({ ok: true });
+    expect(openCards()).toHaveLength(0);
+    asking();
+    const reading = ask({ action: "read_texts", arguments: { with: "Mom", since: "2026-10-28" } });
+    expect(openCards()[0]?.card).toMatchObject({ subtitle: "with Mom, since 2026-10-28", tool: "mac_read_texts", options: ["Allow", "Deny", "Always allow"] });
+    gate.resolve(openCards()[0]!.card!.requestId!, "allow");
+    expect(await reading).toEqual({ ok: true });
+    expect(await ask({ action: "read_texts", arguments: {} })).toEqual({ ok: true });
+    const looking = ask({ action: "list_files", path: "Downloads" });
+    expect(openCards()).toHaveLength(1);
+    gate.cancelThread(dog.threadId);
+    expect(await looking).toEqual({ ok: false, status: 409, error: MAC_CANCELLED });
+  });
+
   it("lets anything that isn't a Mac action through untouched", async () => {
     expect(macTool("screenshot")).toBeNull();
     expect(macTool("constructor")).toBeNull();
@@ -349,5 +421,16 @@ describe("Mac card wording", () => {
     const long = macDetail({ action: "run_command", command: "x".repeat(300) });
     expect(long).toHaveLength(201);
     expect(long.endsWith("…")).toBe(true);
+  });
+
+  it("shows a text or email in full, and what texts a dog wants to read", () => {
+    const words = "y".repeat(3000);
+    expect(macDetail({ action: "send_text", arguments: { to: "+15551234567", text: words } })).toBe(`To +15551234567\n\n${words}`);
+    expect(macDetail({ action: "send_email", arguments: { to: ["a@example.com"], subject: "Hi", body: words } })).toBe(`To a@example.com\nSubject: Hi\n\n${words}`);
+    expect(macDetail({ action: "read_texts", arguments: {} })).toBe("your latest texts");
+    expect(macDetail({ action: "read_texts", arguments: { since: "2026-10-29 09:00" } })).toBe("since 2026-10-29 09:00");
+    expect(macTool("send_text")).toBe("mac_send_text");
+    expect(macTool("read_texts")).toBe("mac_read_texts");
+    expect(macTool("send_email")).toBe("mac_send_email");
   });
 });

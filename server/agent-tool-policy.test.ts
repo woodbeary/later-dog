@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentToolAnnotations, isReadOnlyAgentTool, READ_ONLY_AGENT_TOOL_NAMES } from "./agent-tool-policy.ts";
+import { agentToolAnnotations, asksForItself, isReadOnlyAgentTool, READ_ONLY_AGENT_TOOL_NAMES } from "./agent-tool-policy.ts";
 
 describe("built-in agent tool read policy", () => {
   it("includes only the reviewed local reads", () => {
@@ -7,6 +7,7 @@ describe("built-in agent tool read policy", () => {
       "list_bots",
       "list_shared_computers",
       "read_phone",
+      "read_texts",
       "session_search",
       "session_read",
       "tool_result_read",
@@ -25,7 +26,7 @@ describe("built-in agent tool read policy", () => {
   });
 
   it.each([
-    "shared_computer", "add_to_phone", "coordinate_bots", "post_to_room",
+    "shared_computer", "add_to_phone", "send_text", "send_email", "coordinate_bots", "post_to_room",
     "create_bot", "request_credential", "memory_update", "propose_routine",
     "propose_routine_action", "propose_profile", "skill_manage",
     "propose_team_setup", "propose_bot_deletion",
@@ -34,5 +35,11 @@ describe("built-in agent tool read policy", () => {
   ])("does not infer read access for %s", (name) => {
     expect(isReadOnlyAgentTool(name)).toBe(false);
     expect(agentToolAnnotations(name)).toBeUndefined();
+  });
+
+  it("lets texts and emails from the Mac skip the engine's own ask, because each one shows the person its exact words first", () => {
+    expect(asksForItself("send_text")).toBe(true);
+    expect(asksForItself("send_email")).toBe(true);
+    for (const name of ["read_texts", "shared_computer", "add_to_phone", "email_me", "mcp__agents__send_text", ""]) expect(asksForItself(name)).toBe(false);
   });
 });

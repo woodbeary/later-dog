@@ -3,7 +3,7 @@ import { parseOptionsCardInput, WATCHER_OPTIONS_CARD_BOT_ID } from "../../shared
 import { normalizeCronSchedule } from "../../shared/routine-schedule.ts";
 
 import { peerName } from "../peer-roster.ts";
-import { catalogProfileFromEnv, SHARED_COMPUTER_TOOL_NAMES, WEEKDAYS } from "./agents-catalog.ts";
+import { catalogProfileFromEnv, MAC_MESSAGE_TOOL_NAMES, SHARED_COMPUTER_TOOL_NAMES, WEEKDAYS } from "./agents-catalog.ts";
 import { harnessClientFromEnv } from "./agents-client.ts";
 import type { HarnessClient, Json } from "./agents-client.ts";
 import { boundedAgentResult } from "./agents-result.ts";
@@ -326,8 +326,14 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       text: `Rendered the native options card in this Watcher thread (message ${String(result.messageId ?? "created")}). Wait for the person's click or custom response; the card itself authorizes no external action.`,
     };
   }
-  if (SHARED_COMPUTER_TOOL_NAMES.has(name) && !context.sharedComputers) {
+  if ((SHARED_COMPUTER_TOOL_NAMES.has(name) || MAC_MESSAGE_TOOL_NAMES.has(name)) && !context.sharedComputers) {
     return { text: "Computer sharing is turned off in this workspace. There are no shared computers to use.", isError: true };
+  }
+  if (MAC_MESSAGE_TOOL_NAMES.has(name)) {
+    const path = name === "send_text" ? "/api/internal/mac/send-text" : name === "read_texts" ? "/api/internal/mac/read-texts" : "/api/internal/mac/send-email";
+    const { ok, body } = await apiResponse(path, { method: "POST", body: JSON.stringify(args) });
+    if (!ok) return { text: String(body.error ?? "The Mac couldn't do it."), isError: true };
+    return { text: name === "read_texts" ? JSON.stringify({ texts: body.texts ?? [], ...(body.note ? { note: body.note } : {}) }) : String(body.text ?? "Done.") };
   }
   if (name === "email_me") {
     const { ok, body } = await apiResponse("/api/internal/email-me", { method: "POST", body: JSON.stringify(args) });

@@ -218,6 +218,36 @@ const TOOL_DEFINITIONS = [
     }, required: ["subject", "body"] },
   },
   {
+    name: "send_text",
+    description: "Text someone from the person's Mac with Messages (iMessage, or SMS when their iPhone forwards texts to the Mac), when they ask. to is a phone number, an email address or a name in their Contacts. Every time, the person sees a card with the recipient and your exact words, and nothing is sent unless they choose Allow; if they don't, say so in one line and don't retry. Write it as they would.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      to: { type: "string", minLength: 3, maxLength: 120 },
+      text: { type: "string", minLength: 1, maxLength: 4000 },
+      computer_id: { type: "string" },
+    }, required: ["to", "text"] },
+  },
+  {
+    name: "read_texts",
+    description: "Read texts in Messages on the person's Mac, oldest first, with names from their Contacts. with: a name, number or email for one conversation; since: a date or time in the Mac's time zone (2026-10-29 or 2026-10-29 14:30); limit: default 20, at most 50. If the result says the Mac needs Full Disk Access, tell the person.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      with: { type: "string", minLength: 2, maxLength: 120 },
+      since: { type: "string" },
+      limit: { type: "integer", minimum: 1, maximum: 50 },
+      computer_id: { type: "string" },
+    } },
+  },
+  {
+    name: "send_email",
+    description: "Send an email from Mail on the person's Mac, from their own account, when they ask. to and cc take up to 10 addresses each; body is plain text. Every time, the person sees a card with the recipients, subject and exact words, and nothing is sent unless they choose Allow; if they don't, say so in one line and don't retry.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      to: { type: "array", minItems: 1, maxItems: 10, items: { type: "string" } },
+      cc: { type: "array", maxItems: 10, items: { type: "string" } },
+      subject: { type: "string", minLength: 1, maxLength: 200 },
+      body: { type: "string", minLength: 1, maxLength: 20000 },
+      computer_id: { type: "string" },
+    }, required: ["to", "subject", "body"] },
+  },
+  {
     name: "read_phone",
     description: "Read the person's iPhone through later.dog on it, when they ask about their schedule, reminders, someone's number or where they are. what: calendar (events from..to, default the next 7 days), reminders (open ones), contacts (people matching query) or location (where the phone is, with the address). If the app is closed they get a notification and this waits up to a minute; iOS asks them for permission the first time. Times are in the phone's time zone; pass dates as 2026-11-03 or 2026-11-03T14:30.",
     inputSchema: { type: "object", additionalProperties: false, properties: {
@@ -690,6 +720,7 @@ const TOOL_DEFINITIONS = [
 
 const SKILL_TOOL_NAMES = new Set(["skills_list", "skill_manage"]);
 export const SHARED_COMPUTER_TOOL_NAMES = new Set(["list_shared_computers", "shared_computer"]);
+export const MAC_MESSAGE_TOOL_NAMES = new Set(["send_text", "read_texts", "send_email"]);
 const EMAIL_TOOL_NAMES = new Set(["email_me"]);
 const PHONE_TOOL_NAMES = new Set(["read_phone", "add_to_phone"]);
 const VOICE_TOOL_NAMES = new Set(["send_voice_note"]);
@@ -724,9 +755,12 @@ function catalogTools(profile: CatalogProfile) {
   const SHAREABLE_TOOLS = profile.sharedComputers
     ? AUTHORING_TOOLS
     : AUTHORING_TOOLS.filter((tool) => !SHARED_COMPUTER_TOOL_NAMES.has(tool.name));
-  const EMAIL_READY_TOOLS = profile.emailMe
+  const MESSAGE_READY_TOOLS = profile.sharedComputers && profile.cloudHome
     ? SHAREABLE_TOOLS
-    : SHAREABLE_TOOLS.filter((tool) => !EMAIL_TOOL_NAMES.has(tool.name));
+    : SHAREABLE_TOOLS.filter((tool) => !MAC_MESSAGE_TOOL_NAMES.has(tool.name));
+  const EMAIL_READY_TOOLS = profile.emailMe
+    ? MESSAGE_READY_TOOLS
+    : MESSAGE_READY_TOOLS.filter((tool) => !EMAIL_TOOL_NAMES.has(tool.name));
   const PHONE_READY_TOOLS = profile.phone
     ? EMAIL_READY_TOOLS
     : EMAIL_READY_TOOLS.filter((tool) => !PHONE_TOOL_NAMES.has(tool.name));

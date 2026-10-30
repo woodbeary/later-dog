@@ -117,6 +117,9 @@ export function toolLabel(tool?: string, where?: "local-computer"): string {
     mac_write_file: "approval.tool.macWriteFile",
     mac_run_command: "approval.tool.macRunCommand",
     mac_computer_call: "approval.tool.macUseApps",
+    mac_read_texts: "approval.tool.macReadTexts",
+    mac_send_text: "approval.tool.macSendText",
+    mac_send_email: "approval.tool.macSendEmail",
     ask_bot: "approval.tool.messageDog",
     delegate_bot: "approval.tool.delegateDog",
   };

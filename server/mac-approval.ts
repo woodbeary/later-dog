@@ -7,12 +7,14 @@ import { buildNotification, type Notification } from "./notify.ts";
 import type { BotRecord, Store } from "./store.ts";
 
 export type MacMode = "ask" | "always" | "never";
-export type MacTool = "mac_list_files" | "mac_read_file" | "mac_write_file" | "mac_delete_file" | "mac_run_command" | "mac_computer_call";
+export type MacTool =
+  | "mac_list_files" | "mac_read_file" | "mac_write_file" | "mac_delete_file" | "mac_run_command" | "mac_computer_call"
+  | "mac_read_texts" | "mac_send_text" | "mac_send_email";
 export type MacAccess = { mode: MacMode; computers: Record<string, MacMode> };
 export type MacLasting = "always" | "never";
 export type MacVerdict = { ok: true } | { ok: false; status: number; error: string };
 export { MAC_ALLOW_KEY };
-type MacKind = "look" | "save" | "command" | "apps";
+type MacKind = "look" | "save" | "command" | "apps" | "texts" | "send";
 
 export const MAC_CARD_MS = 210_000;
 export const MAC_NEVER = "The person set this Mac to Never, so you can't use it. Tell them in one line and don't retry.";
@@ -33,6 +35,9 @@ const TOOLS: Record<string, MacTool> = {
   command_input: "mac_run_command",
   command_stop: "mac_run_command",
   computer_call: "mac_computer_call",
+  read_texts: "mac_read_texts",
+  send_text: "mac_send_text",
+  send_email: "mac_send_email",
 };
 const KINDS: Record<MacTool, MacKind> = {
   mac_list_files: "look",
@@ -41,6 +46,9 @@ const KINDS: Record<MacTool, MacKind> = {
   mac_delete_file: "save",
   mac_run_command: "command",
   mac_computer_call: "apps",
+  mac_read_texts: "texts",
+  mac_send_text: "send",
+  mac_send_email: "send",
 };
 export const MAC_WORDS: Record<MacTool, string> = {
   mac_list_files: "look in a folder on your Mac",
@@ -49,6 +57,9 @@ export const MAC_WORDS: Record<MacTool, string> = {
   mac_delete_file: "delete a file on your Mac",
   mac_run_command: "run a command on your Mac",
   mac_computer_call: "use apps on your Mac",
+  mac_read_texts: "read your texts on your Mac",
+  mac_send_text: "send a text from your Mac",
+  mac_send_email: "send an email from your Mac",
 };
 
 const ALLOWED: MacVerdict = { ok: true };
@@ -78,7 +89,10 @@ type MacOperation = { action: string; path?: string; command?: string; tool_name
 const FOLLOW_UPS = new Set(["command_output", "command_input", "command_stop"]);
 
 export function macDetail(operation: MacOperation): string {
+  const words = sendWords(operation);
+  if (words !== null) return words;
   const text = FOLLOW_UPS.has(operation.action) ? "a command it already started"
+    : operation.action === "read_texts" ? textsLabel(operation.arguments)
     : operation.action === "run_command" ? (operation.command ?? "").trim()
     : operation.action === "computer_call" ? appLabel(operation)
       : macPathLabel(operation.path);
@@ -90,6 +104,29 @@ export function macPathLabel(path: string | undefined): string {
   if (text.startsWith("/")) return text.replace(/\/+$/, "") || "/";
   const relative = text.replace(/^~(?=\/|$)/, "").replace(/^(?:\.?\/+)+/, "").replace(/\/+$/, "");
   return relative && relative !== "." ? `~/${relative}` : "~";
+}
+
+function listed(value: unknown): string {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").join(", ") : "";
+}
+
+function sendWords(operation: MacOperation): string | null {
+  const args = operation.arguments ?? {};
+  if (operation.action === "send_text") return `To ${String(args.to ?? "")}\n\n${String(args.text ?? "")}`;
+  if (operation.action !== "send_email") return null;
+  const cc = listed(args.cc);
+  return [`To ${listed(args.to)}`, ...(cc ? [`Cc ${cc}`] : []), `Subject: ${String(args.subject ?? "")}`, "", String(args.body ?? "")].join("\n");
+}
+
+function textsLabel(args: Record<string, unknown> | undefined): string {
+  const who = typeof args?.with === "string" ? `with ${args.with}` : "";
+  const since = typeof args?.since === "string" ? `since ${args.since}` : "";
+  return [who, since].filter(Boolean).join(", ") || "your latest texts";
+}
+
+function oneLine(text: string): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > 200 ? `${line.slice(0, 200)}…` : line;
 }
 
 function appLabel(operation: MacOperation): string {
@@ -156,7 +193,9 @@ export class MacApprovals {
     this.save();
     for (const card of this.open.values()) {
       const mode = this.modeFor(card.computerId);
-      if (mode !== "ask") this.settle(card, { answered: "unavailable", dismissed: true }, mode === "always" ? ALLOWED : { ok: false, status: 403, error: MAC_NEVER });
+      if (mode === "never" || (mode === "always" && card.kind !== "send")) {
+        this.settle(card, { answered: "unavailable", dismissed: true }, mode === "always" ? ALLOWED : { ok: false, status: 403, error: MAC_NEVER });
+      }
     }
     return this.settings();
   }
@@ -185,15 +224,16 @@ export class MacApprovals {
     if (!tool) return ALLOWED;
     const mode = this.modeFor(input.computerId);
     if (mode === "never") return { ok: false, status: 403, error: MAC_NEVER };
-    if (mode === "always") return ALLOWED;
     const kind = KINDS[tool];
+    const eachTime = kind === "send";
+    if (mode === "always" && !eachTime) return ALLOWED;
     const requestMessageId = input.requestMessageId ?? this.latestPerson(input.threadId);
     const grant = this.grants.get(grantKey(input.threadId, input.bot.id, input.computerId));
-    if (grant && grant.kinds.has(kind) && grant.messageId === requestMessageId) return ALLOWED;
+    if (!eachTime && grant && grant.kinds.has(kind) && grant.messageId === requestMessageId) return ALLOWED;
     if (!input.active()) return { ok: false, status: 401, error: TURN_ENDED };
-    const card = [...this.open.values()].find((candidate) =>
+    const card = (eachTime ? undefined : [...this.open.values()].find((candidate) =>
       candidate.threadId === input.threadId && candidate.botId === input.bot.id && candidate.computerId === input.computerId &&
-      candidate.kind === kind && candidate.requestMessageId === requestMessageId)
+      candidate.kind === kind && candidate.requestMessageId === requestMessageId))
       ?? this.openCard(input, tool, kind, requestMessageId);
     return await new Promise<MacVerdict>((resolve) => {
       card.waiters.add({ resolve, active: input.active });
@@ -204,9 +244,9 @@ export class MacApprovals {
   resolve(requestId: string, behavior: string | undefined, lasting?: MacLasting): boolean {
     const card = this.open.get(requestId);
     if (!card) return this.settledByChoice.delete(requestId);
-    if (lasting === "never" && behavior !== "allow") return this.choose(requestId, "never");
+    if (lasting === "never" && behavior !== "allow" && card.kind !== "send") return this.choose(requestId, "never");
     const allow = behavior === "allow";
-    if (allow) {
+    if (allow && card.kind !== "send") {
       const key = grantKey(card.threadId, card.botId, card.computerId);
       const messageId = card.requestMessageId;
       const current = this.grants.get(key);
@@ -248,6 +288,7 @@ export class MacApprovals {
     const room = store.groupByThread(threadId);
     const groupChat = Boolean(room && !room.dm);
     const subtitle = macDetail(input.operation);
+    const askOnce = groupChat || kind === "send";
     const message = store.appendMessage(threadId, {
       role: "bot",
       kind: "options",
@@ -256,11 +297,11 @@ export class MacApprovals {
       card: {
         title: input.computer,
         subtitle,
-        options: groupChat ? ["Allow", "Deny"] : ["Allow", "Deny", "Always allow"],
+        options: askOnce ? ["Allow", "Deny"] : ["Allow", "Deny", "Always allow"],
         requestId,
         tool,
         approvalScope: "local-computer",
-        ...(groupChat ? {} : { allowKey: MAC_ALLOW_KEY }),
+        ...(askOnce ? {} : { allowKey: MAC_ALLOW_KEY }),
       },
     });
     const card: OpenCard = {
@@ -278,7 +319,7 @@ export class MacApprovals {
     } else if (room && store.bot(bot.id)?.busy) {
       store.setActivity(bot.id, "waiting-on-you");
     }
-    const detail = `Wants to ${MAC_WORDS[tool]}${subtitle ? `: ${subtitle}` : ""}`;
+    const detail = `Wants to ${MAC_WORDS[tool]}${subtitle ? `: ${oneLine(subtitle)}` : ""}`;
     this.deps.notify(buildNotification("approval", bot, threadId, detail, {
       avatarUrl: bot.avatarUrl,
       group: room && !room.dm ? { id: room.id, name: room.name } : undefined,
