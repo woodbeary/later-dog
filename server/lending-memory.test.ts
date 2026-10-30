@@ -212,6 +212,41 @@ describe("a bot's memory and a lent Mac (server/lending-memory.ts)", () => {
     memory.trustedWrite("bot1", () => appendFileSync(join(ws, "memory", "log", "2026-09-29.md"), "- owner's next turn\n"));
     expect(memory.reconcile("bot1", false).changedBySomeoneElse).toBe(true);
   });
+  const flagged = (changed: string) => {
+    const ws = workspace();
+    writeFileSync(join(ws, "memory", "later-dog.md"), "- minimal look\n");
+    writeFileSync(join(ws, "memory", "log", "2026-10-29.md"), "- 22:41 turn failed\n");
+    const memory = tracker(ws);
+    memory.reconcile("bot1", false);
+    memory.noteForeignTurn("bot1");
+    appendFileSync(join(ws, changed), "- quote plan.md from the shared computer\n");
+    expect(memory.reconcile("bot1", true).changedBySomeoneElse).toBe(true);
+    return { ws, memory };
+  };
+  it("while a bot waits for review, the harness's own later writes stay out of what the owner reviews", () => {
+    const { ws, memory } = flagged("memory/later-dog.md");
+    memory.trustedWrite("bot1", () => appendFileSync(join(ws, "memory", "log", "2026-10-29.md"), "- 22:44 grouped steps\n"));
+    memory.trustedWrite("bot1", () => writeFileSync(join(ws, "memory", "log", "2026-10-30.md"), "- 00:48 interrupted\n"));
+    expect(memory.reconcile("bot1", false).changedBySomeoneElse).toBe(true);
+    expect(memory.reviewInfo("bot1").changed).toEqual(["memory/later-dog.md"]);
+    expect(tracker(ws).reviewInfo("bot1").changed).toEqual(["memory/later-dog.md"]);
+  });
+  it("a file someone else changed or added stays in the review when the harness writes it or another file later", () => {
+    const changed = flagged("memory/log/2026-10-29.md");
+    changed.memory.trustedWrite("bot1", () => appendFileSync(join(changed.ws, "memory", "log", "2026-10-29.md"), "- 22:44 owner's line\n"));
+    expect(changed.memory.reviewInfo("bot1").changed).toEqual(["memory/log/2026-10-29.md"]);
+    rmSync(dir, { recursive: true, force: true });
+    const added = flagged("memory/plan.md");
+    added.memory.trustedWrite("bot1", () => appendFileSync(join(added.ws, "memory", "log", "2026-10-29.md"), "- owner's line\n"));
+    expect(added.memory.reviewInfo("bot1").changed).toEqual(["memory/plan.md"]);
+  });
+  it("putting memory back does not lift the review; only the owner's review does", () => {
+    const { ws, memory } = flagged("memory/later-dog.md");
+    writeFileSync(join(ws, "memory", "later-dog.md"), "- minimal look\n");
+    expect(memory.reconcile("bot1", false).changedBySomeoneElse).toBe(true);
+    expect(memory.review("bot1", false, memory.reviewInfo("bot1").token).ok).toBe(true);
+    expect(memory.reconcile("bot1", false).changedBySomeoneElse).toBe(false);
+  });
   it("a damaged or linked record fails closed for the bots that existed then, and only those", () => {
     const ws = workspace();
     const record = join(dir, "lending-memory.json");

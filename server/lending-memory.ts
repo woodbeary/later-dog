@@ -284,11 +284,20 @@ export function createLendingMemory({ file, files: snapshot, knownBots, log = ()
     trustedWrite<T>(botId: string, write: () => T): T {
       load();
       const current = bots[botId];
-      const before = now(botId).hash;
+      const before = now(botId);
       const result = write();
       const after = now(botId);
       if (!current) set(botId, first(botId, after, false));
-      else if (!current.flagged && before === current.trusted) set(botId, { ...current, trusted: after.hash, files: after.files });
+      else if (!current.flagged && before.hash === current.trusted) set(botId, { ...current, trusted: after.hash, files: after.files });
+      else if (current.flagged && current.files) {
+        const files = { ...current.files };
+        for (const name of changedFiles(before.files, after.files)) {
+          if (before.files[name] !== current.files[name]) continue;
+          if (after.files[name] === undefined) delete files[name];
+          else files[name] = after.files[name];
+        }
+        set(botId, { ...current, files });
+      }
       return result;
     },
     forget(botId: string) {
