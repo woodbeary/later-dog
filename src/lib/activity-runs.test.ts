@@ -366,6 +366,25 @@ describe("groupTranscript", () => {
     });
   });
 
+  it("keeps a reply longer than one short line in the chat, even when every update folds", () => {
+    const user: Message = { id: "u30", at: 1_000, role: "user", kind: "text", text: "fix the lock" };
+    const first = assistant("On it.", "turn-answer", false, 2_000);
+    const question: Message = { id: "u31", at: 3_000, role: "user", kind: "text", text: "how does the harness work?", steered: true };
+    const ack = assistant("Good question. I'll answer once the fix is in.", "turn-answer", false, 4_000);
+    const a = step("Bash", "turn-answer");
+    const answer = assistant("Here is how it works.\n\nOur prompt goes on top of the engine's own.", "turn-answer", false, 5_000);
+    const long = assistant(`It works like this: ${"our prompt sits on top of the engine's own, ".repeat(10)}`, "turn-answer", false, 6_000);
+    const note = assistant("Running the tests now.", "turn-answer", false, 7_000);
+    const b = step("Bash", "turn-answer");
+    const final = assistant("The lock is gone.", "turn-answer", true, 9_000);
+
+    const plan = planTranscript([user, first, question, ack, a, answer, long, note, b, final], { foldAll: true });
+    expect([...plan.hiddenIds]).toEqual([note.id]);
+    expect([...plan.byAnchorId.values()][0]).toMatchObject({ kind: "turn", messages: [note] });
+    const running = planTranscript([user, first, question, ack, a, answer, long, note], { runningSince: 1_500, foldAll: true });
+    expect([...running.hiddenIds]).toEqual([note.id]);
+  });
+
   it("keeps a lone terminal message as the answer", () => {
     const only = assistant("I could not finish, but here is what I found.", "turn-short", true);
     expect(groupTranscript([only])).toEqual([{ kind: "message", message: only }]);
