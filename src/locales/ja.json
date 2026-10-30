@@ -577,7 +577,6 @@
   "memory.simple.files": "メモリーファイル",
   "memory.simple.done": "完了",
   "memory.simple.manage": "メモリーを管理",
-  "memory.simple.review": "確認が必要",
   "memory.simple.busy": "変更するには {name} の応答を停止してください。",
   "memory.simple.offHint": "オフです。保存済みのメモは残りますが、{name} は読んだり追加したりしません。",
   "memory.page.back": "戻る",

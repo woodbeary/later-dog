@@ -2,7 +2,7 @@ import { ChevronRight, NotebookPen, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { MEMORY_INDEX, fetchMemoryDoc, fetchMemoryOverview, saveMemoryDoc } from "@/lib/memory";
+import { MEMORY_INDEX, fetchMemoryDoc, saveMemoryDoc } from "@/lib/memory";
 import type { Bot } from "@/state/store";
 import { Switch } from "../SettingsPrimitives";
 import { MemorySection } from "./MemorySection";
@@ -42,7 +42,6 @@ export function SimpleMemory({ bot, active, page, onPage, onToggle }: {
   onToggle: (enabled: boolean) => void;
 }) {
   const [doc, setDoc] = useState<{ text: string; hash: string } | null>(null);
-  const [review, setReview] = useState(false);
   const [all, setAll] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,9 +69,6 @@ export function SimpleMemory({ bot, active, page, onPage, onToggle }: {
     void fetchMemoryDoc(bot.id, MEMORY_INDEX)
       .then((next) => { if (!cancelled) setDoc({ text: next.text, hash: next.hash }); })
       .catch(() => { if (!cancelled) setDoc({ text: "", hash: "" }); });
-    void fetchMemoryOverview(bot.id)
-      .then((overview) => { if (!cancelled) setReview(Boolean(overview.lendingReview)); })
-      .catch(() => { if (!cancelled) setReview(false); });
     return () => { cancelled = true; };
   }, [bot.id, active, page]);
 
@@ -161,11 +157,6 @@ export function SimpleMemory({ bot, active, page, onPage, onToggle }: {
             >
               <NotebookPen size={16} aria-hidden="true" className="shrink-0 text-ink-secondary" />
               <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{t("memory.simple.manage")}</span>
-              {review && (
-                <span data-memory-review className="shrink-0 rounded-full bg-danger/10 px-2 py-0.5 text-[11.5px] font-medium text-danger">
-                  {t("memory.simple.review")}
-                </span>
-              )}
               <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-ink-tertiary" />
             </button>
           </div>

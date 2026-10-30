@@ -726,7 +726,6 @@
   "memory.simple.files": "记忆文件",
   "memory.simple.done": "完成",
   "memory.simple.manage": "管理记忆",
-  "memory.simple.review": "需要审核",
   "memory.simple.busy": "请先停止 {name} 当前的回复，再进行修改。",
   "memory.simple.offHint": "已关闭。保存的笔记会保留，但 {name} 不会读取或添加内容。",
   "memory.page.back": "返回",

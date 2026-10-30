@@ -8,7 +8,7 @@ vi.mock("../DesktopCapabilities", () => ({
   useDesktopCapabilities: () => ({ capabilities: { host: { homeDir: undefined, platform: "other" } } }),
 }));
 
-const { ConflictNotice, LendingReviewNotice, MemoryGauge, MemoryJournalList, MemoryLogs, MemoryNotes, MemoryUpkeepRows, noteLabel, topicTemplate } = await import("./MemorySection");
+const { ConflictNotice, MemoryGauge, MemoryJournalList, MemoryLogs, MemoryNotes, MemoryUpkeepRows, noteLabel, topicTemplate } = await import("./MemorySection");
 
 function render(element: Parameters<typeof renderToStaticMarkup>[0]): string {
   return renderToStaticMarkup(element).replace(/&#x27;/g, "'").replace(/&quot;/g, '"');
@@ -205,24 +205,5 @@ describe("MemoryUpkeepRows", () => {
     expect(noticed).toContain("Last noticed 3 facts");
     expect(noticed).toContain("Not tidied yet.");
     expect(noticed).not.toContain("can only archive");
-  });
-});
-
-describe("LendingReviewNotice", () => {
-  const changed = ["MEMORY.md", "/srv/projects/site/CLAUDE.md"];
-  it("says plainly why the bot cannot use the Mac, names what changed, and marks it reviewed in one click", () => {
-    const onReviewed = vi.fn();
-    const markup = render(createElement(LendingReviewNotice, { changed, stale: false, busy: false, onReviewed }));
-    expect(markup).toContain("This dog's memory was changed in a conversation you didn't write, so it can't use your Mac.");
-    expect(markup).toContain("Changed:");
-    for (const file of changed) expect(markup).toContain(`>${file}<`);
-    expect(markup).toContain(">Mark reviewed<");
-    const tree = LendingReviewNotice({ changed, stale: false, busy: false, onReviewed }) as { props: { children: Array<{ type: string; props: { onClick?: () => void } }> } };
-    tree.props.children.find((child) => child.type === "button")!.props.onClick!();
-    expect(onReviewed).toHaveBeenCalledOnce();
-  });
-  it("says so when the memory changed again after the owner looked", () => {
-    const markup = render(createElement(LendingReviewNotice, { changed, stale: true, busy: false, onReviewed: vi.fn() }));
-    expect(markup).toContain("The memory changed again after you looked");
   });
 });

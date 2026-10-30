@@ -13,7 +13,6 @@ import {
   fileManagerLabel,
   journalSource,
   journalSummary,
-  markMemoryReviewed,
   noticedCount,
   openMemoryLocation,
   relativeTime,
@@ -22,7 +21,6 @@ import {
   tidyMemoryNow,
   tidySummary,
   topicFileName,
-  type LendingReview,
   type MemoryCapacity,
   type MemoryFileInfo,
   type MemoryJournalRow,
@@ -31,7 +29,7 @@ import {
   type UpkeepStatus,
 } from "@/lib/memory";
 import { t } from "@/lib/i18n";
-import { ApiError, useStore, type Bot } from "@/state/store";
+import { useStore, type Bot } from "@/state/store";
 import { Switch } from "../SettingsPrimitives";
 import { useDesktopCapabilities } from "../DesktopCapabilities";
 
@@ -77,27 +75,6 @@ export function noteLabel(path: string): string {
 export function topicTemplate(fileName: string): string {
   const title = fileName.replace(/\.md$/, "");
   return `---\ntitle: ${title}\ndescription: \naliases: []\n---\n\n`;
-}
-
-export function LendingReviewNotice({ changed, stale, busy, onReviewed }: { changed: readonly string[]; stale: boolean; busy: boolean; onReviewed: () => void }) {
-  return (
-    <div role="status" className="rounded-xl border border-danger/40 bg-card px-4 py-3">
-      <p className="text-[13px] leading-relaxed text-ink">{t(stale ? "memory.lendingReviewStale" : "memory.lendingReview")}</p>
-      {changed.length > 0 && (
-        <>
-          <p className="mt-2 text-[12px] text-ink-secondary">{t("memory.lendingReviewChanged")}</p>
-          <ul className="mt-1 space-y-0.5">
-            {changed.map((file) => (
-              <li key={file} className="break-all font-mono text-[12px] text-ink">{file}</li>
-            ))}
-          </ul>
-        </>
-      )}
-      <button type="button" className={cn(pillCls, "mt-3")} disabled={busy} onClick={onReviewed}>
-        {t("memory.lendingReviewed")}
-      </button>
-    </div>
-  );
 }
 
 export function MemoryGauge({ index }: { index: MemoryCapacity }) {
@@ -364,9 +341,6 @@ export function MemorySection({ bot, active = true, onClose }: { bot: Bot; activ
   const [reverting, setReverting] = useState<string | null>(null);
   const [tidying, setTidying] = useState(false);
   const [changesAll, setChangesAll] = useState(false);
-  const [lendingReview, setLendingReview] = useState<LendingReview | null>(null);
-  const [lendingReviewStale, setLendingReviewStale] = useState(false);
-  const [reviewing, setReviewing] = useState(false);
   const header = useRef<HTMLDivElement | null>(null);
   const backButton = useRef<HTMLButtonElement | null>(null);
   const editor = useRef<HTMLTextAreaElement | null>(null);
@@ -379,7 +353,6 @@ export function MemorySection({ bot, active = true, onClose }: { bot: Bot; activ
       fetchUpkeepStatus(bot.id).catch(() => null),
     ]);
     setOverview(nextOverview);
-    setLendingReview(nextOverview.lendingReview ?? null);
     setJournal(nextJournal);
     setUpkeep(nextUpkeep);
   };
@@ -574,24 +547,6 @@ export function MemorySection({ bot, active = true, onClose }: { bot: Bot; activ
     }
   };
 
-  const markReviewed = () => {
-    if (!lendingReview) return;
-    setReviewing(true);
-    markMemoryReviewed(bot.id, lendingReview.token)
-      .then(() => {
-        setLendingReview(null);
-        setLendingReviewStale(false);
-      })
-      .catch((e: unknown) => {
-        if (e instanceof ApiError && e.status === 409) {
-          setLendingReviewStale(true);
-          return refresh().catch((next: unknown) => setError(errorText(next)));
-        }
-        setError(errorText(e));
-      })
-      .finally(() => setReviewing(false));
-  };
-
   const title = editing ? noteLabel(editing.path) : view === "logs" ? t("memory.page.logs") : t("memory.simple.title");
   const deletable = editing !== null && editing.path !== MEMORY_INDEX && editing.exists;
   const changes = journal && !changesAll ? journal.slice(0, CHANGES_SHOWN) : journal;
@@ -678,9 +633,6 @@ export function MemorySection({ bot, active = true, onClose }: { bot: Bot; activ
         <MemoryLogs logs={overview?.logs ?? []} botName={bot.name} onOpen={(path) => void open(path)} />
       ) : (
         <>
-          {lendingReview && (
-            <LendingReviewNotice changed={lendingReview.changed} stale={lendingReviewStale} busy={reviewing} onReviewed={markReviewed} />
-          )}
           {overview && capacityStatus(overview.index).level !== "ok" && <MemoryGauge index={overview.index} />}
           {overview ? (
             <MemoryNotes index={overview.index} topics={overview.topics} onOpen={(path) => void open(path)} onCreate={createNote} />

@@ -7,7 +7,6 @@ import { SimpleMemory, rememberedItems, withoutLine } from "./SimpleMemory";
 
 const fixture = vi.hoisted(() => ({
   text: "",
-  review: false,
   saves: [] as Array<{ path: string; text: string; expectedHash: string | undefined }>,
 }));
 
@@ -19,7 +18,6 @@ vi.mock("@/lib/memory", async (importOriginal) => {
     index: { lines: 1, bytes: 10, maxLines: 200, maxBytes: 24_000, loadedLines: 1, loadedBytes: 10, truncated: false, hash: "main" },
     topics: [],
     logs: [],
-    ...(fixture.review ? { lendingReview: { token: "tok", changed: ["MEMORY.md"] } } : {}),
   });
   return {
     ...actual,
@@ -94,7 +92,6 @@ describe("the memory card", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     fixture.text = FILE;
-    fixture.review = false;
     fixture.saves = [];
     onPage.mockReset();
     onToggle.mockReset();
@@ -120,7 +117,6 @@ describe("the memory card", () => {
     const manage = $("[data-memory-files]")!;
     expect(manage.textContent).toBe("Manage memory");
     expect(manage.querySelectorAll("svg")).toHaveLength(2);
-    expect($("[data-memory-review]")).toBeNull();
     await act(async () => manage.click());
     expect(onPage).toHaveBeenCalledWith(true);
   });
@@ -131,12 +127,6 @@ describe("the memory card", () => {
     await settle();
     expect(fixture.saves).toEqual([{ path: "MEMORY.md", text: withoutLine(FILE, "- Works on [later.dog](https://later.dog) at night"), expectedHash: "main" }]);
     expect(document.body.querySelectorAll("[data-remembered]")).toHaveLength(3);
-  });
-
-  it("flags a memory that needs the owner's review", async () => {
-    fixture.review = true;
-    await show(scout());
-    expect($("[data-memory-review]")!.textContent).toBe("Needs review");
   });
 
   it("cannot be switched while the dog is working, and says why", async () => {
