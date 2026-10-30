@@ -1669,6 +1669,24 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(fresh.argv[fresh.argv.indexOf("--autocompact") + 1]).toBe("200000");
   });
 
+  it("reports the engine compacting the conversation inside the turn that triggered it", async () => {
+    await create(undefined, { FAKE_CLAUDE_COMPACT: "1" });
+    await instance.adapter.sendTurn({ threadId: "t-compact", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.some((e) => e.type.startsWith("session.compact"))).toBe(false);
+    const second = await instance.adapter.sendTurn({ threadId: "t-compact", text: "two" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    const compaction = recorder.events.filter((e) => e.type === "session.compacting" || e.type === "session.compacted");
+    expect(compaction).toEqual([
+      expect.objectContaining({ type: "session.compacting", threadId: "t-compact", turnId: second.turnId }),
+      expect.objectContaining({ type: "session.compacted", ok: true, threadId: "t-compact", turnId: second.turnId }),
+      expect.objectContaining({ type: "session.compacted", ok: true, trigger: "auto", preTokens: 182_345, postTokens: 24_100, turnId: second.turnId }),
+    ]);
+    expect(compaction[1]).not.toHaveProperty("skipped");
+    const completed = recorder.events.findIndex((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    expect(recorder.events.indexOf(compaction.at(-1)!)).toBeLessThan(completed);
+  });
+
   it("reads --help once for snapshots that overlap", async () => {
     const probes = join(scratch, "probes.log");
     const release = join(scratch, "release-help");

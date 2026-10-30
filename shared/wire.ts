@@ -255,6 +255,7 @@ export interface WireMessage {
     fullResult?: boolean;
     statusLine?: "live" | "folded";
     pickup?: "restart";
+    compaction?: true;
   };
   webhookPost?: boolean;
   ownersRoutine?: boolean;

@@ -62,3 +62,27 @@ This slice covers direct threads. It does not add channel compaction, change
 provider-native compaction, prove live-model summary quality, or ship native
 iOS/Android compaction controls. The renderer test checks note markup and escaping,
 not a real browser click. Native mobile indicators remain separate PR work.
+
+## The engine's own compaction
+
+Claude also compacts its own session when it nears its native limit. That shows
+live as one activity row in the turn that caused it: "Compacting the conversation"
+while it runs, which is also the working line, then "Compacted the conversation in
+42 seconds" with the tokens before and after and how many digests were re-sent, or
+"Couldn't compact the conversation" with the engine's reason, secrets redacted.
+
+```sh
+pnpm exec vitest run server/laterdog/compaction-live.test.ts server/drivers/claude-compaction.test.ts server/thread-events.test.ts
+pnpm exec vitest run server/drivers/claude.test.ts -t "compacting"
+pnpm exec vitest run server/hooks.e2e.test.ts -t "compaction"
+```
+
+The engine's stream (the repeating `compacting` status, its result and the
+boundary with token counts) and its `PreCompact` and `SessionStart` hooks report
+the same compaction; whichever arrives first opens the row and the rest fill it
+in, in either order. A compaction skipped before it started adds no row. A row
+still open when the server stops is closed as stopped on the next start, from
+`compactions-open.json` in the data folder (mode 0600). Rows carry the request
+they belong to and stay out of restart pickups, status lines, digests and the
+memory log. The stream shapes match Claude CLI 2.1.301; other engines report
+nothing new.

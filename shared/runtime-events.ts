@@ -29,6 +29,18 @@ export interface RuntimeEventBase {
   synthetic?: boolean;
 }
 
+export type CompactionEvent =
+  | { type: "session.compacting" }
+  | {
+      type: "session.compacted";
+      ok: boolean;
+      skipped?: boolean;
+      error?: string;
+      trigger?: "auto" | "manual";
+      preTokens?: number;
+      postTokens?: number;
+    };
+
 export type RuntimeEvent = RuntimeEventBase &
   (
     | {
@@ -37,6 +49,7 @@ export type RuntimeEvent = RuntimeEventBase &
       }
     | { type: "session.model-variants"; model: string; variants: ModelVariantState }
     | { type: "session.exited"; reason?: string }
+    | CompactionEvent
     | { type: "turn.started" }
     | {
         type: "turn.retrying";

@@ -1,8 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-
 import { redactSecretsInText } from "../../shared/redact.ts";
 import type { WireMessage } from "../../shared/wire.ts";
-import { writeFileAtomic } from "../atomic.ts";
+import { fileListLedger } from "./list-ledger.ts";
 
 export const STATUS_LINE_QUIET_MS = 3 * 60_000;
 export const STATUS_LINE_EVERY_MS = 3 * 60_000;
@@ -88,7 +86,7 @@ export function speaksToPerson(message: WireMessage): boolean {
       return Boolean(message.text?.trim() || message.attachments?.length);
     case "activity": {
       const tool = message.tool;
-      if (!tool || tool.statusLine) return false;
+      if (!tool || tool.statusLine || tool.compaction) return false;
       if (message.comm || message.threadRef || message.cloudTask) return true;
       return tool.ok === false || /^(notice|recovery|error):/.test(tool.name);
     }
@@ -103,7 +101,7 @@ export function speaksToPerson(message: WireMessage): boolean {
 
 function stepWords(message: WireMessage): string | null {
   const tool = message.tool;
-  if (message.role !== "bot" || message.kind !== "activity" || !tool || tool.statusLine || tool.ok !== undefined) return null;
+  if (message.role !== "bot" || message.kind !== "activity" || !tool || tool.statusLine || tool.compaction || tool.ok !== undefined) return null;
   return tool.spoken?.trim() || null;
 }
 
@@ -258,20 +256,7 @@ function isOpenLine(value: unknown): value is OpenStatusLine {
 }
 
 export function fileStatusLineLedger(path: string): StatusLineLedger {
-  return {
-    read() {
-      if (!existsSync(path)) return [];
-      try {
-        const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-        return Array.isArray(parsed) ? parsed.filter(isOpenLine) : [];
-      } catch {
-        return [];
-      }
-    },
-    write(lines) {
-      writeFileAtomic(path, `${JSON.stringify(lines)}\n`, { mode: 0o600, durable: false });
-    },
-  };
+  return fileListLedger(path, isOpenLine);
 }
 
 export function statusLineTimingFromEnv(env: NodeJS.ProcessEnv = process.env): Required<Omit<StatusLineTiming, "now">> {

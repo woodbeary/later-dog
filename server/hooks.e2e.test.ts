@@ -16,7 +16,9 @@ interface Msg {
   role: string;
   kind: string;
   text?: string;
-  tool?: { name: string; itemId?: string; fullResult?: boolean; output?: string };
+  turnId?: string;
+  requestMessageId?: string;
+  tool?: { name: string; itemId?: string; fullResult?: boolean; output?: string; ok?: boolean; spoken?: string; compaction?: true };
   digest?: { hookCoverage: string; tools: Array<{ name: string; count: number }> };
 }
 
@@ -149,12 +151,17 @@ posixOnly("engine hooks e2e: compaction", () => {
       return !b.busy && b.messages.filter((m: Msg) => m.kind === "digest").length >= 2;
     }, "the second turn to settle with its digest");
     const after = await h.getBot(bot.id);
-    const chips: Msg[] = after.messages.filter((m: Msg) => m.kind === "activity" && m.tool?.name.startsWith("context compact"));
-    expect(chips.map((m) => m.tool!.name)).toEqual([
-      "context compaction started (auto)",
-      "context compacted — re-sent the last 1 digest",
-    ]);
+    const rows: Msg[] = after.messages.filter((m: Msg) => m.kind === "activity" && m.tool?.name.startsWith("context compact"));
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    expect(row.tool).toMatchObject({ name: "context compaction (auto)", ok: true, compaction: true });
+    expect(row.tool!.spoken).toMatch(/^Compacted the conversation in /);
+    expect(row.tool!.output!.split("\n")).toEqual(["Before: 182,345 tokens", "After: 24,100 tokens", "Re-sent the last 1 digest"]);
     const replies: Msg[] = after.messages.filter((m: Msg) => m.role === "bot" && m.kind === "text" && m.text);
+    expect(row.turnId).toBeTruthy();
+    expect(row.turnId).toBe(replies.at(-1)!.turnId);
+    expect(row.requestMessageId).toBeTruthy();
+    expect(row.requestMessageId).toBe(replies.at(-1)!.requestMessageId);
     expect(replies.at(-1)!.text).toContain("[What ");
     expect(replies.at(-1)!.text).toContain("did in an earlier turn");
     expect(replies.at(-1)!.text).toContain("Bash ×1");

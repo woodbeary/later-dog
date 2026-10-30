@@ -684,6 +684,7 @@ import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
 import { withOnItNote, withSteerNote, workUpdatesPrompt } from "./laterdog/work-updates.ts";
 import { createMacWaits } from "./laterdog/mac-waits.ts";
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
+import { createCompactionLive, fileCompactionLedger } from "./laterdog/compaction-live.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
 import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
 import type { TakeoverRequestCardData } from "../shared/takeover.ts";
@@ -2371,6 +2372,11 @@ const directRequestOwners = new Map<string, {
   generation: string; messageId?: string; generations: Set<string>; turnId: string | null; stopped?: boolean;
   automation?: RoutineRunTrigger; handoff?: { lender?: string; messageId?: string };
 }>();
+function provenRequestMessageId(threadId: string, turnId: string | undefined): string | undefined {
+  const owner = directRequestOwners.get(threadId);
+  return owner?.messageId && !owner.stopped && owner.generation === directTurnGenerationByThread.get(threadId) &&
+    owner.turnId && (!turnId || turnId === owner.turnId) ? owner.messageId : undefined;
+}
 type DirectTurnOutcome = HandoffRunResult;
 const directFollowupTurns = new ProviderTurnGenerationRegistry<DirectTurnOutcome>();
 const directFollowupSettlers = new Map<string, { threadId: string; sourceGenerations?: string[]; settle?: () => void }>();
@@ -5240,8 +5246,26 @@ const statusLines = createStatusLines({
     if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
   },
 }, statusLineTimingFromEnv());
-liveStatusLine = (threadId) => statusLines.current(threadId);
+const compactionLive = createCompactionLive({
+  append: (threadId, message) => {
+    const ownerBot = store.botByThread(threadId);
+    const bot = ownerBot ? botForThread(ownerBot.id, threadId) : undefined;
+    const group = bot ? undefined : store.groupByThread(threadId);
+    if (group) return store.appendMessage(threadId, { ...message, from: groupSpeakers.get(threadId) });
+    if (!bot) return null;
+    const requestMessageId = provenRequestMessageId(threadId, message.turnId);
+    return store.appendMessage(threadId, requestMessageId ? { ...message, requestMessageId } : message);
+  },
+  patch: (threadId, messageId, patch) => store.patchMessage(threadId, messageId, patch),
+  ledger: fileCompactionLedger(join(DATA_DIR, "compactions-open.json")),
+  changed: (threadId) => {
+    const bot = store.botByThread(threadId);
+    if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
+  },
+});
+liveStatusLine = (threadId) => compactionLive.current(threadId) ?? statusLines.current(threadId);
 statusLines.foldLeftovers();
+compactionLive.foldLeftovers();
 let companyShutdown = false;
 const inflightTurns = createInflightTurns(fileInflightLedger(join(DATA_DIR, "turns-running.json")), { stopping: () => companyShutdown });
 let pickingUpAfterRestart = true;
@@ -5290,6 +5314,14 @@ bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "turn.started") statusLines.begin(event.threadId);
   else if (event.type === "turn.completed") statusLines.settle(event.threadId);
+});
+bus.subscribe((event: RuntimeEvent) => {
+  if (shouldIgnoreProviderEvent(event)) return;
+  if (event.type === "session.compacting") compactionLive.started(event.threadId, { turnId: event.turnId, stream: true });
+  else if (event.type === "session.compacted") {
+    const { ok, skipped, error, trigger, preTokens, postTokens, turnId } = event;
+    compactionLive.finished(event.threadId, { ok, skipped, error, trigger, preTokens, postTokens, turnId, stream: true });
+  } else if (event.type === "turn.completed" || event.type === "session.exited") compactionLive.settle(event.threadId);
 });
 statusLines.start();
 
@@ -5408,7 +5440,7 @@ bus.subscribe((event: RuntimeEvent) => {
     const bot = store.botByThread(event.threadId) ?? (reply?.from ? store.bot(reply.from.botId) : undefined);
     if (!bot || bot.memoryEnabled === false) return;
     const tools = messages
-      .filter((message) => message.kind === "activity" && message.turnId === event.turnId && message.tool?.name)
+      .filter((message) => message.kind === "activity" && message.turnId === event.turnId && message.tool?.name && !message.tool.compaction)
       .map((message) => message.tool!.name);
     const line = turnOutcomeLine({ ok: event.ok, reply: reply?.text, stopReason: event.stopReason, tools });
     if (!line) return;
@@ -5452,17 +5484,15 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   const name = typeof event.event === "string" ? event.event : "";
   const payload = event.payload && typeof event.payload === "object" ? (event.payload as Record<string, unknown>) : {};
   const threadId = capability.threadId;
-  const chip = (text: string) => store.appendMessage(threadId, { role: "bot", kind: "activity", tool: { name: text, ok: true } });
   if (name === "PreCompact") {
-    const trigger = payload.trigger === "manual" ? "manual" : "auto";
-    chip(`context compaction started (${trigger})`);
+    compactionLive.started(threadId, { turnId: liveTurnByThread.get(threadId), trigger: payload.trigger === "manual" ? "manual" : "auto" });
     return { ok: true };
   }
   if (name === "SessionStart") {
     if (payload.source !== "compact") return { ok: true, ignored: `SessionStart ${String(payload.source ?? "")}` };
     const bot = store.bot(capability.botId);
     const digests = store.activePath(threadId).filter((m) => m.kind === "digest" && m.digest).slice(-DIGESTS_AFTER_COMPACTION);
-    chip(`context compacted — re-sent the last ${digests.length} digest${digests.length === 1 ? "" : "s"}`);
+    compactionLive.finished(threadId, { ok: true, digests: digests.length, turnId: liveTurnByThread.get(threadId) });
     if (!digests.length) return { ok: true };
     const context = digests.map((m) => digestPromptLine(m.digest!, m.from?.name ?? store.bot(m.digest!.botId)?.name ?? bot?.name ?? "the bot")).join("\n");
     return { ok: true, context };
@@ -6425,14 +6455,12 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   const speaker = group ? groupSpeakers.get(event.threadId) : undefined;
 
   const pushMessage = (m: Omit<Message, "id" | "at">) => {
-    const owner = bot ? directRequestOwners.get(event.threadId) : undefined;
-    const proven = owner?.messageId && !owner.stopped && owner.generation === directTurnGenerationByThread.get(event.threadId) &&
-      owner.turnId && (!event.turnId || event.turnId === owner.turnId);
+    const requestMessageId = bot ? provenRequestMessageId(event.threadId, event.turnId) : undefined;
     const routed = group && m.role === "bot" && m.kind === "text" ? routedRoomReplies.get(event.threadId) : undefined;
     const routedBy = routed && speaker && routed.botId === speaker.botId ? routed.routedBy : undefined;
     if (routedBy) routedRoomReplies.delete(event.threadId);
     const message = store.appendMessage(event.threadId, group && m.role === "bot" ? { ...m, from: speaker, ...(routedBy ? { routedBy } : {}) }
-      : proven ? { ...m, requestMessageId: owner.messageId } : m);
+      : requestMessageId ? { ...m, requestMessageId } : m);
     return message;
   };
 

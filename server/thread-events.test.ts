@@ -178,6 +178,28 @@ describe("readThreadEvents", () => {
     expect(page.entries.map((entry) => (entry.data as { eventId: string }).eventId)).toEqual(["valid-retry"]);
   });
 
+  it("keeps the engine's compaction events and drops malformed ones", () => {
+    const eventsDir = tmp();
+    const nativeDir = tmp();
+    const compacted = (eventId: string, fields: Record<string, unknown>) =>
+      runtime({ eventId, createdAt: eventId, type: "session.compacted", ...fields });
+    writeFileSync(
+      join(eventsDir, "t1.ndjson"),
+      line(runtime({ eventId: "a-compacting", createdAt: "a-compacting", type: "session.compacting" })) +
+        line(compacted("b-done", { ok: true, trigger: "auto", preTokens: 182_345, postTokens: 24_100 })) +
+        line(compacted("c-failed", { ok: false, error: "Compaction interrupted" })) +
+        line(compacted("d-skipped", { ok: true, skipped: true })) +
+        line(compacted("e-no-ok", { trigger: "auto" })) +
+        line(compacted("f-bad-trigger", { ok: true, trigger: "sometimes" })) +
+        line(compacted("g-bad-tokens", { ok: true, preTokens: "lots" })) +
+        line(compacted("h-bad-error", { ok: false, error: 42 })) +
+        line(compacted("i-bad-skipped", { ok: true, skipped: "yes" })),
+    );
+
+    const page = readThreadEvents({ eventsDir, nativeDir, threadId: "t1" });
+    expect(page.entries.map((entry) => (entry.data as { eventId: string }).eventId)).toEqual(["a-compacting", "b-done", "c-failed", "d-skipped"]);
+  });
+
   it("keeps walking backward when a corrupt tail record would otherwise consume the limit", () => {
     const eventsDir = tmp();
     const nativeDir = tmp();

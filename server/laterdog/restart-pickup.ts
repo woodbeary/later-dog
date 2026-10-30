@@ -1,8 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-
 import { failedTurnTool } from "../../shared/failed-turn.ts";
 import type { WireMessage } from "../../shared/wire.ts";
-import { writeFileAtomic } from "../atomic.ts";
+import { fileListLedger } from "./list-ledger.ts";
 import { endsOnPromise } from "./promise-nudge.ts";
 
 type Message = WireMessage;
@@ -74,7 +72,7 @@ export function answersPerson(message: Message, carriesOnAfterLimit = false): bo
     case "activity": {
       if (message.comm || message.threadRef || message.cloudTask) return true;
       const tool = message.tool;
-      if (!tool || tool.statusLine || tool.ok !== false || tool.itemId) return false;
+      if (!tool || tool.statusLine || tool.compaction || tool.ok !== false || tool.itemId) return false;
       return !(carriesOnAfterLimit && tool.quota);
     }
     case "options": {
@@ -151,20 +149,7 @@ function isInflightTurn(value: unknown): value is InflightTurn {
 }
 
 export function fileInflightLedger(path: string): InflightLedger {
-  return {
-    read() {
-      if (!existsSync(path)) return [];
-      try {
-        const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-        return Array.isArray(parsed) ? parsed.filter(isInflightTurn) : [];
-      } catch {
-        return [];
-      }
-    },
-    write(turns) {
-      writeFileAtomic(path, `${JSON.stringify(turns)}\n`, { mode: 0o600, durable: false });
-    },
-  };
+  return fileListLedger(path, isInflightTurn);
 }
 
 export function createInflightTurns(ledger: InflightLedger, options: { now?: () => number; stopping?: () => boolean } = {}) {
