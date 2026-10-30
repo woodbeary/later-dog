@@ -16,7 +16,7 @@ import { compactBudget, contextWindowFor, shouldCompact } from "./context-budget
 import { autoCompactWindow } from "./drivers/claude.ts";
 import { completeSharedOperation, provenRequestPerson, SharedComputers, sharedActionsHeader, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerRegistration, sharedComputerScopeRefusal, type SharedComputerOperation, type SharedComputerRegistration } from "./shared-computers.ts";
 import { MAC_ALLOW_KEY, MacApprovals, type MacLasting } from "./mac-approval.ts";
-import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, type CloudLendingTurn } from "./cloud-lending.ts";
+import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, type CloudLendingRefusal, type CloudLendingTurn } from "./cloud-lending.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
 import { RoomHandoffs, type RoomHandoff } from "./room-handoffs.ts";
 import { isHandoffEnd, type HandoffEnd } from "./laterdog/handoff-budget.ts";
@@ -801,6 +801,7 @@ const lendingEnabled = () => sharedComputersEnabled(cfg) || CLOUD_HOME !== null;
 const CLOUD_HOME_LENDER = "cloud-home";
 const cloudRoutineAuthors = CLOUD_HOME ? createCloudRoutineAuthors(join(DATA_DIR, "lending-routines.json")) : null;
 const ownerStartedRoutineRuns = new Set<string>();
+const ownerRunNowThreads = new Set<string>();
 if (CLOUD_HOME) readMemoryOnlyFromRegularFiles();
 const cloudPairing = CLOUD_HOME ? createCloudPairing({ secret: CLOUD_HOME.bootstrapSecret, sessions }) : null;
 const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivity({
@@ -1003,11 +1004,16 @@ function sharedComputerPrincipal(capability: Pick<InternalCapability, "botId" | 
 
 function cloudLendingTurn(capability: Pick<InternalCapability, "botId" | "threadId" | "generation">): CloudLendingTurn {
   const request = directRequestOwners.get(capability.threadId);
+  const directHandoff = request?.generations.has(capability.generation) ? request.handoff : undefined;
+  const roomHandoff = roomTurnHandoffs.get(capability.threadId);
+  const handoff = directHandoff ? { ownerSent: directHandoff.lender === CLOUD_HOME_LENDER }
+    : roomHandoff?.generation === capability.generation ? { ownerSent: roomHandoff.ownerSent } : undefined;
   return {
     request,
-    ...(request?.handoff ? { handoff: { ownerSent: request.handoff.lender === CLOUD_HOME_LENDER } } : {}),
+    ...(handoff ? { handoff } : {}),
     generation: capability.generation,
     thread: store.messagesFor(capability.threadId),
+    guestDriven: cloudGuestDriven(capability.threadId),
     starters: cloudThreadStarters(capability.threadId),
     reportsFromOthers: store.messagesFor(capability.threadId).some(cloudReportFromOthers),
     ownerPerson: cloudProvenOwnerPerson,
@@ -1027,7 +1033,7 @@ function cloudLendingTurn(capability: Pick<InternalCapability, "botId" | "thread
 
 const LENDING_SOMEONE_ELSE = "Someone else wrote in this conversation, so it can't use your Mac. Start a new conversation to use it.";
 
-function cloudLendingRefusal(capability: Pick<InternalCapability, "botId" | "threadId" | "generation">): "unproven" | "not-owner" | "someone-else" | null {
+function cloudLendingRefusal(capability: Pick<InternalCapability, "botId" | "threadId" | "generation">): CloudLendingRefusal | null {
   return cloudHomeLendingRefusal(cloudLendingTurn(capability));
 }
 
@@ -1244,6 +1250,13 @@ function cloudOwnersRoutinePrompt(run: RoutineRun | null, botId: string, threadI
     (triggerSource !== "manual" || ownerStartedRoutineRuns.has(run.id));
 }
 
+function cloudRoutinePromptMark(run: RoutineRun | null, botId: string, threadId: string): boolean | undefined {
+  if (!CLOUD_HOME || !run) return undefined;
+  if (cloudOwnersRoutinePrompt(run, botId, threadId)) return true;
+  const triggerSource = run.triggerSource ?? (run.manual ? "manual" : "schedule");
+  return triggerSource === "webhook" || !cloudRoutineRunIsOwners(run, botId, threadId) ? false : undefined;
+}
+
 function cloudRoutineRunIsOwners(run: RoutineRun | null | undefined, botId: string, threadId: string): boolean {
   if (!run || run.threadId !== threadId || run.botId !== botId || !cloudRoutineAuthors) return false;
   const routine = routines?.listRoutines().find((candidate) => candidate.id === run.routineId);
@@ -1268,6 +1281,7 @@ function cloudGuestOpened(threadId: string): boolean {
 }
 
 const guestDrivenTurns = new Map<string, string>();
+const roomTurnHandoffs = new Map<string, { generation: string; ownerSent: boolean }>();
 
 function cloudGuestDrivenHandoff(nodeId: string | undefined): boolean {
   if (!CLOUD_HOME || !nodeId) return false;
@@ -2110,6 +2124,7 @@ function mintInternalCapability(capability: Omit<InternalCapability, "orphanExpi
 
 function revokeInternalCapabilityGeneration(threadId: string, generation: string): void {
   if (guestDrivenTurns.get(threadId) === generation) guestDrivenTurns.delete(threadId);
+  if (roomTurnHandoffs.get(threadId)?.generation === generation) roomTurnHandoffs.delete(threadId);
   for (const [token, capability] of internalCapabilities) {
     if (capability.threadId === threadId && capability.generation === generation) {
       internalCapabilities.delete(token);
@@ -7773,7 +7788,7 @@ async function startTurn(
           sender: opts?.sender,
           ...(opts?.via ? { via: opts.via } : {}),
           ...(opts?.relayed ? { relayed: true } : {}),
-          ...(opts?.ownersRoutine ? { ownersRoutine: true } : {}),
+          ...(opts?.ownersRoutine !== undefined ? { ownersRoutine: opts.ownersRoutine } : {}),
         });
   }
   const recoveryUserMessageId = opts?.coordination
@@ -8828,13 +8843,15 @@ routines = new RoutineManager({
   },
   conversationFor: routineConversation,
   startTurn: async (botId, threadId, prompt, runOn, triggerSource, onDispatchError, runId) => {
-    const ownersRoutine = cloudOwnersRoutinePrompt(activeRoutineRunForThread(threadId), botId, threadId);
-    await startTurn(botId, prompt, { threadId, runOn, automationSource: triggerSource, routineRunId: runId, onDispatchError, ...(ownersRoutine ? { ownersRoutine } : {}) });
+    const ownersRoutine = cloudRoutinePromptMark(activeRoutineRunForThread(threadId), botId, threadId);
+    await startTurn(botId, prompt, { threadId, runOn, automationSource: triggerSource, routineRunId: runId, onDispatchError, ...(ownersRoutine !== undefined ? { ownersRoutine } : {}) });
   },
   startGoal: async (groupId, threadId, prompt, botId, runId, onDispatchError) => {
+    const ownersRoutine = cloudRoutinePromptMark(activeRoutineRunForThread(threadId), botId, threadId);
     startGroupTurn(groupId, prompt, undefined, undefined, undefined, {
       threadId,
       routineRun: { runId, botId, finished: false, onDispatchError },
+      ...(ownersRoutine !== undefined ? { ownersRoutine } : {}),
     });
   },
   interruptTurn: async (botId, threadId, run) => {
@@ -8850,7 +8867,10 @@ routines = new RoutineManager({
     }
   },
   interruptGoal: interruptRoutineGroupGoal,
-  onRunChanged: syncRoutineRunToSource,
+  onRunChanged: (run) => {
+    if (run.manual && run.status === "queued" && run.sourceThreadId && ownerRunNowThreads.has(run.sourceThreadId)) ownerStartedRoutineRuns.add(run.id);
+    syncRoutineRunToSource(run);
+  },
   onRunFailed: (run) => {
     const bot = store.bot(run.botId);
     if (!bot) return;
@@ -9336,7 +9356,10 @@ function resolveAndSendRoutine(
   const operation = card?.routineRequest?.operation;
   const wasOwners = operation && operation.action !== "create" ? cloudRoutineIsOwners(operation.routineId) : false;
   const result = routineRequests.resolve(args);
-  if (ownersAnswer && result.claimed && result.state === "applied") cloudOwnerApplied(result.action, result.resultId, wasOwners);
+  if (ownersAnswer && result.claimed && result.state === "applied") {
+    cloudOwnerApplied(result.action, result.resultId, wasOwners);
+    if (CLOUD_HOME && result.action === "run_now" && result.resultId) ownerStartedRoutineRuns.add(result.resultId);
+  }
   if (
     result.claimed &&
     (result.state === "applied" || result.state === "denied")
@@ -9738,7 +9761,9 @@ async function runGroupMemberTurn(
   }
   const internalGeneration = beginInternalCapabilityGeneration(threadId);
   if (roomGuestConfined) guestDrivenTurns.set(threadId, internalGeneration);
-  const roomForeign = Boolean(CLOUD_HOME) && (roomGuestConfined || !cloudOwnerOnlyThread(threadId));
+  const handedIn = orchestration?.roomHandoffId ? roomHandoffs.nodes.get(orchestration.roomHandoffId) : undefined;
+  if (handedIn?.parentId) roomTurnHandoffs.set(threadId, { generation: internalGeneration, ownerSent: handedIn.lender === CLOUD_HOME_LENDER });
+  const roomForeign = Boolean(CLOUD_HOME) && cloudHomeLendingRefusal(cloudLendingTurn({ botId, threadId, generation: internalGeneration })) !== null;
   const resourceOwner: TurnOwner = { threadId, generation: internalGeneration };
   turnResourceOwners.set(threadId, resourceOwner);
   let roomClaimFailure: RoomClaimEnd | undefined;
@@ -10523,6 +10548,7 @@ async function runGroupMemberTurn(
 type StartGroupTurnOptions = {
   threadId?: string;
   routineRun?: GroupRoutineRun;
+  ownersRoutine?: boolean;
   via?: "api";
   sender?: ResolvedSender;
   trigger?: UsageTrigger;
@@ -10594,6 +10620,7 @@ function startGroupTurn(
         queueId,
         via: options.via,
         sender: options.sender,
+        ...(options.ownersRoutine !== undefined ? { ownersRoutine: options.ownersRoutine } : {}),
       });
   if (options.trigger) turnTriggers.set(threadId, options.trigger);
   const titled = group.dm ? null : store.titleGroupTaskFromFirstMessage(group.id, text, threadId);
@@ -13394,13 +13421,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const wasOwners = proposedInput.action !== "create" && typeof proposedInput.routineId === "string" ? cloudRoutineIsOwners(proposedInput.routineId) : false;
         const run = routineRunForTurn(fromThreadId);
         const ownersTurn = cloudOwnerOnlyThread(fromThreadId) || cloudRoutineRunIsOwners(run, from.id, fromThreadId);
+        const ownersRunNow = Boolean(CLOUD_HOME) && proposedInput.action === "run_now" && cloudLendingRefusal(internalCapability) === null;
+        if (ownersRunNow) ownerRunNowThreads.add(fromThreadId);
         const proposed = await routineRequests.submit({
           botId: from.id,
           threadId: fromThreadId,
           proposal: proposedInput,
           from: owner.group ? { botId: from.id, name: from.name, color: from.color } : undefined,
           canCommit: () => internalCapabilityIsActive(internalCapability),
-        });
+        }).finally(() => { if (ownersRunNow) ownerRunNowThreads.delete(fromThreadId); });
         const proposedCard = store.messagesFor(fromThreadId).find((message) => message.id === proposed.messageId)?.card;
         const applied = CLOUD_HOME && proposed.state === "applied" && "result" in proposed ? proposed.result : undefined;
         if (applied?.resultId && ownersTurn) cloudOwnerApplied(applied.action, applied.resultId, wasOwners);

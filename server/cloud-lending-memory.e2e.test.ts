@@ -295,7 +295,7 @@ it("a turn in a conversation a guest left behind writing MEMORY.md directly leav
   expect(JSON.parse((await reads(ownerTools)).content[0].text).content).toBe("from the Mac");
 }, 60_000);
 
-it("a room only the owner writes in is theirs, and a room a guest left behind is told it can't change memory", async () => {
+it("a room only the owner writes in is theirs: its dogs may use the Mac and write memory; a room a guest left behind may do neither", async () => {
   const bot = await newBot("Roomie", "held");
   const newRoom = async (name: string) => {
     const room = await api("POST", "/api/groups", { token: owner, body: { memberIds: [bot.id], name, setup: { bulletin: "", defaultResponder: { kind: "everyone" } } } });
@@ -312,13 +312,42 @@ it("a room only the owner writes in is theirs, and a room a guest left behind is
   };
   const ownRoom = await newRoom("Standup");
   const guestsRoom = await newRoom("Guest's standup");
-  await post(ownRoom, "Everyone: note today's plan.");
+  const ownTools = await post(ownRoom, "Everyone: note today's plan.");
   expect(heldSystem()).not.toContain(READ_ONLY);
+  expect((await sees(ownTools)).computers).toHaveLength(1);
+  expect(JSON.parse((await reads(ownTools)).content[0].text).content).toBe("from the Mac");
+  expect((await ownTools("memory_update", { action: "append", text: "Standup is at nine." })).isError).toBeFalsy();
+  expect(await memoryText(bot)).toContain("Standup is at nine.");
   await interrupt(ownRoom);
   await leftBehind({ threadIds: [guestsRoom.threadId] });
-  await post(guestsRoom, "Everyone: note today's plan.");
+  const guestTools = await post(guestsRoom, "Everyone: note today's plan.");
   expect(heldSystem()).toContain(READ_ONLY);
+  expect((await sees(guestTools)).unavailable).toContain("Someone else wrote in this conversation");
+  const refused = await guestTools("memory_update", { action: "append", text: INJECTED });
+  expect(refused.isError).toBe(true);
+  expect(await memoryText(bot)).not.toContain(INJECTED);
   await interrupt(guestsRoom);
+}, 90_000);
+
+it("work the owner's dog hands to a teammate in a room is the owner's: the teammate may use the Mac", async () => {
+  const lead = await newBot("Room lead", "lead");
+  const aide = await newBot("Room aide", "aide");
+  const created = await api("POST", "/api/groups", { token: owner, body: { memberIds: [lead.id, aide.id], name: "Plans", setup: { bulletin: "", defaultResponder: { kind: "everyone" } } } });
+  expect(created.status, JSON.stringify(created.body)).toBe(201);
+  const room = created.body.group as { id: string; threadId: string };
+  const mine = await newThread(lead);
+  const leadTools = await toolsFor(() => say(owner, lead, "Ask Aide in Plans to check my plan.", mine));
+  const aideTools = await toolsFor(async () => {
+    const sent = await leadTools("coordinate_bots", { bot_ids: [aide.id], group_id: room.id, message: "Check the plan." });
+    expect(sent.isError, JSON.stringify(sent)).toBeFalsy();
+  });
+  expect(heldSystem()).not.toContain(READ_ONLY);
+  expect((await sees(aideTools)).computers).toHaveLength(1);
+  expect(JSON.parse((await reads(aideTools)).content[0].text).content).toBe("from the Mac");
+  await stop(lead, mine);
+  expect((await api("POST", `/api/groups/${room.id}/interrupt`, { token: owner, body: {} })).status).toBe(200);
+  await expect.poll(async () => ((await api("GET", "/api/bots", { token: owner })).body.bots as any[])
+    .filter((candidate) => candidate.id === lead.id || candidate.id === aide.id).some((candidate) => candidate.busy), { timeout: 15_000 }).toBe(false);
 }, 90_000);
 
 it("results that come back after the owner wrote again resume as the owner's own turn: the Mac stays in reach and it may write memory", async () => {

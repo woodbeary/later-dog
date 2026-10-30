@@ -580,24 +580,32 @@ On the Cloud home (`server/shared-computers.ts`, `server/index.ts`):
 - The server refuses operations outside the scopes the Mac registered before
   queuing them, never retries an operation with an unknown outcome, and never
   substitutes its own files for an offline Mac.
-- Only turns that provably act for the owner may use the lent Mac
+- Only turns that act for the owner may use the lent Mac
   (`server/cloud-lending.ts`): a conversation the owner started from one of
-  their own devices (a live session with admin scope), a scheduled run of a
-  routine the owner wrote or last rewrote from one of those devices, or a run
-  of it the owner started by hand. Never a webhook-started run (its payload
-  comes from outside), a guest's conversation or routine (a device paired
-  with chat-only access), a routine someone else rewrote, a room, a bot's
-  delegated or peer turn, a local process on the Cloud, or anything the
-  harness cannot trace. A conversation qualifies only while the owner opened
-  it and it holds nobody else's words, anywhere in it, before or during the
-  turn: one line from a guest, a teammate bot or a local process (sent,
-  queued, steered or handed in, or history imported with a move), one card
-  answer from someone else, one report of a routine the owner did not
-  write, or one message a webhook posted (a webhook that posts to chat
-  writes into the bot's Updates conversation), takes that conversation out
-  of lending for good, because a resumed session carries everything said in
-  it. A conversation a guest opened (and
-  named) is never the owner's, whoever writes in it. The bot is told "Someone else wrote in this
+  their own devices (a live session with admin scope), a room only the owner
+  and their own dogs write in, work one of those turns hands a teammate
+  (delegation, coordination, a room handoff, however deep) and the turn that
+  resumes with its results, a scheduled run of a routine the owner wrote or
+  last rewrote from one of those devices, or a run of it the owner started by
+  hand or one of these turns started (`run_now`). Never a webhook-started run
+  (its payload comes from outside), a guest's conversation or routine (a
+  device paired with chat-only access), a routine someone else rewrote, work
+  a guest's or a webhook's turn hands on, however deep, a local process on
+  the Cloud, or a turn the owner stopped. A turn with no request line of its
+  own (a resumed or delegated turn, a room turn) is judged by the
+  conversation it runs in. A conversation qualifies only while the owner
+  opened it and it holds nobody else's words, anywhere in it, before or
+  during the turn: one line from a guest or a local process (sent, queued,
+  steered or handed in, or history imported with a move), one card answer
+  from someone else, one report of a routine the owner did not write, or
+  one message a webhook posted (a webhook that posts to chat writes into
+  the bot's Updates conversation), takes that conversation out of lending
+  for good, because a resumed session carries everything said in it. In a
+  home with only the owner's own devices, lines from the owner's own dogs (a
+  delegation, a question from a teammate) and the prompt of a run of the
+  owner's own routine count as the owner's; a webhook run's prompt, or one
+  of a routine someone else wrote, never does. A conversation a guest opened
+  (and named) is never the owner's, whoever writes in it. The bot is told "Someone else wrote in this
   conversation, so it can't use your Mac. Start a new conversation to use it."
   and the lending switch says the same. The owner's own edits count as theirs,
   and the harness's own automatic card settlements do not count. A
@@ -667,9 +675,10 @@ On the Cloud home (`server/shared-computers.ts`, `server/index.ts`):
     session tools (`session_search`, `session_read`) draw
     only on conversations the owner alone opened and wrote in (a title is
     words too);
-  - a room only the owner writes in is theirs, and so is the turn that
-    resumes with the results of work the owner's own turn handed a teammate,
-    also when the owner wrote again in the meantime;
+  - a room only the owner and their own dogs write in is theirs, and so is
+    the work the owner's own turn hands a teammate, in a conversation or a
+    room, and the turn that resumes with its results, also when the owner
+    wrote again in the meantime;
   - on a Cloud home memory is never read through a link.
 - What this cannot stop: any conversation whose bot can run commands without
   the owner approving (Auto or Full access, or a remembered command), a
