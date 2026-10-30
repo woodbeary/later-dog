@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { writeFileAtomic } from "./atomic.ts";
 import { settleReceivedMove } from "./laterdog/cloud-move-received.ts";
+import { presentEntry, presentNames } from "./laterdog/present-entries.ts";
 import { type WorkspaceBackupProfile } from "./laterdog/cloud-move-profile.ts";
 import {
   MAX_WORKSPACE_BACKUP_FILES, MAX_WORKSPACE_BACKUP_UPLOAD_BYTES, omittedFromWorkspaceBackup, removeWorkspaceBackupJob,
@@ -55,11 +56,11 @@ export function isEmptyWorkspace(contents: WorkspaceContents): boolean {
 export function workspaceMoveSize(dataDir: string, profile?: WorkspaceBackupProfile): { bytes: number; files: number } {
   let bytes = 0, files = 0;
   const walk = (directory: string, prefix: string) => {
-    for (const name of readdirSync(directory)) {
+    for (const name of presentNames(directory)) {
       const path = prefix ? `${prefix}/${name}` : name;
       if (omittedFromWorkspaceBackup(path, profile)) continue;
-      const stat = lstatSync(join(directory, name));
-      if (stat.isSymbolicLink()) continue;
+      const stat = presentEntry(join(directory, name));
+      if (!stat || stat.isSymbolicLink()) continue;
       if (stat.isDirectory()) walk(join(directory, name), path);
       else if (stat.isFile()) { bytes += stat.size; files++; }
       if (files > CLOUD_MOVE_MAX_FILES) return;
