@@ -627,3 +627,14 @@ describe("admin scope only (a later.dog Cloud home is personal: server/cloud-own
     expect(next.ok).toBe(true);
   });
 });
+
+describe("renaming a signed-in device", () => {
+  it("keeps the new name across a restart and leaves the credential alone", () => {
+    const { token, session } = registry.issue({ label: "Safari on iPhone", scopes: ["admin"] });
+    expect(registry.rename(session.id, "Jacob's iPhone")).toMatchObject({ id: session.id, label: "Jacob's iPhone" });
+    const restarted = new SessionRegistry({ file: file(), now: () => clock });
+    expect(restarted.list().find((entry) => entry.id === session.id)?.label).toBe("Jacob's iPhone");
+    expect(restarted.authenticate(token)?.id).toBe(session.id);
+    expect(registry.rename("missing", "Old Mac")).toBeNull();
+  });
+});
