@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { DraftContext, type DraftScope } from "./draft-context";
+import { LinkPreviews } from "./LinkPreviewCard";
 import { MessageActions, messageActionClass } from "@/components/MessageActions";
 import { ReactionPicker } from "@/components/ReactionPicker";
 import { ReactionPills } from "@/components/ReactionPills";
@@ -613,7 +614,7 @@ const Bubble = memo(function Bubble({
               {viewRaw && text ? (
                 <div data-citation-source={message.id} data-citation-owner-type="bot" data-citation-owner={botId} data-citation-thread={threadId}><RawMarkdownView text={text} /></div>
               ) : text ? (
-                <div data-citation-source={message.id} data-citation-owner-type="bot" data-citation-owner={botId} data-citation-thread={threadId}><ChatMarkdown text={text} mentionPeers={mentionPeers} message={{ threadId, messageId: message.id }} /></div>
+                <><div data-citation-source={message.id} data-citation-owner-type="bot" data-citation-owner={botId} data-citation-thread={threadId}><ChatMarkdown text={text} mentionPeers={mentionPeers} message={{ threadId, messageId: message.id }} /></div><LinkPreviews text={text} /></>
               ) : null}
             </MessageBoundary>
           )}
