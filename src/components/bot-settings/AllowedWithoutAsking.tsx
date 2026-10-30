@@ -15,6 +15,7 @@ function itemWords(item: AllowedItem, dogName: (id: string) => string): { label:
     case "connector": return { label: t("allowed.connector", { app: item.app }) };
     case "askDog": return { label: t("allowed.askDog", { name: dogName(item.dogId) }) };
     case "delegateDog": return { label: t("allowed.delegateDog", { name: dogName(item.dogId) }) };
+    case "vault": return { label: t("allowed.vault", { site: item.site }) };
     case "command": return { label: t("allowed.command", { command: item.command }), detail: t("allowed.commandIn", { cwd: item.cwd }) };
     default: return { label: item.key };
   }

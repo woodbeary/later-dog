@@ -16,7 +16,10 @@ afterEach(async () => {
 
 async function serve(answer: SecureFormSubmit) {
   const calls: unknown[][] = [];
-  const routes = [createSecureFormRoutes({ forms: { submit: (...args) => { calls.push(args); return answer; } } })];
+  const routes = [createSecureFormRoutes({ forms: {
+    submit: (...args) => { calls.push(["submit", ...args]); return answer; },
+    useSaved: (...args) => { calls.push(["useSaved", ...args]); return answer; },
+  } })];
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     try {
@@ -51,7 +54,21 @@ describe("Secure Form submit route", () => {
     const response = await submit(base, { threadId: "thread-1", values: { email: "kit@example.com" } });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ card: CARD });
-    expect(calls).toEqual([["dog-1", "thread-1", "form-1", { email: "kit@example.com" }]]);
+    expect(calls).toEqual([["submit", "dog-1", "thread-1", "form-1", { email: "kit@example.com" }, { save: false }]]);
+  });
+
+  it("asks the form to save the login only when the person ticked it", async () => {
+    const { base, calls } = await serve({ ok: true, card: CARD, saved: true });
+    const response = await submit(base, { threadId: "thread-1", values: { email: "kit@example.com" }, save: true });
+    expect(await response.json()).toEqual({ card: CARD, saved: true });
+    expect(calls).toEqual([["submit", "dog-1", "thread-1", "form-1", { email: "kit@example.com" }, { save: true }]]);
+  });
+
+  it("fills the form from a saved login when the body names one, and never reads values then", async () => {
+    const { base, calls } = await serve(SENDING);
+    const response = await submit(base, { threadId: "thread-1", login: "login-1", always: true, values: { email: "ignored" } });
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([["useSaved", "dog-1", "thread-1", "form-1", { login: "login-1", always: true }]]);
   });
 
   it("passes on the form's refusal with its status", async () => {

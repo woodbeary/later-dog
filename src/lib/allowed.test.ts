@@ -7,6 +7,8 @@ describe("what a dog may do without asking", () => {
     expect(grantItem("connector:zoho_crm")).toMatchObject({ kind: "connector", app: "Zoho Crm" });
     expect(grantItem("ask_bot:dog-2")).toEqual({ kind: "askDog", key: "ask_bot:dog-2", dogId: "dog-2" });
     expect(grantItem("delegate_bot:dog-3")).toEqual({ kind: "delegateDog", key: "delegate_bot:dog-3", dogId: "dog-3" });
+    expect(grantItem("vault:google.com")).toEqual({ kind: "vault", key: "vault:google.com", site: "google.com" });
+    expect(grantItem("vault:localhost")).toEqual({ kind: "other", key: "vault:localhost" });
     expect(grantItem("Bash")).toEqual({ kind: "other", key: "Bash" });
     expect(appName("github")).toBe("GitHub");
   });

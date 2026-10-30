@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { Check, Eye, EyeOff, Globe, Loader2, LockKeyhole, X } from "lucide-react";
+import { Check, Eye, EyeOff, Globe, KeyRound, Loader2, LockKeyhole, TriangleAlert, X } from "lucide-react";
 
 import { SECURE_VALUE_CHARS, shownSecureFormStatus, type SecureFormCardData, type SecureFormField, type SecureFormStatus } from "../../shared/secure-form";
+import { savesAsLogin, vaultFieldPlan, type VaultLogin, type VaultOffers } from "../../shared/vault";
 import { useModalDialog } from "@/hooks/use-modal-dialog";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
@@ -71,6 +72,7 @@ export function SecureFormCard({
   const openButton = useRef<HTMLButtonElement>(null);
   const fillable = status === "open";
   const canOpen = fillable;
+  const offers = useVaultOffers(fillable ? card.host : null);
 
   return (
     <RequestCard
@@ -78,7 +80,7 @@ export function SecureFormCard({
       data={{ "data-secure-form": status }}
       media={<Globe size={17} aria-hidden="true" />}
       title={card.title}
-      subtitle={t("secureForm.caption")}
+      subtitle={card.saved ? t("secureForm.savedLogin", { username: card.saved.username || t("secureForm.noUsername") }) : t("secureForm.caption")}
       active={fillable}
       onActivate={canOpen ? () => setOpen(true) : undefined}
       trailing={canOpen ? (
@@ -97,9 +99,11 @@ export function SecureFormCard({
       {open && canOpen && (
         <SecureFormDialog
           botId={botId}
+          botName={botName}
           threadId={threadId}
           messageId={message.id}
           card={card}
+          offers={offers}
           onClose={() => {
             setOpen(false);
             openButton.current?.focus();
@@ -117,17 +121,34 @@ const INPUT_TYPE: Record<SecureFormField["type"], { type: string; autoComplete: 
   code: { type: "text", autoComplete: "one-time-code", inputMode: "text" },
 };
 
+function useVaultOffers(host: string | null): VaultOffers | null {
+  const [offers, setOffers] = useState<VaultOffers | null>(null);
+  useEffect(() => {
+    if (!host) return;
+    let active = true;
+    api<VaultOffers>(`/api/vault/offers?host=${encodeURIComponent(host)}`, { timeoutMs: 10_000 })
+      .then((next) => { if (active) setOffers(next); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [host]);
+  return offers;
+}
+
 export function SecureFormDialog({
   botId,
+  botName,
   threadId,
   messageId,
   card,
+  offers,
   onClose,
 }: {
   botId: string;
+  botName: string;
   threadId: string;
   messageId: string;
   card: SecureFormCardData;
+  offers: VaultOffers | null;
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -136,25 +157,37 @@ export function SecureFormDialog({
   const [shown, setShown] = useState<Record<string, boolean>>({});
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [always, setAlways] = useState(false);
+  const [save, setSave] = useState(false);
   useModalDialog(dialogRef, onClose);
   const ready = secureFormReady(card.fields, values);
+  const saved = offers && vaultFieldPlan(card.fields) ? offers.logins : [];
+  const savable = offers?.available === true && !offers.lookalike && savesAsLogin(card.fields);
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!ready || sending) return;
+  const send = async (body: Record<string, unknown>) => {
     setSending(true);
     setError(null);
     try {
       await api(`/api/bots/${encodeURIComponent(botId)}/secure-forms/${encodeURIComponent(messageId)}/submit`, {
         method: "POST",
-        body: JSON.stringify({ threadId, values: Object.fromEntries(card.fields.map((field) => [field.id, values[field.id] ?? ""])) }),
+        body: JSON.stringify({ threadId, ...body }),
       });
       setValues({});
       onClose();
     } catch (failure) {
       setSending(false);
-      setError(failure instanceof ApiError && failure.status === 400 ? t("secureForm.invalid") : t("secureForm.failed"));
+      setError(failure instanceof ApiError && failure.status === 400 && !("login" in body) ? t("secureForm.invalid") : t("secureForm.failed"));
     }
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!ready || sending) return;
+    await send({ values: Object.fromEntries(card.fields.map((field) => [field.id, values[field.id] ?? ""])), ...(savable && save ? { save: true } : {}) });
+  };
+
+  const fillFromVault = (login: VaultLogin) => {
+    if (!sending) void send({ login: login.id, ...(always ? { always: true } : {}) });
   };
 
   return createPortal(
@@ -182,6 +215,40 @@ export function SecureFormDialog({
           <X size={16} aria-hidden="true" />
         </button>
         <h2 id={titleId} className="pr-9 text-[16px] font-semibold leading-snug">{card.title}</h2>
+        {saved.length > 0 && (
+          <div data-vault-offers="" className="mt-4 flex flex-col gap-2">
+            <div className="text-[12.5px] font-medium text-ink-secondary">{t("secureForm.savedLogins")}</div>
+            {saved.map((login) => {
+              const username = login.username || t("secureForm.noUsername");
+              return (
+                <div key={login.id} className="flex items-center gap-2.5 rounded-xl bg-composer py-1.5 pl-3 pr-1.5">
+                  <KeyRound size={14} className="shrink-0 text-ink-secondary" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate text-[13.5px]">{username}</span>
+                  <button
+                    type="button"
+                    disabled={sending}
+                    onClick={() => fillFromVault(login)}
+                    aria-label={t("secureForm.useSavedAria", { site: login.site, username })}
+                    className="h-8 shrink-0 rounded-full bg-ink px-3.5 text-[12.5px] font-medium text-app transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-40 motion-reduce:transition-none"
+                  >
+                    {t("secureForm.useSaved")}
+                  </button>
+                </div>
+              );
+            })}
+            <label className="flex items-center gap-2 px-0.5 text-[12.5px] text-ink-secondary">
+              <input type="checkbox" checked={always} onChange={(event) => setAlways(event.target.checked)} className="size-3.5 accent-[var(--color-accent)]" />
+              {t("secureForm.always", { name: botName, site: saved[0]!.site })}
+            </label>
+            <div className="mt-1 text-[12px] text-ink-tertiary">{t("secureForm.orType")}</div>
+          </div>
+        )}
+        {offers?.lookalike && (
+          <p role="alert" data-vault-lookalike="" className="mt-4 flex items-start gap-2 rounded-xl bg-danger/10 px-3 py-2.5 text-[12.5px] leading-[17px] text-danger">
+            <TriangleAlert size={14} className="mt-[1px] shrink-0" aria-hidden="true" />
+            {t("secureForm.lookalike", { host: card.host, site: offers.lookalike })}
+          </p>
+        )}
         <div className="mt-4 flex flex-col gap-3.5">
           {card.fields.map((field, index) => {
             const inputId = `${titleId}-${field.id}`;
@@ -201,7 +268,7 @@ export function SecureFormDialog({
                     autoCapitalize="off"
                     autoCorrect="off"
                     spellCheck={false}
-                    autoFocus={index === 0}
+                    autoFocus={index === 0 && saved.length === 0}
                     maxLength={SECURE_VALUE_CHARS}
                     value={values[field.id] ?? ""}
                     readOnly={sending}
@@ -231,6 +298,12 @@ export function SecureFormDialog({
             );
           })}
         </div>
+        {savable && (
+          <label className="mt-3.5 flex items-center gap-2 text-[12.5px] text-ink-secondary">
+            <input type="checkbox" checked={save} onChange={(event) => setSave(event.target.checked)} data-vault-save="" className="size-3.5 accent-[var(--color-accent)]" />
+            {t("secureForm.saveLogin")}
+          </label>
+        )}
         <p className="mt-4 flex items-start gap-1.5 text-[12px] leading-[17px] text-ink-tertiary">
           <LockKeyhole size={12} className="mt-[2px] shrink-0" aria-hidden="true" />
           {t("secureForm.lock", { host: card.host })}

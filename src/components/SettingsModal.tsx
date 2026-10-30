@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentType } from "react";
-import { Coins, Download, Monitor, SlidersHorizontal, X } from "lucide-react";
+import { Coins, Download, KeyRound, Monitor, SlidersHorizontal, X } from "lucide-react";
 import { useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { analyticsConfigured } from "@/lib/laterdog-analytics";
@@ -30,6 +30,7 @@ import { PhoneGroup } from "./PhoneGroup";
 import { cloudLendingBridge } from "@/lib/cloud-plan-summary";
 import { shortcutLabel } from "./ShortcutHint";
 import { UsageSection } from "./UsageSection";
+import { VaultSettings } from "./VaultSettings";
 import { ThemeRow } from "./ThemeRow";
 import { TimeZoneRow } from "./TimeZoneRow";
 import { cn } from "@/lib/cn";
@@ -37,9 +38,10 @@ import { glassPopupFrameStyle } from "@/lib/glass-popup";
 import { setNotificationSounds, useNotificationSounds } from "@/lib/notification-preferences";
 import { effectiveLanguage, setLanguageChoice, useLanguageChoice } from "@/lib/language-preference";
 
-export const SETTINGS_PAGES: ReadonlyArray<{ id: AppSettingsSection; labelKey: "settings.section.general" | "settings.section.computer" | "settings.section.usage" | "settings.updates.title"; icon: ComponentType<{ size?: number; className?: string }> }> = [
+export const SETTINGS_PAGES: ReadonlyArray<{ id: AppSettingsSection; labelKey: "settings.section.general" | "settings.section.computer" | "settings.section.vault" | "settings.section.usage" | "settings.updates.title"; icon: ComponentType<{ size?: number; className?: string }> }> = [
   { id: "general", labelKey: "settings.section.general", icon: SlidersHorizontal },
   { id: "computer", labelKey: "settings.section.computer", icon: Monitor },
+  { id: "vault", labelKey: "settings.section.vault", icon: KeyRound },
   { id: "usage", labelKey: "settings.section.usage", icon: Coins },
   { id: "updates", labelKey: "settings.updates.title", icon: Download },
 ];
@@ -452,6 +454,7 @@ export function SettingsModal() {
           <div ref={scrollRef} data-settings-content={section} className="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-4 sm:px-5 sm:pb-5">
             {section === "general" && <GeneralPage mac={mac} />}
             {section === "computer" && <ComputerPage mac={mac} />}
+            {section === "vault" && <VaultSettings />}
             {section === "usage" && <UsageSection />}
             {section === "updates" && <UpdatesPage />}
           </div>

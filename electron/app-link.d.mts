@@ -1,6 +1,6 @@
 export type AppLinkScheme = "laterdog" | "laterdog-dev";
 export type AppLinkHost = "dog" | "chat" | "thread" | "settings";
-export type AppLinkSettingsSection = "general" | "computer" | "usage" | "updates";
+export type AppLinkSettingsSection = "general" | "computer" | "vault" | "usage" | "updates";
 
 export type AppLink =
   | { kind: "dog"; id: string }
