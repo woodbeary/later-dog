@@ -1,9 +1,11 @@
 import type { Message } from "../store.ts";
 import { deleteAttachment, saveImage } from "../attachments.ts";
 import { decodeGeneratedImage } from "../generated-image.ts";
-import { screenTouchingTool, toolSurfaceKind } from "../../shared/tool-surface.ts";
+import { TOOL_NAMESPACE, screenTouchingTool, toolSurfaceKind } from "../../shared/tool-surface.ts";
 
 export type TurnImageMessage = Omit<Message, "id" | "at">;
+
+const LOOKING_TOOLS: ReadonlySet<string> = new Set(["read", "read_file", "read_media_file", "shared_computer"]);
 
 export function postTurnImage(data: string, turnId: string | undefined, post: (message: TurnImageMessage) => unknown): void {
   const decoded = decodeGeneratedImage(data);
@@ -30,8 +32,9 @@ export function latestTurnAnswer(messages: readonly Message[], turnId: string | 
     Boolean(message.text?.trim()));
 }
 
-export function screenCaptureFrom(messages: readonly Message[], itemId: string | undefined): boolean {
+export function lookedAtImage(messages: readonly Message[], itemId: string | undefined): boolean {
   if (!itemId) return false;
   const name = messages.findLast((message) => message.kind === "activity" && message.tool?.itemId === itemId)?.tool?.name;
-  return Boolean(name && (screenTouchingTool(name) || toolSurfaceKind(name) !== null));
+  if (!name) return false;
+  return screenTouchingTool(name) || toolSurfaceKind(name) !== null || LOOKING_TOOLS.has(name.toLowerCase().replace(TOOL_NAMESPACE, ""));
 }

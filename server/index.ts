@@ -670,7 +670,7 @@ import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold, withWaitingRuns } from "./laterdog/limit-hold.ts";
 import { carryOnAfterRestart } from "./laterdog/carry-on-restart.ts";
 import { runningByAccount } from "./laterdog/account-spread.ts";
-import { latestTurnAnswer, postTurnImage, screenCaptureFrom } from "./laterdog/turn-images.ts";
+import { latestTurnAnswer, lookedAtImage, postTurnImage } from "./laterdog/turn-images.ts";
 import { mountsAutoCloud } from "./laterdog/auto-cloud.ts";
 import { steerWords } from "./laterdog/steer-images.ts";
 import { sendQueuedAsNextTurn, steerWhileRunning } from "./laterdog/queued-steer.ts";
@@ -6488,7 +6488,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         pushMessage({ role: "bot", kind: "text", text, turnId: event.turnId });
         lastReply.set(event.threadId, text);
       } else if (event.itemType === "assistant_image") {
-        if (screenCaptureFrom(store.messagesFor(event.threadId), event.itemId)) break;
+        if (lookedAtImage(store.messagesFor(event.threadId), event.itemId)) break;
         try {
           postTurnImage(event.data, event.turnId, pushMessage);
         } catch (error) {
