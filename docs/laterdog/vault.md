@@ -1,6 +1,6 @@
 # Vault: saved logins and contact details for dogs
 
-Status: proposed, waiting on one setup step from the owner (below). Nothing here is built yet.
+Status: proposed, waiting on the owner's yes. Nothing here is built yet.
 
 ## What it does
 
@@ -17,13 +17,19 @@ Status: proposed, waiting on one setup step from the owner (below). Nothing here
 - So the R2 snapshots of a home, and any backup or Cloud move, hold only ciphertext. Reading a vault needs both the snapshot and the Worker secret.
 - Deriving from the existing `HOME_SECRET` would avoid a setup step, but rotating `HOME_SECRET` would then make every vault unreadable. A separate secret keeps the two independent, and that is the plan.
 
-## The one setup step (the owner runs it)
+## The one setup step (the owner runs it, when the vault ships)
 
-```sh
-cd ~/code/dog/deploy/laterdog/home && openssl rand -base64 32 | pnpm exec wrangler secret put VAULT_SECRET
-```
+The home Worker runs containers, and changing a container Worker any way other than a full `wrangler deploy` can leave a version without its image, which stops every home from starting. Setting a secret makes a new version too. So the secret goes in during the release that ships the vault, not before:
 
-The value goes straight from `openssl` to Cloudflare and is never shown. After that, the home Worker deploy that adds the internal host ships the vault.
+1. The full `wrangler deploy` of the home Worker with the internal host.
+2. The owner runs:
+
+   ```sh
+   cd ~/code/dog/deploy/laterdog/home && openssl rand -base64 32 | pnpm exec wrangler secret put VAULT_SECRET
+   ```
+
+   The value goes straight from `openssl` to Cloudflare and is never shown.
+3. Check that the version now deployed still names the same home image and every earlier secret, and that a home starts. If not, roll back to the version from step 1.
 
 ## Filling a page
 
