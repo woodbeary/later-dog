@@ -701,6 +701,7 @@ import { createHandoffContinueRoutes } from "./routes/handoff-continue.ts";
 import { createMacAccessRoutes } from "./routes/mac-access.ts";
 import { createComputerChangeRoutes } from "./routes/computer-change.ts";
 import { createCloudTrialRoutes } from "./routes/cloud-trial.ts";
+import { createIncludedUsageRoutes } from "./routes/included-usage.ts";
 import { autoStartTrial } from "./laterdog/cloud-trial.ts";
 import { newDogComputer } from "./laterdog/new-dog-computer.ts";
 import { homeCloudPlan, type HomeCloudReadiness } from "./laterdog/home-cloud-computer.ts";
@@ -12568,6 +12569,7 @@ ROUTES.push(createCloudTrialRoutes({
     void reloadIncludedAi().catch((error) => console.warn(`[included-ai] reload failed: ${(error as Error).message}`));
   },
 }));
+ROUTES.push(createIncludedUsageRoutes());
 
 if (!process.env.VITEST) setTimeout(() => {
   void (async () => {

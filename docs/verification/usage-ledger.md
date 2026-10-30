@@ -19,8 +19,20 @@
 
 ## User path
 
-Settings → Usage shows the live per-bot card and, below it, **History**: pick
-a period, group it, or **Export CSV**.
+Settings → Usage shows the live per-bot card, then **Included with later.dog**:
+today's use of dictation, voice, chat, typing suggestions and auto-review, each
+with what is left of its daily allowance, and a 30-day chart of the one picked.
+Below it, **History**: pick a period, group it, switch between the chart and the
+table, or **Export CSV**. Every chart has a table view.
+
+On the owner's later.dog, Settings also has **Dashboard**: every install's
+dictation, voice and chat by day with active users, the estimated spend per
+provider, the top users by cost, and the grant set for each provider with how
+much of it is spent. Grants are edited there. Other installs see only their own
+usage and no Dashboard page. Both read the usage service through
+`GET /api/included-usage`, `GET /api/owner-usage` and
+`PUT /api/owner-usage/grants`, which answer `null` or 404 when this install has
+no included key or is not the owner's.
 
 ## Driving it
 
@@ -66,12 +78,15 @@ the turn appears under **Bot** and under **Person** as "This computer".
 
 ```sh
 pnpm exec vitest run server/usage-ledger.test.ts src/components/UsageHistory.test.ts server/request-auth.test.ts
+pnpm exec vitest run server/routes/included-usage.test.ts src/lib/included-usage.test.ts src/components/UsageSection.test.ts src/components/OwnerDashboard.test.ts src/components/SettingsModal.pages.test.ts
 ```
 
 These cover month files and 0600 modes, torn lines, clamped tokens, a blocked
 directory never failing the turn, range parsing, every grouping, spreadsheet
 formula neutralisation in the CSV, the localized person labels, and the admin
-scope on both routes.
+scope on both routes. The second line covers the usage service's answers being
+checked and cached, grants validated before they are sent, the included tiles
+and their table, the owner-only Dashboard page, and the grant editor's request.
 
 ## Gotchas
 

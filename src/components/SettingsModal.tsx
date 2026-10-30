@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentType } from "react";
-import { Coins, Download, KeyRound, Monitor, SlidersHorizontal, X } from "lucide-react";
+import { ChartColumn, Coins, Download, KeyRound, Monitor, SlidersHorizontal, X } from "lucide-react";
 import { useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { analyticsConfigured } from "@/lib/laterdog-analytics";
@@ -31,6 +31,8 @@ import { cloudLendingBridge } from "@/lib/cloud-plan-summary";
 import { shortcutLabel } from "./ShortcutHint";
 import { UsageSection } from "./UsageSection";
 import { VaultSettings } from "./VaultSettings";
+import { OwnerDashboard } from "./OwnerDashboard";
+import { useIncludedUsage } from "@/lib/included-usage";
 import { ThemeRow } from "./ThemeRow";
 import { TimeZoneRow } from "./TimeZoneRow";
 import { cn } from "@/lib/cn";
@@ -38,11 +40,12 @@ import { glassPopupFrameStyle } from "@/lib/glass-popup";
 import { setNotificationSounds, useNotificationSounds } from "@/lib/notification-preferences";
 import { effectiveLanguage, setLanguageChoice, useLanguageChoice } from "@/lib/language-preference";
 
-export const SETTINGS_PAGES: ReadonlyArray<{ id: AppSettingsSection; labelKey: "settings.section.general" | "settings.section.computer" | "settings.section.vault" | "settings.section.usage" | "settings.updates.title"; icon: ComponentType<{ size?: number; className?: string }> }> = [
+export const SETTINGS_PAGES: ReadonlyArray<{ id: AppSettingsSection; labelKey: "settings.section.general" | "settings.section.computer" | "settings.section.vault" | "settings.section.usage" | "settings.section.dashboard" | "settings.updates.title"; icon: ComponentType<{ size?: number; className?: string }>; ownerOnly?: boolean }> = [
   { id: "general", labelKey: "settings.section.general", icon: SlidersHorizontal },
   { id: "computer", labelKey: "settings.section.computer", icon: Monitor },
   { id: "vault", labelKey: "settings.section.vault", icon: KeyRound },
   { id: "usage", labelKey: "settings.section.usage", icon: Coins },
+  { id: "dashboard", labelKey: "settings.section.dashboard", icon: ChartColumn, ownerOnly: true },
   { id: "updates", labelKey: "settings.updates.title", icon: Download },
 ];
 
@@ -330,7 +333,9 @@ function UpdatesPage() {
 
 export function SettingsModal() {
   const { state, dispatch } = useStore();
-  const section: AppSettingsSection = SETTINGS_PAGES.some((page) => page.id === state.appSettingsSection) ? state.appSettingsSection : "general";
+  const owner = useIncludedUsage().usage?.owner === true;
+  const pages = SETTINGS_PAGES.filter((page) => !page.ownerOnly || owner);
+  const section: AppSettingsSection = pages.some((page) => page.id === state.appSettingsSection) ? state.appSettingsSection : "general";
   const dialogRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const mac = checklistHost(window.laterdog) === "mac";
@@ -387,7 +392,7 @@ export function SettingsModal() {
   }, [dispatch]);
 
   const openSection = (id: AppSettingsSection) => dispatch({ type: "toggleAppSettings", open: true, section: id });
-  const current = SETTINGS_PAGES.find((page) => page.id === section) ?? SETTINGS_PAGES[0]!;
+  const current = pages.find((page) => page.id === section) ?? pages[0]!;
 
   return (
     <div
@@ -410,7 +415,7 @@ export function SettingsModal() {
             {t("settings.title")}
           </div>
           <div className="flex flex-col gap-0.5 pb-2">
-            {SETTINGS_PAGES.map(({ id, labelKey, icon: Icon }) => (
+            {pages.map(({ id, labelKey, icon: Icon }) => (
               <button
                 key={id}
                 data-settings-page={id}
@@ -435,7 +440,7 @@ export function SettingsModal() {
               onChange={(event) => openSection(event.target.value as AppSettingsSection)}
               className="min-w-0 rounded-lg bg-control px-3 py-2 text-[14px] text-ink sm:hidden"
             >
-              {SETTINGS_PAGES.map(({ id, labelKey }) => (
+              {pages.map(({ id, labelKey }) => (
                 <option key={id} value={id}>{t(labelKey)}</option>
               ))}
             </select>
@@ -456,6 +461,7 @@ export function SettingsModal() {
             {section === "computer" && <ComputerPage mac={mac} />}
             {section === "vault" && <VaultSettings />}
             {section === "usage" && <UsageSection />}
+            {section === "dashboard" && <OwnerDashboard />}
             {section === "updates" && <UpdatesPage />}
           </div>
         </div>

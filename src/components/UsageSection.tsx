@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useStore } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { botUsage, costCaption, formatUsd, hasFiniteCost } from "@/lib/usage";
+import { IncludedUsage } from "./IncludedUsage";
 import { PlanBilling } from "./PlanBilling";
 import { UsageHistory, fetchUsage, usagePeriodRange, type UsageSummary } from "./UsageHistory";
 import { UsageAccounts } from "./UsageAccounts";
@@ -30,10 +31,11 @@ export function UsageSection() {
     <>
       <PlanBilling />
       <UsageAccounts />
+      <IncludedUsage />
       <section data-usage-cost="" className="flex flex-col gap-1.5">
         <h3 className="px-4 text-[12px] font-medium text-ink-secondary">{t("usage.costSoFar")}</h3>
         <div className="rounded-xl bg-card px-4 py-3">
-          <div className="text-[22px] font-semibold tabular-nums text-ink">{cost === null ? "—" : formatUsd(cost)}</div>
+          <div className="text-[22px] font-semibold text-ink">{cost === null ? "—" : formatUsd(cost)}</div>
           {caption && <p className="mt-0.5 text-[12px] leading-relaxed text-ink-secondary">{caption}</p>}
         </div>
       </section>

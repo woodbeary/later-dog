@@ -5,11 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppState, Bot, InstanceInfo, TaskUsage } from "@/state/store";
 import type { PlanProvider } from "./PlanUsage";
 import type { UsageGroup, UsageSummary } from "./UsageHistory";
+import type { IncludedUsage } from "../../shared/included-usage";
 
 const fixture = vi.hoisted(() => ({
   state: null as unknown as AppState,
   providers: [] as PlanProvider[],
   ledger: new Map<string, UsageSummary>(),
+  included: null as IncludedUsage | null,
   api: vi.fn(),
 }));
 
@@ -28,6 +30,7 @@ const { initialState } = await import("@/state/store");
 const { setLocale } = await import("@/lib/i18n");
 const { usagePeriodRange } = await import("./UsageHistory");
 const { UsageSection } = await import("./UsageSection");
+const { reloadIncludedUsage } = await import("@/lib/included-usage");
 
 const HOUR = 3_600_000;
 const usage = (patch: Partial<TaskUsage>): TaskUsage => ({ input: 1_000, output: 200, costUsd: null, turns: 1, ...patch });
@@ -74,14 +77,16 @@ async function show(bots: Bot[], instances: InstanceInfo[], ledger: UsageGroup[]
   fixture.state = { ...initialState, bots, instances };
   fixture.ledger = new Map([["year", summary(ledger)], ["month", summary(ledger)]]);
   await act(async () => root.render(createElement(UsageSection)));
-  await act(async () => { for (let turn = 0; turn < 10; turn += 1) await Promise.resolve(); });
+  await act(async () => { await reloadIncludedUsage(); for (let turn = 0; turn < 10; turn += 1) await Promise.resolve(); });
 }
 
 beforeEach(() => {
   setLocale("en");
   fixture.providers = [];
+  fixture.included = null;
   fixture.api.mockReset();
   fixture.api.mockImplementation(async (path: string) => {
+    if (path.startsWith("/api/included-usage")) return { usage: fixture.included };
     const from = new URL(path, "http://fixture.test").searchParams.get("from");
     return fixture.ledger.get(from === yearAgo() ? "year" : "month");
   });
@@ -130,6 +135,52 @@ describe("the Usage page", () => {
     expect(rows().map((row) => row.querySelector("[data-usage-unavailable]")?.textContent ?? null)).toEqual(["Usage unavailable", "Usage unavailable"]);
   });
 
+  it("shows what later.dog includes today as tiles, the last 30 days as a chart, and a table on request", async () => {
+    fixture.included = {
+      owner: false, tier: "trial", today: "2026-10-30",
+      days: [
+        { day: "2026-10-29", used: { transcribe_seconds: 600, voice_chars: 1_200 } },
+        { day: "2026-10-30", used: { transcribe_seconds: 90, ai_tokens: 40_000, grok_tokens: 2_000 } },
+      ],
+      limits: { transcribe_seconds: 1_800, voice_chars: 10_000, ai_tokens: 200_000, completions: 500, decisions: 300 },
+    };
+    await show([], [account("claude", "Personal")], []);
+    const order = ["data-plan-usage", "data-included-usage", "data-usage-cost"].map((marker) => host.innerHTML.indexOf(marker));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    const card = host.querySelector<HTMLElement>("[data-included-usage]")!;
+    const tiles = () => [...card.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="Today"] > button')];
+    expect(tiles().map((tile) => tile.textContent)).toEqual([
+      "Dictation2m95% left",
+      "Voice0 characters100% left",
+      "Chat42k tokens80% left",
+      "Typing suggestions0 suggestions100% left",
+      "Auto-review0 checks100% left",
+    ]);
+    expect(tiles()[0]!.getAttribute("aria-pressed")).toBe("true");
+    expect(card.querySelector('[role="group"][aria-label="Last 30 days · Dictation"]')).not.toBeNull();
+    expect(card.textContent).toContain("Free · a daily allowance that resets at midnight UTC");
+
+    await act(async () => tiles()[1]!.click());
+    await act(async () => card.querySelector<HTMLButtonElement>('button[aria-label="Table"]')!.click());
+    expect(card.querySelector("caption")!.textContent).toBe("Last 30 days · Voice");
+    expect([...card.querySelectorAll("tbody tr")].map((row) => row.textContent)).toEqual(["Oct 291.2k characters"]);
+  });
+
+  it("shows an owner's use with no daily limit and no allowance line", async () => {
+    fixture.included = { owner: true, tier: "owner", today: "2026-10-30", days: [{ day: "2026-10-30", used: { transcribe_seconds: 28 } }], limits: null };
+    await show([], [account("claude", "Personal")], []);
+    const card = host.querySelector<HTMLElement>("[data-included-usage]")!;
+    expect(card.querySelector('[role="group"][aria-label="Today"] > button')!.textContent).toBe("Dictation28sNo daily limit");
+    expect(card.querySelector('[role="meter"]')).toBeNull();
+    expect(card.textContent).not.toContain("daily allowance");
+  });
+
+  it("leaves the included card out when later.dog's service has no record of this install", async () => {
+    await show([], [account("claude", "Personal")], []);
+    expect(host.querySelector("[data-included-usage]")).toBeNull();
+  });
+
   it("has no plan row outside the desktop app", async () => {
     await show([], [account("claude", "Personal")], []);
     expect(host.querySelector("[data-plan-row]")).toBeNull();
@@ -143,7 +194,7 @@ describe("the Usage page", () => {
     );
     expect(text()).toContain("Estimated cost so far$0.04");
     expect(text()).toContain("Cost is equivalent — on your subscription, not billed.");
-    expect(host.querySelector("[data-usage-history]")!.textContent).toContain("Total468$0.04");
+    expect(host.querySelector("[data-usage-history]")!.textContent).toContain("Turns4New tokens68Cost$0.04");
     expect(host.querySelector("[data-usage-dogs]")).toBeNull();
     expect(fixture.api.mock.calls.some(([path]) => String(path).includes(`from=${yearAgo()}&`))).toBe(true);
   });
