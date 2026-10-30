@@ -100,7 +100,7 @@ import { markdownPreview } from "../../shared/markdown-preview";
 import { StatusDot } from "./StatusDot";
 import { Collapsible } from "./Collapsible";
 import { copyConversationId } from "@/lib/copy-conversation-id";
-import { dogStatusKind } from "@/lib/dog-status";
+import { attentionKind } from "@/lib/dog-status";
 
 export const MAC_TRAFFIC_LIGHT_CENTER_Y = 23;
 
@@ -164,7 +164,7 @@ function groupPreview(group: Group, bots: Bot[], instances: InstanceInfo[], show
   return last.from ? `${currentDogName(bots.filter((bot) => !bot.hidden), last.from.botId, last.from.name)}: ${readable}` : readable;
 }
 
-function StackedDogs({ members, density }: { members: Bot[]; density: SidebarDensity }) {
+function StackedDogs({ members, density, busyBotId }: { members: Bot[]; density: SidebarDensity; busyBotId?: string }) {
   const iconOnly = density === "icons";
   const slotSize = iconOnly ? "size-12" : "size-8";
   const singleSize = iconOnly ? 44 : 32;
@@ -172,7 +172,7 @@ function StackedDogs({ members, density }: { members: Bot[]; density: SidebarDen
     const b = members[0];
     return (
       <div className={cn("flex shrink-0 items-center justify-center", slotSize)}>
-        {b ? <BotAvatar bot={b} state="happy" size={singleSize} animated={false} /> : <Users size={24} className="text-ink-secondary" />}
+        {b ? <BotAvatar bot={b} state={b.id === busyBotId ? "thinking" : "happy"} size={singleSize} animated={b.id === busyBotId} /> : <Users size={24} className="text-ink-secondary" />}
       </div>
     );
   }
@@ -182,7 +182,7 @@ function StackedDogs({ members, density }: { members: Bot[]; density: SidebarDen
     <div className={cn("flex shrink-0 items-center justify-center", slotSize)}>
       <div className="flex items-center -space-x-2.5">
         {shown.map((b) => (
-          <BotAvatar key={b.id} bot={b} state="happy" size={iconOnly ? 30 : 20} animated={false} />
+          <BotAvatar key={b.id} bot={b} state={b.id === busyBotId ? "thinking" : "happy"} size={iconOnly ? 30 : 20} animated={b.id === busyBotId} />
         ))}
         {extra > 0 && (
           <span className="z-10 flex size-4 items-center justify-center rounded-full border border-hairline/40 bg-raised text-[9px] font-medium text-ink-secondary">
@@ -207,7 +207,6 @@ export function GroupListItem({
 }) {
   const { state, dispatch } = useStore();
   const selected = state.selectedId === group.id;
-  const groupStatus = Boolean(group.busyBotId) || Boolean(group.working);
   const members = group.memberIds
     .map((id) => state.bots.find((b) => b.id === id))
     .filter((b): b is Bot => Boolean(b));
@@ -242,8 +241,8 @@ export function GroupListItem({
       aria-label={density === "icons" ? `${group.name}${group.unread ? ` · ${t("task.unread")}` : ""}` : undefined}
     >
       <span className="relative flex shrink-0">
-        <StackedDogs members={members} density={density} />
-        <StatusDot kind={dogStatusKind({ waiting: false, working: groupStatus })} ring="border-panel" size={density === "icons" ? "size-3" : "size-2.5"} announce={false} />
+        <StackedDogs members={members} density={density} busyBotId={group.busyBotId ?? undefined} />
+        {density === "icons" && <StatusDot kind={group.unread ? "unread" : null} ring="border-panel" size="size-3" className="absolute -right-0.5 -bottom-0.5" />}
       </span>
       <div className={cn("min-w-0 flex-1", density === "icons" && "hidden")}>
         <div className="flex items-baseline justify-between gap-2">
@@ -252,7 +251,7 @@ export function GroupListItem({
         </div>
         <div className="flex items-center justify-between gap-2">
           <span className="truncate text-[11px] text-ink-secondary">{groupPreview(group, state.bots, state.instances, showToolCallsEnabled(state.config))}</span>
-          {group.unread && <span className="size-2 shrink-0 rounded-full bg-accent" aria-label={t("task.unread")} />}
+          <StatusDot kind={group.unread ? "unread" : null} />
         </div>
       </div>
       {density === "icons" && group.unread && (
@@ -794,16 +793,13 @@ export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, ma
       }}
       onClick={() => dispatch({ type: "select", id: bot.id })}
       onContextMenu={(event) => openBotContextMenu(onMenu, bot.id, event)}
-      className="flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-1 text-center outline-none focus-visible:ring-1 focus-visible:ring-accent/60 transition-colors hover:bg-raised/60"
+      className={cn(
+        "flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-1 text-center outline-none focus-visible:ring-1 focus-visible:ring-accent/60 transition-colors",
+        selected ? "bg-raised/70" : "hover:bg-raised/40",
+      )}
     >
       <span className="relative">
-        <span
-          className={cn(
-            "flex size-16 items-center justify-center overflow-hidden",
-            selected && "ring-2 ring-accent ring-offset-2 ring-offset-panel",
-          )}
-          style={{ borderRadius: radius }}
-        >
+        <span className="flex size-16 items-center justify-center overflow-hidden" style={{ borderRadius: radius }}>
           <BotAvatar
             bot={bot}
             state={stateForBot({ ...bot, messages: visible })}
@@ -813,10 +809,7 @@ export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, ma
             animated={working || unread || (mascotMotion?.kind ?? "none") !== "none"}
           />
         </span>
-        {unread && (
-          <span className="absolute top-0.5 right-0.5 size-2.5 rounded-full border-2 border-panel bg-accent" aria-label={t("task.unreadMany")} />
-        )}
-        <StatusDot kind={dogStatusKind({ waiting, working })} ring="border-panel" size="size-3" announce={waiting} />
+        <StatusDot kind={attentionKind({ waiting, unread })} ring={selected ? "border-raised" : "border-panel"} size="size-3" className="absolute top-0 right-0" />
       </span>
       <span className="w-full truncate text-center text-[11px] leading-4 text-ink">{bot.name}</span>
     </button>
@@ -884,7 +877,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
           motionKey={mascotMotion?.nonce ?? 0}
           animated={working || unread || (mascotMotion?.kind ?? "none") !== "none"}
         />
-        <StatusDot kind={dogStatusKind({ waiting, working, teammates: teammateWait, queued })} ring="border-panel" size={iconOnly ? "size-3" : "size-2.5"} announce={waiting || teammateWait || (queued && !working)} />
+        {iconOnly && !renaming && <StatusDot kind={attentionKind({ waiting, unread })} ring="border-panel" size="size-3" className="absolute -right-0.5 -bottom-0.5" />}
         {onLiveCall && iconOnly && (
           <span className="absolute -right-1 -top-1 flex rounded-full bg-panel p-0.5">
             <Phone className="size-3 shrink-0 text-success" role="img" aria-label={t("call.live.badge")} data-testid="live-call-badge">
@@ -938,13 +931,11 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
                   <span className="sr-only">{t("sidebar.preview.working")}</span>
                 </span>
               ) : (
-                <span className="truncate">{waiting ? waitingLine(visible) : teammateWait ? t("sidebar.preview.waitingOnTeammate") : queued ? t("task.queued") : preview(bot, visible, instances, showToolCalls)}</span>
+                <span className={cn("truncate", waiting && "text-waiting-text")}>{waiting ? waitingLine(visible) : teammateWait ? t("sidebar.preview.waitingOnTeammate") : queued ? t("task.queued") : preview(bot, visible, instances, showToolCalls)}</span>
               )}
             </span>
           )}
-          {unread && (
-            <span className="size-2 shrink-0 rounded-full bg-accent" aria-label={t("task.unread")} />
-          )}
+          <StatusDot kind={attentionKind({ waiting, unread })} />
         </div>
       </div>
     </>
@@ -994,9 +985,6 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
       >
         {body}
       </div>
-      {!renaming && iconOnly && unread && (
-        <span className="pointer-events-none absolute bottom-1.5 right-1.5 size-2 rounded-full border border-panel bg-accent" />
-      )}
       {!renaming && !deleting && !iconOnly && <button type="button" aria-label={t("sidebar.bot.actions", { name: bot.name })} title={t("sidebar.bot.actions", { name: bot.name })} aria-haspopup="menu" onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onMenu({ botId: bot.id, x: rect.left, y: rect.bottom }); }}
         className="pointer-events-none absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded text-ink-secondary opacity-0 hover:bg-raised hover:text-ink group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 max-md:pointer-events-auto max-md:opacity-70 touch:pointer-events-auto touch:opacity-70"><MoreHorizontal size={15} /></button>}
       {deleting && iconOnly && (

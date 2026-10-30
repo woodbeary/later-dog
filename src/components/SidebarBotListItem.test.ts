@@ -195,10 +195,24 @@ describe("BotListItem", () => {
     expect(markup).toContain('class="sr-only">Working…');
   });
 
-  it("marks the avatar with a green presence dot only while the bot works", () => {
-    expect(renderRow(bot({ busy: true }))).toContain('data-testid="working-dot"');
-    expect(renderRow(bot())).not.toContain('data-testid="working-dot"');
-    expect(renderRow(bot({ busy: true, activity: "waiting-on-you" }))).not.toContain('data-testid="working-dot"');
+  it("shows work on the dog's face and preview, never with a dot", () => {
+    const markup = renderRow(bot({ busy: true }));
+    expect(markup).not.toContain("data-status=");
+    expect(markup).toContain('data-mood="think"');
+    expect(renderRow(bot({ busy: true }), "icons")).not.toContain("data-status=");
+  });
+
+  it("gives a waiting dog an orange dot and orange words, in place of the blue unread dot", () => {
+    const waiting = renderRow(bot({ busy: true, activity: "waiting-on-you", unread: true }));
+    expect(waiting).toContain('data-testid="waiting-dot"');
+    expect(waiting).toContain("text-waiting-text");
+    expect(waiting).not.toContain('data-testid="unread-dot"');
+    const unread = renderRow(bot({ unread: true }));
+    expect(unread).toContain('data-testid="unread-dot"');
+    expect(unread).toContain("bg-unread");
+    expect(unread).not.toContain("text-waiting-text");
+    expect(renderRow(bot({ unread: true }), "icons")).toContain('data-testid="unread-dot"');
+    expect(renderRow(bot())).not.toContain("data-status=");
   });
 
   it("marks the bot this window is on a Live call with by a green phone badge", () => {
@@ -219,18 +233,17 @@ describe("BotListItem", () => {
     expect(icons).toContain('aria-label="Atlas · On a Live call"');
   });
 
-  it("marks an idle bot waiting on a teammate with a quiet dot, never the work signals", () => {
+  it("tells you an idle bot waits on a teammate in words, never with the work signals", () => {
     const markup = renderRow(bot({ waitingForTeammates: true, busy: false, activity: "idle" }));
-    expect(markup).toContain('data-testid="teammate-wait-dot"');
-    expect(markup).not.toContain('data-testid="working-dot"');
+    expect(markup).not.toContain("data-status=");
     expect(markup).not.toContain("animate-status-pulse");
     expect(markup).toContain("Waiting on another dog…");
   });
 
   it("keeps real sibling work visible while another thread waits for a teammate", () => {
     const markup = renderRow(bot({ waitingForTeammates: true, busy: true, activity: "working" }));
-    expect(markup).toContain('data-testid="working-dot"');
-    expect(markup).not.toContain('data-testid="teammate-wait-dot"');
+    expect(markup).toContain("animate-status-pulse");
+    expect(markup).not.toContain("Waiting on another dog…");
   });
 
   it("keeps Hide in the Actions menu and reveals quiet row controls on focus as well as hover", () => {
@@ -301,10 +314,10 @@ describe("bot deletion feedback", () => {
         card: { title: "Approval needed", subtitle: "rm -rf build", options: ["Allow", "Deny"], requestId: "r1", tool: "Bash", ...extra },
       }) as Bot["messages"][number];
       const markup = renderRow(bot({ activity: "waiting-on-you", messages: [card()] }));
-      expect(markup).toContain('<span class="truncate">Waiting for you: run a command</span>');
-      expect(markup).not.toContain('<span class="truncate">Waiting for you…');
+      expect(markup).toContain('<span class="truncate text-waiting-text">Waiting for you: run a command</span>');
+      expect(markup).not.toContain('<span class="truncate text-waiting-text">Waiting for you…');
       expect(renderRow(bot({ activity: "waiting-on-you", messages: [card({ tool: "mac_run_command" })] }))).toContain("Waiting for you: run a command on your Mac");
-      expect(renderRow(bot({ activity: "waiting-on-you", messages: [card({ answered: "deny" })] }))).toContain('<span class="truncate">Waiting for you…');
+      expect(renderRow(bot({ activity: "waiting-on-you", messages: [card({ answered: "deny" })] }))).toContain('<span class="truncate text-waiting-text">Waiting for you…');
     });
 
     it("keeps the title line for the main dog", () => {

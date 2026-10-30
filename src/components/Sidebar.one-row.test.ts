@@ -104,7 +104,7 @@ describe("one row per dog", () => {
     };
     const waiting = renderToStaticMarkup(createElement(BotListItem, rowProps("comfortable", current)));
     expect(waiting).toContain('data-testid="waiting-dot"');
-    expect(waiting).toContain('aria-label="Unread"');
+    expect(waiting).toContain("data-sidebar-unread");
   });
 
   it("marks the row queued only when the one conversation has a queued send", () => {

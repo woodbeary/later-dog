@@ -1,39 +1,30 @@
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import type { DogStatusKind } from "@/lib/dog-status";
+import type { AttentionKind } from "@/lib/dog-status";
 
-const TESTID: Record<DogStatusKind, string> = {
+const TESTID: Record<AttentionKind, string> = {
   waiting: "waiting-dot",
-  working: "working-dot",
-  teammates: "teammate-wait-dot",
-  queued: "queued-dot",
+  unread: "unread-dot",
 };
 
-const TONE: Record<DogStatusKind, string> = {
-  waiting: "bg-warning",
-  working: "bg-success",
-  teammates: "bg-accent",
-  queued: "bg-ink-secondary",
+const TONE: Record<AttentionKind, string> = {
+  waiting: "bg-waiting",
+  unread: "bg-unread",
 };
 
-function label(kind: DogStatusKind): string {
-  switch (kind) {
-    case "waiting": return t("sidebar.preview.waiting");
-    case "working": return t("chat.activity.working");
-    case "teammates": return t("sidebar.preview.waitingOnTeammate");
-    case "queued": return t("task.queued");
-  }
+function label(kind: AttentionKind): string {
+  return kind === "waiting" ? t("sidebar.preview.waiting") : t("task.unread");
 }
 
 export function StatusDot({
   kind,
   ring,
-  size = "size-2.5",
-  announce = kind !== "working",
+  size = "size-2",
+  announce = kind === "waiting",
   className,
 }: {
-  kind: DogStatusKind | null;
-  ring: string;
+  kind: AttentionKind | null;
+  ring?: string;
   size?: string;
   announce?: boolean;
   className?: string;
@@ -44,16 +35,10 @@ export function StatusDot({
     <span
       data-testid={TESTID[kind]}
       data-status={kind}
-      role={announce ? "status" : undefined}
-      aria-label={announce ? words : undefined}
-      title={announce ? words : undefined}
-      className={cn(
-        "status-dot absolute -right-0.5 -bottom-0.5 rounded-full border-2",
-        size,
-        ring,
-        TONE[kind],
-        className,
-      )}
+      role={announce ? "status" : "img"}
+      aria-label={words}
+      title={words}
+      className={cn("status-dot shrink-0 rounded-full", ring && "border-2", ring, size, TONE[kind], className)}
     />
   );
 }

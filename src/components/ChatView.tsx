@@ -63,7 +63,7 @@ import { dogTint, normalizeState, restingStateForBot, turnState } from "@/lib/ma
 import { peerLine, type PeerLine } from "@/lib/peer-message";
 import { useWorkingDots } from "@/lib/working-dots";
 import { StatusDot } from "./StatusDot";
-import { OPTIMISTIC_PREFIX, dogStatusKind } from "@/lib/dog-status";
+import { OPTIMISTIC_PREFIX } from "@/lib/dog-status";
 import { SendingTrack } from "./SendingTrack";
 import { MOTION } from "@/lib/motion";
 import { useArrivals } from "@/lib/arrivals";
@@ -951,9 +951,7 @@ const MessagesList = memo(function MessagesList({
 });
 
 function HeaderStatusDot({ bot }: { bot: Bot }) {
-  const waiting = bot.activity === "waiting-on-you";
-  const working = Boolean(bot.busy);
-  return <StatusDot kind={dogStatusKind({ waiting, working })} ring="border-composer" announce />;
+  return <StatusDot kind={bot.activity === "waiting-on-you" ? "waiting" : null} ring="border-composer" size="size-2.5" className="absolute -right-0.5 -bottom-0.5" />;
 }
 
 const CHATHEAD_PILL ="flex min-w-0 items-center gap-2 rounded-full border-[0.5px] border-ink/10 bg-composer py-1.5 pl-1.5 text-ink shadow-[0_4px_12px_-1px_rgba(0,0,0,0.08),0_1px_3px_rgba(0,0,0,0.06)]";

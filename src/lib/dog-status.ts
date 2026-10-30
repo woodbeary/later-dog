@@ -1,17 +1,8 @@
-export type DogStatusKind = "waiting" | "working" | "teammates" | "queued";
+export type AttentionKind = "waiting" | "unread";
 
-export interface DogStatusFacts {
-  waiting: boolean;
-  working: boolean;
-  teammates?: boolean;
-  queued?: boolean;
-}
-
-export function dogStatusKind(facts: DogStatusFacts): DogStatusKind | null {
+export function attentionKind(facts: { waiting: boolean; unread?: boolean }): AttentionKind | null {
   if (facts.waiting) return "waiting";
-  if (facts.working) return "working";
-  if (facts.teammates) return "teammates";
-  if (facts.queued) return "queued";
+  if (facts.unread) return "unread";
   return null;
 }
 

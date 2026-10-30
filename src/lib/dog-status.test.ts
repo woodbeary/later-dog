@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { dogStatusKind } from "./dog-status";
+import { attentionKind } from "./dog-status";
 
-describe("the dot that says what a dog is doing", () => {
-  it("asks for you before anything else, then shows work, then waits on teammates, then queued", () => {
-    expect(dogStatusKind({ waiting: true, working: true, teammates: true, queued: true })).toBe("waiting");
-    expect(dogStatusKind({ waiting: false, working: true, teammates: true, queued: true })).toBe("working");
-    expect(dogStatusKind({ waiting: false, working: false, teammates: true, queued: true })).toBe("teammates");
-    expect(dogStatusKind({ waiting: false, working: false, queued: true })).toBe("queued");
-    expect(dogStatusKind({ waiting: false, working: false })).toBeNull();
+describe("the one dot a dog carries", () => {
+  it("asks for you before unread, and has no dot otherwise", () => {
+    expect(attentionKind({ waiting: true, unread: true })).toBe("waiting");
+    expect(attentionKind({ waiting: false, unread: true })).toBe("unread");
+    expect(attentionKind({ waiting: false, unread: false })).toBeNull();
+    expect(attentionKind({ waiting: false })).toBeNull();
   });
 });

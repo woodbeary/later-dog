@@ -25,7 +25,6 @@ import { TurnPresence } from "./TurnPresence";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
 import { UnreadDivider } from "./UnreadDivider";
-import { StatusDot } from "./StatusDot";
 import { useScrollAnchor } from "@/lib/scroll-anchor";
 import { CompactionChip, DigestChip } from "./DigestChip";
 import { roomActivityVisible, transcriptRowShown } from "@/lib/room-activity";
@@ -531,24 +530,17 @@ export function GroupView({ group }: { group: Group }) {
       <span
         key={b.id}
         title={`${b.name}${busy ? " — working…" : ""}`}
-        className={cn(
-          "relative inline-flex rounded-full",
-          busy && "ring-2 ring-accent/50 ring-offset-1 ring-offset-app",
-        )}
+        className="relative inline-flex rounded-full"
       >
-        <BotAvatar bot={b} state={normalizeState(b.mascotExpression) ?? "happy"} size={24} animated={false} />
-        {busy && (
-          showPlace ? (
-            <span
-              className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full border border-app bg-accent text-white"
-              role="img"
-              aria-label={t("place.chipAria", { place: t(placeLabelKey(effective)) })}
-            >
-              <PlaceIcon place={effective} size={9} strokeWidth={2.5} aria-hidden="true" />
-            </span>
-          ) : (
-            <StatusDot kind="working" ring="border-app" size="size-2.5" announce={false} />
-          )
+        <BotAvatar bot={b} state={busy ? "thinking" : normalizeState(b.mascotExpression) ?? "happy"} size={24} animated={busy} />
+        {busy && showPlace && (
+          <span
+            className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full border border-app bg-accent text-accent-ink"
+            role="img"
+            aria-label={t("place.chipAria", { place: t(placeLabelKey(effective)) })}
+          >
+            <PlaceIcon place={effective} size={9} strokeWidth={2.5} aria-hidden="true" />
+          </span>
         )}
       </span>
     );
