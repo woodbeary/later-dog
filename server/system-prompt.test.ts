@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { soulSystemPrompt } from "./bot-folder.ts";
 import { BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
+import { RICH_REPLIES_PROMPT } from "./laterdog/rich-replies.ts";
 import { SECURE_FORM_PROMPT } from "./laterdog/secure-form.ts";
 import {
   buildSystemPrompt,
@@ -103,7 +104,7 @@ describe("buildSystemPrompt", () => {
     expect(built.text).toContain("likes tea");
     expect(built.text).toContain("@Fig");
 
-    expect(built.stable).toBe(`You are Kiwi.${VOICE_PROMPT} Search past sessions.`);
+    expect(built.stable).toBe(`You are Kiwi.${VOICE_PROMPT}${RICH_REPLIES_PROMPT} Search past sessions.`);
     expect(built.volatile).toContain("likes tea");
     expect(built.volatile).toContain("@Fig");
     expect(built.volatile).toContain("today 20:48");
@@ -118,10 +119,11 @@ describe("buildSystemPrompt", () => {
 
   it("is the persona and the voice rule when there is no soul and no parts", () => {
     const built = buildSystemPrompt("You are Kiwi.", "", []);
-    expect(built.text).toBe(`You are Kiwi.${VOICE_PROMPT}`);
+    expect(built.text).toBe(`You are Kiwi.${VOICE_PROMPT}${RICH_REPLIES_PROMPT}`);
     expect(built.sections).toEqual([
       { id: "persona", label: "Identity", text: "You are Kiwi.", bytes: 13 },
       { id: "voice", label: "Voice", text: VOICE_PROMPT, bytes: Buffer.byteLength(VOICE_PROMPT, "utf8") },
+      { id: "replies", label: "Replies", text: RICH_REPLIES_PROMPT, bytes: Buffer.byteLength(RICH_REPLIES_PROMPT, "utf8") },
     ]);
   });
 
@@ -130,7 +132,7 @@ describe("buildSystemPrompt", () => {
     expect(voicePrompt("  ")).toBe(VOICE_PROMPT);
     expect(voicePrompt(" Jacob ")).toBe(`${VOICE_PROMPT} Their name is "Jacob"; use it when it helps.`);
     const named = buildSystemPrompt("You are Kiwi.", "", [], "Jacob");
-    expect(named.text).toBe(`You are Kiwi.${voicePrompt("Jacob")}`);
+    expect(named.text).toBe(`You are Kiwi.${voicePrompt("Jacob")}${RICH_REPLIES_PROMPT}`);
     expect(named.text).toContain('"Jacob"');
     expect(buildSystemPrompt("You are Kiwi.", "", []).text).not.toContain("Their name is");
   });
@@ -152,19 +154,26 @@ describe("buildSystemPrompt", () => {
       { id: "memory", label: "Memory", text: " Your memory file is X." },
     ];
     const built = buildSystemPrompt("You are Kiwi.", "", parts);
-    expect(built.text).toBe(`You are Kiwi.${VOICE_PROMPT} You can act on the computer. Your memory file is X.`);
-    expect(built.sections.map((s) => s.id)).toEqual(["persona", "voice", "computer", "memory"]);
+    expect(built.text).toBe(`You are Kiwi.${VOICE_PROMPT}${RICH_REPLIES_PROMPT} You can act on the computer. Your memory file is X.`);
+    expect(built.sections.map((s) => s.id)).toEqual(["persona", "voice", "replies", "computer", "memory"]);
   });
 
   it("puts the soul block directly after the persona and measures it in bytes", () => {
     const built = buildSystemPrompt("You are Kiwi.", "Be brief. é", [
       { id: "memory", label: "Memory", text: " Your memory file is X." },
     ]);
-    expect(built.sections.map((s) => s.id)).toEqual(["persona", "soul", "voice", "memory"]);
+    expect(built.sections.map((s) => s.id)).toEqual(["persona", "soul", "voice", "replies", "memory"]);
     const soul = built.sections[1]!;
     expect(soul.text).toBe(soulSystemPrompt("Be brief. é"));
     expect(soul.bytes).toBe(Buffer.byteLength(soul.text, "utf8"));
-    expect(built.text).toBe("You are Kiwi." + soul.text + VOICE_PROMPT + " Your memory file is X.");
+    expect(built.text).toBe("You are Kiwi." + soul.text + VOICE_PROMPT + RICH_REPLIES_PROMPT + " Your memory file is X.");
+  });
+
+  it("tells every dog what its replies can show: diagrams and charts, math, and place, product and weather cards from real facts", () => {
+    for (const shows of ["mermaid", "xychart-beta", "pie", "$$", "language is place, product or weather", "\"lat\"", "\"days\"", "Put in only what you got from a tool, a page or the person"]) {
+      expect(RICH_REPLIES_PROMPT).toContain(shows);
+    }
+    expect(buildSystemPrompt("You are Kiwi.", "", []).stable).toContain(RICH_REPLIES_PROMPT);
   });
 });
 

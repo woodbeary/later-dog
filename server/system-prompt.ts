@@ -1,5 +1,6 @@
 import { soulSystemPrompt } from "./bot-folder.ts";
 import { DOG_CREATION_PROMPT } from "./laterdog/dog-creation.ts";
+import { RICH_REPLIES_PROMPT } from "./laterdog/rich-replies.ts";
 import { SECURE_FORM_PROMPT } from "./laterdog/secure-form.ts";
 import { TAKEOVER_PROMPT } from "./laterdog/takeover.ts";
 import { isTimeZone } from "./laterdog/time-zone.ts";
@@ -33,6 +34,7 @@ export function buildSystemPrompt(
     { id: "persona", label: "Identity", text: persona },
     { id: "soul", label: "Standing instructions (SOUL.md)", text: soulSystemPrompt(soul) },
     { id: "voice", label: "Voice", text: voicePrompt(personName) },
+    { id: "replies", label: "Replies", text: RICH_REPLIES_PROMPT },
     ...parts,
   ];
   const sections = ordered
