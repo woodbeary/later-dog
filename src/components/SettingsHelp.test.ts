@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const fixture = vi.hoisted(() => ({ dispatch: vi.fn(), openExternalLink: vi.fn(async () => true) }));
 vi.mock("@/state/store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/state/store")>(),
-  api: vi.fn(),
+  api: vi.fn(() => new Promise(() => {})),
   useStore: () => ({ state: { appSettingsSection: "general", instances: [], bots: [], config: { features: {} } }, dispatch: fixture.dispatch }),
 }));
 vi.mock("@/lib/app-links", async (importOriginal) => ({
