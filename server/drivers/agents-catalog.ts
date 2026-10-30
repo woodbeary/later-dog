@@ -12,6 +12,7 @@ export interface CatalogProfile {
   emailMe?: boolean;
   phone?: boolean;
   memoryEnabled?: boolean;
+  insideTask?: boolean;
   botId: string;
 }
 
@@ -23,6 +24,7 @@ export function catalogProfileFromEnv(env: NodeJS.ProcessEnv): CatalogProfile {
     cloudHome: env.LATERDOG_CLOUD_HOME === "1",
     emailMe: env.LATERDOG_EMAIL_ME === "1",
     phone: env.LATERDOG_PHONE === "1",
+    insideTask: env.LATERDOG_IN_TASK === "1",
     memoryEnabled: env.LATERDOG_MEMORY_ENABLED !== "0",
     botId: env.LATERDOG_BOT_ID ?? "",
   };
@@ -247,6 +249,16 @@ const TOOL_DEFINITIONS = [
       message: { type: "string", minLength: 1, maxLength: 4000, description: "Question or task for these teammates; later requests in the same conversation can build on earlier ones. Send separate requests when responsibilities differ." },
       rework: { type: "boolean", description: "True only to send concrete work again to someone whose request already finished or failed: a correction, a re-check or a retry." },
     }, required: ["bot_ids", "message"] },
+  },
+  {
+    name: "start_tasks",
+    description: "When the person asks for several separate pieces of work at once, start each as a task: a new conversation of yours that runs on its own, with your tools and their approvals. Give each a short title and the whole instruction; the task sees only what you write. Tasks show in the person's Tasks list, where they follow, answer and finish them. For one job or a quick question, just do it here.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      tasks: { type: "array", minItems: 1, maxItems: 5, items: { type: "object", additionalProperties: false, properties: {
+        title: { type: "string", minLength: 1, maxLength: 60 },
+        instruction: { type: "string", minLength: 1, maxLength: 4000 },
+      }, required: ["title", "instruction"] } },
+    }, required: ["tasks"] },
   },
   {
     name: "list_bots",
@@ -704,7 +716,8 @@ export function availableTools(profile: CatalogProfile) {
 function catalogTools(profile: CatalogProfile) {
   const BOT_SCOPED_TOOLS = TOOL_DEFINITIONS.filter((tool) =>
     (profile.botId === WATCHER_OPTIONS_CARD_BOT_ID || !WATCHER_TOOL_NAMES.has(tool.name)) &&
-    (profile.memoryEnabled !== false || (tool.name !== "memory_update" && tool.name !== "memory_log")));
+    (profile.memoryEnabled !== false || (tool.name !== "memory_update" && tool.name !== "memory_log")) &&
+    (profile.insideTask !== true || tool.name !== "start_tasks"));
   const AUTHORING_TOOLS = profile.skillAuthoring
     ? BOT_SCOPED_TOOLS
     : BOT_SCOPED_TOOLS.filter((tool) => !SKILL_TOOL_NAMES.has(tool.name));

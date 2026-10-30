@@ -19,6 +19,8 @@ describe("what the working line says", () => {
 
   it("says what a dog is doing on the person's iPhone", () => {
     expect(dogActivityWords("mcp__agents__read_phone", { what: "calendar" }, nameOf)).toBe("checking your calendar");
+    expect(dogActivityWords("mcp__agents__start_tasks", { tasks: [{}, {}, {}] }, nameOf)).toBe("starting 3 tasks");
+    expect(dogActivityWords("mcp__agents__start_tasks", { tasks: [{}] }, nameOf)).toBe("starting a task");
     expect(dogActivityWords("mcp__agents__read_phone", { what: "contacts", query: "Ana Ruiz" }, nameOf)).toBe("looking up Ana Ruiz");
     expect(dogActivityWords("mcp__agents__read_phone", { what: "location" }, nameOf)).toBe("checking where you are");
     expect(dogActivityWords("mcp__agents__add_to_phone", { what: "reminder", title: "Call mom" }, nameOf)).toBe("adding a reminder");

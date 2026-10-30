@@ -478,6 +478,7 @@ describe("agents-proxy MCP surface", () => {
       "list_shared_computers",
       "shared_computer",
       "coordinate_bots",
+      "start_tasks",
       "list_bots",
       "select_computer",
       "attach_file",

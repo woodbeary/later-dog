@@ -39,11 +39,14 @@ export async function runRoomHandoffAgent(argv: string[], planPath: string, prom
   const basePlan = JSON.parse(readFileSync(planPath, "utf8"))[botId] ?? {};
   const previous = existsSync(`${planPath}.evidence.jsonl`) ? readFileSync(`${planPath}.evidence.jsonl`, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line)) : [];
   const turnIndex = previous.filter(p => p.botId === botId).length;
-  const plan = basePlan.turns ? basePlan.turns[turnIndex] : basePlan;
+  const content = (prompt as any)?.message?.content;
+  const asked = (typeof content === "string" ? content : JSON.stringify(content ?? "")).split("[end of recalled passages — the message follows]").pop() ?? "";
+  const matched = Array.isArray(basePlan.when) ? basePlan.when.find((rule: { includes: string }) => asked.includes(rule.includes)) : undefined;
+  const plan = matched ?? (basePlan.turns ? basePlan.turns[turnIndex] : basePlan);
   if (!plan) throw new Error(`Unexpected extra fixture turn ${turnIndex} for ${botId}`);
   for (const expected of plan.expectSystemIncludes ?? []) if (!system.includes(expected)) throw new Error(`Missing discussion context: ${expected}`);
   for (const expected of plan.expectContextIncludes ?? []) if (!turnContext.includes(expected)) throw new Error(`Missing conversation context: ${expected}`);
-  const steps = basePlan.turns ? plan.steps ?? [] : resumed ? plan.resumeSteps ?? [] : plan.steps ?? [];
+  const steps = matched || basePlan.turns ? plan.steps ?? [] : resumed ? plan.resumeSteps ?? [] : plan.steps ?? [];
   const child = spawn(integration.command, integration.args, { env: { ...process.env, ...integration.env }, stdio: ["pipe", "pipe", "pipe"] });
   const pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
   let serial = 0;
@@ -103,7 +106,7 @@ export async function runRoomHandoffAgent(argv: string[], planPath: string, prom
       if (plan.delayMs) await new Promise(resolve => { delayTimer = setTimeout(resolve, plan.delayMs); });
       if (plan.fail && !resumed) throw new Error("Scripted addressed agent failure");
       if (plan.failResumed && resumed) throw new Error("Scripted failure of a resumed turn");
-      return basePlan.turns ? plan.reply : resumed ? plan.resumeReply ?? `Summary from ${botId}` : plan.reply ?? `Result from ${botId}`;
+      return matched || basePlan.turns ? plan.reply : resumed ? plan.resumeReply ?? `Summary from ${botId}` : plan.reply ?? `Result from ${botId}`;
     })()]);
   } finally {
     closing = true;

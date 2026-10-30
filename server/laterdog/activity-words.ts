@@ -9,7 +9,13 @@ const TEAM_TOOLS: Record<string, (input: Record<string, unknown>, nameOf: NameOf
   shared_computer: (input) => onTheMac(input),
   read_phone: (input) => onThePhone(input),
   add_to_phone: (input) => onThePhone(input),
+  start_tasks: (input) => startingTasks(input),
 };
+
+function startingTasks(input: Record<string, unknown>): string {
+  const count = Array.isArray(input.tasks) ? input.tasks.length : 0;
+  return count > 1 ? `starting ${count} tasks` : "starting a task";
+}
 
 function fileName(value: unknown): string | null {
   if (typeof value !== "string") return null;
