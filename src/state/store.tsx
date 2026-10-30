@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
+import { followsTaskView, followTaskView, reduceTaskView, type TaskView, type TaskViewAction } from "./task-view";
 import type { BotVisibility, CardAnswerer, CloudBackend, ConnectorToolGrant, EffortLevel, InstalledPackageMetadata, LiveCallState, LiveSettings, ServerFrame, GroupThreadUsage, SteerQueueReason } from "../../shared/wire";
 import type { TurnDigest } from "../../shared/digest";
 import type { DamagedData } from "../../shared/damaged-data";
@@ -717,6 +718,8 @@ export interface AppState {
   routinesLoadState: "loading" | "ready" | "error";
   routinesOpen: boolean;
   routinesFocus: { section?: "schedule" | "logs"; view?: "calendar" | "list"; botId?: string; routineId?: string; runStatus?: RoutineRunStatusFilter; nonce: number };
+  tasksOpen: boolean;
+  taskView: TaskView | null;
   settingsOpen: boolean;
   pluginsOpen: boolean;
   pluginsSurface: "apps" | "mcp";
@@ -817,6 +820,7 @@ function replaceBotQueues(state: AppState, queues: AppState["pendingQueued"]): A
 export type BotAnnouncement = Omit<Bot, "messages"> & { messages?: Message[] };
 
 export type Action =
+  | TaskViewAction
   | {
       type: "hydrate";
       bots: Bot[];
@@ -1185,6 +1189,11 @@ export function shownPaneOr(state: Pick<AppState, "bots" | "groups" | "selectedI
 }
 
 export function reducer(state: AppState, action: Action): AppState {
+  const next = baseReducer(state, action);
+  return followsTaskView(action) ? followTaskView(next, action) : next;
+}
+
+function baseReducer(state: AppState, action: Action): AppState {
   if (action.type === "messageAdded" || action.type === "messagePatched" || action.type === "threadActive" || action.type === "optimisticMessageRemoved") {
     const owner = state.bots.find((bot) => (bot.threadId !== action.threadId || bot.awaitingThreadSnapshot) && bot.tasks?.some((task) => task.threadId === action.threadId));
     if (owner) {
@@ -1196,6 +1205,14 @@ export function reducer(state: AppState, action: Action): AppState {
     }
   }
   switch (action.type) {
+    case "showTasks":
+    case "closeTasks":
+    case "openTask":
+    case "taskLoaded":
+    case "taskLoadFailed":
+    case "closeTask":
+    case "markTaskDone":
+      return reduceTaskView(state, action);
     case "hydrate": {
       const known = (id: string) => action.bots.some((b) => b.id === id) || action.groups.some((g) => g.id === id);
       const selectedId =
@@ -2007,6 +2024,8 @@ export const initialState: AppState = {
   routinesLoadState: "loading",
   routinesOpen: false,
   routinesFocus: { nonce: 0 },
+  tasksOpen: false,
+  taskView: null,
   settingsOpen: false,
   pluginsOpen: false,
   pluginsSurface: "apps",
@@ -2583,7 +2602,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (olderPagesInFlight.has(action.threadId)) break;
           olderPagesInFlight.add(action.threadId);
           const current = stateRef.current;
-          const owner = [...current.bots, ...current.groups].find((candidate) => candidate.threadId === action.threadId);
+          const owner = [...current.bots, ...current.groups].find((candidate) => candidate.threadId === action.threadId)
+            ?? (current.taskView?.threadId === action.threadId ? current.taskView : undefined);
           const before = owner?.messages[0]?.id;
           const generation = current.transcriptGeneration[action.threadId] ?? 0;
           if (!before) {
@@ -2608,6 +2628,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             });
           break;
         }
+        case "openTask":
+          api<{ messages?: Message[]; hasMore?: boolean; activeLeafId?: string | null }>(`/api/threads/${action.threadId}/messages?limit=${MESSAGE_PAGE_SIZE}`)
+            .then((page) => {
+              rawDispatch({ type: "taskLoaded", threadId: action.threadId, messages: page.messages ?? [], hasMore: Boolean(page.hasMore), activeLeafId: page.activeLeafId ?? null });
+              api(`/api/bots/${action.botId}/read`, { method: "POST", body: JSON.stringify({ threadId: action.threadId }) }).catch(() => {});
+            })
+            .catch(() => rawDispatch({ type: "taskLoadFailed", threadId: action.threadId }));
+          break;
+        case "markTaskDone":
+          api(`/api/bots/${action.botId}/tasks/${action.threadId}`, { method: "PATCH", body: JSON.stringify({ archivedAt: action.done ? Date.now() : null }) })
+            .catch(failIn(chatPane(action.threadId)));
+          break;
         case "createRoutine":
           api("/api/routines", { method: "POST", body: JSON.stringify(action.input) }).catch(failIn("routines"));
           break;

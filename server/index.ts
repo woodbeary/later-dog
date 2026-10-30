@@ -116,6 +116,8 @@ import { isMacOffline, macOfflineResult, macOptions, macSelectReply, type KnownM
 import { requestGone } from "./laterdog/request-gone.ts";
 import { PHONE_NOT_YOURS, PhoneDesk, phoneWants, type PhoneJob, type PhoneOwner } from "./laterdog/phone-desk.ts";
 import { createPhoneDeviceRoutes, createPhoneToolRoute, isPhoneDevicePath } from "./routes/phone-desk.ts";
+import { createDogTaskRoute } from "./routes/dog-tasks.ts";
+import { startedFromTask } from "./laterdog/dog-tasks.ts";
 import { createSharedJoins } from "./laterdog/shared-join.ts";
 import { configuredSpeechKey, SpeechCache } from "./laterdog/speech-cache.ts";
 import { mp3DurationMs } from "./laterdog/mp3-duration.ts";
@@ -2243,6 +2245,7 @@ function agentsIntegration(
       LATERDOG_CLOUD_HOME: CLOUD_HOME ? "1" : "0",
       LATERDOG_EMAIL_ME: CLOUD_HOME && deliverOwnerEmail ? "1" : "0",
       LATERDOG_PHONE: phoneToolsEnabled() ? "1" : "0",
+      LATERDOG_IN_TASK: startedFromTask(store.taskByThread(botId, threadId)?.openedBy, botId) ? "1" : "0",
       LATERDOG_VOICE_NOTES: (() => {
         const speaking = botForThread(botId, threadId) ?? store.bot(botId);
         return tts.voiceReady(cfg, speaking?.voice) && speaking?.voiceNotes !== false ? "1" : "0";
@@ -12443,6 +12446,19 @@ INTERNAL_ROUTES.push(createPhoneToolRoute({
   enabled: phoneToolsEnabled,
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   request: (job, capability, sender) => usePhone(job, capability as InternalCapability, sender),
+}));
+INTERNAL_ROUTES.push(createDogTaskRoute({
+  active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+  insideTask: (sender, threadId) => startedFromTask(store.taskByThread(sender.id, threadId)?.openedBy, sender.id),
+  starter: (sender, threadId) => ({
+    open: (title, openedBy) => {
+      const task = store.createTask(sender.id, title, false, undefined, openedBy);
+      if (!task) return null;
+      threadStarters.set(task.threadId, openerFrom(threadId));
+      return task.threadId;
+    },
+    run: (taskThreadId, instruction) => startTurn(sender.id, instruction, { threadId: taskThreadId }),
+  }),
 }));
 INTERNAL_ROUTES.push(createEmailMeRoute({
   deliver: CLOUD_HOME ? deliverOwnerEmail : null,

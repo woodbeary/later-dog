@@ -193,6 +193,44 @@
       }
     },
     {
+      "name": "start_tasks",
+      "description": "When the person asks for several separate pieces of work at once, start each as a task: a new conversation of yours that runs on its own, with your tools and their approvals. Give each a short title and the whole instruction; the task sees only what you write. Tasks show in the person's Tasks list, where they follow, answer and finish them. For one job or a quick question, just do it here.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "tasks": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 5,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60
+                },
+                "instruction": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4000
+                }
+              },
+              "required": [
+                "title",
+                "instruction"
+              ]
+            }
+          }
+        },
+        "required": [
+          "tasks"
+        ]
+      }
+    },
+    {
       "name": "list_bots",
       "description": "List the other dogs you can ask with coordinate_bots, with their team, model and whether they are free, and the group chats you are in, with their ids.",
       "inputSchema": {
