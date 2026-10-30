@@ -1034,6 +1034,11 @@ beforeAll(async () => {
         managedBoatRows = managedBoatRows.map((row) => row.id === stopMatch[1] ? { ...row, state: "archived" } : row);
         return res.end(JSON.stringify({ ok: true }));
       }
+      const resumeMatch = requestUrl.pathname.match(/^\/boxes\/(bx_[23456789abcdefghjkmnpqrstuvwxyz]{8})\/resume$/);
+      if (method === "POST" && resumeMatch) {
+        managedBoatRows = managedBoatRows.map((row) => row.id === resumeMatch[1] ? { ...row, state: "idle" } : row);
+        return res.end(JSON.stringify({ ok: true }));
+      }
       const deleteMatch = requestUrl.pathname.match(/^\/boxes\/(bx_[23456789abcdefghjkmnpqrstuvwxyz]{8})$/);
       if (method === "DELETE" && deleteMatch) {
         if (managedBoatCreateMode === "fail-rename" && managedBoatCreatedIds.has(deleteMatch[1]!)) {
@@ -3255,7 +3260,7 @@ describe("harness HTTP API", () => {
     }
   });
 
-  it("blocks bot-scoped Boat lifecycle changes after a direct turn claims the bot", async () => {
+  it("wakes a sleeping computer during a direct turn but blocks sleep and first-time creation", async () => {
     let botId = "";
     try {
       expect((await api("PUT", "/api/config", { box: { token: "box_route" } })).status).toBe(200);
@@ -3278,12 +3283,14 @@ describe("harness HTTP API", () => {
       }];
 
       boatRouteCalls.length = 0;
-      for (const action of ["provision", "sleep"]) {
-        const blocked = await api("POST", `/api/bots/${bot.id}/computer/${action}`, {});
-        expect(blocked.status, action).toBe(409);
-        expect(blocked.body.error, action).toMatch(/active turn.*interrupt/i);
-      }
+      const blockedSleep = await api("POST", `/api/bots/${bot.id}/computer/sleep`, {});
+      expect(blockedSleep.status).toBe(409);
+      expect(blockedSleep.body.error).toMatch(/active turn.*interrupt/i);
       expect(boatRouteCalls).toEqual([]);
+
+      const alreadyAwake = await api("POST", `/api/bots/${bot.id}/computer/provision`, {});
+      expect(alreadyAwake).toMatchObject({ status: 200, body: { ready: true } });
+      expect(boatRouteCalls.every((call) => call.method === "GET")).toBe(true);
 
       const joined = await api("POST", `/api/bots/${bot.id}/computer/join`, {});
       expect(joined).toMatchObject({
@@ -3300,6 +3307,19 @@ describe("harness HTTP API", () => {
       expect(sleepingJoin.body.error).toMatch(/sleeping or starting.*interrupt/i);
       expect(boatRouteCalls.some((call) => call.path.endsWith("/resume"))).toBe(false);
       expect(boatRouteCalls.some((call) => call.path.includes("/desktop"))).toBe(false);
+
+      boatRouteCalls.length = 0;
+      const woken = await api("POST", `/api/bots/${bot.id}/computer/provision`, {});
+      expect(woken).toMatchObject({ status: 200, body: { ready: true, boxId: "bx_3456789a", state: "idle" } });
+      expect(boatRouteCalls.filter((call) => call.path.endsWith("/resume"))).toHaveLength(1);
+      expect(managedBoatRows[0]!.state).toBe("idle");
+
+      managedBoatRows = [];
+      boatRouteCalls.length = 0;
+      const missing = await api("POST", `/api/bots/${bot.id}/computer/provision`, {});
+      expect(missing.status).toBe(409);
+      expect(missing.body.error).toMatch(/active turn.*interrupt/i);
+      expect(boatRouteCalls.some((call) => call.method !== "GET")).toBe(false);
 
       expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId })).status).toBe(200);
       await expect.poll(async () => {
@@ -3354,7 +3374,7 @@ describe("harness HTTP API", () => {
         expect(blocked.status, action).toBe(409);
         expect(blocked.body.error, action).toMatch(/active turn.*interrupt/i);
       }
-      expect(boatRouteCalls).toEqual([]);
+      expect(boatRouteCalls.some((call) => call.method !== "GET")).toBe(false);
 
       expect((await api("POST", `/api/groups/${room.id}/interrupt`, {})).status).toBe(200);
       await expect.poll(async () => {

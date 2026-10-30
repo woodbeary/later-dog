@@ -5596,6 +5596,8 @@ function vpsThreadEnded(botId: string, threadId: string): void {
   if (!threads.size) activeVpsThreads.delete(botId);
 }
 const boatLifecycleBusyBots = new Set<string>();
+const boatWakes = createSharedJoins<Awaited<ReturnType<typeof boat.readyBoat>>>();
+const wakeBotBoat = (botId: string) => boatWakes.run(botId, () => boat.readyBoat(cfg, botId));
 const vpsPreviewRequests = new Map<string, ReturnType<typeof vps.vpsComputerScreenshot>>();
 const vpsJoinRequests = new Map<string, Promise<void>>();
 const orphanBoatLifecycleBusyIds = new Set<string>();
@@ -5826,7 +5828,7 @@ async function startBotBoat(bot: BotRecord) {
   }
   if (lifecycle === "wake") {
     broadcast({ kind: "computer", botId: bot.id, state: "waking", place: "cloud" });
-    b = (await boat.readyBoat(cfg, bot.id)) ?? b;
+    b = (await wakeBotBoat(bot.id)) ?? b;
     lifecycle = lifecycleOf();
   }
   return b && lifecycle === "attach" ? b : null;
@@ -19609,10 +19611,26 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
       }
       const activeBoatTurn = botHasActiveTurn(botId);
-      if (["provision", "sleep"].includes(m[2]) && activeBoatTurn) {
+      const turnLifecycle = m[2] === "provision" && activeBoatTurn && bot.computer === "cloud"
+        ? boat.boatTurnLifecycleAction((await boat.boatStatus(cfg, botId)).box?.state ?? null)
+        : null;
+      if (activeBoatTurn && (m[2] === "sleep" || (m[2] === "provision" && turnLifecycle !== "wake" && turnLifecycle !== "attach"))) {
         return json(res, 409, {
           error: CLOUD_COMPUTER_BUSY_ERROR,
         });
+      }
+      if (turnLifecycle === "attach") return json(res, 200, { ready: true });
+      if (turnLifecycle === "wake") {
+        const pending = boatWakes.pending(botId);
+        const releaseComputerLifecycle = pending ? null : claimBotComputerLifecycle(botId);
+        try {
+          const woken = await (pending ?? wakeBotBoat(botId));
+          return json(res, 200, woken
+            ? { ready: true, boxId: woken.id, state: woken.state }
+            : { ready: false, problem: CLOUD_COMPUTER_DID_NOT_START });
+        } finally {
+          releaseComputerLifecycle?.();
+        }
       }
       let boatCommand: string | undefined;
       if (m[2] === "exec") {
