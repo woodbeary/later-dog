@@ -137,6 +137,9 @@ The [rich tables fixture](rich-tables.md) checks Markdown tables and message-sco
 CSV/TSV previews, large-file virtualization, sorting, search, export and keyboard
 interaction in a disposable workspace.
 
+The [rich replies fixture](rich-replies.md) checks diagrams, charts, math, their
+PNG and SVG copies, and place, product and weather cards in a persisted reply.
+
 The [people invitation fixture](people.md) checks hosted workspace sign-in,
 roles and device revocation through the real HTTP API with a stubbed email
 service, and the `laterdog access` command. The app has no People page.

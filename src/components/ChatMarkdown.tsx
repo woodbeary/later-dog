@@ -24,7 +24,10 @@ import { windowsPathDestinations } from "../../shared/markdown-windows-paths";
 import { looksLikeThreadRefUrl } from "../lib/thread-refs";
 import { MarkdownImagePreview, MessageFolderFiles, OutsideWorkspaceFile, useLocalFileSave, type MessageAttachmentContext } from "./AttachmentPreview";
 import { MarkdownTable } from "./MarkdownTable";
+import { RichCard } from "./RichCard";
 import { TableFileButton } from "./TableFilePreview";
+import { mermaidCode, richCard } from "../lib/rich-cards";
+import { DARK_PIE, diagramPng, exportableDiagram, saveBlob } from "../lib/diagram-export";
 
 const highlightCache = new Map<string, string>();
 export const HIGHLIGHT_CACHE_MAX = 200;
@@ -425,7 +428,26 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
   const markup = useMemo(() => (svg ? { __html: svg } : null), [svg]);
   const [error, setError] = useState<string | null>(null);
   const [showSource, setShowSource] = useState(false);
+  const [saving, setSaving] = useState<"png" | "svg" | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const { state: copied, copy } = useCopyFeedback(code);
+
+  const save = async (format: "png" | "svg") => {
+    setSaving(format);
+    setSaveError(null);
+    try {
+      const module = await import("mermaid");
+      mermaidRenderId += 1;
+      const picture = await module.default.render(`laterdog-mermaid-export-${mermaidRenderId}`, exportableDiagram(code));
+      saveBlob(`diagram.${format}`, format === "png"
+        ? await diagramPng(picture.svg)
+        : new Blob([picture.svg], { type: "image/svg+xml;charset=utf-8" }));
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(null);
+    }
+  };
 
   useEffect(() => {
     if (typeof MutationObserver === "undefined" || typeof document === "undefined") return;
@@ -452,6 +474,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
           securityLevel: "strict",
           suppressErrorRendering: true,
           theme: scheme === "light" ? "default" : "dark",
+          ...(scheme === "light" ? {} : { themeVariables: DARK_PIE }),
           fontFamily: MERMAID_FONT,
         });
         return module.default.render(`laterdog-mermaid-${mermaidRenderId}`, code);
@@ -498,6 +521,20 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
             <WrapText size={12} aria-hidden="true" />
             <span className="hidden sm:inline">{showSource ? "Hide source" : "Show source"}</span>
           </button>
+          {svg && !error && (["png", "svg"] as const).map((format) => (
+            <button
+              key={format}
+              type="button"
+              onClick={() => void save(format)}
+              disabled={saving !== null}
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-ink-secondary hover:bg-raised hover:text-ink transition-colors disabled:opacity-50"
+              title={t(format === "png" ? "richCard.savePng" : "richCard.saveSvg")}
+              aria-label={t(format === "png" ? "richCard.savePng" : "richCard.saveSvg")}
+            >
+              {saving === format ? <LoaderCircle size={12} className="animate-spin" aria-hidden="true" /> : <Download size={12} aria-hidden="true" />}
+              <span className="hidden sm:inline">{format.toUpperCase()}</span>
+            </button>
+          ))}
           <button
             type="button"
             onClick={copy}
@@ -527,6 +564,11 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
       {error && (
         <p role="alert" className="px-3 pt-2 text-[12px] text-danger">
           Diagram could not be rendered: {error}
+        </p>
+      )}
+      {saveError && (
+        <p role="alert" className="px-3 pt-2 text-[12px] text-danger">
+          {t("richCard.saveFailed", { reason: saveError })}
         </p>
       )}
       {markup && (
@@ -768,9 +810,10 @@ function MarkdownCode({ children }: { children?: ReactNode }) {
   const flat = (n: any): string =>
     typeof n === "string" ? n : Array.isArray(n) ? n.map(flat).join("") : (n?.props?.children ? flat(n.props.children) : "");
   const code = flat(child?.props?.children).replace(/\n$/, "");
-  if (lang.trim().toLowerCase() === "mermaid") {
-    return <MermaidDiagram code={code} />;
-  }
+  const diagram = mermaidCode(lang, code);
+  if (diagram !== null) return <MermaidDiagram code={diagram} />;
+  const card = richCard(lang, code);
+  if (card) return <RichCard card={card} />;
   return <CodeBlock code={code} lang={lang} />;
 }
 
