@@ -140,6 +140,9 @@ interaction in a disposable workspace.
 The [rich replies fixture](rich-replies.md) checks diagrams, charts, math, their
 PNG and SVG copies, and place, product and weather cards in a persisted reply.
 
+The [drafts fixture](drafts.md) checks draft cards in replies: their titles,
+the changes between revisions, editing, copying and asking the dog to send.
+
 The [link previews fixture](link-previews.md) checks the cards under a reply for
 the pages it links, and that pictures and code get none.
 

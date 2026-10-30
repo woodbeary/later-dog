@@ -20,6 +20,7 @@ import { SimpleMemory } from "./bot-settings/SimpleMemory";
 import { ComputerTab } from "./bot-settings/ComputerTab";
 import { DogShareButton } from "./bot-settings/DogShare";
 import { ProfileAvatar } from "./bot-settings/ProfileAvatar";
+import { AllowedWithoutAsking } from "./bot-settings/AllowedWithoutAsking";
 import { RoutinesCard } from "./bot-settings/RoutinesCard";
 import { CodingJobs } from "./bot-settings/CodingJobs";
 import { PaneErrorLine } from "./PaneErrorLine";
@@ -275,6 +276,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                   </div>
                 </div>
               </div>
+              <AllowedWithoutAsking bot={bot} />
             </div>
           )}
 

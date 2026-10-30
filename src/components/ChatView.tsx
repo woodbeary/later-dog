@@ -19,6 +19,7 @@ import {
   Webhook,
   X,
 } from "lucide-react";
+import { DraftContext, type DraftScope } from "./draft-context";
 import { LinkPreviews } from "./LinkPreviewCard";
 import { MessageActions, messageActionClass } from "@/components/MessageActions";
 import { ReactionPicker } from "@/components/ReactionPicker";
@@ -1056,6 +1057,14 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite }),
     [bot.id, bot.threadId, bot.name, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite],
   );
+  const drafts = useMemo<DraftScope>(() => ({
+    botName: bot.name,
+    send: (text: string) => dispatch({ type: "send", botId: bot.id, threadId: bot.threadId, text }),
+    earlier: (messageId: string | undefined) => {
+      const index = messageId ? messages.findIndex((message) => message.id === messageId) : -1;
+      return (index < 0 ? messages : messages.slice(0, index)).filter((message) => message.role !== "user" && typeof message.text === "string").map((message) => message.text!);
+    },
+  }), [bot.id, bot.threadId, bot.name, dispatch, messages]);
   const place = effectivePlace(bot, bot.tasks?.find((task) => task.threadId === bot.threadId));
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1241,25 +1250,27 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           ) : null}
           {windowedMessages.length === 0 && !bot.busy && <EmptyChat bot={bot} />}
           <ChatRowsContext.Provider value={rows}>
-            <MessagesList
-              messages={windowedMessages}
-              transcript={messages}
-              plan={plan}
-              lookups={lookups}
-              place={place}
-              today={localDay(Date.now())}
-              emergingId={popping}
-              canRetryLast={!bot.busy && Boolean(lastUserMessage)}
-              engine={state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId)}
-              unreadSince={unreadSince}
-              groupIds={groupIds}
-              editingId={editingId}
-              onStartEdit={startEdit}
-              onCancelEdit={cancelEdit}
-              onSubmitEdit={submitEdit}
-              onRetry={regenerate}
-              onReply={selectReply}
-            />
+            <DraftContext.Provider value={drafts}>
+              <MessagesList
+                messages={windowedMessages}
+                transcript={messages}
+                plan={plan}
+                lookups={lookups}
+                place={place}
+                today={localDay(Date.now())}
+                emergingId={popping}
+                canRetryLast={!bot.busy && Boolean(lastUserMessage)}
+                engine={state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId)}
+                unreadSince={unreadSince}
+                groupIds={groupIds}
+                editingId={editingId}
+                onStartEdit={startEdit}
+                onCancelEdit={cancelEdit}
+                onSubmitEdit={submitEdit}
+                onRetry={regenerate}
+                onReply={selectReply}
+              />
+            </DraftContext.Provider>
           </ChatRowsContext.Provider>
           {laterCount > 0 && (
             <div className="flex justify-center">
