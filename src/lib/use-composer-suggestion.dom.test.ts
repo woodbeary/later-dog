@@ -183,8 +183,14 @@ describe("smarter suggestions are opt-in", () => {
 });
 
 describe("default", () => {
-  it("shows nothing until the switch is turned on", async () => {
+  it("finishes a sentence you sent before without any switch turned on", async () => {
     await render(base({ config: { features: {} } }));
+    await wait(FAST_PAUSE_MS + 50);
+    expect(suggestion.ghost).toBe("x the failing tests");
+  });
+
+  it("stays quiet once you turn it off", async () => {
+    await render(base({ config: { features: { typingSuggestions: false } } }));
     await wait(FAST_PAUSE_MS + 50);
     expect(suggestion.ghost).toBe("");
   });

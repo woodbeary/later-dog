@@ -74,17 +74,14 @@ describe.skipIf(process.platform === "win32")("typing suggestions in the real se
     rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
-  it("starts with suggestions and the model path off, so nothing typed leaves the computer", async () => {
+  it("starts with local suggestions on and the model path off, so nothing typed leaves the computer", async () => {
     const config = (await api("GET", "/api/config")).body;
     expect(config.typing.smarter).toBe(false);
-    expect(config.typing.enabled).toBe(false);
+    expect(config.typing.enabled).toBe(true);
     expect(config.features.smarterSuggestions).toBe(false);
-    expect(config.features.typingSuggestions).toBe(false);
+    expect(config.features.typingSuggestions).toBe(true);
     const answer = await api("POST", "/api/typing/complete", { prefix: "Please fix", dog: "Rex" });
-    expect(answer.body).toEqual({ completion: "", reason: "off" });
-    expect((await api("PATCH", "/api/config", { features: { typingSuggestions: true } })).body.typing.enabled).toBe(true);
-    const stillLocal = await api("POST", "/api/typing/complete", { prefix: "Please fix", dog: "Rex" });
-    expect(stillLocal.body).toEqual({ completion: "", reason: "not-allowed" });
+    expect(answer.body).toEqual({ completion: "", reason: "not-allowed" });
     expect(asked).toHaveLength(0);
   });
 

@@ -43,7 +43,7 @@ No attachments, no file contents, no other chats. Nothing is stored on the serve
 
 Only the first is on by default. The other two need Smarter suggestions.
 
-1. **Fast path, this computer only.** Candidates come from the person's frequent phrases, dog names and slash commands. Phrases are learned from sent messages (sentences of 3 to 14 words, no links, code, tags or secrets), kept in the browser's local storage under `laterdog.typingPhrases.v1` (at most 300, most used first), and can be forgotten in Settings. The typed tail is matched against the start of each phrase, case-insensitively, and the longest match wins. A hit is shown after a 120 ms pause with no request at all.
+1. **Fast path, this computer only.** Candidates come from the person's frequent phrases, dog names and slash commands. Phrases are learned from sent messages (sentences of 3 to 14 words, no links, code, tags or secrets), kept in the browser's local storage under `laterdog.typingPhrases.v1` (at most 300, most used first). The typed tail is matched against the start of each phrase, case-insensitively, and the longest match wins. A hit is shown after a 120 ms pause with no request at all.
 2. **Ranking, optional, needs Smarter suggestions.** When two or more phrases tie for the longest match and the decision model is set up with the person's own Jev key, one `choice` question asks which is most likely. It has a 250 ms budget. When it does not answer in time, or is not set up, the most used phrase wins. The included relay only accepts room-routing questions, so ranking needs the person's own key.
 3. **Model path, needs Smarter suggestions.** When no phrase fits, after a 400 ms pause, the app server asks a small model for about 20 tokens at temperature 0.2:
    - **Plan and trial users:** `POST /v1/complete` on later.dog's computers Worker, called with the installation's included-services key (the same trial key the free AI uses, sent as a bearer token). It runs `TYPING_AI_MODEL` (default `@cf/meta/llama-3.2-3b-instruct`) on Workers AI through the AI Gateway. It is available whenever the trial's included list has `ai`.
@@ -80,5 +80,5 @@ The pause before the grey words show is separate: 120 ms for the fast path, 400 
 
 - `deploy/laterdog/computers/src/complete.ts` and its route and handler: the Worker.
 - `server/laterdog/typing-context.ts`, `typing-suggestions.ts`, `typing-rank.ts`, `typing-wiring.ts`, `server/routes/typing-suggestions.ts`: the app server.
-- `src/lib/typing-suggestions.ts`, `use-typing-suggestion.ts`, `use-composer-suggestion.ts`, `src/components/TypingGhost.tsx`, `TypingSuggestionsSettings.tsx`: the app.
+- `src/lib/typing-suggestions.ts`, `use-typing-suggestion.ts`, `use-composer-suggestion.ts`, `src/components/TypingGhost.tsx`: the app.
 - Tests sit beside each file. `server/laterdog/typing-suggestions.e2e.test.ts` runs the real server against a fake Worker.

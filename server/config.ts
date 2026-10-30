@@ -709,7 +709,7 @@ export function skillsLibraryEnabled(cfg: AppConfig): boolean {
  }
 
 export function typingSuggestionsEnabled(cfg: AppConfig): boolean {
-  return cfg.features?.typingSuggestions === true;
+  return cfg.features?.typingSuggestions !== false;
 }
 
 export function smarterSuggestionsEnabled(cfg: AppConfig): boolean {

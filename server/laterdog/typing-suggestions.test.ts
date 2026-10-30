@@ -206,7 +206,8 @@ describe("smarter suggestions are opt-in", () => {
   it("sends nothing by default, with a trial, a plan or the person's own Cloudflare account", async () => {
     startTrial();
     const fetcher = vi.fn();
-    for (const cfg of [ownAccount, { features: { typingSuggestions: true } } as AppConfig, { features: { typingSuggestions: true, smarterSuggestions: false } } as AppConfig]) {
+    expect(describeTyping({} as AppConfig, null, false).enabled).toBe(true);
+    for (const cfg of [{} as AppConfig, ownAccount, { features: { typingSuggestions: true } } as AppConfig, { features: { typingSuggestions: true, smarterSuggestions: false } } as AppConfig]) {
       expect(await service(cfg, fetcher as unknown as typeof fetch).complete(request)).toEqual({ ok: false, reason: "not-allowed" });
     }
     expect(fetcher).not.toHaveBeenCalled();
@@ -235,14 +236,6 @@ describe("smarter suggestions are opt-in", () => {
 });
 
 describe("when nothing is sent", () => {
-  it("is off until the person turns it on", async () => {
-    startTrial();
-    const fetcher = vi.fn();
-    expect(describeTyping({} as AppConfig, null, false).enabled).toBe(false);
-    expect(await service({ features: { smarterSuggestions: true } } as AppConfig, fetcher as unknown as typeof fetch).complete(request)).toEqual({ ok: false, reason: "off" });
-    expect(fetcher).not.toHaveBeenCalled();
-  });
-
   it("is off after the person turns it off", async () => {
     startTrial();
     const fetcher = vi.fn();
