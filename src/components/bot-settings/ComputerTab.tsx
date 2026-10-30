@@ -26,7 +26,7 @@ export interface ComputerStatus {
 export type ComputerCard =
   | { kind: "checking" }
   | { kind: "asleep"; fresh: boolean; canWake: boolean }
-  | { kind: "waking"; fresh: boolean; polling: boolean }
+  | { kind: "waking"; fresh: boolean; polling: boolean; held?: boolean }
   | { kind: "awake" }
   | { kind: "unreachable" }
   | { kind: "wakeFailed"; fresh: boolean; problem: string }
@@ -77,6 +77,7 @@ export function ComputerTab({ bot }: { bot: Bot }) {
   const [shotFailed, setShotFailed] = useState(false);
   const alive = useRef(true);
   const wakeNext = useRef(false);
+  const wakeWhenFree = useRef(false);
   const busy = useRef(Boolean(bot.busy));
   busy.current = Boolean(bot.busy);
   const flush = useRef(flushBotPatches);
@@ -105,6 +106,16 @@ export function ComputerTab({ bot }: { bot: Bot }) {
           void wake(next.fresh);
           return;
         }
+        if (wakeWhenFree.current && next.kind === "asleep" && next.canWake) {
+          if (busy.current) {
+            setCard({ kind: "waking", fresh: next.fresh, polling: true, held: true });
+            return;
+          }
+          wakeWhenFree.current = false;
+          void wake(next.fresh);
+          return;
+        }
+        wakeWhenFree.current = false;
         setCard(starting && next.kind === "asleep" ? { kind: "waking", fresh: next.fresh, polling: true } : next);
       })
       .catch(() => {
@@ -187,7 +198,8 @@ export function ComputerTab({ bot }: { bot: Bot }) {
     } catch (error) {
       if (!alive.current) return;
       if (isActiveTurnRefusal(error)) {
-        setCard({ kind: "waking", fresh, polling: true });
+        wakeWhenFree.current = true;
+        setCard({ kind: "waking", fresh, polling: true, held: true });
         return;
       }
       setCard({ kind: "wakeFailed", fresh, problem: error instanceof Error ? error.message : String(error) });
@@ -229,7 +241,7 @@ export function ComputerTab({ bot }: { bot: Bot }) {
             {...dog}
             busy
             label={wakeLabel}
-            hint={card.fresh ? t("botSettings.computer.firstStart") : undefined}
+            hint={card.held ? t("botSettings.computer.wakeWhenFree", { name: bot.name }) : card.fresh ? t("botSettings.computer.firstStart") : undefined}
             onWake={() => void wake(card.fresh)}
           >
             <div className={headline}>{t("botSettings.computer.waking")}</div>

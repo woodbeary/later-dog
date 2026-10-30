@@ -180,7 +180,7 @@ describe("the Computer tab", () => {
     await settle();
     expect(panel().dataset.simpleComputer).toBe("waking");
     expect(panel().textContent).toContain("Waking up…");
-    expect(panel().textContent).toContain("The first start takes about a minute.");
+    expect(panel().textContent).toContain("Scout is in the middle of something. Its computer wakes as soon as Scout is free.");
     expect(dog.isConnected).toBe(true);
     expect(document.activeElement).toBe(dog);
     expect(dog.getAttribute("aria-disabled")).toBe("true");
@@ -196,6 +196,34 @@ describe("the Computer tab", () => {
     expect(calls(STATUS)).toHaveLength(2);
     expect(panel().dataset.simpleComputer).toBe("awake");
     expect(panel().querySelector("img")!.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+  });
+
+  it("keeps saying why while a busy dog's computer is still asleep, and wakes it once the dog is free", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    reply(STATUS, () => box("archived"));
+    reply(WAKE, () => { throw new ApiError(CLOUD_COMPUTER_BUSY_ERROR, 409); });
+    reply(SHOT, () => ({ png: "AAAA" }));
+    await show(scout({ busy: true }));
+    expect(panel().dataset.simpleComputer).toBe("asleep");
+
+    await press(dogButton("Wake Scout's computer")!);
+    await settle();
+    for (let poll = 0; poll < 3; poll++) {
+      await act(async () => { vi.advanceTimersByTime(3000); });
+      await settle();
+      expect(panel().dataset.simpleComputer).toBe("waking");
+      expect(panel().textContent).toContain("Scout is in the middle of something. Its computer wakes as soon as Scout is free.");
+    }
+    expect(calls(STATUS).length).toBeGreaterThanOrEqual(4);
+    expect(calls(WAKE)).toHaveLength(1);
+
+    replies[WAKE] = [() => ({ ready: true })];
+    replies[STATUS] = [() => box("archived"), () => box("running")];
+    shown = scout({ busy: false });
+    await act(async () => rerender());
+    await settle();
+    expect(calls(WAKE)).toHaveLength(2);
+    expect(panel().dataset.simpleComputer).toBe("awake");
   });
 
   it("says why it couldn't wake and tries again from the same place", async () => {

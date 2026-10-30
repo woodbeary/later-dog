@@ -1438,6 +1438,7 @@
   "botSettings.computer.asleep": "Computer is asleep",
   "botSettings.computer.waking": "Waking up…",
   "botSettings.computer.firstStart": "The first start takes about a minute.",
+  "botSettings.computer.wakeWhenFree": "{name} is in the middle of something. Its computer wakes as soon as {name} is free.",
   "botSettings.computer.unreachable": "Can't reach {name}'s screen",
   "botSettings.computer.wakeFailed": "Couldn't wake {name}'s screen",
   "botSettings.computer.tryAgain": "Try again",
