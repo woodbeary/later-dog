@@ -663,7 +663,6 @@
   "memory.simple.files": "Файли пам’яті",
   "memory.simple.done": "Готово",
   "memory.simple.manage": "Керувати пам’яттю",
-  "memory.simple.review": "Потрібна перевірка",
   "memory.simple.busy": "Зупиніть поточний хід {name}, щоб це змінити.",
   "memory.simple.offHint": "Вимкнено. Збережені нотатки залишаться, але {name} не читатиме й не доповнюватиме їх.",
   "memory.page.back": "Назад",

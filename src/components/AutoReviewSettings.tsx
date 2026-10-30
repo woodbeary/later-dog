@@ -4,7 +4,7 @@ import { t } from "@/lib/i18n";
 import { SettingRow, Switch } from "./SettingsPrimitives";
 
 export function autoReviewOn(config: ConfigStatus | null | undefined): boolean {
-  return config?.features?.autoReview !== false;
+  return config?.features?.autoReview === true;
 }
 
 export function AutoReviewRow() {

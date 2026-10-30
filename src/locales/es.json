@@ -575,7 +575,6 @@
   "memory.simple.files": "Archivos de memoria",
   "memory.simple.done": "Listo",
   "memory.simple.manage": "Gestionar memoria",
-  "memory.simple.review": "Pendiente de revisión",
   "memory.simple.busy": "Detén el turno de {name} para cambiar esto.",
   "memory.simple.offHint": "Desactivada. Las notas guardadas se conservan, pero {name} no las leerá ni añadirá nada.",
   "memory.page.back": "Atrás",

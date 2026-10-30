@@ -9,7 +9,7 @@ import type { ProviderIcon } from "../shared/provider-icon.ts";
 
 export type { CloudBackend, EffortLevel, ModelSelection } from "../shared/wire.ts";
 export type {
-  DriverKind, InstanceId, ModelVariantOption, ModelVariantState, RuntimeEvent,
+  CompactionEvent, DriverKind, InstanceId, ModelVariantOption, ModelVariantState, RuntimeEvent,
   RuntimeEventBase, RuntimeEventListener, ThreadId, TurnId,
 } from "../shared/runtime-events.ts";
 
@@ -77,6 +77,7 @@ export interface SendTurnInput {
   text: string;
   approvalMode?: ApprovalMode;
   reviewerGrant?: { environment: string[]; allow: string[] };
+  ownerAnswers?: boolean;
   toolScope?: ToolScope;
   guestConfined?: boolean;
   confinedWhy?: string;

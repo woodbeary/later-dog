@@ -402,6 +402,7 @@ export async function launchVerificationServer(
   const logPath = join(evidenceDir, `server-${Date.now()}-${process.pid}.log`);
   writeFileSync(join(dataDir, "config.json"), JSON.stringify({
     ...(boatFixtureApi ? { box: { token: "box_verification_fixture" } } : {}),
+    features: { autoReview: true },
     instances: {
       ...(extraProviders.includes("codex") ? { codex: {
         driver: "codex", displayName: "Verification Codex", config: { cli: fileURLToPath(new URL("../server/testing/fake-codex-app-server.ts", import.meta.url)) },

@@ -119,6 +119,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const stringOrMissing = (value: unknown) => value === undefined || typeof value === "string";
 const stringOrNullOrMissing = (value: unknown) => value === undefined || value === null || typeof value === "string";
 const numberOrNullOrMissing = (value: unknown) => value === undefined || value === null || typeof value === "number";
+const numberOrMissing = (value: unknown) => value === undefined || typeof value === "number";
 const stringsOrMissing = (value: unknown) => value === undefined || (Array.isArray(value) && value.every((item) => typeof item === "string"));
 const computerHolderOrMissing = (value: unknown) =>
   value === undefined ||
@@ -152,6 +153,12 @@ export function isRuntimeEvent(value: unknown): value is RuntimeEvent {
       return (value.sessionId === null || typeof value.sessionId === "string") && stringOrNullOrMissing(value.model);
     case "session.exited":
       return stringOrMissing(value.reason);
+    case "session.compacting":
+      return true;
+    case "session.compacted":
+      return typeof value.ok === "boolean" && (value.skipped === undefined || typeof value.skipped === "boolean") &&
+        stringOrMissing(value.error) && (value.trigger === undefined || value.trigger === "auto" || value.trigger === "manual") &&
+        numberOrMissing(value.preTokens) && numberOrMissing(value.postTokens);
     case "turn.started":
       return true;
     case "turn.retrying":

@@ -221,10 +221,8 @@ its results conversation, so a nobody's routine's run is confined to a
 folder of its own.
 
 A key that is adopted but not proven still costs something: its lines keep
-that conversation out of lending and memory, and if a turn there changes the
-bot's memory files, the bot as a whole cannot use the Mac until the owner
-reviews the change (the bot's **Library → Memory → Manage memory**, **Mark reviewed**). Starting
-new conversations avoids it.
+that conversation out of lending and memory. Starting new conversations
+avoids it.
 
 At the first personal start the log also says to review **Settings → Remote
 access → Paired devices**, which now shows only admin devices, and to sign
@@ -582,24 +580,32 @@ On the Cloud home (`server/shared-computers.ts`, `server/index.ts`):
 - The server refuses operations outside the scopes the Mac registered before
   queuing them, never retries an operation with an unknown outcome, and never
   substitutes its own files for an offline Mac.
-- Only turns that provably act for the owner may use the lent Mac
+- Only turns that act for the owner may use the lent Mac
   (`server/cloud-lending.ts`): a conversation the owner started from one of
-  their own devices (a live session with admin scope), a scheduled run of a
-  routine the owner wrote or last rewrote from one of those devices, or a run
-  of it the owner started by hand. Never a webhook-started run (its payload
-  comes from outside), a guest's conversation or routine (a device paired
-  with chat-only access), a routine someone else rewrote, a room, a bot's
-  delegated or peer turn, a local process on the Cloud, or anything the
-  harness cannot trace. A conversation qualifies only while the owner opened
-  it and it holds nobody else's words, anywhere in it, before or during the
-  turn: one line from a guest, a teammate bot or a local process (sent,
-  queued, steered or handed in, or history imported with a move), one card
-  answer from someone else, one report of a routine the owner did not
-  write, or one message a webhook posted (a webhook that posts to chat
-  writes into the bot's Updates conversation), takes that conversation out
-  of lending for good, because a resumed session carries everything said in
-  it. A conversation a guest opened (and
-  named) is never the owner's, whoever writes in it. The bot is told "Someone else wrote in this
+  their own devices (a live session with admin scope), a room only the owner
+  and their own dogs write in, work one of those turns hands a teammate
+  (delegation, coordination, a room handoff, however deep) and the turn that
+  resumes with its results, a scheduled run of a routine the owner wrote or
+  last rewrote from one of those devices, or a run of it the owner started by
+  hand or one of these turns started (`run_now`). Never a webhook-started run
+  (its payload comes from outside), a guest's conversation or routine (a
+  device paired with chat-only access), a routine someone else rewrote, work
+  a guest's or a webhook's turn hands on, however deep, a local process on
+  the Cloud, or a turn the owner stopped. A turn with no request line of its
+  own (a resumed or delegated turn, a room turn) is judged by the
+  conversation it runs in. A conversation qualifies only while the owner
+  opened it and it holds nobody else's words, anywhere in it, before or
+  during the turn: one line from a guest or a local process (sent, queued,
+  steered or handed in, or history imported with a move), one card answer
+  from someone else, one report of a routine the owner did not write, or
+  one message a webhook posted (a webhook that posts to chat writes into
+  the bot's Updates conversation), takes that conversation out of lending
+  for good, because a resumed session carries everything said in it. In a
+  home with only the owner's own devices, lines from the owner's own dogs (a
+  delegation, a question from a teammate) and the prompt of a run of the
+  owner's own routine count as the owner's; a webhook run's prompt, or one
+  of a routine someone else wrote, never does. A conversation a guest opened
+  (and named) is never the owner's, whoever writes in it. The bot is told "Someone else wrote in this
   conversation, so it can't use your Mac. Start a new conversation to use it."
   and the lending switch says the same. The owner's own edits count as theirs,
   and the harness's own automatic card settlements do not count. A
@@ -656,50 +662,35 @@ On the Cloud home (`server/shared-computers.ts`, `server/index.ts`):
   `LATERDOG_LOOPBACK_TRUST` says: it may reach the health check, the Slack
   worker's guarded routes and a turn's own capability routes, decline a card
   and nothing else. It cannot open a pairing window, change a setting or a
-  bot, answer a card or review memory.
+  bot, or answer a card.
 - A bot's memory and its other conversations reach every one of its turns,
-  so on a Cloud home nothing a conversation the owner did not write produces
-  flows into them (`server/lending-memory.ts`):
+  so on a Cloud home later.dog keeps what a conversation the owner did not
+  write produces out of them:
   - memory capture skips such conversations, and they leave no line in the
     bot's daily log;
   - the bot's memory tools (`memory_update`, `memory_log`) refuse to write from
-    them;
+    them, and a turn there is told its memory is read-only, to leave
+    MEMORY.md and the files under `memory/` as they are;
   - recall, the recent-work brief and, in a turn that may use the Mac, the
     session tools (`session_search`, `session_read`) draw
     only on conversations the owner alone opened and wrote in (a title is
     words too);
-  - a change while such a turn runs flags the bot: to MEMORY.md, a topic file
-    or a daily log, or to an instruction file its engine reads in the folder
-    of a conversation the owner opened, the bot's own folder, or a folder
-    above one (`CLAUDE.md`, `AGENTS.md`, `.mcp.json`,
-    `.claude/settings.json`, skills, agents and commands). A guest's own
-    folder is not watched: nothing there reaches the owner's turns. A skills,
-    agents or commands folder of more than 200 entries is judged as a whole
-    (any entry added or removed there, or an edit to an entry or its
-    `SKILL.md`, is a change). A working folder, `.claude` folder or skills
-    folder that is a link is read through it, and a folder that could not be
-    read is looked at again next time. A
-    line someone else steers into the owner's running turn makes that turn
-    count as theirs from then on. A link is judged by where it points, and
-    on a Cloud home memory is never read through one. A flagged bot's turns
-    cannot use the Mac, and the bot says "This bot's memory was changed in a
-    conversation you didn't write. Review it in Memory to use your Mac
-    again." The bot's **Manage memory** page (Library → Memory, tagged
-    **Needs review**) shows the same notice, lists the files
-    that changed, and **Mark reviewed** (one click, only from one of the
-    owner's own devices, never a local process) accepts exactly what was
-    shown: if anything changed since, the panel shows it again. The owner's
-    own turns, their edits in the Memory panel (save, delete, undo), upkeep
-    on their conversations and the tidy-up never flag it. A damaged record
-    (`lending-memory.json`) flags every bot that existed when it was found
-    until the owner reviews each; a bot created later starts clean.
+  - a room only the owner and their own dogs write in is theirs, and so is
+    the work the owner's own turn hands a teammate, in a conversation or a
+    room, and the turn that resumes with its results, also when the owner
+    wrote again in the meantime;
+  - on a Cloud home memory is never read through a link.
 - What this cannot stop: any conversation whose bot can run commands without
   the owner approving (Auto or Full access, or a remembered command), a
   guest's included, controls the Cloud machine: it can change other bots'
-  files and these records.
-- Not covered yet: a bot whose memory changed can still pass its words to
-  other bots through rooms and `coordinate_bots`, and a turn that may use
-  the Mac can still read room names and routine listings through its tools.
+  files and these records. A file edit or command in a conversation the
+  owner did not write can still change the bot's memory or instruction
+  files, and the owner's later turns read them, including turns that may use
+  the Mac.
+- Not covered yet: a bot can still pass words from a conversation the owner
+  did not write to other bots through rooms and `coordinate_bots`, and a turn
+  that may use the Mac can still read room names and routine listings
+  through its tools.
 
 ### What the Cloud can see: `GET /api/shared-computers`
 

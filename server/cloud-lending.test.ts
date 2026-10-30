@@ -85,18 +85,32 @@ describe("who may use a Mac lent to a Cloud home (review: guests, webhooks)", ()
     expect(ownerOnlyConversation([said("run0"), reply("r0"), said("o1", OWNER)], ownerPerson, cardAnswerer)).toBe(false);
     expect(ownerOnlyConversation([{ ...reply("b0"), ownersRoutine: true }, said("g1", GUEST)], ownerPerson, cardAnswerer)).toBe(false);
   });
-  it("says why: unproven, not the owner's, or someone else wrote here", () => {
-    expect(cloudHomeLendingRefusal(turn({ request: undefined }))).toBe("unproven");
-    expect(cloudHomeLendingRefusal(turn({ thread: [said("m1", GUEST)] }))).toBe("not-owner");
+  it("says why: stopped, not the owner's, or someone else wrote here", () => {
+    expect(cloudHomeLendingRefusal(turn({ request: request("m1", { stopped: true }) }))).toBe("stopped");
+    expect(cloudHomeLendingRefusal(turn({ handoff: { ownerSent: false } }))).toBe("not-owner");
+    expect(cloudHomeLendingRefusal(turn({ thread: [said("m1", GUEST)] }))).toBe("someone-else");
     expect(cloudHomeLendingRefusal(turn({ thread: [said("m1", OWNER), said("g1", GUEST)] }))).toBe("someone-else");
     expect(cloudHomeLendingRefusal(turn({}))).toBeNull();
   });
-  it("a turn from another generation, a stopped request or an unproven one may not", () => {
-    expect(mayLend(turn({ generation: "g-other" }))).toBe(false);
+  it("a stopped turn may not; a turn with no request line of its own is judged by its conversation", () => {
     expect(mayLend(turn({ request: request("m1", { stopped: true }) }))).toBe(false);
-    expect(mayLend(turn({ request: { generations: new Set(["g1"]) } }))).toBe(false);
-    expect(mayLend(turn({ request: undefined }))).toBe(false);
-    expect(mayLend(turn({ request: request("gone") }))).toBe(false);
+    expect(mayLend(turn({ generation: "g-other" }))).toBe(true);
+    expect(mayLend(turn({ request: { generations: new Set(["g1"]) } }))).toBe(true);
+    expect(mayLend(turn({ request: undefined }))).toBe(true);
+    expect(mayLend(turn({ request: request("gone") }))).toBe(true);
+    expect(mayLend(turn({ request: undefined, thread: [said("m1", OWNER), said("g1", GUEST)] }))).toBe(false);
+    expect(mayLend(turn({ request: { generations: new Set(["g1"]) }, thread: [said("m0"), said("m1", OWNER)] }))).toBe(false);
+  });
+  it("the owner's own dogs work as the owner: a room, a resumed turn or a delegated one, until a guest or webhook is in it", () => {
+    const room = [said("m1", OWNER), reply("r1"), said("p1", undefined, { peerAsk: { botId: "b" } }), reply("r2")];
+    expect(cloudHomeLendingRefusal(turn({ request: undefined, thread: room, ownersOwnDogs: true }))).toBeNull();
+    expect(cloudHomeLendingRefusal(turn({ request: undefined, thread: room, ownersOwnDogs: true, handoff: { ownerSent: true } }))).toBeNull();
+    expect(cloudHomeLendingRefusal(turn({ request: undefined, thread: room, ownersOwnDogs: true, handoff: { ownerSent: false } }))).toBe("not-owner");
+    expect(cloudHomeLendingRefusal(turn({ request: undefined, thread: room, ownersOwnDogs: true, guestDriven: true }))).toBe("someone-else");
+    expect(cloudHomeLendingRefusal(turn({ request: undefined, thread: [...room, said("w1", undefined, { ownersRoutine: false })], ownersOwnDogs: true }))).toBe("someone-else");
+    expect(cloudHomeLendingRefusal(turn({ request: undefined, thread: [...room, said("o1", undefined, { ownersRoutine: true })] }))).toBe("someone-else");
+    expect(cloudHomeLendingRefusal(turn({ request: undefined, thread: [said("o1", undefined, { ownersRoutine: true }), reply("r1")] }))).toBeNull();
+    expect(cloudHomeLendingRefusal(turn({ request: undefined, thread: [...room, said("g1", GUEST)], ownersOwnDogs: true }))).toBe("someone-else");
   });
   it("a scheduled run of a routine the owner wrote may; a webhook run never", () => {
     const routineThread = [said("m1"), reply("r1")];
@@ -120,12 +134,11 @@ describe("who may use a Mac lent to a Cloud home (review: guests, webhooks)", ()
       turn({ request: { generations: new Set(["g1"]) }, thread: handoffThread, handoff: { ownerSent }, ...extra });
     expect(cloudHomeLendingRefusal(handed(true))).toBeNull();
     expect(cloudHomeLendingRefusal(handed(false))).toBe("not-owner");
-    expect(cloudHomeLendingRefusal(handed(true, { generation: "g-other" }))).toBe("unproven");
-    expect(cloudHomeLendingRefusal(handed(true, { request: { generations: new Set(["g1"]), stopped: true } }))).toBe("unproven");
+    expect(cloudHomeLendingRefusal(handed(true, { request: { generations: new Set(["g1"]), stopped: true } }))).toBe("stopped");
     expect(cloudHomeLendingRefusal(handed(true, { thread: [said("g0", GUEST), ...handoffThread] }))).toBe("someone-else");
     expect(cloudHomeLendingRefusal(handed(true, { starters: [GUEST] }))).toBe("someone-else");
     expect(cloudHomeLendingRefusal(handed(true, { reportsFromOthers: true }))).toBe("someone-else");
-    expect(cloudHomeLendingRefusal(turn({ request: { generations: new Set(["g1"]) }, thread: handoffThread }))).toBe("unproven");
+    expect(cloudHomeLendingRefusal(turn({ request: { generations: new Set(["g1"]) }, thread: handoffThread }))).toBeNull();
   });
 });
 

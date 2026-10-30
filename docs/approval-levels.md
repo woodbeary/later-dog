@@ -8,15 +8,13 @@ own dogs works. There is no per-dog Heel or Off-leash picker any more.
 | Auto-review | What your dogs do |
 | --- | --- |
 | **On** | The engine's own AI reviewer checks each step (Codex `auto_review`, Claude `auto`, Cursor `--auto-review`, Grok `auto`). You see a card only for what the reviewer leaves for you. Engines without a reviewer (the free Kimi and Grok models, OpenAI-compatible chat engines) card each request, and the chat says so once; the chat engines still use the dog's own cloud computer and browser with no card, and a computer the person has taken over refuses the dog's call. |
-| **Off** | No asks. The engine still starts with its reviewer, and later.dog answers whatever it leaves for you at once, with no card. The decision log records each one with source `owner-auto`. |
+| **Off** | No asks. Claude Code starts without its reviewer, in Manual, so each of its requests comes to later.dog, which answers it at once with no card. A turn a webhook started, and work it hands to other dogs, still starts with the reviewer. Other engines still start with their reviewer, and later.dog answers whatever it leaves for you at once, with no card. The decision log records each one with source `owner-auto`. |
 
 The switch is saved in the config as `features.autoReview` and changed with
-`PATCH /api/config`. It is set once on the first start that has the switch. On
-a Cloud home it starts off when any dog was already Off-leash, because there
-those dogs already worked without asking. Everywhere else it starts on,
-including a new install and a Mac whose dogs were Off-leash, because on a Mac
-Off-leash already meant the engine's reviewer decided and its escalations
-became cards. A dog's saved `approvalMode` no longer
+`PATCH /api/config`. It is off unless you turn it on: the first start that has
+no saved choice saves it off, on a Mac, a Cloud home and a new install alike,
+whatever levels the dogs had before. A home that already saved a choice keeps
+it. Each home keeps its own switch. A dog's saved `approvalMode` no longer
 changes how your own dogs work, except **Full access** and **Custom**, which
 keep their own behaviour.
 
@@ -49,13 +47,17 @@ your authority; the handoff note says "one of <your name>'s own dogs, passing on
 
 The dog's system prompt says so in one neutral sentence: it is one of your own
 dogs, and what you ask and what your routines and other dogs pass on carries
-your authority. Claude Code's auto-mode reviewer also gets a **standing grant**
-in the session's `--settings` as `autoMode.environment` and `autoMode.allow`
-entries after `"$defaults"`: you authorize your dogs to commit, push branches,
-commit and push to the default branch, open, update and comment on pull
-requests, and run the repository's build, test and release scripts. Whether a
-reviewer then approves a given action is still its own decision; later.dog
-cannot overrule a reviewer that denies outright.
+your authority. While Auto-review is on, Claude Code's auto-mode reviewer also
+gets a **standing grant** in the session's `--settings` as
+`autoMode.environment` and `autoMode.allow` entries after `"$defaults"`: you
+authorize your dogs to commit, push branches, commit and push to the default
+branch, open, update and comment on pull requests, and run the repository's
+build, test and release scripts. Whether a reviewer then approves a given action
+is still its own decision; later.dog cannot overrule a reviewer that denies
+outright. With Auto-review off, Claude Code runs without that reviewer, so only
+the guard above refuses anything. A turn a webhook started, and work it hands to
+other dogs, keeps the reviewer either way, because what a webhook sends comes
+from outside.
 
 Guests, the conversations they drive, and hosted or shared workspaces keep each
 dog's saved level, and a guest-driven turn always runs as Heel. In a shared
@@ -129,7 +131,8 @@ asks before each action. The Claude driver reads the mode the session actually
 runs in from the CLI's `init` frame; when Auto-review is on and the session
 runs Manual, the chat shows one notice per session naming the model. Choose a
 model the reviewer supports, or turn Auto-review off, to stop the prompts. With
-Auto-review off later.dog answers those requests and shows no notice.
+Auto-review off your own dogs' Claude sessions start in Manual on purpose;
+later.dog answers each request and shows no notice.
 
 ### Antigravity: Ask, Edits, or Auto (full access)
 
@@ -175,7 +178,7 @@ multi-question card renders its structured form on current apps instead.
 | Provider | Ask | Auto-accept edits | Auto | Full access |
 | --- | --- | --- | --- | --- |
 | Codex | `on-request` approvals, `workspace-write` sandbox, you review | not offered (Ask already writes in the workspace) | same sandbox, native `auto_review` reviewer | `never` approvals, `danger-full-access` sandbox |
-| Claude | Native `default` | Native `acceptEdits` | Native `auto` | Native `bypassPermissions` |
+| Claude | Native `default` | Native `acceptEdits` | Native `auto`; with Auto-review off, your own dog's turn starts in Native `default` and later.dog answers each request | Native `bypassPermissions` |
 | Cursor | Native default | not offered | Native `--auto-review` | Native `--force` |
 | Antigravity | Native `default` | Native `auto_edit` | Legacy `auto` behaves as Ask; UI Auto selects Full access | Native `yolo` plus automatic approval of remaining tool-permission requests; shown as Auto |
 | Grok Build | Native `default` | Native `acceptEdits` | Native `--permission-mode auto`; availability of Grok's reviewer depends on its feature rollout | Native `bypassPermissions` plus automatic approval of remaining tool-permission requests |

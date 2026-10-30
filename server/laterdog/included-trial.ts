@@ -3,13 +3,25 @@ import { TRIAL_KEY, savedTrial, trialKeyFile, type IncludedService } from "./clo
 
 export interface IncludedTrial { token: string; api: string; included: true }
 
+function trialKey(): string | null {
+  let key: string;
+  try { key = readFileSync(trialKeyFile(), "utf8").trim(); } catch { return null; }
+  return TRIAL_KEY.test(key) ? key : null;
+}
+
 function liveTrial(service: IncludedService): { key: string; api: string } | null {
   const saved = savedTrial();
   if (!saved?.confirmed || saved.ended) return null;
   if (saved.included ? !saved.included.includes(service) : service !== "decisions") return null;
-  let key: string;
-  try { key = readFileSync(trialKeyFile(), "utf8").trim(); } catch { return null; }
-  return TRIAL_KEY.test(key) ? { key, api: saved.api } : null;
+  const key = trialKey();
+  return key ? { key, api: saved.api } : null;
+}
+
+export function trialUsage(): IncludedTrial | null {
+  const saved = savedTrial();
+  if (!saved?.confirmed || saved.ended) return null;
+  const key = trialKey();
+  return key ? { token: key, api: saved.api, included: true } : null;
 }
 
 export function trialDecider(): IncludedTrial | null {

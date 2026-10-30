@@ -59,9 +59,16 @@ export const UPDATE_GAP_MS = 60_000;
 
 const QUIET_KINDS: ReadonlySet<Message["kind"]> = new Set(["activity", "digest", "screen"]);
 
-function spoken(message: Message): message is Message & { turnId: string } {
+const SHORT_LINE_CHARS = 400;
+
+function spoken(message: Message): message is Message & { turnId: string; text: string } {
   return message.role === "bot" && message.kind === "text" && Boolean(message.turnId) &&
     Boolean(message.text?.trim()) && !message.attachments?.length;
+}
+
+function shortLine(text: string): boolean {
+  const line = text.trim();
+  return !line.includes("\n") && line.length <= SHORT_LINE_CHARS;
 }
 
 function screenCapture(message: Message, toolName: string | undefined): boolean {
@@ -115,7 +122,7 @@ export function planTranscript(
       const first = !spokenTurns.has(message.turnId);
       spokenTurns.add(message.turnId);
       const update = !foldAll && (lastShownAt === undefined || message.at - lastShownAt >= UPDATE_GAP_MS);
-      const quietable = !message.turnTerminal && !first && !update && !replyOwed;
+      const quietable = !message.turnTerminal && !first && !update && !replyOwed && shortLine(message.text);
       if (terminals.has(message.turnId)) {
         if (quietable && index < (lastStep.get(message.turnId) ?? -1)) {
           hiddenIds.add(message.id);

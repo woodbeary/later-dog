@@ -22,7 +22,6 @@ import { upkeepEnabled, type MemoryUpkeep } from "../memory-upkeep.ts";
 import { listLearnedFacts, removeLearned } from "../profile-learned.ts";
 import { importIntoAboutMe, MAX_IMPORT_CHARS } from "../laterdog/profile-import.ts";
 import { memoryDate } from "../workspace.ts";
-import type { RequestAuth } from "../request-auth.ts";
 import { PASS, type RouteHandler } from "./table.ts";
 
 export interface BotMemoryRouteDeps {
@@ -31,12 +30,6 @@ export interface BotMemoryRouteDeps {
   upkeep: Pick<MemoryUpkeep, "status" | "tidy">;
   aboutMe(): string;
   saveAboutMe(text: string): void;
-  lendingReview?: {
-    needed(botId: string): { token: string; changed: string[] } | null;
-    accept(botId: string, token: string): boolean;
-    owner(auth: RequestAuth): boolean;
-  };
-  ownersWrite?: <T>(auth: RequestAuth, botId: string, write: () => T) => T;
 }
 
 export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
@@ -56,15 +49,12 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
 
   return async ({ req, res, url, path, method, auth, json, readBody }) => {
     let m: RegExpMatchArray | null = null;
-    const write = <T>(botId: string, change: () => T): T => deps.ownersWrite ? deps.ownersWrite(auth, botId, change) : change();
     m = path.match(/^\/api\/bots\/([\w-]+)\/memory$/);
     if (m && method === "GET") {
       if (!deps.bot(m[1])) return json(res, 404, { error: "no such bot" });
       try {
         const overview = memoryOverview(m[1]);
-        const review = deps.lendingReview?.needed(m[1]);
-        return json(res, 200, { ...overview, text: readMemoryDoc(m[1], MEMORY_INDEX).text, truncated: overview.index.truncated,
-          ...(review ? { lendingReview: review } : {}) });
+        return json(res, 200, { ...overview, text: readMemoryDoc(m[1], MEMORY_INDEX).text, truncated: overview.index.truncated });
       } catch (error) {
         return replyMemoryError(res, error);
       }
@@ -75,26 +65,12 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       if (!parsed.success) return json(res, 400, { error: "text must be a string" });
       try {
         const botId = m[1];
-        const { doc } = write(botId, () => journalMemoryWrite(botId, MEMORY_INDEX, parsed.data.text, { actor: "person", via: "api" }));
+        const { doc } = journalMemoryWrite(botId, MEMORY_INDEX, parsed.data.text, { actor: "person", via: "api" });
         return json(res, 200, { ok: true, hash: doc.hash, truncated: memoryCapacity(doc.text).truncated });
       } catch (error) {
         if (error instanceof MemoryStoreError && error.code === "too-large") return json(res, 400, { error: error.message });
         return replyMemoryError(res, error);
       }
-    }
-    m = path.match(/^\/api\/bots\/([\w-]+)\/memory\/reviewed$/);
-    if (m && method === "POST" && deps.lendingReview) {
-      if (!deps.bot(m[1])) return json(res, 404, { error: "no such bot" });
-      if (!deps.lendingReview.owner(auth)) {
-        return json(res, 403, { error: "Only the owner of this Cloud can review this dog's memory, from one of their own devices." });
-      }
-      const parsed = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/) }).safeParse(await readBody(req));
-      if (!parsed.success) return json(res, 400, { error: "token is required: the lendingReview token the Memory panel was shown" });
-      if (!deps.lendingReview.accept(m[1], parsed.data.token)) {
-        return json(res, 409, { error: "This dog's memory changed since you looked. Review it again.", code: "changed",
-          lendingReview: deps.lendingReview.needed(m[1]) });
-      }
-      return json(res, 200, { ok: true, lendingReview: false });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/memory\/file$/);
     if (m && method === "GET") {
@@ -113,11 +89,11 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       if (!parsed.success) return json(res, 400, { error: "text must be a string; path and expectedHash are optional strings" });
       try {
         const botId = m[1];
-        const { doc, entry } = write(botId, () => journalMemoryWrite(botId, parsed.data.path, parsed.data.text, {
+        const { doc, entry } = journalMemoryWrite(botId, parsed.data.path, parsed.data.text, {
           actor: "person",
           via: "ui",
           expectedHash: parsed.data.expectedHash,
-        }));
+        });
         return json(res, 200, { ok: true, ...doc, entry: entry ? journalEntryForClient(m[1], entry) : null, overview: memoryOverview(m[1]) });
       } catch (error) {
         return replyMemoryError(res, error);
@@ -128,7 +104,7 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       const file = url.searchParams.get("path") ?? "";
       try {
         const botId = m[1];
-        const entry = write(botId, () => journalMemoryDelete(botId, file, { actor: "person", via: "ui" }));
+        const entry = journalMemoryDelete(botId, file, { actor: "person", via: "ui" });
         return json(res, 200, { ok: true, path: file, entry: entry ? journalEntryForClient(m[1], entry) : null, overview: memoryOverview(m[1]) });
       } catch (error) {
         return replyMemoryError(res, error);
@@ -147,7 +123,7 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       if (!deps.bot(m[1])) return json(res, 404, { error: "no such bot" });
       await flushMemoryJournal(m[1]);
       const botId = m[1], changeId = m[2];
-      const result = write(botId, () => revertMemoryChange(botId, changeId));
+      const result = revertMemoryChange(botId, changeId);
       if (!result.ok) return json(res, result.status, { error: result.error });
       return json(res, 200, { ok: true, ...result.doc, entry: result.entry ? journalEntryForClient(m[1], result.entry) : null, overview: memoryOverview(m[1]) });
     }

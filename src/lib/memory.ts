@@ -21,7 +21,6 @@ export interface MemoryFileInfo {
 }
 
 export interface MemoryOverview {
-  lendingReview?: LendingReview;
   botId: string;
   workspacePath: string;
   index: MemoryCapacity;
@@ -129,15 +128,6 @@ export function noticedCount(report: CaptureReport | undefined): number {
 
 export function fetchUpkeepStatus(botId: string): Promise<UpkeepStatus> {
   return api(`/api/bots/${botId}/memory/upkeep`);
-}
-
-export interface LendingReview {
-  token: string;
-  changed: string[];
-}
-
-export function markMemoryReviewed(botId: string, token: string): Promise<{ ok: true; lendingReview: false }> {
-  return api(`/api/bots/${botId}/memory/reviewed`, { method: "POST", body: JSON.stringify({ token }) });
 }
 
 export function tidyMemoryNow(botId: string): Promise<{ report: TidyReport; overview: MemoryOverview }> {

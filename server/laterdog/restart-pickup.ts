@@ -1,8 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-
 import { failedTurnTool } from "../../shared/failed-turn.ts";
 import type { WireMessage } from "../../shared/wire.ts";
-import { writeFileAtomic } from "../atomic.ts";
+import { fileListLedger } from "./list-ledger.ts";
 import { endsOnPromise } from "./promise-nudge.ts";
 
 type Message = WireMessage;
@@ -11,11 +9,13 @@ type NewMessage = Omit<Message, "id" | "at">;
 export const PICKUP_MAX_AGE_MS = 6 * 60 * 60_000;
 export const PICKUP_RETRY_MS = 30_000;
 export const PICKUP_RETRY_FOR_MS = 4 * 60 * 60_000;
+export const PLANNED_PICKUP_TRIES = 3;
 
 export interface InflightTurn {
   threadId: string;
   botId: string;
   since: number;
+  planned?: boolean;
 }
 
 export interface InflightLedger {
@@ -72,7 +72,7 @@ export function answersPerson(message: Message, carriesOnAfterLimit = false): bo
     case "activity": {
       if (message.comm || message.threadRef || message.cloudTask) return true;
       const tool = message.tool;
-      if (!tool || tool.statusLine || tool.ok !== false || tool.itemId) return false;
+      if (!tool || tool.statusLine || tool.compaction || tool.ok !== false || tool.itemId) return false;
       return !(carriesOnAfterLimit && tool.quota);
     }
     case "options": {
@@ -119,6 +119,7 @@ export interface PickupInput {
   busy?: boolean;
   routine: (at: number) => boolean;
   carriesOnAfterLimit?: boolean;
+  planned?: boolean;
   now: number;
 }
 
@@ -134,7 +135,8 @@ export function planPickup(input: PickupInput): PickupPlan {
   if (input.routine(source.at)) return { kind: "none", why: "routine" };
   const after = path.slice(at + 1);
   if (answeredSince(after, input.carriesOnAfterLimit)) return { kind: "none", why: "answered" };
-  if (after.some((message) => message.tool?.pickup === "restart")) return { kind: "explain", source, line: restartedAgainLine(name) };
+  const tries = after.filter((message) => message.tool?.pickup === "restart").length;
+  if (tries >= (input.planned ? PLANNED_PICKUP_TRIES : 1)) return { kind: "explain", source, line: restartedAgainLine(name) };
   if (!input.owner) return { kind: "explain", source, line: notOwnerLine(name) };
   const lastSeen = Math.max(source.at, ...after.map((message) => message.at));
   if (input.now - lastSeen > PICKUP_MAX_AGE_MS) return { kind: "explain", source, line: tooOldLine(name) };
@@ -147,20 +149,7 @@ function isInflightTurn(value: unknown): value is InflightTurn {
 }
 
 export function fileInflightLedger(path: string): InflightLedger {
-  return {
-    read() {
-      if (!existsSync(path)) return [];
-      try {
-        const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-        return Array.isArray(parsed) ? parsed.filter(isInflightTurn) : [];
-      } catch {
-        return [];
-      }
-    },
-    write(turns) {
-      writeFileAtomic(path, `${JSON.stringify(turns)}\n`, { mode: 0o600, durable: false });
-    },
-  };
+  return fileListLedger(path, isInflightTurn);
 }
 
 export function createInflightTurns(ledger: InflightLedger, options: { now?: () => number; stopping?: () => boolean } = {}) {
@@ -208,6 +197,12 @@ export function createInflightTurns(ledger: InflightLedger, options: { now?: () 
         changed = true;
       }
       if (changed) save();
+    },
+
+    markPlanned(): void {
+      if (!open.size) return;
+      for (const [threadId, turn] of open) open.set(threadId, { ...turn, planned: true });
+      save();
     },
 
     takeLeftovers(): InflightTurn[] {
@@ -307,6 +302,7 @@ export async function pickUpAfterRestart(host: RestartPickupHost, turns: readonl
         busy: host.busy(dog.botId, turn.threadId),
         routine: (at) => host.routine(turn.threadId, at),
         carriesOnAfterLimit: host.carriesOnAfterLimit(),
+        planned: turn.planned === true,
         now: now(),
       });
       if (plan.kind === "none") {

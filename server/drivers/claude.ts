@@ -12,6 +12,7 @@ import { classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-r
 import { ClaudeLoginController } from "./claude-login-auth.ts";
 
 import type {
+  CompactionEvent,
   DriverCreateInput,
   EffortLevel,
   ModelCatalog,
@@ -709,6 +710,33 @@ export function turnCostFromRunningTotal(total: number | null, previous: number 
   return Number((total - previous).toFixed(10));
 }
 
+export function claudeCompactionEvent(o: any): CompactionEvent | null {
+  if (!o || o.type !== "system" || o.parent_tool_use_id) return null;
+  if (o.subtype === "compact_boundary") {
+    const meta = o.compact_metadata ?? {};
+    const tokens = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : undefined);
+    const preTokens = tokens(meta.pre_tokens);
+    const postTokens = tokens(meta.post_tokens);
+    return {
+      type: "session.compacted",
+      ok: true,
+      ...(meta.trigger === "auto" || meta.trigger === "manual" ? { trigger: meta.trigger } : {}),
+      ...(preTokens !== undefined ? { preTokens } : {}),
+      ...(postTokens !== undefined ? { postTokens } : {}),
+    };
+  }
+  if (o.subtype !== "status") return null;
+  if (o.status === "compacting") return { type: "session.compacting" };
+  if (o.status !== null) return null;
+  if (o.compact_result === "success") return { type: "session.compacted", ok: true };
+  if (o.compact_result === "failed") {
+    const error = typeof o.compact_error === "string" ? o.compact_error.trim() : "";
+    return { type: "session.compacted", ok: false, ...(error ? { error } : {}) };
+  }
+  if (typeof o.permissionMode === "string") return null;
+  return { type: "session.compacted", ok: true, skipped: true };
+}
+
 export interface ClaudeCostSnapshot {
   total: number;
   models: Record<string, [number, number, number, number]>;
@@ -1027,7 +1055,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const permissionMode = turn.approvalMode === undefined
         ? config.permissionMode
         : turn.approvalMode === "full" ? "bypassPermissions"
-          : turn.approvalMode === "auto" ? "auto"
+          : turn.approvalMode === "auto" ? (turn.ownerAnswers ? "default" : "auto")
             : turn.approvalMode === "edits" ? "acceptEdits" : "default";
       const controlsHost = turn.integrations?.localComputer?.scope === "local-computer";
       if (controlsHost && permissionMode === "bypassPermissions" && turn.approvalMode !== "full") {
@@ -1527,6 +1555,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               emit({ ...base(threadId, currentTurnId()), type: "session.started", sessionId: o.session_id, model: o.model, ...(retry.rebuilt ? { rebuilt: true } : {}) });
             } else if (o.subtype === "thinking_tokens") {
               emit({ ...base(threadId, currentTurnId()), type: "item.updated", itemType: "reasoning", tokens: o.estimated_tokens });
+            } else {
+              const compaction = claudeCompactionEvent(o);
+              if (compaction) emit({ ...base(threadId, currentTurnId()), ...compaction });
             }
             break;
           case "stream_event": {

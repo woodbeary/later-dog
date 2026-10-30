@@ -587,8 +587,11 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   }
   turnsPlayed += 1;
   if (process.env.FAKE_CLAUDE_COMPACT === "1" && turnsPlayed >= 2) {
+    out({ type: "system", subtype: "status", status: "compacting" });
     runHooks("PreCompact", { trigger: "auto" });
     const context = runHooks("SessionStart", { source: "compact" });
+    out({ type: "system", subtype: "status", status: null, compact_result: "success" });
+    out({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "auto", pre_tokens: 182_345, post_tokens: 24_100 } });
     if (context.trim()) replyParts = [`${context.trim()}\n\n${replyParts[0] ?? ""}`, ...replyParts.slice(1)];
   }
   const usage = { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 };

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { WireMessage } from "../../shared/wire.ts";
 import {
   PICKUP_MAX_AGE_MS,
+  PLANNED_PICKUP_TRIES,
   answeredSince,
   answersPerson,
   couldNotLine,
@@ -138,6 +139,20 @@ describe("planning what to do with a message left without a reply", () => {
     expect(plan([source, notice, step()])).toEqual({ kind: "explain", source, line: restartedAgainLine("Scout") });
   });
 
+  it("tries again after a restart later.dog planned, up to three times, but not after a crash", () => {
+    const source = ask();
+    const notice = () => message({ role: "bot", kind: "activity", tool: { name: `recovery: ${pickingUpNotice("Scout")}`, ok: true, pickup: "restart" } });
+    const once = [source, notice(), step()];
+    expect(plan(once, { planned: true })).toEqual({ kind: "resume", source });
+    expect(plan(once, { planned: false })).toEqual({ kind: "explain", source, line: restartedAgainLine("Scout") });
+    const twice = [...once, notice(), step()];
+    expect(plan(twice, { planned: true })).toEqual({ kind: "resume", source });
+    const thrice = [...twice, notice(), step()];
+    expect(PLANNED_PICKUP_TRIES).toBe(3);
+    expect(plan(thrice, { planned: true })).toEqual({ kind: "explain", source, line: restartedAgainLine("Scout") });
+    expect(plan([source, step()], { planned: false })).toEqual({ kind: "resume", source });
+  });
+
   it("says in one line why not when someone other than the owner sent it", () => {
     const source = ask();
     expect(plan([source], { owner: false })).toEqual({ kind: "explain", source, line: notOwnerLine("Scout") });
@@ -210,6 +225,25 @@ describe("remembering which turns are running", () => {
     turns.sync("bot-1", [{ threadId: "t1", activity: "idle" }]);
     turns.forget("bot-1");
     expect(written.at(-1)).toEqual([{ threadId: "t1", botId: "bot-1", since: 1 }]);
+  });
+
+  it("marks the turns running when later.dog stops on purpose, and keeps the mark until they are taken", () => {
+    dir = mkdtempSync(join(tmpdir(), "laterdog-inflight-"));
+    const file = join(dir, "turns-running.json");
+    writeFileSync(file, JSON.stringify([{ threadId: "old", botId: "bot-1", since: 1 }]));
+    const turns = createInflightTurns(fileInflightLedger(file), { now: () => 2 });
+    turns.sync("bot-1", [{ threadId: "new", busy: true }]);
+    turns.markPlanned();
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual([
+      { threadId: "old", botId: "bot-1", since: 1 },
+      { threadId: "new", botId: "bot-1", since: 2, planned: true },
+    ]);
+    const afterRestart = createInflightTurns(fileInflightLedger(file));
+    expect(afterRestart.takeLeftovers()).toEqual([
+      { threadId: "old", botId: "bot-1", since: 1 },
+      { threadId: "new", botId: "bot-1", since: 2, planned: true },
+    ]);
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual([]);
   });
 
   it("starts empty from a missing or broken file", () => {
@@ -325,6 +359,16 @@ describe("picking messages up after a restart", () => {
     timers.shift()!();
     await new Promise((resolve) => setImmediate(resolve));
     expect(paths.t1.at(-1)).toMatchObject({ tool: { name: `error: ${couldNotLine("Scout", "Scout stayed busy with other work")}`, ok: false } });
+  });
+
+  it("picks up again after a planned restart cut off the pickup, and explains after a crash", async () => {
+    const pickedUp = () => message({ role: "bot", kind: "activity", tool: { name: `recovery: ${pickingUpNotice("Scout")}`, ok: true, pickup: "restart" } });
+    const paths = { planned: [ask(), pickedUp(), step()], crashed: [ask(), pickedUp(), step()] };
+    const { host, started } = pickupHost(paths);
+    const outcomes = await pickUpAfterRestart(host, [{ ...turn("planned"), planned: true }, turn("crashed")]);
+    expect(outcomes.map((outcome) => [outcome.threadId, outcome.kind])).toEqual([["planned", "resumed"], ["crashed", "explained"]]);
+    expect(started.map((entry) => entry.threadId)).toEqual(["planned"]);
+    expect(paths.crashed.at(-1)?.tool?.name).toContain(restartedAgainLine("Scout"));
   });
 
   it("leaves gone dogs and answered threads alone", async () => {

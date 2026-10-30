@@ -80,6 +80,7 @@ posixOnly("a replayed respond for a settled card", () => {
     const data = join(home, ".laterdog");
     mkdirSync(data, { recursive: true });
     writeFileSync(join(data, "config.json"), JSON.stringify({
+      features: { autoReview: true },
       instances: { grok: { driver: "grokAgent", environment: { FAKE_ACP_MODE: "permission" }, config: { cli: FAKE_CLI, fullAuto: false } } },
     }));
     await start();

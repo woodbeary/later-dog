@@ -575,7 +575,6 @@
   "memory.simple.files": "याददाश्त की फ़ाइलें",
   "memory.simple.done": "हो गया",
   "memory.simple.manage": "याददाश्त सँभालें",
-  "memory.simple.review": "समीक्षा चाहिए",
   "memory.simple.busy": "इसे बदलने के लिए {name} का मौजूदा काम रोकें।",
   "memory.simple.offHint": "बंद है। सहेजे गए नोट रहेंगे, लेकिन {name} उन्हें पढ़ेगा या उनमें कुछ जोड़ेगा नहीं।",
   "memory.page.back": "वापस",

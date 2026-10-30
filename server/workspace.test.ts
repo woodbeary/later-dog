@@ -14,6 +14,7 @@ import {
   isMemoryTopicName,
   listMemoryTopics,
   loadMemory,
+  MEMORY_READ_ONLY_GUIDANCE,
   memorySystemPrompt,
   supportsWorkspaceFiles,
   readMemoryFile,
@@ -621,6 +622,20 @@ describe("workspace", () => {
     expect(managed).toContain("Change MEMORY.md only with memory_update.");
     expect(managed).not.toContain("update it with your file tools");
     expect(memorySystemPrompt(BOT)).toContain("update it with your file tools");
+  });
+
+  it("a turn that can't change memory still sees it, and is told to leave it as it is instead of how to write it", () => {
+    writeMemoryFile(BOT, "# Memory\n- The user prefers CSV exports.\n");
+    for (const managedWrites of [false, true]) {
+      const prompt = memorySystemPrompt(BOT, { managedWrites, readOnly: true });
+      expect(prompt).toContain(MEMORY_READ_ONLY_GUIDANCE);
+      expect(prompt).toContain("The user prefers CSV exports.");
+      expect(prompt).toContain(JSON.stringify(join(workspaceDir(BOT), "MEMORY.md")));
+      expect(prompt).not.toContain("Keep MEMORY.md short and curated");
+      expect(prompt).not.toContain("memory_update");
+      expect(prompt).not.toContain("MEMORY.md is for facts");
+      expect(memorySystemPrompt(BOT, { managedWrites })).not.toContain(MEMORY_READ_ONLY_GUIDANCE);
+    }
   });
 });
 

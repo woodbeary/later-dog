@@ -11,6 +11,7 @@ const fixture = vi.hoisted(() => ({
   dispatch: vi.fn(),
   analytics: false,
   updater: { status: "idle" } as Record<string, unknown>,
+  owner: false,
 }));
 
 vi.mock("@/state/store", async (importOriginal) => ({
@@ -31,6 +32,11 @@ vi.mock("./SavedApiKeys", async (importOriginal) => ({
   SavedApiKeys: ({ instances }: { instances: readonly InstanceInfo[] }) => `MARKER:api-keys=${instances.map((instance) => instance.instanceId).join("+")};`,
 }));
 vi.mock("./UsageSection", () => ({ UsageSection: marker("usage") }));
+vi.mock("./OwnerDashboard", () => ({ OwnerDashboard: marker("dashboard") }));
+vi.mock("@/lib/included-usage", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/included-usage")>(),
+  useIncludedUsage: () => ({ usage: fixture.owner ? { owner: true, tier: "owner", today: "2026-10-30", days: [], limits: null } : null, loaded: true, error: "", fetchedAt: 0 }),
+}));
 vi.mock("./CloudComputerRows", () => ({ CloudComputerRows: marker("cloud-computers") }));
 vi.mock("./CloudLending", () => ({ CloudLending: marker("lending") }));
 vi.mock("./PermissionChecklist", () => ({
@@ -57,6 +63,7 @@ beforeEach(() => {
   fixture.instances = [];
   fixture.analytics = false;
   fixture.updater = { status: "idle" };
+  fixture.owner = false;
   vi.stubGlobal("window", MAC);
   vi.stubGlobal("document", { documentElement: { dataset: {} } });
   setLocale("en");
@@ -74,9 +81,9 @@ const groups = (html: string) => [...html.matchAll(/data-settings-group="([^"]+)
 const markers = (html: string) => [...html.matchAll(/MARKER:([^;]+);/g)].map((match) => match[1]);
 
 describe("the Settings rail", () => {
-  it("lists the five settings pages, with icons, and the same five in the narrow-window picker", () => {
+  it("lists the five settings pages everyone gets, with icons, and the same five in the narrow-window picker", () => {
     const html = render();
-    expect(SETTINGS_PAGES.map((page) => page.id)).toEqual(["general", "computer", "vault", "usage", "updates"]);
+    expect(SETTINGS_PAGES.map((page) => page.id)).toEqual(["general", "computer", "vault", "usage", "dashboard", "updates"]);
     expect(pages(html)).toEqual(["general", "computer", "vault", "usage", "updates"]);
     expect(currentPage(html)).toBe("general");
     for (const page of pages(html)) expect(html).toMatch(new RegExp(`data-settings-page="${page}"[^>]*>\\s*<svg`));
@@ -91,6 +98,16 @@ describe("the Settings rail", () => {
     expect(html).not.toContain("Advanced mode");
     expect(picker).not.toContain(">Models<");
     for (const gone of ["models", "engines", "connections", "companion", "organization", "experimental", "appearance"]) expect(html).not.toContain(`data-settings-page="${gone}"`);
+  });
+
+  it("adds Dashboard after Usage & Billing, in the rail and the picker, only for the owner", () => {
+    fixture.owner = true;
+    const html = render();
+    expect(pages(html)).toEqual(["general", "computer", "vault", "usage", "dashboard", "updates"]);
+    expect(html).toMatch(/data-settings-page="dashboard"[^>]*>\s*<svg/);
+    const picker = html.match(/<select aria-label="Settings"[\s\S]*?<\/select>/)![0];
+    expect([...picker.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1])).toEqual(["general", "computer", "vault", "usage", "dashboard", "updates"]);
+    expect(picker).toContain(">Dashboard<");
   });
 
   it("keeps the dialog's title, close button and glass frame", () => {
@@ -136,7 +153,7 @@ describe("General", () => {
     for (const gone of ["Voice mode", "Step-by-step updates", "Show every update", "Typing suggestions", "Smarter suggestions", "Sharper dictation"]) expect(html).not.toContain(gone);
     expect(html).not.toContain('data-settings-group="typing-suggestions"');
     expect(html.match(/role="switch"/g) ?? []).toHaveLength(3);
-    expect(html).toContain('data-auto-review="on"');
+    expect(html).toContain('data-auto-review="off"');
     expect(html).toContain('data-call-button="on"');
   });
 
@@ -148,16 +165,16 @@ describe("General", () => {
     expect(render()).toContain('data-call-button="off"');
   });
 
-  it("puts the one Auto-review switch under Dogs, saying what on and off mean", () => {
-    const on = render();
-    expect(on).toContain('aria-label="Auto-review"');
-    expect(on).toContain('aria-checked="true"');
-    expect(on).toContain("An AI reviewer checks each step first. You&#x27;re asked only when it isn&#x27;t sure.");
-    fixture.config = { ...fixture.config, features: { browser: false, autoReview: false } };
+  it("puts the one Auto-review switch under Dogs, off by default, saying what on and off mean", () => {
     const off = render();
+    expect(off).toContain('aria-label="Auto-review"');
     expect(off).toContain('data-auto-review="off"');
     expect(off).toContain("Dogs act without asking you first. A few risky steps are always refused.");
     for (const gone of ["Heel", "Off-leash"]) expect(off).not.toContain(gone);
+    fixture.config = { ...fixture.config, features: { browser: false, autoReview: true } };
+    const on = render();
+    expect(on).toContain('data-auto-review="on"');
+    expect(on).toContain("An AI reviewer checks each step first. You&#x27;re asked only when it isn&#x27;t sure.");
   });
 
   it("picks the theme from System, Light and Dark", () => {
@@ -285,6 +302,25 @@ describe("Usage & Billing", () => {
     expect(currentPage(html)).toBe("usage");
     expect(markers(html)).toEqual(["usage"]);
     expect(groups(html)).toEqual([]);
+  });
+});
+
+describe("Dashboard", () => {
+  beforeEach(() => { fixture.section = "dashboard"; });
+
+  it("is the owner dashboard, for the owner", () => {
+    fixture.owner = true;
+    const html = render();
+    expect(currentPage(html)).toBe("dashboard");
+    expect(markers(html)).toEqual(["dashboard"]);
+    expect(html).toContain(">Dashboard</span>");
+  });
+
+  it("lands on General for everyone else", () => {
+    const html = render();
+    expect(currentPage(html)).toBe("general");
+    expect(pages(html)).not.toContain("dashboard");
+    expect(markers(html)).not.toContain("dashboard");
   });
 });
 

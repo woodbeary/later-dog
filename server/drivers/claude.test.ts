@@ -1669,6 +1669,24 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(fresh.argv[fresh.argv.indexOf("--autocompact") + 1]).toBe("200000");
   });
 
+  it("reports the engine compacting the conversation inside the turn that triggered it", async () => {
+    await create(undefined, { FAKE_CLAUDE_COMPACT: "1" });
+    await instance.adapter.sendTurn({ threadId: "t-compact", text: "one" });
+    await recorder.until((e) => e.type === "turn.completed");
+    expect(recorder.events.some((e) => e.type.startsWith("session.compact"))).toBe(false);
+    const second = await instance.adapter.sendTurn({ threadId: "t-compact", text: "two" });
+    await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    const compaction = recorder.events.filter((e) => e.type === "session.compacting" || e.type === "session.compacted");
+    expect(compaction).toEqual([
+      expect.objectContaining({ type: "session.compacting", threadId: "t-compact", turnId: second.turnId }),
+      expect.objectContaining({ type: "session.compacted", ok: true, threadId: "t-compact", turnId: second.turnId }),
+      expect.objectContaining({ type: "session.compacted", ok: true, trigger: "auto", preTokens: 182_345, postTokens: 24_100, turnId: second.turnId }),
+    ]);
+    expect(compaction[1]).not.toHaveProperty("skipped");
+    const completed = recorder.events.findIndex((e) => e.type === "turn.completed" && e.turnId === second.turnId);
+    expect(recorder.events.indexOf(compaction.at(-1)!)).toBeLessThan(completed);
+  });
+
   it("reads --help once for snapshots that overlap", async () => {
     const probes = join(scratch, "probes.log");
     const release = join(scratch, "release-help");
@@ -3032,6 +3050,26 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await instance.adapter.sendTurn({ threadId: "t-review-ask", text: "go", approvalMode: "ask", model: "claude-haiku-4-5" });
     await recorder.until((e) => e.type === "session.started" && e.threadId === "t-review-ask");
     expect(await raise("t-review-ask", "ask-ask")).toHaveProperty("nativeReview", undefined);
+  });
+
+  it("starts an auto turn that later.dog answers for its owner in Manual, sending every ask to later.dog with no reviewer grant", async () => {
+    await create();
+    const dump = join(scratch, "owner-answers.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const grant = { environment: ["$defaults"], allow: ["$defaults", "Owner Standing Authorization"] };
+
+    await instance.adapter.sendTurn({ threadId: "t-owner-answers", text: "go", approvalMode: "auto", reviewerGrant: grant, ownerAnswers: true });
+    await recorder.until((e) => e.type === "turn.completed" && e.threadId === "t-owner-answers");
+    const answered = JSON.parse(readFileSync(dump, "utf8"));
+    expect(answered.argv[answered.argv.indexOf("--permission-mode") + 1]).toBe("default");
+    expect(answered.argv[answered.argv.indexOf("--permission-prompt-tool") + 1]).toBe("mcp__dog__approve");
+    expect(answered.settings?.autoMode).toBeUndefined();
+
+    await instance.adapter.sendTurn({ threadId: "t-owner-reviewed", text: "go", approvalMode: "auto", reviewerGrant: grant });
+    await recorder.until((e) => e.type === "turn.completed" && e.threadId === "t-owner-reviewed");
+    const reviewed = JSON.parse(readFileSync(dump, "utf8"));
+    expect(reviewed.argv[reviewed.argv.indexOf("--permission-mode") + 1]).toBe("auto");
+    expect(reviewed.settings.autoMode).toEqual(grant);
   });
 
   it("attaches exact native Bash command input with the launch directory only to shell permissions", async () => {

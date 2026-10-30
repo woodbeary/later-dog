@@ -575,7 +575,6 @@
   "memory.simple.files": "Fichiers de mémoire",
   "memory.simple.done": "Terminé",
   "memory.simple.manage": "Gérer la mémoire",
-  "memory.simple.review": "À vérifier",
   "memory.simple.busy": "Arrête le tour de {name} pour modifier ceci.",
   "memory.simple.offHint": "Désactivée. Les notes enregistrées restent, mais {name} ne les lira pas et n'y ajoutera rien.",
   "memory.page.back": "Retour",

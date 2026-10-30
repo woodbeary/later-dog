@@ -98,6 +98,7 @@ posixOnly("authorization decisions are logged", () => {
     writeFileSync(
       join(home, ".laterdog", "config.json"),
       JSON.stringify({
+        features: { autoReview: true },
         instances: {
           grok: {
             driver: "grokAgent",

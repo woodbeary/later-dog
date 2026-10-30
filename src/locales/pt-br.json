@@ -581,7 +581,6 @@
   "memory.simple.files": "Arquivos de memória",
   "memory.simple.done": "Concluído",
   "memory.simple.manage": "Gerenciar memória",
-  "memory.simple.review": "Precisa de revisão",
   "memory.simple.busy": "Interrompa o turno de {name} para alterar isto.",
   "memory.simple.offHint": "Desativada. As notas salvas ficam, mas {name} não vai lê-las nem adicionar nada.",
   "memory.page.back": "Voltar",

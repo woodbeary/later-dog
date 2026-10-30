@@ -178,19 +178,18 @@ async function startTurn(bot: { id: string }, text: string) {
   return attach(bot, threadId);
 }
 
-it("starts with Auto-review on for a home whose dogs never worked Off-leash", async () => {
-  expect((await api("GET", "/api/config")).body.features.autoReview).toBe(true);
-  expect(JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8")).features.autoReview).toBe(true);
+it("starts with Auto-review off for a home whose dogs never worked Off-leash", async () => {
+  expect((await api("GET", "/api/config")).body.features.autoReview).toBe(false);
+  expect(JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8")).features.autoReview).toBe(false);
 });
 
-it("with Auto-review off, an owner dog gets the standing grant its reviewer can see, nothing waits for the person, and its questions still do", async () => {
+it("with Auto-review off, an owner dog's Claude Code starts without its own reviewer, nothing waits for the person, and its questions still do", async () => {
   await autoReview(false);
   const dog = await newDog("Shipper", "auto");
   const turn = await startTurn(dog, "Commit the fix to main and open the release PR.");
-  expect(turn.launch.argv[turn.launch.argv.indexOf("--permission-mode") + 1]).toBe("auto");
-  expect(turn.launch.settings.autoMode.allow[0]).toBe("$defaults");
-  expect(turn.launch.settings.autoMode.allow[1]).toMatch(/^Owner Standing Authorization \(later\.dog\): Jacob has given this agent a standing authorization/);
-  expect(turn.launch.settings.autoMode.environment[0]).toBe("$defaults");
+  expect(turn.launch.argv[turn.launch.argv.indexOf("--permission-mode") + 1]).toBe("default");
+  expect(turn.launch.argv[turn.launch.argv.indexOf("--permission-prompt-tool") + 1]).toBe("mcp__dog__approve");
+  expect(turn.launch.settings?.autoMode).toBeUndefined();
   expect(turn.launch.systemPrompt).toContain("You are one of Jacob's own dogs in Jacob's own later.dog workspace");
 
   const started = Date.now();
@@ -268,12 +267,14 @@ it("with Auto-review off an owner dog sends through a connected app with no card
   expect(relayed).toHaveLength(before + 1);
 }, 60_000);
 
-it("with Auto-review on, every owner dog runs under the engine's reviewer and what it leaves for the person becomes one card", async () => {
+it("with Auto-review on, every owner dog runs under the engine's reviewer, which sees the standing grant, and what it leaves for the person becomes one card", async () => {
   await autoReview(true);
   const once = await newDog("Careful", "ask");
   const turn = await startTurn(once, "Commit the fix to main.");
   expect(turn.launch.argv[turn.launch.argv.indexOf("--permission-mode") + 1]).toBe("auto");
-  expect(turn.launch.settings.autoMode.allow[1]).toMatch(/^Owner Standing Authorization \(later\.dog\)/);
+  expect(turn.launch.settings.autoMode.allow[0]).toBe("$defaults");
+  expect(turn.launch.settings.autoMode.allow[1]).toMatch(/^Owner Standing Authorization \(later\.dog\): Jacob has given this agent a standing authorization/);
+  expect(turn.launch.settings.autoMode.environment[0]).toBe("$defaults");
   expect(turn.launch.systemPrompt).toContain("You are one of Jacob's own dogs in Jacob's own later.dog workspace");
   const asked = turn.ask("Bash", { command: "git push origin main" });
   await expect.poll(() => turn.card(asked), { timeout: 15_000 }).toMatchObject({ requestType: "permission" });
@@ -335,7 +336,7 @@ it("with Auto-review off, a push the coordinator dog passes on to another of the
   const turn = await attach(worker, body.receipts[0]!.threadId);
   expect(JSON.stringify(turn.launch.prompt)).toContain("one of Jacob's own dogs, passing on Jacob's instructions");
   expect(JSON.stringify(turn.launch.prompt)).not.toContain("not from your user");
-  expect(turn.launch.settings.autoMode.allow[1]).toContain("those relayed requests meet the consent bar");
+  expect(turn.launch.argv[turn.launch.argv.indexOf("--permission-mode") + 1]).toBe("default");
   const push = turn.ask("Bash", { command: "git push origin main" });
   await expect.poll(() => turn.answers.get(push)?.behavior, { timeout: 10_000 }).toBe("allow");
   expect(await turn.card(push)).toBeUndefined();

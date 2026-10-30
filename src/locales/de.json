@@ -575,7 +575,6 @@
   "memory.simple.files": "Gedächtnisdateien",
   "memory.simple.done": "Fertig",
   "memory.simple.manage": "Gedächtnis verwalten",
-  "memory.simple.review": "Prüfung nötig",
   "memory.simple.busy": "Stoppe den laufenden Gesprächsschritt von {name}, um dies zu ändern.",
   "memory.simple.offHint": "Ausgeschaltet. Gespeicherte Notizen bleiben erhalten, aber {name} liest oder ergänzt sie nicht.",
   "memory.page.back": "Zurück",

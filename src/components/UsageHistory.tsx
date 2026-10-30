@@ -3,7 +3,9 @@ import { Download, Loader2 } from "lucide-react";
 import { api } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { formatMoney } from "@/lib/included-usage";
 import { formatTokens, formatUsd, hasFiniteCost, headlineTokens, tokensColumnLabel } from "@/lib/usage";
+import { BarList, ChartEmpty, ColumnChart, ViewToggle, type ChartView } from "./UsageCharts";
 
 export type UsageGroupBy = "bot" | "model" | "day";
 export const USAGE_GROUPINGS: readonly UsageGroupBy[] = ["bot", "model", "day"];
@@ -43,21 +45,52 @@ export function usageExportHref(range: { from: string; to: string }): string {
   return `/api/usage.csv?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`;
 }
 
+export function periodDays(range: { from: string; to: string }): string[] {
+  const days: string[] = [];
+  const end = Date.parse(`${range.to}T00:00:00Z`);
+  for (let at = Date.parse(`${range.from}T00:00:00Z`); at <= end && days.length < 400; at += 86_400_000) {
+    days.push(new Date(at).toISOString().slice(0, 10));
+  }
+  return days;
+}
+
 const GROUP_LABEL_KEYS: Record<UsageGroupBy, "usage.history.byBot" | "usage.history.byModel" | "usage.history.byDay"> = {
   bot: "usage.history.byBot",
   model: "usage.history.byModel",
   day: "usage.history.byDay",
 };
 
+function estimatedPart(group: UsageGroup): boolean {
+  return hasFiniteCost(group.estimatedUsd) && group.estimatedUsd > 0;
+}
+
+function costText(group: UsageGroup): string {
+  if (!hasFiniteCost(group.costUsd)) return "—";
+  return `${estimatedPart(group) ? "~" : ""}${formatMoney(group.costUsd)}${group.unpriced > 0 ? "*" : ""}`;
+}
+
 function CostCell({ group, strong = false }: { group: UsageGroup; strong?: boolean }) {
   if (!hasFiniteCost(group.costUsd)) return <span className={cn("text-right tabular-nums", strong ? "" : "text-ink-secondary")}>—</span>;
-  const estimated = hasFiniteCost(group.estimatedUsd) && group.estimatedUsd > 0;
+  const estimated = estimatedPart(group);
   return (
     <span className={cn("text-right tabular-nums", strong ? "" : "text-ink")} title={estimated ? t("usage.history.estimatedPart", { amount: formatUsd(group.estimatedUsd!) }) : undefined}>
       {estimated && <span className="text-ink-secondary">~</span>}
       {formatUsd(group.costUsd)}
       {group.unpriced > 0 && <span className="text-ink-secondary">*</span>}
     </span>
+  );
+}
+
+function HistoryNotes({ total }: { total: UsageGroup }) {
+  return (
+    <>
+      {estimatedPart(total) && (
+        <div className="mt-3 text-[12px] leading-relaxed text-ink-secondary">{t("usage.history.estimated", { amount: formatUsd(total.estimatedUsd!) })}</div>
+      )}
+      {total.unpriced > 0 && (
+        <div className="mt-3 text-[12px] leading-relaxed text-ink-secondary">{t("usage.history.unpriced", { count: String(total.unpriced) })}</div>
+      )}
+    </>
   );
 }
 
@@ -90,12 +123,86 @@ export function UsageHistoryTable({ summary }: { summary: UsageSummary }) {
         <span className="text-right tabular-nums">{formatTokens(headlineTokens(summary.total))}</span>
         <CostCell group={summary.total} strong />
       </div>
-      {hasFiniteCost(summary.total.estimatedUsd) && summary.total.estimatedUsd > 0 && (
-        <div className="mt-3 text-[12px] leading-relaxed text-ink-secondary">{t("usage.history.estimated", { amount: formatUsd(summary.total.estimatedUsd) })}</div>
-      )}
-      {summary.total.unpriced > 0 && (
-        <div className="mt-3 text-[12px] leading-relaxed text-ink-secondary">{t("usage.history.unpriced", { count: String(summary.total.unpriced) })}</div>
-      )}
+      <HistoryNotes total={summary.total} />
+    </div>
+  );
+}
+
+function HistoryTotals({ total }: { total: UsageGroup }) {
+  const stats = [
+    { key: "turns", label: t("usage.colTurns"), value: String(total.turns) },
+    { key: "tokens", label: tokensColumnLabel(total), value: formatTokens(headlineTokens(total)) },
+    { key: "cost", label: t("usage.colCost"), value: costText(total) },
+  ];
+  return (
+    <dl className="flex flex-wrap gap-x-8 gap-y-2">
+      {stats.map((stat) => (
+        <div key={stat.key} className="flex flex-col">
+          <dt className="text-[12px] text-ink-secondary">{stat.label}</dt>
+          <dd className="text-[15px] font-medium tabular-nums text-ink">{stat.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function GroupTip({ group, total }: { group: UsageGroup; total: UsageGroup }) {
+  const lines = [
+    [t("usage.colTurns"), String(group.turns)],
+    [tokensColumnLabel(total), formatTokens(headlineTokens(group))],
+    [t("usage.colCost"), costText(group)],
+  ];
+  return (
+    <dl className="grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5">
+      {lines.map(([label, value]) => (
+        <div key={label} className="contents">
+          <dt className="text-ink-secondary">{label}</dt>
+          <dd className="text-right tabular-nums text-ink">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function HistoryChart({ summary, range }: { summary: UsageSummary; range: { from: string; to: string } }) {
+  if (summary.groups.length === 0) return <ChartEmpty>{t("usage.history.empty")}</ChartEmpty>;
+  const priced = hasFiniteCost(summary.total.costUsd);
+  const measure = (group: UsageGroup): number | null => (priced ? group.costUsd : headlineTokens(group));
+  const format = priced ? formatMoney : (value: number) => formatTokens(Math.round(value));
+  const label = `${t("usage.history.title")} · ${priced ? t("usage.colCost") : tokensColumnLabel(summary.total)}`;
+  const byDay = new Map(summary.groups.map((group) => [group.label, measure(group) ?? 0]));
+  const days = summary.groupBy === "day" ? periodDays(range) : [];
+  return (
+    <div>
+      <div className="flex flex-col gap-4">
+        <HistoryTotals total={summary.total} />
+        {summary.groupBy === "day" ? (
+          <ColumnChart
+            days={days}
+            series={[{ key: "history", label, color: 1, values: days.map((day) => byDay.get(day) ?? 0) }]}
+            scale={priced ? "money" : "count"}
+            format={format}
+            label={label}
+            today={new Date().toISOString().slice(0, 10)}
+          />
+        ) : (
+          <BarList
+            label={label}
+            format={format}
+            rows={summary.groups.map((group) => {
+              const value = measure(group);
+              return {
+                key: group.key,
+                label: group.label,
+                value,
+                valueLabel: value === null ? "—" : priced ? costText(group) : format(value),
+                tip: <GroupTip group={group} total={summary.total} />,
+              };
+            })}
+          />
+        )}
+      </div>
+      <HistoryNotes total={summary.total} />
     </div>
   );
 }
@@ -107,17 +214,19 @@ export async function fetchUsage(range: { from: string; to: string }, groupBy: U
 export function UsageHistory({ load = fetchUsage }: { load?: typeof fetchUsage }) {
   const [period, setPeriod] = useState<UsagePeriod>("month");
   const [groupBy, setGroupBy] = useState<UsageGroupBy>("bot");
-  const [summary, setSummary] = useState<UsageSummary | null>(null);
+  const [view, setView] = useState<ChartView>("chart");
+  const [loaded, setLoaded] = useState<{ summary: UsageSummary; range: { from: string; to: string } } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const range = usagePeriodRange(period);
 
   useEffect(() => {
     let current = true;
+    const asked = usagePeriodRange(period);
     setLoading(true);
     setError(null);
-    load(usagePeriodRange(period), groupBy)
-      .then((next) => { if (current) setSummary(next); })
+    load(asked, groupBy)
+      .then((summary) => { if (current) setLoaded({ summary, range: asked }); })
       .catch((cause) => { if (current) setError(cause instanceof Error ? cause.message : String(cause)); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
@@ -155,19 +264,24 @@ export function UsageHistory({ load = fetchUsage }: { load?: typeof fetchUsage }
               </button>
             ))}
           </div>
-          <a
-            href={usageExportHref(range)}
-            download
-            className="ml-auto flex items-center gap-1.5 rounded-lg border border-hairline/40 px-2.5 py-1 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink"
-          >
-            <Download size={13} />{t("usage.history.export")}
-          </a>
+          <div className="ml-auto flex items-center gap-2">
+            <ViewToggle view={view} onChange={setView} />
+            <a
+              href={usageExportHref(range)}
+              download
+              className="flex items-center gap-1.5 rounded-lg border border-hairline/40 px-2.5 py-1 text-[12px] text-ink-secondary hover:bg-raised/50 hover:text-ink"
+            >
+              <Download size={13} />{t("usage.history.export")}
+            </a>
+          </div>
         </div>
         {error && <p role="alert" className="mb-2 text-[12px] text-danger">{error}</p>}
-        {loading && !summary ? (
+        {loading && !loaded ? (
           <div className="flex items-center gap-2 text-[13px] text-ink-secondary"><Loader2 size={14} className="animate-spin" />{t("common.checking")}</div>
-        ) : summary ? (
-          <UsageHistoryTable summary={summary} />
+        ) : loaded ? (
+          <div aria-busy={loading} className={cn("transition-opacity motion-reduce:transition-none", loading && "opacity-60")}>
+            {view === "chart" ? <HistoryChart summary={loaded.summary} range={loaded.range} /> : <UsageHistoryTable summary={loaded.summary} />}
+          </div>
         ) : null}
       </div>
     </section>

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Message } from "../store.ts";
-import { latestTurnAnswer, postTurnImage, type TurnImageMessage } from "./turn-images.ts";
+import { latestTurnAnswer, lookedAtImage, postTurnImage, type TurnImageMessage } from "./turn-images.ts";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
@@ -56,5 +56,30 @@ describe("latestTurnAnswer", () => {
     const answer = said("c", { text: "Current answer.", turnId: "t" });
     expect(latestTurnAnswer([earlier, answer, person], "t")).toBe(answer);
     expect(latestTurnAnswer([earlier, person], "t")).toBeUndefined();
+  });
+});
+
+describe("lookedAtImage", () => {
+  const ran = (name: string, itemId: string): Message => ({ id: `m-${itemId}`, at: 1, role: "bot", kind: "activity", tool: { name, itemId } }) as Message;
+  const steps = [
+    ran("Read", "read"),
+    ran("mcp__agents__shared_computer", "mac"),
+    ran("shared_computer", "mac-bare"),
+    ran("mcp__files__read_media_file", "files"),
+    ran("mcp__computer__screenshot", "shot"),
+    ran("browser_take_screenshot", "browser"),
+    ran("mcp__studio__generate_image", "made"),
+    ran("Bash", "bash"),
+  ];
+
+  it("keeps images the dog read from a file, a screen or the person's Mac out of the chat", () => {
+    for (const itemId of ["read", "mac", "mac-bare", "files", "shot", "browser"]) expect(lookedAtImage(steps, itemId), itemId).toBe(true);
+  });
+
+  it("shows images a tool made, and images that come with no tool", () => {
+    expect(lookedAtImage(steps, "made")).toBe(false);
+    expect(lookedAtImage(steps, "bash")).toBe(false);
+    expect(lookedAtImage(steps, "unknown")).toBe(false);
+    expect(lookedAtImage(steps, undefined)).toBe(false);
   });
 });

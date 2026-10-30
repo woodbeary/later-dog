@@ -77,6 +77,7 @@ posixOnly("a steered message does not lift the unattended mark on its own", () =
     mkdirSync(data, { recursive: true });
     finishGate = join(home, "finish.gate");
     writeFileSync(join(data, "config.json"), JSON.stringify({
+      features: { autoReview: true },
       instances: {
         claude: {
           driver: "claudeAgent",

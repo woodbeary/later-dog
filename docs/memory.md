@@ -9,10 +9,7 @@ groups: **Notes** (Main memory first, then each topic note, then **New note**),
 **Recent changes** (every change, with one-click undo), and **More** (Memory
 upkeep, Daily logs, Show in Finder, Open in Obsidian). Opening a note gives an
 editor that never overwrites something the bot wrote while you were typing.
-**Back**, or Escape, steps back one level. A **Needs review** tag on Manage
-memory means the memory was changed in a conversation you didn't write, so the
-bot can't use your Mac until you look; the page lists what changed and offers
-**Mark reviewed** (see [Cloud Pro](cloud-pro.md)).
+**Back**, or Escape, steps back one level.
 
 The **Remember things between chats** switch is on by default. It can only be
 changed while the bot is idle (it is disabled, with a tooltip saying why, while
