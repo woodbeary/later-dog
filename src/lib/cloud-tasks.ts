@@ -53,6 +53,23 @@ export function rememberCloudTasks(summaries: readonly CloudTaskSummary[]): void
   if (changed) emit();
 }
 
+export const DOG_JOBS_LIMIT = 20;
+
+export function dogCloudTasksPath(botId: string, limit = DOG_JOBS_LIMIT): string {
+  return `/api/laterdog/jobs?bot=${encodeURIComponent(botId)}&limit=${limit}`;
+}
+
+export async function dogCloudTasks(botId: string): Promise<CloudTaskSummary[]> {
+  const { jobs } = await api<{ jobs?: CloudTaskSummary[] }>(dogCloudTasksPath(botId));
+  rememberCloudTasks(jobs ?? []);
+  return jobs ?? [];
+}
+
+export function codingJobLine(job: CloudTaskSummary, now = Date.now()): string {
+  const status = cloudTaskStatus({ summary: job });
+  return [projectName(job.repository), status.label, elapsedLabel(job, now)].filter(Boolean).join(" · ");
+}
+
 async function refresh(force: readonly string[] = []): Promise<void> {
   if (fetching) return;
   const now = Date.now();

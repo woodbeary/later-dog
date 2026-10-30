@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { CloudTaskStep, CloudTaskSummary } from "../../shared/cloud-task";
 import {
-  cloudTaskActive, cloudTaskStatus, cloudTaskStatusClass, cloudWakeupOf, doingNote, elapsedLabel, filesChangedLabel, plainStep, plainSteps, projectName, wakeupLine,
+  cloudTaskActive, cloudTaskStatus, cloudTaskStatusClass, cloudWakeupOf, codingJobLine, dogCloudTasksPath, doingNote, elapsedLabel, filesChangedLabel, plainStep, plainSteps, projectName, wakeupLine,
 } from "./cloud-tasks";
 
 function summary(patch: Partial<CloudTaskSummary> = {}): CloudTaskSummary {
@@ -195,5 +195,18 @@ describe("cloud task wake-ups in the chat", () => {
     for (const event of ["collected", "published", "verified", "reviewed", "merged", "publication_blocked", "other"]) {
       expect(wakeupLine(event)).not.toMatch(TECHNICAL);
     }
+  });
+});
+
+describe("a dog's coding jobs", () => {
+  it("asks the jobs service for one dog's newest jobs", () => {
+    expect(dogCloudTasksPath("dog 1")).toBe("/api/laterdog/jobs?bot=dog%201&limit=20");
+  });
+
+  it("sums each job up in one plain line: project, status, time", () => {
+    const now = Date.parse("2026-10-10T00:08:00.000Z");
+    expect(codingJobLine(summary({ state: "ready", startedAt: "2026-10-10T00:00:00.000Z", finishedAt: "2026-10-10T00:05:00.000Z", changes: { files: 2, additions: 3, deletions: 1 } }), now))
+      .toBe("repo · Ready to review · 5 min");
+    expect(codingJobLine(summary({ state: "cancelled" }), now)).toMatch(/^repo · Stopped/);
   });
 });
