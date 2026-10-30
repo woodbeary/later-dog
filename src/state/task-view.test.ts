@@ -12,17 +12,14 @@ const ask: Message = { id: "m1", role: "user", kind: "text", text: "Find flights
 const reply: Message = { id: "m2", role: "bot", kind: "text", text: "Three options.", at: 3, parentId: "m1" };
 
 describe("an open task in the desktop", () => {
-  it("opens from the Tasks list, shows its conversation once loaded, and goes back to the list", () => {
-    const listed = reducer(base, { type: "showTasks" });
-    expect(listed.tasksOpen).toBe(true);
-    const opening = reducer(listed, { type: "openTask", botId: "olive", threadId: "flights" });
+  it("opens from the dog's chat, shows its conversation once loaded, and goes back to the dog", () => {
+    const opening = reducer(base, { type: "openTask", botId: "olive", threadId: "flights" });
     expect(opening.taskView).toMatchObject({ botId: "olive", threadId: "flights", loading: true });
     const loaded = reducer(opening, { type: "taskLoaded", threadId: "flights", messages: [ask], hasMore: false, activeLeafId: "m1" });
     expect(loaded.taskView).toMatchObject({ messages: [ask], activeLeafId: "m1", loading: false });
     const back = reducer(loaded, { type: "closeTask" });
     expect(back.taskView).toBeNull();
-    expect(back.tasksOpen).toBe(true);
-    expect(reducer(back, { type: "closeTasks" }).tasksOpen).toBe(false);
+    expect(back.selectedId).toBe("olive");
   });
 
   it("follows the task's replies live, while the dog's own conversation stays as it was", () => {
@@ -42,7 +39,7 @@ describe("an open task in the desktop", () => {
   it("ignores other conversations and closes when the person picks a dog or Routines", () => {
     const open = reducer(base, { type: "openTask", botId: "olive", threadId: "flights" });
     expect(reducer(open, { type: "messageAdded", threadId: "elsewhere", message: reply }).taskView?.messages).toEqual([]);
-    expect(reducer(open, { type: "select", id: "olive" })).toMatchObject({ tasksOpen: false, taskView: null });
-    expect(reducer(open, { type: "showRoutines" })).toMatchObject({ tasksOpen: false, taskView: null });
+    expect(reducer(open, { type: "select", id: "olive" })).toMatchObject({ taskView: null });
+    expect(reducer(open, { type: "showRoutines" })).toMatchObject({ taskView: null });
   });
 });

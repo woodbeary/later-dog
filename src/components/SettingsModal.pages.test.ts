@@ -240,10 +240,10 @@ describe("General", () => {
 describe("Computer", () => {
   beforeEach(() => { fixture.section = "computer"; });
 
-  it("shows your computer with this Mac's permissions and cloud computers, nothing else", () => {
+  it("shows signed-in devices, your computer with this Mac's permissions and cloud computers, nothing else", () => {
     const html = render();
     expect(currentPage(html)).toBe("computer");
-    expect(groups(html)).toEqual(["your-computer", "cloud-computers"]);
+    expect(groups(html)).toEqual(["devices", "your-computer", "cloud-computers"]);
     expect(markers(html)).toEqual(["permissions=accessibility+screen", "cloud-computers"]);
     const order = ["Your computer", "Cloud computers"].map((label) => html.indexOf(`>${label}</div>`));
     expect(order.every((at) => at >= 0)).toBe(true);
@@ -255,10 +255,10 @@ describe("Computer", () => {
 
   it("keeps your computer to the desktop app, with the Mac permissions only on a Mac", () => {
     vi.stubGlobal("window", {});
-    expect(groups(render())).toEqual(["cloud-computers"]);
+    expect(groups(render())).toEqual(["devices", "cloud-computers"]);
     vi.stubGlobal("window", { laterdog: { ...MAC.laterdog, platform: "linux" } });
     const linux = render();
-    expect(groups(linux)).toEqual(["your-computer", "cloud-computers"]);
+    expect(groups(linux)).toEqual(["devices", "your-computer", "cloud-computers"]);
     expect(markers(linux)).toEqual(["cloud-computers"]);
   });
 
@@ -282,7 +282,7 @@ describe("Settings in the Cloud's window", () => {
     expect(general).not.toContain("You&#x27;re on My Cloud");
     fixture.section = "computer";
     const computer = render();
-    expect(groups(computer)).toEqual(["your-computer", "cloud-computers"]);
+    expect(groups(computer)).toEqual(["devices", "your-computer", "cloud-computers"]);
     expect(markers(computer)).toEqual(["lending", "permissions=accessibility+screen", "cloud-computers"]);
   });
 
@@ -290,7 +290,7 @@ describe("Settings in the Cloud's window", () => {
     vi.stubGlobal("window", { laterdog: { ...CLOUD.laterdog, cloudLending: { open: vi.fn() } } });
     fixture.section = "computer";
     const computer = render();
-    expect(groups(computer)).toEqual(["your-computer", "cloud-computers"]);
+    expect(groups(computer)).toEqual(["devices", "your-computer", "cloud-computers"]);
     expect(markers(computer)).toEqual(["permissions=accessibility+screen", "cloud-computers"]);
   });
 });

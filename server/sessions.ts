@@ -494,6 +494,14 @@ export class SessionRegistry {
     return this.sessions.map(publicSession);
   }
 
+  rename(id: string, label: string): PublicSession | null {
+    const session = this.sessions.find((s) => s.id === id);
+    if (!session) return null;
+    session.label = label;
+    this.persist();
+    return publicSession(session);
+  }
+
   revoke(id: string): boolean {
     const before = this.sessions.length;
     this.sessions = this.sessions.filter((s) => s.id !== id);

@@ -12,8 +12,6 @@ export interface TaskView {
 }
 
 export type TaskViewAction =
-  | { type: "showTasks" }
-  | { type: "closeTasks" }
   | { type: "openTask"; botId: string; threadId: string }
   | { type: "taskLoaded"; threadId: string; messages: Message[]; hasMore: boolean; activeLeafId: string | null }
   | { type: "taskLoadFailed"; threadId: string }
@@ -21,7 +19,6 @@ export type TaskViewAction =
   | { type: "markTaskDone"; botId: string; threadId: string; done: boolean };
 
 export interface TaskViewState {
-  tasksOpen: boolean;
   taskView: TaskView | null;
 }
 
@@ -33,12 +30,8 @@ export function openedTaskView(botId: string, threadId: string): TaskView {
 
 export function reduceTaskView<S extends TaskViewState>(state: S, action: TaskViewAction): S {
   switch (action.type) {
-    case "showTasks":
-      return { ...state, tasksOpen: true, taskView: null };
-    case "closeTasks":
-      return state.tasksOpen || state.taskView ? { ...state, tasksOpen: false, taskView: null } : state;
     case "openTask":
-      return { ...state, tasksOpen: true, taskView: openedTaskView(action.botId, action.threadId) };
+      return { ...state, taskView: openedTaskView(action.botId, action.threadId) };
     case "taskLoaded":
       return state.taskView?.threadId === action.threadId
         ? { ...state, taskView: { ...state.taskView, messages: action.messages, hasMore: action.hasMore, activeLeafId: action.activeLeafId, loading: false, failed: false } }
@@ -90,7 +83,7 @@ export function followsTaskView(action: Action): action is FollowedAction {
 
 export function followTaskView<S extends TaskViewState>(state: S, action: FollowedAction): S {
   if (action.type === "select" || action.type === "showRoutines") {
-    return state.tasksOpen || state.taskView ? { ...state, tasksOpen: false, taskView: null } : state;
+    return state.taskView ? { ...state, taskView: null } : state;
   }
   const view = state.taskView;
   if (!view || action.threadId !== view.threadId) return state;

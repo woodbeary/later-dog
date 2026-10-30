@@ -718,7 +718,6 @@ export interface AppState {
   routinesLoadState: "loading" | "ready" | "error";
   routinesOpen: boolean;
   routinesFocus: { section?: "schedule" | "logs"; view?: "calendar" | "list"; botId?: string; routineId?: string; runStatus?: RoutineRunStatusFilter; nonce: number };
-  tasksOpen: boolean;
   taskView: TaskView | null;
   settingsOpen: boolean;
   pluginsOpen: boolean;
@@ -1205,8 +1204,6 @@ function baseReducer(state: AppState, action: Action): AppState {
     }
   }
   switch (action.type) {
-    case "showTasks":
-    case "closeTasks":
     case "openTask":
     case "taskLoaded":
     case "taskLoadFailed":
@@ -2024,7 +2021,6 @@ export const initialState: AppState = {
   routinesLoadState: "loading",
   routinesOpen: false,
   routinesFocus: { nonce: 0 },
-  tasksOpen: false,
   taskView: null,
   settingsOpen: false,
   pluginsOpen: false,

@@ -2,7 +2,7 @@
 
 A task is a separate conversation a dog starts for one piece of work. It runs
 on its own, next to the dog's main conversation, and the person follows it in
-the Tasks list until they mark it done.
+that dog's Tasks list until they mark it done.
 
 ## How a task starts
 
@@ -28,8 +28,9 @@ Code: `server/laterdog/dog-tasks.ts`, `server/routes/dog-tasks.ts`, the tool in
 
 ## How tasks show
 
-Both apps list every conversation a dog opened (`openedBy` set), across all
-dogs, apart from each dog's main conversation:
+Tasks sit with the dog that started them; neither app lists tasks across dogs.
+A dog's list holds the conversations it opened (`openedBy` set), apart from its
+main conversation:
 
 | State | Shown when |
 | --- | --- |
@@ -39,13 +40,15 @@ dogs, apart from each dog's main conversation:
 | Open | none of the above |
 | Done | the person marked it done (`archivedAt`), or a dog closed it (`closedBy`); kept for a week |
 
-The list sorts by state or by dog. Opening a task shows its own conversation,
-where the person can reply, answer its cards and approve its steps. Mark as
-done sets `archivedAt` through `PATCH /api/bots/:id/tasks/:threadId`; Reopen
-clears it.
+The list puts tasks that need the person first, then working, ready for review
+and open ones, newest first; done tasks wait behind Show done tasks. Opening a
+task shows its own conversation, where the person can reply, answer its cards
+and approve its steps. Mark as done sets `archivedAt` through
+`PATCH /api/bots/:id/tasks/:threadId`; Reopen clears it.
 
-On the desktop, Tasks appears in the sidebar once a dog has started one, with
-the number of tasks that need the person or are ready for review
-(`src/components/TasksPage.tsx`, `src/components/SidebarTasksRow.tsx`,
-`src/lib/tasks.ts`, `src/state/task-view.ts`). An open task keeps its own
-messages, so the dog's main conversation and the task never mix.
+On the desktop, a Tasks button appears in a dog's chat header once that dog has
+started a task, with a dot when one needs the person or is ready for review. An
+open task leads back to its dog and keeps its own messages, so the dog's main
+conversation and the task never mix (`src/components/ChatHeaderTasks.tsx`,
+`src/components/TaskChat.tsx`, `src/lib/tasks.ts`, `src/state/task-view.ts`).
+On the phone, tasks show on the dog's own page.
