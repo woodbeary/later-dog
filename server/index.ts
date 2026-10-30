@@ -3525,8 +3525,8 @@ function ownerGrantFor(mode: ApprovalMode, threadId: string): boolean {
   return ownerGrantApplies(mode, ownerAutoScope(threadId));
 }
 
-function ownerAnswersFor(mode: ApprovalMode, threadId: string): boolean {
-  return ownerAutoAnswers(mode, ownerAutoScope(threadId));
+function ownerAnswersFor(botId: string, mode: ApprovalMode, threadId: string): boolean {
+  return !isUnattended(botId, threadId) && ownerAutoAnswers(mode, ownerAutoScope(threadId));
 }
 
 function ownerGuardContext(bot: BotRecord, threadId: string, commandCwd: string | undefined): OwnerGuardContext {
@@ -8412,7 +8412,7 @@ async function startTurn(
         throw new DirectTurnSetupCancelled("Coordination access changed before dispatch");
       }
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
-      const ownerAnswers = ownerAnswersFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
+      const ownerAnswers = ownerAnswersFor(bot.id, approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const prompt = buildSystemPrompt(persona, liveBot?.soul ?? bot.soul ?? "", [
         { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
         { id: "owner-grant", label: "Owner's standing grant", text: ownerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
@@ -10155,7 +10155,7 @@ async function runGroupMemberTurn(
     }
   }
   const roomOwnerGrant = ownerGrantFor(roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
-  const roomOwnerAnswers = ownerAnswersFor(roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
+  const roomOwnerAnswers = ownerAnswersFor(readyBot.id, roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomSystem = buildSystemPrompt(system, store.bot(bot.id)?.soul ?? bot.soul ?? "", [
     { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
     { id: "owner-grant", label: "Owner's standing grant", text: roomOwnerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
