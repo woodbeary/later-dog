@@ -414,29 +414,23 @@ export class SecureForms {
     return card;
   }
 
-  private send(
-    botId: string,
-    threadId: string,
-    messageId: string,
-    card: SecureFormCardData,
-    values: Map<string, string>,
-    saved?: { username: string },
-    resume = true,
-  ): SecureFormCardData {
+  private send(botId: string, threadId: string, messageId: string, card: SecureFormCardData, values: Map<string, string>, saved?: { username: string }): SecureFormCardData {
+    this.hold(botId, threadId, messageId, values);
+    const next = this.sending(card, saved);
+    this.host.patch(threadId, messageId, next);
+    this.host.resume({ botId, threadId, messageId, prompt: secureFormResumePrompt(next, messageId) });
+    return next;
+  }
+
+  private hold(botId: string, threadId: string, messageId: string, values: Map<string, string>): void {
     const key = formKey(threadId, messageId);
     this.vault.hold(key, values, SECURE_FORM_TTL_MS);
     this.sent.set(key, { botId, threadId, messageId });
     this.typings.delete(key);
-    const next: SecureFormCardData = {
-      ...card,
-      fields: card.fields.map(bareField),
-      status: "sending",
-      until: this.now() + SECURE_FORM_TTL_MS,
-      ...(saved ? { saved } : {}),
-    };
-    this.host.patch(threadId, messageId, next);
-    if (resume) this.host.resume({ botId, threadId, messageId, prompt: secureFormResumePrompt(next, messageId) });
-    return next;
+  }
+
+  private sending(card: SecureFormCardData, saved?: { username: string }): SecureFormCardData {
+    return { ...card, fields: card.fields.map(bareField), status: "sending", until: this.now() + SECURE_FORM_TTL_MS, ...(saved ? { saved } : {}) };
   }
 
   private saveLogin(card: SecureFormCardData, values: Map<string, string>): boolean {
@@ -488,9 +482,11 @@ export class SecureForms {
     }
     const card: SecureFormCardData = { title: input.title, host: input.host, fields: input.fields.map(bareField), status: "open" };
     const allowed = this.allowedLogin(botId, threadId, card);
-    const formId = allowed ? this.host.append(botId, threadId, card, { quiet: true }) : this.host.append(botId, threadId, card);
-    if (!allowed) return { formId };
-    return { formId, filled: this.send(botId, threadId, formId, card, allowed.values, { username: allowed.username }, false) };
+    if (!allowed) return { formId: this.host.append(botId, threadId, card) };
+    const filled = this.sending(card, { username: allowed.username });
+    const formId = this.host.append(botId, threadId, filled, { quiet: true });
+    this.hold(botId, threadId, formId, allowed.values);
+    return { formId, filled };
   }
 
   private field(botId: string, threadId: string, formId: string, field: string): ReturnType<SecureFormDesk["field"]> {

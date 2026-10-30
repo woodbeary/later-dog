@@ -725,11 +725,12 @@ describe("a Secure Form and the person's saved logins", () => {
   });
 
   it("fills at once, without a notification, when the dog may use the site's only saved login", () => {
-    const { forms, card, quiet, resumed } = chat({ allowed: ["vault:example.com"] });
+    const { forms, card, quiet, resumed, patched } = chat({ allowed: ["vault:example.com"] });
     const desk = forms.desk("dog-1", "thread-1");
     expect(desk.open(INPUT)).toEqual({ formId: "form-1", filled: expect.objectContaining({ status: "sending", saved: { username: "kit@example.com" } }) });
     expect(quiet).toEqual([true]);
-    expect(card("form-1")?.status).toBe("sending");
+    expect(card("form-1")).toMatchObject({ status: "sending", saved: { username: "kit@example.com" } });
+    expect(patched).toEqual([]);
     expect(resumed).toEqual([]);
     expect(desk.field("form-1", "password")).toMatchObject({ ok: true, value: "correct horse battery staple" });
   });
