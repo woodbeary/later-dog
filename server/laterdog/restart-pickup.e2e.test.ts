@@ -11,11 +11,12 @@ import { pickingUpNotice, restartedAgainLine } from "./restart-pickup.ts";
 
 const CLAUDE = { instanceId: "claude", model: "claude-sonnet-5" };
 
-it.skipIf(process.platform === "win32")("picks a message back up after later.dog restarts mid-turn, and says in one line when a second restart cuts it off too", async () => {
+it.skipIf(process.platform === "win32")("picks a message back up after later.dog restarts mid-turn, says in one line when a crash cuts the pickup off too, and tries again when a planned restart does", async () => {
   const scratch = mkdtempSync(join(tmpdir(), "laterdog-pickup-"));
   const promptsPath = join(scratch, "prompts.jsonl");
   const firstGate = join(scratch, "finish-first");
   const secondGate = join(scratch, "finish-second");
+  const thirdGate = join(scratch, "finish-third");
   const fixture = await launchVerificationServer({});
   const { dataDir, url, logPath } = fixture.info;
   const evidence: unknown[] = [{ url }];
@@ -112,15 +113,48 @@ it.skipIf(process.platform === "win32")("picks a message back up after later.dog
     expect(prompts().at(-1)).toContain("Now open the pull request.");
     expect(running()).toEqual([]);
     evidence.push({ pickedUp: await messages(), prompts: prompts().length });
+    await waitForExit(server, { signal: "SIGTERM" });
+
+    start(slow(thirdGate));
+    await healthy();
+    await control("send", "--bot", bot.id, "--task", threadId, "--text", "Then ship it.");
+    await expect.poll(busy, { timeout: 20_000 }).toBe(true);
+    await waitForExit(server, { signal: "SIGKILL" });
+
+    start(slow(thirdGate));
+    await healthy();
+    await expect.poll(async () => (await pickups()).length, { timeout: 20_000, interval: 250 }).toBe(4);
+    await expect.poll(busy, { timeout: 20_000 }).toBe(true);
+    await expect.poll(running, { timeout: 10_000 }).toEqual([expect.objectContaining({ threadId, botId: bot.id })]);
+    await waitForExit(server, { signal: "SIGTERM" });
+    expect(running()).toEqual([expect.objectContaining({ threadId, botId: bot.id, planned: true })]);
+    writeFileSync(thirdGate, "done");
+
+    start({ FAKE_CLAUDE_MODE: "happy" });
+    await healthy();
+    await expect.poll(async () => {
+      const all = await messages();
+      const asked = all.findIndex((message) => message.role === "user" && message.text === "Then ship it.");
+      return all.slice(asked + 1).some((message) => message.role === "bot" && message.kind === "text" && message.turnTerminal && message.text?.trim());
+    }, { timeout: 30_000, interval: 250 }).toBe(true);
+    const shipped = await messages();
+    const asked = shipped.findIndex((message) => message.role === "user" && message.text === "Then ship it.");
+    expect(shipped.slice(asked + 1).filter((message) => message.tool?.pickup === "restart").map((message) => message.tool.name)).toEqual([
+      `recovery: ${pickingUpNotice("Scout")}`, `recovery: ${pickingUpNotice("Scout")}`,
+    ]);
+    await expect.poll(busy, { timeout: 20_000 }).toBe(false);
+    expect(prompts().at(-1)).toContain("Then ship it.");
+    evidence.push({ plannedPickup: shipped });
   } finally {
     evidence.push({ transcript: await transcript().catch((error: unknown) => String(error)) });
     const evidencePath = `${logPath}.restart-pickup.json`;
     writeFileSync(evidencePath, JSON.stringify(evidence, null, 2));
     writeFileSync(firstGate, "done");
     writeFileSync(secondGate, "done");
+    writeFileSync(thirdGate, "done");
     await waitForExit(server, { signal: "SIGTERM" });
     await fixture.close();
     rmSync(scratch, { recursive: true, force: true });
     console.info(JSON.stringify({ logPath, evidencePath, fixtureRemoved: !existsSync(dataDir) }));
   }
-}, 180_000);
+}, 240_000);

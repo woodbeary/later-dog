@@ -19884,6 +19884,7 @@ const gracefulShutdown = createGracefulShutdown({
     () => {
       followupsReady = false;
       companyShutdown = true;
+      inflightTurns.markPlanned();
       if (workspaceAccessTimer) clearInterval(workspaceAccessTimer);
       revokeAllInternalCapabilities();
       sharedComputers.close();
