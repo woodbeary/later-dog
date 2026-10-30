@@ -136,7 +136,7 @@ describe("General", () => {
     for (const gone of ["Voice mode", "Step-by-step updates", "Show every update", "Typing suggestions", "Smarter suggestions", "Sharper dictation"]) expect(html).not.toContain(gone);
     expect(html).not.toContain('data-settings-group="typing-suggestions"');
     expect(html.match(/role="switch"/g) ?? []).toHaveLength(3);
-    expect(html).toContain('data-auto-review="on"');
+    expect(html).toContain('data-auto-review="off"');
     expect(html).toContain('data-call-button="on"');
   });
 
@@ -148,16 +148,16 @@ describe("General", () => {
     expect(render()).toContain('data-call-button="off"');
   });
 
-  it("puts the one Auto-review switch under Dogs, saying what on and off mean", () => {
-    const on = render();
-    expect(on).toContain('aria-label="Auto-review"');
-    expect(on).toContain('aria-checked="true"');
-    expect(on).toContain("An AI reviewer checks each step first. You&#x27;re asked only when it isn&#x27;t sure.");
-    fixture.config = { ...fixture.config, features: { browser: false, autoReview: false } };
+  it("puts the one Auto-review switch under Dogs, off by default, saying what on and off mean", () => {
     const off = render();
+    expect(off).toContain('aria-label="Auto-review"');
     expect(off).toContain('data-auto-review="off"');
     expect(off).toContain("Dogs act without asking you first. A few risky steps are always refused.");
     for (const gone of ["Heel", "Off-leash"]) expect(off).not.toContain(gone);
+    fixture.config = { ...fixture.config, features: { browser: false, autoReview: true } };
+    const on = render();
+    expect(on).toContain('data-auto-review="on"');
+    expect(on).toContain("An AI reviewer checks each step first. You&#x27;re asked only when it isn&#x27;t sure.");
   });
 
   it("picks the theme from System, Light and Dark", () => {

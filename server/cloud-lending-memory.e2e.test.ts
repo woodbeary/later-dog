@@ -186,6 +186,7 @@ await import(${JSON.stringify(fake)});
   const brief = completing("brief", ["GUEST-SAID-kiwi", "OWNER-SAID-fig"]);
   writeFileSync(join(dataDir, "config.json"), JSON.stringify({
     memory: { captureQuietMs: 1_000 },
+    features: { autoReview: true },
     instances: {
       ...Object.fromEntries(["codex", "cursor", "openaiCompat", "qwen", "hermes", "pi", "claude"].map((id) => [id, { driver: "not-a-real-driver" }])),
       held: { driver: "claudeAgent", displayName: "Held", config: { cli: held } },
