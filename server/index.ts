@@ -117,6 +117,7 @@ import { requestGone } from "./laterdog/request-gone.ts";
 import { PHONE_NOT_YOURS, PhoneDesk, phoneWants, type PhoneJob, type PhoneOwner } from "./laterdog/phone-desk.ts";
 import { createPhoneDeviceRoutes, createPhoneToolRoute, isPhoneDevicePath } from "./routes/phone-desk.ts";
 import { createDogTaskRoute } from "./routes/dog-tasks.ts";
+import { briefStep, SHOWN_PAGE_ROW_CAP, shownPageStart } from "./message-pages.ts";
 import { startedFromTask } from "./laterdog/dog-tasks.ts";
 import { createSharedJoins } from "./laterdog/shared-join.ts";
 import { configuredSpeechKey, SpeechCache } from "./laterdog/speech-cache.ts";
@@ -4685,20 +4686,27 @@ function slimMessage(message: Message): Message | Record<string, unknown> {
   return { ...rest, hasImage: true };
 }
 
-function messagePage(threadId: string, limit: number | undefined, before?: string | null) {
+interface PageView {
+  shown?: boolean;
+  brief?: boolean;
+}
+
+function messagePage(threadId: string, limit: number | undefined, before?: string | null, view: PageView = {}) {
   if (limit === undefined) {
     return { messages: store.messagesFor(threadId), activeLeafId: store.activeLeaf(threadId) };
   }
+  const slim = (message: Message) => slimMessage(view.brief ? briefStep(message) : message);
   if (!before) {
-    const tail = store.messagesTail(threadId, limit);
-    return { messages: tail.messages.map(slimMessage), hasMore: tail.hasMore, activeLeafId: tail.activeLeafId };
+    const tail = store.messagesTail(threadId, view.shown ? SHOWN_PAGE_ROW_CAP : limit);
+    const start = view.shown ? shownPageStart(tail.messages, tail.messages.length, limit) : 0;
+    return { messages: tail.messages.slice(start).map(slim), hasMore: start > 0 || tail.hasMore, activeLeafId: tail.activeLeafId };
   }
   const all = store.messagesFor(threadId);
   const end = all.findIndex((msg) => msg.id === before);
   const stop = end === -1 ? all.length : end;
-  const start = Math.max(0, stop - limit);
+  const start = view.shown ? shownPageStart(all, stop, limit) : Math.max(0, stop - limit);
   return {
-    messages: all.slice(start, stop).map(slimMessage),
+    messages: all.slice(start, stop).map(slim),
     hasMore: start > 0,
     activeLeafId: store.activeLeaf(threadId),
   };
@@ -14644,7 +14652,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (before && !store.messagesFor(threadId).some((msg) => msg.id === before)) {
         return json(res, 404, { error: "no such message" });
       }
-      return json(res, 200, { ...messagePage(threadId, limit ?? DEFAULT_PAGE, before), activeLeafId: store.activeLeaf(threadId) });
+      const view = { shown: url.searchParams.get("count") === "shown", brief: url.searchParams.get("steps") === "brief" };
+      return json(res, 200, { ...messagePage(threadId, limit ?? DEFAULT_PAGE, before, view), activeLeafId: store.activeLeaf(threadId) });
     }
 
     m = path.match(/^\/api\/threads\/([\w-]+)\/messages\/([\w-]+)\/image$/);
