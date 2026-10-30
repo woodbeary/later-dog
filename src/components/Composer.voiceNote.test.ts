@@ -54,6 +54,7 @@ vi.mock("@/lib/mic-recorder", async (importOriginal) => {
 
 const { Composer } = await import("./Composer");
 const { setLocale } = await import("@/lib/i18n");
+const { reloadsHeld, untilReloadsFree } = await import("@/lib/reload-guard");
 
 const HEARD = "Draft the launch post for Friday.";
 let host: HTMLDivElement;
@@ -110,9 +111,10 @@ beforeEach(() => {
 });
 afterEach(async () => {
   await act(async () => root.unmount());
+  vi.useRealTimers();
+  await settle();
   host.remove();
   vi.unstubAllGlobals();
-  vi.useRealTimers();
 });
 
 describe("cloud dictation", () => {
@@ -268,7 +270,7 @@ describe("when transcription can't help", () => {
   });
 
   it("transcribes the same saved audio again on Retry", async () => {
-    transcribe.mockImplementationOnce(async () => Response.json({ error: "down" }, { status: 502 }));
+    transcribe.mockImplementationOnce(async () => Response.json({ error: "broken" }, { status: 500 }));
     await render();
     await click(micButton());
     await click(micButton());
@@ -384,5 +386,100 @@ describe("the dictation strip", () => {
     } finally {
       delete document.documentElement.dataset.reducedMotion;
     }
+  });
+});
+
+describe("leaving mid-sentence", () => {
+  let pepper: Bot;
+  const show = (shown: Bot) => act(async () => root.render(createElement(Composer, { key: shown.threadId, bot: shown })));
+  const retry = () => [...host.querySelectorAll<HTMLButtonElement>("[data-voice-note] button")].find((button) => button.textContent === "Retry")!;
+
+  beforeEach(() => {
+    pepper = { ...bot, id: "pepper", name: "Pepper", threadId: `${talker.threadId}-pepper` };
+  });
+
+  it("finishes what you were saying when you open another dog, and keeps it in the first dog's box", async () => {
+    await show(talker);
+    await type("Hi team,");
+    await click(micButton());
+    await show(pepper);
+    await settle();
+    expect(mic.stops).toBe(1);
+    expect(mic.cancels).toBe(0);
+    expect(transcribe).toHaveBeenCalledTimes(1);
+    expect(box().value).toBe("");
+    await show(talker);
+    expect(box().value).toBe(`Hi team, ${HEARD}`);
+  });
+
+  it("puts words that come back after you left into the dog you spoke to, never the one on screen", async () => {
+    answerLater();
+    await show(talker);
+    await click(micButton());
+    await click(micButton());
+    await show(pepper);
+    release(Response.json({ text: HEARD }));
+    await settle();
+    expect(box().value).toBe("");
+    await show(talker);
+    expect(box().value).toBe(HEARD);
+  });
+
+  it("fills the box when you come back before the words arrive", async () => {
+    answerLater();
+    await show(talker);
+    await click(micButton());
+    await show(pepper);
+    await show(talker);
+    release(Response.json({ text: HEARD }));
+    await settle();
+    expect(box().value).toBe(HEARD);
+  });
+
+  it("keeps a voice note that failed while you were away, ready to retry", async () => {
+    answerLater();
+    await show(talker);
+    await click(micButton());
+    await click(micButton());
+    await show(pepper);
+    release(Response.json({ error: "broken" }, { status: 500 }));
+    await settle();
+    expect(voiceNote()).toBeNull();
+    await show(talker);
+    expect(voiceNote()!.textContent).toContain("Transcription didn't come back. Your voice note is saved.");
+    transcribe.mockImplementation(async () => Response.json({ text: HEARD }));
+    await click(retry());
+    expect(transcribe.mock.calls.at(-1)![1]!.body).toBe(mic.audio);
+    expect(box().value).toBe(HEARD);
+    expect(voiceNote()).toBeNull();
+  });
+
+  it("holds page updates while you speak, after you leave, and until the words land", async () => {
+    const quiet = vi.spyOn(console, "info").mockImplementation(() => {});
+    answerLater();
+    await show(talker);
+    expect(reloadsHeld()).toBe(false);
+    await click(micButton());
+    expect(reloadsHeld()).toBe(true);
+    await show(pepper);
+    expect(reloadsHeld()).toBe(true);
+    let updated = false;
+    void untilReloadsFree().then(() => { updated = true; });
+    await settle();
+    expect(updated).toBe(false);
+    release(Response.json({ text: HEARD }));
+    await settle();
+    expect(updated).toBe(true);
+    expect(reloadsHeld()).toBe(false);
+    quiet.mockRestore();
+  });
+
+  it("lets page updates through as soon as you cancel", async () => {
+    await show(talker);
+    await click(micButton());
+    expect(reloadsHeld()).toBe(true);
+    await escape(box());
+    await settle();
+    expect(reloadsHeld()).toBe(false);
   });
 });

@@ -15,6 +15,7 @@ import {
   clampDraftPosition,
   draftRevision,
   failedComposerSends,
+  fillUnchangedDraft,
   getDraft,
   getDraftAttachments,
   getDraftPosition,
@@ -320,6 +321,36 @@ describe("appendComposerDraft", () => {
     appendComposerDraft(draftId, prompt);
     expect(getDraft(store, draftId)).toBe(prompt);
     expect(getDraftAttachments(store, draftId)).toEqual([attachment]);
+  });
+});
+
+describe("fillUnchangedDraft", () => {
+  it("fills a draft that is still as the person left it, keeps its attachments and saves it", () => {
+    const store = memoryStorage();
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: store });
+    const draftId = "bot:voice:thread-away";
+    const attachment = { kind: "file" as const, id: "file-2", path: "/private/attachments/plan.md", name: "plan.md", size: 40 };
+    setDraft(store, draftId, "Hi team,");
+    setDraftAttachments(store, draftId, [attachment]);
+    const revision = draftRevision(draftId);
+    expect(fillUnchangedDraft(draftId, "Hi team,", "Hi team, ship it Friday.")).toBe(true);
+    expect(getDraft(store, draftId)).toBe("Hi team, ship it Friday.");
+    expect(getDraftAttachments(store, draftId)).toEqual([attachment]);
+    expect(draftRevision(draftId)).toBe(revision + 1);
+    leavePage();
+    expect(JSON.parse(store.getItem("laterdog-drafts") ?? "{}")[draftId]).toBe("Hi team, ship it Friday.");
+  });
+
+  it("leaves the draft alone once the person changed or sent it", () => {
+    const store = memoryStorage();
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: store });
+    const draftId = "bot:voice:thread-changed";
+    setDraft(store, draftId, "never mind, I'll write it");
+    expect(fillUnchangedDraft(draftId, "", "ship it Friday.")).toBe(false);
+    expect(getDraft(store, draftId)).toBe("never mind, I'll write it");
+    setDraft(store, draftId, "");
+    expect(fillUnchangedDraft(draftId, "ship it", "ship it Friday.")).toBe(false);
+    expect(getDraft(store, draftId)).toBe("");
   });
 });
 

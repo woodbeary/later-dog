@@ -335,6 +335,14 @@ export function appendComposerDraft(id: string, text: string): void {
   });
 }
 
+export function fillUnchangedDraft(id: string, expected: string, text: string): boolean {
+  const store = getStore();
+  if (getDraft(store, id) !== expected) return false;
+  markDraftEdited(id);
+  restoreComposerDraft(id, { text, attachments: getDraftAttachments(store, id) });
+  return true;
+}
+
 export function prependComposerDraft(id: string, text: string): void {
   const store = getStore();
   const current = getDraft(store, id);
