@@ -11,6 +11,7 @@ import {
   Copy,
   Download,
   Hand,
+  ListPlus,
   MessageSquareReply,
   Pencil,
   MoreHorizontal,
@@ -128,7 +129,8 @@ import { turnSteps, turnUpdates } from "@/lib/turn-details";
 import { dismissKey, useUnreadPosition, useVisitUnreadCount } from "@/lib/unread-pill";
 import { NewMessagesPill } from "./NewMessagesPill";
 import { useScrollAnchor } from "@/lib/scroll-anchor";
-import { appendDraftAttachments, useReplyDraft } from "@/lib/drafts";
+import { appendComposerDraft, appendDraftAttachments, useReplyDraft } from "@/lib/drafts";
+import { taskDraft } from "@/lib/task-from-message";
 import { dayLabel, localDay, transcriptLookups, type TranscriptLookups } from "@/lib/transcript-derivations";
 import { splitTranscriptCitations, type CitationAttachment } from "@/lib/citations";
 import { highlightCitationSource } from "@/lib/citations-dom";
@@ -482,8 +484,15 @@ const Bubble = memo(function Bubble({
   const switchTo = (v: Message | undefined) => {
     if (v && !busy && !v.id.startsWith(OPTIMISTIC_PREFIX)) dispatch({ type: "switchBranch", botId, threadId, messageId: v.id });
   };
+  const draftForTask = text && !viewRaw ? taskDraft(t("chat.action.taskLead"), text) : "";
   const botMore: SidebarMenuItem[] = text && !viewRaw
-    ? [{ key: "source", label: t("chat.action.viewSource"), icon: <Code size={16} />, onSelect: () => setViewRaw(true) }]
+    ? [
+        { key: "source", label: t("chat.action.viewSource"), icon: <Code size={16} />, onSelect: () => setViewRaw(true) },
+        ...(draftForTask && canWrite !== false ? [{ key: "task", label: t("chat.action.startTask"), icon: <ListPlus size={16} />, onSelect: () => {
+          appendComposerDraft(`bot:${botId}:${threadId}`, draftForTask);
+          requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-tour="composer"] textarea')?.focus());
+        } }] : []),
+      ]
     : [];
 
   return (

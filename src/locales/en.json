@@ -889,6 +889,8 @@
   "chat.previousVersion": "Previous version",
   "chat.nextVersion": "Next version",
   "chat.action.viewSource": "View source",
+  "chat.action.startTask": "Start a task from this",
+  "chat.action.taskLead": "Start a task about this:",
   "chat.action.viewFormatted": "View formatted",
   "chat.openConversationWith": "Open the conversation with {name}",
   "chat.exchange.messaged": "Messaged",
