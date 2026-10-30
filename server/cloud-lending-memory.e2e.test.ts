@@ -53,6 +53,7 @@ async function adminPairing(): Promise<string> {
 }
 
 const dumpOf = (name: "held" | "done") => join(home, `${name}.json`);
+const releaseOf = (name: "lead" | "aide") => join(home, `${name}-release`);
 async function dumped(file: string) {
   let dump: any;
   await expect.poll(() => {
@@ -83,7 +84,7 @@ async function completedTurn(start: () => Promise<void>) {
   const text = (value: unknown) => typeof value === "string" ? value : JSON.stringify(value ?? "");
   return { prompt: text(dump.prompt), system: text(dump.systemPrompt) };
 }
-const newBot = async (name: string, instanceId: "held" | "done" | "brief") =>
+const newBot = async (name: string, instanceId: "held" | "done" | "brief" | "lead" | "aide") =>
   (await api("POST", "/api/bots", { token: owner, body: { name, modelSelection: { instanceId, model: "claude-sonnet-5" } } })).body.bot as { id: string; threadId: string };
 const say = async (token: string, bot: { id: string }, text: string, threadId?: string) =>
   expect((await api("POST", `/api/bots/${bot.id}/messages`, { token, body: { text, ...(threadId ? { threadId } : {}) } })).status).toBe(202);
@@ -126,6 +127,13 @@ const settled = async (threadId: string) => {
 };
 const stop = async (bot: { id: string }, threadId: string) =>
   expect((await api("POST", `/api/bots/${bot.id}/interrupt`, { token: owner, body: { threadId } })).status).toBe(200);
+const busyIn = async (bot: { id: string }, threadId: string) => ((await api("GET", "/api/bots", { token: owner })).body.bots as any[])
+  .find((candidate) => candidate.id === bot.id)?.tasks?.find((task: any) => task.threadId === threadId)?.busy;
+const release = async (name: "lead" | "aide", bot: { id: string }, threadId: string) => {
+  writeFileSync(releaseOf(name), "");
+  await expect.poll(() => busyIn(bot, threadId), { timeout: 15_000 }).toBe(false);
+  rmSync(releaseOf(name));
+};
 const sees = async (call: Awaited<ReturnType<typeof toolsFor>>) => {
   await macOnline();
   return JSON.parse((await call("list_shared_computers")).content[0].text);
@@ -162,6 +170,17 @@ await import(${JSON.stringify(fake)});
 `, { mode: 0o755 });
     return cli;
   };
+  const releasing = (name: "lead" | "aide") => {
+    const cli = join(home, `${name}-claude.mjs`);
+    writeFileSync(cli, `#!/usr/bin/env node
+if (process.argv[2] === "auth") { console.log(JSON.stringify({ loggedIn: true, email: "person@example.test" })); process.exit(0); }
+process.env.FAKE_CLAUDE_VERSION = "2.1.284";
+process.env.FAKE_CLAUDE_TEXT_DUMP = ${JSON.stringify(join(home, "one-shot.json"))};
+if (process.argv[2] !== "--version") { process.env.FAKE_CLAUDE_DUMP = ${JSON.stringify(dumpOf("held"))}; process.env.FAKE_CLAUDE_MODE = "hang"; process.env.FAKE_CLAUDE_RELEASE = ${JSON.stringify(releaseOf(name))}; }
+await import(${JSON.stringify(fake)});
+`, { mode: 0o755 });
+    return cli;
+  };
   const done = completing("done", []);
   const brief = completing("brief", ["GUEST-SAID-kiwi", "OWNER-SAID-fig"]);
   writeFileSync(join(dataDir, "config.json"), JSON.stringify({
@@ -171,6 +190,8 @@ await import(${JSON.stringify(fake)});
       held: { driver: "claudeAgent", displayName: "Held", config: { cli: held } },
       done: { driver: "claudeAgent", displayName: "Done", config: { cli: done } },
       brief: { driver: "claudeAgent", displayName: "Brief", config: { cli: brief } },
+      lead: { driver: "claudeAgent", displayName: "Lead", config: { cli: releasing("lead") } },
+      aide: { driver: "claudeAgent", displayName: "Aide", config: { cli: releasing("aide") } },
     },
   }));
   const port = await freePortBlock([0, 1]);
@@ -304,6 +325,28 @@ it("a room turn writing the bot's memory directly takes the bot out of lending t
   const ownerTools = await toolsFor(async () => say(owner, bot, "Read plan.md from my Mac.", await newThread(bot)));
   expect((await sees(ownerTools)).unavailable).toContain("This bot's memory was changed");
 }, 60_000);
+
+it("results that come back after the owner wrote again resume as the owner's own turn: the Mac stays in reach and what it writes to memory is theirs", async () => {
+  const lead = await newBot("Lead", "lead");
+  const aide = await newBot("Aide", "aide");
+  const mine = await newThread(lead);
+  const leadTools = await toolsFor(() => say(owner, lead, "Ask Aide to check my plan.", mine));
+  await toolsFor(async () => {
+    const sent = await leadTools("coordinate_bots", { bot_ids: [aide.id], message: "Check the plan." });
+    expect(sent.isError, JSON.stringify(sent)).toBeFalsy();
+  });
+  await release("lead", lead, mine);
+  await toolsFor(() => say(owner, lead, "Meanwhile, what's next on my list?", mine));
+  await release("lead", lead, mine);
+  const resumed = await toolsFor(async () => writeFileSync(releaseOf("aide"), ""));
+  rmSync(releaseOf("aide"));
+  expect((await sees(resumed)).computers).toHaveLength(1);
+  expect(JSON.parse((await reads(resumed)).content[0].text).content).toBe("from the Mac");
+  appendFileSync(ws(lead, "MEMORY.md"), "\n- The owner's plan is on their Mac.\n");
+  expect((await sees(resumed)).computers).toHaveLength(1);
+  expect(await review(lead)).toBeUndefined();
+  await stop(lead, mine);
+}, 90_000);
 
 it("the owner's own turns writing memory directly keep the Mac in reach, also after a turn in a conversation a guest left behind that changed nothing", async () => {
   const bot = await newBot("Own writes", "held");

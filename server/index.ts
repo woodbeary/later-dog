@@ -4354,13 +4354,14 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) { abort(); return; }
       const routineRunId = node.id === node.rootId ? node.routineRunId : undefined;
+      const sameRequest = directRequestOwners.get(node.threadId)?.generations.has(node.rootId) === true;
       const handoff = node.parentId ? { lender: node.lender, messageId: store.messagesFor(node.threadId)
-        .findLast(m => m.roomRequest?.id === request.id && m.roomRequest.phase === "request")?.id } : undefined;
+        .findLast(m => m.roomRequest?.id === request.id && m.roomRequest.phase === "request")?.id }
+        : CLOUD_HOME && resumed && !sameRequest && node.lender ? { lender: node.lender } : undefined;
       void startTurn(bot.id, turnText, {
         threadId: node.threadId, cardContinuation: true, commsDepth: MAX_COMMS_DEPTH,
         ...(routineRunId ? { routineRunId } : {}),
-        requestMessageId: directRequestOwners.get(node.threadId)?.generations.has(node.rootId)
-          ? directRequestOwners.get(node.threadId)?.messageId : undefined,
+        requestMessageId: sameRequest ? directRequestOwners.get(node.threadId)?.messageId : undefined,
         unattended: isUnattended(bot.id, node.threadId),
         coordination: { id: node.id, resumed, settle: finish, ...(handoff ? { handoff } : {}) },
         onDispatchError: error => finish({ ok: false, text: error }),

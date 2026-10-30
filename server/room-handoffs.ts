@@ -212,7 +212,7 @@ export class RoomHandoffs {
     }
     const fresh = !parent;
     parent ??= { ...source, id: generation, rootId: generation, key: "root", text: sourceText.slice(0, 12_000), createdAt: this.now(), status: "source", result: "", reported: true, executions: 0, approvalGranted: false, kind: "work",
-      ...(requestedBy ? { requestedBy } : {}) };
+      ...(requestedBy ? { requestedBy } : {}), ...(lender ? { lender } : {}) };
     const kind = target.groupId && target.groupId === source.groupId ? "assignment" : "work";
     const path = this.path(parent);
     if (path.some(n => n.botId === target.botId && (!n.groupId || !target.groupId || n.groupId === target.groupId))) {
@@ -247,6 +247,7 @@ export class RoomHandoffs {
     const problem = this.hooks.validate(node, parent);
     if (problem) throw new Error(problem);
     if (routineRunId) root.routineRunId ??= routineRunId;
+    if (!parentId && !lender) delete root.lender;
     if (fresh) this.nodes.set(parent.id, parent);
     this.nodes.set(node.id, node);
     this.longCache.delete(root.id);
@@ -356,7 +357,7 @@ export class RoomHandoffs {
     const created: string[] = [];
     const root: RoomHandoff = { ...source, id: generation, rootId: generation, key: "root", text: old.text, createdAt: this.now(),
       firstCreatedAt: old.firstCreatedAt ?? old.createdAt, status: "source", result: "", reported: true, executions: 0, approvalGranted: false, kind: "work",
-      ...(old.requestedBy ? { requestedBy: old.requestedBy } : {}) };
+      ...(old.requestedBy ? { requestedBy: old.requestedBy } : {}), ...(old.lender ? { lender: old.lender } : {}) };
     this.nodes.set(root.id, root);
     created.push(root.id);
     let resent = 0; let kept = 0;

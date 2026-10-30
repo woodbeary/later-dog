@@ -52,9 +52,15 @@ describe("addressed room request tree", () => {
     const child = engine.enqueue(chief, "turn", undefined, { botId: "patch", threadId: "patch-chat" }, "fix", "Fix it",
       false, false, "", undefined, undefined, undefined, "cloud-home").node;
     expect(child.lender).toBe("cloud-home");
-    expect(engine.nodes.get("turn")?.lender).toBeUndefined();
+    expect(engine.nodes.get("turn")?.lender).toBe("cloud-home");
+    expect(new RoomHandoffs(file, hooks).nodes.get("turn")?.lender).toBe("cloud-home");
     expect(engine.enqueue(chief, "turn", undefined, { botId: "scout", threadId: "scout-chat" }, "look", "Look").node.lender).toBeUndefined();
+    expect(engine.nodes.get("turn")?.lender).toBeUndefined();
+    expect(engine.enqueue(chief, "turn", undefined, { botId: "clerk", threadId: "clerk-chat" }, "file", "File it",
+      false, false, "", undefined, undefined, undefined, "cloud-home").node.lender).toBe("cloud-home");
+    expect(engine.nodes.get("turn")?.lender).toBeUndefined();
     expect(new RoomHandoffs(file, hooks).nodes.get(child.id)?.lender).toBe("cloud-home");
+    expect(new RoomHandoffs(file, hooks).nodes.get("turn")?.lender).toBeUndefined();
   }));
   it("keeps same-room work queued until the current speaker settles", () => fixture(async (engine, hooks) => {
     const child = engine.enqueue(addr("A"), "turn", undefined, { ...addr("A"), botId: "peer" }, "review", "Review it").node;
@@ -604,10 +610,11 @@ describe("room handoff continue", () => {
       hooks.run = vi.fn(async node => ({ ok: true, text: `${node.key} finished` }));
       nowMs += MIN;
       slow.lender = "cloud-home";
+      engine.nodes.get("turn")!.lender = "cloud-home";
       const result = engine.continueTree("turn");
       expect(result).toMatchObject({ resent: 1, kept: 1 });
       const root = engine.nodes.get(result.rootId)!;
-      expect(root).toMatchObject({ botId: "chief", threadId: "chief-chat", text: engine.nodes.get("turn")!.text });
+      expect(root).toMatchObject({ botId: "chief", threadId: "chief-chat", text: engine.nodes.get("turn")!.text, lender: "cloud-home" });
       const copies = engine.children(root.id);
       expect(copies.map(n => [n.key, n.status])).toEqual(expect.arrayContaining([["scout", "completed"], ["builder", "queued"]]));
       const again = copies.find(n => n.key === "builder")!;
