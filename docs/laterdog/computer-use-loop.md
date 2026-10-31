@@ -6,6 +6,10 @@ store, and decides that a run is done only by a rule the run fixed before it sta
 
 The code is in `server/laterdog/computer-use-*.ts`. The numbers it produces are defined in [../metrics.md](../metrics.md).
 
+This is a cloud path: it drives a later.dog cloud computer with the same `xdotool` and `scrot` its
+[computer tools](computer-tools.md) use. Computer use on the person's own Mac stays on the local driver in
+[../computer-use-integration.md](../computer-use-integration.md).
+
 ## What a run does
 
 1. The person starts a run with a task, a cloud computer and a done rule (`POST /v1/computer-runs`).
@@ -56,6 +60,7 @@ What later.dog does (`computer-use-frame.ts`):
 - A larger screen is shrunk to fit that box with its shape kept, for example 2560x1600 to 1728x1080. Every such frame is
   inside both limits above, and a test checks the limits for screens up to 7680x4320.
 - Every point Claude names is mapped back to the screen and clamped to it; `cursor_position` answers in screenshot pixels.
+  A test maps the four corners and the center of each shrunk size to the screen and back, and gets the same points.
 - On the cloud computer a shrunk frame is scrot's own thumbnail (`scrot --thumb WxH`), read back through the files API.
 
 ## The step log
