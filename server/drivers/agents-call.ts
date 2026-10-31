@@ -345,8 +345,9 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const { ok, body } = await apiResponse("/api/internal/tasks/start", { method: "POST", body: JSON.stringify(args) });
     return { text: String(body.text ?? body.error ?? "The tasks could not be started."), ...(ok ? {} : { isError: true }) };
   }
-  if (name === "read_phone" || name === "add_to_phone") {
-    const { ok, body } = await apiResponse(name === "read_phone" ? "/api/internal/phone/read" : "/api/internal/phone/add", { method: "POST", body: JSON.stringify(args) });
+  if (name === "read_phone" || name === "add_to_phone" || name === "change_on_phone") {
+    const path = name === "read_phone" ? "/api/internal/phone/read" : name === "add_to_phone" ? "/api/internal/phone/add" : "/api/internal/phone/change";
+    const { ok, body } = await apiResponse(path, { method: "POST", body: JSON.stringify(args) });
     if (!ok) return { text: String(body.error ?? "The phone could not be used."), isError: true };
     return { text: JSON.stringify(body.result) };
   }

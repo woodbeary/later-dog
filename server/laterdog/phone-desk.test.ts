@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { addJob, NO_PHONE, PhoneDesk, phoneAdd, phoneDidNotOpen, phoneRead, phoneTooOld, readJob, type PhoneJobKind } from "./phone-desk.ts";
+import { addJob, changeJob, NO_PHONE, PhoneDesk, phoneAdd, phoneChange, phoneDidNotOpen, phoneRead, phoneTooOld, readJob, type PhoneJobKind } from "./phone-desk.ts";
 
 const OWNER = { session: "session-phone", person: "cloud-home" };
 const PHONE = "4f6f5c1e-2d4a-4f5b-8c7d-9e0f1a2b3c4d";
@@ -149,6 +149,17 @@ describe("what a dog may ask of the phone", () => {
     for (const vague of ["tomorrow", "11/3", "2026-11-03 at 2pm"]) {
       expect(phoneRead.safeParse({ what: "calendar", from: vague }).success).toBe(false);
     }
+  });
+
+  it("changes an event or a reminder by its id, and only in ways that fit it", () => {
+    expect(changeJob(phoneChange.parse({ what: "reminder", id: "r-1", completed: true }))).toEqual({ kind: "change_reminder", arguments: { id: "r-1", completed: true } });
+    expect(changeJob(phoneChange.parse({ what: "calendar_event", id: "e-1", start: "2026-11-04T09:00", location: "Suite 200" })))
+      .toEqual({ kind: "change_calendar_event", arguments: { id: "e-1", start: "2026-11-04T09:00", location: "Suite 200" } });
+    expect(phoneChange.safeParse({ what: "reminder", id: "r-1" }).error?.issues[0]?.message).toMatch(/Say what to change/);
+    expect(phoneChange.safeParse({ what: "reminder", id: "r-1", start: "2026-11-04" }).error?.issues[0]?.message).toMatch(/A reminder has due, completed/);
+    expect(phoneChange.safeParse({ what: "calendar_event", id: "e-1", completed: true }).error?.issues[0]?.message).toMatch(/An event has title, start/);
+    expect(phoneChange.safeParse({ what: "calendar_event", completed: true }).success).toBe(false);
+    expect(phoneChange.safeParse({ what: "calendar_event", id: "e-1", start: "tomorrow" }).success).toBe(false);
   });
 
   it("turns the dog's words into the phone's jobs", () => {
