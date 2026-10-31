@@ -41,7 +41,7 @@ beforeAll(async () => {
   chmodSync(fake, 0o755);
   home = mkdtempSync(join(tmpdir(), "laterdog-codex-review-"));
   mkdirSync(join(home, ".laterdog"));
-  writeFileSync(join(home, ".laterdog", "config.json"), JSON.stringify({ instances: {
+  writeFileSync(join(home, ".laterdog", "config.json"), JSON.stringify({ features: { autoReview: true }, instances: {
     codex: { driver: "codex", environment: {
       FAKE_CODEX_MODE: "review-events",
       FAKE_CODEX_DUMP: join(home, "codex-dump.json"),
