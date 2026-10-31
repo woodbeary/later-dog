@@ -9,6 +9,7 @@ import { isReadyBoatState } from "@/lib/local-computer";
 import { isActiveTurnRefusal } from "@/lib/remote-desktop";
 import { MacLocalControl } from "../MacLocalControl";
 import { WakeDog } from "../WakeDog";
+import { ScreenGoals } from "./ScreenGoals";
 import { useComputerHands } from "./useComputerHands";
 
 type Surface = "cloud" | "local" | "vm" | "browser" | "off";
@@ -359,6 +360,7 @@ export function ComputerTab({ bot }: { bot: Bot }) {
         </div>
       )}
       {card.kind === "elsewhere" && card.surface === "local" && <MacLocalControl />}
+      <ScreenGoals bot={bot} />
     </div>
   );
 }

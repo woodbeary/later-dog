@@ -9,6 +9,7 @@ import { redactSecretsInText } from "./redact.ts";
 
 const MAX_KEPT = 200;
 const MAX_REMOVED = 500;
+const MAX_PENDING = 100;
 const TEXT_MAX = 300;
 
 export interface LearnedFact {
@@ -23,7 +24,14 @@ export interface LearnedFact {
 interface LearnedFile {
   learned: LearnedFact[];
   removed: string[];
+  pending: LearnedFact[];
 }
+
+const isFact = (f: unknown): f is LearnedFact => {
+  const fact = f as Partial<LearnedFact> | null;
+  return Boolean(fact) && typeof fact!.id === "string" && typeof fact!.text === "string" && typeof fact!.line === "string" &&
+    typeof fact!.botId === "string" && typeof fact!.botName === "string" && typeof fact!.at === "number";
+};
 
 function filePath(): string {
   return join(DATA_DIR, "profile-learned.json");
@@ -32,14 +40,12 @@ function filePath(): string {
 function load(): LearnedFile {
   try {
     const parsed = JSON.parse(readFileSync(filePath(), "utf8")) as Partial<LearnedFile>;
-    const learned = Array.isArray(parsed.learned)
-      ? parsed.learned.filter((f): f is LearnedFact =>
-        Boolean(f) && typeof f.id === "string" && typeof f.text === "string" && typeof f.line === "string" && typeof f.botId === "string" && typeof f.botName === "string" && typeof f.at === "number")
-      : [];
+    const learned = Array.isArray(parsed.learned) ? parsed.learned.filter(isFact) : [];
     const removed = Array.isArray(parsed.removed) ? parsed.removed.filter((r): r is string => typeof r === "string") : [];
-    return { learned, removed };
+    const pending = Array.isArray(parsed.pending) ? parsed.pending.filter(isFact) : [];
+    return { learned, removed, pending };
   } catch {
-    return { learned: [], removed: [] };
+    return { learned: [], removed: [], pending: [] };
   }
 }
 
@@ -52,6 +58,10 @@ export function listLearnedFacts(): LearnedFact[] {
   return [...load().learned].reverse();
 }
 
+export function listPendingLearned(): LearnedFact[] {
+  return [...load().pending].reverse();
+}
+
 export function aboutMeLine(fact: { text: string; botName: string }, today: string): string {
   return `- ${today} · learned by ${fact.botName.replace(/·/g, "-").replace(/\s+/g, " ").trim().slice(0, 60)} · ${fact.text}`;
 }
@@ -62,7 +72,7 @@ function lineIdentity(line: string): string {
 
 export function planLearned(from: { botId: string; botName: string }, texts: readonly string[], aboutMe: string, today: string, now = Date.now()): LearnedFact[] {
   const file = load();
-  const known = new Set([...file.removed, ...aboutMe.split("\n").map(lineIdentity)]);
+  const known = new Set([...file.removed, ...file.pending.map((fact) => factIdentity(fact.text)), ...aboutMe.split("\n").map(lineIdentity)]);
   const out: LearnedFact[] = [];
   for (const raw of texts) {
     const text = redactSecretsInText(raw.replace(/\s+/g, " ").trim()).slice(0, TEXT_MAX);
@@ -101,4 +111,34 @@ export function removeLearned(id: string, aboutMe: string, saveAboutMe?: (text: 
   file.removed = [...file.removed, factIdentity(fact.text)].slice(-MAX_REMOVED);
   save(file);
   return { fact, aboutMe: next };
+}
+
+export function holdLearned(facts: readonly LearnedFact[]): void {
+  if (!facts.length) return;
+  const file = load();
+  file.pending = [...file.pending, ...facts].slice(-MAX_PENDING);
+  save(file);
+}
+
+export function keepLearned(id: string, aboutMe: string, saveAboutMe: (text: string) => void): { aboutMe: string } | "missing" | "full" {
+  const file = load();
+  const fact = file.pending.find((f) => f.id === id);
+  if (!fact) return "missing";
+  const next = appendAboutMe(aboutMe, [fact.line]);
+  if (next === null) return "full";
+  saveAboutMe(next);
+  file.pending = file.pending.filter((f) => f.id !== id);
+  file.learned = [...file.learned, fact].slice(-MAX_KEPT);
+  save(file);
+  return { aboutMe: next };
+}
+
+export function dismissLearned(id: string): boolean {
+  const file = load();
+  const fact = file.pending.find((f) => f.id === id);
+  if (!fact) return false;
+  file.pending = file.pending.filter((f) => f.id !== id);
+  file.removed = [...file.removed, factIdentity(fact.text)].slice(-MAX_REMOVED);
+  save(file);
+  return true;
 }

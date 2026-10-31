@@ -223,6 +223,7 @@ const __APP_VERSION__: string;
       exportDiagnostics?(): Promise<string | null>;
       saveFile?(filePath: string): Promise<string | null>;
       revealInFolder?(filePath: string): Promise<"shown" | "missing" | "invalid">;
+      previewFile?(name: string, bytes: Uint8Array): Promise<boolean>;
       retryCredentialStore?(): Promise<{ available: boolean }>;
       findSavedCredential?(name: "xaiApiKey" | "ttsKey" | "openaiImageApiKey"): Promise<Array<{ id: string; label: string; hint: string | null }>>;
       useSavedCredential?(name: "xaiApiKey" | "ttsKey" | "openaiImageApiKey", id: string): Promise<ConfigStatus>;

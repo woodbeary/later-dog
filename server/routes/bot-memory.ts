@@ -19,7 +19,7 @@ import {
   type MemoryJournalEntry,
 } from "../memory-journal.ts";
 import { upkeepEnabled, type MemoryUpkeep } from "../memory-upkeep.ts";
-import { listLearnedFacts, removeLearned } from "../profile-learned.ts";
+import { dismissLearned, keepLearned, listLearnedFacts, listPendingLearned, removeLearned } from "../profile-learned.ts";
 import { importIntoAboutMe, MAX_IMPORT_CHARS } from "../laterdog/profile-import.ts";
 import { memoryDate } from "../workspace.ts";
 import { PASS, type RouteHandler } from "./table.ts";
@@ -128,7 +128,18 @@ export function createBotMemoryRoutes(deps: BotMemoryRouteDeps): RouteHandler {
       return json(res, 200, { ok: true, ...result.doc, entry: result.entry ? journalEntryForClient(m[1], result.entry) : null, overview: memoryOverview(m[1]) });
     }
     if (method === "GET" && path === "/api/profile/learned") {
-      return json(res, 200, { learned: listLearnedFacts() });
+      return json(res, 200, { learned: listLearnedFacts(), pending: listPendingLearned() });
+    }
+    m = path.match(/^\/api\/profile\/learned\/([\w-]+)\/(keep|dismiss)$/);
+    if (m && method === "POST") {
+      if (m[2] === "dismiss") {
+        if (!dismissLearned(m[1]!)) return json(res, 404, { error: "That fact is no longer waiting." });
+        return json(res, 200, { ok: true, learned: listLearnedFacts(), pending: listPendingLearned() });
+      }
+      const kept = keepLearned(m[1]!, deps.aboutMe(), deps.saveAboutMe);
+      if (kept === "missing") return json(res, 404, { error: "That fact is no longer waiting." });
+      if (kept === "full") return json(res, 413, { error: "About me is full. Remove some facts first." });
+      return json(res, 200, { ok: true, aboutMe: kept.aboutMe, learned: listLearnedFacts(), pending: listPendingLearned() });
     }
     if (method === "POST" && path === "/api/profile/import") {
       const parsed = z.object({ text: z.string().trim().min(1).max(MAX_IMPORT_CHARS) }).safeParse(await readBody(req));
