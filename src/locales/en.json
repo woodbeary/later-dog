@@ -424,7 +424,7 @@
   "settings.autoReview.error": "Couldn't save. Try again.",
   "askFirst.title": "Ask first",
   "askFirst.hint": "Things every dog asks you about before doing, even when it could go ahead on its own. With Auto-review on, the reviewer also holds Claude dogs to them.",
-  "askFirst.placeholder": "Sending email to anyone new",
+  "askFirst.placeholder": "Posting anything in public",
   "askFirst.add": "Add",
   "askFirst.remove": "Remove “{rule}”",
   "askFirst.full": "You have the most rules a home can keep",
