@@ -310,6 +310,13 @@ const readJsonFileWhenReady = async <T = unknown>(file: string, timeout = 5_000)
   return parsed as T;
 };
 
+const dumpedPromptText = async (): Promise<string> => {
+  const dump = await readJsonFileWhenReady<{ prompt?: { message?: { content?: unknown } } }>(fakeClaudeDump);
+  const content = dump.prompt?.message?.content;
+  if (typeof content === "string") return content;
+  return Array.isArray(content) ? content.map((block: { text?: string }) => block.text ?? "").join("\n") : "";
+};
+
 const storedMessageCount = (threadId: string): number => {
   const db = new DatabaseSync(join(home, ".laterdog", "messages.db"), { readOnly: true });
   try {
@@ -544,7 +551,56 @@ beforeAll(async () => {
           unread: false,
         }],
       },
+      {
+        id: "test-bot-reply",
+        threadId: "test-bot-reply-thread",
+        name: "Reply fixture bot",
+        title: "",
+        description: "",
+        soul: "",
+        soulHash: createHash("sha256").update("").digest("hex"),
+        notifications: true,
+        color: "purple",
+        unread: false,
+        modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+        resumeCursors: {},
+        createdAt: 2,
+        tasks: [{
+          threadId: "test-bot-reply-thread",
+          title: "Reply fixture bot",
+          createdAt: 2,
+          updatedAt: 2,
+          resumeCursors: {},
+          modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+          unread: false,
+        }],
+      },
     ]),
+  );
+  writeFileSync(
+    join(home, ".laterdog", "messages-test-bot-reply-thread.json"),
+    JSON.stringify({
+      activeLeafId: "test-bot-reply-screen",
+      messages: [
+        {
+          id: "test-bot-reply-greeting",
+          at: 2,
+          parentId: null,
+          role: "bot",
+          kind: "text",
+          text: "Here is the screen you asked for.",
+        },
+        {
+          id: "test-bot-reply-screen",
+          at: Date.now(),
+          parentId: "test-bot-reply-greeting",
+          role: "bot",
+          kind: "screen",
+          png: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+          mime: "image/png",
+        },
+      ],
+    }),
   );
   writeFileSync(
     join(home, ".laterdog", "messages-test-bot-seed-thread.json"),
@@ -2763,7 +2819,7 @@ describe("harness HTTP API", () => {
     expect(after.body.hits.find((h: { botId?: string }) => h.botId === bot.id)).toBeUndefined();
   });
 
-  it("stores a room reply as a flat reference and rejects foreign targets", async () => {
+  it("stores a room reply as a flat reference and drops a target from another conversation", async () => {
     const bot = (await api("POST", "/api/bots")).body.bot;
     const foreign = (await api("POST", "/api/bots")).body.bot;
     const room = (await api("POST", "/api/groups", { name: "Reply room", memberIds: [bot.id] })).body.group;
@@ -2783,14 +2839,116 @@ describe("harness HTTP API", () => {
         (candidate: { id: string }) => candidate.id === room.id,
       );
       expect(current.messages.at(-1)).toMatchObject({ text: "Following up", replyToId: original.id });
-      expect((await api("POST", `/api/groups/${room.id}/messages`, {
-        text: "Wrong conversation",
-        replyToId: foreign.messages[0].id,
-      })).status).toBe(404);
+      const elsewhere = { text: "Wrong conversation", replyToId: foreign.messages[0].id, sendId: "send_room_foreign_reply_1" };
+      const sent = await api("POST", `/api/groups/${room.id}/messages`, elsewhere);
+      expect(sent.status).toBe(202);
+      expect(sent.body.message).toMatchObject({ role: "user", text: "Wrong conversation", sendId: elsewhere.sendId });
+      expect(sent.body.message).not.toHaveProperty("replyToId");
+      const resent = await api("POST", `/api/groups/${room.id}/messages`, elsewhere);
+      expect(resent.status).toBe(202);
+      expect(resent.body.message.id).toBe(sent.body.message.id);
+      current = (await api("GET", "/api/bots?messages=20")).body.groups.find(
+        (candidate: { id: string }) => candidate.id === room.id,
+      );
+      expect(current.messages.filter((message: { text?: string }) => message.text === "Wrong conversation")).toHaveLength(1);
+      expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "Not an id", replyToId: 42 })).status).toBe(400);
     } finally {
       await api("DELETE", `/api/groups/${room.id}`);
       await api("DELETE", `/api/bots/${bot.id}`);
       await api("DELETE", `/api/bots/${foreign.id}`);
+    }
+  });
+
+  it("delivers a reply to a screenshot and tells the dog which one", async () => {
+    const replyTo = "test-bot-reply-screen";
+    try {
+      rmSync(fakeClaudeDump, { force: true });
+      const sent = await api("POST", "/api/bots/test-bot-reply/messages", { text: "What does this screen show?", replyToId: replyTo });
+      expect(sent.status).toBe(202);
+      expect(sent.body.message).toMatchObject({ role: "user", text: "What does this screen show?", replyToId: replyTo });
+      const prompt = await dumpedPromptText();
+      expect(prompt).toMatch(/The current message is a reply to your screenshot from [^\n]*\d{1,2}:\d{2} [AP]M\.\nCurrent message:\n/);
+      expect(prompt).toContain("What does this screen show?");
+      expect(prompt).not.toContain("untrusted conversation content");
+      const stored = (await api("GET", "/api/threads/test-bot-reply-thread/messages?limit=20")).body.messages
+        .find((message: { id: string }) => message.id === sent.body.message.id);
+      expect(stored).toMatchObject({ replyToId: replyTo });
+    } finally {
+      await api("POST", "/api/bots/test-bot-reply/interrupt", {}).catch(() => undefined);
+      await expect.poll(async () => (await api("GET", "/api/bots?messages=0")).body.bots
+        .find((entry: { id: string }) => entry.id === "test-bot-reply")?.busy, { timeout: 5_000 }).toBe(false);
+      rmSync(fakeClaudeDump, { force: true });
+    }
+  });
+
+  it("delivers a direct reply whose target is not in the conversation without the link, and takes its resend", async () => {
+    const elsewhere = { text: "About that other one", replyToId: "test-bot-seed-greeting", sendId: "send_direct_unknown_reply_1" };
+    try {
+      rmSync(fakeClaudeDump, { force: true });
+      const sent = await api("POST", "/api/bots/test-bot-reply/messages", elsewhere);
+      expect(sent.status).toBe(202);
+      expect(sent.body.message).toMatchObject({ role: "user", text: elsewhere.text, sendId: elsewhere.sendId });
+      expect(sent.body.message).not.toHaveProperty("replyToId");
+      const prompt = await dumpedPromptText();
+      expect(prompt).toContain("About that other one");
+      expect(prompt).not.toContain("The current message is a reply");
+      const resent = await api("POST", "/api/bots/test-bot-reply/messages", elsewhere);
+      expect(resent.status).toBe(202);
+      expect(resent.body.message.id).toBe(sent.body.message.id);
+      const stored = (await api("GET", "/api/threads/test-bot-reply-thread/messages?limit=50")).body.messages
+        .filter((message: { sendId?: string }) => message.sendId === elsewhere.sendId);
+      expect(stored).toHaveLength(1);
+      expect(stored[0]).not.toHaveProperty("replyToId");
+    } finally {
+      await api("POST", "/api/bots/test-bot-reply/interrupt", {}).catch(() => undefined);
+      await expect.poll(async () => (await api("GET", "/api/bots?messages=0")).body.bots
+        .find((entry: { id: string }) => entry.id === "test-bot-reply")?.busy, { timeout: 5_000 }).toBe(false);
+      rmSync(fakeClaudeDump, { force: true });
+    }
+  });
+
+  it("delivers a reply to an image sent on its own and names it for the dog", async () => {
+    const created = await api("POST", "/api/bots", {
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      requireAvailableModel: true,
+    });
+    expect(created.status).toBe(201);
+    const bot = created.body.bot;
+    const idle = () => expect.poll(async () => (await api("GET", "/api/bots?messages=0")).body.bots
+      .find((entry: { id: string }) => entry.id === bot.id)?.busy, { timeout: 5_000 }).toBe(false);
+    try {
+      const uploaded = await fetch(`${BASE}/api/attachments`, {
+        method: "POST",
+        headers: { "content-type": "image/png" },
+        body: new Uint8Array(Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+          "base64",
+        )),
+      });
+      expect(uploaded.status).toBe(201);
+      const { path: imagePath } = await uploaded.json() as { path: string };
+      rmSync(fakeClaudeDump, { force: true });
+      const image = await api("POST", `/api/bots/${bot.id}/messages`, { text: `<attached-image path="${imagePath}" name="tiny.png" />` });
+      expect(image.status).toBe(202);
+      await readJsonFileWhenReady(fakeClaudeDump);
+      expect((await api("POST", `/api/bots/${bot.id}/interrupt`, {})).status).toBe(200);
+      await idle();
+
+      rmSync(fakeClaudeDump, { force: true });
+      const reply = await api("POST", `/api/bots/${bot.id}/messages`, { text: "Crop it to the left half", replyToId: image.body.message.id });
+      expect(reply.status).toBe(202);
+      expect(reply.body.message).toMatchObject({ text: "Crop it to the left half", replyToId: image.body.message.id });
+      const prompt = await dumpedPromptText();
+      expect(prompt).toMatch(/The current message is a reply to User's image from [^\n]*\d{1,2}:\d{2} [AP]M\.\nCurrent message:\n/);
+      expect(prompt).toContain("Crop it to the left half");
+      const stored = (await api("GET", `/api/threads/${bot.threadId}/messages?limit=20`)).body.messages
+        .find((message: { id: string }) => message.id === reply.body.message.id);
+      expect(stored).toMatchObject({ replyToId: image.body.message.id });
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
+      await idle().catch(() => undefined);
+      await api("DELETE", `/api/bots/${bot.id}`).catch(() => undefined);
+      rmSync(fakeClaudeDump, { force: true });
     }
   });
 

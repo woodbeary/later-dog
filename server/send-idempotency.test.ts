@@ -38,6 +38,15 @@ describe("send idempotency", () => {
     });
   });
 
+  it("matches a resend whose reply target was dropped when the message landed", () => {
+    const sendId = "send_1234567890123456";
+    const message = userMessage();
+    expect(acceptedSendMatch([message], sendId, "ship it", "msg_gone")).toEqual({ kind: "match", message });
+    expect(acceptedSendMatch([message], sendId, "different", "msg_gone")).toEqual({ kind: "conflict" });
+    expect(acceptedSendMatch([userMessage({ replyToId: "reply-1" })], sendId, "ship it", "reply-2")).toEqual({ kind: "conflict" });
+    expect(acceptedSendMatch([userMessage({ replyToId: "reply-1" })], sendId, "ship it")).toEqual({ kind: "conflict" });
+  });
+
   it("matches a stored message from an older build that still carries a channel mode", () => {
     const sendId = "send_1234567890123456";
     const message = { ...userMessage(), channelMode: "goal" } as Message;
@@ -113,6 +122,14 @@ describe("send idempotency", () => {
     it("answers a queued entry with its receipt", () => {
       const queued: QueuedSend = { id: "queue-1", text: "ship it", reason: "capacity" };
       expect(landedSend(sources({ queued }), sendId, "ship it")).toEqual({ kind: "queued", queued });
+    });
+
+    it("answers a resend whose reply target was dropped with the same row or receipt", () => {
+      const message = userMessage();
+      expect(landedSend(sources({ messages: [message] }), sendId, "ship it", "msg_gone")).toEqual({ kind: "accepted", message });
+      const queued: QueuedSend = { id: "queue-1", text: "ship it" };
+      expect(landedSend(sources({ queued }), sendId, "ship it", "msg_gone")).toEqual({ kind: "queued", queued });
+      expect(() => landedSend(sources({ queued }), sendId, "changed", "msg_gone")).toThrow(/another message/);
     });
 
     it("keeps the 409 when the same id carries a different message", () => {

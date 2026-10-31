@@ -156,9 +156,10 @@ it("survives a real server crash: queued sends keep receipts, cancellation and u
       setup: { bulletin: "", defaultResponder: { kind: "member", botId: lostWorker.id } },
     }, 201)).group;
     const lostTarget = await api("POST", `/api/groups/${lost.id}/messages`, { text: "Working before the reply target is lost" }, 202);
-    const lostQueued = await asPairedPerson(`/api/groups/${lost.id}/messages`, {
+    const lostBody = {
       text: "Reply to a message that disappears", threadId: lost.threadId, replyToId: lostTarget.message.id, sendId: "lost_reply_channel_send_123456",
-    });
+    };
+    const lostQueued = await asPairedPerson(`/api/groups/${lost.id}/messages`, lostBody);
     expect(lostQueued).toMatchObject({ queued: true, queueId: expect.any(String) });
     const unappended = (await api("POST", "/api/bots", { name: "Claimed before append" }, 201)).bot;
     expect(journal()).toEqual(expect.arrayContaining([
@@ -176,8 +177,7 @@ it("survives a real server crash: queued sends keep receipts, cancellation and u
       claim.run("claimed_before_append_named", unappended.id, unappended.threadId, JSON.stringify({ text: "Claimed, never appended", sender: PAIRED_ROW }));
       claim.run("claimed_before_append_legacy", unappended.id, unappended.threadId, JSON.stringify({ text: "Claimed by an older build" }));
       claim.run("claimed_before_append_call", unappended.id, unappended.threadId, JSON.stringify({ text: "Claimed from a call", via: "call" }));
-      crashed.prepare("UPDATE messages SET json = json_set(json, '$.text', '') WHERE thread_id = ? AND id = ?")
-        .run(lost.threadId, lostTarget.message.id);
+      crashed.prepare("DELETE FROM messages WHERE thread_id = ? AND id = ?").run(lost.threadId, lostTarget.message.id);
     } finally { crashed.close(); }
     await restart();
     expect((await messages(stoppedTask.threadId)).some((message) => message.queueId === stoppedReceipt.queueId && message.kind === "activity")).toBe(false);
@@ -193,10 +193,17 @@ it("survives a real server crash: queued sends keep receipts, cancellation and u
       ["claimed_before_append_legacy", "Claimed by an older build", undefined, undefined],
       ["claimed_before_append_call", "Claimed from a call", undefined, "call"],
     ]);
-    await expect.poll(async () => (await messages(lost.threadId)).some((message) => message.tool?.name?.includes("queued channel message could not start")), { timeout: 15_000 }).toBe(true);
-    expect((await messages(lost.threadId)).filter((message) => message.queueId === lostQueued.queueId)).toEqual([
+    await expect.poll(async () => (await messages(lost.threadId)).some((message) => message.queueId === lostQueued.queueId), { timeout: 15_000 }).toBe(true);
+    const lostReply = (await messages(lost.threadId)).filter((message) => message.queueId === lostQueued.queueId);
+    expect(lostReply).toEqual([
       expect.objectContaining({ role: "user", text: "Reply to a message that disappears", sender: PAIRED }),
     ]);
+    expect(lostReply[0]).not.toHaveProperty("replyToId");
+    expect((await asPairedPerson(`/api/groups/${lost.id}/messages`, lostBody)).message).toMatchObject({
+      id: lostReply[0].id, queueId: lostQueued.queueId, text: lostBody.text,
+    });
+    expect(await runControlLaterDog(["wait", "--channel", lost.id, "--url", url])).toMatchObject({ status: "settled" });
+    expect((await messages(lost.threadId)).some((message) => message.tool?.name?.includes("could not start"))).toBe(false);
     expect((await api("POST", `/api/bots/${bot.id}/messages`, cancelledBody, 409)).error).toContain("cancelled");
     expect(prompts(bot.threadId)).toHaveLength(2);
     expect(prompts(bot.threadId)[1].message.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: "image" })]));

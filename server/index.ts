@@ -273,7 +273,7 @@ import { parseSince, parseUntil, recentWork, recentWorkPrompt, turnOutcomeLine }
 import { IncidentLedger, incidentChip, type Incident, type IncidentKind } from "./incidents.ts";
 
 const SESSION_READ_MAX_CHARS = 8_000;
-import { promptWithReply, transcriptText } from "./replies.ts";
+import { promptWithReply, requestedReplyId, transcriptText } from "./replies.ts";
 import { admit, DRAIN_COALESCE_MAX_ITEMS } from "./admission.ts";
 import {
   cancelSteeredMessage,
@@ -7306,12 +7306,12 @@ function directThreadRefusal(botId: string, threadId: string): DirectSendRefused
   return null;
 }
 
-function landedDirectSend(botId: string, threadId: string, sendId: string | undefined, text: string, replyTo?: Message): DirectSendReceipt | null {
+function landedDirectSend(botId: string, threadId: string, sendId: string | undefined, text: string, replyToId?: string): DirectSendReceipt | null {
   const landed = landedSend({
     messages: () => store.messagesFor(threadId),
     queued: (id) => queuedSteeredMessage(botId, threadId, id),
     cancelled: (id) => cancelledChatFollowup("bot", botId, threadId, id),
-  }, sendId, text, replyTo?.id);
+  }, sendId, text, replyToId);
   if (landed.kind === "accepted") {
     const canonical = { ok: true as const, threadId, message: landed.message };
     return landed.message.steered ? { ...canonical, steered: true as const } : canonical;
@@ -7328,6 +7328,7 @@ async function acceptDirectSend(
     threadId: string;
     text: string;
     sendId?: string;
+    replyToId?: string;
     replyTo?: Message;
     sender?: ResolvedSender;
     trigger: UsageTrigger;
@@ -7339,13 +7340,14 @@ async function acceptDirectSend(
   guardedStart?: (currentAtStart: BotRecord) => Promise<DirectSendReceipt>,
 ): Promise<DirectSendReceipt> {
   const { botId, threadId, text, sendId, replyTo, sender, trigger, via, personPresent, deliver, answerer } = input;
+  const requestedReplyToId = input.replyToId ?? replyTo?.id;
   const elsewhere = directThreadRefusal(botId, threadId);
   if (elsewhere) throw elsewhere;
   return sendSequencer.run(
     sendId ? `bot:${botId}:${threadId}:${sendId}` : undefined,
-    sendFingerprint(text, replyTo?.id),
+    sendFingerprint(text, requestedReplyToId),
     async (): Promise<DirectSendReceipt> => {
-      const landed = landedDirectSend(botId, threadId, sendId, text, replyTo);
+      const landed = landedDirectSend(botId, threadId, sendId, text, requestedReplyToId);
       if (landed) return landed;
       const capped = spendCapRefusal();
       if (capped) throw capped;
@@ -10622,7 +10624,7 @@ function startGroupTurn(
             role: "user",
             kind: "text",
             text: item.text,
-            replyToId: item.replyToId,
+            replyToId: resolveReplyTarget(threadId, item.replyToId)?.id,
             sendId: item.sendId,
             queueId: item.id,
             via: item.via,
@@ -10810,7 +10812,7 @@ function drainQueuedChannelSends(): void {
       } catch (error) {
         for (const item of items) {
           if (!store.messagesFor(threadId).some((message) => message.queueId === item.id && message.role === "user")) {
-            store.appendMessage(threadId, { role: "user", kind: "text", text: item.text, replyToId: item.replyToId, sendId: item.sendId, queueId: item.id, via: item.via, sender: item.sender });
+            store.appendMessage(threadId, { role: "user", kind: "text", text: item.text, replyToId: resolveReplyTarget(threadId, item.replyToId)?.id, sendId: item.sendId, queueId: item.id, via: item.via, sender: item.sender });
           }
         }
         store.appendMessage(threadId, {
@@ -10867,13 +10869,8 @@ function deliverCalendarCall(call: CalendarCall, scheduledFor: number): void {
 }
 
 function resolveReplyTarget(threadId: string, value: unknown): Message | undefined {
-  if (value === undefined || value === null || value === "") return undefined;
-  if (typeof value !== "string") throw Object.assign(new Error("replyToId must be a message id"), { status: 400 });
-  const target = store.messagesFor(threadId).find((message) => message.id === value);
-  if (!target || target.kind !== "text" || !target.text?.trim()) {
-    throw Object.assign(new Error("the message being replied to is no longer available"), { status: 404 });
-  }
-  return target;
+  const replyToId = requestedReplyId(value);
+  return replyToId === undefined ? undefined : store.messagesFor(threadId).find((message) => message.id === replyToId);
 }
 
 const CONNECTOR_SLUG = /^[a-z0-9][a-z0-9_-]{0,80}$/;
@@ -15655,7 +15652,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 409, { error: "the channel switched tasks before it could receive the message" });
       }
       const sendId = parseSendId(body.sendId);
-      const replyTo = resolveReplyTarget(threadId, body.replyToId);
+      const replyToId = requestedReplyId(body.replyToId);
+      const replyTo = resolveReplyTarget(threadId, replyToId);
       const browserOrigin = typeof req.headers.origin === "string" && req.headers.origin.trim() !== "";
       const via: "api" | undefined =
         fromLocalTools(auth) || (auth.kind === "loopback" && !DESKTOP_MANAGED && !browserOrigin) ? "api" : undefined;
@@ -15664,13 +15662,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const receipt = await sendSequencer.run(
         sendId ? `group:${group.id}:${threadId}:${sendId}` : undefined,
-        sendFingerprint(text, replyTo?.id),
+        sendFingerprint(text, replyToId),
         async () => {
           const landed = landedSend({
             messages: () => store.messagesFor(threadId),
             queued: (id) => queuedChannelMessage(group.id, threadId, id),
             cancelled: (id) => cancelledChatFollowup("channel", group.id, threadId, id),
-          }, sendId, text, replyTo?.id);
+          }, sendId, text, replyToId);
           if (landed.kind === "accepted") return { ok: true as const, threadId, message: landed.message };
           if (landed.kind === "queued") return { ok: true as const, queued: true as const, queueId: landed.queued.id, threadId };
           const capped = spendCapRefusal();
@@ -15777,20 +15775,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (decision.action === "queue") return json(res, 200, await sendNow());
       const replyTo = resolveHeldReplyTarget(held, resolveReplyTarget);
       const speakerName = cfg.profile?.name?.trim() || "User";
+      let replyTargets: Array<Message | undefined>;
       let words: ReturnType<typeof steerWords>;
       try {
+        replyTargets = headGroup.map((item, index) => index === 0 ? replyTo : resolveReplyTarget(targetThreadId, item.replyToId));
         const foldedPrompt = headGroup
-          .map((item, index) =>
-            promptWithReply(
-              item.text,
-              index === 0
-                ? replyTo
-                : item.replyToId
-                  ? resolveReplyTarget(targetThreadId, item.replyToId)
-                  : undefined,
-              speakerName,
-            ),
-          )
+          .map((item, index) => promptWithReply(item.text, replyTargets[index], speakerName))
           .join("\n\n");
         words = steerWords(withSteerNote(foldedPrompt));
       } catch (error) {
@@ -15812,11 +15802,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         : undefined;
       const delivered = steered !== "refused";
       if (after && delivered && (steered === "indeterminate" || afterSpeakerBotId === speakerBotId)) {
-        const messages = receipt.bind(headGroup.map((item) => store.appendMessage(targetThreadId, {
+        const messages = receipt.bind(headGroup.map((item, index) => store.appendMessage(targetThreadId, {
           role: "user",
           kind: "text",
           text: item.text,
-          replyToId: item.replyToId,
+          replyToId: replyTargets[index]?.id,
           sendId: item.sendId,
           queueId: item.id,
           via: item.via,
@@ -17142,7 +17132,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const elsewhere = directThreadRefusal(bot.id, threadId);
       if (elsewhere) return json(res, elsewhere.status, elsewhere.body);
       const sendId = parseSendId(body.sendId);
-      const replyTo = resolveReplyTarget(threadId, body.replyToId);
+      const replyToId = requestedReplyId(body.replyToId);
+      const replyTo = resolveReplyTarget(threadId, replyToId);
       const sender = messageSender(auth);
       const deskReply = deskVerify && !guarded ? deskReplyFrom({ verify: deskVerify, headers: req.headers, path, sendId, reply: body.deskReply }) : null;
       if (deskReply && sendId) return json(res, 202, recordDeskExchange(store, { threadId, text, sendId, replyToId: replyTo?.id, sender, reply: deskReply }));
@@ -17174,7 +17165,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         : undefined;
       try {
         const receipt = await acceptDirectSend({
-          botId: bot.id, threadId, text, sendId, replyTo, sender, trigger,
+          botId: bot.id, threadId, text, sendId, replyToId, replyTo, sender, trigger,
           deliver: deliver.data,
           ...typedMessageAuthority({ fromLocalTools: fromLocalTools(auth), session: auth.kind === "session", desktopManaged: DESKTOP_MANAGED }, () => cardAnswererFor(auth)),
         }, guardedStart);
@@ -17321,7 +17312,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const rerunInstance = registry.get(rerunSelection.instanceId)!;
       const rerunRefusal = policyModelRefusal(rerunInstance);
       if (rerunRefusal) return json(res, 409, { error: rerunRefusal });
-      const replyTo = source.replyToId ? resolveReplyTarget(bot.threadId, source.replyToId) : undefined;
+      const replyTo = resolveReplyTarget(bot.threadId, source.replyToId);
       const message = await startTurn(bot.id, text, { threadId: bot.threadId, editedMessageId: messageId, replyTo, sendId, trigger: usageTriggerFor(auth),
         ...(fromLocalTools(auth) ? { via: "api" as const } : {}),
         ...(CLOUD_HOME ? { sender: messageSender(auth) } : {}) });

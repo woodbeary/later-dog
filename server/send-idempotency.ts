@@ -17,6 +17,10 @@ export type AcceptedSendMatch =
   | { kind: "match"; message: Message }
   | { kind: "conflict" };
 
+function sameReplyTarget(stored: string | undefined, requested: string | undefined): boolean {
+  return stored === undefined || stored === requested;
+}
+
 export function acceptedSendMatch(
   messages: Message[],
   sendId: string,
@@ -29,7 +33,7 @@ export function acceptedSendMatch(
     message.role !== "user" ||
     message.kind !== "text" ||
     message.text !== text ||
-    message.replyToId !== replyToId
+    !sameReplyTarget(message.replyToId, replyToId)
   ) {
     return { kind: "conflict" };
   }
@@ -73,7 +77,7 @@ export function landedSend(
   if (!queued) return { kind: "new" };
   if (
     queued.text !== text ||
-    queued.replyToId !== replyToId
+    !sameReplyTarget(queued.replyToId, replyToId)
   ) {
     throw sendIdTaken();
   }
