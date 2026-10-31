@@ -39,6 +39,10 @@ export function pickingUpNotice(name: string): string {
   return `later.dog restarted while ${name} was working on this, so ${name} is picking it up again.`;
 }
 
+export function stoppedPickupLine(name: string): string {
+  return `later.dog restarted while ${name} was working on this. You stopped it, so ${name} did not pick it up again.`;
+}
+
 export function restartedAgainLine(name: string): string {
   return `later.dog restarted again before ${name} finished this. Send it again to try once more.`;
 }
@@ -232,6 +236,7 @@ export interface RestartPickupHost {
   patch(threadId: string, messageId: string, patch: Partial<Message>): unknown;
   start(botId: string, threadId: string, prompt: string, requestMessageId: string): Promise<unknown>;
   blocked(error: unknown): boolean;
+  stopped?(threadId: string): boolean;
   now?: () => number;
   later?: (run: () => void, ms: number) => void;
   retryMs?: number;
@@ -271,6 +276,10 @@ export async function pickUpAfterRestart(host: RestartPickupHost, turns: readonl
     } catch (error) {
       if (host.blocked(error) && now() < until) {
         later(() => {
+          if (host.stopped?.(threadId)) {
+            host.patch(threadId, noticeId, { tool: { name: `recovery: ${stoppedPickupLine(dog.name)}`, ok: true, pickup: "restart" } });
+            return;
+          }
           if (!stillWaiting(threadId, source.id) || host.queued(dog.botId, threadId)) return;
           void attempt(dog, threadId, source, noticeId, until);
         }, retryMs);
@@ -292,6 +301,10 @@ export async function pickUpAfterRestart(host: RestartPickupHost, turns: readonl
       const dog = host.dog(turn.threadId);
       if (!dog) {
         outcomes.push({ threadId: turn.threadId, kind: "none", why: "gone" });
+        continue;
+      }
+      if (host.stopped?.(turn.threadId)) {
+        outcomes.push({ threadId: turn.threadId, kind: "none", why: "stopped" });
         continue;
       }
       const plan = planPickup({

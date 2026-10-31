@@ -18,6 +18,7 @@ import {
   planPickup,
   restartPickupPrompt,
   restartedAgainLine,
+  stoppedPickupLine,
   tooOldLine,
   type InflightTurn,
   type RestartPickupHost,
@@ -344,6 +345,32 @@ describe("picking messages up after a restart", () => {
     timers.shift()!();
     await new Promise((resolve) => setImmediate(resolve));
     expect(starts).toHaveLength(1);
+  });
+
+  it("leaves a conversation alone when the person pressed Stop before the pickup", async () => {
+    const paths = { t1: [ask(), step()] };
+    const { host, started } = pickupHost(paths, { stopped: (threadId) => threadId === "t1" });
+    expect(await pickUpAfterRestart(host, [turn("t1")])).toEqual([{ threadId: "t1", kind: "none", why: "stopped" }]);
+    expect(started).toEqual([]);
+    expect(paths.t1.filter((entry) => entry.tool?.pickup)).toEqual([]);
+  });
+
+  it("drops a waiting pickup when the person pressed Stop meanwhile, and says so in its notice", async () => {
+    const paths = { t1: [ask()] };
+    const stops = new Set<string>();
+    const starts: string[] = [];
+    const { host, timers } = pickupHost(paths, {
+      stopped: (threadId) => stops.has(threadId),
+      start: async (_botId, threadId) => { starts.push(threadId); throw Object.assign(new Error("limit"), { code: "thread_limit" }); },
+    });
+    expect(await pickUpAfterRestart(host, [turn("t1")])).toEqual([{ threadId: "t1", kind: "waiting", sourceId: paths.t1[0]!.id }]);
+    stops.add("t1");
+    timers.shift()!();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(starts).toEqual(["t1"]);
+    expect(timers).toEqual([]);
+    expect(paths.t1.filter((entry) => entry.tool?.pickup)).toHaveLength(1);
+    expect(paths.t1.at(-1)).toMatchObject({ tool: { name: `recovery: ${stoppedPickupLine("Scout")}`, ok: true, pickup: "restart" } });
   });
 
   it("gives up waiting with a one-line reason after the retry window", async () => {

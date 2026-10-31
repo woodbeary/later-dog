@@ -689,6 +689,7 @@ import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threa
 import { createCompactionLive, fileCompactionLedger } from "./laterdog/compaction-live.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
 import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
+import { createPickupStops, keepsNewerTurn } from "./laterdog/pickup-stops.ts";
 import type { TakeoverRequestCardData } from "../shared/takeover.ts";
 import { firstEngine, hasNoModel } from "./laterdog/first-engine.ts";
 import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
@@ -2578,6 +2579,7 @@ async function interruptDirectThread(botId: string, threadId: string, options?: 
       && store.taskByThread(botId, threadId)?.activity === "parked.computer") {
     store.setTaskActivity(botId, threadId, "idle");
   }
+  if (options?.by === "person") pickupStops.stop(threadId);
   const requestOwner = directRequestOwners.get(threadId);
   if (requestOwner) {
     requestOwner.stopped = true;
@@ -5269,6 +5271,7 @@ const promiseNudges = createPromiseNudges({
     !activeGroupTurnForBot(botId) && !roomHandoffs.activeDirect(threadId) && !limitHold.holds(threadId),
   start: startContinuation,
 });
+const pickupStops = createPickupStops();
 const restartPickupHost: RestartPickupHost = {
   path: (threadId) => store.activePath(threadId),
   dog: (threadId) => {
@@ -5283,9 +5286,22 @@ const restartPickupHost: RestartPickupHost = {
   carriesOnAfterLimit: () => accountBattery.enabled,
   append: (threadId, message) => store.appendMessage(threadId, message),
   patch: (threadId, messageId, patch) => store.patchMessage(threadId, messageId, patch),
-  start: startContinuation,
+  start: async (botId, threadId, prompt, requestMessageId) => {
+    pickupStops.resuming(threadId);
+    try {
+      return await startContinuation(botId, threadId, prompt, requestMessageId);
+    } catch (error) {
+      pickupStops.settled(threadId);
+      throw error;
+    }
+  },
   blocked: isTurnAdmissionBlocked,
+  stopped: (threadId) => pickupStops.stopped(threadId),
 };
+bus.subscribe((event: RuntimeEvent) => {
+  if (shouldIgnoreProviderEvent(event)) return;
+  if (event.type === "turn.completed") pickupStops.settled(event.threadId);
+});
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "turn.started") statusLines.begin(event.threadId);
@@ -17553,8 +17569,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (expectedThreadId !== undefined && (typeof expectedThreadId !== "string" || !/^[\w-]+$/.test(expectedThreadId))) {
         return json(res, 400, { error: "threadId must be a task id" });
       }
-      if (typeof expectedThreadId === "string" && store.taskByThread(bot.id, expectedThreadId)) {
-        await stopThreadTurn(bot.id, expectedThreadId, fromLocalTools(auth) ? "api" : "person");
+      const askedTask = typeof expectedThreadId === "string" ? store.taskByThread(bot.id, expectedThreadId) : undefined;
+      if (askedTask) {
+        const running = askedTask.busy ? askedTask.turnStartedAt : undefined;
+        if (keepsNewerTurn({ seen: body.turnStartedAt, running, resumed: pickupStops.resumed(askedTask.threadId) })) {
+          return json(res, 200, { ok: true, kept: "newer" });
+        }
+        await stopThreadTurn(bot.id, askedTask.threadId, fromLocalTools(auth) ? "api" : "person");
         return json(res, 200, { ok: true });
       }
       const directClaim = directTurnDispatchClaims.get(bot.threadId);
