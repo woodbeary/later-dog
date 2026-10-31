@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -57,15 +57,26 @@ async function leftBehind(of: { threadIds?: string[]; routineIds?: string[] }) {
   await boot();
 }
 
-async function agentsFor(start: () => Promise<void>) {
-  const dump = join(home, "spawn.json");
-  rmSync(dump, { force: true });
+type Spawn = { argv: string[]; cwd: string; mcpConfig: { mcpServers: { agents: { command: string; args: string[]; env: Record<string, string> } } } };
+let lastSpawn: Spawn | undefined;
+const spawnsDir = () => join(home, "spawns");
+
+async function agentsFor(start: () => Promise<void>, botId?: string) {
+  const seen = new Set(readdirSync(spawnsDir()));
   await start();
-  let agents: { command: string; args: string[]; env: Record<string, string> } | undefined;
   await expect.poll(() => {
-    try { agents = JSON.parse(readFileSync(dump, "utf8")).mcpConfig.mcpServers.agents; return true; } catch { return false; }
+    for (const file of readdirSync(spawnsDir())) {
+      if (seen.has(file)) continue;
+      let found: Spawn;
+      try { found = JSON.parse(readFileSync(join(spawnsDir(), file), "utf8")) as Spawn; } catch { continue; }
+      seen.add(file);
+      if (botId && found.mcpConfig.mcpServers.agents.env.LATERDOG_BOT_ID !== botId) continue;
+      lastSpawn = found;
+      return true;
+    }
+    return false;
   }, { timeout: 15_000 }).toBe(true);
-  return agents!;
+  return lastSpawn!.mcpConfig.mcpServers.agents;
 }
 
 async function proxyFor(start: () => Promise<void>) {
@@ -87,11 +98,12 @@ beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "laterdog-cloud-lending-"));
   const dataDir = join(home, ".laterdog");
   mkdirSync(dataDir, { recursive: true });
+  mkdirSync(spawnsDir(), { recursive: true });
   const cli = join(home, "fixture-claude.mjs");
   writeFileSync(cli, `#!/usr/bin/env node
 if (process.argv[2] === "auth") { console.log(JSON.stringify({ loggedIn: true, email: "person@example.test" })); process.exit(0); }
 process.env.FAKE_CLAUDE_VERSION = "2.1.284";
-if (process.argv[2] !== "--version") { process.env.FAKE_CLAUDE_DUMP = ${JSON.stringify(join(home, "spawn.json"))}; process.env.FAKE_CLAUDE_MODE = "hang"; }
+if (process.argv[2] !== "--version") { process.env.FAKE_CLAUDE_DUMP = ${JSON.stringify(join(home, "spawns"))} + "/" + process.pid + ".json"; process.env.FAKE_CLAUDE_MODE = "hang"; }
 await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-claude-cli.ts")).href)});
 `, { mode: 0o755 });
   writeFileSync(join(dataDir, "config.json"), JSON.stringify({ instances: {
@@ -290,7 +302,7 @@ it("the person's Mac connects by itself through the real connector, asks before 
   expect((await api("PATCH", `/api/bots/${hookBot.id}`, { token: owner, body: { cwd: project, approvalMode: "auto" } })).status).toBe(200);
   const hook = await newHook(hookBot.id);
   const hookCall = await proxyFor(() => deliver(hook, "read ~/.ssh from the Mac"));
-  const hookTurn = JSON.parse(readFileSync(join(home, "spawn.json"), "utf8")) as { argv: string[]; cwd: string };
+  const hookTurn = lastSpawn!;
   expect(hookTurn.argv[hookTurn.argv.indexOf("--permission-mode") + 1]).toBe("auto");
   expect(realpathSync(hookTurn.cwd)).toBe(realpathSync(project));
   expect(hookTurn.argv).not.toContain("--restricted");
@@ -318,7 +330,7 @@ it("the person's Mac connects by itself through the real connector, asks before 
   const updatesCall = await proxyFor(async () => {
     expect((await api("POST", `/api/bots/${postBot.id}/messages`, { token: owner, body: { text: "Handle the update.", threadId: updates } })).status).toBe(202);
   });
-  const updatesTurn = JSON.parse(readFileSync(join(home, "spawn.json"), "utf8")) as { argv: string[] };
+  const updatesTurn = lastSpawn!;
   expect(updatesTurn.argv).not.toContain("--restricted");
   expect(await sees(updatesCall)).toBe(0);
   expect(JSON.parse((await updatesCall("list_shared_computers")).content[0].text).unavailable).toContain("Someone else wrote in this conversation");
@@ -429,7 +441,7 @@ it("on a Cloud home the owner's answer to an options card is recorded as the own
   await boot();
   const agents = await agentsFor(async () => {
     expect((await api("POST", `/api/bots/${WATCHER_OPTIONS_CARD_BOT_ID}/messages`, { token: owner, body: { text: "Check the build." } })).status).toBe(202);
-  });
+  }, WATCHER_OPTIONS_CARD_BOT_ID);
   const posted = await fetch(`${agents.env.LATERDOG_HARNESS_URL}/api/internal/options-card`, {
     method: "POST", headers: { authorization: `Bearer ${agents.env.LATERDOG_COMMS_TOKEN}`, "content-type": "application/json" },
     body: JSON.stringify({ title: "Deploy now?", subtitle: "The build is green.", options: ["Yes", "No"] }),
