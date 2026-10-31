@@ -1,6 +1,6 @@
 import type { ServerResponse } from "node:http";
 import type { ZodError } from "zod";
-import { addJob, phoneAdd, phoneRead, phoneRegistration, phoneResult, readJob, type PhoneDesk, type PhoneJob, type PhoneOwner } from "../laterdog/phone-desk.ts";
+import { addJob, changeJob, phoneAdd, phoneChange, phoneRead, phoneRegistration, phoneResult, readJob, type PhoneDesk, type PhoneJob, type PhoneOwner } from "../laterdog/phone-desk.ts";
 import type { RequestAuth } from "../request-auth.ts";
 import type { BotRecord } from "../store.ts";
 import type { InternalRouteHandler } from "./internal.ts";
@@ -9,6 +9,7 @@ import { PASS, type RouteHandler } from "./table.ts";
 export const PHONE_DEVICE_PATH = "/api/phone/device";
 export const PHONE_READ_PATH = "/api/internal/phone/read";
 export const PHONE_ADD_PATH = "/api/internal/phone/add";
+export const PHONE_CHANGE_PATH = "/api/internal/phone/change";
 export const PHONE_SECRET_HEADER = "x-laterdog-phone-secret";
 
 const DEVICE_ROUTE = /^\/api\/phone\/device\/([\w-]+)\/(poll|result|disconnect)$/;
@@ -71,6 +72,10 @@ function toJob(path: string, body: unknown): PhoneJob | { error: string } {
     const parsed = phoneRead.safeParse(body);
     return parsed.success ? readJob(parsed.data) : { error: problems(parsed.error) };
   }
+  if (path === PHONE_CHANGE_PATH) {
+    const parsed = phoneChange.safeParse(body);
+    return parsed.success ? changeJob(parsed.data) : { error: problems(parsed.error) };
+  }
   const parsed = phoneAdd.safeParse(body);
   return parsed.success ? addJob(parsed.data) : { error: problems(parsed.error) };
 }
@@ -83,7 +88,7 @@ export interface PhoneToolRouteDeps {
 
 export function createPhoneToolRoute(deps: PhoneToolRouteDeps): InternalRouteHandler {
   return async ({ res, path, method, json, readBody, capability, sender }) => {
-    if (method !== "POST" || (path !== PHONE_READ_PATH && path !== PHONE_ADD_PATH) || !deps.enabled()) return PASS;
+    if (method !== "POST" || (path !== PHONE_READ_PATH && path !== PHONE_ADD_PATH && path !== PHONE_CHANGE_PATH) || !deps.enabled()) return PASS;
     if (!deps.active(capability)) return json(res, 401, { error: "the internal turn capability has expired" });
     const job = toJob(path, await readBody());
     if ("error" in job) return json(res, 400, { error: job.error });

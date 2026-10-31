@@ -3,7 +3,7 @@ import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
 
-export const PHONE_JOBS = ["calendar", "reminders", "contacts", "location", "add_calendar_event", "add_reminder"] as const;
+export const PHONE_JOBS = ["calendar", "reminders", "contacts", "location", "add_calendar_event", "add_reminder", "change_calendar_event", "change_reminder"] as const;
 export type PhoneJobKind = (typeof PHONE_JOBS)[number];
 
 export const PHONE_READS = ["calendar", "reminders", "contacts", "location"] as const;
@@ -40,7 +40,28 @@ export const phoneAdd = z.object({
   if (add.what === "calendar_event" && !add.start) context.addIssue({ code: "custom", path: ["start"], message: "calendar_event needs start." });
 });
 
+export const phoneChange = z.object({
+  what: z.enum(PHONE_ADDS),
+  id: text(500),
+  title: text(300).optional(),
+  start: moment.optional(),
+  end: moment.optional(),
+  all_day: z.boolean().optional(),
+  due: moment.optional(),
+  completed: z.boolean().optional(),
+  location: text(500).optional(),
+  notes: text(4000).optional(),
+}).strict().superRefine((change, context) => {
+  const { what: _what, id: _id, ...changes } = change;
+  if (Object.keys(changes).length === 0) context.addIssue({ code: "custom", path: ["id"], message: "Say what to change: title, start, end, all_day, location or notes for an event; completed, title, due or notes for a reminder." });
+  const eventOnly = ["start", "end", "all_day", "location"].filter((field) => field in changes);
+  const reminderOnly = ["due", "completed"].filter((field) => field in changes);
+  if (change.what === "reminder" && eventOnly.length) context.addIssue({ code: "custom", path: [eventOnly[0]!], message: "A reminder has due, completed, title and notes." });
+  if (change.what === "calendar_event" && reminderOnly.length) context.addIssue({ code: "custom", path: [reminderOnly[0]!], message: "An event has title, start, end, all_day, location and notes." });
+});
+
 export type PhoneRead = z.infer<typeof phoneRead>;
+export type PhoneChange = z.infer<typeof phoneChange>;
 export type PhoneAdd = z.infer<typeof phoneAdd>;
 export type PhoneJob = { kind: PhoneJobKind; arguments: Record<string, unknown> };
 const PHONE_ADD_JOBS: ReadonlySet<PhoneJobKind> = new Set(["add_calendar_event", "add_reminder"]);
@@ -53,6 +74,11 @@ export function readJob(read: PhoneRead): PhoneJob {
 export function addJob(add: PhoneAdd): PhoneJob {
   const { what, ...rest } = add;
   return { kind: what === "calendar_event" ? "add_calendar_event" : "add_reminder", arguments: rest };
+}
+
+export function changeJob(change: PhoneChange): PhoneJob {
+  const { what, ...rest } = change;
+  return { kind: what === "calendar_event" ? "change_calendar_event" : "change_reminder", arguments: rest };
 }
 
 export const phoneRegistration = z.object({
@@ -88,6 +114,8 @@ const ACTIVITY: Record<PhoneJobKind, string> = {
   location: "see where you are",
   add_calendar_event: "add an event to your calendar",
   add_reminder: "add a reminder",
+  change_calendar_event: "change an event on your calendar",
+  change_reminder: "update a reminder",
 };
 
 export function phoneWants(kind: PhoneJobKind): string {

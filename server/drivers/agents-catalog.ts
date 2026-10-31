@@ -271,6 +271,18 @@ const TOOL_DEFINITIONS = [
     }, required: ["what", "title"] },
   },
   {
+    name: "change_on_phone",
+    description: "Change something on the person's iPhone when they ask: a calendar_event (new title, start, end, all_day, location or notes) or a reminder (completed true to tick it off, false to reopen; or a new title, due or notes). Pass the id read_phone gave you; read first if you don't have it. Same rules as read_phone. Say what you changed.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      what: { type: "string", enum: ["calendar_event", "reminder"] },
+      id: { type: "string", minLength: 1, maxLength: 500, description: "The event's or reminder's id, from read_phone." },
+      title: { type: "string", minLength: 1, maxLength: 300 },
+      start: { type: "string" }, end: { type: "string" }, all_day: { type: "boolean" }, due: { type: "string" },
+      completed: { type: "boolean" },
+      location: { type: "string", maxLength: 500 }, notes: { type: "string", maxLength: 4000 },
+    }, required: ["what", "id"] },
+  },
+  {
     name: "coordinate_bots",
     description: "Ask other dogs for advice or hand them work. Give 1-4 bot_ids, as list_bots prints them; a unique name also resolves. In a group chat the request goes to that chat; group_id sends it to another group chat you are in. Outside a group chat it goes to each dog's own conversation and runs after anything still running there, and both conversations show the exchange. They see only what you send and use their own model, tools and permissions, so include exact file paths, constraints and what must be checked. Their results come back here and resume you: after sending, end your turn and do not poll or wait. When they return, check the outcome and ask for concrete corrections if needed before giving one final answer. Do not send acknowledgements as new work.",
     inputSchema: { type: "object", additionalProperties: false, properties: {
@@ -722,7 +734,7 @@ const SKILL_TOOL_NAMES = new Set(["skills_list", "skill_manage"]);
 export const SHARED_COMPUTER_TOOL_NAMES = new Set(["list_shared_computers", "shared_computer"]);
 export const MAC_MESSAGE_TOOL_NAMES = new Set(["send_text", "read_texts", "send_email"]);
 const EMAIL_TOOL_NAMES = new Set(["email_me"]);
-const PHONE_TOOL_NAMES = new Set(["read_phone", "add_to_phone"]);
+const PHONE_TOOL_NAMES = new Set(["read_phone", "add_to_phone", "change_on_phone"]);
 const VOICE_TOOL_NAMES = new Set(["send_voice_note"]);
 const WATCHER_TOOL_NAMES = new Set(["create_options_card"]);
 

@@ -9,6 +9,7 @@ const TEAM_TOOLS: Record<string, (input: Record<string, unknown>, nameOf: NameOf
   shared_computer: (input) => onTheMac(input),
   read_phone: (input) => onThePhone(input),
   add_to_phone: (input) => onThePhone(input),
+  change_on_phone: (input) => changingOnThePhone(input),
   start_tasks: (input) => startingTasks(input),
   send_text: () => "sending a text",
   read_texts: (input) => (typeof input.with === "string" && input.with.trim() ? `reading texts with ${clipName(input.with)}` : "reading your texts"),
@@ -43,6 +44,11 @@ function onThePhone(input: Record<string, unknown>): string {
     case "reminder": return "adding a reminder";
     default: return "using your iPhone";
   }
+}
+
+function changingOnThePhone(input: Record<string, unknown>): string {
+  if (input.what === "reminder") return input.completed === true ? "ticking off a reminder" : "updating a reminder";
+  return input.what === "calendar_event" ? "changing an event on your calendar" : "using your iPhone";
 }
 
 function onTheMac(input: Record<string, unknown>): string {
