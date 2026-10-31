@@ -24,6 +24,7 @@ Repository: https://github.com/woodbeary/later-dog
 - [cloudflare/control-plane/README.md](cloudflare/control-plane/README.md): `accounts.later.dog`, email sign-in and accounts.
 - [docs/laterdog/token-battery.md](docs/laterdog/token-battery.md): several accounts in a next-up order; a conversation continues on the next one when one runs out.
 - [docs/laterdog/cloudflare.md](docs/laterdog/cloudflare.md): the cloud-task supervisor on Cloudflare Containers.
+- [docs/laterdog/computer-use-loop.md](docs/laterdog/computer-use-loop.md): Claude computer use in later.dog's own loop: one pinned model, screenshots sized for the toolset, a step log, take-over causes, and done fixed before the run.
 - [docs/laterdog/motion.md](docs/laterdog/motion.md): motion tokens, the dog's state → ear motion table, reduced motion.
 - [docs/laterdog/support.md](docs/laterdog/support.md): how later.dog is funded and where sponsorships go.
 
@@ -31,6 +32,7 @@ Repository: https://github.com/woodbeary/later-dog
 
 - [docs/verification/README.md](docs/verification/README.md): how each change is proven on an isolated fixture, never on a person's live app.
 - [docs/laterdog/verification.md](docs/laterdog/verification.md): what each fixture proves and the live acceptance records.
+- [docs/metrics.md](docs/metrics.md): what later.dog measures about computer-use runs, each definition, and the SQL for each number.
 - [docs/laterdog/launch-plan.md](docs/laterdog/launch-plan.md): the launch plan: abuse limits, credits, website, phone, repository.
 - [docs/laterdog/finalize-plan-2026-10-18.md](docs/laterdog/finalize-plan-2026-10-18.md): the finalize lanes and what needs the person.
 - [docs/laterdog/roadmap.md](docs/laterdog/roadmap.md): the longer direction.
