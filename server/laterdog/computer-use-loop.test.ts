@@ -214,6 +214,25 @@ describe("how a run ends", () => {
     expect(await broken.go()).toMatchObject({ state: "failed", failure: "error", detail: "Claude's API answered 401 (authentication_error: invalid x-api-key)." });
     const swapped = setup([reply([toolUse("toolu_1", "screenshot")], "tool_use", { model: "claude-sonnet-5-5" })]);
     expect(await swapped.go()).toMatchObject({ state: "failed", failure: "error", detail: "Claude's API answered with claude-sonnet-5-5, not the pinned claude-opus-5-5." });
+    expect(swapped.desktop.frames).toHaveLength(1);
+    expect(swapped.store.steps(swapped.run.id)).toEqual([expect.objectContaining({ step: 1, actions: [], ...FIXTURE_USAGE })]);
+  });
+
+  it("keeps the step it was on, with the actions that ran and its tokens, when the person stops the run mid-turn", async () => {
+    let h!: ReturnType<typeof setup>;
+    h = setup([
+      reply([toolUse("toolu_1", "left_click", { coordinate: [1, 1] }), toolUse("toolu_2", "key", { text: "Return" }), toolUse("toolu_3", "left_click", { coordinate: [2, 2] })]),
+    ], {
+      fail: (action) => {
+        if (action.kind === "key") { h.store.finish(h.run.id, { failed: "stopped" }); h.control.end(); }
+        return null;
+      },
+    });
+    expect(await h.go()).toMatchObject({ state: "failed", failure: "stopped" });
+    expect(h.desktop.acted).toHaveLength(2);
+    expect(h.store.steps(h.run.id)).toEqual([expect.objectContaining({
+      step: 1, actions: [{ name: "left_click", coordinate: [1, 1] }, { name: "key", text: "Return" }], actionMs: 2 * ACTION_MS, ...FIXTURE_USAGE,
+    })]);
   });
 
   it("accepts only the pinned model, or a dated name of that same model", () => {

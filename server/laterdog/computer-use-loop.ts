@@ -129,11 +129,12 @@ interface Acted {
   heldMs: number;
 }
 
-async function act(uses: ToolUse[], turn: Turn): Promise<Acted> {
+const nothingActed = (): Acted => ({ results: [], actions: [], shot: null, heldMs: 0 });
+
+async function act(uses: ToolUse[], turn: Turn, acted: Acted): Promise<void> {
   const { deps, frame, screen } = turn;
   const { control, desktop } = deps;
   const signal = control.signal;
-  const acted: Acted = { results: [], actions: [], shot: null, heldMs: 0 };
   let failed = false;
   let blocked: string | null = null;
   for (const use of uses) {
@@ -184,7 +185,6 @@ async function act(uses: ToolUse[], turn: Turn): Promise<Acted> {
       answer([text(`Error: ${plain(error)}`)], true);
     }
   }
-  return acted;
 }
 
 async function settle(run: ComputerUseRun, said: string, deps: LoopDeps): Promise<ComputerUseRun> {
@@ -216,14 +216,19 @@ export async function runComputerUse(runId: string, deps: LoopDeps): Promise<Com
       const asked = deps.clock();
       const reply = await deps.messages.create({ system: SYSTEM_PROMPT, messages }, control.signal);
       const modelMs = deps.clock() - asked;
-      control.signal.throwIfAborted();
-      if (!sameModel(run.model, reply.model)) throw new Error(`Claude's API answered with ${reply.model}, not the pinned ${run.model}.`);
-      messages.push({ role: "assistant", content: reply.content });
-      const uses = reply.stopReason === "tool_use" ? toolUses(reply.content) : [];
       const started = deps.clock();
-      const acted = uses.length ? await act(uses, { runId, frame, screen, deps }) : { results: [], actions: [], shot: null, heldMs: 0 };
-      const actionMs = Math.max(0, deps.clock() - started - acted.heldMs);
-      store.step(runId, { step, actions: acted.actions, screenshotSha256: seen, modelMs, actionMs, ...reply.usage });
+      const acted = nothingActed();
+      const uses = reply.stopReason === "tool_use" ? toolUses(reply.content) : [];
+      let actionMs = 0;
+      try {
+        control.signal.throwIfAborted();
+        if (!sameModel(run.model, reply.model)) throw new Error(`Claude's API answered with ${reply.model}, not the pinned ${run.model}.`);
+        messages.push({ role: "assistant", content: reply.content });
+        if (uses.length) await act(uses, { runId, frame, screen, deps }, acted);
+      } finally {
+        actionMs = Math.max(0, deps.clock() - started - acted.heldMs);
+        store.step(runId, { step, actions: acted.actions, screenshotSha256: seen, modelMs, actionMs, ...reply.usage });
+      }
       workingMs += modelMs + actionMs;
       if (acted.shot) seen = screenshotSha256(acted.shot);
       if (reply.stopReason === "refusal") return store.finish(runId, { failed: "refusal", detail: "Claude declined this task." });

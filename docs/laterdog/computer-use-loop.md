@@ -70,7 +70,9 @@ Everything is kept in the supervisor's `workspace.sqlite`, the same store that h
 `computer_use_runs`: one row per run, with the task, computer, model, the done rule as it was when the run started, the
 state (`running`, `handed_over`, `awaiting_done`, `done`, `failed`), the done source or failure cause, and the times.
 
-`computer_use_steps`: one row per step. A step is one Messages API call and the actions it asked for.
+`computer_use_steps`: one row per step. A step is one Messages API call and the actions it asked for. A step that the
+run ends partway through (the person says Done or stops it, the supervisor stops, or another model answers) is still
+written, with the actions it had reached and that call's tokens.
 
 | Column | What it holds |
 | --- | --- |
@@ -143,9 +145,9 @@ curl -sS -X POST "$SUPERVISOR/v1/computer-runs" -H "authorization: Bearer $SUPER
 
 Verified on fixtures, with a fake desktop and scripted Messages answers (`server/laterdog/computer-use-*.test.ts`):
 screenshot sizes and limits, mapping points both ways, every toolset member and its `xdotool` command, typed text kept
-out of the shell and out of the log, the request body and headers, one retry on 429 and 5xx, the step log, take-overs
-asked by Claude and taken by the person, every way a run ends, the page check, the routes for the person and for a dog,
-and every query in [../metrics.md](../metrics.md).
+out of the shell and out of the log, the request body and headers, one retry on 429 and 5xx, the step log (including a
+step the run ends partway through), take-overs asked by Claude and taken by the person, every way a run ends, the page
+check, the routes for the person and for a dog, and every query in [../metrics.md](../metrics.md).
 
 Verified once on an isolated supervisor process (`node --experimental-strip-types server/laterdog/main.ts` with its own
 data folder and token) wired to a fake computers API and a fake Messages API on loopback: a run clicked, typed and
