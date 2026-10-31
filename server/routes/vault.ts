@@ -12,7 +12,7 @@ function loginFields(body: unknown): Partial<LoginInput> {
   return Object.fromEntries((["site", "username", "password", "note"] as const).filter((key) => key in record).map((key) => [key, record[key]]));
 }
 
-export function createVaultRoutes(deps: { vault: Pick<VaultStore, "view" | "offers" | "save" | "update" | "remove" | "importLogins"> }): RouteHandler {
+export function createVaultRoutes(deps: { vault: Pick<VaultStore, "view" | "offers" | "save" | "update" | "remove" | "importLogins" | "details" | "saveDetails"> }): RouteHandler {
   const { vault } = deps;
   return async ({ req, res, method, path, url, json, readBody }) => {
     if (path !== "/api/vault" && !path.startsWith("/api/vault/")) return PASS;
@@ -20,6 +20,11 @@ export function createVaultRoutes(deps: { vault: Pick<VaultStore, "view" | "offe
     try {
       if (path === "/api/vault" && method === "GET") return json(res, 200, vault.view());
       if (path === "/api/vault/offers" && method === "GET") return json(res, 200, vault.offers(url.searchParams.get("host") ?? ""));
+      if (path === "/api/vault/details" && method === "GET") return json(res, 200, vault.details());
+      if (path === "/api/vault/details" && method === "PUT") {
+        const body = await readBody(req, VAULT_LOGIN_BODY_BYTES);
+        return json(res, 200, { details: vault.saveDetails(body?.details) });
+      }
       if (path === "/api/vault/logins" && method === "POST") {
         const body = loginFields(await readBody(req, VAULT_LOGIN_BODY_BYTES));
         return json(res, 200, vault.save({ site: body.site, username: body.username, password: body.password, note: body.note }));

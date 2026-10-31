@@ -1,10 +1,21 @@
-import { isSharedHost, normalizeSecureHost, type SecureFormField } from "./secure-form.ts";
+import { asksForDetails, isSharedHost, normalizeSecureHost, type SecureFieldDetail, type SecureFormField } from "./secure-form.ts";
 
 export const VAULT_MAX_LOGINS = 500;
 export const VAULT_VALUE_CHARS = 512;
 export const VAULT_NOTE_CHARS = 500;
 export const VAULT_IMPORT_BYTES = 2_000_000;
 export const VAULT_ALLOW_PREFIX = "vault:";
+export const VAULT_DETAIL_CHARS = 200;
+export const VAULT_DETAIL_KEYS = [
+  "name", "email", "tel", "organization", "address-line1", "address-line2", "address-level2", "address-level1", "postal-code", "country-name",
+] as const;
+export type VaultDetailKey = (typeof VAULT_DETAIL_KEYS)[number];
+export type VaultDetails = Partial<Record<VaultDetailKey, string>>;
+
+export interface VaultDetailsView {
+  available: boolean;
+  details: VaultDetails;
+}
 
 export interface VaultLogin {
   id: string;
@@ -59,7 +70,34 @@ export function vaultAllowSite(key: string): string | null {
   return key.startsWith(VAULT_ALLOW_PREFIX) ? vaultSite(key.slice(VAULT_ALLOW_PREFIX.length)) : null;
 }
 
-export function vaultFieldPlan(fields: readonly Pick<SecureFormField, "id" | "type">[]): VaultFieldPlan | null {
+export function detailValue(details: VaultDetails, wanted: SecureFieldDetail): string {
+  const name = details.name?.trim() ?? "";
+  const words = name.split(/\s+/).filter(Boolean);
+  switch (wanted) {
+    case "given-name": return words.length > 1 ? words.slice(0, -1).join(" ") : name;
+    case "family-name": return words.length > 1 ? words[words.length - 1]! : "";
+    case "street-address": return [details["address-line1"], details["address-line2"]].map((line) => line?.trim() ?? "").filter(Boolean).join(", ");
+    default: return details[wanted]?.trim() ?? "";
+  }
+}
+
+export function detailsFill(fields: readonly Pick<SecureFormField, "id" | "autocomplete">[], details: VaultDetails): Record<string, string> {
+  return Object.fromEntries(fields.flatMap((field) => {
+    const value = field.autocomplete ? detailValue(details, field.autocomplete) : "";
+    return value ? [[field.id, value]] : [];
+  }));
+}
+
+export function detailsFromForm(fields: readonly Pick<SecureFormField, "id" | "autocomplete">[], values: ReadonlyMap<string, string>): VaultDetails {
+  const keys: readonly string[] = VAULT_DETAIL_KEYS;
+  return Object.fromEntries(fields.flatMap((field) => {
+    const value = values.get(field.id)?.trim();
+    return field.autocomplete && keys.includes(field.autocomplete) && value ? [[field.autocomplete, value]] : [];
+  }));
+}
+
+export function vaultFieldPlan(fields: readonly Pick<SecureFormField, "id" | "type" | "autocomplete">[]): VaultFieldPlan | null {
+  if (asksForDetails(fields)) return null;
   const plan: VaultFieldPlan = {};
   for (const field of fields) {
     if (field.type === "password") {
@@ -75,7 +113,7 @@ export function vaultFieldPlan(fields: readonly Pick<SecureFormField, "id" | "ty
   return plan.username || plan.password ? plan : null;
 }
 
-export function savesAsLogin(fields: readonly Pick<SecureFormField, "id" | "type">[]): boolean {
+export function savesAsLogin(fields: readonly Pick<SecureFormField, "id" | "type" | "autocomplete">[]): boolean {
   const plan = vaultFieldPlan(fields);
   return Boolean(plan?.username && plan.password);
 }

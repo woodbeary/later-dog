@@ -82,6 +82,46 @@ describe("saved logins on disk", () => {
   });
 });
 
+describe("the person's own details", () => {
+  const DETAILS = { name: "  Kit  Doe ", email: "kit@example.com", tel: "+1 415 555 0100", "address-line1": "1 Main St", "postal-code": "94110", "country-name": "", pet: "Rex" };
+
+  it("keeps them sealed next to the logins, tidied to one line each, and drops empty or unknown ones", () => {
+    const vault = new VaultStore(file, KEY, now);
+    vault.save(LOGIN);
+    const saved = vault.saveDetails(DETAILS);
+    expect(saved).toEqual({ name: "Kit Doe", email: "kit@example.com", tel: "+1 415 555 0100", "address-line1": "1 Main St", "postal-code": "94110" });
+    const disk = readFileSync(file, "utf8");
+    for (const value of ["Kit Doe", "kit@example.com", "555 0100", "Main St", "94110"]) expect(disk).not.toContain(value);
+    expect(new VaultStore(file, KEY, now).details()).toEqual({ available: true, details: saved });
+    expect(new VaultStore(file, KEY, now).view().logins).toHaveLength(1);
+  });
+
+  it("adds what a form taught it to what was there, and clears everything on an empty save", () => {
+    const vault = new VaultStore(file, KEY, now);
+    vault.saveDetails({ name: "Kit Doe", tel: "555 0100" });
+    expect(vault.addDetails({ tel: "555 0199", "address-level2": "Oakland" })).toEqual({ name: "Kit Doe", tel: "555 0199", "address-level2": "Oakland" });
+    expect(vault.saveDetails({})).toEqual({});
+    expect(JSON.parse(readFileSync(file, "utf8"))).not.toHaveProperty("details");
+  });
+
+  it("refuses an email that isn't one and a detail that is too long, changing nothing", () => {
+    const vault = new VaultStore(file, KEY, now);
+    vault.saveDetails({ name: "Kit Doe" });
+    expect(() => vault.saveDetails({ email: "kit at example" })).toThrow("That email address doesn't look right.");
+    expect(() => vault.saveDetails({ name: "x".repeat(201) })).toThrow(VaultInputError);
+    expect(vault.details().details).toEqual({ name: "Kit Doe" });
+  });
+
+  it("shows nothing and changes nothing when the vault can't be opened, or is Cloud only", () => {
+    new VaultStore(file, KEY, now).saveDetails({ name: "Kit Doe" });
+    const wrong = new VaultStore(file, OTHER_KEY, now);
+    expect(wrong.details()).toEqual({ available: false, details: {} });
+    expect(() => wrong.saveDetails({ name: "Sam" })).toThrow(VaultInputError);
+    expect(new VaultStore(file, KEY, now).details().details).toEqual({ name: "Kit Doe" });
+    expect(new VaultStore(join(dir, "none.json"), null, now).details()).toEqual({ available: false, details: {} });
+  });
+});
+
 describe("changing saved logins", () => {
   it("replaces the password of a login it already has and keeps its note", () => {
     const vault = new VaultStore(file, KEY, now);

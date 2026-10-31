@@ -51,8 +51,19 @@ describe("vault routes", () => {
   it("are all for the owner only", () => {
     for (const [method, path] of [
       ["GET", "/api/vault"], ["GET", "/api/vault/offers"], ["POST", "/api/vault/logins"], ["PATCH", "/api/vault/logins/a-1"],
-      ["DELETE", "/api/vault/logins/a-1"], ["POST", "/api/vault/import"],
+      ["DELETE", "/api/vault/logins/a-1"], ["POST", "/api/vault/import"], ["GET", "/api/vault/details"], ["PUT", "/api/vault/details"],
     ]) expect(requiredScope(method!, path!)).toBe("admin");
+  });
+
+  it("keeps the person's details and explains ones it can't", async () => {
+    const { call } = await serve();
+    expect(await call("GET", "/api/vault/details")).toEqual({ status: 200, body: { available: true, details: {} } });
+    expect(await call("PUT", "/api/vault/details", { details: { name: "Kit Doe", tel: "555 0100", pet: "Rex" } })).toEqual({ status: 200, body: { details: { name: "Kit Doe", tel: "555 0100" } } });
+    expect(await call("GET", "/api/vault/details")).toEqual({ status: 200, body: { available: true, details: { name: "Kit Doe", tel: "555 0100" } } });
+    expect(await call("PUT", "/api/vault/details", { details: { email: "nope" } })).toEqual({ status: 400, body: { error: "That email address doesn't look right." } });
+    const cloudOnly = await serve(null);
+    expect(await cloudOnly.call("GET", "/api/vault/details")).toEqual({ status: 200, body: { available: false, details: {} } });
+    expect(await cloudOnly.call("PUT", "/api/vault/details", { details: { name: "Kit" } })).toEqual({ status: 400, body: { error: "Saved logins are kept in later.dog Cloud." } });
   });
 
   it("adds, lists, edits and removes logins without ever answering with a password", async () => {

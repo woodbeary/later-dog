@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Message } from "@/state/store";
 import type { SecureFormCardData } from "../../shared/secure-form";
-import type { VaultOffers } from "../../shared/vault";
+import type { VaultDetailsView, VaultOffers } from "../../shared/vault";
 import { SecureFormCard, secureFormReady, secureFormStatusLabel } from "./SecureFormCard";
 
 const form = (patch: Partial<SecureFormCardData> = {}): SecureFormCardData => ({
@@ -50,11 +50,14 @@ const type = (field: HTMLInputElement, value: string) => flushSync(() => {
   field.dispatchEvent(new Event("input", { bubbles: true }));
 });
 
-function later(offers: VaultOffers | null = null) {
+function later(offers: VaultOffers | null = null, details: VaultDetailsView | null = null) {
   const sent: unknown[] = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
     if (url.startsWith("/api/vault/offers")) {
       return offers ? new Response(JSON.stringify(offers), { status: 200 }) : new Response(JSON.stringify({ error: "no" }), { status: 404 });
+    }
+    if (url === "/api/vault/details") {
+      return details ? new Response(JSON.stringify(details), { status: 200 }) : new Response(JSON.stringify({ error: "no" }), { status: 404 });
     }
     sent.push({ url, body: JSON.parse(String(init?.body)) });
     return new Response(JSON.stringify({ card: form({ status: "sending" }) }), { status: 200 });
@@ -63,6 +66,16 @@ function later(offers: VaultOffers | null = null) {
 }
 
 const KIT = { id: "login-1", site: "example.com", username: "kit@example.com", updatedAt: 1 };
+const CHECKOUT: Partial<SecureFormCardData> = {
+  title: "Delivery details",
+  host: "shop.example.com",
+  fields: [
+    { id: "name", label: "Full name", type: "text", autocomplete: "name" },
+    { id: "street", label: "Address", type: "text", autocomplete: "address-line1" },
+    { id: "unit", label: "Apartment", type: "text", autocomplete: "address-line2", optional: true },
+    { id: "zip", label: "ZIP code", type: "text", autocomplete: "postal-code" },
+  ],
+};
 
 function fillIn() {
   press(openButton()!);
@@ -224,6 +237,53 @@ describe("the Secure Form card", () => {
       url: "/api/bots/pepper/secure-forms/form-1/submit",
       body: { threadId: "pepper-thread", values: { email: "kit@example.com", password: " hunter2 " }, save: true },
     }]);
+  });
+
+  it("fills a checkout form from the person's details in one press, for them to check before Continue", async () => {
+    const sent = later(null, { available: true, details: { name: "Kit Doe", "postal-code": "94110", tel: "555 0100" } });
+    mount(form(CHECKOUT));
+    press(openButton()!);
+    await vi.waitFor(() => expect(document.querySelector("[data-use-details]")?.textContent).toBe("Use my details"));
+    expect(document.querySelector(`label[for='${input("unit").id}']`)?.textContent).toBe("Apartment · optional");
+    press(document.querySelector<HTMLButtonElement>("[data-use-details]")!);
+    expect([input("name").value, input("street").value, input("unit").value, input("zip").value]).toEqual(["Kit Doe", "", "", "94110"]);
+    expect(continueButton().disabled).toBe(true);
+    type(input("street"), "1 Main St");
+    expect(continueButton().disabled).toBe(false);
+    press(continueButton());
+    await vi.waitFor(() => expect(dialog()).toBeNull());
+    expect(sent).toEqual([{
+      url: "/api/bots/pepper/secure-forms/form-1/submit",
+      body: { threadId: "pepper-thread", values: { name: "Kit Doe", street: "1 Main St", unit: "", zip: "94110" } },
+    }]);
+  });
+
+  it("saves typed contact details to the person's details only when they tick it", async () => {
+    const sent = later(null, { available: true, details: {} });
+    mount(form(CHECKOUT));
+    press(openButton()!);
+    await vi.waitFor(() => expect(document.querySelector("[data-vault-save]")).not.toBeNull());
+    expect(document.querySelector("[data-use-details]")).toBeNull();
+    expect(document.querySelector("[data-vault-save]")!.closest("label")!.textContent).toBe("Save these to my details");
+    type(input("name"), "Kit Doe");
+    type(input("street"), "1 Main St");
+    type(input("zip"), "94110");
+    press(document.querySelector<HTMLInputElement>("[data-vault-save]")!);
+    press(continueButton());
+    await vi.waitFor(() => expect(dialog()).toBeNull());
+    expect(sent).toEqual([{
+      url: "/api/bots/pepper/secure-forms/form-1/submit",
+      body: { threadId: "pepper-thread", values: { name: "Kit Doe", street: "1 Main St", unit: "", zip: "94110" }, save: true },
+    }]);
+  });
+
+  it("never asks for the person's details on a sign-in form", async () => {
+    later({ available: true, logins: [KIT], lookalike: null }, { available: true, details: { name: "Kit Doe" } });
+    mount(form());
+    press(openButton()!);
+    await vi.waitFor(() => expect(document.querySelector("[data-vault-offers]")).not.toBeNull());
+    expect(document.querySelector("[data-use-details]")).toBeNull();
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).not.toContain("/api/vault/details");
   });
 
   it("names the saved login that filled the card", () => {

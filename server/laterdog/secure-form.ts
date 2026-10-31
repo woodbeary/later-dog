@@ -1,7 +1,9 @@
 import {
+  asksForDetails,
   isOpenSecureForm,
   isSharedHost,
   normalizeSecureHost,
+  SECURE_FIELD_DETAILS,
   SECURE_FIELD_ID,
   SECURE_FIELD_TYPES,
   SECURE_FORM_MAX_FIELDS,
@@ -10,7 +12,7 @@ import {
   type SecureFormField,
 } from "../../shared/secure-form.ts";
 import { fitsOnOneLine } from "../../shared/bot-profile.ts";
-import { savesAsLogin, vaultAllowKey, vaultFieldPlan, vaultSite, type VaultFieldPlan, type VaultLogin } from "../../shared/vault.ts";
+import { detailsFromForm, savesAsLogin, vaultAllowKey, vaultFieldPlan, vaultSite, type VaultDetails, type VaultFieldPlan, type VaultLogin } from "../../shared/vault.ts";
 
 export const SECURE_FORM_TTL_MS = 10 * 60_000;
 export const SECURE_FORM_AFTER_FILLED_MS = 2 * 60_000;
@@ -25,7 +27,7 @@ export const SECURE_FORM_TOOLS = [
   {
     name: "request_secure_form",
     description:
-      "Ask the person for details only they know (an email or username, a password, a one-time code) with a sealed Secure Form card, to sign in on this cloud computer. Open the sign-in page in the browser first; site is the host shown in its address bar, for example accounts.google.com. Name the step plainly, for example \"Sign in to iCloud\"; when asking again after a failed try, keep the same title and say in one short line what the site said. You never see the values. End your turn right after; later.dog wakes you when they press Continue, then type each value with fill_secure_field. When they keep a login for the site in their vault and let you use it without asking, the form comes back already filled: then type each value straight away.",
+      "Ask the person for details only they know (an email or username, a password, a one-time code) with a sealed Secure Form card, to sign in on this cloud computer. Open the sign-in page in the browser first; site is the host shown in its address bar, for example accounts.google.com. Name the step plainly, for example \"Sign in to iCloud\"; when asking again after a failed try, keep the same title and say in one short line what the site said. You never see the values. End your turn right after; later.dog wakes you when they press Continue, then type each value with fill_secure_field. When they keep a login for the site in their vault and let you use it without asking, the form comes back already filled: then type each value straight away. Ask the same way for their contact details on a checkout, booking or sign-up page: one field per box on the page, each with its autocomplete name (name, given-name, family-name, email, tel, organization, street-address, address-line1, address-line2, address-level2 for the city, address-level1 for the state or region, postal-code, country-name) so they can fill it from the details saved in their vault, and optional: true on boxes the page doesn't require.",
     inputSchema: {
       type: "object",
       properties: {
@@ -41,6 +43,8 @@ export const SECURE_FORM_TOOLS = [
               id: fieldId,
               label: { type: "string", minLength: 1, maxLength: LABEL_CHARS },
               type: { type: "string", enum: [...SECURE_FIELD_TYPES] },
+              autocomplete: { type: "string", enum: [...SECURE_FIELD_DETAILS] },
+              optional: { type: "boolean" },
             },
             required: ["id", "label", "type"],
             additionalProperties: false,
@@ -71,7 +75,7 @@ export const SECURE_FORM_TOOLS = [
 ];
 
 export const SECURE_FORM_PROMPT =
-  " This cloud computer is yours for working on the web for them. Its browser stays signed in to the sites you sign in to, so you can read their inbox, check them in for a flight, book something or fill in a form, and come back later still signed in. When they ask you to sign in somewhere, do it straight away without asking why: open the site's sign-in page in the browser, then call request_secure_form for only what they know (an email or username, a password, a one-time code) and end the turn. They fill in a sealed card, or pick a login saved in their later.dog vault; later.dog wakes you, and fill_secure_field types each value straight into the page without you seeing it. A code that arrives later gets another Secure Form. Never say you can't sign in or can't handle passwords, never ask them to sign in themselves when a Secure Form can do it, and never ask for passwords or codes in chat. Keep request_takeover for what a form can't do: a CAPTCHA, a passkey or security key, an approval on their phone, or a payment.";
+  " This cloud computer is yours for working on the web for them. Its browser stays signed in to the sites you sign in to, so you can read their inbox, check them in for a flight, book something or fill in a form, and come back later still signed in. When they ask you to sign in somewhere, do it straight away without asking why: open the site's sign-in page in the browser, then call request_secure_form for only what they know (an email or username, a password, a one-time code) and end the turn. They fill in a sealed card, or pick a login saved in their later.dog vault; later.dog wakes you, and fill_secure_field types each value straight into the page without you seeing it. A code that arrives later gets another Secure Form. For their name, email, phone or address on a checkout or booking page, ask with request_secure_form too, tagging each field with its autocomplete name, rather than asking in chat. Never say you can't sign in or can't handle passwords, never ask them to sign in themselves when a Secure Form can do it, and never ask for passwords or codes in chat. Keep request_takeover for what a form can't do: a CAPTCHA, a passkey or security key, an approval on their phone, or a payment.";
 
 export interface SecureFormInput {
   title: string;
@@ -102,7 +106,12 @@ export function parseSecureFormInput(raw: Record<string, unknown>): SecureFormIn
       return { error: "Each field needs an id (lowercase letters, digits and _), a label, and a type: text, email, password or code." };
     }
     if (fields.some((existing) => existing.id === id)) return { error: `Field ids must be unique; ${id} appears twice.` };
-    fields.push({ id, label, type });
+    const autocomplete = field.autocomplete === undefined ? undefined : SECURE_FIELD_DETAILS.find((candidate) => candidate === field.autocomplete);
+    if (field.autocomplete !== undefined && (!autocomplete || (type !== "text" && type !== "email"))) {
+      return { error: `autocomplete goes on text or email fields, and is one of ${SECURE_FIELD_DETAILS.join(", ")}.` };
+    }
+    if (field.optional === true && type !== "text" && type !== "email") return { error: "Only text and email fields can be optional." };
+    fields.push({ id, label, type, ...(autocomplete ? { autocomplete } : {}), ...(field.optional === true ? { optional: true } : {}) });
   }
   return { title, host, fields };
 }
@@ -118,6 +127,7 @@ export function parseSecureValues(fields: readonly SecureFormField[], raw: unkno
     const value = Object.hasOwn(entries, field.id) ? entries[field.id] : undefined;
     if (typeof value !== "string") return { error: "Fill in every field." };
     const typed = field.type === "password" ? value : value.trim();
+    if (!typed && field.optional) continue;
     if (!typed) return { error: "Fill in every field." };
     if (typed.length > SECURE_VALUE_CHARS) return { error: `${field.label} is too long.` };
     if (!fitsOnOneLine(typed)) return { error: `${field.label} has characters that cannot be typed.` };
@@ -304,14 +314,16 @@ export function secureFormFilledText(card: SecureFormCardData, formId: string): 
 }
 
 export function secureFormResumePrompt(card: SecureFormCardData, formId: string): string {
-  const fields = card.fields.map((field) => `${field.id} (${field.label})`).join(", ");
+  const fields = card.fields.filter((field) => !field.filled).map((field) => `${field.id} (${field.label})`).join(", ");
+  const empty = card.fields.filter((field) => field.filled).map((field) => field.label);
   return [
     `later.dog secure form update: the person filled in ${JSON.stringify(card.title)} for ${card.host}.`,
     `Take a screenshot, then call fill_secure_field with form_id ${JSON.stringify(formId)} for each field: ${fields}.`,
+    empty.length ? `They left ${empty.join(", ")} empty: leave ${empty.length === 1 ? "that box" : "those boxes"} on the page as ${empty.length === 1 ? "it is" : "they are"}.` : "",
     "Give the x, y of each field on the page; later.dog checks the site, clicks the field and types the value. You never see the values.",
     "Set submit to true on the last field of each step, then take a screenshot to check the result.",
     "If the site then asks for something new, such as a verification code, ask with request_secure_form again. Never ask for these details in chat.",
-  ].join(" ");
+  ].filter(Boolean).join(" ");
 }
 
 export function secureFormMessageText(card: Pick<SecureFormCardData, "title" | "host">): string {
@@ -328,6 +340,7 @@ export interface SecureFormMessage {
 export interface SecureFormSavedLogins {
   matching(host: string): readonly VaultLogin[];
   credentials(id: string): { site: string; username: string; password: string } | null;
+  addDetails?(details: VaultDetails): void;
   save(input: { site: string; username: string; password: string }): void;
 }
 
@@ -347,7 +360,13 @@ export type SecureFormSubmit =
   | { ok: false; status: 400 | 404 | 409; error: string };
 
 const formKey = (threadId: string, messageId: string) => `${threadId}:${messageId}`;
-const bareField = (field: SecureFormField): SecureFormField => ({ id: field.id, label: field.label, type: field.type });
+const bareField = (field: SecureFormField): SecureFormField => ({
+  id: field.id,
+  label: field.label,
+  type: field.type,
+  ...(field.autocomplete ? { autocomplete: field.autocomplete } : {}),
+  ...(field.optional ? { optional: true } : {}),
+});
 
 function loginValues(plan: VaultFieldPlan, login: { username: string; password: string }): Map<string, string> | null {
   const values = new Map<string, string>();
@@ -384,7 +403,7 @@ export class SecureForms {
     if ("error" in card) return card;
     const values = parseSecureValues(card.fields, raw);
     if (!(values instanceof Map)) return { ok: false, status: 400, error: values.error };
-    const saved = options.save ? this.saveLogin(card, values) : undefined;
+    const saved = options.save ? (asksForDetails(card.fields) ? this.saveDetails(card, values) : this.saveLogin(card, values)) : undefined;
     return { ok: true, card: this.send(botId, threadId, messageId, card, values), ...(saved === undefined ? {} : { saved }) };
   }
 
@@ -416,7 +435,7 @@ export class SecureForms {
 
   private send(botId: string, threadId: string, messageId: string, card: SecureFormCardData, values: Map<string, string>, saved?: { username: string }): SecureFormCardData {
     this.hold(botId, threadId, messageId, values);
-    const next = this.sending(card, saved);
+    const next = this.sending(card, saved, values);
     this.host.patch(threadId, messageId, next);
     this.host.resume({ botId, threadId, messageId, prompt: secureFormResumePrompt(next, messageId) });
     return next;
@@ -429,8 +448,20 @@ export class SecureForms {
     this.typings.delete(key);
   }
 
-  private sending(card: SecureFormCardData, saved?: { username: string }): SecureFormCardData {
-    return { ...card, fields: card.fields.map(bareField), status: "sending", until: this.now() + SECURE_FORM_TTL_MS, ...(saved ? { saved } : {}) };
+  private sending(card: SecureFormCardData, saved?: { username: string }, values?: ReadonlyMap<string, string>): SecureFormCardData {
+    const fields = card.fields.map((field) => (values && field.optional && !values.has(field.id) ? { ...bareField(field), filled: true } : bareField(field)));
+    return { ...card, fields, status: "sending", until: this.now() + SECURE_FORM_TTL_MS, ...(saved ? { saved } : {}) };
+  }
+
+  private saveDetails(card: SecureFormCardData, values: Map<string, string>): boolean {
+    const details = detailsFromForm(card.fields, values);
+    if (!this.host.savedLogins?.addDetails || !Object.keys(details).length) return false;
+    try {
+      this.host.savedLogins.addDetails(details);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private saveLogin(card: SecureFormCardData, values: Map<string, string>): boolean {
@@ -498,6 +529,9 @@ export class SecureForms {
     if (!entry) return { ok: false, text: `This form has no field ${JSON.stringify(field)}. Its fields are ${card.fields.map((candidate) => candidate.id).join(", ")}.` };
     const key = formKey(threadId, formId);
     const value = this.vault.value(key, field);
+    if (value === undefined && entry.optional && entry.filled && this.vault.has(key)) {
+      return { ok: false, text: `${entry.label} was left empty, so there is nothing to type: leave that box on the page as it is.` };
+    }
     if (value === undefined) {
       if (card.status === "sending") this.host.patch(threadId, formId, { ...card, status: "expired" });
       return { ok: false, text: "The details from this form were cleared. If they are still needed, ask again with request_secure_form." };

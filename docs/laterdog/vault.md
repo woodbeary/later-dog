@@ -1,9 +1,10 @@
-# Vault: saved logins for dogs
+# Vault: saved logins and details for dogs
 
 Dogs sign in to sites on their cloud computers with Secure Forms: the dog opens the
 sign-in page, asks with a sealed card, and later.dog types what the person enters
 straight into the page. The vault keeps those logins so the person doesn't type
-them again, and dogs still never see a password.
+them again, and dogs still never see a password. It also keeps the person's own
+details (name, email, phone, address) for checkout, booking and sign-up pages.
 
 ## What the person sees
 
@@ -22,10 +23,25 @@ them again, and dogs still never see a password.
   characters) warns: "This is paypa1.com, not paypal.com, where your login is saved.
   A lookalike site could take your password, so type it only if you're sure." It
   offers no saved login and no Save box there.
+- **Settings → Vault → Your details** keeps a full name, email, phone, company and a
+  postal address. A Secure Form whose boxes are tagged as contact details shows **Use
+  my details**, which fills the boxes it has a detail for (a first or last name is
+  split from the full name, a one-line street address joins the two address lines);
+  the person checks them, types the rest and presses Continue as usual. **Save these
+  to my details** keeps what they typed in tagged boxes for next time. Boxes the page
+  doesn't require are marked optional and may stay empty.
 
 ## What the dog sees
 
-Nothing new to learn. It asks for a sign-in with `request_secure_form` as before.
+It asks for a sign-in with `request_secure_form` as before. For contact details on a
+checkout, booking or sign-up page it asks the same way, one field per box on the
+page, each tagged with its HTML autocomplete name (`name`, `given-name`,
+`family-name`, `email`, `tel`, `organization`, `street-address`, `address-line1`,
+`address-line2`, `address-level2` for the city, `address-level1` for the state or
+region, `postal-code`, `country-name`) and `optional: true` on boxes the page doesn't
+require. A form asks for 1 to 10 fields. When the person leaves an optional box
+empty, the wake-up names it and `fill_secure_field` on it says there is nothing to
+type. A form tagged with contact details never takes a saved login.
 When the dog may use the site's only saved login without asking, the form comes back
 already filled and the tool's answer tells it to type each value with
 `fill_secure_field` straight away; the card appears quietly, with no notification.
@@ -49,6 +65,7 @@ two-step sign-in. Forms with a one-time code stay with the person.
 - `HOME_SECRET` also names every home (its machine id and address), so it cannot
   change without moving every home anyway; a separate vault secret would add a setup
   step and a Worker change without making the vault more independent.
+- The person's details are one more sealed part, bound to `details`, in the same file.
 - A vault that does not open with the key is shown as locked and is never written
   over. A later.dog without a Cloud home has no key, so Settings says saved logins
   are kept in later.dog Cloud.
@@ -56,6 +73,7 @@ two-step sign-in. Forms with a one-time code stay with the person.
 ## Limits
 
 - Up to 500 logins; values up to 512 characters on one line, as a page can take them.
+- One set of details; each up to 200 characters on one line.
 - Imports read up to 5,000 rows of a file up to 2 MB, skip rows without a website or
   password, replace a saved password when the export's differs, and count what they
   skipped.
@@ -63,6 +81,7 @@ two-step sign-in. Forms with a one-time code stay with the person.
 ## Not in this step
 
 Card numbers and paying (waits for payments), one-time codes from the vault, passkeys,
-sharing a login between people, and filling contact details. 1Password stays each
+sharing a login between people, more than one address, and letting a dog use the
+person's details without asking. 1Password stays each
 person's own and later.dog holds no shared account; using it through 1Password's own
 `op` command on a lent Mac is not built or checked yet.

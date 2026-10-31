@@ -21,11 +21,18 @@ import {
   type SecureFormHost,
   type SecureFormMessage,
 } from "./secure-form.ts";
-import { vaultSite } from "../../shared/vault.ts";
+import { vaultSite, type VaultDetails } from "../../shared/vault.ts";
 
 const SIGN_IN: SecureFormField[] = [
   { id: "email", label: "Email", type: "email" },
   { id: "password", label: "Password", type: "password" },
+];
+const CHECKOUT: SecureFormField[] = [
+  { id: "name", label: "Full name", type: "text", autocomplete: "name" },
+  { id: "email", label: "Email", type: "email", autocomplete: "email" },
+  { id: "street", label: "Address", type: "text", autocomplete: "address-line1" },
+  { id: "unit", label: "Apartment", type: "text", autocomplete: "address-line2", optional: true },
+  { id: "zip", label: "ZIP code", type: "text", autocomplete: "postal-code" },
 ];
 const PASSWORD = "päss'$\"w`🔑 $(touch pwned)";
 const NOT_CONFIRMED = "Typing did not finish, so the field may be empty or partly filled. Take a screenshot to check the page.";
@@ -64,10 +71,27 @@ describe("what a dog may ask for in a Secure Form", () => {
 
   it.each([
     ["no fields", []],
-    ["too many fields", Array.from({ length: 7 }, (_, index) => ({ id: `field_${index}`, label: "Field", type: "text" }))],
+    ["too many fields", Array.from({ length: 11 }, (_, index) => ({ id: `field_${index}`, label: "Field", type: "text" }))],
     ["fields that are not a list", "email"],
-  ])("asks for one to six fields, not %s", (_label, fields) => {
-    expect(parseSecureFormInput({ title: "Sign in", site: "example.com", fields })).toEqual({ error: "Ask for 1 to 6 fields." });
+  ])("asks for one to ten fields, not %s", (_label, fields) => {
+    expect(parseSecureFormInput({ title: "Sign in", site: "example.com", fields })).toEqual({ error: "Ask for 1 to 10 fields." });
+  });
+
+  it("keeps each contact box's autocomplete name and which boxes the page doesn't require", () => {
+    expect(parseSecureFormInput({ title: "Delivery details", site: "shop.example.com", fields: CHECKOUT })).toEqual({
+      title: "Delivery details",
+      host: "shop.example.com",
+      fields: CHECKOUT,
+    });
+  });
+
+  it.each([
+    ["an autocomplete name it doesn't know", { id: "pet", label: "Pet", type: "text", autocomplete: "pet-name" }],
+    ["an autocomplete name on a password", { id: "password", label: "Password", type: "password", autocomplete: "name" }],
+    ["an optional password", { id: "password", label: "Password", type: "password", optional: true }],
+    ["an optional code", { id: "code", label: "Code", type: "code", optional: true }],
+  ])("refuses %s", (_label, field) => {
+    expect(parseSecureFormInput({ title: "Details", site: "example.com", fields: [field] })).toEqual({ error: expect.any(String) });
   });
 
   it.each([
@@ -105,6 +129,13 @@ describe("what the person sends back", () => {
     ["a field only inherited", Object.assign(Object.create({ email: "kit@example.com" }), { password: "hunter2", code: "123" })],
   ])("asks for every field when given %s", (_label, raw) => {
     expect(parseSecureValues(fields, raw)).toEqual({ error: "Fill in every field." });
+  });
+
+  it("lets the person leave a box the page doesn't require empty, and no other", () => {
+    expect(parseSecureValues(CHECKOUT, { name: "Kit Doe", email: "kit@example.com", street: "1 Main St", unit: "  ", zip: "94110" }))
+      .toEqual(new Map([["name", "Kit Doe"], ["email", "kit@example.com"], ["street", "1 Main St"], ["zip", "94110"]]));
+    expect(parseSecureValues(CHECKOUT, { name: "Kit Doe", email: "kit@example.com", street: "1 Main St", unit: "Apt 4", zip: "" }))
+      .toEqual({ error: "Fill in every field." });
   });
 
   it("refuses fields the form never had, even one named like an object's internals", () => {
@@ -541,6 +572,20 @@ describe("a Secure Form from request to typing", () => {
     expect(resumed).toEqual([]);
   });
 
+  it("types only the boxes the person filled, and tells the dog to leave an empty one as it is", () => {
+    const { forms, card, resumed } = chat();
+    const desk = forms.desk("dog-1", "thread-1");
+    desk.open({ title: "Delivery details", host: "shop.example.com", fields: CHECKOUT });
+    expect(forms.submit("dog-1", "thread-1", "form-1", { name: "Kit Doe", email: "kit@example.com", street: "1 Main St", unit: "", zip: "94110" })).toMatchObject({ ok: true });
+    expect(card("form-1")?.fields.map((field) => [field.id, field.filled === true])).toEqual([["name", false], ["email", false], ["street", false], ["unit", true], ["zip", false]]);
+    expect(resumed[0]!.prompt).toContain("for each field: name (Full name), email (Email), street (Address), zip (ZIP code).");
+    expect(resumed[0]!.prompt).toContain("They left Apartment empty: leave that box on the page as it is.");
+    expect(desk.field("form-1", "unit")).toEqual({ ok: false, text: "Apartment was left empty, so there is nothing to type: leave that box on the page as it is." });
+    for (const field of ["name", "email", "street"]) desk.typed("form-1", field);
+    expect(desk.typed("form-1", "zip")).toEqual({ last: true });
+    expect(card("form-1")?.status).toBe("filled");
+  });
+
   it("hands a value out only after the person sends it, and only for fields the form has", () => {
     const { forms } = chat();
     const desk = forms.desk("dog-1", "thread-1");
@@ -664,6 +709,7 @@ describe("a Secure Form and the person's saved logins", () => {
     const quiet: boolean[] = [];
     const granted: string[] = [];
     const saved: Array<{ site: string; username: string; password: string }> = [];
+    const savedDetails: VaultDetails[] = [];
     const logins = options.logins ?? [KIT];
     const host: SecureFormHost = {
       inThread: (_botId, threadId) => (threadId === "thread-1" ? { group: false } : null),
@@ -691,6 +737,9 @@ describe("a Secure Form and the person's saved logins", () => {
         save: (input) => {
           saved.push(input);
         },
+        addDetails: (details) => {
+          savedDetails.push(details);
+        },
       },
       allows: (_botId, _threadId, key) => (options.allowed ?? []).includes(key),
       grant: (_botId, _threadId, key) => {
@@ -698,7 +747,7 @@ describe("a Secure Form and the person's saved logins", () => {
       },
     };
     const card = (id: string) => messages.find((entry) => entry.id === id)?.secureForm;
-    return { forms: new SecureForms(host), patched, resumed, quiet, granted, saved, card };
+    return { forms: new SecureForms(host), patched, resumed, quiet, granted, saved, savedDetails, card };
   }
 
   it("fills the form from the login the person picks and wakes the dog without the values", () => {
@@ -783,6 +832,22 @@ describe("a Secure Form and the person's saved logins", () => {
     third.forms.desk("dog-1", "thread-1").open({ ...INPUT, fields: [{ id: "password", label: "Password", type: "password" }] });
     expect(third.forms.submit("dog-1", "thread-1", "form-1", { password: "x" }, { save: true })).toMatchObject({ ok: true, saved: false });
     expect(third.saved).toEqual([]);
+  });
+
+  it("offers no saved login on a form asking for contact details, even on a site with one", () => {
+    const { forms, card } = chat({ allowed: ["vault:example.com"] });
+    forms.desk("dog-1", "thread-1").open({ title: "Your details", host: "accounts.example.com", fields: CHECKOUT.slice(0, 2) });
+    expect(card("form-1")?.status).toBe("open");
+    expect(forms.useSaved("dog-1", "thread-1", "form-1", { login: "login-1" })).toEqual({ ok: false, status: 400, error: "A saved login can't fill this form." });
+  });
+
+  it("saves contact details the person typed to their details when they ask, and never as a login", () => {
+    const { forms, saved, savedDetails } = chat();
+    forms.desk("dog-1", "thread-1").open({ title: "Delivery details", host: "shop.example.com", fields: CHECKOUT });
+    const typed = { name: "Kit Doe", email: "kit@example.com", street: "1 Main St", unit: "", zip: "94110" };
+    expect(forms.submit("dog-1", "thread-1", "form-1", typed, { save: true })).toMatchObject({ ok: true, saved: true });
+    expect(savedDetails).toEqual([{ name: "Kit Doe", email: "kit@example.com", "address-line1": "1 Main St", "postal-code": "94110" }]);
+    expect(saved).toEqual([]);
   });
 
   it("cannot use a saved login where the vault is not set up", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { savesAsLogin, vaultAllowKey, vaultAllowSite, vaultFieldPlan, vaultSite } from "./vault.ts";
+import { detailsFill, detailsFromForm, detailValue, savesAsLogin, vaultAllowKey, vaultAllowSite, vaultFieldPlan, vaultSite } from "./vault.ts";
 
 describe("the site a login is saved for", () => {
   it.each([
@@ -44,5 +44,44 @@ describe("which Secure Forms a saved login can fill", () => {
     expect(savesAsLogin([field("email", "email"), field("pass", "password")])).toBe(true);
     expect(savesAsLogin([field("pass", "password")])).toBe(false);
     expect(savesAsLogin([field("email", "email")])).toBe(false);
+  });
+});
+
+describe("filling a form from the person's details", () => {
+  const DETAILS = { name: "Kit van Doe", email: "kit@example.com", "address-line1": "1 Main St", "address-line2": "Apt 4", "postal-code": "94110" };
+
+  it("splits the full name and joins the address lines when a box wants them that way", () => {
+    expect(detailValue(DETAILS, "given-name")).toBe("Kit van");
+    expect(detailValue(DETAILS, "family-name")).toBe("Doe");
+    expect(detailValue({ name: "Cher" }, "given-name")).toBe("Cher");
+    expect(detailValue({ name: "Cher" }, "family-name")).toBe("");
+    expect(detailValue(DETAILS, "street-address")).toBe("1 Main St, Apt 4");
+    expect(detailValue(DETAILS, "tel")).toBe("");
+  });
+
+  it("fills only the boxes it has a detail for", () => {
+    const fields = [
+      { id: "first", autocomplete: "given-name" as const },
+      { id: "phone", autocomplete: "tel" as const },
+      { id: "zip", autocomplete: "postal-code" as const },
+      { id: "note" },
+    ];
+    expect(detailsFill(fields, DETAILS)).toEqual({ first: "Kit van", zip: "94110" });
+  });
+
+  it("learns back only the details it keeps as they are", () => {
+    const fields = [
+      { id: "first", autocomplete: "given-name" as const },
+      { id: "email", autocomplete: "email" as const },
+      { id: "zip", autocomplete: "postal-code" as const },
+      { id: "note" },
+    ];
+    expect(detailsFromForm(fields, new Map([["first", "Kit"], ["email", " kit@example.com "], ["zip", "94110"], ["note", "x"]])))
+      .toEqual({ email: "kit@example.com", "postal-code": "94110" });
+  });
+
+  it("never treats a form asking for contact details as a sign-in", () => {
+    expect(vaultFieldPlan([{ id: "name", type: "text", autocomplete: "name" }, { id: "email", type: "email", autocomplete: "email" }])).toBeNull();
+    expect(vaultFieldPlan([{ id: "email", type: "email", autocomplete: "email" }, { id: "password", type: "password" }])).toEqual({ username: "email", password: "password" });
   });
 });
