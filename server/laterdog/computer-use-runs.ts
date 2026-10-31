@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { COMPUTER_ID } from "./cloud-computers.ts";
-import { anthropicMessages, type MessagesApi } from "./computer-use-anthropic.ts";
+import { anthropicMessages, fixtureMessagesUrl, type MessagesApi } from "./computer-use-anthropic.ts";
 import { CloudDesktop } from "./computer-use-desktop.ts";
 import { doneRuleSchema, livePageCheck, type PageCheck } from "./computer-use-done.ts";
 import { DEFAULT_LIMITS, RunControl, runComputerUse, type LoopLimits, type UseDesktop } from "./computer-use-loop.ts";
@@ -153,7 +153,8 @@ export function computerUseRunsFromEnvironment(db: DatabaseSync, env: NodeJS.Pro
     const computersKey = env.LATERDOG_COMPUTERS_KEY?.trim();
     if (computersKey && !/^ldc_[!-~]{8,1024}$/.test(computersKey)) throw new Error("LATERDOG_COMPUTERS_KEY does not hold a later.dog computers key (they start with ldc_)");
     const computers = new LaterdogComputers({ api: computersApi(env.LATERDOG_COMPUTERS_URL?.trim() || INTERNAL_COMPUTERS_API), ...(computersKey ? { key: computersKey } : {}) }, fetch);
-    return new ComputerUseRuns(store, { messages: anthropicMessages(apiKey), desktop: (id) => new CloudDesktop(computers, id), pageCheck: livePageCheck() });
+    const messages = anthropicMessages(apiKey, { url: fixtureMessagesUrl(env.LATERDOG_ANTHROPIC_URL) });
+    return new ComputerUseRuns(store, { messages, desktop: (id) => new CloudDesktop(computers, id), pageCheck: livePageCheck() });
   } catch (error) {
     return new ComputerUseRuns(store, { unavailable: error instanceof Error ? error.message : String(error) });
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  anthropicMessages, ANTHROPIC_VERSION, COMPUTER_TOOLSET_TYPE, COMPUTER_USE_MODEL, MESSAGES_URL, messagesBody, parseReply,
+  anthropicMessages, ANTHROPIC_VERSION, COMPUTER_TOOLSET_TYPE, COMPUTER_USE_MODEL, fixtureMessagesUrl, MESSAGES_URL, messagesBody, parseReply,
 } from "./computer-use-anthropic.ts";
 
 const KEY = `sk-ant-api03-${"f".repeat(40)}`;
@@ -62,6 +62,13 @@ describe("answers and failures", () => {
     expect((failure as Error).message).toBe("Claude's API answered 400 (invalid_request_error: tools.0: bad).");
     expect((failure as Error).message).not.toContain(KEY);
     expect(calls).toHaveLength(1);
+  });
+
+  it("sends real calls only to Claude's API, and a fixture address only on loopback", () => {
+    expect(fixtureMessagesUrl(undefined)).toBe(MESSAGES_URL);
+    expect(fixtureMessagesUrl("http://127.0.0.1:4120/v1/messages")).toBe("http://127.0.0.1:4120/v1/messages");
+    expect(() => fixtureMessagesUrl("https://example.com/v1/messages")).toThrow("loopback fixture");
+    expect(() => fixtureMessagesUrl("http://192.168.1.5/v1/messages")).toThrow("loopback fixture");
   });
 
   it("refuses a key that is not a Claude API key", () => {

@@ -139,7 +139,17 @@ curl -sS -X POST "$SUPERVISOR/v1/computer-runs" -H "authorization: Bearer $SUPER
 Verified on fixtures, with a fake desktop and scripted Messages answers (`server/laterdog/computer-use-*.test.ts`):
 screenshot sizes and limits, mapping points both ways, every toolset member and its `xdotool` command, typed text kept
 out of the shell and out of the log, the request body and headers, one retry on 429 and 5xx, the step log, take-overs
-asked by Claude and taken by the person, every way a run ends, the page check, and the routes for the person and for a dog.
+asked by Claude and taken by the person, every way a run ends, the page check, the routes for the person and for a dog,
+and every query in [../metrics.md](../metrics.md).
+
+Verified once on an isolated supervisor process (`node --experimental-strip-types server/laterdog/main.ts` with its own
+data folder and token) wired to a fake computers API and a fake Messages API on loopback: a run clicked, typed and
+pressed Return through `exec`, asked for the person, waited 11 seconds in `handed_over` (left out of `action_ms`),
+resumed when handed back, took a screenshot through the files API, ended its turn into `awaiting_done`, and became
+`done` from the person only; a dog's token got 403 on the Done route. Stopping the supervisor during a take-over
+failed that run as `interrupted`, and the restarted supervisor reported it so. To repeat it, set `LATERDOG_ANTHROPIC_URL`
+to the fake's address; the supervisor accepts only a loopback `http://` address there, so a real key can only ever reach
+Claude's API.
 
 Not verified:
 

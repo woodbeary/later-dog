@@ -116,7 +116,17 @@ async function failure(response: Response): Promise<MessagesApiError> {
   return new MessagesApiError(`Claude's API answered ${response.status}${theirs ? ` (${theirs})` : ""}.`, response.status);
 }
 
-export function anthropicMessages(apiKey: string, options: { fetch?: typeof fetch; sleep?: (ms: number, signal: AbortSignal) => Promise<void> } = {}): MessagesApi {
+export function fixtureMessagesUrl(raw: string | undefined): string {
+  if (!raw?.trim()) return MESSAGES_URL;
+  let url: URL | null = null;
+  try { url = new URL(raw.trim()); } catch { url = null; }
+  if (!url || url.protocol !== "http:" || !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) || url.username || url.password) {
+    throw new Error("LATERDOG_ANTHROPIC_URL may only point at a loopback fixture (http://127.0.0.1:PORT/...); real calls always go to Claude's API.");
+  }
+  return url.href;
+}
+
+export function anthropicMessages(apiKey: string, options: { fetch?: typeof fetch; sleep?: (ms: number, signal: AbortSignal) => Promise<void>; url?: string } = {}): MessagesApi {
   if (!/^sk-ant-[A-Za-z0-9_-]{20,}$/.test(apiKey)) throw new Error("ANTHROPIC_API_KEY does not look like a Claude API key (they start with sk-ant-).");
   const fetchImpl = options.fetch ?? fetch;
   const sleep = options.sleep ?? ((ms: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
@@ -128,7 +138,7 @@ export function anthropicMessages(apiKey: string, options: { fetch?: typeof fetc
     async create(request, signal) {
       const body = JSON.stringify(messagesBody(request));
       for (let attempt = 0; ; attempt++) {
-        const response = await fetchImpl(MESSAGES_URL, {
+        const response = await fetchImpl(options.url ?? MESSAGES_URL, {
           method: "POST",
           body,
           signal: AbortSignal.any([signal, AbortSignal.timeout(MESSAGES_TIMEOUT_MS)]),
