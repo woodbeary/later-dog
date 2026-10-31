@@ -1,9 +1,9 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { Check, Eye, EyeOff, Globe, KeyRound, Loader2, LockKeyhole, TriangleAlert, X } from "lucide-react";
+import { Check, Eye, EyeOff, Globe, KeyRound, Loader2, LockKeyhole, TriangleAlert, UserRound, X } from "lucide-react";
 
-import { SECURE_VALUE_CHARS, shownSecureFormStatus, type SecureFormCardData, type SecureFormField, type SecureFormStatus } from "../../shared/secure-form";
-import { savesAsLogin, vaultFieldPlan, type VaultLogin, type VaultOffers } from "../../shared/vault";
+import { asksForDetails, SECURE_VALUE_CHARS, secureFormReady, shownSecureFormStatus, type SecureFormCardData, type SecureFormField, type SecureFormStatus } from "../../shared/secure-form";
+import { detailsFill, savesAsLogin, vaultFieldPlan, type VaultDetailsView, type VaultLogin, type VaultOffers } from "../../shared/vault";
 import { useModalDialog } from "@/hooks/use-modal-dialog";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
@@ -33,12 +33,7 @@ function SecureFormStatusBadge({ status }: { status: SecureFormStatus }) {
   return <RequestStatus tone={status === "expired" ? "danger" : "muted"}>{label}</RequestStatus>;
 }
 
-export function secureFormReady(fields: readonly SecureFormField[], values: Readonly<Record<string, string>>): boolean {
-  return fields.every((field) => {
-    const value = values[field.id] ?? "";
-    return (field.type === "password" ? value : value.trim()).length > 0;
-  });
-}
+export { secureFormReady };
 
 function useShownStatus(card: SecureFormCardData): SecureFormStatus {
   const [now, setNow] = useState(Date.now);
@@ -73,6 +68,7 @@ export function SecureFormCard({
   const fillable = status === "open";
   const canOpen = fillable;
   const offers = useVaultOffers(fillable ? card.host : null);
+  const details = useVaultDetails(fillable && asksForDetails(card.fields));
 
   return (
     <RequestCard
@@ -104,6 +100,7 @@ export function SecureFormCard({
           messageId={message.id}
           card={card}
           offers={offers}
+          details={details}
           onClose={() => {
             setOpen(false);
             openButton.current?.focus();
@@ -120,6 +117,19 @@ const INPUT_TYPE: Record<SecureFormField["type"], { type: string; autoComplete: 
   password: { type: "password", autoComplete: "new-password" },
   code: { type: "text", autoComplete: "one-time-code", inputMode: "text" },
 };
+
+function useVaultDetails(wanted: boolean): VaultDetailsView | null {
+  const [details, setDetails] = useState<VaultDetailsView | null>(null);
+  useEffect(() => {
+    if (!wanted) return;
+    let active = true;
+    api<VaultDetailsView>("/api/vault/details", { timeoutMs: 10_000 })
+      .then((next) => { if (active) setDetails(next); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [wanted]);
+  return details;
+}
 
 function useVaultOffers(host: string | null): VaultOffers | null {
   const [offers, setOffers] = useState<VaultOffers | null>(null);
@@ -141,6 +151,7 @@ export function SecureFormDialog({
   messageId,
   card,
   offers,
+  details = null,
   onClose,
 }: {
   botId: string;
@@ -149,6 +160,7 @@ export function SecureFormDialog({
   messageId: string;
   card: SecureFormCardData;
   offers: VaultOffers | null;
+  details?: VaultDetailsView | null;
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -162,7 +174,10 @@ export function SecureFormDialog({
   useModalDialog(dialogRef, onClose);
   const ready = secureFormReady(card.fields, values);
   const saved = offers && vaultFieldPlan(card.fields) ? offers.logins : [];
-  const savable = offers?.available === true && !offers.lookalike && savesAsLogin(card.fields);
+  const forDetails = asksForDetails(card.fields);
+  const fromDetails = details?.available ? detailsFill(card.fields, details.details) : {};
+  const canUseDetails = Object.keys(fromDetails).length > 0;
+  const savable = forDetails ? details?.available === true : offers?.available === true && !offers.lookalike && savesAsLogin(card.fields);
 
   const send = async (body: Record<string, unknown>) => {
     setSending(true);
@@ -215,6 +230,18 @@ export function SecureFormDialog({
           <X size={16} aria-hidden="true" />
         </button>
         <h2 id={titleId} className="pr-9 text-[16px] font-semibold leading-snug">{card.title}</h2>
+        {canUseDetails && (
+          <button
+            type="button"
+            disabled={sending}
+            data-use-details=""
+            onClick={() => setValues((current) => ({ ...current, ...fromDetails }))}
+            className="mt-4 inline-flex h-9 items-center gap-2 rounded-full bg-composer px-3.5 text-[13px] font-medium text-ink transition-colors hover:bg-raised-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-40 motion-reduce:transition-none"
+          >
+            <UserRound size={14} aria-hidden="true" />
+            {t("secureForm.useDetails")}
+          </button>
+        )}
         {saved.length > 0 && (
           <div data-vault-offers="" className="mt-4 flex flex-col gap-2">
             <div className="text-[12.5px] font-medium text-ink-secondary">{t("secureForm.savedLogins")}</div>
@@ -257,7 +284,10 @@ export function SecureFormDialog({
             const kind = INPUT_TYPE[field.type];
             return (
               <div key={field.id} className="flex flex-col gap-1.5">
-                <label htmlFor={inputId} className="text-[12.5px] font-medium text-ink-secondary">{field.label}</label>
+                <label htmlFor={inputId} className="text-[12.5px] font-medium text-ink-secondary">
+                  {field.label}
+                  {field.optional && <span className="font-normal text-ink-tertiary"> · {t("secureForm.optional")}</span>}
+                </label>
                 <div className="relative">
                   <input
                     id={inputId}
@@ -301,7 +331,7 @@ export function SecureFormDialog({
         {savable && (
           <label className="mt-3.5 flex items-center gap-2 text-[12.5px] text-ink-secondary">
             <input type="checkbox" checked={save} onChange={(event) => setSave(event.target.checked)} data-vault-save="" className="size-3.5 accent-[var(--color-accent)]" />
-            {t("secureForm.saveLogin")}
+            {t(forDetails ? "secureForm.saveDetails" : "secureForm.saveLogin")}
           </label>
         )}
         <p className="mt-4 flex items-start gap-1.5 text-[12px] leading-[17px] text-ink-tertiary">

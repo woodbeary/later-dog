@@ -1,7 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { KeyRound, Loader2, Pencil, Plus, Upload } from "lucide-react";
 
-import { VAULT_IMPORT_BYTES, VAULT_MAX_LOGINS, VAULT_NOTE_CHARS, VAULT_VALUE_CHARS, type VaultImportResult, type VaultLogin, type VaultView } from "../../shared/vault";
+import {
+  VAULT_DETAIL_CHARS,
+  VAULT_DETAIL_KEYS,
+  VAULT_IMPORT_BYTES,
+  VAULT_MAX_LOGINS,
+  VAULT_NOTE_CHARS,
+  VAULT_VALUE_CHARS,
+  type VaultDetailKey,
+  type VaultDetails,
+  type VaultDetailsView,
+  type VaultImportResult,
+  type VaultLogin,
+  type VaultView,
+} from "../../shared/vault";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { relativeTime } from "@/lib/memory";
@@ -129,8 +142,95 @@ export function VaultSettings() {
         </SettingsRows>
         {note && <p role="alert" className="px-4 text-[12px] text-danger">{note}</p>}
       </SettingsGroup>
+      <VaultDetailsGroup />
       <VaultImport onImported={() => setAttempt((value) => value + 1)} />
     </>
+  );
+}
+
+const DETAIL_INPUT: Record<VaultDetailKey, { type?: "email" | "tel"; wide?: boolean }> = {
+  name: { wide: true },
+  email: { type: "email" },
+  tel: { type: "tel" },
+  organization: {},
+  "address-line1": { wide: true },
+  "address-line2": { wide: true },
+  "address-level2": {},
+  "address-level1": {},
+  "postal-code": {},
+  "country-name": {},
+};
+
+export function VaultDetailsGroup() {
+  const [details, setDetails] = useState<VaultDetails | null>(null);
+  const [draft, setDraft] = useState<VaultDetails>({});
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ error: boolean; words: string } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    api<VaultDetailsView>("/api/vault/details", { timeoutMs: 15_000 }).then((next) => {
+      if (!active || !next.available) return;
+      setDetails(next.details);
+      setDraft(next.details);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  if (!details) return null;
+  const changed = VAULT_DETAIL_KEYS.some((key) => (draft[key] ?? "").trim() !== (details[key] ?? ""));
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!changed || busy) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const saved = await api<{ details: VaultDetails }>("/api/vault/details", { method: "PUT", body: JSON.stringify({ details: draft }) });
+      setDetails(saved.details);
+      setDraft(saved.details);
+      setResult({ error: false, words: t("vault.details.saved") });
+    } catch (failure) {
+      setResult({ error: true, words: problem(failure, t("vault.details.failed")) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingsGroup label={t("vault.details.title")} testId="vault-details">
+      <p className="px-4 pb-1 text-[12.5px] leading-relaxed text-ink-secondary">{t("vault.details.intro")}</p>
+      <SettingsRows>
+        <form onSubmit={(event) => void submit(event)} data-vault-details="" className="flex flex-col gap-2.5 py-3">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            {VAULT_DETAIL_KEYS.map((key) => (
+              <input
+                key={key}
+                data-vault-detail={key}
+                type={DETAIL_INPUT[key].type ?? "text"}
+                value={draft[key] ?? ""}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setDraft((current) => ({ ...current, [key]: next }));
+                }}
+                placeholder={t(`vault.details.${key}`)}
+                aria-label={t(`vault.details.${key}`)}
+                autoComplete={key}
+                maxLength={VAULT_DETAIL_CHARS}
+                className={cn(inputCls, DETAIL_INPUT[key].wide && "sm:col-span-2")}
+              />
+            ))}
+          </div>
+          <div className="flex items-center justify-end gap-3">
+            {result && <p role={result.error ? "alert" : "status"} className={cn("text-[12px]", result.error ? "text-danger" : "text-success")}>{result.words}</p>}
+            <button type="submit" disabled={!changed || busy} aria-busy={busy || undefined} className="flex items-center gap-1.5 rounded-full bg-ink px-3.5 py-1.5 text-[12.5px] font-medium text-app transition-opacity hover:opacity-90 disabled:opacity-40 motion-reduce:transition-none">
+              {busy && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
+              {t("vault.save")}
+            </button>
+          </div>
+        </form>
+      </SettingsRows>
+    </SettingsGroup>
   );
 }
 

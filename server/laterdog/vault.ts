@@ -3,10 +3,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { domainToUnicode } from "node:url";
 import { fitsOnOneLine } from "../../shared/bot-profile.ts";
 import {
+  VAULT_DETAIL_CHARS,
+  VAULT_DETAIL_KEYS,
   VAULT_MAX_LOGINS,
   VAULT_NOTE_CHARS,
   VAULT_VALUE_CHARS,
   vaultSite,
+  type VaultDetails,
+  type VaultDetailsView,
   type VaultImportResult,
   type VaultLogin,
   type VaultOffers,
@@ -65,6 +69,8 @@ export function testVaultKey(raw: string | undefined): Buffer | null {
 }
 
 const part = (id: string, name: "meta" | "secret") => Buffer.from(`laterdog-vault-v1:${id}:${name}`);
+const DETAILS_PART = Buffer.from("laterdog-vault-v1:details");
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function seal(key: Buffer, value: unknown, aad: Buffer): Sealed {
   const iv = randomBytes(12);
@@ -106,6 +112,19 @@ function cleanNote(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
   const note = [...raw].map((char) => (fitsOnOneLine(char) ? char : " ")).join("").replace(/\s+/g, " ").trim().slice(0, VAULT_NOTE_CHARS).trim();
   return note || undefined;
+}
+
+function cleanDetails(raw: unknown): VaultDetails {
+  const record = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const details: VaultDetails = {};
+  for (const key of VAULT_DETAIL_KEYS) {
+    const value = typeof record[key] === "string" ? [...record[key]].map((char) => (fitsOnOneLine(char) ? char : " ")).join("").replace(/\s+/g, " ").trim() : "";
+    if (!value) continue;
+    if (value.length > VAULT_DETAIL_CHARS) throw new VaultInputError(`Keep each detail under ${VAULT_DETAIL_CHARS} characters.`);
+    if (key === "email" && !EMAIL.test(value)) throw new VaultInputError("That email address doesn't look right.");
+    details[key] = value;
+  }
+  return details;
 }
 
 function withNote(meta: LoginMeta, note: string | undefined, previous?: string): LoginMeta {
@@ -166,6 +185,8 @@ export class VaultStore {
   private readonly now: () => number;
   private stored: StoredLogin[] = [];
   private readonly metas = new Map<string, LoginMeta>();
+  private sealedDetails: Sealed | undefined;
+  private shownDetails: VaultDetails = {};
   private problem: VaultUnavailable | null;
 
   constructor(file: string, key: Buffer | null, now: () => number = Date.now) {
@@ -182,6 +203,24 @@ export class VaultStore {
 
   view(): VaultView {
     return { available: this.available, ...(this.problem ? { reason: this.problem } : {}), logins: this.logins() };
+  }
+
+  details(): VaultDetailsView {
+    return { available: this.available, details: this.available ? { ...this.shownDetails } : {} };
+  }
+
+  saveDetails(raw: unknown): VaultDetails {
+    const key = this.writable();
+    this.writeDetails(key, cleanDetails(raw));
+    this.persist();
+    return { ...this.shownDetails };
+  }
+
+  addDetails(raw: unknown): VaultDetails {
+    const key = this.writable();
+    this.writeDetails(key, { ...this.shownDetails, ...cleanDetails(raw) });
+    this.persist();
+    return { ...this.shownDetails };
   }
 
   offers(host: string): VaultOffers {
@@ -302,16 +341,27 @@ export class VaultStore {
   private load(key: Buffer): void {
     if (!existsSync(this.file)) return;
     try {
-      const parsed = JSON.parse(readFileSync(this.file, "utf8")) as { version?: unknown; logins?: unknown };
+      const parsed = JSON.parse(readFileSync(this.file, "utf8")) as { version?: unknown; logins?: unknown; details?: Sealed };
       if (parsed?.version !== FILE_VERSION || !Array.isArray(parsed.logins)) throw new Error("unknown vault file");
       const logins = parsed.logins as StoredLogin[];
       for (const login of logins) this.metas.set(login.id, unseal<LoginMeta>(key, login.meta, part(login.id, "meta")));
       this.stored = logins;
+      if (parsed.details) {
+        this.shownDetails = cleanDetails(unseal<unknown>(key, parsed.details, DETAILS_PART));
+        this.sealedDetails = parsed.details;
+      }
     } catch {
       this.stored = [];
       this.metas.clear();
+      this.sealedDetails = undefined;
+      this.shownDetails = {};
       this.problem = "unreadable";
     }
+  }
+
+  private writeDetails(key: Buffer, details: VaultDetails): void {
+    this.shownDetails = details;
+    this.sealedDetails = Object.keys(details).length ? seal(key, details, DETAILS_PART) : undefined;
   }
 
   private writable(): Buffer {
@@ -370,6 +420,6 @@ export class VaultStore {
   }
 
   private persist(): void {
-    writeFileAtomic(this.file, JSON.stringify({ version: FILE_VERSION, logins: this.stored }), { mode: 0o600 });
+    writeFileAtomic(this.file, JSON.stringify({ version: FILE_VERSION, logins: this.stored, ...(this.sealedDetails ? { details: this.sealedDetails } : {}) }), { mode: 0o600 });
   }
 }

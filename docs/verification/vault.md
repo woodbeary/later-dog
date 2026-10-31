@@ -45,3 +45,21 @@ command and never comes back in the answer. A real cloud computer and a real
 Cloud home's key are only exercised on a live home.
 
 Ctrl-C closes the fixture and removes its data.
+
+## Saved details at a checkout
+
+```sh
+node --experimental-strip-types scripts/verify-vault-details.ts
+```
+
+It runs on its own and exits. It saves a name, email, street and ZIP as the
+person's details, has the dog **Shopper** ask for a checkout form on
+shop.example.com (first and last name, email, phone, street, an optional apartment,
+ZIP, each tagged with its autocomplete name), fills the card from the details as
+**Use my details** does, types a phone, leaves the apartment empty and presses
+Continue with **Save these to my details**. It prints `ok: true` when the card kept
+every tag, the details filled first and last name, email, street and ZIP, the form
+was sent and saved, the empty apartment was marked as nothing to type, the dog was
+woken to type the rest and told to leave the apartment as it is, no value reached
+the dog, the typed phone was added to the details, and `vault.json` holds no plain
+text. Typing itself is left to the unit tests, as above.

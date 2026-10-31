@@ -1,6 +1,11 @@
 export const SECURE_FIELD_TYPES = ["text", "email", "password", "code"] as const;
 export type SecureFieldType = (typeof SECURE_FIELD_TYPES)[number];
-export const SECURE_FORM_MAX_FIELDS = 6;
+export const SECURE_FIELD_DETAILS = [
+  "name", "given-name", "family-name", "email", "tel", "organization",
+  "street-address", "address-line1", "address-line2", "address-level2", "address-level1", "postal-code", "country-name",
+] as const;
+export type SecureFieldDetail = (typeof SECURE_FIELD_DETAILS)[number];
+export const SECURE_FORM_MAX_FIELDS = 10;
 export const SECURE_VALUE_CHARS = 512;
 export const SECURE_FIELD_ID = /^[a-z][a-z0-9_]{0,31}$/;
 
@@ -8,6 +13,8 @@ export interface SecureFormField {
   id: string;
   label: string;
   type: SecureFieldType;
+  autocomplete?: SecureFieldDetail;
+  optional?: boolean;
   filled?: boolean;
 }
 
@@ -29,6 +36,14 @@ const SHARED_HOSTS = new Set([
   "wordpress.com", "notion.site", "replit.app", "repl.co", "surge.sh", "r2.dev",
 ]);
 const SHARED_SECOND_LEVEL = /^(?:co|com|net|org|gov|edu|ac|or|ne|go|gob|mil|nic|ltd|plc|sch)\.[a-z]{2}$/;
+
+export function asksForDetails(fields: readonly Pick<SecureFormField, "autocomplete">[]): boolean {
+  return fields.some((field) => field.autocomplete !== undefined && field.autocomplete !== "email");
+}
+
+export function secureFormReady(fields: readonly Pick<SecureFormField, "id" | "type" | "optional">[], values: Readonly<Record<string, string>>): boolean {
+  return fields.every((field) => field.optional === true || (field.type === "password" ? values[field.id] ?? "" : (values[field.id] ?? "").trim()).length > 0);
+}
 
 export function isOpenSecureForm(status: SecureFormStatus): boolean {
   return status === "open" || status === "sending";

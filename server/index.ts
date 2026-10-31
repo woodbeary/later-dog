@@ -11819,6 +11819,7 @@ const secureForms = new SecureForms({
     matching: (host) => vaultStore.matching(host),
     credentials: (id) => vaultStore.credentials(id),
     save: (input) => { vaultStore.save(input); },
+    addDetails: (details) => { vaultStore.addDetails(details); },
   },
   allows: (botId, threadId, key) => [store.bot(botId), store.projectBotForTask(botId, threadId)].some((bot) => bot?.alwaysAllow?.includes(key) === true),
   grant: (botId, _threadId, key) => {
