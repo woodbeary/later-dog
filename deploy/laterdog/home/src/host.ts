@@ -11,7 +11,7 @@ import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, 
 import { devCodeOn, handleDevCode } from "./dev-code.ts";
 import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter, RESTART_AFTER_STOP_S } from "./always-on.ts";
 import {
-  DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskPrefix, deskSend, forgetScope, queuedReceipt, queuedSend,
+  DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskLimit, deskPrefix, deskSend, forgetScope, queuedReceipt, queuedSend,
   refusedSend, saveAnswer, savable, savedAnswer, withQueued, type DeskBucket, type DeskKind, type QueuedSend,
 } from "./desk.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
@@ -466,7 +466,7 @@ export class CloudHomeHost extends Container<Env> {
         this.lastSaved.set(where, { digest, at: now });
         return;
       }
-      const stored = await saveAnswer(this.desk(), where, new Response(bytes, { headers: copy.headers }), kind, now);
+      const stored = await saveAnswer(this.desk(), where, new Response(bytes, { headers: copy.headers }), deskLimit(kind, request), now);
       if (stored) this.lastSaved.set(where, { digest: stored, at: now });
     })().catch(() => undefined));
     return response;

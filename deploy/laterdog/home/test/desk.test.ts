@@ -154,6 +154,22 @@ describe("chats while the home sleeps", () => {
     now += desk.DESK_KEPT_MS + 1;
     expect((await h.visit("/api/bots", asOwner())).status).toBe(503);
   });
+
+  it("opens a busy home's chat list too, though it is longer than other answers the desk keeps", async () => {
+    const h = await home();
+    const tool = { name: "shell", input: "x".repeat(2_000) };
+    const chats = { bots: [{ id: "rex", name: "Rex", messages: Array.from({ length: 2_500 }, (_, index) => ({ id: `m${index}`, tool })) }] };
+    expect(JSON.stringify(chats).length).toBeGreaterThan(desk.DESK_READ_MAX_BYTES);
+    world.answers.set("GET /api/bots", () => Response.json(chats));
+    await knownOwner(h);
+    await h.visit("/api/bots?messages=200", asOwner());
+    await h.sleep();
+    now += 60_000;
+    const response = await h.visit("/api/bots?messages=200", asOwner());
+    expect(response.status).toBe(200);
+    expect(response.headers.get(desk.SAVED_HEADER)).toBeTruthy();
+    expect(await response.json()).toEqual(chats);
+  });
 });
 
 describe("which devices the desk trusts", () => {
@@ -262,6 +278,16 @@ describe("what the desk keeps", () => {
     expect(desk.savable("read", Response.json({}, { status: 401 }))).toBe(false);
     expect(desk.savable("read", Response.json({}, { headers: { "set-cookie": "a=b" } }))).toBe(true);
     expect(desk.savable("shell", new Response("", { headers: { "content-type": "text/html", "cache-control": "no-store" } }))).toBe(false);
+  });
+
+  it("holds the chat list to a larger limit than the other answers", async () => {
+    const bucket = memoryBucket();
+    const long = () => Response.json({ notes: "x".repeat(desk.DESK_READ_MAX_BYTES) });
+    expect(await desk.saveAnswer(bucket, "routines", long(), desk.deskLimit("read", get("/api/routines")), T0)).toBeNull();
+    expect(await desk.saveAnswer(bucket, "chats", long(), desk.deskLimit("read", get("/api/bots?messages=200")), T0)).toBeTruthy();
+    expect([...bucket.objects.keys()]).toEqual(["chats"]);
+    expect(desk.deskLimit("read", get("/api/bots/rex/messages?limit=30"))).toBe(desk.DESK_READ_MAX_BYTES);
+    expect(desk.deskLimit("shell", get("/assets/index-abc.js"))).toBe(desk.DESK_SHELL_MAX_BYTES);
   });
 
   it("retries a send the home could not take and drops one it refused", () => {

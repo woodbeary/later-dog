@@ -3,6 +3,7 @@ import { deskReplyLine, deskUserLine } from "./desk-stream.ts";
 
 export const DESK_KEPT_MS = 7 * 24 * 60 * 60 * 1000;
 export const DESK_READ_MAX_BYTES = 4 * 1024 * 1024;
+export const DESK_CHATS_MAX_BYTES = 16 * 1024 * 1024;
 export const DESK_SHELL_MAX_BYTES = 16 * 1024 * 1024;
 export const DESK_SEND_MAX_BYTES = 256 * 1024;
 export const DESK_OUTBOX_MAX = 50;
@@ -10,6 +11,7 @@ export const DESK_SAVE_EVERY_MS = 5_000;
 export const SAVED_HEADER = "x-laterdog-saved-at";
 
 const NEVER_SAVED = /^\/api\/(?:events|health|auth\/(?:pair|status|sessions|sign-out|code)|cloud\/|computer|bots\/[^/]+\/computer|files|attachments|assets|tts\/speak|live\/token)/;
+const CHATS_PATH = "/api/bots";
 const SEND_PATH = /^\/api\/(?:bots|groups)\/[^/]+\/messages$/;
 const SHELL_TYPES = /^(?:text\/html|text\/css|(?:application|text)\/javascript|application\/(?:json|manifest\+json)|font\/|image\/)/;
 const SEND_ID = /^[A-Za-z0-9_-]{16,80}$/;
@@ -71,9 +73,14 @@ export function deskPrefix(home: string, scope: string): string {
   return `homes/${home}/desk/${scope}/`;
 }
 
-export async function saveAnswer(bucket: DeskBucket, key: string, response: Response, kind: Exclude<DeskKind, null>, now: number): Promise<string | null> {
+export function deskLimit(kind: Exclude<DeskKind, null>, request: Request): number {
+  if (kind === "shell") return DESK_SHELL_MAX_BYTES;
+  return new URL(request.url).pathname === CHATS_PATH ? DESK_CHATS_MAX_BYTES : DESK_READ_MAX_BYTES;
+}
+
+export async function saveAnswer(bucket: DeskBucket, key: string, response: Response, limit: number, now: number): Promise<string | null> {
   const bytes = await response.arrayBuffer();
-  if (bytes.byteLength > (kind === "read" ? DESK_READ_MAX_BYTES : DESK_SHELL_MAX_BYTES)) return null;
+  if (bytes.byteLength > limit) return null;
   const digest = hex(await sha256(new Uint8Array(bytes)));
   await bucket.put(key, bytes, {
     httpMetadata: { contentType: response.headers.get("content-type") ?? "application/octet-stream" },
