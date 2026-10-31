@@ -63,6 +63,7 @@ export class ComputerUseRuns {
       store: this.store, desktop: engine.desktop(run.computerId), messages: engine.messages, control, pageCheck: engine.pageCheck,
       clock: engine.clock ?? Date.now, sleep: engine.sleep ?? waitFor, limits: engine.limits ?? DEFAULT_LIMITS,
     }).finally(() => this.#live.delete(run.id));
+    finished.catch(() => {});
     this.#live.set(run.id, { control, finished });
     return run;
   }

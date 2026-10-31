@@ -6,7 +6,7 @@ import {
   takeoverUse, toolUse, WatchedControl, type ScriptedReply,
 } from "./computer-use-fakes.ts";
 import type { DesktopAction } from "./computer-use-loop.ts";
-import { DEFAULT_LIMITS, HANDED_BACK_NOTE, NOT_EXECUTED, runComputerUse, screenshotSha256, TAKEN_OVER, type LoopLimits } from "./computer-use-loop.ts";
+import { DEFAULT_LIMITS, HANDED_BACK_NOTE, NOT_EXECUTED, runComputerUse, sameModel, screenshotSha256, TAKEN_OVER, type LoopLimits } from "./computer-use-loop.ts";
 
 const PERSON_ONLY: DoneRule = { pageCheck: null };
 const WITH_PAGE: DoneRule = { pageCheck: { url: "https://clinic.example/requests/42", contains: "Request received" } };
@@ -214,6 +214,13 @@ describe("how a run ends", () => {
     expect(await broken.go()).toMatchObject({ state: "failed", failure: "error", detail: "Claude's API answered 401 (authentication_error: invalid x-api-key)." });
     const swapped = setup([reply([toolUse("toolu_1", "screenshot")], "tool_use", { model: "claude-sonnet-5-5" })]);
     expect(await swapped.go()).toMatchObject({ state: "failed", failure: "error", detail: "Claude's API answered with claude-sonnet-5-5, not the pinned claude-opus-5-5." });
+  });
+
+  it("accepts only the pinned model, or a dated name of that same model", () => {
+    expect(sameModel("claude-opus-5-5", "claude-opus-5-5")).toBe(true);
+    expect(sameModel("claude-opus-5-5", "claude-opus-5-5-20261015")).toBe(true);
+    expect(sameModel("claude-opus-5", "claude-opus-5-5")).toBe(false);
+    expect(sameModel("claude-opus-5-5", "claude-sonnet-5-5")).toBe(false);
   });
 
   it("refuses to run a loop pinned to another model than the run", async () => {

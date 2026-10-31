@@ -33,7 +33,8 @@ that `toolset_name`. later.dog withholds `zoom` because the cloud desktop cannot
 error result.
 
 The run records the model it started on. The loop refuses to run when its client is pinned to another model, and fails
-the run if an answer names a different one. Refusal fallbacks to other models are deliberately left off, so a run never
+the run if an answer names a different one (a dated name of the same model, such as `claude-opus-5-5-20261015`, is the
+same model). Refusal fallbacks to other models are deliberately left off, so a run never
 changes model: a declined request ends the run with the cause `refusal`.
 
 Several calls in one turn run in order and stop at the first failure; each later call gets

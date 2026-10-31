@@ -91,6 +91,10 @@ export class RunControl {
   }
 }
 
+export function sameModel(pinned: string, answered: string): boolean {
+  return answered === pinned || (answered.startsWith(`${pinned}-`) && /^\d{8}$/.test(answered.slice(pinned.length + 1)));
+}
+
 export function screenshotSha256(frame: Buffer): string {
   return createHash("sha256").update(frame).digest("hex");
 }
@@ -213,7 +217,7 @@ export async function runComputerUse(runId: string, deps: LoopDeps): Promise<Com
       const reply = await deps.messages.create({ system: SYSTEM_PROMPT, messages }, control.signal);
       const modelMs = deps.clock() - asked;
       control.signal.throwIfAborted();
-      if (reply.model !== run.model) throw new Error(`Claude's API answered with ${reply.model}, not the pinned ${run.model}.`);
+      if (!sameModel(run.model, reply.model)) throw new Error(`Claude's API answered with ${reply.model}, not the pinned ${run.model}.`);
       messages.push({ role: "assistant", content: reply.content });
       const uses = reply.stopReason === "tool_use" ? toolUses(reply.content) : [];
       const started = deps.clock();
