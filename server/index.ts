@@ -653,6 +653,7 @@ import { createDeskBrainRoute, recordDeskExchange } from "./laterdog/desk-exchan
 import { createTurnTiming } from "./laterdog/turn-timing.ts";
 import { instanceTouchedBy } from "./laterdog/snapshot-cache.ts";
 import { createEmailMeRoute } from "./routes/email-me.ts";
+import { createNearbyPlacesRoute } from "./routes/nearby-places.ts";
 import { createMacMessagesRoute } from "./routes/mac-messages.ts";
 import type { MacAsk, MessagesMac } from "./laterdog/mac-messages.ts";
 import { createPhonePushRoutes } from "./routes/phone-push.ts";
@@ -12576,6 +12577,12 @@ INTERNAL_ROUTES.push(createEmailMeRoute({
     if (!lendingEnabled()) throw Object.assign(new Error(CONNECT_MAC), { status: 409 });
     return await useMac(sharedComputerOperation.parse(operation), capability as InternalCapability);
   },
+}));
+INTERNAL_ROUTES.push(createNearbyPlacesRoute({
+  active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+  fetch: (url, init) => fetch(url, init),
+  overpassUrl: process.env.LATERDOG_OVERPASS_URL,
+  geocodeUrl: process.env.LATERDOG_GEOCODE_URL,
 }));
 INTERNAL_ROUTES.push(createMacMessagesRoute({
   enabled: () => CLOUD_HOME !== null && lendingEnabled(),

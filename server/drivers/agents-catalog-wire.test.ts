@@ -47,7 +47,7 @@ const PROFILES = profiles();
 const REMOVED_TEAM_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
 const REMOVED_PEER_TOOLS = ["ask_bot", "delegate_bot", "check_delegation", "wait_delegation", "send_to_bot", "list_room_targets"];
 const FULL = { direct: "direct+skills+shared+voice" } as const;
-const PHONE_TOOLS = ["read_phone", "add_to_phone", "change_on_phone"];
+const PHONE_TOOLS = ["read_phone", "add_to_phone", "change_on_phone", "nearby_places"];
 const MAC_MESSAGE_TOOLS = ["send_text", "read_texts", "send_email"];
 
 const BUDGET_BASELINE: Record<string, number> = {
@@ -60,7 +60,7 @@ const BUDGET_BASELINE: Record<string, number> = {
   "direct+skills+shared": 39790,
   "direct+skills+shared+voice": 40531,
   "direct+skills+shared+voice+cloud-home": 42718,
-  "direct+skills+shared+voice+cloud-home+phone": 45602,
+  "direct+skills+shared+voice+cloud-home+phone": 46645,
 };
 
 const RPC_PREFIX = '{"jsonrpc":"2.0","id":1,"result":';

@@ -199,6 +199,8 @@ later.dog's built-in agents MCP server describes its scoped reads with
 explicit read-only, non-destructive, idempotent, closed-world metadata:
 `list_bots`, `list_shared_computers`, `read_phone`, `tool_result_read`,
 `session_search`, `session_read`, `list_routines`, and `skills_list`.
+`nearby_places` is read-only too, but marked open-world: it sends the place
+and what to look for to OpenStreetMap's public search.
 Session recall still enforces own-bot access and records its existing room
 disclosure audit. These hints do not grant access to another bot's conversations.
 Writes, credential requests, proposals, and third-party tools do not inherit

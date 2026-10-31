@@ -283,6 +283,17 @@ const TOOL_DEFINITIONS = [
     }, required: ["what", "id"] },
   },
   {
+    name: "nearby_places",
+    description: "Find places near a point when the person asks what's close by: what is a kind of place (coffee, gas, pharmacy, grocery, EV charger, urgent care…) or a name. For where they are, call read_phone what=location first and pass its latitude and longitude; for somewhere else, pass near with an address or place. Answers the closest first with distance, address, hours and an Apple Maps link when known. Keep the source line when you list them.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      what: { type: "string", minLength: 2, maxLength: 80 },
+      latitude: { type: "number", minimum: -90, maximum: 90 }, longitude: { type: "number", minimum: -180, maximum: 180 },
+      near: { type: "string", minLength: 3, maxLength: 200, description: "An address or place, instead of latitude and longitude." },
+      radius_m: { type: "integer", minimum: 100, maximum: 10000, description: "How far to look, in meters; default 1500." },
+      limit: { type: "integer", minimum: 1, maximum: 20 },
+    }, required: ["what"] },
+  },
+  {
     name: "coordinate_bots",
     description: "Ask other dogs for advice or hand them work. Give 1-4 bot_ids, as list_bots prints them; a unique name also resolves. In a group chat the request goes to that chat; group_id sends it to another group chat you are in. Outside a group chat it goes to each dog's own conversation and runs after anything still running there, and both conversations show the exchange. They see only what you send and use their own model, tools and permissions, so include exact file paths, constraints and what must be checked. Their results come back here and resume you: after sending, end your turn and do not poll or wait. When they return, check the outcome and ask for concrete corrections if needed before giving one final answer. Do not send acknowledgements as new work.",
     inputSchema: { type: "object", additionalProperties: false, properties: {
@@ -734,7 +745,7 @@ const SKILL_TOOL_NAMES = new Set(["skills_list", "skill_manage"]);
 export const SHARED_COMPUTER_TOOL_NAMES = new Set(["list_shared_computers", "shared_computer"]);
 export const MAC_MESSAGE_TOOL_NAMES = new Set(["send_text", "read_texts", "send_email"]);
 const EMAIL_TOOL_NAMES = new Set(["email_me"]);
-const PHONE_TOOL_NAMES = new Set(["read_phone", "add_to_phone", "change_on_phone"]);
+const PHONE_TOOL_NAMES = new Set(["read_phone", "add_to_phone", "change_on_phone", "nearby_places"]);
 const VOICE_TOOL_NAMES = new Set(["send_voice_note"]);
 const WATCHER_TOOL_NAMES = new Set(["create_options_card"]);
 
