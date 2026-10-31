@@ -6,10 +6,38 @@ import {
   CLOUD_SECRETS_FD_ENV, cloudHomeConfiguration, cloudHomeHost, cloudHomeSecrets, prepareCloudHomeVolume,
   withoutCloudSecrets, withoutIgnoredCloudKeys, type CloudHomeConfig,
 } from "./cloud-home.ts";
+import {
+  HOME_FATAL_REPORTS_DIR, HOME_HEALTH_FILE, KERNEL_VMSTAT, appendHomeHealthLine, fatalErrorReportFlags, oomKillCount, oomKillsSaid, pruneFatalErrorReports,
+  readSystemFile,
+} from "./laterdog/home-health-log.ts";
 import { restartPolicy } from "./restart.ts";
 
 const SERVICE_USER = "dog";
 const SECRETS_FD = 3;
+const STOP_GRACE_MS = 20_000;
+
+type ServiceIds = { uid: number; gid: number };
+
+export function childExitLine(name: string, code: number | null, signal: NodeJS.Signals | null, seconds: number, restarting: boolean,
+  oomKills: number | null): string {
+  const how = signal ? `was ended by ${signal}` : `exited with code ${code ?? "none"}`;
+  const memory = oomKills === null ? "" : `; ${oomKillsSaid(oomKills)}`;
+  return `cloud home: ${name} ${how} after ${Math.round(seconds)} s${memory}; ${restarting ? "starting it again" : "the home stops"}`;
+}
+
+export function cloudHomeServerArguments(here: string, reports: string): string[] {
+  return [...fatalErrorReportFlags(reports), join(here, "index.js")];
+}
+
+function asServiceUser<T>(ids: ServiceIds | null, run: () => T): T {
+  if (!ids) return run();
+  process.setegid!(ids.gid);
+  process.seteuid!(ids.uid);
+  try { return run(); } finally {
+    process.seteuid!(0);
+    process.setegid!(0);
+  }
+}
 
 export function passwdIds(passwd: string, name: string): { uid: number; gid: number } | null {
   for (const line of passwd.split("\n")) {
@@ -33,8 +61,9 @@ export function cloudHomeChildEnvironments(config: CloudHomeConfig, env: NodeJS.
   const offered = withoutCloudSecrets(withoutIgnoredCloudKeys(env));
   const allowed = Object.fromEntries(Object.entries(offered).filter(([name, value]) => value !== undefined && serverEnvironmentAllowed(name)));
   const dropped = Object.keys(offered).filter((name) => !serverEnvironmentAllowed(name) && name !== "HOME").sort();
+  const dataDir = env.LATERDOG_HOME || posix.join(home, ".laterdog");
   const server: NodeJS.ProcessEnv = {
-    ...allowed, GIT_TERMINAL_PROMPT: "0", HOME: home, LATERDOG_HOME: env.LATERDOG_HOME || posix.join(home, ".laterdog"),
+    ...allowed, GIT_TERMINAL_PROMPT: "0", HOME: home, LATERDOG_HOME: dataDir,
     LATERDOG_SERVER_PORT: "8799", LATERDOG_WEBHOOK_PORT: "8800", LATERDOG_PUBLIC_URL: config.publicOrigin,
     LATERDOG_WEBHOOK_PUBLIC_URL: env.LATERDOG_WEBHOOK_PUBLIC_URL || config.publicOrigin,
     [CLOUD_SECRETS_FD_ENV]: String(SECRETS_FD),
@@ -44,7 +73,7 @@ export function cloudHomeChildEnvironments(config: CloudHomeConfig, env: NodeJS.
     XDG_DATA_HOME: "/tmp/laterdog-edge/data", XDG_CONFIG_HOME: "/tmp/laterdog-edge/config",
     LATERDOG_CLOUD_PUBLIC_HOST: cloudHomeHost(config),
   };
-  return { server, edge, secrets: cloudHomeSecrets(env), dropped };
+  return { server, edge, secrets: cloudHomeSecrets(env), dropped, dataDir };
 }
 
 export function codeTrustProblem(files: readonly string[], home: string, stat: (path: string) => Pick<Stats, "uid" | "mode"> = statSync): string | null {
@@ -84,15 +113,8 @@ export function startCloudHome(env: NodeJS.ProcessEnv = process.env) {
     const stat = statSync(home);
     if (stat.uid !== ids.uid || stat.gid !== ids.gid) chownSync(home, ids.uid, ids.gid);
     process.setgroups?.([]);
-    process.setegid!(ids.gid);
-    process.seteuid!(ids.uid);
-    try { prepareCloudHomeVolume(home, config.machineId); } finally {
-      process.seteuid!(0);
-      process.setegid!(0);
-    }
-  } else {
-    prepareCloudHomeVolume(home, config.machineId);
   }
+  asServiceUser(ids, () => prepareCloudHomeVolume(home, config.machineId));
   const here = dirname(fileURLToPath(import.meta.url));
   const edgeBin = env.LATERDOG_CLOUD_EDGE_BIN || "/usr/local/bin/caddy";
   const edgeConfig = env.LATERDOG_CLOUD_EDGE_CONFIG || "/app/cloud/Caddyfile";
@@ -100,39 +122,62 @@ export function startCloudHome(env: NodeJS.ProcessEnv = process.env) {
     const problem = codeTrustProblem([process.execPath, fileURLToPath(import.meta.url), join(here, "index.js"), edgeBin, edgeConfig], home);
     if (problem) throw new Error(`This image's code is not safe to run as root: ${problem}. Rebuild it with docker build --target cloud-home.`);
   }
-  const { server, edge, secrets, dropped } = cloudHomeChildEnvironments(config, env, home);
+  const { server, edge, secrets, dropped, dataDir } = cloudHomeChildEnvironments(config, env, home);
   if (dropped.length) console.log(`cloud home: not passed to the server: ${dropped.join(", ")}`);
-  const children: ChildProcess[] = [];
+  const healthFile = join(dataDir, HOME_HEALTH_FILE);
+  const reports = join(dataDir, HOME_FATAL_REPORTS_DIR);
+  const record = (line: string) => {
+    console.warn(line);
+    asServiceUser(ids, () => appendHomeHealthLine(healthFile, line));
+  };
+  const children = new Map<ChildProcess, string>();
   let stopping = false;
   const stop = (failed: boolean) => {
     if (stopping) return;
     stopping = true;
     process.exitCode = failed ? 1 : 0;
-    for (const child of children) if (child.exitCode === null) child.kill("SIGTERM");
-    const force = setTimeout(() => { for (const child of children) if (child.exitCode === null) child.kill("SIGKILL"); }, 20_000);
+    for (const child of children.keys()) if (child.exitCode === null) child.kill("SIGTERM");
+    const force = setTimeout(() => {
+      for (const [child, name] of children) {
+        if (child.exitCode !== null) continue;
+        record(`cloud home: ${name} did not stop within ${STOP_GRACE_MS / 1000} s; ending it with SIGKILL`);
+        child.kill("SIGKILL");
+      }
+    }, STOP_GRACE_MS);
     force.unref();
   };
-  const watch = (child: ChildProcess, again?: (code: number | null) => boolean) => {
-    children.push(child);
-    child.once("error", () => stop(true));
-    child.once("exit", (code) => {
-      children.splice(children.indexOf(child), 1);
-      if (!again?.(code)) stop(true);
+  const watch = (name: string, child: ChildProcess, again?: (code: number | null) => boolean) => {
+    const started = Date.now();
+    children.set(child, name);
+    child.once("error", (error) => {
+      record(`cloud home: ${name} could not run (${error.message}); the home stops`);
+      stop(true);
+    });
+    child.once("exit", (code, signal) => {
+      children.delete(child);
+      const restarting = again?.(code) ?? false;
+      record(childExitLine(name, code, signal, (Date.now() - started) / 1000, restarting, oomKillCount(readSystemFile(KERNEL_VMSTAT))));
+      if (!restarting) stop(true);
     });
   };
   const policy = restartPolicy();
   const runServer = () => {
-    watch(spawnWithSecrets(process.execPath, [join(here, "index.js")], server, secrets, ids), (code) => {
+    asServiceUser(ids, () => pruneFatalErrorReports(reports));
+    watch("the server", spawnWithSecrets(process.execPath, cloudHomeServerArguments(here, reports), server, secrets, ids), (code) => {
       if (!policy.again(code, stopping)) return false;
       runServer();
       return true;
     });
   };
   runServer();
-  watch(spawn(edgeBin, ["run", "--config", edgeConfig, "--adapter", "caddyfile"],
+  watch("the edge", spawn(edgeBin, ["run", "--config", edgeConfig, "--adapter", "caddyfile"],
     { env: edge, stdio: "inherit", ...(ids ? { uid: ids.uid, gid: ids.gid } : {}) }));
-  process.once("SIGTERM", () => stop(false));
-  process.once("SIGINT", () => stop(false));
+  const asked = (signal: NodeJS.Signals) => {
+    record(`cloud home: asked to stop (${signal}); stopping the server and the edge`);
+    stop(false);
+  };
+  process.once("SIGTERM", () => asked("SIGTERM"));
+  process.once("SIGINT", () => asked("SIGINT"));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

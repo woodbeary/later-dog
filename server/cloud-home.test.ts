@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { IncomingMessage } from "node:http";
@@ -8,7 +9,8 @@ import {
   cloudHomeHost, cloudHomeOffersPlace, cloudHomePlaceRefusal, cloudPairingSignature, createCloudPairing, firstCloudTurnPatch, prepareCloudHomeVolume,
   withoutIgnoredCloudKeys,
 } from "./cloud-home.ts";
-import { cloudHomeChildEnvironments, codeTrustProblem, passwdIds, spawnWithSecrets } from "./cloud-home-start.ts";
+import { childExitLine, cloudHomeChildEnvironments, cloudHomeServerArguments, codeTrustProblem, passwdIds, spawnWithSecrets } from "./cloud-home-start.ts";
+import { HOME_FATAL_REPORTS_DIR, HOME_HEALTH_FILE } from "./laterdog/home-health-log.ts";
 import { RESTART_EXIT_CODE, restartPolicy } from "./restart.ts";
 import { hostedModelPolicy } from "./hosted-models.ts";
 import { resolveRequestAuth } from "./request-auth.ts";
@@ -343,6 +345,38 @@ it("the Cloud launcher starts the server again only when it asks to after a rest
   expect(restartPolicy().again(RESTART_EXIT_CODE, true)).toBe(false);
   const policy = restartPolicy(() => 0);
   expect([1, 2, 3, 4, 5, 6].map(() => policy.again(RESTART_EXIT_CODE, false))).toEqual([true, true, true, true, true, false]);
+});
+
+it("the Cloud launcher says how each part of the home ended and what the kernel did for memory, and starts the server with crash reports that leave out its environment", () => {
+  expect(childExitLine("the server", null, "SIGABRT", 9012.4, false, 0))
+    .toBe("cloud home: the server was ended by SIGABRT after 9012 s; the kernel has ended 0 processes for lack of memory since the machine started; the home stops");
+  expect(childExitLine("the server", 75, null, 3, true, null)).toBe("cloud home: the server exited with code 75 after 3 s; starting it again");
+  expect(childExitLine("the edge", null, "SIGKILL", 0.4, false, 2))
+    .toBe("cloud home: the edge was ended by SIGKILL after 0 s; the kernel has ended 2 processes for lack of memory since the machine started; the home stops");
+  expect(childExitLine("the server", null, null, 1, false, null)).toBe("cloud home: the server exited with code none after 1 s; the home stops");
+  expect(cloudHomeServerArguments("/app/dist-server", "/data/.laterdog/fatal-error-reports")).toEqual([
+    "--report-on-fatalerror", "--report-exclude-env", "--report-exclude-network", "--report-directory=/data/.laterdog/fatal-error-reports",
+    join("/app/dist-server", "index.js"),
+  ]);
+});
+
+it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("the Cloud launcher writes why the server stopped into the home's own health log before the home stops", () => {
+  const home = directory();
+  const tools = directory();
+  const edge = join(tools, "edge");
+  writeFileSync(edge, "#!/bin/sh\nexec sleep 30\n", { mode: 0o755 });
+  writeFileSync(join(tools, "Caddyfile"), ":8080\n");
+  const result = spawnSync(process.execPath, [join(import.meta.dirname, "cloud-home-start.ts")], {
+    encoding: "utf8", timeout: 15_000,
+    env: { ...contract(), PATH: process.env.PATH, HOME: home, LATERDOG_CLOUD_EDGE_BIN: edge, LATERDOG_CLOUD_EDGE_CONFIG: join(tools, "Caddyfile") },
+  });
+  expect(result.status).toBe(1);
+  const log = readFileSync(join(home, ".laterdog", HOME_HEALTH_FILE), "utf8");
+  expect(log).toMatch(/^\S+Z cloud home: the server exited with code 1 after \d+ s(; the kernel has ended \d+ process(es)? for lack of memory since the machine started)?; the home stops$/m);
+  expect(log).toMatch(/^\S+Z cloud home: the edge was ended by SIGTERM after \d+ s.*; the home stops$/m);
+  expect(log).not.toContain(secret);
+  expect(statSync(join(home, ".laterdog", HOME_FATAL_REPORTS_DIR)).mode & 0o777).toBe(0o700);
+  expect(statSync(join(home, ".laterdog", HOME_HEALTH_FILE)).mode & 0o777).toBe(0o600);
 });
 
 it("records the first finished bot turn once, on a Cloud home only, and a moved workspace never brings its own", () => {

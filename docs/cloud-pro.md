@@ -796,10 +796,23 @@ and Fly restarts the machine. The one exception: after a restore commits
 (Copy this computer here, below), the server exits with code 75
 (`server/restart.ts`) and the launcher starts only the server again.
 On a Cloud home the server logs an uncaught exception or unhandled rejection
-with its stack before it exits, and its memory (`process.memoryUsage()`, free
-memory, the cgroup v2 limit and usage) at start, every five minutes and when
-its rss passes 75% of the container's limit
-(`server/laterdog/home-health-log.ts`). The Cloudflare runtime's
+with its stack before it exits, and its memory (`process.memoryUsage()`, its
+heap limit, free memory, the cgroup v2 limit and usage, and the kernel's
+`oom_kill` count from `/proc/vmstat` once it is above zero) at start, every
+five minutes, when its rss passes 75% of the container's limit and when its
+heap passes 75% of the heap limit (`server/laterdog/home-health-log.ts`). The
+launcher (`server/cloud-home-start.ts`) logs how the server or the edge ended
+(exit code or signal, how long it ran, the `oom_kill` count), a stop it was
+asked for, and any part it had to end with SIGKILL. All of these lines also go,
+timestamped, to `/data/.laterdog/home-health.log`, which keeps its newest
+128 to 256 KB and is saved with the rest of the home, so they survive the
+container being replaced. The launcher starts the server with
+`--report-on-fatalerror`, `--report-exclude-env` and `--report-exclude-network`,
+so a fatal error such as running out of heap leaves a Node.js report without
+the environment in `/data/.laterdog/fatal-error-reports/`; the launcher keeps
+the three newest each time it starts the server. The exclusions are flags
+because Node.js ignores `process.report.excludeEnv` set at runtime when it
+writes a report for running out of heap. The Cloudflare runtime's
 `deploy/laterdog/home/runtime/run.mjs` logs the launcher's exit code and
 signal before its last save.
 

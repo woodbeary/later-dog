@@ -69,6 +69,13 @@ filter `$metadata.service eq <service>`, newest first; `$metadata.message` holds
 observability scope, so a script needs an API token with Workers Observability read; an agent session can use the
 Cloudflare connector instead.
 
+A dog on the home can read why its server last stopped without either: `/data/.laterdog/home-health.log` holds the
+server's memory and crash lines and the launcher's lines on how the server and the edge ended, timestamped, and
+`/data/.laterdog/fatal-error-reports/` holds a Node.js report (no environment) from a fatal error such as running out
+of heap. A server ended by SIGABRT hit a fatal error, and the newest report names it; one ended by SIGKILL while the
+`oom_kill` count went up, with no launcher line saying it ended the server itself, was ended by the kernel for lack of
+memory.
+
 ## Limits
 
 - A server change on your own home still needs an image deploy (handoff-2026-10-19.md, "How images ship now").
