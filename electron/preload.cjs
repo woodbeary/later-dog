@@ -57,7 +57,7 @@ const onBannerReply = bannerRelay("notification:reply");
 const localOrigin = process.argv.find((arg) => arg.startsWith("--laterdog-local-origin="))?.slice("--laterdog-local-origin=".length) ?? null;
 const isLocalPage = !localOrigin || location.origin === localOrigin;
 const savedServer = id => isLocalPage && typeof id === "string" && /^[\w-]{1,64}$/.test(id) ? [id] : [];
-const REMOTE_SAFE = new Set(["platform", "getCapabilities", "onCapabilitiesChanged", "applySkin", "setUnreadCount", "permStatus", "workspaces", "cloudMove", "cloudLending", "cloudPlan", "cloudPermissions", "onOpenAppSettings", "onAppLink", "notifications"]);
+const REMOTE_SAFE = new Set(["platform", "previewFile", "getCapabilities", "onCapabilitiesChanged", "applySkin", "setUnreadCount", "permStatus", "workspaces", "cloudMove", "cloudLending", "cloudPlan", "cloudPermissions", "onOpenAppSettings", "onAppLink", "notifications"]);
 function updaterOffered() {
   try { return ipcRenderer.sendSync("update:offered") === true; } catch { return false; }
 }
@@ -232,6 +232,7 @@ const bridge = {
       throw new Error(message.replace(/^Error invoking remote method '[^']*':\s*(?:Error:\s*)?/, ""));
     }),
   revealInFolder: (filePath) => ipcRenderer.invoke("desktop:reveal-file", filePath),
+  ...(process.platform === "darwin" ? { previewFile: (name, bytes) => ipcRenderer.invoke("desktop:quick-look", name, bytes) } : {}),
   setCredential: async (name, value) => {
     try {
       return await ipcRenderer.invoke("credential:set", name, value);

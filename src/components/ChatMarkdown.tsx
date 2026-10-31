@@ -26,6 +26,7 @@ import { MarkdownImagePreview, MessageFolderFiles, OutsideWorkspaceFile, useLoca
 import { MarkdownTable } from "./MarkdownTable";
 import { RichCard } from "./RichCard";
 import { DraftCardView } from "./DraftCard";
+import { QuickLookButton } from "./QuickLookButton";
 import { TableFileButton } from "./TableFilePreview";
 import { mermaidCode, richCard } from "../lib/rich-cards";
 import { draftCard, type DraftCard } from "../lib/draft-card";
@@ -602,6 +603,7 @@ function LocalFileLink({ filePath, children, message }: { filePath: string; chil
   return (
     <span dir="ltr" className="inline-flex flex-wrap items-center gap-x-1.5 [unicode-bidi:isolate]">
       <TableFileButton path={filePath} name={filePath.split(/[\\/]/).at(-1) ?? filePath} message={message} />
+      <QuickLookButton path={filePath} name={filePath.split(/[\\/]/).at(-1) ?? filePath} message={message} />
       <button
         type="button"
         onClick={() => void save.save()}

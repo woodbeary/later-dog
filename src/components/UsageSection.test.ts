@@ -87,6 +87,7 @@ beforeEach(() => {
   fixture.api.mockReset();
   fixture.api.mockImplementation(async (path: string) => {
     if (path.startsWith("/api/included-usage")) return { usage: fixture.included };
+    if (path === "/api/usage/github") return { state: "signedOut" };
     const from = new URL(path, "http://fixture.test").searchParams.get("from");
     return fixture.ledger.get(from === yearAgo() ? "year" : "month");
   });
@@ -102,7 +103,7 @@ afterEach(async () => {
 describe("the Usage page", () => {
   it("shows the accounts, then the cost so far, then the history, and no budget", async () => {
     await show([dog("Atlas", "claude", usage({ costUsd: 0.3, turns: 2 }))], [account("claude", "Personal")], [group("Atlas", 2, 0.3)]);
-    const order = ["data-plan-usage", "data-usage-cost", "data-usage-history"].map((marker) => host.innerHTML.indexOf(marker));
+    const order = ["data-plan-usage", "data-usage-cost", "data-usage-history", "data-usage-github"].map((marker) => host.innerHTML.indexOf(marker));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(text()).not.toMatch(/budget|sell price/i);

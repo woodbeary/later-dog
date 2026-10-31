@@ -31,6 +31,7 @@ import {
 } from "@/lib/composer-attachments";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { QuickLookButton } from "./QuickLookButton";
 import { TableFileButton } from "./TableFilePreview";
 
 export interface PreviewImage {
@@ -915,6 +916,7 @@ export function AttachedFileChip({ file, message, linked = false, className }: {
           )}
         </button>
         <TableFileButton path={file.path} name={file.name} message={message} />
+        <QuickLookButton path={file.path} name={file.name} message={message} />
       </div>
       {save.state !== "idle" && (
         <div

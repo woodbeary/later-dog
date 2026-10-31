@@ -145,7 +145,7 @@ import { withMainDogRouting } from "./laterdog/main-dog-prompt.ts";
 import { MAIN_DOG_DELETE_REFUSAL, MAIN_DOG_REQUIRED } from "../shared/main-dog.ts";
 import { buildRecall } from "./recall.ts";
 import { createMemoryUpkeep, upkeepEnabled } from "./memory-upkeep.ts";
-import { appendAboutMe, commitLearned, planLearned } from "./profile-learned.ts";
+import { appendAboutMe, commitLearned, holdLearned, listPendingLearned, planLearned } from "./profile-learned.ts";
 import { canAccessTeam, canReachPeer, livePeerRoster, livePeerRosterBlock, peerAllowed, peerName, PEERS_PROMPT, peerStatus, peerStatusWords, reachablePeers, resolveTeammate, roomRosterLine } from "./peer-roster.ts";
 import {
   containerComputerAction,
@@ -224,6 +224,8 @@ import { registerEnginesBinDir } from "./engine-install.ts";
 import { registerNativeBinDir } from "./laterdog/native-install.ts";
 import { appendUsage, parseUsageRange, readUsage, summarizeUsage, usageCsv, USAGE_GROUPINGS, flushUsageLedger, type UsageGroupBy, type UsageRow, type UsageTrigger } from "./usage-ledger.ts";
 import { latestPlanRow, loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
+import { createGitHubActivity } from "./github-activity.ts";
+import { createGitHubActivityRoutes } from "./routes/github-activity.ts";
 import { GroupUsageReader } from "./group-thread-usage.ts";
 import { ledgerCost } from "./model-prices.ts";
 import type { PriceList } from "./prices.ts";
@@ -720,6 +722,7 @@ import { engineAnswer } from "./laterdog/person-denied.ts";
 import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeover.ts";
 import { createSecureFormRoutes } from "./routes/secure-forms.ts";
 import { createVaultRoutes } from "./routes/vault.ts";
+import { createDogActivityRoutes } from "./routes/dog-activity.ts";
 import { createDeviceRoutes } from "./routes/devices.ts";
 import { dispatchInternalRoutes, INTERNAL_ROUTES } from "./routes/internal.ts";
 import { createDesktopViewer, desktopViewerUrl } from "./routes/desktop-viewer.ts";
@@ -5346,6 +5349,11 @@ const memoryUpkeep = createMemoryUpkeep({
   addToAboutMe: (from, texts) => {
     const current = cfg.profile?.aboutMe ?? "";
     const facts = planLearned(from, texts, current, memoryDate());
+    if (facts.length && cfg.profile?.reviewLearned === true) {
+      holdLearned(facts);
+      broadcast({ kind: "config", ...configStatus() });
+      return facts.length;
+    }
     const next = appendAboutMe(current, facts.map((fact) => fact.line));
     if (!facts.length || next === null) return 0;
     saveConfig({ profile: { ...cfg.profile, aboutMe: next } });
@@ -5629,6 +5637,7 @@ function vpsThreadEnded(botId: string, threadId: string): void {
   if (!threads.size) activeVpsThreads.delete(botId);
 }
 const boatLifecycleBusyBots = new Set<string>();
+const githubActivity = createGitHubActivity();
 const boatWakes = createSharedJoins<Awaited<ReturnType<typeof boat.readyBoat>>>();
 const wakeBotBoat = (botId: string) => boatWakes.run(botId, () => boat.readyBoat(cfg, botId));
 const vpsPreviewRequests = new Map<string, ReturnType<typeof vps.vpsComputerScreenshot>>();
@@ -11978,7 +11987,13 @@ function configStatus() {
     typing: typingSuggestions.describe(),
     imageGen: avatarImageStatus(cfg),
     live: liveSettingsFor(cfg),
-    profile: { name: cfg.profile?.name ?? "", email: cfg.profile?.email ?? "", aboutMe: cfg.profile?.aboutMe ?? "" },
+    profile: {
+      name: cfg.profile?.name ?? "",
+      email: cfg.profile?.email ?? "",
+      aboutMe: cfg.profile?.aboutMe ?? "",
+      reviewLearned: cfg.profile?.reviewLearned === true,
+      learnedWaiting: listPendingLearned().length,
+    },
     managedPolicy: managedPolicy.summary(),
     ...(CLOUD_HOME ? { cloudHome: true } : {}),
     ...damagedDataStatus(),
@@ -12376,6 +12391,7 @@ ROUTES.push(createDeciderRoutes({ decider }));
 ROUTES.push(createJobTraceRoutes());
 ROUTES.push(typingSuggestions.routes);
 ROUTES.push(createLaterDogRoutes());
+ROUTES.push(createGitHubActivityRoutes({ read: () => githubActivity.read() }));
 ROUTES.push(createHelpersRoutes({
   board: helperBoard,
   visibleThreads: auth => {
@@ -12510,6 +12526,14 @@ ROUTES.push(createTakeoverRoutes({
 }));
 ROUTES.push(createSecureFormRoutes({ forms: secureForms }));
 ROUTES.push(createVaultRoutes({ vault: vaultStore }));
+ROUTES.push(createDogActivityRoutes({
+  threads: (botId) => {
+    const bot = store.bot(botId);
+    if (!bot) return null;
+    return [...new Set([bot.threadId, ...store.tasks(botId).map((task) => task.threadId)])].map((threadId) => store.messagesFor(threadId));
+  },
+  turnTimes: (botId, since) => readUsage(DATA_DIR, { from: new Date(since), to: new Date() }).filter((row) => row.botId === botId).map((row) => Date.parse(row.at)),
+}));
 ROUTES.push(createDeviceRoutes({ sessions }));
 ROUTES.push(createPhonePushRoutes({ push: phonePush }));
 ROUTES.push(createPhoneDeviceRoutes({ desk: phoneDesk, enabled: phoneToolsEnabled, owner: phoneOwner, gone: requestGone }));

@@ -54,6 +54,7 @@ import { permissionChecklist, requestPermission } from "./mac-permissions.mjs";
 import { speechEverGranted } from "./speech-grant.mjs";
 import { cuaStartsAfterGrant } from "./cua-grant.mjs";
 import { writeClipboardText } from "./clipboard-write.mjs";
+import { clearQuickLookFiles, quickLookBytes, quickLookName, writeQuickLookFile } from "./quick-look.mjs";
 import {
   ensureManagedComposioCredentials,
   managedComposioAccess,
@@ -2033,6 +2034,19 @@ ipcMain.handle("desktop:save-file", localOnly("desktop:save-file", async (event,
   });
 }));
 
+const quickLookRoot = () => path.join(app.getPath("temp"), `${app.getName()} previews`);
+
+ipcMain.handle("desktop:quick-look", async (event, rawName, rawBytes) => {
+  if (process.platform !== "darwin") return false;
+  const name = quickLookName(rawName);
+  const bytes = quickLookBytes(rawBytes);
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!name || !bytes || !win || win.isDestroyed()) return false;
+  const file = await writeQuickLookFile(quickLookRoot(), name, bytes);
+  win.previewFile(file, name);
+  return true;
+});
+
 ipcMain.handle("desktop:reveal-file", localOnly("desktop:reveal-file", async (_event, rawPath) => {
   return revealInFolder(rawPath, { reveal: (target) => shell.showItemInFolder(target) });
 }));
@@ -3080,6 +3094,7 @@ function releaseDesktopDataDirLease() {
 }
 
 app.on("will-quit", releaseDesktopDataDirLease);
+app.on("will-quit", () => { void clearQuickLookFiles(quickLookRoot()).catch(() => {}); });
 app.on("will-quit", () => { if (localControl) removeLocalControlToken(localControl.file, localControl.token); });
 app.on("will-quit", () => desktopTray?.destroy());
 process.once("exit", releaseDesktopDataDirLease);

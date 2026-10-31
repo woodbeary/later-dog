@@ -425,7 +425,7 @@ const appConfigSchema = z.object({
       "Use a model ID without control characters",
     ).optional(),
   }).optional(),
-  profile: z.object({ name: optionalText, email: optionalText, aboutMe: z.string().max(24_000).optional() }).optional(),
+  profile: z.object({ name: optionalText, email: optionalText, aboutMe: z.string().max(24_000).optional(), reviewLearned: z.boolean().optional() }).optional(),
   language: optionalText,
   rooms: roomConfigSchema.optional(),
   mcp: mcpConfigSchema.optional(),
@@ -495,7 +495,7 @@ export interface AppConfig {
   imageGen?: ImageGenerationConfig;
   typing?: { accountId?: string; token?: string; model?: string };
   live?: { key?: string; voice?: string; readTypedReplies?: boolean; idleMinutes?: number };
-  profile?: { name?: string; email?: string; aboutMe?: string };
+  profile?: { name?: string; email?: string; aboutMe?: string; reviewLearned?: boolean };
   rooms?: { turnTimeoutMinutes: number; handoffIdleMinutes?: number; handoffLifetimeMinutes?: number; handoffMinRunwayMinutes?: number; handoffHardCapMinutes?: number };
   mcp?: { callTimeoutMinutes?: number };
   threads?: { maxConcurrentPerBot: number; eventLogMaxBytes?: number; eventLogRetentionDays?: number };

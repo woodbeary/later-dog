@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { json, onJsonBody, readBody } from "../harness/http.ts";
 import { recordMemoryChange } from "../memory-journal.ts";
-import { commitLearned, planLearned } from "../profile-learned.ts";
+import { commitLearned, holdLearned, planLearned } from "../profile-learned.ts";
 import { requiredScope } from "../request-auth.ts";
 import { launchVerificationServer, type VerificationServer } from "../../scripts/control-laterdog.ts";
 import { createBotMemoryRoutes, type BotMemoryRouteDeps } from "./bot-memory.ts";
@@ -116,13 +116,44 @@ describe("the bot-memory module through the route table", () => {
     let aboutMe = `Handwritten note\n${facts[0]!.line}`;
     const saved: string[] = [];
     const base = await serve({ aboutMe: () => aboutMe, saveAboutMe: (text) => { aboutMe = text; saved.push(text); } });
-    expect(await (await fetch(`${base}/api/profile/learned`)).json()).toEqual({ learned: facts });
+    expect(await (await fetch(`${base}/api/profile/learned`)).json()).toEqual({ learned: facts, pending: [] });
     const remove = () => fetch(`${base}/api/profile/learned/${facts[0]!.id}/remove`, { method: "POST" });
     const removed = await remove();
     expect(removed.status).toBe(200);
     expect(await removed.json()).toEqual({ ok: true, aboutMe: "Handwritten note", learned: [] });
     expect((await remove()).status).toBe(404);
     expect(saved).toEqual(["Handwritten note"]);
+  });
+
+  it("holds what dogs learn for review, then keeps or dismisses each fact", async () => {
+    const from = { botId: "bot-123", botName: "Memo" };
+    const [tea, cats] = planLearned(from, ["Prefers green tea", "Has two cats"], "", "2026-10-30");
+    holdLearned([tea!, cats!]);
+    expect(planLearned(from, ["Prefers green tea"], "", "2026-10-30")).toEqual([]);
+    let aboutMe = "Handwritten note";
+    const base = await serve({ aboutMe: () => aboutMe, saveAboutMe: (text) => { aboutMe = text; } });
+    expect(await (await fetch(`${base}/api/profile/learned`)).json()).toMatchObject({ pending: [cats, tea] });
+    const keep = await fetch(`${base}/api/profile/learned/${tea!.id}/keep`, { method: "POST" });
+    expect(keep.status).toBe(200);
+    expect(aboutMe).toBe(`Handwritten note\n${tea!.line}`);
+    expect(await keep.json()).toMatchObject({ ok: true, aboutMe, pending: [cats], learned: [tea] });
+    const dismiss = await fetch(`${base}/api/profile/learned/${cats!.id}/dismiss`, { method: "POST" });
+    expect(await dismiss.json()).toMatchObject({ ok: true, pending: [] });
+    expect(planLearned(from, ["Has two cats"], aboutMe, "2026-10-30")).toEqual([]);
+    expect((await fetch(`${base}/api/profile/learned/${cats!.id}/keep`, { method: "POST" })).status).toBe(404);
+    expect((await fetch(`${base}/api/profile/learned/${cats!.id}/dismiss`, { method: "POST" })).status).toBe(404);
+    expect(requiredScope("POST", `/api/profile/learned/${tea!.id}/keep`)).toBe("admin");
+    await fetch(`${base}/api/profile/learned/${tea!.id}/remove`, { method: "POST" });
+  });
+
+  it("keeps a fact waiting when About me has no room for it", async () => {
+    const [fact] = planLearned({ botId: "bot-123", botName: "Memo" }, ["Runs every morning"], "", "2026-10-30");
+    holdLearned([fact!]);
+    const base = await serve({ aboutMe: () => "x".repeat(24_000), saveAboutMe: () => { throw new Error("should not save"); } });
+    const keep = await fetch(`${base}/api/profile/learned/${fact!.id}/keep`, { method: "POST" });
+    expect(keep.status).toBe(413);
+    expect(await (await fetch(`${base}/api/profile/learned`)).json()).toMatchObject({ pending: [fact] });
+    await fetch(`${base}/api/profile/learned/${fact!.id}/dismiss`, { method: "POST" });
   });
 
   it("brings memories from another assistant into About me, owner-only", async () => {
@@ -160,7 +191,7 @@ describe("the bot-memory module through the route table", () => {
     const remove = () => fetch(`${base}/api/profile/learned/${facts[0]!.id}/remove`, { method: "POST" });
     expect((await remove()).status).toBe(500);
     expect(aboutMe).toBe(original);
-    expect(await (await fetch(`${base}/api/profile/learned`)).json()).toEqual({ learned: facts });
+    expect(await (await fetch(`${base}/api/profile/learned`)).json()).toEqual({ learned: facts, pending: [] });
     expect(planLearned(from, [facts[0]!.text], "", "2026-09-28")).toHaveLength(1);
 
     failSave = false;
