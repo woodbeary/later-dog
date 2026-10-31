@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Check, CircleHelp, Copy } from "lucide-react";
-import { api, useStore, type ConfigStatus } from "@/state/store";
+import { api, ApiError, useStore, type ConfigStatus } from "@/state/store";
+import { Switch } from "./SettingsPrimitives";
 import { useCopyFeedback } from "@/lib/copy-text";
 import { t } from "@/lib/i18n";
 import { createAboutMeDraft } from "./about-me-draft";
@@ -141,52 +142,96 @@ interface LearnedFact {
 }
 
 function LearnedFacts({ onChanged }: { onChanged: (aboutMe: string) => void }) {
+  const { state, dispatch } = useStore();
+  const reviewing = state.config?.profile?.reviewLearned === true;
+  const waiting = state.config?.profile?.learnedWaiting ?? 0;
   const [facts, setFacts] = useState<LearnedFact[]>([]);
+  const [pending, setPending] = useState<LearnedFact[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    api<{ learned: LearnedFact[] }>("/api/profile/learned")
-      .then((result) => { if (!cancelled) setFacts(result.learned); })
+    api<{ learned: LearnedFact[]; pending?: LearnedFact[] }>("/api/profile/learned")
+      .then((result) => { if (!cancelled) { setFacts(result.learned); setPending(result.pending ?? []); } })
       .catch(() => undefined);
     return () => { cancelled = true; };
-  }, []);
+  }, [waiting]);
 
-  const remove = async (id: string) => {
+  const act = async (id: string, action: "remove" | "keep" | "dismiss") => {
     setBusy(id);
-    setError(false);
+    setError(null);
     try {
-      const result = await api<{ aboutMe: string; learned: LearnedFact[] }>(`/api/profile/learned/${encodeURIComponent(id)}/remove`, { method: "POST" });
+      const result = await api<{ aboutMe?: string; learned: LearnedFact[]; pending?: LearnedFact[] }>(`/api/profile/learned/${encodeURIComponent(id)}/${action}`, { method: "POST" });
       setFacts(result.learned);
-      onChanged(result.aboutMe);
-    } catch {
-      setError(true);
+      if (result.pending) setPending(result.pending);
+      if (typeof result.aboutMe === "string") onChanged(result.aboutMe);
+    } catch (failure) {
+      setError(failure instanceof ApiError && failure.status === 413 ? failure.message : t("settings.profile.learned.error"));
     } finally {
       setBusy(null);
     }
   };
 
-  if (!facts.length) return null;
+  const setReviewing = async (next: boolean) => {
+    setError(null);
+    try {
+      const config = await api<ConfigStatus>("/api/config", { method: "PUT", body: JSON.stringify({ profile: { reviewLearned: next } }), timeoutMs: 10_000 });
+      dispatch({ type: "profileSaved", profile: { reviewLearned: config.profile?.reviewLearned === true } });
+    } catch {
+      setError(t("settings.profile.learned.error"));
+    }
+  };
+
+  const factText = (fact: LearnedFact) => (
+    <span className="min-w-0 flex-1">
+      {fact.text}{" "}
+      <span className="text-[12px] text-ink-secondary">{t("settings.profile.learned.from", { name: fact.botName })}</span>
+    </span>
+  );
+  const button = "rounded-md px-2 py-1 text-[12.5px] text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-50";
+
   return (
-    <div className="mt-1 rounded-lg border border-hairline/40 bg-inset p-3">
-      <div className="text-[13px] font-medium text-ink">{t("settings.profile.learned.title")}</div>
-      <p className="mt-0.5 text-[12px] text-ink-secondary">{t("settings.profile.learned.hint")}</p>
-      <ul className="mt-2 flex flex-col gap-2">
-        {facts.map((fact) => (
-          <li key={fact.id} className="flex flex-wrap items-center gap-2 text-[13px] text-ink">
-            <span className="min-w-0 flex-1">
-              {fact.text}{" "}
-              <span className="text-[12px] text-ink-secondary">{t("settings.profile.learned.from", { name: fact.botName })}</span>
-            </span>
-            <button type="button" disabled={busy === fact.id} onClick={() => void remove(fact.id)}
-              className="rounded-md px-2 py-1 text-[12.5px] text-ink-secondary hover:bg-control hover:text-ink disabled:opacity-50">
-              {t("settings.profile.learned.remove")}
-            </button>
-          </li>
-        ))}
-      </ul>
-      {error && <div className="mt-2 text-[12px] text-danger">{t("settings.profile.learned.error")}</div>}
+    <div className="mt-1 flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-hairline/40 bg-inset px-3 py-2.5">
+        <div className="min-w-0">
+          <div className="text-[13px] text-ink">{t("settings.profile.learned.review")}</div>
+          <p className="mt-0.5 text-[12px] text-ink-secondary">{t("settings.profile.learned.reviewHint")}</p>
+        </div>
+        <Switch checked={reviewing} onClick={() => void setReviewing(!reviewing)} aria-label={t("settings.profile.learned.review")} />
+      </div>
+      {pending.length > 0 && (
+        <div data-learned-waiting="" className="rounded-lg border border-hairline/40 bg-inset p-3">
+          <div className="text-[13px] font-medium text-ink">{t("settings.profile.learned.waiting")}</div>
+          <p className="mt-0.5 text-[12px] text-ink-secondary">{t("settings.profile.learned.waitingHint")}</p>
+          <ul className="mt-2 flex flex-col gap-2">
+            {pending.map((fact) => (
+              <li key={fact.id} className="flex flex-wrap items-center gap-2 text-[13px] text-ink">
+                {factText(fact)}
+                <button type="button" disabled={busy === fact.id} onClick={() => void act(fact.id, "keep")} className={button}>{t("settings.profile.learned.keep")}</button>
+                <button type="button" disabled={busy === fact.id} onClick={() => void act(fact.id, "dismiss")} className={button}>{t("settings.profile.learned.dismiss")}</button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {facts.length > 0 && (
+        <div className="rounded-lg border border-hairline/40 bg-inset p-3">
+          <div className="text-[13px] font-medium text-ink">{t("settings.profile.learned.title")}</div>
+          <p className="mt-0.5 text-[12px] text-ink-secondary">{t("settings.profile.learned.hint")}</p>
+          <ul className="mt-2 flex flex-col gap-2">
+            {facts.map((fact) => (
+              <li key={fact.id} className="flex flex-wrap items-center gap-2 text-[13px] text-ink">
+                {factText(fact)}
+                <button type="button" disabled={busy === fact.id} onClick={() => void act(fact.id, "remove")} className={button}>
+                  {t("settings.profile.learned.remove")}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {error && <div role="alert" className="text-[12px] text-danger">{error}</div>}
     </div>
   );
 }
