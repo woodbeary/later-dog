@@ -138,7 +138,7 @@ describe("General", () => {
 
   it("stacks later.dog Cloud, AI accounts, Profile, Dogs, Appearance, System and Help, in that order", () => {
     const html = render();
-    expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "profile", "dogs", "appearance", "system", "help"]);
+    expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "profile", "dogs", "ask-first", "appearance", "system", "help"]);
     expect(markers(html)).toEqual(["accounts", "about-me", "permissions=microphone"]);
     const order = ["later.dog Cloud", "AI accounts", "Profile", "Your name", "Dogs", "Auto-review", "Appearance", "Theme", "Language", "Notification sounds", "System", "Help"].map((word) => html.indexOf(`>${word}</div>`));
     expect(order.every((at) => at >= 0)).toBe(true);
@@ -190,7 +190,7 @@ describe("General", () => {
       { instanceId: "mistral", driverKind: "mistral", displayName: "Mistral", access: "api", snapshot: { state: "unavailable", authenticated: false }, models },
     ];
     const html = render();
-    expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "api-keys", "profile", "dogs", "appearance", "system", "help"]);
+    expect(groups(html)).toEqual(["later-dog-cloud", "accounts", "api-keys", "profile", "dogs", "ask-first", "appearance", "system", "help"]);
     expect(markers(html)).toEqual(["accounts", "api-keys=openai", "about-me", "permissions=microphone"]);
     expect(html).toContain(">API keys</div>");
   });
@@ -204,16 +204,16 @@ describe("General", () => {
 
   it("leaves System out where it would be empty", () => {
     vi.stubGlobal("window", {});
-    expect(groups(render())).toEqual(["accounts", "profile", "dogs", "appearance", "help"]);
+    expect(groups(render())).toEqual(["accounts", "profile", "dogs", "ask-first", "appearance", "help"]);
     fixture.analytics = true;
-    expect(groups(render())).toEqual(["accounts", "profile", "dogs", "appearance", "system", "help"]);
+    expect(groups(render())).toEqual(["accounts", "profile", "dogs", "ask-first", "appearance", "system", "help"]);
   });
 
   it("leaves the later.dog Cloud group out when there is no Cloud bridge to fill it", () => {
     const { cloudAccount: _bridge, ...plain } = MAC.laterdog;
     vi.stubGlobal("window", { laterdog: plain });
     const html = render();
-    expect(groups(html)).toEqual(["accounts", "profile", "dogs", "appearance", "system", "help"]);
+    expect(groups(html)).toEqual(["accounts", "profile", "dogs", "ask-first", "appearance", "system", "help"]);
     expect(html).not.toContain(">later.dog Cloud</div>");
   });
 
@@ -276,7 +276,7 @@ describe("Settings in the Cloud's window", () => {
   it("is the same Settings: the account card, and this Mac's permission rows on General and on Computer", () => {
     vi.stubGlobal("window", CLOUD);
     const general = render();
-    expect(groups(general)).toEqual(["later-dog-cloud", "accounts", "profile", "dogs", "appearance", "system", "help"]);
+    expect(groups(general)).toEqual(["later-dog-cloud", "accounts", "profile", "dogs", "ask-first", "appearance", "system", "help"]);
     expect(general).toContain('data-cloud-account="on-cloud"');
     expect(markers(general)).toEqual(["accounts", "about-me", "permissions=microphone"]);
     expect(general).not.toContain("You&#x27;re on My Cloud");

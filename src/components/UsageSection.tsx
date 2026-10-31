@@ -6,6 +6,7 @@ import { IncludedUsage } from "./IncludedUsage";
 import { PlanBilling } from "./PlanBilling";
 import { UsageHistory, fetchUsage, usagePeriodRange, type UsageSummary } from "./UsageHistory";
 import { UsageAccounts } from "./UsageAccounts";
+import { UsageGitHub } from "./UsageGitHub";
 
 export function UsageSection() {
   const { state } = useStore();
@@ -40,6 +41,7 @@ export function UsageSection() {
         </div>
       </section>
       <UsageHistory />
+      <UsageGitHub />
     </>
   );
 }

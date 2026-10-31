@@ -47,7 +47,7 @@ const PROFILES = profiles();
 const REMOVED_TEAM_TOOLS = ["list_team_setup", "propose_team_setup", "propose_bot_deletion", "retry_thread"];
 const REMOVED_PEER_TOOLS = ["ask_bot", "delegate_bot", "check_delegation", "wait_delegation", "send_to_bot", "list_room_targets"];
 const FULL = { direct: "direct+skills+shared+voice" } as const;
-const PHONE_TOOLS = ["read_phone", "add_to_phone"];
+const PHONE_TOOLS = ["read_phone", "add_to_phone", "change_on_phone"];
 const MAC_MESSAGE_TOOLS = ["send_text", "read_texts", "send_email"];
 
 const BUDGET_BASELINE: Record<string, number> = {
@@ -60,7 +60,7 @@ const BUDGET_BASELINE: Record<string, number> = {
   "direct+skills+shared": 39790,
   "direct+skills+shared+voice": 40531,
   "direct+skills+shared+voice+cloud-home": 42718,
-  "direct+skills+shared+voice+cloud-home+phone": 44670,
+  "direct+skills+shared+voice+cloud-home+phone": 45602,
 };
 
 const RPC_PREFIX = '{"jsonrpc":"2.0","id":1,"result":';
@@ -154,7 +154,7 @@ describe("agents proxy tools/list golden", () => {
     }
   });
 
-  it("gives a Cloud home's dogs the person's iPhone as two tools, and only reading goes unasked", () => {
+  it("gives a Cloud home's dogs the person's iPhone as three tools, and only reading goes unasked", () => {
     type Annotated = Tool & { annotations?: { readOnlyHint?: boolean } };
     const cloud = toolsOf(wires["direct+skills+shared+voice+cloud-home"]!) as Annotated[];
     const phone = toolsOf(wires["direct+skills+shared+voice+cloud-home+phone"]!) as Annotated[];
@@ -164,6 +164,7 @@ describe("agents proxy tools/list golden", () => {
     }
     expect(phone.find((tool) => tool.name === "read_phone")?.annotations?.readOnlyHint).toBe(true);
     expect(phone.find((tool) => tool.name === "add_to_phone")?.annotations).toBeUndefined();
+    expect(phone.find((tool) => tool.name === "change_on_phone")?.annotations).toBeUndefined();
   });
 
   it("gives a Cloud home's dogs texts and email on the Mac as three tools, and only reading goes unasked", () => {

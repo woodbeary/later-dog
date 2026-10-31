@@ -9451,7 +9451,7 @@ describe("harness HTTP API", () => {
     expect(saved.status).toBe(200);
     expect(saved.body.composio).toEqual({ configured: true, mode: "self-hosted" });
     expect(saved.body.opencodeGo).toEqual({ configured: true, providerKeys: [] });
-    expect(saved.body.profile).toEqual({ name: "External Store", email: "", aboutMe: "", reviewLearned: false, learnedWaiting: 0 });
+    expect(saved.body.profile).toEqual({ name: "External Store", email: "", aboutMe: "", reviewLearned: false, learnedWaiting: 0, askFirst: [] });
     expect(JSON.stringify(saved.body)).not.toContain("ak_good");
 
     const disk = JSON.parse(readFileSync(join(home, ".laterdog", "config.json"), "utf8"));
@@ -9907,10 +9907,10 @@ describe("harness HTTP API", () => {
   it("stores and echoes the user profile (not write-only, unlike keys)", async () => {
     const put = await api("PUT", "/api/config", { profile: { name: "Ada Lovelace", email: "Ada@Example.com" } });
     expect(put.status).toBe(200);
-    expect(put.body.profile).toEqual({ name: "Ada Lovelace", email: "Ada@Example.com", aboutMe: "", reviewLearned: false, learnedWaiting: 0 });
+    expect(put.body.profile).toEqual({ name: "Ada Lovelace", email: "Ada@Example.com", aboutMe: "", reviewLearned: false, learnedWaiting: 0, askFirst: [] });
 
     const after = await api("GET", "/api/config");
-    expect(after.body.profile).toEqual({ name: "Ada Lovelace", email: "Ada@Example.com", aboutMe: "", reviewLearned: false, learnedWaiting: 0 });
+    expect(after.body.profile).toEqual({ name: "Ada Lovelace", email: "Ada@Example.com", aboutMe: "", reviewLearned: false, learnedWaiting: 0, askFirst: [] });
   });
 
   it("creates an independent webhook, accepts a delivery, deduplicates it, and rotates its secret", async () => {

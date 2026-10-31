@@ -77,6 +77,18 @@ describe("the phone's routes on the home", () => {
     expect(asked).toEqual([]);
   });
 
+  it("send a change to the phone as its own job, and check it first", async () => {
+    const { desk, post, asked } = await serve();
+    desk.connect({ id: PHONE, name: "Jacob's iPhone", can: ["change_reminder"] }, OWNER, SECRET);
+    desk.disconnect(PHONE, OWNER.session, SECRET);
+    const refused = await post("/api/internal/phone/change", { what: "reminder", id: "r-1", start: "2026-11-04" });
+    expect(refused.status).toBe(400);
+    expect(asked).toEqual([]);
+    const answer = await post("/api/internal/phone/change", { what: "reminder", id: "r-1", completed: true });
+    expect(asked).toEqual(["change_reminder"]);
+    expect(answer.status).toBe(409);
+  });
+
   it("ask the person to open the app when no phone is listening, and say so when it stays closed", async () => {
     const { desk, post, asked } = await serve();
     desk.connect({ id: PHONE, name: "Jacob's iPhone", can: ["add_reminder"] }, OWNER, SECRET);

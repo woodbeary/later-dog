@@ -271,8 +271,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home+phone": {
-    "bytes": 44670,
-    "sha256": "3b3fa64e8308572464f0645d0be2d1df389c8056a4798b241d18fbd62f2a55dc",
+    "bytes": 45602,
+    "sha256": "2d8f5bdf8f9a55c2f1acfa27d045ddf7a9fb7f5d9f06e2504fa4a71afeacac10",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
@@ -282,6 +282,7 @@
       "send_email",
       "read_phone",
       "add_to_phone",
+      "change_on_phone",
       "coordinate_bots",
       "start_tasks",
       "list_bots",

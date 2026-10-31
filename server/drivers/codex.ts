@@ -341,7 +341,7 @@ function extendShellExclusions(policy: Record<string, unknown>, patterns: readon
   ]) };
 }
 
-function namedApprovalParams(mode: Exclude<ApprovalMode, "custom">): CodexApprovalParams {
+function namedApprovalParams(mode: Exclude<ApprovalMode, "custom">, ownerAnswers = false): CodexApprovalParams {
   if (mode === "full") {
     return {
       thread: {
@@ -356,15 +356,16 @@ function namedApprovalParams(mode: Exclude<ApprovalMode, "custom">): CodexApprov
       },
     };
   }
+  const approvalsReviewer = mode === "auto" && !ownerAnswers ? "auto_review" : "user";
   return {
     thread: {
       approvalPolicy: "on-request",
-      approvalsReviewer: mode === "auto" ? "auto_review" : "user",
+      approvalsReviewer,
       sandbox: "workspace-write",
     },
     turn: {
       approvalPolicy: "on-request",
-      approvalsReviewer: mode === "auto" ? "auto_review" : "user",
+      approvalsReviewer,
       sandboxPolicy: { type: "workspaceWrite" },
     },
   };
@@ -1542,7 +1543,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         if (approvalMode === "custom") {
           approvalParams = customApprovalParams(effectiveConfig);
         } else {
-          approvalParams = withContainerAccess(namedApprovalParams(approvalMode), approvalMode, turn);
+          approvalParams = withContainerAccess(namedApprovalParams(approvalMode, turn.ownerAnswers === true), approvalMode, turn);
         }
         autoAcceptPermissions = approvalMode === "full";
         const selection = config.managed

@@ -224,6 +224,8 @@ import { registerEnginesBinDir } from "./engine-install.ts";
 import { registerNativeBinDir } from "./laterdog/native-install.ts";
 import { appendUsage, parseUsageRange, readUsage, summarizeUsage, usageCsv, USAGE_GROUPINGS, flushUsageLedger, type UsageGroupBy, type UsageRow, type UsageTrigger } from "./usage-ledger.ts";
 import { latestPlanRow, loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
+import { createGitHubActivity } from "./github-activity.ts";
+import { createGitHubActivityRoutes } from "./routes/github-activity.ts";
 import { GroupUsageReader } from "./group-thread-usage.ts";
 import { ledgerCost } from "./model-prices.ts";
 import type { PriceList } from "./prices.ts";
@@ -721,6 +723,7 @@ import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeo
 import { createSecureFormRoutes } from "./routes/secure-forms.ts";
 import { createVaultRoutes } from "./routes/vault.ts";
 import { RoutinePauses } from "./laterdog/routine-pause.ts";
+import { askFirstRules } from "../shared/ask-first.ts";
 import { createDogActivityRoutes } from "./routes/dog-activity.ts";
 import { createDeviceRoutes } from "./routes/devices.ts";
 import { dispatchInternalRoutes, INTERNAL_ROUTES } from "./routes/internal.ts";
@@ -5643,6 +5646,7 @@ function vpsThreadEnded(botId: string, threadId: string): void {
   if (!threads.size) activeVpsThreads.delete(botId);
 }
 const boatLifecycleBusyBots = new Set<string>();
+const githubActivity = createGitHubActivity();
 const boatWakes = createSharedJoins<Awaited<ReturnType<typeof boat.readyBoat>>>();
 const wakeBotBoat = (botId: string) => boatWakes.run(botId, () => boat.readyBoat(cfg, botId));
 const vpsPreviewRequests = new Map<string, ReturnType<typeof vps.vpsComputerScreenshot>>();
@@ -8474,7 +8478,7 @@ async function startTurn(
         text: withRecalled(recalled, fromPerson ? withOnItNote(dispatchContext.turnText) : dispatchContext.turnText),
         images: turnImages,
         approvalMode: approvalModeForTurn(bot, commsDepth > 0, threadId),
-        ...(ownerGrant ? { reviewerGrant: claudeReviewerGrant(cfg.profile?.name) } : {}),
+        ...(ownerGrant ? { reviewerGrant: claudeReviewerGrant(cfg.profile?.name, cfg.profile?.askFirst) } : {}),
         ...(ownerAnswers ? { ownerAnswers: true } : {}),
         toolScope,
         ...(guestConfined ? { guestConfined: true, confinedWhy: confinedWhy(threadId) } : {}),
@@ -10295,7 +10299,7 @@ async function runGroupMemberTurn(
         text: withRecalled(roomRecalled, text),
         images: turnImages,
         approvalMode: roomTurnApprovalMode(readyBot, threadId, orchestration),
-        ...(roomOwnerGrant ? { reviewerGrant: claudeReviewerGrant(cfg.profile?.name) } : {}),
+        ...(roomOwnerGrant ? { reviewerGrant: claudeReviewerGrant(cfg.profile?.name, cfg.profile?.askFirst) } : {}),
         ...(roomOwnerAnswers ? { ownerAnswers: true } : {}),
         toolScope: toolScopeForTurn(readyBot.id),
         ...(roomGuestConfined ? { guestConfined: true, confinedWhy: confinedWhy(threadId) } : {}),
@@ -11998,6 +12002,7 @@ function configStatus() {
       email: cfg.profile?.email ?? "",
       aboutMe: cfg.profile?.aboutMe ?? "",
       reviewLearned: cfg.profile?.reviewLearned === true,
+      askFirst: askFirstRules(cfg.profile?.askFirst),
       learnedWaiting: listPendingLearned().length,
     },
     managedPolicy: managedPolicy.summary(),
@@ -12397,6 +12402,7 @@ ROUTES.push(createDeciderRoutes({ decider }));
 ROUTES.push(createJobTraceRoutes());
 ROUTES.push(typingSuggestions.routes);
 ROUTES.push(createLaterDogRoutes());
+ROUTES.push(createGitHubActivityRoutes({ read: () => githubActivity.read() }));
 ROUTES.push(createHelpersRoutes({
   board: helperBoard,
   visibleThreads: auth => {
