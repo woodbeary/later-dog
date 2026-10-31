@@ -49,6 +49,17 @@ describe("mapping Claude's coordinates back to the screen", () => {
     expect(toFrame([640, 400], same, same)).toEqual([640, 400]);
   });
 
+  it("round-trips the corners and the center of a shrunk screenshot", () => {
+    for (const shrunk of [{ width: 2560, height: 1600 }, { width: 3840, height: 2160 }, { width: 3024, height: 1964 }, { width: 1170, height: 2532 }]) {
+      const box = frameSize(shrunk);
+      const right = box.width - 1;
+      const bottom = box.height - 1;
+      for (const at of [[0, 0], [right, 0], [0, bottom], [right, bottom], [Math.round(box.width / 2), Math.round(box.height / 2)]] as const) {
+        expect(toFrame(toScreen(at, box, shrunk), box, shrunk), `${shrunk.width}x${shrunk.height} at ${at.join(",")}`).toEqual(at);
+      }
+    }
+  });
+
   it("reports the pointer in screenshot pixels", () => {
     expect(toFrame([1280, 800], frame, screen)).toEqual([864, 540]);
     expect(toFrame([2559, 1599], frame, screen)).toEqual([1727, 1079]);
