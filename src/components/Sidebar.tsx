@@ -91,7 +91,6 @@ import { ConnectAppsPill, SidebarFooterNav } from "./SidebarFooterNav";
 import { GlassBar, GlassScrollFrame, GlassScroller } from "./GlassScrollFrame";
 import { SidebarProfileMenu } from "./SidebarProfileMenu";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
-import { SidebarTasksRow } from "./SidebarTasksRow";
 import { dogRowFacts } from "@/lib/dog-row";
 import { botShowsUnread } from "@/lib/bot-unread";
 import { useLiveMedia } from "@/lib/live-call-media";
@@ -207,7 +206,7 @@ export function GroupListItem({
   draggableToSection?: boolean;
 }) {
   const { state, dispatch } = useStore();
-  const selected = state.selectedId === group.id && !state.tasksOpen;
+  const selected = state.selectedId === group.id;
   const members = group.memberIds
     .map((id) => state.bots.find((b) => b.id === id))
     .filter((b): b is Bot => Boolean(b));
@@ -740,7 +739,7 @@ export function botRowProps(
   bot: Bot,
   layout: Pick<BotRowProps, "density" | "onMenu" | "onRenameHandled"> & { renameRequest?: { botId: string; at: number } | null },
 ): BotRowProps {
-  const selected = state.selectedId === bot.id && !state.tasksOpen;
+  const selected = state.selectedId === bot.id;
   const { renameRequest, ...rest } = layout;
   return {
     ...rest,
@@ -1319,7 +1318,6 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
       </div>
 
       <OrganizationIdentity compact={iconRail} />
-      <SidebarTasksRow iconRail={iconRail} />
       <PaneErrorLine
         panes={["sidebar"]}
         look="icon"
