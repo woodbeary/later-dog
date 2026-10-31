@@ -23,6 +23,7 @@ import { PermissionChecklist } from "./PermissionChecklist";
 import { SettingRow, SettingsGroup, SettingsRows, Switch } from "./SettingsPrimitives";
 import { CloudLending } from "./CloudLending";
 import { AutoReviewRow } from "./AutoReviewSettings";
+import { AskFirstGroup } from "./AskFirstSettings";
 import { DefaultModelRow } from "./DefaultModelSettings";
 import { CallButtonRow } from "./CallButtonSettings";
 import { MacAccessGroup } from "./MacAccessGroup";
@@ -263,6 +264,7 @@ function GeneralPage({ mac }: { mac: boolean }) {
           <AutoReviewRow />
         </SettingsRows>
       </SettingsGroup>
+      <AskFirstGroup />
       <SettingsGroup label={t("settings.section.appearance")} testId="appearance">
         <SettingsRows>
           <ThemeRow />

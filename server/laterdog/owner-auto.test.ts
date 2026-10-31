@@ -65,6 +65,17 @@ describe("the standing grant", () => {
     expect(grant.environment[1]).toContain("one of Jacob's own dogs, passing on Jacob's instructions");
   });
 
+  it("holds Claude's reviewer to the person's ask-first rules, keeping its built-in ones", () => {
+    expect(claudeReviewerGrant("Jacob")).not.toHaveProperty("soft_deny");
+    expect(claudeReviewerGrant("Jacob", [])).not.toHaveProperty("soft_deny");
+    const grant = claudeReviewerGrant("Jacob", ["Sending email to anyone new", " sending email to anyone new ", "Buying anything"]);
+    expect(grant.soft_deny).toEqual([
+      "$defaults",
+      "Ask Jacob first (Jacob's own rule): Sending email to anyone new",
+      "Ask Jacob first (Jacob's own rule): Buying anything",
+    ]);
+  });
+
   it("names the marker the reviewer is told to look for exactly as later.dog writes it", () => {
     const note = peerProvenanceNote({ botName: "Coordinator", owner: { name: "Jacob" } });
     expect(claudeReviewerGrant("Jacob").environment[1]).toContain("one of Jacob's own dogs, passing on Jacob's instructions");
