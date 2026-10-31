@@ -724,6 +724,7 @@ import { createSecureFormRoutes } from "./routes/secure-forms.ts";
 import { createVaultRoutes } from "./routes/vault.ts";
 import { askFirstRules } from "../shared/ask-first.ts";
 import { createDogActivityRoutes } from "./routes/dog-activity.ts";
+import { createScreenGoalRoutes } from "./routes/screen-goals.ts";
 import { createDeviceRoutes } from "./routes/devices.ts";
 import { dispatchInternalRoutes, INTERNAL_ROUTES } from "./routes/internal.ts";
 import { createDesktopViewer, desktopViewerUrl } from "./routes/desktop-viewer.ts";
@@ -12536,6 +12537,7 @@ ROUTES.push(createDogActivityRoutes({
   },
   turnTimes: (botId, since) => readUsage(DATA_DIR, { from: new Date(since), to: new Date() }).filter((row) => row.botId === botId).map((row) => Date.parse(row.at)),
 }));
+ROUTES.push(createScreenGoalRoutes({ dogThread: (threadId) => (store.botByThread(threadId) ? store.messagesFor(threadId) : null) }));
 ROUTES.push(createDeviceRoutes({ sessions }));
 ROUTES.push(createPhonePushRoutes({ push: phonePush }));
 ROUTES.push(createPhoneDeviceRoutes({ desk: phoneDesk, enabled: phoneToolsEnabled, owner: phoneOwner, gone: requestGone }));

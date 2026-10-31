@@ -2,14 +2,17 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Bot } from "@/state/store";
-import { ScreenGoals, STEPS_SHOWN } from "./ScreenGoals";
+import { api, type Bot } from "@/state/store";
+import { GOALS_SETTLE_MS, ScreenGoals, STEPS_SHOWN } from "./ScreenGoals";
+
+vi.mock("@/state/store", () => ({ api: vi.fn() }));
 
 let root: Root;
 let host: HTMLDivElement;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.mocked(api).mockReset().mockReturnValue(new Promise(() => {}));
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -24,7 +27,7 @@ afterEach(() => {
 type Messages = NonNullable<Bot["messages"]>;
 const ask = (id: string, at: number, text: string) => ({ id, role: "user", kind: "text", text, at }) as Messages[number];
 const step = (id: string, at: number, name: string, input?: string, ok = true) => ({ id, role: "bot", kind: "activity", at, tool: { name, ok, input } }) as Messages[number];
-const show = (messages: Messages, busy = false) => act(() => root.render(createElement(ScreenGoals, { bot: { messages, busy } })));
+const show = (messages: Messages, busy = false) => act(() => root.render(createElement(ScreenGoals, { bot: { messages, busy, threadId: "thread-1" } })));
 
 describe("goals on the dog's Computer tab", () => {
   it("shows nothing until the dog has used its computer for a request", () => {
@@ -60,6 +63,33 @@ describe("goals on the dog's Computer tab", () => {
     const more = [...host.querySelectorAll("button")].find((button) => button.textContent === `Show all ${STEPS_SHOWN + 3} steps`)!;
     act(() => more.click());
     expect(host.querySelectorAll("li")).toHaveLength(STEPS_SHOWN + 3);
+  });
+
+  it("asks the server for goals from the whole conversation once the chat settles", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(api).mockResolvedValue({ goals: [{ id: "u0", text: "Post the launch note", at: 1, latest: false, steps: [{ id: "s0", at: 2, action: "open", detail: "x.com", ok: true }] }] });
+      show([ask("u9", 90, "Thanks")]);
+      expect(host.querySelector("[data-screen-goals]")).toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(GOALS_SETTLE_MS); });
+      expect(api).toHaveBeenCalledWith("/api/threads/thread-1/screen-goals");
+      expect(host.querySelector("[data-goal]")!.textContent).toContain("Post the launch note");
+      expect([...host.querySelectorAll("li")].map((item) => item.textContent)).toEqual(["Opened x.com"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the goals it can see when the server can't answer", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(api).mockRejectedValue(new Error("no route"));
+      show([ask("u1", 1, "Check the page"), step("s1", 2, "mcp__computer__screenshot")]);
+      await act(async () => { await vi.advanceTimersByTimeAsync(GOALS_SETTLE_MS); });
+      expect(host.querySelector("[data-goal]")!.textContent).toContain("Check the page");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("clamps a long goal until the person shows all of it", () => {
