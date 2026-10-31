@@ -732,9 +732,16 @@ connect (an admin session), and only the owner's own conversations can use it.
 | `POST /api/phone/device/:id/disconnect` | The app went to the background |
 | `GET /api/phone/device` | The owner's phones: `id`, `name`, `online`, `can`, `lastSeenAt` |
 
-Dogs get two tools. `read_phone` reads the calendar, reminders, contacts or
+Dogs get four tools. `read_phone` reads the calendar, reminders, contacts or
 location; it is read-only and never asks. `add_to_phone` adds a calendar
-event or a reminder and asks like any other action. Jobs belong to the person,
+event or a reminder and `change_on_phone` changes one or ticks a reminder off,
+by the id `read_phone` gave; both ask like any other action. `nearby_places`
+finds places of a kind (coffee, gas, pharmacy…) or by name around the phone's
+latitude and longitude or an address, closest first, from OpenStreetMap's
+public search (Overpass for kinds, Nominatim for addresses and names; set
+`LATERDOG_OVERPASS_URL` or `LATERDOG_GEOCODE_URL` to use other servers). It
+needs no phone job, never asks, and keeps OpenStreetMap's attribution line in
+its answer. Jobs belong to the person,
 so whichever of their phones is open takes them. When none is open, the home
 sends a notification ("Wants to check your calendar. Open later.dog to let
 it.") and waits up to a minute for the app to open; past that the dog is told

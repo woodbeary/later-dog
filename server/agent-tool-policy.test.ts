@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agentToolAnnotations, asksForItself, isReadOnlyAgentTool, READ_ONLY_AGENT_TOOL_NAMES } from "./agent-tool-policy.ts";
+import { agentToolAnnotations, asksForItself, isReadOnlyAgentTool, OPEN_WORLD_READ_TOOL_NAMES, READ_ONLY_AGENT_TOOL_NAMES } from "./agent-tool-policy.ts";
 
 describe("built-in agent tool read policy", () => {
   it("includes only the reviewed local reads", () => {
@@ -25,8 +25,14 @@ describe("built-in agent tool read policy", () => {
     }
   });
 
+  it("reads public places without asking, and says the answer comes from outside later.dog", () => {
+    expect([...OPEN_WORLD_READ_TOOL_NAMES]).toEqual(["nearby_places"]);
+    expect(isReadOnlyAgentTool("nearby_places")).toBe(true);
+    expect(agentToolAnnotations("nearby_places")).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
+  });
+
   it.each([
-    "shared_computer", "add_to_phone", "send_text", "send_email", "coordinate_bots", "post_to_room",
+    "shared_computer", "add_to_phone", "change_on_phone", "send_text", "send_email", "coordinate_bots", "post_to_room",
     "create_bot", "request_credential", "memory_update", "propose_routine",
     "propose_routine_action", "propose_profile", "skill_manage",
     "propose_team_setup", "propose_bot_deletion",
