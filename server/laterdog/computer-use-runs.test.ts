@@ -119,6 +119,19 @@ describe("computer-use runs on the supervisor", () => {
     expect((await f.runs.finished(id)).failure).toBe("stopped");
   });
 
+  it("runs one computer-use run at a time on a computer", async () => {
+    const first = deferred<MessagesReply>();
+    const f = await fixture(engineWith([() => first.promise, finished("Done."), finished("Done.")]));
+    const id = (await f.admin("POST", "/computer-runs", START)).body.run.id as string;
+    const second = await f.admin("POST", "/computer-runs", START);
+    expect(second).toEqual({ status: 409, body: { error: "Another computer-use run is going on that computer; stop it, or wait for it to end, before starting one there." } });
+    expect((await f.admin("POST", "/computer-runs", { ...START, computerId: "cmp_fixture67890" })).status).toBe(202);
+    await f.admin("POST", `/computer-runs/${id}/stop`);
+    first.resolve(finished("Done."));
+    await f.runs.finished(id);
+    expect((await f.admin("POST", "/computer-runs", START)).status).toBe(202);
+  });
+
   it("checks what it is given", async () => {
     const f = await fixture(engineWith([]));
     expect((await f.admin("POST", "/computer-runs", { ...START, done: undefined })).status).toBe(400);

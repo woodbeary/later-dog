@@ -44,7 +44,7 @@ export class ComputerUseRuns {
   readonly store: ComputerUseStore;
   readonly #engine: ComputerUseEngine | null;
   readonly #unavailable: string;
-  readonly #live = new Map<string, { control: RunControl; finished: Promise<ComputerUseRun> }>();
+  readonly #live = new Map<string, { computerId: string; control: RunControl; finished: Promise<ComputerUseRun> }>();
 
   constructor(store: ComputerUseStore, engine: ComputerUseEngine | { unavailable: string }) {
     this.store = store;
@@ -57,6 +57,9 @@ export class ComputerUseRuns {
     const engine = this.#engine;
     if (!engine) throw unavailable(this.#unavailable);
     const input = startRunSchema.parse(body);
+    if ([...this.#live.values()].some((live) => live.computerId === input.computerId)) {
+      throw unavailable("Another computer-use run is going on that computer; stop it, or wait for it to end, before starting one there.");
+    }
     const run = this.store.start({ ...input, model: engine.messages.model });
     const control = new RunControl();
     const finished = runComputerUse(run.id, {
@@ -64,7 +67,7 @@ export class ComputerUseRuns {
       clock: engine.clock ?? Date.now, sleep: engine.sleep ?? waitFor, limits: engine.limits ?? DEFAULT_LIMITS,
     }).finally(() => this.#live.delete(run.id));
     finished.catch(() => {});
-    this.#live.set(run.id, { control, finished });
+    this.#live.set(run.id, { computerId: run.computerId, control, finished });
     return run;
   }
 

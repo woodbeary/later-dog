@@ -121,7 +121,7 @@ All on the supervisor, with its own token.
 
 | Route | What it does |
 | --- | --- |
-| `POST /v1/computer-runs` | Start a run: `{ "task", "computerId", "done": { "pageCheck": null \| { "url", "contains" } } }` |
+| `POST /v1/computer-runs` | Start a run: `{ "task", "computerId", "done": { "pageCheck": null \| { "url", "contains" } } }`. One run at a time on a computer: 409 while another is going on it |
 | `GET /v1/computer-runs` | The latest 50 runs |
 | `GET /v1/computer-runs/<id>` | One run with its steps and take-overs |
 | `POST /v1/computer-runs/<id>/done` | The person says it is done |
@@ -147,7 +147,8 @@ Verified on fixtures, with a fake desktop and scripted Messages answers (`server
 screenshot sizes and limits, mapping points both ways, every toolset member and its `xdotool` command, typed text kept
 out of the shell and out of the log, the request body and headers, one retry on 429 and 5xx, the step log (including a
 step the run ends partway through), take-overs asked by Claude and taken by the person, every way a run ends, the page
-check, the routes for the person and for a dog, and every query in [../metrics.md](../metrics.md).
+check, one run at a time on a computer, the routes for the person and for a dog, and every query in
+[../metrics.md](../metrics.md).
 
 Verified once on an isolated supervisor process (`node --experimental-strip-types server/laterdog/main.ts` with its own
 data folder and token) wired to a fake computers API and a fake Messages API on loopback: a run clicked, typed and
