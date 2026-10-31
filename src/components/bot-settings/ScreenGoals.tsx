@@ -1,13 +1,31 @@
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Loader2, Monitor } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import type { Bot } from "@/state/store";
+import { api, type Bot } from "@/state/store";
 import { screenGoals, type ScreenGoal, type ScreenStep } from "../../../shared/screen-goals";
 
 export const STEPS_SHOWN = 6;
+export const GOALS_SETTLE_MS = 600;
 const LONG_GOAL_CHARS = 180;
+
+function useConversationGoals(threadId: string, newest: string | undefined): ScreenGoal[] | null {
+  const [found, setFound] = useState<{ threadId: string; goals: ScreenGoal[] } | null>(null);
+  useEffect(() => {
+    let active = true;
+    const timer = setTimeout(() => {
+      api<{ goals?: unknown }>(`/api/threads/${encodeURIComponent(threadId)}/screen-goals`)
+        .then((answer) => { if (active && Array.isArray(answer?.goals)) setFound({ threadId, goals: answer.goals as ScreenGoal[] }); })
+        .catch(() => {});
+    }, GOALS_SETTLE_MS);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [threadId, newest]);
+  return found?.threadId === threadId ? found.goals : null;
+}
 
 export function stepWords(step: ScreenStep): string {
   if (step.action === "type") return step.detail ? t("goals.step.typeCount", { count: step.detail }) : t("goals.step.type");
@@ -16,8 +34,9 @@ export function stepWords(step: ScreenStep): string {
   return t(`goals.step.${step.action}`);
 }
 
-export function ScreenGoals({ bot }: { bot: Pick<Bot, "messages" | "busy"> }) {
-  const goals = useMemo(() => screenGoals(bot.messages ?? []), [bot.messages]);
+export function ScreenGoals({ bot }: { bot: Pick<Bot, "messages" | "busy" | "threadId"> }) {
+  const loaded = useMemo(() => screenGoals(bot.messages ?? []), [bot.messages]);
+  const goals = useConversationGoals(bot.threadId, bot.messages?.at(-1)?.id) ?? loaded;
   const [chosen, setChosen] = useState<string | null>(null);
   const index = chosen === null ? goals.length - 1 : goals.findIndex((goal) => goal.id === chosen);
   const goal = goals[index < 0 ? goals.length - 1 : index];
