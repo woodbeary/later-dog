@@ -176,13 +176,18 @@ test("Electron starts only after all owned services are ready and quitting clean
 });
 
 test("on a later.dog Cloud home the window waits only for the local proxy and renderer, never a sleeping home", { timeout: 5_000 }, async () => {
-  const plan = planFor({ LATERDOG_DEV_HOME_SESSION: "/fixture/home.session.json" });
+  const session = "/fixture/home.session.json";
+  const plan = planFor({ LATERDOG_DEV_HOME_SESSION: session });
   assert.equal(plan.supervisorUrl, null);
   assert.equal(plan.readyUrl, `${plan.serverUrl}/__dev-home-proxy/ready`);
   assert.deepEqual(plan.ports, [8999, 5299]);
   assert.equal(plan.env.LATERDOG_DEV_API_URL, plan.serverUrl);
-  assert.equal(plan.services.length, 2);
-  assert.deepEqual(plan.services[0].args, [`${ROOT}/scripts/dev-home-proxy.mjs`, "/fixture/home.session.json", "8999"]);
+  assert.deepEqual(plan.services.map(({ args, optional }) => ({ args, optional: optional === true })), [
+    { args: [`${ROOT}/scripts/dev-home-proxy.mjs`, session, "8999"], optional: false },
+    { args: [`${ROOT}/node_modules/vite/bin/vite.js`, "--host", "127.0.0.1", "--port", "5299", "--strictPort"], optional: false },
+    { args: [`${ROOT}/scripts/dev-mac.mjs`, session, `${fixtureHome}/.laterdog-dev`], optional: true },
+    { args: [`${ROOT}/scripts/dev-home.mjs`, "watch", "--session", session], optional: true },
+  ]);
   const processes = fakeProcesses(plan);
   const checked = [];
   const result = runDesktop(plan, lifecycleOptions(processes, { waitReady: async (url) => { checked.push(url); } }));
