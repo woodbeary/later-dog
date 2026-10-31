@@ -15,6 +15,7 @@ import { isIncludedEngine } from "../shared/account-engines.ts";
 import type { McpServerSpec } from "./contracts.ts";
 import { BUILT_IN_MCP_SERVER, isRemoteMcpServer, parseStoredMcpServer } from "./mcp-registry.ts";
 import { parseJson, schemaIssue, type JsonObject, type JsonValue } from "./schema.ts";
+import { askFirstRules } from "../shared/ask-first.ts";
 
 const optionalText = z.string().optional();
 const SSH_ALIAS = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
@@ -425,7 +426,7 @@ const appConfigSchema = z.object({
       "Use a model ID without control characters",
     ).optional(),
   }).optional(),
-  profile: z.object({ name: optionalText, email: optionalText, aboutMe: z.string().max(24_000).optional() }).optional(),
+  profile: z.object({ name: optionalText, email: optionalText, aboutMe: z.string().max(24_000).optional(), reviewLearned: z.boolean().optional(), askFirst: z.array(z.string().max(1_000)).max(100).transform(askFirstRules).optional() }).optional(),
   language: optionalText,
   rooms: roomConfigSchema.optional(),
   mcp: mcpConfigSchema.optional(),
@@ -495,7 +496,7 @@ export interface AppConfig {
   imageGen?: ImageGenerationConfig;
   typing?: { accountId?: string; token?: string; model?: string };
   live?: { key?: string; voice?: string; readTypedReplies?: boolean; idleMinutes?: number };
-  profile?: { name?: string; email?: string; aboutMe?: string };
+  profile?: { name?: string; email?: string; aboutMe?: string; reviewLearned?: boolean; askFirst?: string[] };
   rooms?: { turnTimeoutMinutes: number; handoffIdleMinutes?: number; handoffLifetimeMinutes?: number; handoffMinRunwayMinutes?: number; handoffHardCapMinutes?: number };
   mcp?: { callTimeoutMinutes?: number };
   threads?: { maxConcurrentPerBot: number; eventLogMaxBytes?: number; eventLogRetentionDays?: number };

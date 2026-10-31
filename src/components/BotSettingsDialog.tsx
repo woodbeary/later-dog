@@ -21,6 +21,7 @@ import { ComputerTab } from "./bot-settings/ComputerTab";
 import { DogShareButton } from "./bot-settings/DogShare";
 import { ProfileAvatar } from "./bot-settings/ProfileAvatar";
 import { AllowedWithoutAsking } from "./bot-settings/AllowedWithoutAsking";
+import { DogActivity } from "./bot-settings/DogActivity";
 import { RoutinesCard } from "./bot-settings/RoutinesCard";
 import { CodingJobs } from "./bot-settings/CodingJobs";
 import { PaneErrorLine } from "./PaneErrorLine";
@@ -277,6 +278,7 @@ export function BotSettingsDialog({ bot, overlay = false }: {
                 </div>
               </div>
               <AllowedWithoutAsking bot={bot} />
+              <DogActivity bot={bot} />
             </div>
           )}
 
