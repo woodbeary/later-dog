@@ -77,6 +77,7 @@ describe("configuration boundaries", () => {
     expect(parseConfigPatch({ profile })).toEqual({ profile });
     expect(parseStoredConfig({ profile })).toEqual({ profile });
     expect(parseConfigPatch({ profile: { aboutMe: "" } })).toEqual({ profile: { aboutMe: "" } });
+    expect(parseConfigPatch({ profile: { askFirst: [" Buying  anything ", "buying anything", "Sending email"] } })).toEqual({ profile: { askFirst: ["Buying anything", "Sending email"] } });
     expect(providerReloadKeys({ profile })).toEqual([]);
     expect(() => parseConfigPatch({ profile: { aboutMe: "x".repeat(24_001) } })).toThrow();
   });

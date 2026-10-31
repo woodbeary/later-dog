@@ -722,6 +722,7 @@ import { engineAnswer } from "./laterdog/person-denied.ts";
 import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeover.ts";
 import { createSecureFormRoutes } from "./routes/secure-forms.ts";
 import { createVaultRoutes } from "./routes/vault.ts";
+import { askFirstRules } from "../shared/ask-first.ts";
 import { createDogActivityRoutes } from "./routes/dog-activity.ts";
 import { createDeviceRoutes } from "./routes/devices.ts";
 import { dispatchInternalRoutes, INTERNAL_ROUTES } from "./routes/internal.ts";
@@ -8469,7 +8470,7 @@ async function startTurn(
         text: withRecalled(recalled, fromPerson ? withOnItNote(dispatchContext.turnText) : dispatchContext.turnText),
         images: turnImages,
         approvalMode: approvalModeForTurn(bot, commsDepth > 0, threadId),
-        ...(ownerGrant ? { reviewerGrant: claudeReviewerGrant(cfg.profile?.name) } : {}),
+        ...(ownerGrant ? { reviewerGrant: claudeReviewerGrant(cfg.profile?.name, cfg.profile?.askFirst) } : {}),
         ...(ownerAnswers ? { ownerAnswers: true } : {}),
         toolScope,
         ...(guestConfined ? { guestConfined: true, confinedWhy: confinedWhy(threadId) } : {}),
@@ -10289,7 +10290,7 @@ async function runGroupMemberTurn(
         text: withRecalled(roomRecalled, text),
         images: turnImages,
         approvalMode: roomTurnApprovalMode(readyBot, threadId, orchestration),
-        ...(roomOwnerGrant ? { reviewerGrant: claudeReviewerGrant(cfg.profile?.name) } : {}),
+        ...(roomOwnerGrant ? { reviewerGrant: claudeReviewerGrant(cfg.profile?.name, cfg.profile?.askFirst) } : {}),
         ...(roomOwnerAnswers ? { ownerAnswers: true } : {}),
         toolScope: toolScopeForTurn(readyBot.id),
         ...(roomGuestConfined ? { guestConfined: true, confinedWhy: confinedWhy(threadId) } : {}),
@@ -11992,6 +11993,7 @@ function configStatus() {
       email: cfg.profile?.email ?? "",
       aboutMe: cfg.profile?.aboutMe ?? "",
       reviewLearned: cfg.profile?.reviewLearned === true,
+      askFirst: askFirstRules(cfg.profile?.askFirst),
       learnedWaiting: listPendingLearned().length,
     },
     managedPolicy: managedPolicy.summary(),
