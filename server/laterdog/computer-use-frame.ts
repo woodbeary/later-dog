@@ -28,8 +28,9 @@ export function frameSize(screen: Size): Size {
   const landscape = screen.width >= screen.height;
   const boxWidth = landscape ? FRAME_LONG_EDGE : FRAME_SHORT_EDGE;
   const boxHeight = landscape ? FRAME_SHORT_EDGE : FRAME_LONG_EDGE;
-  const scale = Math.min(1, boxWidth / screen.width, boxHeight / screen.height);
-  return { width: Math.max(1, Math.floor(screen.width * scale)), height: Math.max(1, Math.floor(screen.height * scale)) };
+  if (screen.width <= boxWidth && screen.height <= boxHeight) return { width: screen.width, height: screen.height };
+  if (boxWidth * screen.height <= boxHeight * screen.width) return { width: boxWidth, height: Math.max(1, Math.round((screen.height * boxWidth) / screen.width)) };
+  return { width: Math.max(1, Math.round((screen.width * boxHeight) / screen.height)), height: boxHeight };
 }
 
 export function sameSize(a: Size, b: Size): boolean {
