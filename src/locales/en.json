@@ -2841,6 +2841,8 @@
   "appLink.notFound.title": "Not found",
   "appLink.notFound.body": "This dog was removed or isn't shared with you.",
   "composer.send.steerHint": "Send into the running turn. {shortcut} queues it for when the turn ends instead",
+  "quickLook.open": "Preview {name}",
+  "quickLook.failed": "Couldn't preview {name}. Try again, or save it to open it.",
   "goals.title": "Goals",
   "goals.goal": "Goal",
   "goals.position": "Goal {position} of {total}",
