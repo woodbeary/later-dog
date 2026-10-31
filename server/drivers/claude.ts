@@ -392,6 +392,11 @@ function removePrivateTempDir(filePath: string | null | undefined): boolean {
   }
 }
 
+function removeLaunchFiles(session: { mcpConfigPath: string | null; systemPromptPath: string | null }): void {
+  if (removePrivateTempDir(session.mcpConfigPath)) session.mcpConfigPath = null;
+  if (removePrivateTempDir(session.systemPromptPath)) session.systemPromptPath = null;
+}
+
 interface Ask {
   id: string;
   kind: "permission" | "question";
@@ -2161,6 +2166,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         } finally {
           for (const { stop } of active.values()) stop();
           for (const threadId of Array.from(sessions.keys())) closeSession(threadId, "dispose");
+          for (const session of sessions.values()) removeLaunchFiles(session);
           listeners.clear();
         }
       },

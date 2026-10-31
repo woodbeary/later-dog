@@ -2062,6 +2062,19 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(existsSync(dirname(configPath))).toBe(false);
   });
 
+  it("deletes a running turn's launch files when the driver is put away, without waiting for its program to exit", async () => {
+    await create("hang");
+    const dump = join(scratch, "dump-put-away.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "t-put-away", text: "go", system: "You are Testy." });
+    await expect.poll(() => existsSync(dump), { timeout: 5_000 }).toBe(true);
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    const launchDirs = ["--mcp-config", "--append-system-prompt-file"].map((flag) => dirname(seen.argv[seen.argv.indexOf(flag) + 1] as string));
+    expect(launchDirs.map((dir) => existsSync(dir))).toEqual([true, true]);
+    await instance.dispose();
+    expect(launchDirs.map((dir) => existsSync(dir))).toEqual([false, false]);
+  });
+
   it("mounts local CUA without pre-allowing its computer namespace", async () => {
     await create();
     const dump = join(scratch, "local-dump.json");
