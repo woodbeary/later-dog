@@ -3,6 +3,7 @@ import { activityDays, bucketByDay, createGitHubActivity, ghLogin, ghSearch, rea
 import type { CommandRunner } from "./laterdog/command.ts";
 
 const TODAY = "2026-10-30";
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("commits and PRs a day", () => {
   it("covers the last 30 days ending today", () => {
@@ -82,17 +83,43 @@ describe("commits and PRs a day", () => {
     expect(calls[1]).toContain("page=2");
   });
 
-  it("keeps an answer for ten minutes and asks again after", async () => {
+  it("keeps an answer for ten minutes, then gives it at once while it asks again", async () => {
     let now = Date.parse(`${TODAY}T12:00:00Z`);
     const search = vi.fn<GitHubSearch>(async () => ({ total: 0, stamps: [] }));
     const activity = createGitHubActivity({ login: async () => "dogfan", search, now: () => now, pauseMs: 0 });
-    await activity.read();
+    const first = await activity.read();
     now += 9 * 60_000;
     await activity.read();
     expect(search).toHaveBeenCalledTimes(2);
     now += 2 * 60_000;
-    await activity.read();
+    expect(await activity.read()).toBe(first);
+    await settle();
     expect(search).toHaveBeenCalledTimes(4);
+    expect(await activity.read()).not.toBe(first);
+  });
+
+  it("waits for GitHub on a new day instead of giving yesterday's answer", async () => {
+    let now = Date.parse(`${TODAY}T23:55:00Z`);
+    const search = vi.fn<GitHubSearch>(async () => ({ total: 0, stamps: [] }));
+    const activity = createGitHubActivity({ login: async () => "dogfan", search, now: () => now, pauseMs: 0 });
+    await activity.read();
+    now += 10 * 60_000;
+    expect(await activity.read()).toMatchObject({ state: "ready", today: "2026-10-31" });
+  });
+
+  it("stops giving the last answer once GitHub is signed out", async () => {
+    let now = Date.parse(`${TODAY}T12:00:00Z`);
+    let login: string | null = "dogfan";
+    const search = vi.fn<GitHubSearch>(async () => ({ total: 0, stamps: [] }));
+    const activity = createGitHubActivity({ login: async () => login, search, now: () => now, pauseMs: 0 });
+    await activity.read();
+    login = null;
+    now += 11 * 60_000;
+    await activity.read();
+    await settle();
+    expect(await activity.read()).toEqual({ state: "signedOut" });
+    now += 11 * 60_000;
+    expect(await activity.read()).toEqual({ state: "signedOut" });
   });
 
   it("reports GitHub failing as unavailable instead of throwing", async () => {
@@ -112,12 +139,16 @@ describe("commits and PRs a day", () => {
     refuse = true;
     now += 11 * 60_000;
     expect(await activity.read()).toEqual(first);
+    await settle();
+    expect(await activity.read()).toEqual(first);
     const asked = search.mock.calls.length;
     now += 4 * 60_000;
     await activity.read();
+    await settle();
     expect(search.mock.calls.length).toBe(asked);
     now += 2 * 60_000;
     await activity.read();
+    await settle();
     expect(search.mock.calls.length).toBeGreaterThan(asked);
   });
 

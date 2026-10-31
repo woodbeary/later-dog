@@ -117,10 +117,11 @@ export function createGitHubActivity(deps: { login?: () => Promise<string | null
           value = lastReady?.today === today ? lastReady : { state: "unavailable", message: error instanceof Error ? error.message : String(error) };
         }
         if (value.state === "ready") lastReady = value;
+        else if (!failed) lastReady = null;
         cached = { at, ttl: failed ? RETRY_MS : FRESH_MS, today, value };
         return value;
       })().finally(() => { pending = null; });
-      return pending;
+      return lastReady?.today === today ? lastReady : pending;
     },
   };
 }
