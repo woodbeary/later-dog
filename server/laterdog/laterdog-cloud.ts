@@ -193,10 +193,10 @@ export interface LaterdogCloudAdapterOptions {
 
 type Send = { method?: string; body?: RequestInit["body"]; headers?: Record<string, string>; accept?: string; timeoutMs?: number };
 
-class LaterdogComputers {
-  readonly #settings: LaterdogCloudSettings;
+export class LaterdogComputers {
+  readonly #settings: Pick<LaterdogCloudSettings, "api" | "key">;
   readonly #fetch: typeof fetch;
-  constructor(settings: LaterdogCloudSettings, fetchImpl: typeof fetch) { this.#settings = settings; this.#fetch = fetchImpl; }
+  constructor(settings: Pick<LaterdogCloudSettings, "api" | "key">, fetchImpl: typeof fetch) { this.#settings = settings; this.#fetch = fetchImpl; }
 
   async send(path: string, { method = "GET", body, headers = {}, accept = "application/json", timeoutMs = 30_000 }: Send = {}): Promise<Response> {
     let response: Response;

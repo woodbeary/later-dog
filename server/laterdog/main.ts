@@ -1,12 +1,14 @@
 import { join } from "node:path";
 import { loadSupervisorConfig, supervisorDataDir, supervisorToken } from "./config.ts";
+import { computerUseRunsFromEnvironment } from "./computer-use-runs.ts";
 import { createSupervisorServer } from "./http.ts";
 import { WorkspaceStore } from "./store.ts";
 import { Supervisor, message } from "./supervisor.ts";
 
 const dataDir = supervisorDataDir(); const store = new WorkspaceStore(join(dataDir,"workspace.sqlite"));
 const supervisor = new Supervisor(store,{ dataDir, ...loadSupervisorConfig(dataDir) });
-const server = createSupervisorServer(supervisor,supervisorToken(dataDir));
+const computerRuns = computerUseRunsFromEnvironment(store.db,process.env);
+const server = createSupervisorServer(supervisor,supervisorToken(dataDir),computerRuns);
 const port = Number(process.env.LATERDOG_PORT ?? 9010);
 server.on("error",(error: NodeJS.ErrnoException) => {
   console.error(error.code === "EADDRINUSE"
@@ -21,7 +23,7 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return; shuttingDown = true; clearInterval(timer);
   const deadline = setTimeout(() => { console.error("later.dog supervisor: forcing exit after shutdown timeout"); process.exit(0); }, 10_000); deadline.unref();
-  supervisor.stop(); await supervisor.drain();
+  supervisor.stop(); await supervisor.drain(); await computerRuns.drain();
   await new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections(); });
   store.close(); clearTimeout(deadline);
 }

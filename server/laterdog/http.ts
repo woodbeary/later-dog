@@ -5,6 +5,7 @@ import { z } from "zod";
 import { repositorySchema, scopePath } from "../../shared/laterdog.ts";
 import { json, readBody } from "../harness/http.ts";
 import { BridgeStore } from "./bridge-store.ts";
+import { computerUseRoute, type ComputerUseRuns } from "./computer-use-runs.ts";
 import { ADMIN_SCOPE, DOG_HEADER, authenticateDog, dogScope, secretEquals } from "./dog-access.ts";
 import { recordObservation } from "./observations.ts";
 import { Supervisor, message } from "./supervisor.ts";
@@ -22,7 +23,7 @@ export const actionSchema = z.discriminatedUnion("action", [
     writeScopes: z.array(scopePath).min(1).max(40).optional() }).strict(),
   z.object({ action: z.literal("review"), requestKey: z.string().min(8).max(200), profileId: z.string().max(100).optional() }).strict(),
 ]);
-export function createSupervisorServer(supervisor: Supervisor, token: string): Server {
+export function createSupervisorServer(supervisor: Supervisor, token: string, computerRuns?: ComputerUseRuns): Server {
   if (token.length < 32) throw new Error("Supervisor token must contain at least 32 characters");
   const bridge = new BridgeStore(supervisor.store);
   return createServer(async (req,res) => {
@@ -47,6 +48,8 @@ export function createSupervisorServer(supervisor: Supervisor, token: string): S
         return json(res,403,{ error: "Paired devices may only poll and settle their own local requests" });
       }
       const scope = dog ? dogScope(supervisor.store,dog) : ADMIN_SCOPE; scope.check(method,url.pathname);
+      const computerUse = await computerUseRoute(computerRuns,method,url.pathname,() => readBody(req,20_000));
+      if (computerUse) return json(res,computerUse.status,computerUse.body);
       const profilePath = /^\/v1\/profiles\/([a-zA-Z0-9_-]+)\/(access|tasks|login)$/.exec(url.pathname);
       if (profilePath && profilePath[2] === "login" && method === "POST") return json(res,202,await supervisor.loginProfile(profilePath[1]));
       if (profilePath && profilePath[2] !== "login" && method === "GET") return json(res,200,profilePath[2] === "tasks" ? await supervisor.listProfileTasks(profilePath[1]) : await supervisor.inspectProfile(profilePath[1]));

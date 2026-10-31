@@ -61,6 +61,7 @@ const REFUSALS: [RegExp, string][] = [
   [/^\/v1\/profiles\/[^/]+\/login$/, "This dog's access does not include starting a provider login; the person runs pnpm laterdog:login."],
   [/^\/v1\/github\//, "This dog's access does not include GitHub sign-in or account details; the person connects GitHub in the later.dog Workspace."],
   [/^\/v1\/bridge\//, "This dog's access does not include the person's paired devices."],
+  [/^\/v1\/computer-runs(?:\/|$)/, "Only the person starts a computer-use run, takes over its screen, or says whether it is done, in the later.dog app; a dog cannot."],
   [/^\/v1\/wakeups(?:\/|$)/, "This dog's access does not include the wake-up queue; the later.dog desktop delivers each conversation's wake-ups."],
 ];
 const ELSEWHERE = "This dog's access does not include that later.dog operation.";
