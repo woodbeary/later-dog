@@ -224,6 +224,7 @@ import { registerEnginesBinDir } from "./engine-install.ts";
 import { registerNativeBinDir } from "./laterdog/native-install.ts";
 import { appendUsage, parseUsageRange, readUsage, summarizeUsage, usageCsv, USAGE_GROUPINGS, flushUsageLedger, type UsageGroupBy, type UsageRow, type UsageTrigger } from "./usage-ledger.ts";
 import { latestPlanRow, loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
+import { createGitHubActivity } from "./github-activity.ts";
 import { GroupUsageReader } from "./group-thread-usage.ts";
 import { ledgerCost } from "./model-prices.ts";
 import type { PriceList } from "./prices.ts";
@@ -5635,6 +5636,7 @@ function vpsThreadEnded(botId: string, threadId: string): void {
   if (!threads.size) activeVpsThreads.delete(botId);
 }
 const boatLifecycleBusyBots = new Set<string>();
+const githubActivity = createGitHubActivity();
 const boatWakes = createSharedJoins<Awaited<ReturnType<typeof boat.readyBoat>>>();
 const wakeBotBoat = (botId: string) => boatWakes.run(botId, () => boat.readyBoat(cfg, botId));
 const vpsPreviewRequests = new Map<string, ReturnType<typeof vps.vpsComputerScreenshot>>();
@@ -18264,6 +18266,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const limit = parsedLimit;
       return json(res, 200, readThreadEvents({ eventsDir: EVENTS_DIR, nativeDir: NATIVE_DIR, threadId, limit }));
+    }
+
+    if (method === "GET" && path === "/api/usage/github") {
+      res.setHeader("cache-control", "no-store");
+      return json(res, 200, await githubActivity.read());
     }
 
     if (method === "GET" && (path === "/api/usage" || path === "/api/usage.csv")) {
