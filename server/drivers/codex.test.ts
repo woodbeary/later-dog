@@ -728,6 +728,27 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     },
   );
 
+  it("sends Auto's requests to later.dog instead of the automatic reviewer when the owner answers them", async () => {
+    await create();
+    const dump = join(scratch, "owner-answers.json");
+    process.env.FAKE_CODEX_DUMP = dump;
+
+    await instance.adapter.sendTurn({ threadId: "t-owner-answers", text: "continue", approvalMode: "auto", ownerAnswers: true });
+    await recorder.until((event) => event.type === "turn.completed");
+
+    const calls = JSON.parse(readFileSync(dump, "utf8")).calls as Array<{ method: string; params: Record<string, unknown> }>;
+    expect(calls.find((call) => call.method === "thread/start")?.params).toMatchObject({
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      sandbox: "workspace-write",
+    });
+    expect(calls.find((call) => call.method === "turn/start")?.params).toMatchObject({
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      sandboxPolicy: { type: "workspaceWrite" },
+    });
+  });
+
   it.each([false, true])("preserves the complete resolved sandbox (resumed=%s)", async (resumed) => {
     await create({ mode: "resume" });
     const dump = join(scratch, "resolved-sandbox.json");

@@ -8,7 +8,7 @@ own dogs works. There is no per-dog Heel or Off-leash picker any more.
 | Auto-review | What your dogs do |
 | --- | --- |
 | **On** | The engine's own AI reviewer checks each step (Codex `auto_review`, Claude `auto`, Cursor `--auto-review`, Grok `auto`). You see a card only for what the reviewer leaves for you. Engines without a reviewer (the free Kimi and Grok models, OpenAI-compatible chat engines) card each request, and the chat says so once; the chat engines still use the dog's own cloud computer and browser with no card, and a computer the person has taken over refuses the dog's call. |
-| **Off** | No asks. Claude Code starts without its reviewer, in Manual, so each of its requests comes to later.dog, which answers it at once with no card. A turn a webhook started, and work it hands to other dogs, still starts with the reviewer. Other engines still start with their reviewer, and later.dog answers whatever it leaves for you at once, with no card. The decision log records each one with source `owner-auto`. |
+| **Off** | No asks. Claude Code starts without its reviewer, in Manual, and Codex starts with `user` as its approvals reviewer in place of `auto_review`, so each of their requests comes to later.dog, which answers it at once with no card. A turn a webhook started, and work it hands to other dogs, still starts with the reviewer. Other engines still start with their reviewer, and later.dog answers whatever it leaves for you at once, with no card. The decision log records each one with source `owner-auto`. |
 
 The switch is saved in the config as `features.autoReview` and changed with
 `PATCH /api/config`. It is off unless you turn it on: the first start that has
@@ -54,8 +54,8 @@ authorize your dogs to commit, push branches, commit and push to the default
 branch, open, update and comment on pull requests, and run the repository's
 build, test and release scripts. Whether a reviewer then approves a given action
 is still its own decision; later.dog cannot overrule a reviewer that denies
-outright. With Auto-review off, Claude Code runs without that reviewer, so only
-the guard above refuses anything. A turn a webhook started, and work it hands to
+outright. With Auto-review off, Claude Code and Codex run without their
+reviewers, so only the guard above refuses anything. A turn a webhook started, and work it hands to
 other dogs, keeps the reviewer either way, because what a webhook sends comes
 from outside.
 
@@ -177,7 +177,7 @@ multi-question card renders its structured form on current apps instead.
 
 | Provider | Ask | Auto-accept edits | Auto | Full access |
 | --- | --- | --- | --- | --- |
-| Codex | `on-request` approvals, `workspace-write` sandbox, you review | not offered (Ask already writes in the workspace) | same sandbox, native `auto_review` reviewer | `never` approvals, `danger-full-access` sandbox |
+| Codex | `on-request` approvals, `workspace-write` sandbox, you review | not offered (Ask already writes in the workspace) | same sandbox, native `auto_review` reviewer; with Auto-review off, your own dog's turn starts with `user` as reviewer and later.dog answers each request | `never` approvals, `danger-full-access` sandbox |
 | Claude | Native `default` | Native `acceptEdits` | Native `auto`; with Auto-review off, your own dog's turn starts in Native `default` and later.dog answers each request | Native `bypassPermissions` |
 | Cursor | Native default | not offered | Native `--auto-review` | Native `--force` |
 | Antigravity | Native `default` | Native `auto_edit` | Legacy `auto` behaves as Ask; UI Auto selects Full access | Native `yolo` plus automatic approval of remaining tool-permission requests; shown as Auto |
