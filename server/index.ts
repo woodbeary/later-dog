@@ -225,6 +225,7 @@ import { registerNativeBinDir } from "./laterdog/native-install.ts";
 import { appendUsage, parseUsageRange, readUsage, summarizeUsage, usageCsv, USAGE_GROUPINGS, flushUsageLedger, type UsageGroupBy, type UsageRow, type UsageTrigger } from "./usage-ledger.ts";
 import { latestPlanRow, loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
 import { createGitHubActivity } from "./github-activity.ts";
+import { createGitHubActivityRoutes } from "./routes/github-activity.ts";
 import { GroupUsageReader } from "./group-thread-usage.ts";
 import { ledgerCost } from "./model-prices.ts";
 import type { PriceList } from "./prices.ts";
@@ -12390,6 +12391,7 @@ ROUTES.push(createDeciderRoutes({ decider }));
 ROUTES.push(createJobTraceRoutes());
 ROUTES.push(typingSuggestions.routes);
 ROUTES.push(createLaterDogRoutes());
+ROUTES.push(createGitHubActivityRoutes({ read: () => githubActivity.read() }));
 ROUTES.push(createHelpersRoutes({
   board: helperBoard,
   visibleThreads: auth => {
@@ -18266,11 +18268,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const limit = parsedLimit;
       return json(res, 200, readThreadEvents({ eventsDir: EVENTS_DIR, nativeDir: NATIVE_DIR, threadId, limit }));
-    }
-
-    if (method === "GET" && path === "/api/usage/github") {
-      res.setHeader("cache-control", "no-store");
-      return json(res, 200, await githubActivity.read());
     }
 
     if (method === "GET" && (path === "/api/usage" || path === "/api/usage.csv")) {
