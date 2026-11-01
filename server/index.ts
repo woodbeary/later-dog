@@ -605,7 +605,7 @@ import {
   type Viewer,
 } from "./bot-visibility.ts";
 import { describeBrand, loadBrand } from "./brand.ts";
-import { deliverSseFrame } from "./sse-fanout.ts";
+import { deliverSseFrame, keepSseAlive } from "./sse-fanout.ts";
 import {
   PHONE_SECRET_PROTOCOL_VERSION,
   PhoneSecretBridge,
@@ -4811,6 +4811,7 @@ interface SseClient {
   backpressured: boolean;
   viewer: Viewer;
   seen: StreamSeen;
+  close: () => void;
 }
 const sseClients = new Set<SseClient>();
 
@@ -4818,11 +4819,7 @@ let audienceChangedAt = 0;
 function audienceChanged(): void {
   audienceChangedAt = lastSeq;
   for (const client of sseClients) {
-    if (client.viewer.kind !== "member") continue;
-    sseClients.delete(client);
-    try {
-      client.res.end();
-    } catch {}
+    if (client.viewer.kind === "member") client.close();
   }
 }
 const desktopViewer = createDesktopViewer({
@@ -4856,11 +4853,7 @@ function closeSessionStreams(sessionId: string): void {
   browserLive.closeForOwner(sessionId);
   desktopViewer.closeForOwner(sessionId);
   for (const client of sseClients) {
-    if (client.sessionId !== sessionId) continue;
-    sseClients.delete(client);
-    try {
-      client.res.end();
-    } catch {}
+    if (client.sessionId === sessionId) client.close();
   }
 }
 sessions.onSessionRevoked((sessionId) => {
@@ -4907,9 +4900,7 @@ function broadcast(payload: Record<string, unknown>, options: { adminOnly?: bool
     if (!wants(client, kind)) continue;
     const out = client.admin ? frame : clientFrame === null ? null : memberFrame(client, seq, payload, clientFrame);
     if (out === null) continue;
-    if (deliverSseFrame(client, kind, out) === "disconnected") {
-      sseClients.delete(client);
-    }
+    if (deliverSseFrame(client, kind, out) === "disconnected") client.close();
   }
 }
 
@@ -14675,6 +14666,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           bots: new Set(store.bots.filter((bot) => visibleNow.bot(bot.id)).map((bot) => bot.id)),
           groups: new Set(store.groups.filter((group) => visibleNow.group(group.id)).map((group) => group.id)),
         },
+        close: () => {},
       };
       if (auth.kind === "session") client.sessionId = auth.session.id;
       res.writeHead(200, {
@@ -14713,18 +14705,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
 
       sseClients.add(client);
       req.socket.setTimeout(0);
-      const keepalive = setInterval(() => {
-        if (client.sessionId && !sessions.isLive(client.sessionId)) {
-          res.end();
-          return;
-        }
-        try {
-          res.write(`: keepalive\n\ndata: ${JSON.stringify({ kind: "ping" })}\n\n`);
-        } catch {}
-      }, SSE_HEARTBEAT_MS);
-      req.on("close", () => {
-        clearInterval(keepalive);
-        sseClients.delete(client);
+      client.close = keepSseAlive(req, client, {
+        heartbeatMs: SSE_HEARTBEAT_MS,
+        live: () => !client.sessionId || sessions.isLive(client.sessionId),
+        onClose: () => sseClients.delete(client),
       });
       return;
     }
@@ -14901,6 +14885,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const stream = file.handle.createReadStream({ start: 0, end: file.bytes - 1, autoClose: true });
       stream.on("error", () => res.destroy());
+      res.on("error", () => stream.destroy());
       res.on("close", () => stream.destroy());
       stream.pipe(res);
       return;

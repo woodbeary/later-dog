@@ -383,6 +383,12 @@ describe("authenticated browser viewer relay", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     expect(noAck.res.writableEnded).toBe(true);
   });
+  it("closes the view on a response error and stays safe if the response errors again", async () => {
+    const view = await open();
+    view.res.emit("error", new Error("write after end"));
+    expect(view.res.writableEnded).toBe(true);
+    expect(() => view.res.emit("error", new Error("write after end"))).not.toThrow();
+  });
   it("caps views per profile and closes all associated viewers on profile deletion", async () => {
     const a = await open(); const b = await open({ botId: "b" });
     await expect(open({ botId: "c" })).rejects.toThrow("Too many");

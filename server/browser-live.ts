@@ -405,7 +405,7 @@ export class BrowserLive {
     if (!this.current(viewer)) throw new BrowserLiveError("This browser view is no longer available.", 409);
     this.viewers.set(viewer.id, viewer);
     options.res.once("close", () => this.close(viewer));
-    options.res.once("error", () => this.close(viewer));
+    options.res.on("error", () => this.close(viewer));
     try {
       const port = await this.connectWhenFree(viewer);
       if (!this.current(viewer)) throw new BrowserLiveError("This browser view is no longer available.", 409);

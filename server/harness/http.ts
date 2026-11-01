@@ -18,6 +18,10 @@ export function parsedBodyOf(req: IncomingMessage): unknown {
 }
 
 export function json(res: ServerResponse, status: number, body: unknown) {
+  if (res.headersSent || res.destroyed) {
+    if (!res.writableEnded) res.destroy();
+    return;
+  }
   const hook = jsonHooks.get(res);
   const data = JSON.stringify(hook ? hook(body) : body);
   res.writeHead(status, { "content-type": "application/json" });

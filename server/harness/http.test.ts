@@ -1,8 +1,9 @@
-import type { IncomingMessage } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
 
-import { guardBody, parsedBodyOf, readBody } from "./http.ts";
+import { guardBody, json, parsedBodyOf, readBody } from "./http.ts";
 
 const request = (chunks: Buffer[]) => Readable.from(chunks) as unknown as IncomingMessage;
 
@@ -55,5 +56,51 @@ describe("guardBody", () => {
     const other = request([Buffer.from("{}")]);
     await expect(readBody(guarded)).rejects.toMatchObject({ status: 403 });
     expect(await readBody(other)).toEqual({});
+  });
+});
+
+async function served(handle: (res: ServerResponse) => void): Promise<{ status: number; body: string } | "cut off"> {
+  const server = createServer((_req, res) => handle(res));
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const response = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/`);
+    return { status: response.status, body: await response.text() };
+  } catch {
+    return "cut off";
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
+describe("json", () => {
+  it("keeps the first answer when a late failure tries to answer again", async () => {
+    let late: unknown;
+    const reply = await served((res) => {
+      json(res, 200, { ok: true });
+      try {
+        json(res, 500, { error: "late" });
+      } catch (error) {
+        late = error;
+      }
+    });
+    expect(late).toBeUndefined();
+    expect(reply).toEqual({ status: 200, body: JSON.stringify({ ok: true }) });
+  });
+
+  it("cuts off a response that was already streaming instead of throwing", async () => {
+    let late: unknown;
+    const reply = await served((res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write("data: {}\n\n");
+      try {
+        json(res, 500, { error: "late" });
+      } catch (error) {
+        late = error;
+        res.end();
+      }
+    });
+    expect(late).toBeUndefined();
+    expect(reply).toBe("cut off");
   });
 });
