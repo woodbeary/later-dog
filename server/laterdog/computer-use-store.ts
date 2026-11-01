@@ -98,6 +98,14 @@ function addMissingColumns(db: DatabaseSync): void {
   }
 }
 
+const EVENTS_VIEW = `CREATE VIEW computer_use_events AS
+  SELECT id AS run_id, started_at AS at, 'task_started' AS event, NULL AS detail FROM computer_use_runs
+  UNION ALL SELECT run_id, at, 'handoff', cause || ' asked by ' || asked_by FROM computer_use_handoffs
+  UNION ALL SELECT run_id, returned_at, 'handed_back', NULL FROM computer_use_handoffs WHERE returned_at IS NOT NULL
+  UNION ALL SELECT run_id, at, 'submission_unknown', NULL FROM computer_use_steps WHERE outcome = 'submission_unknown'
+  UNION ALL SELECT id, ended_at, CASE state WHEN 'done' THEN 'task_done' ELSE 'task_failed' END, COALESCE(done_source, failure)
+    FROM computer_use_runs WHERE ended_at IS NOT NULL`;
+
 function conflict(message: string): Error {
   return Object.assign(new Error(message), { status: 409 });
 }
@@ -133,6 +141,7 @@ export class ComputerUseStore {
         cause TEXT NOT NULL, asked_by TEXT NOT NULL, note TEXT NOT NULL, returned_at TEXT, PRIMARY KEY (run_id, number));
     `);
     addMissingColumns(db);
+    db.exec(`DROP VIEW IF EXISTS computer_use_events; ${EVENTS_VIEW};`);
   }
 
   #stamp(): string {

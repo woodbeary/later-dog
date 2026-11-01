@@ -151,6 +151,48 @@ GROUP BY r.id
 ORDER BY r.started_at DESC;
 ```
 
+## Cache reads
+
+Share of each run's prompt tokens read from the prompt cache. Every screenshot stays in the conversation, so this is
+what keeps a long run affordable; read it on the first live runs before turning on any context editing:
+
+```sql
+SELECT r.id,
+       SUM(s.cache_read_tokens) AS cache_read_tokens,
+       SUM(s.input_tokens + s.cache_read_tokens + s.cache_write_tokens) AS prompt_tokens,
+       ROUND(100.0 * SUM(s.cache_read_tokens) / NULLIF(SUM(s.input_tokens + s.cache_read_tokens + s.cache_write_tokens), 0), 1) AS cache_read_pct
+FROM computer_use_runs r
+JOIN computer_use_steps s ON s.run_id = r.id
+GROUP BY r.id
+ORDER BY r.started_at DESC;
+```
+
+## Long take-overs
+
+The prompt cache lasts five minutes by default. Take-overs that outlast it make the next step pay for the whole history
+again, and are the reason to choose a one-hour cache instead:
+
+```sql
+SELECT COUNT(*) AS returned,
+       SUM((julianday(returned_at) - julianday(at)) * 86400 > 300) AS over_5_min,
+       CAST(ROUND(MAX((julianday(returned_at) - julianday(at)) * 86400)) AS INTEGER) AS longest_s
+FROM computer_use_handoffs
+WHERE returned_at IS NOT NULL;
+```
+
+## Events
+
+`computer_use_events` is a view over the three tables that names what happened: `task_started`, `handoff`,
+`handed_back`, `submission_unknown`, and `task_done` or `task_failed` with the done source or failure cause. It adds no
+data of its own.
+
+```sql
+SELECT event, COUNT(*) AS events
+FROM computer_use_events
+GROUP BY event
+ORDER BY event;
+```
+
 ## One model
 
 While the model is pinned, this returns one row:
@@ -172,3 +214,4 @@ SELECT model, COUNT(*) AS runs FROM computer_use_runs GROUP BY model;
   after an action (`thinking`, `failure_class`, `screen_unchanged`), with two queries for them.
 - 2026-11-01: a third done source, `state_check`, for pages behind a sign-in that the page check cannot fetch. It is
   fixed at the start like the page check, and is tried after it.
+- 2026-11-01: queries for cache reads and for take-overs longer than five minutes, and the `computer_use_events` view.

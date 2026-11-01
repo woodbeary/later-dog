@@ -25,6 +25,7 @@ function fixtureRuns() {
   step(byPerson, 1, 700, 100);
   step(byPerson, 2, 900, 100);
   store.handOver(byPerson, "captcha", "model", "Solve the CAPTCHA");
+  clock = new Date(clock.getTime() + 420_000);
   store.handBack(byPerson);
   store.finish(byPerson, { done: "person" });
 
@@ -64,8 +65,8 @@ describe("the SQL in docs/metrics.md", () => {
   const db = fixtureRuns();
   const run = (index: number) => db.prepare(SQL[index]!).all().map((row) => ({ ...row }));
 
-  it("has the ten queries this test checks", () => {
-    expect(SQL).toHaveLength(10);
+  it("has the thirteen queries this test checks", () => {
+    expect(SQL).toHaveLength(13);
   });
 
   it("counts success over settled runs, with an abandoned run and an unsettled unknown submit as failed", () => {
@@ -107,6 +108,18 @@ describe("the SQL in docs/metrics.md", () => {
     const perRun = run(8);
     expect(perRun).toHaveLength(8);
     expect(perRun).toEqual(expect.arrayContaining([expect.objectContaining({ state: "done", steps: 2, input_tokens: 3000, output_tokens: 100, cache_read_tokens: 1800 })]));
-    expect(run(9)).toEqual([{ model: "claude-opus-5-5", runs: 8 }]);
+    expect(run(12)).toEqual([{ model: "claude-opus-5-5", runs: 8 }]);
+  });
+
+  it("measures cache reads per run and the take-overs that outlast the prompt cache", () => {
+    expect(run(9)).toEqual(expect.arrayContaining([{ id: expect.any(String), cache_read_tokens: 1800, prompt_tokens: 4800, cache_read_pct: 37.5 }]));
+    expect(run(10)).toEqual([{ returned: 3, over_5_min: 1, longest_s: 420 }]);
+  });
+
+  it("names every event the brief uses, from the three tables", () => {
+    expect(run(11)).toEqual([
+      { event: "handed_back", events: 3 }, { event: "handoff", events: 3 }, { event: "submission_unknown", events: 2 },
+      { event: "task_done", events: 3 }, { event: "task_failed", events: 1 }, { event: "task_started", events: 8 },
+    ]);
   });
 });
