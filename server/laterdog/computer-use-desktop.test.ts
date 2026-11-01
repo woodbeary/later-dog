@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionTimeoutMs, captureCommand, CloudDesktop, FRAME_DIR, viewerExpiry, type ComputerCalls } from "./computer-use-desktop.ts";
+import { actionTimeoutMs, captureCommand, CloudDesktop, cropCommand, FRAME_DIR, viewerExpiry, type ComputerCalls } from "./computer-use-desktop.ts";
 
 function fakeComputer(answer: (command: string) => { exitCode: number | null; stdout: string; stderr: string } = () => ({ exitCode: 0, stdout: "", stderr: "" }),
   link: { url: string; expiresAt: number | string } = { url: "https://cloud.later.dog/desktop/cmp_fixture12345/fixture-token/", expiresAt: "2026-11-01T12:00:00.000Z" }) {
@@ -60,5 +60,14 @@ describe("later.dog's cloud desktop for the loop", () => {
   it("refuses a viewer link the person could not open, such as the service binding's own host", async () => {
     const internal = fakeComputer(undefined, { url: "http://computers.internal/desktop/cmp_fixture12345/fixture-token/", expiresAt: "2026-11-01T12:00:00.000Z" });
     await expect(new CloudDesktop(internal.calls, "cmp_fixture12345").viewer()).rejects.toThrow("not https");
+  });
+
+  it("crops the region around a click target with scrot for the guard", async () => {
+    const computer = fakeComputer();
+    const crop = await new CloudDesktop(computer.calls, "cmp_fixture12345").crop({ x: 660, y: 560, width: 480, height: 240 });
+    expect(computer.commands[0]!.command).toBe(`mkdir -p ${FRAME_DIR} && rm -f ${FRAME_DIR}/crop.jpg && scrot --overwrite --autoselect 660,560,480,240 --quality 75 ${FRAME_DIR}/crop.jpg >/dev/null`);
+    expect(crop.toString()).toBe(`jpeg from ${FRAME_DIR}/crop.jpg`);
+    expect(() => cropCommand({ x: -1, y: 0, width: 10, height: 10 })).toThrow("invalid crop");
+    expect(() => cropCommand({ x: 0, y: 0, width: 0, height: 10 })).toThrow("invalid crop");
   });
 });

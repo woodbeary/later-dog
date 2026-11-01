@@ -31,6 +31,13 @@ export function captureCommand(frame: Size, screen: Size): { command: string; pa
   };
 }
 
+export function cropCommand(box: { x: number; y: number; width: number; height: number }): { command: string; path: string } {
+  const values = [box.x, box.y, box.width, box.height];
+  if (!values.every((value) => Number.isInteger(value) && value >= 0) || box.width < 1 || box.height < 1) throw new RangeError("invalid crop");
+  const path = `${FRAME_DIR}/crop.jpg`;
+  return { command: `mkdir -p ${FRAME_DIR} && rm -f ${path} && scrot --overwrite --autoselect ${values.join(",")} --quality 75 ${path} >/dev/null`, path };
+}
+
 function settled(result: { exitCode: number | null; stdout: string; stderr: string }, what: string): string {
   if (result.exitCode === 0) return result.stdout;
   const why = result.stderr.replace(/\s+/g, " ").trim().slice(0, 300);
@@ -72,6 +79,12 @@ export class CloudDesktop implements UseDesktop {
     const url = new URL(link.url);
     if (url.protocol !== "https:" && !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) throw new Error("The computers service gave a viewer link that is not https.");
     return { url: url.href, expiresAt: viewerExpiry(link.expiresAt) };
+  }
+
+  async crop(box: { x: number; y: number; width: number; height: number }): Promise<Buffer> {
+    const command = cropCommand(box);
+    settled(await this.#calls.exec(this.#computerId, command.command, ACTION_TIMEOUT_MS), "The crop for the guard");
+    return this.#calls.read(this.#computerId, command.path, MAX_FRAME_BYTES);
   }
 
   async act(action: DesktopAction): Promise<string> {

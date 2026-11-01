@@ -25,6 +25,7 @@ export class FakeDesktop implements UseDesktop {
   readonly frames: Size[] = [];
   viewers = 0;
   viewerFails = false;
+  readonly crops: Array<{ x: number; y: number; width: number; height: number }> = [];
   readonly #size: Size;
   readonly #clock: FakeClock;
   readonly #fail: (action: DesktopAction) => string | null;
@@ -49,6 +50,11 @@ export class FakeDesktop implements UseDesktop {
     this.viewers += 1;
     if (this.viewerFails) throw new Error("The computers service could not be reached.");
     return FIXTURE_VIEWER;
+  }
+
+  async crop(box: { x: number; y: number; width: number; height: number }): Promise<Buffer> {
+    this.crops.push(box);
+    return Buffer.from(`crop ${box.x},${box.y} ${box.width}x${box.height}`);
   }
 
   async act(action: DesktopAction): Promise<string> {

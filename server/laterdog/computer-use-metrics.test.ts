@@ -18,6 +18,9 @@ function fixtureRuns() {
     inputTokens: 1000 * n, outputTokens: 50, cacheReadTokens: 900, cacheWriteTokens: 0,
   } satisfies StepRecord);
 
+  const guarded: StepRecord = { step: 1, actions: [{ name: "left_click", coordinate: [900, 700] }], screenshotSha256: "1".repeat(64), modelMs: 900, actionMs: 100,
+    inputTokens: 500, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0, outcome: "submission_unknown" };
+
   const byPerson = start();
   step(byPerson, 1, 700, 100);
   step(byPerson, 2, 900, 100);
@@ -36,6 +39,16 @@ function fixtureRuns() {
   const abandoned = start();
   store.awaitPerson(abandoned, "Claude says it is finished.");
 
+  const unknown = start();
+  store.handOver(unknown, "confirm", "guard", "Claude wants to left_click at (900, 700)", 0.94);
+  store.handBack(unknown);
+  store.step(unknown, { ...guarded, step: 1 });
+  store.awaitPerson(unknown, "Whether a submit went through is unknown.", true);
+
+  const unknownThenDone = start(WITH_PAGE);
+  store.step(unknownThenDone, { ...guarded, step: 1 });
+  store.finish(unknownThenDone, { done: "page_check" });
+
   clock = new Date();
   const waiting = start();
   store.awaitPerson(waiting, "Claude says it is finished.");
@@ -47,38 +60,44 @@ describe("the SQL in docs/metrics.md", () => {
   const db = fixtureRuns();
   const run = (index: number) => db.prepare(SQL[index]!).all().map((row) => ({ ...row }));
 
-  it("has the seven queries this test checks", () => {
-    expect(SQL).toHaveLength(7);
+  it("has the eight queries this test checks", () => {
+    expect(SQL).toHaveLength(8);
   });
 
-  it("counts success over settled runs, with an abandoned run as failed", () => {
-    expect(run(0)).toEqual([{ week: "2026-01", settled: 4, done: 2, success_pct: 50 }]);
+  it("counts success over settled runs, with an abandoned run and an unsettled unknown submit as failed", () => {
+    expect(run(0)).toEqual([{ week: "2026-01", settled: 6, done: 3, success_pct: 50 }]);
   });
 
   it("says how each run ended", () => {
     expect(run(1)).toEqual(expect.arrayContaining([
       { state: "done", how: "person", runs: 1 },
-      { state: "done", how: "page_check", runs: 1 },
+      { state: "done", how: "page_check", runs: 2 },
       { state: "failed", how: "not_done", runs: 1 },
       { state: "awaiting_done", how: "abandoned", runs: 1 },
       { state: "awaiting_done", how: "waiting", runs: 1 },
+      { state: "submission_unknown", how: "submission_unknown", runs: 1 },
     ]));
-    expect(run(1)).toHaveLength(5);
+    expect(run(1)).toHaveLength(6);
   });
 
   it("counts take-overs, their causes, and the runs that were done after one", () => {
-    expect(run(2)).toEqual([{ settled: 4, with_takeover: 2, with_takeover_done: 1 }]);
-    expect(run(3)).toEqual(expect.arrayContaining([{ cause: "captcha", asked_by: "model", takeovers: 1 }, { cause: "person", asked_by: "person", takeovers: 1 }]));
+    expect(run(2)).toEqual([{ settled: 6, with_takeover: 3, with_takeover_done: 1 }]);
+    expect(run(3)).toEqual(expect.arrayContaining([{ cause: "captcha", asked_by: "model", takeovers: 1 }, { cause: "person", asked_by: "person", takeovers: 1 },
+      { cause: "confirm", asked_by: "guard", takeovers: 1 }]));
+  });
+
+  it("counts unknown submits and how their runs were settled", () => {
+    expect(run(4)).toEqual([{ unknown_submits: 2, settled_done: 1, settled_failed: 0, still_unknown: 1 }]);
   });
 
   it("finds the median and 95th percentile step time", () => {
-    expect(run(4)).toEqual([{ p50_ms: 1000, p95_ms: 2000 }]);
+    expect(run(5)).toEqual([{ p50_ms: 1000, p95_ms: 2000 }]);
   });
 
   it("adds up steps and tokens per run, and shows one pinned model", () => {
-    const perRun = run(5);
-    expect(perRun).toHaveLength(6);
+    const perRun = run(6);
+    expect(perRun).toHaveLength(8);
     expect(perRun).toEqual(expect.arrayContaining([expect.objectContaining({ state: "done", steps: 2, input_tokens: 3000, output_tokens: 100, cache_read_tokens: 1800 })]));
-    expect(run(6)).toEqual([{ model: "claude-opus-5-5", runs: 6 }]);
+    expect(run(7)).toEqual([{ model: "claude-opus-5-5", runs: 8 }]);
   });
 });

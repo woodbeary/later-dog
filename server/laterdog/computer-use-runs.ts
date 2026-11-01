@@ -18,6 +18,7 @@ export const startRunSchema = z.object({
 }).strict();
 const takeOverSchema = z.object({ cause: z.enum(HANDOFF_CAUSES).default("person"), note: z.string().trim().max(500).default("") }).strict();
 const runId = z.string().uuid();
+const handBackSchema = z.object({ approve: z.boolean().default(false) }).strict();
 
 export interface ComputerUseEngine {
   messages: MessagesApi;
@@ -127,9 +128,10 @@ export class ComputerUseRuns {
     return { run: this.store.run(id), handoff };
   }
 
-  handBack(id: string): ComputerUseRun {
+  handBack(id: string, body: unknown = {}): ComputerUseRun {
+    const input = handBackSchema.parse(body ?? {});
     const run = this.store.handBack(id);
-    this.#live.get(id)?.control.release();
+    this.#live.get(id)?.control.release(input.approve);
     return run;
   }
 
@@ -179,7 +181,7 @@ export async function computerUseRoute(runs: ComputerUseRuns | undefined, method
   if (verb === "not-done") return { status: 200, body: { run: runs.notDone(id) } };
   if (verb === "stop") return { status: 200, body: { run: runs.stop(id) } };
   if (verb === "take-over") return { status: 200, body: await runs.takeOver(id, await body()) };
-  return { status: 200, body: { run: runs.handBack(id) } };
+  return { status: 200, body: { run: runs.handBack(id, await body()) } };
 }
 
 export function screenChecksSwitch(raw: string | undefined): boolean {

@@ -4,9 +4,10 @@ import {
 } from "./computer-use-actions.ts";
 import { TAKEOVER_TOOL_NAME, type ContentBlock, type MessagesApi, type MessageTurn } from "./computer-use-anthropic.ts";
 import type { PageCheck } from "./computer-use-done.ts";
-import { frameSize, toFrame, withinToolsetLimits, type Size } from "./computer-use-frame.ts";
-import { isPersonState, type ScreenChecks, type ScreenRead, type ScreenState } from "./computer-use-screen.ts";
-import { isOpenRun, type AskedBy, type ComputerUseRun, type ComputerUseStore, type Handoff, type HandoffCause, type ViewerLink } from "./computer-use-store.ts";
+import { frameSize, toFrame, toScreen, withinToolsetLimits, type Point, type Size } from "./computer-use-frame.ts";
+import { CONFIRM_LOOKS_MS, cropBox, guardedWords, isGuarded, type GuardedAction } from "./computer-use-guard.ts";
+import { isPersonState, YES, type ScreenChecks, type ScreenRead, type ScreenState } from "./computer-use-screen.ts";
+import { isOpenRun, type AskedBy, type ComputerUseRun, type ComputerUseStore, type Handoff, type HandoffCause, type StepOutcome, type ViewerLink } from "./computer-use-store.ts";
 import { parseTakeoverInput } from "./takeover.ts";
 
 export type DesktopAction = Exclude<ComputerAction, { kind: "screenshot" | "wait" }>;
@@ -16,6 +17,7 @@ export interface UseDesktop {
   screenshot(frame: Size, screen: Size, signal: AbortSignal): Promise<Buffer>;
   act(action: DesktopAction, signal: AbortSignal): Promise<string>;
   viewer?(signal: AbortSignal): Promise<ViewerLink>;
+  crop?(box: { x: number; y: number; width: number; height: number }, signal: AbortSignal): Promise<Buffer>;
 }
 
 export interface TakeoverNotice {
@@ -48,6 +50,7 @@ export const SYSTEM_PROMPT = [
   "You are using a Linux desktop (Xfce with Chromium) through the computer tools to do one task for the person. Each screenshot is the whole screen.",
   "When a step needs the person on the screen (a sign-in or code you were not given, a passkey, a CAPTCHA, a payment, or a final yes before anything is sent or bought), first open the exact page and fill in everything you can, then call request_takeover with that one step. Never ask for passwords or codes in your text.",
   "On a sign-in, verification-code or CAPTCHA screen, ask for the person before you act on it: later.dog checks each screenshot, and hands the screen to the person when you act on such a screen without asking.",
+  "Before a click or Enter that submits, pays, publishes, cancels or deletes something, later.dog asks the person to approve it. When later.dog says it is unknown whether such an action went through, never repeat it: take a screenshot and look.",
   "When you believe the task is finished, stop calling tools and say in one short line what you did. You cannot mark the task done: the person, or a check of the live page, decides that.",
 ].join("\n");
 export const NOT_EXECUTED = "Not executed: an earlier computer action in this turn failed.";
@@ -56,6 +59,9 @@ export const AFTER_HANDBACK = "Not executed: the screen was handed to the person
 export const HANDED_BACK_NOTE = "The person had the screen for a while and has handed it back. Take a fresh screenshot before you go on.";
 export const SCREEN_TAKEN = "Not executed: the screen shows a sign-in, a verification code or a CAPTCHA, so later.dog handed it to the person. Take a fresh screenshot before you go on.";
 const SCREEN_CAUSE: Partial<Record<ScreenState, HandoffCause>> = { login: "sign-in", two_factor: "sign-in", captcha: "captcha" };
+export const NOT_APPROVED = "Not executed: the person did not approve this action, so later.dog did not run it. They may have done this step themselves. Take a fresh screenshot before you go on.";
+export const SUBMISSION_UNKNOWN = "Unknown whether this went through: later.dog ran it but could not see a confirmation. Do not repeat it. Take a screenshot and look; only the person or a check of the page can settle it.";
+export const UNKNOWN_PENDING = "Not executed: an earlier action's outcome is still unknown, so later.dog will not run another that submits, pays, publishes, cancels or deletes until the person or a check of the page settles it.";
 
 export class RunControl {
   readonly #abort = new AbortController();
@@ -64,6 +70,8 @@ export class RunControl {
   #waiters: Array<() => void> = [];
   #screen: ScreenRead | null = null;
   #handled: ScreenState | null = null;
+  #approved = false;
+  #unknown = false;
 
   get signal(): AbortSignal {
     return this.#abort.signal;
@@ -77,10 +85,25 @@ export class RunControl {
     this.#held = true;
   }
 
-  release(): void {
+  release(approved = false): void {
     this.#held = false;
     this.#returned = true;
+    this.#approved = approved;
     this.#wake();
+  }
+
+  takeApproval(): boolean {
+    const approved = this.#approved;
+    this.#approved = false;
+    return approved;
+  }
+
+  openUnknown(): void {
+    this.#unknown = true;
+  }
+
+  get unknownOpen(): boolean {
+    return this.#unknown;
   }
 
   end(): void {
@@ -169,6 +192,7 @@ interface Turn {
   runId: string;
   frame: Size;
   screen: Size;
+  latest: Buffer;
   deps: LoopDeps;
 }
 
@@ -177,9 +201,40 @@ interface Acted {
   actions: Record<string, unknown>[];
   shot: Buffer | null;
   heldMs: number;
+  outcome: StepOutcome | null;
 }
 
-const nothingActed = (): Acted => ({ results: [], actions: [], shot: null, heldMs: 0 });
+const nothingActed = (): Acted => ({ results: [], actions: [], shot: null, heldMs: 0, outcome: null });
+
+async function pointer(turn: Turn, action: GuardedAction): Promise<Point | null> {
+  if (action.kind !== "click") return null;
+  if (action.at) return toScreen(action.at, turn.frame, turn.screen);
+  try { return cursorFromXdotool(await turn.deps.desktop.act({ kind: "cursor_position" }, turn.deps.control.signal)); } catch { return null; }
+}
+
+async function irreversible(action: GuardedAction, words: string, turn: Turn): Promise<number | null> {
+  const { desktop, control, screenChecks } = turn.deps;
+  let picture = turn.latest;
+  const at = desktop.crop ? await pointer(turn, action) : null;
+  if (at && desktop.crop) {
+    try { picture = await desktop.crop(cropBox(at, turn.screen), control.signal); } catch (error) { if (control.signal.aborted) throw error; }
+  }
+  return screenChecks!.irreversible(picture, words, control.signal);
+}
+
+async function wentThrough(action: GuardedAction, words: string, turn: Turn): Promise<boolean> {
+  const { desktop, control, screenChecks, sleep } = turn.deps;
+  try { await desktop.act(onScreen(action, turn.frame, turn.screen) as DesktopAction, control.signal); }
+  catch (error) { if (control.signal.aborted) throw error; return false; }
+  for (const ms of CONFIRM_LOOKS_MS) {
+    await sleep(ms, control.signal);
+    let after: Buffer;
+    try { after = await desktop.screenshot(turn.frame, turn.screen, control.signal); } catch (error) { if (control.signal.aborted) throw error; continue; }
+    const confirmed = await screenChecks!.confirmed(after, words, control.signal);
+    if (confirmed !== null && confirmed >= YES) return true;
+  }
+  return false;
+}
 const ACTING: ReadonlySet<ComputerAction["kind"]> = new Set(["click", "drag", "mouse_down", "mouse_up", "scroll", "type", "key", "hold_key"]);
 
 async function observe(frame: Buffer, deps: LoopDeps): Promise<void> {
@@ -224,10 +279,32 @@ async function act(uses: ToolUse[], turn: Turn, acted: Acted): Promise<void> {
       answer([text(SCREEN_TAKEN)], true);
       continue;
     }
+    if (deps.screenChecks && isGuarded(parsed.action)) {
+      const action = parsed.action;
+      if (control.unknownOpen) { failed = true; answer([text(UNKNOWN_PENDING)], true); continue; }
+      const words = guardedWords(use.name, use.input);
+      const yes = await irreversible(action, words, turn);
+      if (yes === null || yes >= YES) {
+        const from = deps.clock();
+        await handOverScreen(turn.runId, { cause: "confirm", askedBy: "guard", ...(yes === null ? {} : { probability: yes }),
+          note: yes === null ? `Claude wants to ${words}; the guard could not check it, so the person decides.` : `Claude wants to ${words}; it looks like it submits, pays, publishes, cancels or deletes something.` }, deps);
+        await control.ready();
+        acted.heldMs += deps.clock() - from;
+        control.takeReturn();
+        if (!control.takeApproval()) { blocked = AFTER_HANDBACK; answer([text(NOT_APPROVED)], true); continue; }
+        if (await wentThrough(action, words, turn)) { answer([text("OK")]); continue; }
+        acted.outcome = "submission_unknown";
+        control.openUnknown();
+        failed = true;
+        answer([text(SUBMISSION_UNKNOWN)], true);
+        continue;
+      }
+    }
     try {
       const action = parsed.action;
       if (action.kind === "screenshot") {
         acted.shot = await desktop.screenshot(frame, screen, signal);
+        turn.latest = acted.shot;
         await observe(acted.shot, deps);
         answer([image(acted.shot)]);
       } else if (action.kind === "wait") {
@@ -253,11 +330,19 @@ async function act(uses: ToolUse[], turn: Turn, acted: Acted): Promise<void> {
 
 async function settle(run: ComputerUseRun, said: string, deps: LoopDeps): Promise<ComputerUseRun> {
   const rule = run.done.pageCheck;
-  const claim = said ? `Claude says it is finished: ${said}` : "Claude says it is finished.";
-  if (!rule) return deps.store.awaitPerson(run.id, claim);
+  const unknown = deps.control.unknownOpen;
+  const claim = `${said ? `Claude says it is finished: ${said}` : "Claude says it is finished."}${unknown ? " Whether a submit went through is unknown." : ""}`;
+  if (!rule) return deps.store.awaitPerson(run.id, claim, unknown);
   const check = await deps.pageCheck(rule, deps.control.signal);
   if (check.passed) return deps.store.finish(run.id, { done: "page_check", detail: check.detail });
-  return deps.store.awaitPerson(run.id, `${claim} The page check did not pass: ${check.detail}`);
+  return deps.store.awaitPerson(run.id, `${claim} The page check did not pass: ${check.detail}`, unknown);
+}
+
+async function settleUnknown(run: ComputerUseRun, deps: LoopDeps): Promise<ComputerUseRun | null> {
+  const rule = run.done.pageCheck;
+  if (!rule) return null;
+  const check = await deps.pageCheck(rule, deps.control.signal);
+  return check.passed ? deps.store.finish(run.id, { done: "page_check", detail: `${check.detail} That settled a submit whose outcome was unknown.` }) : null;
 }
 
 export async function runComputerUse(runId: string, deps: LoopDeps): Promise<ComputerUseRun> {
@@ -273,6 +358,7 @@ export async function runComputerUse(runId: string, deps: LoopDeps): Promise<Com
     const messages: MessageTurn[] = [{ role: "user", content: [text(`Task: ${run.task}`), image(first)] }];
     let seen = screenshotSha256(first);
     let seenRead = control.screen;
+    let latest = first;
     let workingMs = 0;
     for (let step = 1; ; step++) {
       await control.ready();
@@ -290,14 +376,18 @@ export async function runComputerUse(runId: string, deps: LoopDeps): Promise<Com
         control.signal.throwIfAborted();
         if (!sameModel(run.model, reply.model)) throw new Error(`Claude's API answered with ${reply.model}, not the pinned ${run.model}.`);
         messages.push({ role: "assistant", content: reply.content });
-        if (uses.length) await act(uses, { runId, frame, screen, deps }, acted);
+        if (uses.length) await act(uses, { runId, frame, screen, latest, deps }, acted);
       } finally {
         actionMs = Math.max(0, deps.clock() - started - acted.heldMs);
         store.step(runId, { step, actions: acted.actions, screenshotSha256: seen, modelMs, actionMs, ...reply.usage,
-          screenState: seenRead?.screen ?? null, screenProbability: seenRead?.probability ?? null });
+          screenState: seenRead?.screen ?? null, screenProbability: seenRead?.probability ?? null, outcome: acted.outcome });
       }
       workingMs += modelMs + actionMs;
-      if (acted.shot) { seen = screenshotSha256(acted.shot); seenRead = control.screen; }
+      if (acted.shot) { seen = screenshotSha256(acted.shot); seenRead = control.screen; latest = acted.shot; }
+      if (acted.outcome === "submission_unknown") {
+        const settled = await settleUnknown(run, deps);
+        if (settled) return settled;
+      }
       if (reply.stopReason === "refusal") return store.finish(runId, { failed: "refusal", detail: "Claude declined this task." });
       if (reply.stopReason === "end_turn") return await settle(run, replyText(reply.content), deps);
       if (reply.stopReason !== "tool_use" || !uses.length) throw new Error(`Claude's turn stopped with ${reply.stopReason ?? "no reason"}.`);

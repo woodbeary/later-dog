@@ -5,13 +5,15 @@ import { rollbackQuietly } from "./safe-rollback.ts";
 import { doneRuleSchema, type DoneRule, type DoneSource } from "./computer-use-done.ts";
 import type { ScreenState } from "./computer-use-screen.ts";
 
-export const RUN_STATES = ["running", "handed_over", "awaiting_done", "done", "failed"] as const;
+export const RUN_STATES = ["running", "handed_over", "awaiting_done", "submission_unknown", "done", "failed"] as const;
 export type RunState = typeof RUN_STATES[number];
 export const FAILURE_CAUSES = ["not_done", "stopped", "timed_out", "step_limit", "refusal", "error", "interrupted"] as const;
 export type FailureCause = typeof FAILURE_CAUSES[number];
-export const HANDOFF_CAUSES = [...TAKEOVER_REASONS, "person"] as const;
+export const HANDOFF_CAUSES = [...TAKEOVER_REASONS, "person", "confirm"] as const;
 export type HandoffCause = typeof HANDOFF_CAUSES[number];
-export const ASKED_BY = ["model", "person", "screen_check"] as const;
+export const ASKED_BY = ["model", "person", "screen_check", "guard"] as const;
+export const STEP_OUTCOMES = ["submission_unknown"] as const;
+export type StepOutcome = typeof STEP_OUTCOMES[number];
 export type AskedBy = typeof ASKED_BY[number];
 
 export interface ComputerUseRun {
@@ -41,12 +43,14 @@ export interface StepRecord {
   cacheWriteTokens: number;
   screenState?: ScreenState | null;
   screenProbability?: number | null;
+  outcome?: StepOutcome | null;
 }
 
 export interface LoggedStep extends StepRecord {
   at: string;
   screenState: ScreenState | null;
   screenProbability: number | null;
+  outcome: StepOutcome | null;
 }
 
 export interface Handoff {
@@ -68,7 +72,7 @@ export interface ViewerLink {
 
 export type Outcome = { done: DoneSource; detail?: string } | { failed: FailureCause; detail?: string };
 
-const OPEN: readonly RunState[] = ["running", "handed_over", "awaiting_done"];
+const OPEN: readonly RunState[] = ["running", "handed_over", "awaiting_done", "submission_unknown"];
 
 export function isOpenRun(state: RunState): boolean {
   return OPEN.includes(state);
@@ -76,7 +80,7 @@ export function isOpenRun(state: RunState): boolean {
 
 const ADDED_COLUMNS: Record<string, Record<string, string>> = {
   computer_use_runs: { screen_checks: "INTEGER NOT NULL DEFAULT 0" },
-  computer_use_steps: { screen_state: "TEXT", screen_probability: "REAL" },
+  computer_use_steps: { screen_state: "TEXT", screen_probability: "REAL", outcome: "TEXT" },
   computer_use_handoffs: { viewer_url: "TEXT", viewer_expires_at: "TEXT", probability: "REAL" },
 };
 
@@ -154,20 +158,20 @@ export class ComputerUseStore {
 
   step(runId: string, record: StepRecord): void {
     this.#db.prepare(`INSERT INTO computer_use_steps(run_id,step,at,actions,screenshot_sha256,model_ms,action_ms,input_tokens,output_tokens,
-      cache_read_tokens,cache_write_tokens,screen_state,screen_probability) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(runId, record.step, this.#stamp(),
+      cache_read_tokens,cache_write_tokens,screen_state,screen_probability,outcome) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(runId, record.step, this.#stamp(),
       JSON.stringify(record.actions), record.screenshotSha256, record.modelMs, record.actionMs, record.inputTokens,
-      record.outputTokens, record.cacheReadTokens, record.cacheWriteTokens, record.screenState ?? null, record.screenProbability ?? null);
+      record.outputTokens, record.cacheReadTokens, record.cacheWriteTokens, record.screenState ?? null, record.screenProbability ?? null, record.outcome ?? null);
   }
 
   steps(runId: string): LoggedStep[] {
     type Row = { step: number; at: string; actions: string; screenshot_sha256: string; model_ms: number; action_ms: number;
       input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number;
-      screen_state: ScreenState | null; screen_probability: number | null };
+      screen_state: ScreenState | null; screen_probability: number | null; outcome: StepOutcome | null };
     return (this.#db.prepare("SELECT * FROM computer_use_steps WHERE run_id=? ORDER BY step").all(runId) as Row[]).map((row) => ({
       step: row.step, at: row.at, actions: JSON.parse(row.actions) as Record<string, unknown>[], screenshotSha256: row.screenshot_sha256,
       modelMs: row.model_ms, actionMs: row.action_ms, inputTokens: row.input_tokens, outputTokens: row.output_tokens,
       cacheReadTokens: row.cache_read_tokens, cacheWriteTokens: row.cache_write_tokens,
-      screenState: row.screen_state, screenProbability: row.screen_probability,
+      screenState: row.screen_state, screenProbability: row.screen_probability, outcome: row.outcome,
     }));
   }
 
@@ -218,12 +222,12 @@ export class ComputerUseStore {
     }));
   }
 
-  awaitPerson(runId: string, detail: string): ComputerUseRun {
+  awaitPerson(runId: string, detail: string, submissionUnknown = false): ComputerUseRun {
     return this.#transaction(() => {
       const run = this.run(runId);
       if (run.state !== "running" && run.state !== "handed_over") throw conflict(`This run is ${run.state}.`);
       this.#closeHandoff(runId);
-      this.#db.prepare("UPDATE computer_use_runs SET state='awaiting_done', detail=? WHERE id=?").run(detail.slice(0, 1000), runId);
+      this.#db.prepare("UPDATE computer_use_runs SET state=?, detail=? WHERE id=?").run(submissionUnknown ? "submission_unknown" : "awaiting_done", detail.slice(0, 1000), runId);
       return this.run(runId);
     });
   }

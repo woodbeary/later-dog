@@ -15,7 +15,12 @@ runs each SQL block on this page against fixture runs, so a query here that stop
 - **Failed**: the state is `failed`, with one cause: `not_done`, `stopped`, `timed_out`, `step_limit`, `refusal`,
   `error` or `interrupted`.
 - **Abandoned**: still `awaiting_done` 7 days after it started. An abandoned run counts as failed.
-- **Settled**: done, failed or abandoned. Runs still going are left out until they settle.
+- **Unknown submit**: a step whose guarded action (a click or Enter the guard judged to submit, pay, publish, cancel or
+  delete, run only after the person approved it) failed on the desktop, or after which no confirmation was seen
+  (`computer_use_steps.outcome = 'submission_unknown'`). The loop never runs it again. Only the page check or the person
+  settles it. A run that ends with one unsettled waits in the state `submission_unknown`.
+- **Settled**: done, failed, abandoned, or `submission_unknown`. A `submission_unknown` run counts as failed until the
+  person says Done or Not done. Runs still going are left out until they settle.
 - **Success rate**: done runs ÷ settled runs.
 - **Take-over**: a row in `computer_use_handoffs`, with its cause (`sign-in`, `captcha`, `payment`, `other`, or `person`
   when the person took the screen unasked) and who asked: `model` (Claude called `request_takeover`), `person`, or
@@ -33,7 +38,7 @@ SELECT strftime('%Y-%W', started_at) AS week,
        SUM(state = 'done') AS done,
        ROUND(100.0 * SUM(state = 'done') / COUNT(*), 1) AS success_pct
 FROM computer_use_runs
-WHERE state IN ('done', 'failed')
+WHERE state IN ('done', 'failed', 'submission_unknown')
    OR (state = 'awaiting_done' AND started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days'))
 GROUP BY week
 ORDER BY week;
@@ -43,10 +48,11 @@ ORDER BY week;
 
 ```sql
 SELECT state,
-       COALESCE(done_source, failure, CASE WHEN started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days') THEN 'abandoned' ELSE 'waiting' END) AS how,
+       COALESCE(done_source, failure, CASE WHEN state = 'submission_unknown' THEN 'submission_unknown'
+         WHEN started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days') THEN 'abandoned' ELSE 'waiting' END) AS how,
        COUNT(*) AS runs
 FROM computer_use_runs
-WHERE state IN ('done', 'failed', 'awaiting_done')
+WHERE state IN ('done', 'failed', 'awaiting_done', 'submission_unknown')
 GROUP BY state, how
 ORDER BY runs DESC;
 ```
@@ -60,7 +66,7 @@ SELECT COUNT(*) AS settled,
        SUM(EXISTS (SELECT 1 FROM computer_use_handoffs h WHERE h.run_id = r.id)) AS with_takeover,
        SUM(r.state = 'done' AND EXISTS (SELECT 1 FROM computer_use_handoffs h WHERE h.run_id = r.id)) AS with_takeover_done
 FROM computer_use_runs r
-WHERE r.state IN ('done', 'failed')
+WHERE r.state IN ('done', 'failed', 'submission_unknown')
    OR (r.state = 'awaiting_done' AND r.started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-7 days'));
 ```
 
@@ -71,6 +77,20 @@ SELECT cause, asked_by, COUNT(*) AS takeovers
 FROM computer_use_handoffs
 GROUP BY cause, asked_by
 ORDER BY takeovers DESC;
+```
+
+## Unknown submits
+
+How many guarded actions ended with an unknown outcome, and how their runs were settled:
+
+```sql
+SELECT COUNT(*) AS unknown_submits,
+       SUM(r.state = 'done') AS settled_done,
+       SUM(r.state = 'failed') AS settled_failed,
+       SUM(r.state = 'submission_unknown') AS still_unknown
+FROM computer_use_steps s
+JOIN computer_use_runs r ON r.id = s.run_id
+WHERE s.outcome = 'submission_unknown';
 ```
 
 ## Step time
@@ -115,3 +135,6 @@ SELECT model, COUNT(*) AS runs FROM computer_use_runs GROUP BY model;
 - 2026-11-01: a take-over can also be asked by the screen check (`asked_by = screen_check`). Runs record whether they had
   screen checks (`computer_use_runs.screen_checks`), and steps the screen check's reading of the frame Claude chose from
   (`screen_state`, `screen_probability`), so runs with and without the check can be compared.
+- 2026-11-01: an unknown submit (`outcome = 'submission_unknown'`) and the run state `submission_unknown`, which counts as
+  settled and failed until the person or the page check settles it. The guard's take-overs have the cause `confirm` and
+  `asked_by = guard`. The success, how-runs-ended and take-over queries now include `submission_unknown` runs.

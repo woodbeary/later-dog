@@ -6,7 +6,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MessagesReply } from "./computer-use-anthropic.ts";
-import { FakeDesktop, finished, FIXTURE_VIEWER, fixedPageCheck, ScriptedMessages, toolUse, reply, type ScriptedReply } from "./computer-use-fakes.ts";
+import { FakeDesktop, finished, FIXTURE_VIEWER, fixedPageCheck, ScriptedMessages, ScriptedScreenChecks, toolUse, reply, type ScriptedReply } from "./computer-use-fakes.ts";
 import { ComputerUseRuns, computerUseRunsFromEnvironment, screenChecksSwitch, takeoverNotification } from "./computer-use-runs.ts";
 import type { PhonePush } from "./phone-push.ts";
 import { ComputerUseStore } from "./computer-use-store.ts";
@@ -146,6 +146,38 @@ describe("computer-use runs on the supervisor", () => {
     const handoff = { number: 1, at: "2026-11-01T10:00:00.000Z", cause: "captcha" as const, askedBy: "model" as const, note: "Solve the CAPTCHA",
       returnedAt: null, viewerUrl: FIXTURE_VIEWER.url, viewerExpiresAt: FIXTURE_VIEWER.expiresAt, probability: null };
     expect(takeoverNotification({ runId: "run-1", task: "x", handoff }).body).toBe("It needs a CAPTCHA: Solve the CAPTCHA. Open later.dog to see the screen.");
+  });
+
+  it("takes the person's approval with the hand-back, and refuses anything else in its body", async () => {
+    const first = deferred<MessagesReply>();
+    const f = await fixture(engineWith([() => first.promise, finished("Done.")]));
+    const id = (await f.admin("POST", "/computer-runs", START)).body.run.id as string;
+    await f.admin("POST", `/computer-runs/${id}/take-over`, {});
+    expect((await f.admin("POST", `/computer-runs/${id}/hand-back`, { approve: "yes" })).status).toBe(400);
+    expect((await f.admin("POST", `/computer-runs/${id}/hand-back`, { approve: true, extra: 1 })).status).toBe(400);
+    expect((await f.admin("POST", `/computer-runs/${id}/hand-back`, { approve: true })).body.run.state).toBe("running");
+    first.resolve(finished("Done."));
+    await f.runs.finished(id);
+  });
+
+  it("runs a guarded click only after the person approves it on the hand-back route", async () => {
+    const desktop = new FakeDesktop();
+    const f = await fixture((db) => new ComputerUseRuns(new ComputerUseStore(db), {
+      messages: new ScriptedMessages([reply([toolUse("toolu_1", "left_click", { coordinate: [900, 700] })]), finished("Sent.")]),
+      desktop: () => desktop, pageCheck: fixedPageCheck({ passed: false, detail: "fixture" }), sleep: async () => {},
+      screenChecks: new ScriptedScreenChecks({ irreversible: () => 0.9, confirmed: () => 0.9 }),
+    }));
+    const id = (await f.admin("POST", "/computer-runs", START)).body.run.id as string;
+    let view = await f.admin("GET", `/computer-runs/${id}`);
+    for (let tries = 0; view.body.run.state !== "handed_over" && tries < 200; tries++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      view = await f.admin("GET", `/computer-runs/${id}`);
+    }
+    expect(view.body.handoffs[0]).toMatchObject({ cause: "confirm", askedBy: "guard", viewerUrl: FIXTURE_VIEWER.url });
+    expect(desktop.acted).toEqual([]);
+    await f.admin("POST", `/computer-runs/${id}/hand-back`, { approve: true });
+    expect((await f.runs.finished(id)).state).toBe("awaiting_done");
+    expect(desktop.acted).toEqual([{ kind: "click", button: "left", count: 1, at: [900, 700], modifiers: [] }]);
   });
 
   it("stops a run on request", async () => {

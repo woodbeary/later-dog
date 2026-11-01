@@ -6,11 +6,14 @@ import {
   takeoverUse, toolUse, WatchedControl, type ScriptedReply,
 } from "./computer-use-fakes.ts";
 import type { DesktopAction } from "./computer-use-loop.ts";
-import { DEFAULT_LIMITS, HANDED_BACK_NOTE, NOT_EXECUTED, runComputerUse, sameModel, SCREEN_TAKEN, screenshotSha256, TAKEN_OVER, type LoopLimits, type TakeoverNotice } from "./computer-use-loop.ts";
+import {
+  DEFAULT_LIMITS, HANDED_BACK_NOTE, NOT_APPROVED, NOT_EXECUTED, runComputerUse, sameModel, SCREEN_TAKEN, screenshotSha256, SUBMISSION_UNKNOWN, TAKEN_OVER,
+  UNKNOWN_PENDING, type LoopLimits, type TakeoverNotice,
+} from "./computer-use-loop.ts";
 
 const PERSON_ONLY: DoneRule = { pageCheck: null };
 const WITH_PAGE: DoneRule = { pageCheck: { url: "https://clinic.example/requests/42", contains: "Request received" } };
-const UNCHECKED = { screenState: null, screenProbability: null };
+const UNCHECKED = { screenState: null, screenProbability: null, outcome: null };
 const SIGN_IN = { screen: "login" as const, probability: 0.93 };
 const PASSES = { passed: true, detail: "HTTP 200; the page shows the expected text." };
 const FAILS = { passed: false, detail: "HTTP 200; the expected text is not on the page." };
@@ -254,6 +257,102 @@ describe("the screen check as a second take-over trigger", () => {
     const off = setup([reply([toolUse("toolu_1", "key", { text: "Return" })]), finished("Done.")]);
     await off.go();
     expect(off.store.steps(off.run.id)[0]).toMatchObject(UNCHECKED);
+  });
+});
+
+describe("the guard on clicks that submit, pay, publish, cancel or delete", () => {
+  const SUBMIT = { coordinate: [900, 700] };
+  const submitIsIrreversible = () => new ScriptedScreenChecks({ irreversible: (action) => (action === "left_click at (900, 700)" ? 0.94 : 0.03), confirmed: () => 0.08 });
+
+  async function approveWhenAsked(h: ReturnType<typeof setup>, approve: boolean) {
+    await h.control.waitingForPerson();
+    h.store.handBack(h.run.id);
+    h.control.release(approve);
+  }
+
+  it("asks on a crop around the target, holds for the person, and never clicks Submit a second time when the outcome is unknown", async () => {
+    const checks = submitIsIrreversible();
+    const h = setup([
+      reply([toolUse("toolu_1", "left_click", { coordinate: [200, 300] }), toolUse("toolu_2", "left_click", SUBMIT), toolUse("toolu_3", "screenshot")]),
+      reply([toolUse("toolu_4", "left_click", SUBMIT)]),
+      finished("I sent the request."),
+    ], { screenChecks: checks, done: WITH_PAGE, pageCheck: fixedPageCheck(FAILS) });
+    const ended = h.go();
+    await approveWhenAsked(h, true);
+    const run = await ended;
+    const submits = h.desktop.acted.filter((action) => action.kind === "click" && action.at?.[0] === 900);
+    expect(submits).toHaveLength(1);
+    expect(h.desktop.acted.filter((action) => action.kind === "click")).toHaveLength(2);
+    expect(h.desktop.crops).toEqual([{ x: 0, y: 180, width: 480, height: 240 }, { x: 660, y: 560, width: 480, height: 240 }]);
+    expect(h.store.handoffs(h.run.id)).toEqual([expect.objectContaining({ cause: "confirm", askedBy: "guard", probability: 0.94, viewerUrl: null,
+      note: "Claude wants to left_click at (900, 700); it looks like it submits, pays, publishes, cancels or deletes something." })]);
+    const second = h.messages.requests[1]!;
+    expect(results(second).map((result) => [result.is_error ?? false, result.content])).toEqual([
+      [false, [{ type: "text", text: "OK" }]], [true, [{ type: "text", text: SUBMISSION_UNKNOWN }]], [true, [{ type: "text", text: NOT_EXECUTED }]],
+    ]);
+    expect(results(h.messages.requests[2]!)[0]!.content).toEqual([{ type: "text", text: UNKNOWN_PENDING }]);
+    expect(h.store.steps(h.run.id).map((step) => step.outcome)).toEqual(["submission_unknown", null, null]);
+    expect(run).toMatchObject({ state: "submission_unknown", doneSource: null });
+    expect(run.detail).toContain("Whether a submit went through is unknown.");
+    expect(checks.asked.filter((asked) => asked.question === "confirmed")).toHaveLength(3);
+  });
+
+  it("settles an unknown submit at once when the page check shows it went through, with no second click", async () => {
+    const check = fixedPageCheck(PASSES);
+    const h = setup([reply([toolUse("toolu_1", "left_click", SUBMIT)]), reply([toolUse("toolu_2", "left_click", SUBMIT)])],
+      { screenChecks: submitIsIrreversible(), done: WITH_PAGE, pageCheck: check });
+    const ended = h.go();
+    await approveWhenAsked(h, true);
+    expect(await ended).toMatchObject({ state: "done", doneSource: "page_check", detail: `${PASSES.detail} That settled a submit whose outcome was unknown.` });
+    expect(h.desktop.acted).toHaveLength(1);
+    expect(h.messages.requests).toHaveLength(1);
+    expect(check.calls).toBe(1);
+  });
+
+  it("marks a submit unknown when the desktop fails during the click, and leaves the run to the person without a page check", async () => {
+    const h = setup([reply([toolUse("toolu_1", "left_click", SUBMIT)]), finished("Sent.")],
+      { screenChecks: submitIsIrreversible(), fail: (action) => (action.kind === "click" ? "later.dog's computers service could not be reached or did not answer in time" : null) });
+    const ended = h.go();
+    await approveWhenAsked(h, true);
+    expect(await ended).toMatchObject({ state: "submission_unknown" });
+    expect(results(h.messages.requests[1]!)[0]!.content).toEqual([{ type: "text", text: SUBMISSION_UNKNOWN }]);
+    expect(h.store.finish(h.run.id, { done: "person" })).toMatchObject({ state: "done", doneSource: "person" });
+  });
+
+  it("clicks once and goes on when the page confirms it", async () => {
+    const checks = new ScriptedScreenChecks({ irreversible: () => 0.9, confirmed: () => 0.97 });
+    const h = setup([reply([toolUse("toolu_1", "left_click", SUBMIT)]), finished("Sent.")], { screenChecks: checks });
+    const ended = h.go();
+    await approveWhenAsked(h, true);
+    expect(await ended).toMatchObject({ state: "awaiting_done" });
+    expect(results(h.messages.requests[1]!)[0]!.content).toEqual([{ type: "text", text: "OK" }]);
+    expect(h.store.steps(h.run.id)[0]!.outcome).toBeNull();
+    expect(checks.asked.filter((asked) => asked.question === "confirmed")).toHaveLength(1);
+  });
+
+  it("runs nothing the person did not approve", async () => {
+    const h = setup([reply([toolUse("toolu_1", "key", { text: "Return" }), toolUse("toolu_2", "left_click", { coordinate: [5, 5] })]), finished("Done.")],
+      { screenChecks: new ScriptedScreenChecks({ irreversible: (action) => (action === "key Return" ? 0.71 : 0.01) }) });
+    const ended = h.go();
+    await approveWhenAsked(h, false);
+    await ended;
+    expect(h.desktop.acted).toEqual([]);
+    expect(h.desktop.crops).toEqual([]);
+    expect(results(h.messages.requests[1]!).map((result) => result.content)).toEqual([[{ type: "text", text: NOT_APPROVED }], [{ type: "text", text: expect.stringContaining("handed to the person") }]]);
+  });
+
+  it("holds for the person when the guard cannot check a click, and leaves ordinary clicks and right clicks alone", async () => {
+    const unsure = setup([reply([toolUse("toolu_1", "left_click", SUBMIT)]), finished("Done.")], { screenChecks: new ScriptedScreenChecks({ irreversible: () => null }) });
+    const ended = unsure.go();
+    await approveWhenAsked(unsure, false);
+    await ended;
+    expect(unsure.store.handoffs(unsure.run.id)[0]).toMatchObject({ cause: "confirm", askedBy: "guard", probability: null });
+    const plain = setup([reply([toolUse("toolu_1", "left_click", { coordinate: [10, 10] }), toolUse("toolu_2", "right_click", SUBMIT)]), finished("Done.")],
+      { screenChecks: new ScriptedScreenChecks() });
+    await plain.go();
+    expect(plain.desktop.acted).toHaveLength(2);
+    expect(plain.desktop.crops).toHaveLength(1);
+    expect(plain.store.handoffs(plain.run.id)).toEqual([]);
   });
 });
 
