@@ -32,10 +32,13 @@ socket.onmessage = (event) => {
   let seen;
   try { seen = JSON.parse(message.result.result.value); } catch { answer({ error: "unreadable" }); }
   const url = String(seen.url ?? "");
-  const urlMatches = url.startsWith(rule.url);
-  const textMatches = String(seen.text ?? "").includes(rule.contains);
+  let expected = null;
+  try { expected = new URL(rule.url); } catch { expected = null; }
   let where = "";
-  try { const parsed = new URL(url); where = parsed.origin + parsed.pathname; } catch { where = ""; }
+  let origin = "";
+  try { const parsed = new URL(url); where = parsed.origin + parsed.pathname; origin = parsed.origin; } catch { where = ""; }
+  const urlMatches = expected !== null && origin === expected.origin && url.startsWith(expected.href);
+  const textMatches = String(seen.text ?? "").includes(rule.contains);
   answer({ where, urlMatches, textMatches, active: named.length > 0 || pages.length === 1 });
 };
 `;

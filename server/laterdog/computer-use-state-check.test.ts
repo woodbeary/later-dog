@@ -82,6 +82,20 @@ describe("the state check on the desktop's own browser", () => {
       passed: false, detail: "A tab (the active one could not be told apart) is on https://portal.clinic.example/requests/new and shows the expected text, so the person decides." });
   });
 
+  it("does not take a look-alike host or another port for the address the rule names", async () => {
+    const devtools = await fakeDevtools([
+      { title: "Look-alike", url: "https://portal.clinic.example.attacker.test/requests/42", text: PAGE_TEXT },
+      { title: "Other port", url: "https://portal.clinic.example:8443/requests/42", text: PAGE_TEXT },
+      { title: "Portal", url: "https://portal.clinic.example/requests/42", text: PAGE_TEXT },
+    ]);
+    const rule = { url: "https://portal.clinic.example", contains: "Request received" };
+    expect(readStateCheck(0, (await runScript(devtools.port, "Look-alike - Chromium", rule)).stdout))
+      .toEqual({ passed: false, detail: "The active tab is on https://portal.clinic.example.attacker.test/requests/42, not the expected address." });
+    expect(readStateCheck(0, (await runScript(devtools.port, "Other port - Chromium", rule)).stdout))
+      .toEqual({ passed: false, detail: "The active tab is on https://portal.clinic.example:8443/requests/42, not the expected address." });
+    expect(readStateCheck(0, (await runScript(devtools.port, "Portal - Chromium", rule)).stdout).passed).toBe(true);
+  });
+
   it("says plainly when there is no DevTools port, and when the check did not run", async () => {
     const closed = createServer();
     closed.listen(0, "127.0.0.1");
