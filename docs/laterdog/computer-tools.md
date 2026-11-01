@@ -103,6 +103,8 @@ The check is a guess from a small model. It is there to save a round trip, not t
   uses, so a busy agent cannot break routing. When it runs out, `computer_action` still returns the screenshot, with
   `screen_check: { "unavailable": "Today's screen checks are used up..." }`. Only free trial and Cloud keys get screen checks;
   with the operator's `ldc_` key the action runs and returns one screenshot, with no before shot and no check.
+  The supervisor's own computer-use loop does not use `computer_action`: it asks `POST /v1/screen-checks`, which answers
+  only the owner `ldc_` key and the supervisor's service binding ([computer-use-loop.md](computer-use-loop.md)).
 - **`decide` is for Cloud plan keys.** It needs a key whose later.dog Cloud plan is active, or cancelled but paid through
   (`plans` row `active` or `canceled`, within its period end plus the grace days, the same signal `GET /v1/trial` reports).
   Any other key, a bare trial key and the `ldc_` key included, gets "Free-form decisions come with the later.dog Cloud plan."

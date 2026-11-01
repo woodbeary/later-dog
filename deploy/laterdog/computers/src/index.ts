@@ -561,6 +561,29 @@ async function decideRequest(request: Request, env: Env): Promise<Response> {
   return await runDecision(env, keySha256, parsed.decision, ROOM_DECISIONS);
 }
 
+const SUPERVISOR_ONLY: Refusal = { status: 403, code: "supervisor_only", message: "This route is for later.dog's own supervisor, with the owner key or its service binding. A trial key gets screen checks with computer_action." };
+const SCREEN_CHECK_MODEL_ONLY: Refusal = { status: 422, code: "unsupported_decision", message: "Screen checks use clef-flash." };
+const SUPERVISOR_GATEWAY: GatewayMetadata = { user: "supervisor", tier: "owner" };
+
+async function supervisorScreenCheck(request: Request, env: Env, via: Via): Promise<Response> {
+  const identified = await identify(request, env, via);
+  if (!identified.ok) return identified.response;
+  if (identified.caller.trial) return apiError(SUPERVISOR_ONLY);
+  if (!(await allowed(env.INCLUDED_LIMIT, "supervisor-screen-checks"))) return apiError(TOO_MANY);
+  const body = await readBody(request, DECIDE_MAX_IMAGE_BODY_BYTES);
+  if (!body.ok) return body.response;
+  const parsed = toolDecisionFrom(body.value);
+  if (!parsed.ok) return apiError(parsed.refusal);
+  if (parsed.decision.model !== "clef-flash") return apiError(SCREEN_CHECK_MODEL_ONLY);
+  if (!env.AI) return apiError(NOT_INCLUDED);
+  try {
+    return json(await env.AI.run(clefModelId(parsed.decision), clefInput(parsed.decision), gatewayOptions(env, SUPERVISOR_GATEWAY)));
+  } catch (error) {
+    console.error(`laterdog computers: supervisor screen check failed: ${error instanceof Error ? error.message : String(error)}`);
+    return apiError(INCLUDED_FAILED);
+  }
+}
+
 type DecisionBudget = { kind: UsageKind; perKey: number; total: number };
 
 type Waiter = (work: Promise<unknown>) => void;
@@ -1016,6 +1039,8 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
         return json({ ...trialOffer(trialPolicy(env)), ...includedField(env), ...(squareConfigured(env) ? { planOffered: true } : {}) });
       case "decide":
         return await decideRequest(request, env);
+      case "screen_checks":
+        return await supervisorScreenCheck(request, env, via);
       case "mcp":
         return await mcpRequest(request, env, via, url);
       case "voices":

@@ -108,6 +108,7 @@ still drawing has it `false` (see Waking and readiness).
 | `GET /computers/:id/files?path=` | The file's bytes, 404 if missing, 413 over 16 MB. Relative paths start at `/home/dog`. |
 | `PUT /computers/:id/files?path=` raw body | `{ ok: true }`. Up to 16 MB. Creates missing folders. New files and folders belong to `dog`. |
 | `GET /computers/:id/screenshot` | `image/jpeg` of the whole screen, pointer included. |
+| `POST /screen-checks` `{ "model": "clef-flash", "state", "questions", "images"? }` | The Clef answer, for later.dog's own supervisor only: the owner `ldc_` key or the `ComputersApi` service binding (a trial key gets 403 `supervisor_only`). It takes the same questions and images as the `decide` tool, runs only `clef-flash`, goes through AI Gateway with its log off, and passes the 60 a minute `INCLUDED_LIMIT`. Claude computer use in the supervisor's own loop asks it which state a frame is in, whether a click would submit something, and whether a submit went through. |
 | `POST /computers/:id/desktop` | `{ url, expiresAt }`: a viewer link valid for 2 hours. It is signed (HMAC-SHA256, secret `DESKTOP_SIGNING_KEY`) over the id, the expiry and the boot count, so it also dies when the computer sleeps. Anyone holding it can watch and take over: share it only with the person. Works while the computer is `starting` too: the page shows "Connecting…" and the screen connects as soon as it answers. 409 `asleep` unless `running` or `starting`. |
 
 ### MCP
