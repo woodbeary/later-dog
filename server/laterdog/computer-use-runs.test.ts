@@ -180,6 +180,33 @@ describe("computer-use runs on the supervisor", () => {
     expect(desktop.acted).toEqual([{ kind: "click", button: "left", count: 1, at: [900, 700], modifiers: [] }]);
   });
 
+  it("takes the person's Secure Form values on its own route, never echoes them, and pushes the request to the phone", async () => {
+    const phone = fakePhone();
+    const form = { title: "Sign in to the clinic portal", site: "portal.clinic.example", fields: [{ id: "email", label: "Email", type: "email" }, { id: "password", label: "Password", type: "password" }] };
+    const f = await fixture(engineWith([reply([{ type: "tool_use", id: "toolu_1", name: "request_secure_form", input: form }]), finished("Signed in.")], phone.phone));
+    const id = (await f.admin("POST", "/computer-runs", START)).body.run.id as string;
+    let view = await f.admin("GET", `/computer-runs/${id}`);
+    for (let tries = 0; !view.body.form && tries < 200; tries++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      view = await f.admin("GET", `/computer-runs/${id}`);
+    }
+    const formId = view.body.form.formId as string;
+    expect(view.body.form).toMatchObject({ title: form.title, host: form.site, status: "open" });
+    expect(phone.sent.at(-1)).toMatchObject({ computerRunId: id, title: "Computer use needs your details", body: "Sign in to the clinic portal (portal.clinic.example). Open later.dog to fill in the Secure Form." });
+    expect((await f.dog("POST", `/computer-runs/${id}/secure-form`, { formId, values: { email: "a@b.example", password: "x" } })).status).toBe(403);
+    expect((await f.admin("POST", `/computer-runs/${id}/secure-form`, { formId: "form_0000000000000000", values: {} })).status).toBe(404);
+    expect((await f.admin("POST", `/computer-runs/${id}/secure-form`, { formId, values: { email: "jacob@example.com" } }))).toEqual({ status: 400, body: { error: "Fill in every field." } });
+    const sent = await f.admin("POST", `/computer-runs/${id}/secure-form`, { formId, values: { email: "jacob@example.com", password: "fixture-secret-123" } });
+    expect(sent.status).toBe(200);
+    expect(sent.body.form).toMatchObject({ formId, status: "filled" });
+    expect(JSON.stringify(sent.body)).not.toContain("fixture-secret-123");
+    expect((await f.runs.finished(id)).state).toBe("awaiting_done");
+    const after = await f.admin("GET", `/computer-runs/${id}`);
+    expect(after.body.form).toBeNull();
+    expect(after.body.steps[0].actions).toEqual([{ name: "request_secure_form", fields: 2, outcome: "filled" }]);
+    expect((await f.admin("POST", `/computer-runs/${id}/secure-form`, { formId, cancel: true })).status).toBe(409);
+  });
+
   it("stops a run on request", async () => {
     const first = deferred<MessagesReply>();
     const f = await fixture(engineWith([() => first.promise]));

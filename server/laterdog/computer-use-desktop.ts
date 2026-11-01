@@ -87,6 +87,11 @@ export class CloudDesktop implements UseDesktop {
     return this.#calls.read(this.#computerId, command.path, MAX_FRAME_BYTES);
   }
 
+  async run(command: string): Promise<{ ok: boolean; exitCode: number | null; stdout: string }> {
+    const result = await this.#calls.exec(this.#computerId, command, ACTION_TIMEOUT_MS);
+    return { ok: true, exitCode: result.exitCode, stdout: result.stdout };
+  }
+
   async act(action: DesktopAction): Promise<string> {
     return settled(await this.#calls.exec(this.#computerId, xdotoolCommand(action), actionTimeoutMs(action)), `The ${action.kind.replace("_", " ")} action`);
   }

@@ -30,6 +30,10 @@ describe("the request later.dog sends", () => {
     expect(tools[0]).toEqual({ type: COMPUTER_TOOLSET_TYPE, configs: { zoom: { enabled: false } } });
     expect(COMPUTER_TOOLSET_TYPE).toBe("computer_toolset_20260801");
     expect(tools[1]).toMatchObject({ name: "request_takeover", strict: true });
+    expect(tools.slice(2).map((tool) => [tool.name, (tool.input_schema as { required: string[] }).required])).toEqual([
+      ["request_secure_form", ["title", "site", "fields"]], ["fill_secure_field", ["form_id", "field_id", "x", "y"]],
+    ]);
+    expect(tools).toHaveLength(4);
     expect(JSON.stringify(body)).not.toMatch(/display_width_px|display_height_px|computer_2025|fallbacks/);
   });
 

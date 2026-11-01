@@ -9,6 +9,8 @@ import { CONFIRM_LOOKS_MS, cropBox, guardedWords, isGuarded, type GuardedAction 
 import { isPersonState, YES, type ScreenChecks, type ScreenRead, type ScreenState } from "./computer-use-screen.ts";
 import { isOpenRun, type AskedBy, type ComputerUseRun, type ComputerUseStore, type Handoff, type HandoffCause, type StepOutcome, type ViewerLink } from "./computer-use-store.ts";
 import { parseTakeoverInput } from "./takeover.ts";
+import { fillSecureField, parseSecureFormInput } from "./secure-form.ts";
+import { FILL_FIELD_TOOL_NAME, REQUEST_FORM_TOOL_NAME, type RunFormView, type RunSecureForms } from "./computer-use-secure-form.ts";
 
 export type DesktopAction = Exclude<ComputerAction, { kind: "screenshot" | "wait" }>;
 
@@ -18,12 +20,19 @@ export interface UseDesktop {
   act(action: DesktopAction, signal: AbortSignal): Promise<string>;
   viewer?(signal: AbortSignal): Promise<ViewerLink>;
   crop?(box: { x: number; y: number; width: number; height: number }, signal: AbortSignal): Promise<Buffer>;
+  run?(command: string, signal: AbortSignal): Promise<{ ok: boolean; exitCode: number | null; stdout: string }>;
 }
 
 export interface TakeoverNotice {
   runId: string;
   task: string;
   handoff: Handoff;
+}
+
+export interface FormNotice {
+  runId: string;
+  task: string;
+  form: RunFormView;
 }
 
 export interface LoopLimits {
@@ -43,12 +52,15 @@ export interface LoopDeps {
   sleep: (ms: number, signal: AbortSignal) => Promise<void>;
   limits: LoopLimits;
   notify?: (notice: TakeoverNotice) => void;
+  notifyForm?: (notice: FormNotice) => void;
   screenChecks?: ScreenChecks;
+  forms?: RunSecureForms;
 }
 
 export const SYSTEM_PROMPT = [
   "You are using a Linux desktop (Xfce with Chromium) through the computer tools to do one task for the person. Each screenshot is the whole screen.",
-  "When a step needs the person on the screen (a sign-in or code you were not given, a passkey, a CAPTCHA, a payment, or a final yes before anything is sent or bought), first open the exact page and fill in everything you can, then call request_takeover with that one step. Never ask for passwords or codes in your text.",
+  "To sign in, open the sign-in page, call request_secure_form for only what the person knows (an email or username, a password, a one-time code), then type each value with fill_secure_field. You never see the values.",
+  "When a step needs the person on the screen (a sign-in or code a Secure Form cannot cover, a passkey, a CAPTCHA, a payment, or a final yes before anything is sent or bought), first open the exact page and fill in everything you can, then call request_takeover with that one step. Never ask for passwords or codes in your text.",
   "On a sign-in, verification-code or CAPTCHA screen, ask for the person before you act on it: later.dog checks each screenshot, and hands the screen to the person when you act on such a screen without asking.",
   "Before a click or Enter that submits, pays, publishes, cancels or deletes something, later.dog asks the person to approve it. When later.dog says it is unknown whether such an action went through, never repeat it: take a screenshot and look.",
   "When you believe the task is finished, stop calling tools and say in one short line what you did. You cannot mark the task done: the person, or a check of the live page, decides that.",
@@ -63,6 +75,8 @@ export const NOT_APPROVED = "Not executed: the person did not approve this actio
 export const SUBMISSION_UNKNOWN = "Unknown whether this went through: later.dog ran it but could not see a confirmation. Do not repeat it. Take a screenshot and look; only the person or a check of the page can settle it.";
 export const UNKNOWN_PENDING = "Not executed: an earlier action's outcome is still unknown, so later.dog will not run another that submits, pays, publishes, cancels or deletes until the person or a check of the page settles it.";
 
+export type FormOutcome = "filled" | "cancelled";
+
 export class RunControl {
   readonly #abort = new AbortController();
   #held = false;
@@ -72,6 +86,7 @@ export class RunControl {
   #handled: ScreenState | null = null;
   #approved = false;
   #unknown = false;
+  #form: { id: string; answer: (outcome: FormOutcome) => void } | null = null;
 
   get signal(): AbortSignal {
     return this.#abort.signal;
@@ -96,6 +111,21 @@ export class RunControl {
     const approved = this.#approved;
     this.#approved = false;
     return approved;
+  }
+
+  waitForForm(formId: string): Promise<FormOutcome> {
+    return new Promise<FormOutcome>((resolve, reject) => {
+      const stop = () => { this.#form = null; reject(this.#abort.signal.reason); };
+      if (this.#abort.signal.aborted) return stop();
+      this.#abort.signal.addEventListener("abort", stop, { once: true });
+      this.#form = { id: formId, answer: (outcome) => { this.#abort.signal.removeEventListener("abort", stop); this.#form = null; resolve(outcome); } };
+    });
+  }
+
+  answerForm(formId: string, outcome: FormOutcome): boolean {
+    if (this.#form?.id !== formId) return false;
+    this.#form.answer(outcome);
+    return true;
   }
 
   openUnknown(): void {
@@ -204,6 +234,50 @@ interface Acted {
   outcome: StepOutcome | null;
 }
 
+function loggedAction(use: ToolUse): Record<string, unknown> {
+  if (use.name === REQUEST_FORM_TOOL_NAME) return { name: use.name };
+  if (use.name === FILL_FIELD_TOOL_NAME) return { name: use.name };
+  return describeAction(use.name, use.input);
+}
+
+const record = (input: unknown): Record<string, unknown> => (input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {});
+
+async function askForm(use: ToolUse, turn: Turn, acted: Acted, logged: Record<string, unknown>): Promise<{ text: string; ok: boolean }> {
+  const { deps } = turn;
+  const forms = deps.forms!;
+  const input = parseSecureFormInput(record(use.input));
+  if ("error" in input) { logged.outcome = "refused"; return { text: input.error, ok: false }; }
+  const { formId } = forms.open(input);
+  logged.fields = input.fields.length;
+  deps.control.markHandled();
+  try { deps.notifyForm?.({ runId: turn.runId, task: deps.store.run(turn.runId).task, form: forms.view(formId)! }); } catch {}
+  const from = deps.clock();
+  const outcome = await deps.control.waitForForm(formId);
+  acted.heldMs += deps.clock() - from;
+  logged.outcome = outcome;
+  if (outcome === "cancelled") return { text: "The person closed the Secure Form without filling it in. If the step still needs them, call request_takeover.", ok: true };
+  const ids = input.fields.map((field) => `${field.id} (${field.label})`).join(", ");
+  return { ok: true, text: `The person filled in ${JSON.stringify(input.title)} for ${input.host} (form_id ${JSON.stringify(formId)}). Take a screenshot, then call fill_secure_field for each field: ${ids}. You never see the values. Set submit to true on the last field, then take a screenshot to check the result.` };
+}
+
+async function fillField(use: ToolUse, turn: Turn, logged: Record<string, unknown>): Promise<{ text: string; ok: boolean }> {
+  const { deps, frame, screen } = turn;
+  const args = record(use.input);
+  const x = args.x;
+  const y = args.y;
+  if (typeof x !== "number" || typeof y !== "number" || !Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x > frame.width || y > frame.height) {
+    logged.outcome = "not typed";
+    return { ok: false, text: `x and y must be whole pixel positions inside the ${frame.width}x${frame.height} screenshot.` };
+  }
+  const run = deps.desktop.run;
+  if (!run) { logged.outcome = "not typed"; return { ok: false, text: "This desktop cannot type Secure Form values." }; }
+  const [sx, sy] = toScreen([x, y], frame, screen);
+  const filled = await fillSecureField({ ...args, x: sx, y: sy }, deps.forms!, (command) => run.call(deps.desktop, command, deps.control.signal));
+  deps.control.signal.throwIfAborted();
+  logged.outcome = filled.ok ? "typed" : "not typed";
+  return filled;
+}
+
 const nothingActed = (): Acted => ({ results: [], actions: [], shot: null, heldMs: 0, outcome: null });
 
 async function pointer(turn: Turn, action: GuardedAction): Promise<Point | null> {
@@ -250,13 +324,20 @@ async function act(uses: ToolUse[], turn: Turn, acted: Acted): Promise<void> {
   let blocked: string | null = null;
   for (const use of uses) {
     signal.throwIfAborted();
-    acted.actions.push(describeAction(use.name, use.input));
+    const logged = loggedAction(use);
+    acted.actions.push(logged);
     const answer = (content: ContentBlock[], isError = false) => acted.results.push({
       type: "tool_result", tool_use_id: use.id, ...(use.toolset ? { toolset_name: TOOLSET_NAME } : {}), content, ...(isError ? { is_error: true } : {}),
     });
     if (blocked) { answer([text(blocked)], true); continue; }
     if (failed) { answer([text(NOT_EXECUTED)], true); continue; }
     if (control.held) { blocked = TAKEN_OVER; answer([text(blocked)], true); continue; }
+    if (!use.toolset && deps.forms && (use.name === REQUEST_FORM_TOOL_NAME || use.name === FILL_FIELD_TOOL_NAME)) {
+      const done = use.name === REQUEST_FORM_TOOL_NAME ? await askForm(use, turn, acted, logged) : await fillField(use, turn, logged);
+      if (!done.ok) failed = true;
+      answer([text(done.text)], !done.ok);
+      continue;
+    }
     if (!use.toolset) {
       const asked = use.name === TAKEOVER_TOOL_NAME && use.input && typeof use.input === "object" ? parseTakeoverInput(use.input as Record<string, unknown>) : null;
       if (!asked) { failed = true; answer([text(use.name === TAKEOVER_TOOL_NAME ? "request_takeover needs a step." : `${use.name} is not a tool in this run.`)], true); continue; }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TAKEOVER_REASONS } from "../../shared/takeover.ts";
 import { WITHHELD_MEMBERS } from "./computer-use-actions.ts";
+import { LOOP_SECURE_FORM_TOOLS } from "./computer-use-secure-form.ts";
 
 export const COMPUTER_USE_MODEL = "claude-opus-5-5";
 export const COMPUTER_USE_EFFORT = "medium";
@@ -67,6 +68,7 @@ export function messagesBody(request: MessagesRequest): Record<string, unknown> 
     tools: [
       { type: COMPUTER_TOOLSET_TYPE, configs: Object.fromEntries(WITHHELD_MEMBERS.map((member) => [member, { enabled: false }])) },
       TAKEOVER_TOOL,
+      ...LOOP_SECURE_FORM_TOOLS,
     ],
     messages: request.messages,
   };

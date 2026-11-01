@@ -5,7 +5,8 @@ import {
   ACTION_MS, FakeClock, FakeDesktop, finished, fixedPageCheck, FIXTURE_USAGE, FIXTURE_VIEWER, memoryStore, MODEL_MS, reply, ScriptedMessages, ScriptedScreenChecks,
   takeoverUse, toolUse, WatchedControl, type ScriptedReply,
 } from "./computer-use-fakes.ts";
-import type { DesktopAction } from "./computer-use-loop.ts";
+import type { DesktopAction, FormNotice } from "./computer-use-loop.ts";
+import { RunSecureForms } from "./computer-use-secure-form.ts";
 import {
   DEFAULT_LIMITS, HANDED_BACK_NOTE, NOT_APPROVED, NOT_EXECUTED, runComputerUse, sameModel, SCREEN_TAKEN, screenshotSha256, SUBMISSION_UNKNOWN, TAKEN_OVER,
   UNKNOWN_PENDING, type LoopLimits, type TakeoverNotice,
@@ -19,7 +20,7 @@ const PASSES = { passed: true, detail: "HTTP 200; the page shows the expected te
 const FAILS = { passed: false, detail: "HTTP 200; the expected text is not on the page." };
 
 function setup(replies: ScriptedReply[], options: { done?: DoneRule; pageCheck?: PageCheck; size?: { width: number; height: number };
-  fail?: (action: DesktopAction) => string | null; limits?: LoopLimits; model?: string; screenChecks?: ScriptedScreenChecks } = {}) {
+  fail?: (action: DesktopAction) => string | null; limits?: LoopLimits; model?: string; screenChecks?: ScriptedScreenChecks; forms?: RunSecureForms } = {}) {
   const clock = new FakeClock();
   const store = memoryStore();
   const desktop = new FakeDesktop({ clock, size: options.size, fail: options.fail });
@@ -27,11 +28,13 @@ function setup(replies: ScriptedReply[], options: { done?: DoneRule; pageCheck?:
   const control = new WatchedControl();
   const pageCheck = options.pageCheck ?? fixedPageCheck(PASSES);
   const notices: TakeoverNotice[] = [];
+  const formNotices: FormNotice[] = [];
   const run = store.start({ task: "Send the interpreter request for Tuesday", computerId: "cmp_fixture12345", model: "claude-opus-5-5", done: options.done ?? PERSON_ONLY });
   const go = () => runComputerUse(run.id, { store, desktop, messages, control, pageCheck, clock: clock.read,
     sleep: async (ms) => clock.advance(ms), limits: options.limits ?? DEFAULT_LIMITS, notify: (notice) => notices.push(notice),
-    ...(options.screenChecks ? { screenChecks: options.screenChecks } : {}) });
-  return { clock, store, desktop, messages, control, run, go, notices };
+    notifyForm: (notice) => formNotices.push(notice),
+    ...(options.screenChecks ? { screenChecks: options.screenChecks } : {}), ...(options.forms ? { forms: options.forms } : {}) });
+  return { clock, store, desktop, messages, control, run, go, notices, formNotices };
 }
 
 const lastUser = (request: MessagesRequest) => request.messages.at(-1)!;
@@ -353,6 +356,73 @@ describe("the guard on clicks that submit, pay, publish, cancel or delete", () =
     expect(plain.desktop.acted).toHaveLength(2);
     expect(plain.desktop.crops).toHaveLength(1);
     expect(plain.store.handoffs(plain.run.id)).toEqual([]);
+  });
+});
+
+describe("Secure Form in the loop", () => {
+  const REQUEST = { title: "Sign in to the clinic portal", site: "portal.clinic.example",
+    fields: [{ id: "email", label: "Email", type: "email" }, { id: "password", label: "Password", type: "password" }] };
+  const SECRET = "fixture-secret-123";
+  const formUse = (id: string) => ({ type: "tool_use", id, name: "request_secure_form", input: REQUEST });
+  const fillUse = (id: string, input: Record<string, unknown>) => ({ type: "tool_use", id, name: "fill_secure_field", input });
+
+  it("asks the person for their details, waits, and types each value without Claude or the log seeing it", async () => {
+    const forms = new RunSecureForms();
+    let formId = "";
+    const h = setup([
+      reply([formUse("toolu_1")]),
+      (request) => {
+        formId = /form_id "(form_[a-f0-9]{16})"/.exec(String((results(request)[0]!.content as Array<{ text: string }>)[0]!.text))![1]!;
+        return reply([fillUse("toolu_2", { form_id: formId, field_id: "email", x: 640, y: 300 }), fillUse("toolu_3", { form_id: formId, field_id: "password", x: 640, y: 360, submit: true })]);
+      },
+      finished("Signed in."),
+    ], { forms, size: { width: 2560, height: 1600 } });
+    const ended = h.go();
+    for (let tries = 0; !forms.waiting() && tries < 100; tries++) await new Promise((resolve) => setImmediate(resolve));
+    const waiting = forms.waiting()!;
+    expect(h.formNotices).toEqual([{ runId: h.run.id, task: "Send the interpreter request for Tuesday", form: waiting }]);
+    h.clock.advance(45_000);
+    expect(forms.submit(waiting.formId, { email: "jacob@example.com", password: SECRET })).toEqual({ ok: true });
+    h.control.answerForm(waiting.formId, "filled");
+    expect((await ended).state).toBe("awaiting_done");
+    expect(formId).toBe(waiting.formId);
+    expect(h.desktop.commands).toHaveLength(2);
+    expect(h.desktop.commands[0]).toContain(Buffer.from("jacob@example.com").toString("base64"));
+    expect(h.desktop.commands[0]).toContain("xdotool mousemove --sync 948 444 click 1");
+    expect(h.desktop.commands[1]).toContain("xdotool key --clearmodifiers Return");
+    expect(results(h.messages.requests[2]!).map((result) => result.is_error ?? false)).toEqual([false, false]);
+    const steps = h.store.steps(h.run.id);
+    expect(steps[0]!.actions).toEqual([{ name: "request_secure_form", fields: 2, outcome: "filled" }]);
+    expect(steps[0]!.actionMs).toBe(0);
+    expect(steps[1]!.actions).toEqual([{ name: "fill_secure_field", outcome: "typed" }, { name: "fill_secure_field", outcome: "typed" }]);
+    const everything = JSON.stringify([h.messages.requests, h.store.steps(h.run.id), h.store.run(h.run.id)]);
+    expect(everything).not.toContain(SECRET);
+    expect(everything).not.toContain(Buffer.from(SECRET).toString("base64"));
+    expect(forms.view(formId)!.status).toBe("typed");
+  });
+
+  it("tells Claude when the person closes the form, and refuses a form that names no real site", async () => {
+    const forms = new RunSecureForms();
+    const h = setup([reply([formUse("toolu_1")]), reply([{ ...formUse("toolu_2"), input: { ...REQUEST, site: "github.io" } }]), finished("Stopped.")], { forms });
+    const ended = h.go();
+    for (let tries = 0; !forms.waiting() && tries < 100; tries++) await new Promise((resolve) => setImmediate(resolve));
+    const waiting = forms.waiting()!;
+    forms.cancel(waiting.formId);
+    h.control.answerForm(waiting.formId, "cancelled");
+    await ended;
+    expect(results(h.messages.requests[1]!)[0]!.content).toEqual([{ type: "text", text: expect.stringContaining("closed the Secure Form") }]);
+    expect(results(h.messages.requests[2]!)[0]).toMatchObject({ is_error: true, content: [{ type: "text", text: expect.stringContaining("shared by many sites") }] });
+    expect(h.store.steps(h.run.id).map((step) => step.actions)).toEqual([[{ name: "request_secure_form", fields: 2, outcome: "cancelled" }], [{ name: "request_secure_form", outcome: "refused" }], []]);
+  });
+
+  it("does not type into a point outside the screenshot, or a value the person never gave", async () => {
+    const forms = new RunSecureForms();
+    const h = setup([reply([fillUse("toolu_1", { form_id: "form_0000000000000000", field_id: "email", x: 5000, y: 10 })]),
+      reply([fillUse("toolu_2", { form_id: "form_0000000000000000", field_id: "email", x: 10, y: 10 })]), finished("Done.")], { forms });
+    await h.go();
+    expect(h.desktop.commands).toEqual([]);
+    expect(results(h.messages.requests[1]!)[0]).toMatchObject({ is_error: true, content: [{ type: "text", text: "x and y must be whole pixel positions inside the 1280x800 screenshot." }] });
+    expect(results(h.messages.requests[2]!)[0]).toMatchObject({ is_error: true, content: [{ type: "text", text: expect.stringContaining("no Secure Form with that form_id") }] });
   });
 });
 
