@@ -103,8 +103,9 @@ the person, and when the screen came back. The link itself is cleared when the s
 `submission_unknown`, `task_done` and `task_failed`.
 
 `GET /v1/computer-runs/<id>` returns the run, its steps, its take-overs and any Secure Form waiting for the person.
-`GET /v1/computer-runs/<id>/trace` returns the same run to share: the task, Claude's reasoning and the take-over notes
-are replaced by their SHA-256, as screenshots already are, and no viewer link is in it.
+`GET /v1/computer-runs/<id>/trace` returns the same run to share: the task, Claude's reasoning, the take-over notes and
+whatever Claude wrote into later.dog's own tools (such as the step it asked the person for) are replaced by their SHA-256,
+as screenshots already are, and no viewer link is in it.
 
 ## Take over
 
@@ -150,16 +151,21 @@ records whether it had them. Off, none of the following happens.
   or a take-over, the loop hands the screen over itself (`asked_by = screen_check`, cause `sign-in` or `captcha`, with the
   probability) and runs nothing more in that turn. A screen already handed over, or one Claude asked about, is not handed
   over again until a frame reads differently. Looking, waiting and moving the pointer never trigger it.
-- **The guard.** Before a left click, and before Enter, the loop crops 480x240 around the target with
-  `scrot --autoselect` (the whole frame for Enter) and asks whether the action would submit, pay, publish, cancel or
-  delete something. On yes, or when the check cannot answer, the screen goes to the person (`asked_by = guard`, cause
-  `confirm`) and the action runs only if they hand back with `{ "approve": true }`; otherwise Claude is told it did not run.
-  The Enter that `fill_secure_field` presses after a sign-in is not guarded.
+- **The guard.** Before a left click, and before Enter (a key, or typed text with a line break in it), the loop crops
+  480x240 around the target with `scrot --autoselect` (the whole frame for Enter) and asks whether the action would
+  submit, pay, publish, cancel or delete something; typed text is described by its length only. On yes, or when the check
+  cannot answer, the screen goes to the person (`asked_by = guard`, cause `confirm`) and the action runs only if they hand
+  back with `{ "approve": true }`; otherwise Claude is told it did not run. If the person takes the screen while the check
+  is under way, the action does not run. The Enter that `fill_secure_field` presses after a sign-in is not guarded.
 - **Unknown submits.** After an approved action, the loop looks for a confirmation three times over about six seconds.
   If the desktop failed during the action, or no look confirms it, the step's outcome is `submission_unknown`. Claude is
-  told "Do not repeat it", the rest of the batch does not run, and the loop refuses every further guarded action in the
-  run. The page check and the state check are tried at once; if one passes the run is done. Otherwise, when Claude ends
-  its turn the run waits in `submission_unknown` for the person, and counts as failed until they settle it.
+  told "Do not repeat it", the rest of the batch does not run, and the loop refuses every further left click and Enter in
+  the run, telling Claude so. The page check and the state check are tried at once; if one passes the run is done.
+  Otherwise, when Claude ends its turn the run waits in `submission_unknown` for the person, and counts as failed until
+  they settle it.
+- **Frames too large to check.** A frame whose data URL is over 190,000 characters (about 140 KB of JPEG, the computers
+  Worker's limit) is not sent: it gets no reading, the guard holds for the person on an Enter judged from it, and a look
+  for a confirmation counts as not confirmed. Clicks are judged from the 480x240 crop, which stays well under the limit.
 
 ## Done
 
@@ -171,12 +177,12 @@ Each run says what done means before it starts, in `done.pageCheck`, and the run
   credentials in it.
 
 `done.stateCheck` is optional, in the same shape: the run is also done when the desktop's own browser has, in its active
-tab, an address starting with `url` and a page containing the text. It works behind a sign-in, where the supervisor's
-fetch cannot. later.dog runs one command on the computer: a small Node script reads the tab over Chromium's DevTools port
-on 127.0.0.1:9222 (with no Origin header) and prints only the address without its query and whether it matched, never the
-page's text. The active tab is the one whose title the active window shows; when it cannot be told apart from other tabs
-(several tabs, no matching title), the check does not pass and the person decides. The page check is tried first, then
-the state check.
+tab, an address on the same origin as `url` that starts with it, and a page containing the text. It works behind a
+sign-in, where the supervisor's fetch cannot. later.dog runs one command on the computer: a small Node script reads the
+tab over Chromium's DevTools port on 127.0.0.1:9222 (with no Origin header) and prints only the address without its
+query and whether it matched, never the page's text. The active tab is the one whose title the active window shows; when
+it cannot be told apart from other tabs (several tabs, no matching title), the check does not pass and the person
+decides. The page check is tried first, then the state check.
 
 Claude has no way to finish a run. When it ends its turn, a passing page check or state check makes the run `done` with
 the source `page_check` or `state_check`; otherwise the run waits in `awaiting_done` (or `submission_unknown`) for the

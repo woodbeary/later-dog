@@ -17,10 +17,11 @@ runs each SQL block on this page against fixture runs, so a query here that stop
 - **Failed**: the state is `failed`, with one cause: `not_done`, `stopped`, `timed_out`, `step_limit`, `refusal`,
   `error` or `interrupted`.
 - **Abandoned**: still `awaiting_done` 7 days after it started. An abandoned run counts as failed.
-- **Unknown submit**: a step whose guarded action (a click or Enter the guard judged to submit, pay, publish, cancel or
-  delete, run only after the person approved it) failed on the desktop, or after which no confirmation was seen
-  (`computer_use_steps.outcome = 'submission_unknown'`). The loop never runs it again. Only the page check, the state
-  check or the person settles it. A run that ends with one unsettled waits in the state `submission_unknown`.
+- **Unknown submit**: a step whose guarded action (a click, or an Enter pressed or typed, that the guard judged to
+  submit, pay, publish, cancel or delete, run only after the person approved it) failed on the desktop, or after which no
+  confirmation was seen (`computer_use_steps.outcome = 'submission_unknown'`). The loop never runs it again. Only the
+  page check, the state check or the person settles it. A run that ends with one unsettled waits in the state
+  `submission_unknown`.
 - **Settled**: done, failed, abandoned, or `submission_unknown`. A `submission_unknown` run counts as failed until the
   person says Done or Not done. Runs still going are left out until they settle.
 - **Success rate**: done runs ÷ settled runs.
@@ -210,7 +211,8 @@ SELECT model, COUNT(*) AS runs FROM computer_use_runs GROUP BY model;
   (`screen_state`, `screen_probability`), so runs with and without the check can be compared.
 - 2026-11-01: an unknown submit (`outcome = 'submission_unknown'`) and the run state `submission_unknown`, which counts as
   settled and failed until the person or the page check settles it. The guard's take-overs have the cause `confirm` and
-  `asked_by = guard`. The success, how-runs-ended and take-over queries now include `submission_unknown` runs.
+  `asked_by = guard`, and typed text with a line break in it counts as an Enter for the guard. The success,
+  how-runs-ended and take-over queries now include `submission_unknown` runs.
 - 2026-11-01: steps keep Claude's summarized thinking, a failure class the review sets, and whether the screen changed
   after an action (`thinking`, `failure_class`, `screen_unchanged`), with two queries for them.
 - 2026-11-01: a third done source, `state_check`, for pages behind a sign-in that the page check cannot fetch. It is
