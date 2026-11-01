@@ -19,15 +19,16 @@ runs each SQL block on this page against fixture runs, so a query here that stop
 - **Abandoned**: still `awaiting_done` 7 days after it started. An abandoned run counts as failed.
 - **Unknown submit**: a step whose guarded action (a click or Enter the guard judged to submit, pay, publish, cancel or
   delete, run only after the person approved it) failed on the desktop, or after which no confirmation was seen
-  (`computer_use_steps.outcome = 'submission_unknown'`). The loop never runs it again. Only the page check or the person
-  settles it. A run that ends with one unsettled waits in the state `submission_unknown`.
+  (`computer_use_steps.outcome = 'submission_unknown'`). The loop never runs it again. Only the page check, the state
+  check or the person settles it. A run that ends with one unsettled waits in the state `submission_unknown`.
 - **Settled**: done, failed, abandoned, or `submission_unknown`. A `submission_unknown` run counts as failed until the
   person says Done or Not done. Runs still going are left out until they settle.
 - **Success rate**: done runs ÷ settled runs.
-- **Take-over**: a row in `computer_use_handoffs`, with its cause (`sign-in`, `captcha`, `payment`, `other`, or `person`
-  when the person took the screen unasked) and who asked: `model` (Claude called `request_takeover`), `person`, or
-  `screen_check` (Claude acted on a frame the screen check read as a sign-in, code or CAPTCHA screen; `probability` is
-  the check's own). A run with a take-over counts as done only if it then reached `done`.
+- **Take-over**: a row in `computer_use_handoffs`, with its cause (`sign-in`, `captcha`, `payment`, `other`, `person`
+  when the person took the screen unasked, or `confirm` when the guard held an action) and who asked: `model` (Claude
+  called `request_takeover`), `person`, `screen_check` (Claude acted on a frame the screen check read as a sign-in, code
+  or CAPTCHA screen) or `guard` (an action looked like it would submit, pay, publish, cancel or delete, or could not be
+  checked). `probability` is the check's own, when a check asked. A run with a take-over counts as done only if it then reached `done`.
 - **Step**: one Messages API call and the actions it asked for. **Step time** is `model_ms + action_ms`: from sending the
   request to the last action finishing, leaving out time the screen was with the person.
 - **Tokens**: the API's own `usage` counts, per step.

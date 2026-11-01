@@ -326,6 +326,7 @@ async function wentThrough(action: GuardedAction, words: string, turn: Turn): Pr
   }
   return false;
 }
+
 const ACTING: ReadonlySet<ComputerAction["kind"]> = new Set(["click", "drag", "mouse_down", "mouse_up", "scroll", "type", "key", "hold_key"]);
 
 async function observe(frame: Buffer, deps: LoopDeps): Promise<void> {
