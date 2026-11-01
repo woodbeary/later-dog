@@ -20,6 +20,7 @@ export interface Notification {
   body: string;
   avatarUrl?: string;
   groupId?: string;
+  computerRunId?: string;
 }
 
 

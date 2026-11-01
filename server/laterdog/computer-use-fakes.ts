@@ -3,7 +3,7 @@ import { COMPUTER_USE_MODEL, type ContentBlock, type MessagesApi, type MessagesR
 import type { PageCheck, PageCheckResult } from "./computer-use-done.ts";
 import type { Size } from "./computer-use-frame.ts";
 import { RunControl, type DesktopAction, type UseDesktop } from "./computer-use-loop.ts";
-import { ComputerUseStore } from "./computer-use-store.ts";
+import { ComputerUseStore, type ViewerLink } from "./computer-use-store.ts";
 
 export const FIXTURE_USAGE: TokenUsage = { inputTokens: 1_400, outputTokens: 90, cacheReadTokens: 1_200, cacheWriteTokens: 0 };
 export const MODEL_MS = 800;
@@ -17,9 +17,13 @@ export class FakeClock {
   }
 }
 
+export const FIXTURE_VIEWER: ViewerLink = { url: "https://cloud.later.dog/desktop/cmp_fixture12345/fixture-viewer-token/", expiresAt: "2026-11-01T12:00:00.000Z" };
+
 export class FakeDesktop implements UseDesktop {
   readonly acted: DesktopAction[] = [];
   readonly frames: Size[] = [];
+  viewers = 0;
+  viewerFails = false;
   readonly #size: Size;
   readonly #clock: FakeClock;
   readonly #fail: (action: DesktopAction) => string | null;
@@ -38,6 +42,12 @@ export class FakeDesktop implements UseDesktop {
     this.frames.push(frame);
     this.#clock.advance(ACTION_MS);
     return Buffer.from(`fixture frame ${this.frames.length} at ${frame.width}x${frame.height}`);
+  }
+
+  async viewer(): Promise<ViewerLink> {
+    this.viewers += 1;
+    if (this.viewerFails) throw new Error("The computers service could not be reached.");
+    return FIXTURE_VIEWER;
   }
 
   async act(action: DesktopAction): Promise<string> {

@@ -49,6 +49,13 @@ export interface Handoff {
   askedBy: AskedBy;
   note: string;
   returnedAt: string | null;
+  viewerUrl: string | null;
+  viewerExpiresAt: string | null;
+}
+
+export interface ViewerLink {
+  url: string;
+  expiresAt: string;
 }
 
 export type Outcome = { done: DoneSource; detail?: string } | { failed: FailureCause; detail?: string };
@@ -57,6 +64,17 @@ const OPEN: readonly RunState[] = ["running", "handed_over", "awaiting_done"];
 
 export function isOpenRun(state: RunState): boolean {
   return OPEN.includes(state);
+}
+
+const ADDED_COLUMNS: Record<string, Record<string, string>> = {
+  computer_use_handoffs: { viewer_url: "TEXT", viewer_expires_at: "TEXT" },
+};
+
+function addMissingColumns(db: DatabaseSync): void {
+  for (const [table, columns] of Object.entries(ADDED_COLUMNS)) {
+    const present = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((row) => row.name));
+    for (const [column, type] of Object.entries(columns)) if (!present.has(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
 }
 
 function conflict(message: string): Error {
@@ -92,6 +110,7 @@ export class ComputerUseStore {
       CREATE TABLE IF NOT EXISTS computer_use_handoffs (run_id TEXT NOT NULL, number INTEGER NOT NULL, at TEXT NOT NULL,
         cause TEXT NOT NULL, asked_by TEXT NOT NULL, note TEXT NOT NULL, returned_at TEXT, PRIMARY KEY (run_id, number));
     `);
+    addMissingColumns(db);
   }
 
   #stamp(): string {
@@ -163,13 +182,25 @@ export class ComputerUseStore {
   }
 
   #closeHandoff(runId: string): void {
-    this.#db.prepare("UPDATE computer_use_handoffs SET returned_at=? WHERE run_id=? AND returned_at IS NULL").run(this.#stamp(), runId);
+    this.#db.prepare("UPDATE computer_use_handoffs SET returned_at=?, viewer_url=NULL WHERE run_id=? AND returned_at IS NULL").run(this.#stamp(), runId);
+  }
+
+  attachViewer(runId: string, number: number, link: ViewerLink): Handoff | null {
+    this.#db.prepare("UPDATE computer_use_handoffs SET viewer_url=?, viewer_expires_at=? WHERE run_id=? AND number=? AND returned_at IS NULL")
+      .run(link.url, link.expiresAt, runId, number);
+    return this.handoffs(runId).find((handoff) => handoff.number === number) ?? null;
+  }
+
+  openHandoff(runId: string): Handoff | null {
+    return this.handoffs(runId).find((handoff) => handoff.returnedAt === null) ?? null;
   }
 
   handoffs(runId: string): Handoff[] {
-    type Row = { number: number; at: string; cause: HandoffCause; asked_by: AskedBy; note: string; returned_at: string | null };
+    type Row = { number: number; at: string; cause: HandoffCause; asked_by: AskedBy; note: string; returned_at: string | null;
+      viewer_url: string | null; viewer_expires_at: string | null };
     return (this.#db.prepare("SELECT * FROM computer_use_handoffs WHERE run_id=? ORDER BY number").all(runId) as Row[]).map((row) => ({
       number: row.number, at: row.at, cause: row.cause, askedBy: row.asked_by, note: row.note, returnedAt: row.returned_at,
+      viewerUrl: row.viewer_url, viewerExpiresAt: row.viewer_expires_at,
     }));
   }
 

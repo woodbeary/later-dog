@@ -6,8 +6,9 @@ import type { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MessagesReply } from "./computer-use-anthropic.ts";
-import { FakeDesktop, finished, fixedPageCheck, ScriptedMessages, toolUse, reply, type ScriptedReply } from "./computer-use-fakes.ts";
-import { ComputerUseRuns, computerUseRunsFromEnvironment } from "./computer-use-runs.ts";
+import { FakeDesktop, finished, FIXTURE_VIEWER, fixedPageCheck, ScriptedMessages, toolUse, reply, type ScriptedReply } from "./computer-use-fakes.ts";
+import { ComputerUseRuns, computerUseRunsFromEnvironment, takeoverNotification } from "./computer-use-runs.ts";
+import type { PhonePush } from "./phone-push.ts";
 import { ComputerUseStore } from "./computer-use-store.ts";
 import { CODEX_CLOUD_CAPABILITIES, type ExecutionAdapter } from "./codex-cloud.ts";
 import { DOG_HEADER, dogToken } from "./dog-access.ts";
@@ -58,10 +59,20 @@ async function fixture(engine: ((db: DatabaseSync) => ComputerUseRuns) | "none")
   };
 }
 
-const engineWith = (replies: ScriptedReply[]) => (db: DatabaseSync) => new ComputerUseRuns(new ComputerUseStore(db), {
+function fakePhone() {
+  const sent: Parameters<PhonePush["send"]>[0][] = [];
+  const tokens: string[] = [];
+  const phone: PhonePush = {
+    register: (token) => { tokens.push(token); return true; }, unregister: () => {}, tokens: () => tokens,
+    send: async (notification) => { sent.push(notification); },
+  };
+  return { phone, sent, tokens };
+}
+
+const engineWith = (replies: ScriptedReply[], phone?: PhonePush) => (db: DatabaseSync) => new ComputerUseRuns(new ComputerUseStore(db), {
   messages: new ScriptedMessages(replies), desktop: () => new FakeDesktop(), pageCheck: fixedPageCheck({ passed: false, detail: "fixture" }),
   sleep: async () => {},
-});
+}, phone ? { phone } : {});
 
 describe("computer-use runs on the supervisor", () => {
   it("starts a run for the person, logs it, and lets only the person say it is done", async () => {
@@ -100,14 +111,40 @@ describe("computer-use runs on the supervisor", () => {
     const id = (await f.admin("POST", "/computer-runs", START)).body.run.id as string;
     const taken = await f.admin("POST", `/computer-runs/${id}/take-over`, { cause: "captcha", note: "The portal showed a CAPTCHA" });
     expect(taken.body.run.state).toBe("handed_over");
+    expect(taken.body.handoff).toMatchObject({ number: 1, viewerUrl: FIXTURE_VIEWER.url, viewerExpiresAt: FIXTURE_VIEWER.expiresAt });
+    expect((await f.admin("GET", `/computer-runs/${id}`)).body.handoffs[0]).toMatchObject({ viewerUrl: FIXTURE_VIEWER.url });
     expect((await f.admin("POST", `/computer-runs/${id}/take-over`, {})).status).toBe(409);
     expect((await f.admin("POST", `/computer-runs/${id}/hand-back`)).body.run.state).toBe("running");
     first.resolve(reply([toolUse("toolu_1", "screenshot")]));
     await f.runs.finished(id);
     expect((await f.admin("POST", `/computer-runs/${id}/not-done`)).body.run).toMatchObject({ state: "failed", failure: "not_done" });
     expect((await f.admin("GET", `/computer-runs/${id}`)).body.handoffs).toEqual([
-      expect.objectContaining({ number: 1, cause: "captcha", askedBy: "person", note: "The portal showed a CAPTCHA", returnedAt: expect.any(String) }),
+      expect.objectContaining({ number: 1, cause: "captcha", askedBy: "person", note: "The portal showed a CAPTCHA", returnedAt: expect.any(String), viewerUrl: null }),
     ]);
+  });
+
+  it("pushes every take-over to the person's phone without the viewer link, and takes phone tokens on its own route", async () => {
+    const first = deferred<MessagesReply>();
+    const phone = fakePhone();
+    const f = await fixture(engineWith([() => first.promise, finished("Done.")], phone.phone));
+    const token = "ExponentPushToken[fixture-token-123]";
+    expect(await f.admin("POST", "/computer-runs/phone-push", { token })).toEqual({ status: 200, body: { ok: true } });
+    expect(phone.tokens).toEqual([token]);
+    expect((await f.dog("POST", "/computer-runs/phone-push", { token })).status).toBe(403);
+    const id = (await f.admin("POST", "/computer-runs", START)).body.run.id as string;
+    await f.admin("POST", `/computer-runs/${id}/take-over`, { cause: "sign-in", note: "Sign in to the portal" });
+    expect(phone.sent).toEqual([{ kind: "takeover", botId: "", botName: "later.dog", threadId: "", computerRunId: id,
+      title: "Computer use needs your hands", body: "You took the screen: Sign in to the portal. Open later.dog to see the screen." }]);
+    expect(JSON.stringify(phone.sent)).not.toContain(FIXTURE_VIEWER.url);
+    await f.admin("POST", `/computer-runs/${id}/hand-back`);
+    first.resolve(finished("Done."));
+    await f.runs.finished(id);
+  });
+
+  it("words a take-over Claude asked for by its cause", () => {
+    const handoff = { number: 1, at: "2026-11-01T10:00:00.000Z", cause: "captcha" as const, askedBy: "model" as const, note: "Solve the CAPTCHA",
+      returnedAt: null, viewerUrl: FIXTURE_VIEWER.url, viewerExpiresAt: FIXTURE_VIEWER.expiresAt };
+    expect(takeoverNotification({ runId: "run-1", task: "x", handoff }).body).toBe("It needs a CAPTCHA: Solve the CAPTCHA. Open later.dog to see the screen.");
   });
 
   it("stops a run on request", async () => {

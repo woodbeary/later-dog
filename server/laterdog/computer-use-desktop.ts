@@ -1,10 +1,18 @@
 import { xdotoolCommand } from "./computer-use-actions.ts";
 import { sameSize, type Size } from "./computer-use-frame.ts";
 import type { DesktopAction, UseDesktop } from "./computer-use-loop.ts";
+import type { ViewerLink } from "./computer-use-store.ts";
 
 export interface ComputerCalls {
   exec(id: string, command: string, timeoutMs: number): Promise<{ exitCode: number | null; stdout: string; stderr: string }>;
   read(id: string, path: string, maxBytes: number): Promise<Buffer>;
+  desktop(id: string): Promise<{ url: string; expiresAt: number | string }>;
+}
+
+export function viewerExpiry(raw: number | string): string {
+  const at = typeof raw === "number" ? new Date(raw < 1e12 ? raw * 1000 : raw) : new Date(raw);
+  if (Number.isNaN(at.getTime())) throw new Error("The computers service gave a viewer link with no readable expiry.");
+  return at.toISOString();
 }
 
 export const FRAME_DIR = "/tmp/laterdog-computer-use";
@@ -57,6 +65,13 @@ export class CloudDesktop implements UseDesktop {
     const shot = await this.#calls.read(this.#computerId, capture.path, MAX_FRAME_BYTES);
     if (!shot.length) throw new Error("The screenshot came back empty.");
     return shot;
+  }
+
+  async viewer(): Promise<ViewerLink> {
+    const link = await this.#calls.desktop(this.#computerId);
+    const url = new URL(link.url);
+    if (url.protocol !== "https:" && !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) throw new Error("The computers service gave a viewer link that is not https.");
+    return { url: url.href, expiresAt: viewerExpiry(link.expiresAt) };
   }
 
   async act(action: DesktopAction): Promise<string> {

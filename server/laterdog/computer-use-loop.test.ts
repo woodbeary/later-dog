@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { MessagesRequest } from "./computer-use-anthropic.ts";
 import type { DoneRule, PageCheck } from "./computer-use-done.ts";
 import {
-  ACTION_MS, FakeClock, FakeDesktop, finished, fixedPageCheck, FIXTURE_USAGE, memoryStore, MODEL_MS, reply, ScriptedMessages,
+  ACTION_MS, FakeClock, FakeDesktop, finished, fixedPageCheck, FIXTURE_USAGE, FIXTURE_VIEWER, memoryStore, MODEL_MS, reply, ScriptedMessages,
   takeoverUse, toolUse, WatchedControl, type ScriptedReply,
 } from "./computer-use-fakes.ts";
 import type { DesktopAction } from "./computer-use-loop.ts";
-import { DEFAULT_LIMITS, HANDED_BACK_NOTE, NOT_EXECUTED, runComputerUse, sameModel, screenshotSha256, TAKEN_OVER, type LoopLimits } from "./computer-use-loop.ts";
+import { DEFAULT_LIMITS, HANDED_BACK_NOTE, NOT_EXECUTED, runComputerUse, sameModel, screenshotSha256, TAKEN_OVER, type LoopLimits, type TakeoverNotice } from "./computer-use-loop.ts";
 
 const PERSON_ONLY: DoneRule = { pageCheck: null };
 const WITH_PAGE: DoneRule = { pageCheck: { url: "https://clinic.example/requests/42", contains: "Request received" } };
@@ -21,10 +21,11 @@ function setup(replies: ScriptedReply[], options: { done?: DoneRule; pageCheck?:
   const messages = new ScriptedMessages(replies, { clock, model: options.model });
   const control = new WatchedControl();
   const pageCheck = options.pageCheck ?? fixedPageCheck(PASSES);
+  const notices: TakeoverNotice[] = [];
   const run = store.start({ task: "Send the interpreter request for Tuesday", computerId: "cmp_fixture12345", model: "claude-opus-5-5", done: options.done ?? PERSON_ONLY });
   const go = () => runComputerUse(run.id, { store, desktop, messages, control, pageCheck, clock: clock.read,
-    sleep: async (ms) => clock.advance(ms), limits: options.limits ?? DEFAULT_LIMITS });
-  return { clock, store, desktop, messages, control, run, go };
+    sleep: async (ms) => clock.advance(ms), limits: options.limits ?? DEFAULT_LIMITS, notify: (notice) => notices.push(notice) });
+  return { clock, store, desktop, messages, control, run, go, notices };
 }
 
 const lastUser = (request: MessagesRequest) => request.messages.at(-1)!;
@@ -139,7 +140,9 @@ describe("take over", () => {
     const ended = h.go();
     await held;
     expect(h.store.run(h.run.id).state).toBe("handed_over");
-    expect(h.store.handoffs(h.run.id)).toEqual([expect.objectContaining({ cause: "sign-in", askedBy: "model", note: "Sign in to the clinic portal", returnedAt: null })]);
+    expect(h.store.handoffs(h.run.id)).toEqual([expect.objectContaining({ cause: "sign-in", askedBy: "model", note: "Sign in to the clinic portal", returnedAt: null,
+      viewerUrl: FIXTURE_VIEWER.url, viewerExpiresAt: FIXTURE_VIEWER.expiresAt })]);
+    expect(h.notices).toEqual([{ runId: h.run.id, task: "Send the interpreter request for Tuesday", handoff: expect.objectContaining({ number: 1, viewerUrl: FIXTURE_VIEWER.url }) }]);
     h.clock.advance(120_000);
     h.store.handBack(h.run.id);
     h.control.release();
@@ -150,6 +153,19 @@ describe("take over", () => {
     expect(answered[1]).toMatchObject({ toolset_name: "computer", is_error: true });
     expect(h.store.steps(h.run.id)[0]!.actionMs).toBe(0);
     expect(h.store.handoffs(h.run.id)[0]!.returnedAt).not.toBeNull();
+  });
+
+  it("still hands the screen over when the viewer link cannot be minted", async () => {
+    const h = setup([reply([takeoverUse("toolu_1", "Solve the CAPTCHA", "captcha")]), finished("Sent.")]);
+    h.desktop.viewerFails = true;
+    const held = h.control.waitingForPerson();
+    const ended = h.go();
+    await held;
+    expect(h.store.openHandoff(h.run.id)).toMatchObject({ cause: "captcha", viewerUrl: null });
+    expect(h.notices).toHaveLength(1);
+    h.store.handBack(h.run.id);
+    h.control.release();
+    expect((await ended).state).toBe("awaiting_done");
   });
 
   it("logs the person taking the screen on their own, and tells Claude when it comes back", async () => {

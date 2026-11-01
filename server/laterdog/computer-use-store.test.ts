@@ -1,5 +1,7 @@
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
-import { memoryStore } from "./computer-use-fakes.ts";
+import { FIXTURE_VIEWER, memoryStore } from "./computer-use-fakes.ts";
+import { ComputerUseStore } from "./computer-use-store.ts";
 import type { DoneRule } from "./computer-use-done.ts";
 
 const PERSON_ONLY: DoneRule = { pageCheck: null };
@@ -51,11 +53,32 @@ describe("take-overs keep their cause", () => {
     store.handBack(run.id);
     store.handOver(run.id, "person", "person", "");
     expect(store.handoffs(run.id)).toEqual([
-      { number: 1, at: expect.any(String), cause: "captcha", askedBy: "model", note: "Solve the CAPTCHA on the request form", returnedAt: expect.any(String) },
-      { number: 2, at: expect.any(String), cause: "person", askedBy: "person", note: "", returnedAt: null },
+      { number: 1, at: expect.any(String), cause: "captcha", askedBy: "model", note: "Solve the CAPTCHA on the request form", returnedAt: expect.any(String), viewerUrl: null, viewerExpiresAt: null },
+      { number: 2, at: expect.any(String), cause: "person", askedBy: "person", note: "", returnedAt: null, viewerUrl: null, viewerExpiresAt: null },
     ]);
     store.finish(run.id, { done: "person" });
     expect(store.handoffs(run.id)[1]!.returnedAt).not.toBeNull();
+  });
+
+  it("keeps the viewer link on the open take-over only, and drops it when the screen comes back", () => {
+    const { store, run } = begin();
+    store.handOver(run.id, "sign-in", "model", "Sign in to the clinic portal");
+    expect(store.attachViewer(run.id, 1, FIXTURE_VIEWER)).toMatchObject({ number: 1, viewerUrl: FIXTURE_VIEWER.url, viewerExpiresAt: FIXTURE_VIEWER.expiresAt });
+    expect(store.openHandoff(run.id)).toMatchObject({ viewerUrl: FIXTURE_VIEWER.url });
+    store.handBack(run.id);
+    expect(store.openHandoff(run.id)).toBeNull();
+    expect(store.handoffs(run.id)[0]).toMatchObject({ viewerUrl: null, viewerExpiresAt: FIXTURE_VIEWER.expiresAt });
+    expect(store.attachViewer(run.id, 1, FIXTURE_VIEWER)).toMatchObject({ viewerUrl: null });
+  });
+
+  it("adds the new columns to a log made before they existed", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec(`CREATE TABLE computer_use_handoffs (run_id TEXT NOT NULL, number INTEGER NOT NULL, at TEXT NOT NULL,
+      cause TEXT NOT NULL, asked_by TEXT NOT NULL, note TEXT NOT NULL, returned_at TEXT, PRIMARY KEY (run_id, number))`);
+    db.prepare("INSERT INTO computer_use_handoffs VALUES (?,?,?,?,?,?,?)").run("old-run", 1, "2026-10-31T20:00:00.000Z", "captcha", "model", "Solve it", null);
+    new ComputerUseStore(db);
+    new ComputerUseStore(db);
+    expect(new ComputerUseStore(db).handoffs("old-run")).toEqual([expect.objectContaining({ number: 1, cause: "captcha", viewerUrl: null, viewerExpiresAt: null })]);
   });
 
   it("refuses a cause it does not know and a screen that is not in play", () => {

@@ -2,12 +2,13 @@ import { join } from "node:path";
 import { loadSupervisorConfig, supervisorDataDir, supervisorToken } from "./config.ts";
 import { computerUseRunsFromEnvironment } from "./computer-use-runs.ts";
 import { createSupervisorServer } from "./http.ts";
+import { createPhonePush } from "./phone-push.ts";
 import { WorkspaceStore } from "./store.ts";
 import { Supervisor, message } from "./supervisor.ts";
 
 const dataDir = supervisorDataDir(); const store = new WorkspaceStore(join(dataDir,"workspace.sqlite"));
 const supervisor = new Supervisor(store,{ dataDir, ...loadSupervisorConfig(dataDir) });
-const computerRuns = computerUseRunsFromEnvironment(store.db,process.env);
+const computerRuns = computerUseRunsFromEnvironment(store.db,process.env,{ phone: createPhonePush({ dataDir }) });
 const server = createSupervisorServer(supervisor,supervisorToken(dataDir),computerRuns);
 const port = Number(process.env.LATERDOG_PORT ?? 9010);
 server.on("error",(error: NodeJS.ErrnoException) => {

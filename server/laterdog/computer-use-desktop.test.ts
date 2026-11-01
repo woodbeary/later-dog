@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { actionTimeoutMs, captureCommand, CloudDesktop, FRAME_DIR, type ComputerCalls } from "./computer-use-desktop.ts";
+import { actionTimeoutMs, captureCommand, CloudDesktop, FRAME_DIR, viewerExpiry, type ComputerCalls } from "./computer-use-desktop.ts";
 
-function fakeComputer(answer: (command: string) => { exitCode: number | null; stdout: string; stderr: string } = () => ({ exitCode: 0, stdout: "", stderr: "" })) {
+function fakeComputer(answer: (command: string) => { exitCode: number | null; stdout: string; stderr: string } = () => ({ exitCode: 0, stdout: "", stderr: "" }),
+  link: { url: string; expiresAt: number | string } = { url: "https://cloud.later.dog/desktop/cmp_fixture12345/fixture-token/", expiresAt: "2026-11-01T12:00:00.000Z" }) {
   const commands: Array<{ id: string; command: string; timeoutMs: number }> = [];
   const reads: string[] = [];
   const calls: ComputerCalls = {
     exec: async (id, command, timeoutMs) => { commands.push({ id, command, timeoutMs }); return answer(command); },
     read: async (_id, path) => { reads.push(path); return Buffer.from(`jpeg from ${path}`); },
+    desktop: async () => link,
   };
   return { calls, commands, reads };
 }
@@ -45,5 +47,18 @@ describe("later.dog's cloud desktop for the loop", () => {
     expect(actionTimeoutMs({ kind: "key", keys: "a", repeat: 1 })).toBe(30_000);
     expect(actionTimeoutMs({ kind: "hold_key", keys: "shift", seconds: 10 })).toBe(40_000);
     expect(actionTimeoutMs({ kind: "type", text: "x".repeat(2000) })).toBe(60_000);
+  });
+
+  it("mints the computer's signed viewer link for a take-over", async () => {
+    const minted = await new CloudDesktop(fakeComputer().calls, "cmp_fixture12345").viewer();
+    expect(minted).toEqual({ url: "https://cloud.later.dog/desktop/cmp_fixture12345/fixture-token/", expiresAt: "2026-11-01T12:00:00.000Z" });
+    expect(viewerExpiry(1_793_534_400)).toBe("2026-11-01T12:00:00.000Z");
+    expect(viewerExpiry(1_793_534_400_000)).toBe("2026-11-01T12:00:00.000Z");
+    expect(() => viewerExpiry("soon")).toThrow("no readable expiry");
+  });
+
+  it("refuses a viewer link the person could not open, such as the service binding's own host", async () => {
+    const internal = fakeComputer(undefined, { url: "http://computers.internal/desktop/cmp_fixture12345/fixture-token/", expiresAt: "2026-11-01T12:00:00.000Z" });
+    await expect(new CloudDesktop(internal.calls, "cmp_fixture12345").viewer()).rejects.toThrow("not https");
   });
 });

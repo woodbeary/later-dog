@@ -51,6 +51,16 @@ describe("push notifications to the phone", () => {
     expect(readFileSync(join(dataDir, "phone-push.json"), "utf8")).toContain(TOKEN);
   });
 
+  it("names the computer-use run a take-over is for, so the phone can open its screen", async () => {
+    const fetcher = vi.fn(async () => Response.json({ data: [{ status: "ok" }] }));
+    const push = createPhonePush({ dataDir: folder(), fetcher: fetcher as unknown as typeof fetch });
+    push.register(TOKEN);
+    await push.send({ ...approval, kind: "takeover", botId: "", threadId: "", computerRunId: "6f9619ff-8b86-4011-b42d-00cf4fc964ff" });
+    const [message] = JSON.parse(String((fetcher.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(message.data).toEqual({ kind: "takeover", botId: "", threadId: "", computerRunId: "6f9619ff-8b86-4011-b42d-00cf4fc964ff" });
+    expect(message.priority).toBe("high");
+  });
+
   it("lets the person reply from the notification to a dog's message or question, never to an approval or hand-over", async () => {
     const fetcher = vi.fn(async () => Response.json({ data: [{ status: "ok" }] }));
     const push = createPhonePush({ dataDir: folder(), fetcher: fetcher as unknown as typeof fetch });

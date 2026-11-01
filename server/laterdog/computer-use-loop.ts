@@ -5,7 +5,7 @@ import {
 import { TAKEOVER_TOOL_NAME, type ContentBlock, type MessagesApi, type MessageTurn } from "./computer-use-anthropic.ts";
 import type { PageCheck } from "./computer-use-done.ts";
 import { frameSize, toFrame, withinToolsetLimits, type Size } from "./computer-use-frame.ts";
-import { isOpenRun, type ComputerUseRun, type ComputerUseStore } from "./computer-use-store.ts";
+import { isOpenRun, type AskedBy, type ComputerUseRun, type ComputerUseStore, type Handoff, type HandoffCause, type ViewerLink } from "./computer-use-store.ts";
 import { parseTakeoverInput } from "./takeover.ts";
 
 export type DesktopAction = Exclude<ComputerAction, { kind: "screenshot" | "wait" }>;
@@ -14,6 +14,13 @@ export interface UseDesktop {
   screen(signal: AbortSignal): Promise<Size>;
   screenshot(frame: Size, screen: Size, signal: AbortSignal): Promise<Buffer>;
   act(action: DesktopAction, signal: AbortSignal): Promise<string>;
+  viewer?(signal: AbortSignal): Promise<ViewerLink>;
+}
+
+export interface TakeoverNotice {
+  runId: string;
+  task: string;
+  handoff: Handoff;
 }
 
 export interface LoopLimits {
@@ -32,6 +39,7 @@ export interface LoopDeps {
   clock: () => number;
   sleep: (ms: number, signal: AbortSignal) => Promise<void>;
   limits: LoopLimits;
+  notify?: (notice: TakeoverNotice) => void;
 }
 
 export const SYSTEM_PROMPT = [
@@ -89,6 +97,22 @@ export class RunControl {
     this.#waiters = [];
     for (const wake of waiters) wake();
   }
+}
+
+async function viewerLink(desktop: UseDesktop, signal: AbortSignal): Promise<ViewerLink | null> {
+  if (!desktop.viewer) return null;
+  try { return await desktop.viewer(signal); } catch { return null; }
+}
+
+export async function handOverScreen(runId: string, ask: { cause: HandoffCause; askedBy: AskedBy; note: string },
+  deps: Pick<LoopDeps, "store" | "desktop" | "control" | "notify">): Promise<Handoff> {
+  const run = deps.store.handOver(runId, ask.cause, ask.askedBy, ask.note);
+  deps.control.hold();
+  let handoff = deps.store.openHandoff(runId)!;
+  const link = await viewerLink(deps.desktop, deps.control.signal);
+  if (link) handoff = deps.store.attachViewer(runId, handoff.number, link) ?? handoff;
+  try { deps.notify?.({ runId, task: run.task, handoff }); } catch {}
+  return handoff;
 }
 
 export function sameModel(pinned: string, answered: string): boolean {
@@ -149,9 +173,8 @@ async function act(uses: ToolUse[], turn: Turn, acted: Acted): Promise<void> {
     if (!use.toolset) {
       const asked = use.name === TAKEOVER_TOOL_NAME && use.input && typeof use.input === "object" ? parseTakeoverInput(use.input as Record<string, unknown>) : null;
       if (!asked) { failed = true; answer([text(use.name === TAKEOVER_TOOL_NAME ? "request_takeover needs a step." : `${use.name} is not a tool in this run.`)], true); continue; }
-      deps.store.handOver(turn.runId, asked.reason, "model", asked.step);
-      control.hold();
       const from = deps.clock();
+      await handOverScreen(turn.runId, { cause: asked.reason, askedBy: "model", note: asked.step }, deps);
       await control.ready();
       acted.heldMs += deps.clock() - from;
       control.takeReturn();

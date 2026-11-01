@@ -4,9 +4,11 @@ import { COMPUTER_ID } from "./cloud-computers.ts";
 import { anthropicMessages, fixtureMessagesUrl, type MessagesApi } from "./computer-use-anthropic.ts";
 import { CloudDesktop } from "./computer-use-desktop.ts";
 import { doneRuleSchema, livePageCheck, type PageCheck } from "./computer-use-done.ts";
-import { DEFAULT_LIMITS, RunControl, runComputerUse, type LoopLimits, type UseDesktop } from "./computer-use-loop.ts";
+import { DEFAULT_LIMITS, handOverScreen, RunControl, runComputerUse, type LoopLimits, type TakeoverNotice, type UseDesktop } from "./computer-use-loop.ts";
 import { ComputerUseStore, HANDOFF_CAUSES, type ComputerUseRun, type Handoff, type LoggedStep } from "./computer-use-store.ts";
 import { INTERNAL_COMPUTERS_API, LaterdogComputers, computersApi } from "./laterdog-cloud.ts";
+import { phonePushRequest, type PhonePush } from "./phone-push.ts";
+import type { Notification } from "../notify.ts";
 
 export const startRunSchema = z.object({
   task: z.string().trim().min(1).max(4000),
@@ -23,6 +25,23 @@ export interface ComputerUseEngine {
   clock?: () => number;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   limits?: LoopLimits;
+}
+
+export interface ComputerUseOptions {
+  phone?: PhonePush;
+}
+
+const CAUSE_WORDS: Record<string, string> = {
+  "sign-in": "a sign-in", captcha: "a CAPTCHA", payment: "a payment", other: "a step only you can do", person: "you",
+};
+
+export function takeoverNotification(notice: TakeoverNotice): Notification {
+  const { handoff } = notice;
+  return {
+    kind: "takeover", botId: "", botName: "later.dog", threadId: "", computerRunId: notice.runId,
+    title: "Computer use needs your hands",
+    body: `${handoff.askedBy === "person" ? "You took the screen" : `It needs ${CAUSE_WORDS[handoff.cause] ?? "you"}`}${handoff.note ? `: ${handoff.note}` : ""}. Open later.dog to see the screen.`.slice(0, 200),
+  };
 }
 
 export interface RunView {
@@ -44,14 +63,20 @@ export class ComputerUseRuns {
   readonly store: ComputerUseStore;
   readonly #engine: ComputerUseEngine | null;
   readonly #unavailable: string;
-  readonly #live = new Map<string, { computerId: string; control: RunControl; finished: Promise<ComputerUseRun> }>();
+  readonly phone: PhonePush | undefined;
+  readonly #live = new Map<string, { computerId: string; desktop: UseDesktop; control: RunControl; finished: Promise<ComputerUseRun> }>();
 
-  constructor(store: ComputerUseStore, engine: ComputerUseEngine | { unavailable: string }) {
+  constructor(store: ComputerUseStore, engine: ComputerUseEngine | { unavailable: string }, options: ComputerUseOptions = {}) {
     this.store = store;
     this.#engine = "unavailable" in engine ? null : engine;
     this.#unavailable = "unavailable" in engine ? engine.unavailable : "";
+    this.phone = options.phone;
     store.interrupted();
   }
+
+  readonly #notify = (notice: TakeoverNotice): void => {
+    void this.phone?.send(takeoverNotification(notice)).catch(() => {});
+  };
 
   start(body: unknown): ComputerUseRun {
     const engine = this.#engine;
@@ -62,12 +87,13 @@ export class ComputerUseRuns {
     }
     const run = this.store.start({ ...input, model: engine.messages.model });
     const control = new RunControl();
+    const desktop = engine.desktop(run.computerId);
     const finished = runComputerUse(run.id, {
-      store: this.store, desktop: engine.desktop(run.computerId), messages: engine.messages, control, pageCheck: engine.pageCheck,
-      clock: engine.clock ?? Date.now, sleep: engine.sleep ?? waitFor, limits: engine.limits ?? DEFAULT_LIMITS,
+      store: this.store, desktop, messages: engine.messages, control, pageCheck: engine.pageCheck,
+      clock: engine.clock ?? Date.now, sleep: engine.sleep ?? waitFor, limits: engine.limits ?? DEFAULT_LIMITS, notify: this.#notify,
     }).finally(() => this.#live.delete(run.id));
     finished.catch(() => {});
-    this.#live.set(run.id, { computerId: run.computerId, control, finished });
+    this.#live.set(run.id, { computerId: run.computerId, desktop, control, finished });
     return run;
   }
 
@@ -89,13 +115,13 @@ export class ComputerUseRuns {
     return this.#end(id, { failed: "stopped", detail: "The person stopped the run." });
   }
 
-  takeOver(id: string, body: unknown): ComputerUseRun {
+  async takeOver(id: string, body: unknown): Promise<{ run: ComputerUseRun; handoff: Handoff }> {
     const input = takeOverSchema.parse(body ?? {});
     const live = this.#live.get(id);
     if (!live) throw unavailable("This run is not going on this supervisor now, so there is no screen to take over.");
-    const run = this.store.handOver(id, input.cause, "person", input.note);
-    live.control.hold();
-    return run;
+    const handoff = await handOverScreen(id, { cause: input.cause, askedBy: "person", note: input.note },
+      { store: this.store, desktop: live.desktop, control: live.control, notify: this.#notify });
+    return { run: this.store.run(id), handoff };
   }
 
   handBack(id: string): ComputerUseRun {
@@ -127,11 +153,16 @@ export class ComputerUseRuns {
 
 export type RouteAnswer = { status: number; body: unknown } | null;
 const RUNS_PATH = /^\/v1\/computer-runs(?:\/([\w-]+)(?:\/(done|not-done|stop|take-over|hand-back))?)?$/;
+const PHONE_PATH = "/v1/computer-runs/phone-push";
 
 export async function computerUseRoute(runs: ComputerUseRuns | undefined, method: string, pathname: string, body: () => Promise<unknown>): Promise<RouteAnswer> {
   const match = RUNS_PATH.exec(pathname);
   if (!match) return null;
   if (!runs) return { status: 409, body: { error: "Computer-use runs are not set up on this supervisor." } };
+  if (pathname === PHONE_PATH) {
+    if (!runs.phone) return { status: 409, body: { error: "Phone notifications are not set up on this supervisor." } };
+    return phonePushRequest(method, body, runs.phone);
+  }
   const [, rawId, verb] = match;
   if (!rawId) {
     if (method === "POST") return { status: 202, body: { run: runs.start(await body()) } };
@@ -144,21 +175,21 @@ export async function computerUseRoute(runs: ComputerUseRuns | undefined, method
   if (verb === "done") return { status: 200, body: { run: runs.done(id) } };
   if (verb === "not-done") return { status: 200, body: { run: runs.notDone(id) } };
   if (verb === "stop") return { status: 200, body: { run: runs.stop(id) } };
-  if (verb === "take-over") return { status: 200, body: { run: runs.takeOver(id, await body()) } };
+  if (verb === "take-over") return { status: 200, body: await runs.takeOver(id, await body()) };
   return { status: 200, body: { run: runs.handBack(id) } };
 }
 
-export function computerUseRunsFromEnvironment(db: DatabaseSync, env: NodeJS.ProcessEnv): ComputerUseRuns {
+export function computerUseRunsFromEnvironment(db: DatabaseSync, env: NodeJS.ProcessEnv, options: ComputerUseOptions = {}): ComputerUseRuns {
   const store = new ComputerUseStore(db);
   const apiKey = env.ANTHROPIC_API_KEY?.trim();
-  if (!apiKey) return new ComputerUseRuns(store, { unavailable: "Claude computer use needs ANTHROPIC_API_KEY in the supervisor's environment." });
+  if (!apiKey) return new ComputerUseRuns(store, { unavailable: "Claude computer use needs ANTHROPIC_API_KEY in the supervisor's environment." }, options);
   try {
     const computersKey = env.LATERDOG_COMPUTERS_KEY?.trim();
     if (computersKey && !/^ldc_[!-~]{8,1024}$/.test(computersKey)) throw new Error("LATERDOG_COMPUTERS_KEY does not hold a later.dog computers key (they start with ldc_)");
     const computers = new LaterdogComputers({ api: computersApi(env.LATERDOG_COMPUTERS_URL?.trim() || INTERNAL_COMPUTERS_API), ...(computersKey ? { key: computersKey } : {}) }, fetch);
     const messages = anthropicMessages(apiKey, { url: fixtureMessagesUrl(env.LATERDOG_ANTHROPIC_URL) });
-    return new ComputerUseRuns(store, { messages, desktop: (id) => new CloudDesktop(computers, id), pageCheck: livePageCheck() });
+    return new ComputerUseRuns(store, { messages, desktop: (id) => new CloudDesktop(computers, id), pageCheck: livePageCheck() }, options);
   } catch (error) {
-    return new ComputerUseRuns(store, { unavailable: error instanceof Error ? error.message : String(error) });
+    return new ComputerUseRuns(store, { unavailable: error instanceof Error ? error.message : String(error) }, options);
   }
 }
