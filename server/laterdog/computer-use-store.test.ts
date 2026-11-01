@@ -34,6 +34,9 @@ describe("the definition of done is fixed before any data", () => {
     expect(() => personOnly.store.finish(personOnly.run.id, { done: "page_check" })).toThrow("only the person can say it is done");
     const withPage = begin(WITH_PAGE);
     expect(withPage.store.finish(withPage.run.id, { done: "page_check", detail: "HTTP 200" })).toMatchObject({ state: "done", doneSource: "page_check" });
+    expect(() => personOnly.store.finish(personOnly.run.id, { done: "state_check" })).toThrow("no state check");
+    const withState = begin({ pageCheck: null, stateCheck: { url: "https://clinic.example/requests/", contains: "Request received" } });
+    expect(withState.store.finish(withState.run.id, { done: "state_check" })).toMatchObject({ state: "done", doneSource: "state_check" });
   });
 
   it("ends a run once", () => {

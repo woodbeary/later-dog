@@ -12,11 +12,13 @@ const pageUrl = z.string().max(2000).url().refine((raw) => {
 
 export const doneRuleSchema = z.object({
   pageCheck: z.object({ url: pageUrl, contains: z.string().trim().min(1).max(500) }).strict().nullable(),
+  stateCheck: z.object({ url: pageUrl, contains: z.string().trim().min(1).max(500) }).strict().nullable().optional(),
 }).strict();
 export type DoneRule = z.infer<typeof doneRuleSchema>;
 export type PageCheckRule = NonNullable<DoneRule["pageCheck"]>;
+export type StateCheckRule = NonNullable<DoneRule["stateCheck"]>;
 
-export const DONE_SOURCES = ["person", "page_check"] as const;
+export const DONE_SOURCES = ["person", "page_check", "state_check"] as const;
 export type DoneSource = typeof DONE_SOURCES[number];
 
 export interface PageCheckResult {

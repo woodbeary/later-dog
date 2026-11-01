@@ -5,5 +5,10 @@
   "RestoreOnStartup": 1,
   "DefaultBrowserSettingEnabled": false,
   "PromotionalTabsEnabled": false,
-  "MetricsReportingEnabled": false
+  "MetricsReportingEnabled": false,
+  "URLBlocklist": [
+    "127.0.0.1:9222",
+    "localhost:9222",
+    "0.0.0.0:9222"
+  ]
 }

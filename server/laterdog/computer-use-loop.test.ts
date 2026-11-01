@@ -453,6 +453,40 @@ describe("Secure Form in the loop", () => {
   });
 });
 
+describe("the state check on the desktop as a third source of done", () => {
+  const STATE: DoneRule = { pageCheck: null, stateCheck: { url: "https://portal.clinic.example/requests/", contains: "Request received" } };
+
+  it("marks the run done by the state check when the desktop's browser shows the expected page", async () => {
+    const h = setup([finished("Sent.")], { done: STATE });
+    h.desktop.stateResult = { passed: true, detail: "The active tab is on https://portal.clinic.example/requests/42 and shows the expected text." };
+    expect(await h.go()).toMatchObject({ state: "done", doneSource: "state_check", detail: h.desktop.stateResult.detail });
+    expect(h.desktop.stateChecks).toEqual([STATE.stateCheck]);
+  });
+
+  it("tries the page check first, then the state check, and leaves the run to the person when neither passes", async () => {
+    const check = fixedPageCheck(FAILS);
+    const both: DoneRule = { pageCheck: WITH_PAGE.pageCheck, stateCheck: STATE.stateCheck };
+    const h = setup([finished("Sent.")], { done: both, pageCheck: check });
+    const ended = await h.go();
+    expect(ended.state).toBe("awaiting_done");
+    expect(ended.detail).toBe(`Claude says it is finished: Sent. The page check did not pass: ${FAILS.detail} The state check did not pass: ${h.desktop.stateResult.detail}`);
+    expect(check.calls).toBe(1);
+    expect(h.store.finish(h.run.id, { done: "person" }).doneSource).toBe("person");
+  });
+
+  it("settles an unknown submit by the state check, behind a sign-in where no page check can reach", async () => {
+    const h = setup([reply([toolUse("toolu_1", "left_click", { coordinate: [900, 700] })])],
+      { done: STATE, screenChecks: new ScriptedScreenChecks({ irreversible: () => 0.9, confirmed: () => 0.1 }) });
+    h.desktop.stateResult = { passed: true, detail: "The active tab is on https://portal.clinic.example/requests/42 and shows the expected text." };
+    const ended = h.go();
+    await h.control.waitingForPerson();
+    h.store.handBack(h.run.id);
+    h.control.release(true);
+    expect(await ended).toMatchObject({ state: "done", doneSource: "state_check" });
+    expect(h.desktop.acted).toHaveLength(1);
+  });
+});
+
 describe("how a run ends", () => {
   it("stops at once when the person taps Done mid-run", async () => {
     let h!: ReturnType<typeof setup>;

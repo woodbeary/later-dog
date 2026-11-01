@@ -258,6 +258,7 @@ export class ComputerUseStore {
       const run = this.run(runId);
       if (!isOpenRun(run.state)) throw conflict(`This run already ended (${run.state}).`);
       if ("done" in outcome && outcome.done === "page_check" && !run.done.pageCheck) throw conflict("This run has no page check, so only the person can say it is done.");
+      if ("done" in outcome && outcome.done === "state_check" && !run.done.stateCheck) throw conflict("This run has no state check, so it cannot be done by one.");
       this.#closeHandoff(runId);
       const detail = outcome.detail?.slice(0, 1000) ?? run.detail;
       if ("done" in outcome) this.#db.prepare("UPDATE computer_use_runs SET state='done', done_source=?, detail=?, ended_at=? WHERE id=?").run(outcome.done, detail, this.#stamp(), runId);

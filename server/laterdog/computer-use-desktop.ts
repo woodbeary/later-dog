@@ -2,6 +2,8 @@ import { xdotoolCommand } from "./computer-use-actions.ts";
 import { sameSize, type Size } from "./computer-use-frame.ts";
 import type { DesktopAction, UseDesktop } from "./computer-use-loop.ts";
 import type { ViewerLink } from "./computer-use-store.ts";
+import type { PageCheckResult, StateCheckRule } from "./computer-use-done.ts";
+import { readStateCheck, STATE_CHECK_TIMEOUT_MS, stateCheckCommand } from "./computer-use-state-check.ts";
 
 export interface ComputerCalls {
   exec(id: string, command: string, timeoutMs: number): Promise<{ exitCode: number | null; stdout: string; stderr: string }>;
@@ -85,6 +87,11 @@ export class CloudDesktop implements UseDesktop {
     const command = cropCommand(box);
     settled(await this.#calls.exec(this.#computerId, command.command, ACTION_TIMEOUT_MS), "The crop for the guard");
     return this.#calls.read(this.#computerId, command.path, MAX_FRAME_BYTES);
+  }
+
+  async stateCheck(rule: StateCheckRule): Promise<PageCheckResult> {
+    const result = await this.#calls.exec(this.#computerId, stateCheckCommand(rule), STATE_CHECK_TIMEOUT_MS);
+    return readStateCheck(result.exitCode, result.stdout);
   }
 
   async run(command: string): Promise<{ ok: boolean; exitCode: number | null; stdout: string }> {

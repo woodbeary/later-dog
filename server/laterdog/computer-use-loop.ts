@@ -3,7 +3,7 @@ import {
   cursorFromXdotool, describeAction, onScreen, parseAction, TOOLSET_NAME, type ComputerAction,
 } from "./computer-use-actions.ts";
 import { TAKEOVER_TOOL_NAME, thinkingSummary, type ContentBlock, type MessagesApi, type MessageTurn } from "./computer-use-anthropic.ts";
-import type { PageCheck } from "./computer-use-done.ts";
+import type { PageCheck, PageCheckResult, StateCheckRule } from "./computer-use-done.ts";
 import { frameSize, toFrame, toScreen, withinToolsetLimits, type Point, type Size } from "./computer-use-frame.ts";
 import { CONFIRM_LOOKS_MS, cropBox, guardedWords, isGuarded, type GuardedAction } from "./computer-use-guard.ts";
 import { isPersonState, YES, type ScreenChecks, type ScreenRead, type ScreenState } from "./computer-use-screen.ts";
@@ -21,6 +21,7 @@ export interface UseDesktop {
   viewer?(signal: AbortSignal): Promise<ViewerLink>;
   crop?(box: { x: number; y: number; width: number; height: number }, signal: AbortSignal): Promise<Buffer>;
   run?(command: string, signal: AbortSignal): Promise<{ ok: boolean; exitCode: number | null; stdout: string }>;
+  stateCheck?(rule: StateCheckRule, signal: AbortSignal): Promise<PageCheckResult>;
 }
 
 export interface TakeoverNotice {
@@ -429,21 +430,38 @@ async function act(uses: ToolUse[], turn: Turn, done: Acted): Promise<void> {
   }
 }
 
+type Checked = { passed: true; source: "page_check" | "state_check"; detail: string } | { passed: false; missed: string[] };
+
+async function doneChecks(run: ComputerUseRun, deps: LoopDeps): Promise<Checked> {
+  const missed: string[] = [];
+  if (run.done.pageCheck) {
+    const check = await deps.pageCheck(run.done.pageCheck, deps.control.signal);
+    if (check.passed) return { passed: true, source: "page_check", detail: check.detail };
+    missed.push(`The page check did not pass: ${check.detail}`);
+  }
+  if (run.done.stateCheck) {
+    let check: PageCheckResult = { passed: false, detail: "This desktop cannot run a state check." };
+    if (deps.desktop.stateCheck) {
+      try { check = await deps.desktop.stateCheck(run.done.stateCheck, deps.control.signal); }
+      catch (error) { if (deps.control.signal.aborted) throw error; check = { passed: false, detail: "The state check could not reach the desktop." }; }
+    }
+    if (check.passed) return { passed: true, source: "state_check", detail: check.detail };
+    missed.push(`The state check did not pass: ${check.detail}`);
+  }
+  return { passed: false, missed };
+}
+
 async function settle(run: ComputerUseRun, said: string, deps: LoopDeps): Promise<ComputerUseRun> {
-  const rule = run.done.pageCheck;
   const unknown = deps.control.unknownOpen;
   const claim = `${said ? `Claude says it is finished: ${said}` : "Claude says it is finished."}${unknown ? " Whether a submit went through is unknown." : ""}`;
-  if (!rule) return deps.store.awaitPerson(run.id, claim, unknown);
-  const check = await deps.pageCheck(rule, deps.control.signal);
-  if (check.passed) return deps.store.finish(run.id, { done: "page_check", detail: check.detail });
-  return deps.store.awaitPerson(run.id, `${claim} The page check did not pass: ${check.detail}`, unknown);
+  const checked = await doneChecks(run, deps);
+  if (checked.passed) return deps.store.finish(run.id, { done: checked.source, detail: checked.detail });
+  return deps.store.awaitPerson(run.id, [claim, ...checked.missed].join(" "), unknown);
 }
 
 async function settleUnknown(run: ComputerUseRun, deps: LoopDeps): Promise<ComputerUseRun | null> {
-  const rule = run.done.pageCheck;
-  if (!rule) return null;
-  const check = await deps.pageCheck(rule, deps.control.signal);
-  return check.passed ? deps.store.finish(run.id, { done: "page_check", detail: `${check.detail} That settled a submit whose outcome was unknown.` }) : null;
+  const checked = await doneChecks(run, deps);
+  return checked.passed ? deps.store.finish(run.id, { done: checked.source, detail: `${checked.detail} That settled a submit whose outcome was unknown.` }) : null;
 }
 
 export async function runComputerUse(runId: string, deps: LoopDeps): Promise<ComputerUseRun> {

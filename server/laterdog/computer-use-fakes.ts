@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { COMPUTER_USE_MODEL, type ContentBlock, type MessagesApi, type MessagesReply, type MessagesRequest, type TokenUsage } from "./computer-use-anthropic.ts";
-import type { PageCheck, PageCheckResult } from "./computer-use-done.ts";
+import type { PageCheck, PageCheckResult, StateCheckRule } from "./computer-use-done.ts";
 import type { Size } from "./computer-use-frame.ts";
 import { RunControl, type DesktopAction, type UseDesktop } from "./computer-use-loop.ts";
 import { ComputerUseStore, type ViewerLink } from "./computer-use-store.ts";
@@ -28,6 +28,8 @@ export class FakeDesktop implements UseDesktop {
   readonly crops: Array<{ x: number; y: number; width: number; height: number }> = [];
   readonly commands: string[] = [];
   commandExit = 0;
+  readonly stateChecks: StateCheckRule[] = [];
+  stateResult: PageCheckResult = { passed: false, detail: "The active tab is on https://portal.clinic.example/requests/new; the expected text is not on the page." };
   readonly #size: Size;
   readonly #clock: FakeClock;
   readonly #fail: (action: DesktopAction) => string | null;
@@ -54,6 +56,11 @@ export class FakeDesktop implements UseDesktop {
     this.viewers += 1;
     if (this.viewerFails) throw new Error("The computers service could not be reached.");
     return FIXTURE_VIEWER;
+  }
+
+  async stateCheck(rule: StateCheckRule): Promise<PageCheckResult> {
+    this.stateChecks.push(rule);
+    return this.stateResult;
   }
 
   async run(command: string): Promise<{ ok: boolean; exitCode: number | null; stdout: string }> {

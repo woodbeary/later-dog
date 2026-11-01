@@ -10,8 +10,10 @@ runs each SQL block on this page against fixture runs, so a query here that stop
 ## Definitions
 
 - **Run**: one task on one cloud computer, a row in `computer_use_runs`. A run belongs to the week it started.
-- **Done**: the run's state is `done`. There are two sources and no others: `person` (the person said Done) and
-  `page_check` (the live-page check fixed when the run started passed). Claude cannot mark a run done.
+- **Done**: the run's state is `done`. There are three sources and no others: `person` (the person said Done),
+  `page_check` (the live-page check fixed when the run started passed) and `state_check` (the desktop's own browser, read
+  through its loopback DevTools port, showed the address and text fixed when the run started, in its active tab). Claude
+  cannot mark a run done.
 - **Failed**: the state is `failed`, with one cause: `not_done`, `stopped`, `timed_out`, `step_limit`, `refusal`,
   `error` or `interrupted`.
 - **Abandoned**: still `awaiting_done` 7 days after it started. An abandoned run counts as failed.
@@ -168,3 +170,5 @@ SELECT model, COUNT(*) AS runs FROM computer_use_runs GROUP BY model;
   `asked_by = guard`. The success, how-runs-ended and take-over queries now include `submission_unknown` runs.
 - 2026-11-01: steps keep Claude's summarized thinking, a failure class the review sets, and whether the screen changed
   after an action (`thinking`, `failure_class`, `screen_unchanged`), with two queries for them.
+- 2026-11-01: a third done source, `state_check`, for pages behind a sign-in that the page check cannot fetch. It is
+  fixed at the start like the page check, and is tried after it.
