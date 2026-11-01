@@ -218,6 +218,28 @@ describe("computer-use runs on the supervisor", () => {
     expect((await f.admin("GET", `/computer-runs/${id}`)).body.steps[0].failureClass).toBe("wrong_field");
   });
 
+  it("gives a trace to share with hashes in place of the task, the reasoning, the notes and every screenshot, and no viewer link", async () => {
+    const first = deferred<MessagesReply>();
+    const f = await fixture(engineWith([
+      reply([{ type: "thinking", thinking: "The portal shows Jacob's address.", signature: "fixture" }, toolUse("toolu_1", "type", { text: "Tuesday 10am at 12 Elm St" })]),
+      () => first.promise,
+    ]));
+    const id = (await f.admin("POST", "/computer-runs", START)).body.run.id as string;
+    await f.admin("POST", `/computer-runs/${id}/take-over`, { cause: "sign-in", note: "Signing in as jacob@example.com" });
+    for (let tries = 0; (await f.admin("GET", `/computer-runs/${id}`)).body.steps.length < 1 && tries < 200; tries++) await new Promise((resolve) => setTimeout(resolve, 5));
+    const trace = await f.admin("GET", `/computer-runs/${id}/trace`);
+    expect(trace.status).toBe(200);
+    const text = JSON.stringify(trace.body);
+    for (const secret of ["Send the interpreter request", "Jacob's address", "12 Elm St", "jacob@example.com", FIXTURE_VIEWER.url]) expect(text).not.toContain(secret);
+    expect(trace.body).toMatchObject({ version: 1, run: { id, taskSha256: expect.stringMatching(/^[0-9a-f]{64}$/), done: { pageCheck: false, stateCheck: false } },
+      handoffs: [{ number: 1, cause: "sign-in", askedBy: "person", noteSha256: expect.stringMatching(/^[0-9a-f]{64}$/) }] });
+    expect(trace.body.steps[0]).toMatchObject({ actions: [{ name: "type", text: "25 characters" }], thinkingSha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect((await f.dog("GET", `/computer-runs/${id}/trace`)).status).toBe(403);
+    await f.admin("POST", `/computer-runs/${id}/hand-back`);
+    first.resolve(finished("Done."));
+    await f.runs.finished(id);
+  });
+
   it("stops a run on request", async () => {
     const first = deferred<MessagesReply>();
     const f = await fixture(engineWith([() => first.promise]));

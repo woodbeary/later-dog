@@ -7,6 +7,7 @@ import { CloudDesktop } from "./computer-use-desktop.ts";
 import { doneRuleSchema, livePageCheck, type PageCheck } from "./computer-use-done.ts";
 import { DEFAULT_LIMITS, handOverScreen, RunControl, runComputerUse, type FormNotice, type LoopLimits, type TakeoverNotice, type UseDesktop } from "./computer-use-loop.ts";
 import { RunSecureForms, type RunFormView } from "./computer-use-secure-form.ts";
+import { hashedTrace } from "./computer-use-trace.ts";
 import { ComputerUseStore, FAILURE_CLASSES, HANDOFF_CAUSES, type ComputerUseRun, type Handoff, type LoggedStep } from "./computer-use-store.ts";
 import { INTERNAL_COMPUTERS_API, LaterdogComputers, computersApi } from "./laterdog-cloud.ts";
 import { phonePushRequest, type PhonePush } from "./phone-push.ts";
@@ -192,7 +193,7 @@ export class ComputerUseRuns {
 }
 
 export type RouteAnswer = { status: number; body: unknown } | null;
-const RUNS_PATH = /^\/v1\/computer-runs(?:\/([\w-]+)(?:\/(done|not-done|stop|take-over|hand-back|secure-form))?)?$/;
+const RUNS_PATH = /^\/v1\/computer-runs(?:\/([\w-]+)(?:\/(done|not-done|stop|take-over|hand-back|secure-form|trace))?)?$/;
 const PHONE_PATH = "/v1/computer-runs/phone-push";
 const STEP_PATH = /^\/v1\/computer-runs\/([\w-]+)\/steps\/(\d{1,4})\/failure-class$/;
 const failureClassSchema = z.object({ failureClass: z.enum(FAILURE_CLASSES).nullable() }).strict();
@@ -220,6 +221,7 @@ export async function computerUseRoute(runs: ComputerUseRuns | undefined, method
   }
   const id = runId.parse(rawId);
   if (!verb) return method === "GET" ? { status: 200, body: runs.view(id) } : null;
+  if (verb === "trace") return method === "GET" ? { status: 200, body: hashedTrace(runs.view(id)) } : null;
   if (method !== "POST") return null;
   if (verb === "done") return { status: 200, body: { run: runs.done(id) } };
   if (verb === "not-done") return { status: 200, body: { run: runs.notDone(id) } };
