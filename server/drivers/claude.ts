@@ -923,7 +923,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         version,
         done: new Promise<string | null>((resolve) => {
           execCli(config.cli, ["--help"], { timeout: 8000, env }, (err, stdout) => resolve(err ? null : stdout));
-        }).then((help) => {
+        }).catch(() => null).then((help) => {
           cliHasAutocompact = help === null ? null : /^\s*--autocompact\b/m.test(help);
           cliHelpVersion = version;
           if (helpRead === read) helpRead = null;
@@ -931,6 +931,17 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       };
       helpRead = read;
       return read.done;
+    };
+    const learnCliFlags = async (env: NodeJS.ProcessEnv): Promise<void> => {
+      if (!cliVersionChecked) {
+        const version = await readCliVersion(env);
+        if (version) {
+          cliVersion = parseClaudeCliVersion(version);
+          cliVersionChecked = true;
+          if (version !== cliHelpVersion) void readCliHelp(version, env);
+        }
+      }
+      if (helpRead) await helpRead.done;
     };
     const listeners = new Set<RuntimeEventListener>();
     const active = new Map<string, { stop: () => void; turnId: string; broker?: Awaited<ReturnType<typeof createPermissionBroker>> }>();
@@ -1096,13 +1107,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         args.push("--disallowedTools", config.disallowedTools.join(","));
       }
       const turnEnvironment = environment();
-      if (!cliVersionChecked) {
-        const version = await readCliVersion(turnEnvironment);
-        if (version) {
-          cliVersion = parseClaudeCliVersion(version);
-          cliVersionChecked = true;
-        }
-      }
+      await learnCliFlags(turnEnvironment);
       if (turn.guestConfined && !claudeCliSupports(cliVersion, "--restricted")) {
         throw new Error(withWhy("This Claude Code is too old to run this turn without a shell. Update Claude Code.", turn.confinedWhy));
       }
@@ -2014,12 +2019,14 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return;
         }
         const model = config.managedModels?.[0] ?? "claude-haiku-4-5";
+        const oneShotEnvironment = environment(model);
+        const compactWindow = cliHasAutocompact === true ? autoCompactWindow(oneShotEnvironment) : null;
         const child = spawnCli(
           config.cli,
-          ["-p", "--model", model, "--output-format", onUsage ? "json" : "text"],
+          ["-p", "--model", model, "--output-format", onUsage ? "json" : "text", ...(compactWindow ? ["--autocompact", compactWindow] : [])],
           {
             stdio: ["pipe", "pipe", "pipe"],
-            env: environment(model),
+            env: oneShotEnvironment,
           },
         );
         let stdout = "";
@@ -2154,10 +2161,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       },
       generateText: async (prompt, options) => {
         await claudeRefreshGate.enter(environment());
+        await learnCliFlags(environment());
         return generateReview(prompt, options?.signal, options?.onUsage);
       },
       reviewPermission: async (prompt, signal) => {
         await claudeRefreshGate.enter(environment());
+        await learnCliFlags(environment());
         return generateReview(prompt, signal);
       },
       dispose: async () => {

@@ -500,6 +500,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     delete process.env.FAKE_CLAUDE_TEXT_HANG;
     delete process.env.FAKE_CLAUDE_STEER_GRACE_SCALE;
     delete process.env.FAKE_CLAUDE_STEER_SILENCE_SCALE;
+    delete process.env.FAKE_CLAUDE_FAIL_VERSION;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.XAI_API_KEY;
     delete process.env.COMPOSIO_API_KEY;
@@ -1644,21 +1645,55 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect((await instance.snapshot()).warning).toBeUndefined();
   });
 
-  it.each(["2.1.100", "2.1.129", "2.1.267"])("omits unconfirmed --autocompact before a snapshot on Claude %s", async (version) => {
+  it.each([["2.1.100", false], ["2.1.129", true], ["2.1.267", true]] as const)("reads --help before the first launch, so Claude %s gets --autocompact only when it lists it", async (version, listed) => {
     const dump = join(scratch, "unsnapshotted.json");
     await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: version });
     await instance.adapter.sendTurn({ threadId: "t-unsnapshotted", text: "hi" });
     await recorder.until((e) => e.type === "turn.completed");
-    expect(JSON.parse(readFileSync(dump, "utf8")).argv).not.toContain("--autocompact");
+    const argv: string[] = JSON.parse(readFileSync(dump, "utf8")).argv;
+    expect(argv.includes("--autocompact")).toBe(listed);
+    if (listed) expect(argv[argv.indexOf("--autocompact") + 1]).toBe("200000");
   });
 
-  it("keeps a running engine when a later snapshot confirms --autocompact", async () => {
+  it("holds the first launch for the --help read a snapshot already started", async () => {
+    const dump = join(scratch, "help-in-flight.json");
+    const probes = join(scratch, "probes.log");
+    const release = join(scratch, "release-help");
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_PROBE_LOG: probes, FAKE_CLAUDE_HOLD_HELP: release });
+    const snapshot = instance.snapshot();
+    await vi.waitFor(() => expect(readFileSync(probes, "utf8")).toMatch(/^help /m), { timeout: 10_000 });
+    const sent = instance.adapter.sendTurn({ threadId: "t-help-in-flight", text: "hi" });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(existsSync(dump)).toBe(false);
+    writeFileSync(release, "");
+    await sent;
+    await recorder.until((e) => e.type === "turn.completed");
+    await snapshot;
+    const argv: string[] = JSON.parse(readFileSync(dump, "utf8")).argv;
+    expect(argv[argv.indexOf("--autocompact") + 1]).toBe("200000");
+    expect(readFileSync(probes, "utf8").match(/^help /gm)).toHaveLength(1);
+  });
+
+  it("still runs the first turn, without --autocompact, when --help fails", async () => {
+    const dump = join(scratch, "help-fails.json");
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_FAIL_HELP: "1" });
+    await instance.adapter.sendTurn({ threadId: "t-help-fails", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const argv: string[] = JSON.parse(readFileSync(dump, "utf8")).argv;
+    expect(argv).not.toContain("--autocompact");
+    expect(argv).toContain("--strict-mcp-config");
+  });
+
+  it("keeps a running engine when its optional flags are learned after its launch", async () => {
     const dump = join(scratch, "learned-autocompact.json");
-    await create(undefined, { FAKE_CLAUDE_DUMP: dump });
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: "2.1.301" });
+    process.env.FAKE_CLAUDE_FAIL_VERSION = "1";
     await instance.adapter.sendTurn({ threadId: "t-learned", text: "one" });
     await recorder.until((e) => e.type === "turn.completed");
+    delete process.env.FAKE_CLAUDE_FAIL_VERSION;
     const first = JSON.parse(readFileSync(dump, "utf8"));
     expect(first.argv).not.toContain("--autocompact");
+    expect(first.argv).not.toContain("--system-prompt-snapshot");
     await instance.snapshot();
     const second = await instance.adapter.sendTurn({ threadId: "t-learned", text: "two" });
     await recorder.until((e) => e.type === "turn.completed" && e.turnId === second.turnId);
@@ -1667,6 +1702,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await recorder.until((e) => e.type === "turn.completed" && e.threadId === "t-learned-fresh");
     const fresh = JSON.parse(readFileSync(dump, "utf8"));
     expect(fresh.argv[fresh.argv.indexOf("--autocompact") + 1]).toBe("200000");
+    expect(fresh.argv[fresh.argv.indexOf("--system-prompt-snapshot") + 1]).toBe("off");
   });
 
   it("reports the engine compacting the conversation inside the turn that triggered it", async () => {
@@ -3509,6 +3545,30 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await expect(instance.reviewPermission?.("review this request")).resolves.toBe("fake generated text");
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv[seen.argv.indexOf("--output-format") + 1]).toBe("text");
+  });
+
+  it("gives one-shot launches the compaction window too, before any snapshot or turn", async () => {
+    await create();
+    const dump = join(scratch, "one-shot-compact.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await expect(instance.generateText!("summarize")).resolves.toBe("fake generated text");
+    const text = JSON.parse(readFileSync(dump, "utf8"));
+    expect(text.argv[text.argv.indexOf("--autocompact") + 1]).toBe("200000");
+    await expect(instance.reviewPermission!("review this request")).resolves.toBe("fake generated text");
+    const review = JSON.parse(readFileSync(dump, "utf8"));
+    expect(review.argv[review.argv.indexOf("--autocompact") + 1]).toBe("200000");
+  });
+
+  it.each([
+    ["it is turned off", { LATERDOG_CLAUDE_AUTOCOMPACT: "off" }],
+    ["--help does not list it", { FAKE_CLAUDE_AUTOCOMPACT: "0" }],
+    ["--help fails", { FAKE_CLAUDE_FAIL_HELP: "1" }],
+  ])("keeps one-shot launches free of --autocompact when %s", async (_label, environment) => {
+    await create(undefined, environment);
+    const dump = join(scratch, "one-shot-no-compact.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await expect(instance.generateText!("summarize")).resolves.toBe("fake generated text");
+    expect(JSON.parse(readFileSync(dump, "utf8")).argv).not.toContain("--autocompact");
   });
 
   it("never falls back to personal authentication for API-key-only helper calls", async () => {

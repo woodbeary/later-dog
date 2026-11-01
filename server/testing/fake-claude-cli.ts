@@ -116,6 +116,7 @@ if (probe) {
   if (process.env.FAKE_CLAUDE_PROBE_LOG) appendFileSync(process.env.FAKE_CLAUDE_PROBE_LOG, `${probe} ${process.pid}\n`);
   const hold = process.env[`FAKE_CLAUDE_HOLD_${probe.toUpperCase()}`];
   while (hold && !existsSync(hold)) await new Promise((resolve) => setTimeout(resolve, 20));
+  if (process.env[`FAKE_CLAUDE_FAIL_${probe.toUpperCase()}`] === "1") process.exit(1);
 }
 
 if (argv[0] === "--version") {
