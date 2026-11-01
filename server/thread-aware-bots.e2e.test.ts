@@ -126,7 +126,7 @@ beforeAll(async () => {
     "  held += chunk;",
     '  const nl = held.indexOf("\\n");',
     "  if (nl === -1) return;",
-    "  const marker = /\\[\\[gate:([\\w-]+)\\]\\]/.exec(held.slice(0, nl));",
+    "  const marker = /\\[\\[gate:([\\w-]+)\\]\\]/.exec(held.slice(0, nl).replace(/<system-reminder>.*?<\\/system-reminder>/, \"\"));",
     '  const key = marker?.[1] ?? thread ?? "peer";',
     `  process.env.FAKE_CLAUDE_SLOW_FINISH_GATE = join(${JSON.stringify(gates)}, key + ".gate");`,
     `  process.env.FAKE_CLAUDE_DUMP = join(${JSON.stringify(gates)}, key + ".json");`,

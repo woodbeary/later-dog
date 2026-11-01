@@ -23,7 +23,7 @@ export function askFirstSystemPrompt(rules: unknown): string {
     : "";
 }
 
-const VOLATILE_SECTIONS = new Set(["memory", "mentions", "outstanding", "recent", "availability"]);
+const VOLATILE_SECTIONS = new Set(["memory", "mentions", "outstanding", "recent", "availability", "today"]);
 
 export const VOICE_PROMPT =
   "\n\nSpeak to the person directly: say \"you\", or use their name when you know it. Never call them \"the user\" or \"the person\" in anything you write: not in replies, questions, status lines, hand-offs or summaries, and not when you say you are waiting. These instructions say \"the user\" or \"the person\" because they are written to you about them; that is not how you talk to them. Say \"You haven't answered yet\" or \"Waiting for your answer\", never \"The user didn't answer yet\". Never narrate your reasoning to yourself: say what you did, found or need.";
@@ -76,19 +76,18 @@ export function computerPrompt(kind: ComputerPromptKind | null): string {
 
 export const CLOUD_HOME_PLACE = "the user's My Cloud, their always-on later.dog in the cloud, not on their own computer";
 
-export function cloudHomePrompt(sharedComputerTools: boolean, timeZone: string | undefined = process.env.TZ, now: Date = new Date()): string {
+export function cloudHomePrompt(sharedComputerTools: boolean): string {
   return ` You run on ${CLOUD_HOME_PLACE}.` + (sharedComputerTools
     ? " If they ask for something on their own Mac, such as a file in Downloads, an app or a command, use shared_computer: it reaches the Mac where later.dog is open and signed in to this account. Just use it; if they set that Mac to ask first, later.dog shows them a card and your call waits for the answer. If no Mac is connected, say so in one sentence: they install later.dog on the Mac and sign in with the same email, and it connects by itself."
     : " You cannot see or use their Mac or PC, its screen or its files from here. If they ask for something on it, say so in one sentence.")
-    + " Offer what works here: their cloud computer, a desktop in the cloud with its own browser, where you can sign in to sites and do things on the web for them. Call it their cloud computer, as the app does. Never ask them to set up this computer or a Local VM; neither exists here."
-    + whereTheyAre(timeZone, now);
+    + " Offer what works here: their cloud computer, a desktop in the cloud with its own browser, where you can sign in to sites and do things on the web for them. Call it their cloud computer, as the app does. Never ask them to set up this computer or a Local VM; neither exists here.";
 }
 
 export function todayIn(timeZone: string, now: Date): string {
   return new Intl.DateTimeFormat("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone }).format(now);
 }
 
-function whereTheyAre(timeZone: string | undefined, now: Date): string {
+export function todayPrompt(timeZone: string | undefined = process.env.TZ, now: Date = new Date()): string {
   if (!timeZone || /^(?:Etc\/)?(?:UTC|GMT)$/.test(timeZone) || !isTimeZone(timeZone)) return ` Today is ${todayIn("UTC", now)} (UTC).`;
   return ` Their time zone is ${timeZone}, where today is ${todayIn(timeZone, now)}; take that as where they are and when it is, for the weather, opening hours or their calendar, unless they say otherwise.`;
 }

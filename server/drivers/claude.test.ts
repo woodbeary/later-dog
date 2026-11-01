@@ -1237,7 +1237,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.pid).toBe(firstPid);
     const sent = readFileSync(prompts, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     expect(sent).toHaveLength(2);
-    expect(sent[0].message.content).toBe("one");
+    expect(sent[0].message.content).toContain("likes tea");
+    expect(sent[0].message.content.endsWith("one")).toBe(true);
     expect(sent[1].message.content).toContain("dislikes cloud kitchens");
     expect(sent[1].message.content.endsWith("two")).toBe(true);
   });
@@ -1267,10 +1268,10 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     const sent = readFileSync(prompts, "utf8").trim().split("\n").map((line) => JSON.parse(line));
     expect(sent).toHaveLength(2);
-    expect(sent[0].message.content).toBe("one");
+    expect(sent[0].message.content).toContain("Tagged: @Testy");
     expect(sent[1].message.content).toContain("Tagged: @Testy");
     expect(sent[1].message.content.endsWith("two")).toBe(true);
-    expect(seen.systemPrompt).toContain("Tagged: @Testy");
+    expect(seen.systemPrompt).not.toContain("Tagged: @Testy");
   });
 
   it("still relaunches when the stable half of the prompt changes", async () => {
@@ -1289,7 +1290,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(JSON.parse(readFileSync(dump, "utf8")).pid).not.toBe(firstPid);
   });
 
-  it("launches a new session with the volatile half already in the system prompt", async () => {
+  it("launches a new session with only the stable half as its system prompt and the rest in its first message", async () => {
     await create();
     const dump = join(scratch, "volatile-spawn.json");
     process.env.FAKE_CLAUDE_DUMP = dump;
@@ -1304,10 +1305,60 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await recorder.until((e) => e.type === "turn.completed");
 
     const seen = JSON.parse(readFileSync(dump, "utf8"));
-    expect(seen.systemPrompt).toContain("likes tea");
+    expect(seen.systemPrompt).toContain("You are Testy.");
+    expect(seen.systemPrompt).not.toContain("likes tea");
     const content = seen.prompt.message.content;
     const text = typeof content === "string" ? content : content.map((c: any) => c.text ?? "").join("");
-    expect(text).toBe("hi");
+    expect(text).toContain("likes tea");
+    expect(text.endsWith("hi")).toBe(true);
+  });
+
+  it("resumes with the same system prompt whatever the volatile half holds, so the cached conversation stays valid", async () => {
+    const dump = join(scratch, "volatile-resume.json");
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump });
+    const launch = async (memory: string) => {
+      await instance.adapter.sendTurn({
+        threadId: `t-volatile-resume-${memory}`,
+        text: "hi",
+        resumeCursor: "existing-claude-session",
+        system: `You are Testy.\n\nYour memory:\n${memory}`,
+        systemStable: "You are Testy.",
+        systemVolatile: `Your memory:\n${memory}`,
+      });
+      await recorder.until((e) => e.type === "turn.completed");
+      recorder.events.length = 0;
+      return JSON.parse(readFileSync(dump, "utf8"));
+    };
+    const first = await launch("likes tea");
+    const second = await launch("likes coffee");
+    expect(second.argv[second.argv.indexOf("--resume") + 1]).toBe("existing-claude-session");
+    expect(second.systemPrompt).toBe(first.systemPrompt);
+    expect(second.prompt.message.content).toContain("likes coffee");
+  });
+
+  it("hands the volatile half over again on the first turn after a compaction", async () => {
+    const prompts = join(scratch, "compact-prompts.jsonl");
+    await create(undefined, { FAKE_CLAUDE_COMPACT: "1", FAKE_CLAUDE_PROMPTS: prompts });
+    const send = async (text: string) => {
+      await instance.adapter.sendTurn({
+        threadId: "t-volatile-compact",
+        text,
+        system: "You are Testy.\n\nYour memory:\nlikes tea",
+        systemStable: "You are Testy.",
+        systemVolatile: "Your memory:\nlikes tea",
+      });
+      await recorder.until((e) => e.type === "turn.completed");
+      recorder.events.length = 0;
+    };
+    await send("one");
+    await send("two");
+    await send("three");
+    const sent = readFileSync(prompts, "utf8").trim().split("\n").map((line) => JSON.parse(line).message.content);
+    expect(sent).toHaveLength(3);
+    expect(sent[0]).toContain("likes tea");
+    expect(sent[1]).toBe("two");
+    expect(sent[2]).toContain("likes tea");
+    expect(sent[2].endsWith("three")).toBe(true);
   });
 
   it("refreshes a resumed session's recorded prompt on every turn when the CLI supports it", async () => {

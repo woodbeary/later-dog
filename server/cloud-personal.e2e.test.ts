@@ -557,7 +557,7 @@ it("work and its follow-up from the same conversation land in the teammate's one
   expect(first).toMatchObject({ outcome: "queued", threadId: writer.threadId });
   await until(async () => (await writerTasks()).find((task) => task.threadId === first.threadId)?.busy === true, "the writer to start");
   const engine = () => { try { return JSON.parse(readFileSync(held(), "utf8")); } catch { return undefined; } };
-  await until(() => JSON.stringify(engine()?.prompt ?? "").includes("Draft the launch post"), "the writer's engine to start");
+  await until(() => engine()?.mcpConfig?.mcpServers?.agents?.env?.LATERDOG_BOT_ID === writer.id && JSON.stringify(engine().prompt).includes("Draft the launch post"), "the writer's engine to start");
   expect(realpathSync(engine().cwd)).toBe(realpathSync(project()));
   expect((await writerTasks()).find((task) => task.threadId === first.threadId)?.cwd).toBe(project());
   expect((await bots()).find((bot) => bot.id === before.lead.id)?.tasks.find((task: any) => task.threadId === chat)).toMatchObject({ busy: true, cwd: project() });

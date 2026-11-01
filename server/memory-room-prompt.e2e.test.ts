@@ -21,12 +21,13 @@ it("gives a room turn the memory_update guidance, not the file-tools one", async
       return undefined;
     }
   };
+  const told = () => `${dump()?.systemPrompt ?? ""}\n${JSON.stringify(dump()?.prompt ?? "")}`;
   try {
     const { bot: lead } = await runControlLaterDog(["new-bot", "--name", "Lead"], { env }) as { bot: { id: string } };
     const { bot: helper } = await runControlLaterDog(["new-bot", "--name", "Helper"], { env }) as { bot: { id: string } };
     await runControlLaterDog(["send", "--bot", lead.id, "--text", "Remember that the fixture garden is watered on Mondays."], { env });
     await runControlLaterDog(["wait", "--bot", lead.id, "--timeout", "30"], { env });
-    const direct = dump()?.systemPrompt ?? "";
+    const direct = told();
     expect(direct).toContain("Change MEMORY.md only with memory_update");
     expect(direct).not.toContain("update it with your file tools");
 
@@ -40,7 +41,7 @@ it("gives a room turn the memory_update guidance, not the file-tools one", async
       return text.includes("Reply to the conversation above as") || JSON.stringify(dump()?.prompt ?? "").includes("Reply to the conversation above as");
     }, { timeout: 30_000 }).toBe(true);
     await runControlLaterDog(["wait", "--bot", lead.id, "--timeout", "30"], { env });
-    const room = dump()?.systemPrompt ?? "";
+    const room = told();
     expect(room).toContain("Change MEMORY.md only with memory_update");
     expect(room).not.toContain("update it with your file tools");
   } finally {

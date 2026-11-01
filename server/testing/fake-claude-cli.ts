@@ -264,7 +264,9 @@ const armSteerGate = () => {
   }, 10);
 };
 
-const personWords = (text: string): string => text.replace(/\n\n\[later\.dog: [^\]\n]*\]$/, "");
+const personWords = (text: string): string => text
+  .replace(/^<system-reminder>\n[\s\S]*?\n<\/system-reminder>\n\n/, "")
+  .replace(/\n\n\[later\.dog: [^\]\n]*\]$/, "");
 
 const promptText = (prompt: JsonValue): string => {
   const m = prompt && typeof prompt === "object" && !Array.isArray(prompt) ? (prompt as { message?: { content?: unknown } }).message : undefined;
