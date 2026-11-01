@@ -74,7 +74,7 @@ export const SCREEN_TAKEN = "Not executed: the screen shows a sign-in, a verific
 const SCREEN_CAUSE: Partial<Record<ScreenState, HandoffCause>> = { login: "sign-in", two_factor: "sign-in", captcha: "captcha" };
 export const NOT_APPROVED = "Not executed: the person did not approve this action, so later.dog did not run it. They may have done this step themselves. Take a fresh screenshot before you go on.";
 export const SUBMISSION_UNKNOWN = "Unknown whether this went through: later.dog ran it but could not see a confirmation. Do not repeat it. Take a screenshot and look; only the person or a check of the page can settle it.";
-export const UNKNOWN_PENDING = "Not executed: an earlier action's outcome is still unknown, so later.dog will not run another that submits, pays, publishes, cancels or deletes until the person or a check of the page settles it.";
+export const UNKNOWN_PENDING = "Not executed: an earlier action's outcome is still unknown, so later.dog runs no more left clicks or Enter in this run; only the person or a check of the page can settle it. Take a screenshot, then end your turn and say what you see.";
 
 export type FormOutcome = "filled" | "cancelled";
 
@@ -384,6 +384,7 @@ async function act(uses: ToolUse[], turn: Turn, done: Acted): Promise<void> {
       if (control.unknownOpen) { failed = true; answer([text(UNKNOWN_PENDING)], true); continue; }
       const words = guardedWords(use.name, use.input);
       const yes = await irreversible(action, words, turn);
+      if (control.held) { blocked = TAKEN_OVER; answer([text(blocked)], true); continue; }
       if (yes === null || yes >= YES) {
         const from = deps.clock();
         await handOverScreen(turn.runId, { cause: "confirm", askedBy: "guard", ...(yes === null ? {} : { probability: yes }),

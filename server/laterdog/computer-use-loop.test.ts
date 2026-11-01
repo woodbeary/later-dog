@@ -396,6 +396,45 @@ describe("the guard on clicks that submit, pay, publish, cancel or delete", () =
     expect(plain.desktop.crops).toHaveLength(1);
     expect(plain.store.handoffs(plain.run.id)).toEqual([]);
   });
+
+  it("guards typing that presses Enter, without naming the text, and leaves other typing alone", async () => {
+    const checks = new ScriptedScreenChecks({ irreversible: () => 0.88 });
+    const h = setup([reply([toolUse("toolu_1", "type", { text: "Looks good to me\n" })]), finished("Posted.")], { screenChecks: checks });
+    const ended = h.go();
+    await approveWhenAsked(h, false);
+    await ended;
+    expect(h.desktop.acted).toEqual([]);
+    expect(checks.asked).toEqual([{ question: "irreversible", action: "type 17 characters with Enter" }]);
+    expect(JSON.stringify(h.store.handoffs(h.run.id))).not.toContain("Looks good");
+    expect(results(h.messages.requests[1]!)[0]!.content).toEqual([{ type: "text", text: NOT_APPROVED }]);
+    const plain = setup([reply([toolUse("toolu_1", "type", { text: "Looks good to me" })]), finished("Typed.")], { screenChecks: new ScriptedScreenChecks({ irreversible: () => 0.88 }) });
+    await plain.go();
+    expect(plain.desktop.acted).toEqual([{ kind: "type", text: "Looks good to me" }]);
+    expect(plain.store.handoffs(plain.run.id)).toEqual([]);
+  });
+
+  it("runs nothing when the person takes the screen while the guard is still checking, and keeps the run going", async () => {
+    for (const verdict of [0.03, 0.94]) {
+      const checks = new ScriptedScreenChecks();
+      let answer!: (yes: number) => void;
+      let asked!: () => void;
+      const asking = new Promise<void>((resolve) => { asked = resolve; });
+      checks.irreversible = async () => { asked(); return new Promise<number>((resolve) => { answer = resolve; }); };
+      const h = setup([reply([toolUse("toolu_1", "left_click", SUBMIT), toolUse("toolu_2", "type", { text: "x" })]), finished("Done.")], { screenChecks: checks });
+      const ended = h.go();
+      await asking;
+      h.store.handOver(h.run.id, "person", "person", "");
+      h.control.hold();
+      answer(verdict);
+      await Promise.race([h.control.waitingForPerson(), ended]);
+      h.store.handBack(h.run.id);
+      h.control.release();
+      expect(await ended).toMatchObject({ state: "awaiting_done" });
+      expect(h.desktop.acted).toEqual([]);
+      expect(results(h.messages.requests[1]!).map((result) => result.content)).toEqual([[{ type: "text", text: TAKEN_OVER }], [{ type: "text", text: TAKEN_OVER }]]);
+      expect(h.store.handoffs(h.run.id)).toEqual([expect.objectContaining({ cause: "person", askedBy: "person" })]);
+    }
+  });
 });
 
 describe("Secure Form in the loop", () => {

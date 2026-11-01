@@ -5,15 +5,19 @@ export const GUARD_CROP: Size = { width: 480, height: 240 };
 export const CONFIRM_LOOKS_MS = [1_000, 2_000, 3_000] as const;
 const SUBMIT_KEY = /(^|\+)(Return|KP_Enter|Enter)$/i;
 
-export type GuardedAction = Extract<ComputerAction, { kind: "click" | "key" }>;
+export type GuardedAction = Extract<ComputerAction, { kind: "click" | "key" | "type" }>;
+
+const pressesEnter = (text: string) => /[\r\n]/.test(text);
 
 export function isGuarded(action: ComputerAction): action is GuardedAction {
   if (action.kind === "click") return action.button === "left";
+  if (action.kind === "type") return pressesEnter(action.text);
   return action.kind === "key" && SUBMIT_KEY.test(action.keys);
 }
 
 export function guardedWords(name: string, input: unknown): string {
   const args = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+  if (name === "type") return `type ${typeof args.text === "string" ? args.text.length : 0} characters with Enter`;
   const at = Array.isArray(args.coordinate) && args.coordinate.length === 2 ? ` at (${args.coordinate.join(", ")})` : "";
   return name === "key" ? `key ${String(args.text)}` : `${name}${at || " where the pointer is"}`;
 }
