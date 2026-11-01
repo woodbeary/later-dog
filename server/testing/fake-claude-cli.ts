@@ -22,6 +22,7 @@ const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
   if (Number.isFinite(exitDelay) && exitDelay > 0) {
     process.on("SIGTERM", () => { setTimeout(() => process.exit(0), exitDelay); });
   }
+  if (process.env.FAKE_CLAUDE_STAYS_AFTER_INPUT === "1") setInterval(() => {}, 1_000);
 }
 const scriptedReplies = (() => {
   try {
@@ -303,7 +304,7 @@ const startLateTurn = (): boolean => {
 const finishIfDone = () => {
   if (turnRunning) return;
   if (startLateTurn()) return;
-  if (stdinEnded) process.exit(0);
+  if (stdinEnded && process.env.FAKE_CLAUDE_STAYS_AFTER_INPUT !== "1") process.exit(0);
   if (process.env.FAKE_CLAUDE_EXIT_AFTER_TURN === "1") process.stdout.write("", () => process.exit(0));
   const gone = process.env.FAKE_CLAUDE_GONE_AFTER_TURN;
   if (gone) process.stdout.write("", () => {

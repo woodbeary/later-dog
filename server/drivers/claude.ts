@@ -989,6 +989,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     }
     const sessions = new Map<string, Session>();
     const SESSION_IDLE_MS = engineIdleLimit("CLAUDE");
+    const DISPOSE_STOP_MS = 2_000;
 
     const stopSession = (session: Session) => {
       void killCliTree(session.child).then((stopped) => {
@@ -2173,10 +2174,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         try {
           await login.dispose();
         } finally {
+          const stopping = Array.from(sessions.values(), (session) => killCliTree(session.child, DISPOSE_STOP_MS));
           for (const { stop } of active.values()) stop();
           for (const threadId of Array.from(sessions.keys())) closeSession(threadId, "dispose");
           for (const session of sessions.values()) removeLaunchFiles(session);
           listeners.clear();
+          await Promise.all(stopping);
         }
       },
     };

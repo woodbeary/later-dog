@@ -648,6 +648,18 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: false, stopReason: "usage_limit" });
   });
 
+  it("stops a Claude Code that keeps running after its input closes before dispose finishes, so none outlives a server restart", async () => {
+    const dump = join(scratch, "dispose-stays.json");
+    await create("happy", { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_STAYS_AFTER_INPUT: "1" });
+    const turn = await instance.adapter.sendTurn({ threadId: "t-dispose-stays", text: "hi" });
+    await recorder.until((event) => event.type === "turn.completed" && event.turnId === turn.turnId);
+    const pid = JSON.parse(readFileSync(dump, "utf8")).pid;
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    recorder.stop();
+    await instance.dispose();
+    expect(() => process.kill(-pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
+  });
+
   it("reads a limit from the words of an unstructured api-error frame, and leaves other API errors as replies", async () => {
     const weekly = "You've hit your weekly limit · resets Oct 9, 5pm (America/Los_Angeles)";
     await create("api-error", { FAKE_CLAUDE_API_ERROR: weekly });
