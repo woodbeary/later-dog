@@ -275,6 +275,11 @@ export class LaterdogComputers {
     return this.json(response, desktopBody);
   }
 
+  async screenCheck(body: Record<string, unknown>): Promise<unknown> {
+    const response = await this.send("/screen-checks", { method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" }, timeoutMs: 20_000 });
+    return this.json(response, z.unknown());
+  }
+
   async read(id: string, path: string, maxBytes: number): Promise<Buffer> {
     const response = await this.send(`/computers/${id}/files?path=${encodeURIComponent(path)}`, { accept: "application/octet-stream", timeoutMs: 120_000 });
     return readCapped(response, maxBytes, () => new ComputersApiError(`the file is larger than ${maxBytes} bytes`, 413, "too_large"));

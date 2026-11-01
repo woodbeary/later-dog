@@ -2,19 +2,21 @@ import { describe, expect, it } from "vitest";
 import type { MessagesRequest } from "./computer-use-anthropic.ts";
 import type { DoneRule, PageCheck } from "./computer-use-done.ts";
 import {
-  ACTION_MS, FakeClock, FakeDesktop, finished, fixedPageCheck, FIXTURE_USAGE, FIXTURE_VIEWER, memoryStore, MODEL_MS, reply, ScriptedMessages,
+  ACTION_MS, FakeClock, FakeDesktop, finished, fixedPageCheck, FIXTURE_USAGE, FIXTURE_VIEWER, memoryStore, MODEL_MS, reply, ScriptedMessages, ScriptedScreenChecks,
   takeoverUse, toolUse, WatchedControl, type ScriptedReply,
 } from "./computer-use-fakes.ts";
 import type { DesktopAction } from "./computer-use-loop.ts";
-import { DEFAULT_LIMITS, HANDED_BACK_NOTE, NOT_EXECUTED, runComputerUse, sameModel, screenshotSha256, TAKEN_OVER, type LoopLimits, type TakeoverNotice } from "./computer-use-loop.ts";
+import { DEFAULT_LIMITS, HANDED_BACK_NOTE, NOT_EXECUTED, runComputerUse, sameModel, SCREEN_TAKEN, screenshotSha256, TAKEN_OVER, type LoopLimits, type TakeoverNotice } from "./computer-use-loop.ts";
 
 const PERSON_ONLY: DoneRule = { pageCheck: null };
 const WITH_PAGE: DoneRule = { pageCheck: { url: "https://clinic.example/requests/42", contains: "Request received" } };
+const UNCHECKED = { screenState: null, screenProbability: null };
+const SIGN_IN = { screen: "login" as const, probability: 0.93 };
 const PASSES = { passed: true, detail: "HTTP 200; the page shows the expected text." };
 const FAILS = { passed: false, detail: "HTTP 200; the expected text is not on the page." };
 
 function setup(replies: ScriptedReply[], options: { done?: DoneRule; pageCheck?: PageCheck; size?: { width: number; height: number };
-  fail?: (action: DesktopAction) => string | null; limits?: LoopLimits; model?: string } = {}) {
+  fail?: (action: DesktopAction) => string | null; limits?: LoopLimits; model?: string; screenChecks?: ScriptedScreenChecks } = {}) {
   const clock = new FakeClock();
   const store = memoryStore();
   const desktop = new FakeDesktop({ clock, size: options.size, fail: options.fail });
@@ -24,7 +26,8 @@ function setup(replies: ScriptedReply[], options: { done?: DoneRule; pageCheck?:
   const notices: TakeoverNotice[] = [];
   const run = store.start({ task: "Send the interpreter request for Tuesday", computerId: "cmp_fixture12345", model: "claude-opus-5-5", done: options.done ?? PERSON_ONLY });
   const go = () => runComputerUse(run.id, { store, desktop, messages, control, pageCheck, clock: clock.read,
-    sleep: async (ms) => clock.advance(ms), limits: options.limits ?? DEFAULT_LIMITS, notify: (notice) => notices.push(notice) });
+    sleep: async (ms) => clock.advance(ms), limits: options.limits ?? DEFAULT_LIMITS, notify: (notice) => notices.push(notice),
+    ...(options.screenChecks ? { screenChecks: options.screenChecks } : {}) });
   return { clock, store, desktop, messages, control, run, go, notices };
 }
 
@@ -73,9 +76,9 @@ describe("every step is logged", () => {
     const second = screenshotSha256(Buffer.from("fixture frame 2 at 1280x800"));
     expect(store.steps(run.id)).toEqual([
       { step: 1, at: expect.any(String), actions: [{ name: "left_click", coordinate: [640, 400] }, { name: "type", text: "12 characters" }],
-        screenshotSha256: first, modelMs: MODEL_MS, actionMs: 2 * ACTION_MS, ...FIXTURE_USAGE },
-      { step: 2, at: expect.any(String), actions: [{ name: "screenshot" }], screenshotSha256: first, modelMs: MODEL_MS, actionMs: ACTION_MS, ...FIXTURE_USAGE },
-      { step: 3, at: expect.any(String), actions: [], screenshotSha256: second, modelMs: MODEL_MS, actionMs: 0, ...FIXTURE_USAGE },
+        screenshotSha256: first, modelMs: MODEL_MS, actionMs: 2 * ACTION_MS, ...FIXTURE_USAGE, ...UNCHECKED },
+      { step: 2, at: expect.any(String), actions: [{ name: "screenshot" }], screenshotSha256: first, modelMs: MODEL_MS, actionMs: ACTION_MS, ...FIXTURE_USAGE, ...UNCHECKED },
+      { step: 3, at: expect.any(String), actions: [], screenshotSha256: second, modelMs: MODEL_MS, actionMs: 0, ...FIXTURE_USAGE, ...UNCHECKED },
     ]);
     expect(desktop.acted).toEqual([{ kind: "click", button: "left", count: 1, at: [640, 400], modifiers: [] }, { kind: "type", text: "Tuesday 10am" }]);
   });
@@ -189,6 +192,68 @@ describe("take over", () => {
     expect(results(second)[0]!.content).toEqual([{ type: "text", text: TAKEN_OVER }]);
     expect(texts(second)).toEqual([HANDED_BACK_NOTE]);
     expect(h.store.handoffs(h.run.id)).toEqual([expect.objectContaining({ cause: "person", askedBy: "person" })]);
+  });
+});
+
+describe("the screen check as a second take-over trigger", () => {
+  const loginOnFirstFrame = () => new ScriptedScreenChecks({ states: (frame) => (frame.startsWith("fixture frame 1 ") ? SIGN_IN : { screen: "ready", probability: 0.96 }) });
+
+  it("hands the screen to the person when Claude acts on a sign-in screen without asking", async () => {
+    const checks = loginOnFirstFrame();
+    const h = setup([
+      reply([toolUse("toolu_1", "left_click", { coordinate: [640, 400] }), toolUse("toolu_2", "type", { text: "jacob@example.com" })]),
+      reply([toolUse("toolu_3", "screenshot")]),
+      finished("Signed in and sent."),
+    ], { screenChecks: checks });
+    const held = h.control.waitingForPerson();
+    const ended = h.go();
+    await held;
+    expect(h.store.openHandoff(h.run.id)).toMatchObject({ cause: "sign-in", askedBy: "screen_check", probability: 0.93, viewerUrl: FIXTURE_VIEWER.url,
+      note: "The screen check saw login (0.93) and Claude went on without asking for the person." });
+    expect(h.desktop.acted).toEqual([]);
+    h.store.handBack(h.run.id);
+    h.control.release();
+    expect((await ended).state).toBe("awaiting_done");
+    const second = h.messages.requests[1]!;
+    expect(results(second).map((result) => result.content)).toEqual([[{ type: "text", text: SCREEN_TAKEN }], [{ type: "text", text: TAKEN_OVER }]]);
+    expect(texts(second)).toEqual([HANDED_BACK_NOTE]);
+    expect(h.store.steps(h.run.id).map((step) => [step.screenState, step.screenProbability])).toEqual([["login", 0.93], ["login", 0.93], ["ready", 0.96]]);
+    expect(h.notices.map((notice) => notice.handoff.askedBy)).toEqual(["screen_check"]);
+  });
+
+  it("does not hand the same sign-in screen over twice, and leaves it alone once Claude asked for the person", async () => {
+    const checks = new ScriptedScreenChecks({ states: () => SIGN_IN });
+    const h = setup([
+      reply([takeoverUse("toolu_1", "Sign in to the clinic portal", "sign-in")]),
+      reply([toolUse("toolu_2", "left_click", { coordinate: [640, 400] })]),
+      finished("Sent."),
+    ], { screenChecks: checks });
+    const held = h.control.waitingForPerson();
+    const ended = h.go();
+    await held;
+    h.store.handBack(h.run.id);
+    h.control.release();
+    await ended;
+    expect(h.store.handoffs(h.run.id).map((handoff) => handoff.askedBy)).toEqual(["model"]);
+    expect(h.desktop.acted).toHaveLength(1);
+  });
+
+  it("lets Claude look and wait on a sign-in screen without handing it over", async () => {
+    const checks = new ScriptedScreenChecks({ states: () => SIGN_IN });
+    const h = setup([reply([toolUse("toolu_1", "screenshot"), toolUse("toolu_2", "wait", { duration: 1 }), toolUse("toolu_3", "mouse_move", { coordinate: [5, 5] })]), finished("Waiting.")], { screenChecks: checks });
+    expect((await h.go()).state).toBe("awaiting_done");
+    expect(h.store.handoffs(h.run.id)).toEqual([]);
+    expect(checks.looked).toEqual(["fixture frame 1 at 1280x800", "fixture frame 2 at 1280x800"]);
+  });
+
+  it("does nothing on an unsure check, or with screen checks off", async () => {
+    const unsure = setup([reply([toolUse("toolu_1", "key", { text: "Return" })]), finished("Done.")], { screenChecks: new ScriptedScreenChecks({ states: () => ({ screen: "captcha", probability: 0.31 }) }) });
+    await unsure.go();
+    expect(unsure.store.handoffs(unsure.run.id)).toEqual([]);
+    expect(unsure.desktop.acted).toHaveLength(1);
+    const off = setup([reply([toolUse("toolu_1", "key", { text: "Return" })]), finished("Done.")]);
+    await off.go();
+    expect(off.store.steps(off.run.id)[0]).toMatchObject(UNCHECKED);
   });
 });
 

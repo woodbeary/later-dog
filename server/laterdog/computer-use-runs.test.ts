@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MessagesReply } from "./computer-use-anthropic.ts";
 import { FakeDesktop, finished, FIXTURE_VIEWER, fixedPageCheck, ScriptedMessages, toolUse, reply, type ScriptedReply } from "./computer-use-fakes.ts";
-import { ComputerUseRuns, computerUseRunsFromEnvironment, takeoverNotification } from "./computer-use-runs.ts";
+import { ComputerUseRuns, computerUseRunsFromEnvironment, screenChecksSwitch, takeoverNotification } from "./computer-use-runs.ts";
 import type { PhonePush } from "./phone-push.ts";
 import { ComputerUseStore } from "./computer-use-store.ts";
 import { CODEX_CLOUD_CAPABILITIES, type ExecutionAdapter } from "./codex-cloud.ts";
@@ -18,6 +18,7 @@ import { WorkspaceStore } from "./store.ts";
 import { Supervisor } from "./supervisor.ts";
 
 const TOKEN = "fixture-admin-token-".repeat(3);
+const DEAD_ENDS = { LATERDOG_COMPUTERS_URL: "http://127.0.0.1:9/v1", LATERDOG_ANTHROPIC_URL: "http://127.0.0.1:9/v1/messages" };
 const START = { task: "Send the interpreter request for Tuesday", computerId: "cmp_fixture12345", done: { pageCheck: null } };
 const resources: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of resources.splice(0)) await close(); });
@@ -143,7 +144,7 @@ describe("computer-use runs on the supervisor", () => {
 
   it("words a take-over Claude asked for by its cause", () => {
     const handoff = { number: 1, at: "2026-11-01T10:00:00.000Z", cause: "captcha" as const, askedBy: "model" as const, note: "Solve the CAPTCHA",
-      returnedAt: null, viewerUrl: FIXTURE_VIEWER.url, viewerExpiresAt: FIXTURE_VIEWER.expiresAt };
+      returnedAt: null, viewerUrl: FIXTURE_VIEWER.url, viewerExpiresAt: FIXTURE_VIEWER.expiresAt, probability: null };
     expect(takeoverNotification({ runId: "run-1", task: "x", handoff }).body).toBe("It needs a CAPTCHA: Solve the CAPTCHA. Open later.dog to see the screen.");
   });
 
@@ -175,6 +176,24 @@ describe("computer-use runs on the supervisor", () => {
     expect((await f.admin("POST", "/computer-runs", { ...START, computerId: "not a computer" })).status).toBe(400);
     expect((await f.admin("POST", "/computer-runs/not-a-uuid/done")).status).toBe(400);
     expect((await f.admin("GET", "/computer-runs/6f9619ff-8b86-4011-b42d-00cf4fc964ff")).status).toBe(404);
+  });
+
+  it("turns screen checks on only when asked, and keeps that on the run", async () => {
+    expect(screenChecksSwitch(undefined)).toBe(false);
+    expect(screenChecksSwitch(" off ")).toBe(false);
+    expect(screenChecksSwitch("ON")).toBe(true);
+    expect(() => screenChecksSwitch("yes")).toThrow("on or off");
+    const key = "sk-ant-api03-" + "f".repeat(40);
+    const off = await fixture((db) => computerUseRunsFromEnvironment(db, { ANTHROPIC_API_KEY: key, ...DEAD_ENDS }));
+    const id = (await off.admin("POST", "/computer-runs", START)).body.run.id as string;
+    expect((await off.admin("GET", `/computer-runs/${id}`)).body.run.screenChecks).toBe(false);
+    await off.admin("POST", `/computer-runs/${id}/stop`);
+    const on = await fixture((db) => computerUseRunsFromEnvironment(db, { ANTHROPIC_API_KEY: key, ...DEAD_ENDS, LATERDOG_SCREEN_CHECKS: "on" }));
+    const checked = await on.admin("POST", "/computer-runs", START);
+    expect(checked.body.run.screenChecks).toBe(true);
+    await on.admin("POST", `/computer-runs/${checked.body.run.id}/stop`);
+    const wrong = await fixture((db) => computerUseRunsFromEnvironment(db, { ANTHROPIC_API_KEY: key, ...DEAD_ENDS, LATERDOG_SCREEN_CHECKS: "maybe" }));
+    expect((await wrong.admin("POST", "/computer-runs", START)).body.error).toBe("LATERDOG_SCREEN_CHECKS is on or off.");
   });
 
   it("says plainly when computer use is not set up", async () => {

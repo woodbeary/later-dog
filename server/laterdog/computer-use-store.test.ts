@@ -53,8 +53,8 @@ describe("take-overs keep their cause", () => {
     store.handBack(run.id);
     store.handOver(run.id, "person", "person", "");
     expect(store.handoffs(run.id)).toEqual([
-      { number: 1, at: expect.any(String), cause: "captcha", askedBy: "model", note: "Solve the CAPTCHA on the request form", returnedAt: expect.any(String), viewerUrl: null, viewerExpiresAt: null },
-      { number: 2, at: expect.any(String), cause: "person", askedBy: "person", note: "", returnedAt: null, viewerUrl: null, viewerExpiresAt: null },
+      { number: 1, at: expect.any(String), cause: "captcha", askedBy: "model", note: "Solve the CAPTCHA on the request form", returnedAt: expect.any(String), viewerUrl: null, viewerExpiresAt: null, probability: null },
+      { number: 2, at: expect.any(String), cause: "person", askedBy: "person", note: "", returnedAt: null, viewerUrl: null, viewerExpiresAt: null, probability: null },
     ]);
     store.finish(run.id, { done: "person" });
     expect(store.handoffs(run.id)[1]!.returnedAt).not.toBeNull();
@@ -96,7 +96,19 @@ describe("steps and restarts", () => {
     store.step(run.id, { step: 1, actions: [{ name: "left_click", coordinate: [1, 2] }], screenshotSha256: "a".repeat(64), modelMs: 812, actionMs: 40,
       inputTokens: 1400, outputTokens: 90, cacheReadTokens: 1200, cacheWriteTokens: 0 });
     expect(store.steps(run.id)).toEqual([{ step: 1, at: expect.any(String), actions: [{ name: "left_click", coordinate: [1, 2] }], screenshotSha256: "a".repeat(64),
-      modelMs: 812, actionMs: 40, inputTokens: 1400, outputTokens: 90, cacheReadTokens: 1200, cacheWriteTokens: 0 }]);
+      modelMs: 812, actionMs: 40, inputTokens: 1400, outputTokens: 90, cacheReadTokens: 1200, cacheWriteTokens: 0, screenState: null, screenProbability: null }]);
+  });
+
+  it("keeps the screen check's verdict on the frame Claude chose from, and whether the run had screen checks", () => {
+    const store = memoryStore();
+    const run = store.start({ task: "x", computerId: "cmp_fixture12345", model: "claude-opus-5-5", done: PERSON_ONLY, screenChecks: true });
+    expect(run.screenChecks).toBe(true);
+    store.step(run.id, { step: 1, actions: [], screenshotSha256: "b".repeat(64), modelMs: 1, actionMs: 0, inputTokens: 1, outputTokens: 1, cacheReadTokens: 0,
+      cacheWriteTokens: 0, screenState: "two_factor", screenProbability: 0.88 });
+    expect(store.steps(run.id)[0]).toMatchObject({ screenState: "two_factor", screenProbability: 0.88 });
+    store.handOver(run.id, "sign-in", "screen_check", "The screen check saw two factor (0.88)", 0.88);
+    expect(store.openHandoff(run.id)).toMatchObject({ askedBy: "screen_check", probability: 0.88 });
+    expect(begin().run.screenChecks).toBe(false);
   });
 
   it("fails runs a restart cut off, and leaves runs that wait for the person alone", () => {

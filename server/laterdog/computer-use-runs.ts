@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { COMPUTER_ID } from "./cloud-computers.ts";
 import { anthropicMessages, fixtureMessagesUrl, type MessagesApi } from "./computer-use-anthropic.ts";
+import { clefScreenChecks, type ScreenChecks } from "./computer-use-screen.ts";
 import { CloudDesktop } from "./computer-use-desktop.ts";
 import { doneRuleSchema, livePageCheck, type PageCheck } from "./computer-use-done.ts";
 import { DEFAULT_LIMITS, handOverScreen, RunControl, runComputerUse, type LoopLimits, type TakeoverNotice, type UseDesktop } from "./computer-use-loop.ts";
@@ -22,6 +23,7 @@ export interface ComputerUseEngine {
   messages: MessagesApi;
   desktop(computerId: string): UseDesktop;
   pageCheck: PageCheck;
+  screenChecks?: ScreenChecks;
   clock?: () => number;
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   limits?: LoopLimits;
@@ -85,12 +87,13 @@ export class ComputerUseRuns {
     if ([...this.#live.values()].some((live) => live.computerId === input.computerId)) {
       throw unavailable("Another computer-use run is going on that computer; stop it, or wait for it to end, before starting one there.");
     }
-    const run = this.store.start({ ...input, model: engine.messages.model });
+    const run = this.store.start({ ...input, model: engine.messages.model, screenChecks: Boolean(engine.screenChecks) });
     const control = new RunControl();
     const desktop = engine.desktop(run.computerId);
     const finished = runComputerUse(run.id, {
       store: this.store, desktop, messages: engine.messages, control, pageCheck: engine.pageCheck,
       clock: engine.clock ?? Date.now, sleep: engine.sleep ?? waitFor, limits: engine.limits ?? DEFAULT_LIMITS, notify: this.#notify,
+      ...(engine.screenChecks ? { screenChecks: engine.screenChecks } : {}),
     }).finally(() => this.#live.delete(run.id));
     finished.catch(() => {});
     this.#live.set(run.id, { computerId: run.computerId, desktop, control, finished });
@@ -179,6 +182,13 @@ export async function computerUseRoute(runs: ComputerUseRuns | undefined, method
   return { status: 200, body: { run: runs.handBack(id) } };
 }
 
+export function screenChecksSwitch(raw: string | undefined): boolean {
+  const value = raw?.trim().toLowerCase() ?? "";
+  if (value === "" || value === "off") return false;
+  if (value === "on") return true;
+  throw new Error("LATERDOG_SCREEN_CHECKS is on or off.");
+}
+
 export function computerUseRunsFromEnvironment(db: DatabaseSync, env: NodeJS.ProcessEnv, options: ComputerUseOptions = {}): ComputerUseRuns {
   const store = new ComputerUseStore(db);
   const apiKey = env.ANTHROPIC_API_KEY?.trim();
@@ -188,7 +198,8 @@ export function computerUseRunsFromEnvironment(db: DatabaseSync, env: NodeJS.Pro
     if (computersKey && !/^ldc_[!-~]{8,1024}$/.test(computersKey)) throw new Error("LATERDOG_COMPUTERS_KEY does not hold a later.dog computers key (they start with ldc_)");
     const computers = new LaterdogComputers({ api: computersApi(env.LATERDOG_COMPUTERS_URL?.trim() || INTERNAL_COMPUTERS_API), ...(computersKey ? { key: computersKey } : {}) }, fetch);
     const messages = anthropicMessages(apiKey, { url: fixtureMessagesUrl(env.LATERDOG_ANTHROPIC_URL) });
-    return new ComputerUseRuns(store, { messages, desktop: (id) => new CloudDesktop(computers, id), pageCheck: livePageCheck() }, options);
+    const screenChecks = screenChecksSwitch(env.LATERDOG_SCREEN_CHECKS) ? clefScreenChecks((body) => computers.screenCheck(body)) : undefined;
+    return new ComputerUseRuns(store, { messages, desktop: (id) => new CloudDesktop(computers, id), pageCheck: livePageCheck(), ...(screenChecks ? { screenChecks } : {}) }, options);
   } catch (error) {
     return new ComputerUseRuns(store, { unavailable: error instanceof Error ? error.message : String(error) }, options);
   }

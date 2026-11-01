@@ -5,6 +5,7 @@ import {
 import { TAKEOVER_TOOL_NAME, type ContentBlock, type MessagesApi, type MessageTurn } from "./computer-use-anthropic.ts";
 import type { PageCheck } from "./computer-use-done.ts";
 import { frameSize, toFrame, withinToolsetLimits, type Size } from "./computer-use-frame.ts";
+import { isPersonState, type ScreenChecks, type ScreenRead, type ScreenState } from "./computer-use-screen.ts";
 import { isOpenRun, type AskedBy, type ComputerUseRun, type ComputerUseStore, type Handoff, type HandoffCause, type ViewerLink } from "./computer-use-store.ts";
 import { parseTakeoverInput } from "./takeover.ts";
 
@@ -40,23 +41,29 @@ export interface LoopDeps {
   sleep: (ms: number, signal: AbortSignal) => Promise<void>;
   limits: LoopLimits;
   notify?: (notice: TakeoverNotice) => void;
+  screenChecks?: ScreenChecks;
 }
 
 export const SYSTEM_PROMPT = [
   "You are using a Linux desktop (Xfce with Chromium) through the computer tools to do one task for the person. Each screenshot is the whole screen.",
   "When a step needs the person on the screen (a sign-in or code you were not given, a passkey, a CAPTCHA, a payment, or a final yes before anything is sent or bought), first open the exact page and fill in everything you can, then call request_takeover with that one step. Never ask for passwords or codes in your text.",
+  "On a sign-in, verification-code or CAPTCHA screen, ask for the person before you act on it: later.dog checks each screenshot, and hands the screen to the person when you act on such a screen without asking.",
   "When you believe the task is finished, stop calling tools and say in one short line what you did. You cannot mark the task done: the person, or a check of the live page, decides that.",
 ].join("\n");
 export const NOT_EXECUTED = "Not executed: an earlier computer action in this turn failed.";
 export const TAKEN_OVER = "Not executed: the person took over the screen. Take a fresh screenshot before you go on.";
 export const AFTER_HANDBACK = "Not executed: the screen was handed to the person before this action. Take a fresh screenshot before you go on.";
 export const HANDED_BACK_NOTE = "The person had the screen for a while and has handed it back. Take a fresh screenshot before you go on.";
+export const SCREEN_TAKEN = "Not executed: the screen shows a sign-in, a verification code or a CAPTCHA, so later.dog handed it to the person. Take a fresh screenshot before you go on.";
+const SCREEN_CAUSE: Partial<Record<ScreenState, HandoffCause>> = { login: "sign-in", two_factor: "sign-in", captcha: "captcha" };
 
 export class RunControl {
   readonly #abort = new AbortController();
   #held = false;
   #returned = false;
   #waiters: Array<() => void> = [];
+  #screen: ScreenRead | null = null;
+  #handled: ScreenState | null = null;
 
   get signal(): AbortSignal {
     return this.#abort.signal;
@@ -79,6 +86,24 @@ export class RunControl {
   end(): void {
     this.#abort.abort(new Error("The person ended this run."));
     this.#wake();
+  }
+
+  noteScreen(read: ScreenRead | null): void {
+    this.#screen = read;
+    if (!isPersonState(read)) this.#handled = null;
+  }
+
+  get screen(): ScreenRead | null {
+    return this.#screen;
+  }
+
+  screenNeedsPerson(): ScreenRead | null {
+    const read = this.#screen;
+    return isPersonState(read) && read.screen !== this.#handled ? read : null;
+  }
+
+  markHandled(): void {
+    if (isPersonState(this.#screen)) this.#handled = this.#screen.screen;
   }
 
   takeReturn(): boolean {
@@ -104,10 +129,11 @@ async function viewerLink(desktop: UseDesktop, signal: AbortSignal): Promise<Vie
   try { return await desktop.viewer(signal); } catch { return null; }
 }
 
-export async function handOverScreen(runId: string, ask: { cause: HandoffCause; askedBy: AskedBy; note: string },
+export async function handOverScreen(runId: string, ask: { cause: HandoffCause; askedBy: AskedBy; note: string; probability?: number },
   deps: Pick<LoopDeps, "store" | "desktop" | "control" | "notify">): Promise<Handoff> {
-  const run = deps.store.handOver(runId, ask.cause, ask.askedBy, ask.note);
+  const run = deps.store.handOver(runId, ask.cause, ask.askedBy, ask.note, ask.probability ?? null);
   deps.control.hold();
+  deps.control.markHandled();
   let handoff = deps.store.openHandoff(runId)!;
   const link = await viewerLink(deps.desktop, deps.control.signal);
   if (link) handoff = deps.store.attachViewer(runId, handoff.number, link) ?? handoff;
@@ -154,6 +180,12 @@ interface Acted {
 }
 
 const nothingActed = (): Acted => ({ results: [], actions: [], shot: null, heldMs: 0 });
+const ACTING: ReadonlySet<ComputerAction["kind"]> = new Set(["click", "drag", "mouse_down", "mouse_up", "scroll", "type", "key", "hold_key"]);
+
+async function observe(frame: Buffer, deps: LoopDeps): Promise<void> {
+  if (!deps.screenChecks) return;
+  deps.control.noteScreen(await deps.screenChecks.state(frame, deps.control.signal));
+}
 
 async function act(uses: ToolUse[], turn: Turn, acted: Acted): Promise<void> {
   const { deps, frame, screen } = turn;
@@ -184,10 +216,19 @@ async function act(uses: ToolUse[], turn: Turn, acted: Acted): Promise<void> {
     }
     const parsed = parseAction(use.name, use.input, frame);
     if ("problem" in parsed) { failed = true; answer([text(parsed.problem)], true); continue; }
+    const person = ACTING.has(parsed.action.kind) ? control.screenNeedsPerson() : null;
+    if (person) {
+      await handOverScreen(turn.runId, { cause: SCREEN_CAUSE[person.screen] ?? "other", askedBy: "screen_check", probability: person.probability,
+        note: `The screen check saw ${person.screen.replace("_", " ")} (${person.probability}) and Claude went on without asking for the person.` }, deps);
+      blocked = TAKEN_OVER;
+      answer([text(SCREEN_TAKEN)], true);
+      continue;
+    }
     try {
       const action = parsed.action;
       if (action.kind === "screenshot") {
         acted.shot = await desktop.screenshot(frame, screen, signal);
+        await observe(acted.shot, deps);
         answer([image(acted.shot)]);
       } else if (action.kind === "wait") {
         await deps.sleep(action.seconds * 1000, signal);
@@ -228,8 +269,10 @@ export async function runComputerUse(runId: string, deps: LoopDeps): Promise<Com
     const frame = frameSize(screen);
     if (!withinToolsetLimits(frame)) throw new Error(`A ${frame.width}x${frame.height} screenshot is over the computer tool's image limits.`);
     const first = await deps.desktop.screenshot(frame, screen, control.signal);
+    await observe(first, deps);
     const messages: MessageTurn[] = [{ role: "user", content: [text(`Task: ${run.task}`), image(first)] }];
     let seen = screenshotSha256(first);
+    let seenRead = control.screen;
     let workingMs = 0;
     for (let step = 1; ; step++) {
       await control.ready();
@@ -250,10 +293,11 @@ export async function runComputerUse(runId: string, deps: LoopDeps): Promise<Com
         if (uses.length) await act(uses, { runId, frame, screen, deps }, acted);
       } finally {
         actionMs = Math.max(0, deps.clock() - started - acted.heldMs);
-        store.step(runId, { step, actions: acted.actions, screenshotSha256: seen, modelMs, actionMs, ...reply.usage });
+        store.step(runId, { step, actions: acted.actions, screenshotSha256: seen, modelMs, actionMs, ...reply.usage,
+          screenState: seenRead?.screen ?? null, screenProbability: seenRead?.probability ?? null });
       }
       workingMs += modelMs + actionMs;
-      if (acted.shot) seen = screenshotSha256(acted.shot);
+      if (acted.shot) { seen = screenshotSha256(acted.shot); seenRead = control.screen; }
       if (reply.stopReason === "refusal") return store.finish(runId, { failed: "refusal", detail: "Claude declined this task." });
       if (reply.stopReason === "end_turn") return await settle(run, replyText(reply.content), deps);
       if (reply.stopReason !== "tool_use" || !uses.length) throw new Error(`Claude's turn stopped with ${reply.stopReason ?? "no reason"}.`);

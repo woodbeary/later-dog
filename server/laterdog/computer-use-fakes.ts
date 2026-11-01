@@ -4,6 +4,7 @@ import type { PageCheck, PageCheckResult } from "./computer-use-done.ts";
 import type { Size } from "./computer-use-frame.ts";
 import { RunControl, type DesktopAction, type UseDesktop } from "./computer-use-loop.ts";
 import { ComputerUseStore, type ViewerLink } from "./computer-use-store.ts";
+import type { ScreenChecks, ScreenRead } from "./computer-use-screen.ts";
 
 export const FIXTURE_USAGE: TokenUsage = { inputTokens: 1_400, outputTokens: 90, cacheReadTokens: 1_200, cacheWriteTokens: 0 };
 export const MODEL_MS = 800;
@@ -122,5 +123,34 @@ export class WatchedControl extends RunControl {
       for (const resolve of waiting) resolve();
     }
     return super.ready();
+  }
+}
+
+export class ScriptedScreenChecks implements ScreenChecks {
+  readonly looked: string[] = [];
+  readonly asked: Array<{ question: "irreversible" | "confirmed"; action: string }> = [];
+  readonly #states: (frame: string) => ScreenRead | null;
+  readonly #irreversible: (action: string) => number | null;
+  readonly #confirmed: (action: string) => number | null;
+
+  constructor(options: { states?: (frame: string) => ScreenRead | null; irreversible?: (action: string) => number | null; confirmed?: (action: string) => number | null } = {}) {
+    this.#states = options.states ?? (() => ({ screen: "ready", probability: 0.97 }));
+    this.#irreversible = options.irreversible ?? (() => 0.02);
+    this.#confirmed = options.confirmed ?? (() => 0.95);
+  }
+
+  async state(frame: Buffer): Promise<ScreenRead | null> {
+    this.looked.push(frame.toString());
+    return this.#states(frame.toString());
+  }
+
+  async irreversible(_crop: Buffer, action: string): Promise<number | null> {
+    this.asked.push({ question: "irreversible", action });
+    return this.#irreversible(action);
+  }
+
+  async confirmed(_frame: Buffer, action: string): Promise<number | null> {
+    this.asked.push({ question: "confirmed", action });
+    return this.#confirmed(action);
   }
 }

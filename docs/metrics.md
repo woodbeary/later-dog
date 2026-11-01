@@ -18,8 +18,9 @@ runs each SQL block on this page against fixture runs, so a query here that stop
 - **Settled**: done, failed or abandoned. Runs still going are left out until they settle.
 - **Success rate**: done runs ÷ settled runs.
 - **Take-over**: a row in `computer_use_handoffs`, with its cause (`sign-in`, `captcha`, `payment`, `other`, or `person`
-  when the person took the screen unasked) and who asked. A run with a take-over counts as done only if it then reached
-  `done`.
+  when the person took the screen unasked) and who asked: `model` (Claude called `request_takeover`), `person`, or
+  `screen_check` (Claude acted on a frame the screen check read as a sign-in, code or CAPTCHA screen; `probability` is
+  the check's own). A run with a take-over counts as done only if it then reached `done`.
 - **Step**: one Messages API call and the actions it asked for. **Step time** is `model_ms + action_ms`: from sending the
   request to the last action finishing, leaving out time the screen was with the person.
 - **Tokens**: the API's own `usage` counts, per step.
@@ -111,3 +112,6 @@ SELECT model, COUNT(*) AS runs FROM computer_use_runs GROUP BY model;
 ## Changes to these definitions
 
 - 2026-10-31: first version.
+- 2026-11-01: a take-over can also be asked by the screen check (`asked_by = screen_check`). Runs record whether they had
+  screen checks (`computer_use_runs.screen_checks`), and steps the screen check's reading of the frame Claude chose from
+  (`screen_state`, `screen_probability`), so runs with and without the check can be compared.
