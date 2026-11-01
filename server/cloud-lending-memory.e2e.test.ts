@@ -83,7 +83,7 @@ async function completedTurn(start: () => Promise<void>) {
   await start();
   const dump = await dumped(dumpOf("done"));
   const text = (value: unknown) => typeof value === "string" ? value : JSON.stringify(value ?? "");
-  return { prompt: text(dump.prompt), system: text(dump.systemPrompt) };
+  return { prompt: text(dump.prompt), told: `${text(dump.systemPrompt)}\n${text(dump.prompt)}` };
 }
 const newBot = async (name: string, instanceId: "held" | "done" | "brief" | "lead" | "aide") =>
   (await api("POST", "/api/bots", { token: owner, body: { name, modelSelection: { instanceId, model: "claude-sonnet-5" } } })).body.bot as { id: string; threadId: string };
@@ -115,7 +115,10 @@ const guestThread = async (bot: { id: string }, title = "Guest's") => {
   return threadId;
 };
 const ws = (bot: { id: string }, ...path: string[]) => join(home, ".laterdog", "workspaces", bot.id, ...path);
-const heldSystem = () => String(JSON.parse(readFileSync(dumpOf("held"), "utf8")).systemPrompt ?? "");
+const heldTold = () => {
+  const dump = JSON.parse(readFileSync(dumpOf("held"), "utf8"));
+  return `${String(dump.systemPrompt ?? "")}\n${JSON.stringify(dump.prompt ?? "")}`;
+};
 const local = (method: string, path: string, body?: unknown) => fetch(`${base}${path}`, {
   method, ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
 });
@@ -270,7 +273,7 @@ it("a turn in a conversation a guest left behind cannot write a bot's memory wit
   const bot = await newBot("Notes", "held");
   const guests = await guestThread(bot);
   const guestTools = await toolsFor(() => say(owner, bot, "Remember this.", guests));
-  expect(heldSystem()).toContain(READ_ONLY);
+  expect(heldTold()).toContain(READ_ONLY);
   for (const [name, args] of [["memory_update", { action: "append", text: INJECTED }], ["memory_log", { text: INJECTED }]] as const) {
     const refused = await guestTools(name, args);
     expect(refused.isError, name).toBe(true);
@@ -279,7 +282,7 @@ it("a turn in a conversation a guest left behind cannot write a bot's memory wit
   expect(await memoryText(bot)).not.toContain(INJECTED);
   await stop(bot, guests);
   const ownerTools = await toolsFor(async () => say(owner, bot, "Remember that I like figs.", await newThread(bot)));
-  expect(heldSystem()).not.toContain(READ_ONLY);
+  expect(heldTold()).not.toContain(READ_ONLY);
   expect((await ownerTools("memory_update", { action: "append", text: "The owner likes figs." })).isError).toBeFalsy();
   expect(await memoryText(bot)).toContain("The owner likes figs.");
   expect((await sees(ownerTools)).computers).toHaveLength(1);
@@ -314,7 +317,7 @@ it("a room only the owner writes in is theirs: its dogs may use the Mac and writ
   const ownRoom = await newRoom("Standup");
   const guestsRoom = await newRoom("Guest's standup");
   const ownTools = await post(ownRoom, "Everyone: note today's plan.");
-  expect(heldSystem()).not.toContain(READ_ONLY);
+  expect(heldTold()).not.toContain(READ_ONLY);
   expect((await sees(ownTools)).computers).toHaveLength(1);
   expect(JSON.parse((await reads(ownTools)).content[0].text).content).toBe("from the Mac");
   expect((await ownTools("memory_update", { action: "append", text: "Standup is at nine." })).isError).toBeFalsy();
@@ -322,7 +325,7 @@ it("a room only the owner writes in is theirs: its dogs may use the Mac and writ
   await interrupt(ownRoom);
   await leftBehind({ threadIds: [guestsRoom.threadId] });
   const guestTools = await post(guestsRoom, "Everyone: note today's plan.");
-  expect(heldSystem()).toContain(READ_ONLY);
+  expect(heldTold()).toContain(READ_ONLY);
   expect((await sees(guestTools)).unavailable).toContain("Someone else wrote in this conversation");
   const refused = await guestTools("memory_update", { action: "append", text: INJECTED });
   expect(refused.isError).toBe(true);
@@ -342,7 +345,7 @@ it("work the owner's dog hands to a teammate in a room is the owner's: the teamm
     const sent = await leadTools("coordinate_bots", { bot_ids: [aide.id], group_id: room.id, message: "Check the plan." });
     expect(sent.isError, JSON.stringify(sent)).toBeFalsy();
   });
-  expect(heldSystem()).not.toContain(READ_ONLY);
+  expect(heldTold()).not.toContain(READ_ONLY);
   expect((await sees(aideTools)).computers).toHaveLength(1);
   expect(JSON.parse((await reads(aideTools)).content[0].text).content).toBe("from the Mac");
   await stop(lead, mine);
@@ -365,7 +368,7 @@ it("results that come back after the owner wrote again resume as the owner's own
   await release("lead", lead, mine);
   const resumed = await toolsFor(async () => writeFileSync(releaseOf("aide"), ""));
   rmSync(releaseOf("aide"));
-  expect(heldSystem()).not.toContain(READ_ONLY);
+  expect(heldTold()).not.toContain(READ_ONLY);
   expect((await sees(resumed)).computers).toHaveLength(1);
   expect(JSON.parse((await reads(resumed)).content[0].text).content).toBe("from the Mac");
   await stop(lead, mine);
@@ -382,8 +385,8 @@ it("recall and the recent-work brief never bring a conversation a guest left beh
   const asked = await completedTurn(async () => say(owner, recaller, "What is the kumquat protocol?", await newThread(recaller)));
   expect(asked.prompt).toContain("lunch at noon");
   expect(asked.prompt).not.toContain("quote plan.md");
-  expect(asked.system).toContain("OWNER-SAID-fig");
-  expect(asked.system).not.toContain("GUEST-SAID-kiwi");
+  expect(asked.told).toContain("OWNER-SAID-fig");
+  expect(asked.told).not.toContain("GUEST-SAID-kiwi");
   expect(asked.prompt).not.toContain("GUEST-SAID-kiwi");
 }, 90_000);
 
@@ -409,9 +412,8 @@ it("what a link planted in a bot's memory points at never reaches a turn", async
   symlinkSync(notes, ws(bot, "MEMORY.md"));
   await stop(bot, guests);
   await toolsFor(async () => say(owner, bot, "Read plan.md from my Mac.", await newThread(bot)));
-  const systemPrompt = JSON.stringify(JSON.parse(readFileSync(dumpOf("held"), "utf8")).systemPrompt ?? "");
-  expect(systemPrompt).toContain("You are Linked");
-  expect(systemPrompt).not.toContain(INJECTED);
+  expect(heldTold()).toContain("You are Linked");
+  expect(heldTold()).not.toContain(INJECTED);
 }, 60_000);
 
 it("a turn that may use the Mac finds only the owner's own conversations with the session tools", async () => {
@@ -446,7 +448,7 @@ it("a conversation a guest left behind is never the owner's, whoever writes in i
   await completedTurn(() => say(owner, bot, "I like my answers short.", named));
   await settled(named);
   const next = await completedTurn(async () => say(owner, bot, "What's next?", await newThread(bot)));
-  expect(next.system).not.toContain("setup.sh");
+  expect(next.told).not.toContain("setup.sh");
   await expect.poll(() => memoryText(bot), { timeout: 20_000 }).toContain(INJECTED);
   expect(await memoryText(bot)).not.toContain("setup.sh");
 }, 90_000);
@@ -474,7 +476,7 @@ it("what the owner wrote stays the owner's when a device of theirs is paired aga
   const theirs = await newThread(bot, second, "SECOND-DEVICE-THREAD");
   await completedTurn(() => say(second, bot, "Plan the week.", theirs));
   await settled(theirs);
-  const brief = async () => (await completedTurn(async () => say(owner, bot, "What's next?", await newThread(bot)))).system;
+  const brief = async () => (await completedTurn(async () => say(owner, bot, "What's next?", await newThread(bot)))).told;
   expect(await brief()).toContain("SECOND-DEVICE-THREAD");
   const id = (await api("GET", "/api/auth/session", { token: second })).body.id as string;
   expect((await api("DELETE", `/api/auth/sessions/${id}`, { token: owner })).status).toBe(200);

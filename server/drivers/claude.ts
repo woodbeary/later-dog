@@ -827,11 +827,16 @@ type ClaudeUserMessage = {
   message: { role: "user"; content: string | ClaudeUserContent[] };
 };
 
-function withVolatileNote(text: string, volatile: string): string {
+export function claudeVolatileNote(volatile: string, seen: string | null, redeliver = false): string {
+  if (seen === volatile && !redeliver) return "";
   const body = volatile.trim()
-    ? `This part of your instructions changed since this session started. It replaces the earlier copy:\n\n${volatile.trim()}`
-    : "The notes that were in your instructions when this session started have been cleared.";
-  const note = `<system-reminder>\n${body}\n</system-reminder>`;
+    ? `This part of your instructions lives here rather than in the system prompt, so it can change without rewriting the conversation. It replaces any earlier copy:\n\n${volatile.trim()}`
+    : seen?.trim() ? "The notes that were in your instructions earlier in this session have been cleared." : "";
+  return body ? `<system-reminder>\n${body}\n</system-reminder>` : "";
+}
+
+function withVolatileNote(text: string, note: string): string {
+  if (!note) return text;
   return text ? `${note}\n\n${text}` : note;
 }
 
@@ -953,7 +958,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       systemPromptPath: string | null;
       argsKey: string;
       argsParts: Record<string, string>;
-      volatile: string;
+      volatile: string | null;
       sessionId: string | null;
       sawInit: boolean;
       nativePermissionMode: string | null;
@@ -988,6 +993,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       closed: Promise<void>;
     }
     const sessions = new Map<string, Session>();
+    const deliveredVolatile = new Map<string, { sessionId: string | null; volatile: string | null }>();
+    const rememberVolatile = (threadId: string, s: Session) => {
+      deliveredVolatile.set(threadId, { sessionId: s.sessionId, volatile: s.volatile });
+    };
     const SESSION_IDLE_MS = engineIdleLimit("CLAUDE");
 
     const stopSession = (session: Session) => {
@@ -1134,6 +1143,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (turn.effort) args.push("--effort", claudeEffortArg(turn.effort));
 
       let systemPromptPath: string | null = null;
+      const launchVolatile = turn.systemVolatile ?? "";
 
       const mcpServers: Record<string, unknown> = {};
       const allowed: string[] = [];
@@ -1259,10 +1269,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         }, turnId, broker: live.broker });
         emit({ ...base(threadId, turnId), type: "turn.started" });
         const volatile = turn.systemVolatile ?? "";
-        const message = volatile === live.volatile && !turn.mentionTurn
-          ? promptMsg
-          : claudeUserMessage(withVolatileNote(turn.text, volatile), turn.images);
+        const note = claudeVolatileNote(volatile, live.volatile, turn.mentionTurn);
+        const message = note ? claudeUserMessage(withVolatileNote(turn.text, note), turn.images) : promptMsg;
         live.volatile = volatile;
+        rememberVolatile(threadId, live);
         const running = live.turn;
         if (!(await writeUser(live, threadId, message)) && !running?.stopRequested) closeSession(threadId, "stdin write failed");
         if (mcpConfigPath) {
@@ -1294,9 +1304,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       };
 
       try {
-        if (turn.system) {
+        const launchSystem = turn.systemStable ?? turn.system;
+        if (launchSystem) {
           systemPromptPath = join(mkdtempSync(join(tmpdir(), "laterdog-system-")), "prompt.txt");
-          writeFileSync(systemPromptPath, turn.system, { mode: 0o600 });
+          writeFileSync(systemPromptPath, launchSystem, { mode: 0o600 });
           args.push("--append-system-prompt-file", systemPromptPath);
         }
         if (socketPath) {
@@ -1393,7 +1404,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         systemPromptPath,
         argsKey,
         argsParts,
-        volatile: turn.systemVolatile ?? "",
+        volatile: launchVolatile,
         sessionId: sessionId ?? newSessionId,
         sawInit: false,
         nativePermissionMode: null,
@@ -1543,7 +1554,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               session.sawInit = true;
               if (session.turn) session.turn.awaitingInit = false;
               session.nativePermissionMode = typeof o.permissionMode === "string" ? o.permissionMode : null;
-              if (typeof o.session_id === "string") session.sessionId = o.session_id;
+              if (typeof o.session_id === "string") {
+                session.sessionId = o.session_id;
+                rememberVolatile(threadId, session);
+              }
               const held = session.turn;
               if (held?.continuationGrace) {
                 clearTimeout(held.continuationGrace);
@@ -1567,6 +1581,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               emit({ ...base(threadId, currentTurnId()), type: "item.updated", itemType: "reasoning", tokens: o.estimated_tokens });
             } else {
               const compaction = claudeCompactionEvent(o);
+              if (compaction?.type === "session.compacted" && compaction.ok && !compaction.skipped) {
+                session.volatile = null;
+                rememberVolatile(threadId, session);
+              }
               if (compaction) emit({ ...base(threadId, currentTurnId()), ...compaction });
             }
             break;
@@ -1970,10 +1988,13 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       active.set(threadId, { stop, turnId, broker });
       emit({ ...base(threadId, turnId), type: "turn.started" });
 
-      if (!(await writeUser(session, threadId, promptMsg))) {
+      const remembered = sessionId ? deliveredVolatile.get(threadId) : undefined;
+      const launchNote = turn.systemStable === undefined ? "" : claudeVolatileNote(launchVolatile, remembered?.sessionId === sessionId ? remembered.volatile : null, turn.mentionTurn);
+      const launchMsg = launchNote ? claudeUserMessage(withVolatileNote(turn.text, launchNote), turn.images) : promptMsg;
+      if (!(await writeUser(session, threadId, launchMsg))) {
         if (!session.turn?.stopRequested) settle(false, "stdin_write_failed");
         closeSession(threadId, "stdin write failed");
-      }
+      } else rememberVolatile(threadId, session);
 
       return { turnId };
     };
