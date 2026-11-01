@@ -207,6 +207,17 @@ describe("computer-use runs on the supervisor", () => {
     expect((await f.admin("POST", `/computer-runs/${id}/secure-form`, { formId, cancel: true })).status).toBe(409);
   });
 
+  it("lets the person label a step's failure class, and not a dog", async () => {
+    const f = await fixture(engineWith([reply([toolUse("toolu_1", "left_click", { coordinate: [640, 400] })]), finished("Sent the request.")]));
+    const id = (await f.admin("POST", "/computer-runs", START)).body.run.id as string;
+    await f.runs.finished(id);
+    expect((await f.admin("POST", `/computer-runs/${id}/steps/1/failure-class`, { failureClass: "wrong_field" })).body.step).toMatchObject({ step: 1, failureClass: "wrong_field" });
+    expect((await f.admin("POST", `/computer-runs/${id}/steps/1/failure-class`, { failureClass: "cosmic_rays" })).status).toBe(400);
+    expect((await f.admin("POST", `/computer-runs/${id}/steps/9/failure-class`, { failureClass: null })).status).toBe(404);
+    expect((await f.dog("POST", `/computer-runs/${id}/steps/1/failure-class`, { failureClass: null })).status).toBe(403);
+    expect((await f.admin("GET", `/computer-runs/${id}`)).body.steps[0].failureClass).toBe("wrong_field");
+  });
+
   it("stops a run on request", async () => {
     const first = deferred<MessagesReply>();
     const f = await fixture(engineWith([() => first.promise]));

@@ -31,11 +31,13 @@ export class FakeDesktop implements UseDesktop {
   readonly #size: Size;
   readonly #clock: FakeClock;
   readonly #fail: (action: DesktopAction) => string | null;
+  readonly #picture: (n: number, frame: Size) => string;
 
-  constructor(options: { size?: Size; clock?: FakeClock; fail?: (action: DesktopAction) => string | null } = {}) {
+  constructor(options: { size?: Size; clock?: FakeClock; fail?: (action: DesktopAction) => string | null; picture?: (n: number, frame: Size) => string } = {}) {
     this.#size = options.size ?? { width: 1280, height: 800 };
     this.#clock = options.clock ?? new FakeClock();
     this.#fail = options.fail ?? (() => null);
+    this.#picture = options.picture ?? ((n, frame) => `fixture frame ${n} at ${frame.width}x${frame.height}`);
   }
 
   async screen(): Promise<Size> {
@@ -45,7 +47,7 @@ export class FakeDesktop implements UseDesktop {
   async screenshot(frame: Size): Promise<Buffer> {
     this.frames.push(frame);
     this.#clock.advance(ACTION_MS);
-    return Buffer.from(`fixture frame ${this.frames.length} at ${frame.width}x${frame.height}`);
+    return Buffer.from(this.#picture(this.frames.length, frame));
   }
 
   async viewer(): Promise<ViewerLink> {

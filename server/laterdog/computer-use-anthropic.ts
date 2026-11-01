@@ -12,6 +12,8 @@ export const MAX_OUTPUT_TOKENS = 16_000;
 export const MESSAGES_TIMEOUT_MS = 10 * 60_000;
 export const RETRY_AFTER_MS = 2_000;
 export const TAKEOVER_TOOL_NAME = "request_takeover";
+export const THINKING = { type: "adaptive", display: "summarized" } as const;
+export const THINKING_SUMMARY_CHARS = 4000;
 
 export type ContentBlock = Record<string, unknown> & { type: string };
 export interface MessageTurn {
@@ -36,6 +38,12 @@ export interface MessagesReply {
   stopReason: string | null;
   content: ContentBlock[];
   usage: TokenUsage;
+}
+
+export function thinkingSummary(content: ContentBlock[]): string | null {
+  const summary = content.flatMap((block) => (block.type === "thinking" && typeof block.thinking === "string" ? [block.thinking] : []))
+    .join("\n").trim();
+  return summary ? summary.slice(0, THINKING_SUMMARY_CHARS) : null;
 }
 
 export interface MessagesApi {
@@ -63,6 +71,7 @@ export function messagesBody(request: MessagesRequest): Record<string, unknown> 
     model: COMPUTER_USE_MODEL,
     max_tokens: MAX_OUTPUT_TOKENS,
     output_config: { effort: COMPUTER_USE_EFFORT },
+    thinking: THINKING,
     cache_control: { type: "ephemeral" },
     system: request.system,
     tools: [

@@ -7,7 +7,7 @@ import { CloudDesktop } from "./computer-use-desktop.ts";
 import { doneRuleSchema, livePageCheck, type PageCheck } from "./computer-use-done.ts";
 import { DEFAULT_LIMITS, handOverScreen, RunControl, runComputerUse, type FormNotice, type LoopLimits, type TakeoverNotice, type UseDesktop } from "./computer-use-loop.ts";
 import { RunSecureForms, type RunFormView } from "./computer-use-secure-form.ts";
-import { ComputerUseStore, HANDOFF_CAUSES, type ComputerUseRun, type Handoff, type LoggedStep } from "./computer-use-store.ts";
+import { ComputerUseStore, FAILURE_CLASSES, HANDOFF_CAUSES, type ComputerUseRun, type Handoff, type LoggedStep } from "./computer-use-store.ts";
 import { INTERNAL_COMPUTERS_API, LaterdogComputers, computersApi } from "./laterdog-cloud.ts";
 import { phonePushRequest, type PhonePush } from "./phone-push.ts";
 import type { Notification } from "../notify.ts";
@@ -194,11 +194,20 @@ export class ComputerUseRuns {
 export type RouteAnswer = { status: number; body: unknown } | null;
 const RUNS_PATH = /^\/v1\/computer-runs(?:\/([\w-]+)(?:\/(done|not-done|stop|take-over|hand-back|secure-form))?)?$/;
 const PHONE_PATH = "/v1/computer-runs/phone-push";
+const STEP_PATH = /^\/v1\/computer-runs\/([\w-]+)\/steps\/(\d{1,4})\/failure-class$/;
+const failureClassSchema = z.object({ failureClass: z.enum(FAILURE_CLASSES).nullable() }).strict();
 
 export async function computerUseRoute(runs: ComputerUseRuns | undefined, method: string, pathname: string, body: () => Promise<unknown>): Promise<RouteAnswer> {
+  const stepMatch = STEP_PATH.exec(pathname);
   const match = RUNS_PATH.exec(pathname);
-  if (!match) return null;
+  if (!match && !stepMatch) return null;
   if (!runs) return { status: 409, body: { error: "Computer-use runs are not set up on this supervisor." } };
+  if (stepMatch) {
+    if (method !== "POST") return null;
+    const input = failureClassSchema.parse(await body());
+    return { status: 200, body: { step: runs.store.classify(runId.parse(stepMatch[1]), Number(stepMatch[2]), input.failureClass) } };
+  }
+  if (!match) return null;
   if (pathname === PHONE_PATH) {
     if (!runs.phone) return { status: 409, body: { error: "Phone notifications are not set up on this supervisor." } };
     return phonePushRequest(method, body, runs.phone);

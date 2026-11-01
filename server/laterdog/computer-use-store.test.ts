@@ -96,7 +96,7 @@ describe("steps and restarts", () => {
     store.step(run.id, { step: 1, actions: [{ name: "left_click", coordinate: [1, 2] }], screenshotSha256: "a".repeat(64), modelMs: 812, actionMs: 40,
       inputTokens: 1400, outputTokens: 90, cacheReadTokens: 1200, cacheWriteTokens: 0 });
     expect(store.steps(run.id)).toEqual([{ step: 1, at: expect.any(String), actions: [{ name: "left_click", coordinate: [1, 2] }], screenshotSha256: "a".repeat(64),
-      modelMs: 812, actionMs: 40, inputTokens: 1400, outputTokens: 90, cacheReadTokens: 1200, cacheWriteTokens: 0, screenState: null, screenProbability: null, outcome: null }]);
+      modelMs: 812, actionMs: 40, inputTokens: 1400, outputTokens: 90, cacheReadTokens: 1200, cacheWriteTokens: 0, screenState: null, screenProbability: null, outcome: null, thinking: null, screenUnchanged: null, failureClass: null }]);
   });
 
   it("keeps the screen check's verdict on the frame Claude chose from, and whether the run had screen checks", () => {
@@ -109,6 +109,18 @@ describe("steps and restarts", () => {
     store.handOver(run.id, "sign-in", "screen_check", "The screen check saw two factor (0.88)", 0.88);
     expect(store.openHandoff(run.id)).toMatchObject({ askedBy: "screen_check", probability: 0.88 });
     expect(begin().run.screenChecks).toBe(false);
+  });
+
+  it("lets the daily review label a step's failure class, and marks a step whose action changed nothing", () => {
+    const { store, run } = begin();
+    store.step(run.id, { step: 1, actions: [{ name: "left_click", coordinate: [1, 2] }], screenshotSha256: "a".repeat(64), modelMs: 1, actionMs: 1,
+      inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, thinking: "Click the Send button." });
+    store.screenAfter(run.id, 1, true);
+    store.screenAfter(run.id, 1, false);
+    expect(store.classify(run.id, 1, "missed_click")).toMatchObject({ step: 1, failureClass: "missed_click", screenUnchanged: true, thinking: "Click the Send button." });
+    expect(store.classify(run.id, 1, null).failureClass).toBeNull();
+    expect(() => store.classify(run.id, 2, "gave_up")).toThrow("no such step");
+    expect(() => store.classify(run.id, 1, "bad_luck" as never)).toThrow(/stale_screenshot, missed_click/);
   });
 
   it("keeps a run with an unknown submit open for the person, through a restart", () => {

@@ -14,16 +14,17 @@ import {
 
 const PERSON_ONLY: DoneRule = { pageCheck: null };
 const WITH_PAGE: DoneRule = { pageCheck: { url: "https://clinic.example/requests/42", contains: "Request received" } };
-const UNCHECKED = { screenState: null, screenProbability: null, outcome: null };
+const UNCHECKED = { screenState: null, screenProbability: null, outcome: null, thinking: null, failureClass: null };
 const SIGN_IN = { screen: "login" as const, probability: 0.93 };
 const PASSES = { passed: true, detail: "HTTP 200; the page shows the expected text." };
 const FAILS = { passed: false, detail: "HTTP 200; the expected text is not on the page." };
 
 function setup(replies: ScriptedReply[], options: { done?: DoneRule; pageCheck?: PageCheck; size?: { width: number; height: number };
-  fail?: (action: DesktopAction) => string | null; limits?: LoopLimits; model?: string; screenChecks?: ScriptedScreenChecks; forms?: RunSecureForms } = {}) {
+  fail?: (action: DesktopAction) => string | null; limits?: LoopLimits; model?: string; screenChecks?: ScriptedScreenChecks; forms?: RunSecureForms;
+  picture?: (n: number) => string } = {}) {
   const clock = new FakeClock();
   const store = memoryStore();
-  const desktop = new FakeDesktop({ clock, size: options.size, fail: options.fail });
+  const desktop = new FakeDesktop({ clock, size: options.size, fail: options.fail, ...(options.picture ? { picture: options.picture } : {}) });
   const messages = new ScriptedMessages(replies, { clock, model: options.model });
   const control = new WatchedControl();
   const pageCheck = options.pageCheck ?? fixedPageCheck(PASSES);
@@ -82,11 +83,37 @@ describe("every step is logged", () => {
     const second = screenshotSha256(Buffer.from("fixture frame 2 at 1280x800"));
     expect(store.steps(run.id)).toEqual([
       { step: 1, at: expect.any(String), actions: [{ name: "left_click", coordinate: [640, 400] }, { name: "type", text: "12 characters" }],
-        screenshotSha256: first, modelMs: MODEL_MS, actionMs: 2 * ACTION_MS, ...FIXTURE_USAGE, ...UNCHECKED },
-      { step: 2, at: expect.any(String), actions: [{ name: "screenshot" }], screenshotSha256: first, modelMs: MODEL_MS, actionMs: ACTION_MS, ...FIXTURE_USAGE, ...UNCHECKED },
-      { step: 3, at: expect.any(String), actions: [], screenshotSha256: second, modelMs: MODEL_MS, actionMs: 0, ...FIXTURE_USAGE, ...UNCHECKED },
+        screenshotSha256: first, modelMs: MODEL_MS, actionMs: 2 * ACTION_MS, ...FIXTURE_USAGE, ...UNCHECKED, screenUnchanged: false },
+      { step: 2, at: expect.any(String), actions: [{ name: "screenshot" }], screenshotSha256: first, modelMs: MODEL_MS, actionMs: ACTION_MS, ...FIXTURE_USAGE, ...UNCHECKED, screenUnchanged: null },
+      { step: 3, at: expect.any(String), actions: [], screenshotSha256: second, modelMs: MODEL_MS, actionMs: 0, ...FIXTURE_USAGE, ...UNCHECKED, screenUnchanged: null },
     ]);
     expect(desktop.acted).toEqual([{ kind: "click", button: "left", count: 1, at: [640, 400], modifiers: [] }, { kind: "type", text: "Tuesday 10am" }]);
+  });
+});
+
+describe("what each step keeps for a failure review", () => {
+  it("keeps Claude's summarized thinking for the step", async () => {
+    const { go, store, run } = setup([
+      reply([{ type: "thinking", thinking: "The request form is open; I will pick Tuesday.", signature: "fixture" }, toolUse("toolu_1", "key", { text: "Tab" })]),
+      reply([{ type: "thinking", thinking: "", signature: "fixture" }, { type: "redacted_thinking", data: "fixture" }, { type: "text", text: "Done." }], "end_turn"),
+    ]);
+    await go();
+    expect(store.steps(run.id).map((step) => step.thinking)).toEqual(["The request form is open; I will pick Tuesday.", null]);
+  });
+
+  it("flags an action after which the next screenshot did not change, in the same step or a later one", async () => {
+    const still = setup([
+      reply([toolUse("toolu_1", "left_click", { coordinate: [10, 10] }), toolUse("toolu_2", "screenshot")]),
+      reply([toolUse("toolu_3", "type", { text: "x" })]),
+      reply([toolUse("toolu_4", "wait", { duration: 1 })]),
+      reply([toolUse("toolu_5", "screenshot")]),
+      finished("Done."),
+    ], { picture: () => "the same frame every time" });
+    await still.go();
+    expect(still.store.steps(still.run.id).map((step) => step.screenUnchanged)).toEqual([true, true, null, null, null]);
+    const moving = setup([reply([toolUse("toolu_1", "left_click", { coordinate: [10, 10] }), toolUse("toolu_2", "screenshot")]), finished("Done.")]);
+    await moving.go();
+    expect(moving.store.steps(moving.run.id).map((step) => step.screenUnchanged)).toEqual([false, null]);
   });
 });
 

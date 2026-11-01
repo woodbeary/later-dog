@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import {
   cursorFromXdotool, describeAction, onScreen, parseAction, TOOLSET_NAME, type ComputerAction,
 } from "./computer-use-actions.ts";
-import { TAKEOVER_TOOL_NAME, type ContentBlock, type MessagesApi, type MessageTurn } from "./computer-use-anthropic.ts";
+import { TAKEOVER_TOOL_NAME, thinkingSummary, type ContentBlock, type MessagesApi, type MessageTurn } from "./computer-use-anthropic.ts";
 import type { PageCheck } from "./computer-use-done.ts";
 import { frameSize, toFrame, toScreen, withinToolsetLimits, type Point, type Size } from "./computer-use-frame.ts";
 import { CONFIRM_LOOKS_MS, cropBox, guardedWords, isGuarded, type GuardedAction } from "./computer-use-guard.ts";
@@ -220,9 +220,11 @@ function replyText(content: ContentBlock[]): string {
 
 interface Turn {
   runId: string;
+  step: number;
   frame: Size;
   screen: Size;
   latest: Buffer;
+  changes: { pending: { step: number; from: string } | null };
   deps: LoopDeps;
 }
 
@@ -232,6 +234,7 @@ interface Acted {
   shot: Buffer | null;
   heldMs: number;
   outcome: StepOutcome | null;
+  unchanged: boolean | null;
 }
 
 function loggedAction(use: ToolUse): Record<string, unknown> {
@@ -278,7 +281,20 @@ async function fillField(use: ToolUse, turn: Turn, logged: Record<string, unknow
   return filled;
 }
 
-const nothingActed = (): Acted => ({ results: [], actions: [], shot: null, heldMs: 0, outcome: null });
+const nothingActed = (): Acted => ({ results: [], actions: [], shot: null, heldMs: 0, outcome: null, unchanged: null });
+
+function markActed(turn: Turn): void {
+  turn.changes.pending ??= { step: turn.step, from: screenshotSha256(turn.latest) };
+}
+
+function markLooked(turn: Turn, shot: Buffer, done: Acted): void {
+  const pending = turn.changes.pending;
+  if (!pending) return;
+  turn.changes.pending = null;
+  const unchanged = screenshotSha256(shot) === pending.from;
+  if (pending.step === turn.step) done.unchanged = (done.unchanged ?? false) || unchanged;
+  else turn.deps.store.screenAfter(turn.runId, pending.step, unchanged);
+}
 
 async function pointer(turn: Turn, action: GuardedAction): Promise<Point | null> {
   if (action.kind !== "click") return null;
@@ -316,7 +332,7 @@ async function observe(frame: Buffer, deps: LoopDeps): Promise<void> {
   deps.control.noteScreen(await deps.screenChecks.state(frame, deps.control.signal));
 }
 
-async function act(uses: ToolUse[], turn: Turn, acted: Acted): Promise<void> {
+async function act(uses: ToolUse[], turn: Turn, done: Acted): Promise<void> {
   const { deps, frame, screen } = turn;
   const { control, desktop } = deps;
   const signal = control.signal;
@@ -325,17 +341,18 @@ async function act(uses: ToolUse[], turn: Turn, acted: Acted): Promise<void> {
   for (const use of uses) {
     signal.throwIfAborted();
     const logged = loggedAction(use);
-    acted.actions.push(logged);
-    const answer = (content: ContentBlock[], isError = false) => acted.results.push({
+    done.actions.push(logged);
+    const answer = (content: ContentBlock[], isError = false) => done.results.push({
       type: "tool_result", tool_use_id: use.id, ...(use.toolset ? { toolset_name: TOOLSET_NAME } : {}), content, ...(isError ? { is_error: true } : {}),
     });
     if (blocked) { answer([text(blocked)], true); continue; }
     if (failed) { answer([text(NOT_EXECUTED)], true); continue; }
     if (control.held) { blocked = TAKEN_OVER; answer([text(blocked)], true); continue; }
     if (!use.toolset && deps.forms && (use.name === REQUEST_FORM_TOOL_NAME || use.name === FILL_FIELD_TOOL_NAME)) {
-      const done = use.name === REQUEST_FORM_TOOL_NAME ? await askForm(use, turn, acted, logged) : await fillField(use, turn, logged);
-      if (!done.ok) failed = true;
-      answer([text(done.text)], !done.ok);
+      const answered = use.name === REQUEST_FORM_TOOL_NAME ? await askForm(use, turn, done, logged) : await fillField(use, turn, logged);
+      if (!answered.ok) failed = true;
+      else if (use.name === FILL_FIELD_TOOL_NAME) markActed(turn);
+      answer([text(answered.text)], !answered.ok);
       continue;
     }
     if (!use.toolset) {
@@ -344,7 +361,7 @@ async function act(uses: ToolUse[], turn: Turn, acted: Acted): Promise<void> {
       const from = deps.clock();
       await handOverScreen(turn.runId, { cause: asked.reason, askedBy: "model", note: asked.step }, deps);
       await control.ready();
-      acted.heldMs += deps.clock() - from;
+      done.heldMs += deps.clock() - from;
       control.takeReturn();
       answer([text(`The person handed the screen back after ${JSON.stringify(asked.step)}. Take a fresh screenshot to see where things stand, then carry on.`)]);
       blocked = AFTER_HANDBACK;
@@ -370,11 +387,11 @@ async function act(uses: ToolUse[], turn: Turn, acted: Acted): Promise<void> {
         await handOverScreen(turn.runId, { cause: "confirm", askedBy: "guard", ...(yes === null ? {} : { probability: yes }),
           note: yes === null ? `Claude wants to ${words}; the guard could not check it, so the person decides.` : `Claude wants to ${words}; it looks like it submits, pays, publishes, cancels or deletes something.` }, deps);
         await control.ready();
-        acted.heldMs += deps.clock() - from;
+        done.heldMs += deps.clock() - from;
         control.takeReturn();
         if (!control.takeApproval()) { blocked = AFTER_HANDBACK; answer([text(NOT_APPROVED)], true); continue; }
-        if (await wentThrough(action, words, turn)) { answer([text("OK")]); continue; }
-        acted.outcome = "submission_unknown";
+        if (await wentThrough(action, words, turn)) { markActed(turn); answer([text("OK")]); continue; }
+        done.outcome = "submission_unknown";
         control.openUnknown();
         failed = true;
         answer([text(SUBMISSION_UNKNOWN)], true);
@@ -384,15 +401,18 @@ async function act(uses: ToolUse[], turn: Turn, acted: Acted): Promise<void> {
     try {
       const action = parsed.action;
       if (action.kind === "screenshot") {
-        acted.shot = await desktop.screenshot(frame, screen, signal);
-        turn.latest = acted.shot;
-        await observe(acted.shot, deps);
-        answer([image(acted.shot)]);
+        const shot = await desktop.screenshot(frame, screen, signal);
+        done.shot = shot;
+        markLooked(turn, shot, done);
+        turn.latest = shot;
+        await observe(shot, deps);
+        answer([image(shot)]);
       } else if (action.kind === "wait") {
         await deps.sleep(action.seconds * 1000, signal);
         answer([text("OK")]);
       } else {
         const output = await desktop.act(onScreen(action, frame, screen) as DesktopAction, signal);
+        if (ACTING.has(action.kind)) markActed(turn);
         if (action.kind !== "cursor_position") answer([text("OK")]);
         else {
           const at = cursorFromXdotool(output);
@@ -440,6 +460,7 @@ export async function runComputerUse(runId: string, deps: LoopDeps): Promise<Com
     let seen = screenshotSha256(first);
     let seenRead = control.screen;
     let latest = first;
+    const changes: Turn["changes"] = { pending: null };
     let workingMs = 0;
     for (let step = 1; ; step++) {
       await control.ready();
@@ -457,11 +478,12 @@ export async function runComputerUse(runId: string, deps: LoopDeps): Promise<Com
         control.signal.throwIfAborted();
         if (!sameModel(run.model, reply.model)) throw new Error(`Claude's API answered with ${reply.model}, not the pinned ${run.model}.`);
         messages.push({ role: "assistant", content: reply.content });
-        if (uses.length) await act(uses, { runId, frame, screen, latest, deps }, acted);
+        if (uses.length) await act(uses, { runId, step, frame, screen, latest, changes, deps }, acted);
       } finally {
         actionMs = Math.max(0, deps.clock() - started - acted.heldMs);
         store.step(runId, { step, actions: acted.actions, screenshotSha256: seen, modelMs, actionMs, ...reply.usage,
-          screenState: seenRead?.screen ?? null, screenProbability: seenRead?.probability ?? null, outcome: acted.outcome });
+          screenState: seenRead?.screen ?? null, screenProbability: seenRead?.probability ?? null, outcome: acted.outcome,
+          thinking: thinkingSummary(reply.content), screenUnchanged: acted.unchanged });
       }
       workingMs += modelMs + actionMs;
       if (acted.shot) { seen = screenshotSha256(acted.shot); seenRead = control.screen; latest = acted.shot; }

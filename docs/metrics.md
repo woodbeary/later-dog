@@ -29,6 +29,12 @@ runs each SQL block on this page against fixture runs, so a query here that stop
 - **Step**: one Messages API call and the actions it asked for. **Step time** is `model_ms + action_ms`: from sending the
   request to the last action finishing, leaving out time the screen was with the person.
 - **Tokens**: the API's own `usage` counts, per step.
+- **No visible effect**: an action (a click, drag, scroll, typing, key, or a typed Secure Form value) after which the next
+  screenshot has the same SHA-256 as the frame before it (`computer_use_steps.screen_unchanged = 1`, kept on the step of
+  the first such action since the last screenshot). A step with no screenshot after its action is left out.
+- **Failure class**: what went wrong at a step, set by the person's review, never by the loop: `stale_screenshot`,
+  `missed_click`, `wrong_field`, `page_not_settled`, `gave_up` or `environment`. Each step also keeps Claude's summarized
+  thinking (`thinking`) to review it by.
 
 ## Success rate by week
 
@@ -93,6 +99,28 @@ JOIN computer_use_runs r ON r.id = s.run_id
 WHERE s.outcome = 'submission_unknown';
 ```
 
+## Failure classes
+
+Steps by the failure class the review gave them:
+
+```sql
+SELECT failure_class, COUNT(*) AS steps
+FROM computer_use_steps
+WHERE failure_class IS NOT NULL
+GROUP BY failure_class
+ORDER BY steps DESC;
+```
+
+## Actions with no visible effect
+
+```sql
+SELECT COUNT(*) AS compared,
+       SUM(screen_unchanged) AS unchanged,
+       ROUND(100.0 * SUM(screen_unchanged) / COUNT(*), 1) AS unchanged_pct
+FROM computer_use_steps
+WHERE screen_unchanged IS NOT NULL;
+```
+
 ## Step time
 
 Median and 95th percentile step time, in milliseconds:
@@ -138,3 +166,5 @@ SELECT model, COUNT(*) AS runs FROM computer_use_runs GROUP BY model;
 - 2026-11-01: an unknown submit (`outcome = 'submission_unknown'`) and the run state `submission_unknown`, which counts as
   settled and failed until the person or the page check settles it. The guard's take-overs have the cause `confirm` and
   `asked_by = guard`. The success, how-runs-ended and take-over queries now include `submission_unknown` runs.
+- 2026-11-01: steps keep Claude's summarized thinking, a failure class the review sets, and whether the screen changed
+  after an action (`thinking`, `failure_class`, `screen_unchanged`), with two queries for them.

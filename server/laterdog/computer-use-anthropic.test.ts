@@ -25,7 +25,8 @@ function fakeFetch(answers: Array<{ status: number; body: unknown }>) {
 describe("the request later.dog sends", () => {
   it("pins one model and declares the computer toolset with no name, display size or beta header", () => {
     const body = messagesBody(REQUEST);
-    expect(body).toMatchObject({ model: "claude-opus-5-5", output_config: { effort: "medium" }, system: "fixture system", messages: REQUEST.messages });
+    expect(body).toMatchObject({ model: "claude-opus-5-5", output_config: { effort: "medium" }, system: "fixture system", messages: REQUEST.messages,
+      thinking: { type: "adaptive", display: "summarized" } });
     const tools = body.tools as Record<string, unknown>[];
     expect(tools[0]).toEqual({ type: COMPUTER_TOOLSET_TYPE, configs: { zoom: { enabled: false } } });
     expect(COMPUTER_TOOLSET_TYPE).toBe("computer_toolset_20260801");

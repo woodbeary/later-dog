@@ -13,6 +13,8 @@ export const HANDOFF_CAUSES = [...TAKEOVER_REASONS, "person", "confirm"] as cons
 export type HandoffCause = typeof HANDOFF_CAUSES[number];
 export const ASKED_BY = ["model", "person", "screen_check", "guard"] as const;
 export const STEP_OUTCOMES = ["submission_unknown"] as const;
+export const FAILURE_CLASSES = ["stale_screenshot", "missed_click", "wrong_field", "page_not_settled", "gave_up", "environment"] as const;
+export type FailureClass = typeof FAILURE_CLASSES[number];
 export type StepOutcome = typeof STEP_OUTCOMES[number];
 export type AskedBy = typeof ASKED_BY[number];
 
@@ -44,6 +46,8 @@ export interface StepRecord {
   screenState?: ScreenState | null;
   screenProbability?: number | null;
   outcome?: StepOutcome | null;
+  thinking?: string | null;
+  screenUnchanged?: boolean | null;
 }
 
 export interface LoggedStep extends StepRecord {
@@ -51,6 +55,9 @@ export interface LoggedStep extends StepRecord {
   screenState: ScreenState | null;
   screenProbability: number | null;
   outcome: StepOutcome | null;
+  thinking: string | null;
+  screenUnchanged: boolean | null;
+  failureClass: FailureClass | null;
 }
 
 export interface Handoff {
@@ -80,7 +87,7 @@ export function isOpenRun(state: RunState): boolean {
 
 const ADDED_COLUMNS: Record<string, Record<string, string>> = {
   computer_use_runs: { screen_checks: "INTEGER NOT NULL DEFAULT 0" },
-  computer_use_steps: { screen_state: "TEXT", screen_probability: "REAL", outcome: "TEXT" },
+  computer_use_steps: { screen_state: "TEXT", screen_probability: "REAL", outcome: "TEXT", thinking: "TEXT", screen_unchanged: "INTEGER", failure_class: "TEXT" },
   computer_use_handoffs: { viewer_url: "TEXT", viewer_expires_at: "TEXT", probability: "REAL" },
 };
 
@@ -158,20 +165,34 @@ export class ComputerUseStore {
 
   step(runId: string, record: StepRecord): void {
     this.#db.prepare(`INSERT INTO computer_use_steps(run_id,step,at,actions,screenshot_sha256,model_ms,action_ms,input_tokens,output_tokens,
-      cache_read_tokens,cache_write_tokens,screen_state,screen_probability,outcome) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(runId, record.step, this.#stamp(),
+      cache_read_tokens,cache_write_tokens,screen_state,screen_probability,outcome,thinking,screen_unchanged) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(runId, record.step, this.#stamp(),
       JSON.stringify(record.actions), record.screenshotSha256, record.modelMs, record.actionMs, record.inputTokens,
-      record.outputTokens, record.cacheReadTokens, record.cacheWriteTokens, record.screenState ?? null, record.screenProbability ?? null, record.outcome ?? null);
+      record.outputTokens, record.cacheReadTokens, record.cacheWriteTokens, record.screenState ?? null, record.screenProbability ?? null, record.outcome ?? null,
+      record.thinking ?? null, record.screenUnchanged === undefined || record.screenUnchanged === null ? null : Number(record.screenUnchanged));
+  }
+
+  screenAfter(runId: string, step: number, unchanged: boolean): void {
+    this.#db.prepare("UPDATE computer_use_steps SET screen_unchanged=MAX(COALESCE(screen_unchanged,0),?) WHERE run_id=? AND step=?").run(Number(unchanged), runId, step);
+  }
+
+  classify(runId: string, step: number, failureClass: FailureClass | null): LoggedStep {
+    if (failureClass !== null && !(FAILURE_CLASSES as readonly string[]).includes(failureClass)) throw Object.assign(new Error(`A failure class is one of ${FAILURE_CLASSES.join(", ")}.`), { status: 400 });
+    const changed = this.#db.prepare("UPDATE computer_use_steps SET failure_class=? WHERE run_id=? AND step=?").run(failureClass, runId, step);
+    if (!changed.changes) throw Object.assign(new Error("That run has no such step."), { status: 404 });
+    return this.steps(runId).find((logged) => logged.step === step)!;
   }
 
   steps(runId: string): LoggedStep[] {
     type Row = { step: number; at: string; actions: string; screenshot_sha256: string; model_ms: number; action_ms: number;
       input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number;
-      screen_state: ScreenState | null; screen_probability: number | null; outcome: StepOutcome | null };
+      screen_state: ScreenState | null; screen_probability: number | null; outcome: StepOutcome | null; thinking: string | null;
+      screen_unchanged: number | null; failure_class: FailureClass | null };
     return (this.#db.prepare("SELECT * FROM computer_use_steps WHERE run_id=? ORDER BY step").all(runId) as Row[]).map((row) => ({
       step: row.step, at: row.at, actions: JSON.parse(row.actions) as Record<string, unknown>[], screenshotSha256: row.screenshot_sha256,
       modelMs: row.model_ms, actionMs: row.action_ms, inputTokens: row.input_tokens, outputTokens: row.output_tokens,
       cacheReadTokens: row.cache_read_tokens, cacheWriteTokens: row.cache_write_tokens,
-      screenState: row.screen_state, screenProbability: row.screen_probability, outcome: row.outcome,
+      screenState: row.screen_state, screenProbability: row.screen_probability, outcome: row.outcome, thinking: row.thinking,
+      screenUnchanged: row.screen_unchanged === null ? null : row.screen_unchanged === 1, failureClass: row.failure_class,
     }));
   }
 

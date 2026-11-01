@@ -30,6 +30,10 @@ function fixtureRuns() {
 
   const byPage = start(WITH_PAGE);
   step(byPage, 1, 1800, 200);
+  store.screenAfter(byPage, 1, true);
+  store.screenAfter(byPerson, 1, false);
+  store.classify(byPerson, 2, "page_not_settled");
+  store.classify(byPage, 1, "page_not_settled");
   store.finish(byPage, { done: "page_check" });
 
   const notDone = start();
@@ -60,8 +64,8 @@ describe("the SQL in docs/metrics.md", () => {
   const db = fixtureRuns();
   const run = (index: number) => db.prepare(SQL[index]!).all().map((row) => ({ ...row }));
 
-  it("has the eight queries this test checks", () => {
-    expect(SQL).toHaveLength(8);
+  it("has the ten queries this test checks", () => {
+    expect(SQL).toHaveLength(10);
   });
 
   it("counts success over settled runs, with an abandoned run and an unsettled unknown submit as failed", () => {
@@ -90,14 +94,19 @@ describe("the SQL in docs/metrics.md", () => {
     expect(run(4)).toEqual([{ unknown_submits: 2, settled_done: 1, settled_failed: 0, still_unknown: 1 }]);
   });
 
+  it("counts the review's failure classes and the actions that changed nothing on screen", () => {
+    expect(run(5)).toEqual([{ failure_class: "page_not_settled", steps: 2 }]);
+    expect(run(6)).toEqual([{ compared: 2, unchanged: 1, unchanged_pct: 50 }]);
+  });
+
   it("finds the median and 95th percentile step time", () => {
-    expect(run(5)).toEqual([{ p50_ms: 1000, p95_ms: 2000 }]);
+    expect(run(7)).toEqual([{ p50_ms: 1000, p95_ms: 2000 }]);
   });
 
   it("adds up steps and tokens per run, and shows one pinned model", () => {
-    const perRun = run(6);
+    const perRun = run(8);
     expect(perRun).toHaveLength(8);
     expect(perRun).toEqual(expect.arrayContaining([expect.objectContaining({ state: "done", steps: 2, input_tokens: 3000, output_tokens: 100, cache_read_tokens: 1800 })]));
-    expect(run(7)).toEqual([{ model: "claude-opus-5-5", runs: 8 }]);
+    expect(run(9)).toEqual([{ model: "claude-opus-5-5", runs: 8 }]);
   });
 });
