@@ -339,6 +339,18 @@ describe("the guard on clicks that submit, pay, publish, cancel or delete", () =
     expect(check.calls).toBe(1);
   });
 
+  it("settles an unknown submit when Claude ends its turn and the page check then passes, after refusing the repeat", async () => {
+    let calls = 0;
+    const later = Object.assign(async () => (++calls === 1 ? FAILS : PASSES), { calls: 0 });
+    const h = setup([reply([toolUse("toolu_1", "left_click", SUBMIT)]), reply([toolUse("toolu_2", "left_click", SUBMIT)]), finished("Sent.")],
+      { screenChecks: submitIsIrreversible(), done: WITH_PAGE, pageCheck: later });
+    const ended = h.go();
+    await approveWhenAsked(h, true);
+    expect(await ended).toMatchObject({ state: "done", doneSource: "page_check", detail: `${PASSES.detail} That settled a submit whose outcome was unknown.` });
+    expect(calls).toBe(2);
+    expect(h.desktop.acted).toHaveLength(1);
+  });
+
   it("marks a submit unknown when the desktop fails during the click, and leaves the run to the person without a page check", async () => {
     const h = setup([reply([toolUse("toolu_1", "left_click", SUBMIT)]), finished("Sent.")],
       { screenChecks: submitIsIrreversible(), fail: (action) => (action.kind === "click" ? "later.dog's computers service could not be reached or did not answer in time" : null) });

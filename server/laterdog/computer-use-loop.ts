@@ -430,6 +430,8 @@ async function act(uses: ToolUse[], turn: Turn, done: Acted): Promise<void> {
   }
 }
 
+const SETTLED_UNKNOWN = " That settled a submit whose outcome was unknown.";
+
 type Checked = { passed: true; source: "page_check" | "state_check"; detail: string } | { passed: false; missed: string[] };
 
 async function doneChecks(run: ComputerUseRun, deps: LoopDeps): Promise<Checked> {
@@ -455,13 +457,13 @@ async function settle(run: ComputerUseRun, said: string, deps: LoopDeps): Promis
   const unknown = deps.control.unknownOpen;
   const claim = `${said ? `Claude says it is finished: ${said}` : "Claude says it is finished."}${unknown ? " Whether a submit went through is unknown." : ""}`;
   const checked = await doneChecks(run, deps);
-  if (checked.passed) return deps.store.finish(run.id, { done: checked.source, detail: checked.detail });
+  if (checked.passed) return deps.store.finish(run.id, { done: checked.source, detail: `${checked.detail}${unknown ? SETTLED_UNKNOWN : ""}` });
   return deps.store.awaitPerson(run.id, [claim, ...checked.missed].join(" "), unknown);
 }
 
 async function settleUnknown(run: ComputerUseRun, deps: LoopDeps): Promise<ComputerUseRun | null> {
   const checked = await doneChecks(run, deps);
-  return checked.passed ? deps.store.finish(run.id, { done: checked.source, detail: `${checked.detail} That settled a submit whose outcome was unknown.` }) : null;
+  return checked.passed ? deps.store.finish(run.id, { done: checked.source, detail: `${checked.detail}${SETTLED_UNKNOWN}` }) : null;
 }
 
 export async function runComputerUse(runId: string, deps: LoopDeps): Promise<ComputerUseRun> {
