@@ -13,9 +13,19 @@ export interface Transcription {
   language: string | null;
 }
 
+export interface TranscribeTimings {
+  readMs: number;
+  serviceMs: number;
+}
+
 export interface TranscribeAnswer {
   status: number;
   body: Record<string, unknown>;
+  timings?: TranscribeTimings;
+}
+
+export function serverTiming(timings: TranscribeTimings): string {
+  return `read;dur=${timings.readMs}, service;dur=${timings.serviceMs}`;
 }
 
 const first = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
@@ -121,15 +131,19 @@ export async function transcribeRoute(
   if (declared !== undefined && Number(declared) > TRANSCRIBE_MAX_BYTES) return refuse(413, "That voice note is too long to transcribe.");
   const language = url.searchParams.get("language")?.trim().toLowerCase() ?? "";
   if (language && !LANGUAGE.test(language)) return refuse(400, "Name the language with a two-letter code, or leave it out.");
+  const readStarted = performance.now();
   const audio = await readAudio(req);
+  const readMs = Math.round(performance.now() - readStarted);
   if (audio === "too-large") return { status: 413, body: { error: "That voice note is too long to transcribe." } };
   if (audio.byteLength === 0) return { status: 400, body: { error: "The voice note is empty." } };
+  const serviceStarted = performance.now();
+  const timed = () => ({ readMs, serviceMs: Math.round(performance.now() - serviceStarted) });
   try {
     const { text, language: heard } = isXaiVoice(credential)
       ? await transcribeWithXai(audio, credential, language || undefined, fetcher)
       : await transcribeAudio(audio, credential, language || undefined, fetcher);
-    return { status: 200, body: { text, ...(heard ? { language: heard } : {}), included: credential.included } };
+    return { status: 200, body: { text, ...(heard ? { language: heard } : {}), included: credential.included }, timings: timed() };
   } catch (error) {
-    return { status: 502, body: { error: error instanceof Error ? error.message : String(error) } };
+    return { status: 502, body: { error: error instanceof Error ? error.message : String(error) }, timings: timed() };
   }
 }

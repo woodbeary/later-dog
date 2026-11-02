@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { transcribeRoute } from "./transcribe.ts";
 import { XAI_API_DEFAULT, pickTranscriber, transcribeWithXai, xaiVoice } from "./transcribe-xai.ts";
 
+const TIMED = { readMs: expect.any(Number), serviceMs: expect.any(Number) };
+
 const WAV = new Uint8Array([82, 73, 70, 70, 1, 2, 3, 4]);
 const OWN_ELEVENLABS = { token: "sk_own_voice", api: "https://elevenlabs.example/v1", included: false };
 const TRIAL = { token: `ldt_${"k".repeat(43)}`, api: "https://computers.example/v1/voice", included: true };
@@ -23,7 +25,7 @@ describe("transcribing a voice note with the person's xAI key", () => {
   it("sends the recording to xAI speech to text with the key as a bearer token and the file last", async () => {
     const fetcher = answering(200, { text: " Remind me at nine. ", language: "en", duration: 1.5, words: [] });
     const answer = await transcribeRoute(request(WAV), at("?language=en"), true, GROK, fetcher);
-    expect(answer).toEqual({ status: 200, body: { text: "Remind me at nine.", language: "en", included: false } });
+    expect(answer).toEqual({ timings: TIMED, status: 200, body: { text: "Remind me at nine.", language: "en", included: false } });
     const [url, init] = fetcher.mock.calls[0]!;
     expect(String(url)).toBe("https://xai.example/v1/stt");
     expect(init!.method).toBe("POST");
@@ -38,9 +40,9 @@ describe("transcribing a voice note with the person's xAI key", () => {
 
   it("explains a refused key, passes on what xAI says otherwise, and says when it can't be reached", async () => {
     const refused = await transcribeRoute(request(WAV), at(), true, GROK, answering(401, { code: "unauthorized", error: "Incorrect API key provided" }));
-    expect(refused).toEqual({ status: 502, body: { error: "xAI refused this key for speech to text. Check the xAI key in Settings." } });
+    expect(refused).toEqual({ timings: TIMED, status: 502, body: { error: "xAI refused this key for speech to text. Check the xAI key in Settings." } });
     const busy = await transcribeRoute(request(WAV), at(), true, GROK, answering(503, { error: "Backend unavailable" }));
-    expect(busy).toEqual({ status: 502, body: { error: "Transcription failed: Backend unavailable" } });
+    expect(busy).toEqual({ timings: TIMED, status: 502, body: { error: "Transcription failed: Backend unavailable" } });
     const offline = vi.fn(async () => {
       throw new TypeError("fetch failed");
     });

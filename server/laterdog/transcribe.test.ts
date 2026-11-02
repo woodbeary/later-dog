@@ -1,7 +1,9 @@
 import type { IncomingMessage } from "node:http";
 import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import { TRANSCRIBE_MAX_BYTES, TRANSCRIBE_MODEL, readAudio, transcribeAudio, transcribeRoute } from "./transcribe.ts";
+import { TRANSCRIBE_MAX_BYTES, TRANSCRIBE_MODEL, readAudio, serverTiming, transcribeAudio, transcribeRoute } from "./transcribe.ts";
+
+const TIMED = { readMs: expect.any(Number), serviceMs: expect.any(Number) };
 
 const OWN = { token: "sk_own_voice", api: "https://elevenlabs.example/v1", included: false };
 const TRIAL = { token: `ldt_${"k".repeat(43)}`, api: "https://computers.example/v1/voice", included: true };
@@ -28,7 +30,7 @@ describe("transcribing a voice note", () => {
   it("sends the recording to ElevenLabs Scribe with the person's own key and the language hint", async () => {
     const fetcher = answering(200, { language_code: "eng", language_probability: 0.99, text: " Book the table for six. ", words: [] });
     const answer = await transcribeRoute(request(WAV), at("?language=EN"), true, OWN, fetcher);
-    expect(answer).toEqual({ status: 200, body: { text: "Book the table for six.", language: "eng", included: false } });
+    expect(answer).toEqual({ timings: TIMED, status: 200, body: { text: "Book the table for six.", language: "eng", included: false } });
     const { url, init, form } = sent(fetcher);
     expect(url).toBe("https://elevenlabs.example/v1/speech-to-text");
     expect(init.method).toBe("POST");
@@ -45,7 +47,7 @@ describe("transcribing a voice note", () => {
   it("uses the free trial's included transcription the same way, and leaves the language to the service when none is given", async () => {
     const fetcher = answering(200, { language_code: "es", language_probability: 0.9, text: "hola", words: [] });
     const answer = await transcribeRoute(request([WAV.subarray(0, 3), WAV.subarray(3)]), at(), true, TRIAL, fetcher);
-    expect(answer).toEqual({ status: 200, body: { text: "hola", language: "es", included: true } });
+    expect(answer).toEqual({ timings: TIMED, status: 200, body: { text: "hola", language: "es", included: true } });
     const { url, init, form } = sent(fetcher);
     expect(url).toBe("https://computers.example/v1/voice/speech-to-text");
     expect(init.headers).toEqual({ "xi-api-key": TRIAL.token });
@@ -82,9 +84,9 @@ describe("transcribing a voice note", () => {
     expect(refused.status).toBe(502);
     expect(refused.body.error).toMatch(/Speech to Text permission/);
     const limited = await transcribeRoute(request(WAV), at(), true, TRIAL, answering(429, { error: { code: "daily_limit", message: "This installation has used today's allowance. It resets at midnight UTC." } }));
-    expect(limited).toEqual({ status: 502, body: { error: "This installation has used today's allowance. It resets at midnight UTC." } });
+    expect(limited).toEqual({ timings: TIMED, status: 502, body: { error: "This installation has used today's allowance. It resets at midnight UTC." } });
     const silent = await transcribeRoute(request(WAV), at(), true, OWN, answering(200, { words: [] }));
-    expect(silent).toEqual({ status: 502, body: { error: "The transcription came back without text." } });
+    expect(silent).toEqual({ timings: TIMED, status: 502, body: { error: "The transcription came back without text." } });
   });
 
   it("says when the service can't be reached", async () => {
@@ -93,5 +95,22 @@ describe("transcribing a voice note", () => {
     });
     await expect(transcribeAudio(WAV, OWN, undefined, offline)).rejects.toThrow("Couldn't reach ElevenLabs to transcribe. Check your connection.");
     await expect(transcribeAudio(WAV, TRIAL, undefined, offline)).rejects.toThrow("Couldn't reach the included transcription.");
+  });
+
+  it("times reading the recording and the service's answer, for the Server-Timing header", async () => {
+    let finish: (value: Response) => void = () => undefined;
+    const fetcher = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    vi.useFakeTimers({ toFake: ["performance"] });
+    try {
+      const pending = transcribeRoute(request(WAV), at(), true, OWN, fetcher);
+      while (!fetcher.mock.calls.length) await new Promise((next) => setImmediate(next));
+      vi.advanceTimersByTime(840);
+      finish(Response.json({ text: "hi" }));
+      const answer = await pending;
+      expect(answer.timings).toEqual({ readMs: 0, serviceMs: 840 });
+      expect(serverTiming(answer.timings!)).toBe("read;dur=0, service;dur=840");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
