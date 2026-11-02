@@ -1249,7 +1249,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const authSettingsPath = mcpConfigPath && Object.keys(settings).length
         ? join(dirname(mcpConfigPath), "auth-settings.json") : null;
       if (authSettingsPath) args.push("--settings", authSettingsPath);
-      env.ENABLE_PROMPT_CACHING_1H ??= "1";
+      if (env.ENABLE_PROMPT_CACHING_1H === undefined && env.FORCE_PROMPT_CACHING_5M === undefined) env.CLAUDE_CODE_PROMPT_CACHE_TTL ??= "1h";
       Object.assign(env, quietWorkEnvironment(turn.quietWork));
       const cwd = turn.cwd ?? homedir();
       const commandCwd = permissionLaunchCwd(cwd);

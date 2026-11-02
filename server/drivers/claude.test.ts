@@ -1984,12 +1984,15 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.argv).not.toContain("--dangerously-skip-permissions");
   });
 
-  it("keeps each chat's prompt cached for an hour, so a reply after a short break does not resend the whole prompt", async () => {
+  it("keeps each chat's prompt cached for an hour and leaves helpers and compaction on Claude Code's own cache lifetime", async () => {
     const dump = join(scratch, "cache-hour.json");
     await create(undefined, { FAKE_CLAUDE_DUMP: dump });
     await instance.adapter.sendTurn({ threadId: "t-cache-hour", text: "hi" });
     await recorder.until((e) => e.type === "turn.completed");
-    expect(JSON.parse(readFileSync(dump, "utf8")).env.ENABLE_PROMPT_CACHING_1H).toBe("1");
+    const { env } = JSON.parse(readFileSync(dump, "utf8"));
+    expect(env.CLAUDE_CODE_PROMPT_CACHE_TTL).toBe("1h");
+    expect(env.ENABLE_PROMPT_CACHING_1H).toBeUndefined();
+    expect(env.CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL).toBeUndefined();
   });
 
   it("leaves the hour-long cache off for an account that turned it off", async () => {
@@ -1997,7 +2000,9 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await create(undefined, { FAKE_CLAUDE_DUMP: dump, ENABLE_PROMPT_CACHING_1H: "0" });
     await instance.adapter.sendTurn({ threadId: "t-cache-hour-off", text: "hi" });
     await recorder.until((e) => e.type === "turn.completed");
-    expect(JSON.parse(readFileSync(dump, "utf8")).env.ENABLE_PROMPT_CACHING_1H).toBe("0");
+    const { env } = JSON.parse(readFileSync(dump, "utf8"));
+    expect(env.ENABLE_PROMPT_CACHING_1H).toBe("0");
+    expect(env.CLAUDE_CODE_PROMPT_CACHE_TTL).toBeUndefined();
   });
 
   it.each([false, true])("holds helpers open and resumes exactly once (reordered: %s)", async (reorder) => {
