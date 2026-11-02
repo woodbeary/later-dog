@@ -170,6 +170,7 @@ export interface ProviderAdapter {
   ): Promise<RequestOutcome>;
   steer?(threadId: ThreadId, text: string, images?: TurnImageInput[], onRead?: () => void): Promise<SteerOutcome>;
   hasSession(threadId: ThreadId): boolean;
+  nativeCompactAt?(): Promise<number | undefined>;
   stopAll(): Promise<void>;
   onEvent(listener: RuntimeEventListener): () => void;
 }

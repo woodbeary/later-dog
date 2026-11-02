@@ -13,6 +13,7 @@ import {
   autoCompactWindow,
   brokerSocketCandidates,
   claudeCliSupports,
+  claudeKeepsTunedWindow,
   claudeCliUpdate,
   claudeHookSettings,
   ClaudeDriver,
@@ -1460,6 +1461,44 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(autoCompactWindow({})).toBe("200000");
     expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "auto" })).toBe("auto");
     expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "off" })).toBe(null);
+    expect(autoCompactWindow({}, true)).toBe("auto");
+    expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "nonsense" }, true)).toBe("auto");
+    expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "150000" }, true)).toBe("150000");
+    expect(autoCompactWindow({ LATERDOG_CLAUDE_AUTOCOMPACT: "off" }, true)).toBe(null);
+  });
+
+  it("keeps Claude Code's tuned window from 2.1.311, which compacts a standard-context session instead of stopping it", () => {
+    expect(claudeKeepsTunedWindow([2, 1, 310])).toBe(false);
+    expect(claudeKeepsTunedWindow([2, 1, 311])).toBe(true);
+    expect(claudeKeepsTunedWindow([2, 2, 0])).toBe(true);
+    expect(claudeKeepsTunedWindow(null)).toBe(true);
+    expect(claudeKeepsTunedWindow([2, 1, 316], true)).toBe(false);
+  });
+
+  it.each([
+    ["2.1.310", "200000", 200_000],
+    ["2.1.311", "auto", undefined],
+    ["2.1.316", "auto", undefined],
+  ] as const)("gives Claude %s the compaction window %s on turns and one-shot launches", async (version, window, bound) => {
+    const dump = join(scratch, `window-${version}.json`);
+    await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: version });
+    await instance.adapter.sendTurn({ threadId: "t-window", text: "hi" });
+    await recorder.until((e) => e.type === "turn.completed");
+    const turn: string[] = JSON.parse(readFileSync(dump, "utf8")).argv;
+    expect(turn[turn.indexOf("--autocompact") + 1]).toBe(window);
+    await expect(instance.generateText!("summarize")).resolves.toBe("fake generated text");
+    const oneShot: string[] = JSON.parse(readFileSync(dump, "utf8")).argv;
+    expect(oneShot[oneShot.indexOf("--autocompact") + 1]).toBe(window);
+    await expect(instance.adapter.nativeCompactAt!()).resolves.toBe(bound);
+  });
+
+  it.each([
+    ["a configured window", { LATERDOG_CLAUDE_AUTOCOMPACT: "300000" }, {}, 300_000],
+    ["compaction turned off", { LATERDOG_CLAUDE_AUTOCOMPACT: "off" }, {}, undefined],
+    ["a hosted company account", {}, { managed: true }, 200_000],
+  ] as const)("reports the native compaction bound for %s on a current Claude", async (_label, environment, config, bound) => {
+    await create(undefined, { FAKE_CLAUDE_VERSION: "2.1.316", ...environment }, config);
+    await expect(instance.adapter.nativeCompactAt!()).resolves.toBe(bound);
   });
 
   it("passes no compaction window when it is turned off", async () => {

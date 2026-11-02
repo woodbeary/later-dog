@@ -235,7 +235,8 @@ while keeping `--setting-sources project` (1.0.122+). The environment variable
 `LATERDOG_CLAUDE_INHERIT_USER_CONFIG=1` on the later.dog process remains the full
 escape hatch back to the old launch: it restores everything, for every Claude
 bot, until you remove it. The harness also picks the session's compaction
-window with `--autocompact` (2.1.122+). later.dog reads `claude --version`
+window with `--autocompact` (2.1.122+): `auto`, the window Claude Code tunes
+for the model, from 2.1.311, and 200,000 tokens before that. later.dog reads `claude --version`
 whenever it lists engines (app load, the Engines page, after an update) and
 only passes each flag to a CLI that accepts it, so an older CLI keeps working
 — without the controls it predates — and the Engines page shows an update

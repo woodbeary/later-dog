@@ -226,16 +226,22 @@ function projectMcpServers(cwd: string): Record<string, unknown> {
   return out;
 }
 
-export function autoCompactWindow(env: NodeJS.ProcessEnv): string | null {
+export function autoCompactWindow(env: NodeJS.ProcessEnv, tuned = false): string | null {
   const raw = (env.LATERDOG_CLAUDE_AUTOCOMPACT ?? "").trim().toLowerCase();
   if (raw === "off") return null;
   if (raw === "auto") return "auto";
-  const parsed = raw ? Number(raw) : DEFAULT_AUTOCOMPACT_TOKENS;
-  if (!Number.isFinite(parsed) || parsed <= 0) return String(DEFAULT_AUTOCOMPACT_TOKENS);
+  const parsed = raw ? Number(raw) : NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) return tuned ? "auto" : String(STANDARD_WINDOW_TOKENS);
   return String(Math.min(1_000_000, Math.max(100_000, Math.floor(parsed))));
 }
 
-const DEFAULT_AUTOCOMPACT_TOKENS = 200_000;
+export const CLAUDE_TUNED_WINDOW_FLOOR: ClaudeCliVersion = [2, 1, 311];
+
+export function claudeKeepsTunedWindow(version: ClaudeCliVersion | null, managed = false): boolean {
+  return !managed && (version === null || versionAtLeast(version, CLAUDE_TUNED_WINDOW_FLOOR));
+}
+
+const STANDARD_WINDOW_TOKENS = 200_000;
 
 export const CLAUDE_FLAG_FLOORS = {
   "--strict-mcp-config": [1, 0, 60],
@@ -1131,7 +1137,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (!turn.mcpFromUserConfig && claudeCliSupports(cliVersion, "--strict-mcp-config")) args.push("--strict-mcp-config");
         if (claudeCliSupports(cliVersion, "--setting-sources")) args.push("--setting-sources", "project");
       }
-      const compactWindow = autoCompactWindow(turnEnvironment);
+      const compactWindow = autoCompactWindow(turnEnvironment, claudeKeepsTunedWindow(cliVersion, config.managed));
       if (compactWindow && cliHasAutocompact === true) {
         args.push("--autocompact", compactWindow);
       }
@@ -2042,7 +2048,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         }
         const model = config.managedModels?.[0] ?? "claude-haiku-4-5";
         const oneShotEnvironment = environment(model);
-        const compactWindow = cliHasAutocompact === true ? autoCompactWindow(oneShotEnvironment) : null;
+        const compactWindow = cliHasAutocompact === true ? autoCompactWindow(oneShotEnvironment, claudeKeepsTunedWindow(cliVersion, config.managed)) : null;
         const child = spawnCli(
           config.cli,
           ["-p", "--model", model, "--output-format", onUsage ? "json" : "text", ...(compactWindow ? ["--autocompact", compactWindow] : [])],
@@ -2172,6 +2178,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return behavior === "allow" ? "allowed-once" : behavior === "answer" ? "answered" : "rejected";
         },
         hasSession: (threadId) => active.has(threadId),
+        nativeCompactAt: async () => {
+          const env = environment();
+          await learnCliFlags(env);
+          const window = Number(autoCompactWindow(env, claudeKeepsTunedWindow(cliVersion, config.managed)));
+          return window > 0 ? window : undefined;
+        },
         stopAll: async () => {
           for (const { stop } of active.values()) stop();
           for (const threadId of Array.from(sessions.keys())) closeSession(threadId, "stopAll");

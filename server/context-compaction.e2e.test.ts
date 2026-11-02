@@ -13,7 +13,7 @@ async function fixture(test: (f: Awaited<ReturnType<typeof setup>>) => Promise<v
 }
 
 async function setup(hang: boolean, fakeEnv: NodeJS.ProcessEnv) {
-  const env = { ...process.env, ...fakeEnv, FAKE_CLAUDE_VERSION: "2.1.270", ...(hang ? { FAKE_CLAUDE_TEXT_HANG: "1" } : {}) };
+  const env = { ...process.env, FAKE_CLAUDE_VERSION: "2.1.270", ...fakeEnv, ...(hang ? { FAKE_CLAUDE_TEXT_HANG: "1" } : {}) };
   const session = await launchVerificationServer(env, undefined, undefined, undefined, undefined, { scripted: true });
   let ready = false;
   try {
@@ -154,11 +154,12 @@ it("Stop cancels a stalled summary without writing a late record or starting an 
 }, true), 60_000);
 
 it.each([
-  { native: undefined, tokens: 190_000, compactions: 1 },
-  { native: "100000", tokens: 95_000, compactions: 1 },
-  { native: "off", tokens: 190_000, compactions: 0 },
-  { native: "auto", tokens: 190_000, compactions: 0 },
-])("respects the selected account's native compaction setting ($native)", ({ native, tokens, compactions }) => fixture(async f => {
+  { native: undefined, version: "2.1.270", tokens: 190_000, compactions: 1, window: "200000" },
+  { native: undefined, version: "2.1.316", tokens: 190_000, compactions: 0, window: "auto" },
+  { native: "100000", version: "2.1.270", tokens: 95_000, compactions: 1, window: "100000" },
+  { native: "off", version: "2.1.270", tokens: 190_000, compactions: 0, window: undefined },
+  { native: "auto", version: "2.1.270", tokens: 190_000, compactions: 0, window: "auto" },
+])("respects the selected account's native compaction setting ($native on Claude $version)", ({ native, version, tokens, compactions, window }) => fixture(async f => {
   if (native !== undefined) {
     await f.restart(() => {
       const path = join(f.session.info.dataDir, "config.json");
@@ -174,11 +175,11 @@ it.each([
   expect(f.task().usage.context).toMatchObject({ tokens, window: 1_000_000 });
   expect((await f.messages()).filter(m => m.kind === "compaction")).toHaveLength(compactions);
   const launch = JSON.parse(readFileSync(f.session.fixtureDumpPath, "utf8"));
-  if (native === "off") expect(launch.argv).not.toContain("--autocompact");
-  else expect(launch.argv[launch.argv.indexOf("--autocompact") + 1]).toBe(native ?? "200000");
+  if (window === undefined) expect(launch.argv).not.toContain("--autocompact");
+  else expect(launch.argv[launch.argv.indexOf("--autocompact") + 1]).toBe(window);
   if (compactions) {
     await f.send("NEXT keep the native headroom after the first fold");
     expect((await f.messages()).filter(m => m.kind === "compaction")).toHaveLength(2);
     expect(f.turns().at(-1).resumed).toBe(false);
   }
-}, false, { FAKE_CLAUDE_CONTEXT_TOKENS: String(tokens) }), 90_000);
+}, false, { FAKE_CLAUDE_CONTEXT_TOKENS: String(tokens), FAKE_CLAUDE_VERSION: version }), 90_000);

@@ -52,6 +52,15 @@ That account's setting takes precedence over the inherited launch environment.
 Native `auto`/`off` settings supply no known numeric bound; other engines keep
 their own model-window threshold. The native CLI setting itself is unchanged.
 
+Claude Code 2.1.311 and later launch with `--autocompact auto`, the window
+Claude Code tunes for the model: about 967K tokens on models with a native 1M
+window, such as Opus 4.7 and later, Sonnet 5 and later, Haiku 5.5 and Fable.
+From that version a session on an account limited to the standard 200K context
+compacts there instead of stopping. Older Claude Code and hosted company
+accounts keep `--autocompact 200000`. `LATERDOG_CLAUDE_AUTOCOMPACT` in an
+account's environment replaces either default with `auto`, `off` or a token
+count from 100,000 to 1,000,000.
+
 The selected account's tool-free helper can produce a historical summary, with
 a 20-second timeout and source-labelled fallback when unavailable. Summaries
 are capped at 6,000 bytes and retain recent source corrections. The helper may
