@@ -144,7 +144,7 @@ describe("home data sync", () => {
     const target = folder();
     let readingWhenGivenUp = -1;
     let leftAtGiveUp: string[] = [];
-    const attempt = restore(target, failing, null).finally(() => {
+    const attempt = restore(target, failing, null, { chunkAttempts: 1 }).finally(() => {
       gaveUp = true;
       readingWhenGivenUp = reading;
       leftAtGiveUp = listing(target);
@@ -157,6 +157,64 @@ describe("home data sync", () => {
     const files = readdirSync(join(target, "chats"));
     expect(files.filter((name) => !/^\d+\.json$/.test(name))).toEqual([]);
     for (const name of files) expect(readFileSync(join(target, "chats", name), "utf8")).toBe(readFileSync(join(source, "chats", name), "utf8"));
+  });
+
+  it("reads a piece again when the network drops it, so one dropped read never throws away a whole wake", async () => {
+    const source = folder();
+    for (let i = 0; i < 30; i++) writeFileSync(join(source, `${i}.json`), `{"chat":${i}}`);
+    const store = memoryStore();
+    const saved = await snapshot(source, store, null, { scratch: folder() });
+    const [flaky] = chunksFor(saved.manifest, "7.json");
+    let drops = 0;
+    const dropping = { ...store, async get(hash: string) {
+      if (hash === flaky && drops < 3) {
+        drops += 1;
+        throw new TypeError("fetch failed");
+      }
+      return store.get(hash);
+    } };
+    const target = folder();
+    expect((await restore(target, dropping, null, { chunkRetryMs: 1 })).files).toBe(30);
+    expect(drops).toBe(3);
+    for (let i = 0; i < 30; i++) expect(readFileSync(join(target, `${i}.json`), "utf8")).toBe(`{"chat":${i}}`);
+  });
+
+  it("keeps what an earlier try already put back, and fetches only what is still missing", async () => {
+    const source = folder();
+    for (let i = 0; i < 30; i++) writeFileSync(join(source, `${i}.json`), `{"chat":${i}}`);
+    const store = memoryStore();
+    const saved = await snapshot(source, store, null, { scratch: folder() });
+    const [broken] = chunksFor(saved.manifest, "29.json");
+    const target = folder();
+    const failing = { ...store, async get(hash: string) {
+      if (hash === broken) throw new TypeError("fetch failed");
+      return store.get(hash);
+    } };
+    const finished = new Set<string>();
+    await expect(restore(target, failing, null, { chunkAttempts: 1, finished })).rejects.toThrow("fetch failed");
+    const before = readdirSync(target).filter((name) => name.endsWith(".json")).length;
+    expect(before).toBeGreaterThan(0);
+    let reads = 0;
+    const counting = { ...store, async get(hash: string) {
+      reads += 1;
+      return store.get(hash);
+    } };
+    expect((await restore(target, counting, null, { finished })).files).toBe(30);
+    expect(reads).toBe(30 - before);
+    for (let i = 0; i < 30; i++) expect(readFileSync(join(target, `${i}.json`), "utf8")).toBe(`{"chat":${i}}`);
+  });
+
+  it("fetches a file again when the copy on disk differs from the save", async () => {
+    const source = folder();
+    writeFileSync(join(source, "note.txt"), "saved words");
+    utimesSync(join(source, "note.txt"), new Date(1_700_000_000_000), new Date(1_700_000_000_000));
+    const store = memoryStore();
+    await snapshot(source, store, null, { scratch: folder() });
+    const target = folder();
+    writeFileSync(join(target, "note.txt"), "other words");
+    utimesSync(join(target, "note.txt"), new Date(1_700_000_000_000), new Date(1_700_000_000_000));
+    await restore(target, store, null);
+    expect(readFileSync(join(target, "note.txt"), "utf8")).toBe("saved words");
   });
 
   it("writes a large file chunk by chunk beside it, checking each chunk, and puts it in place only when whole", async () => {

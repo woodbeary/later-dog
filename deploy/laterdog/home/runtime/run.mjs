@@ -36,12 +36,13 @@ function dogOwner() {
 }
 
 async function restoreWithRetries(store, owner) {
+  const finished = new Set();
   for (let attempt = 1; ; attempt += 1) {
     try {
-      return await restore(DATA, store, owner);
+      return await restore(DATA, store, owner, { finished });
     } catch (error) {
       if (attempt >= RESTORE_ATTEMPTS) throw error;
-      log(`restore attempt ${attempt} failed: ${error.message}; trying again`);
+      log(`restore attempt ${attempt} failed: ${error.message}${error.cause?.message ? ` (${error.cause.message})` : ""}; ${finished.size} file(s) already back, trying again`);
       await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
     }
   }
