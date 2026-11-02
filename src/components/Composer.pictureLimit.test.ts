@@ -26,7 +26,7 @@ vi.mock("@/lib/analytics", () => ({ track: vi.fn() }));
 const { Composer } = await import("./Composer");
 const { setLocale } = await import("@/lib/i18n");
 
-const LIMIT_NOTICE = "A message can have up to 4 pictures.";
+const LIMIT_NOTICE = "A message can have up to 10 pictures.";
 
 let host: HTMLDivElement;
 let root: Root;
@@ -113,41 +113,41 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe("four pictures to a message", () => {
-  it("adds the first four of six picked pictures and says why", async () => {
+describe("ten pictures to a message", () => {
+  it("adds the first ten of twelve picked pictures and says why", async () => {
     await mount();
-    await pick(pictures(6));
-    expect(pictureChips()).toBe(4);
-    expect(pictureUploads()).toBe(4);
+    await pick(pictures(12));
+    expect(pictureChips()).toBe(10);
+    expect(pictureUploads()).toBe(10);
     expect(host.textContent).toContain(LIMIT_NOTICE);
   });
 
   it("counts the pictures already in the message, however they arrived", async () => {
     await mount();
-    await pick(pictures(3));
-    expect(pictureChips()).toBe(3);
+    await pick(pictures(9));
+    expect(pictureChips()).toBe(9);
     expect(host.textContent).not.toContain(LIMIT_NOTICE);
 
-    await paste(pictures(2, 4));
-    expect(pictureChips()).toBe(4);
+    await paste(pictures(2, 10));
+    expect(pictureChips()).toBe(10);
     expect(host.textContent).toContain(LIMIT_NOTICE);
 
-    await drop(pictures(1, 6));
-    expect(pictureChips()).toBe(4);
-    expect(pictureUploads()).toBe(4);
+    await drop(pictures(1, 12));
+    expect(pictureChips()).toBe(10);
+    expect(pictureUploads()).toBe(10);
   });
 
   it("still takes documents once the pictures are full", async () => {
     await mount();
-    await pick([...pictures(5), new File(["notes"], "notes.md", { type: "text/markdown" })]);
-    expect(pictureChips()).toBe(4);
+    await pick([...pictures(11), new File(["notes"], "notes.md", { type: "text/markdown" })]);
+    expect(pictureChips()).toBe(10);
     expect(host.textContent).toContain("notes.md");
     expect(uploads.filter((url) => url.startsWith("/api/files?"))).toHaveLength(1);
   });
 
   it("drops the note once the message is sent", async () => {
     await mount();
-    await pick(pictures(5));
+    await pick(pictures(11));
     expect(host.textContent).toContain(LIMIT_NOTICE);
     await act(async () => {
       host.querySelector("textarea")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
@@ -159,11 +159,11 @@ describe("four pictures to a message", () => {
 
   it("makes room again when a picture is removed", async () => {
     await mount();
-    await pick(pictures(4));
+    await pick(pictures(10));
     await act(async () => host.querySelector<HTMLButtonElement>("button[aria-label='Remove file']")!.click());
-    expect(pictureChips()).toBe(3);
-    await pick(pictures(1, 5));
-    expect(pictureChips()).toBe(4);
+    expect(pictureChips()).toBe(9);
+    await pick(pictures(1, 11));
+    expect(pictureChips()).toBe(10);
     expect(host.textContent).not.toContain(LIMIT_NOTICE);
   });
 });

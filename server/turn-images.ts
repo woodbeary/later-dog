@@ -9,7 +9,7 @@ import { decodeAttachmentAttribute } from "./message-file.ts";
 import { PICTURES_PER_MESSAGE } from "../shared/picture-limit.ts";
 
 export const TURN_IMAGE_MAX_COUNT = PICTURES_PER_MESSAGE;
-export const TURN_IMAGE_MAX_BYTES = TURN_IMAGE_MAX_COUNT * IMAGE_MAX_BYTES;
+export const TURN_IMAGE_MAX_BYTES = 4 * IMAGE_MAX_BYTES;
 
 type MarkdownNode = {
   type: string;

@@ -146,9 +146,9 @@ describe("the message box", () => {
 
   it("keeps the picture limit note inside the box too", async () => {
     await mount();
-    await pick(5);
+    await pick(11);
     const note = host.querySelector("[role=status]")!;
-    expect(note.textContent).toContain("A message can have up to 4 pictures.");
+    expect(note.textContent).toContain("A message can have up to 10 pictures.");
     expect(box().contains(note)).toBe(true);
   });
 
