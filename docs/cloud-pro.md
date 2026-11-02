@@ -772,7 +772,7 @@ layers (Node, Chrome's libraries, agent-browser and its Chrome) and adds:
   installer named on 2026-10-16). The build checks `cursor-agent --version`
   prints that version; `--build-arg CURSOR_VERSION=` leaves it out. This pin
   has not yet been built or signed in to on a real Cloud home;
-- the engine CLIs from `CLOUD_HOME_ENGINES` (default Claude Code 2.1.301 and
+- the engine CLIs from `CLOUD_HOME_ENGINES` (default Claude Code 2.1.316 and
   Codex 0.163.0, pinned so an image build installs known versions);
 - the app files, root's, with `server/cloud-home-start.ts` (bundled to
   `dist-server/cloud-home-start.js`) as the entry point. The build fails if
