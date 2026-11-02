@@ -40,6 +40,15 @@ export function shownPageStart(messages: readonly WireMessage[], stop: number, s
   return start;
 }
 
+export interface PageView {
+  shown?: boolean;
+  brief?: boolean;
+}
+
+export function pageViewOf(params: URLSearchParams): PageView {
+  return { shown: params.get("count") === "shown", brief: params.get("steps") === "brief" };
+}
+
 export function briefStep(message: WireMessage): WireMessage {
   const tool = message.kind === "activity" ? message.tool : undefined;
   if (!tool || (tool.input === undefined && tool.output === undefined) || shownInChat(message)) return message;

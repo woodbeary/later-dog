@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WireMessage } from "../shared/wire.ts";
-import { briefStep, shownInChat, shownPageStart } from "./message-pages.ts";
+import { briefStep, pageViewOf, shownInChat, shownPageStart } from "./message-pages.ts";
 
 let seq = 0;
 
@@ -53,5 +53,13 @@ describe("message pages counted by what a chat shows", () => {
     expect(briefStep(failedInRoom)).toBe(failedInRoom);
     const reply = row({ text: "done" });
     expect(briefStep(reply)).toBe(reply);
+  });
+});
+
+describe("page views", () => {
+  it("reads the shown count and brief steps from the query, for chat pages and the dog list alike", () => {
+    expect(pageViewOf(new URLSearchParams("limit=30&count=shown&steps=brief"))).toEqual({ shown: true, brief: true });
+    expect(pageViewOf(new URLSearchParams("messages=30&steps=brief"))).toEqual({ shown: false, brief: true });
+    expect(pageViewOf(new URLSearchParams("messages=30"))).toEqual({ shown: false, brief: false });
   });
 });

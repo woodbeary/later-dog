@@ -115,7 +115,7 @@ import { requestGone } from "./laterdog/request-gone.ts";
 import { PHONE_NOT_YOURS, PhoneDesk, phoneWants, type PhoneJob, type PhoneOwner } from "./laterdog/phone-desk.ts";
 import { createPhoneDeviceRoutes, createPhoneToolRoute, isPhoneDevicePath } from "./routes/phone-desk.ts";
 import { createDogTaskRoute } from "./routes/dog-tasks.ts";
-import { briefStep, SHOWN_PAGE_ROW_CAP, shownPageStart } from "./message-pages.ts";
+import { briefStep, pageViewOf, SHOWN_PAGE_ROW_CAP, shownPageStart, type PageView } from "./message-pages.ts";
 import { startedFromTask } from "./laterdog/dog-tasks.ts";
 import { createSharedJoins } from "./laterdog/shared-join.ts";
 import { configuredSpeechKey, SpeechCache } from "./laterdog/speech-cache.ts";
@@ -4721,11 +4721,6 @@ function slimMessage(message: Message): Message | Record<string, unknown> {
   if (message.kind !== "screen" || !message.png) return message;
   const { png: _png, ...rest } = message;
   return { ...rest, hasImage: true };
-}
-
-interface PageView {
-  shown?: boolean;
-  brief?: boolean;
 }
 
 function messagePage(threadId: string, limit: number | undefined, before?: string | null, view: PageView = {}) {
@@ -14733,16 +14728,17 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const shownBots = store.bots.filter((bot) => visible.bot(bot.id));
       const queued = publicBotQueuedMessages();
+      const preview = { brief: pageViewOf(url.searchParams).brief };
       return json(res, 200, {
         bots: shownBots.map((bot) => memberBot({
           ...wireBot(bot),
           tasks: store.tasks(bot.id).map((task) => wireTask(task, bot.modelSelection)),
-          ...messagePage(bot.threadId, limit),
+          ...messagePage(bot.threadId, limit, undefined, preview),
         }, visible)),
         botQueuedMessages: visible.everything ? queued : Object.fromEntries(Object.entries(queued).filter(([threadId]) => visible.thread(threadId))),
         sections: visible.sections(store.sections),
         groups: store.groups.filter((g) => visible.group(g.id)).map((g) => {
-          const room = { ...publicGroupState(g), ...messagePage(g.threadId, limit) };
+          const room = { ...publicGroupState(g), ...messagePage(g.threadId, limit, undefined, preview) };
           return visible.everything ? room : memberGroup(room);
         }),
         computerControl: Object.fromEntries(
@@ -14773,7 +14769,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (before && !store.messagesFor(threadId).some((msg) => msg.id === before)) {
         return json(res, 404, { error: "no such message" });
       }
-      const view = { shown: url.searchParams.get("count") === "shown", brief: url.searchParams.get("steps") === "brief" };
+      const view = pageViewOf(url.searchParams);
       return json(res, 200, { ...messagePage(threadId, limit ?? DEFAULT_PAGE, before, view), activeLeafId: store.activeLeaf(threadId) });
     }
 
