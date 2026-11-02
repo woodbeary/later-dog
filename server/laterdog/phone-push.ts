@@ -56,7 +56,7 @@ export function createPhonePush(options: { dataDir: string; fetcher?: typeof fet
         title: notification.title,
         body: notification.body,
         sound: "default",
-        data: { kind: notification.kind, botId: notification.botId, threadId: notification.threadId },
+        data: { kind: notification.kind, botId: notification.botId, threadId: notification.threadId, ...(notification.computerRunId ? { computerRunId: notification.computerRunId } : {}) },
         ...(urgent ? { priority: "high", interruptionLevel: "time-sensitive" } : {}),
         ...(notification.botId && notification.threadId && replyable(notification.kind) ? { categoryId: REPLY_CATEGORY } : {}),
       }));

@@ -2,6 +2,7 @@ import { Container, ContainerProxy, getContainer } from "@cloudflare/containers"
 import { DOG_BOT_ID, DOG_HEADER, dogToken } from "./dog-token";
 import { WAKEUP_BOTS_HEADER, mayHaveWakeups } from "./wakeup-hint";
 import { TRACE_PREFIX, handleTrace, sweepIfDue } from "./traces";
+import { supervisorEnv } from "./supervisor-env";
 
 export { ContainerProxy };
 
@@ -11,6 +12,8 @@ declare global {
     LATERDOG_BACKUP_KEY: string;
     GH_TOKEN?: string;
     CLAUDE_CODE_OAUTH_TOKEN?: string;
+    ANTHROPIC_API_KEY?: string;
+    LATERDOG_SCREEN_CHECKS?: string;
     LATERDOG_COMPUTERS_PUBLIC_URL?: string;
   }
 }
@@ -20,7 +23,6 @@ const COMPUTERS_HOST = "computers.internal";
 const STATE_PREFIX = "latest/";
 const STATE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/;
 const SUPERVISOR_PORT = 9010;
-const CLAUDE_ACCOUNT_TOKEN = /^CLAUDE_CODE_OAUTH_TOKEN_[A-Z0-9_]+$/;
 
 export class SupervisorHost extends Container<Env> {
   defaultPort = SUPERVISOR_PORT;
@@ -29,19 +31,7 @@ export class SupervisorHost extends Container<Env> {
 
   constructor(ctx: DurableObjectState<{}>, env: Env) {
     super(ctx, env);
-    const envVars: Record<string, string> = {
-      LATERDOG_TOKEN: env.LATERDOG_TOKEN,
-      LATERDOG_BACKUP_KEY: env.LATERDOG_BACKUP_KEY,
-      LATERDOG_STATE_URL: `http://${STATE_HOST}`,
-    };
-    if (env.GH_TOKEN) envVars.GH_TOKEN = env.GH_TOKEN;
-    if (env.CLAUDE_CODE_OAUTH_TOKEN) envVars.CLAUDE_CODE_OAUTH_TOKEN = env.CLAUDE_CODE_OAUTH_TOKEN;
-    if (env.LATERDOG_WORKSPACE_URL) envVars.LATERDOG_WORKSPACE_URL = env.LATERDOG_WORKSPACE_URL;
-    if (env.TRACE_RETENTION_DAYS) envVars.LATERDOG_TRACE_RETENTION_DAYS = env.TRACE_RETENTION_DAYS;
-    for (const [name, value] of Object.entries(env as unknown as Record<string, unknown>)) {
-      if (CLAUDE_ACCOUNT_TOKEN.test(name) && typeof value === "string") envVars[name] = value;
-    }
-    this.envVars = envVars;
+    this.envVars = supervisorEnv(env as unknown as Record<string, unknown>, `http://${STATE_HOST}`);
   }
 
   override onStop(): void {
