@@ -448,7 +448,7 @@ import { localVmStopReason, recordLocalVmIdleStop } from "./local-vm-stop-reason
 import { LocalVmIdleTimer } from "./local-vm-idle.ts";
 import { LocalVmLease, LocalVmLeasePool } from "./local-vm-lease.ts";
 import { LocalVmSeatPool, type LocalVmSeatHolder } from "./local-vm-seat-pool.ts";
-import { RepeatDetector, callKey } from "./repeat-detector.ts";
+import { RepeatDetector, callKey, repeatedCallLine } from "./repeat-detector.ts";
 import { redactSecretsInText } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, type Routine, type RoutineGoalStatus, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
@@ -7219,12 +7219,10 @@ bus.subscribe((event: RuntimeEvent) => {
   if (!key) return;
   const { threshold } = repeats.record(event.threadId, key);
   if (!threshold) return;
-  const [tool, ...rest] = key.split(":");
-  const args = rest.join(":");
   store.appendMessage(event.threadId, {
     role: "bot",
     kind: "activity",
-    tool: { name: `Same call repeated ${threshold}× — ${tool}: ${args.slice(0, 80)}${args.length > 80 ? "…" : ""} — it may be stuck`, ok: false },
+    tool: { name: repeatedCallLine(threshold, key), ok: false },
   });
 });
 

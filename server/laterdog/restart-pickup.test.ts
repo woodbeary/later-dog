@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { WireMessage } from "../../shared/wire.ts";
+import { repeatedCallLine } from "../repeat-detector.ts";
 import {
   PICKUP_MAX_AGE_MS,
   PLANNED_PICKUP_TRIES,
@@ -110,6 +111,13 @@ describe("planning what to do with a message left without a reply", () => {
   it("picks the message up even when the dog said a line on the way", () => {
     const source = ask();
     expect(plan([source, midTurn("I'm checking the login flow."), step()])).toEqual({ kind: "resume", source });
+  });
+
+  it("picks the message up when later.dog warned on the way that a call kept repeating", () => {
+    const source = ask();
+    const warning = message({ role: "bot", kind: "activity", tool: { name: repeatedCallLine(5, "Read:/tmp/v4/edl5.py"), ok: false } });
+    expect(answersPerson(warning)).toBe(false);
+    expect(plan([source, midTurn("On it: cutting v4."), step("Read"), warning, step("Bash")])).toEqual({ kind: "resume", source });
   });
 
   it("picks up a message the turn never got to", () => {

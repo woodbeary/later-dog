@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { RepeatDetector, callKey } from "./repeat-detector.ts";
+import { RepeatDetector, callKey, isRepeatedCallLine, repeatedCallLine } from "./repeat-detector.ts";
+
+describe("repeatedCallLine", () => {
+  it("names the repeated call, shortens long arguments and is recognized later", () => {
+    expect(repeatedCallLine(5, "Read:/tmp/a.py")).toBe("Same call repeated 5× — Read: /tmp/a.py — it may be stuck");
+    const long = repeatedCallLine(10, `Bash:${"x".repeat(100)}`);
+    expect(long).toBe(`Same call repeated 10× — Bash: ${"x".repeat(80)}… — it may be stuck`);
+    expect(isRepeatedCallLine(long)).toBe(true);
+    expect(isRepeatedCallLine("Same call repeated 20× — Read: /tmp/v3/comp/comp3.js — it may be stuck")).toBe(true);
+    expect(isRepeatedCallLine("error: the engine stopped")).toBe(false);
+    expect(isRepeatedCallLine(undefined)).toBe(false);
+  });
+});
 
 describe("callKey", () => {
   it("keys on tool plus arguments, normalizing whitespace, and ignores a bare tool name", () => {

@@ -1,5 +1,6 @@
 import { failedTurnTool } from "../../shared/failed-turn.ts";
 import type { WireMessage } from "../../shared/wire.ts";
+import { isRepeatedCallLine } from "../repeat-detector.ts";
 import { fileListLedger } from "./list-ledger.ts";
 import { endsOnPromise } from "./promise-nudge.ts";
 
@@ -76,7 +77,7 @@ export function answersPerson(message: Message, carriesOnAfterLimit = false): bo
     case "activity": {
       if (message.comm || message.threadRef || message.cloudTask) return true;
       const tool = message.tool;
-      if (!tool || tool.statusLine || tool.compaction || tool.ok !== false || tool.itemId) return false;
+      if (!tool || tool.statusLine || tool.compaction || tool.ok !== false || tool.itemId || isRepeatedCallLine(tool.name)) return false;
       return !(carriesOnAfterLimit && tool.quota);
     }
     case "options": {

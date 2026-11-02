@@ -1,3 +1,14 @@
+const REPEATED_CALL = /^Same call repeated \d+× — /;
+
+export function repeatedCallLine(threshold: number, key: string): string {
+  const [tool, ...rest] = key.split(":");
+  const args = rest.join(":");
+  return `Same call repeated ${threshold}× — ${tool}: ${args.slice(0, 80)}${args.length > 80 ? "…" : ""} — it may be stuck`;
+}
+
+export function isRepeatedCallLine(name: string | undefined): boolean {
+  return REPEATED_CALL.test(name ?? "");
+}
 
 export function callKey(tool: string, args: string | undefined): string | null {
   const a = (args ?? "").replace(/\s+/g, " ").trim();
