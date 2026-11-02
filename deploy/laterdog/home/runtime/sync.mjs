@@ -270,6 +270,8 @@ function changedShape(before, after) {
 }
 
 const RESTORE_PARALLEL = 16;
+export const CHUNK_ATTEMPTS = 5;
+export const CHUNK_RETRY_MS = 1_000;
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -284,13 +286,42 @@ async function writeAll(handle, bytes, position) {
   return position + written;
 }
 
-async function download(entry, store, staging, stop) {
+function waitUnlessStopped(ms, stop) {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      stop.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    stop.addEventListener("abort", done, { once: true });
+  });
+}
+
+async function readChunk(store, hash, stop, { attempts, retryMs }) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await store.get(hash, { signal: stop });
+    } catch (error) {
+      if (stop.aborted || attempt >= attempts) throw error;
+      await waitUnlessStopped(attempt * retryMs, stop);
+      if (stop.aborted) throw error;
+    }
+  }
+}
+
+async function alreadyRestored(path, entry) {
+  const existing = await lstat(path).catch(() => null);
+  return existing?.isFile() === true && existing.size === entry.size && Math.trunc(existing.mtimeMs) === Math.trunc(entry.mtimeMs);
+}
+
+async function download(entry, store, staging, stop, retries) {
   const handle = await open(staging, "wx", 0o600);
   try {
     let position = 0;
     for (const hash of entry.chunks) {
       if (stop.aborted) return false;
-      const bytes = await store.get(hash, { signal: stop });
+      const bytes = await readChunk(store, hash, stop, retries);
       if (sha256(bytes) !== hash) throw new Error(`corrupt chunk for ${entry.path}`);
       position = await writeAll(handle, bytes, position);
     }
@@ -305,7 +336,8 @@ async function clearForFile(path) {
   if (existing?.isDirectory()) await rm(path, { recursive: true, force: true });
 }
 
-export async function restore(root, store, owner) {
+export async function restore(root, store, owner, { chunkAttempts = CHUNK_ATTEMPTS, chunkRetryMs = CHUNK_RETRY_MS, finished = new Set() } = {}) {
+  const retries = { attempts: chunkAttempts, retryMs: chunkRetryMs };
   const manifest = await store.manifest();
   if (!manifest) return { manifest: null, files: 0 };
   const kept = manifest.entries.filter((entry) => !transient(entry));
@@ -331,10 +363,14 @@ export async function restore(root, store, owner) {
   const failures = [];
   const writeOne = async (entry) => {
     const path = join(root, entry.path);
+    if (finished.has(entry.path) && (await alreadyRestored(path, entry))) {
+      files += 1;
+      return;
+    }
     const staging = join(dirname(path), `${RESTORING_PREFIX}${sha256(entry.path).slice(0, 24)}`);
     await rm(staging, { force: true, recursive: true });
     try {
-      if (!(await download(entry, store, staging, stopping.signal))) return;
+      if (!(await download(entry, store, staging, stopping.signal, retries))) return;
       await chmod(staging, entry.mode);
       await own(staging);
       const moment = new Date(entry.mtimeMs);
@@ -342,6 +378,7 @@ export async function restore(root, store, owner) {
       if (stopping.signal.aborted) return;
       await clearForFile(path);
       await rename(staging, path);
+      finished.add(entry.path);
       files += 1;
     } finally {
       await rm(staging, { force: true });
