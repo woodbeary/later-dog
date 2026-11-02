@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { claudeAuthFailure, claudeSignedIn, claudeVersionTooOld } from "./claude.ts";
+import { claudeAuthFailure, claudeAuthStatus, claudeSignedIn, claudeVersionTooOld } from "./claude.ts";
 
 describe("claudeSignedIn", () => {
   it("uses the CLI's machine-readable auth status", async () => {
@@ -32,6 +32,25 @@ describe("claudeSignedIn", () => {
 
     expect(await claudeSignedIn("claude", {}, failed)).toBe(false);
     expect(await claudeSignedIn("claude", {}, malformed)).toBe(false);
+  });
+});
+
+describe("claudeAuthStatus", () => {
+  it("leaves sign-in unknown when the command ran out of time or the machine was too busy to start it", async () => {
+    const timedOut = ((_cli, _args, _options, callback) => {
+      callback(Object.assign(new Error("timed out"), { killed: true, signal: "SIGTERM" }), "");
+    }) satisfies typeof import("../procs.ts").execCli;
+    const busy = ((_cli, _args, _options, callback) => {
+      callback(Object.assign(new Error("spawn EAGAIN"), { code: "EAGAIN" }), "");
+    }) satisfies typeof import("../procs.ts").execCli;
+    const missing = ((_cli, _args, _options, callback) => {
+      callback(Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" }), "");
+    }) satisfies typeof import("../procs.ts").execCli;
+
+    expect(await claudeAuthStatus("claude", {}, timedOut)).toEqual({});
+    expect(await claudeAuthStatus("claude", {}, busy)).toEqual({});
+    expect(await claudeAuthStatus("claude", {}, missing)).toEqual({ authenticated: false });
+    expect(await claudeSignedIn("claude", {}, timedOut)).toBe(false);
   });
 });
 

@@ -149,6 +149,7 @@ if (argv[0] === "auth" && argv[1] === "status") {
     process.stderr.write("error: unknown command 'auth'\n");
     process.exit(1);
   }
+  if (auth === "killed") process.kill(process.pid, "SIGKILL");
   if (auth === "malformed") {
     process.stdout.write("not json\n");
     process.exit(0);

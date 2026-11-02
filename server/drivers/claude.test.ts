@@ -3917,6 +3917,26 @@ describe("ClaudeDriver snapshot auth (fake CLI)", () => {
     expect(await instance.snapshot()).toMatchObject({ state: "available", authenticated: false });
   });
 
+  it("keeps the last answer when `auth status` is cut off before it answers", async () => {
+    process.env.FAKE_CLAUDE_AUTH = "in";
+    await create();
+    expect(await instance.snapshot()).toMatchObject({ state: "available", authenticated: true });
+
+    process.env.FAKE_CLAUDE_AUTH = "killed";
+    expect(await instance.snapshot()).toMatchObject({ state: "available", authenticated: true });
+
+    process.env.FAKE_CLAUDE_AUTH = "out";
+    expect(await instance.snapshot()).toMatchObject({ state: "available", authenticated: false });
+  });
+
+  it("says nothing about sign-in when the first `auth status` is cut off", async () => {
+    process.env.FAKE_CLAUDE_AUTH = "killed";
+    await create();
+    const snapshot = await instance.snapshot();
+    expect(snapshot).toMatchObject({ state: "available" });
+    expect(snapshot.authenticated).toBeUndefined();
+  });
+
   it("fails closed instead of trusting stale credential storage", async () => {
     await create();
 

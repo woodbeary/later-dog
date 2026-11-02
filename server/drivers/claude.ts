@@ -63,13 +63,14 @@ import {
 import { readEngineModels } from "../laterdog/wait-at-most.ts";
 import { readCliVersion as readCliVersionOf, unreadCli } from "../laterdog/cli-version.ts";
 
-function claudeAuthStatus(
+export function claudeAuthStatus(
   cli: string,
   env: NodeJS.ProcessEnv,
   run: typeof execCli = execCli,
-): Promise<{ authenticated: boolean; account?: ProviderSnapshot["account"] }> {
+): Promise<{ authenticated?: boolean; account?: ProviderSnapshot["account"] }> {
   return new Promise((resolve) => {
-    run(cli, ["auth", "status", "--json"], { timeout: 8000, maxBuffer: 65_536, env }, (_error, stdout) => {
+    run(cli, ["auth", "status", "--json"], { timeout: 8000, maxBuffer: 65_536, env }, (error, stdout) => {
+      if (unanswered(error, stdout)) return resolve({});
       try {
         const status: unknown = JSON.parse(stdout);
         if (!status || typeof status !== "object" || !("loggedIn" in status) || status.loggedIn !== true) {
@@ -95,12 +96,25 @@ function claudeAuthStatus(
   });
 }
 
+const BUSY_CODES = new Set(["EAGAIN", "ENOMEM", "EMFILE", "ENFILE"]);
+
+function unanswered(error: unknown, stdout: string): boolean {
+  if (!error || stdout.trim()) return false;
+  const failure = error as { signal?: unknown; code?: unknown };
+  return (typeof failure.signal === "string" && failure.signal.length > 0) || (typeof failure.code === "string" && BUSY_CODES.has(failure.code));
+}
+
+function keptAuth(snapshot: ProviderSnapshot | null): Pick<ProviderSnapshot, "authenticated" | "account"> {
+  if (snapshot?.authenticated === undefined) return {};
+  return { authenticated: snapshot.authenticated, ...(snapshot.account ? { account: snapshot.account } : {}) };
+}
+
 export async function claudeSignedIn(
   cli: string,
   env: NodeJS.ProcessEnv,
   run: typeof execCli = execCli,
 ): Promise<boolean> {
-  return (await claudeAuthStatus(cli, env, run)).authenticated;
+  return (await claudeAuthStatus(cli, env, run)).authenticated === true;
 }
 
 export const CLAUDE_ACCOUNT_ENV_KEYS = [
@@ -2022,10 +2036,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
 
     const login = new ClaudeLoginController({ cli: config.cli, environment, onAuthenticated: async () => { await refreshModels(); } });
 
+    let lastAnswered: ProviderSnapshot | null = null;
     const snapshot = async (): Promise<ProviderSnapshot> => {
       const env = environment();
       const read = await readCliVersionOf(config.cli, env);
-      if (!("version" in read)) return unreadCli(config.cli, read);
+      if (!("version" in read)) return "starting" in read && lastAnswered ? lastAnswered : unreadCli(config.cli, read);
       const version = read.version;
       cliVersion = parseClaudeCliVersion(version);
       cliVersionChecked = true;
@@ -2037,7 +2052,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         return { state: "available", version, authenticated: true, account: { method: "api-key" }, ...(update ? { update } : {}), ...(warning ? { warning } : {}), billing: "metered" };
       }
       const auth = await claudeAuthStatus(config.cli, env);
-      return { state: "available", version, ...auth, ...(update ? { update } : {}), ...(warning ? { warning } : {}), billing: "subscription" };
+      const known = auth.authenticated === undefined ? keptAuth(lastAnswered) : auth;
+      const answer: ProviderSnapshot = { state: "available", version, ...known, ...(update ? { update } : {}), ...(warning ? { warning } : {}), billing: "subscription" };
+      if (auth.authenticated !== undefined) lastAnswered = answer;
+      return answer;
     };
 
     const generateReview = (prompt: string, signal?: AbortSignal, onUsage?: TextGenerationOptions["onUsage"]): Promise<string> =>
