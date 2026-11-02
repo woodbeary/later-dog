@@ -715,6 +715,8 @@ import { guardTurnEnd } from "./laterdog/turn-end-guard.ts";
 import { expireStaleApprovals } from "./laterdog/stale-approvals.ts";
 import { createUndoRoutes } from "./routes/undo.ts";
 import { createVoiceTranscribeRoutes } from "./routes/voice-transcribe.ts";
+import { createVoiceStreamRoutes } from "./routes/voice-stream.ts";
+import { createVoiceStreams } from "./laterdog/voice-stream.ts";
 import { createTimeZoneRoutes, currentTimeZone, restoreTimeZone } from "./laterdog/time-zone.ts";
 import { withScheduleLabel } from "./laterdog/routine-schedule-label.ts";
 import { heldAccountReason } from "./laterdog/held-accounts.ts";
@@ -12525,6 +12527,11 @@ ROUTES.push(createTimeZoneRoutes({
 }));
 ROUTES.push(createVoiceTranscribeRoutes({
   transcribe: (req, url) => transcribeRoute(req, url, cloudDictationEnabled(cfg), pickTranscriber(voiceCredential(cfg.tts?.key), xaiVoice(cfg.xai?.key))),
+}));
+ROUTES.push(createVoiceStreamRoutes({
+  streams: createVoiceStreams(),
+  enabled: () => cloudDictationEnabled(cfg),
+  transcriber: () => pickTranscriber(voiceCredential(cfg.tts?.key), xaiVoice(cfg.xai?.key)),
 }));
 const takeoverLease = {
   controlKey: (bot: BotRecord) => bot.id,

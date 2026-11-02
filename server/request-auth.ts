@@ -261,6 +261,7 @@ export const CLIENT_ALLOW: ReadonlyArray<{ methods: readonly string[]; path: Reg
   { methods: ["POST"], path: /^\/api\/tts\/prepare$/ },
   { methods: ["POST"], path: /^\/api\/tts\/speak$/ },
   { methods: ["POST"], path: /^\/api\/voice\/transcribe$/ },
+  { methods: ["POST", "DELETE"], path: /^\/api\/voice\/stream$/ },
   { methods: ["POST"], path: /^\/api\/typing\/(?:complete|rank)$/ },
   { methods: ["GET"], path: /^\/api\/routines$/ },
   { methods: ["POST"], path: /^\/api\/routines$/ },
