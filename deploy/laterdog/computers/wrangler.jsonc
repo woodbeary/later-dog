@@ -13,7 +13,7 @@
       "class_name": "DogComputer",
       "scheduling_policy": "durable_object",
       "images": {
-        "desktop": { "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-computers-dogcomputer-desktop@sha256:4b84bac6db3e5c4352521c623036fa01415fcb6b0530b34243f7f1d5c4f46ff7" }
+        "desktop": { "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-computers-dogcomputer-desktop@sha256:b388a2d643f32e0d3d66a8f1842d3149de10b6d4109ea474df486360c1676655" }
       },
       "observability": { "enabled": true }
     }

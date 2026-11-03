@@ -8,14 +8,12 @@ nothing but its snapshot. Waking it restores the files.
 ## Live deployment
 
 - API: `https://cloud.later.dog/v1`, the Worker's custom domain. `wrangler.jsonc` turns its `workers.dev` address and
-  preview URLs off (`workers_dev` and `preview_urls` are `false`), so every request passes the zone's rules. The live
-  Worker still had both on when read on 2026-10-19; they go off with the next `wrangler deploy` of this config. Before
-  that deploy, run `scripts/deploy.sh` (or check that `~/.laterdog/computers.json` names `https://cloud.later.dog/v1`),
-  because a file written by an older `deploy.sh` may still name the `workers.dev` address.
-- Worker `laterdog-computers`, version `2c2a5686-59f7-4f6e-88cc-77c83a6e998f` (deployed 2026-10-16).
-- Image `laterdog-computers-dogcomputer-desktop@sha256:4b84bac6db3e5c4352521c623036fa01415fcb6b0530b34243f7f1d5c4f46ff7`,
-  as that version names it (read from the Workers versions API on 2026-10-19). The container application itself showed
-  an empty configuration that day, so a full `wrangler deploy` with the pinned image is needed before computers start.
+  preview URLs off (`workers_dev` and `preview_urls` are `false`); the `workers.dev` address answered 404 on 2026-11-03.
+  later.dog's server maps an old `~/.laterdog/computers.json` that still names it to `cloud.later.dog`.
+- Worker `laterdog-computers`, version `b9a3b27d-9ac8-4196-956e-87343d85fef4` (deployed 2026-11-03 from main `5dda7d0f8`).
+- Image `laterdog-computers-dogcomputer-desktop@sha256:b388a2d643f32e0d3d66a8f1842d3149de10b6d4109ea474df486360c1676655`,
+  built by that deploy. Its Chromium listens for DevTools on `127.0.0.1:9339`, which later.dog uses to close the tabs a
+  finished task left open.
 - The key is in `~/.laterdog/computers-key` and the base URL in `~/.laterdog/computers.json` (both mode 600).
 - later.dog's server uses these computers instead of Boat as soon as `~/.laterdog/computers.json` exists
   (`server/laterdog/cloud-computers.ts`). Delete that file to go back to Boat.

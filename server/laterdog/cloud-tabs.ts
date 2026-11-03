@@ -30,8 +30,11 @@ export function withTabListing(command: string): string {
 }
 
 export function parseTargets(text: string): Target[] | null {
+  const start = text.indexOf("[");
+  const end = text.lastIndexOf("]");
+  if (start === -1 || end < start) return null;
   let value: unknown;
-  try { value = JSON.parse(text); } catch { return null; }
+  try { value = JSON.parse(text.slice(start, end + 1)); } catch { return null; }
   if (!Array.isArray(value)) return null;
   return value.flatMap((entry) => {
     if (!entry || typeof entry !== "object") return [];

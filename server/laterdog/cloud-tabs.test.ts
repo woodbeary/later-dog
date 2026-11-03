@@ -25,6 +25,7 @@ describe("reading the browser's tabs", () => {
     expect(parseTargets(text)).toEqual([page("AAAA1111", "https://a.test/")]);
     expect(parseTargets("")).toBeNull();
     expect(parseTargets("{}")).toBeNull();
+    expect(parseTargets(`${text}\u001b[3J\u001b[H\u001b[2J`)).toEqual([page("AAAA1111", "https://a.test/")]);
   });
 
   it("splits the listing off a command's own output and keeps the exit code", () => {
