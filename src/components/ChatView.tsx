@@ -115,6 +115,7 @@ import { cn } from "@/lib/cn";
 import { chatPane } from "@/state/pane-errors";
 import { PaneErrorLine } from "./PaneErrorLine";
 import { activeLocale, t } from "@/lib/i18n";
+import { waitingOnStatus } from "@/lib/waiting-on";
 import { groupTranscript, isStatusActivity, planTranscript, type TranscriptPlan } from "@/lib/activity-runs";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
 import { UnreadDivider } from "./UnreadDivider";
@@ -1189,7 +1190,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             </span>
             <span className="min-w-0 truncate text-[14px] font-semibold text-ink">{bot.name}</span>
           </button>
-          {!bot.busy && bot.waitingForTeammates && <span className="truncate text-[12px] text-ink-secondary" role="status">{t("chat.teammatesWorking")}</span>}
+          {!bot.busy && bot.waitingForTeammates && <span className="truncate text-[12px] text-ink-secondary" role="status">{waitingOnStatus(bot.waitingOn)}</span>}
         </div>
         <div
           data-chathead-controls

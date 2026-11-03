@@ -43,6 +43,7 @@ import { lastShownRow } from "@/lib/room-activity";
 import { showToolCallsEnabled } from "@/lib/feature-flags";
 import { activityPreview, botEngine } from "@/lib/failed-turn";
 import { activeLocale, t } from "@/lib/i18n";
+import { waitingOnPreview } from "@/lib/waiting-on";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { WorkingDots } from "./WorkingIndicator";
 import { currentDogName } from "@/lib/dog-refs";
@@ -115,7 +116,7 @@ export function waitingLine(visible: Message[]): string {
 
 function preview(bot: Bot, visible: Message[], instances: InstanceInfo[], showToolCalls: boolean): string {
   if (bot.activity === "waiting-on-you") return waitingLine(visible);
-  if (bot.waitingForTeammates) return t("sidebar.preview.waitingOnTeammate");
+  if (bot.waitingForTeammates) return waitingOnPreview(bot.waitingOn);
   if (bot.busy) return t("sidebar.preview.working");
   const last = lastShownRow(visible, showToolCalls);
   if (!last) return "";

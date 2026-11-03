@@ -10,7 +10,7 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { followsTaskView, followTaskView, reduceTaskView, type TaskView, type TaskViewAction } from "./task-view";
-import type { BotVisibility, CardAnswerer, CloudBackend, ConnectorToolGrant, EffortLevel, InstalledPackageMetadata, LiveCallState, LiveSettings, ServerFrame, GroupThreadUsage, SteerQueueReason } from "../../shared/wire";
+import type { BotVisibility, CardAnswerer, CloudBackend, ConnectorToolGrant, EffortLevel, InstalledPackageMetadata, LiveCallState, LiveSettings, ServerFrame, GroupThreadUsage, SteerQueueReason, WireWaitingOn } from "../../shared/wire";
 import type { TurnDigest } from "../../shared/digest";
 import type { DamagedData } from "../../shared/damaged-data";
 import { mainDogId } from "../../shared/main-dog";
@@ -244,6 +244,7 @@ export interface ModelSelection {
 
 export interface Task {
   waitingForTeammates?: boolean;
+  waitingOn?: WireWaitingOn[];
   threadId: string;
   routineRunId?: string;
   projectId?: string;
@@ -298,6 +299,7 @@ export interface TaskUsage {
 export interface Bot {
   toolScope?: ToolScope;
   waitingForTeammates?: boolean;
+  waitingOn?: WireWaitingOn[];
   id: string;
   threadId: string;
   tasks?: Task[];
@@ -380,6 +382,7 @@ export function currentTaskBot(bot: Bot, threadId = bot.threadId): Bot {
     turnStartedAt: task.turnStartedAt ?? null,
     workingStartedAt: task.workingStartedAt ?? null,
     waitingForTeammates: task.waitingForTeammates ?? false,
+    waitingOn: task.waitingOn ?? [],
   };
 }
 
