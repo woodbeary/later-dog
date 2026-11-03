@@ -33,7 +33,13 @@ export function phoneCrashLine(report: PhoneCrashReport): string {
 }
 
 export class PhoneCrashes {
-  constructor(private readonly file: string, private readonly kept = PHONE_CRASHES_KEPT) {}
+  private readonly file: string;
+  private readonly kept: number;
+
+  constructor(file: string, kept = PHONE_CRASHES_KEPT) {
+    this.file = file;
+    this.kept = kept;
+  }
 
   recent(): KeptPhoneCrash[] {
     try {
