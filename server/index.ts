@@ -14736,7 +14736,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (limit === null) return json(res, 400, { error: "messages must be a non-negative whole number" });
       const shownBots = store.bots.filter((bot) => visible.bot(bot.id));
       const queued = publicBotQueuedMessages();
-      const preview = { brief: pageViewOf(url.searchParams).brief };
+      const preview = pageViewOf(url.searchParams);
       return json(res, 200, {
         bots: shownBots.map((bot) => memberBot({
           ...wireBot(bot),

@@ -61,5 +61,15 @@ describe("page views", () => {
     expect(pageViewOf(new URLSearchParams("limit=30&count=shown&steps=brief"))).toEqual({ shown: true, brief: true });
     expect(pageViewOf(new URLSearchParams("messages=30&steps=brief"))).toEqual({ shown: false, brief: true });
     expect(pageViewOf(new URLSearchParams("messages=30"))).toEqual({ shown: false, brief: false });
+    expect(pageViewOf(new URLSearchParams("messages=15&count=shown&steps=brief"))).toEqual({ shown: true, brief: true });
+  });
+});
+
+describe("the dog list's chat windows", () => {
+  it("passes the whole page view, so each chat can come with a screenful of shown rows", async () => {
+    const { readFileSync } = await import("node:fs");
+    const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    expect(index).toContain("const preview = pageViewOf(url.searchParams);");
+    expect(index).toContain("...messagePage(bot.threadId, limit, undefined, preview)");
   });
 });
