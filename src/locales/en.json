@@ -252,6 +252,7 @@
   "approval.action.cancel": "Cancel",
   "approval.action.deny": "Don't allow",
   "approval.reach.chat": "Always allow lets {name} do this again without asking in this chat.",
+  "approval.reach.everywhere": "Always allow lets {name} do this again without asking, in every chat. You can undo it in {name}'s settings.",
   "approval.reach.dog": "Always allow lets {name} do this again without asking in group chats and in new chats.",
   "approval.reach.connector": "Allow covers {app} until your next message. Always allow lets {name} use it without asking again. Skip leaves it unused until your next message.",
   "approval.reach.connectorApp": "this app",

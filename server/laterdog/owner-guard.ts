@@ -5,6 +5,8 @@ import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 
 export type OwnerGuardRule = "force-push-default-branch" | "delete-remote-repository" | "delete-outside-workspace";
 
+export { DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY } from "../../shared/cloud-home.ts";
+
 export interface OwnerGuardRefusal {
   rule: OwnerGuardRule;
   message: string;

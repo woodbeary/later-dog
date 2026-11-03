@@ -453,6 +453,26 @@ describe("ApprovalCard tool-call kinds", () => {
   });
 });
 
+describe("a delete outside the workspace", () => {
+  const bot = { id: "bot-1", name: "Scout" } as never as Bot;
+  it("offers Always allow next to Allow once, and says it covers every chat and can be undone", () => {
+    const message: Message = {
+      id: "delete-card", role: "bot", kind: "options", at: 1,
+      card: {
+        title: "Approval needed",
+        subtitle: "This deletes /data/v3work and everything in it, outside this dog's workspace and /tmp. Allow only if you want it gone.\n\nrm -rf /data/v3work",
+        options: ["Allow", "Deny"], requestId: "req-delete", requestType: "permission", tool: "Bash",
+        allowKey: "Delete folders outside its workspace",
+      },
+    };
+    const [pending] = pendingApprovals([message]);
+    const actions = renderToStaticMarkup(createElement(StoreProvider, null, createElement(PendingApprovalActions, { pending: pending!, threadId: "thread-1", bot })));
+    expect(actions).toContain("Allow once");
+    expect(actions).toContain("Always allow");
+    expect(actions).toContain("Always allow lets Scout do this again without asking, in every chat. You can undo it in Scout&#x27;s settings.");
+  });
+});
+
 describe("ApprovalCard expired proposals", () => {
   const expiredMessage = (): Message => ({
     id: "profile-expired-card",

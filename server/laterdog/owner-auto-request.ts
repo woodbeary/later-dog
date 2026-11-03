@@ -13,6 +13,7 @@ export interface OwnerAutoPermissionDeps {
   allow(): Promise<RequestOutcome | "failed">;
   deny(message: string): Promise<RequestOutcome | "failed">;
   hold?: (question: string, refusal: OwnerGuardRefusal) => void;
+  ownerAllows?: (refusal: OwnerGuardRefusal) => boolean;
   isCurrent(): boolean;
   approved(): void;
   refused(refusal: OwnerGuardRefusal): void;
@@ -23,7 +24,8 @@ export async function settleOwnerAutoPermission(
   request: OwnerAutoPermission,
   deps: OwnerAutoPermissionDeps,
 ): Promise<OwnerAutoSettlement> {
-  const refusal = await ownerGuard(request, deps.guard);
+  const found = await ownerGuard(request, deps.guard);
+  const refusal = found?.ask && deps.ownerAllows?.(found) ? null : found;
   if (refusal?.ask && deps.hold) {
     if (!deps.isCurrent()) return "stale";
     deps.hold(refusal.ask, refusal);

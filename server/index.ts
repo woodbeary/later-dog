@@ -628,7 +628,7 @@ import { EDIT_REFUSAL } from "./laterdog/local-tool-message.ts";
 import { claudeReviewerGrant, ownerAuthority, ownerAutoAnswers, ownerCoordinationAuthority, ownerCoordinationRequestNote, ownerGrantApplies, ownerGrantPrompt, ownerSendsWithoutAsking, reviewerMissingNotice, type OwnerAutoScope } from "./laterdog/owner-auto.ts";
 import { autoReviewOn, ownerTurnMode } from "./laterdog/auto-review.ts";
 import { settleOwnerAutoPermission } from "./laterdog/owner-auto-request.ts";
-import { ownerGuardRequest, ownerWorkspaceRoots, type OwnerGuardContext } from "./laterdog/owner-guard.ts";
+import { DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY, ownerGuardRequest, ownerWorkspaceRoots, type OwnerGuardContext, type OwnerGuardRefusal } from "./laterdog/owner-guard.ts";
 import { sameEngineAcrossAccounts } from "./laterdog/saved-command-engine.ts";
 import { ROUTES, dispatchRoutes } from "./routes/table.ts";
 import { createLinkPreviewRoutes } from "./routes/link-preview.ts";
@@ -6576,7 +6576,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           },
         });
       }
-      const showCard = (ownerHold?: string) => {
+      const showCard = (ownerHold?: string, ownerAllowKey?: string) => {
         const cardCommand = ownerHold === undefined ? command : null;
         const heldContext = { source: ownerHold === undefined ? verdict?.source : undefined, permission };
         const questions = event.questions?.length ? event.questions : undefined;
@@ -6603,6 +6603,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             held: approvalHeldReason(heldContext),
             heldCode: approvalHeldNote(heldContext),
             approvalScope: event.approvalScope,
+            ...(ownerAllowKey ? { allowKey: ownerAllowKey } : {}),
           },
         });
         if (event.requestId) askMessageByRequest.set(`${event.threadId}:${event.requestId}`, message.id);
@@ -6658,7 +6659,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
               return "failed";
             }
           },
-          hold: unattended ? undefined : (question) => showCard(question),
+          hold: unattended ? undefined : (question, refusal) => showCard(question, ownerGuardAllowKey(refusal)),
+          ownerAllows: (refusal) => ownerGuardAllowed(asker.id, event.threadId, refusal),
           isCurrent,
           approved: () => decide("auto-approved", "owner-auto"),
           refused: (refusal) => {
@@ -10933,7 +10935,23 @@ async function attachmentVmForTurn(capability: InternalCapability): Promise<Loca
   return vm;
 }
 
+function ownerGuardAllowKey(refusal: OwnerGuardRefusal): string | undefined {
+  return refusal.rule === "delete-outside-workspace" ? DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY : undefined;
+}
+
+function ownerGuardAllowed(botId: string, threadId: string, refusal: OwnerGuardRefusal): boolean {
+  const key = ownerGuardAllowKey(refusal);
+  return key !== undefined && [store.bot(botId), store.projectBotForTask(botId, threadId)].some((bot) => bot?.alwaysAllow?.includes(key) === true);
+}
+
 function addAlwaysAllow(bot: BotRecord, allowKey: string) {
+  if (allowKey === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY) {
+    const owner = store.bot(bot.id);
+    if (owner && !owner.alwaysAllow?.includes(allowKey)) store.patchBot(bot.id, { alwaysAllow: [...(owner.alwaysAllow ?? []), allowKey].slice(0, 200) });
+    const visible = wireBot(store.bot(bot.id)!);
+    broadcast({ kind: "bot", bot: visible });
+    return visible;
+  }
   store.patchTask(bot.id, bot.threadId, {
     alwaysAllow: [...new Set([...(bot.alwaysAllow ?? []), allowKey])].slice(0, 200),
   });

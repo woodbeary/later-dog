@@ -7,7 +7,7 @@ import { SkillRequestPreview } from "@/components/SkillRequestPreview";
 import { toolLabel } from "./ApprovalCard";
 import { outboundSummary } from "@/lib/approval-summary";
 import { reviewedSkillSha256 } from "../../shared/skill-request";
-import { MAC_ALLOW_KEY } from "../../shared/cloud-home";
+import { DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY, MAC_ALLOW_KEY } from "../../shared/cloud-home";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
 
 export interface Pending {
@@ -231,6 +231,8 @@ export function PendingApprovalActions({
       ? t("approval.reach.connector", { name: bot.name, app: outbound.app ?? t("approval.reach.connectorApp") })
       : pending.allowKey === MAC_ALLOW_KEY
       ? t("approval.reach.mac")
+      : pending.allowKey === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY
+      ? t("approval.reach.everywhere", { name: bot.name })
       : t(bot.tasks?.some((task) => task.threadId === threadId) ? "approval.reach.chat" : "approval.reach.dog", { name: bot.name })
     : canRememberCommand && pending.commandAllowlist
       ? t("approval.reach.command", { name: bot?.name ?? t("approval.someone"), cwd: pending.commandAllowlist.cwd })

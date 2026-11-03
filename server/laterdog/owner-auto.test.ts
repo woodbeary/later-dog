@@ -181,6 +181,26 @@ describe("an escalation from an owner Off-leash dog", () => {
     expect(calls).toEqual(["deny", "refused: force-push-default-branch"]);
   });
 
+  it("runs the delete with no card, even unattended, once the owner chose Always allow, and never lets a rule cover a force-push", async () => {
+    const settle = (command: string, ownerAllows: boolean) => {
+      const calls: string[] = [];
+      return settleOwnerAutoPermission({ tool: "Bash", command }, {
+        guard: { cwd: workspace, workspaceRoots: [workspace], tempRoots: ["/tmp"], home: "/data", git },
+        allow: async () => { calls.push("allow"); return "allowed-once"; },
+        deny: async () => { calls.push("deny"); return "rejected"; },
+        ownerAllows: () => ownerAllows,
+        isCurrent: () => true,
+        approved: () => calls.push("approved"),
+        refused: (refusal) => calls.push(`refused: ${refusal.rule}`),
+        failed: () => calls.push("failed"),
+      }).then((settled) => ({ settled, calls }));
+    };
+    expect(await settle("rm -rf /data/v3work", true)).toEqual({ settled: "approved", calls: ["allow", "approved"] });
+    expect(await settle("rm -rf /data/v3work", false)).toEqual({ settled: "refused", calls: ["deny", "refused: delete-outside-workspace"] });
+    expect(await settle("git push --force origin main", true)).toEqual({ settled: "refused", calls: ["deny", "refused: force-push-default-branch"] });
+    expect(await settle("gh repo delete owner/repo --yes", true)).toEqual({ settled: "refused", calls: ["deny", "refused: delete-remote-repository"] });
+  });
+
   it("reports a provider that would not take the approval", async () => {
     expect(await run({ tool: "Bash", command: "pnpm test" }, "rejected")).toEqual({ settled: "failed", calls: ["allow", "failed: rejected"] });
   });
