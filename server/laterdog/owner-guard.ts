@@ -8,6 +8,7 @@ export type OwnerGuardRule = "force-push-default-branch" | "delete-remote-reposi
 export interface OwnerGuardRefusal {
   rule: OwnerGuardRule;
   message: string;
+  ask?: string;
 }
 
 export interface GitLookup {
@@ -258,6 +259,7 @@ function deleteTargetRefusal(target: Word, cwd: string | undefined, paths: Paths
     return {
       rule: "delete-outside-workspace",
       message: `later.dog refused this: it deletes ${target.text} recursively, and later.dog cannot tell where that is. Write the literal path inside this dog's workspace or /tmp.`,
+      ask: `This deletes ${target.text} and everything in it, and later.dog cannot tell where that is. Allow only if you want it gone.`,
     };
   }
   const allowed = target.glob
@@ -267,6 +269,7 @@ function deleteTargetRefusal(target: Word, cwd: string | undefined, paths: Paths
   return {
     rule: "delete-outside-workspace",
     message: `later.dog refused this: it deletes ${target.glob ? target.text : expanded} recursively, outside this dog's workspace and /tmp.`,
+    ask: `This deletes ${target.glob ? target.text : expanded} and everything in it, outside this dog's workspace and /tmp. Allow only if you want it gone.`,
   };
 }
 

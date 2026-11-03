@@ -6,12 +6,13 @@ export interface OwnerAutoPermission {
   command?: string;
 }
 
-export type OwnerAutoSettlement = "approved" | "refused" | "failed" | "stale";
+export type OwnerAutoSettlement = "approved" | "refused" | "held" | "failed" | "stale";
 
 export interface OwnerAutoPermissionDeps {
   guard: OwnerGuardContext;
   allow(): Promise<RequestOutcome | "failed">;
   deny(message: string): Promise<RequestOutcome | "failed">;
+  hold?: (question: string, refusal: OwnerGuardRefusal) => void;
   isCurrent(): boolean;
   approved(): void;
   refused(refusal: OwnerGuardRefusal): void;
@@ -23,6 +24,11 @@ export async function settleOwnerAutoPermission(
   deps: OwnerAutoPermissionDeps,
 ): Promise<OwnerAutoSettlement> {
   const refusal = await ownerGuard(request, deps.guard);
+  if (refusal?.ask && deps.hold) {
+    if (!deps.isCurrent()) return "stale";
+    deps.hold(refusal.ask, refusal);
+    return "held";
+  }
   if (refusal) {
     await deps.deny(refusal.message);
     if (!deps.isCurrent()) return "stale";

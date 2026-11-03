@@ -6576,6 +6576,65 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           },
         });
       }
+      const showCard = (ownerHold?: string) => {
+        const cardCommand = ownerHold === undefined ? command : null;
+        const heldContext = { source: ownerHold === undefined ? verdict?.source : undefined, permission };
+        const questions = event.questions?.length ? event.questions : undefined;
+        const message = pushMessage({
+          role: "bot",
+          kind: "options",
+          card: {
+            title:
+              permission && event.approvalScope === "local-computer"
+                ? "Local computer approval"
+                : permission
+                  ? "Approval needed"
+                  : "Your dog has a question",
+            subtitle: ownerHold ? `${ownerHold}\n\n${event.summary}` : event.summary,
+            options: event.choices?.length ? event.choices : permission ? ["Allow", "Deny"] : [],
+            requestId: event.requestId,
+            requestType: permission ? "permission" : "question",
+            tool: permission ? event.tool : undefined,
+            questionRequest: questions
+              ? { version: 1, questions, ...(event.origin === "output" ? { origin: "output" as const } : {}) }
+              : undefined,
+            commandAllowlist: cardCommand ?? undefined,
+            allowSession: permission && event.allowSession && !event.requiresExplicitApproval && ownerHold === undefined && !guestDriven ? true : undefined,
+            held: approvalHeldReason(heldContext),
+            heldCode: approvalHeldNote(heldContext),
+            approvalScope: event.approvalScope,
+          },
+        });
+        if (event.requestId) askMessageByRequest.set(`${event.threadId}:${event.requestId}`, message.id);
+        if (cardCommand && asker && event.requestId) pendingCommandRules.set(`${event.threadId}:${event.requestId}`, { botId: asker.id, candidate: cardCommand });
+        appendDecision(DATA_DIR, {
+          threadId: event.threadId,
+          requestId: event.requestId,
+          botId: asker?.id,
+          botName: asker?.name,
+          tool: event.tool,
+          summary: event.summary,
+          decision: "card-shown",
+          source: !permission ? "question" : ownerHold !== undefined ? "owner-guard" : verdict ? verdict.source : "no-grant",
+          origin: !permission && event.origin === "output" ? "output" : undefined,
+          unattended: unattended || undefined,
+        });
+        if (asker) {
+          const card = store.messagesFor(event.threadId).find((candidate) => candidate.id === message.id)?.card;
+          if (card && !card.answered) {
+            if (bot) store.setTaskActivity(bot.id, event.threadId, "waiting-on-you");
+            else if (asker.busy) store.setActivity(asker.id, "waiting-on-you");
+            if (event.requestId) showWaitingOnPersonChip(event.threadId, event.requestId, asker, permission ? "approval" : "answer");
+            const notificationBot = (routineRun && routineSourceOwner(routineRun)?.bot) || asker;
+            notify(buildNotification(
+              permission ? "approval" : "question",
+              notificationBot,
+              (routineRun && routineSourceThread(routineRun)) || event.threadId,
+              event.summary,
+            ));
+          }
+        }
+      };
       if (ownerAuto && permission && asker && event.requestId) {
         const requestId = event.requestId;
         const instance = registry.get(event.providerInstanceId ?? asker.modelSelection.instanceId);
@@ -6599,6 +6658,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
               return "failed";
             }
           },
+          hold: unattended ? undefined : (question) => showCard(question),
           isCurrent,
           approved: () => decide("auto-approved", "owner-auto"),
           refused: (refusal) => {
@@ -6665,62 +6725,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         });
         break;
       }
-      const heldContext = { source: verdict?.source, permission };
-      const questions = event.questions?.length ? event.questions : undefined;
-      const message = pushMessage({
-        role: "bot",
-        kind: "options",
-        card: {
-          title:
-            permission && event.approvalScope === "local-computer"
-              ? "Local computer approval"
-              : permission
-                ? "Approval needed"
-                : "Your dog has a question",
-          subtitle: event.summary,
-          options: event.choices?.length ? event.choices : permission ? ["Allow", "Deny"] : [],
-          requestId: event.requestId,
-          requestType: permission ? "permission" : "question",
-          tool: permission ? event.tool : undefined,
-          questionRequest: questions
-            ? { version: 1, questions, ...(event.origin === "output" ? { origin: "output" as const } : {}) }
-            : undefined,
-          commandAllowlist: command ?? undefined,
-          allowSession: permission && event.allowSession && !event.requiresExplicitApproval && !guestDriven ? true : undefined,
-          held: approvalHeldReason(heldContext),
-          heldCode: approvalHeldNote(heldContext),
-          approvalScope: event.approvalScope,
-        },
-      });
-      if (event.requestId) askMessageByRequest.set(`${event.threadId}:${event.requestId}`, message.id);
-      if (command && asker && event.requestId) pendingCommandRules.set(`${event.threadId}:${event.requestId}`, { botId: asker.id, candidate: command });
-      appendDecision(DATA_DIR, {
-        threadId: event.threadId,
-        requestId: event.requestId,
-        botId: asker?.id,
-        botName: asker?.name,
-        tool: event.tool,
-        summary: event.summary,
-        decision: "card-shown",
-        source: !permission ? "question" : verdict ? verdict.source : "no-grant",
-        origin: !permission && event.origin === "output" ? "output" : undefined,
-        unattended: unattended || undefined,
-      });
-      if (asker) {
-        const card = store.messagesFor(event.threadId).find((candidate) => candidate.id === message.id)?.card;
-        if (card && !card.answered) {
-          if (bot) store.setTaskActivity(bot.id, event.threadId, "waiting-on-you");
-          else if (asker.busy) store.setActivity(asker.id, "waiting-on-you");
-          if (event.requestId) showWaitingOnPersonChip(event.threadId, event.requestId, asker, permission ? "approval" : "answer");
-          const notificationBot = (routineRun && routineSourceOwner(routineRun)?.bot) || asker;
-          notify(buildNotification(
-            permission ? "approval" : "question",
-            notificationBot,
-            (routineRun && routineSourceThread(routineRun)) || event.threadId,
-            event.summary,
-          ));
-        }
-      }
+      showCard();
       break;
     }
     case "request.resolved": {

@@ -143,6 +143,44 @@ describe("an escalation from an owner Off-leash dog", () => {
     ]);
   });
 
+  it("asks the owner once on an Allow card, instead of refusing, before deleting a folder outside the workspace", async () => {
+    const calls: string[] = [];
+    const settled = await settleOwnerAutoPermission({ tool: "Bash", command: "rm -rf /data/v3work" }, {
+      guard: { cwd: workspace, workspaceRoots: [workspace, "/data/v3work"], tempRoots: ["/tmp"], home: "/data", git },
+      allow: async () => { calls.push("allow"); return "allowed-once"; },
+      deny: async (message) => { calls.push(`deny: ${message}`); return "rejected"; },
+      hold: (question, refusal) => calls.push(`card (${refusal.rule}): ${question}`),
+      isCurrent: () => true,
+      approved: () => calls.push("approved"),
+      refused: (refusal) => calls.push(`refused: ${refusal.rule}`),
+      failed: (failure) => calls.push(`failed: ${failure}`),
+    });
+    expect(settled).toBe("held");
+    expect(calls).toEqual([
+      "card (delete-outside-workspace): This deletes /data/v3work and everything in it, outside this dog's workspace and /tmp. Allow only if you want it gone.",
+    ]);
+  });
+
+  it("still refuses outright when nobody is there to answer a card, and never asks about a force-push to main", async () => {
+    expect(await run({ tool: "Bash", command: "rm -rf /data/v3work" })).toEqual({
+      settled: "refused",
+      calls: ["deny: later.dog refused this: it deletes /data/v3work recursively, outside this dog's workspace and /tmp.", "refused: delete-outside-workspace"],
+    });
+    const calls: string[] = [];
+    const settled = await settleOwnerAutoPermission({ tool: "Bash", command: "git push --force origin main" }, {
+      guard: { cwd: workspace, workspaceRoots: [workspace], tempRoots: ["/tmp"], home: "/home/owner", git },
+      allow: async () => "allowed-once",
+      deny: async () => { calls.push("deny"); return "rejected"; },
+      hold: () => calls.push("card"),
+      isCurrent: () => true,
+      approved: () => calls.push("approved"),
+      refused: (refusal) => calls.push(`refused: ${refusal.rule}`),
+      failed: () => calls.push("failed"),
+    });
+    expect(settled).toBe("refused");
+    expect(calls).toEqual(["deny", "refused: force-push-default-branch"]);
+  });
+
   it("reports a provider that would not take the approval", async () => {
     expect(await run({ tool: "Bash", command: "pnpm test" }, "rejected")).toEqual({ settled: "failed", calls: ["allow", "failed: rejected"] });
   });
