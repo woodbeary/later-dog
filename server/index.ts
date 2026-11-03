@@ -498,7 +498,7 @@ import { connectorCallsIn, outboundCallsIn } from "../shared/outbound.ts";
 import { TurnToolkits, connectorAllowKey, connectorSendDecision, toolkitOf } from "./laterdog/connector-ask.ts";
 import { bindThreadLogCapProvider } from "./thread-log-rotation.ts";
 import { CLOUD_THREAD_LOG_MAX_BYTES, CLOUD_THREAD_LOG_RETENTION_DAYS, DISK_CHECK_MS, diskUse, isLowDisk, JANITOR_EVERY_MS, runJanitor, storageWords, type JanitorRun, type WorkspaceTask } from "./laterdog/janitor.ts";
-import { reapStrays, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
+import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
 import { assertModelVariantSupported, memberTurnSelection } from "./member-turn.ts";
 import { WebhookManager } from "./webhooks.ts";
@@ -19910,7 +19910,7 @@ function runJanitorNow(reason: JanitorRun["reason"]): JanitorRun | null {
       sweepRetention: sweepThreadEventLogsNow,
       toolResultsDir: TOOL_RESULTS_DIR,
       workspaceTasks: janitorWorkspaces,
-      reap: () => reapStrays({ roots: [TASK_WORKSPACES_DIR], thread: janitorThread }).length,
+      reap: () => reapStrays({ roots: [TASK_WORKSPACES_DIR], thread: janitorThread, orphanIdleHours: orphanIdleHours(readMemoryPressure()) }).length,
       vacuum: () => reclaimFreePages(diskUse(DATA_DIR)?.freeBytes ?? 0),
     }, reason);
     lastJanitorRun = run;
@@ -19925,6 +19925,12 @@ if (CLOUD_HOME) {
   setTimeout(() => runJanitorNow("startup"), 2 * 60_000).unref();
   setInterval(() => runJanitorNow("scheduled"), JANITOR_EVERY_MS).unref();
   setInterval(() => { if (isLowDisk(diskUse(DATA_DIR))) runJanitorNow("low-disk"); }, DISK_CHECK_MS).unref();
+  setInterval(() => {
+    const pressure = readMemoryPressure();
+    if (!underMemoryPressure(pressure)) return;
+    const stopped = reapStrays({ roots: [TASK_WORKSPACES_DIR], thread: janitorThread, orphanIdleHours: orphanIdleHours(pressure) });
+    if (stopped.length) console.log(`[janitor] memory pressure: stopped ${stopped.length} stray process(es)`);
+  }, MEMORY_CHECK_MS).unref();
 }
 
 function cloudStorage() {

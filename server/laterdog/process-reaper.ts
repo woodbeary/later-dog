@@ -4,6 +4,41 @@ import { relative, sep } from "node:path";
 const HOUR_MS = 60 * 60 * 1000;
 export const IDLE_ORPHAN_HOURS = 6;
 export const REAP_GRACE_MS = 5_000;
+export const PRESSURE_ORPHAN_MINUTES = 30;
+export const MEMORY_CHECK_MS = 60_000;
+export const PRESSURE_AVAILABLE_PERCENT = 15;
+export const PRESSURE_PSI_SOME_AVG10 = 10;
+
+export interface MemoryPressure {
+  availablePercent: number | null;
+  psiSomeAvg10: number | null;
+}
+
+export function readMemoryPressure(procDir = "/proc"): MemoryPressure {
+  let availablePercent: number | null = null;
+  let psiSomeAvg10: number | null = null;
+  try {
+    const info = readFileSync(`${procDir}/meminfo`, "utf8");
+    const total = Number(/^MemTotal:\s+(\d+)/m.exec(info)?.[1]);
+    const available = Number(/^MemAvailable:\s+(\d+)/m.exec(info)?.[1]);
+    if (total > 0 && Number.isFinite(available)) availablePercent = (available / total) * 100;
+  } catch {}
+  try {
+    const psi = readFileSync(`${procDir}/pressure/memory`, "utf8");
+    const avg10 = Number(/^some avg10=([\d.]+)/m.exec(psi)?.[1]);
+    if (Number.isFinite(avg10)) psiSomeAvg10 = avg10;
+  } catch {}
+  return { availablePercent, psiSomeAvg10 };
+}
+
+export function underMemoryPressure(pressure: MemoryPressure): boolean {
+  return (pressure.availablePercent !== null && pressure.availablePercent < PRESSURE_AVAILABLE_PERCENT)
+    || (pressure.psiSomeAvg10 !== null && pressure.psiSomeAvg10 > PRESSURE_PSI_SOME_AVG10);
+}
+
+export function orphanIdleHours(pressure: MemoryPressure): number {
+  return underMemoryPressure(pressure) ? PRESSURE_ORPHAN_MINUTES / 60 : IDLE_ORPHAN_HOURS;
+}
 
 export interface ProcessInfo {
   pid: number;
@@ -84,6 +119,7 @@ export interface ReapDeps {
   later?: (run: () => void, ms: number) => void;
   self?: number;
   now?: () => number;
+  orphanIdleHours?: number;
 }
 
 export function reapStrays(deps: ReapDeps): { pid: number; argv: string; reason: ReapReason }[] {
@@ -95,7 +131,7 @@ export function reapStrays(deps: ReapDeps): { pid: number; argv: string; reason:
     if (proc.pid === self || proc.pid === 1) continue;
     const owner = workspaceThread(proc.cwd, deps.roots);
     if (!owner) continue;
-    const reason = reapReason(proc, deps.thread(owner.botId, owner.threadId), now);
+    const reason = reapReason(proc, deps.thread(owner.botId, owner.threadId), now, deps.orphanIdleHours);
     if (reason) chosen.push({ pid: proc.pid, argv: proc.argv, reason });
   }
   const targets = withDescendants(chosen.map((proc) => proc.pid), all)
