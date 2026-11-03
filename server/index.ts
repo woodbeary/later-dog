@@ -114,6 +114,8 @@ import { isMacOffline, macOfflineResult, macOptions, macSelectReply, type KnownM
 import { requestGone } from "./laterdog/request-gone.ts";
 import { PHONE_NOT_YOURS, PhoneDesk, phoneWants, type PhoneJob, type PhoneOwner } from "./laterdog/phone-desk.ts";
 import { createPhoneDeviceRoutes, createPhoneToolRoute, isPhoneDevicePath } from "./routes/phone-desk.ts";
+import { createPhoneCrashRoutes } from "./routes/phone-crashes.ts";
+import { PhoneCrashes } from "./laterdog/phone-crashes.ts";
 import { createDogTaskRoute } from "./routes/dog-tasks.ts";
 import { briefStep, pageViewOf, SHOWN_PAGE_ROW_CAP, shownPageStart, type PageView } from "./message-pages.ts";
 import { startedFromTask } from "./laterdog/dog-tasks.ts";
@@ -12563,6 +12565,7 @@ ROUTES.push(createScreenGoalRoutes({ dogThread: (threadId) => (store.botByThread
 ROUTES.push(createDeviceRoutes({ sessions }));
 ROUTES.push(createPhonePushRoutes({ push: phonePush }));
 ROUTES.push(createPhoneDeviceRoutes({ desk: phoneDesk, enabled: phoneToolsEnabled, owner: phoneOwner, gone: requestGone }));
+ROUTES.push(createPhoneCrashRoutes({ crashes: new PhoneCrashes(join(DATA_DIR, "phone-crashes.json")), log: (line) => console.log(line) }));
 INTERNAL_ROUTES.push(createPhoneToolRoute({
   enabled: phoneToolsEnabled,
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
