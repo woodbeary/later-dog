@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { claudeAccountInfo, claudeSignInCommand, createClaudeAccountSchema, newClaudeAccount } from "./claude-accounts.ts";
+import { claudeAccountInfo, claudeSignInCommand, createClaudeAccountSchema, instanceSettingsSchema, newClaudeAccount } from "./claude-accounts.ts";
 import { CLAUDE_ACCOUNT_ENV_KEYS } from "./drivers/claude.ts";
 import { ProviderRegistry } from "./harness/registry.ts";
 import { EventBus } from "./harness/bus.ts";
@@ -69,5 +69,23 @@ describe("named Claude accounts", () => {
     expect(events.map(event => event.providerInstanceId)).toEqual(["personal", "work"]);
     bus.detachAll();
     await registry.disposeAll();
+  });
+});
+
+describe("turning an account off without removing it", () => {
+  it("accepts on and off as an account setting", () => {
+    expect(instanceSettingsSchema.safeParse({ enabled: false }).success).toBe(true);
+    expect(instanceSettingsSchema.safeParse({ enabled: "no" }).success).toBe(false);
+  });
+
+  it("the home keeps the account, lists it as off, and automatic assignment skips it", async () => {
+    const { readFileSync } = await import("node:fs");
+    const index = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
+    expect(index).toContain("if (body.enabled !== undefined) entry.enabled = body.enabled;");
+    expect(index).toContain("enabled: entry?.enabled !== false,");
+    const { pickAccount } = await import("./laterdog/account-battery.ts");
+    const account = (instanceId: string, enabled: boolean) => ({ instanceId, driverKind: "codex", displayName: instanceId, enabled, eligible: true, signedIn: true, models: ["gpt-5"], defaultModel: "gpt-5" });
+    const picked = pickAccount({ config: { enabled: true, order: { codex: ["codex", "chatgpt"] } }, selection: { instanceId: "codex", model: "gpt-5" }, accounts: [account("codex", false), account("chatgpt", true)], resting: {}, now: Date.now() });
+    expect(picked?.instanceId).toBe("chatgpt");
   });
 });

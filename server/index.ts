@@ -935,6 +935,11 @@ const accountBattery = new AccountBattery({
   ownThread: (threadId) => Boolean(store.botByThread(threadId)),
   onChange: () => broadcast({ kind: "config", ...configStatus() }),
 });
+function threadSelectionInstance(threadId: string): string | undefined {
+  const bot = store.botByThread(threadId);
+  return bot ? store.projectBotForTask(bot.id, threadId)?.modelSelection.instanceId : undefined;
+}
+
 function batteryAccounts(): BatteryAccount[] {
   if (hostedModels) return [];
   const configs = providerConfigs();
@@ -12050,7 +12055,7 @@ function configStatus() {
     rooms: { turnTimeoutMinutes: roomTurnTimeoutMinutes(cfg) },
     mcp: { callTimeoutMinutes: mcpCallTimeoutMinutes(cfg) },
     automaticRecovery: cfg.automaticRecovery ?? { enabled: false },
-    accountBattery: { ...accountBattery.status(batteryAccounts()), waiting: carryOnWaiting() },
+    accountBattery: { ...accountBattery.status(batteryAccounts(), threadSelectionInstance), waiting: carryOnWaiting() },
     newBots: cfg.newBots?.effort ? { effort: cfg.newBots.effort } : {},
     ...(cfg.defaultModelSelection?.instanceId ? { defaultModelSelection: cfg.defaultModelSelection } : {}),
     threads: {
@@ -12167,6 +12172,7 @@ async function describeInstances() {
     const entry = configs[instance.instanceId];
     const described = {
       ...instance,
+      enabled: entry?.enabled !== false,
       ...(entry?.icon ? { icon: entry.icon } : {}),
       ...(entry?.access ? { access: entry.access } : {}),
     };
@@ -18676,6 +18682,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           entry.config = { ...entry.config as Record<string, unknown>, tools: body.tools };
         }
         if (body.displayName !== undefined) entry.displayName = body.displayName;
+        if (body.enabled !== undefined) entry.enabled = body.enabled;
         if (body.configDir !== undefined) {
           let previousDir: string | undefined;
           try { previousDir = configuredAccountDirectory(entry); } catch {}

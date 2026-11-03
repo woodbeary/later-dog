@@ -565,7 +565,7 @@ export class AccountBattery {
     return new Date(soonest).toISOString();
   }
 
-  status(accounts: readonly BatteryAccount[]): BatteryStatus {
+  status(accounts: readonly BatteryAccount[], selectionOf?: (threadId: string) => string | undefined): BatteryStatus {
     const config = this.options.config();
     const resting: BatteryStatus["resting"] = {};
     for (const account of accounts) {
@@ -577,6 +577,13 @@ export class AccountBattery {
     for (const [threadId, away] of Object.entries(this.state.away)) {
       const from = away.on && away.on !== away.from ? accounts.find((account) => account.instanceId === away.from) : undefined;
       if (from && (!from.enabled || from.signedIn === false || this.restOf(from, accounts))) routed[threadId] = { from: away.from, on: away.on! };
+    }
+    if (selectionOf) {
+      for (const [threadId, placed] of Object.entries(this.state.placed)) {
+        if (routed[threadId] || this.state.away[threadId]) continue;
+        const from = selectionOf(threadId);
+        if (from && from !== placed.on && accounts.some((account) => account.instanceId === placed.on)) routed[threadId] = { from, on: placed.on };
+      }
     }
     const order = effectiveOrder({ config, accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage });
     const sequence = batterySequence({ config, accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage });

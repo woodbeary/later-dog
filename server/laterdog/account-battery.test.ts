@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -414,6 +414,15 @@ describe("AccountBattery", () => {
     instance.forget("claude");
     expect(instance.routes("thread-2")).toBe(false);
     expect(instance.takeBack("thread-2", "claude")).toBe(false);
+  });
+
+  it("reports a thread spread onto another account as running there, so its dog doesn't read as recharging", () => {
+    const file = join(scratch(), "account-battery.json");
+    writeFileSync(file, JSON.stringify({ version: 1, resting: { claude: rest(HOUR) }, away: {},
+      placed: { "busy-dog": { on: "claude-b", at: at(-72 * HOUR) }, "home-dog": { on: "claude", at: at(0) }, "gone-account": { on: "claude-x", at: at(0) } } }));
+    const instance = new AccountBattery({ config: () => ON, file, now: () => NOW });
+    expect(instance.status(ACCOUNTS, () => "claude").routed).toEqual({ "busy-dog": { from: "claude", on: "claude-b" } });
+    expect(instance.status(ACCOUNTS).routed).toEqual({});
   });
 
   it("says once that a turn runs on another account while the picked one rests, then that it is back", () => {
