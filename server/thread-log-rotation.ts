@@ -1,4 +1,4 @@
-import { closeSync, fstatSync, openSync, readSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
+import { closeSync, fstatSync, ftruncateSync, openSync, readSync, renameSync, rmSync, statSync, writeSync } from "node:fs";
 
 let capProvider: () => number | null = () => null;
 
@@ -23,10 +23,10 @@ export function capThreadLog(file: string, maxBytes: number | null): void {
     return;
   }
   if (size <= maxBytes) return;
-  trimToTail(file, Math.max(1, Math.floor(maxBytes / 2)));
+  trimThreadLog(file, Math.max(1, Math.floor(maxBytes / 2)));
 }
 
-function trimToTail(file: string, keepBytes: number): void {
+export function trimThreadLog(file: string, keepBytes: number): void {
   const staging = `${file}.trim`;
   try {
     const source = openSync(file, "r");
@@ -57,9 +57,39 @@ function trimToTail(file: string, keepBytes: number): void {
       closeSync(source);
     }
     renameSync(staging, file);
-  } catch {
+  } catch (error) {
     try {
       rmSync(staging, { force: true });
     } catch {}
+    if ((error as NodeJS.ErrnoException)?.code === "ENOSPC") trimInPlace(file, keepBytes);
   }
+}
+
+function trimInPlace(file: string, keepBytes: number): void {
+  try {
+    const fd = openSync(file, "r+");
+    try {
+      const size = fstatSync(fd).size;
+      const start = Math.max(0, size - keepBytes);
+      const window = Buffer.allocUnsafe(size - start);
+      let filled = 0;
+      while (filled < window.length) {
+        const count = readSync(fd, window, filled, window.length - filled, start + filled);
+        if (count === 0) return;
+        filled += count;
+      }
+      const firstNewline = window.indexOf(0x0a);
+      if (firstNewline === -1 || firstNewline + 1 >= window.length) return;
+      const keep = window.subarray(firstNewline + 1);
+      let written = 0;
+      while (written < keep.length) {
+        const count = writeSync(fd, keep, written, keep.length - written, written);
+        if (count === 0) return;
+        written += count;
+      }
+      ftruncateSync(fd, keep.length);
+    } finally {
+      closeSync(fd);
+    }
+  } catch {}
 }

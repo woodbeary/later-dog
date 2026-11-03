@@ -2,7 +2,8 @@ import { fileURLToPath } from "node:url";
 import { BOOT_CLOUD_SECRETS } from "./cloud-secrets-boot.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, readFileSync, realpathSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync, mkdirSync } from "node:fs";
+import { totalmem } from "node:os";
 import { writeFileAtomic } from "./atomic.ts";
 import { rm as removeDirectory } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -269,7 +270,7 @@ import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
 import { confirmRememberedCommand, recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
-import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards } from "./message-db.ts";
+import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, latestMessageAts, reclaimFreePages } from "./message-db.ts";
 import { briefCrossingLabel, claimRecallCrossings, recallCrossingLabel } from "./recall-disclosure.ts";
 import { parseSince, parseUntil, recentWork, recentWorkPrompt, turnOutcomeLine } from "./recent-work.ts";
 import { IncidentLedger, incidentChip, type Incident, type IncidentKind } from "./incidents.ts";
@@ -496,6 +497,8 @@ import { OutboundRequestService } from "./outbound-requests.ts";
 import { connectorCallsIn, outboundCallsIn } from "../shared/outbound.ts";
 import { TurnToolkits, connectorAllowKey, connectorSendDecision, toolkitOf } from "./laterdog/connector-ask.ts";
 import { bindThreadLogCapProvider } from "./thread-log-rotation.ts";
+import { CLOUD_THREAD_LOG_MAX_BYTES, CLOUD_THREAD_LOG_RETENTION_DAYS, DISK_CHECK_MS, diskUse, isLowDisk, JANITOR_EVERY_MS, runJanitor, storageWords, type JanitorRun, type WorkspaceTask } from "./laterdog/janitor.ts";
+import { reapStrays, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
 import { assertModelVariantSupported, memberTurnSelection } from "./member-turn.ts";
 import { WebhookManager } from "./webhooks.ts";
@@ -882,7 +885,7 @@ if (hostedModels) {
   if (selection.instanceId && JSON.stringify(selection) !== JSON.stringify(cfg.defaultModelSelection)) saveConfig({ defaultModelSelection: selection });
   cfg.defaultModelSelection = selection;
 }
-bindThreadLogCapProvider(() => threadEventLogMaxBytes(cfg));
+bindThreadLogCapProvider(() => threadLogCap());
 bindDecisionRetention(() => decisionRetentionDays(cfg.decisions?.retentionDays));
 const decider = createDecider({ config: () => cfg, dataDir: DATA_DIR });
 const typingSuggestions = createTypingWiring({ config: () => cfg, decider });
@@ -18227,6 +18230,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       });
     }
 
+    if (method === "GET" && path === "/api/storage") return json(res, 200, cloudStorage());
+    if (method === "POST" && path === "/api/storage/clean") return json(res, 200, { run: runJanitorNow("low-disk"), storage: cloudStorage() });
     if (method === "GET" && path === "/api/health") {
       return json(res, 200, { app: "laterdog", pid: process.pid, static: Boolean(STATIC_DIR), capabilities: {
         guardedMessages: 1, guardedRequests: 1, guardedFullAccess: 1, guardedOnBehalfOf: 1,
@@ -19837,7 +19842,7 @@ try {
 const THREAD_LOG_RETENTION_SWEEP_MS = 24 * 60 * 60 * 1000;
 
 function sweepThreadEventLogsNow(): void {
-  const retentionDays = threadEventLogRetentionDays(cfg);
+  const retentionDays = threadEventLogRetentionDays(cfg) ?? (CLOUD_HOME ? CLOUD_THREAD_LOG_RETENTION_DAYS : null);
   if (retentionDays === null) return;
   const candidates: ThreadLogRetentionCandidate[] = store.bots.flatMap((bot) =>
     (bot.tasks ?? []).map((task) => ({
@@ -19858,6 +19863,80 @@ try {
   console.warn(`thread event log retention sweep failed: ${error instanceof Error ? error.message : String(error)}`);
 }
 setInterval(sweepThreadEventLogsNow, THREAD_LOG_RETENTION_SWEEP_MS).unref();
+
+function threadLogCap(): number | null {
+  return threadEventLogMaxBytes(cfg) ?? (CLOUD_HOME ? CLOUD_THREAD_LOG_MAX_BYTES : null);
+}
+
+function janitorThread(botId: string, threadId: string): ReaperThreadState {
+  const task = store.taskByThread(botId, threadId);
+  const group = task ? undefined : store.groupByThread(threadId);
+  if (!task && !group) return { exists: false, busy: false, closed: false, lastActiveAt: null };
+  const latest = latestMessageAts([threadId]).get(threadId) ?? task?.updatedAt ?? task?.createdAt ?? null;
+  return {
+    exists: true,
+    busy: threadBusy(botId, threadId),
+    closed: Boolean(task?.closedBy || task?.archivedAt),
+    lastActiveAt: latest,
+  };
+}
+
+function janitorWorkspaces(): WorkspaceTask[] {
+  const tasks: WorkspaceTask[] = [];
+  let bots: string[] = [];
+  try { bots = readdirSync(TASK_WORKSPACES_DIR); } catch { return tasks; }
+  for (const botId of bots) {
+    let threads: string[] = [];
+    try { threads = readdirSync(join(TASK_WORKSPACES_DIR, botId)); } catch { continue; }
+    for (const threadId of threads) {
+      const state = janitorThread(botId, threadId);
+      tasks.push({ dir: join(TASK_WORKSPACES_DIR, botId, threadId), busy: state.busy, closed: !state.exists || state.closed, lastActiveAt: state.lastActiveAt });
+    }
+  }
+  return tasks;
+}
+
+let lastJanitorRun: JanitorRun | null = null;
+let janitorRunning = false;
+
+function runJanitorNow(reason: JanitorRun["reason"]): JanitorRun | null {
+  if (janitorRunning) return null;
+  janitorRunning = true;
+  try {
+    const run = runJanitor({
+      dataDir: DATA_DIR,
+      logDirs: [EVENTS_DIR, NATIVE_DIR],
+      logMaxBytes: threadLogCap(),
+      sweepRetention: sweepThreadEventLogsNow,
+      toolResultsDir: TOOL_RESULTS_DIR,
+      workspaceTasks: janitorWorkspaces,
+      reap: () => reapStrays({ roots: [TASK_WORKSPACES_DIR], thread: janitorThread }).length,
+      vacuum: () => reclaimFreePages(diskUse(DATA_DIR)?.freeBytes ?? 0),
+    }, reason);
+    lastJanitorRun = run;
+    if (run.freedBytes > 0 || run.reaped > 0) console.log(`[janitor] ${reason}: freed ${Math.round(run.freedBytes / 1024 / 1024)} MB, stopped ${run.reaped} stray process(es)`);
+    return run;
+  } finally {
+    janitorRunning = false;
+  }
+}
+
+if (CLOUD_HOME) {
+  setTimeout(() => runJanitorNow("startup"), 2 * 60_000).unref();
+  setInterval(() => runJanitorNow("scheduled"), JANITOR_EVERY_MS).unref();
+  setInterval(() => { if (isLowDisk(diskUse(DATA_DIR))) runJanitorNow("low-disk"); }, DISK_CHECK_MS).unref();
+}
+
+function cloudStorage() {
+  const disk = diskUse(DATA_DIR);
+  return {
+    disk: disk ? { totalBytes: disk.totalBytes, freeBytes: disk.freeBytes } : null,
+    memory: { totalBytes: totalmem(), availableBytes: process.availableMemory() },
+    low: isLowDisk(disk),
+    warning: storageWords(disk),
+    janitor: lastJanitorRun ? { at: lastJanitorRun.at, freedBytes: lastJanitorRun.freedBytes, stopped: lastJanitorRun.reaped } : null,
+  };
+}
 
 for (const row of chatFollowups()) {
   if (row.status !== "dispatching" && row.status !== "interrupted") continue;

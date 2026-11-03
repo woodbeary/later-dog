@@ -739,3 +739,16 @@ export function closeMessageDb(): void {
   handle = null;
   handlePath = null;
 }
+
+export const VACUUM_MIN_FREE_BYTES = 64 * 1024 * 1024;
+
+export function reclaimFreePages(diskFreeBytes: number, minFree = VACUUM_MIN_FREE_BYTES): number {
+  const database = db();
+  const pageSize = Number((database.prepare("PRAGMA page_size").get() as { page_size: number }).page_size);
+  const pages = Number((database.prepare("PRAGMA page_count").get() as { page_count: number }).page_count);
+  const free = Number((database.prepare("PRAGMA freelist_count").get() as { freelist_count: number }).freelist_count);
+  const reclaimable = free * pageSize;
+  if (reclaimable < minFree || diskFreeBytes < pages * pageSize) return 0;
+  database.exec("VACUUM");
+  return reclaimable;
+}
