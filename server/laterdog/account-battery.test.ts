@@ -425,6 +425,15 @@ describe("AccountBattery", () => {
     expect(instance.status(ACCOUNTS).routed).toEqual({});
   });
 
+  it("reports a long turn by the account it actually runs on, even if it started before any move was recorded", () => {
+    const file = join(scratch(), "account-battery.json");
+    writeFileSync(file, JSON.stringify({ version: 1, resting: { claude: rest(HOUR) }, away: {}, placed: { "back-home": { on: "claude-b", at: at(0) } } }));
+    const instance = new AccountBattery({ config: () => ON, file, now: () => NOW });
+    const running: [string, string][] = [["long-turn", "claude-c"], ["back-home", "claude"], ["unknown", "claude-b"]];
+    const selection = (threadId: string) => (threadId === "unknown" ? undefined : "claude");
+    expect(instance.status(ACCOUNTS, selection, running).routed).toEqual({ "long-turn": { from: "claude", on: "claude-c" } });
+  });
+
   it("says once that a turn runs on another account while the picked one rests, then that it is back", () => {
     const file = join(scratch(), "account-battery.json");
     let now = NOW;

@@ -12055,7 +12055,7 @@ function configStatus() {
     rooms: { turnTimeoutMinutes: roomTurnTimeoutMinutes(cfg) },
     mcp: { callTimeoutMinutes: mcpCallTimeoutMinutes(cfg) },
     automaticRecovery: cfg.automaticRecovery ?? { enabled: false },
-    accountBattery: { ...accountBattery.status(batteryAccounts(), threadSelectionInstance), waiting: carryOnWaiting() },
+    accountBattery: { ...accountBattery.status(batteryAccounts(), threadSelectionInstance, [...runningTurnEngines].map(([threadId, instance]) => [threadId, instance.instanceId] as const)), waiting: carryOnWaiting() },
     newBots: cfg.newBots?.effort ? { effort: cfg.newBots.effort } : {},
     ...(cfg.defaultModelSelection?.instanceId ? { defaultModelSelection: cfg.defaultModelSelection } : {}),
     threads: {
