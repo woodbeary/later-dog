@@ -76,8 +76,14 @@ export interface GroupThreadUsage extends TaskUsage {
   lastSpeaker?: { botId: string; name: string };
 }
 
+export interface WireWaitingOn {
+  botId: string;
+  name: string;
+}
+
 export interface WireTask {
   waitingForTeammates?: boolean;
+  waitingOn?: WireWaitingOn[];
   threadId: string;
   title: string;
   createdAt: number;
@@ -147,6 +153,7 @@ export const CONNECTOR_TOOL_NAME_PATTERN = /^[A-Z][A-Z0-9_]{0,127}$/;
 
 export interface WireBot {
   waitingForTeammates?: boolean;
+  waitingOn?: WireWaitingOn[];
   id: string;
   threadId: string;
   tasks?: WireTask[];
