@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bucketFor, bundleKey, busyDogs, DEV_BUCKET, HOME_BUCKET, pointerFor, POINTER_KEY, pushOnSave, waitUntilIdle, watchedChange } from "./dev-home.mjs";
+import { bucketFor, bundleKey, busyDogs, busyFromAnswer, DEV_BUCKET, HOME_BUCKET, pointerFor, POINTER_KEY, pushOnSave, waitUntilIdle, watchedChange } from "./dev-home.mjs";
 
 describe("pushing server code to test homes", () => {
   it("writes only to the test bucket, under the keys test homes read", () => {
@@ -34,6 +34,13 @@ describe("pushing server code from later.dog Dev to the person's own home", () =
   it("names the dogs still working", () => {
     expect(busyDogs([{ name: "Clover", busy: true }, { name: "Rio", busy: false }, { busy: true }])).toEqual(["Clover", "a dog"]);
     expect(busyDogs(undefined)).toEqual([]);
+  });
+
+  it("replaces code whose dog list fails, since no dog can be working through it, and waits while the home is waking", () => {
+    expect(busyFromAnswer(500, null)).toEqual([]);
+    expect(busyFromAnswer(200, { bots: [{ name: "Clover", busy: true }] })).toEqual(["Clover"]);
+    expect(() => busyFromAnswer(503, null)).toThrow("503");
+    expect(() => busyFromAnswer(401, null)).toThrow("401");
   });
 
   it("switches only once no dog is working, so nobody is cut off mid-task", async () => {

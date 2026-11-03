@@ -49,10 +49,15 @@ function readSessionFile(file) {
   return { url: saved.url.replace(/\/+$/, ""), token: saved.token };
 }
 
+export function busyFromAnswer(status, body) {
+  if (status === 500) return [];
+  if (status < 200 || status >= 300) throw new Error(`the home answered ${status}`);
+  return busyDogs(body?.bots);
+}
+
 async function busyNow(home) {
   const response = await fetch(`${home.url}/api/bots?messages=0`, { headers: { authorization: `Bearer ${home.token}` }, signal: AbortSignal.timeout(10_000) });
-  if (!response.ok) throw new Error(`the home answered ${response.status}`);
-  return busyDogs((await response.json())?.bots);
+  return busyFromAnswer(response.status, response.ok ? await response.json() : null);
 }
 
 export async function waitUntilIdle(home, { check = busyNow, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log = say, everyMs = IDLE_CHECK_MS } = {}) {
