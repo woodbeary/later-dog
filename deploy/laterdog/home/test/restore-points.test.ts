@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -135,6 +135,7 @@ describe("restore points on upgrade, through the home Worker's state store", () 
     const saves = [];
     for (const [index, app] of ["0.3.40", "0.3.41", "0.3.42", "0.3.43", "0.3.44"].entries()) {
       writeFileSync(join(home, "bots.json"), `written by ${app}`);
+      utimesSync(join(home, "bots.json"), 1_700_000_000 + index, 1_700_000_000 + index);
       if (manifest) await upgradeKeeper(store, upgradeFrom(manifest, app), { app, limit: 3 }).keep();
       manifest = (await snapshot(home, store, manifest, { app, now: () => 1_000 + index })).manifest;
       saves.push(manifest);
