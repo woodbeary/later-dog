@@ -498,6 +498,7 @@ import { connectorCallsIn, outboundCallsIn } from "../shared/outbound.ts";
 import { TurnToolkits, connectorAllowKey, connectorSendDecision, toolkitOf } from "./laterdog/connector-ask.ts";
 import { bindThreadLogCapProvider } from "./thread-log-rotation.ts";
 import { CLOUD_THREAD_LOG_MAX_BYTES, CLOUD_THREAD_LOG_RETENTION_DAYS, DISK_CHECK_MS, diskUse, isLowDisk, JANITOR_EVERY_MS, runJanitor, storageWords, type JanitorRun, type WorkspaceTask } from "./laterdog/janitor.ts";
+import { closeTabsScript, forgetUsers, loadTabLedger, parseTargets, recordTabs, saveTabLedger, TAB_SWEEP_MS, tabsToClose, type TabLedger, type Target } from "./laterdog/cloud-tabs.ts";
 import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
 import { assertModelVariantSupported, memberTurnSelection } from "./member-turn.ts";
@@ -13339,6 +13340,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           gate: () => computerCallGate(internalCapability),
           assertActive: requireActiveInternalCapability,
           secureForms: secureForms.desk(internalSender.id, internalCapability.threadId),
+          onTabs: (boxId, targets) => noteCloudTabs({ botId: internalSender.id, threadId: internalCapability.threadId }, boxId, targets),
         }) });
       }
       if (method === "GET" && path === "/api/internal/shared-computers" && lendingEnabled()) {
@@ -17862,6 +17864,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       handoffs.forget(m[2]);
       settleDirectFollowup(directTurnGenerationByThread.get(m[2]));
       rejectDeletedThreadSkillStages(stagedSkillCleanups);
+      void sweepCloudTabs();
       return json(res, 200, { bot: publicBot(updated) });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)\/tasks\/([\w-]+)\/title$/);
@@ -19932,6 +19935,43 @@ if (CLOUD_HOME) {
     if (stopped.length) console.log(`[janitor] memory pressure: stopped ${stopped.length} stray process(es)`);
   }, MEMORY_CHECK_MS).unref();
 }
+
+const CLOUD_TABS_FILE = join(DATA_DIR, "cloud-tabs.json");
+const cloudTabs: TabLedger = loadTabLedger(CLOUD_TABS_FILE);
+let cloudTabsSweeping = false;
+
+function noteCloudTabs(owner: { botId: string; threadId: string }, boxId: string, targets: Target[]): void {
+  recordTabs(cloudTabs, boxId, owner, targets);
+  saveTabLedger(CLOUD_TABS_FILE, cloudTabs);
+}
+
+async function sweepCloudTabs(): Promise<number> {
+  if (cloudTabsSweeping) return 0;
+  cloudTabsSweeping = true;
+  let closed = 0;
+  try {
+    forgetUsers(cloudTabs, (user) => janitorThread(user.botId, user.threadId).exists);
+    for (const [boxId, box] of Object.entries(cloudTabs)) {
+      const doomed = tabsToClose(box, janitorThread);
+      if (!doomed.length) continue;
+      const result = await boat.runCommand(cfg, boxId, boat.isolatedRemoteCommand(closeTabsScript(doomed.map((tab) => tab.id))), { timeoutMs: 20_000 }).catch(() => null);
+      if (!result?.ok) continue;
+      for (const tab of doomed) delete box.tabs[tab.id];
+      const targets = parseTargets(result.stdout);
+      if (targets) recordTabs(cloudTabs, boxId, null, targets);
+      const shut = doomed.filter((tab) => !targets?.some((target) => target.id === tab.id));
+      closed += shut.length;
+      if (shut.length) console.log(`[janitor] closed ${shut.length} cloud computer tab(s): ${[...new Set(shut.map((tab) => tab.reason))].join(", ")}`);
+    }
+    for (const [boxId, box] of Object.entries(cloudTabs)) if (!Object.keys(box.tabs).length && !Object.keys(box.users).length) delete cloudTabs[boxId];
+    saveTabLedger(CLOUD_TABS_FILE, cloudTabs);
+  } finally {
+    cloudTabsSweeping = false;
+  }
+  return closed;
+}
+
+setInterval(() => { if (Object.keys(cloudTabs).length) void sweepCloudTabs(); }, TAB_SWEEP_MS).unref();
 
 function cloudStorage() {
   const disk = diskUse(DATA_DIR);

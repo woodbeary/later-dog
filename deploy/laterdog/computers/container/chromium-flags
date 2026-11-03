@@ -1,4 +1,4 @@
-export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-first-run --no-default-browser-check --password-store=basic --disable-dev-shm-usage --hide-crash-restore-bubble"
+export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-first-run --no-default-browser-check --password-store=basic --disable-dev-shm-usage --hide-crash-restore-bubble --remote-debugging-port=9339"
 
 if ! unshare --user --map-root-user true 2>/dev/null; then
   export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --no-sandbox"

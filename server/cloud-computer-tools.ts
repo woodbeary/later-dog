@@ -3,6 +3,7 @@ import { isolatedRemoteCommand, runCommand, screenshotBoat } from "./computers.t
 import type { AppConfig } from "./config.ts";
 import { CONTROL_REFUSAL_PLAIN } from "./control-client.ts";
 import { compileToolSchema } from "./mcp-schema-validator.ts";
+import { splitTabListing, TAB_TRACKED_TOOLS, withTabListing, type Target } from "./laterdog/cloud-tabs.ts";
 import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormFilledText, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
 
 const coordinate = { type: "integer", minimum: 0, maximum: 32767 };
@@ -50,6 +51,7 @@ export async function runCloudComputerTool(
   name: string,
   args: Record<string, unknown>,
   signal: AbortSignal,
+  onTabs?: (targets: Target[]) => void,
 ): Promise<CloudComputerResult> {
   const problem = cloudComputerCallProblem(name, args);
   if (problem) return { isError: true, content: [{ type: "text", text: problem }] };
@@ -74,8 +76,15 @@ export async function runCloudComputerTool(
     case "exec": command = String(a.command); break;
     default: return { isError: true, content: [{ type: "text", text: "Unknown cloud computer tool." }] };
   }
-  const result = await runCommand(cfg, boxId, isolatedRemoteCommand(command), { signal });
+  const tracked = Boolean(onTabs) && TAB_TRACKED_TOOLS.has(name);
+  const raw = await runCommand(cfg, boxId, isolatedRemoteCommand(tracked ? withTabListing(command) : command), { signal });
   signal.throwIfAborted();
+  let result = raw;
+  if (tracked) {
+    const split = splitTabListing(raw.stdout);
+    result = { ...raw, stdout: split.stdout };
+    if (split.targets) try { onTabs!(split.targets); } catch {}
+  }
   if (name === "open_url" && result.ok) return { content: [{ type: "text", text: "Browser launch requested. Page loading is not confirmed; inspect the screen before continuing." }] };
   return { isError: !result.ok, content: [{ type: "text", text: JSON.stringify(result) }] };
 }
@@ -89,6 +98,7 @@ export async function cloudComputerRpc(
     assertActive(): void;
     signal: AbortSignal;
     secureForms?: SecureFormDesk;
+    onTabs?: (boxId: string, targets: Target[]) => void;
   },
 ): Promise<{ tools: typeof CLOUD_COMPUTER_TOOLS } | CloudComputerResult> {
   if (request?.method === "tools/list") {
@@ -123,7 +133,9 @@ export async function cloudComputerRpc(
     deps.assertActive();
     return { ...(filled.ok ? {} : { isError: true }), content: [{ type: "text", text: filled.text }] };
   }
-  const result = await runCloudComputerTool(deps.cfg, boxId, params.name as string, args as Record<string, unknown>, deps.signal);
+  const onTabs = deps.onTabs;
+  const result = await runCloudComputerTool(deps.cfg, boxId, params.name as string, args as Record<string, unknown>, deps.signal,
+    onTabs && ((targets) => onTabs(boxId, targets)));
   deps.assertActive();
   return result;
 }

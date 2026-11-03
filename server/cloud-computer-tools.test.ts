@@ -58,6 +58,31 @@ describe("cloud computer tools", () => {
     expect(calls).toEqual([]);
   });
 
+  it("lists the browser's tabs after a click and hands them over without showing them to the dog", async () => {
+    const tabs = JSON.stringify([{ id: "AAAA1111", type: "page", url: "https://example.com/" }, { id: "BBBB2222", type: "browser_ui", url: "chrome://x" }]);
+    commandReply = { exitCode: 0, stdout: `clicked\n<<laterdog-tabs>>\n${tabs}`, stderr: "" };
+    const seen: unknown[] = [];
+    const result = await tools.cloudComputerRpc({ method: "tools/call", params: { name: "click", arguments: { x: 1, y: 2 } } }, {
+      cfg, boxId: () => "bx_23456789", signal: new AbortController().signal,
+      gate: async () => ({ held: false }), assertActive: () => {},
+      onTabs: (boxId, targets) => seen.push({ boxId, targets }),
+    }) as { content: Array<{ text: string }> };
+    expect(calls[0].body.command).toContain("/json/list");
+    expect(JSON.parse(result.content[0].text).stdout).toBe("clicked");
+    expect(seen).toEqual([{ boxId: "bx_23456789", targets: [{ id: "AAAA1111", url: "https://example.com/" }] }]);
+  });
+
+  it("leaves a dog's own commands and screenshots unwrapped", async () => {
+    const seen: unknown[] = [];
+    await tools.cloudComputerRpc({ method: "tools/call", params: { name: "exec", arguments: { command: "echo hi" } } }, {
+      cfg, boxId: () => "bx_23456789", signal: new AbortController().signal,
+      gate: async () => ({ held: false }), assertActive: () => {},
+      onTabs: (boxId, targets) => seen.push({ boxId, targets }),
+    });
+    expect(calls[0].body.command).not.toContain("/json/list");
+    expect(seen).toEqual([]);
+  });
+
   it.each([
     ["click", { x: 3, y: 4, button: "right", count: 2 }, "click --repeat 2 --delay 100 3"],
     ["move", { x: 7, y: 8 }, "mousemove --sync 7 8"],
@@ -242,4 +267,5 @@ describe("cloud computer tools", () => {
     expect(calls.filter(entry => entry.path.endsWith("/commands"))).toHaveLength(1);
     server.closeAllConnections();
   });
+
 });
