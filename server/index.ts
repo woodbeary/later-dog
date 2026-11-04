@@ -124,6 +124,7 @@ import { createSharedJoins } from "./laterdog/shared-join.ts";
 import { configuredSpeechKey, SpeechCache } from "./laterdog/speech-cache.ts";
 import { mp3DurationMs } from "./laterdog/mp3-duration.ts";
 import { HOME_HEALTH_FILE, startHomeHealthLog } from "./laterdog/home-health-log.ts";
+import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
@@ -804,6 +805,7 @@ const CLOUD_ENV: NodeJS.ProcessEnv = { ...process.env, ...CLOUD_SECRETS };
 const deliverOwnerEmail = cloudEmailDelivery(CLOUD_ENV.LATERDOG_CLOUD_EMAIL_URL, CLOUD_ENV.LATERDOG_CLOUD_EMAIL_TOKEN);
 const CLOUD_HOME = cloudHomeConfiguration(CLOUD_ENV);
 if (CLOUD_HOME) startHomeHealthLog({ file: join(DATA_DIR, HOME_HEALTH_FILE) });
+if (CLOUD_HOME) startMemoryGuard();
 const vaultStore = new VaultStore(join(DATA_DIR, "vault.json"), CLOUD_HOME
   ? cloudVaultKey(CLOUD_HOME.bootstrapSecret, CLOUD_HOME.machineId)
   : testVaultKey(process.env.LATERDOG_TEST_VAULT_KEY));
