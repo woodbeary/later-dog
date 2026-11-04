@@ -62,7 +62,7 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
       ? await deps.runs.finish(computer.box, record)
       : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, restAfter: computer.wasAsleep });
     restAfter = outcome.state !== "running" && Boolean(record ? record.restAfter : computer.wasAsleep);
-    return { status: 200, text: outcomeText(outcome), failed: outcome.state === "failed" || (outcome.exitCode ?? 0) !== 0 };
+    return { status: 200, text: outcomeText(outcome), failed: outcome.state === "failed" };
   } catch (error) {
     return { status: 502, error: error instanceof Error ? error.message : String(error) };
   } finally {

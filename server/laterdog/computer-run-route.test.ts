@@ -69,6 +69,15 @@ describe("a run_on_computer call", () => {
     expect((await handleComputerRun({ botId: "dog", body: { command: "ls", folder: "/etc" }, workingFolder: null, allowedRoots: [], home: home() }, { runs: none.runs, computer })).status).toBe(400);
   });
 
+  it("counts a command that ran and exited non-zero as a result, not a failed tool call", async () => {
+    const root = home();
+    const computer = async () => ({ box: {} as never, wasAsleep: false, rest: async () => undefined });
+    const failingTests = fakeRuns(outcome("finished", 1));
+    const answer = await handleComputerRun({ botId: "dog", body: { command: "pnpm test", folder: join(root, "site") }, workingFolder: null, allowedRoots: [], home: root }, { runs: failingTests.runs, computer });
+    expect(answer.failed).toBe(false);
+    expect(answer.text).toContain("exit code 1");
+  });
+
   it("tells the dog what ran, what came back and the end of the output", () => {
     expect(outcomeText(outcome("finished"))).toBe("Finished on your cloud computer with exit code 0 (run_id abcd1234).\nSent 2 changed file(s), 2 KB.\nBrought back 1 file(s): report.txt.\n\nOutput (end):\nok");
   });
