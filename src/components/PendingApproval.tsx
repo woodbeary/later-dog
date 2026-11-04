@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronRight, X } from "lucide-react";
+import { ChevronRight, Hand, X } from "lucide-react";
 import { memo } from "react";
 import { useStore, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
@@ -148,7 +148,7 @@ export const PendingApprovalPanel = memo(function PendingApprovalPanel({
     >
       <div className="flex flex-wrap items-center gap-2" aria-live="polite">
         <span className="sr-only">{t("approval.pending")}</span>
-        <AlertTriangle size={15} className="shrink-0 text-warning" aria-hidden="true" />
+        <Hand size={15} className="shrink-0 text-ink-secondary" aria-hidden="true" />
         {count > 1 && (
           <span className="rounded-full bg-control px-1.5 py-0.5 text-[11px] tabular-nums text-ink-secondary">
             {t("approval.position", { index: index + 1, count })}
@@ -222,10 +222,10 @@ export function PendingApprovalActions({
     });
   };
 
-  const base = "rounded-full px-3.5 py-1.5 text-[13.5px] transition-colors";
-  const quiet = "bg-control text-ink hover:bg-control-hover";
-  const primary = "bg-accent font-medium text-white hover:brightness-110";
-  const durable = "ml-3 border border-hairline bg-transparent text-ink hover:bg-control";
+  const base = "rounded-full px-4 py-2 text-[13.5px] font-medium transition-colors";
+  const quiet = "min-w-[120px] bg-control text-ink hover:bg-control-hover";
+  const primary = "min-w-[120px] bg-accent text-white hover:brightness-110";
+  const durable = "rounded-full px-2.5 py-1.5 text-[13px] font-medium text-ink-secondary transition-colors hover:bg-control hover:text-ink";
   const reach = !durableRequest && bot && pending.allowKey
     ? outbound
       ? t("approval.reach.connector", { name: bot.name, app: outbound.app ?? t("approval.reach.connectorApp") })
@@ -235,11 +235,11 @@ export function PendingApprovalActions({
       ? t("approval.reach.everywhere", { name: bot.name })
       : t(bot.tasks?.some((task) => task.threadId === threadId) ? "approval.reach.chat" : "approval.reach.dog", { name: bot.name })
     : canRememberCommand && pending.commandAllowlist
-      ? t("approval.reach.command", { name: bot?.name ?? t("approval.someone"), cwd: pending.commandAllowlist.cwd })
+      ? t("approval.reach.command", { name: bot?.name ?? t("approval.someone"), cwd: shortFolder(pending.commandAllowlist.cwd) })
       : !durableRequest && !pending.allowKey && pending.allowSession ? t("approval.reach.session") : null;
   return (
     <div className="rounded-b-[18px] bg-card px-3 pb-3 pt-1">
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={() => decide("allow")}
           disabled={isSkillRequest && !reviewedSha256}
@@ -268,7 +268,7 @@ export function PendingApprovalActions({
         {!durableRequest && bot && pending.allowKey && (
           <button
             onClick={() => decide("allow", true)}
-            className={cn(base, durable)}
+            className={durable}
           >
             {t("approval.action.alwaysAllow")}
           </button>
@@ -277,7 +277,7 @@ export function PendingApprovalActions({
           <button
             onClick={() => decide("deny", false, false, true)}
             data-mac-never=""
-            className={cn(base, durable)}
+            className={durable}
           >
             {t("approval.action.never")}
           </button>
@@ -285,7 +285,7 @@ export function PendingApprovalActions({
         {!durableRequest && !pending.allowKey && !canRememberCommand && pending.allowSession && (
           <button
             onClick={() => decide("allow", true)}
-            className={cn(base, durable)}
+            className={durable}
           >
             {t("approval.action.alwaysAllowSession")}
           </button>
@@ -293,13 +293,27 @@ export function PendingApprovalActions({
         {canRememberCommand && pending.commandAllowlist && (
           <button
             onClick={() => decide("allow", false, true)}
-            className={cn(base, durable)}
+            className={durable}
           >
             {t("approval.action.alwaysAllowCommand")}
           </button>
         )}
       </div>
-      {reach && <p className="mt-1.5 text-right text-[12px] leading-snug text-ink-tertiary">{reach}</p>}
+      {reach && (
+        <details className="group mt-1 text-[12px] text-ink-tertiary">
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 px-1 hover:text-ink-secondary">
+            {t("approval.reach.what")}
+            <ChevronRight size={12} className="transition-transform group-open:rotate-90" aria-hidden="true" />
+          </summary>
+          <p className="mt-1 px-1 leading-snug text-ink-tertiary">{reach}</p>
+        </details>
+      )}
     </div>
   );
+}
+
+export function shortFolder(path: string): string {
+  if (/\/(task-)?workspaces\/[\w-]+(\/[\w-]+)?\/?$/.test(path)) return t("approval.reach.chatFolder");
+  const parts = path.split("/").filter(Boolean);
+  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : path;
 }

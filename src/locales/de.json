@@ -90,6 +90,8 @@
   "approval.action.alwaysAllow": "Immer erlauben",
   "approval.reach.chat": "„Immer erlauben“ lässt {name} das in diesem Chat wieder tun, ohne zu fragen.",
   "approval.reach.dog": "„Immer erlauben“ lässt {name} das in Gruppenchats und neuen Chats wieder tun, ohne zu fragen.",
+  "approval.reach.what": "Was das abdeckt",
+  "approval.reach.chatFolder": "dem Ordner dieses Chats",
   "approval.reach.session": "„Für diesen Chat erlauben“ fragt bei dieser Aktion nicht mehr, bis die Sitzung dieses Chats endet.",
   "approval.reach.command": "„Immer erlauben“ lässt {name} genau diesen Befehl in {cwd} ohne Nachfrage ausführen, in jedem Chat mit diesem Ordner und dieser Engine.",
   "approval.action.alwaysAllowSession": "Für diesen Chat erlauben",

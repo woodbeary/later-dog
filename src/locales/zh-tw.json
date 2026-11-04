@@ -130,6 +130,8 @@
   "approval.action.alwaysAllow": "一律允許",
   "approval.reach.chat": "選擇「一律允許」後，{name} 在此聊天中再做這件事時不會再詢問。",
   "approval.reach.dog": "選擇「一律允許」後，{name} 在群組聊天和新聊天中再做這件事時不會再詢問。",
+  "approval.reach.what": "涵蓋範圍",
+  "approval.reach.chatFolder": "此聊天的資料夾",
   "approval.reach.session": "選擇「在此聊天中允許」後，在此聊天的工作階段結束前不再詢問此操作。",
   "approval.reach.command": "選擇「一律允許」後，{name} 可在 {cwd} 中直接執行這個指令，不再詢問；適用於使用該資料夾和此引擎的任何聊天。",
   "approval.action.alwaysAllowSession": "在此聊天中允許",

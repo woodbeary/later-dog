@@ -54,7 +54,7 @@ describe("German approval cards", () => {
     }));
 
     expect(markup).toContain("Mochi möchte einen Befehl ausführen");
-    expect(markup).toContain('aria-label="Details zur Freigabe"');
+    expect(markup).not.toContain("<pre");
     expect(markup).toContain("Wartet unten auf deine Antwort");
   });
 
@@ -162,7 +162,7 @@ describe("Brazilian Portuguese approval cards", () => {
     }));
 
     expect(markup).toContain("Mochi quer executar um comando");
-    expect(markup).toContain('aria-label="Detalhes da aprovação"');
+    expect(markup).not.toContain("<pre");
     expect(markup).toContain("Aguardando sua resposta abaixo");
   });
 

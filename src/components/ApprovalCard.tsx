@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, ChevronRight, ShieldCheck, Undo2, X } from "lucide-react";
+import { Check, ChevronRight, Hand, ShieldCheck, Undo2, X } from "lucide-react";
 import { api, ApiError, useOptionalStore, type Bot, type Message, type OptionCardData } from "@/state/store";
 import { RoutineCreatedLine } from "./QuietLines";
 import { cn } from "@/lib/cn";
@@ -437,6 +437,17 @@ export function ApprovalCard({
       </div>
     </div>
   );
+  if (!outcome && !isProposal && !outbound) {
+    return (
+      <div data-tour="approval" className="flex w-full max-w-[420px] items-center gap-1.5 py-0.5 text-[13px] text-ink-secondary">
+        <Hand size={14} className="shrink-0" aria-hidden="true" />
+        <span className="min-w-0 truncate">
+          {bot ? t("approval.card.namedWantsTo", { name: bot.name, action: approvalAction(card) }) : t("approval.card.wantsTo", { action: approvalAction(card) })}
+          <span className="text-ink-tertiary"> · {t("approval.status.waitingAnswer")}</span>
+        </span>
+      </div>
+    );
+  }
   if (!outcome) return body;
   return (
     <FoldedCard

@@ -90,6 +90,8 @@
   "approval.action.alwaysAllow": "Permitir siempre",
   "approval.reach.chat": "Permitir siempre deja que {name} lo vuelva a hacer en este chat sin preguntar.",
   "approval.reach.dog": "Permitir siempre deja que {name} lo vuelva a hacer sin preguntar en chats de grupo y en chats nuevos.",
+  "approval.reach.what": "Qué cubre esto",
+  "approval.reach.chatFolder": "la carpeta de este chat",
   "approval.reach.session": "Permitir en este chat deja de preguntar por esta acción hasta que termine la sesión de este chat.",
   "approval.reach.command": "Permitir siempre deja que {name} ejecute este comando exacto en {cwd} sin preguntar, en cualquier chat que use esa carpeta con este motor.",
   "approval.action.alwaysAllowSession": "Permitir en este chat",
