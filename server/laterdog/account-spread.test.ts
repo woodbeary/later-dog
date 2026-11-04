@@ -68,6 +68,14 @@ describe("choosing an account for a new conversation", () => {
 });
 
 describe("spreading dogs across accounts", () => {
+  it("runs the next turn on the account the owner just picked, not the one the chat last ran on", () => {
+    const { start, finish } = battery();
+    const before = start("dog-1", { ...DOG, instanceId: "claude-2" });
+    expect(before.routed.instanceId).toBe("claude-2");
+    finish("claude-2");
+    expect(start("dog-1", DOG).routed.instanceId).toBe("claude");
+  });
+
   it("starts three dogs that work at once on three accounts instead of draining one together, without a word in the chat", () => {
     const { start } = battery();
     const placed = ["dog-1", "dog-2", "dog-3"].map((threadId) => start(threadId));

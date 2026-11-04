@@ -96,7 +96,7 @@ const stateSchema = z.object({
   away: z.record(z.string(), z.object({
     from: z.string(), at: z.string(), to: z.string().optional(), ranOut: z.string().optional(), pick: z.string().optional(), on: z.string().optional(),
   })).default({}),
-  placed: z.record(z.string(), z.object({ on: z.string(), at: z.string() })).default({}),
+  placed: z.record(z.string(), z.object({ on: z.string(), at: z.string(), from: z.string().optional() })).default({}),
 });
 type BatteryState = z.output<typeof stateSchema>;
 
@@ -445,7 +445,8 @@ export class AccountBattery {
     const candidates = input.accounts.filter((account) => account.driverKind === own.driverKind && order.includes(account.instanceId) &&
       canTake(account, input, listed));
     const away = this.state.away[threadId];
-    const kept = candidates.find((account) => account.instanceId === this.state.placed[threadId]?.on) ??
+    const placed = this.state.placed[threadId];
+    const kept = (placed?.from === own.instanceId ? candidates.find((account) => account.instanceId === placed.on) : undefined) ??
       (away ? candidates.find((account) => account === own) ?? candidates.find((account) => account.instanceId === away.on) : undefined);
     if (kept) return kept;
     const load = (account: BatteryAccount) => input.accounts
@@ -582,7 +583,7 @@ export class AccountBattery {
       for (const [threadId, placed] of Object.entries(this.state.placed)) {
         if (routed[threadId] || this.state.away[threadId]) continue;
         const from = selectionOf(threadId);
-        if (from && from !== placed.on && accounts.some((account) => account.instanceId === placed.on)) routed[threadId] = { from, on: placed.on };
+        if (from && from !== placed.on && placed.from === from && accounts.some((account) => account.instanceId === placed.on)) routed[threadId] = { from, on: placed.on };
       }
       for (const [threadId, on] of runningOn) {
         const from = selectionOf(threadId);
@@ -677,7 +678,7 @@ export class AccountBattery {
     const away = this.state.away[threadId];
     const spread = ranOn !== selection.instanceId && away === undefined &&
       (this.state.placed[threadId]?.on === ranOn || this.spreadMove(selection, ranOn, accounts));
-    this.place(threadId, ranOn === selection.instanceId || spread ? ranOn : undefined);
+    this.place(threadId, ranOn === selection.instanceId || spread ? ranOn : undefined, selection.instanceId);
     if (spread) return undefined;
     if (ranOn === selection.instanceId) {
       if (this.takeBack(threadId, ranOn)) return backNotice(name(ranOn));
@@ -702,11 +703,11 @@ export class AccountBattery {
     });
   }
 
-  private place(threadId: string, on: string | undefined): void {
+  private place(threadId: string, on: string | undefined, from: string): void {
     const placed = this.state.placed[threadId];
-    if (placed?.on === on) return;
+    if (placed?.on === on && placed?.from === from) return;
     if (on === undefined) delete this.state.placed[threadId];
-    else this.state.placed[threadId] = { on, at: new Date(this.now()).toISOString() };
+    else this.state.placed[threadId] = { on, at: new Date(this.now()).toISOString(), from };
     const all = Object.entries(this.state.placed);
     if (all.length > MAX_PLACED) {
       all.sort((a, b) => a[1].at.localeCompare(b[1].at));

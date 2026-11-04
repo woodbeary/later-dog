@@ -419,10 +419,18 @@ describe("AccountBattery", () => {
   it("reports a thread spread onto another account as running there, so its dog doesn't read as recharging", () => {
     const file = join(scratch(), "account-battery.json");
     writeFileSync(file, JSON.stringify({ version: 1, resting: { claude: rest(HOUR) }, away: {},
-      placed: { "busy-dog": { on: "claude-b", at: at(-72 * HOUR) }, "home-dog": { on: "claude", at: at(0) }, "gone-account": { on: "claude-x", at: at(0) } } }));
+      placed: { "busy-dog": { on: "claude-b", at: at(-72 * HOUR), from: "claude" }, "home-dog": { on: "claude", at: at(0), from: "claude" }, "gone-account": { on: "claude-x", at: at(0), from: "claude" } } }));
     const instance = new AccountBattery({ config: () => ON, file, now: () => NOW });
     expect(instance.status(ACCOUNTS, () => "claude").routed).toEqual({ "busy-dog": { from: "claude", on: "claude-b" } });
     expect(instance.status(ACCOUNTS).routed).toEqual({});
+  });
+
+  it("stops naming the old account as soon as the owner picks another one for the dog", () => {
+    const file = join(scratch(), "account-battery.json");
+    writeFileSync(file, JSON.stringify({ version: 1, resting: {}, away: {},
+      placed: { "picked-daniel": { on: "claude-b", at: at(0), from: "claude" }, "before-from": { on: "claude-b", at: at(0) } } }));
+    const instance = new AccountBattery({ config: () => ON, file, now: () => NOW });
+    expect(instance.status(ACCOUNTS, () => "claude-c").routed).toEqual({});
   });
 
   it("reports a long turn by the account it actually runs on, even if it started before any move was recorded", () => {
