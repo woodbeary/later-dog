@@ -2078,6 +2078,8 @@
   "devices.retry": "Try again",
   "devices.saveFailed": "Couldn't save. Try again.",
   "devices.removeFailed": "Couldn't sign it out. Try again.",
+  "devices.older": "Older devices ({count})",
+  "devices.hideOlder": "Hide older devices",
   "computer.takeControlVmTitle": "Pause the dog's control and open the Local VM's live desktop",
   "computer.takeControlTitle": "Pause the dog's control and drive this computer yourself",
   "computer.sleepTitle": "Put the computer to sleep",

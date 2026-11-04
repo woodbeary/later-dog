@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Globe, Laptop, Loader2, Pencil, Smartphone } from "lucide-react";
+import { ChevronDown, Globe, Laptop, Loader2, Pencil, Smartphone } from "lucide-react";
 
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
@@ -27,6 +27,17 @@ export function orderedDevices(devices: readonly SignedInDevice[], current: stri
   return [...devices].sort((a, b) => Number(b.id === current) - Number(a.id === current) || b.lastSeenAt - a.lastSeenAt);
 }
 
+export const RECENT_DEVICE_DAYS = 14;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function splitDevices<T extends SignedInDevice>(devices: readonly T[], current: string | null, now: number, days = RECENT_DEVICE_DAYS): { recent: T[]; older: T[] } {
+  const cutoff = now - days * DAY_MS;
+  const recent: T[] = [];
+  const older: T[] = [];
+  for (const device of devices) (device.id === current || device.lastSeenAt >= cutoff ? recent : older).push(device);
+  return { recent, older };
+}
+
 const ICONS = { phone: Smartphone, computer: Laptop, browser: Globe } as const;
 const quietButtonCls = "rounded-lg px-2.5 py-1.5 text-[12.5px] text-ink-secondary transition-colors hover:bg-raised-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus disabled:opacity-40 motion-reduce:transition-none";
 
@@ -37,6 +48,8 @@ export function DevicesGroup() {
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [showOlder, setShowOlder] = useState(false);
+  const [now] = useState(() => Date.now());
 
   useEffect(() => {
     let active = true;
@@ -65,6 +78,34 @@ export function DevicesGroup() {
     setEditing(null);
   };
 
+  const currentId = list?.current ?? null;
+  const { recent, older } = splitDevices(orderedDevices(list?.sessions ?? [], currentId), currentId, now);
+  const row = (device: SignedInDevice) => {
+    const Icon = ICONS[deviceKind(device.label)];
+    const mine = device.id === currentId;
+    return editing === device.id ? (
+      <RenameForm key={device.id} device={device} onSaved={renamed} onCancel={() => setEditing(null)} />
+    ) : (
+      <div key={device.id} data-device={device.id} className="flex items-center gap-3 border-t border-hairline/40 py-3 first:border-t-0">
+        <Icon size={15} className="shrink-0 text-ink-secondary" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[13.5px] text-ink">{device.label}</div>
+          <div className="truncate text-[12px] text-ink-secondary">
+            {mine ? t("devices.thisDevice") : t("devices.lastSeen", { when: relativeTime(device.lastSeenAt) })}
+          </div>
+        </div>
+        <button type="button" onClick={() => setEditing(device.id)} aria-label={t("devices.rename", { name: device.label })} className="ui-icon-button shrink-0">
+          <Pencil size={14} aria-hidden="true" />
+        </button>
+        {!mine && (
+          <button type="button" disabled={busy !== null} onClick={() => void remove(device)} className={cn(quietButtonCls, "text-danger hover:text-danger")}>
+            {busy === device.id ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : t("devices.remove")}
+          </button>
+        )}
+      </div>
+    );
+  };
+
   return (
     <SettingsGroup label={t("devices.title")} testId="devices">
       <p className="px-4 pb-1 text-[12.5px] leading-relaxed text-ink-secondary">{t("devices.hint")}</p>
@@ -80,31 +121,24 @@ export function DevicesGroup() {
           </div>
         ) : list.sessions.length === 0 ? (
           <p className="py-4 text-[13px] text-ink-secondary">{t("devices.empty")}</p>
-        ) : orderedDevices(list.sessions, list.current).map((device) => {
-          const Icon = ICONS[deviceKind(device.label)];
-          const mine = device.id === list.current;
-          return editing === device.id ? (
-            <RenameForm key={device.id} device={device} onSaved={renamed} onCancel={() => setEditing(null)} />
-          ) : (
-            <div key={device.id} data-device={device.id} className="flex items-center gap-3 border-t border-hairline/40 py-3 first:border-t-0">
-              <Icon size={15} className="shrink-0 text-ink-secondary" aria-hidden="true" />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[13.5px] text-ink">{device.label}</div>
-                <div className="truncate text-[12px] text-ink-secondary">
-                  {mine ? t("devices.thisDevice") : t("devices.lastSeen", { when: relativeTime(device.lastSeenAt) })}
-                </div>
-              </div>
-              <button type="button" onClick={() => setEditing(device.id)} aria-label={t("devices.rename", { name: device.label })} className="ui-icon-button shrink-0">
-                <Pencil size={14} aria-hidden="true" />
+        ) : (
+          <>
+            {recent.map(row)}
+            {older.length > 0 && (
+              <button
+                type="button"
+                data-devices-older={older.length}
+                aria-expanded={showOlder}
+                onClick={() => setShowOlder((open) => !open)}
+                className="flex w-full items-center gap-3 border-t border-hairline/40 py-3 text-left text-[13px] text-ink-secondary transition-colors first:border-t-0 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus motion-reduce:transition-none"
+              >
+                <ChevronDown size={15} aria-hidden="true" className={cn("shrink-0 transition-transform motion-reduce:transition-none", showOlder && "rotate-180")} />
+                {showOlder ? t("devices.hideOlder") : t("devices.older", { count: older.length })}
               </button>
-              {!mine && (
-                <button type="button" disabled={busy !== null} onClick={() => void remove(device)} className={cn(quietButtonCls, "text-danger hover:text-danger")}>
-                  {busy === device.id ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : t("devices.remove")}
-                </button>
-              )}
-            </div>
-          );
-        })}
+            )}
+            {showOlder && older.map(row)}
+          </>
+        )}
       </SettingsRows>
       {note && <p role="alert" className="px-4 text-[12px] text-danger">{note}</p>}
     </SettingsGroup>
