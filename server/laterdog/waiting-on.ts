@@ -1,10 +1,14 @@
 import type { WireWaitingOn } from "../../shared/wire.ts";
 
-export function waitingOn(outstanding: readonly { botId: string }[], nameOf: (botId: string) => string | undefined): WireWaitingOn[] {
-  const named = new Map<string, string>();
-  for (const { botId } of outstanding) {
+export function waitingOn(outstanding: readonly { botId: string; threadId?: string; status?: string }[], nameOf: (botId: string) => string | undefined): WireWaitingOn[] {
+  const named = new Map<string, WireWaitingOn>();
+  for (const { botId, threadId, status } of outstanding) {
     const name = nameOf(botId)?.trim();
-    if (name && !named.has(botId)) named.set(botId, name);
+    if (!name) continue;
+    const running = status === "running";
+    const known = named.get(botId);
+    if (known && (known.state === "running" || !running)) continue;
+    named.set(botId, { botId, name, ...(threadId ? { threadId } : {}), state: running ? "running" : "queued" });
   }
-  return [...named].map(([botId, name]) => ({ botId, name }));
+  return [...named.values()];
 }

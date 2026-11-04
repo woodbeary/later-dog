@@ -79,6 +79,8 @@ export interface GroupThreadUsage extends TaskUsage {
 export interface WireWaitingOn {
   botId: string;
   name: string;
+  threadId?: string;
+  state?: "queued" | "running";
 }
 
 export interface WireTask {
