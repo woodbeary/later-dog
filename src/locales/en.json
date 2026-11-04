@@ -257,6 +257,8 @@
   "approval.reach.connector": "Allow covers {app} until your next message. Always allow lets {name} use it without asking again. Skip leaves it unused until your next message.",
   "approval.reach.connectorApp": "this app",
   "approval.reach.mac": "Always allow lets every dog use this Mac without asking. Never stops them using it.",
+  "approval.reach.what": "What this covers",
+  "approval.reach.chatFolder": "this chat's folder",
   "approval.reach.session": "Allow for this chat stops asking about this action until this chat's session ends.",
   "approval.reach.command": "Always allow lets {name} run this exact command in {cwd} without asking, in any chat using that folder with this engine.",
   "approval.action.stopAskingMac": "Let {name} use your Mac without asking",

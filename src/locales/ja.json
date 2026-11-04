@@ -92,6 +92,8 @@
   "approval.action.alwaysAllow": "常に許可",
   "approval.reach.chat": "「常に許可」にすると、{name} はこのチャットで次から確認なしでこれを行えます。",
   "approval.reach.dog": "「常に許可」にすると、{name} はグループチャットと新しいチャットで確認なしでこれを行えます。",
+  "approval.reach.what": "対象範囲",
+  "approval.reach.chatFolder": "このチャットのフォルダー",
   "approval.reach.session": "「このチャットで許可」にすると、このチャットのセッションが終わるまでこの操作について確認しません。",
   "approval.reach.command": "「常に許可」にすると、{name} は {cwd} でこのコマンドをそのまま確認なしで実行できます。このフォルダとこのエンジンを使うどのチャットでも有効です。",
   "approval.action.alwaysAllowSession": "このチャットで許可",

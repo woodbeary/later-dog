@@ -4,6 +4,7 @@ import { appendFileSync, closeSync, existsSync, readFileSync, statSync, writeFil
 import { join } from "node:path";
 import { createPuppies } from "./fake-claude-puppies.ts";
 import { runRoomHandoffAgent } from "./room-handoff-agent.ts";
+import { ASKS_COMMAND, ASKS_QUESTION, callDogTool, dogServer } from "./fake-claude-asks.ts";
 
 const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
 
@@ -652,6 +653,24 @@ const playTurn = async (prompt: JsonValue, late = false) => {
       clearInterval(poll);
       finish();
     }, 10);
+    return;
+  }
+  if (mode === "asks") {
+    launchFiles ??= readLaunchFiles();
+    const server = dogServer(launchFiles.mcpConfig);
+    if (!server) { out({ type: "assistant", message: { content: [{ type: "text", text: "no dog server" }] } }); finish(); return; }
+    void (async () => {
+      const bash = `tu-${process.pid}-${++toolUseCount}`;
+      out({ type: "assistant", message: { content: [{ type: "tool_use", id: bash, name: "Bash", input: { command: ASKS_COMMAND } }] } });
+      const allowed = await callDogTool(server, "approve", { tool_name: "Bash", input: { command: ASKS_COMMAND }, tool_use_id: bash });
+      out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: bash, is_error: false, content: [{ type: "text", text: allowed }] }] } });
+      const ask = `tu-${process.pid}-${++toolUseCount}`;
+      out({ type: "assistant", message: { content: [{ type: "tool_use", id: ask, name: "AskUserQuestion", input: ASKS_QUESTION }] } });
+      const answer = await callDogTool(server, "approve", { tool_name: "AskUserQuestion", input: ASKS_QUESTION, tool_use_id: ask });
+      out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: ask, is_error: false, content: [{ type: "text", text: answer }] }] } });
+      out({ type: "assistant", message: { content: [{ type: "text", text: `asked: ${allowed} / ${answer}` }] } });
+      finish();
+    })();
     return;
   }
   if (mode === "slow") {

@@ -90,6 +90,8 @@
   "approval.action.alwaysAllow": "हमेशा अनुमति दें",
   "approval.reach.chat": "हमेशा अनुमति दें से {name} इस चैट में बिना पूछे यह फिर कर सकेगा।",
   "approval.reach.dog": "हमेशा अनुमति दें से {name} ग्रुप चैट और नई चैट में बिना पूछे यह फिर कर सकेगा।",
+  "approval.reach.what": "इसमें क्या शामिल है",
+  "approval.reach.chatFolder": "इस चैट के फ़ोल्डर",
   "approval.reach.session": "इस चैट के लिए अनुमति दें से इस चैट का सेशन खत्म होने तक इस काम के बारे में दोबारा नहीं पूछा जाएगा।",
   "approval.reach.command": "हमेशा अनुमति दें से {name} {cwd} में यही कमांड बिना पूछे चला सकेगा, उस फ़ोल्डर और इस इंजन वाली किसी भी चैट में।",
   "approval.action.alwaysAllowSession": "इस चैट के लिए अनुमति दें",

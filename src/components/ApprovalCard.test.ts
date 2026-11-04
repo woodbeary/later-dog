@@ -401,11 +401,12 @@ describe("ApprovalCard tool-call kinds", () => {
 
   const bot = { id: "bot-1", name: "Scout" } as never as Bot;
 
-  it("shows the exact command open in a capped mono block while it waits", () => {
+  it("keeps a waiting command to one quiet line in the chat, leaving the command and buttons to the card above the message box", () => {
     const html = renderToStaticMarkup(createElement(ApprovalCard, { bot, message: kindMessage("Bash") }));
-    expect(html).not.toContain("View details");
-    expect(html).not.toContain("<details");
-    expect(html).toMatch(/<pre[^>]*class="[^"]*max-h-40[^"]*font-mono[^"]*"[^>]*>rg &quot;wants to&quot; src\/components<\/pre>/);
+    expect(html).toContain("Scout wants to run a command");
+    expect(html).toContain("Waiting for your answer below");
+    expect(html).not.toContain("<pre");
+    expect(html).not.toContain("<button");
   });
 
   it("speaks a verb phrase when the driver only knows the ACP kind", () => {

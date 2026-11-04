@@ -80,7 +80,7 @@ describe("remembering exact command approvals", () => {
     }
   });
 
-  it("puts Allow once first and primary, and a durable grant last, outlined and set apart", () => {
+  it("puts Allow once first and primary, and a durable grant last as a quiet text button", () => {
     for (const extra of [{}, { commandAllowlist: undefined }, { allowKey: "peer:teammate" }] as const) {
       const { buttons } = view(extra);
       const labels = buttons.map((button) => String(button.props.children));
@@ -90,8 +90,8 @@ describe("remembering exact command approvals", () => {
       const classes = (button: (typeof buttons)[number]) => String((button.props as unknown as { className?: string }).className);
       expect(classes(buttons[0]!)).toContain("bg-accent");
       expect(classes(buttons.at(-1)!)).not.toContain("bg-accent");
-      expect(classes(buttons.at(-1)!)).toContain("border");
-      expect(classes(buttons.at(-1)!)).toContain("ml-3");
+      expect(classes(buttons.at(-1)!).split(" ")).not.toContain("bg-control");
+      expect(classes(buttons.at(-1)!)).toContain("text-ink-secondary");
     }
   });
 
@@ -142,7 +142,7 @@ describe("remembering exact command approvals", () => {
     }
   });
 
-  it("says in one visible line how far each lasting choice reaches", () => {
+  it("says in one line, one tap away, how far each lasting choice reaches", () => {
     const line = (html: string) => html.match(/<p class="[^"]*text-ink-tertiary[^"]*">([^<]*)<\/p>/)?.[1];
     const command = view();
     expect(line(command.html)).toBe("Always allow lets Scout run this exact command in /work/project without asking, in any chat using that folder with this engine.");

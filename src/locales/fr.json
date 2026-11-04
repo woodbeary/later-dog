@@ -90,6 +90,8 @@
   "approval.action.alwaysAllow": "Toujours autoriser",
   "approval.reach.chat": "Toujours autoriser permet à {name} de le refaire dans cette discussion sans demander.",
   "approval.reach.dog": "Toujours autoriser permet à {name} de le refaire sans demander dans les discussions de groupe et les nouvelles discussions.",
+  "approval.reach.what": "Ce que cela couvre",
+  "approval.reach.chatFolder": "le dossier de cette discussion",
   "approval.reach.session": "Autoriser pour cette discussion arrête de demander pour cette action jusqu'à la fin de la session de cette discussion.",
   "approval.reach.command": "Toujours autoriser permet à {name} d'exécuter cette commande exacte dans {cwd} sans demander, dans toute discussion qui utilise ce dossier avec ce moteur.",
   "approval.action.alwaysAllowSession": "Autoriser pour cette discussion",

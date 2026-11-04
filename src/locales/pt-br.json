@@ -90,6 +90,8 @@
   "approval.action.alwaysAllow": "Sempre permitir",
   "approval.reach.chat": "Sempre permitir deixa {name} fazer isso de novo nesta conversa sem perguntar.",
   "approval.reach.dog": "Sempre permitir deixa {name} fazer isso de novo sem perguntar em conversas em grupo e em novas conversas.",
+  "approval.reach.what": "O que isto cobre",
+  "approval.reach.chatFolder": "a pasta desta conversa",
   "approval.reach.session": "Permitir nesta conversa para de perguntar sobre esta ação até a sessão desta conversa terminar.",
   "approval.reach.command": "Sempre permitir deixa {name} executar este comando exato em {cwd} sem perguntar, em qualquer conversa que use essa pasta com este motor.",
   "approval.action.alwaysAllowSession": "Permitir nesta conversa",
