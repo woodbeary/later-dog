@@ -404,6 +404,7 @@ import {
   getStagedSkillWrite,
   installOrgSkill,
   installSkill,
+  SKILL_FILE_MAX_BYTES,
   listBotSkillsWithOrigin,
   resolveBotSkills,
   parseSkillMd,
@@ -16834,8 +16835,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     if (m && method === "POST") {
       if (!store.bot(m[1])) return json(res, 404, { error: "no such bot" });
-      const parsed = z.object({ source: z.string().min(1).max(2000) }).safeParse(await readBody(req));
-      if (!parsed.success) return json(res, 400, { error: "source must be a GitHub or skills.sh URL, or owner/repo" });
+      const body = await readBody(req);
+      const written = z.object({ text: z.string().min(1).max(SKILL_FILE_MAX_BYTES) }).safeParse(body);
+      if (written.success) {
+        const skill = installSkill(m[1]!, "written by you", [{ path: "SKILL.md", content: written.data.text }]);
+        if ("error" in skill) return json(res, 422, { error: skill.error });
+        return json(res, 201, { installed: [skill], errors: [] });
+      }
+      const parsed = z.object({ source: z.string().min(1).max(2000) }).safeParse(body);
+      if (!parsed.success) return json(res, 400, { error: "send text (a SKILL.md you wrote) or source (a GitHub or skills.sh URL, or owner/repo)" });
       const fetched = await fetchSkillFromSource(parsed.data.source);
       if ("error" in fetched) return json(res, 422, { error: fetched.error });
       const results = fetched.skills.map((skill) => installSkill(m![1]!, skill.source, skill.files));
