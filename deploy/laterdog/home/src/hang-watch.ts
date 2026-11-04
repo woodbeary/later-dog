@@ -1,21 +1,22 @@
 export const ANSWER_CHECK_TIMEOUT_MS = 15_000;
-export const RESTART_AFTER_MISSED_CHECKS = 4;
+export const RESTART_AFTER_SILENT_MS = 4 * 60_000;
+export const RESTART_AFTER_MISSED_CHECKS = 2;
 
 export interface AnswerRecord {
-  answered: boolean;
+  answeredAt: number | null;
   missed: number;
 }
 
-export const NOT_ANSWERED_YET: AnswerRecord = { answered: false, missed: 0 };
+export const NOT_ANSWERED_YET: AnswerRecord = { answeredAt: null, missed: 0 };
 
 export type AnswerVerdict = { record: AnswerRecord; restart: boolean };
 
-export function afterCheck(previous: AnswerRecord, answered: boolean, limit = RESTART_AFTER_MISSED_CHECKS): AnswerVerdict {
-  if (answered) return { record: { answered: true, missed: 0 }, restart: false };
-  if (!previous.answered) return { record: previous, restart: false };
+export function afterCheck(previous: AnswerRecord, answered: boolean, now: number): AnswerVerdict {
+  if (answered) return { record: { answeredAt: now, missed: 0 }, restart: false };
+  if (previous.answeredAt === null) return { record: previous, restart: false };
   const missed = previous.missed + 1;
-  if (missed >= limit) return { record: NOT_ANSWERED_YET, restart: true };
-  return { record: { answered: true, missed }, restart: false };
+  if (missed >= RESTART_AFTER_MISSED_CHECKS && now - previous.answeredAt >= RESTART_AFTER_SILENT_MS) return { record: NOT_ANSWERED_YET, restart: true };
+  return { record: { answeredAt: previous.answeredAt, missed }, restart: false };
 }
 
 export function within<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -24,6 +25,7 @@ export function within<T>(work: Promise<T>, ms: number, fallback: T): Promise<T>
   return Promise.race([work.catch(() => fallback), late]).finally(() => { if (timer !== null) clearTimeout(timer); });
 }
 
-export function stuckLine(machineId: string, missed: number, everyS: number): string {
-  return `laterdog home ${machineId}: stopped answering (${missed} checks in a row over ${Math.round((missed * everyS) / 60)} min); restarting it from its last save`;
+export function stuckLine(machineId: string, record: AnswerRecord, now: number): string {
+  const silentMin = record.answeredAt === null ? 0 : Math.round((now - record.answeredAt) / 60_000);
+  return `laterdog home ${machineId}: stopped answering (no answer for ${silentMin} min, ${record.missed} checks missed in a row); restarting it from its last save`;
 }

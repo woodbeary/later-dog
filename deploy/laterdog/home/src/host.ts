@@ -10,7 +10,7 @@ import { homeNamespace, otherSize, type HomeSize } from "./size.ts";
 import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, stateOwner } from "./state.ts";
 import { devCodeOn, handleDevCode } from "./dev-code.ts";
 import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter, RESTART_AFTER_STOP_S } from "./always-on.ts";
-import { afterCheck, ANSWER_CHECK_TIMEOUT_MS, NOT_ANSWERED_YET, RESTART_AFTER_MISSED_CHECKS, stuckLine, within, type AnswerRecord } from "./hang-watch.ts";
+import { afterCheck, ANSWER_CHECK_TIMEOUT_MS, NOT_ANSWERED_YET, stuckLine, within, type AnswerRecord } from "./hang-watch.ts";
 import {
   DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskLimit, deskPrefix, deskSend, forgetScope, queuedReceipt, queuedSend,
   refusedSend, saveAnswer, savable, savedAnswer, withQueued, type DeskBucket, type DeskKind, type QueuedSend,
@@ -267,10 +267,11 @@ export class CloudHomeHost extends Container<Env> {
   private async checkAnswering(record: HomeRecord): Promise<void> {
     const previous = (await this.ctx.storage.get<AnswerRecord>(ANSWER_KEY)) ?? NOT_ANSWERED_YET;
     const answered = await within(this.healthy(record), ANSWER_CHECK_TIMEOUT_MS, false);
-    const { record: next, restart } = afterCheck(previous, answered);
+    const now = Date.now();
+    const { record: next, restart } = afterCheck(previous, answered, now);
     await this.ctx.storage.put(ANSWER_KEY, next);
     if (!restart) return;
-    console.error(stuckLine(record.machineId, RESTART_AFTER_MISSED_CHECKS, KEEP_UP_EVERY_S));
+    console.error(stuckLine(record.machineId, { ...previous, missed: previous.missed + 1 }, now));
     this.serverUp = false;
     await this.destroy().catch(() => undefined);
     this.boot(record, false);

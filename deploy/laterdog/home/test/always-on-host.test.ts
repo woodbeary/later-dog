@@ -64,7 +64,10 @@ describe("an always-on home whose computer stops", () => {
 });
 
 describe("an always-on home that stops answering", () => {
-  it("is restarted after four missed checks in a row, but only once it had answered", async () => {
+  it("is restarted once it has been silent four minutes over two missed checks, but only after it had answered", async () => {
+    const clock = vi.spyOn(Date, "now");
+    let now = Date.parse("2026-11-04T06:00:00Z");
+    clock.mockImplementation(() => now);
     const h = await home(OWNER);
     await h.host.keepUp();
     await h.settle();
@@ -72,20 +75,23 @@ describe("an always-on home that stops answering", () => {
     expect(h.machine.running).toBe(true);
     const starts = h.machine.starts;
     h.machine.serving = false;
-    for (let check = 0; check < 3; check += 1) await h.host.keepUp();
-    expect(h.machine.starts).toBe(starts);
-    h.machine.serving = true;
+    now += 60_000;
     await h.host.keepUp();
-    h.machine.serving = false;
-    for (let check = 0; check < 3; check += 1) await h.host.keepUp();
+    now += 60_000;
+    await h.host.keepUp();
     expect(h.machine.starts).toBe(starts);
+    now += 2 * 60_000;
     await h.host.keepUp();
     await h.settle();
     expect(h.machine.running).toBe(true);
     expect(h.machine.starts).toBe(starts + 1);
+    clock.mockRestore();
   });
 
   it("is left alone while it has not answered since it started, so a long restore is never cut short", async () => {
+    const clock = vi.spyOn(Date, "now");
+    let now = Date.parse("2026-11-04T06:00:00Z");
+    clock.mockImplementation(() => now);
     const h = await home(OWNER);
     await h.host.keepUp();
     await h.settle();
@@ -96,7 +102,11 @@ describe("an always-on home that stops answering", () => {
     await h.host.keepUp();
     await h.settle();
     const starts = h.machine.starts;
-    for (let check = 0; check < 8; check += 1) await h.host.keepUp();
+    for (let check = 0; check < 8; check += 1) {
+      now += 60_000;
+      await h.host.keepUp();
+    }
     expect(h.machine.starts).toBe(starts);
+    clock.mockRestore();
   });
 });
