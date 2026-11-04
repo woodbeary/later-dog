@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { capThreadLogs, clearBuildOutput, findBuildOutput, isLowDisk, LOW_DISK_BYTES, pruneOldFiles, runJanitor, storageWords, workspaceIsIdle } from "./janitor.ts";
+import { capThreadLogs, clearBuildOutput, findBuildOutput, isLowDisk, LOW_DISK_BYTES, pruneOldFiles, runJanitor, workspaceIsIdle } from "./janitor.ts";
 
 const DAY = 24 * 60 * 60 * 1000;
 const scratch = () => mkdtempSync(join(tmpdir(), "janitor-"));
@@ -80,8 +80,6 @@ describe("low disk", () => {
     expect(isLowDisk({ totalBytes: 20e9, freeBytes: LOW_DISK_BYTES - 1 })).toBe(true);
     expect(isLowDisk({ totalBytes: 20e9, freeBytes: LOW_DISK_BYTES })).toBe(false);
     expect(isLowDisk(null)).toBe(false);
-    expect(storageWords({ totalBytes: 20e9, freeBytes: 0.4 * 1024 ** 3 })).toMatch(/^Your Cloud home is almost out of space \(0\.4 GB left\)/);
-    expect(storageWords({ totalBytes: 20e9, freeBytes: 8e9 })).toBeNull();
   });
 });
 
