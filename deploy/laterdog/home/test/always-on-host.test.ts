@@ -62,3 +62,66 @@ describe("an always-on home whose computer stops", () => {
     expect(h.host.schedules.get("keepUp") ?? 0).toBe(asked);
   });
 });
+
+describe("an always-on home that stops answering", () => {
+  it("is restarted once it has been silent four minutes over two missed checks, but only after it had answered", async () => {
+    const clock = vi.spyOn(Date, "now");
+    let now = Date.parse("2026-11-04T06:00:00Z");
+    clock.mockImplementation(() => now);
+    const h = await home(OWNER);
+    await h.host.keepUp();
+    await h.settle();
+    await h.host.keepUp();
+    expect(h.machine.running).toBe(true);
+    const starts = h.machine.starts;
+    h.machine.serving = false;
+    now += 60_000;
+    await h.host.keepUp();
+    now += 60_000;
+    await h.host.keepUp();
+    expect(h.machine.starts).toBe(starts);
+    now += 2 * 60_000;
+    await h.host.keepUp();
+    await h.settle();
+    expect(h.machine.running).toBe(true);
+    expect(h.machine.starts).toBe(starts + 1);
+    clock.mockRestore();
+  });
+
+  it("is left alone while it has not answered since it started, so a long restore is never cut short", async () => {
+    const clock = vi.spyOn(Date, "now");
+    let now = Date.parse("2026-11-04T06:00:00Z");
+    clock.mockImplementation(() => now);
+    const h = await home(OWNER);
+    await h.host.keepUp();
+    await h.settle();
+    h.machine.running = false;
+    h.host.onStop({ exitCode: 0, reason: "a new version rolled out" });
+    await h.settle();
+    h.machine.serving = false;
+    await h.host.keepUp();
+    await h.settle();
+    const starts = h.machine.starts;
+    for (let check = 0; check < 8; check += 1) {
+      now += 60_000;
+      await h.host.keepUp();
+    }
+    expect(h.machine.starts).toBe(starts);
+    clock.mockRestore();
+  });
+});
+
+describe("the minute check of an always-on home", () => {
+  it("is not pushed back by people using the home more often than once a minute", async () => {
+    const h = await home(OWNER);
+    await h.host.keepUp();
+    await h.settle();
+    const scheduled = vi.spyOn(h.host as unknown as { schedule(when: number, callback: string): Promise<void> }, "schedule");
+    const arm = (h.host as unknown as { armKeepUp(): Promise<void> }).armKeepUp.bind(h.host);
+    for (let request = 0; request < 5; request += 1) await arm();
+    expect(scheduled.mock.calls.filter(([, callback]) => callback === "keepUp")).toHaveLength(0);
+    await h.host.keepUp();
+    expect(scheduled.mock.calls.filter(([, callback]) => callback === "keepUp")).toHaveLength(1);
+    scheduled.mockRestore();
+  });
+});

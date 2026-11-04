@@ -10,6 +10,7 @@ import { homeNamespace, otherSize, type HomeSize } from "./size.ts";
 import { authorizedState, EMAIL_HOST, forgetHomeState, handleState, STATE_HOST, stateOwner } from "./state.ts";
 import { devCodeOn, handleDevCode } from "./dev-code.ts";
 import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter, RESTART_AFTER_STOP_S } from "./always-on.ts";
+import { afterCheck, ANSWER_CHECK_TIMEOUT_MS, NOT_ANSWERED_YET, stuckLine, within, type AnswerRecord } from "./hang-watch.ts";
 import {
   DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskLimit, deskPrefix, deskSend, forgetScope, queuedReceipt, queuedSend,
   refusedSend, saveAnswer, savable, savedAnswer, withQueued, type DeskBucket, type DeskKind, type QueuedSend,
@@ -54,6 +55,8 @@ const BRAIN_KEY = "desk-brain";
 const BRAIN_REFRESH_MS = 5 * 60 * 1000;
 const PAIRING_OPEN_KEY = "pairing-open-until";
 const STATE_ROUTE_DEV_CODE_KEY = "state-route-dev-code";
+const ANSWER_KEY = "answering";
+const KEEP_UP_DUE_KEY = "keep-up-due";
 const REFUSED_KEPT = 256;
 const CHECKS_AT_ONCE = 4;
 export const PERSON_SLEEP_AFTER = "30m";
@@ -127,6 +130,7 @@ export class CloudHomeHost extends Container<Env> {
 
   override onStop({ exitCode, reason }: { exitCode: number; reason: string }): void {
     this.serverUp = false;
+    this.ctx.waitUntil(this.ctx.storage.put(ANSWER_KEY, NOT_ANSWERED_YET));
     console.error(`laterdog home ${this.record?.machineId ?? "unknown"}: stopped (${reason}, exit ${exitCode})`);
     const record = this.record;
     if (record && !this.removed && this.handover.holds() && alwaysOn(this.env.ALWAYS_ON_ACCOUNTS, record.accountId)) {
@@ -252,13 +256,35 @@ export class CloudHomeHost extends Container<Env> {
       return;
     }
     if (!this.handover.holds()) return;
-    await this.armKeepUp();
-    if (!this.ctx.container?.running) this.boot(record, false);
+    await this.armKeepUp({ again: true });
+    if (!this.ctx.container?.running) {
+      await this.ctx.storage.put(ANSWER_KEY, NOT_ANSWERED_YET);
+      this.boot(record, false);
+      return;
+    }
+    if (!this.booting) await this.checkAnswering(record);
   }
 
-  private async armKeepUp(): Promise<void> {
+  private async checkAnswering(record: HomeRecord): Promise<void> {
+    const previous = (await this.ctx.storage.get<AnswerRecord>(ANSWER_KEY)) ?? NOT_ANSWERED_YET;
+    const answered = await within(this.healthy(record), ANSWER_CHECK_TIMEOUT_MS, false);
+    const now = Date.now();
+    const { record: next, restart } = afterCheck(previous, answered, now);
+    await this.ctx.storage.put(ANSWER_KEY, next);
+    if (!restart) return;
+    console.error(stuckLine(record.machineId, { ...previous, missed: previous.missed + 1 }, now));
+    this.serverUp = false;
+    await this.destroy().catch(() => undefined);
+    this.boot(record, false);
+  }
+
+  private async armKeepUp({ again = false } = {}): Promise<void> {
+    const now = Date.now();
+    const due = await this.ctx.storage.get<number>(KEEP_UP_DUE_KEY);
+    if (!again && due !== undefined && due > now - KEEP_UP_EVERY_S * 1000) return;
     this.deleteSchedules("keepUp");
     await this.schedule(KEEP_UP_EVERY_S, "keepUp");
+    await this.ctx.storage.put(KEEP_UP_DUE_KEY, now + KEEP_UP_EVERY_S * 1000);
   }
 
   private async armMaintenance(): Promise<void> {
@@ -768,6 +794,7 @@ export class CloudHomeHost extends Container<Env> {
       start: async () => {
         this.signalled = false;
         this.serverUp = false;
+        await this.ctx.storage.put(ANSWER_KEY, NOT_ANSWERED_YET);
         await this.startAndWaitForPorts(HOME_PORT, { portReadyTimeoutMS: BOOT_PORT_TIMEOUT_MS });
       },
       stop: () => this.quiet(),
