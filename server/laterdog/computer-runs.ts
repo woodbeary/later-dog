@@ -108,9 +108,12 @@ export function bringBackList(listing: string, maxBytes = MAX_BRING_BACK_BYTES):
   return { take, skipped };
 }
 
-export function homeChangedSince(folder: string, paths: readonly string[], since: number): string[] {
+export function homeChangedSince(folder: string, paths: readonly string[], sent: FolderStamps): string[] {
   return paths.filter((path) => {
-    try { return lstatSync(join(folder, path)).mtimeMs > since; } catch { return false; }
+    let entry;
+    try { entry = lstatSync(join(folder, path)); } catch { return false; }
+    const before = sent[path];
+    return !before || before.size !== entry.size || before.mtimeMs !== Math.floor(entry.mtimeMs);
   });
 }
 
@@ -226,7 +229,7 @@ export class ComputerRuns {
     const lister = `import os,sys\nskip=set(sys.argv[2].split(","))\nsince=os.stat(sys.argv[1]).st_mtime\nfor root,dirs,files in os.walk("."):\n  dirs[:]=[d for d in dirs if d not in skip]\n  for f in files:\n    p=os.path.join(root,f)\n    try: st=os.lstat(p)\n    except OSError: continue\n    if st.st_mtime>since: print(f"{st.st_size}\\t{p}")\n`;
     const listing = must(await box.exec(`cd ${quote(remote)} && python3 -c ${quote(lister)} ../.logs/${record.id}.start ${quote([...SKIPPED_NAMES].join(","))}`, EXEC_MS), "listing changed files");
     const { take, skipped } = bringBackList(listing.stdout);
-    const conflicts = homeChangedSince(record.folder, take, record.startedAt);
+    const conflicts = homeChangedSince(record.folder, take, record.sent);
     const fetch = take.filter((path) => !conflicts.includes(path));
     if (!fetch.length) return { broughtBack: [], skipped, conflicts };
     await box.write(`runs/.in/${record.id}.back`, Buffer.from(fetch.map((path) => `${path}\0`).join("")));
