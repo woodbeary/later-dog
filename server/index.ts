@@ -127,7 +127,8 @@ import { HOME_HEALTH_FILE, startHomeHealthLog } from "./laterdog/home-health-log
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
 import { ComputerRuns } from "./laterdog/computer-runs.ts";
-import { handleComputerRun } from "./laterdog/computer-run-route.ts";
+import { createComputerRunRoute } from "./routes/computer-run.ts";
+import { createStorageRoutes } from "./routes/storage.ts";
 import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
@@ -12435,6 +12436,7 @@ ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: (
 const orgInstallStatuses = () => orgLibrary?.installStatuses() ?? new Map();
 ROUTES.push(createBotPresetRoutes({ presets: presetStore, orgStatuses: orgInstallStatuses }));
 ROUTES.push(createSidebarSectionOrderRoutes({ order: (sections) => store.orderSections(sections) }));
+ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk") }));
 ROUTES.push(createLinkPreviewRoutes());
 ROUTES.push(createBotMemoryRoutes({
   bot: (id) => store.bot(id),
@@ -12621,6 +12623,13 @@ INTERNAL_ROUTES.push(createDogTaskRoute({
     },
     run: (taskThreadId, instruction) => startTurn(sender.id, instruction, { threadId: taskThreadId }),
   }),
+}));
+const computerRuns = new ComputerRuns(join(DATA_DIR, "computer-runs"));
+INTERNAL_ROUTES.push(createComputerRunRoute({
+  owns: (botId, threadId) => connectorThread(botId, threadId) !== null,
+  folders: (botId, threadId) => messageFileRootsForThread(botId, threadId).filter((root) => root !== ATTACHMENTS_DIR),
+  runs: computerRuns,
+  computer: boat.heavyRunBox,
 }));
 INTERNAL_ROUTES.push(createEmailMeRoute({
   deliver: CLOUD_HOME ? deliverOwnerEmail : null,
@@ -13413,15 +13422,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             };
           });
         return json(res, 200, { bots, rooms: groupChatsOf(store.groups, sender) });
-      }
-      if (method === "POST" && path === "/api/internal/computer-run") {
-        const from = internalSender;
-        const threadId = internalCapability.threadId;
-        if (!connectorThread(from.id, threadId)) return json(res, 403, { error: "source conversation does not belong to sender" });
-        const body = await readInternalBody();
-        const roots = messageFileRootsForThread(from.id, threadId).filter((root) => root !== ATTACHMENTS_DIR);
-        const answer = await handleComputerRun({ botId: from.id, body, workingFolder: roots[0] ?? null, allowedRoots: roots }, { runs: computerRuns, computer: boat.heavyRunBox });
-        return json(res, answer.status, answer.error ? { error: answer.error } : { text: answer.text, failed: answer.failed });
       }
       if (method === "POST" && path === "/api/internal/attach-file") {
         const from = internalSender;
@@ -18276,8 +18276,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       });
     }
 
-    if (method === "GET" && path === "/api/storage") return json(res, 200, cloudStorage());
-    if (method === "POST" && path === "/api/storage/clean") return json(res, 200, { run: runJanitorNow("low-disk"), storage: cloudStorage() });
     if (method === "GET" && path === "/api/health") {
       return json(res, 200, { app: "laterdog", pid: process.pid, static: Boolean(STATIC_DIR), capabilities: {
         guardedMessages: 1, guardedRequests: 1, guardedFullAccess: 1, guardedOnBehalfOf: 1,
@@ -19942,8 +19940,6 @@ function janitorWorkspaces(): WorkspaceTask[] {
   }
   return tasks;
 }
-
-const computerRuns = new ComputerRuns(join(DATA_DIR, "computer-runs"));
 
 let lastJanitorRun: JanitorRun | null = null;
 let janitorRunning = false;
