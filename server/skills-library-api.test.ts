@@ -49,6 +49,18 @@ describe("skills library routes through an isolated HTTP fixture", () => {
     expect(Object.keys(legacy.body).sort()).toEqual(["skills", "staged"]);
   });
 
+  it("installs a skill the person wrote straight onto one dog, off until they switch it on", async () => {
+    const writer = (await api("POST", "/api/bots", { name: "Writer fixture" })).body.bot.id;
+    const written = await api("POST", `/api/bots/${writer}/skills`, { text: SKILL_MD.replace("order-audit", "written-check") });
+    expect(written.status).toBe(201);
+    expect(written.body.installed).toEqual([expect.objectContaining({ name: "written-check", enabled: false, source: "written by you" })]);
+    expect((await api("PATCH", `/api/bots/${writer}/skills/written-check`, { enabled: true })).status).toBe(200);
+    const listed = await api("GET", `/api/bots/${writer}/skills`);
+    expect(listed.body.skills).toEqual(expect.arrayContaining([expect.objectContaining({ name: "written-check", enabled: true })]));
+    expect((await api("POST", `/api/bots/${writer}/skills`, { text: "no frontmatter" })).status).toBe(422);
+    expect((await api("POST", `/api/bots/${writer}/skills`, {})).status).toBe(400);
+  });
+
   it("lists, imports, assigns, and reviews pasted skills once the flag is on", async () => {
     expect((await api("PATCH", "/api/config", { features: { skillsLibrary: true } })).status).toBe(200);
 
