@@ -195,13 +195,11 @@ describe("the menu under your name", () => {
     expect([...markup.matchAll(/role="menuitem"[^>]*>(?:<svg.*?<\/svg>)?([^<]+)</g)].map((match) => match[1])).toEqual(["Help Center", "Send Feedback", "Report a bug"]);
   });
 
-  it("ends with Add account under a line once an account here is signed in, and never offers to sign Claude or ChatGPT out here", () => {
+  it("leaves AI accounts and their usage to the chat's model button and Settings, and never offers to sign Claude or ChatGPT out here", () => {
     menu.instances = [claude, { ...claude, instanceId: "claude-api", authentication: { method: "paste-code" } } as InstanceInfo];
     const items = open();
-    expect(items.map((item) => item.key)).toEqual(["phoneApp", "support", "settings", "add-account"]);
-    expect(items[3]).toMatchObject({ label: "Add account", separatorBefore: true });
-    menu.instances = [{ ...claude, snapshot: { state: "available", authenticated: false } } as InstanceInfo];
-    expect(open().map((item) => item.key)).toEqual(["phoneApp", "support", "settings"]);
+    expect(items.map((item) => item.key)).toEqual(["phoneApp", "support", "settings"]);
+    expect(items.map((item) => item.label).join(" ")).not.toMatch(/Add account|Switch account|Weekly|Sign out/);
   });
 
   it("adds a New update available row with Install when an update is ready, and stays quiet otherwise", () => {

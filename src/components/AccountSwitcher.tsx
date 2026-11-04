@@ -55,19 +55,6 @@ export function accountInitials(name: string): string {
   return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((word) => [...word][0]!.toUpperCase()).join("") || "?";
 }
 
-export function AccountBadge({ instance, ring }: { instance: InstanceInfo; ring: UsageRingLevel | null }) {
-  const initials = accountInitials(instance.displayName);
-  return (
-    <span data-account-initials={initials} className="relative flex size-5 shrink-0 items-center justify-center">
-      {ring ? <UsageRing {...ring}>{ring.charging || ring.sleeping ? <SleepingDog size={15} /> : <InstanceProviderMark instance={instance} size={12} />}</UsageRing>
-        : <InstanceProviderMark instance={instance} size={15} />}
-      <span aria-hidden="true" className="absolute -bottom-1 -right-1.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-ink px-[2.5px] text-[7.5px] font-semibold leading-none tracking-tight text-app ring-[1.5px] ring-card">
-        {initials}
-      </span>
-    </span>
-  );
-}
-
 export function shownAccounts(accounts: readonly InstanceInfo[], currentId: string): InstanceInfo[] {
   return accounts.filter((account) => account.instanceId === currentId || signedIn(account));
 }

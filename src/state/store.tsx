@@ -653,7 +653,7 @@ export interface InstanceInfo {
       message: string;
     };
   };
-  models: { default: string; options: Array<{ id: string; label: string; custom?: boolean; loaded?: boolean; provider?: string; variants?: ModelVariantOption[]; effortLevels?: readonly EffortLevel[]; defaultEffort?: EffortLevel }> };
+  models: { default: string; options: Array<{ id: string; label: string; custom?: boolean; loaded?: boolean; provider?: string; contextWindow?: number; variants?: ModelVariantOption[]; effortLevels?: readonly EffortLevel[]; defaultEffort?: EffortLevel }> };
   capabilities?: {
     computerMcp?: boolean;
     agentsMcp?: boolean;

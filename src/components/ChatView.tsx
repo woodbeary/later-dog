@@ -1,4 +1,3 @@
-import { ModelPicker } from "./ModelPicker";
 import { Component, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode } from "react";
 import { useCopyFeedback } from "@/lib/copy-text";
 import {
@@ -1197,7 +1196,6 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           className="flex shrink-0 items-center gap-2 @max-[30rem]/chathead:ml-auto @max-[30rem]/chathead:flex-wrap @max-[30rem]/chathead:justify-end @min-[30rem]/chathead:col-start-3 @min-[30rem]/chathead:justify-self-end"
           style={controlsShiftStyle}
         >
-          <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} part="account" />
           <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openNotificationTarget(dispatch, { botId, threadId }, state)} />
           <ChatHeaderTasks bot={bot} />
           <button

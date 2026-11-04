@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, KeyRound, Loader2, RefreshCw, Search } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, KeyRound, Loader2, RefreshCw, Search, Zap } from "lucide-react";
 import { useStore, currentTaskBot, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
 import type { EffortLevel } from "../../shared/wire";
 import { fitEffort } from "../../shared/effort";
@@ -26,8 +26,12 @@ import { t } from "@/lib/i18n";
 import { COMPACT_SQUARE } from "@/lib/compact-chip";
 import { subscriptionAccounts, useCarryOn } from "./AccountsPanel";
 import { SleepingDog } from "./AccountCharge";
-import { AccountBadge, AccountSwitcher, accountUsageLines, activeRest, shownAccounts, UsageRing, usageRingFor } from "./AccountSwitcher";
+import { AccountSwitcher, accountUsageLines, activeRest, shownAccounts, UsageRing, usageRingFor } from "./AccountSwitcher";
 import { usePlanUsage, useRefreshAfterTurn, warmPlanUsage } from "./PlanUsage";
+import { chatContextReading } from "@/lib/chat-context";
+import { ChatContextStrip } from "./ChatContextStrip";
+import { EffortPanel, effortIsDefault } from "./EffortPanel";
+import { FadingScroll } from "./FadingScroll";
 
 type ModelOption = InstanceInfo["models"]["options"][number];
 const COMPACT_MODEL_COUNT = 5;
@@ -415,8 +419,8 @@ export function ClaudeAccountSelect({ accounts, selectedId, onSelect }: {
 
 const POPOVER_WIDTH = 420;
 export const SIMPLE_POPOVER_WIDTH = 380;
-export const MODEL_MENU_WIDTH = 240;
 const SIMPLE_SEARCH_AFTER = 12;
+const CHAT_MENU_HEADING = "px-3.5 pb-1 pt-2 text-[11.5px] font-medium text-ink-tertiary";
 
 export function ModelPicker({
   bot,
@@ -432,7 +436,7 @@ export function ModelPicker({
   className?: string;
   contained?: boolean;
   above?: boolean;
-  part?: "account" | "model";
+  part?: "chat";
   label?: ReactNode;
 }) {
   const { state, dispatch, refreshInstances, refreshModels: refreshInstanceModels } = useStore();
@@ -458,8 +462,7 @@ export function ModelPicker({
   const lastOpenaiIdRef = useRef<string | null>(null);
 
   const simpleView = !fullView;
-  const popoverWidth = part === "account" ? ACCOUNT_MENU_WIDTH : part === "model" ? MODEL_MENU_WIDTH
-    : simpleView ? SIMPLE_POPOVER_WIDTH : POPOVER_WIDTH;
+  const popoverWidth = part === "chat" ? ACCOUNT_MENU_WIDTH : simpleView ? SIMPLE_POPOVER_WIDTH : POPOVER_WIDTH;
   useLayoutEffect(() => {
     if (!open || contained) return;
     const place = () => {
@@ -467,8 +470,9 @@ export function ModelPicker({
       if (!rect) return;
       const width = Math.min(popoverWidth, window.innerWidth - 32);
       const left = above ? Math.max(16, Math.min(rect.left, window.innerWidth - width - 16)) : Math.max(16, Math.min(rect.right - width, window.innerWidth - width - 16));
+      const ceiling = above ? Math.max(0, rootRef.current?.closest("main")?.querySelector("[data-glass-bar=top]")?.getBoundingClientRect().bottom ?? 0) : 0;
       setPlacement({ left: left - rect.left,
-        maxHeight: Math.max(0, Math.min(600, above ? rect.top - 24 : window.innerHeight - rect.bottom - 24)) });
+        maxHeight: Math.max(0, Math.min(600, above ? rect.top - ceiling - 12 : window.innerHeight - rect.bottom - 24)) });
     };
     place();
     window.addEventListener("resize", place);
@@ -667,7 +671,7 @@ export function ModelPicker({
   const simpleLabel = simpleProviders.find((provider) => provider.selected)?.label ?? railInstance?.displayName ?? "";
   const simpleSignIn = !customOnly && needsSignIn(railInstance);
   const railSignsIn = Boolean(railInstance?.authentication && !railInstance.policy);
-  const simpleOfficial = customOnly || (simpleSignIn && part !== "model") ? [] : official;
+  const simpleOfficial = customOnly || simpleSignIn ? [] : official;
   const simpleLocal = partitionCustomModels(custom);
   const simpleAll = [...simpleOfficial, ...simpleLocal.pinned, ...simpleLocal.rest];
   const simpleSetup = Boolean(railInstance && (railInstance.policy || needsCli(railInstance) || (simpleSignIn && simpleAll.length === 0)));
@@ -714,14 +718,14 @@ export function ModelPicker({
     }));
   }).sort((a, b) => (accountRank.get(a.instance.instanceId) ?? accountRank.size) - (accountRank.get(b.instance.instanceId) ?? accountRank.size));
   const chooseAccount = (account: InstanceInfo) => {
-    setOpen(false);
     if (signsInFromPicker(account)) {
+      setOpen(false);
       requestAccountSignIn(account.instanceId);
       return;
     }
     if (account.instanceId === selection.instanceId) return;
     const model = modelForAccount(selection, account);
-    if (model) pick(account, model);
+    if (model) pick(account, model, true);
   };
   const menuModels = (instance: InstanceInfo) => {
     const own = instance.models.options.filter((option) => !option.custom);
@@ -778,47 +782,85 @@ export function ModelPicker({
   const ring = inUse && switcherAccounts.some((account) => account.instanceId === inUse.instanceId)
     ? usageRingFor(activeProvider, activeRestNow, usage.now) : null;
   const activeUsage = ring ? accountUsageLines(activeProvider, activeRestNow, usage.now) : [];
-  const activeFamily = signInFamily(active);
-  const namedAccount = (activeFamily === "claude" ? claudeAccounts : activeFamily === "openai" ? openaiAccounts : []).length > 1;
+  const chatTask = profile.tasks?.find((candidate) => candidate.threadId === (threadId ?? bot.threadId));
+  const contextReading = part === "chat"
+    ? chatContextReading(chatTask?.usage?.context, active?.models.options.find((option) => option.id === selection.model)?.contextWindow)
+    : null;
+  const chatAccountName = inUse && (accountRows.length > 1 || routed)
+    && !shownModel.toLowerCase().startsWith(inUse.displayName.trim().toLowerCase()) ? inUse.displayName : null;
+  const chatEffortName = selectedVariantLabel
+    ?? (shownEffortName && !effortIsDefault(active, selection.model, selection.effort) ? shownEffortName : null);
+  const chatFast = Boolean(selection.fast) && fastModeFits(active, selection.model);
 
-  const trigger = (
+  const openMenu = () => {
+    if (active && isClaudeAccount(active)) lastClaudeIdRef.current = active.instanceId;
+    if (active && signInFamily(active) === "openai") lastOpenaiIdRef.current = active.instanceId;
+    const initial = pickerInstances.find((instance) => instance.instanceId === selection.instanceId) ?? pickerInstances[0];
+    setRailId(initial?.instanceId ?? null);
+    setOpen((wasOpen) => {
+      const next = !wasOpen;
+      if (next) {
+        openFor(initial);
+        setFullView(false);
+        setPage("accounts");
+        setCameBack(false);
+      }
+      return next;
+    });
+  };
+  const triggerTitle = [routed && inUse ? t("accounts.runningOn", { name: inUse.displayName }) : summary, ...activeUsage].join("\n");
+  const triggerMark = active && (ring ? (
+    <UsageRing {...ring}>{ring.charging || ring.sleeping ? <SleepingDog size={16} /> : <InstanceProviderMark instance={inUse ?? active} size={14} />}</UsageRing>
+  ) : <InstanceProviderMark instance={inUse ?? active} size={14} />);
+
+  const chatTrigger = (
+    <button data-tour="model"
+      data-chat-ai
+      type="button"
+      onClick={openMenu}
+      onPointerEnter={() => { if (usageWanted) warmPlanUsage(); }}
+      onFocus={() => { if (usageWanted) warmPlanUsage(); }}
+      aria-expanded={open}
+      aria-haspopup="dialog"
+      aria-label={[shownModel, chatAccountName, chatEffortName, chatFast ? t("model.fast") : null].filter(Boolean).join(", ")}
+      className={cn("flex h-8 min-w-0 max-w-[360px] items-center gap-1.5 rounded-full pl-1.5 pr-2 text-[13px] text-ink hover:bg-control", open && "bg-control")}
+      title={triggerTitle}
+    >
+      {triggerMark && <span className="flex size-5 shrink-0 items-center justify-center">{triggerMark}</span>}
+      <span className="flex min-w-0 items-baseline">
+        <span className="min-w-[4ch] shrink truncate font-medium">{shownModel}</span>
+        {chatAccountName && (
+          <span data-model-account className="flex min-w-[3ch] max-w-[150px] shrink-[2] items-baseline text-ink-secondary">
+            <span aria-hidden="true" className="shrink-0 whitespace-pre"> · </span>
+            <span className="truncate">{chatAccountName}</span>
+          </span>
+        )}
+        {chatEffortName && <span data-model-effort className="shrink-0 whitespace-pre text-ink-secondary">{` · ${chatEffortName}`}</span>}
+      </span>
+      {chatFast && <Zap size={12} aria-hidden="true" data-model-fast className="shrink-0 fill-current text-ink-secondary" />}
+      <ChevronsUpDown size={12} aria-hidden="true" className="shrink-0 text-ink-tertiary" />
+    </button>
+  );
+
+  const trigger = part === "chat" ? chatTrigger : (
     <button data-tour="model"
       type="button"
-      onClick={() => {
-        if (active && isClaudeAccount(active)) lastClaudeIdRef.current = active.instanceId;
-        if (active && signInFamily(active) === "openai") lastOpenaiIdRef.current = active.instanceId;
-        const initial = pickerInstances.find((instance) => instance.instanceId === selection.instanceId) ?? pickerInstances[0];
-        setRailId(initial?.instanceId ?? null);
-        setOpen((wasOpen) => {
-          const next = !wasOpen;
-          if (next) {
-            openFor(initial);
-            setFullView(false);
-            setPage(part === "model" ? "models" : "accounts");
-            setCameBack(false);
-          }
-          return next;
-        });
-      }}
+      onClick={openMenu}
       onPointerEnter={() => { if (usageWanted) warmPlanUsage(); }}
       onFocus={() => { if (usageWanted) warmPlanUsage(); }}
       aria-expanded={open}
       aria-haspopup="dialog"
       className={cn(
         "flex items-center gap-1.5 rounded-full border border-hairline/40 bg-control/60 py-1 pl-2 pr-2.5 text-[13px] text-ink hover:bg-control-hover",
-        !contained && active && (!showActiveAccount || part === "account") && COMPACT_SQUARE,
-        part === "model" && "border-transparent bg-transparent pl-2",
+        !contained && active && !showActiveAccount && COMPACT_SQUARE,
       )}
-      title={[routed && inUse ? t("accounts.runningOn", { name: inUse.displayName }) : summary, ...activeUsage].join("\n")}
+      title={triggerTitle}
     >
-      {inUse && part === "account" && (namedAccount || routed) ? <AccountBadge instance={inUse} ring={ring} />
-        : active && part !== "model" && (ring ? (
-          <UsageRing {...ring}>{ring.charging || ring.sleeping ? <SleepingDog size={16} /> : <InstanceProviderMark instance={inUse ?? active} size={14} />}</UsageRing>
-        ) : <InstanceProviderMark instance={active} size={14} />)}
-      {!contained && active && showActiveAccount && part === undefined && (
+      {triggerMark}
+      {!contained && active && showActiveAccount && (
         <span data-model-account-compact className="hidden max-w-20 truncate @max-4xl/chathead:inline">{active.displayName}</span>
       )}
-      {part !== "account" && <span className={cn("flex min-w-0 items-center gap-1", !contained && active && part !== "model" && "@max-4xl/chathead:hidden")}>
+      <span className={cn("flex min-w-0 items-center gap-1", !contained && active && "@max-4xl/chathead:hidden")}>
         <span className="flex min-w-0 max-w-[240px] items-baseline">
           {active && showActiveAccount && (
             <>
@@ -833,22 +875,22 @@ export function ModelPicker({
             )}
           </span>
         </span>
-        {part === "model" ? null : selectedVariantLabel !== undefined ? (
+        {selectedVariantLabel !== undefined ? (
           <span data-model-variant className="max-w-[120px] truncate text-ink-secondary">· {selectedVariantLabel}</span>
         ) : shownEffortName && (
           <span data-model-effort className="shrink-0 text-ink-secondary">
             · {shownEffortName}
           </span>
         )}
-      </span>}
-      {part === undefined && <ChevronDown
+      </span>
+      <ChevronDown
         size={14}
         className={cn(
           "text-ink-secondary transition-transform",
           open && "rotate-180",
-          !contained && active && part !== "model" && "@max-4xl/chathead:hidden",
+          !contained && active && "@max-4xl/chathead:hidden",
         )}
-      />}
+      />
     </button>
   );
 
@@ -871,7 +913,7 @@ export function ModelPicker({
           {...motion.exitProps}
           style={contained ? undefined : { ...placement, width: popoverWidth }}
           className={cn(
-            "flex flex-col rounded-menu border border-hairline/50 bg-card", part === "model" || part === "account" ? "overflow-visible" : "overflow-hidden",
+            "flex flex-col overflow-hidden rounded-menu border border-hairline/50 bg-card",
             contained
               ? "relative mt-3 w-full max-h-[min(420px,50dvh)]"
               : cn("absolute z-30 max-w-[calc(100vw-2rem)] max-h-[min(600px,calc(100dvh-7rem))] shadow-popover", above ? "bottom-full mb-2 origin-bottom-right" : "right-0 top-full mt-2 origin-top-right"),
@@ -881,25 +923,38 @@ export function ModelPicker({
           {bot.busy && (
             <p data-model-next-reply className="shrink-0 border-b border-hairline/40 px-3 py-2 text-[12px] text-ink-secondary">{t("model.nextReply")}</p>
           )}
-          {part === "account" ? (
-            <>
-              <AccountMenu rows={accountRows} auto={carryOn.auto} now={usage.now} onSettings={() => { setOpen(false); dispatch({ type: "toggleAppSettings", open: true, section: "general" }); }} onPick={chooseAccount} onReorder={(ids) => void carryOn.reorder(ids)} onAdd={() => {
-                setOpen(false);
-                requestAddAccount();
-              }} />
-            </>
-          ) : part === "model" ? (
-            <ModelMenu
-              groups={modelGroups}
-              currentInstanceId={selection.instanceId}
-              currentModel={selection.model}
-              onPick={(instance, model) => pick(instance, model)}
-            />
-          ) : showSwitcher && page === "accounts" && part !== "model" ? (
+          {part === "chat" ? (
+            <FadingScroll data-chat-ai-menu className="min-h-0">
+              {contextReading && <ChatContextStrip reading={contextReading} />}
+              <section data-chat-ai-accounts aria-label={t("model.account")} className={cn("shrink-0 pt-1", contextReading && "border-t border-hairline/40")}>
+                <p className={CHAT_MENU_HEADING}>{t("model.account")}</p>
+                <AccountMenu rows={accountRows} auto={carryOn.auto} now={usage.now} onPick={chooseAccount} onReorder={(ids) => void carryOn.reorder(ids)} onAdd={() => {
+                  setOpen(false);
+                  requestAddAccount();
+                }} />
+              </section>
+              {modelGroups.length > 0 && (
+                <section data-chat-ai-models aria-label={t("model.simple.model")} className="shrink-0 border-t border-hairline/40 pt-1">
+                  <p className={CHAT_MENU_HEADING}>{t("model.simple.model")}</p>
+                  <ModelMenu
+                    groups={modelGroups}
+                    currentInstanceId={selection.instanceId}
+                    currentModel={selection.model}
+                    onPick={(instance, model) => pick(instance, model)}
+                  />
+                </section>
+              )}
+              {active?.capabilities?.modelVariants ? (
+                <ModelVariantRow compact wide bot={bot} threadId={threadId} updateBotDefault={Boolean(threadId) && simpleUpdatesBotDefault}
+                  className="shrink-0 border-t border-hairline/40 px-3.5 py-3"
+                  label={<span className="shrink-0 text-[13px] font-medium text-ink">{t("model.simple.reasoning")}</span>} />
+              ) : <EffortPanel bot={bot} threadId={threadId} className="shrink-0 border-t border-hairline/40" />}
+            </FadingScroll>
+          ) : showSwitcher && page === "accounts" ? (
             <div data-model-accounts className="flex min-h-0 flex-col overflow-y-auto">
               <AccountSwitcher accounts={switcherAccounts} currentId={selection.instanceId} report={usage.report}
                 now={usage.now} resting={battery?.resting} onPick={switchAccount} />
-              {part !== "account" && <button type="button" data-model-line autoFocus={cameBack} onClick={() => setPage("models")}
+              <button type="button" data-model-line autoFocus={cameBack} onClick={() => setPage("models")}
                 className="flex shrink-0 items-center gap-2 border-t border-hairline/40 px-3 py-2.5 text-left hover:bg-raised-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus">
                 <span className="shrink-0 text-[12px] font-medium text-ink-secondary">{t("model.simple.model")}</span>
                 <span className="min-w-0 flex-1 truncate text-right text-[13px] text-ink">
@@ -907,7 +962,7 @@ export function ModelPicker({
                   {chosenDepth && <span className="text-ink-secondary"> · {chosenDepth}</span>}
                 </span>
                 <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />
-              </button>}
+              </button>
               <div className="flex shrink-0 justify-end border-t border-hairline/40 px-3 py-1.5">
                 <button type="button" data-model-manage onClick={manage}
                   className="-mr-1 flex shrink-0 items-center gap-0.5 rounded-lg px-1 py-1 text-[12px] font-medium text-accent-text hover:bg-control/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus">
@@ -918,7 +973,7 @@ export function ModelPicker({
             </div>
           ) : (
           <>
-          {showSwitcher && part !== "model" && (
+          {showSwitcher && (
             <button type="button" data-model-back autoFocus onClick={() => { setPage("accounts"); setCameBack(true); }}
               className="flex shrink-0 items-center gap-1 border-b border-hairline/40 px-2 py-2 text-left text-[12px] font-medium text-ink-secondary hover:bg-raised-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus">
               <ChevronLeft size={14} aria-hidden="true" />
@@ -931,9 +986,8 @@ export function ModelPicker({
               providers={simpleProviders}
               onProvider={browseSimple}
               managedBy={railInstance?.policy?.organizationName ?? null}
-              modelsOnly={part === "model"}
-              needsSetup={part !== "model" && railInstance && simpleSetup ? { name: simpleAccounts.length > 1 ? railInstance.displayName : simpleLabel, signIn: railSignsIn } : null}
-              signIn={part !== "model" && railInstance && simpleSignIn && !simpleSetup ? { name: simpleLabel } : null}
+              needsSetup={railInstance && simpleSetup ? { name: simpleAccounts.length > 1 ? railInstance.displayName : simpleLabel, signIn: railSignsIn } : null}
+              signIn={railInstance && simpleSignIn && !simpleSetup ? { name: simpleLabel } : null}
               onSignIn={railInstance && railSignsIn ? () => {
                 setOpen(false);
                 requestAccountSignIn(railInstance.instanceId);

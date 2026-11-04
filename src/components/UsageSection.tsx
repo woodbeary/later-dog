@@ -5,7 +5,6 @@ import { botUsage, costCaption, formatUsd, hasFiniteCost } from "@/lib/usage";
 import { IncludedUsage } from "./IncludedUsage";
 import { PlanBilling } from "./PlanBilling";
 import { UsageHistory, fetchUsage, usagePeriodRange, type UsageSummary } from "./UsageHistory";
-import { UsageAccounts } from "./UsageAccounts";
 import { UsageGitHub } from "./UsageGitHub";
 
 export function UsageSection() {
@@ -31,7 +30,6 @@ export function UsageSection() {
   return (
     <>
       <PlanBilling />
-      <UsageAccounts />
       <IncludedUsage />
       <section data-usage-cost="" className="flex flex-col gap-1.5">
         <h3 className="px-4 text-[12px] font-medium text-ink-secondary">{t("usage.costSoFar")}</h3>

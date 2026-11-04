@@ -3,13 +3,11 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppState, Bot, InstanceInfo, TaskUsage } from "@/state/store";
-import type { PlanProvider } from "./PlanUsage";
 import type { UsageGroup, UsageSummary } from "./UsageHistory";
 import type { IncludedUsage } from "../../shared/included-usage";
 
 const fixture = vi.hoisted(() => ({
   state: null as unknown as AppState,
-  providers: [] as PlanProvider[],
   ledger: new Map<string, UsageSummary>(),
   included: null as IncludedUsage | null,
   api: vi.fn(),
@@ -19,10 +17,6 @@ vi.mock("@/state/store", async (original) => {
   const actual = await original<typeof import("@/state/store")>();
   return { ...actual, api: fixture.api, useStore: () => ({ state: fixture.state, dispatch: vi.fn() }) };
 });
-vi.mock("./PlanUsage", async (original) => ({
-  ...await original<typeof import("./PlanUsage")>(),
-  usePlanUsage: () => ({ report: { fetchedAt: "", providers: fixture.providers }, loading: false, error: "", now: Date.now(), reload: vi.fn() }),
-}));
 
 vi.mock("./CloudTrial", () => ({ CloudTrialRow: () => null }));
 
@@ -32,7 +26,6 @@ const { usagePeriodRange } = await import("./UsageHistory");
 const { UsageSection } = await import("./UsageSection");
 const { reloadIncludedUsage } = await import("@/lib/included-usage");
 
-const HOUR = 3_600_000;
 const usage = (patch: Partial<TaskUsage>): TaskUsage => ({ input: 1_000, output: 200, costUsd: null, turns: 1, ...patch });
 const dog = (name: string, instanceId: string, spent: TaskUsage, patch: Partial<Bot> = {}): Bot => ({
   id: name.toLowerCase(), threadId: `thread-${name.toLowerCase()}`, name, title: "", description: "",
@@ -46,13 +39,6 @@ const account = (instanceId: string, displayName: string, patch: Partial<Instanc
   instanceId, driverKind: "claudeAgent", displayName, access: "subscription",
   snapshot: { state: "available", authenticated: true, billing: "subscription", ...snapshot },
   models: { default: "fixture-model", options: [] },
-  ...patch,
-});
-const closed = { available: false, remainingPercent: null, usedPercent: null, resetsAt: null };
-const reading = (id: string, name: string, patch: Partial<PlanProvider> = {}): PlanProvider => ({
-  id, name, driver: "claude", plan: null, ok: true, error: null,
-  fiveHour: { available: true, remainingPercent: 68, usedPercent: 32, resetsAt: new Date(Date.now() + 2 * HOUR).toISOString() },
-  weekly: closed, extra: [], models: [],
   ...patch,
 });
 const group = (label: string, turns: number, costUsd: number | null): UsageGroup => ({
@@ -71,7 +57,6 @@ let host: HTMLDivElement;
 let root: Root;
 const yearAgo = () => usagePeriodRange("year").from;
 const text = () => host.textContent?.replace(/\s+/g, " ") ?? "";
-const rows = () => [...host.querySelectorAll<HTMLElement>("[data-usage-account]")];
 
 async function show(bots: Bot[], instances: InstanceInfo[], ledger: UsageGroup[]) {
   fixture.state = { ...initialState, bots, instances };
@@ -82,7 +67,6 @@ async function show(bots: Bot[], instances: InstanceInfo[], ledger: UsageGroup[]
 
 beforeEach(() => {
   setLocale("en");
-  fixture.providers = [];
   fixture.included = null;
   fixture.api.mockReset();
   fixture.api.mockImplementation(async (path: string) => {
@@ -101,39 +85,14 @@ afterEach(async () => {
 });
 
 describe("the Usage page", () => {
-  it("shows the accounts, then the cost so far, then the history, and no budget", async () => {
+  it("shows the cost so far, then the history, with no second list of accounts and no budget", async () => {
     await show([dog("Atlas", "claude", usage({ costUsd: 0.3, turns: 2 }))], [account("claude", "Personal")], [group("Atlas", 2, 0.3)]);
-    const order = ["data-plan-usage", "data-usage-cost", "data-usage-history", "data-usage-github"].map((marker) => host.innerHTML.indexOf(marker));
+    const order = ["data-usage-cost", "data-usage-history", "data-usage-github"].map((marker) => host.innerHTML.indexOf(marker));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(host.querySelector("[data-plan-usage]")).toBeNull();
+    expect(host.querySelector("[data-usage-account]")).toBeNull();
     expect(text()).not.toMatch(/budget|sell price/i);
-  });
-
-  it("lists only the accounts you sign in to, each with one plain line", async () => {
-    fixture.providers = [
-      reading("claude", "Personal", { plan: "Max" }),
-      reading("claude-work", "Work", { ok: false, error: "Sign in again in Claude" }),
-      reading("chatgpt", "ChatGPT", { driver: "codex", ok: false, error: "Sign in again in Codex" }),
-      reading("claudeApi", "Claude (API key)", { ok: false, error: "Sign in again in Claude" }),
-    ];
-    await show([], [
-      account("claude", "Personal"),
-      account("claude-work", "Work", {}, { authenticated: false }),
-      account("chatgpt", "ChatGPT", { driverKind: "codex" }),
-      account("claudeApi", "Claude (API key)", { access: "api" }, { billing: "metered", account: { method: "api-key" } }),
-    ], []);
-    expect(rows().map((row) => row.dataset.usageAccount)).toEqual(["claude", "claude-work", "chatgpt"]);
-    expect(rows()[0]!.textContent).toContain("PersonalMax");
-    expect(rows()[0]!.querySelector('[role="meter"]')).not.toBeNull();
-    expect(rows()[1]!.textContent).toBe("WorkNot signed in");
-    expect(rows()[2]!.textContent).toBe("ChatGPTUsage unavailable");
-    expect(text()).not.toMatch(/API key|Codex|Sign in again/);
-  });
-
-  it("says Usage unavailable for a signed-in account whose usage is missing, once the check is done", async () => {
-    fixture.providers = [reading("claude", "Personal", { fiveHour: closed })];
-    await show([], [account("claude", "Personal"), account("claude-work", "Work")], []);
-    expect(rows().map((row) => row.querySelector("[data-usage-unavailable]")?.textContent ?? null)).toEqual(["Usage unavailable", "Usage unavailable"]);
   });
 
   it("shows what later.dog includes today as tiles, the last 30 days as a chart, and a table on request", async () => {
@@ -146,7 +105,7 @@ describe("the Usage page", () => {
       limits: { transcribe_seconds: 1_800, voice_chars: 10_000, ai_tokens: 200_000, completions: 500, decisions: 300 },
     };
     await show([], [account("claude", "Personal")], []);
-    const order = ["data-plan-usage", "data-included-usage", "data-usage-cost"].map((marker) => host.innerHTML.indexOf(marker));
+    const order = ["data-included-usage", "data-usage-cost"].map((marker) => host.innerHTML.indexOf(marker));
     expect(order.every((at) => at >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     const card = host.querySelector<HTMLElement>("[data-included-usage]")!;

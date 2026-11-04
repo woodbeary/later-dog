@@ -1,4 +1,4 @@
-import { Check, ChevronRight } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
@@ -115,34 +115,27 @@ export function ModelMenu({ groups, currentInstanceId, currentModel, onPick }: {
             <button
               type="button"
               data-model-more
-              aria-haspopup="menu"
               aria-expanded={moreOpen}
-              onClick={() => setMoreOpen(true)}
-              onMouseEnter={() => setMoreOpen(true)}
-              className={cn(row, moreOpen && "bg-raised-hover")}
+              onClick={() => setMoreOpen((was) => !was)}
+              className={cn(row, "text-ink-secondary hover:text-ink")}
             >
               <span className="min-w-0 flex-1 truncate">{t("model.more")}</span>
-              <ChevronRight size={14} aria-hidden="true" className="shrink-0 text-ink-secondary" />
+              <ChevronDown size={14} aria-hidden="true" className={cn("shrink-0 transition-transform", moreOpen && "rotate-180")} />
             </button>
+            {moreOpen && (
+              <div role="group" data-model-more-list aria-label={t("model.more")} className="flex flex-col">
+                {more.map(option)}
+                {earlier.length > 0 && (
+                  <p data-model-earlier className={cn("px-2.5 pb-1 text-[11.5px] font-medium text-ink-tertiary", more.length > 0 ? "mt-1 border-t border-hairline/40 pt-2" : "pt-1.5")}>
+                    {t("model.earlier")}
+                  </p>
+                )}
+                {earlier.map(option)}
+              </div>
+            )}
           </>
         )}
       </div>
-      {moreOpen && hidden > 0 && (
-        <div
-          role="menu"
-          data-model-more-list
-          aria-label={t("model.more")}
-          className="absolute bottom-0 right-full mr-1.5 flex max-h-[min(420px,70dvh)] w-56 flex-col overflow-y-auto rounded-xl border border-hairline/50 bg-card p-1 shadow-2xl shadow-black/50"
-        >
-          {more.map(option)}
-          {earlier.length > 0 && (
-            <p data-model-earlier className={cn("px-2.5 pb-1 text-[11.5px] font-medium text-ink-tertiary", more.length > 0 ? "mt-1 border-t border-hairline/40 pt-2" : "pt-1.5")}>
-              {t("model.earlier")}
-            </p>
-          )}
-          {earlier.map(option)}
-        </div>
-      )}
     </div>
   );
 }
