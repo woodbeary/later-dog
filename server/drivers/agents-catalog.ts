@@ -329,6 +329,17 @@ const TOOL_DEFINITIONS = [
     } },
   },
   {
+    name: "run_on_computer",
+    description:
+      "Run a heavy command (install, build, typecheck, test suite, browser test, media processing) on your own cloud computer so it can't freeze the home all dogs share. Copies the folder there (changes only, no node_modules or build output), runs it, brings back the files it made or changed, and shows the end of the output. Packages stay installed there between runs. Still running after ~4 minutes: call again with only run_id.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      command: { type: "string", maxLength: 4000, description: "Shell command run with bash in the folder." },
+      folder: { type: "string", description: "Absolute project folder here, e.g. /data/site. Default: your working folder." },
+      subdir: { type: "string", description: "Subfolder of folder to run in." },
+      run_id: { type: "string", description: "Keep waiting for a run still going." },
+    } },
+  },
+  {
     name: "attach_file",
     description:
       "Attach a finished file to the chat so the user can preview and download it: an image, video, audio clip, PDF, spreadsheet, slide deck or other document you made. Pass its path: a path inside your computer's /home/cua/workspace (for example /home/cua/workspace/report.pdf), or a file in your working folder. Do this instead of pasting a VM path as a link; a path inside a VM cannot be opened from chat. Supported: images (png, jpg, gif, webp), video (mp4, webm, mov), audio (mp3, m4a, aac, wav, ogg, opus, flac), pdf, Word/Excel/PowerPoint and OpenDocument files, and csv, tsv, txt, md, json, rtf. Up to 25 MB (images 10 MB). Finish writing the file first, then call this directly: it reports an error if the file is missing, so you do not need to list or open the folder to check.",
@@ -787,7 +798,8 @@ function catalogTools(profile: CatalogProfile) {
   const PHONE_READY_TOOLS = profile.phone
     ? EMAIL_READY_TOOLS
     : EMAIL_READY_TOOLS.filter((tool) => !PHONE_TOOL_NAMES.has(tool.name));
-  return profile.voiceNotes
+  const VOICE_READY_TOOLS = profile.voiceNotes
     ? PHONE_READY_TOOLS
     : PHONE_READY_TOOLS.filter((tool) => !VOICE_TOOL_NAMES.has(tool.name));
+  return profile.cloudHome ? VOICE_READY_TOOLS : VOICE_READY_TOOLS.filter((tool) => tool.name !== "run_on_computer");
 }

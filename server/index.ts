@@ -126,6 +126,8 @@ import { mp3DurationMs } from "./laterdog/mp3-duration.ts";
 import { HOME_HEALTH_FILE, startHomeHealthLog } from "./laterdog/home-health-log.ts";
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
+import { ComputerRuns } from "./laterdog/computer-runs.ts";
+import { handleComputerRun } from "./laterdog/computer-run-route.ts";
 import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
@@ -13412,6 +13414,15 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           });
         return json(res, 200, { bots, rooms: groupChatsOf(store.groups, sender) });
       }
+      if (method === "POST" && path === "/api/internal/computer-run") {
+        const from = internalSender;
+        const threadId = internalCapability.threadId;
+        if (!connectorThread(from.id, threadId)) return json(res, 403, { error: "source conversation does not belong to sender" });
+        const body = await readInternalBody();
+        const roots = messageFileRootsForThread(from.id, threadId).filter((root) => root !== ATTACHMENTS_DIR);
+        const answer = await handleComputerRun({ botId: from.id, body, workingFolder: roots[0] ?? null, allowedRoots: roots }, { runs: computerRuns, computer: boat.heavyRunBox });
+        return json(res, answer.status, answer.error ? { error: answer.error } : { text: answer.text, failed: answer.failed });
+      }
       if (method === "POST" && path === "/api/internal/attach-file") {
         const from = internalSender;
         const threadId = internalCapability.threadId;
@@ -19931,6 +19942,8 @@ function janitorWorkspaces(): WorkspaceTask[] {
   }
   return tasks;
 }
+
+const computerRuns = new ComputerRuns(join(DATA_DIR, "computer-runs"));
 
 let lastJanitorRun: JanitorRun | null = null;
 let janitorRunning = false;

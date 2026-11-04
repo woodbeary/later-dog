@@ -8,6 +8,7 @@ import type { ServiceCredential } from "./included-services.ts";
 import {
   COMPUTER_ID, ComputersApiError, ComputersClient, computersConnection, computersKey, computersSelected, ownComputersChosen, trialInUse, type Computer,
 } from "./laterdog/cloud-computers.ts";
+import type { RunBox } from "./laterdog/computer-runs.ts";
 
 export { MAX_REMOTE_COMMAND_LENGTH, boatNameMatchesBot, boatTurnLifecycleAction, isolatedRemoteCommand, verifyBoatDeletionCredential, verifyToken } from "./boat.ts";
 export type { BoatIdentityInspection, BoatTurnLifecycleAction, ManagedBoatInventory, ManagedBoatInventoryInstance, ManagedBoatMutationClaim, ManagedBoatOwner } from "./boat.ts";
@@ -422,4 +423,19 @@ export async function inspectBoatIdentity(cfg: AppConfig, boxId: string): Promis
   try { computer = await ownClient().get(boxId); }
   catch (error) { return { available: false, identity: null, problem: error instanceof Error ? error.message : String(error) }; }
   return { available: true, identity: computer ? { boxId: computer.id, name: computer.name, state: asBoatState(computer.state) } : null, problem: null };
+}
+
+export async function heavyRunBox(botId: string): Promise<{ box: RunBox; wasAsleep: boolean; rest(): Promise<void> }> {
+  if (!computersSelected()) throw Object.assign(new Error("Cloud computers are not set up here, so run it in your own folder instead."), { status: 409 });
+  const client = ownClient();
+  const computer = await findOwn(client, botId) ?? await createOwn(client, botId, ownName(botId));
+  const wasAsleep = computer.state !== "running";
+  const ready = await waitRunning(client, computer.id, PROVISION_BUDGET_MS);
+  if (!ready) throw new Error("your cloud computer did not wake within 90 seconds; try again in a minute");
+  const box: RunBox = {
+    exec: (command, timeoutMs) => runOwn(client, ready.id, command, { timeoutMs }),
+    write: (path, bytes) => client.writeFile(ready.id, path, bytes),
+    read: (path) => client.readFile(ready.id, path),
+  };
+  return { box, wasAsleep, rest: async () => { await stopOwn(client, ready).catch(() => undefined); } };
 }

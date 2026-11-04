@@ -49,6 +49,7 @@ const REMOVED_PEER_TOOLS = ["ask_bot", "delegate_bot", "check_delegation", "wait
 const FULL = { direct: "direct+skills+shared+voice" } as const;
 const PHONE_TOOLS = ["read_phone", "add_to_phone", "change_on_phone", "nearby_places"];
 const MAC_MESSAGE_TOOLS = ["send_text", "read_texts", "send_email"];
+const CLOUD_HOME_ONLY = [...MAC_MESSAGE_TOOLS, "run_on_computer"];
 
 const BUDGET_BASELINE: Record<string, number> = {
   "direct": 33979,
@@ -59,8 +60,8 @@ const BUDGET_BASELINE: Record<string, number> = {
   "direct+skills+voice": 36773,
   "direct+skills+shared": 39790,
   "direct+skills+shared+voice": 40531,
-  "direct+skills+shared+voice+cloud-home": 42718,
-  "direct+skills+shared+voice+cloud-home+phone": 46645,
+  "direct+skills+shared+voice+cloud-home": 43639,
+  "direct+skills+shared+voice+cloud-home+phone": 47669,
 };
 
 const RPC_PREFIX = '{"jsonrpc":"2.0","id":1,"result":';
@@ -148,7 +149,7 @@ describe("agents proxy tools/list golden", () => {
       for (const tool of toolsOf(wires[name]!)) {
         if (profile.env.LATERDOG_CLOUD_HOME === "1" && tool.name === "select_computer") continue;
         if (profile.env.LATERDOG_PHONE === "1" && PHONE_TOOLS.includes(tool.name)) continue;
-        if (profile.env.LATERDOG_CLOUD_HOME === "1" && MAC_MESSAGE_TOOLS.includes(tool.name)) continue;
+        if (profile.env.LATERDOG_CLOUD_HOME === "1" && CLOUD_HOME_ONLY.includes(tool.name)) continue;
         expect(JSON.stringify(tool), `${name}: ${tool.name}`).toBe(full.get(tool.name));
       }
     }
@@ -171,7 +172,7 @@ describe("agents proxy tools/list golden", () => {
     type Annotated = Tool & { annotations?: { readOnlyHint?: boolean } };
     const cloud = toolsOf(wires["direct+skills+shared+voice+cloud-home"]!) as Annotated[];
     const desktop = toolsOf(wires["direct+skills+shared+voice"]!);
-    expect(cloud.map((tool) => tool.name).filter((name) => !desktop.some((tool) => tool.name === name))).toEqual(MAC_MESSAGE_TOOLS);
+    expect(cloud.map((tool) => tool.name).filter((name) => !desktop.some((tool) => tool.name === name)).sort()).toEqual([...CLOUD_HOME_ONLY].sort());
     for (const [name, profile] of Object.entries(PROFILES)) {
       if (profile.env.LATERDOG_CLOUD_HOME === "1") continue;
       expect(toolsOf(wires[name]!).map((tool) => tool.name).filter((tool) => MAC_MESSAGE_TOOLS.includes(tool)), name).toEqual([]);
@@ -188,13 +189,19 @@ describe("agents proxy tools/list golden", () => {
     expect(cloudHome).toHaveLength(1);
     for (const name of cloudHome) {
       const desktop = wires[name.slice(0, -"+cloud-home".length)]!;
-      expect(toolsOf(wires[name]!).map((tool) => tool.name).filter((tool) => !MAC_MESSAGE_TOOLS.includes(tool))).toEqual(toolsOf(desktop).map((tool) => tool.name));
+      expect(toolsOf(wires[name]!).map((tool) => tool.name).filter((tool) => !CLOUD_HOME_ONLY.includes(tool))).toEqual(toolsOf(desktop).map((tool) => tool.name));
       expect(select(desktop).inputSchema.properties.surface.enum).toEqual(["auto", "cloud", "local"]);
       const surface = select(wires[name]!).inputSchema.properties.surface;
       expect(surface.enum).toEqual(["auto", "cloud", "mac"]);
       expect(surface.description).not.toMatch(/\blocal =/);
     }
     for (const wire of Object.values(wires)) expect(toolsOf(wire).map((tool) => tool.name)).not.toContain("vm_exec");
+  });
+
+  it("gives only a Cloud home's dogs a way to send heavy commands to their own cloud computer", () => {
+    for (const [name, profile] of Object.entries(PROFILES)) {
+      expect(toolsOf(wires[name]!).some((tool) => tool.name === "run_on_computer"), name).toBe(profile.env.LATERDOG_CLOUD_HOME === "1");
+    }
   });
 
   it("gives no dog the retired team setup tools or a way to change another dog's profile, model or routines", () => {
