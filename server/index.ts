@@ -3,7 +3,7 @@ import { BOOT_CLOUD_SECRETS } from "./cloud-secrets-boot.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, mkdirSync } from "node:fs";
-import { totalmem } from "node:os";
+import { homedir, totalmem } from "node:os";
 import { writeFileAtomic } from "./atomic.ts";
 import { rm as removeDirectory } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -125,6 +125,7 @@ import { configuredSpeechKey, SpeechCache } from "./laterdog/speech-cache.ts";
 import { mp3DurationMs } from "./laterdog/mp3-duration.ts";
 import { HOME_HEALTH_FILE, startHomeHealthLog } from "./laterdog/home-health-log.ts";
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
+import { makeSpace } from "./laterdog/space-maker.ts";
 import * as boat from "./computers.ts";
 import { cloudComputerRpc } from "./cloud-computer-tools.ts";
 import { TeamComputers, teamComputerAssignment, teamComputerCreate, teamComputerOwner, type TeamComputerRecord } from "./team-computers.ts";
@@ -498,7 +499,7 @@ import { OutboundRequestService } from "./outbound-requests.ts";
 import { connectorCallsIn, outboundCallsIn } from "../shared/outbound.ts";
 import { TurnToolkits, connectorAllowKey, connectorSendDecision, toolkitOf } from "./laterdog/connector-ask.ts";
 import { bindThreadLogCapProvider } from "./thread-log-rotation.ts";
-import { CLOUD_THREAD_LOG_MAX_BYTES, CLOUD_THREAD_LOG_RETENTION_DAYS, DISK_CHECK_MS, diskUse, isLowDisk, JANITOR_EVERY_MS, runJanitor, storageWords, type JanitorRun, type WorkspaceTask } from "./laterdog/janitor.ts";
+import { CLOUD_THREAD_LOG_MAX_BYTES, CLOUD_THREAD_LOG_RETENTION_DAYS, DISK_CHECK_MS, diskUse, isLowDisk, JANITOR_EVERY_MS, runJanitor, type JanitorRun, type WorkspaceTask } from "./laterdog/janitor.ts";
 import { closeTabsScript, forgetUsers, loadTabLedger, parseTargets, recordTabs, saveTabLedger, TAB_SWEEP_MS, tabsToClose, type TabLedger, type Target } from "./laterdog/cloud-tabs.ts";
 import { MEMORY_CHECK_MS, orphanIdleHours, readMemoryPressure, reapStrays, underMemoryPressure, type ThreadState as ReaperThreadState } from "./laterdog/process-reaper.ts";
 import { listenWebhookIngress, webhookCredential, type WebhookIngress } from "./webhook-ingress.ts";
@@ -19947,6 +19948,7 @@ function runJanitorNow(reason: JanitorRun["reason"]): JanitorRun | null {
       workspaceTasks: janitorWorkspaces,
       reap: () => reapStrays({ roots: [TASK_WORKSPACES_DIR], thread: janitorThread, orphanIdleHours: orphanIdleHours(readMemoryPressure()) }).length,
       vacuum: () => reclaimFreePages(diskUse(DATA_DIR)?.freeBytes ?? 0),
+      makeSpace: () => makeSpace({ home: homedir(), workspacesDir: TASK_WORKSPACES_DIR, busyDirs: janitorWorkspaces().filter((task) => task.busy).map((task) => task.dir) }).freed,
     }, reason);
     lastJanitorRun = run;
     if (run.freedBytes > 0 || run.reaped > 0) console.log(`[janitor] ${reason}: freed ${Math.round(run.freedBytes / 1024 / 1024)} MB, stopped ${run.reaped} stray process(es)`);
@@ -20011,7 +20013,7 @@ function cloudStorage() {
     disk: disk ? { totalBytes: disk.totalBytes, freeBytes: disk.freeBytes } : null,
     memory: { totalBytes: totalmem(), availableBytes: process.availableMemory() },
     low: isLowDisk(disk),
-    warning: storageWords(disk),
+    warning: null,
     janitor: lastJanitorRun ? { at: lastJanitorRun.at, freedBytes: lastJanitorRun.freedBytes, stopped: lastJanitorRun.reaped } : null,
   };
 }

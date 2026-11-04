@@ -36,7 +36,7 @@ export function isLowDisk(disk: DiskUse | null, floor = LOW_DISK_BYTES): boolean
   return disk !== null && disk.freeBytes < floor;
 }
 
-function sizeOf(path: string): number {
+export function sizeOf(path: string): number {
   let total = 0;
   const walk = (at: string) => {
     let entry;
@@ -165,6 +165,7 @@ export interface JanitorDeps {
   workspaceTasks(): WorkspaceTask[];
   reap(): number;
   vacuum(): number;
+  makeSpace?: () => number;
   now?: () => number;
 }
 
@@ -183,15 +184,10 @@ export function runJanitor(deps: JanitorDeps, reason: JanitorRun["reason"]): Jan
   step("toolResults", () => pruneOldFiles(deps.toolResultsDir, TOOL_RESULT_MAX_AGE_DAYS, now));
   step("buildOutput", () => clearBuildOutput(deps.workspaceTasks(), now).freed);
   step("database", () => deps.vacuum());
+  if (deps.makeSpace && isLowDisk(diskUse(deps.dataDir))) step("space", deps.makeSpace);
   let reaped = 0;
   step("processes", () => { reaped = deps.reap(); return 0; });
   const freeAfter = diskUse(deps.dataDir)?.freeBytes ?? null;
   const freedBytes = Object.values(steps).reduce((sum, bytes) => sum + bytes, 0);
   return { at: now, reason, freedBytes, steps, freeBefore, freeAfter, reaped };
-}
-
-export function storageWords(disk: DiskUse | null, floor = LOW_DISK_BYTES): string | null {
-  if (!isLowDisk(disk, floor)) return null;
-  const free = (disk!.freeBytes / 1024 ** 3).toFixed(1);
-  return `Your Cloud home is almost out of space (${free} GB left). later.dog is clearing old logs and build files; if it stays low, delete large files your dogs made.`;
 }
