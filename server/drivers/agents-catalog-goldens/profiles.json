@@ -236,8 +236,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home": {
-    "bytes": 42718,
-    "sha256": "81e88b7c0bba051bb8a12dd8b4a113ceeb28df2851c11b4e846e68a4e2793307",
+    "bytes": 43639,
+    "sha256": "71cc35f906a889c603a537e9ac4358487623d2ef103396346d083c28b18ed4f5",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
@@ -249,6 +249,7 @@
       "start_tasks",
       "list_bots",
       "select_computer",
+      "run_on_computer",
       "attach_file",
       "create_bot",
       "create_room",
@@ -271,8 +272,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home+phone": {
-    "bytes": 46748,
-    "sha256": "c86a7098b4652ec6b98693102536583bbe1d765f948ce1755af03a758c99aa59",
+    "bytes": 47669,
+    "sha256": "9f16af7e5ce04217d312f67641d1beb9c65c1db1373197a93f6f0154ad16a8da",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
@@ -288,6 +289,7 @@
       "start_tasks",
       "list_bots",
       "select_computer",
+      "run_on_computer",
       "attach_file",
       "create_bot",
       "create_room",

@@ -108,3 +108,23 @@ Limits, as of 2026-10-12:
    Mac closed, on infrastructure the operator owns.
 
 This keeps the desktop light — the heavy machines live in the cloud only while a dog is using them.
+
+## Heavy commands from a Cloud home
+
+Every dog on a Cloud home shares one machine, so one dog's install, build or browser test can use up the memory and
+disk the others need. A dog sends that kind of command to its own cloud computer with `run_on_computer`
+(`server/laterdog/computer-runs.ts`, route `POST /api/internal/computer-run`):
+
+- later.dog copies the folder to `~/runs/<folder hash>` on the computer as a gzipped tar in 12 MiB parts (the files
+  API takes 16 MiB). It never sends `node_modules`, package caches or other build output, and after the first run it
+  sends only the files that changed and removes the ones deleted here. Installed packages stay on the computer.
+- The command runs detached (`setsid nohup`) with pnpm on the path, so it outlives the call that started it. One call
+  waits up to 4 minutes; after that the dog gets a run id and calls again to keep waiting. A run stops after 2 hours.
+- When it ends, every file the command created or changed comes back, up to 512 MB, except build output. A file that
+  was changed here while the command ran is kept, and the dog is told which.
+- A computer that was asleep when the run began goes back to sleep when it ends, so runs use few of the home's computer
+  hours.
+
+`scripts/verify-computer-runs.ts` proves it against a real computer: it creates a throwaway one, sends a 30 MB project,
+runs `pnpm install && pnpm build && pnpm test`, checks only the report came back, checks the second run sends one
+file, checks a 2.5-minute command finishes after the call that started it returns, and deletes the computer.
