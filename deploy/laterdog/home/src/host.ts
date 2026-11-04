@@ -56,6 +56,7 @@ const BRAIN_REFRESH_MS = 5 * 60 * 1000;
 const PAIRING_OPEN_KEY = "pairing-open-until";
 const STATE_ROUTE_DEV_CODE_KEY = "state-route-dev-code";
 const ANSWER_KEY = "answering";
+const KEEP_UP_DUE_KEY = "keep-up-due";
 const REFUSED_KEPT = 256;
 const CHECKS_AT_ONCE = 4;
 export const PERSON_SLEEP_AFTER = "30m";
@@ -255,7 +256,7 @@ export class CloudHomeHost extends Container<Env> {
       return;
     }
     if (!this.handover.holds()) return;
-    await this.armKeepUp();
+    await this.armKeepUp({ again: true });
     if (!this.ctx.container?.running) {
       await this.ctx.storage.put(ANSWER_KEY, NOT_ANSWERED_YET);
       this.boot(record, false);
@@ -277,9 +278,13 @@ export class CloudHomeHost extends Container<Env> {
     this.boot(record, false);
   }
 
-  private async armKeepUp(): Promise<void> {
+  private async armKeepUp({ again = false } = {}): Promise<void> {
+    const now = Date.now();
+    const due = await this.ctx.storage.get<number>(KEEP_UP_DUE_KEY);
+    if (!again && due !== undefined && due > now - KEEP_UP_EVERY_S * 1000) return;
     this.deleteSchedules("keepUp");
     await this.schedule(KEEP_UP_EVERY_S, "keepUp");
+    await this.ctx.storage.put(KEEP_UP_DUE_KEY, now + KEEP_UP_EVERY_S * 1000);
   }
 
   private async armMaintenance(): Promise<void> {

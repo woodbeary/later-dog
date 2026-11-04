@@ -110,3 +110,18 @@ describe("an always-on home that stops answering", () => {
     clock.mockRestore();
   });
 });
+
+describe("the minute check of an always-on home", () => {
+  it("is not pushed back by people using the home more often than once a minute", async () => {
+    const h = await home(OWNER);
+    await h.host.keepUp();
+    await h.settle();
+    const scheduled = vi.spyOn(h.host as unknown as { schedule(when: number, callback: string): Promise<void> }, "schedule");
+    const arm = (h.host as unknown as { armKeepUp(): Promise<void> }).armKeepUp.bind(h.host);
+    for (let request = 0; request < 5; request += 1) await arm();
+    expect(scheduled.mock.calls.filter(([, callback]) => callback === "keepUp")).toHaveLength(0);
+    await h.host.keepUp();
+    expect(scheduled.mock.calls.filter(([, callback]) => callback === "keepUp")).toHaveLength(1);
+    scheduled.mockRestore();
+  });
+});
