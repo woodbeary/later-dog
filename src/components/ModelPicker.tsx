@@ -28,8 +28,8 @@ import { subscriptionAccounts, useCarryOn } from "./AccountsPanel";
 import { SleepingDog } from "./AccountCharge";
 import { AccountSwitcher, accountUsageLines, activeRest, shownAccounts, UsageRing, usageRingFor } from "./AccountSwitcher";
 import { usePlanUsage, useRefreshAfterTurn, warmPlanUsage } from "./PlanUsage";
-import { chatContextReading } from "@/lib/chat-context";
-import { ChatContextStrip } from "./ChatContextStrip";
+import { chatContextFigure, chatContextReading, type ChatContextLevel } from "@/lib/chat-context";
+import { ChatUsageButton } from "./ChatUsageButton";
 import { EffortPanel, effortIsDefault } from "./EffortPanel";
 import { FadingScroll } from "./FadingScroll";
 
@@ -420,6 +420,7 @@ export function ClaudeAccountSelect({ accounts, selectedId, onSelect }: {
 const POPOVER_WIDTH = 420;
 export const SIMPLE_POPOVER_WIDTH = 380;
 const SIMPLE_SEARCH_AFTER = 12;
+const CONTEXT_RING_TONE: Record<ChatContextLevel, "good" | "warning" | "danger"> = { ok: "good", near: "warning", over: "danger" };
 const CHAT_MENU_HEADING = "px-3.5 pb-1 pt-2 text-[11.5px] font-medium text-ink-tertiary";
 
 export function ModelPicker({
@@ -813,6 +814,13 @@ export function ModelPicker({
     <UsageRing {...ring}>{ring.charging || ring.sleeping ? <SleepingDog size={16} /> : <InstanceProviderMark instance={inUse ?? active} size={14} />}</UsageRing>
   ) : <InstanceProviderMark instance={inUse ?? active} size={14} />);
 
+  const contextMark = !ring && active && contextReading?.percent != null ? (
+    <UsageRing level={100 - contextReading.percent} tone={CONTEXT_RING_TONE[contextReading.level]}>
+      <InstanceProviderMark instance={inUse ?? active} size={14} />
+    </UsageRing>
+  ) : null;
+  const usageMark = ring ? triggerMark : contextMark;
+
   const chatTrigger = (
     <button data-tour="model"
       data-chat-ai
@@ -823,10 +831,10 @@ export function ModelPicker({
       aria-expanded={open}
       aria-haspopup="dialog"
       aria-label={[shownModel, chatAccountName, chatEffortName, chatFast ? t("model.fast") : null].filter(Boolean).join(", ")}
-      className={cn("flex h-8 min-w-0 max-w-[360px] items-center gap-1.5 rounded-full pl-1.5 pr-2 text-[13px] text-ink hover:bg-control", open && "bg-control")}
+      className={cn("flex h-8 min-w-0 max-w-[360px] items-center gap-1.5 rounded-full pr-2 text-[13px] text-ink hover:bg-control", usageMark ? "pl-2" : "pl-1.5", open && "bg-control")}
       title={triggerTitle}
     >
-      {triggerMark && <span className="flex size-5 shrink-0 items-center justify-center">{triggerMark}</span>}
+      {!usageMark && triggerMark && <span className="flex size-5 shrink-0 items-center justify-center">{triggerMark}</span>}
       <span className="flex min-w-0 items-baseline">
         <span className="min-w-[4ch] shrink truncate font-medium">{shownModel}</span>
         {chatAccountName && (
@@ -841,6 +849,23 @@ export function ModelPicker({
       <ChevronsUpDown size={12} aria-hidden="true" className="shrink-0 text-ink-tertiary" />
     </button>
   );
+
+  const chatUsage = part === "chat" && usageMark ? (
+    <ChatUsageButton
+      mark={usageMark}
+      title={[contextReading ? chatContextFigure(contextReading) : null, ...activeUsage].filter(Boolean).join("\n")}
+      reading={contextReading}
+      accountName={inUse && accountRows.length > 1 ? inUse.displayName : null}
+      provider={activeProvider}
+      resting={activeRestNow}
+      now={usage.now}
+      onOpen={() => {
+        setOpen(false);
+        warmPlanUsage();
+      }}
+      onSeeAll={() => dispatch({ type: "toggleAppSettings", open: true, section: "usage" })}
+    />
+  ) : null;
 
   const trigger = part === "chat" ? chatTrigger : (
     <button data-tour="model"
@@ -901,6 +926,11 @@ export function ModelPicker({
           {label}
           {trigger}
         </div>
+      ) : chatUsage ? (
+        <div className="flex min-w-0 items-center gap-0.5">
+          {chatUsage}
+          {trigger}
+        </div>
       ) : (
         trigger
       )}
@@ -925,16 +955,8 @@ export function ModelPicker({
           )}
           {part === "chat" ? (
             <FadingScroll data-chat-ai-menu className="min-h-0">
-              {contextReading && <ChatContextStrip reading={contextReading} />}
-              <section data-chat-ai-accounts aria-label={t("model.account")} className={cn("shrink-0 pt-1", contextReading && "border-t border-hairline/40")}>
-                <p className={CHAT_MENU_HEADING}>{t("model.account")}</p>
-                <AccountMenu rows={accountRows} auto={carryOn.auto} now={usage.now} onPick={chooseAccount} onReorder={(ids) => void carryOn.reorder(ids)} onAdd={() => {
-                  setOpen(false);
-                  requestAddAccount();
-                }} />
-              </section>
               {modelGroups.length > 0 && (
-                <section data-chat-ai-models aria-label={t("model.simple.model")} className="shrink-0 border-t border-hairline/40 pt-1">
+                <section data-chat-ai-models aria-label={t("model.simple.model")} className="shrink-0 pt-1">
                   <p className={CHAT_MENU_HEADING}>{t("model.simple.model")}</p>
                   <ModelMenu
                     groups={modelGroups}
@@ -949,6 +971,13 @@ export function ModelPicker({
                   className="shrink-0 border-t border-hairline/40 px-3.5 py-3"
                   label={<span className="shrink-0 text-[13px] font-medium text-ink">{t("model.simple.reasoning")}</span>} />
               ) : <EffortPanel bot={bot} threadId={threadId} className="shrink-0 border-t border-hairline/40" />}
+              <section data-chat-ai-accounts aria-label={t("model.account")} className="shrink-0 border-t border-hairline/40 pt-1">
+                <p className={CHAT_MENU_HEADING}>{t("model.account")}</p>
+                <AccountMenu rows={accountRows} auto={carryOn.auto} now={usage.now} onPick={chooseAccount} onReorder={(ids) => void carryOn.reorder(ids)} onAdd={() => {
+                  setOpen(false);
+                  requestAddAccount();
+                }} />
+              </section>
             </FadingScroll>
           ) : showSwitcher && page === "accounts" ? (
             <div data-model-accounts className="flex min-h-0 flex-col overflow-y-auto">

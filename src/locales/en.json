@@ -1208,6 +1208,7 @@
   "model.searchLocal": "Search local models",
   "model.nextReply": "Changes apply from the next reply",
   "model.context.title": "This chat",
+  "model.usage.title": "Usage",
   "model.context.figure": "{used} of {window} · {percent}",
   "model.context.tokens": "{used} tokens",
   "model.choose": "Choose model",

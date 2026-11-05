@@ -448,6 +448,7 @@
   "model.effort.title": "Зусилля",
   "model.simple.model": "Модель",
   "model.context.title": "Ця розмова",
+  "model.usage.title": "Використання",
   "model.context.figure": "{used} з {window} · {percent}",
   "model.context.tokens": "{used} токенів",
   "model.effort.default": "За замовчуванням",

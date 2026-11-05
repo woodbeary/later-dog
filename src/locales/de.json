@@ -422,6 +422,7 @@
   "model.account": "Konto",
   "model.simple.model": "Modell",
   "model.context.title": "Diese Unterhaltung",
+  "model.usage.title": "Nutzung",
   "model.context.figure": "{used} von {window} · {percent}",
   "model.context.tokens": "{used} Tokens",
   "model.effort.default": "Standard",

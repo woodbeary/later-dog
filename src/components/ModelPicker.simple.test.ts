@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Bot, InstanceInfo } from "@/state/store";
+import { chatContextFigure, type ChatContextReading } from "@/lib/chat-context";
 import type { EffortLevel } from "../../shared/wire";
 
 const fixture = vi.hoisted(() => {
@@ -1087,17 +1088,19 @@ describe("the message field's one AI menu", () => {
     expect(renderPart(bot()).html).toContain("data-chat-ai-menu");
   });
 
-  it("shows how full this chat is, against the model's window when the turn did not say", () => {
+  it("shows how full this chat is behind the usage ring, against the model's window when the turn did not say", () => {
     fixture.instances = [claude(true, claudeModels.map((option) => ({ ...option, contextWindow: 1_000_000 })))];
     const withTask = { ...bot(), tasks: [{ threadId: "thread-scout", title: "", createdAt: NOW,
       usage: { input: 0, output: 0, costUsd: null, turns: 3, context: { tokens: 46_000 } } }] };
     fixture.bots = [withTask];
-    const opened = openPart(withTask);
-    expect(opened.html).toContain("This chat");
-    expect(opened.html).toContain("46k of 1M · 5%");
-    expect(opened.html).toContain('data-chat-context="5"');
+    const usageButton = (rendered: ReturnType<typeof renderPart>) => rendered.nodes.find((node) => "reading" in node.props && "onSeeAll" in node.props);
+    const shown = usageButton(renderPart(withTask));
+    expect(shown?.props.reading).toBeTruthy();
+    expect(chatContextFigure(shown!.props.reading as ChatContextReading)).toBe("46k of 1M · 5%");
+    expect(String(shown?.props.title)).toContain("46k of 1M · 5%");
+    expect(openPart(withTask).html).not.toContain("data-chat-context");
     fixture.bots = [];
-    expect(openPart(bot()).html).not.toContain("data-chat-context");
+    expect(usageButton(renderPart(bot()))).toBeUndefined();
   });
 
   it("shows every account as a compact row with what is left, and adds an account from the same menu", () => {

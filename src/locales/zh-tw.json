@@ -501,6 +501,7 @@
   "model.effort.title": "推理強度",
   "model.simple.model": "模型",
   "model.context.title": "此對話",
+  "model.usage.title": "用量",
   "model.context.figure": "{window} 中的 {used} · {percent}",
   "model.context.tokens": "{used} Token",
   "model.effort.default": "預設",

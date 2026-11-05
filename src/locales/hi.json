@@ -422,6 +422,7 @@
   "model.account": "खाता",
   "model.simple.model": "मॉडल",
   "model.context.title": "यह बातचीत",
+  "model.usage.title": "उपयोग",
   "model.context.figure": "{window} में से {used} · {percent}",
   "model.context.tokens": "{used} टोकन",
   "model.effort.default": "डिफ़ॉल्ट",

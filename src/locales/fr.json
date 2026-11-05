@@ -422,6 +422,7 @@
   "model.account": "Compte",
   "model.simple.model": "Modèle",
   "model.context.title": "Cette conversation",
+  "model.usage.title": "Utilisation",
   "model.context.figure": "{used} sur {window} · {percent}",
   "model.context.tokens": "{used} jetons",
   "model.effort.default": "Par défaut",

@@ -424,6 +424,7 @@
   "model.account": "アカウント",
   "model.simple.model": "モデル",
   "model.context.title": "この会話",
+  "model.usage.title": "使用量",
   "model.context.figure": "{window} 中 {used} · {percent}",
   "model.context.tokens": "{used} トークン",
   "model.effort.default": "標準",

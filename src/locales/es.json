@@ -422,6 +422,7 @@
   "model.account": "Cuenta",
   "model.simple.model": "Modelo",
   "model.context.title": "Esta conversación",
+  "model.usage.title": "Uso",
   "model.context.figure": "{used} de {window} · {percent}",
   "model.context.tokens": "{used} tokens",
   "model.effort.default": "Predeterminado",
