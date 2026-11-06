@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlanProviderRow } from "../plan-usage.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import {
-  AccountBattery, DEFAULT_REST_MS, backNotice, batteryEnabled, chosenModelOn, crossEngineNotice, engineName, selectionOnAccount, batterySequence, batteryOrder, checkBatteryConfig, effectiveOrder, limitRowToReplace, percentLeft, planResetAt, resetLabel, routeSelection,
+  AccountBattery, DEFAULT_REST_MS, USAGE_REFRESH_WAIT_MS, backNotice, batteryEnabled, chosenModelOn, crossEngineNotice, engineName, selectionOnAccount, batterySequence, batteryOrder, checkBatteryConfig, effectiveOrder, limitRowToReplace, percentLeft, planResetAt, resetLabel, routeSelection,
   routedNotice, switchNotice, withoutAccount,
   type AccountBatteryConfig, type BatteryAccount, type Rest,
 } from "./account-battery.ts";
@@ -195,6 +195,70 @@ describe("most available first", () => {
       .toMatchObject({ from: { instanceId: "claude" }, to: { instanceId: "claude-c" } });
     readings["claude-b"] = reading("claude-b", 0, 0);
     expect(instance.status(ACCOUNTS).order.claudeAgent).toEqual(["claude-b", "claude-c", "claude"]);
+  });
+
+  describe("when an account runs out", () => {
+    const adam = account("claude", { displayName: "adam" });
+    const anthony = account("claude-anthony", { displayName: "anthony" });
+    const daniel = account("claude-daniel", { displayName: "daniel" });
+    const jacob = account("claude-jacob", { displayName: "jacob" });
+    const accounts = [adam, anthony, daniel, jacob];
+    const sequence = ["claude", "claude-jacob", "claude-anthony", "claude-daniel"];
+    const config = (auto: boolean): AccountBatteryConfig => ({ enabled: true, order: { claudeAgent: sequence }, sequence, auto });
+    const onDaniel = { ...SELECTION, instanceId: "claude-daniel" };
+    const ranOut = (instance: AccountBattery) => {
+      instance.trackTurn("olivia", { generation: "g1", instanceId: "claude-daniel", requestMessageId: "m1", rerun: vi.fn(async () => undefined) });
+      instance.markExhausted("claude-jacob", { resetsAt: at(30 * HOUR), kind: "weekly" });
+      instance.markExhausted("claude-daniel", { resetsAt: at(HOUR), kind: "session" });
+      return instance.nextAccount({ threadId: "olivia", generation: "g1", stopReason: "usage_limit", ranOn: "claude-daniel", selection: onDaniel, accounts })?.to.instanceId;
+    };
+
+    it("moves the chat to the account with the most left, never one that is almost empty, whatever the saved order", () => {
+      const readings: Record<string, PlanProviderRow> = { claude: reading("claude", 99, 40), "claude-anthony": reading("claude-anthony", 20, 30) };
+      for (const auto of [true, false]) {
+        expect(ranOut(new AccountBattery({ config: () => config(auto), now: () => NOW, usage: (id) => readings[id] }))).toBe("claude-anthony");
+      }
+      readings["claude-anthony"] = reading("claude-anthony", 97, 30);
+      expect(ranOut(new AccountBattery({ config: () => config(true), now: () => NOW, usage: (id) => readings[id] }))).toBe("claude-anthony");
+    });
+
+    it("ranks an account it has no reading for ahead of one known to be almost empty", () => {
+      const readings: Record<string, PlanProviderRow> = { claude: reading("claude", 99, 40) };
+      expect(ranOut(new AccountBattery({ config: () => config(true), now: () => NOW, usage: (id) => readings[id] }))).toBe("claude-anthony");
+    });
+
+    it("reads usage again before choosing when its readings are missing or old, rather than going by the saved order", async () => {
+      const readings: Record<string, PlanProviderRow> = {};
+      const readAt: Record<string, number> = {};
+      const refreshUsage = vi.fn(async () => {
+        readings.claude = reading("claude", 99, 40);
+        readings["claude-anthony"] = reading("claude-anthony", 20, 30);
+        for (const id of Object.keys(readings)) readAt[id] = NOW;
+      });
+      const instance = new AccountBattery({ config: () => config(true), now: () => NOW, usage: (id) => readings[id], usageAt: (id) => readAt[id], refreshUsage });
+      await instance.freshenUsage(accounts);
+      expect(refreshUsage).toHaveBeenCalledTimes(1);
+      expect(ranOut(instance)).toBe("claude-anthony");
+      await instance.freshenUsage(accounts);
+      expect(refreshUsage).toHaveBeenCalledTimes(1);
+    });
+
+    it("starts reading usage again as soon as an account runs out, and gives up waiting on a reading that hangs", async () => {
+      vi.useFakeTimers();
+      try {
+        const refreshUsage = vi.fn(() => new Promise<void>(() => undefined));
+        const instance = new AccountBattery({ config: () => config(true), now: () => NOW, usage: () => undefined, refreshUsage });
+        instance.trackTurn("olivia", { generation: "g1", instanceId: "claude-daniel", requestMessageId: "m1", rerun: vi.fn(async () => undefined) });
+        instance.nextAccount({ threadId: "olivia", generation: "g1", stopReason: "usage_limit", ranOn: "claude-daniel", selection: onDaniel, accounts });
+        expect(refreshUsage).toHaveBeenCalledTimes(1);
+        const waited = instance.freshenUsage(accounts);
+        await vi.advanceTimersByTimeAsync(USAGE_REFRESH_WAIT_MS);
+        await expect(waited).resolves.toBeUndefined();
+        expect(refreshUsage).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it("tells the app when new readings change the order it shows, and only then", () => {

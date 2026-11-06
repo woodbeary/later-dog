@@ -263,6 +263,11 @@ function liveOver(window: PlanWindow, live: LiveWindow | undefined): PlanWindow 
   return live ? openWindow(live.usedPercent, live.resetsAt) : window;
 }
 
+export function latestPlanRowAt(id: string): number | undefined {
+  const times = [latestRows.get(id)?.at, liveReading(id)?.at].filter((at): at is number => at !== undefined);
+  return times.length ? Math.max(...times) : undefined;
+}
+
 export function latestPlanRow(id: string): PlanProviderRow | undefined {
   const fetched = latestRows.get(id);
   const live = liveReading(id);

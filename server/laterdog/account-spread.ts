@@ -6,11 +6,19 @@ export interface SpreadCandidate {
   index: number;
 }
 
+export const NEARLY_EMPTY_PERCENT = 5;
+
+export function roomTier(left: number | undefined): 0 | 1 | 2 {
+  if (left === undefined) return 1;
+  return left > NEARLY_EMPTY_PERCENT ? 0 : 2;
+}
+
 export function leastLoaded(candidates: readonly SpreadCandidate[]): string | undefined {
   return [...candidates].sort((a, b) =>
+    Number(roomTier(a.left) === 2) - Number(roomTier(b.left) === 2) ||
     a.running - b.running ||
     Number(b.own) - Number(a.own) ||
-    Number(a.left === undefined) - Number(b.left === undefined) ||
+    roomTier(a.left) - roomTier(b.left) ||
     (b.left ?? 0) - (a.left ?? 0) ||
     a.index - b.index)[0]?.instanceId;
 }

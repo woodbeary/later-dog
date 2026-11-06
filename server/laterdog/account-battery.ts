@@ -4,11 +4,15 @@ import { writeFileAtomic } from "../atomic.ts";
 import type { PlanProviderRow } from "../plan-usage.ts";
 import type { ModelSelection } from "../../shared/wire.ts";
 import { resetInstant } from "./usage-limit.ts";
-import { homeAccount, leastLoaded } from "./account-spread.ts";
+import { NEARLY_EMPTY_PERCENT, homeAccount, leastLoaded, roomTier } from "./account-spread.ts";
+
+export { NEARLY_EMPTY_PERCENT };
 
 export const BATTERY_DRIVERS: readonly string[] = ["claudeAgent", "codex"];
 
 export const DEFAULT_REST_MS = 5 * 60 * 60 * 1000;
+export const USAGE_FRESH_MS = 2 * 60 * 1000;
+export const USAGE_REFRESH_WAIT_MS = 10_000;
 const MAX_AWAY = 500;
 const MAX_TURNS = 2_000;
 const MAX_PLACED = 2_000;
@@ -180,7 +184,7 @@ export function rankOrder(order: Record<string, string[]>, input: Omit<PickInput
     ranked[driver] = [...ids].sort((a, b) => {
       const x = scores.get(a)!;
       const y = scores.get(b)!;
-      return Number(x.asleep) - Number(y.asleep) || Number(x.left === undefined) - Number(y.left === undefined) ||
+      return Number(x.asleep) - Number(y.asleep) || roomTier(x.left) - roomTier(y.left) ||
         (y.left ?? 0) - (x.left ?? 0) || x.index - y.index;
     });
   }
@@ -254,16 +258,16 @@ export function pickAccount(input: PickInput): BatteryAccount | undefined {
   if (!batteryEnabled(config, accounts)) return undefined;
   const own = accounts.find((account) => account.instanceId === selection.instanceId);
   if (!own?.eligible) return undefined;
-  const order = batterySequence(input);
+  const nearlyEmpty = (id: string) => roomTier(percentLeft(input.usage?.(id), input.now)) === 2;
+  const others = batterySequence(input).filter((id) => id !== own.instanceId);
   const listed = own.models.includes(selection.model);
-  for (const id of [own.instanceId, ...order.filter((id) => id !== own.instanceId)]) {
+  for (const id of [own.instanceId, ...others.filter((id) => !nearlyEmpty(id)), ...others.filter(nearlyEmpty)]) {
     const account = accounts.find((candidate) => candidate.instanceId === id);
     if (canTake(account, input, listed)) return account;
   }
   return undefined;
 }
 
-export const NEARLY_EMPTY_PERCENT = 5;
 const ROOMY_PERCENT = 20;
 
 export function roomierThan(own: BatteryAccount, input: PickInput): BatteryAccount | undefined {
@@ -404,6 +408,8 @@ export interface AccountBatteryOptions {
   now?: () => number;
   planReset?: (instanceId: string, kind: string | undefined) => Promise<string | undefined>;
   usage?: PlanReading;
+  usageAt?: (instanceId: string) => number | undefined;
+  refreshUsage?: () => Promise<void>;
   running?: () => Readonly<Record<string, number>>;
   defaultAccount?: () => string | undefined;
   ownThread?: (threadId: string) => boolean;
@@ -416,6 +422,7 @@ export class AccountBattery {
   private readonly now: () => number;
   private readonly options: AccountBatteryOptions;
   private shownOrder = "";
+  private refreshing: Promise<void> | undefined;
 
   constructor(options: AccountBatteryOptions) {
     this.options = options;
@@ -669,7 +676,22 @@ export class AccountBattery {
   }
 
   ranOut(account: BatteryAccount, accounts: readonly BatteryAccount[], model: string): void {
-    if (!this.restOf(account, accounts, model)) this.markExhausted(account.instanceId);
+    if (this.restOf(account, accounts, model)) return;
+    this.markExhausted(account.instanceId);
+    void this.freshenUsage(accounts);
+  }
+
+  async freshenUsage(accounts: readonly BatteryAccount[]): Promise<void> {
+    const refresh = this.options.refreshUsage;
+    if (!refresh || !this.enabled) return;
+    const now = this.now();
+    const stale = accounts.some((account) => account.eligible && account.enabled && account.signedIn !== false &&
+      !this.restOf(account, accounts) && !((this.options.usageAt?.(account.instanceId) ?? Number.NEGATIVE_INFINITY) > now - USAGE_FRESH_MS));
+    if (!stale) return;
+    this.refreshing ??= refresh().catch(() => undefined).finally(() => { this.refreshing = undefined; });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([this.refreshing, new Promise<void>((resolve) => { timer = setTimeout(resolve, USAGE_REFRESH_WAIT_MS); })]);
+    clearTimeout(timer);
   }
 
   takeTurn(threadId: string, generation: string | undefined): BatteryTurn | undefined {

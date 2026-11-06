@@ -53,6 +53,9 @@ describe("choosing an account for a new conversation", () => {
     expect(leastLoaded([{ ...base, instanceId: "a", own: true, left: 10 }, { ...base, instanceId: "b", left: 90, index: 1 }])).toBe("a");
     expect(leastLoaded([{ ...base, instanceId: "b", index: 1 }, { ...base, instanceId: "c", left: 40, index: 2 }, { ...base, instanceId: "d", left: 70, index: 3 }])).toBe("d");
     expect(leastLoaded([{ ...base, instanceId: "c", index: 2 }, { ...base, instanceId: "b", index: 1 }])).toBe("b");
+    expect(leastLoaded([{ ...base, instanceId: "a", own: true, left: 1 }, { ...base, instanceId: "b", running: 3, left: 80, index: 1 }])).toBe("b");
+    expect(leastLoaded([{ ...base, instanceId: "a", left: 4 }, { ...base, instanceId: "b", index: 1 }])).toBe("b");
+    expect(leastLoaded([{ ...base, instanceId: "a", left: 2 }, { ...base, instanceId: "b", left: 1, index: 1 }])).toBe("a");
     expect(leastLoaded([])).toBeUndefined();
   });
 

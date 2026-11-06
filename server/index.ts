@@ -232,7 +232,7 @@ import { augmentedPath, findCliCandidates, resetPathCache } from "./env-path.ts"
 import { registerEnginesBinDir } from "./engine-install.ts";
 import { registerNativeBinDir } from "./laterdog/native-install.ts";
 import { appendUsage, parseUsageRange, readUsage, summarizeUsage, usageCsv, USAGE_GROUPINGS, flushUsageLedger, type UsageGroupBy, type UsageRow, type UsageTrigger } from "./usage-ledger.ts";
-import { latestPlanRow, loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
+import { latestPlanRow, latestPlanRowAt, loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
 import { createAccountUsageRoute } from "./routes/account-usage.ts";
 import { createSwitchAccountRoute } from "./routes/switch-account.ts";
 import { CONTINUE_AFTER_PICK, pickMovesTurn, pickNotice } from "./laterdog/account-pick.ts";
@@ -943,6 +943,11 @@ const accountBattery = new AccountBattery({
     return planResetAt((await loadPlanUsage({ accounts: [account], refresh: true })).providers[0], kind, Date.now());
   },
   usage: latestPlanRow,
+  usageAt: latestPlanRowAt,
+  refreshUsage: async () => {
+    if (hostedModels) return;
+    await loadPlanUsage({ accounts: planAccountsFromInstances(instanceConfigs(cfg)).filter((account) => account.driver !== "grok"), refresh: true });
+  },
   running: () => runningByAccount([...directTurnBots].map(([threadId, bot]) => [threadId, bot.modelSelection.instanceId] as const),
     [...runningTurnEngines].map(([threadId, instance]) => [threadId, instance.instanceId] as const)),
   defaultAccount: () => cfg.defaultModelSelection?.instanceId,
@@ -6157,7 +6162,7 @@ function cancelBatteryContinuation(threadId: string, message: string): void {
 }
 
 function continueOnNextAccount(threadId: string, turnId: string | undefined, generation: string | undefined, next: BatteryRerun): void {
-  setImmediate(() => {
+  void accountBattery.freshenUsage(batteryAccounts()).then(() => {
     const owner = store.botByThread(threadId);
     const turn = accountBattery.keptTurn(threadId, generation);
     if (!owner || !turn?.rerun || directTurnGenerationByThread.get(threadId) !== generation) {
@@ -6203,7 +6208,7 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
       store.appendMessage(threadId, { role: "bot", kind: "activity",
         tool: failedTurnTool(`Could not continue on ${name(next.to)}: ${error instanceof Error ? error.message : String(error)}`) });
     });
-  });
+  }).catch((error) => console.warn(`token battery: ${threadId} continuation failed: ${error instanceof Error ? error.message : String(error)}`));
 }
 
 function carryOnInput(threadId: string): (CarryOnInput & { botId: string }) | undefined {
