@@ -100,3 +100,38 @@ describe("push notifications to the phone", () => {
     expect(push.tokens()).toEqual([]);
   });
 });
+
+describe("pings go to the later.dog app, not Expo Go", () => {
+  it("drops tokens from before the app said which app it is once the later.dog app registers", () => {
+    const push = createPhonePush({ dataDir: folder() });
+    push.register(OTHER);
+    push.register(TOKEN, "later.dog");
+    expect(push.tokens()).toEqual([TOKEN]);
+    expect(push.register(OTHER)).toBe(false);
+    expect(push.tokens()).toEqual([TOKEN]);
+  });
+
+  it("never sends to a token Expo Go registers, and forgets it if it was saved before", () => {
+    const push = createPhonePush({ dataDir: folder() });
+    push.register(OTHER);
+    expect(push.register(OTHER, "expo-go")).toBe(false);
+    expect(push.tokens()).toEqual([]);
+  });
+
+  it("keeps every device the later.dog app registered", () => {
+    const push = createPhonePush({ dataDir: folder() });
+    push.register(TOKEN, "later.dog");
+    push.register(OTHER, "later.dog");
+    expect(push.tokens()).toEqual([TOKEN, OTHER]);
+    push.unregister(TOKEN);
+    push.register(TOKEN, "later.dog");
+    expect(push.tokens()).toEqual([OTHER, TOKEN]);
+  });
+
+  it("reads the app from the registration request", async () => {
+    const push = createPhonePush({ dataDir: folder() });
+    push.register(OTHER);
+    await phonePushRequest("POST", async () => ({ token: TOKEN, app: "later.dog" }), push);
+    expect(push.tokens()).toEqual([TOKEN]);
+  });
+});
