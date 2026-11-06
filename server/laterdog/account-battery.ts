@@ -746,6 +746,12 @@ export class AccountBattery {
     this.save();
   }
 
+  pin(threadId: string, instanceId: string): void {
+    delete this.state.away[threadId];
+    this.place(threadId, instanceId, instanceId);
+    this.save();
+  }
+
   takeBack(threadId: string, instanceId: string): boolean {
     if (this.state.away[threadId]?.from !== instanceId) return false;
     delete this.state.away[threadId];
