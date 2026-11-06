@@ -8,6 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { createSharedCua, executeSharedOperation, personalSecretPaths, SHARED_ACTIONS, sharedComputerError, stopSharedCommands, warmSharedCommands } from "./shared-computer-access.mjs";
 import { createLendingActivity, describeSharedOperation } from "./lending-activity.mjs";
 import { droppedPollRetryMs } from "./lending-poll.mjs";
+import { cuaOffReason } from "./cua-grant.mjs";
 
 const uuid = value => typeof value === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 const DATA_VOLUME = "/System/Volumes/Data";
@@ -358,7 +359,7 @@ export function createComputerSharing({
                 if (!live.cua) {
                   const connection = await cuaConnection();
                   jobSignal.throwIfAborted();
-                  if (!connection?.mcpCommand || !Array.isArray(connection.mcpArgs)) throw new Error(CUA_OFF);
+                  if (!connection?.mcpCommand || !Array.isArray(connection.mcpArgs)) throw new Error(`${CUA_OFF}${cuaOffReason(connection)}`);
                   live.cua = createSharedCua(connection);
                 }
                 return live.cua;

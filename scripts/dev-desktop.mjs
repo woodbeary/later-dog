@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import { createServer } from "node:net";
@@ -57,7 +57,42 @@ export function desktopPlan({ env = process.env, home = homedir(), root = projec
   };
 }
 
-export function disclaimedElectron(electron, { platform = process.platform, root = projectRoot, home = homedir(), build = execFileSync } = {}) {
+export const DEV_APP_IDENTIFIER = "dog.later.dev";
+export const DEV_DISCLAIM_IDENTIFIER = "dog.later.dev.disclaim";
+
+export function devSigningIdentity({ env = process.env, run = execFileSync } = {}) {
+  if (env.LATERDOG_DEV_SIGN_IDENTITY) return env.LATERDOG_DEV_SIGN_IDENTITY;
+  try {
+    const listed = String(run("/usr/bin/security", ["find-identity", "-v", "-p", "codesigning"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10_000 }));
+    return /"(Apple Development: [^"]+)"/.exec(listed)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function signedIdentifier(path, inspect = spawnSync) {
+  const out = inspect("/usr/bin/codesign", ["-dv", path], { encoding: "utf8", timeout: 10_000 });
+  return /^Identifier=(.+)$/m.exec(`${out?.stdout ?? ""}\n${out?.stderr ?? ""}`)?.[1] ?? null;
+}
+
+export function appBundleOf(file) {
+  const at = file.indexOf(".app/Contents/MacOS/");
+  return at < 0 ? null : file.slice(0, at + 4);
+}
+
+export function stablySign({ electronFile, helper, identity, run = execFileSync, inspect = spawnSync }) {
+  if (!identity) return false;
+  const bundle = appBundleOf(electronFile);
+  const signed = [];
+  for (const [path, identifier, deep] of [[helper, DEV_DISCLAIM_IDENTIFIER, false], [bundle, DEV_APP_IDENTIFIER, true]]) {
+    if (!path || signedIdentifier(path, inspect) === identifier) continue;
+    run("/usr/bin/codesign", ["--force", ...(deep ? ["--deep"] : []), "--sign", identity, "--identifier", identifier, path], { stdio: "pipe", timeout: 120_000 });
+    signed.push(path);
+  }
+  return signed.length > 0;
+}
+
+export function disclaimedElectron(electron, { platform = process.platform, root = projectRoot, home = homedir(), build = execFileSync, sign = stablySign, identity = () => devSigningIdentity() } = {}) {
   if (platform !== "darwin") return electron;
   const source = join(root, "scripts", "dev-disclaim.c");
   try {
@@ -68,6 +103,11 @@ export function disclaimedElectron(electron, { platform = process.platform, root
       mkdirSync(folder, { recursive: true });
       build("/usr/bin/clang", ["-O2", "-o", `${helper}.partial`, source], { stdio: "pipe", timeout: 60_000 });
       renameSync(`${helper}.partial`, helper);
+    }
+    try {
+      sign({ electronFile: electron.file, helper, identity: identity() });
+    } catch (error) {
+      console.error(`later.dog Dev: couldn't sign the Dev app, so macOS may ask for permissions again (${String(error.message).split("\n")[0]}).`);
     }
     return { ...electron, file: helper, args: [electron.file, ...electron.args] };
   } catch (error) {

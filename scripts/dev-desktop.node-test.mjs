@@ -5,7 +5,7 @@ import test from "node:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { desktopPlan, disclaimedElectron, runDesktop } from "./dev-desktop.mjs";
+import { appBundleOf, desktopPlan, devSigningIdentity, disclaimedElectron, runDesktop, stablySign, DEV_APP_IDENTIFIER, DEV_DISCLAIM_IDENTIFIER } from "./dev-desktop.mjs";
 
 const fixtureHome = "/Users/desktop-fixture";
 const ROOT = "/fixtures/laterdog";
@@ -309,12 +309,39 @@ test("on macOS Electron starts through dev-disclaim so the mic permission is its
   const electron = { file: "/Apps/Dev.app/Contents/MacOS/Electron", args: ["/repo"] };
   const built = [];
   const build = (_clang, args) => { built.push(args); writeFileSync(args[2], ""); };
-  const wrapped = disclaimedElectron(electron, { platform: "darwin", home, build });
+  const signs = [];
+  const wrapped = disclaimedElectron(electron, { platform: "darwin", home, build, identity: () => "Apple Development: Dev", sign: (input) => signs.push(input) });
+  assert.equal(signs[0].identity, "Apple Development: Dev");
+  assert.equal(signs[0].helper, wrapped.file);
   assert.match(wrapped.file, /dev-disclaim-[0-9a-f]{12}$/);
   assert.deepEqual(wrapped.args, [electron.file, "/repo"]);
-  assert.equal(disclaimedElectron(electron, { platform: "darwin", home, build }).file, wrapped.file);
+  assert.equal(disclaimedElectron(electron, { platform: "darwin", home, build, sign: () => false }).file, wrapped.file);
   assert.equal(built.length, 1);
   assert.equal(disclaimedElectron(electron, { platform: "linux", home, build }), electron);
-  const failed = disclaimedElectron(electron, { platform: "darwin", home: join(home, "other"), build: () => { throw new Error("no clang"); } });
+  const failed = disclaimedElectron(electron, { platform: "darwin", home: join(home, "other"), build: () => { throw new Error("no clang"); }, sign: () => false });
   assert.equal(failed, electron);
+});
+
+test("the Dev app and its disclaim helper are signed once with a stable identity, so a macOS grant survives rebuilds", () => {
+  const ran = [];
+  const ids = new Map();
+  const inspect = (_file, args) => ({ stdout: "", stderr: ids.has(args[1]) ? `Executable=x\nIdentifier=${ids.get(args[1])}\n` : "Executable=x\nIdentifier=Electron\n" });
+  const run = (_file, args) => { ran.push(args); ids.set(args.at(-1), args[args.indexOf("--identifier") + 1]); };
+  const input = { electronFile: "/Applications/later.dog Dev.app/Contents/MacOS/Electron", helper: "/h/dev-disclaim-abc", identity: "Apple Development: Dev (X)", run, inspect };
+  assert.equal(appBundleOf(input.electronFile), "/Applications/later.dog Dev.app");
+  assert.equal(stablySign(input), true);
+  assert.deepEqual(ran.map((args) => [args.at(-1), args[args.indexOf("--identifier") + 1], args.includes("--deep")]), [
+    ["/h/dev-disclaim-abc", DEV_DISCLAIM_IDENTIFIER, false],
+    ["/Applications/later.dog Dev.app", DEV_APP_IDENTIFIER, true],
+  ]);
+  assert.equal(stablySign(input), false);
+  assert.equal(ran.length, 2);
+  assert.equal(stablySign({ ...input, identity: null }), false);
+});
+
+test("the Dev signing identity comes from the environment or the first Apple Development certificate", () => {
+  assert.equal(devSigningIdentity({ env: { LATERDOG_DEV_SIGN_IDENTITY: "Mine" } }), "Mine");
+  const listed = '  1) AAA "Apple Development: Jacob (6C5)"\n  2) BBB "Developer ID Application: Co (5JA)"\n';
+  assert.equal(devSigningIdentity({ env: {}, run: () => listed }), "Apple Development: Jacob (6C5)");
+  assert.equal(devSigningIdentity({ env: {}, run: () => { throw new Error("no security"); } }), null);
 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cuaStartsAfterGrant } from "./cua-grant.mjs";
+import { CUA_RETRY_MS, cuaOffReason, cuaRetriesForUse, cuaStartsAfterGrant } from "./cua-grant.mjs";
 
 const granted = { microphone: "denied", accessibility: "granted", screen: "granted" };
 const waiting = { mode: "unavailable", reason: "embedded host failed: Accessibility and Screen Recording required; later.dog asks for them when a dog first uses this Mac" };
@@ -48,4 +48,20 @@ test("only a Mac starts it; other platforms never do", () => {
   for (const platform of ["win32", "linux", "freebsd", undefined]) {
     assert.equal(cuaStartsAfterGrant({ platform, checklist: granted, connection: waiting }), false, String(platform));
   }
+});
+
+test("a dog's request restarts computer control after any failure once both grants are on, at most every 30 seconds", () => {
+  for (const connection of [{ mode: "unavailable", reason: "desktop-host-stopped" }, { mode: "unavailable", reason: "embedded host failed: daemon exited with 3" }, null]) {
+    assert.equal(cuaRetriesForUse({ platform: "darwin", checklist: granted, connection, now: 100_000 }), true, JSON.stringify(connection));
+  }
+  assert.equal(cuaRetriesForUse({ platform: "darwin", checklist: granted, connection: null, now: 100_000, lastTry: 100_000 - CUA_RETRY_MS + 1 }), false);
+  assert.equal(cuaRetriesForUse({ platform: "darwin", checklist: granted, connection: null, now: 100_000, lastTry: 100_000 - CUA_RETRY_MS }), true);
+  assert.equal(cuaRetriesForUse({ platform: "darwin", checklist: { ...granted, screen: "denied" }, connection: null, now: 1 }), false);
+  assert.equal(cuaRetriesForUse({ platform: "darwin", checklist: granted, connection: { mode: "embedded", mcpCommand: "/x" }, now: 1 }), false);
+  assert.equal(cuaRetriesForUse({ platform: "linux", checklist: granted, connection: null, now: 1 }), false);
+});
+
+test("the can't-use-apps message says why", () => {
+  assert.equal(cuaOffReason({ mode: "unavailable", reason: "embedded host failed: timed out" }), " (embedded host failed: timed out)");
+  assert.equal(cuaOffReason(null), "");
 });

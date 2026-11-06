@@ -52,7 +52,8 @@ import { desktopViewerPermissionAllowed } from "./desktop-viewer-permissions.mjs
 import { appPermissionHandlers, externalWebUrl } from "./app-permissions.mjs";
 import { permissionChecklist, requestPermission } from "./mac-permissions.mjs";
 import { speechEverGranted } from "./speech-grant.mjs";
-import { cuaStartsAfterGrant } from "./cua-grant.mjs";
+import { cuaRetriesForUse, cuaStartsAfterGrant } from "./cua-grant.mjs";
+import { HOST_CONTROL_SLOW, HOST_CONTROL_TIMEOUT_MS, hostControlRefusal } from "./host-control.mjs";
 import { writeClipboardText } from "./clipboard-write.mjs";
 import { clearQuickLookFiles, quickLookBytes, quickLookName, writeQuickLookFile } from "./quick-look.mjs";
 import {
@@ -1371,15 +1372,27 @@ function sharingController() {
     cuaConnection: lendingCua,
     hostControl: async (id, signal) => {
       const lease = async action => {
-        const response = await fetch(`http://127.0.0.1:${SERVER_PORT}/api/desktop/shared-computer-control`, {
-          method: "POST",
-          headers: desktopServerHeaders({ "content-type": "application/json" }, { packaged: app.isPackaged, token: desktopMutationToken }),
-          body: JSON.stringify({ id, action }),
-          signal: action === "release" ? AbortSignal.timeout(3000) : AbortSignal.any([signal, AbortSignal.timeout(3000)]),
-        });
-        if (!response.ok) throw new Error("This computer is in use locally or held by a person. Wait, then observe it again before acting.");
+        let response;
+        try {
+          response = await fetch(`http://127.0.0.1:${SERVER_PORT}/api/desktop/shared-computer-control`, {
+            method: "POST",
+            headers: desktopServerHeaders({ "content-type": "application/json" }, { packaged: app.isPackaged, token: desktopMutationToken }),
+            body: JSON.stringify({ id, action }),
+            signal: action === "release" ? AbortSignal.timeout(HOST_CONTROL_TIMEOUT_MS) : AbortSignal.any([signal, AbortSignal.timeout(HOST_CONTROL_TIMEOUT_MS)]),
+          });
+        } catch (error) {
+          if (action === "release") throw error;
+          throw new Error(HOST_CONTROL_SLOW, { cause: error });
+        }
+        await response.body?.cancel().catch(() => {});
+        if (!response.ok) throw new Error(hostControlRefusal(response.status));
       };
-      await lease("acquire");
+      try {
+        await lease("acquire");
+      } catch (error) {
+        await lease("release").catch(() => {});
+        throw error;
+      }
       return { renew: () => lease("acquire"), release: () => lease("release") };
     },
   });
@@ -2151,10 +2164,18 @@ function startCuaWhenGranted(checklist) {
   })();
   return checklist;
 }
+let cuaUseRetryAt;
 async function lendingCua() {
   const connection = await cuaReady.catch(() => null);
   if (connection?.mcpCommand) return connection;
-  if (!cuaGrantStart && cuaStartsAfterGrant({ platform: process.platform, checklist: permissionChecklist(macPermissionHost()), connection })) {
+  const checklist = permissionChecklist(macPermissionHost());
+  const now = Date.now();
+  const retry = cuaStartsAfterGrant({ platform: process.platform, checklist, connection })
+    || cuaRetriesForUse({ platform: process.platform, checklist, connection, now, lastTry: cuaUseRetryAt });
+  if (!retry) slog(`[cua] computer control unavailable: ${connection?.reason ?? "no connection"}; accessibility=${checklist?.accessibility} screen=${checklist?.screen}`);
+  if (!cuaGrantStart && retry) {
+    cuaUseRetryAt = now;
+    slog(`[cua] starting computer control for a request (was: ${connection?.reason ?? "no connection"})`);
     cuaGrantStart = startCua()
       .catch((error) => console.error("[cua] start after grant failed:", error))
       .finally(() => { cuaGrantStart = null; });

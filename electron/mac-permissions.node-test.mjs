@@ -105,7 +105,7 @@ test("the app wires the checklist to local-only channels and the same privacy pa
   const main = readFileSync(new URL("./main.mjs", import.meta.url), "utf8").replace(/\r\n/g, "\n");
   assert.match(main, /import \{ permissionChecklist, requestPermission \} from "\.\/mac-permissions\.mjs";/);
   assert.match(main, /const macPermissionHost = \(\) => \(\{ platform: process\.platform, systemPreferences, desktopCapturer, everGrantedSpeech: speechEverGranted\(app\.getPath\("userData"\)\) \}\);/);
-  assert.match(main, /import \{ cuaStartsAfterGrant \} from "\.\/cua-grant\.mjs";/);
+  assert.match(main, /import \{ cuaRetriesForUse, cuaStartsAfterGrant \} from "\.\/cua-grant\.mjs";/);
   assert.match(main, /ipcMain\.handle\("perm:checklist", localOnly\("perm:checklist", \(\) => startCuaWhenGranted\(permissionChecklist\(macPermissionHost\(\)\)\)\)\);/);
   assert.match(main, /ipcMain\.handle\("perm:request", localOnly\("perm:request", async \(_event, permission\) => startCuaWhenGranted\(await requestPermission\(permission, macPermissionHost\(\)\)\)\)\);/);
   assert.match(main, /microphone: "Privacy_Microphone",/);
