@@ -80,7 +80,8 @@ export interface WireWaitingOn {
   botId: string;
   name: string;
   threadId?: string;
-  state?: "queued" | "running";
+  state?: "queued" | "running" | "needsYou";
+  ask?: string;
 }
 
 export interface WireTask {

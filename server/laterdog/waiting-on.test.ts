@@ -20,4 +20,17 @@ describe("the dogs a chat is waiting on", () => {
     expect(waitingOn([{ botId: "gone" }, { botId: "rio" }], nameOf)).toEqual([{ botId: "rio", name: "Rio", state: "queued" }]);
     expect(waitingOn([], nameOf)).toEqual([]);
   });
+
+  it("says the work is waiting on the owner when a teammate that isn't running asked them something", () => {
+    const ask = (node: { botId: string }) => (node.botId === "rio" ? "Rio needs your decision on the plan." : null);
+    expect(waitingOn([
+      { botId: "patch", threadId: "p-1", status: "running" },
+      { botId: "rio", threadId: "r-1", status: "resume" },
+    ], nameOf, ask)).toEqual([
+      { botId: "patch", name: "Patch", threadId: "p-1", state: "running" },
+      { botId: "rio", name: "Rio", threadId: "r-1", state: "needsYou", ask: "Rio needs your decision on the plan." },
+    ]);
+    expect(waitingOn([{ botId: "rio", threadId: "r-1", status: "running" }], nameOf, ask)[0]!.state).toBe("running");
+  });
 });
+

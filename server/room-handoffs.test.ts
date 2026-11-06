@@ -17,6 +17,14 @@ async function fixture(test: (engine: RoomHandoffs, hooks: RoomHandoffHooks, fil
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 
 describe("addressed room request tree", () => {
+  it("never leaves a handoff waiting with nothing under it: it resumes its dog instead", () => fixture(async (engine, hooks) => {
+    const source = { botId: "chief", threadId: "chief-chat" };
+    const child = engine.enqueue(source, "turn", undefined, { botId: "builder", threadId: "builder-chat" }, "build", "Build it").node;
+    child.status = "waiting";
+    engine.tick(); await flush();
+    expect(hooks.run).toHaveBeenCalledWith(child, true, expect.anything());
+    expect(child.status).toBe("completed");
+  }));
   it("starts independent work before its author settles, but resumes only after settlement", () => fixture(async (engine, hooks) => {
     const source = { botId: "chief", threadId: "chief-chat" };
     const child = engine.enqueue(source, "turn", undefined, { botId: "builder", threadId: "builder-chat" }, "build", "Build it").node;

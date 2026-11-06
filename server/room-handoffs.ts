@@ -413,7 +413,7 @@ export class RoomHandoffs {
       }
       if (n.status === "waiting") {
         const children = this.children(n.id);
-        if (children.length && children.every(c => terminal(c) && c.reported)) { n.status = "resume"; this.publish(n); }
+        if (children.every(c => terminal(c) && c.reported)) { n.status = "resume"; this.publish(n); }
       }
       if (n.status !== "queued" && n.status !== "resume") continue;
       if (parent && (parent.status === "source" || parent.status === "running") &&
