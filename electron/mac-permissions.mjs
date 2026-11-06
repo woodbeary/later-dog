@@ -34,13 +34,22 @@ function accessibilityStatus(systemPreferences) {
   }
 }
 
-export function permissionChecklist({ platform, systemPreferences, everGrantedSpeech }) {
+export function directCaptureStatus(screen, directCapture) {
+  if (!directCapture?.needed) return "granted";
+  if (screen !== "granted") return "notDetermined";
+  return directCapture.verified() ? "granted" : "notDetermined";
+}
+
+export function permissionChecklist({ platform, systemPreferences, everGrantedSpeech, directCapture }) {
   if (platform !== "darwin") return { ...UNAVAILABLE };
   const microphone = mediaStatus(systemPreferences, "microphone");
+  const accessibility = accessibilityStatus(systemPreferences);
+  const screen = mediaStatus(systemPreferences, "screen");
   return {
     microphone: microphone === "granted" || everGrantedSpeech === true ? "granted" : microphone,
-    accessibility: accessibilityStatus(systemPreferences),
-    screen: mediaStatus(systemPreferences, "screen"),
+    accessibility,
+    screen,
+    ...(directCapture?.needed ? { directCapture: directCaptureStatus(screen, directCapture) } : {}),
   };
 }
 
@@ -51,7 +60,10 @@ export async function requestPermission(permission, host) {
   try {
     if (permission === "microphone") await systemPreferences.askForMediaAccess("microphone");
     else if (permission === "accessibility") systemPreferences.isTrustedAccessibilityClient(true);
-    else await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 1, height: 1 } });
+    else {
+      await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 1, height: 1 } });
+      if (host.directCapture?.needed && mediaStatus(systemPreferences, "screen") === "granted") await host.directCapture.verify();
+    }
   } catch {}
   return permissionChecklist(host);
 }

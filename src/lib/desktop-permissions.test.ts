@@ -82,3 +82,12 @@ describe("what a row says and offers", () => {
     }
   });
 });
+
+describe("direct screen capture on macOS 26", () => {
+  it("keeps Screen Recording asking until direct capture is allowed too", () => {
+    expect(readChecklist({ microphone: "granted", accessibility: "granted", screen: "granted", directCapture: "notDetermined" }).screen).toBe("notDetermined");
+    expect(readChecklist({ microphone: "granted", accessibility: "granted", screen: "granted", directCapture: "granted" }).screen).toBe("granted");
+    expect(readChecklist({ microphone: "granted", accessibility: "granted", screen: "granted" }).screen).toBe("granted");
+    expect(readChecklist({ microphone: "granted", accessibility: "granted", screen: "denied", directCapture: "notDetermined" }).screen).toBe("denied");
+  });
+});

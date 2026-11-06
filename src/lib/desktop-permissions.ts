@@ -52,7 +52,9 @@ export function readChecklist(value: unknown): DesktopPermissionChecklist {
     const raw = record[permission];
     return typeof raw === "string" && STATUSES.has(raw) ? (raw as DesktopPermissionStatus) : "unavailable";
   };
-  return { microphone: status("microphone"), accessibility: status("accessibility"), screen: status("screen") };
+  const screen = status("screen");
+  const direct = record.directCapture;
+  return { microphone: status("microphone"), accessibility: status("accessibility"), screen: screen === "granted" && direct === "notDetermined" ? "notDetermined" : screen };
 }
 
 export function allGranted(checklist: DesktopPermissionChecklist | null | undefined): boolean {

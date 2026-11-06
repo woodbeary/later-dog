@@ -54,6 +54,7 @@ import { permissionChecklist, requestPermission } from "./mac-permissions.mjs";
 import { speechEverGranted } from "./speech-grant.mjs";
 import { cuaRetriesForUse, cuaStartsAfterGrant } from "./cua-grant.mjs";
 import { HOST_CONTROL_SLOW, HOST_CONTROL_TIMEOUT_MS, hostControlRefusal } from "./host-control.mjs";
+import { createDirectCapture, needsDirectCapture } from "./direct-capture.mjs";
 import { writeClipboardText } from "./clipboard-write.mjs";
 import { clearQuickLookFiles, quickLookBytes, quickLookName, writeQuickLookFile } from "./quick-look.mjs";
 import {
@@ -1370,6 +1371,7 @@ function sharingController() {
       setUpdaterMacInUse(busy);
     },
     cuaConnection: lendingCua,
+    screenRecording: () => permissionChecklist(macPermissionHost()).screen,
     hostControl: async (id, signal) => {
       const lease = async action => {
         let response;
@@ -2151,7 +2153,12 @@ ipcMain.handle("perm:request-mic", localOnly("perm:request-mic", async () => {
   }
 }));
 
-const macPermissionHost = () => ({ platform: process.platform, systemPreferences, desktopCapturer, everGrantedSpeech: speechEverGranted(app.getPath("userData")) });
+let directCapture;
+const directCaptureHost = () => {
+  directCapture ??= Object.assign(createDirectCapture({ file: path.join(app.getPath("userData"), "direct-capture.json"), version: app.getVersion() }), { needed: needsDirectCapture() });
+  return directCapture;
+};
+const macPermissionHost = () => ({ platform: process.platform, systemPreferences, desktopCapturer, everGrantedSpeech: speechEverGranted(app.getPath("userData")), directCapture: directCaptureHost() });
 let cuaGrantStart = null;
 function startCuaWhenGranted(checklist) {
   void (async () => {

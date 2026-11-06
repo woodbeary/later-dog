@@ -698,6 +698,7 @@ import { transcribeRoute } from "./laterdog/transcribe.ts";
 import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
 import { withOnItNote, withSteerNote, workUpdatesPrompt } from "./laterdog/work-updates.ts";
 import { createMacWaits } from "./laterdog/mac-waits.ts";
+import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac-prompt.ts";
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
 import { createCompactionLive, fileCompactionLedger } from "./laterdog/compaction-live.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
@@ -1141,13 +1142,24 @@ async function useMac(requested: SharedComputerOperation, capability: InternalCa
   if (unavailable) throw Object.assign(new Error(unavailable), { status: 403 });
   const active = () => lendingEnabled() && internalCapabilityIsActive(capability);
   const send = (operation: SharedComputerOperation) => sharedComputers.request(operation, principal, active);
-  if (!CLOUD_HOME) return await macWaits.run(capability.threadId, requested, send);
+  if (!CLOUD_HOME) return flagMacPrompt(capability, await macWaits.run(capability.threadId, requested, send));
   const target = await pickMac(principal, requested.computer_id);
   const operation = completeSharedOperation(target, requested);
   const refusal = sharedComputerScopeRefusal(target, operation);
   if (refusal) throw Object.assign(new Error(refusal), { status: 403 });
   await approveMac(capability, target, operation, active);
-  return await macWaits.run(capability.threadId, operation, send);
+  return flagMacPrompt(capability, await macWaits.run(capability.threadId, operation, send));
+}
+
+const macPromptGate = createMacPromptGate();
+function flagMacPrompt(capability: InternalCapability, result: unknown): unknown {
+  const prompt = macPromptOf(result);
+  const bot = prompt ? store.bot(capability.botId) : undefined;
+  if (!prompt || !bot || !macPromptGate(capability.threadId)) return result;
+  const words = macPromptWords(prompt.owner);
+  store.appendMessage(capability.threadId, { role: "bot", kind: "activity", tool: { name: `notice: ${words}.`, ok: false } });
+  notify(buildNotification("takeover", bot, capability.threadId, `${words}. ${bot.name} is waiting on it.`));
+  return result;
 }
 
 async function pickMac(principal: string | null, computerId: string | undefined): Promise<SharedComputerRegistration> {

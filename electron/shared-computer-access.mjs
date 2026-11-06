@@ -272,6 +272,19 @@ export async function commandFolder(grant, cwd, { home = grant.home === true && 
   return real;
 }
 
+export const SCREEN_COMMAND_OFF = "later.dog doesn't have Screen Recording on this Mac yet, so screencapture would only show the desktop or wait on a permission window. Commands run as later.dog itself; don't launch them through Terminal. Ask the person to turn on later.dog in System Settings → Privacy & Security → Screen Recording, or use computer_call screenshot.";
+
+export const SCREEN_VIA_TERMINAL = "Don't run screencapture through Terminal: commands already run as later.dog, so screencapture works directly once later.dog has Screen Recording, and Terminal would ask for its own permission on the Mac.";
+
+export function screenCommandRefusal(command, access = {}) {
+  if ((access.platform ?? process.platform) !== "darwin") return null;
+  const line = String(command);
+  if (!/(^|[\s;&|(/"'])screencapture\b/.test(line)) return null;
+  if (/\bTerminal(\.app)?\b/.test(line)) return SCREEN_VIA_TERMINAL;
+  if (typeof access.screenRecording !== "function") return null;
+  return access.screenRecording() === "granted" ? null : SCREEN_COMMAND_OFF;
+}
+
 async function commandOperation(grant, operation, signal, access) {
   const runner = access.commands ?? commands;
   if (operation.action === "run_command") {
@@ -282,6 +295,8 @@ async function commandOperation(grant, operation, signal, access) {
         if (new RegExp(`\\b${name}\\b`, "i").test(operation.command) || privateFolderIn(path.relative(home, cwd).split(path.sep).join("/")) === name) await macFolderAccess(home, name, access);
       }
     }
+    const screenRefusal = screenCommandRefusal(operation.command, access);
+    if (screenRefusal) throw new Error(screenRefusal);
     return text(await runner.start({ command: operation.command, cwd, waitSeconds: operation.wait_seconds, signal }));
   }
   if (operation.action === "command_output") return text(await runner.output({ id: operation.command_id, waitSeconds: operation.wait_seconds, signal }));

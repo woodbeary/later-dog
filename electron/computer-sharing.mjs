@@ -9,6 +9,7 @@ import { createSharedCua, executeSharedOperation, personalSecretPaths, SHARED_AC
 import { createLendingActivity, describeSharedOperation } from "./lending-activity.mjs";
 import { droppedPollRetryMs } from "./lending-poll.mjs";
 import { cuaOffReason } from "./cua-grant.mjs";
+import { withConsentCheck } from "./mac-consent.mjs";
 
 const uuid = value => typeof value === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
 const DATA_VOLUME = "/System/Volumes/Data";
@@ -126,7 +127,7 @@ export function cloudLendingVerdict(binding, current, env) {
 class Paused extends Error {}
 
 export function createComputerSharing({
-  file, fetch: fetchImpl, environments, cuaConnection, hostControl, protectedPaths = [], enabled = async () => false, home = os.homedir(), activityFile,
+  file, fetch: fetchImpl, environments, cuaConnection, hostControl, screenRecording, protectedPaths = [], enabled = async () => false, home = os.homedir(), activityFile,
   cloud = () => null, onChange = () => {}, pairCloud = null, primeAccess = async () => {}, computerName: nameComputer = computerName, retryMs = RETRY_MS,
 }) {
   const protectedRoots = [path.dirname(file), ...protectedPaths.filter(entry => typeof entry === "string" && entry), ...personalSecretPaths(home)];
@@ -324,6 +325,7 @@ export function createComputerSharing({
           const runJob = async (job, polledAgain) => {
             active.set(job.id, { env: env.id, action: job.operation.action });
             changed();
+            const jobStarted = Date.now();
             const jobAbort = new AbortController();
             const jobSignal = AbortSignal.any([signal, jobAbort.signal]);
             let leasing = false;
@@ -363,7 +365,7 @@ export function createComputerSharing({
                   live.cua = createSharedCua(connection);
                 }
                 return live.cua;
-              })]);
+              }, { screenRecording })]);
             };
             let result;
             try {
@@ -373,6 +375,7 @@ export function createComputerSharing({
                 result = await turn;
               } else result = await work();
             } catch (error) { result = sharedComputerError(error); if (screen) { live.cua?.close(); live.cua = null; } }
+            try { result = await withConsentCheck(result, job.operation, { elapsedMs: Date.now() - jobStarted }); } catch {}
             finally { clearInterval(heartbeat); await control?.release().catch(() => {}); active.delete(job.id); changed(); }
             activity.record({
               env, action: job.operation.action, detail: describeSharedOperation(grant, job.operation), ok: result?.isError !== true,
