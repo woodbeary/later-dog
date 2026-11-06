@@ -234,6 +234,7 @@ import { registerNativeBinDir } from "./laterdog/native-install.ts";
 import { appendUsage, parseUsageRange, readUsage, summarizeUsage, usageCsv, USAGE_GROUPINGS, flushUsageLedger, type UsageGroupBy, type UsageRow, type UsageTrigger } from "./usage-ledger.ts";
 import { latestPlanRow, loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
 import { createAccountUsageRoute } from "./routes/account-usage.ts";
+import { createSwitchAccountRoute } from "./routes/switch-account.ts";
 import { codexHome } from "./drivers/codex-identity.ts";
 import { resolveClaudeConfigDir } from "./drivers/claude.ts";
 import { createGitHubActivity } from "./github-activity.ts";
@@ -12681,6 +12682,18 @@ INTERNAL_ROUTES.push(createAccountUsageRoute({
   },
   current: (sender, threadId) => runningTurnEngines.get(threadId)?.instanceId ??
     (store.botByThread(threadId)?.id === sender.id ? onBatteryAccount(sender, threadId).modelSelection.instanceId : sender.modelSelection.instanceId),
+  timeZone: () => process.env.TZ,
+}));
+INTERNAL_ROUTES.push(createSwitchAccountRoute({
+  active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+  accounts: batteryAccounts,
+  chat: (sender, threadId) => store.projectBotForTask(sender.id, threadId),
+  check: (chat, selection) => checkedTaskModelSwitch(chat, selection, false, false, true),
+  save: (sender, threadId, selection) => { store.switchTaskModel(sender.id, threadId, selection, false, false); },
+  release: (threadId) => accountBattery.release(threadId),
+  route: (selection, accounts, threadId) => accountBattery.route(selection, accounts, threadId),
+  rest: (account, accounts, model) => accountBattery.restOf(account, accounts, model),
+  preferred: (threadId) => accountBattery.preferredFor(threadId),
   timeZone: () => process.env.TZ,
 }));
 const computerRuns = new ComputerRuns(join(DATA_DIR, "computer-runs"));

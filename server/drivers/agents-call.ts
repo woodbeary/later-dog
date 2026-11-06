@@ -428,6 +428,11 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     if (typeof r.text !== "string") return { text: JSON.stringify(r), isError: true };
     return { text: r.text };
   }
+  if (name === "switch_account") {
+    if (typeof args.account !== "string" || !args.account.trim()) return { text: "switch_account needs account: the account's name, e.g. daniel.", isError: true };
+    const r = await api("/api/internal/switch-account", { method: "POST", body: JSON.stringify({ account: args.account }) });
+    return typeof r.text === "string" ? { text: r.text } : { text: String(r.error ?? JSON.stringify(r)), isError: true };
+  }
   if (name === "select_computer") {
     if (args.surface !== undefined && (typeof args.surface !== "string" || !["auto", "cloud", "local", "mac"].includes(args.surface))) {
       return { text: "Choose auto, cloud, local or mac; omit surface to inspect connected choices.", isError: true };

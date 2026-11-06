@@ -1,5 +1,6 @@
 import type { PlanProviderRow, PlanWindow } from "../plan-usage.ts";
 import { engineName, percentLeft, type BatteryAccount, type Rest } from "./account-battery.ts";
+import { accountLabel } from "./account-switch.ts";
 
 export const ACCOUNT_USAGE_PATH = "/api/internal/account-usage";
 
@@ -49,7 +50,7 @@ export function accountUsage(inputs: readonly AccountUsageInput[], current: stri
     const weekly = shown(row?.weekly, now);
     return {
       id: account.instanceId,
-      name: account.displayName || engineName(account.driverKind),
+      name: accountLabel(account),
       engine: engineName(account.driverKind),
       ...(account.email ? { email: account.email } : {}),
       status,
@@ -100,5 +101,5 @@ export function accountUsageText(report: AccountUsageReport, now: number, timeZo
     ? `\n\nTo run your own ${best.engine} command-line work on the account with the most room, start it with ${best.env.name}=${best.env.value}` +
       (best.engine === "Claude" ? " and without ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN set (env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN …)." : ".")
     : best ? "" : "\n\nEvery account is resting or off right now.";
-  return `Plan accounts, by how much is left:\n${lines.join("\n")}${run}\n\nYour own turns move to an account with room by themselves when this one runs low.`;
+  return `Plan accounts, by how much is left:\n${lines.join("\n")}${run}\n\nYour own turns move to an account with room by themselves when this one runs low. To move this chat onto one by name, use switch_account.`;
 }

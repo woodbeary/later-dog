@@ -265,6 +265,25 @@
       }
     },
     {
+      "name": "switch_account",
+      "description": "When the person asks to switch to or continue with a plan account by name (\"switch to work\"), move this chat onto it; its next turn runs there. account_usage lists the names and which are used up or off. Then confirm in one line which account the chat is on, in the result's words.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "account"
+        ],
+        "properties": {
+          "account": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The account's name as the person said it."
+          }
+        }
+      }
+    },
+    {
       "name": "select_computer",
       "description": "Choose where this conversation does computer work. Call with no arguments to inspect actual available choices and the current place. For a task needing computer interaction, select the requested place, or auto to choose a suitable configured computer without asking the user to use menus. later.dog reuses an existing computer first; with a configured provider it can start or provision one when needed. Do not provision for ordinary chat or just to inspect availability. A pending result means end this turn immediately: later.dog updates the conversation selector and resumes the original request with that computer's real tools. Do not use the old tools after requesting a switch, repeat the task, or claim the action is done. This cannot change permissions, override Off, or switch a teammate/routine/channel.",
       "inputSchema": {

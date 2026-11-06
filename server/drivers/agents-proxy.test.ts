@@ -481,6 +481,7 @@ describe("agents-proxy MCP surface", () => {
       "start_tasks",
       "list_bots",
       "account_usage",
+      "switch_account",
       "select_computer",
       "attach_file",
       "create_bot",

@@ -41,9 +41,9 @@ describe("a dog's view of its plan accounts", () => {
 
   it("says it in a few lines, with what to set to run command-line work on the roomiest account", () => {
     const text = accountUsageText(accountUsage(TONIGHT, "claude-jacob", NOW), NOW, "America/Los_Angeles");
-    expect(text).toContain("- Claude (daniel@txtclaw.com) [id: claude-daniel, Claude, most room]: 70% left. 5-hour 30% used, resets 1:00 AM; 7-day 21% used, resets Sun 1:00 AM.");
-    expect(text).toContain("- Claude (jacob@txtclaw.com) [id: claude-jacob, Claude, this chat]: 1% left.");
-    expect(text).toContain("- Claude (adam@txtclaw.com) [id: claude, Claude]: resting until 2:00 AM.");
+    expect(text).toContain("- daniel (daniel@txtclaw.com) [id: claude-daniel, Claude, most room]: 70% left. 5-hour 30% used, resets 1:00 AM; 7-day 21% used, resets Sun 1:00 AM.");
+    expect(text).toContain("- jacob (jacob@txtclaw.com) [id: claude-jacob, Claude, this chat]: 1% left.");
+    expect(text).toContain("- adam (adam@txtclaw.com) [id: claude, Claude]: resting until 2:00 AM.");
     expect(text).toContain("CLAUDE_CONFIG_DIR=/data/.laterdog/providers/claude-daniel and without ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN set");
   });
 
