@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Bot, InstanceInfo } from "@/state/store";
+import { chatContextFigure, type ChatContextReading } from "@/lib/chat-context";
 import type { EffortLevel } from "../../shared/wire";
 
 const fixture = vi.hoisted(() => {
@@ -62,6 +63,7 @@ const { SimpleModelPane } = await import("./SimpleModelPane");
 const { InstanceProviderMark } = await import("./ProviderIcons");
 const { AccountMenu } = await import("./AccountMenu");
 const { ModelMenu } = await import("./ModelMenu");
+const { EffortPanel } = await import("./EffortPanel");
 
 afterAll(() => vi.unstubAllGlobals());
 
@@ -970,23 +972,23 @@ describe("a dog's picker in its one conversation", () => {
   });
 });
 
-describe("the chat header's account chip and the message field's model menu", () => {
+describe("the message field's one AI menu", () => {
   const work = (authenticated = true): InstanceInfo => ({ ...claude(authenticated), instanceId: "claude-work", displayName: "Work Plan" });
-  function renderPart(forBot: Bot, part: "account" | "model") {
+  function renderPart(forBot: Bot) {
     fixture.values.length = Math.min(fixture.values.length, fixture.own);
     let tree: ReactNode = null;
     function Capture() {
       fixture.index = 0;
-      tree = ModelPicker({ bot: forBot, threadId: forBot.threadId, part });
+      tree = ModelPicker({ bot: forBot, threadId: forBot.threadId, part: "chat" });
       fixture.own = fixture.index;
       return tree;
     }
     const html = renderToStaticMarkup(createElement(Capture));
     return { html, nodes: nodes(tree) };
   }
-  const openPart = (forBot: Bot, part: "account" | "model") => {
-    click(renderPart(forBot, part).nodes.find((node) => node.props["data-tour"] === "model"));
-    return renderPart(forBot, part);
+  const openPart = (forBot: Bot) => {
+    click(renderPart(forBot).nodes.find((node) => node.props["data-tour"] === "model"));
+    return renderPart(forBot);
   };
   const modelMenu = (rendered: ReturnType<typeof renderPart>) =>
     rendered.nodes.find((node) => node.type === ModelMenu) as ReactElement<ComponentProps<typeof ModelMenu>> | undefined;
@@ -996,7 +998,7 @@ describe("the chat header's account chip and the message field's model menu", ()
   it("lists only the models of the account in use, so picking one never switches account", () => {
     fixture.instances = [claude(), work(), codex];
     const forBot = bot(undefined, "claude-work", "claude-sonnet-5-5");
-    const opened = openPart(forBot, "model");
+    const opened = openPart(forBot);
     const groups = modelMenu(opened)!.props.groups;
     expect(groups.map((group) => group.instance.instanceId)).toEqual(["claude-work"]);
     expect(menu(opened.html).match(/Opus 5\.5/g)).toHaveLength(1);
@@ -1013,7 +1015,7 @@ describe("the chat header's account chip and the message field's model menu", ()
     const signedOutCursor: InstanceInfo = { ...cursor, snapshot: { ...cursor.snapshot, authenticated: false }, authentication: { method: "device-code", signOut: true } };
     const kimi = engine("laterdogAi", "laterdogAi", "Kimi", "subscription", [{ id: "kimi-k2.6", label: "Kimi K2.6" }]);
     fixture.instances = [claude(), signedOutGrok, signedOutCursor, kimi, work(false)];
-    const opened = openPart(bot(undefined, "grok", "grok-5"), "account");
+    const opened = openPart(bot(undefined, "grok", "grok-5"));
     const rows = accountMenu(opened)!.props.rows;
     expect(rows.map((row) => [row.instance.instanceId, row.signIn])).toEqual([["claude", false], ["grok", true], ["laterdogAi", false]]);
     expect(menu(opened.html)).toContain(">Sign in</span>");
@@ -1027,7 +1029,7 @@ describe("the chat header's account chip and the message field's model menu", ()
 
   it("keeps the account in use even when it is signed out, instead of moving to a ready one", () => {
     fixture.instances = [claude(false), work()];
-    const opened = openPart(bot(), "model");
+    const opened = openPart(bot());
     const groups = modelMenu(opened)!.props.groups;
     expect(groups.map((group) => group.instance.instanceId)).toEqual(["claude"]);
     modelMenu(opened)!.props.onPick(groups[0]!.instance, "claude-opus-5-5");
@@ -1040,7 +1042,7 @@ describe("the chat header's account chip and the message field's model menu", ()
     fixture.instances = [claude(), work(), codex];
     for (const accountId of ["claude", "claude-work", "codex"]) {
       const forBot = bot(undefined, accountId, accountId === "codex" ? codex.models.options[0]!.id : "claude-sonnet-5-5");
-      const opened = openPart(forBot, "model");
+      const opened = openPart(forBot);
       const menu = modelMenu(opened)!;
       expect(menu.props.groups.map((group) => group.instance.instanceId)).toEqual([accountId]);
       for (const entry of menu.props.groups[0]!.models) {
@@ -1052,21 +1054,63 @@ describe("the chat header's account chip and the message field's model menu", ()
     }
   });
 
-  it("shows the initials of the account in use on the header chip once there is more than one", () => {
+  it("names the account in use on the button once there is more than one, and never repeats the model's own name", () => {
     fixture.instances = [claude(), work()];
-    expect(renderPart(bot(undefined, "claude-work", "claude-sonnet-5-5"), "account").html).toContain('data-account-initials="WP"');
+    const named = renderPart(bot(undefined, "claude-work", "claude-sonnet-5-5"));
+    expect(named.html).toContain("data-model-account");
+    expect(named.html).toContain(">Work Plan</span>");
+    expect(named.html).not.toContain("data-account-initials");
     fixture.instances = [claude()];
-    expect(renderPart(bot(), "account").html).not.toContain("data-account-initials");
+    expect(renderPart(bot()).html).not.toContain("data-model-account");
+    fixture.instances = [{ ...claude(), displayName: "Opus" }, work()];
+    expect(renderPart(bot()).html).not.toContain("data-model-account");
   });
 
-  it("shows every account as a compact row and keeps account settings reachable", () => {
+  it("keeps accounts, models and effort in the one menu, and the effort shows on the button only when it is not the usual one", () => {
+    fixture.instances = [claude(), work()];
+    const usual = renderPart(bot());
+    expect(usual.html).not.toContain("data-model-effort");
+    const opened = openPart(bot("high"));
+    expect(accountMenu(opened)).toBeDefined();
+    expect(modelMenu(opened)).toBeDefined();
+    expect(opened.nodes.some((node) => node.type === EffortPanel)).toBe(true);
+    expect(opened.html).toContain("data-model-effort");
+    expect(opened.html).toContain(" · High");
+  });
+
+  it("keeps the menu open when another account is picked, so its models show next", () => {
+    fixture.instances = [claude(), work()];
+    const opened = openPart(bot());
+    accountMenu(opened)!.props.onPick(work());
+    expect(fixture.dispatch).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "setModel", selection: expect.objectContaining({ instanceId: "claude-work" }),
+    }));
+    expect(renderPart(bot()).html).toContain("data-chat-ai-menu");
+  });
+
+  it("shows how full this chat is behind the usage ring, against the model's window when the turn did not say", () => {
+    fixture.instances = [claude(true, claudeModels.map((option) => ({ ...option, contextWindow: 1_000_000 })))];
+    const withTask = { ...bot(), tasks: [{ threadId: "thread-scout", title: "", createdAt: NOW,
+      usage: { input: 0, output: 0, costUsd: null, turns: 3, context: { tokens: 46_000 } } }] };
+    fixture.bots = [withTask];
+    const usageButton = (rendered: ReturnType<typeof renderPart>) => rendered.nodes.find((node) => "reading" in node.props && "onSeeAll" in node.props);
+    const shown = usageButton(renderPart(withTask));
+    expect(shown?.props.reading).toBeTruthy();
+    expect(chatContextFigure(shown!.props.reading as ChatContextReading)).toBe("46k of 1M · 5%");
+    expect(String(shown?.props.title)).toContain("46k of 1M · 5%");
+    expect(openPart(withTask).html).not.toContain("data-chat-context");
+    fixture.bots = [];
+    expect(usageButton(renderPart(bot()))).toBeUndefined();
+  });
+
+  it("shows every account as a compact row with what is left, and adds an account from the same menu", () => {
     fixture.instances = [claude(), work()];
     fixture.planUsage = { fetchedAt: new Date(NOW).toISOString(), providers: [usageFor("claude", 80, 30)] };
-    const opened = openPart(bot(), "account");
+    const opened = openPart(bot());
     expect(opened.html).toContain("20% left");
     expect(opened.html).not.toContain("data-account-usage-details");
-    accountMenu(opened)!.props.onSettings!();
-    expect(fixture.dispatch).toHaveBeenLastCalledWith({ type: "toggleAppSettings", open: true, section: "general" });
+    expect(accountMenu(opened)!.props.onSettings).toBeUndefined();
+    expect(accountMenu(opened)!.props.onAdd).toBeTypeOf("function");
   });
 
   it("shows the server's routed account while the selected account recharges", () => {
@@ -1074,9 +1118,9 @@ describe("the chat header's account chip and the message field's model menu", ()
     fixture.battery = { enabled: true, auto: true, order: {}, sequence: ["codex", "claude"],
       routed: { "thread-scout": { from: "claude", on: "codex" } },
       resting: { claude: { until: new Date(NOW + 3_600_000).toISOString() } } };
-    const closed = renderPart(bot(), "account");
+    const closed = renderPart(bot());
     expect(closed.html).toContain('title="Running on Codex"');
-    const opened = openPart(bot(), "account");
+    const opened = openPart(bot());
     const rows = accountMenu(opened)!.props.rows;
     expect(rows.map((row) => row.instance.instanceId)).toEqual(["codex", "claude"]);
     expect(rows[0]!.inUse).toBe(true);
@@ -1085,13 +1129,13 @@ describe("the chat header's account chip and the message field's model menu", ()
     expect(opened.html).toContain("Automatically managed");
   });
 
-  it("lets the header's account menu reorder accounts once the server keeps an order", () => {
+  it("lets the menu reorder accounts once the server keeps an order", () => {
     fixture.instances = [claude(), work(), codex];
-    const rows = () => accountMenu(renderPart(bot(), "account"))!.props.rows.map((row) => [row.instance.instanceId, row.movable]);
-    openPart(bot(), "account");
+    const rows = () => accountMenu(renderPart(bot()))!.props.rows.map((row) => [row.instance.instanceId, row.movable]);
+    openPart(bot());
     expect(rows()).toEqual([["claude", false], ["claude-work", false], ["codex", false]]);
     fixture.battery = { enabled: false, order: { claudeAgent: ["claude-work", "claude"], codex: ["codex"] }, resting: {} };
     expect(rows()).toEqual([["claude-work", true], ["claude", true], ["codex", true]]);
-    expect(accountMenu(renderPart(bot(), "account"))!.props.onReorder).toBeTypeOf("function");
+    expect(accountMenu(renderPart(bot()))!.props.onReorder).toBeTypeOf("function");
   });
 });

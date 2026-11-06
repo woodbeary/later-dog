@@ -81,19 +81,19 @@ const groups = (html: string) => [...html.matchAll(/data-settings-group="([^"]+)
 const markers = (html: string) => [...html.matchAll(/MARKER:([^;]+);/g)].map((match) => match[1]);
 
 describe("the Settings rail", () => {
-  it("lists the five settings pages everyone gets, with icons, and the same five in the narrow-window picker", () => {
+  it("lists the four settings pages everyone gets, with icons, and the same four in the narrow-window picker", () => {
     const html = render();
-    expect(SETTINGS_PAGES.map((page) => page.id)).toEqual(["general", "computer", "vault", "usage", "dashboard", "updates"]);
-    expect(pages(html)).toEqual(["general", "computer", "vault", "usage", "updates"]);
+    expect(SETTINGS_PAGES.map((page) => page.id)).toEqual(["general", "computer", "vault", "usage", "dashboard"]);
+    expect(pages(html)).toEqual(["general", "computer", "vault", "usage"]);
     expect(currentPage(html)).toBe("general");
     for (const page of pages(html)) expect(html).toMatch(new RegExp(`data-settings-page="${page}"[^>]*>\\s*<svg`));
     const picker = html.match(/<select aria-label="Settings"[\s\S]*?<\/select>/)![0];
-    expect([...picker.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1])).toEqual(["general", "computer", "vault", "usage", "updates"]);
+    expect([...picker.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1])).toEqual(["general", "computer", "vault", "usage"]);
     expect(picker).toContain(">General<");
     expect(picker).toContain(">Computer<");
     expect(picker).toContain(">Vault<");
     expect(picker).toContain(">Usage &amp; Billing<");
-    expect(picker).toContain(">Updates<");
+    expect(picker).not.toContain(">Updates<");
     expect(html).not.toContain("data-settings-search");
     expect(html).not.toContain("Advanced mode");
     expect(picker).not.toContain(">Models<");
@@ -103,10 +103,10 @@ describe("the Settings rail", () => {
   it("adds Dashboard after Usage & Billing, in the rail and the picker, only for the owner", () => {
     fixture.owner = true;
     const html = render();
-    expect(pages(html)).toEqual(["general", "computer", "vault", "usage", "dashboard", "updates"]);
+    expect(pages(html)).toEqual(["general", "computer", "vault", "usage", "dashboard"]);
     expect(html).toMatch(/data-settings-page="dashboard"[^>]*>\s*<svg/);
     const picker = html.match(/<select aria-label="Settings"[\s\S]*?<\/select>/)![0];
-    expect([...picker.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1])).toEqual(["general", "computer", "vault", "usage", "dashboard", "updates"]);
+    expect([...picker.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1])).toEqual(["general", "computer", "vault", "usage", "dashboard"]);
     expect(picker).toContain(">Dashboard<");
   });
 
@@ -324,14 +324,15 @@ describe("Dashboard", () => {
   });
 });
 
-describe("Updates", () => {
+describe("Updates, with Help in General", () => {
   beforeEach(() => { fixture.section = "updates"; });
 
-  it("names the running version and offers Check for updates in the desktop app", () => {
+  it("opens General for an updates link, with the running version and Check for updates under Help", () => {
     const html = render();
-    expect(currentPage(html)).toBe("updates");
-    expect(html).toMatch(/data-app-version[^>]*>1\.2\.3</);
-    expect(html).toMatch(/<button[^>]*>Check for updates<\/button>/);
+    expect(currentPage(html)).toBe("general");
+    const help = html.slice(html.indexOf('data-settings-group="help"'));
+    expect(help).toContain("1.2.3");
+    expect(help).toMatch(/<button[^>]*>Check for updates<\/button>/);
     expect(html).not.toContain("Updates come with the desktop app.");
   });
 
@@ -344,11 +345,10 @@ describe("Updates", () => {
     expect(html).toMatch(/role="switch" aria-checked="false"/);
   });
 
-  it("without the updater, says the version and that updates come with the desktop app", () => {
+  it("without the updater, still names the version under Help and offers no update button", () => {
     vi.stubGlobal("window", {});
     const html = render();
-    expect(html).toMatch(/data-app-version[^>]*>1\.2\.3</);
-    expect(html).toContain("Updates come with the desktop app.");
+    expect(html.slice(html.indexOf('data-settings-group="help"'))).toContain("1.2.3");
     expect(html).not.toContain("Check for updates");
   });
 });

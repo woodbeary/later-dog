@@ -5,7 +5,6 @@ import { InitialsAvatar } from "./Avatar";
 import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { SignOutDialog, useSignOutTargets, type SignOutTargets } from "./SignOutAll";
-import { useAccountMenuItems } from "./SidebarAccountItems";
 import { requestUpdateDialog } from "@/lib/update-request";
 import { useStore } from "@/state/store";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
@@ -166,7 +165,6 @@ export function SupportMenu({ close, onReportBug }: { close: () => void; onRepor
 export function SidebarProfileMenu({ compact = false }: { compact?: boolean }) {
   const { state, dispatch } = useStore();
   const update = useUpdateItem();
-  const accountItems = useAccountMenuItems();
   const signOut = useSignOutTargets();
   const [signingOut, setSigningOut] = useState<SignOutTargets | null>(null);
   const [reportingBug, setReportingBug] = useState(false);
@@ -189,7 +187,6 @@ export function SidebarProfileMenu({ compact = false }: { compact?: boolean }) {
         requestUpdateDialog();
       },
     }] : []),
-    ...(accountItems.usage ? [accountItems.usage] : []),
     {
       key: "phoneApp",
       label: t("phoneApp.menu"),
@@ -212,13 +209,11 @@ export function SidebarProfileMenu({ compact = false }: { compact?: boolean }) {
       icon: <SettingsIcon size={18} />,
       onSelect: () => dispatch({ type: "toggleAppSettings" }),
     },
-    ...(accountItems.accounts ? [accountItems.accounts] : []),
-    ...(accountItems.add ? [{ ...accountItems.add, separatorBefore: !accountItems.accounts }] : []),
     ...(signOut.cloud ? [{
       key: "signOut",
       label: t("accounts.signOut"),
       icon: <LogOut size={18} />,
-      separatorBefore: !accountItems.accounts && !accountItems.add,
+      separatorBefore: true,
       onSelect: () => {
         focusTrigger();
         setSigningOut(signOut);

@@ -79,10 +79,10 @@ it. Codes expire after a few minutes; if one does, start the sign-in again. late
 
 ## Switch accounts
 
-You can add several Claude accounts and several ChatGPT accounts, and name each one. The button at the top of a chat
-picks the account; beside the message field you pick the model and how hard it thinks (and **Fast mode** on models that
-have it). **Settings → Models** chooses which models show there. Each account shows how much it has left, as a ring or
-bar that drains as you use it. An account that has hit its limit sleeps, with a line that recharges until it is **Back
+You can add several Claude accounts and several ChatGPT accounts, and name each one. The button beside the message
+field opens one menu for the chat: how full the chat is, the account it runs on, the model, and how hard it thinks (and
+**Fast mode** on models that have it). Picking another account keeps the menu open so its models show next. Each
+account shows how much it has left, as a ring or bar that drains as you use it. An account that has hit its limit sleeps, with a line that recharges until it is **Back
 at** a time (**Back around** when the provider did not say when the limit resets).
 
 ## Usage limits

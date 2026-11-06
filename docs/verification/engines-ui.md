@@ -32,8 +32,8 @@ accounts are added from Settings or when a dog first needs one.
 2. Open **Settings preview**. Settings → General → AI accounts lists Claude
    (`personal@example.test`), Codex (`work@example.test`) and Grok
    (Signed in), with **Add account** and the **Keep going when an account runs
-   out** switch. The sections are General, Computer, Usage & Billing and
-   Updates.
+   out** switch. The sections are General, Computer, Vault and Usage &
+   Billing; the version and the update button sit under General → Help.
 3. Toggle the sample ChatGPT plan: a **ChatGPT plan** row appears with
    `preview@example.test`. Its remove button asks **Remove ChatGPT plan?**
    with Cancel and Remove; confirming shows the fixture's refusal ("Preview

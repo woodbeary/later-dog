@@ -16,7 +16,7 @@ vi.mock("./AccountsPanel", async (importOriginal) => ({
   useCarryOn: () => fixture.carryOn,
 }));
 
-const { AccountBadge, accountInitials, AccountSwitcher, UsageRing, usageRingFor } = await import("./AccountSwitcher");
+const { accountInitials, AccountSwitcher, UsageRing, usageRingFor } = await import("./AccountSwitcher");
 
 const NOW = Date.UTC(2026, 9, 9, 12);
 const account = (instanceId: string, displayName: string, driverKind = "claudeAgent", authenticated = true) => ({
@@ -174,23 +174,5 @@ describe("an account's initials", () => {
     expect(accountInitials("émile zola")).toBe("ÉZ");
     expect(accountInitials("🐶 Dog")).toBe("🐶D");
     expect(accountInitials("   ")).toBe("?");
-  });
-
-  it("wears them on a small badge beside the provider's mark, which sits inside the usage ring when there is one", async () => {
-    const container = document.createElement("div");
-    document.body.append(container);
-    root = createRoot(container);
-    await act(async () => root!.render(createElement(AccountBadge, { instance: work, ring: null })));
-    expect(container.querySelector("[data-account-initials]")!.getAttribute("data-account-initials")).toBe("W");
-    expect(container.querySelector("[data-usage-ring]")).toBeNull();
-    expect(container.querySelector("svg")).not.toBeNull();
-    await act(async () => root!.render(createElement(AccountBadge, { instance: work, ring: { level: 40, tone: "accent" } })));
-    expect(container.querySelector("[data-usage-ring]")!.getAttribute("data-usage-ring")).toBe("40");
-    expect(container.querySelector("[data-usage-ring]")!.children).toHaveLength(2);
-    expect(container.querySelector("[data-usage-ring]")!.textContent).not.toContain("W");
-    expect(container.querySelector("[data-account-initials]")!.textContent).toBe("W");
-    await act(async () => root!.render(createElement(AccountBadge, { instance: work, ring: usageRingFor(usage("claude-work", 100, 20), undefined, NOW) })));
-    expect(container.querySelector("[data-sleeping-dog]")).not.toBeNull();
-    expect(container.querySelector("[data-charging]")).toBeNull();
   });
 });

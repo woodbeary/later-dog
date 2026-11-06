@@ -63,7 +63,6 @@ import { PendingApprovalActions, PendingApprovalPanel, pendingApprovals } from "
 import { CallButton } from "./CallView";
 import { AddAccountSheet } from "./AccountsPanel";
 import { ComposerPlusMenu } from "./ComposerPlusMenu";
-import { EffortButton } from "./EffortButton";
 import { needsCli, needsSignIn } from "./EngineSetup";
 import { signInFamily } from "@/lib/engine-rail";
 import { ReplyQuote } from "./ReplyQuote";
@@ -1116,8 +1115,7 @@ export function Composer({
           />
           <TypingGhostAnnouncement text={suggestion.ghost} />
           <div data-composer-actions className="ml-auto flex items-center gap-1">
-          {!locked && bot && !group && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} above part="model" />}
-          {!locked && bot && !group && <EffortButton bot={bot} threadId={bot.threadId} />}
+          {!locked && bot && !group && <ModelPicker key={bot.threadId} bot={bot} threadId={bot.threadId} above part="chat" />}
         {!locked && micRecordingSupported() && (recording || !retryingNote) && (
           <button
             type="button"

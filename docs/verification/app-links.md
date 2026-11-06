@@ -7,7 +7,7 @@ later.dog opens three kinds of link, on the Mac and on a Cloud home window:
 | `laterdog://dog/<id>` | That dog's one conversation, or that group chat |
 | `laterdog://chat/<id>?thread=<old id>` | The same; the thread id is ignored |
 | `laterdog://thread/<old id>?bot=<id>` | The same, for links older dogs wrote |
-| `laterdog://settings?section=general\|computer\|usage\|updates` | That Settings page; any other section opens General |
+| `laterdog://settings?section=general\|computer\|usage\|updates` | That Settings page; `updates` opens General at Help, where the update button is; any other section opens General |
 
 `electron/app-link.mjs` (shared with the renderer and server as
 `shared/app-link.ts`) parses and builds them. A dog that is gone, or not shared

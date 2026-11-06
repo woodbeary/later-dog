@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentType } from "react";
-import { ChartColumn, Coins, Download, KeyRound, Monitor, SlidersHorizontal, X } from "lucide-react";
+import { ChartColumn, Coins, KeyRound, Monitor, SlidersHorizontal, X } from "lucide-react";
 import { useStore, type AppSettingsSection, type ConfigStatus } from "@/state/store";
 import { analyticsEnabled, setAnalyticsEnabled } from "@/lib/analytics";
 import { analyticsConfigured } from "@/lib/laterdog-analytics";
@@ -8,7 +8,7 @@ import { useDesktopPermissions } from "@/lib/use-desktop-permissions";
 import { localeChoices } from "@/locales";
 import { activeLocale, t } from "@/lib/i18n";
 import { useUpdaterState } from "@/lib/updater";
-import { appVersion, openExternalLink } from "@/lib/app-links";
+import { openExternalLink } from "@/lib/app-links";
 import { brand } from "../lib/brand";
 import { ReleaseCheckRow, releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { updateReceiptLine } from "./UpdateButton";
@@ -42,13 +42,12 @@ import { glassPopupFrameStyle } from "@/lib/glass-popup";
 import { setNotificationSounds, useNotificationSounds } from "@/lib/notification-preferences";
 import { effectiveLanguage, setLanguageChoice, useLanguageChoice } from "@/lib/language-preference";
 
-export const SETTINGS_PAGES: ReadonlyArray<{ id: AppSettingsSection; labelKey: "settings.section.general" | "settings.section.computer" | "settings.section.vault" | "settings.section.usage" | "settings.section.dashboard" | "settings.updates.title"; icon: ComponentType<{ size?: number; className?: string }>; ownerOnly?: boolean }> = [
+export const SETTINGS_PAGES: ReadonlyArray<{ id: AppSettingsSection; labelKey: "settings.section.general" | "settings.section.computer" | "settings.section.vault" | "settings.section.usage" | "settings.section.dashboard"; icon: ComponentType<{ size?: number; className?: string }>; ownerOnly?: boolean }> = [
   { id: "general", labelKey: "settings.section.general", icon: SlidersHorizontal },
   { id: "computer", labelKey: "settings.section.computer", icon: Monitor },
   { id: "vault", labelKey: "settings.section.vault", icon: KeyRound },
   { id: "usage", labelKey: "settings.section.usage", icon: Coins },
   { id: "dashboard", labelKey: "settings.section.dashboard", icon: ChartColumn, ownerOnly: true },
-  { id: "updates", labelKey: "settings.updates.title", icon: Download },
 ];
 
 function NameRow() {
@@ -287,6 +286,8 @@ function GeneralPage({ mac }: { mac: boolean }) {
       <SettingsGroup label={t("settings.group.help")} testId="help">
         <SettingsRows>
           <HelpRows />
+          <UpdatesRow />
+          <ReleaseCheckRow />
         </SettingsRows>
       </SettingsGroup>
     </>
@@ -318,23 +319,6 @@ function ComputerPage({ mac }: { mac: boolean }) {
   );
 }
 
-function UpdatesPage() {
-  const updater = Boolean(window.laterdog?.updater);
-  return (
-    <SettingsGroup label={t("settings.updates.title")} testId="updates">
-      <SettingsRows>
-        <SettingRow title={t("settings.updates.version")} subtitle={brand().name}>
-          <span data-app-version className="text-[13px] text-ink-secondary sm:text-right sm:block">{appVersion()}</span>
-        </SettingRow>
-        {updater
-          ? <UpdatesRow />
-          : <SettingRow title={t("settings.updates.title")} subtitle={t("settings.updates.desktopOnly")}>{null}</SettingRow>}
-        <ReleaseCheckRow />
-      </SettingsRows>
-    </SettingsGroup>
-  );
-}
-
 export function SettingsModal() {
   const { state, dispatch } = useStore();
   const owner = useIncludedUsage().usage?.owner === true;
@@ -344,9 +328,14 @@ export function SettingsModal() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const mac = checklistHost(window.laterdog) === "mac";
 
+  const asked = state.appSettingsSection;
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = 0;
-  }, [section]);
+    const box = scrollRef.current;
+    if (!box) return;
+    const help = asked === "updates" ? box.querySelector<HTMLElement>("[data-settings-group=help]") : null;
+    if (help) help.scrollIntoView({ block: "start" });
+    else box.scrollTop = 0;
+  }, [section, asked]);
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -466,7 +455,6 @@ export function SettingsModal() {
             {section === "vault" && <VaultSettings />}
             {section === "usage" && <UsageSection />}
             {section === "dashboard" && <OwnerDashboard />}
-            {section === "updates" && <UpdatesPage />}
           </div>
         </div>
       </div>

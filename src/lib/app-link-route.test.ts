@@ -31,7 +31,7 @@ describe("app link routing", () => {
     expect(appLinkFromBridge(undefined)).toBeNull();
   });
 
-  it("names every Settings page a link can open, and nothing else", () => {
-    expect([...APP_LINK_SETTINGS_SECTIONS].sort()).toEqual(SETTINGS_PAGES.map((page) => page.id).sort());
+  it("names every Settings page a link can open, plus updates, which opens Help on General", () => {
+    expect([...APP_LINK_SETTINGS_SECTIONS].sort()).toEqual([...SETTINGS_PAGES.map((page) => page.id), "updates"].sort());
   });
 });

@@ -351,11 +351,11 @@ describe("thread control placement", () => {
     expect(markup).not.toContain('data-testid="main-dog-badge"');
   });
 
-  it("keeps the account in the header and puts the model inside the composer pill, with no permissions there", () => {
+  it("puts the model and account in the composer pill alone, with nothing in the header and no permissions there", () => {
     const markup = renderToStaticMarkup(createElement(ChatView, { bot }));
-    expect(markup.match(/data-test-model-control/g)).toHaveLength(2);
-    expect(markup.indexOf("data-test-model-control")).toBeLessThan(markup.indexOf('role="log"'));
-    expect(markup.lastIndexOf("data-test-model-control")).toBeGreaterThan(markup.indexOf("data-composer-actions"));
+    expect(markup.match(/data-test-model-control/g)).toHaveLength(1);
+    expect(markup.indexOf("data-test-model-control")).toBeGreaterThan(markup.indexOf('role="log"'));
+    expect(markup.indexOf("data-test-model-control")).toBeGreaterThan(markup.indexOf("data-composer-actions"));
     expect(markup.indexOf('data-tour="composer"')).toBeGreaterThan(-1);
     expect(markup.indexOf("data-composer-actions")).toBeGreaterThan(markup.indexOf("<textarea"));
     expect(markup).not.toContain("data-test-approval-control");
