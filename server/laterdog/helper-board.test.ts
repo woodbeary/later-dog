@@ -45,3 +45,17 @@ it("terminalizes timed-out helpers and workflow members without claiming confirm
   expect(board.snapshot(() => true).helpers.room).toBeUndefined();
   expect(board.snapshot(() => true).helpers.other).toEqual([helper]);
 });
+
+it("counts the helpers still running after the dog's own turn ended, until each finishes", () => {
+  const board = new HelperBoard(() => 0);
+  const helper: Helper = { id: "a", kind: "agent", label: "Review", state: "running", background: true, startedAt: 0 };
+  board.update("t", helper);
+  board.update("t", { ...helper, id: "b", label: "Tests" });
+  board.settle("t");
+  expect(board.runningCount("t")).toBe(2);
+  board.update("t", { ...helper, state: "done" });
+  expect(board.runningCount("t")).toBe(1);
+  board.update("t", { ...helper, id: "b", state: "failed" });
+  expect(board.runningCount("t")).toBe(0);
+  expect(board.runningCount("other")).toBe(0);
+});

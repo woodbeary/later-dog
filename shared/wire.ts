@@ -86,6 +86,7 @@ export interface WireWaitingOn {
 export interface WireTask {
   waitingForTeammates?: boolean;
   waitingOn?: WireWaitingOn[];
+  helpersWorking?: number;
   threadId: string;
   title: string;
   createdAt: number;
@@ -156,6 +157,7 @@ export const CONNECTOR_TOOL_NAME_PATTERN = /^[A-Z][A-Z0-9_]{0,127}$/;
 export interface WireBot {
   waitingForTeammates?: boolean;
   waitingOn?: WireWaitingOn[];
+  helpersWorking?: number;
   id: string;
   threadId: string;
   tasks?: WireTask[];

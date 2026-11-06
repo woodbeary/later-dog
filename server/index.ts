@@ -3389,11 +3389,13 @@ if (browserCleanupReferencesReconciled) browserCleanup.startPending();
 let activeCoordinationForThread = (_threadId: string): boolean => false;
 let teammatesAwaited = (_threadId: string): WireWaitingOn[] => [];
 let liveStatusLine = (_threadId: string): string | undefined => undefined;
+let helpersWorkingIn = (_threadId: string): number => 0;
 const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
   const { snoozedUntil, ...base } = toWireTask(task, botModel, store.bots);
   const statusLine = liveStatusLine(task.threadId);
   const waiting = activeCoordinationForThread(task.threadId) && !task.busy;
-  const coordinated = { ...base, waitingForTeammates: waiting, ...(waiting ? { waitingOn: teammatesAwaited(task.threadId) } : {}), ...(statusLine ? { statusLine } : {}) };
+  const helpers = task.busy ? 0 : helpersWorkingIn(task.threadId);
+  const coordinated = { ...base, waitingForTeammates: waiting, ...(waiting ? { waitingOn: teammatesAwaited(task.threadId) } : {}), ...(helpers ? { helpersWorking: helpers } : {}), ...(statusLine ? { statusLine } : {}) };
   const asleep = snoozedUntil === 0 || (snoozedUntil !== undefined && snoozedUntil > Date.now());
   return asleep ? { ...coordinated, snoozedUntil } : coordinated;
 };
@@ -3404,7 +3406,8 @@ const wireBot = (bot: BotRecord): WireBot => {
     ? { ...rest, approvalMode: "ask" as const, autoApprove: false }
     : rest;
   const waiting = activeCoordinationForThread(bot.threadId) && !threadBusy(bot.id, bot.threadId);
-  return { ...visible, waitingForTeammates: waiting, ...(waiting ? { waitingOn: teammatesAwaited(bot.threadId) } : {}),
+  const helpers = threadBusy(bot.id, bot.threadId) ? 0 : helpersWorkingIn(bot.threadId);
+  return { ...visible, waitingForTeammates: waiting, ...(waiting ? { waitingOn: teammatesAwaited(bot.threadId) } : {}), ...(helpers ? { helpersWorking: helpers } : {}),
     avatarUrl: visible.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
 
@@ -5142,6 +5145,14 @@ const GROUP_MEMBER_WAIT_MAX_MS = Math.max(1_000, Number(process.env.LATERDOG_GRO
 const COMPUTER_WAIT_MAX_MS = Math.max(1_000, Number(process.env.LATERDOG_COMPUTER_WAIT_MAX_MS) || 30 * 60_000);
 const roomStallCompletions = new RoomTurnStallRegistry();
 const helperBoard = new HelperBoard();
+helpersWorkingIn = threadId => helperBoard.runningCount(threadId);
+
+function announceHelpersChanged(threadId: string): void {
+  const owner = store.botByThread(threadId);
+  if (!owner) return;
+  const current = store.bot(owner.id);
+  if (current) broadcast({ kind: "bot", bot: wireBot(current) });
+}
 const watchdog = new TurnWatchdog({
   helpersMaxMs: Math.max(1_000, Number(process.env.LATERDOG_HELPERS_MAX_MS) || 4 * 60 * 60_000),
   stallMs: TURN_STALL_MS,
@@ -5214,8 +5225,10 @@ bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "turn.started") helperBoard.start(event.threadId);
   if (event.type === "helper.updated") {
+    const before = helperBoard.runningCount(event.threadId);
     helperBoard.update(event.threadId, event.helper);
     watchdog.setWaitingOnHelpers(event.threadId, helperBoard.running(event.threadId));
+    if (helperBoard.runningCount(event.threadId) !== before) announceHelpersChanged(event.threadId);
   }
   if (event.type === "turn.completed") helperBoard.settle(event.threadId);
   watchdog.observeTool(event);

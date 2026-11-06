@@ -27,5 +27,6 @@ export class HelperBoard {
     for (const [id, entry] of this.threads) if (entry.settledAt !== undefined && this.now() - entry.settledAt >= 10_000) this.threads.delete(id);
     return { helpers: Object.fromEntries([...this.threads].filter(([id]) => visible(id)).map(([id, entry]) => [id, entry.helpers])) };
   }
-  running(threadId: string): boolean { return this.threads.get(threadId)?.helpers.some(helper => helper.state === "running") ?? false; }
+  running(threadId: string): boolean { return this.runningCount(threadId) > 0; }
+  runningCount(threadId: string): number { return this.threads.get(threadId)?.helpers.filter(helper => helper.state === "running").length ?? 0; }
 }
