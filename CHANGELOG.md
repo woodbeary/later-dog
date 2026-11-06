@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.45 — 2026-11-05
+
+- **Using apps on your Mac works after one grant.** Turning on Accessibility and Screen Recording is enough: later.dog starts computer control again by itself, and a slow Mac no longer reports itself as "in use".
+- **macOS 26 asks for direct screen access during setup**, not in the middle of a dog's work, and commands that take screenshots run as later.dog instead of through Terminal.
+- **When a macOS permission window is waiting on your Mac**, your phone tells you to click Allow, and the dog says so instead of waiting.
+- **Dogs ask before deleting outside their folder**, with Always allow for the ones you trust, and you can take it back in the dog's settings.
+- **My Cloud tidies up after itself:** old logs, build files, stray servers and leftover browser tabs are cleared, and it frees space by itself when it gets full.
+- **Turn an AI account off** without signing it out, and a chat shows the account it really runs on.
+- **Dogs read and send texts and email from your Mac**, use your iPhone's calendar, reminders and location, and fill forms from logins and details saved in the vault.
+- **Replies show diagrams, charts, math, link cards and drafts**, and documents, spreadsheets and slides open right in the chat.
+- **Auto-review starts off**, Ask first lets you list what every dog asks you about, and a dog's settings show what it may do without asking.
+- **Claude chats stay cached and use their full context window**, and work picks back up after a restart.
+
 ## 0.3.44 — 2026-10-27
 
 - **Dogs in My Cloud work in your projects on your Mac.** Builds, test runs and pushes keep going in the background while the dog checks on them, types into them or stops them. Commands run with your own Terminal setup (Homebrew, nvm, pnpm) in the folder the dog names, and dogs can make exact edits in big files, search a project and delete files.
