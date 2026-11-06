@@ -233,6 +233,9 @@ import { registerEnginesBinDir } from "./engine-install.ts";
 import { registerNativeBinDir } from "./laterdog/native-install.ts";
 import { appendUsage, parseUsageRange, readUsage, summarizeUsage, usageCsv, USAGE_GROUPINGS, flushUsageLedger, type UsageGroupBy, type UsageRow, type UsageTrigger } from "./usage-ledger.ts";
 import { latestPlanRow, loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
+import { createAccountUsageRoute } from "./routes/account-usage.ts";
+import { codexHome } from "./drivers/codex-identity.ts";
+import { resolveClaudeConfigDir } from "./drivers/claude.ts";
 import { createGitHubActivity } from "./github-activity.ts";
 import { createGitHubActivityRoutes } from "./routes/github-activity.ts";
 import { GroupUsageReader } from "./group-thread-usage.ts";
@@ -12654,6 +12657,31 @@ INTERNAL_ROUTES.push(createDogTaskRoute({
     },
     run: (taskThreadId, instruction) => startTurn(sender.id, instruction, { threadId: taskThreadId }),
   }),
+}));
+INTERNAL_ROUTES.push(createAccountUsageRoute({
+  active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+  refresh: async (fresh) => {
+    if (hostedModels) return;
+    await loadPlanUsage({ accounts: planAccountsFromInstances(instanceConfigs(cfg)).filter((account) => account.driver !== "grok"), refresh: fresh });
+    accountBattery.noteReadings(batteryAccounts());
+  },
+  accounts: () => {
+    const plans = new Map(planAccountsFromInstances(instanceConfigs(cfg)).map((account) => [account.id, account]));
+    const accounts = batteryAccounts();
+    return accounts.filter((account) => account.eligible).map((account) => {
+      const plan = plans.get(account.instanceId);
+      const environment = { ...process.env, ...plan?.environment };
+      let env: { name: string; value: string } | undefined;
+      try {
+        const value = account.driverKind === "claudeAgent" ? resolveClaudeConfigDir(plan?.configDir, environment) : codexHome(environment);
+        if (value) env = { name: account.driverKind === "claudeAgent" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME", value };
+      } catch {}
+      return { account, row: latestPlanRow(account.instanceId), rest: accountBattery.restOf(account, accounts), ...(env ? { env } : {}) };
+    });
+  },
+  current: (sender, threadId) => runningTurnEngines.get(threadId)?.instanceId ??
+    (store.botByThread(threadId)?.id === sender.id ? onBatteryAccount(sender, threadId).modelSelection.instanceId : sender.modelSelection.instanceId),
+  timeZone: () => process.env.TZ,
 }));
 const computerRuns = new ComputerRuns(join(DATA_DIR, "computer-runs"));
 INTERNAL_ROUTES.push(createComputerRunRoute({

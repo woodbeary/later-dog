@@ -423,6 +423,11 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       text: `Reachable teammates:\n${lines.join("\n")}\n\nUse coordinate_bots for advice or concrete work, then end your turn. Busy teammates queue and results resume you automatically.${rooms ? `\n\n${rooms}` : ""}`,
     };
   }
+  if (name === "account_usage") {
+    const r = await api(`/api/internal/account-usage${args.refresh === true ? "?refresh=1" : ""}`);
+    if (typeof r.text !== "string") return { text: JSON.stringify(r), isError: true };
+    return { text: r.text };
+  }
   if (name === "select_computer") {
     if (args.surface !== undefined && (typeof args.surface !== "string" || !["auto", "cloud", "local", "mac"].includes(args.surface))) {
       return { text: "Choose auto, cloud, local or mac; omit surface to inspect connected choices.", isError: true };

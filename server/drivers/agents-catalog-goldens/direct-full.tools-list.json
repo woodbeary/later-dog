@@ -245,6 +245,26 @@
       }
     },
     {
+      "name": "account_usage",
+      "description": "How much each Claude and Codex plan account here has left (5-hour and 7-day use, resets), which one this chat is on, and the env var that runs your own CLI work (tests, scripts) on the roomiest. Check before heavy runs or near a limit instead of waiting.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "refresh": {
+            "type": "boolean",
+            "description": "Fetch fresh numbers."
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "select_computer",
       "description": "Choose where this conversation does computer work. Call with no arguments to inspect actual available choices and the current place. For a task needing computer interaction, select the requested place, or auto to choose a suitable configured computer without asking the user to use menus. later.dog reuses an existing computer first; with a configured provider it can start or provision one when needed. Do not provision for ordinary chat or just to inspect availability. A pending result means end this turn immediately: later.dog updates the conversation selector and resumes the original request with that computer's real tools. Do not use the old tools after requesting a switch, repeat the task, or claim the action is done. This cannot change permissions, override Off, or switch a teammate/routine/channel.",
       "inputSchema": {

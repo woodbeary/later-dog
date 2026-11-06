@@ -52,16 +52,16 @@ const MAC_MESSAGE_TOOLS = ["send_text", "read_texts", "send_email"];
 const CLOUD_HOME_ONLY = [...MAC_MESSAGE_TOOLS, "run_on_computer"];
 
 const BUDGET_BASELINE: Record<string, number> = {
-  "direct": 33979,
-  "direct+voice": 34720,
-  "direct+shared": 37737,
-  "direct+shared+voice": 38478,
-  "direct+skills": 36032,
-  "direct+skills+voice": 36773,
-  "direct+skills+shared": 39790,
-  "direct+skills+shared+voice": 40531,
-  "direct+skills+shared+voice+cloud-home": 43639,
-  "direct+skills+shared+voice+cloud-home+phone": 47669,
+  "direct": 34521,
+  "direct+voice": 35262,
+  "direct+shared": 38279,
+  "direct+shared+voice": 39020,
+  "direct+skills": 36574,
+  "direct+skills+voice": 37315,
+  "direct+skills+shared": 40332,
+  "direct+skills+shared+voice": 41073,
+  "direct+skills+shared+voice+cloud-home": 44181,
+  "direct+skills+shared+voice+cloud-home+phone": 48211,
 };
 
 const RPC_PREFIX = '{"jsonrpc":"2.0","id":1,"result":';

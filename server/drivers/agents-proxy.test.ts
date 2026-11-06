@@ -480,6 +480,7 @@ describe("agents-proxy MCP surface", () => {
       "coordinate_bots",
       "start_tasks",
       "list_bots",
+      "account_usage",
       "select_computer",
       "attach_file",
       "create_bot",
@@ -560,6 +561,7 @@ describe("agents-proxy MCP surface", () => {
       "tool_result_read",
       "list_shared_computers",
       "list_bots",
+      "account_usage",
       "session_search", "session_read", "list_routines", "skills_list",
     ];
     expect(list.result.tools.filter((tool: any) => tool.annotations?.readOnlyHint)

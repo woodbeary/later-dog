@@ -42,6 +42,7 @@ import {
 } from "./local-inject.ts";
 import { appendNative } from "./native.ts";
 import { claudeUsageLimit, rejectedRateLimit, type UsageLimit } from "../laterdog/usage-limit.ts";
+import { claudeLiveReading, noteLiveReading } from "../laterdog/plan-readings.ts";
 import { claudeRefreshGate, claudeRefreshLockFrame, claudeRefreshLockResult, claudeSignInAgainMessage, retryClaudeRefreshLock, type RefreshLockState } from "../laterdog/claude-refresh-lock.ts";
 import { permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
 import { SPAWNED_PROXIES } from "../proxy-paths.ts";
@@ -1689,6 +1690,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             break;
           }
           case "rate_limit_event": {
+            noteLiveReading(instanceId, claudeLiveReading(o.rate_limit_info));
             const rejected = rejectedRateLimit(o.rate_limit_info);
             if (rejected && session.turn) session.turn.rateLimit = rejected;
             break;

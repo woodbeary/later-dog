@@ -6,6 +6,7 @@ import { resolveClaudeConfigDir } from "./drivers/claude.ts";
 import { codexHome } from "./drivers/codex-identity.ts";
 import { harnessHome } from "./env-path.ts";
 import { claudeKeychainAccount, claudeKeychainService } from "./laterdog/claude-keychain.ts";
+import { clearLiveReadings, liveReading, type LiveWindow } from "./laterdog/plan-readings.ts";
 
 export type PlanDriver = "claude" | "codex" | "grok";
 
@@ -250,15 +251,27 @@ export async function fetchPlanUsage(accounts: PlanAccount[], deps: PlanUsageDep
 }
 
 let cachedReport: { at: number; key: string; report: PlanUsageReport } | null = null;
-const latestRows = new Map<string, PlanProviderRow>();
+const latestRows = new Map<string, { at: number; row: PlanProviderRow }>();
 
 export function clearPlanUsageCache(): void {
   cachedReport = null;
   latestRows.clear();
+  clearLiveReadings();
+}
+
+function liveOver(window: PlanWindow, live: LiveWindow | undefined): PlanWindow {
+  return live ? openWindow(live.usedPercent, live.resetsAt) : window;
 }
 
 export function latestPlanRow(id: string): PlanProviderRow | undefined {
-  return latestRows.get(id);
+  const fetched = latestRows.get(id);
+  const live = liveReading(id);
+  if (!live || (fetched && fetched.at >= live.at)) return fetched?.row;
+  const row: PlanProviderRow = fetched?.row ?? {
+    id, name: id, driver: "claude", plan: null, ok: true, error: null,
+    fiveHour: closedWindow(), weekly: closedWindow(), extra: [], models: [],
+  };
+  return { ...row, fiveHour: liveOver(row.fiveHour, live.fiveHour), weekly: liveOver(row.weekly, live.weekly) };
 }
 
 export async function loadPlanUsage(input: {
@@ -282,7 +295,7 @@ export async function loadPlanUsage(input: {
     timeoutMs: input.timeoutMs,
   });
   cachedReport = { at: now, key, report };
-  for (const row of report.providers) if (row.ok) latestRows.set(row.id, row);
+  for (const row of report.providers) if (row.ok) latestRows.set(row.id, { at: now, row });
   return report;
 }
 

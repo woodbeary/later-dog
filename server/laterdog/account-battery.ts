@@ -263,6 +263,21 @@ export function pickAccount(input: PickInput): BatteryAccount | undefined {
   return undefined;
 }
 
+export const NEARLY_EMPTY_PERCENT = 5;
+const ROOMY_PERCENT = 20;
+
+export function roomierThan(own: BatteryAccount, input: PickInput): BatteryAccount | undefined {
+  const left = percentLeft(input.usage?.(own.instanceId), input.now);
+  if (left === undefined || left > NEARLY_EMPTY_PERCENT) return undefined;
+  const listed = own.models.includes(input.selection.model);
+  const order = batterySequence(input);
+  const room = (account: BatteryAccount) => percentLeft(input.usage?.(account.instanceId), input.now) ?? -1;
+  return input.accounts
+    .filter((account) => account !== own && account.driverKind === own.driverKind && order.includes(account.instanceId) &&
+      canTake(account, input, listed) && room(account) >= ROOMY_PERCENT)
+    .sort((a, b) => room(b) - room(a) || order.indexOf(a.instanceId) - order.indexOf(b.instanceId))[0];
+}
+
 export function routeSelection(input: Parameters<typeof pickAccount>[0]): ModelSelection {
   const account = pickAccount(input);
   return !account || account.instanceId === input.selection.instanceId
@@ -360,7 +375,7 @@ export function switchNotice(input: { to: string; from: string; rest?: Rest; now
   return `Switched to ${to} — ${from} is out of usage${known ? ` until ${resetLabel(known, now, timeZone)}` : " for now"}.`;
 }
 
-export function routedNotice(input: { to: string; from: string; rest?: Rest; why?: "signedOut" | "off"; now: number; timeZone?: string }): string {
+export function routedNotice(input: { to: string; from: string; rest?: Rest; why?: "signedOut" | "off" | "low"; now: number; timeZone?: string }): string {
   const { to, from, rest, now, timeZone } = input;
   if (rest && Date.parse(rest.until) > now) {
     return rest.estimated
@@ -369,6 +384,7 @@ export function routedNotice(input: { to: string; from: string; rest?: Rest; why
   }
   if (input.why === "signedOut") return `Running on ${to} — ${from} isn't signed in.`;
   if (input.why === "off") return `Running on ${to} — ${from} is turned off.`;
+  if (input.why === "low") return `Running on ${to} — ${from} is almost out of usage.`;
   return `Running on ${to} instead of ${from}.`;
 }
 
@@ -426,6 +442,8 @@ export class AccountBattery {
     const input = { selection, accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage, ...(preferred ? { preferred } : {}) };
     const own = accounts.find((account) => account.instanceId === selection.instanceId);
     if (!own?.eligible) return selection;
+    const roomier = this.enabled ? roomierThan(own, { config: this.options.config(), ...input }) : undefined;
+    if (roomier) return selectionOnAccount(selection, roomier, accounts, preferred);
     const spread = threadId ? this.spreadTo(threadId, own, input) : undefined;
     if (spread && spread.instanceId !== own.instanceId) return selectionOnAccount(selection, spread, accounts, preferred);
     if (spread || canTake(own, input, false)) return selection;
@@ -699,8 +717,13 @@ export class AccountBattery {
     const engines = rest && Date.parse(rest.until) > this.now() ? crossEngineNotice(from, find(ranOn), "Running") : undefined;
     return engines ?? routedNotice({
       to: name(ranOn), from: name(selection.instanceId), rest,
-      why: from?.signedIn === false ? "signedOut" : from && !from.enabled ? "off" : undefined, now: this.now(),
+      why: from?.signedIn === false ? "signedOut" : from && !from.enabled ? "off" : this.nearlyEmpty(selection.instanceId) ? "low" : undefined, now: this.now(),
     });
+  }
+
+  private nearlyEmpty(instanceId: string): boolean {
+    const left = percentLeft(this.options.usage?.(instanceId), this.now());
+    return left !== undefined && left <= NEARLY_EMPTY_PERCENT;
   }
 
   private place(threadId: string, on: string | undefined, from: string): void {

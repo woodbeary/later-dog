@@ -167,6 +167,22 @@ describe("most available first", () => {
     expect(route({ config: ON, usage, resting: { claude: rest(HOUR) } }).instanceId).toBe("claude-b");
   });
 
+  it("moves a turn off an account that is almost out before it hits the limit, to the one with the most room, and back once it refills", () => {
+    const readings: Record<string, PlanProviderRow> = {
+      claude: reading("claude", 40, 99), "claude-b": reading("claude-b", 100, 0), "claude-c": reading("claude-c", 30, 21),
+    };
+    const instance = new AccountBattery({ config: () => ON, now: () => NOW, usage: (id) => readings[id] });
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-low")).toEqual({ ...SELECTION, instanceId: "claude-c" });
+    expect(instance.arrive("thread-low", SELECTION, "claude-c", ACCOUNTS)).toBe("Running on claude-c — claude is almost out of usage.");
+    readings["claude-c"] = reading("claude-c", 90, 21);
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-low")).toBe(SELECTION);
+    readings["claude-c"] = reading("claude-c", 30, 21);
+    readings.claude = reading("claude", 40, 94);
+    expect(instance.route(SELECTION, ACCOUNTS, "thread-low")).toBe(SELECTION);
+    readings.claude = reading("claude", 40, 99);
+    expect(new AccountBattery({ config: () => ({ ...ON, enabled: false }), now: () => NOW, usage: (id) => readings[id] }).route(SELECTION, ACCOUNTS, "thread-low")).toBe(SELECTION);
+  });
+
   it("reports the order it will use and moves a turn that ran out to the account with the most left", () => {
     const readings: Record<string, PlanProviderRow> = {
       claude: reading("claude", 100, 40), "claude-b": reading("claude-b", 90, 20), "claude-c": reading("claude-c", 40, 10),

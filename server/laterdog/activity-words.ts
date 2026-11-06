@@ -87,6 +87,7 @@ const PHRASES: Array<[RegExp, string]> = [
   [/^(inspect_cloud_job|review_cloud_job|collect_cloud_diff|reconcile_cloud_task|list_provider_tasks|record_job_observation)$/, "checking on a cloud task"],
   [/^correct_cloud_job$/, "sending a fix to a cloud task"],
   [/^list_bots$/, "checking who's around"],
+  [/^account_usage$/, "checking usage"],
   [/^(request_credential|request_takeover|request_secure_form)$/, "needs your input"],
   [/^fill_secure_field$/, "signing in"],
   [/^(select_computer|list_shared_computers)$/, "picking a computer"],
