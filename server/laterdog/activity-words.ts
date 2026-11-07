@@ -90,6 +90,7 @@ const PHRASES: Array<[RegExp, string]> = [
   [/^account_usage$/, "checking usage"],
   [/^switch_account$/, "switching accounts"],
   [/^dog_accounts$/, "checking dogs' accounts"],
+  [/^dog_queue$/, "managing a teammate's work"],
   [/^(request_credential|request_takeover|request_secure_form)$/, "needs your input"],
   [/^fill_secure_field$/, "signing in"],
   [/^(select_computer|list_shared_computers)$/, "picking a computer"],

@@ -236,6 +236,8 @@ import { latestPlanRow, latestPlanRowAt, loadPlanUsage, planAccountsFromInstance
 import { createAccountUsageRoute } from "./routes/account-usage.ts";
 import { createSwitchAccountRoute } from "./routes/switch-account.ts";
 import { createDogAccountsRoute } from "./routes/dog-accounts.ts";
+import { createDogQueueRoute, type QueuedMessageRow } from "./routes/dog-queue.ts";
+import { SAFE_STOP_GRACE_MS, safeStopWords, stoppedByLine } from "./laterdog/safe-stop.ts";
 import { accountTurnPrompt, type AccountUsageInput } from "./laterdog/account-usage.ts";
 import { CONTINUE_AFTER_PICK, pickMovesTurn, pickNotice } from "./laterdog/account-pick.ts";
 import { codexHome } from "./drivers/codex-identity.ts";
@@ -12790,6 +12792,57 @@ function assignDogAccount(dog: BotRecord, account: BatteryAccount): { ok: true }
   return { ok: true };
 }
 
+async function stopForOwner(input: { dog: BotRecord; threadId: string; by: BotRecord; force: boolean; why?: string }): Promise<"safe" | "stopped" | "idle"> {
+  const { dog, threadId, by } = input;
+  const current = store.projectBotForTask(dog.id, threadId);
+  if (!current || !threadBusy(dog.id, threadId)) return "idle";
+  store.appendMessage(threadId, { role: "bot", kind: "activity", from: { botId: by.id, name: by.name, color: by.color },
+    tool: { name: stoppedByLine(by.name, cfg.profile?.name?.trim() || undefined, input.why), ok: true } });
+  const generation = directTurnGenerationByThread.get(threadId);
+  const hard = async () => {
+    for (const node of roomHandoffs.nodes.values()) {
+      if (node.parentId && node.threadId === threadId && node.botId === dog.id && node.status === "running") {
+        roomHandoffs.cancelTree(node, `${by.name} stopped this for the owner before it finished.`, "cancelled", "person");
+      }
+    }
+    await stopThreadTurn(dog.id, threadId, "person");
+  };
+  const instance = runningTurnInstance(current, threadId);
+  if (!input.force && instance?.adapter.capabilities.queueing && instance.adapter.steer) {
+    const adapter = instance.adapter;
+    const words = steerWords(withSteerNote(safeStopWords(by.name, input.why)));
+    const outcome = await steerWhileRunning(
+      () => adapter.steer!(threadId, words.text, words.images, undefined),
+      () => threadBusy(dog.id, threadId),
+    );
+    if (outcome === "steered") {
+      setTimeout(() => {
+        if (threadBusy(dog.id, threadId) && directTurnGenerationByThread.get(threadId) === generation) void hard().catch(() => undefined);
+      }, SAFE_STOP_GRACE_MS).unref?.();
+      return "safe";
+    }
+    if (!threadBusy(dog.id, threadId)) return "idle";
+  }
+  await hard();
+  return "stopped";
+}
+
+INTERNAL_ROUTES.push(createDogQueueRoute({
+  active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+  ownerActing: (_capability, threadId) => ownerWorkThread(threadId),
+  mainBotId: () => store.mainBotId(),
+  dogs: () => store.bots.filter((bot) => !bot.hidden),
+  queueOf: (botId) => roomHandoffs.queueOf(botId),
+  senderOf: (node) => roomHandoffs.senderOf(node),
+  node: (id) => roomHandoffs.nodes.get(id),
+  personQueue: (botId) => Object.entries(queuedSteerSnapshot((owner, threadId) => owner === botId && Boolean(store.taskByThread(owner, threadId))))
+    .flatMap(([threadId, rows]): QueuedMessageRow[] => rows.map((row) => ({ queueId: row.queueId, text: row.text, threadId }))),
+  busyThreads: (bot) => store.tasks(bot.id).filter((task) => threadBusy(bot.id, task.threadId)).map((task) => task.threadId),
+  cancel: (id, reason) => roomHandoffs.cancelQueued(id, reason),
+  replace: (id, text) => roomHandoffs.replaceQueued(id, text),
+  stop: stopForOwner,
+}));
+
 INTERNAL_ROUTES.push(createDogAccountsRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   mainBotId: () => store.mainBotId(),
@@ -14056,6 +14109,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
             botIds: z.array(z.string().min(1).max(128)).min(1).max(4).refine(ids => new Set(ids).size === ids.length),
             message: z.string().trim().min(1).max(4000),
             rework: z.boolean().default(false),
+            urgent: z.boolean().default(false),
           }).safeParse(await readInternalBody());
           if (!parsed.success) return json(res, 400, { error: "Provide 1-4 distinct botIds and a message of 1-4000 characters." });
           const groupId = parsed.data.groupId ?? source?.id;
@@ -14113,7 +14167,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               const routineRun = destination || internalCapability.roomHandoffId ? undefined : routineRunForTurn(address.threadId);
               const { node, duplicate } = roomHandoffs.enqueue(address, internalCapability.generation, internalCapability.roomHandoffId,
                 target, target.botId, parsed.data.message, approvalGranted, parsed.data.rework, [...store.messagesFor(address.threadId)].reverse().find(m => m.role === "user" && m.kind === "text")?.text ?? "",
-                requestBatchKey, threadPersonKey(address.threadId), routineRun?.id, lender);
+                requestBatchKey, threadPersonKey(address.threadId), routineRun?.id, lender, parsed.data.urgent);
               if (duplicate && createdThread) store.deleteTask(target.botId, createdThread);
               createdThread = undefined;
               const recipientName = destination ? undefined : store.bot(node.botId)?.name;

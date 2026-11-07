@@ -301,6 +301,7 @@ const TOOL_DEFINITIONS = [
       bot_ids: { type: "array", items: { type: "string", description: "A dog's id exactly as list_bots prints it ([id: …]). A unique name also resolves; a name two dogs share is refused." }, minItems: 1, maxItems: 4, uniqueItems: true },
       message: { type: "string", minLength: 1, maxLength: 4000, description: "Question or task for these teammates; later requests in the same conversation can build on earlier ones. Send separate requests when responsibilities differ." },
       rework: { type: "boolean", description: "True only to send concrete work again to someone whose request already finished or failed: a correction, a re-check or a retry." },
+      urgent: { type: "boolean", description: "True for a scope change that must run next: it goes ahead of your own earlier requests still queued with that dog, not ahead of other senders'." },
     }, required: ["bot_ids", "message"] },
   },
   {
@@ -333,6 +334,18 @@ const TOOL_DEFINITIONS = [
       "When the person asks to switch to or continue with a plan account by name (\"switch to work\"), move this chat onto it; its next turn runs there. account_usage lists the names and which are used up or off. Then confirm in one line which account the chat is on, in the result's words.",
     inputSchema: { type: "object", additionalProperties: false, required: ["account"], properties: {
       account: { type: "string", minLength: 1, maxLength: 200, description: "The account's name as the person said it." },
+    } },
+  },
+  {
+    name: "dog_queue",
+    description:
+      "For work you do for the owner: see and manage another of the owner's dogs' work. With just dog: what it is running and its queued teammate requests, with request ids and senders. action stop: stop its running turn at a safe point (it finishes or rolls back an update, merge, push or deploy first; force stops at once). action cancel with request_id: cancel one queued request, leaving its other queued work alone. action replace with request_id and message: swap a queued request for a new one in the same place in the queue. The main dog can do this for any dog; other dogs only for requests they sent. The stopped dog's chat says who stopped it, and the sender is told.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      dog: { type: "string", minLength: 1, maxLength: 200, description: "The dog's name or id, as list_bots prints it." },
+      action: { type: "string", enum: ["view", "stop", "cancel", "replace"], description: "Omit to view." },
+      request_id: { type: "string", minLength: 1, maxLength: 128, description: "The requestId from coordinate_bots or the queue view." },
+      message: { type: "string", minLength: 1, maxLength: 4000, description: "replace: the new request. stop: optional reason shown in the dog's chat." },
+      force: { type: "boolean", description: "stop: stop at once instead of at a safe point." },
     } },
   },
   {

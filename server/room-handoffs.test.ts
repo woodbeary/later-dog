@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { RoomHandoffs, ROOM_HANDOFF_LIMITS, type RoomHandoffHooks } from "./room-handoffs.ts";
+import type { HandoffRunResult } from "./laterdog/long-work.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
 const addr = (id: string) => ({ groupId: id, threadId: `${id}-thread`, botId: `${id}-bot` });
@@ -934,4 +935,77 @@ describe("long work for the owner's auto dogs", () => {
     expect(restartedLine).toHaveBeenCalledTimes(1);
     expect(restartedLine).toHaveBeenCalledWith(expect.objectContaining({ id: "owner-turn" }), expect.anything(), true);
   }));
+});
+
+describe("managing a dog's queue for the owner", () => {
+  const patch = { botId: "patch", threadId: "patch-chat" };
+  const clover = { botId: "clover", threadId: "clover-chat" };
+  const task = { botId: "task", threadId: "task-chat" };
+  let clock = 1_000;
+  const now = () => clock++;
+  const busyPatch = (hooks: RoomHandoffHooks, busy: { on: boolean }) => { hooks.busy = (n) => n.botId === "patch" && busy.on; };
+
+  it("lists the running request first, then the queued ones in the order they will run", () => fixture(async (engine, hooks) => {
+    const busy = { on: false };
+    busyPatch(hooks, busy);
+    hooks.run = vi.fn(() => new Promise<HandoffRunResult>(() => {}));
+    const first = engine.enqueue(clover, "c1", undefined, patch, "a", "First").node;
+    engine.tick(); await flush();
+    busy.on = true;
+    const second = engine.enqueue(clover, "c1", undefined, patch, "b", "Second").node;
+    const third = engine.enqueue(task, "t1", undefined, patch, "c", "Third").node;
+    expect(engine.queueOf("patch").map((n) => [n.id, n.status])).toEqual([[first.id, "running"], [second.id, "queued"], [third.id, "queued"]]);
+    expect(engine.senderOf(third)).toBe("task");
+  }, now));
+
+  it("cancels one queued request by id, tells its sender, and leaves the dog's other queued work alone", () => fixture(async (engine, hooks) => {
+    const busy = { on: true };
+    busyPatch(hooks, busy);
+    const keep = engine.enqueue(clover, "c1", undefined, patch, "a", "Keep me").node;
+    const drop = engine.enqueue(clover, "c1", undefined, patch, "b", "Drop me").node;
+    const cancelled = engine.cancelQueued(drop.id, "Clover cancelled this request before it started.");
+    expect(cancelled).toBe(drop);
+    expect(drop.status).toBe("cancelled");
+    expect(keep.status).toBe("queued");
+    engine.tick(); await flush();
+    expect(hooks.report).toHaveBeenCalledWith(expect.objectContaining({ id: drop.id, result: "Clover cancelled this request before it started." }), expect.objectContaining({ botId: "clover" }));
+    expect(engine.cancelQueued("nope", "x")).toBe("No request with that id.");
+  }, now));
+
+  it("will not cancel a running request; that takes a stop", () => fixture(async (engine, hooks) => {
+    hooks.run = vi.fn(() => new Promise<HandoffRunResult>(() => {}));
+    const running = engine.enqueue(clover, "c1", undefined, patch, "a", "Run").node;
+    engine.tick(); await flush();
+    expect(engine.cancelQueued(running.id, "x")).toBe("That request is already running; stop the dog's turn instead.");
+  }, now));
+
+  it("replaces a queued request in one step and keeps its place at the front", () => fixture(async (engine, hooks) => {
+    const busy = { on: true };
+    busyPatch(hooks, busy);
+    const old = engine.enqueue(clover, "c1", undefined, patch, "a", "Old scope").node;
+    const later = engine.enqueue(task, "t1", undefined, patch, "b", "Later").node;
+    const fresh = engine.replaceQueued(old.id, "New scope");
+    if (typeof fresh === "string") throw new Error(fresh);
+    expect(old.status).toBe("cancelled");
+    expect(old.replacedBy).toBe(fresh.id);
+    expect(engine.queueOf("patch").map((n) => n.text)).toEqual(["New scope", "Later"]);
+    busy.on = false;
+    const ran: string[] = [];
+    hooks.run = vi.fn(async (n) => { ran.push(n.text); busy.on = true; return { ok: true, text: "done" }; });
+    engine.tick(); await flush();
+    expect(ran).toEqual(["New scope"]);
+    expect(later.status).toBe("queued");
+    expect(hooks.report).not.toHaveBeenCalledWith(expect.objectContaining({ id: old.id }), expect.anything());
+  }, now));
+
+  it("runs an urgent request ahead of earlier requests from the same sender, but not ahead of other senders' earlier work", () => fixture(async (engine, hooks) => {
+    const busy = { on: true };
+    busyPatch(hooks, busy);
+    const fromTask = engine.enqueue(task, "t1", undefined, patch, "x", "Task's earlier").node;
+    engine.enqueue(clover, "c1", undefined, patch, "a", "Clover earlier");
+    const urgent = engine.enqueue(clover, "c1", undefined, patch, "b", "Scope change", false, false, "", undefined, undefined, undefined, undefined, true).node;
+    expect(urgent.urgent).toBe(true);
+    expect(engine.queueOf("patch").map((n) => n.text)).toEqual(["Task's earlier", "Scope change", "Clover earlier"]);
+    expect(fromTask.status).toBe("queued");
+  }, now));
 });

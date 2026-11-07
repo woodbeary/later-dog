@@ -402,6 +402,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const r = await api("/api/internal/coordinate-bots", { method: "POST", body: JSON.stringify({
       groupId: canonical.group_id, botIds: ids, message: canonical.message,
       rework: canonical.rework,
+      ...(canonical.urgent === true ? { urgent: true } : {}),
     }) });
     return { text: JSON.stringify(r), ...(r.error ? { isError: true } : {}) };
   }
@@ -431,6 +432,12 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
   if (name === "switch_account") {
     if (typeof args.account !== "string" || !args.account.trim()) return { text: "switch_account needs account: the account's name, e.g. daniel.", isError: true };
     const r = await api("/api/internal/switch-account", { method: "POST", body: JSON.stringify({ account: args.account }) });
+    return typeof r.text === "string" ? { text: r.text } : { text: String(r.error ?? JSON.stringify(r)), isError: true };
+  }
+  if (name === "dog_queue") {
+    const r = await api("/api/internal/dog-queue", { method: "POST", body: JSON.stringify({
+      dog: args.dog, action: args.action, requestId: args.request_id, message: args.message, force: args.force,
+    }) });
     return typeof r.text === "string" ? { text: r.text } : { text: String(r.error ?? JSON.stringify(r)), isError: true };
   }
   if (name === "dog_accounts") {

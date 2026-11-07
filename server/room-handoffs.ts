@@ -28,11 +28,16 @@ const nodeSchema = z.object({
   firstCreatedAt: z.number().optional(),
   retried: z.boolean().optional(),
   restarted: z.boolean().optional(),
+  orderAt: z.number().optional(),
+  urgent: z.boolean().optional(),
+  replacedBy: z.string().optional(),
 });
 export type RoomHandoff = z.infer<typeof nodeSchema>;
 export type RoomAddress = Pick<RoomHandoff, "groupId" | "threadId" | "botId">;
 export const ROOM_HANDOFF_LIMITS = { depth: 4, requests: 24, executions: 48, idleMs: HANDOFF_IDLE_MS, minRunwayMs: 10 * 60_000, hardCapMs: HANDOFF_HARD_CAP_MS, ceilingMs: HANDOFF_CEILING_MS };
 const terminal = (n: RoomHandoff) => ["completed", "failed", "cancelled"].includes(n.status);
+export const queueOrder = (n: RoomHandoff) => n.orderAt ?? n.createdAt;
+export const QUEUE_STATUSES: readonly RoomHandoff["status"][] = ["running", "resume", "queued"];
 const addressOf = (n: RoomHandoff): RoomAddress => ({ groupId: n.groupId, threadId: n.threadId, botId: n.botId });
 const CONTINUE_NOTE = "\n\n[Continuing: your earlier attempt at this stopped because time ran out. Check what is already done, then carry on from where it stopped.]";
 
@@ -202,7 +207,7 @@ export class RoomHandoffs {
   enqueue(source: RoomAddress, generation: string, parentId: string | undefined,
     target: RoomAddress, key: string, text: string, approvalGranted = false,
     rework = false, sourceText = "", requestBatchKey?: string, requestedBy?: string, routineRunId?: string,
-    lender?: string): { node: RoomHandoff; duplicate: boolean } {
+    lender?: string, urgent = false): { node: RoomHandoff; duplicate: boolean } {
     if (this.loadError) throw new Error(this.loadError);
     this.settleRestart();
     let parent = parentId ? this.nodes.get(parentId) : this.nodes.get(generation);
@@ -244,6 +249,11 @@ export class RoomHandoffs {
     const node: RoomHandoff = { ...target, id: randomUUID(), rootId: parent.rootId, parentId: parent.id,
       key, text, createdAt: this.now(), status: "queued", result: "", reported: false, executions: 0, approvalGranted,
       kind, ...(target.groupId && requestBatchKey ? { requestBatchKey } : {}), ...(lender ? { lender } : {}) };
+    if (urgent) {
+      node.urgent = true;
+      const ahead = this.waitingFor(target.botId, target.threadId).filter(n => this.senderOf(n) === source.botId);
+      if (ahead.length) node.orderAt = Math.min(...ahead.map(queueOrder)) - 1;
+    }
     const problem = this.hooks.validate(node, parent);
     if (problem) throw new Error(problem);
     if (routineRunId) root.routineRunId ??= routineRunId;
@@ -258,6 +268,48 @@ export class RoomHandoffs {
       throw e;
     }
     return { node, duplicate: false };
+  }
+
+  senderOf(n: RoomHandoff): string | undefined {
+    return n.parentId ? this.nodes.get(n.parentId)?.botId : undefined;
+  }
+
+  waitingFor(botId: string, threadId?: string): RoomHandoff[] {
+    return [...this.nodes.values()].filter(n => n.parentId && n.botId === botId && (!threadId || n.threadId === threadId) && n.status === "queued")
+      .sort((a, b) => queueOrder(a) - queueOrder(b));
+  }
+
+  queueOf(botId: string): RoomHandoff[] {
+    return [...this.nodes.values()].filter(n => n.parentId && n.botId === botId && QUEUE_STATUSES.includes(n.status))
+      .sort((a, b) => Number(b.status === "running") - Number(a.status === "running") || queueOrder(a) - queueOrder(b));
+  }
+
+  cancelQueued(id: string, reason: string): RoomHandoff | string {
+    const node = this.nodes.get(id);
+    if (!node || !node.parentId) return "No request with that id.";
+    if (node.status !== "queued") return node.status === "running" || node.status === "resume"
+      ? "That request is already running; stop the dog's turn instead."
+      : `That request already ended (${node.status}).`;
+    this.cancelTree(node, reason, "cancelled", "person");
+    return node;
+  }
+
+  replaceQueued(id: string, text: string): RoomHandoff | string {
+    const old = this.nodes.get(id);
+    if (!old || !old.parentId) return "No request with that id.";
+    if (old.status !== "queued") return old.status === "running" || old.status === "resume"
+      ? "That request is already running; stop the dog's turn, then send the new request."
+      : `That request already ended (${old.status}).`;
+    const parent = this.nodes.get(old.parentId);
+    const node: RoomHandoff = { ...old, id: randomUUID(), text, createdAt: this.now(), orderAt: queueOrder(old), status: "queued",
+      result: "", reported: false, executions: 0 };
+    delete node.startedAt; delete node.lastProgressAt; delete node.replacedBy; delete node.retried; delete node.restarted;
+    const problem = this.hooks.validate(node, parent);
+    if (problem) return problem;
+    this.nodes.set(node.id, node);
+    old.status = "cancelled"; old.result = "Replaced by a newer request."; old.endedBy = "person"; old.reported = true; old.replacedBy = node.id;
+    this.publish(old, node);
+    return node;
   }
 
   sharedRequest(node: RoomHandoff): { id: string; botIds: string[] } {
@@ -387,6 +439,18 @@ export class RoomHandoffs {
     return { rootId: generation, resent, kept };
   }
 
+  private *inQueueOrder(): Generator<RoomHandoff> {
+    const seen = new Set<string>();
+    for (;;) {
+      const next = [...this.nodes.values()].filter(n => !seen.has(n.id)).sort((a, b) => queueOrder(a) - queueOrder(b));
+      if (!next.length) return;
+      for (const n of next) {
+        seen.add(n.id);
+        if (this.nodes.get(n.id) === n) yield n;
+      }
+    }
+  }
+
   tick() {
     if (this.loadError) return;
     this.settleRestart();
@@ -406,7 +470,7 @@ export class RoomHandoffs {
       this.publish(n);
       this.hooks.closed?.(n, n.endedBy!);
     }
-    for (const n of this.nodes.values()) {
+    for (const n of this.inQueueOrder()) {
       const parent = n.parentId ? this.nodes.get(n.parentId) : undefined;
       if (terminal(n) && parent && !n.reported) {
         this.hooks.report(n, parent); n.reported = true; this.publish(n, parent);
