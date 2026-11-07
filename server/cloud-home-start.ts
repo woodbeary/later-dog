@@ -10,7 +10,7 @@ import {
   HOME_FATAL_REPORTS_DIR, HOME_HEALTH_FILE, KERNEL_VMSTAT, appendHomeHealthLine, fatalErrorReportFlags, oomKillCount, oomKillsSaid, pruneFatalErrorReports,
   readSystemFile,
 } from "./laterdog/home-health-log.ts";
-import { restartPolicy } from "./restart.ts";
+import { keepRunningPolicy } from "./restart.ts";
 
 const SERVICE_USER = "dog";
 const SECRETS_FD = 3;
@@ -160,7 +160,7 @@ export function startCloudHome(env: NodeJS.ProcessEnv = process.env) {
       if (!restarting) stop(true);
     });
   };
-  const policy = restartPolicy();
+  const policy = keepRunningPolicy();
   const runServer = () => {
     asServiceUser(ids, () => pruneFatalErrorReports(reports));
     watch("the server", spawnWithSecrets(process.execPath, cloudHomeServerArguments(here, reports), server, secrets, ids), (code) => {
@@ -170,8 +170,16 @@ export function startCloudHome(env: NodeJS.ProcessEnv = process.env) {
     });
   };
   runServer();
-  watch("the edge", spawn(edgeBin, ["run", "--config", edgeConfig, "--adapter", "caddyfile"],
-    { env: edge, stdio: "inherit", ...(ids ? { uid: ids.uid, gid: ids.gid } : {}) }));
+  const edgePolicy = keepRunningPolicy();
+  const runEdge = () => {
+    watch("the edge", spawn(edgeBin, ["run", "--config", edgeConfig, "--adapter", "caddyfile"],
+      { env: edge, stdio: "inherit", ...(ids ? { uid: ids.uid, gid: ids.gid } : {}) }), (code) => {
+      if (!edgePolicy.again(code, stopping)) return false;
+      runEdge();
+      return true;
+    });
+  };
+  runEdge();
   const asked = (signal: NodeJS.Signals) => {
     record(`cloud home: asked to stop (${signal}); stopping the server and the edge`);
     stop(false);

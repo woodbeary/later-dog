@@ -11,7 +11,7 @@ import {
 } from "./cloud-home.ts";
 import { childExitLine, cloudHomeChildEnvironments, cloudHomeServerArguments, codeTrustProblem, passwdIds, spawnWithSecrets } from "./cloud-home-start.ts";
 import { HOME_FATAL_REPORTS_DIR, HOME_HEALTH_FILE } from "./laterdog/home-health-log.ts";
-import { RESTART_EXIT_CODE, restartPolicy } from "./restart.ts";
+import { RESTART_EXIT_CODE, STABLE_RUN_MS, keepRunningPolicy, restartPolicy } from "./restart.ts";
 import { hostedModelPolicy } from "./hosted-models.ts";
 import { resolveRequestAuth } from "./request-auth.ts";
 import { SessionRegistry } from "./sessions.ts";
@@ -337,14 +337,33 @@ it("builds a Cloud home image that refuses any code the root supervisor runs tha
   expect(check).toBeLessThan(image.indexOf("CMD ["));
 });
 
-it("the Cloud launcher starts the server again only when it asks to after a restore, and only a few times in a row", () => {
-  const launcher = readFileSync(join(import.meta.dirname, "cloud-home-start.ts"), "utf8");
-  expect(launcher).toContain("const policy = restartPolicy();");
-  expect(launcher).toContain("if (!policy.again(code, stopping)) return false;");
+it("a restart policy starts the server again only when it asks to after a restore, and only a few times in a row", () => {
   for (const code of [0, 1, null]) expect(restartPolicy().again(code)).toBe(false);
   expect(restartPolicy().again(RESTART_EXIT_CODE, true)).toBe(false);
   const policy = restartPolicy(() => 0);
   expect([1, 2, 3, 4, 5, 6].map(() => policy.again(RESTART_EXIT_CODE, false))).toEqual([true, true, true, true, true, false]);
+});
+
+it("the Cloud launcher starts a server or edge that stopped after running steadily again in place, and lets one that fails at once stop the home", () => {
+  const launcher = readFileSync(join(import.meta.dirname, "cloud-home-start.ts"), "utf8");
+  expect(launcher).toContain("const policy = keepRunningPolicy();");
+  expect(launcher).toContain("if (!policy.again(code, stopping)) return false;");
+  expect(launcher).toContain("const edgePolicy = keepRunningPolicy();");
+  expect(launcher).toContain("if (!edgePolicy.again(code, stopping)) return false;");
+  let now = 0;
+  const policy = keepRunningPolicy(() => now);
+  for (const code of [0, 1, null]) expect(policy.again(code)).toBe(false);
+  now = STABLE_RUN_MS;
+  expect(policy.again(0)).toBe(true);
+  now += 1_000;
+  expect(policy.again(null)).toBe(false);
+  now += STABLE_RUN_MS;
+  expect(policy.again(1)).toBe(true);
+  now += STABLE_RUN_MS;
+  expect(policy.again(0, true)).toBe(false);
+  expect(policy.again(RESTART_EXIT_CODE, true)).toBe(false);
+  const asked = keepRunningPolicy(() => 0);
+  expect([1, 2, 3, 4, 5, 6].map(() => asked.again(RESTART_EXIT_CODE))).toEqual([true, true, true, true, true, false]);
 });
 
 it("the Cloud launcher says how each part of the home ended and what the kernel did for memory, and starts the server with crash reports that leave out its environment", () => {

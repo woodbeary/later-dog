@@ -14,3 +14,17 @@ export function restartPolicy(now: () => number = Date.now) {
     },
   };
 }
+
+export function keepRunningPolicy(now: () => number = Date.now) {
+  const asked = restartPolicy(now);
+  let startedAt = now();
+  return {
+    again(code: number | null, stopping = false): boolean {
+      if (stopping) return false;
+      const ranSteadily = now() - startedAt >= STABLE_RUN_MS;
+      if (!asked.again(code, stopping) && !ranSteadily) return false;
+      startedAt = now();
+      return true;
+    },
+  };
+}

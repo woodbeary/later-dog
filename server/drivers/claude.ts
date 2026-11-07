@@ -41,7 +41,7 @@ import {
   resolveInjectId,
 } from "./local-inject.ts";
 import { appendNative } from "./native.ts";
-import { claudeUsageLimit, rejectedRateLimit, type UsageLimit } from "../laterdog/usage-limit.ts";
+import { claudeModelAnswered, claudeUsageLimit, rejectedRateLimit, type UsageLimit } from "../laterdog/usage-limit.ts";
 import { claudeLiveReading, noteLiveReading } from "../laterdog/plan-readings.ts";
 import { claudeRefreshGate, claudeRefreshLockFrame, claudeRefreshLockResult, claudeSignInAgainMessage, retryClaudeRefreshLock, type RefreshLockState } from "../laterdog/claude-refresh-lock.ts";
 import { permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
@@ -1651,6 +1651,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 quota: limit,
               });
               break;
+            }
+            if (session.turn && !o.parent_tool_use_id && claudeModelAnswered(o)) {
+              session.turn.usageLimited = false;
+              delete session.turn.rateLimit;
             }
             if (text.trim()) {
               if (!o.parent_tool_use_id) session.repliedSinceResult = true;
