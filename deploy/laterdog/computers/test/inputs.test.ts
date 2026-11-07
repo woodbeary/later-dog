@@ -29,6 +29,9 @@ describe("parseRename", () => {
   it("needs a name", () => {
     expect(parseRename({ name: "Fido" })).toEqual({ ok: true, value: { name: "Fido" } });
     expect(parseRename({})).toMatchObject({ ok: false, refusal: { code: "invalid_body" } });
+    expect(parseRename({ size: "xlarge" })).toEqual({ ok: true, value: { size: "xlarge" } });
+    expect(parseRename({ name: "Fido", size: "large" })).toEqual({ ok: true, value: { name: "Fido", size: "large" } });
+    expect(parseRename({ size: "huge" })).toMatchObject({ ok: false, refusal: { code: "invalid_size" } });
     expect(parseRename(undefined)).toMatchObject({ ok: false, refusal: { code: "invalid_body" } });
   });
 });

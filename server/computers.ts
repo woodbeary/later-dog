@@ -18,6 +18,25 @@ const asBoatState = (state: string) => BOAT_STATE[state] ?? "unknown";
 const STATE_WORDS: Record<string, string> = { archived: "asleep", archiving: "going to sleep", starting: "starting", error: "in an error state" };
 interface OwnComputer { id: string; name: string; state: string }
 const own = (computer: Computer): OwnComputer => ({ id: computer.id, name: computer.name, state: asBoatState(computer.state) });
+export const wantedSize = (cfg: AppConfig): string | undefined => cfg.box?.size ?? undefined;
+export function needsResize(computer: { size?: string }, wanted: string | undefined): boolean {
+  return Boolean(wanted && computer.size && computer.size !== wanted);
+}
+const sized = new Set<string>();
+async function fitSize(client: ComputersClient, cfg: AppConfig, computerId: string): Promise<void> {
+  const wanted = wantedSize(cfg);
+  if (!wanted || sized.has(`${computerId}:${wanted}`)) return;
+  try {
+    const current = await client.get(computerId);
+    if (current && needsResize(current, wanted)) {
+      await client.resize(computerId, wanted);
+      console.info(`cloud computer ${computerId}: ${current.size} → ${wanted}, from its next wake`);
+    }
+    sized.add(`${computerId}:${wanted}`);
+  } catch (error) {
+    console.warn(`cloud computer ${computerId}: could not change its size: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
 const issuedHere = (id: string | undefined): id is string => typeof id === "string" && COMPUTER_ID.test(id);
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -129,12 +148,12 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
   return null;
 }
 
-async function createOwn(client: ComputersClient, botId: string, name: string): Promise<OwnComputer> {
+async function createOwn(client: ComputersClient, botId: string, name: string, size?: string): Promise<OwnComputer> {
   let replacing = "";
   let releasedForTrial = false;
   for (let hop = 0; hop < MAX_CREATE_HOPS; hop += 1) {
     let created: Computer;
-    try { created = await client.create({ name }, createKey(botId, replacing)); }
+    try { created = await client.create({ name, ...(size ? { size } : {}) }, createKey(botId, replacing)); }
     catch (error) {
       if (error instanceof ComputersApiError && error.code === "trial_one_computer" && !releasedForTrial && trialInUse() && !ownComputersChosen()) {
         releasedForTrial = true;
@@ -268,6 +287,7 @@ export async function readyBoat(cfg: AppConfig, botId: string, budgetMs = 60_000
   const client = ownClient();
   const computer = await findOwn(client, botId);
   if (!computer) return null;
+  await fitSize(client, cfg, computer.id);
   return computer.state === "running" ? computer : waitRunning(client, computer.id, budgetMs);
 }
 
@@ -282,7 +302,8 @@ export async function provisionBoat(cfg: AppConfig, botId: string, botName: stri
   const client = ownClient();
   const machineName = ownName(botId);
   const found = await findOwn(client, botId);
-  const computer = found ?? await createOwn(client, botId, machineName);
+  if (found) await fitSize(client, cfg, found.id);
+  const computer = found ?? await createOwn(client, botId, machineName, wantedSize(cfg));
   const ready = await waitRunning(client, computer.id, PROVISION_BUDGET_MS);
   if (!ready) throw new Error("the cloud computer did not become ready within 90s — retry in a minute");
   return { boxId: ready.id, machineName, reused: found !== null, state: ready.state, joinUrl: await desktopUrl(client, ready.id) };

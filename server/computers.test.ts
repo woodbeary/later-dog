@@ -484,3 +484,15 @@ describe("the cloud computer facade", () => {
     expect(requests).toHaveLength(0);
   });
 });
+
+describe("the size of the owner's dogs' cloud computers", () => {
+  it("follows the home's chosen size, and changes a computer only when it differs", async () => {
+    const { needsResize, wantedSize } = await import("./computers.ts");
+    expect(wantedSize({ box: { size: "xlarge" } } as never)).toBe("xlarge");
+    expect(wantedSize({} as never)).toBeUndefined();
+    expect(needsResize({ size: "standard" }, "xlarge")).toBe(true);
+    expect(needsResize({ size: "xlarge" }, "xlarge")).toBe(false);
+    expect(needsResize({ size: "standard" }, undefined)).toBe(false);
+    expect(needsResize({}, "xlarge")).toBe(false);
+  });
+});

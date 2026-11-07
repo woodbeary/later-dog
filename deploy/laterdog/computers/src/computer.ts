@@ -189,8 +189,13 @@ export class DogComputer extends DurableObject<Env> {
   }
 
   async rename(name: string): Promise<Result<ComputerView>> {
+    return this.change({ name });
+  }
+
+  async change(input: { name?: string; size?: Size }): Promise<Result<ComputerView>> {
     const record = this.update((r) => {
-      r.name = name;
+      if (input.name !== undefined) r.name = input.name;
+      if (input.size !== undefined) r.size = input.size;
     });
     if (!record) return notFound();
     await this.publish();

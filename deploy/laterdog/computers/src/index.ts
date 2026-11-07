@@ -211,7 +211,10 @@ async function computerRequest(op: ComputerOp, id: string, request: Request, env
       if (!body.ok) return body.response;
       const input = parseRename(body.value);
       if (!input.ok) return apiError(input.refusal);
-      return answer(await stub.rename(input.value.name), (value) => json({ computer: value }));
+      if (input.value.size !== undefined && input.value.size !== "standard" && trialLimited(caller)) {
+        return apiError({ status: 403, code: "trial_size", message: "A free trial computer is the standard size." });
+      }
+      return answer(await stub.change(input.value), (value) => json({ computer: value }));
     }
     case "delete": {
       const result = await stub.remove();

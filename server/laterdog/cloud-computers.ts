@@ -106,7 +106,7 @@ export function computersKey(connection: ComputersConnection): string {
   return key;
 }
 
-const computerSchema = z.object({ id: z.string().regex(COMPUTER_ID), name: z.string().min(1).max(200).regex(/^[^\r\n]*$/), state: z.string().min(1).max(40) });
+const computerSchema = z.object({ id: z.string().regex(COMPUTER_ID), name: z.string().min(1).max(200).regex(/^[^\r\n]*$/), state: z.string().min(1).max(40), size: z.string().max(20).optional() });
 export type Computer = z.infer<typeof computerSchema>;
 const computerBody = z.object({ computer: computerSchema });
 const listBody = z.object({ computers: z.array(computerSchema).max(10_000) });
@@ -232,6 +232,10 @@ export class ComputersClient {
 
   async rename(id: string, name: string): Promise<Computer> {
     return (await this.#read(await this.#send(`/computers/${computerPath(id)}`, { method: "PATCH", body: JSON.stringify({ name }), headers: JSON_TYPE }), computerBody)).computer;
+  }
+
+  async resize(id: string, size: string): Promise<Computer> {
+    return (await this.#read(await this.#send(`/computers/${computerPath(id)}`, { method: "PATCH", body: JSON.stringify({ size }), headers: JSON_TYPE }), computerBody)).computer;
   }
 
   async remove(id: string): Promise<"deleted" | "absent"> {

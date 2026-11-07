@@ -370,7 +370,7 @@ const appConfigSchema = z.object({
     .object({ key: optionalText, url: optionalText, model: optionalText, provider: optionalText })
     .optional(),
   composio: z.object({ apiKey: optionalText, userId: optionalText, sessionId: optionalText }).optional(),
-  box: z.object({ token: optionalText }).optional(),
+  box: z.object({ token: optionalText, size: z.enum(["small", "standard", "large", "xlarge"]).nullable().optional() }).optional(),
   vps: vpsConfigSchema.optional(),
   opencodeGo: z.object({ apiKey: optionalText, providerKeys: z.record(z.string(), z.string()).optional() }).optional(),
   tts: z.object({
@@ -488,7 +488,7 @@ export interface AppConfig {
   billing?: { currency?: string; prices?: Record<string, { inputPerMillion: number; outputPerMillion: number; cachedInputPerMillion?: number }> };
   openaiCompat?: { key?: string; url?: string; model?: string; provider?: string };
   composio?: { apiKey?: string; userId?: string; sessionId?: string };
-  box?: { token?: string };
+  box?: { token?: string; size?: "small" | "standard" | "large" | "xlarge" | null };
   vps?: { sshAlias?: string };
   opencodeGo?: { apiKey?: string; providerKeys?: Record<string, string> };
   tts?: { key?: string; fishKey?: string; voice?: string; provider?: "elevenlabs" | "fish" | "system" | "chatterbox" | "xai"; baseUrl?: string; model?: string; fishModel?: FishTtsModel };

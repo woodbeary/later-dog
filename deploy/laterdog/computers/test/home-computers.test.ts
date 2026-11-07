@@ -53,6 +53,21 @@ async function call(w: World, key: string, id: string, op: "wake" | "sleep"): Pr
 }
 
 describe("a later.dog Cloud home's computers", () => {
+  it("moves a dog's computer to a bigger size, which it starts on at its next wake with its files", async () => {
+    const w = await world({ TRIALS_ENABLED: "false" });
+    const key = trialKey("h");
+    expect((await grantHome(w, key)).status).toBe(201);
+    const scout = await created(w, key, { name: "Scout" });
+    await w.advance(MINUTE);
+    const resized = await w.fetch(apiRequest("PATCH", `/v1/computers/${scout}`, key, { body: { size: "xlarge" } }));
+    expect(resized.status).toBe(200);
+    expect((await body(resized)).computer.size).toBe("xlarge");
+    expect((await call(w, key, scout, "sleep")).status).toBe(200);
+    expect((await call(w, key, scout, "wake")).status).toBe(200);
+    await w.advance(MINUTE);
+    expect(w.containers.get(scout)!.starts.at(-1)).toMatchObject({ instance: "standard-4" });
+  });
+
   it("gives every dog on a home its own computer, of any size, even with free trials switched off", async () => {
     const w = await world({ TRIALS_ENABLED: "false" });
     const key = trialKey("h");

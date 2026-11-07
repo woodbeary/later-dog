@@ -50,10 +50,18 @@ export function parseCreate(body: unknown): Parsed<{ name?: string; size: Size }
   return { ok: true, value: { ...(name === undefined ? {} : { name }), size: size as Size } };
 }
 
-export function parseRename(body: unknown): Parsed<{ name: string }> {
-  if (!isObject(body) || body.name === undefined) return bad("invalid_body", 'The body must be a JSON object with a "name".');
-  const parsed = parseName(body.name);
-  return parsed.ok ? { ok: true, value: { name: parsed.value } } : parsed;
+export function parseRename(body: unknown): Parsed<{ name?: string; size?: Size }> {
+  if (!isObject(body) || (body.name === undefined && body.size === undefined)) return bad("invalid_body", 'The body must be a JSON object with a "name" or a "size".');
+  let name: string | undefined;
+  if (body.name !== undefined) {
+    const parsed = parseName(body.name);
+    if (!parsed.ok) return parsed;
+    name = parsed.value;
+  }
+  if (body.size !== undefined && (typeof body.size !== "string" || !Object.hasOwn(SIZES, body.size))) {
+    return bad("invalid_size", `size must be one of ${Object.keys(SIZES).join(", ")}.`);
+  }
+  return { ok: true, value: { ...(name === undefined ? {} : { name }), ...(body.size === undefined ? {} : { size: body.size as Size }) } };
 }
 
 export function parsePath(raw: unknown): Parsed<string> {
