@@ -10,8 +10,10 @@ const MAX_TOKENS = 20;
 const URGENT = new Set<string>(["approval", "question", "takeover", "phone"]);
 export const REPLY_CATEGORY = "reply";
 
+export type PushApp = "later.dog" | "expo-go";
+
 export interface PhonePush {
-  register(token: string): boolean;
+  register(token: string, app?: PushApp): boolean;
   unregister(token: string): void;
   tokens(): string[];
   send(notification: Notification): Promise<void>;
@@ -26,20 +28,38 @@ export function createPhonePush(options: { dataDir: string; fetcher?: typeof fet
   const file = join(options.dataDir, "phone-push.json");
   const fetcher = options.fetcher ?? ((input: string | URL | Request, init?: RequestInit) => fetch(input, init));
   const warn = options.warn ?? ((message: string) => console.warn(message));
-  const read = (): string[] => {
+  const valid = (list: unknown): string[] => Array.isArray(list)
+    ? list.filter((token): token is string => typeof token === "string" && EXPO_PUSH_TOKEN.test(token)) : [];
+  const load = (): { tokens: string[]; native: string[] } => {
     try {
-      const saved = JSON.parse(readFileSync(file, "utf8")) as { tokens?: unknown };
-      return Array.isArray(saved.tokens) ? saved.tokens.filter((token): token is string => typeof token === "string" && EXPO_PUSH_TOKEN.test(token)) : [];
+      const saved = JSON.parse(readFileSync(file, "utf8")) as { tokens?: unknown; native?: unknown };
+      return { tokens: valid(saved.tokens), native: valid(saved.native) };
     } catch {
-      return [];
+      return { tokens: [], native: [] };
     }
   };
-  const write = (tokens: string[]) => writeFileAtomic(file, `${JSON.stringify({ tokens })}\n`, { mode: 0o600 });
+  const read = (): string[] => load().tokens;
+  const write = (tokens: string[], native = load().native) => {
+    const kept = native.filter((token) => tokens.includes(token));
+    writeFileAtomic(file, `${JSON.stringify(kept.length ? { tokens, native: kept } : { tokens })}\n`, { mode: 0o600 });
+  };
 
   return {
-    register(token) {
+    register(token, app) {
       if (!EXPO_PUSH_TOKEN.test(token)) return false;
-      write([...read().filter((known) => known !== token), token].slice(-MAX_TOKENS));
+      const { tokens, native } = load();
+      const others = tokens.filter((known) => known !== token);
+      if (app === "expo-go") {
+        if (others.length !== tokens.length) write(others, native);
+        return false;
+      }
+      if (app !== "later.dog") {
+        if (native.length) return false;
+        write([...others, token].slice(-MAX_TOKENS), native);
+        return true;
+      }
+      const confirmed = [...native.filter((known) => known !== token), token];
+      write([...others.filter((known) => confirmed.includes(known)), token].slice(-MAX_TOKENS), confirmed);
       return true;
     },
     unregister(token) {
@@ -91,7 +111,8 @@ export async function phonePushRequest(
   const body = await readBody();
   const token = body && typeof body === "object" && "token" in body ? (body as { token: unknown }).token : undefined;
   if (typeof token !== "string" || !EXPO_PUSH_TOKEN.test(token)) return { status: 400, body: { error: "token must be an Expo push token" } };
-  if (method === "POST") push.register(token);
+  const app = body && typeof body === "object" && "app" in body ? (body as { app: unknown }).app : undefined;
+  if (method === "POST") push.register(token, app === "later.dog" || app === "expo-go" ? app : undefined);
   else push.unregister(token);
   return { status: 200, body: { ok: true } };
 }

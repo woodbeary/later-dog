@@ -235,6 +235,7 @@ import { appendUsage, parseUsageRange, readUsage, summarizeUsage, usageCsv, USAG
 import { latestPlanRow, loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
 import { createAccountUsageRoute } from "./routes/account-usage.ts";
 import { createSwitchAccountRoute } from "./routes/switch-account.ts";
+import { CONTINUE_AFTER_PICK, pickMovesTurn, pickNotice } from "./laterdog/account-pick.ts";
 import { codexHome } from "./drivers/codex-identity.ts";
 import { resolveClaudeConfigDir } from "./drivers/claude.ts";
 import { createGitHubActivity } from "./github-activity.ts";
@@ -3953,6 +3954,7 @@ function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
     try {
       store.switchTaskModel(botId, threadId as string, checked.selection, message.updateBotDefault, true,
         hostedModels?.resetTask(target.modelSelection, checked.selection));
+      followAccountPick(threadId as string, target.modelSelection, checked.selection);
       const fresh = { ...wireBot(store.bot(botId)!), approvalMode: approvalModeFor(store.bot(botId)!) };
       broadcast({ kind: "bot", bot: fresh });
       respond({ ok: true, bot: fresh });
@@ -6265,6 +6267,60 @@ function runningTurnInstance(bot: BotRecord | null | undefined, threadId: string
   return runningTurnEngines.get(threadId) ?? (bot ? registry.get(bot.modelSelection.instanceId) : null);
 }
 
+const accountMoves = new Map<string, { generation: string; from: string; to: string }>();
+
+function followAccountPick(threadId: string, before: ModelSelection | undefined, after: ModelSelection): void {
+  accountBattery.pin(threadId, after.instanceId);
+  const generation = directTurnGenerationByThread.get(threadId);
+  const running = runningTurnEngines.get(threadId);
+  if (!generation || !running || store.groupByThread(threadId)) return;
+  const routedTo = accountBattery.route(after, batteryAccounts(), threadId).instanceId;
+  if (!pickMovesTurn({ before, after, runningOn: running.instanceId, routedTo })) return;
+  if (!accountBattery.pauseTurn(threadId, generation)) return;
+  accountMoves.set(threadId, { generation, from: running.instanceId, to: routedTo });
+  console.info(`token battery: ${threadId} moving from ${running.instanceId} to ${routedTo}, as picked`);
+  void running.adapter.interruptTurn(threadId).catch(() => { accountMoves.delete(threadId); });
+}
+
+function movingToPick(event: RuntimeEvent): boolean {
+  if (event.type !== "turn.completed" || event.stopReason !== "interrupted" || directRequestOwners.get(event.threadId)?.stopped) return false;
+  return accountMoves.get(event.threadId)?.generation === directTurnGenerationByThread.get(event.threadId);
+}
+
+function continueOnPickedAccount(threadId: string, turnId: string | undefined, generation: string | undefined, tries = 0): void {
+  const move = accountMoves.get(threadId);
+  setTimeout(() => {
+    const owner = store.botByThread(threadId);
+    const turn = accountBattery.keptTurn(threadId, generation);
+    if (!move || accountMoves.get(threadId) !== move || !owner || !turn?.rerun || directTurnGenerationByThread.get(threadId) !== generation ||
+        directRequestOwners.get(threadId)?.stopped) {
+      if (accountMoves.get(threadId) === move) accountMoves.delete(threadId);
+      return;
+    }
+    if (threadBusy(owner.id, threadId) || botAtThreadCapacity(owner.id) || activeGroupTurnForBot(owner.id)) {
+      if (tries < 40) continueOnPickedAccount(threadId, turnId, generation, tries + 1);
+      else accountMoves.delete(threadId);
+      return;
+    }
+    accountMoves.delete(threadId);
+    const accounts = batteryAccounts();
+    const name = (instanceId: string) => accounts.find((account) => account.instanceId === instanceId)?.displayName || instanceId;
+    const path = store.activePath(threadId);
+    const at = path.findIndex((message) => message.id === turn.requestMessageId);
+    const toolRan = path.some((message) => message.kind === "activity" && message.turnId === turnId && Boolean(message.tool?.itemId));
+    const newerWords = path.slice(at + 1).some((message) => message.role === "user");
+    store.appendMessage(threadId, { role: "bot", kind: "activity",
+      tool: { name: `notice: ${pickNotice(name(move.to), name(move.from))}`, ok: true, carry: { from: move.from, to: move.to } } });
+    accountBattery.takeTurn(threadId, generation);
+    void turn.rerun(toolRan || newerWords ? CONTINUE_AFTER_PICK : null).catch((error) => {
+      settleDirectFollowup(generation, { ok: false, text: String(error) });
+      if (!store.botByThread(threadId)) return;
+      store.appendMessage(threadId, { role: "bot", kind: "activity",
+        tool: failedTurnTool(`Could not continue on ${name(move.to)}: ${error instanceof Error ? error.message : String(error)}`) });
+    });
+  }, tries ? 250 : 0);
+}
+
 function providerTransitionForTurn(
   bot: NonNullable<ReturnType<typeof store.bot>>,
   runOn?: RoutineRunOn,
@@ -6495,7 +6551,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
     const publicEvent = event.type === "request.opened" ? { ...event, command: undefined } : event;
     broadcast({ kind: "runtime", event: publicEvent });
   }
-  const carryingOn = automaticallyCarriesOn(event);
+  const movingOn = movingToPick(event);
+  const carryingOn = automaticallyCarriesOn(event) || movingOn;
   const routineRun = privateImageEvent ? null : carryingOn ? routineRunForTurn(event.threadId) : (routines?.handleRuntimeEvent(event) ?? null);
   const ownerBot = store.botByThread(event.threadId);
   const bot = ownerBot ? botForThread(ownerBot.id, event.threadId) ?? undefined : undefined;
@@ -6921,6 +6978,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           directTurnBots.delete(event.threadId);
           if (!carryingOn && continueComputerSelection(event.threadId, generation, event.ok)) return;
           if (nextAccount) continueOnNextAccount(event.threadId, completedTurnId, generation, nextAccount);
+          if (movingOn) continueOnPickedAccount(event.threadId, completedTurnId, generation);
           if (resumeQueued) {
             drainQueuedSends();
             drainConnectorResumes();
@@ -17962,6 +18020,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         ? store.switchTaskModel(m[1], m[2], patch.modelSelection, body.updateBotDefault === true, body.resetApprovalToAsk === true,
           { ...patch, ...hostedModels?.resetTask(current.modelSelection, patch.modelSelection) })!
         : store.patchTask(m[1], m[2], patch)!;
+      if (patch.modelSelection) followAccountPick(m[2], current.modelSelection, patch.modelSelection);
       return json(res, 200, { task: wireTask(task, store.bot(m[1])!.modelSelection), bot: publicBot(store.bot(m[1])!) });
     }
     if (m && method === "DELETE") {
