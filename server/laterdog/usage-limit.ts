@@ -114,6 +114,12 @@ export function limitKindFromWords(text: string): string | undefined {
   return named === "5-hour" ? "session" : named;
 }
 
+export function claudeModelAnswered(frame: { error?: unknown; is_api_error_message?: unknown; message?: unknown }): boolean {
+  if (frame.is_api_error_message === true || typeof frame.error === "string") return false;
+  const message = record(frame.message);
+  return Boolean(message) && message!.model !== "<synthetic>";
+}
+
 export function claudeUsageLimit(
   frame: { error?: unknown; is_api_error_message?: unknown; [key: string]: unknown },
   text: string,

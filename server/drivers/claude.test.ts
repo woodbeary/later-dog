@@ -649,6 +649,17 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: false, stopReason: "usage_limit" });
   });
 
+  it("settles a turn that the model answered after an earlier limit by how it really ended, so its account is not benched", async () => {
+    await create("usage-limit", { FAKE_CLAUDE_USAGE_LIMIT_THEN_ANSWER: "1" });
+    const turn = await instance.adapter.sendTurn({ threadId: "t-usage-then-answer", text: "hi" });
+    await recorder.until((event) => event.type === "turn.completed" && event.turnId === turn.turnId);
+    const types = recorder.events.filter((event) => event.turnId === turn.turnId).map((event) => event.type);
+    expect(types.indexOf("runtime.error")).toBeLessThan(types.lastIndexOf("item.completed"));
+    expect(recorder.events.find((event) => event.type === "item.completed" && (event as any).itemType === "assistant_text"))
+      .toMatchObject({ text: "back once the limit reset" });
+    expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true, stopReason: "end_turn" });
+  });
+
   it("stops a Claude Code that keeps running after its input closes before dispose finishes, so none outlives a server restart", async () => {
     const dump = join(scratch, "dispose-stays.json");
     await create("happy", { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_STAYS_AFTER_INPUT: "1" });

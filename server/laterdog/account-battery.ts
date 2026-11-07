@@ -173,6 +173,23 @@ export function percentLeft(row: PlanProviderRow | undefined, now: number): numb
   return left.length ? Math.min(...left) : undefined;
 }
 
+const KINDS_A_READING_SHOWS: ReadonlySet<string | undefined> = new Set([undefined, "session", "weekly"]);
+
+export function guessesReadingsDisprove(
+  resting: Readonly<Record<string, Rest>>,
+  usage: PlanReading | undefined,
+  usageAt: ((instanceId: string) => number | undefined) | undefined,
+  now: number,
+): string[] {
+  return Object.entries(resting).filter(([instanceId, rest]) => {
+    if (!rest.estimated || !KINDS_A_READING_SHOWS.has(rest.kind)) return false;
+    const readAt = usageAt?.(instanceId);
+    if (readAt === undefined || !(readAt > Date.parse(rest.since))) return false;
+    const left = percentLeft(usage?.(instanceId), now);
+    return left !== undefined && left > NEARLY_EMPTY_PERCENT;
+  }).map(([instanceId]) => instanceId);
+}
+
 export function rankOrder(order: Record<string, string[]>, input: Omit<PickInput, "config" | "selection">): Record<string, string[]> {
   const ranked: Record<string, string[]> = {};
   for (const [driver, ids] of Object.entries(order)) {
@@ -247,6 +264,7 @@ export function crossEngineNotice(
 
 function canTake(account: BatteryAccount | undefined, input: Omit<PickInput, "config">, listed: boolean): account is BatteryAccount {
   if (!account?.eligible || !account.enabled || account.signedIn === false) return false;
+  if (account.signedIn !== true && account.instanceId !== input.selection.instanceId) return false;
   const own = input.accounts.find((candidate) => candidate.instanceId === input.selection.instanceId);
   if (account.driverKind === own?.driverKind && listed && !account.models.includes(input.selection.model)) return false;
   if (account.driverKind !== own?.driverKind && !account.defaultModel && !account.models.length) return false;
@@ -443,6 +461,7 @@ export class AccountBattery {
   }
 
   route(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): ModelSelection {
+    this.dropDisprovedGuesses();
     const preferred = this.preferredFor(threadId);
     const chosen = threadId ? this.chosen(threadId, selection, accounts) : undefined;
     if (chosen) return selectionOnAccount(selection, accounts.find((account) => account.instanceId === chosen)!, accounts, preferred);
@@ -504,7 +523,7 @@ export class AccountBattery {
     const own = find(selection.instanceId);
     const ranOut = find(away.ranOut);
     const to = find(away.to);
-    if (!own?.eligible || !ranOut || !to?.eligible || !to.enabled || to.signedIn === false) return undefined;
+    if (!own?.eligible || !ranOut || !to?.eligible || !to.enabled || to.signedIn !== true) return undefined;
     if (to.driverKind === own.driverKind && own.models.includes(selection.model) && !to.models.includes(selection.model)) return undefined;
     const preferred = this.preferredFor(threadId);
     if (!this.restOf(ranOut, accounts, selectionOnAccount(selection, ranOut, accounts, preferred).model) ||
@@ -566,11 +585,19 @@ export class AccountBattery {
     if (changed) this.save();
   }
 
+  private dropDisprovedGuesses(): void {
+    const disproved = guessesReadingsDisprove(this.state.resting, this.options.usage, this.options.usageAt, this.now());
+    if (!disproved.length) return;
+    for (const instanceId of disproved) delete this.state.resting[instanceId];
+    this.save();
+  }
+
   restOf(account: BatteryAccount, accounts: readonly BatteryAccount[], model?: string): (Rest & { sharedWith?: string }) | undefined {
     return activeRest(account, model, accounts, this.state.resting, this.now());
   }
 
   readyAt(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): string | undefined {
+    this.dropDisprovedGuesses();
     const find = (instanceId: string) => accounts.find((account) => account.instanceId === instanceId);
     const own = find(selection.instanceId);
     if (!own) return undefined;
@@ -580,7 +607,7 @@ export class AccountBattery {
       ...(away?.to && (away.pick === undefined || away.pick === own.instanceId) ? [away.to] : []),
       ...(this.enabled && own.eligible ? batterySequence({ config: this.options.config(), accounts, resting: this.state.resting, now: this.now() }) : []),
     ].map(find).filter((account): account is BatteryAccount => Boolean(account && account !== own && account.eligible && account.enabled &&
-      account.signedIn !== false && (account.driverKind !== own.driverKind ? Boolean(account.defaultModel || account.models.length) : !listed || account.models.includes(selection.model))));
+      account.signedIn === true && (account.driverKind !== own.driverKind ? Boolean(account.defaultModel || account.models.length) : !listed || account.models.includes(selection.model))));
     let soonest = Infinity;
     const preferred = this.preferredFor(threadId);
     for (const account of [own, ...others]) {
@@ -625,6 +652,7 @@ export class AccountBattery {
   }
 
   noteReadings(accounts: readonly BatteryAccount[]): void {
+    this.dropDisprovedGuesses();
     const config = this.options.config();
     if (!batteryEnabled(config, accounts) || !config?.auto) return;
     const order = effectiveOrder({ config, accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage });

@@ -44,14 +44,15 @@ describe("routing", () => {
     expect(route({ selection: picked })).toBe(picked);
   });
 
-  it("passes over a resting, disabled or signed-out pick to the next account in the order", () => {
+  it("passes over a resting, disabled, signed-out or not-yet-checked pick to the next account in the order", () => {
     const resting = { claude: rest(HOUR) };
     expect(route({ resting })).toEqual({ ...SELECTION, instanceId: "claude-b" });
     expect(route({ resting: { ...resting, "claude-b": rest(2 * HOUR) } })).toEqual({ ...SELECTION, instanceId: "claude-c" });
     expect(route({ accounts: [account("claude", { enabled: false }), account("claude-b"), account("claude-c")] }).instanceId).toBe("claude-b");
     expect(route({ accounts: [account("claude", { signedIn: false }), account("claude-b"), account("claude-c")] }).instanceId).toBe("claude-b");
     expect(route({ resting, accounts: [account("claude"), account("claude-b", { models: ["claude-opus-5"] }), account("claude-c")] }).instanceId).toBe("claude-c");
-    expect(route({ resting, accounts: [account("claude"), account("claude-b", { signedIn: undefined }), account("claude-c")] }).instanceId).toBe("claude-b");
+    expect(route({ resting, accounts: [account("claude"), account("claude-b", { signedIn: undefined }), account("claude-c")] }).instanceId).toBe("claude-c");
+    expect(route({ accounts: [account("claude", { signedIn: undefined }), account("claude-b"), account("claude-c")] })).toBe(SELECTION);
     expect(route({ resting, selection: { ...SELECTION, model: "claude-custom-fixture" } }).instanceId).toBe("claude-b");
   });
 
@@ -181,6 +182,34 @@ describe("most available first", () => {
     expect(instance.route(SELECTION, ACCOUNTS, "thread-low")).toBe(SELECTION);
     readings.claude = reading("claude", 40, 99);
     expect(new AccountBattery({ config: () => ({ ...ON, enabled: false }), now: () => NOW, usage: (id) => readings[id] }).route(SELECTION, ACCOUNTS, "thread-low")).toBe(SELECTION);
+  });
+
+  it("brings back an account it only guessed was out once a newer reading shows room, and keeps a known reset or a reading that agrees", () => {
+    let now = NOW;
+    const readings: Record<string, PlanProviderRow> = {};
+    const readAt: Record<string, number> = {};
+    const instance = new AccountBattery({ config: () => ON, now: () => now, usage: (id) => readings[id], usageAt: (id) => readAt[id] });
+    const routed = (selection = SELECTION) => instance.route(selection, ACCOUNTS, "thread-guess").instanceId;
+    instance.markExhausted("claude");
+    readings.claude = reading("claude", 10, 56);
+    readAt.claude = NOW - 1;
+    expect(routed()).toBe("claude-b");
+    now = NOW + 60_000;
+    readAt.claude = now;
+    readings.claude = reading("claude", 100, 56);
+    expect(routed()).toBe("claude-b");
+    readings.claude = reading("claude", 10, 56);
+    expect(routed()).toBe("claude");
+    expect(instance.status(ACCOUNTS).resting).not.toHaveProperty("claude");
+    instance.markExhausted("claude", { resetsAt: at(2 * HOUR), kind: "session" });
+    now = NOW + 120_000;
+    readAt.claude = now;
+    expect(routed()).toBe("claude-b");
+    instance.recovered("claude", now);
+    instance.markExhausted("claude", { kind: "opus" });
+    now = NOW + 180_000;
+    readAt.claude = now;
+    expect(routed({ ...SELECTION, model: "claude-opus-5" })).toBe("claude-b");
   });
 
   it("reports the order it will use and moves a turn that ran out to the account with the most left", () => {

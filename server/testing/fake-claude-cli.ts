@@ -502,6 +502,15 @@ const playTurn = async (prompt: JsonValue, late = false) => {
       process.stdout.write("", () => process.exit(1));
       return;
     }
+    if (process.env.FAKE_CLAUDE_USAGE_LIMIT_THEN_ANSWER === "1") {
+      const answer = "back once the limit reset";
+      out({ type: "rate_limit_event", rate_limit_info: { status: "allowed", rateLimitType: "five_hour", resetsAt }, uuid: `fake-rate-allowed-${process.pid}`, session_id: sessionId });
+      out({ type: "assistant", message: { model: "claude-opus-5-5", content: [{ type: "text", text: answer }] } });
+      out({ type: "result", subtype: "success", is_error: false, stop_reason: "end_turn", result: answer, usage: { input_tokens: 10, output_tokens: 5 } });
+      turnRunning = false;
+      finishIfDone();
+      return;
+    }
     out({ type: "result", is_error: true, stop_reason: "stop_sequence", terminal_reason: "api_error", result: text });
     turnRunning = false;
     finishIfDone();

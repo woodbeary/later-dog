@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claudeUsageLimit, codexUsageLimit, limitKindFromWords, parseResetWords, rejectedRateLimit, resetInstant } from "./usage-limit.ts";
+import { claudeModelAnswered, claudeUsageLimit, codexUsageLimit, limitKindFromWords, parseResetWords, rejectedRateLimit, resetInstant } from "./usage-limit.ts";
 
 const NOW = Date.parse("2026-10-07T18:30:00Z");
 const IN_TWO_HOURS = Math.floor(NOW / 1000) + 2 * 3600;
@@ -12,6 +12,17 @@ const limitFrame = (text: string, info: Record<string, unknown> = { status: "rej
   is_api_error_message: true,
   api_error: "usage_limit_reached",
   api_error_params: { rate_limit_info: info },
+});
+
+describe("claudeModelAnswered", () => {
+  it("counts a reply the model wrote, never a limit, an API error or a frame without a message", () => {
+    expect(claudeModelAnswered({ message: { model: "claude-opus-5-5", content: [{ type: "text", text: "done" }] } })).toBe(true);
+    expect(claudeModelAnswered({ message: { content: [{ type: "tool_use", id: "t1", name: "Bash", input: {} }] } })).toBe(true);
+    expect(claudeModelAnswered(limitFrame("You've hit your 5-hour limit · resets 5:20pm (America/Los_Angeles)"))).toBe(false);
+    expect(claudeModelAnswered({ message: { model: "<synthetic>", content: [] } })).toBe(false);
+    expect(claudeModelAnswered({ message: { model: "claude-opus-5-5", content: [] }, error: "unknown" })).toBe(false);
+    expect(claudeModelAnswered({})).toBe(false);
+  });
 });
 
 describe("parseResetWords", () => {
