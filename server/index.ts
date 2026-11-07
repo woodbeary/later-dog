@@ -7522,9 +7522,11 @@ async function acceptDirectSend(
         });
         if (busyAdmission.action === "steer" && instance?.adapter.steer) {
           const words = steerWords(withSteerNote(directPrompt(text, replyTo)));
-          steered = await instance.adapter
-            .steer(threadId, words.text, words.images, receipt.onRead)
-            .catch((): SteerOutcome => "indeterminate");
+          const adapter = instance.adapter;
+          steered = await steerWhileRunning(
+            () => adapter.steer!(threadId, words.text, words.images, receipt.onRead),
+            () => threadBusy(botId, threadId),
+          );
         }
         const current = store.projectBotForTask(botId, threadId);
         if (!current) throw Object.assign(new Error("no such bot"), { status: 404 });

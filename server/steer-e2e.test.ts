@@ -570,6 +570,36 @@ posixOnly("mid-turn steering e2e", () => {
     expect(stderr).not.toContain("signal SIGTERM");
   }, 40_000);
 
+  it("a message sent while the turn briefly refuses steers is steered in once it can, not queued", async () => {
+    writeFileSync(codexSteerGate, "refuse the first steer attempts");
+    const created = (await api("POST", "/api/bots")).body.bot;
+    const instances = (await api("GET", "/api/instances")).body.instances;
+    const model = instances.find((i: any) => i.instanceId === "codexRace").models.default;
+    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "codexRace", model } });
+
+    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "first gated turn" })).status).toBe(202);
+    await waitFor(async () => (await getBot(created.id)).busy === true, "the gated turn to start");
+    await waitFor(async () => (await getBot(created.id)).messages.some((m: any) => m.card), "the gated question card");
+    await answerQuestion(created.id, created.threadId);
+
+    const person = await asPairedPerson();
+    const opens = setTimeout(() => rmSync(codexSteerGate, { force: true }), 400);
+    let sent: Awaited<ReturnType<typeof api>>;
+    try {
+      sent = await person("POST", `/api/bots/${created.id}/messages`, { text: "steer me once you can" });
+    } finally {
+      clearTimeout(opens);
+      rmSync(codexSteerGate, { force: true });
+    }
+    expect(sent.body.queued).toBeUndefined();
+    expect(sent.body.steered).toBe(true);
+    const folded = (await getBot(created.id)).messages.find((m: any) => m.text === "steer me once you can");
+    expect(folded.steered).toBe(true);
+
+    await api("POST", `/api/bots/${created.id}/interrupt`);
+    await waitFor(async () => (await getBot(created.id)).busy === false, "the steered turn to settle");
+  }, 40_000);
+
   it("an engine without live steering stops the running turn and sends the queued message as the next turn", async () => {
     const created = (await api("POST", "/api/bots")).body.bot;
     await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "acp", model: "fake-model" } });
