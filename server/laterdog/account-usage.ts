@@ -103,3 +103,40 @@ export function accountUsageText(report: AccountUsageReport, now: number, timeZo
     : best ? "" : "\n\nEvery account is resting or off right now.";
   return `Plan accounts, by how much is left:\n${lines.join("\n")}${run}\n\nYour own turns move to an account with room by themselves when this one runs low. To move this chat onto one by name, use switch_account.`;
 }
+
+export function accountTurnPrompt(input: AccountUsageInput | undefined, now: number, timeZone?: string): string {
+  if (!input) return "";
+  const [row] = accountUsage([input], input.account.instanceId, now).accounts;
+  if (!row) return "";
+  const who = row.email ? `${row.name} (${row.email})` : row.name;
+  const state = row.status === "resting" ? `, resting until ${when(row.restingUntil, now, timeZone)}` : row.status === "ready" ? "" : `, ${row.status}`;
+  const left = (window: AccountUsageWindow | undefined) => (window ? `${100 - window.usedPercent}% left` : "unknown");
+  return ` This turn runs on the ${row.engine} plan account ${who}${state}: session (5-hour) ${left(row.fiveHour)}, weekly ${left(row.weekly)}.` +
+    " account_usage shows every account; switch_account moves this chat to another.";
+}
+
+export interface DogAccountInput {
+  id: string;
+  name: string;
+  main: boolean;
+  pinned: boolean;
+  account: string;
+  runsOn?: string;
+  busy: boolean;
+}
+
+export function dogAccountsText(dogs: readonly DogAccountInput[], report: AccountUsageReport, now: number, timeZone?: string): string {
+  const byId = new Map(report.accounts.map((row) => [row.id, row]));
+  const label = (id: string) => byId.get(id)?.name ?? id;
+  const accounts = report.accounts.map((row) => {
+    const state = row.status === "resting" ? `resting until ${when(row.restingUntil, now, timeZone)}` : row.status;
+    const count = dogs.filter((dog) => (dog.runsOn ?? dog.account) === row.id).length;
+    return `- ${row.name} [id: ${row.id}, ${row.engine}]: ${state}; ${windowWords("5-hour", row.fiveHour, now, timeZone)}; ${windowWords("7-day", row.weekly, now, timeZone)}; ${count} dog${count === 1 ? "" : "s"} on it.`;
+  });
+  const rows = dogs.map((dog) => {
+    const runs = dog.runsOn && dog.runsOn !== dog.account ? `, running on ${label(dog.runsOn)} for now` : "";
+    const marks = [dog.main ? "main dog" : "", dog.pinned ? "pinned" : "", dog.busy ? "working" : ""].filter(Boolean).join(", ");
+    return `- ${dog.name} [id: ${dog.id}${marks ? `, ${marks}` : ""}]: ${label(dog.account)}${runs}`;
+  });
+  return `Accounts:\n${accounts.join("\n")}\n\nDogs:\n${rows.join("\n")}\n\nTo put dogs on an account, call dog_accounts with dogs and account. Assigned dogs are pinned: they and the helpers they start stay on that account and move only when it runs out.`;
+}

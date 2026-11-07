@@ -433,6 +433,13 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const r = await api("/api/internal/switch-account", { method: "POST", body: JSON.stringify({ account: args.account }) });
     return typeof r.text === "string" ? { text: r.text } : { text: String(r.error ?? JSON.stringify(r)), isError: true };
   }
+  if (name === "dog_accounts") {
+    const assigning = args.dogs !== undefined || args.account !== undefined;
+    const r = assigning
+      ? await api("/api/internal/dog-accounts", { method: "POST", body: JSON.stringify({ dogs: args.dogs, account: args.account }) })
+      : await api("/api/internal/dog-accounts");
+    return typeof r.text === "string" ? { text: r.text } : { text: String(r.error ?? JSON.stringify(r)), isError: true };
+  }
   if (name === "select_computer") {
     if (args.surface !== undefined && (typeof args.surface !== "string" || !["auto", "cloud", "local", "mac"].includes(args.surface))) {
       return { text: "Choose auto, cloud, local or mac; omit surface to inspect connected choices.", isError: true };

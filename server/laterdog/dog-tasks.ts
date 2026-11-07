@@ -1,5 +1,6 @@
+import { selectionOnAccount, type BatteryAccount } from "./account-battery.ts";
 import { z } from "zod";
-import type { TaskOpenedBy } from "../../shared/wire.ts";
+import type { ModelSelection, TaskOpenedBy } from "../../shared/wire.ts";
 
 export const START_TASKS_PATH = "/api/internal/tasks/start";
 export const MAX_NEW_TASKS = 5;
@@ -65,4 +66,17 @@ export function startedWords(result: StartedTasks): string {
     lines.push(`Couldn't start ${quoted(result.failed)}: ${result.failed.map((task) => task.error).join("; ")}. Do that work here instead.`);
   }
   return lines.join(" ");
+}
+
+export function helperSelection(input: {
+  parent: ModelSelection;
+  runningOn: string | undefined;
+  botDefault: ModelSelection;
+  accounts: readonly BatteryAccount[];
+  preferred?: readonly ModelSelection[];
+}): ModelSelection | undefined {
+  const on = input.runningOn ?? input.parent.instanceId;
+  const account = input.accounts.find((candidate) => candidate.instanceId === on);
+  const inherited = account && on !== input.parent.instanceId ? selectionOnAccount(input.parent, account, input.accounts, input.preferred) : input.parent;
+  return inherited.instanceId === input.botDefault.instanceId && inherited.model === input.botDefault.model ? undefined : inherited;
 }

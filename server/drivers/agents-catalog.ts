@@ -336,6 +336,15 @@ const TOOL_DEFINITIONS = [
     } },
   },
   {
+    name: "dog_accounts",
+    description:
+      "Main dog only. With no arguments: every dog's plan account, where each runs right now, and each account's session and weekly usage, in one view. With dogs and account: put those dogs on that account and pin them there (\"put task and nextdoor on daniel\"); they and the helpers they start stay on it and move only when it runs out. Assignments persist. Confirm in one line what moved.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      dogs: { type: "array", items: { type: "string", minLength: 1, maxLength: 200 }, maxItems: 100, description: "Dog names or ids to put on the account." },
+      account: { type: "string", minLength: 1, maxLength: 200, description: "The account's name, e.g. daniel." },
+    } },
+  },
+  {
     name: "select_computer",
     description:
       "Choose where this conversation does computer work. Call with no arguments to inspect actual available choices and the current place. For a task needing computer interaction, select the requested place, or auto to choose a suitable configured computer without asking the user to use menus. later.dog reuses an existing computer first; with a configured provider it can start or provision one when needed. Do not provision for ordinary chat or just to inspect availability. A pending result means end this turn immediately: later.dog updates the conversation selector and resumes the original request with that computer's real tools. Do not use the old tools after requesting a switch, repeat the task, or claim the action is done. This cannot change permissions, override Off, or switch a teammate/routine/channel.",

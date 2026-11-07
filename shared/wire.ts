@@ -193,6 +193,7 @@ export interface WireBot {
   voiceNotes?: boolean;
   memoryEnabled?: boolean;
   parkDirectMessages?: boolean;
+  accountPinned?: boolean;
   rewound?: boolean;
   pinned?: boolean;
   hidden?: boolean;

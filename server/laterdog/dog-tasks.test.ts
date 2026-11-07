@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MAX_NEW_TASKS, startedFromTask, startedWords, startTasks, startTasksInput, type TaskStarter } from "./dog-tasks.ts";
+import { helperSelection, MAX_NEW_TASKS, startedFromTask, startedWords, startTasks, startTasksInput, type TaskStarter } from "./dog-tasks.ts";
+import type { BatteryAccount } from "./account-battery.ts";
 
 const OLIVE = { id: "dog-olive", name: "Olive" };
 
@@ -58,5 +59,27 @@ describe("a dog starting tasks of its own", () => {
     expect(startedFromTask({ botId: "dog-rex", name: "Rex", kind: "work", at: 1 }, "dog-olive")).toBe(false);
     expect(startedFromTask({ botId: "dog-olive", name: "Olive", kind: "pair", at: 1 }, "dog-olive")).toBe(false);
     expect(startedFromTask(undefined, "dog-olive")).toBe(false);
+  });
+});
+
+describe("helpers a dog starts keep the dog's account", () => {
+  const claude = (instanceId: string): BatteryAccount => ({
+    instanceId, driverKind: "claudeAgent", displayName: instanceId, enabled: true, eligible: true, signedIn: true, models: ["claude-opus-5-5"],
+  });
+  const accounts = [claude("claude"), claude("claude-daniel"), claude("claude-anthony")];
+  const onAdam = { instanceId: "claude", model: "claude-opus-5-5" };
+  const onDaniel = { instanceId: "claude-daniel", model: "claude-opus-5-5" };
+
+  it("starts a task on the account the dog's chat was switched to, not the dog's default", () => {
+    expect(helperSelection({ parent: onDaniel, runningOn: undefined, botDefault: onAdam, accounts })).toEqual(onDaniel);
+  });
+
+  it("starts a task on the account the dog is running on right now after a fallback", () => {
+    expect(helperSelection({ parent: onDaniel, runningOn: "claude-anthony", botDefault: onAdam, accounts }))
+      .toEqual({ instanceId: "claude-anthony", model: "claude-opus-5-5" });
+  });
+
+  it("leaves the task on the dog's default when that is where the dog is", () => {
+    expect(helperSelection({ parent: onAdam, runningOn: "claude", botDefault: onAdam, accounts })).toBeUndefined();
   });
 });

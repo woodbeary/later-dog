@@ -431,6 +431,7 @@ export interface AccountBatteryOptions {
   running?: () => Readonly<Record<string, number>>;
   defaultAccount?: () => string | undefined;
   ownThread?: (threadId: string) => boolean;
+  pinnedThread?: (threadId: string) => boolean;
   onChange?: () => void;
 }
 
@@ -483,7 +484,7 @@ export class AccountBattery {
 
   private spreadTo(threadId: string, own: BatteryAccount, input: Omit<PickInput, "config">): BatteryAccount | undefined {
     const running = this.options.running?.();
-    if (!running || !this.enabled || this.options.ownThread?.(threadId) === false || this.pinned(own, input.accounts)) return undefined;
+    if (!running || !this.enabled || this.options.ownThread?.(threadId) === false || this.pinned(own, input.accounts) || this.options.pinnedThread?.(threadId) === true) return undefined;
     const order = batteryOrder(this.options.config(), input.accounts)[own.driverKind] ?? [];
     const listed = own.models.includes(input.selection.model);
     const candidates = input.accounts.filter((account) => account.driverKind === own.driverKind && order.includes(account.instanceId) &&

@@ -174,3 +174,25 @@ describe("spreading dogs across accounts", () => {
     expect(second.start("dog-2").routed.instanceId).toBe("claude-3");
   });
 });
+
+describe("a dog the owner pinned to an account", () => {
+  const pinnedBattery = (pinned: boolean) => {
+    const running: Record<string, number> = { claude: 3 };
+    return new AccountBattery({
+      config: () => ON, accounts: () => ACCOUNTS, now: () => NOW, running: () => running, defaultAccount: () => "claude",
+      usage: (id: string) => reading(id === "claude" ? 40 : id === "claude-2" ? 10 : 70),
+      pinnedThread: (threadId) => pinned && threadId === "pinned-dog",
+    });
+  };
+
+  it("stays on its own account while it has room, even when others are less loaded", () => {
+    expect(pinnedBattery(false).route(DOG, ACCOUNTS, "pinned-dog").instanceId).toBe("claude-2");
+    expect(pinnedBattery(true).route(DOG, ACCOUNTS, "pinned-dog")).toBe(DOG);
+  });
+
+  it("moves only when its own account runs out, and then to the account with the most left", () => {
+    const battery = pinnedBattery(true);
+    battery.markExhausted("claude", { resetsAt: at(HOUR) });
+    expect(battery.route(DOG, ACCOUNTS, "pinned-dog").instanceId).toBe("claude-2");
+  });
+});

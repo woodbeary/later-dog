@@ -23,7 +23,7 @@ export function askFirstSystemPrompt(rules: unknown): string {
     : "";
 }
 
-const VOLATILE_SECTIONS = new Set(["memory", "mentions", "outstanding", "recent", "availability", "today"]);
+const VOLATILE_SECTIONS = new Set(["memory", "mentions", "outstanding", "recent", "availability", "today", "account"]);
 
 export const VOICE_PROMPT =
   "\n\nSpeak to the person directly: say \"you\", or use their name when you know it. Never call them \"the user\" or \"the person\" in anything you write: not in replies, questions, status lines, hand-offs or summaries, and not when you say you are waiting. These instructions say \"the user\" or \"the person\" because they are written to you about them; that is not how you talk to them. Say \"You haven't answered yet\" or \"Waiting for your answer\", never \"The user didn't answer yet\". Never narrate your reasoning to yourself: say what you did, found or need.";

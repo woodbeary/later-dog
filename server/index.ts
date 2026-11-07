@@ -119,7 +119,7 @@ import { createPhoneCrashRoutes } from "./routes/phone-crashes.ts";
 import { PhoneCrashes } from "./laterdog/phone-crashes.ts";
 import { createDogTaskRoute } from "./routes/dog-tasks.ts";
 import { briefStep, pageViewOf, SHOWN_PAGE_ROW_CAP, shownPageStart, type PageView } from "./message-pages.ts";
-import { startedFromTask } from "./laterdog/dog-tasks.ts";
+import { helperSelection, startedFromTask } from "./laterdog/dog-tasks.ts";
 import { createSharedJoins } from "./laterdog/shared-join.ts";
 import { configuredSpeechKey, SpeechCache } from "./laterdog/speech-cache.ts";
 import { mp3DurationMs } from "./laterdog/mp3-duration.ts";
@@ -235,6 +235,8 @@ import { appendUsage, parseUsageRange, readUsage, summarizeUsage, usageCsv, USAG
 import { latestPlanRow, latestPlanRowAt, loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
 import { createAccountUsageRoute } from "./routes/account-usage.ts";
 import { createSwitchAccountRoute } from "./routes/switch-account.ts";
+import { createDogAccountsRoute } from "./routes/dog-accounts.ts";
+import { accountTurnPrompt, type AccountUsageInput } from "./laterdog/account-usage.ts";
 import { CONTINUE_AFTER_PICK, pickMovesTurn, pickNotice } from "./laterdog/account-pick.ts";
 import { codexHome } from "./drivers/codex-identity.ts";
 import { resolveClaudeConfigDir } from "./drivers/claude.ts";
@@ -683,7 +685,7 @@ import { removalCandidateOf, replacementAccount, selectionMovedTo, type RemovalC
 import { forgetAccountFolder } from "./laterdog/account-folder.ts";
 import { newChatGptAccount } from "./laterdog/chatgpt-accounts.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, selectionOnAccount, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
@@ -952,6 +954,7 @@ const accountBattery = new AccountBattery({
     [...runningTurnEngines].map(([threadId, instance]) => [threadId, instance.instanceId] as const)),
   defaultAccount: () => cfg.defaultModelSelection?.instanceId,
   ownThread: (threadId) => Boolean(store.botByThread(threadId)),
+  pinnedThread: (threadId) => store.botByThread(threadId)?.accountPinned === true,
   onChange: () => broadcast({ kind: "config", ...configStatus() }),
 });
 function threadSelectionInstance(threadId: string): string | undefined {
@@ -8576,6 +8579,7 @@ async function startTurn(
         { id: "plan", label: "Surface", text: surfacePrompt({ computer: mountedComputer, browser: Boolean(integrations.browser) }, { note: plan.note, canSelect: computerSelectionTurns.has(threadId), cloudHome: Boolean(CLOUD_HOME) }) },
         { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled()) : "" },
         { id: "today", label: "Today", text: CLOUD_HOME ? todayPrompt() : "" },
+        { id: "account", label: "Account", text: accountPromptFor(instanceId) },
         { id: "composio", label: "Connected apps", text: integrations.composio ? composioSystemPrompt(liveBot?.connectorTools ?? bot.connectorTools) : "" },
         { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
         { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
@@ -10327,6 +10331,7 @@ async function runGroupMemberTurn(
     { id: "plan", label: "Surface", text: surfacePrompt({ computer: roomVmTarget ? "vm" : surfaceOfComputerKind(roomComputerKind), browser: Boolean(integrations.browser) }, { note: roomPlan.note, cloudHome: Boolean(CLOUD_HOME) }) },
     { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled()) : "" },
     { id: "today", label: "Today", text: CLOUD_HOME ? todayPrompt() : "" },
+    { id: "account", label: "Account", text: accountPromptFor(instance.instanceId) },
     { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
     { id: "recall", label: "Recall", text: integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "" },
     { id: "recent", label: "Recent work", text: recentWorkPrompt(recentLines) },
@@ -12716,13 +12721,95 @@ INTERNAL_ROUTES.push(createDogTaskRoute({
   insideTask: (sender, threadId) => startedFromTask(store.taskByThread(sender.id, threadId)?.openedBy, sender.id),
   starter: (sender, threadId) => ({
     open: (title, openedBy) => {
-      const task = store.createTask(sender.id, title, false, undefined, openedBy);
+      const task = store.createTask(sender.id, title, false, undefined, openedBy, undefined, inheritedHelperSelection(sender, threadId));
       if (!task) return null;
       threadStarters.set(task.threadId, openerFrom(threadId));
       return task.threadId;
     },
     run: (taskThreadId, instruction) => startTurn(sender.id, instruction, { threadId: taskThreadId }),
   }),
+}));
+function accountUsageInputs(): AccountUsageInput[] {
+  const plans = new Map(planAccountsFromInstances(instanceConfigs(cfg)).map((account) => [account.id, account]));
+  const accounts = batteryAccounts();
+  return accounts.filter((account) => account.eligible).map((account) => {
+    const plan = plans.get(account.instanceId);
+    const environment = { ...process.env, ...plan?.environment };
+    let env: { name: string; value: string } | undefined;
+    try {
+      const value = account.driverKind === "claudeAgent" ? resolveClaudeConfigDir(plan?.configDir, environment) : codexHome(environment);
+      if (value) env = { name: account.driverKind === "claudeAgent" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME", value };
+    } catch {}
+    return { account, row: latestPlanRow(account.instanceId), rest: accountBattery.restOf(account, accounts), ...(env ? { env } : {}) };
+  });
+}
+
+function accountPromptFor(instanceId: string): string {
+  if (hostedModels) return "";
+  return accountTurnPrompt(accountUsageInputs().find((input) => input.account.instanceId === instanceId), Date.now(), process.env.TZ);
+}
+
+function inheritedHelperSelection(sender: BotRecord, threadId: string): ModelSelection | undefined {
+  const parent = store.projectBotForTask(sender.id, threadId) ?? store.bot(sender.id);
+  if (!parent) return undefined;
+  return helperSelection({
+    parent: onBatteryAccount(parent, threadId).modelSelection,
+    runningOn: runningTurnEngines.get(threadId)?.instanceId,
+    botDefault: sender.modelSelection,
+    accounts: batteryAccounts(),
+    preferred: accountBattery.preferredFor(threadId),
+  });
+}
+
+function onCreatorsAccount(selection: ModelSelection, creator: BotRecord, threadId: string): ModelSelection {
+  const accounts = batteryAccounts();
+  const parent = store.projectBotForTask(creator.id, threadId) ?? creator;
+  const on = runningTurnEngines.get(threadId)?.instanceId ?? onBatteryAccount(parent, threadId).modelSelection.instanceId;
+  const account = accounts.find((candidate) => candidate.instanceId === on);
+  const own = accounts.find((candidate) => candidate.instanceId === selection.instanceId);
+  if (!account?.eligible || !own || own.driverKind !== account.driverKind || on === selection.instanceId) return selection;
+  return selectionOnAccount(selection, account, accounts, undefined);
+}
+
+function assignDogAccount(dog: BotRecord, account: BatteryAccount): { ok: true } | { ok: false; error: string } {
+  const accounts = batteryAccounts();
+  const chat = store.projectBotForTask(dog.id, dog.threadId) ?? dog;
+  const next = selectionOnAccount(chat.modelSelection, account, accounts, accountBattery.preferredFor(dog.threadId));
+  const checked = checkedTaskModelSwitch(chat, next, true, false, true);
+  if (!checked.ok) return { ok: false, error: checked.error };
+  store.switchTaskModel(dog.id, dog.threadId, checked.selection, true, false);
+  for (const task of store.bot(dog.id)?.tasks ?? []) {
+    if (task.threadId !== dog.threadId && task.modelSelection && task.modelSelection.instanceId !== checked.selection.instanceId) {
+      const taskNext = selectionOnAccount(task.modelSelection, account, accounts, accountBattery.preferredFor(task.threadId));
+      store.switchTaskModel(dog.id, task.threadId, taskNext, false, false);
+    }
+    accountBattery.release(task.threadId);
+  }
+  accountBattery.release(dog.threadId);
+  store.patchBot(dog.id, { accountPinned: true });
+  return { ok: true };
+}
+
+INTERNAL_ROUTES.push(createDogAccountsRoute({
+  active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+  mainBotId: () => store.mainBotId(),
+  dogs: () => store.bots.filter((bot) => !bot.hidden),
+  accounts: batteryAccounts,
+  usage: accountUsageInputs,
+  refresh: async () => {
+    if (hostedModels) return;
+    await loadPlanUsage({ accounts: planAccountsFromInstances(instanceConfigs(cfg)).filter((account) => account.driver !== "grok"), refresh: false });
+    accountBattery.noteReadings(batteryAccounts());
+  },
+  runsOn: (bot) => {
+    const running = runningTurnEngines.get(bot.threadId)?.instanceId;
+    const routed = onBatteryAccount(store.projectBotForTask(bot.id, bot.threadId) ?? bot, bot.threadId).modelSelection.instanceId;
+    const on = running ?? routed;
+    return on !== bot.modelSelection.instanceId ? on : undefined;
+  },
+  busy: (bot) => (bot.tasks ?? []).some((task) => threadBusy(bot.id, task.threadId)),
+  assign: assignDogAccount,
+  timeZone: () => process.env.TZ,
 }));
 INTERNAL_ROUTES.push(createAccountUsageRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
@@ -12731,20 +12818,7 @@ INTERNAL_ROUTES.push(createAccountUsageRoute({
     await loadPlanUsage({ accounts: planAccountsFromInstances(instanceConfigs(cfg)).filter((account) => account.driver !== "grok"), refresh: fresh });
     accountBattery.noteReadings(batteryAccounts());
   },
-  accounts: () => {
-    const plans = new Map(planAccountsFromInstances(instanceConfigs(cfg)).map((account) => [account.id, account]));
-    const accounts = batteryAccounts();
-    return accounts.filter((account) => account.eligible).map((account) => {
-      const plan = plans.get(account.instanceId);
-      const environment = { ...process.env, ...plan?.environment };
-      let env: { name: string; value: string } | undefined;
-      try {
-        const value = account.driverKind === "claudeAgent" ? resolveClaudeConfigDir(plan?.configDir, environment) : codexHome(environment);
-        if (value) env = { name: account.driverKind === "claudeAgent" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME", value };
-      } catch {}
-      return { account, row: latestPlanRow(account.instanceId), rest: accountBattery.restOf(account, accounts), ...(env ? { env } : {}) };
-    });
-  },
+  accounts: accountUsageInputs,
   current: (sender, threadId) => runningTurnEngines.get(threadId)?.instanceId ??
     (store.botByThread(threadId)?.id === sender.id ? onBatteryAccount(sender, threadId).modelSelection.instanceId : sender.modelSelection.instanceId),
   timeZone: () => process.env.TZ,
@@ -14114,7 +14188,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         let selection: ModelSelection;
         if (body.modelSelection === undefined) {
-          selection = await defaultSelection();
+          selection = onCreatorsAccount(await defaultSelection(), creator, fromThreadId);
         } else {
           const checked = checkedModelSelection(body.modelSelection, undefined, true);
           if (!checked.ok) return json(res, checked.status, { error: checked.error });
