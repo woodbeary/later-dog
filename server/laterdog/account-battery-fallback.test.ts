@@ -77,3 +77,28 @@ describe("a turn that runs out of usage always moves on", () => {
     expect(battery.readyAt(DOG, ACCOUNTS, "dog")).toBeDefined();
   });
 });
+
+describe("a dog whose account needs setup moves to a working one", () => {
+  const usage = (left: Record<string, number>) => (id: string) => ({
+    ok: true, fiveHour: { available: true, usedPercent: 100 - (left[id] ?? 50), resetsAt: at(HOUR) }, weekly: { available: true, usedPercent: 0, resetsAt: at(48 * HOUR) },
+  }) as never;
+  const accounts = [claude("claude"), claude("claude-2"), claude("claude-3")];
+  const config: AccountBatteryConfig = { enabled: true, auto: true, order: { claudeAgent: ["claude", "claude-2", "claude-3"] } };
+
+  it("moves the failed turn to the account with the most left and says the old one needs signing in again", async () => {
+    const { switchNotice } = await import("./account-battery.ts");
+    const battery = new AccountBattery({ config: () => config, accounts: () => accounts, now: () => NOW, usage: usage({ "claude-2": 30, "claude-3": 80 }) });
+    battery.trackTurn("dog", { generation: "g", instanceId: "claude", requestMessageId: "ask", rerun: async () => undefined });
+    const next = battery.nextAccount({ threadId: "dog", generation: "g", stopReason: "setup", ranOn: "claude", selection: DOG, accounts });
+    expect(next).toMatchObject({ from: { instanceId: "claude" }, to: { instanceId: "claude-3" }, reason: "setup", rest: { kind: "setup" } });
+    expect(switchNotice({ to: "claude-3", from: "claude", rest: next!.rest, now: NOW })).toBe("Switched to claude-3 — claude needs signing in again.");
+  });
+
+  it("keeps new turns off the broken account until it is checked again", () => {
+    const battery = new AccountBattery({ config: () => config, accounts: () => accounts, now: () => NOW, usage: usage({ "claude-2": 30, "claude-3": 80 }) });
+    battery.needsSetup("claude");
+    expect(battery.route(DOG, accounts, "dog").instanceId).not.toBe("claude");
+    const later = new AccountBattery({ config: () => config, accounts: () => accounts, now: () => NOW + 31 * 60_000, usage: usage({}) });
+    expect(later.route(DOG, accounts, "dog")).toBe(DOG);
+  });
+});

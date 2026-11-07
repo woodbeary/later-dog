@@ -351,7 +351,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "dog_accounts",
     description:
-      "Main dog only. With no arguments: every dog's plan account, where each runs right now, and each account's session and weekly usage, in one view. With dogs and account: put those dogs on that account and pin them there (\"put task and nextdoor on daniel\"); they and the helpers they start stay on it and move only when it runs out. Assignments persist. Confirm in one line what moved.",
+      "For work you do for the owner, for any of the owner's dogs. With no arguments: every dog's plan account, where each runs right now, and each account's session and weekly usage, in one view. With dogs and account: put those dogs on that account and pin them there (\"put task and nextdoor on daniel\"); they and the helpers they start stay on it and move only when it runs out. Assignments persist and apply at once, with an Undo in the chat. When a dog is stuck (needs setup, signed out, an engine error), move it here instead of making a new dog. Confirm in one line what moved.",
     inputSchema: { type: "object", additionalProperties: false, properties: {
       dogs: { type: "array", items: { type: "string", minLength: 1, maxLength: 200 }, maxItems: 100, description: "Dog names or ids to put on the account." },
       account: { type: "string", minLength: 1, maxLength: 200, description: "The account's name, e.g. daniel." },
@@ -394,7 +394,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "create_bot",
     description:
-      "Make a new dog when the person asks for another dog, agent or helper. If they did not say what it is for, first ask one short question: what it should do, and a name if they have one in mind; otherwise pick a short name yourself. It gets the same access you have, never more, and says hello in its own chat; then tell them it is in their list. Omit modelSelection for the default model. If they gave it a job, hand the job over right away so they do not have to repeat it.",
+      "Make a new dog when the person asks for another dog, agent or helper. If they did not say what it is for, first ask one short question: what it should do, and a name if they have one in mind; otherwise pick a short name yourself. It gets the same access you have, never more, and says hello in its own chat; then tell them it is in their list. Omit modelSelection for the default model. If they gave it a job, hand the job over right away so they do not have to repeat it. Never make a dog to stand in for an existing one whose engine or account is broken or needs setup: fix that dog with propose_model and bot_id, or dog_accounts.",
     inputSchema: {
       type: "object",
       properties: {
@@ -656,7 +656,7 @@ const TOOL_DEFINITIONS = [
   {
     name: "propose_model",
     description:
-      "Submit a user-requested switch of this bot's default engine and model. Use the exact instance and model ids the person named. The result warns about capabilities the switch gains or loses; existing threads keep their current models." + SELF_CHANGE_OUTCOME,
+      "Switch the default engine, model and account of this dog, or of another of the owner's dogs with bot_id (for example to put a dog whose engine needs setup onto a working account). Use the exact instance and model ids. Fix an existing dog this way; never make a new dog to work around one whose engine or account is broken. Working for the owner, a change to another of the owner's dogs applies immediately with an Undo, like one to yourself. The result warns about capabilities the switch gains or loses; existing threads keep their current models." + SELF_CHANGE_OUTCOME,
     inputSchema: {
       type: "object",
       additionalProperties: false,
@@ -674,6 +674,7 @@ const TOOL_DEFINITIONS = [
           description: "The new default selection.",
         },
         reason: { type: "string", minLength: 1, maxLength: 500, description: "One sentence the user will see explaining why." },
+        bot_id: { type: "string", minLength: 1, maxLength: 200, description: "Another of the owner's dogs to change, by id or name as list_bots prints it. Omit for yourself." },
       },
       required: ["model_selection", "reason"],
     },

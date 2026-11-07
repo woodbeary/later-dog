@@ -21,3 +21,8 @@ export function routineApply(args: {
 }): DirectApply | null {
   return args.direct ?? (args.owner && !args.blocked ? "owner-auto" : null);
 }
+
+export function ownerModelApply(args: { direct: DirectApply | null; crossBot: boolean; ownerWork: boolean; connected: boolean }): DirectApply | null {
+  if (args.direct) return args.direct;
+  return args.crossBot && args.ownerWork && args.connected ? "owner-auto" : null;
+}

@@ -692,6 +692,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
         fromThreadId: THREAD_ID,
         modelSelection: selection,
         reason: args.reason,
+        ...(typeof args.bot_id === "string" && args.bot_id.trim() ? { targetBot: args.bot_id.trim() } : {}),
       }),
     });
     return confirmationResult(r, "the default model change", "model");

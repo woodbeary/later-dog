@@ -11,6 +11,8 @@ export { NEARLY_EMPTY_PERCENT };
 export const BATTERY_DRIVERS: readonly string[] = ["claudeAgent", "codex"];
 
 export const DEFAULT_REST_MS = 5 * 60 * 60 * 1000;
+export const SETUP_REST_MS = 30 * 60 * 1000;
+export const SETUP_STOP = "setup";
 export const USAGE_FRESH_MS = 2 * 60 * 1000;
 export const USAGE_REFRESH_WAIT_MS = 10_000;
 const MAX_AWAY = 500;
@@ -77,6 +79,7 @@ export interface BatteryRerun {
   from: BatteryAccount;
   to: BatteryAccount;
   rest?: Rest;
+  reason?: typeof SETUP_STOP | "usage_limit";
 }
 
 export interface BatteryStatus {
@@ -391,6 +394,7 @@ const LIMIT_NAMES: ReadonlyMap<string, string> = new Map([
 
 export function switchNotice(input: { to: string; from: string; rest?: Rest; now: number; timeZone?: string }): string {
   const { to, from, rest, now, timeZone } = input;
+  if (rest?.kind === SETUP_STOP) return `Switched to ${to} — ${from} needs signing in again.`;
   const limit = rest?.kind ? LIMIT_NAMES.get(rest.kind) : undefined;
   const known = rest && !rest.estimated && Date.parse(rest.until) > now ? rest.until : undefined;
   if (limit) return `Switched to ${to} — ${from} hit its ${limit} limit${known ? `, resets ${resetPhrase(known, now, timeZone)}` : ""}.`;
@@ -399,6 +403,7 @@ export function switchNotice(input: { to: string; from: string; rest?: Rest; now
 
 export function routedNotice(input: { to: string; from: string; rest?: Rest; why?: "signedOut" | "off" | "low"; now: number; timeZone?: string }): string {
   const { to, from, rest, now, timeZone } = input;
+  if (rest?.kind === SETUP_STOP && Date.parse(rest.until) > now) return `Running on ${to} — ${from} needs signing in again.`;
   if (rest && Date.parse(rest.until) > now) {
     return rest.estimated
       ? `Running on ${to} — ${from} is recharging, back around ${resetLabel(rest.until, now, timeZone)}.`
@@ -690,18 +695,30 @@ export class AccountBattery {
     selection: ModelSelection | undefined;
     accounts: readonly BatteryAccount[];
   }): BatteryRerun | null {
-    if (input.stopReason !== "usage_limit" || !input.selection) return null;
+    const setup = input.stopReason === SETUP_STOP;
+    if ((input.stopReason !== "usage_limit" && !setup) || !input.selection) return null;
     const turn = this.turns.get(input.threadId);
     const from = input.accounts.find((account) => account.instanceId === (input.ranOn ?? turn?.instanceId));
     const preferred = this.preferredFor(input.threadId);
-    if (from) this.ranOut(from, input.accounts, selectionOnAccount(input.selection, from, input.accounts, preferred).model);
+    if (from && setup) this.needsSetup(from.instanceId);
+    else if (from) this.ranOut(from, input.accounts, selectionOnAccount(input.selection, from, input.accounts, preferred).model);
     if (!turn?.rerun || turn.generation !== input.generation) return null;
     const to = pickAccount({
       config: this.options.config(), selection: input.selection, accounts: input.accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage,
       ...(preferred ? { preferred } : {}),
     });
     if (!from || !to || to.instanceId === from.instanceId) return null;
-    return { turn, from, to, rest: this.restOf(from, input.accounts, input.selection.model) };
+    return { turn, from, to, rest: this.restOf(from, input.accounts, input.selection.model), reason: setup ? SETUP_STOP : "usage_limit" };
+  }
+
+  needsSetup(instanceId: string): Rest {
+    const existing = this.state.resting[instanceId];
+    if (existing?.kind === SETUP_STOP && Date.parse(existing.until) > this.now()) return existing;
+    const now = this.now();
+    const rest: Rest = { until: new Date(now + SETUP_REST_MS).toISOString(), kind: SETUP_STOP, since: new Date(now).toISOString() };
+    this.state.resting[instanceId] = rest;
+    this.save();
+    return rest;
   }
 
   ranOut(account: BatteryAccount, accounts: readonly BatteryAccount[], model: string): void {

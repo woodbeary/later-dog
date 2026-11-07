@@ -9,6 +9,7 @@ export const DOG_ACCOUNTS_PATH = "/api/internal/dog-accounts";
 
 export interface DogAccountsRouteDeps {
   active(capability: unknown): boolean;
+  ownerActing(capability: unknown, threadId: string): boolean;
   mainBotId(): string | null;
   dogs(): BotRecord[];
   accounts(): BatteryAccount[];
@@ -16,7 +17,7 @@ export interface DogAccountsRouteDeps {
   refresh(): Promise<void>;
   runsOn(bot: BotRecord): string | undefined;
   busy(bot: BotRecord): boolean;
-  assign(bot: BotRecord, account: BatteryAccount): { ok: true } | { ok: false; error: string };
+  assign(bot: BotRecord, account: BatteryAccount, by: { sender: BotRecord; threadId: string }): { ok: true } | { ok: false; error: string };
   timeZone(): string | undefined;
   now?: () => number;
 }
@@ -55,11 +56,11 @@ export function dogAccountRows(deps: Pick<DogAccountsRouteDeps, "dogs" | "mainBo
 }
 
 export function createDogAccountsRoute(deps: DogAccountsRouteDeps): InternalRouteHandler {
-  return async ({ res, path, method, json, readBody, capability, sender }) => {
+  return async ({ res, path, method, json, readBody, capability, sender, threadId }) => {
     if (path !== DOG_ACCOUNTS_PATH || (method !== "GET" && method !== "POST")) return PASS;
     if (!deps.active(capability)) return json(res, 401, { error: "the internal turn capability has expired" });
-    if (deps.mainBotId() !== sender.id) {
-      return json(res, 403, { error: "Only the owner's main dog can see and assign every dog's account. Use account_usage and switch_account for your own chat." });
+    if (!deps.ownerActing(capability, threadId)) {
+      return json(res, 403, { error: "Only the owner's own dogs, working for the owner in the owner's home, can see and assign every dog's account. Use account_usage and switch_account for your own chat." });
     }
     const now = () => deps.now?.() ?? Date.now();
     const view = (lead: string) => {
@@ -88,7 +89,7 @@ export function createDogAccountsRoute(deps: DogAccountsRouteDeps): InternalRout
     const { found, problems } = matchDogs(names, deps.dogs());
     const moved: string[] = [];
     for (const dog of found) {
-      const done = deps.assign(dog, account);
+      const done = deps.assign(dog, account, { sender, threadId });
       if (done.ok) moved.push(dog.name);
       else problems.push(`${dog.name} stays where it is: ${done.error}`);
     }

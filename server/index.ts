@@ -235,7 +235,7 @@ import { appendUsage, parseUsageRange, readUsage, summarizeUsage, usageCsv, USAG
 import { latestPlanRow, latestPlanRowAt, loadPlanUsage, planAccountsFromInstances } from "./plan-usage.ts";
 import { createAccountUsageRoute } from "./routes/account-usage.ts";
 import { createSwitchAccountRoute } from "./routes/switch-account.ts";
-import { createDogAccountsRoute } from "./routes/dog-accounts.ts";
+import { createDogAccountsRoute, matchDogs } from "./routes/dog-accounts.ts";
 import { createDogQueueRoute, type QueuedMessageRow } from "./routes/dog-queue.ts";
 import { SAFE_STOP_GRACE_MS, safeStopWords, stoppedByLine } from "./laterdog/safe-stop.ts";
 import { accountTurnPrompt, type AccountUsageInput } from "./laterdog/account-usage.ts";
@@ -494,7 +494,7 @@ import {
 import { createScreenFrameSource, type ScreenCapture } from "./screen-frame-source.ts";
 import { screenFrameHash, screenSurfaceForTool, screenTouchingTool, settledFrameIsNews } from "./screen-frame-gate.ts";
 import { asSchedule, RoutineRequestService } from "./routine-requests.ts";
-import { directApply, routineApply, UNDO_STALE, type DirectApply } from "./direct-apply.ts";
+import { directApply, ownerModelApply, routineApply, UNDO_STALE, type DirectApply } from "./direct-apply.ts";
 import { createOptionsCard } from "./options-card.ts";
 import { buildBotOverview, type BotOverview, connectedAppsFacts } from "./bot-overview.ts";
 import { submitProfileAvatar } from "./profile-avatar.ts";
@@ -687,7 +687,7 @@ import { removalCandidateOf, replacementAccount, selectionMovedTo, type RemovalC
 import { forgetAccountFolder } from "./laterdog/account-folder.ts";
 import { newChatGptAccount } from "./laterdog/chatgpt-accounts.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, selectionOnAccount, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, selectionOnAccount, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
@@ -2404,6 +2404,7 @@ function boatNotConfigured(bot: { name: string }, source: PlaceSource): PlaceUna
 }
 const directTurnDispatchClaims = new Map<string, DirectTurnDispatchClaim>();
 const directTurnGenerationByThread = new Map<string, string>();
+const setupFailedTurns = new Map<string, string | undefined>();
 const routineTurnOwners = new Map<string, { runId: string; messageId?: string; generation: string }>();
 
 const directRequestOwners = new Map<string, {
@@ -3637,6 +3638,10 @@ function routineAppliesDirectly(botId: string, threadId: string, targetBotId: st
     owner: ownerAuthority(ownerAutoScope(threadId, guestDriven)),
     blocked: guestDriven || !connectorThread(botId, threadId),
   });
+}
+
+function modelAppliesDirectly(botId: string, threadId: string, targetBotId: string): DirectApply | null {
+  return ownerModelApply({ direct: appliesDirectly(botId, threadId, targetBotId), crossBot: botId !== targetBotId, ownerWork: ownerWorkThread(threadId), connected: Boolean(connectorThread(botId, threadId)) });
 }
 
 function peerApprovalOn(bot: BotRecord, threadId: string): boolean {
@@ -6139,9 +6144,45 @@ function continueComputerSelection(threadId: string, generation: string | undefi
   return true;
 }
 
+function setupFallbackFor(threadId: string, ranOn: string | undefined): boolean {
+  const owner = store.botByThread(threadId);
+  const selection = owner ? store.projectBotForTask(owner.id, threadId)?.modelSelection : undefined;
+  const accounts = batteryAccounts();
+  if (!selection || !ranOn || !accounts.some((account) => account.instanceId === ranOn && account.eligible)) return false;
+  accountBattery.needsSetup(ranOn);
+  return accountBattery.route({ ...selection, instanceId: ranOn }, accounts, threadId).instanceId !== ranOn;
+}
+
+function runnableNow(bot: BotRecord, threadId: string): boolean {
+  const accounts = batteryAccounts();
+  const chat = store.projectBotForTask(bot.id, threadId) ?? bot;
+  const on = onBatteryAccount(chat, threadId).modelSelection.instanceId;
+  const account = accounts.find((candidate) => candidate.instanceId === on);
+  return Boolean(account?.eligible && account.enabled && account.signedIn === true && !accountBattery.restOf(account, accounts));
+}
+
+function reviveRunnableDogs(): number {
+  let revived = 0;
+  for (const bot of store.bots) {
+    for (const task of bot.tasks ?? []) {
+      if (task.activity !== "dead" || threadBusy(bot.id, task.threadId) || !runnableNow(bot, task.threadId)) continue;
+      store.setTaskActivity(bot.id, task.threadId, "idle");
+      revived++;
+    }
+  }
+  return revived;
+}
+
+if (CLOUD_HOME || process.env.LATERDOG_REVIVE_DOGS === "1") {
+  setTimeout(() => reviveRunnableDogs(), 30_000).unref();
+  setInterval(() => reviveRunnableDogs(), 60_000).unref();
+}
+
 function automaticallyCarriesOn(event: RuntimeEvent): boolean {
-  if (event.type !== "turn.completed" || event.stopReason !== "usage_limit" || !accountBattery.enabled ||
-      directRequestOwners.get(event.threadId)?.stopped) return false;
+  if (event.type !== "turn.completed" || !accountBattery.enabled || directRequestOwners.get(event.threadId)?.stopped) return false;
+  const setup = setupFailedTurns.has(event.threadId) && !event.ok && event.stopReason !== "interrupted";
+  if (event.stopReason !== "usage_limit" && !setup) return false;
+  if (setup && !setupFallbackFor(event.threadId, event.providerInstanceId ?? setupFailedTurns.get(event.threadId))) return false;
   const room = groupBatteryTurns.get(event.threadId);
   if (room && store.groupByThread(event.threadId)) {
     return batteryAccounts().some((account) => account.instanceId === room.selection.instanceId && account.eligible);
@@ -6185,7 +6226,7 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
       return;
     }
     const selection = store.projectBotForTask(owner.id, threadId)?.modelSelection;
-    const refreshed = accountBattery.nextAccount({ threadId, generation, stopReason: "usage_limit", ranOn: next.from.instanceId,
+    const refreshed = accountBattery.nextAccount({ threadId, generation, stopReason: next.reason ?? "usage_limit", ranOn: next.from.instanceId,
       selection, accounts: batteryAccounts() });
     if (!refreshed) {
       console.info(`token battery: ${threadId} account availability changed before continuation`);
@@ -6884,7 +6925,10 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         kind: "activity",
         tool: failedTurnTool(event.message, { ...event, quota: event.quota && { ...event.quota, instanceId: event.providerInstanceId } }),
       });
-      if (event.setup && bot) store.setTaskActivity(bot.id, event.threadId, "dead");
+      if (event.setup && bot) {
+        store.setTaskActivity(bot.id, event.threadId, "dead");
+        setupFailedTurns.set(event.threadId, event.providerInstanceId);
+      }
       break;
     case "thread.token-usage.updated":
       turnUsage.set(event.threadId, { input: event.input, output: event.output, cachedInput: event.cachedInput });
@@ -6949,9 +6993,13 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
         turnResourceOwners.get(event.threadId)?.lazyClaimFailureReported === true;
       const computerParked = event.stopReason === "exit_before_result" &&
         turnResourceOwners.get(event.threadId)?.computerParkedOn !== undefined;
-      const nextAccount = bot && event.stopReason === "usage_limit" ? accountBattery.nextAccount({
-        threadId: event.threadId, generation: directTurnGenerationByThread.get(event.threadId), stopReason: event.stopReason,
-        ranOn: event.providerInstanceId, selection: store.projectBotForTask(bot.id, event.threadId)?.modelSelection, accounts: batteryAccounts(),
+      const setupFailed = setupFailedTurns.has(event.threadId);
+      const setupRanOn = setupFailedTurns.get(event.threadId);
+      setupFailedTurns.delete(event.threadId);
+      const batteryStop = event.stopReason === "usage_limit" ? "usage_limit" : setupFailed && !event.ok && event.stopReason !== "interrupted" ? SETUP_STOP : undefined;
+      const nextAccount = bot && batteryStop ? accountBattery.nextAccount({
+        threadId: event.threadId, generation: directTurnGenerationByThread.get(event.threadId), stopReason: batteryStop,
+        ranOn: event.providerInstanceId ?? setupRanOn, selection: store.projectBotForTask(bot.id, event.threadId)?.modelSelection, accounts: batteryAccounts(),
       }) : null;
       if (carryingOn) {
         const room = groupBatteryTurns.get(event.threadId);
@@ -9416,7 +9464,7 @@ const profileRequests = new ProfileRequestService({
 });
 const modelRequests = new ModelRequestService({
   store,
-  autoApply: appliesDirectly,
+  autoApply: modelAppliesDirectly,
   canPersist: proposalPersistence,
   validateModel: validateModelProposal,
   driverCapabilities: driverCapabilitiesFor,
@@ -12773,13 +12821,22 @@ function onCreatorsAccount(selection: ModelSelection, creator: BotRecord, thread
   return selectionOnAccount(selection, account, accounts, undefined);
 }
 
-function assignDogAccount(dog: BotRecord, account: BatteryAccount): { ok: true } | { ok: false; error: string } {
+function assignDogAccount(dog: BotRecord, account: BatteryAccount, by: { sender: BotRecord; threadId: string }): { ok: true } | { ok: false; error: string } {
   const accounts = batteryAccounts();
   const chat = store.projectBotForTask(dog.id, dog.threadId) ?? dog;
   const next = selectionOnAccount(chat.modelSelection, account, accounts, accountBattery.preferredFor(dog.threadId));
   const checked = checkedTaskModelSwitch(chat, next, true, false, true);
   if (!checked.ok) return { ok: false, error: checked.error };
-  store.switchTaskModel(dog.id, dog.threadId, checked.selection, true, false);
+  if (dog.modelSelection.instanceId !== checked.selection.instanceId || dog.modelSelection.model !== checked.selection.model) {
+    try {
+      const proposed = modelRequests.submit({ botId: by.sender.id, threadId: by.threadId, targetBotId: dog.id, selection: checked.selection,
+        reason: `${by.sender.name} put ${dog.name} on ${account.displayName || account.instanceId} for the owner.` });
+      if (proposed.state !== "applied") return { ok: false, error: "the change is waiting for the owner's confirmation" };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+  if (store.taskByThread(dog.id, dog.threadId)?.modelSelection) store.switchTaskModel(dog.id, dog.threadId, checked.selection, false, false);
   for (const task of store.bot(dog.id)?.tasks ?? []) {
     if (task.threadId !== dog.threadId && task.modelSelection && task.modelSelection.instanceId !== checked.selection.instanceId) {
       const taskNext = selectionOnAccount(task.modelSelection, account, accounts, accountBattery.preferredFor(task.threadId));
@@ -12845,6 +12902,7 @@ INTERNAL_ROUTES.push(createDogQueueRoute({
 
 INTERNAL_ROUTES.push(createDogAccountsRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+  ownerActing: (_capability, threadId) => ownerWorkThread(threadId),
   mainBotId: () => store.mainBotId(),
   dogs: () => store.bots.filter((bot) => !bot.hidden),
   accounts: batteryAccounts,
@@ -13891,6 +13949,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           fromThreadId: z.string().min(1).max(128),
           modelSelection: z.unknown(),
           reason: z.unknown(),
+          targetBot: z.string().min(1).max(200).optional(),
         }).strict().safeParse(await readInternalBody());
         if (!parsed.success) return json(res, 400, { error: "invalid model proposal" });
         const body = parsed.data;
@@ -13898,10 +13957,19 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!from) return json(res, 403, { error: "unknown sender" });
         const owner = connectorThread(from.id, body.fromThreadId);
         if (!owner) return json(res, 403, { error: "source conversation does not belong to sender" });
+        let targetBotId = from.id;
+        if (body.targetBot) {
+          const { found, problems } = matchDogs([body.targetBot], store.bots.filter((bot) => !bot.hidden));
+          if (!found[0]) return json(res, 404, { error: problems.join(" ") });
+          targetBotId = found[0].id;
+          if (targetBotId !== from.id && !ownerWorkThread(body.fromThreadId)) {
+            return json(res, 403, { error: "Only the owner's own dogs, working for the owner, can change another dog's engine or account." });
+          }
+        }
         const proposed = modelRequests.submit({
           botId: from.id,
           threadId: body.fromThreadId,
-          targetBotId: from.id,
+          targetBotId,
           selection: body.modelSelection,
           reason: body.reason,
           from: owner.group ? { botId: from.id, name: from.name, color: from.color } : undefined,

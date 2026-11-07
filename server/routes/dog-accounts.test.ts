@@ -29,11 +29,12 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise((done) => { server.closeAllConnections(); server.close(done); })));
 });
 
-async function serve(sender: BotRecord) {
+async function serve(sender: BotRecord, owner = true) {
   const dogs = [dog("clover", "Clover", "claude-anthony"), dog("task", "task", "claude"), dog("nextdoor", "nextdoor", "claude"), dog("olivia", "olivia site", "claude-daniel")];
   const assigned: string[] = [];
   const route = createDogAccountsRoute({
     active: () => true,
+    ownerActing: () => owner,
     mainBotId: () => "clover",
     dogs: () => dogs,
     accounts: () => ACCOUNTS,
@@ -95,8 +96,16 @@ describe("the main dog sees and assigns every dog's account", () => {
     expect(matchDogs(["olivia"], [dog("olivia", "olivia site", "claude")]).found.map((each) => each.id)).toEqual(["olivia"]);
   });
 
-  it("is only for the owner's main dog", async () => {
+  it("lets any of the owner's dogs put another dog on an account, so a broken dog is fixed instead of duplicated", async () => {
     const { call, assigned } = await serve(dog("task", "task", "claude"));
+    const { status, body } = await call({ dogs: ["olivia site"], account: "daniel" });
+    expect(status).toBe(200);
+    expect(assigned).toEqual(["olivia->claude-daniel"]);
+    expect(body.text).toMatch(/^Put olivia site on daniel, pinned\./);
+  });
+
+  it("refuses a dog that isn't working for the owner in the owner's home", async () => {
+    const { call, assigned } = await serve(dog("task", "task", "claude"), false);
     expect((await call()).status).toBe(403);
     expect((await call({ dogs: ["nextdoor"], account: "daniel" })).status).toBe(403);
     expect(assigned).toEqual([]);
