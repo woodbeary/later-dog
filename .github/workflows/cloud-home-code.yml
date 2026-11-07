@@ -15,21 +15,36 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Skip quietly without a Cloudflare token
+        id: secrets
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::notice::No CLOUDFLARE_API_TOKEN secret, so the Cloud home is updated from the Mac instead (pnpm dev:home push)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.secrets.outputs.skip != 'true'
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - uses: pnpm/action-setup@v4
+      - if: steps.secrets.outputs.skip != 'true'
+        uses: pnpm/action-setup@v4
         with:
           version: 10.33.0
-      - uses: actions/setup-node@v4
+      - if: steps.secrets.outputs.skip != 'true'
+        uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm install --frozen-lockfile --ignore-workspace
+      - if: steps.secrets.outputs.skip != 'true'
+        run: pnpm install --frozen-lockfile
+      - if: steps.secrets.outputs.skip != 'true'
+        run: pnpm install --frozen-lockfile --ignore-workspace
         working-directory: deploy/laterdog/home
-      - name: Build the server and point every Cloud home at it
+      - if: steps.secrets.outputs.skip != 'true'
+        name: Build the server and point every Cloud home at it
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
