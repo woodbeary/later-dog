@@ -369,6 +369,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
   }
   if (name === "shared_computer") {
     const response = await api("/api/internal/shared-computers", { method: "POST", body: JSON.stringify(args) });
+    if (typeof response.error === "string" && response.result === undefined) return { text: response.error, isError: true };
     const result = response.result as Json;
     if (Array.isArray(result?.content)) return { text: "", passthrough: result };
     return { text: JSON.stringify(result) };

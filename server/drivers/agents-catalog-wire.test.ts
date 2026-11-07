@@ -54,14 +54,14 @@ const CLOUD_HOME_ONLY = [...MAC_MESSAGE_TOOLS, "run_on_computer"];
 const BUDGET_BASELINE: Record<string, number> = {
   "direct": 38218,
   "direct+voice": 38959,
-  "direct+shared": 41976,
-  "direct+shared+voice": 42717,
+  "direct+shared": 42256,
+  "direct+shared+voice": 42997,
   "direct+skills": 40271,
   "direct+skills+voice": 41012,
-  "direct+skills+shared": 44029,
-  "direct+skills+shared+voice": 44770,
-  "direct+skills+shared+voice+cloud-home": 47878,
-  "direct+skills+shared+voice+cloud-home+phone": 51908,
+  "direct+skills+shared": 44309,
+  "direct+skills+shared+voice": 45050,
+  "direct+skills+shared+voice+cloud-home": 48158,
+  "direct+skills+shared+voice+cloud-home+phone": 52188,
 };
 
 const RPC_PREFIX = '{"jsonrpc":"2.0","id":1,"result":';

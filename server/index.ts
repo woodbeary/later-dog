@@ -236,6 +236,7 @@ import { latestPlanRow, latestPlanRowAt, loadPlanUsage, planAccountsFromInstance
 import { createAccountUsageRoute } from "./routes/account-usage.ts";
 import { createSwitchAccountRoute } from "./routes/switch-account.ts";
 import { createDogAccountsRoute, matchDogs } from "./routes/dog-accounts.ts";
+import { vaultInput, withoutSecret } from "./laterdog/vault-input.ts";
 import { createDogQueueRoute, type QueuedMessageRow } from "./routes/dog-queue.ts";
 import { SAFE_STOP_GRACE_MS, safeStopWords, stoppedByLine } from "./laterdog/safe-stop.ts";
 import { accountTurnPrompt, type AccountUsageInput } from "./laterdog/account-usage.ts";
@@ -13712,7 +13713,20 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 200, await macListing(internalCapability));
       }
       if (method === "POST" && path === "/api/internal/shared-computers" && lendingEnabled()) {
-        const operationBody = await readInternalBody();
+        const rawOperation = await readInternalBody();
+        let secret = "";
+        let operationBody = rawOperation;
+        if (rawOperation && typeof rawOperation === "object" && "vault_login" in rawOperation) {
+          const { vault_login: asked, ...rest } = rawOperation as Record<string, unknown>;
+          if (rest.action !== "command_input" || rest.input !== undefined) {
+            return json(res, 400, { error: "vault_login goes with action command_input and a command_id, instead of input: it types the saved password into that command." });
+          }
+          if (!ownerWorkThread(internalCapability.threadId)) return json(res, 403, { error: "Only the owner's own dogs, working for the owner, can type a saved password." });
+          const typed = vaultInput({ list: () => vaultStore.view().logins, matching: (host) => vaultStore.matching(host), credentials: (id) => vaultStore.credentials(id) }, String(asked ?? ""));
+          if (!typed.ok) return json(res, 404, { error: typed.error });
+          secret = typed.secret;
+          operationBody = { ...rest, input: typed.input };
+        }
         const parsed = sharedComputerOperation.safeParse(operationBody);
         if (!lendingEnabled()) return json(res, 404, { error: "unknown internal endpoint" });
         if (!parsed.success) return json(res, 400, { error: sharedComputerOperationProblem(operationBody, parsed.error) });
@@ -13720,7 +13734,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 403, { error: "This bot has no computer. Change its Computer setting to use a shared computer's apps and screen." });
         }
         try {
-          return json(res, 200, { result: await useMac(parsed.data, internalCapability) });
+          return json(res, 200, { result: withoutSecret(await useMac(parsed.data, internalCapability), secret) });
         } catch (error) {
           if (isMacOffline(error)) return json(res, 200, { result: macOfflineResult() });
           throw error;

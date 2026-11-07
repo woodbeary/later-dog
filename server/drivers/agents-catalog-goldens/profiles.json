@@ -63,8 +63,8 @@
     ]
   },
   "direct+shared": {
-    "bytes": 41976,
-    "sha256": "afc3c6938e0547c7ee2af9e2e3794d44f685042ec8ec9da0078acaab37f9f382",
+    "bytes": 42256,
+    "sha256": "8a56b252e20e5e271ec8b5fe426f7a8cfda58a6c030d52631afa542739a41e7d",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
@@ -96,8 +96,8 @@
     ]
   },
   "direct+shared+voice": {
-    "bytes": 42717,
-    "sha256": "e2258f55ef6528d74e097ee386656521fe162d7d413a95abfb60479bc6fc616d",
+    "bytes": 42997,
+    "sha256": "9bf7ed4048bdca2c001b52889f2e515c35300b2a85e168336442d2a8b362ef74",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
@@ -197,8 +197,8 @@
     ]
   },
   "direct+skills+shared": {
-    "bytes": 44029,
-    "sha256": "1e31de800765f722f7dbb488939fdedf2cb5555138b35a8c3e2f03ce8fbaf97b",
+    "bytes": 44309,
+    "sha256": "fa42b56fcc67e270b7130d109f65ad0880c5a95386f78e4da1297b838bbab7a4",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
@@ -232,8 +232,8 @@
     ]
   },
   "direct+skills+shared+voice": {
-    "bytes": 44770,
-    "sha256": "54971ef255b658f12c03e1921c98e1e55a470e6c10d36ee5932457228d86939d",
+    "bytes": 45050,
+    "sha256": "bba1b9ff50e100d92ae27b7f181b9bc6d975a2e969ffe0d3ecea36219eaa25a6",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
@@ -268,8 +268,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home": {
-    "bytes": 47878,
-    "sha256": "d02ce16cfb0870280ddc25fcc4cfccee63c20f7e892f32bc20f074d8ff6750c1",
+    "bytes": 48158,
+    "sha256": "b10e48fffacf5abd92bb4d9a864662e17f3683f7ccedc97e6295f7b56c34bf41",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
@@ -308,8 +308,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home+phone": {
-    "bytes": 51908,
-    "sha256": "9b0cb4d4d752e2f5a07197ad39693cc5f190c59554cbac731541fbf5329c38a7",
+    "bytes": 52188,
+    "sha256": "80bb7d693462da123c24f776cac20d26a2c63d2b257cbddde715a4239c014c61",
     "tools": [
       "tool_result_read",
       "list_shared_computers",
