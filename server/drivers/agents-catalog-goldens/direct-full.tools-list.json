@@ -184,6 +184,10 @@
           "rework": {
             "type": "boolean",
             "description": "True only to send concrete work again to someone whose request already finished or failed: a correction, a re-check or a retry."
+          },
+          "urgent": {
+            "type": "boolean",
+            "description": "True for a scope change that must run next: it goes ahead of your own earlier requests still queued with that dog, not ahead of other senders'."
           }
         },
         "required": [
@@ -284,6 +288,74 @@
       }
     },
     {
+      "name": "dog_queue",
+      "description": "For work you do for the owner: see and manage another of the owner's dogs' work. With just dog: what it is running and its queued teammate requests, with request ids and senders. action stop: stop its running turn at a safe point (it finishes or rolls back an update, merge, push or deploy first; force stops at once). action cancel with request_id: cancel one queued request, leaving its other queued work alone. action replace with request_id and message: swap a queued request for a new one in the same place in the queue. The main dog can do this for any dog; other dogs only for requests they sent. The stopped dog's chat says who stopped it, and the sender is told.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "dog": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The dog's name or id, as list_bots prints it."
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "view",
+              "stop",
+              "cancel",
+              "replace"
+            ],
+            "description": "Omit to view."
+          },
+          "request_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "The requestId from coordinate_bots or the queue view."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "replace: the new request. stop: optional reason shown in the dog's chat."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "stop: stop at once instead of at a safe point."
+          }
+        }
+      }
+    },
+    {
+      "name": "dog_accounts",
+      "description": "For work you do for the owner, for any of the owner's dogs. With no arguments: every dog's plan account, where each runs right now, and each account's session and weekly usage, in one view. With dogs and account: put those dogs on that account and pin them there (\"put task and nextdoor on daniel\"); they and the helpers they start stay on it and move only when it runs out. Assignments persist and apply at once, with an Undo in the chat. When a dog is stuck (needs setup, signed out, an engine error), move it here instead of making a new dog. Confirm in one line what moved.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "dogs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "maxItems": 100,
+            "description": "Dog names or ids to put on the account."
+          },
+          "account": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The account's name, e.g. daniel."
+          }
+        }
+      }
+    },
+    {
       "name": "select_computer",
       "description": "Choose where this conversation does computer work. Call with no arguments to inspect actual available choices and the current place. For a task needing computer interaction, select the requested place, or auto to choose a suitable configured computer without asking the user to use menus. later.dog reuses an existing computer first; with a configured provider it can start or provision one when needed. Do not provision for ordinary chat or just to inspect availability. A pending result means end this turn immediately: later.dog updates the conversation selector and resumes the original request with that computer's real tools. Do not use the old tools after requesting a switch, repeat the task, or claim the action is done. This cannot change permissions, override Off, or switch a teammate/routine/channel.",
       "inputSchema": {
@@ -325,7 +397,7 @@
     },
     {
       "name": "create_bot",
-      "description": "Make a new dog when the person asks for another dog, agent or helper. If they did not say what it is for, first ask one short question: what it should do, and a name if they have one in mind; otherwise pick a short name yourself. It gets the same access you have, never more, and says hello in its own chat; then tell them it is in their list. Omit modelSelection for the default model. If they gave it a job, hand the job over right away so they do not have to repeat it.",
+      "description": "Make a new dog when the person asks for another dog, agent or helper. If they did not say what it is for, first ask one short question: what it should do, and a name if they have one in mind; otherwise pick a short name yourself. It gets the same access you have, never more, and says hello in its own chat; then tell them it is in their list. Omit modelSelection for the default model. If they gave it a job, hand the job over right away so they do not have to repeat it. Never make a dog to stand in for an existing one whose engine or account is broken or needs setup: fix that dog with propose_model and bot_id, or dog_accounts.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1016,7 +1088,7 @@
     },
     {
       "name": "propose_model",
-      "description": "Submit a user-requested switch of this bot's default engine and model. Use the exact instance and model ids the person named. The result warns about capabilities the switch gains or loses; existing threads keep their current models. Read the result: a change to your own routines, skills, profile or model applies immediately, and the person sees it with an Undo; a change for another bot may wait for the person's confirmation. If applied, continue the requested work without another confirmation. Only a pending result requires ending the turn and waiting for the in-app decision. Never claim success without an applied result; report failed or cancelled results honestly. This does not elevate another bot's execution permissions.",
+      "description": "Switch the default engine, model and account of this dog, or of another of the owner's dogs with bot_id (for example to put a dog whose engine needs setup onto a working account). Use the exact instance and model ids. Fix an existing dog this way; never make a new dog to work around one whose engine or account is broken. Working for the owner, a change to another of the owner's dogs applies immediately with an Undo, like one to yourself. The result warns about capabilities the switch gains or loses; existing threads keep their current models. Read the result: a change to your own routines, skills, profile or model applies immediately, and the person sees it with an Undo; a change for another bot may wait for the person's confirmation. If applied, continue the requested work without another confirmation. Only a pending result requires ending the turn and waiting for the in-app decision. Never claim success without an applied result; report failed or cancelled results honestly. This does not elevate another bot's execution permissions.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -1055,6 +1127,12 @@
             "minLength": 1,
             "maxLength": 500,
             "description": "One sentence the user will see explaining why."
+          },
+          "bot_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Another of the owner's dogs to change, by id or name as list_bots prints it. Omit for yourself."
           }
         },
         "required": [
