@@ -12969,6 +12969,7 @@ INTERNAL_ROUTES.push(createVaultSecretRoute({
 }));
 
 INTERNAL_ROUTES.push(createExecutionAdviceRoute({
+  wholeDogHistory: ownerWorkThread,
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   current: (botId, threadId) => store.projectBotForTask(botId, threadId)?.modelSelection,
   rows: () => readUsage(DATA_DIR, { from: new Date(Date.now() - 30 * 86_400_000), to: new Date() }),

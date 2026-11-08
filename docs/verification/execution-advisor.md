@@ -8,7 +8,8 @@ effort, dispatch, prompts or native orchestration. It makes no external inferenc
 call and requires no new credential.
 
 The route is `POST /api/internal/execution-advice`, authenticated by the existing
-agents turn capability. Another dog's history is excluded. Expired capabilities
+agents turn capability. Another dog's history is excluded. Shared and guest-driven work is limited to
+the current thread; only owner work can inspect the dog's other threads. Expired capabilities
 are rejected. Task text is not persisted by the advisor.
 
 ## Ownership
@@ -32,7 +33,7 @@ metadata is discarded without losing the original usage row.
 Use Node 24 or newer and pnpm:
 
 ```sh
-pnpm exec vitest run server/laterdog/execution-evidence.test.ts server/laterdog/execution-advisor.test.ts server/execution-advisor.e2e.test.ts server/usage-ledger.test.ts server/model-prices.test.ts server/agent-tool-policy.test.ts server/drivers/agents-proxy.test.ts server/drivers/agents-catalog-wire.test.ts
+pnpm exec vitest run server/laterdog/execution-evidence.test.ts server/laterdog/execution-advisor.test.ts server/execution-advisor.e2e.test.ts server/usage-ledger.test.ts server/model-prices.test.ts server/agent-tool-policy.test.ts server/routes/execution-advice.test.ts server/drivers/agents-proxy.test.ts server/drivers/agents-catalog-wire.test.ts
 pnpm typecheck
 pnpm lint
 ```
@@ -50,7 +51,8 @@ execution and capability expiry status. It excludes capability tokens.
 
 ## Recorded verification (2026-11-08)
 
-The eight-file command above passed 189 checks. The existing isolated account
+The nine-file suite passed 190 checks, including an HTTP route check that proves
+shared and guest-driven history isolation. The existing isolated account
 continuation suite passed all 17 scenarios. A further targeted cross-engine
 regression confirms that the chosen Claude selection stays recorded while Codex
 actually dispatches the chosen fallback model. The tool fixture passed privacy,

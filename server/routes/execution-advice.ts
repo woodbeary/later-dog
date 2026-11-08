@@ -9,6 +9,7 @@ const requestSchema = z.object({ task: z.string().trim().min(1).max(2000) }).str
 
 export function createExecutionAdviceRoute(deps: {
   active(capability: unknown): boolean;
+  wholeDogHistory(threadId: string): boolean;
   candidates(): Promise<AdviceCandidate[]>;
   rows(): UsageRow[];
   current(botId: string, threadId: string): ModelSelection | undefined;
@@ -21,7 +22,8 @@ export function createExecutionAdviceRoute(deps: {
     if (!parsed.success) return json(res, 400, { error: "Supply a task between 1 and 2000 characters." });
     const current = deps.current(sender.id, threadId);
     if (!current) return json(res, 404, { error: "no such conversation" });
-    const advice = executionAdvice({ task: parsed.data.task, current, candidates: await deps.candidates(), rows: deps.rows().filter((row) => row.botId === sender.id), now: deps.now?.() ?? Date.now() });
+    const wholeDog = deps.wholeDogHistory(threadId);
+    const advice = { historyVisibility: wholeDog ? "own_dog" : "current_thread", ...executionAdvice({ task: parsed.data.task, current, candidates: await deps.candidates(), rows: deps.rows().filter((row) => row.botId === sender.id && (wholeDog || row.threadId === threadId)), now: deps.now?.() ?? Date.now() }) };
     return json(res, 200, { ...advice, text: JSON.stringify(advice) });
   };
 }

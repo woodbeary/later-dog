@@ -1,3 +1,4 @@
+import type { ModelSelection } from "../shared/wire.ts";
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -12,7 +13,7 @@ it("a dog consults advice through its real tool capability without changing its 
   const api = async (path: string) => {
     const response = await fetch(url + path, { headers: { origin: url } });
     expect(response.ok).toBe(true);
-    return response.json();
+    return response.json() as Promise<{ bots: Array<{ id: string; threadId: string; modelSelection: ModelSelection }> }>;
   };
   const evidenceDir = join(process.cwd(), ".laterdog-evidence", "execution-advisor");
   mkdirSync(evidenceDir, { recursive: true });
