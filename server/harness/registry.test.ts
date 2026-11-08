@@ -1,15 +1,37 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ModelCatalog } from "../contracts.ts";
+import type { ModelCatalog, ProviderSnapshot } from "../contracts.ts";
 import { resetPathCacheForTests } from "../env-path.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import { makeFakeDriver } from "../testing/fake-driver.ts";
 import { ProviderRegistry } from "./registry.ts";
 
 describe("ProviderRegistry", () => {
+  it.each(["claude", "codex", "grok", "kimi"])("uses a completed background %s sign-in check without another client request", async instanceId => {
+    let now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const fake = makeFakeDriver();
+    const registry = new ProviderRegistry([fake.driver]);
+    let finish!: (snapshot: ProviderSnapshot) => void;
+    await registry.load({ [instanceId]: { driver: "fake" } });
+    const live = registry.get(instanceId)!;
+    live.snapshot = async () => { now += 600; return { state: "available", authenticated: false }; };
+    try {
+      expect((await registry.describe())[0]!.snapshot).toMatchObject({ authenticated: false });
+      now += 30_001;
+      live.snapshot = () => new Promise(resolve => { finish = resolve; });
+      expect((await registry.describe())[0]!.snapshot).toMatchObject({ authenticated: false });
+      finish({ state: "available", authenticated: true });
+      await expect.poll(() => registry.lastSnapshot(instanceId)?.authenticated, { timeout: 1_000 }).toBe(true);
+    } finally {
+      clock.mockRestore();
+      await registry.disposeAll();
+    }
+  });
+
   it("creates live instances for known drivers", async () => {
     const fake = makeFakeDriver();
     const registry = new ProviderRegistry([fake.driver]);

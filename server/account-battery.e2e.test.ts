@@ -25,10 +25,11 @@ interface BatteryFixture {
   codexCalls: () => Array<{ method: string; params: any }>;
   bookedTo: (threadId: string) => string[];
   evidence: unknown[];
+  restart: (beforeStart?: () => void) => Promise<void>;
 }
 
 async function withBatteryFixture(
-  options: { enabled?: boolean; secondOutOfUsage?: boolean; afterTool?: boolean; resetsIn?: number; gated?: boolean; scripted?: boolean; delegateBeforeLimit?: boolean; crossProvider?: boolean; defaultEnabled?: boolean },
+  options: { enabled?: boolean; secondOutOfUsage?: boolean; afterTool?: boolean; resetsIn?: number; gated?: boolean; scripted?: boolean; delegateBeforeLimit?: boolean; crossProvider?: boolean; defaultEnabled?: boolean; synthetic?: "grokAgent" },
   check: (fixture: BatteryFixture) => Promise<void>,
 ) {
   const fixture = await launchVerificationServer({});
@@ -94,20 +95,30 @@ async function withBatteryFixture(
     };
     config.accountBattery = { enabled: options.enabled !== false, order: { claudeAgent: ["claude", "claude-two"] } };
     if (options.defaultEnabled) delete config.accountBattery;
+    if (options.synthetic) config.instances.synthetic = {
+      driver: options.synthetic,
+      config: { cli: fileURLToPath(new URL("./testing/fake-acp-cli.ts", import.meta.url)) },
+      environment: { FAKE_ACP_MODE: "echo-gated", FAKE_ACP_GATE_FILE: release, FAKE_ACP_MODELS: "fake-model", FAKE_ACP_DUMP: join(dataDir, "synthetic"), FAKE_ACP_DUMP_PROMPT: "1" },
+    };
     writeFileSync(configPath, JSON.stringify(config));
-    const log = openSync(logPath, "a", 0o600);
-    server = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))], {
-      cwd: fileURLToPath(new URL("..", import.meta.url)),
-      env: verificationServerEnvironment({}, dataDir, Number(new URL(url).port)), stdio: ["ignore", log, log],
-    });
-    closeSync(log);
-    await expect.poll(async () => {
-      try { return (await fetch(url + "/api/health", { signal: AbortSignal.timeout(1_000) })).ok; } catch { return false; }
-    }, { timeout: 20_000 }).toBe(true);
+    const restart = async (beforeStart?: () => void) => {
+      await waitForExit(server, { signal: "SIGTERM" });
+      beforeStart?.();
+      const log = openSync(logPath, "a", 0o600);
+      server = spawn(process.execPath, ["--experimental-strip-types", fileURLToPath(new URL("./index.ts", import.meta.url))], {
+        cwd: fileURLToPath(new URL("..", import.meta.url)),
+        env: verificationServerEnvironment({}, dataDir, Number(new URL(url).port)), stdio: ["ignore", log, log],
+      });
+      closeSync(log);
+      await expect.poll(async () => {
+        try { return (await fetch(url + "/api/health", { signal: AbortSignal.timeout(1_000) })).ok; } catch { return false; }
+      }, { timeout: 20_000 }).toBe(true);
+    };
+    await restart();
     const bookedTo = (threadId: string) => readUsage(dataDir, { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) })
       .filter((row) => row.threadId === threadId).map((row) => row.instanceId);
     const codexCalls = () => jsonLines(codexLog);
-    await check({ api, control, release, dataDir, thirdPrompts: () => jsonLines(thirdFile), codexCalls, firstPrompts: () => jsonLines(firstFile), secondPrompts: () => jsonLines(secondFile), gate, bookedTo, evidence });
+    await check({ api, control, release, dataDir, thirdPrompts: () => jsonLines(thirdFile), codexCalls, firstPrompts: () => jsonLines(firstFile), secondPrompts: () => jsonLines(secondFile), gate, bookedTo, evidence, restart });
   } finally {
     evidence.push({ firstPrompts: jsonLines(firstFile), secondPrompts: jsonLines(secondFile) });
     const evidencePath = `${logPath}.account-battery.json`;
@@ -568,3 +579,54 @@ it("continues on the next account without opening or polling the chat", async ()
     fixture.evidence.push({ unopenedHandoff: await chat.messages() });
   });
 }, 60_000);
+
+it("resumes an all-account wait after a home restart without a client", async () => {
+  await withBatteryFixture({ secondOutOfUsage: true, resetsIn: 15 }, async fixture => {
+    const chat = await batteryBot(fixture, "Unopened restart");
+    writeFileSync(fixture.gate, "out of usage");
+    await chat.send("CONTINUE_AFTER_SLEEP_WITHOUT_A_CLIENT");
+    await expect.poll(() => {
+      try { return Boolean(JSON.parse(readFileSync(join(fixture.dataDir, "limit-hold.json"), "utf8")).waiting[chat.threadId]); }
+      catch { return false; }
+    }, { timeout: 20_000 }).toBe(true);
+    rmSync(fixture.gate);
+    await fixture.restart();
+    await expect.poll(() => fixture.firstPrompts().length, { timeout: 30_000 }).toBe(2);
+    await chat.settled(rows => Boolean(lastReply(rows)?.text));
+    expect(fixture.firstPrompts()).toHaveLength(2);
+    fixture.evidence.push({ restartedWithoutClient: true, messages: await chat.messages() });
+  });
+}, 90_000);
+
+it.each([false, true])("drains a synthetic Grok capacity queue without a client, restoring a legacy Kimi selection: %s", async legacyKimi => {
+  await withBatteryFixture({ synthetic: "grokAgent" }, async fixture => {
+    await fixture.api("PATCH", "/api/config", { threads: { maxConcurrentPerBot: 1 } });
+    const instances = (await fixture.api("GET", "/api/instances")).instances;
+    const model = instances.find((instance: any) => instance.instanceId === "synthetic").models.default;
+    const { bot } = await fixture.api("POST", "/api/bots", { name: "Synthetic queue", computer: "off", modelSelection: { instanceId: "synthetic", model } });
+    const threadId = bot.threadId;
+    const { task } = await fixture.api("POST", `/api/bots/${bot.id}/tasks`, { title: "Queued capacity" });
+    const log = join(fixture.dataDir, "synthetic.prompts.jsonl");
+    await fixture.api("POST", `/api/bots/${bot.id}/messages`, { threadId, text: "FIRST_SYNTHETIC_TURN" });
+    await expect.poll(() => jsonLines(log).length, { timeout: 20_000 }).toBe(1);
+    const queued = await fixture.api("POST", `/api/bots/${bot.id}/messages`, { threadId: task.threadId, text: "SECOND_SYNTHETIC_TURN", sendId: "synthetic_queue_12345" });
+    expect(queued).toMatchObject({ queued: true, reason: "capacity" });
+    if (legacyKimi) {
+      await fixture.restart(() => {
+        const file = join(fixture.dataDir, "bots.json");
+        const bots = JSON.parse(readFileSync(file, "utf8"));
+        const saved = bots.find((candidate: any) => candidate.id === bot.id);
+        saved.modelSelection = { instanceId: "kimi", model: "kimi-code/k3" };
+        for (const task of saved.tasks ?? []) task.modelSelection = saved.modelSelection;
+        writeFileSync(file, JSON.stringify(bots));
+      });
+      await expect.poll(() => fixture.firstPrompts().some(prompt => promptText(prompt).includes("SECOND_SYNTHETIC_TURN")), { timeout: 30_000 }).toBe(true);
+    } else {
+      writeFileSync(fixture.release, "release synthetic turn");
+      await expect.poll(() => jsonLines(log).length, { timeout: 30_000 }).toBe(2);
+    }
+    const messages = (await fixture.api("GET", `/api/threads/${task.threadId}/messages?limit=200`)).messages;
+    expect(messages.filter((row: any) => row.role === "user" && row.text === "SECOND_SYNTHETIC_TURN")).toHaveLength(1);
+    fixture.evidence.push({ legacyKimi, queued, dispatched: jsonLines(log), migrated: fixture.firstPrompts() });
+  });
+}, 90_000);

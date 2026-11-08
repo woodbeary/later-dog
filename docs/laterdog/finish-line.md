@@ -10,6 +10,8 @@ Branch `codex/execution-advisor` in `code/.wt/execution-advisor`: server-owned e
 
 ## How to resume
 
+2026-11-08 background recovery: the registry now takes a completed background account check from the current snapshot cache, avoiding stale state until another client request. All 20 account-continuation fixtures pass, including an unopened conversation, reset across restart, synthetic Grok capacity dispatch and legacy Kimi queue migration. The 30-hour progressing owner-work test passes with the elapsed ceiling removed. The reported live stall and installed desktop behavior remain unverified; see [recovery evidence](../verification/recovery-2026-11-08.md).
+
 2026-11-08 account usage: full five-hour or seven-day readings now keep an account resting until reset without needing a limit event. Limit continuation chooses the eligible account with the most room, including pinned dogs. Desktop Accounts rows now expose the saved account on/off setting. Regression coverage includes full-window routing, a recovered pinned account during fallback, usage-sheet reports, and successful/rejected desktop toggles. The isolated account-continuation fixture passes all 16 scenarios. Desktop appearance and the reported Grok/Kimi queued messages remain unverified.
 
 1. Read `AGENTS.md`. The rules there hold for every lane: pnpm, Node 24, no comments in code, new behaviour in new files under `server/laterdog/`, isolated fixtures only.
