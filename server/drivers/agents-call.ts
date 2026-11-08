@@ -441,6 +441,10 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     }) });
     return typeof r.text === "string" ? { text: r.text } : { text: String(r.error ?? JSON.stringify(r)), isError: true };
   }
+  if (name === "vault_secret") {
+    const r = await api("/api/internal/vault-secret", { method: "POST", body: JSON.stringify({ action: args.action, name: args.name, length: args.length, charset: args.charset }) });
+    return typeof r.text === "string" ? { text: r.text } : { text: String(r.error ?? JSON.stringify(r)), isError: true };
+  }
   if (name === "dog_accounts") {
     const assigning = args.dogs !== undefined || args.account !== undefined;
     const r = assigning

@@ -3,6 +3,8 @@ import { isolatedRemoteCommand, runCommand, screenshotBoat } from "./computers.t
 import type { AppConfig } from "./config.ts";
 import { CONTROL_REFUSAL_PLAIN } from "./control-client.ts";
 import { compileToolSchema } from "./mcp-schema-validator.ts";
+import { resolveUses, VAULT_OWNER_ONLY, type VaultItems } from "./laterdog/vault-commands.ts";
+import { capturedValue, maskValues, secretNameProblem, vaultFingerprint, VAULT_CAPTURE_SCHEMA, VAULT_USES_SCHEMA, wrapVaultCommand } from "./laterdog/vault-refs.ts";
 import { splitTabListing, TAB_TRACKED_TOOLS, withTabListing, type Target } from "./laterdog/cloud-tabs.ts";
 import { fillSecureField, parseSecureFormInput, SECURE_FORM_TOOLS, secureFormFilledText, secureFormRequestedText, type SecureFormDesk } from "./laterdog/secure-form.ts";
 
@@ -19,7 +21,11 @@ export const CLOUD_COMPUTER_TOOLS = [
   tool("key_press", "Press an X11 key or shortcut.", { key: { type: "string", pattern: "^[A-Za-z0-9_+]+$", minLength: 1, maxLength: 100 } }, ["key"]),
   tool("scroll", "Scroll at a point on the cloud desktop.", { x: coordinate, y: coordinate, direction: { type: "string", enum: ["up", "down", "left", "right"] }, amount: { type: "integer", minimum: 1, maximum: 30 } }, ["x", "y", "direction"]),
   tool("open_url", "Request opening an HTTP or HTTPS URL in the cloud desktop browser; inspect the screen to confirm it loaded.", { url: { type: "string", pattern: "^https?://", maxLength: 2000 } }, ["url"]),
-  tool("exec", "Run a shell command on the assigned cloud computer.", { command: { type: "string", minLength: 1, maxLength: 4000 } }, ["command"]),
+  tool("exec", "Run a shell command on the assigned cloud computer. For a token, password or key, pass vault items by name with vault and keep a printed one with vault_capture; never echo, cat or generate a secret in the command itself.", {
+    command: { type: "string", minLength: 1, maxLength: 4000 },
+    vault: VAULT_USES_SCHEMA,
+    vault_capture: VAULT_CAPTURE_SCHEMA,
+  }, ["command"]),
   ...SECURE_FORM_TOOLS,
 ];
 export const CLOUD_COMPUTER_NOT_READY = "The cloud computer is not ready. This call was not performed. Take a fresh screenshot in a moment.";
@@ -52,6 +58,7 @@ export async function runCloudComputerTool(
   args: Record<string, unknown>,
   signal: AbortSignal,
   onTabs?: (targets: Target[]) => void,
+  vault?: VaultItems,
 ): Promise<CloudComputerResult> {
   const problem = cloudComputerCallProblem(name, args);
   if (problem) return { isError: true, content: [{ type: "text", text: problem }] };
@@ -73,7 +80,10 @@ export async function runCloudComputerTool(
     case "key_press": command = `xdotool key --clearmodifiers ${quote(String(a.key))}`; break;
     case "scroll": command = `${mouse} click --repeat ${a.amount ?? 3} --delay 80 ${scrollButtons[String(a.direction)]}`; break;
     case "open_url": command = `nohup xdg-open ${quote(String(a.url))} >/dev/null 2>&1 </dev/null &`; break;
-    case "exec": command = String(a.command); break;
+    case "exec": {
+      if (a.vault === undefined && a.vault_capture === undefined) { command = String(a.command); break; }
+      return execWithVault(cfg, boxId, a, signal, vault);
+    }
     default: return { isError: true, content: [{ type: "text", text: "Unknown cloud computer tool." }] };
   }
   const tracked = Boolean(onTabs) && TAB_TRACKED_TOOLS.has(name);
@@ -89,6 +99,26 @@ export async function runCloudComputerTool(
   return { isError: !result.ok, content: [{ type: "text", text: JSON.stringify(result) }] };
 }
 
+async function execWithVault(cfg: AppConfig, boxId: string, a: Record<string, unknown>, signal: AbortSignal, vault: VaultItems | undefined): Promise<CloudComputerResult> {
+  const refuse = (text: string): CloudComputerResult => ({ isError: true, content: [{ type: "text", text }] });
+  if (!vault?.owner) return refuse(VAULT_OWNER_ONLY);
+  const capture = a.vault_capture;
+  if (capture !== undefined && secretNameProblem(capture)) return refuse(secretNameProblem(capture)!);
+  const resolved = resolveUses(a.vault, vault);
+  if (!resolved.ok) return refuse(resolved.error);
+  const secrets = resolved.uses.map((use) => use.value);
+  const raw = await runCommand(cfg, boxId, isolatedRemoteCommand(wrapVaultCommand(String(a.command), resolved.uses, capture === undefined ? undefined : "-")), { signal });
+  signal.throwIfAborted();
+  if (capture === undefined) return maskValues({ isError: !raw.ok, content: [{ type: "text", text: JSON.stringify(raw) }] }, secrets);
+  const value = raw.ok ? capturedValue(raw.stdout) : null;
+  const shown = { ...raw, stdout: "" };
+  if (value === null) {
+    return maskValues({ isError: true, content: [{ type: "text", text: JSON.stringify({ ...shown, vault_error: raw.ok ? `The command printed nothing to keep, so ${String(capture)} was not saved.` : `The command failed, so ${String(capture)} was not saved.` }) }] }, [...secrets, raw.stdout.trim()].filter(Boolean));
+  }
+  const saved = vault.save(capture as string, value, vault.by);
+  return maskValues({ content: [{ type: "text", text: JSON.stringify({ ...shown, vault_saved: { name: capture, fingerprint: vaultFingerprint(value), replaced: saved.replaced } }) }] }, [...secrets, value]);
+}
+
 export async function cloudComputerRpc(
   request: { method?: unknown; params?: unknown } | null | undefined,
   deps: {
@@ -99,6 +129,7 @@ export async function cloudComputerRpc(
     signal: AbortSignal;
     secureForms?: SecureFormDesk;
     onTabs?: (boxId: string, targets: Target[]) => void;
+    vault?: VaultItems;
   },
 ): Promise<{ tools: typeof CLOUD_COMPUTER_TOOLS } | CloudComputerResult> {
   if (request?.method === "tools/list") {
@@ -135,7 +166,7 @@ export async function cloudComputerRpc(
   }
   const onTabs = deps.onTabs;
   const result = await runCloudComputerTool(deps.cfg, boxId, params.name as string, args as Record<string, unknown>, deps.signal,
-    onTabs && ((targets) => onTabs(boxId, targets)));
+    onTabs && ((targets) => onTabs(boxId, targets)), deps.vault);
   deps.assertActive();
   return result;
 }

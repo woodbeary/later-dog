@@ -236,7 +236,10 @@ import { latestPlanRow, latestPlanRowAt, loadPlanUsage, planAccountsFromInstance
 import { createAccountUsageRoute } from "./routes/account-usage.ts";
 import { createSwitchAccountRoute } from "./routes/switch-account.ts";
 import { createDogAccountsRoute, matchDogs } from "./routes/dog-accounts.ts";
+import { createVaultSecretRoute } from "./routes/vault-secret.ts";
 import { vaultInput, withoutSecret } from "./laterdog/vault-input.ts";
+import { finishMacVault, prepareMacVault, type VaultItems } from "./laterdog/vault-commands.ts";
+import { CommandSecrets } from "./laterdog/vault-refs.ts";
 import { createDogQueueRoute, type QueuedMessageRow } from "./routes/dog-queue.ts";
 import { SAFE_STOP_GRACE_MS, safeStopWords, stoppedByLine } from "./laterdog/safe-stop.ts";
 import { accountTurnPrompt, USAGE_HANDLED_LINE, type AccountUsageInput } from "./laterdog/account-usage.ts";
@@ -1153,6 +1156,18 @@ async function usePhone(job: PhoneJob, capability: InternalCapability, sender: B
   return await phoneDesk.request(principal, job, () => internalCapabilityIsActive(capability), async (kind) => {
     await phonePush.send({ kind: "phone", botId: sender.id, botName: sender.name, threadId: capability.threadId, title: sender.name, body: `Wants to ${phoneWants(kind)}. Open later.dog to let it.` });
   });
+}
+
+const macCommandSecrets = new CommandSecrets();
+
+function vaultItemsFor(capability: InternalCapability): VaultItems {
+  return {
+    owner: ownerWorkThread(capability.threadId),
+    by: store.bot(capability.botId)?.name ?? "a dog",
+    secret: (name) => vaultStore.secret(name),
+    names: () => vaultStore.secrets().map((item) => item.site),
+    save: (name, value, by) => ({ replaced: vaultStore.saveSecret(name, value, by).replaced }),
+  };
 }
 
 async function useMac(requested: SharedComputerOperation, capability: InternalCapability): Promise<unknown> {
@@ -12935,6 +12950,14 @@ INTERNAL_ROUTES.push(createDogQueueRoute({
   stop: stopForOwner,
 }));
 
+INTERNAL_ROUTES.push(createVaultSecretRoute({
+  active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+  ownerActing: (threadId) => ownerWorkThread(threadId),
+  by: (senderId) => store.bot(senderId)?.name ?? "a dog",
+  list: () => vaultStore.secrets().map((item) => ({ name: item.site, ...(item.createdBy ? { createdBy: item.createdBy } : {}), updatedAt: item.updatedAt })),
+  save: (name, value, by) => ({ replaced: vaultStore.saveSecret(name, value, by).replaced }),
+}));
+
 INTERNAL_ROUTES.push(createDogAccountsRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   ownerActing: (_capability, threadId) => ownerWorkThread(threadId),
@@ -13741,13 +13764,20 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           assertActive: requireActiveInternalCapability,
           secureForms: secureForms.desk(internalSender.id, internalCapability.threadId),
           onTabs: (boxId, targets) => noteCloudTabs({ botId: internalSender.id, threadId: internalCapability.threadId }, boxId, targets),
+          vault: vaultItemsFor(internalCapability),
         }) });
       }
       if (method === "GET" && path === "/api/internal/shared-computers" && lendingEnabled()) {
         return json(res, 200, await macListing(internalCapability));
       }
       if (method === "POST" && path === "/api/internal/shared-computers" && lendingEnabled()) {
-        const rawOperation = await readInternalBody();
+        const rawBody = await readInternalBody();
+        const items = vaultItemsFor(internalCapability);
+        const prepared = rawBody && typeof rawBody === "object" && !Array.isArray(rawBody)
+          ? prepareMacVault(rawBody as Record<string, unknown>, items)
+          : { ok: true as const, operation: rawBody as Record<string, unknown>, secrets: [] };
+        if (!prepared.ok) return json(res, prepared.status, { error: prepared.error });
+        const rawOperation: unknown = prepared.operation;
         let secret = "";
         let operationBody = rawOperation;
         if (rawOperation && typeof rawOperation === "object" && "vault_login" in rawOperation) {
@@ -13768,7 +13798,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 403, { error: "This bot has no computer. Change its Computer setting to use a shared computer's apps and screen." });
         }
         try {
-          return json(res, 200, { result: withoutSecret(await useMac(parsed.data, internalCapability), secret) });
+          const result = withoutSecret(await useMac(parsed.data, internalCapability), secret);
+          const secrets = secret ? [...prepared.secrets, secret] : prepared.secrets;
+          return json(res, 200, { result: await finishMacVault(parsed.data, result, { secrets, ...(prepared.capture ? { capture: prepared.capture } : {}) }, items, macCommandSecrets,
+            (operation) => useMac(sharedComputerOperation.parse({ ...operation, ...(parsed.data.computer_id ? { computer_id: parsed.data.computer_id } : {}) }), internalCapability)) });
         } catch (error) {
           if (isMacOffline(error)) return json(res, 200, { result: macOfflineResult() });
           throw error;

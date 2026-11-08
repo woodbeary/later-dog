@@ -22,6 +22,8 @@ export interface VaultLogin {
   site: string;
   username: string;
   note?: string;
+  kind?: "secret";
+  createdBy?: string;
   updatedAt: number;
   usedAt?: number;
 }

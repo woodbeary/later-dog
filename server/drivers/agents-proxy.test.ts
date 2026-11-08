@@ -477,6 +477,7 @@ describe("agents-proxy MCP surface", () => {
       "tool_result_read",
       "list_shared_computers",
       "shared_computer",
+      "vault_secret",
       "coordinate_bots",
       "start_tasks",
       "list_bots",

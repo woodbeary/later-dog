@@ -18,6 +18,7 @@ import {
   type VaultView,
 } from "../../shared/vault.ts";
 import { writeFileAtomic } from "../atomic.ts";
+import { VAULT_SECRET_MAX } from "./vault-refs.ts";
 
 const FILE_VERSION = 1;
 const KEY_BYTES = 32;
@@ -41,6 +42,8 @@ interface LoginMeta {
   site: string;
   username: string;
   note?: string;
+  kind?: "secret";
+  by?: string;
 }
 
 export interface LoginInput {
@@ -227,12 +230,43 @@ export class VaultStore {
     if (!this.available) return { available: false, logins: [], lookalike: null };
     const logins = this.matching(host);
     if (logins.length) return { available: true, logins, lookalike: null };
-    return { available: true, logins, lookalike: lookalikeSite(host, new Set([...this.metas.values()].map((meta) => meta.site))) };
+    return { available: true, logins, lookalike: lookalikeSite(host, new Set([...this.metas.values()].filter((meta) => meta.kind !== "secret").map((meta) => meta.site))) };
   }
 
   matching(host: string): VaultLogin[] {
     const site = vaultSite(host);
-    return site ? this.logins().filter((login) => login.site === site) : [];
+    return site ? this.logins().filter((login) => login.kind !== "secret" && login.site === site) : [];
+  }
+
+  saveSecret(name: string, value: string, by: string): { login: VaultLogin; replaced: boolean } {
+    const key = this.writable();
+    if (!value || value.length > VAULT_SECRET_MAX) throw new VaultInputError(`A vault item holds 1 to ${VAULT_SECRET_MAX} characters.`);
+    const at = new Date(this.now()).toISOString().slice(0, 10);
+    const meta: LoginMeta = { site: name, username: "", kind: "secret", by, note: `Made by ${by} on ${at}` };
+    const existing = this.findSecret(name);
+    if (existing) {
+      this.write(key, existing, meta, value);
+      this.persist();
+      return { login: this.summary(existing), replaced: true };
+    }
+    if (this.stored.length >= VAULT_MAX_LOGINS) throw new VaultInputError(`Your vault holds up to ${VAULT_MAX_LOGINS} items. Remove some first.`);
+    const login = this.add(key, meta, value);
+    this.persist();
+    return { login: this.summary(login), replaced: false };
+  }
+
+  secret(name: string): string | null {
+    const login = this.findSecret(name);
+    if (!login || !this.key) return null;
+    const value = this.passwordOf(this.key, login);
+    if (value === null) return null;
+    login.usedAt = this.now();
+    this.persist();
+    return value;
+  }
+
+  secrets(): VaultLogin[] {
+    return this.logins().filter((login) => login.kind === "secret");
   }
 
   save(input: LoginInput): { login: VaultLogin; replaced: boolean } {
@@ -257,13 +291,15 @@ export class VaultStore {
     const login = this.stored.find((candidate) => candidate.id === id);
     if (!login) return null;
     const previous = this.metas.get(id)!;
-    const meta: LoginMeta = {
-      site: patch.site === undefined ? previous.site : cleanSite(patch.site),
-      username: patch.username === undefined ? previous.username : cleanUsername(patch.username),
-    };
+    const meta: LoginMeta = previous.kind === "secret"
+      ? { site: previous.site, username: "", kind: "secret", ...(previous.by ? { by: previous.by } : {}) }
+      : {
+        site: patch.site === undefined ? previous.site : cleanSite(patch.site),
+        username: patch.username === undefined ? previous.username : cleanUsername(patch.username),
+      };
     const note = patch.note === undefined ? previous.note : cleanNote(patch.note);
     if (note) meta.note = note;
-    const clash = this.find(meta.site, meta.username);
+    const clash = meta.kind === "secret" ? undefined : this.find(meta.site, meta.username);
     if (clash && clash.id !== id) throw new VaultInputError("You already saved this login.");
     const password = patch.password === undefined ? null : cleanPassword(patch.password);
     if (password === null) {
@@ -373,7 +409,14 @@ export class VaultStore {
   private find(site: string, username: string): StoredLogin | undefined {
     return this.stored.find((login) => {
       const meta = this.metas.get(login.id);
-      return meta?.site === site && meta.username === username;
+      return meta?.kind !== "secret" && meta?.site === site && meta.username === username;
+    });
+  }
+
+  private findSecret(name: string): StoredLogin | undefined {
+    return this.stored.find((login) => {
+      const meta = this.metas.get(login.id);
+      return meta?.kind === "secret" && meta.site === name;
     });
   }
 
@@ -408,6 +451,8 @@ export class VaultStore {
       site: meta.site,
       username: meta.username,
       ...(meta.note ? { note: meta.note } : {}),
+      ...(meta.kind ? { kind: meta.kind } : {}),
+      ...(meta.by ? { createdBy: meta.by } : {}),
       updatedAt: login.updatedAt,
       ...(login.usedAt ? { usedAt: login.usedAt } : {}),
     };
