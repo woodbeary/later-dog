@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { launchVerificationServer, type VerificationServer } from "../scripts/control-laterdog.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 import { openSse } from "./testing/sse.ts";
+import type { executionAdvice } from "./laterdog/execution-advisor.ts";
 
 describe("per-bot thread capacity through an isolated HTTP fixture", () => {
   let fixture: VerificationServer;
@@ -115,6 +116,42 @@ describe("per-bot thread capacity through an isolated HTTP fixture", () => {
     await fixture.close();
     for (const project of projectDirs.splice(0)) await removeTempDir(project);
   });
+
+  it("keeps twenty simultaneous dogs isolated through advice, send retries and completion", async () => {
+    const dogs: Awaited<ReturnType<typeof botWithThreads>>[] = [];
+    for (let i = 0; i < 20; i++) dogs.push(await botWithThreads(1));
+    const sent = await Promise.all(dogs.map((dog, index) => send(dog.botId, dog.threads[0], `SCALE_${index}`, `scale_fixture_send_${index}`)));
+    expect(sent.every((result) => result.status === 202 && !result.body.queued)).toBe(true);
+    const launched = await Promise.all(dogs.map((dog) => dump(dog.threads[0])));
+    expect(new Set(launched.map((entry) => entry.pid)).size).toBe(20);
+    expect(new Set(launched.map((entry) => entry.env.LATERDOG_FIXTURE_CWD)).size).toBe(20);
+    const advised = await Promise.all(launched.map(async (entry) => {
+      const response = await fetch(`${fixture.info.url}/api/internal/execution-advice`, {
+        method: "POST", headers: { authorization: `Bearer ${entry.mcpConfig.mcpServers.agents.env.LATERDOG_COMMS_TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({ task: "inspect isolated account controls" }),
+      });
+      expect(response.status).toBe(200);
+      return response.json() as Promise<ReturnType<typeof executionAdvice>>;
+    }));
+    expect(advised.every((advice) => advice.recommendation.action === "keep_current" && advice.current.model === model && advice.coverage.recordedTurns === 0)).toBe(true);
+    const retried = await Promise.all(dogs.map((dog, index) => send(dog.botId, dog.threads[0], `SCALE_${index}`, `scale_fixture_send_${index}`)));
+    expect(retried.every((result) => result.status === 202)).toBe(true);
+    const transcripts = await Promise.all(dogs.map((dog) => messages(dog.threads[0])));
+    expect(transcripts.every((rows) => rows.filter((message) => message.role === "user").length === 1)).toBe(true);
+    for (const dog of dogs) finish(dog.threads[0]);
+    await expect.poll(async () => {
+      const fleet = (await api("GET", "/api/bots?messages=0")).body;
+      return fleet.bots.filter((bot: any) => dogs.some((dog) => dog.botId === bot.id) && bot.busy).length;
+    }, { timeout: 30_000 }).toBe(0);
+    let receipts = [] as any[];
+    await expect.poll(async () => {
+      receipts = (await api("GET", "/api/usage/executions?limit=200")).body.receipts.filter((receipt: any) => dogs.some((dog) => dog.botId === receipt.botId));
+      return receipts.length;
+    }, { timeout: 15_000 }).toBe(20);
+    expect(new Set(receipts.map((receipt: any) => receipt.execution.turnId)).size).toBe(20);
+    expect(receipts.every((receipt: any) => receipt.execution.providerSucceeded && receipt.execution.verification === "unverified" && receipt.execution.dispatched.model === model)).toBe(true);
+    evidence.push({ scenario: "twenty independent synthetic provider processes", dogs: dogs.length, processes: launched.map((entry) => ({ pid: entry.pid, cwd: entry.env.LATERDOG_FIXTURE_CWD })), receipts: receipts.length });
+  }, 90_000);
 
   it("defaults to ten, runs ten real turns after raising a lowered limit, and safely queues and cancels overflow", async () => {
     expect((await api("GET", "/api/config")).body.threads).toEqual({ maxConcurrentPerBot: 10 });

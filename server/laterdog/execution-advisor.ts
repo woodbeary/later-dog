@@ -33,9 +33,17 @@ export function executionAdvice(input: {
   });
   const matching = unique.filter((row) => row.execution && words.some((word) => row.execution!.task.toLowerCase().includes(word)));
   const evidence = matching.length ? matching : unique;
+  const grouped = new Map<string, Map<string, UsageRow[]>>();
+  for (const row of evidence) {
+    const models = grouped.get(row.instanceId) ?? new Map<string, UsageRow[]>();
+    const rows = models.get(row.model) ?? [];
+    rows.push(row);
+    models.set(row.model, rows);
+    grouped.set(row.instanceId, models);
+  }
   const ordered = [...input.candidates].sort((a, b) => Number(b.instanceId === input.current.instanceId && b.model === input.current.model) - Number(a.instanceId === input.current.instanceId && a.model === input.current.model));
   const candidates = ordered.slice(0, 100).map((candidate) => {
-    const rows = evidence.filter((row) => row.instanceId === candidate.instanceId && row.model === candidate.model);
+    const rows = grouped.get(candidate.instanceId)?.get(candidate.model) ?? [];
     const attributed = rows.filter((row) => row.execution && row.execution.attribution !== "conflict");
     const priced = rows.filter((row) => typeof row.costUsd === "number" && Number.isFinite(row.costUsd) && row.costUsd >= 0);
     const price = LIST_PRICES[candidate.model];

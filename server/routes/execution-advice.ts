@@ -24,6 +24,6 @@ export function createExecutionAdviceRoute(deps: {
     if (!current) return json(res, 404, { error: "no such conversation" });
     const wholeDog = deps.wholeDogHistory(threadId);
     const advice = { historyVisibility: wholeDog ? "own_dog" : "current_thread", ...executionAdvice({ task: parsed.data.task, current, candidates: await deps.candidates(), rows: deps.rows().filter((row) => row.botId === sender.id && (wholeDog || row.threadId === threadId)), now: deps.now?.() ?? Date.now() }) };
-    return json(res, 200, { ...advice, text: JSON.stringify(advice) });
+    return json(res, 200, advice);
   };
 }
