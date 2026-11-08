@@ -1,3 +1,6 @@
+import { randomBytes } from "node:crypto";
+import { createArchiver, serveArchive } from "./archive.mjs";
+import { fileIsUnopened } from "./archive-ownership.mjs";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -66,6 +69,8 @@ async function main() {
   const included = await seedIncluded(process.env.LATERDOG_HOME || join(DATA, ".laterdog"), { key: process.env.LATERDOG_INCLUDED_KEY, api: process.env.LATERDOG_INCLUDED_API }, dogOwner());
   if (included === "seeded" || included === "replaced") log("included later.dog AI, voice and decisions are ready");
   const environment = { ...process.env };
+  const archive = store ? await serveArchive(createArchiver({ root: DATA, store, owner: dogOwner(), log, canRemove: file => fileIsUnopened(file) }), { token: environment.LATERDOG_CLOUD_ARCHIVE_TOKEN = randomBytes(32).toString("hex") }) : null;
+  if (archive) environment.LATERDOG_CLOUD_ARCHIVE_URL = archive.url;
   delete environment.LATERDOG_STATE_URL;
   delete environment.LATERDOG_STATE_TOKEN;
   delete environment.LATERDOG_SYNC_INTERVAL_MS;
@@ -131,6 +136,7 @@ async function main() {
     log(`the launcher stopped (exit code ${code ?? "none"}, signal ${signal ?? "none"})`);
     clearInterval(timer);
     devCode?.stop();
+    await archive?.close();
     const finished = await settleWithin((running ?? Promise.resolve()).then(() => save({ final: true })), FINAL_SAVE_MS);
     if (finished === "late") log(`the last save did not finish within ${FINAL_SAVE_MS / 1000} seconds; stopping anyway`);
     process.exit(code ?? (signal ? 1 : 0));

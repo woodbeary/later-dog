@@ -78,7 +78,7 @@ async function writeAll(handle, bytes, position) {
   return position + written;
 }
 
-export function createArchiver({ root, store, owner = null, log = () => {}, now = Date.now }) {
+export function createArchiver({ root, store, owner = null, log = () => {}, now = Date.now, canRemove = async () => true }) {
   let index = null;
   let queue = Promise.resolve();
   const counts = { archivedFiles: 0, archivedBytes: 0, restoredFiles: 0, restoredBytes: 0, failedFiles: 0 };
@@ -171,6 +171,14 @@ export function createArchiver({ root, store, owner = null, log = () => {}, now 
           results.push({ path, skipped: "changed" });
           continue;
         }
+        if (!await canRemove(full, entry)) {
+          results.push({ path, skipped: "open-or-unknown" });
+          continue;
+        }
+        if (!same(await lstat(full).catch(() => null), entry)) {
+          results.push({ path, skipped: "changed" });
+          continue;
+        }
         try {
           await unlink(full);
         } catch {
@@ -231,10 +239,10 @@ export function createArchiver({ root, store, owner = null, log = () => {}, now 
     }
   };
 
-  const restore = (needles) => serial(async () => {
+  const restore = (needles, exactPaths = null) => serial(async () => {
     const wanted = needles.filter((needle) => typeof needle === "string" && NEEDLE.test(needle));
     const current = await load();
-    const matches = Object.entries(current.entries).filter(([path]) => wanted.some((needle) => path.includes(needle)));
+    const matches = Object.entries(current.entries).filter(([path]) => exactPaths ? exactPaths.includes(path) : wanted.some((needle) => path.includes(needle)));
     let restored = 0;
     let bytes = 0;
     let failed = 0;
@@ -323,6 +331,11 @@ export function archiveHandler(archiver, token) {
       const path = new URL(request.url ?? "/", "http://archive").pathname;
       if (request.method === "GET" && path === "/status") return reply(200, await archiver.status());
       if (request.method === "POST" && path === "/archive") return reply(200, await archiver.archive(strings((await body(request)).paths, MAX_PATHS)));
+      if (request.method === "POST" && path === "/restore-logs") {
+        const paths = strings((await body(request)).paths, MAX_PATHS);
+        if (!paths.every(value => [".laterdog/events/", ".laterdog/native/"].some(root => value.startsWith(root) && /^[A-Za-z0-9_-]{8,200}[.]ndjson$/.test(value.slice(root.length))))) return reply(400, { error: "only exact thread logs" });
+        return reply(200, await archiver.restore([], paths));
+      }
       if (request.method === "POST" && path === "/restore") return reply(200, await archiver.restore(strings((await body(request)).contains, MAX_NEEDLES)));
       return reply(404, { error: "not found" });
     } catch (error) {

@@ -511,6 +511,7 @@ import { scoutProject, suggestTeam } from "./project-scout.ts";
 import { fetchGithubTeam, fetchLibraryTeam, fetchTeamCatalog } from "./team-library.ts";
 import { BOT_PACKAGE_MAX_SKILLS, isBotPackage, packageSummary, parsePackageDocument, renderBotPackageMarkdown, type PackageDocument } from "./bot-package.ts";
 import { createTeamManifest, parseTeamManifest } from "./team-manifest.ts";
+import { LogArchiveCoordinator, logArchiveBridge } from "./laterdog/log-archive.ts";
 import { readThreadEvents } from "./thread-events.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
 import { OutboundRequestService } from "./outbound-requests.ts";
@@ -2593,6 +2594,21 @@ function botForThread(botId: string, threadId: string): BotRecord | null {
 function threadBusy(botId: string, threadId: string): boolean {
   return store.taskByThread(botId, threadId)?.busy === true || directTurnDispatchClaims.has(threadId);
 }
+
+const logArchive = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LATERDOG_CLOUD_ARCHIVE_URL
+  ? new LogArchiveCoordinator({
+    root: homedir(),
+    bridge: logArchiveBridge(process.env.LATERDOG_CLOUD_ARCHIVE_URL, CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN),
+    threads: () => [...new Set(store.bots.flatMap(bot => store.tasks(bot.id).map(task => task.threadId)))].filter(id => !store.groupByThread(id)),
+    idle: id => {
+      const owner = store.bots.find(bot => store.tasks(bot.id).some(task => task.threadId === id));
+      return Boolean(owner && !threadBusy(owner.id, id)
+        && !registry.instances().some(instance => instance.adapter.hasSession(id))
+        && !store.messagesFor(id).some(message => message.requestPending === true)
+        && !roomHandoffs.activeDirect(id));
+    },
+    report: message => console.log(`[log archive] ${message}`),
+  }) : null;
 
 function parksBehindCoordination(botId: string, threadId: string): boolean {
   if (!roomHandoffs.activeDirect(threadId)) return false;
@@ -8118,7 +8134,7 @@ async function startTurn(
     if (source) computerSelectionTurns.set(threadId, { generation: dispatchClaimId, botId: bot.id, source, text });
   }
   store.setTaskActivity(bot.id, threadId, "working");
-  watchdog.watch(threadId, bot.id);
+  if (!logArchive) watchdog.watch(threadId, bot.id);
   store.setTaskClosedBy(bot.id, threadId, null);
   if (commsDepth === 0) store.patchTask(bot.id, threadId, { unread: false });
   turnUsage.delete(threadId);
@@ -8126,6 +8142,10 @@ async function startTurn(
 
   void (async () => {
     try {
+      if (logArchive && !await logArchive.beforeTurn(threadId, () => directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId))) {
+        throw new DirectTurnSetupCancelled("turn stopped while saved logs were restored");
+      }
+      if (logArchive) watchdog.watch(threadId, bot.id);
       if (enginesRead) {
         await enginesRead;
         if (!directTurnClaimIsCurrent(bot.id, dispatchClaimId, threadId)) throw new DirectTurnSetupCancelled("turn stopped while the engines were read");
@@ -18770,7 +18790,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 400, { error: "limit must be a positive whole number" });
       }
       const limit = parsedLimit;
-      return json(res, 200, readThreadEvents({ eventsDir: EVENTS_DIR, nativeDir: NATIVE_DIR, threadId, limit }));
+      const read = () => readThreadEvents({ eventsDir: EVENTS_DIR, nativeDir: NATIVE_DIR, threadId, limit });
+      return json(res, 200, logArchive ? await logArchive.read(threadId, read) : read());
     }
 
     if (method === "GET" && (path === "/api/usage" || path === "/api/usage.csv")) {
@@ -18906,9 +18927,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         return json(res, 400, { error: "limit must be a positive whole number" });
       }
       const threadIds = [...new Set([bot.threadId, ...store.tasks(bot.id).map((task) => task.threadId)])];
-      return json(res, 200, {
-        rows: readBotActivity({ dataDir: DATA_DIR, eventsDir: EVENTS_DIR, botId: bot.id, threadIds, limit: parsedLimit ?? 300 }),
-      });
+      const read = () => readBotActivity({ dataDir: DATA_DIR, eventsDir: EVENTS_DIR, botId: bot.id, threadIds, limit: parsedLimit ?? 300 });
+      return json(res, 200, { rows: logArchive ? await logArchive.readMany(threadIds, read) : read() });
     }
 
     if (method === "GET" && path === "/api/instances") {
@@ -20314,6 +20334,7 @@ try {
 const THREAD_LOG_RETENTION_SWEEP_MS = 24 * 60 * 60 * 1000;
 
 function sweepThreadEventLogsNow(): void {
+  if (logArchive) return;
   const retentionDays = threadEventLogRetentionDays(cfg) ?? (CLOUD_HOME ? CLOUD_THREAD_LOG_RETENTION_DAYS : null);
   if (retentionDays === null) return;
   const candidates: ThreadLogRetentionCandidate[] = store.bots.flatMap((bot) =>
@@ -20377,7 +20398,7 @@ function runJanitorNow(reason: JanitorRun["reason"]): JanitorRun | null {
   try {
     const run = runJanitor({
       dataDir: DATA_DIR,
-      logDirs: [EVENTS_DIR, NATIVE_DIR],
+      logDirs: logArchive ? [] : [EVENTS_DIR, NATIVE_DIR],
       logMaxBytes: threadLogCap(),
       sweepRetention: sweepThreadEventLogsNow,
       toolResultsDir: TOOL_RESULTS_DIR,
@@ -20392,6 +20413,11 @@ function runJanitorNow(reason: JanitorRun["reason"]): JanitorRun | null {
   } finally {
     janitorRunning = false;
   }
+}
+
+if (logArchive) {
+  setTimeout(() => void logArchive.scan().catch(() => console.warn("[log archive] scan deferred")), 60_000).unref();
+  setInterval(() => void logArchive.scan().catch(() => console.warn("[log archive] scan deferred")), 5 * 60_000).unref();
 }
 
 if (CLOUD_HOME) {
