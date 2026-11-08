@@ -41,6 +41,7 @@ it("makes one dog per create id, says the first hello on the server, and keeps a
     expect(scout.messages.find((message) => message.role === "bot")?.text).toBe("Hi Jacob, I'm Scout.");
     await expect.poll(async () => (await messages(scout)).filter((message) => message.role === "bot").length, { timeout: 15_000 }).toBeGreaterThan(1);
     evidence.helloThread = await messages(scout);
+    expect((await messages(scout)).find((message) => message.id === scout.messages.find((seed) => seed.role === "bot")?.id)?.kind).toBe("activity");
     expect((await messages(scout)).some((message) => message.role === "user")).toBe(false);
 
     const old = await api("POST", "/api/bots", { name: "Old client" });

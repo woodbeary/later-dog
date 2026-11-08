@@ -2,12 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { SEED_GREETING, firstHelloPrompt, personalGreeting, sayFirstHello, type FirstHelloDeps } from "./first-hello.ts";
 
 function fixture(messages: { id: string; role: string; kind?: string; text?: string }[], canRun = true, title?: string) {
-  const patched: { id: string; text: string }[] = [];
+  const patched: { id: string; text: string; kind?: string }[] = [];
   const started: string[] = [];
   const deps: FirstHelloDeps = {
     bot: (id) => (id === "dog" ? { id: "dog", name: "Biscuit", title, threadId: "t1", modelSelection: { instanceId: "claude" } } : undefined),
     messages: () => messages,
-    patchMessage: (_thread, id, patch) => { patched.push({ id, text: patch.text }); },
+    patchMessage: (_thread, id, patch) => { patched.push({ id, ...patch }); },
     personName: () => "Jacob",
     canRun: vi.fn(async () => canRun),
     start: vi.fn(async (_bot, _thread, prompt) => { started.push(prompt); }),
@@ -17,13 +17,16 @@ function fixture(messages: { id: string; role: string; kind?: string; text?: str
 const seed = { id: "m1", role: "bot", kind: "text", text: "Hi, I'm Pepper. What would you like me to do?" };
 
 describe("the first dog speaks first", () => {
-  it("rewrites the seeded greeting with the person's and the dog's current names, then asks one question", async () => {
+  it("lets the dog greet in one warm message that guesses its purpose, then ask one tailored question", async () => {
     const { deps, patched, started } = fixture([seed]);
     expect(await sayFirstHello(deps, "dog")).toEqual({ greeted: true, asked: true });
-    expect(patched).toEqual([{ id: "m1", text: "Hi Jacob, I'm Biscuit." }]);
+    expect(patched).toEqual([{ id: "m1", text: "Hi Jacob, I'm Biscuit." }, { id: "m1", kind: "activity", text: "" }]);
     expect(started).toHaveLength(1);
-    expect(started[0]).toContain("do not greet again");
-    expect(started[0]).toContain("what should you help with first");
+    expect(started[0]).toContain("Say hello first, in one warm message");
+    expect(started[0]).toContain("greet Jacob by name");
+    expect(started[0]).toContain("say what you guess you are here for from your name, Biscuit");
+    expect(started[0]).toContain("Do not introduce yourself by name and do not add a second message");
+    expect(started[0]).toContain("never generic ones such as Code and GitHub");
     expect(started[0]).toContain("Once they answer, start on what they asked right away");
     expect(started[0]).toContain(
       "If they close the question without answering, do not ask it again: tell them in one short line that you are ready whenever they are, and stop.",
@@ -34,9 +37,8 @@ describe("the first dog speaks first", () => {
     const { deps, started } = fixture([seed], true, "Email and calendar");
     expect(await sayFirstHello(deps, "dog")).toEqual({ greeted: true, asked: true });
     expect(started[0]).toContain('wrote what you are for: "Email and calendar"');
-    expect(started[0]).toContain("that fit that purpose");
-    expect(started[0]).not.toContain("Code and GitHub");
-    expect(firstHelloPrompt("Jacob", "Biscuit", "  ")).toContain("Code and GitHub");
+    expect(started[0]).toContain("say what you guess you are here for from that purpose");
+    expect(firstHelloPrompt("Jacob", "Biscuit", "  ")).toContain("from your name, Biscuit");
   });
 
   it("starts the hello as the person who introduced the dog, so it can do their first ask with their computer", async () => {
@@ -45,10 +47,10 @@ describe("the first dog speaks first", () => {
     expect(deps.start).toHaveBeenCalledWith("dog", "t1", expect.stringContaining("first meeting"), "cloud-home");
   });
 
-  it("keeps the corrected greeting and starts no turn when the dog's engine cannot answer yet", async () => {
+  it("keeps a corrected greeting and starts no turn when the dog's engine cannot answer yet", async () => {
     const { deps, patched, started } = fixture([seed], false);
     expect(await sayFirstHello(deps, "dog")).toEqual({ greeted: true, asked: false });
-    expect(patched).toHaveLength(1);
+    expect(patched).toEqual([{ id: "m1", text: "Hi Jacob, I'm Biscuit." }]);
     expect(started).toEqual([]);
   });
 
@@ -66,5 +68,6 @@ describe("the first dog speaks first", () => {
     expect(SEED_GREETING.test("Hi, I'm Pepper. Let's go.")).toBe(false);
     expect(personalGreeting(undefined, "Biscuit")).toBe("Hi, I'm Biscuit.");
     expect(firstHelloPrompt(undefined, "Biscuit")).toContain("the person just finished setting you up");
+    expect(firstHelloPrompt(undefined, "Biscuit")).toContain("greet them by name");
   });
 });
