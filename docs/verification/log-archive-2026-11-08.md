@@ -14,7 +14,7 @@ The root runtime owns the archive store and authenticated loopback service. A fr
 
 ## Isolated evidence
 
-- All 238 home tests pass in 28 files after integration with main and the compatibility/counter checks: /tmp/patch-archive-home-final.log.
+- All 240 home tests pass in 29 files after integration, including the private ownership-probe cases: /tmp/patch-archive-home-ipc.log.
 - Nine new service/coordinator fixtures cover archive/start contention, coordinator restart while the root archive is still running, root restart with a fresh index, restore outages with autonomous retry, Stop, history failure, exact log-only restoration, scan bounds, descriptor ownership and changes during ownership checks.
 - A real isolated server fixture sends a request with no connected chat, blocks archive restoration, restarts the server, and observes pending-request pickup without a client. Only after storage recovers does the fake engine receive the original request, with the saved event bytes restored first. History reads then return the restored event. The run observed four archive blob reads across archive verification, failed restores and recovery.
 - The real fixture log is recorded in /tmp/patch-archive-home-all.log. It uses temporary data, synthetic credentials and the repository fake engine. No live dog was resumed or replayed.
@@ -23,7 +23,7 @@ The root runtime owns the archive store and authenticated loopback service. A fr
 
 ## Image compatibility and observability
 
-A bundled capability manifest binds log-archive support to the SHA-256 of index.js. The runtime refuses older pushed code without a matching manifest and keeps the image server, including when unpacking inherited a newer manifest from the base image. This prevents an older pushed server from bypassing restoration after the new runtime activates. A dedicated fixture covers missing, matching, inherited stale and corrupt manifests.
+A version-two bundled capability manifest binds log-archive support to the SHA-256 of both index.js and cloud-home-start.js. Image build and runtime startup also require this capability before starting an archive-backed home. The runtime refuses older pushed code without a matching manifest and keeps the image server, including when unpacking inherited a newer manifest from the base image. This prevents an older pushed server from bypassing restoration after the new runtime activates. A dedicated fixture covers missing, matching, inherited stale and corrupt manifests.
 
 GET /api/storage reports whether the archive bridge is enabled, successful archive file/byte totals since server startup, last scan time and free bytes before/after its last completed scan. The initial live read-only baseline was 1,333,899,264 free bytes on a 19,228,708,864-byte volume; archive counters were absent, proving this code was not active then. No savings are attributed to this baseline.
 
@@ -38,6 +38,8 @@ The assembled-image smoke test exposed EACCES when root tried to stat the dog us
 The isolated Linux two-user process fixture proves the held dog file is refused, and becomes eligible after close while the dog process is still alive. It also proves the original root-only scan remains refused under that same boundary: /tmp/patch-archive-cross-uid.log.
 
 Pending-request checks now use already-cached messages or a SQLite existence query instead of loading cold transcripts into the server cache. Cancelled requests do not block archiving, and unmigrated legacy files remain protected without importing them. All 20 message database tests pass: /tmp/patch-archive-pending-query.log. All 238 home tests pass again after this change: /tmp/patch-archive-home-uid.log.
+
+The root launcher deliberately protects its descriptor table after switching service identities. It now answers metadata-only ownership probes over its private parent/child IPC channel. The root scan may leave that table to the launcher only after a matching private answer; a launcher change, held file, wrong reply, timeout or exit retains the log. Both server and launcher hashes are covered by capability version two. The same Linux process fixture also holds a log inside a protected root launcher, proves IPC refuses it, closes it and proves the combined root/dog/launcher check succeeds without exposing that private table: /tmp/patch-archive-protected-launcher.log.
 
 ## Build environment
 

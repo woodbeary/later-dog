@@ -13,7 +13,7 @@ it("refuses an older pushed bundle even when unpacking inherited the image's cap
     writeFileSync(join(root, "index.js"), "new server with restore");
     expect(await archiveCompatible(launcher)).toBe(false);
     const indexSha256 = createHash("sha256").update("new server with restore").digest("hex");
-    writeFileSync(join(root, "cloud-home-capabilities.json"), JSON.stringify({ logArchive: 1, indexSha256 }));
+    writeFileSync(join(root, "cloud-home-capabilities.json"), JSON.stringify({ logArchive: 2, indexSha256, launcherSha256: createHash("sha256").update("launcher fixture").digest("hex") }));
     expect(await archiveCompatible(launcher)).toBe(true);
     writeFileSync(join(root, "index.js"), "old server without restore");
     expect(await archiveCompatible(launcher)).toBe(false);

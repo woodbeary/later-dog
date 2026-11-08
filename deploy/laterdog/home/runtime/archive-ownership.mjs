@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 const run = promisify(execFile);
 const gone = error => error?.code === "ENOENT" || error?.code === "ESRCH";
 
-async function descriptors(target, { proc, maxDescriptors, budgetMs, uid = null }) {
+async function descriptors(target, { proc, maxDescriptors, budgetMs, uid = null, launcherPid = null }) {
   const started = Date.now();
   let checked = 0;
   const otherUids = new Set();
@@ -20,6 +20,7 @@ async function descriptors(target, { proc, maxDescriptors, budgetMs, uid = null 
         let owner;
         try { owner = (await stat(join(proc, pid))).uid; }
         catch (error) { if (gone(error)) continue; return result(false); }
+        if (owner === 0 && Number(pid) === launcherPid) continue;
         if (owner !== uid) { otherUids.add(owner); continue; }
       }
       let fds;
@@ -37,12 +38,12 @@ async function descriptors(target, { proc, maxDescriptors, budgetMs, uid = null 
   } catch { return result(false); }
 }
 
-export async function fileIsUnopened(file, { proc = "/proc", maxDescriptors = 100_000, budgetMs = 2000, asOwner = null } = {}) {
+export async function fileIsUnopened(file, { proc = "/proc", maxDescriptors = 100_000, budgetMs = 2000, asOwner = null, launcherPid = null } = {}) {
   const info = await stat(file);
   const target = { dev: info.dev, ino: info.ino };
   const started = Date.now();
   const ownUid = process.getuid?.() ?? null;
-  const checked = await descriptors(target, { proc, maxDescriptors, budgetMs, uid: asOwner ? ownUid : null });
+  const checked = await descriptors(target, { proc, maxDescriptors, budgetMs, uid: asOwner ? ownUid : null, launcherPid });
   if (!checked.safe) return false;
   if (!asOwner || !checked.otherUids.length) return true;
   if (checked.otherUids.some(uid => uid !== asOwner.uid)) return false;

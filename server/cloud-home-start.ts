@@ -10,6 +10,7 @@ import {
   HOME_FATAL_REPORTS_DIR, HOME_HEALTH_FILE, KERNEL_VMSTAT, appendHomeHealthLine, fatalErrorReportFlags, oomKillCount, oomKillsSaid, pruneFatalErrorReports,
   readSystemFile,
 } from "./laterdog/home-health-log.ts";
+import { listenForArchiveOwnership } from "./laterdog/archive-descriptors.ts";
 import { keepRunningPolicy } from "./restart.ts";
 
 const SERVICE_USER = "dog";
@@ -180,6 +181,7 @@ export function startCloudHome(env: NodeJS.ProcessEnv = process.env) {
     });
   };
   runEdge();
+  listenForArchiveOwnership();
   const asked = (signal: NodeJS.Signals) => {
     record(`cloud home: asked to stop (${signal}); stopping the server and the edge`);
     stop(false);

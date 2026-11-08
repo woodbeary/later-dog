@@ -79,7 +79,8 @@ if (existsSync(join(root, "enterprise", "server", "index.ts"))) {
   copyFileSync(join(root, "enterprise", "LICENSE"), join(root, "dist-server", "enterprise", "LICENSE"));
 }
 
-writeFileSync(join(root, "dist-server", "cloud-home-capabilities.json"), JSON.stringify({ logArchive: 1,
+writeFileSync(join(root, "dist-server", "cloud-home-capabilities.json"), JSON.stringify({ logArchive: 2,
+  launcherSha256: createHash("sha256").update(readFileSync(join(root, "dist-server", "cloud-home-start.js"))).digest("hex"),
   indexSha256: createHash("sha256").update(readFileSync(join(root, "dist-server", "index.js"))).digest("hex") }));
 
 copyFileSync(join(root, "scripts", "desktop-server-entry.mjs"), join(root, "dist-server", "desktop-entry.mjs"));

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { createArchiver, serveArchive } from "./archive.mjs";
+import { launcherOwnsNoFile } from "./archive-launcher.mjs";
 import { archiveCompatible } from "./archive-capability.mjs";
 import { fileIsUnopened } from "./archive-ownership.mjs";
 import { spawn } from "node:child_process";
@@ -69,8 +70,14 @@ async function main() {
   }
   const included = await seedIncluded(process.env.LATERDOG_HOME || join(DATA, ".laterdog"), { key: process.env.LATERDOG_INCLUDED_KEY, api: process.env.LATERDOG_INCLUDED_API }, dogOwner());
   if (included === "seeded" || included === "replaced") log("included later.dog AI, voice and decisions are ready");
+  if (store && !await archiveCompatible(LAUNCHER)) throw new Error("this image predates safe log restoration; rebuild the home image");
   const environment = { ...process.env };
-  const archive = store ? await serveArchive(createArchiver({ root: DATA, store, owner: dogOwner(), log, canRemove: file => fileIsUnopened(file, { asOwner: dogOwner() }) }), { token: environment.LATERDOG_CLOUD_ARCHIVE_TOKEN = randomBytes(32).toString("hex") }) : null;
+  const archive = store ? await serveArchive(createArchiver({ root: DATA, store, owner: dogOwner(), log, canRemove: async (file, entry) => {
+    const launcher = child;
+    if (!await launcherOwnsNoFile(launcher, entry)) return false;
+    const clear = await fileIsUnopened(file, { asOwner: dogOwner(), launcherPid: launcher.pid, maxDescriptors: 50_000 });
+    return clear && launcher === child && launcher.exitCode === null && launcher.signalCode === null;
+  } }), { token: environment.LATERDOG_CLOUD_ARCHIVE_TOKEN = randomBytes(32).toString("hex") }) : null;
   if (archive) environment.LATERDOG_CLOUD_ARCHIVE_URL = archive.url;
   delete environment.LATERDOG_STATE_URL;
   delete environment.LATERDOG_STATE_TOKEN;
@@ -146,7 +153,7 @@ async function main() {
   };
   const start = () => {
     startedAt = Date.now();
-    child = spawn(process.execPath, [launcher], { stdio: "inherit", env: environment });
+    child = spawn(process.execPath, [launcher], { stdio: ["inherit", "inherit", "inherit", "ipc"], env: environment });
     child.on("exit", stopped);
   };
   const reload = async (next) => {
