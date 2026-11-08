@@ -234,7 +234,7 @@ export type CardAnswerer = (
 };
 
 export interface WireMessage {
-  roomRequest?: { id: string; phase: "request" | "result" };
+  roomRequest?: { id: string; phase: "request" | "result" | "reply" };
   id: string;
   role: "bot" | "user";
   kind: "text" | "options" | "activity" | "screen" | "connector" | "secret" | "routine.run" | "goal.run" | "digest" | "compaction";

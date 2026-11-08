@@ -4247,6 +4247,13 @@ function roomHandoffProblem(node: Pick<RoomHandoff, "groupId" | "threadId" | "bo
   }
 }
 
+function peerRequestRunning(botId: string, threadId: string): string | undefined {
+  for (const node of roomHandoffs.nodes.values()) {
+    if (node.parentId && !node.groupId && node.botId === botId && node.threadId === threadId && node.status === "running") return roomHandoffs.sharedRequest(node).id;
+  }
+  return undefined;
+}
+
 function openPeerExchange(sender: BotRecord, recipient: BotRecord, text: string): GroupRecord {
   const exchange = getOrCreateChannel(store, sender, recipient);
   store.appendMessage(exchange.threadId, { role: "bot", kind: "text", text,
@@ -6617,8 +6624,10 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
     const routed = group && m.role === "bot" && m.kind === "text" ? routedRoomReplies.get(event.threadId) : undefined;
     const routedBy = routed && speaker && routed.botId === speaker.botId ? routed.routedBy : undefined;
     if (routedBy) routedRoomReplies.delete(event.threadId);
-    const message = store.appendMessage(event.threadId, group && m.role === "bot" ? { ...m, from: speaker, ...(routedBy ? { routedBy } : {}) }
-      : requestMessageId ? { ...m, requestMessageId } : m);
+    const answering = !group && bot && m.role === "bot" && m.kind === "text" && !m.roomRequest ? peerRequestRunning(bot.id, event.threadId) : undefined;
+    const marked = answering ? { ...m, roomRequest: { id: answering, phase: "reply" as const } } : m;
+    const message = store.appendMessage(event.threadId, group && m.role === "bot" ? { ...marked, from: speaker, ...(routedBy ? { routedBy } : {}) }
+      : requestMessageId ? { ...marked, requestMessageId } : marked);
     return message;
   };
 
