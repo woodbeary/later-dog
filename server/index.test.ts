@@ -7413,6 +7413,38 @@ describe("harness HTTP API", () => {
     expect(cleared.body.language).toBe("");
   });
 
+  it("keeps an active turn alive when the cloud computer size or a setting the engines read changes", async () => {
+    const bot = (await api("POST", "/api/bots", {
+      modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
+      requireAvailableModel: true,
+    })).body.bot;
+    const busyWithoutInterruption = async () => {
+      const active = (await api("GET", "/api/bots?messages=50")).body.bots.find((candidate: { id: string }) => candidate.id === bot.id);
+      expect(active?.busy).toBe(true);
+      expect(active?.messages.some((message: { tool?: { name?: string; ok?: boolean } }) => message.tool?.ok === false)).toBe(false);
+    };
+    try {
+      rmSync(fakeClaudeDump, { force: true });
+      expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "stay active" })).status).toBe(202);
+      await expect.poll(() => existsSync(fakeClaudeDump), { timeout: 5_000 }).toBe(true);
+
+      expect((await api("PUT", "/api/config", { box: { size: "xlarge" } })).status).toBe(200);
+      await busyWithoutInterruption();
+
+      expect((await api("PUT", "/api/config", { budgets: { monthlyUsd: 50 } })).status).toBe(200);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await busyWithoutInterruption();
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`, {}).catch(() => undefined);
+      await expect.poll(async () => {
+        const state = (await api("GET", "/api/bots?messages=0")).body;
+        return state.bots.find((candidate: { id: string }) => candidate.id === bot.id)?.busy;
+      }, { timeout: 5_000 }).toBeFalsy();
+      await api("DELETE", `/api/bots/${bot.id}`).catch(() => undefined);
+      await api("PUT", "/api/config", { box: { size: null }, budgets: {} }).catch(() => undefined);
+    }
+  });
+
   it("keeps an active turn alive when the UI language changes", async () => {
     const bot = (await api("POST", "/api/bots", {
       modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },

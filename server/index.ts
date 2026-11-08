@@ -553,6 +553,7 @@ import { modelContextWindow } from "./model-context-window.ts";
 import { cloudPlaceRefusal, computerToolsRefusal, parseSurface, PlaceUnavailableError, placeUnavailable, resolveSurface, surfaceLabel, surfaceOfComputerKind, surfacePrompt, type PlaceSource, type Surface } from "./surface.ts";
 import { cloudRefusal, type PlaceRow } from "../shared/place-view.ts";
 import { passingCloudFailure, startRetryingPassingFailures } from "./laterdog/cloud-start.ts";
+import { createIdleReload } from "./laterdog/idle-reload.ts";
 import {
   PendingTurnCancellations,
   ProviderTurnGenerationRegistry,
@@ -5897,6 +5898,8 @@ const CLOUD_COMPUTER_START_WAIT_MS = Math.max(1_000, Number(process.env.LATERDOG
 const CLOUD_COMPUTER_START_BUDGET_MS = Math.max(1_000, Number(process.env.LATERDOG_CLOUD_COMPUTER_START_BUDGET_MS) || 150_000);
 const CLOUD_COMPUTER_STARTING = "The cloud computer is still starting. This call was not performed. Take a fresh screenshot in a moment.";
 const CLOUD_COMPUTER_DID_NOT_START = "the cloud computer didn't start in time";
+const PROVIDER_RELOAD_FORCE_MS = Math.max(1_000, Number(process.env.LATERDOG_PROVIDER_RELOAD_FORCE_MS) || 6 * 60 * 60_000);
+const PROVIDER_RELOAD_POLL_MS = Math.max(100, Number(process.env.LATERDOG_PROVIDER_RELOAD_POLL_MS) || 30_000);
 const CLOUD_COMPUTER_RETRY_PAUSE_MS = Math.max(100, Number(process.env.LATERDOG_CLOUD_COMPUTER_RETRY_PAUSE_MS) || 5_000);
 
 function mountBotBoat(
@@ -12469,13 +12472,7 @@ async function reloadProviders() {
       closeOpenApprovals(threadId);
       directTurnBots.delete(threadId);
       routines?.failThread(threadId, "Provider settings changed while this thread was running");
-      if (store.taskByThread(botId, threadId)) {
-        store.appendMessage(threadId, {
-          role: "bot", kind: "activity",
-          tool: failedTurnTool("turn interrupted — provider settings changed"),
-        });
-        store.setTaskActivity(botId, threadId, "idle");
-      }
+      if (store.taskByThread(botId, threadId)) store.setTaskActivity(botId, threadId, "idle");
       settleDirectFollowup(owner?.generation);
     }
     for (const [threadId, speaker] of rooms) {
@@ -12496,7 +12493,26 @@ async function reloadProviders() {
   drainComputerResumes();
   drainSecretResumes();
   drainTakeoverResumes();
+  if (direct.length) {
+    void pickUpTurnsAfterRestart(restartPickupHost, direct.map(({ botId, threadId }) => ({ botId, threadId, since: Date.now() })), "settings")
+      .catch((error) => console.error("[settings pickup]", error));
+  }
 }
+
+function providerTurnsRunning(): boolean {
+  return groupSpeakers.size > 0 || store.bots.some((bot) => store.tasks(bot.id).some((task) => threadBusy(bot.id, task.threadId)));
+}
+
+const providerReload = createIdleReload({
+  busy: providerTurnsRunning,
+  reload: reloadProviders,
+  forceAfterMs: PROVIDER_RELOAD_FORCE_MS,
+  pollMs: PROVIDER_RELOAD_POLL_MS,
+  log: (line) => console.info(`[provider reload] ${line}`),
+});
+bus.subscribe((event: RuntimeEvent) => {
+  if (event.type === "turn.completed" || event.type === "session.exited") setTimeout(() => providerReload.check(), 0);
+});
 
 let providerConfigBusy = false;
 const providerInstancesChanging = new Set<string>();
@@ -19742,8 +19758,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           browserReferenceCleanupError = error;
         }
       }
-      const reloadKeys = providerReloadKeys(patch);
-      if (reloadKeys.length > 0) revokeAllInternalCapabilities();
+      const reloadKeys = providerReloadKeys(patch).filter((key) => key !== "box" || changingBoatToken);
+      const reloadNow = reloadKeys.length > 0 && !providerTurnsRunning();
+      if (reloadNow) revokeAllInternalCapabilities();
       const finalized = await finalizeBrowserCleanupMutation({
         requests: browserCleanupRequests,
         referenceError: browserReferenceCleanupError,
@@ -19759,7 +19776,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           }
           if (reloadKeys.length > 0) {
             try {
-              await reloadProviders();
+              await providerReload.request();
             } catch (error) {
               if (!mandatoryError) mandatoryError = error;
             }

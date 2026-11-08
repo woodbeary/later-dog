@@ -30,14 +30,21 @@ export interface InflightTask {
   activity?: string;
 }
 
-export function restartPickupPrompt(text: string): string {
-  return "[later.dog restarted while you were working on the person's message below, so your turn stopped partway. " +
+export type PickupCause = "restart" | "settings";
+
+const STOPPED_BY: Record<PickupCause, string> = {
+  restart: "later.dog restarted",
+  settings: "later.dog applied a settings change",
+};
+
+export function restartPickupPrompt(text: string, cause: PickupCause = "restart"): string {
+  return `[${STOPPED_BY[cause]} while you were working on the person's message below, so your turn stopped partway. ` +
     "Anything it already did (files written, commands run) is still in place, but its tool results may not be in this session. " +
     "Check the current state before you repeat anything, then carry on and finish with one clear answer.]\n\n" + text;
 }
 
-export function pickingUpNotice(name: string): string {
-  return `later.dog restarted while ${name} was working on this, so ${name} is picking it up again.`;
+export function pickingUpNotice(name: string, cause: PickupCause = "restart"): string {
+  return `${STOPPED_BY[cause]} while ${name} was working on this, so ${name} is picking it up again.`;
 }
 
 export function stoppedPickupLine(name: string): string {
@@ -253,7 +260,7 @@ export type PickupOutcome =
 
 const reasonOf = (error: unknown) => error instanceof Error ? error.message : String(error);
 
-export async function pickUpAfterRestart(host: RestartPickupHost, turns: readonly InflightTurn[]): Promise<PickupOutcome[]> {
+export async function pickUpAfterRestart(host: RestartPickupHost, turns: readonly InflightTurn[], cause: PickupCause = "restart"): Promise<PickupOutcome[]> {
   const now = host.now ?? Date.now;
   const later = host.later ?? ((run: () => void, ms: number) => { setTimeout(run, ms).unref?.(); });
   const retryMs = host.retryMs ?? PICKUP_RETRY_MS;
@@ -271,7 +278,7 @@ export async function pickUpAfterRestart(host: RestartPickupHost, turns: readonl
   type Attempt = { kind: "resumed" } | { kind: "waiting" } | { kind: "failed"; line: string };
   const attempt = async (dog: { botId: string; name: string }, threadId: string, source: Message, noticeId: string, until: number): Promise<Attempt> => {
     try {
-      await host.start(dog.botId, threadId, restartPickupPrompt(source.text ?? ""), source.id);
+      await host.start(dog.botId, threadId, restartPickupPrompt(source.text ?? "", cause), source.id);
       log(`restart pickup: ${threadId} picked up again`);
       return { kind: "resumed" };
     } catch (error) {
@@ -329,7 +336,7 @@ export async function pickUpAfterRestart(host: RestartPickupHost, turns: readonl
         continue;
       }
       const notice = host.append(turn.threadId, {
-        role: "bot", kind: "activity", tool: { name: `recovery: ${pickingUpNotice(dog.name)}`, ok: true, pickup: "restart" },
+        role: "bot", kind: "activity", tool: { name: `recovery: ${pickingUpNotice(dog.name, cause)}`, ok: true, pickup: "restart" },
       });
       const result = await attempt(dog, turn.threadId, plan.source, notice.id, now() + retryFor);
       outcomes.push(result.kind === "failed"

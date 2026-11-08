@@ -416,3 +416,12 @@ describe("picking messages up after a restart", () => {
     expect(started).toEqual([]);
   });
 });
+
+describe("picking work back up after a settings change", () => {
+  it("tells the dog and the chat it was a settings change, not a restart", () => {
+    expect(restartPickupPrompt("Fix it.", "settings")).toMatch(/^\[later\.dog applied a settings change while you were working on the person's message below/);
+    expect(restartPickupPrompt("Fix it.", "settings").endsWith("\n\nFix it.")).toBe(true);
+    expect(pickingUpNotice("Scout", "settings")).toBe("later.dog applied a settings change while Scout was working on this, so Scout is picking it up again.");
+    expect(pickingUpNotice("Scout")).toBe("later.dog restarted while Scout was working on this, so Scout is picking it up again.");
+  });
+});
