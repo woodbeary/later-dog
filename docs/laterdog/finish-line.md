@@ -107,3 +107,12 @@ Owned by one session ("App regression review"). Other sessions: do not start lan
 
 - Archive of every branch tip before this work: kept off GitHub on the person's backup drive.
 - Cloud image build: GitHub Actions "Cloud home image", started by hand (workflow_dispatch).
+
+## Reliability follow-up 2026-11-08
+
+Clover is preserving the stopped dogs' worktrees. No stopped dog is restarted by this work.
+
+- The owner-authorized long-work tree has no elapsed-time ceiling while progress continues. Idle detection, explicit Stop and ordinary task budgets remain in force. The room-handoff tests exercise 30 hours of continuing work and a new child request.
+- Desktop AI account rows have an individual Use switch backed by the existing instance PATCH endpoint. Disabling preserves the login and list position. A refused update leaves the switch unchanged and shows the server error.
+- Node 24.22.1 verification on the Mac: 142 tests pass across account rows, room handoffs, usage wait timers, restart waits and no-comments checks. Renderer TypeScript build passes.
+- Release and installed desktop verification are pending. The reported live background account stall, Grok/Kimi queued messages, phone heat/crashes and coordinator-only cloud architecture remain unresolved; fixture account switching by itself is not evidence of a live fix.

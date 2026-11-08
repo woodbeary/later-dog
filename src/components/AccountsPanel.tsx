@@ -191,7 +191,7 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
 }) {
   const { dispatch } = useStore();
   const [draft, setDraft] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"rename" | "remove" | null>(null);
+  const [busy, setBusy] = useState<"rename" | "remove" | "enable" | null>(null);
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const removeButton = useRef<HTMLButtonElement>(null);
@@ -220,6 +220,22 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
     setError(null);
     try {
       const { instances } = await api<{ instances: InstanceInfo[] }>(`/api/instances/${id}`, { method: "PATCH", body: JSON.stringify({ displayName: next }) });
+      dispatch({ type: "instances", instances });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const toggleEnabled = async () => {
+    if (busy) return;
+    setBusy("enable");
+    setError(null);
+    try {
+      const { instances } = await api<{ instances: InstanceInfo[] }>(`/api/instances/${id}`, {
+        method: "PATCH", body: JSON.stringify({ enabled: instance.enabled === false }),
+      });
       dispatch({ type: "instances", instances });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -338,6 +354,13 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
             {!isSignedIn && (
               <button type="button" disabled={busy !== null} onClick={onSignIn} className={pill}>{t("accounts.signIn")}</button>
             )}
+            <Switch
+              checked={instance.enabled !== false}
+              disabled={busy !== null}
+              aria-label={t("accounts.useAccount", { name })}
+              onClick={() => void toggleEnabled()}
+              size="small"
+            />
             {canRemove && (
               <button
                 ref={removeButton}

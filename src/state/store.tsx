@@ -628,6 +628,7 @@ export interface EngineInstall {
 
 export interface InstanceInfo {
   instanceId: string;
+  enabled?: boolean;
   driverKind: string;
   displayName: string;
   icon?: import("../../shared/provider-icon").ProviderIcon;

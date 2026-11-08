@@ -130,7 +130,7 @@ const usageOf = (instanceId: string) => row(instanceId)?.querySelector<HTMLEleme
 const empty = () => document.body.querySelector<HTMLElement>("[data-accounts-empty]");
 const panelText = () => document.body.querySelector("[data-accounts-panel]")!.textContent ?? "";
 const sheet = () => document.body.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]');
-const toggle = () => document.body.querySelector<HTMLButtonElement>('[data-accounts-panel] [role="switch"]')!;
+const toggle = () => document.body.querySelector<HTMLButtonElement>('[data-accounts-panel] [role="switch"][aria-label="Keep going when an account runs out"]')!;
 const click = async (element: HTMLElement | null | undefined) => {
   expect(element).toBeTruthy();
   await act(async () => element!.click());
@@ -650,7 +650,7 @@ describe("Accounts", () => {
     await settle();
     expect(sheet()).toBeNull();
     expect(ids()).toEqual(["claude", "grok"]);
-    expect(document.body.querySelector('[data-accounts-panel] [role="switch"]')).toBeNull();
+    expect(document.body.querySelector('[data-accounts-panel] [role="switch"][aria-label="Keep going when an account runs out"]')).toBeNull();
     expect(document.body.querySelector("[data-accounts-panel] [data-account-grip]")).toBeNull();
 
     await click(button("Add account"));
@@ -946,4 +946,30 @@ describe("moving an account in Settings", () => {
     expect(document.body.querySelector("[data-account-grip]")).toBeNull();
     expect(document.body.querySelector("[data-account][draggable]")).toBeNull();
   });
+});
+
+it("turns an account off and back on while keeping its sign-in and order", async () => {
+  const target = () => host.querySelector<HTMLButtonElement>('[data-account="claude"] [role="switch"]')!;
+  expect(target().getAttribute("aria-label")).toBe("Use Personal");
+  expect(target().getAttribute("aria-checked")).toBe("true");
+  const disabled = fixture.state.instances.map(instance => instance.instanceId === "claude" ? { ...instance, enabled: false } : instance);
+  fixture.api.mockResolvedValueOnce({ instances: disabled });
+  await act(async () => target().click());
+  expect(fixture.api).toHaveBeenLastCalledWith("/api/instances/claude", { method: "PATCH", body: JSON.stringify({ enabled: false }) });
+  expect(target().getAttribute("aria-checked")).toBe("false");
+  expect(host.querySelector('[data-account="claude"]')).not.toBeNull();
+  expect(fixture.state.instances[0].snapshot.authenticated).toBe(true);
+  fixture.api.mockResolvedValueOnce({ instances: disabled.map(instance => ({ ...instance, enabled: true })) });
+  await act(async () => target().click());
+  expect(fixture.api).toHaveBeenLastCalledWith("/api/instances/claude", { method: "PATCH", body: JSON.stringify({ enabled: true }) });
+  expect(target().getAttribute("aria-checked")).toBe("true");
+});
+
+it("keeps an account enabled and shows the refusal when it is busy", async () => {
+  fixture.api.mockRejectedValueOnce(new Error("Wait for bots using this account to finish before changing its settings."));
+  const target = () => host.querySelector<HTMLButtonElement>('[data-account="claude"] [role="switch"]')!;
+  await act(async () => target().click());
+  expect(target().getAttribute("aria-checked")).toBe("true");
+  expect(target().disabled).toBe(false);
+  expect(host.textContent).toContain("Wait for bots using this account");
 });

@@ -1719,6 +1719,7 @@
   "signOut.failed": "{name} did not sign out: {reason}",
   "signOut.tryAgain": "try again in a moment.",
   "accounts.removeTitle": "Remove {name}?",
+  "accounts.useAccount": "Use {name}",
   "accounts.removeLabel": "Remove {name}",
   "accounts.onlyAccount": "It's your only account.",
   "accounts.signsOutHere": "This signs {name} out on this Mac.",
