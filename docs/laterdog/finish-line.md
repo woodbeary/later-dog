@@ -6,6 +6,8 @@ Started 2026-10-13. This file is the single place that says what is in progress,
 
 ## How to resume
 
+2026-11-08 account usage: full five-hour or seven-day readings now keep an account resting until reset without needing a limit event. Limit continuation chooses the eligible account with the most room, including pinned dogs. Desktop Accounts rows now expose the saved account on/off setting. Regression coverage includes full-window routing, a recovered pinned account during fallback, usage-sheet reports, and successful/rejected desktop toggles. The isolated account-continuation fixture passes all 16 scenarios. Desktop appearance and the reported Grok/Kimi queued messages remain unverified.
+
 1. Read `AGENTS.md`. The rules there hold for every lane: pnpm, Node 24, no comments in code, new behaviour in new files under `server/laterdog/`, isolated fixtures only.
 2. Find your lane below. Check out its branch in its own worktree. Never switch branches in someone else's worktree.
 3. Never touch the person's live data folder or the running app on port 8799. UI evidence comes from `scripts/control-laterdog.ts ui launch` and `ui screenshot` against a fixture.

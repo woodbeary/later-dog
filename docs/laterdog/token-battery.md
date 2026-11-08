@@ -4,6 +4,10 @@ Several Claude or ChatGPT (Codex) subscription accounts, used one after another.
 
 You can turn automatic continuation off at any time. Turning it off while work waits cancels that automatic pickup and leaves a visible notice.
 
+A usage reading shown as 100% in either the five-hour or seven-day window makes the account unavailable until that window resets, even without a recorded limit event. If both windows are full, the later reset applies. This state also appears in the phone usage sheet. A turn that reaches a limit continues on the eligible account with the most room, including when the dog is pinned to its original account.
+
+Desktop Accounts rows have an individual on/off switch for signed-in accounts. Turning one off keeps its sign-in and saved account; the server can refuse a change while that account is working, and the row shows the reason.
+
 ## Turning it on
 
 **Keep going when an account runs out** is one setting, switched from any of three places:

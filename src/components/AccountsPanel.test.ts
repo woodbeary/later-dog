@@ -184,6 +184,34 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
+describe("account on and off", () => {
+  const switchFor = () => row("claude")!.querySelector<HTMLButtonElement>('[role="switch"]');
+
+  it("turns an account off and back on without signing it out or removing it", async () => {
+    const instances = fixture.state.instances.map((instance) => ({ ...instance, enabled: true }));
+    await act(async () => publish({ instances }));
+    const off = instances.map((instance) => instance.instanceId === "claude" ? { ...instance, enabled: false } : instance);
+    fixture.api.mockResolvedValueOnce({ instances: off });
+    await click(switchFor());
+    expect(fixture.api).toHaveBeenLastCalledWith("/api/instances/claude", { method: "PATCH", body: JSON.stringify({ enabled: false }) });
+    expect(switchFor()?.getAttribute("aria-checked")).toBe("false");
+    expect(line("claude")).toBe("Off");
+    expect(fixture.state.instances[0]?.snapshot.authenticated).toBe(true);
+    fixture.api.mockResolvedValueOnce({ instances });
+    await click(switchFor());
+    expect(fixture.api).toHaveBeenLastCalledWith("/api/instances/claude", { method: "PATCH", body: JSON.stringify({ enabled: true }) });
+    expect(switchFor()?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("keeps the current state and shows a rejected change", async () => {
+    await act(async () => publish({ instances: fixture.state.instances.map((instance) => ({ ...instance, enabled: true })) }));
+    fixture.api.mockRejectedValueOnce(new Error("Wait for this account's turn to finish."));
+    await click(switchFor());
+    expect(switchFor()?.getAttribute("aria-checked")).toBe("true");
+    expect(row("claude")?.querySelector('[role="alert"]')?.textContent).toContain("Wait for this account's turn to finish.");
+  });
+});
+
 describe("account refresh", () => {
   it("refreshes usage, sign-ins and cooldowns together and accepts the new config", async () => {
     fixture.api.mockResolvedValueOnce({ accountBattery: { enabled: true, order: {}, resting: {} } });

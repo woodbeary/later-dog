@@ -165,6 +165,7 @@ interface PickInput {
   now: number;
   usage?: PlanReading;
   preferred?: readonly ModelSelection[];
+  roomiest?: boolean;
 }
 
 export function percentLeft(row: PlanProviderRow | undefined, now: number): number | undefined {
@@ -174,6 +175,36 @@ export function percentLeft(row: PlanProviderRow | undefined, now: number): numb
     return reset <= now ? 100 : Math.min(100, Math.max(0, 100 - window.usedPercent!));
   });
   return left.length ? Math.min(...left) : undefined;
+}
+
+export const USED_UP_PERCENT = 99.5;
+
+export function usedUpRest(row: PlanProviderRow | undefined, now: number): Rest | undefined {
+  if (!row?.ok) return undefined;
+  const full = [{ kind: "session", window: row.fiveHour }, { kind: "weekly", window: row.weekly }]
+    .map(({ kind, window }) => ({ kind, used: window.available ? window.usedPercent : null, reset: window.resetsAt ? Date.parse(window.resetsAt) : Number.NaN }))
+    .filter(({ used, reset }) => used !== null && used >= USED_UP_PERCENT && reset > now)
+    .sort((a, b) => b.reset - a.reset)[0];
+  return full ? { until: new Date(full.reset).toISOString(), kind: full.kind, since: new Date(now).toISOString() } : undefined;
+}
+
+export function withReadings(
+  resting: Readonly<Record<string, Rest>>,
+  accounts: readonly BatteryAccount[],
+  usage: PlanReading | undefined,
+  now: number,
+): Record<string, Rest> {
+  const merged: Record<string, Rest> = { ...resting };
+  if (!usage) return merged;
+  for (const account of accounts) {
+    const reading = usedUpRest(usage(account.instanceId), now);
+    if (!reading) continue;
+    const own = resting[account.instanceId];
+    const ownApplies = restApplies(own, undefined, now);
+    if (ownApplies && own!.kind === SETUP_STOP) continue;
+    if (!ownApplies || own!.kind === "opus" || own!.kind === "sonnet" || Date.parse(reading.until) > Date.parse(own!.until)) merged[account.instanceId] = reading;
+  }
+  return merged;
 }
 
 const KINDS_A_READING_SHOWS: ReadonlySet<string | undefined> = new Set([undefined, "session", "weekly"]);
@@ -280,9 +311,10 @@ export function pickAccount(input: PickInput): BatteryAccount | undefined {
   const own = accounts.find((account) => account.instanceId === selection.instanceId);
   if (!own?.eligible) return undefined;
   const nearlyEmpty = (id: string) => roomTier(percentLeft(input.usage?.(id), input.now)) === 2;
-  const others = batterySequence(input).filter((id) => id !== own.instanceId);
+  const sequence = batterySequence(input).filter((id) => id !== own.instanceId);
+  const order = input.roomiest ? rankOrder({ all: [own.instanceId, ...sequence] }, input).all! : [own.instanceId, ...sequence.filter((id) => !nearlyEmpty(id)), ...sequence.filter(nearlyEmpty)];
   const listed = own.models.includes(selection.model);
-  for (const id of [own.instanceId, ...others.filter((id) => !nearlyEmpty(id)), ...others.filter(nearlyEmpty)]) {
+  for (const id of order) {
     const account = accounts.find((candidate) => candidate.instanceId === id);
     if (canTake(account, input, listed)) return account;
   }
@@ -355,7 +387,7 @@ export function planResetAt(row: PlanProviderRow | undefined, kind: string | und
   ].filter((window) => window.resetsAt && Date.parse(window.resetsAt) > now);
   const named = kind ? windows.find((window) => window.name.includes(kind.toLowerCase())) : undefined;
   if (named?.resetsAt) return resetInstant(named.resetsAt, now);
-  const full = windows.filter((window) => (window.usedPercent ?? 0) >= 99.5).map((window) => window.resetsAt!).sort();
+  const full = windows.filter((window) => (window.usedPercent ?? 0) >= USED_UP_PERCENT).map((window) => window.resetsAt!).sort();
   return full.length ? resetInstant(full.at(-1), now) : undefined;
 }
 
@@ -440,12 +472,16 @@ export interface AccountBatteryOptions {
   onChange?: () => void;
 }
 
+const restingKey = (resting: Readonly<Record<string, Rest>>) =>
+  JSON.stringify(Object.entries(resting).map(([id, rest]) => [id, rest.until]).sort());
+
 export class AccountBattery {
   private state: BatteryState;
   private readonly turns = new Map<string, BatteryTurn>();
   private readonly now: () => number;
   private readonly options: AccountBatteryOptions;
   private shownOrder = "";
+  private shownResting = "[]";
   private refreshing: Promise<void> | undefined;
 
   constructor(options: AccountBatteryOptions) {
@@ -471,7 +507,7 @@ export class AccountBattery {
     const preferred = this.preferredFor(threadId);
     const chosen = threadId ? this.chosen(threadId, selection, accounts) : undefined;
     if (chosen) return selectionOnAccount(selection, accounts.find((account) => account.instanceId === chosen)!, accounts, preferred);
-    const input = { selection, accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage, ...(preferred ? { preferred } : {}) };
+    const input = { selection, accounts, resting: this.resting(accounts), now: this.now(), usage: this.options.usage, ...(preferred ? { preferred } : {}) };
     const own = accounts.find((account) => account.instanceId === selection.instanceId);
     if (!own?.eligible) return selection;
     const roomier = this.enabled ? roomierThan(own, { config: this.options.config(), ...input }) : undefined;
@@ -513,7 +549,7 @@ export class AccountBattery {
     const own = accounts.find((account) => account.instanceId === selection.instanceId);
     const to = accounts.find((account) => account.instanceId === ranOn);
     if (!own?.eligible || !to || to.driverKind !== own.driverKind || !this.options.running || this.pinned(own, accounts)) return false;
-    return canTake(own, { selection, accounts, resting: this.state.resting, now: this.now() }, false);
+    return canTake(own, { selection, accounts, resting: this.resting(accounts), now: this.now() }, false);
   }
 
   choose(threadId: string, ranOut: string, to: string, pick: string): void {
@@ -599,7 +635,11 @@ export class AccountBattery {
   }
 
   restOf(account: BatteryAccount, accounts: readonly BatteryAccount[], model?: string): (Rest & { sharedWith?: string }) | undefined {
-    return activeRest(account, model, accounts, this.state.resting, this.now());
+    return activeRest(account, model, accounts, this.resting(accounts), this.now());
+  }
+
+  private resting(accounts: readonly BatteryAccount[]): Record<string, Rest> {
+    return withReadings(this.state.resting, accounts, this.options.usage, this.now());
   }
 
   readyAt(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): string | undefined {
@@ -611,7 +651,7 @@ export class AccountBattery {
     const listed = own.models.includes(selection.model);
     const others = [
       ...(away?.to && (away.pick === undefined || away.pick === own.instanceId) ? [away.to] : []),
-      ...(this.enabled && own.eligible ? batterySequence({ config: this.options.config(), accounts, resting: this.state.resting, now: this.now() }) : []),
+      ...(this.enabled && own.eligible ? batterySequence({ config: this.options.config(), accounts, resting: this.resting(accounts), now: this.now() }) : []),
     ].map(find).filter((account): account is BatteryAccount => Boolean(account && account !== own && account.eligible && account.enabled &&
       account.signedIn === true && (account.driverKind !== own.driverKind ? Boolean(account.defaultModel || account.models.length) : !listed || account.models.includes(selection.model))));
     let soonest = Infinity;
@@ -650,9 +690,10 @@ export class AccountBattery {
         else routed[threadId] = { from, on };
       }
     }
-    const order = effectiveOrder({ config, accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage });
-    const sequence = batterySequence({ config, accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage });
+    const order = effectiveOrder({ config, accounts, resting: this.resting(accounts), now: this.now(), usage: this.options.usage });
+    const sequence = batterySequence({ config, accounts, resting: this.resting(accounts), now: this.now(), usage: this.options.usage });
     this.shownOrder = JSON.stringify({ order, sequence });
+    this.shownResting = restingKey(resting);
     return { enabled: batteryEnabled(config, accounts), auto: config?.auto === true, order,
       sequence, resting, routed };
   }
@@ -660,9 +701,16 @@ export class AccountBattery {
   noteReadings(accounts: readonly BatteryAccount[]): void {
     this.dropDisprovedGuesses();
     const config = this.options.config();
+    const resting = restingKey(Object.fromEntries(accounts.filter((account) => account.eligible)
+      .flatMap((account) => { const rest = this.restOf(account, accounts); return rest ? [[account.instanceId, rest]] : []; })));
+    if (resting !== this.shownResting) {
+      this.shownResting = resting;
+      this.options.onChange?.();
+      return;
+    }
     if (!batteryEnabled(config, accounts) || !config?.auto) return;
-    const order = effectiveOrder({ config, accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage });
-    const sequence = batterySequence({ config, accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage });
+    const order = effectiveOrder({ config, accounts, resting: this.resting(accounts), now: this.now(), usage: this.options.usage });
+    const sequence = batterySequence({ config, accounts, resting: this.resting(accounts), now: this.now(), usage: this.options.usage });
     if (JSON.stringify({ order, sequence }) !== this.shownOrder) this.options.onChange?.();
   }
 
@@ -704,7 +752,7 @@ export class AccountBattery {
     else if (from) this.ranOut(from, input.accounts, selectionOnAccount(input.selection, from, input.accounts, preferred).model);
     if (!turn?.rerun || turn.generation !== input.generation) return null;
     const to = pickAccount({
-      config: this.options.config(), selection: input.selection, accounts: input.accounts, resting: this.state.resting, now: this.now(), usage: this.options.usage,
+      config: this.options.config(), selection: input.selection, accounts: input.accounts, resting: this.resting(input.accounts), now: this.now(), usage: this.options.usage, roomiest: true,
       ...(preferred ? { preferred } : {}),
     });
     if (!from || !to || to.instanceId === from.instanceId) return null;

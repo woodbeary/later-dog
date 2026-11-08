@@ -1701,6 +1701,8 @@
   "accounts.signedIn": "Signed in",
   "accounts.rename": "Rename {name}",
   "accounts.nameLabel": "Account name",
+  "accounts.off": "Off",
+  "accounts.use": "Use {name}",
   "accounts.carryOn": "Keep going when an account runs out",
   "accounts.automatic": "Automatically managed · most available first",
   "accounts.mostLeft": "Use the account with the most left",

@@ -1,4 +1,4 @@
-import type { PlanProviderRow, PlanWindow } from "../plan-usage.ts";
+import type { PlanProviderRow, PlanUsageReport, PlanWindow } from "../plan-usage.ts";
 import { engineName, percentLeft, type BatteryAccount, type Rest } from "./account-battery.ts";
 import { accountLabel } from "./account-switch.ts";
 
@@ -34,6 +34,19 @@ export interface AccountUsageReport {
   accounts: AccountUsageRow[];
   roomiest?: string;
   current?: string;
+}
+
+export function withRestingUntil(
+  report: PlanUsageReport,
+  rest: (instanceId: string) => Rest | undefined,
+): Omit<PlanUsageReport, "providers"> & { providers: Array<PlanProviderRow & { restingUntil?: string }> } {
+  return {
+    ...report,
+    providers: report.providers.map((row) => {
+      const until = rest(row.id)?.until;
+      return { ...row, ...(until ? { restingUntil: until } : {}) };
+    }),
+  };
 }
 
 function shown(window: PlanWindow | undefined, now: number): AccountUsageWindow | undefined {

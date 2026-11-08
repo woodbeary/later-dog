@@ -1,6 +1,6 @@
 import { createHash, randomInt } from "node:crypto";
 
-export const VAULT_SECRET_NAME = /^[A-Za-z0-9][A-Za-z0-9._\/-]{0,119}$/;
+export const VAULT_SECRET_NAME = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$/;
 export const VAULT_SECRET_MAX = 4096;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 

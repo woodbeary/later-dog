@@ -242,7 +242,7 @@ import { finishMacVault, prepareMacVault, type VaultItems } from "./laterdog/vau
 import { CommandSecrets } from "./laterdog/vault-refs.ts";
 import { createDogQueueRoute, type QueuedMessageRow } from "./routes/dog-queue.ts";
 import { SAFE_STOP_GRACE_MS, safeStopWords, stoppedByLine } from "./laterdog/safe-stop.ts";
-import { accountTurnPrompt, USAGE_HANDLED_LINE, type AccountUsageInput } from "./laterdog/account-usage.ts";
+import { accountTurnPrompt, USAGE_HANDLED_LINE, withRestingUntil, type AccountUsageInput } from "./laterdog/account-usage.ts";
 import { CONTINUE_AFTER_PICK, pickMovesTurn, pickNotice } from "./laterdog/account-pick.ts";
 import { codexHome } from "./drivers/codex-identity.ts";
 import { resolveClaudeConfigDir } from "./drivers/claude.ts";
@@ -18810,8 +18810,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         accounts: planAccountsFromInstances(instanceConfigs(cfg)),
         refresh: url.searchParams.get("refresh") === "1",
       });
-      accountBattery.noteReadings(batteryAccounts());
-      return json(res, 200, report);
+      const accounts = batteryAccounts();
+      accountBattery.noteReadings(accounts);
+      return json(res, 200, withRestingUntil(report, (instanceId) => {
+        const account = accounts.find((candidate) => candidate.instanceId === instanceId);
+        return account ? accountBattery.restOf(account, accounts) : undefined;
+      }));
     }
 
     if (method === "POST" && path === "/api/keys/test") {

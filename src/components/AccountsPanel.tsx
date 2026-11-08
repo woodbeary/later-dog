@@ -191,7 +191,7 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
 }) {
   const { dispatch } = useStore();
   const [draft, setDraft] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"rename" | "remove" | null>(null);
+  const [busy, setBusy] = useState<"rename" | "remove" | "switch" | null>(null);
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const removeButton = useRef<HTMLButtonElement>(null);
@@ -249,6 +249,20 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
   const cancel = () => {
     refocus.current = true;
     setAsking(false);
+  };
+
+  const switchAccount = async () => {
+    if (busy) return;
+    setBusy("switch");
+    setError(null);
+    try {
+      const { instances } = await api<{ instances: InstanceInfo[] }>(`/api/instances/${id}`, { method: "PATCH", body: JSON.stringify({ enabled: instance.enabled === false }) });
+      dispatch({ type: "instances", instances });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(null);
+    }
   };
 
   const onKey = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -321,7 +335,7 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
                 )}
               </div>
               <p className="h-4 truncate text-[12px] leading-4 text-ink-secondary">
-                {isSignedIn ? [email, plan].filter(Boolean).join(" · ") || t("accounts.signedIn") : t("accounts.signedOut")}
+                {instance.enabled === false ? t("accounts.off") : isSignedIn ? [email, plan].filter(Boolean).join(" · ") || t("accounts.signedIn") : t("accounts.signedOut")}
               </p>
               <p data-account-resets className="mt-0.5 h-4 truncate text-[11px] leading-4 text-ink-secondary">{provider?.ok ?
                 ([[t("planUsage.fiveHour"), provider.fiveHour], [t("planUsage.weekly"), provider.weekly]] as const).flatMap(([label, window]) => {
@@ -334,6 +348,9 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
               <span data-account-usage title={usage.detail} className="shrink-0">
                 <AccountCharge used={usage.rest ? undefined : usage.used} rest={usage.rest} now={now} />
               </span>
+            )}
+            {isSignedIn && instance.enabled !== undefined && (
+              <Switch checked={instance.enabled} disabled={busy !== null} aria-label={t("accounts.use", { name })} onClick={() => void switchAccount()} />
             )}
             {!isSignedIn && (
               <button type="button" disabled={busy !== null} onClick={onSignIn} className={pill}>{t("accounts.signIn")}</button>
