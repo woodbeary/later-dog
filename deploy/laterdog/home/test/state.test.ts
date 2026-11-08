@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { authorizedState, forgetHomeState, handleState, stateKey, stateOwner, type StateBucket } from "../src/state.ts";
+import { ARCHIVE_UPLOAD_MAX_BYTES, authorizedState, forgetHomeState, handleState, stateKey, stateOwner, type StateBucket } from "../src/state.ts";
 
 const CONTAINER = "a".repeat(64);
 
@@ -110,5 +110,29 @@ describe("restore points in a home's state store", () => {
     expect(stateKey(CONTAINER, "http://state.r2/restore-points/12.json.bak")).toBeNull();
     expect(stateKey(CONTAINER, "http://state.r2/restore-points/12345678901234567.json")).toBeNull();
     expect(stateKey(CONTAINER, "http://state.r2/restore-points/")).toBeNull();
+  });
+});
+
+describe("cold archives in the home state store", () => {
+  it("isolates archived pieces from normal snapshot cleanup and other homes", async () => {
+    const bucket = memoryBucket();
+    const hash = "e".repeat(64);
+    const url = "http://state.r2/archive/blobs/" + hash;
+    expect((await handleState(new Request(url, { method: "PUT", body: "archived" }), bucket, CONTAINER)).status).toBe(201);
+    expect(await (await handleState(new Request(url), bucket, CONTAINER)).text()).toBe("archived");
+    expect((await handleState(new Request(url), bucket, "f".repeat(64))).status).toBe(404);
+    expect(await (await handleState(new Request("http://state.r2/blobs/"), bucket, CONTAINER)).json()).toEqual({ hashes: [] });
+    expect(await (await handleState(new Request("http://state.r2/archive/blobs/"), bucket, CONTAINER)).json()).toEqual({ hashes: [hash] });
+    expect((await handleState(new Request(url, { method: "DELETE" }), bucket, CONTAINER)).status).toBe(405);
+    expect((await handleState(new Request("http://state.r2/archive/index.json", { method: "DELETE" }), bucket, CONTAINER)).status).toBe(405);
+  });
+
+  it("refuses an archive upload above the memory bound before writing it", async () => {
+    const bucket = memoryBucket();
+    const response = await handleState(new Request("http://state.r2/archive/index.json", {
+      method: "PUT", body: new Uint8Array(ARCHIVE_UPLOAD_MAX_BYTES + 1),
+    }), bucket, CONTAINER);
+    expect(response.status).toBe(413);
+    expect(bucket.objects.size).toBe(0);
   });
 });

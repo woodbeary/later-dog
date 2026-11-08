@@ -119,6 +119,37 @@ export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { bl
       if (!response.ok) throw new Error(`dev code bundle read failed: ${response.status}`);
       return new Uint8Array(await response.arrayBuffer());
     },
+    async archiveIndex() {
+      const response = await call("archive/index.json");
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error(`archive index read failed: ${response.status}`);
+      return await response.json();
+    },
+    async putArchiveIndex(index) {
+      const response = await call("archive/index.json", { method: "PUT", body: JSON.stringify(index) });
+      if (!response.ok) throw new Error(`archive index write failed: ${response.status}`);
+    },
+    async hasArchived(hash) {
+      const response = await call(`archive/blobs/${hash}`, { method: "HEAD" });
+      if (response.status === 404) return false;
+      if (!response.ok) throw new Error(`archive check failed: ${response.status}`);
+      return true;
+    },
+    async getArchived(hash) {
+      const response = await call(`archive/blobs/${hash}`, {}, blobTimeoutMs);
+      if (!response.ok) throw new Error(`archive read failed: ${response.status}`);
+      return new Uint8Array(await response.arrayBuffer());
+    },
+    async putArchived(hash, bytes) {
+      const response = await call(`archive/blobs/${hash}`, { method: "PUT", body: bytes }, uploadTimeoutMs);
+      if (!response.ok) throw new Error(`archive write failed: ${response.status}`);
+    },
+    async listArchived(cursor) {
+      const response = await call(`archive/blobs/${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`);
+      if (!response.ok) throw new Error(`archive list failed: ${response.status}`);
+      const page = await response.json();
+      return { hashes: Array.isArray(page?.hashes) ? page.hashes.filter((hash) => HASH.test(hash)) : [], ...(typeof page?.cursor === "string" ? { cursor: page.cursor } : {}) };
+    },
     async deleteRestorePoint(name) {
       const response = await call(`restore-points/${name}`, { method: "DELETE" });
       if (!response.ok && response.status !== 404) throw new StoreRefused(`restore point delete failed: ${response.status}`, response.status);

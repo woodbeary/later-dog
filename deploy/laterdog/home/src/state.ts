@@ -2,12 +2,14 @@ import { sha256 } from "./encoding.ts";
 
 export const STATE_HOST = "state.r2";
 export const EMAIL_HOST = "email.internal";
-const STATE_KEY = /^(?:manifest\.json|blobs\/[a-f0-9]{64}|restore-points\/\d{1,16}\.json)$/;
+const STATE_KEY = /^(?:manifest\.json|blobs\/[a-f0-9]{64}|restore-points\/\d{1,16}\.json|archive\/index\.json|archive\/blobs\/[a-f0-9]{64})$/;
 const BLOB_KEY = /\/blobs\/[a-f0-9]{64}$/;
 const RESTORE_POINT_KEY = /\/restore-points\/\d{1,16}\.json$/;
 const BLOB_HASH = /^[a-f0-9]{64}$/;
 const RESTORE_POINT_NAME = /^\d{1,16}\.json$/;
 const BLOB_LIST_PATH = "/blobs/";
+const ARCHIVE_BLOB_LIST_PATH = "/archive/blobs/";
+export const ARCHIVE_UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
 const RESTORE_POINT_LIST_PATH = "/restore-points/";
 const CONTAINER_ID = /^[a-f0-9]{16,128}$/;
 
@@ -34,10 +36,32 @@ export function stateKey(containerId: string, url: string): string | null {
   return `${homePrefix(containerId)}${name}`;
 }
 
+async function archiveBody(request: Request): Promise<ArrayBuffer | null> {
+  const reader = request.body?.getReader();
+  if (!reader) return new ArrayBuffer(0);
+  const parts: Uint8Array[] = [];
+  let length = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      length += value.byteLength;
+      if (length > ARCHIVE_UPLOAD_MAX_BYTES) { await reader.cancel(); return null; }
+      parts.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(length);
+  let at = 0;
+  for (const part of parts) { bytes.set(part, at); at += part.byteLength; }
+  return bytes.buffer;
+}
+
 export async function handleState(request: Request, bucket: StateBucket, containerId: string): Promise<Response> {
   const url = new URL(request.url);
-  if (url.pathname === BLOB_LIST_PATH && request.method === "GET") {
-    const prefix = `${homePrefix(containerId)}blobs/`;
+  if ((url.pathname === BLOB_LIST_PATH || url.pathname === ARCHIVE_BLOB_LIST_PATH) && request.method === "GET") {
+    const prefix = `${homePrefix(containerId)}${url.pathname.slice(1)}`;
     const page = await bucket.list({ prefix, cursor: url.searchParams.get("cursor") || undefined, limit: 1000 });
     const hashes = page.objects.map((object) => object.key.slice(prefix.length)).filter((hash) => BLOB_HASH.test(hash));
     return Response.json({ hashes, ...(page.truncated && page.cursor ? { cursor: page.cursor } : {}) });
@@ -54,10 +78,12 @@ export async function handleState(request: Request, bucket: StateBucket, contain
     return new Response(object.body, { headers: { "content-type": "application/octet-stream", etag: object.httpEtag } });
   }
   if (request.method === "PUT") {
-    await bucket.put(key, await request.arrayBuffer(), { httpMetadata: { contentType: "application/octet-stream" } });
+    const bytes = key.includes("/archive/") ? await archiveBody(request) : await request.arrayBuffer();
+    if (bytes === null) return new Response("Archive upload too large", { status: 413 });
+    await bucket.put(key, bytes, { httpMetadata: { contentType: "application/octet-stream" } });
     return new Response("Stored", { status: 201 });
   }
-  if (request.method === "DELETE" && (BLOB_KEY.test(key) || RESTORE_POINT_KEY.test(key))) {
+  if (request.method === "DELETE" && !key.includes("/archive/") && (BLOB_KEY.test(key) || RESTORE_POINT_KEY.test(key))) {
     await bucket.delete(key);
     return new Response(null, { status: 204 });
   }

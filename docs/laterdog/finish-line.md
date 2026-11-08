@@ -111,3 +111,7 @@ Owned by one session ("App regression review"). Other sessions: do not start lan
 
 - Archive of every branch tip before this work: kept off GitHub on the person's backup drive.
 - Cloud image build: GitHub Actions "Cloud home image", started by hand (workflow_dispatch).
+
+## Cloud archive foundation, 2026-11-08
+
+Clover preserved the stopped worktrees and hardened the cold archive primitive in clover/cloud-archive. Home tests: 227 pass; Worker typecheck, 10 no-comments tests and focused lint pass. The loopback archiver is not started and no scheduler is enabled on live data. Activation requires guarded selection, process ownership checks, restore-before-resume, race fixtures and a Worker/runtime release. Evidence and exact remaining gates: docs/verification/cloud-archive-2026-11-08.md. Remote engines and workspace migration remain unfinished.
