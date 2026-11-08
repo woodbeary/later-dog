@@ -10543,7 +10543,7 @@ describe("bot memory API", () => {
     }
   });
 
-  it("session_search recalls the bot's own earlier task from a later one, and only its own", async () => {
+  it("session_search recalls the bot's own earlier task from a later one, and other dogs' chats and memory only when asked", async () => {
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     const other = (await api("POST", "/api/bots", {})).body.bot;
     try {
@@ -10563,6 +10563,7 @@ describe("bot memory API", () => {
         mcpConfig: { mcpServers: { agents: { env: { LATERDOG_COMMS_TOKEN: string } } } };
       }>(fakeClaudeDump);
       expect(dump.systemPrompt ?? "").toContain("session_search");
+      expect(dump.systemPrompt ?? "").toContain("search its chats there instead of asking it");
       await api("POST", `/api/bots/${bot.id}/interrupt`);
       await expect.poll(async () => {
         const state = (await api("GET", "/api/bots?messages=0")).body;
@@ -10606,7 +10607,43 @@ describe("bot memory API", () => {
         role: "user",
         text: "The site audit found three broken links on the pricing page",
       });
-      expect((await read(other.threadId, theirs.hits[0]!.messageId)).status).toBe(404);
+      const crossRead = await read(other.threadId, theirs.hits[0]!.messageId);
+      expect(crossRead.status).toBe(200);
+      expect(await crossRead.json()).toMatchObject({ cross: true, bot: other.name, chat: "main chat", text: "my own audit found broken links as well" });
+
+      const searchAs = async (params: Record<string, string>) =>
+        fetch(
+          `${BASE}/api/internal/session-search?${new URLSearchParams({ fromBotId: bot.id, fromThreadId: laterThreadId, ...params })}`,
+          { headers: { authorization: `Bearer ${await mintTestCapability(BASE, bot.id, laterThreadId)}` } },
+        );
+      const acrossOne = (await (await searchAs({ q: "audit broken links", bot: other.name })).json()) as { cross: boolean; hits: Array<Record<string, unknown>> };
+      expect(acrossOne.cross).toBe(true);
+      expect(acrossOne.hits.map((hit) => [hit.threadId, hit.bot, hit.chat])).toEqual([[other.threadId, other.name, "main chat"]]);
+      const acrossAll = (await (await searchAs({ q: "audit broken links", bot: "all" })).json()) as { hits: Array<Record<string, unknown>> };
+      expect(acrossAll.hits.map((hit) => hit.threadId).sort()).toEqual([firstThreadId, other.threadId].sort());
+      expect((await searchAs({ q: "audit", bot: "nobody-called-this" })).status).toBe(404);
+      const ownByName = (await (await searchAs({ q: "audit broken links", bot: bot.id })).json()) as { cross?: boolean; hits: unknown[] };
+      expect(ownByName.cross).toBeUndefined();
+      expect(ownByName.hits).toHaveLength(1);
+
+      const otherToken = await mintTestCapability(BASE, other.id, other.threadId);
+      expect((await fetch(`${BASE}/api/internal/memory`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${otherToken}`, "content-type": "application/json" },
+        body: JSON.stringify({ action: "append", text: "Pricing page audits run every Friday" }),
+      })).status).toBe(200);
+      const memoryAcross = (await (await searchAs({ q: "pricing audits friday", bot: other.name, scope: "memory" })).json()) as { memoryHits: Array<Record<string, unknown>> };
+      expect(memoryAcross.memoryHits[0]).toMatchObject({ bot: other.name, file: "MEMORY.md" });
+      const readFile = async (params: Record<string, string>) =>
+        fetch(
+          `${BASE}/api/internal/session-read?${new URLSearchParams({ fromBotId: bot.id, fromThreadId: laterThreadId, ...params })}`,
+          { headers: { authorization: `Bearer ${await mintTestCapability(BASE, bot.id, laterThreadId)}` } },
+        );
+      const memoryRead = await readFile({ file: "MEMORY.md", bot: other.name });
+      expect(memoryRead.status).toBe(200);
+      expect(await memoryRead.json()).toMatchObject({ cross: true, bot: other.name, file: "MEMORY.md" });
+      expect(String(((await (await readFile({ file: "MEMORY.md", bot: other.name })).json()) as { text: string }).text)).toContain("Pricing page audits run every Friday");
+      expect((await readFile({ file: "../SOUL.md", bot: other.name })).status).toBe(404);
       expect((await read(firstThreadId, "")).status).toBe(400);
 
       expect((await search("audit", other.threadId)).status).toBe(403);

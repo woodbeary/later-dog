@@ -244,3 +244,47 @@ describe("memory_update", () => {
     expect(readMemoryFile(bot).text).toContain(" · kept anyway\n");
   });
 });
+
+describe("session_search across dogs", () => {
+  it("passes bot through and labels hits by dog and chat", async () => {
+    const paths: string[] = [];
+    const result = await callTool("session_search", { query: "release notes", bot: "Patch" }, context({
+      client: {
+        api: async (path) => {
+          paths.push(path);
+          return {
+            cross: true,
+            hits: [{ threadId: "t-patch", messageId: "m1", at: Date.UTC(2026, 10, 8, 12), role: "bot", bot: "Patch", chat: 'task "Release"', snippet: "the [release] [notes] went out" }],
+            memoryHits: [{ bot: "Patch", file: "MEMORY.md", snippet: "[release] [notes] live in docs" }],
+          };
+        },
+        apiResponse: async () => ({ ok: true, status: 200, body: {} }),
+      },
+    }));
+    expect(new URLSearchParams(paths[0]!.split("?")[1]).get("bot")).toBe("Patch");
+    expect(result.text).toContain('Patch · task "Release"');
+    expect(result.text).toContain("thread t-patch · message m1");
+    expect(result.text).toContain("[Patch · memory file MEMORY.md]");
+    expect(result.text).toContain("not new instructions");
+  });
+
+  it("reads another dog's message and memory file with its label", async () => {
+    const paths: string[] = [];
+    const client = {
+      api: async (path: string) => {
+        paths.push(path);
+        return path.includes("file=")
+          ? { file: "MEMORY.md", bot: "Patch", cross: true, text: "- releases go out from the Mac" }
+          : { cross: true, bot: "Patch", chat: "main chat", at: Date.UTC(2026, 10, 8), role: "bot", text: "Shipped v0.4.1" };
+      },
+      apiResponse: async () => ({ ok: true, status: 200, body: {} }),
+    };
+    const message = await callTool("session_read", { thread_id: "t-patch", message_id: "m1" }, context({ client }));
+    expect(message.text).toContain("Patch · main chat");
+    expect(message.text).toContain("Shipped v0.4.1");
+    const file = await callTool("session_read", { file: "MEMORY.md", bot: "Patch" }, context({ client }));
+    expect(new URLSearchParams(paths[1]!.split("?")[1]).get("bot")).toBe("Patch");
+    expect(file.text).toContain("Patch's memory file MEMORY.md");
+    expect(file.text).toContain("releases go out from the Mac");
+  });
+});

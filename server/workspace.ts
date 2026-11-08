@@ -6,6 +6,7 @@ import { alwaysCore, isExpired, isMemoryDate, parseMemoryEntries, untilMark, wit
 import { parseTopicHeader, readTopicHead, renderTopicIndex } from "./memory-topics.ts";
 import { indexMemoryFile, indexedMemoryFiles, recallMemory, removeMemoryFile, type MemoryHit, type SearchMode } from "./message-db.ts";
 import { redactSecretsInText } from "./redact.ts";
+import { isRecallMemoryFile } from "./laterdog/cross-dog-recall.ts";
 
 import { DATA_DIR } from "./config.ts";
 
@@ -457,6 +458,15 @@ export function writeMemoryTopic(botId: string, name: string, text: string): voi
   ensureWorkspace(botId);
   writeFileAtomic(join(workspaceDir(botId), "memory", name), redactSecretsInText(text), { mode: 0o600 });
   indexWrittenMemoryFile(botId, `memory/${name}`);
+}
+
+export function readRecallMemoryFile(botId: string, file: string): string | null {
+  if (!isRecallMemoryFile(file)) return null;
+  try {
+    return redactSecretsInText(readMemoryText(join(workspaceDir(botId), file)));
+  } catch {
+    return null;
+  }
 }
 
 export function readMemoryTopic(botId: string, name: string): string | null {
