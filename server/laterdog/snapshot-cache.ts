@@ -100,6 +100,9 @@ export function createSnapshotCache<S>(options: {
   };
 
   return {
+    peek(id: string, owner: object): S | undefined {
+      return lastAnswer(id, owner)?.snapshot;
+    },
     read(id: string, owner: object, take: () => Promise<S>): Promise<S> {
       const last = lastAnswer(id, owner);
       if (last && last.took >= slowMs) {

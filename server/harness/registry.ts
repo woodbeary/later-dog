@@ -151,7 +151,8 @@ export class ProviderRegistry {
   }
 
   lastSnapshot(instanceId: InstanceId): ProviderSnapshot | undefined {
-    return this.byId.get(instanceId)?.live ? this.lastSnapshots.get(instanceId) : undefined;
+    const live = this.byId.get(instanceId)?.live;
+    return live ? this.snapshots.peek(instanceId, live) ?? this.lastSnapshots.get(instanceId) : undefined;
   }
 
   access(instanceId: InstanceId): EngineAccess | undefined {
