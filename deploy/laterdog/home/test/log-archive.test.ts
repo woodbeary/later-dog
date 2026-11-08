@@ -79,6 +79,7 @@ it("claims startup while upload is in flight, then restores before engine dispat
   release.resolve();
   await Promise.all([scan, startup]);
   expect(dispatched).toBe(true);
+  expect(coordinator.status()).toMatchObject({ enabled: true, archivedFiles: 1, archivedBytes: Buffer.byteLength(TEXT), lastScanAt: expect.any(Number), freeBefore: expect.any(Number), freeAfter: expect.any(Number) });
   expect(f.reports.join(" ")).toMatch(/archived 1 logs.*free disk/);
 });
 

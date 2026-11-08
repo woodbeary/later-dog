@@ -20505,6 +20505,7 @@ function cloudStorage() {
     memory: { totalBytes: totalmem(), availableBytes: process.availableMemory() },
     low: isLowDisk(disk),
     warning: null,
+    archive: logArchive?.status() ?? { enabled: false },
     janitor: lastJanitorRun ? { at: lastJanitorRun.at, freedBytes: lastJanitorRun.freedBytes, stopped: lastJanitorRun.reaped } : null,
   };
 }

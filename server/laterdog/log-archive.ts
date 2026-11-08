@@ -51,6 +51,7 @@ export class LogArchiveCoordinator {
   private gates = new Map<string, Promise<unknown>>();
   private scanning: Promise<void> | null = null;
   private cursor = 0;
+  private totals = { archivedFiles: 0, archivedBytes: 0, lastScanAt: null as number | null, freeBefore: null as number | null, freeAfter: null as number | null };
   private readonly now: () => number;
   private readonly report: (message: string) => void;
   private readonly options: Options;
@@ -104,6 +105,8 @@ export class LogArchiveCoordinator {
     return next(0);
   }
 
+  status() { return { enabled: true, ...this.totals }; }
+
   scan(): Promise<void> {
     if (this.scanning) return this.scanning;
     this.scanning = this.sweep().finally(() => { this.scanning = null; });
@@ -123,6 +126,8 @@ export class LogArchiveCoordinator {
       return disk.bavail * disk.bsize;
     };
     const before = await free();
+    this.totals.freeBefore = before;
+    this.totals.lastScanAt = this.now();
     for (let count = 0; count < maximum && remaining > 0; count++) {
       const id = known[this.cursor++ % known.length];
       if (!idle(id)) continue;
@@ -139,8 +144,11 @@ export class LogArchiveCoordinator {
         const result = await bridge.archive(paths);
         archived += result.archived;
         bytes += result.bytes;
+        this.totals.archivedFiles += result.archived;
+        this.totals.archivedBytes += result.bytes;
       });
     }
+    this.totals.freeAfter = await free();
     if (archived) this.report(`archived ${archived} logs / ${bytes} bytes; free disk ${before} -> ${await free()} bytes`);
   }
 }

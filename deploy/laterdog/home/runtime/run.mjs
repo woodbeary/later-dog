@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { createArchiver, serveArchive } from "./archive.mjs";
+import { archiveCompatible } from "./archive-capability.mjs";
 import { fileIsUnopened } from "./archive-ownership.mjs";
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -81,7 +82,9 @@ async function main() {
   const devCode = store && process.env.LATERDOG_DEV_CODE === "1"
     ? devCodeWatcher({ store, base: SERVER_DIR, root: DEV_CODE_DIR, log, onCode: (next) => reload(next), idle: () => homeIdle({ secret: process.env.LATERDOG_CLOUD_BOOTSTRAP_SECRET, port: SERVER_PORT }) })
     : null;
-  const pushed = devCode ? await devCode.first() : null;
+  const offered = devCode ? await devCode.first() : null;
+  const pushed = offered && (!archive || await archiveCompatible(offered.launcher)) ? offered : null;
+  if (offered && !pushed) log("the pushed server predates log restoration; using this image");
   if (pushed) log(`running pushed server code ${pushed.hash.slice(0, 12)}${pushed.label ? ` (${pushed.label})` : ""}`);
   let launcher = pushed?.launcher ?? LAUNCHER;
   let child = null;
@@ -147,6 +150,10 @@ async function main() {
     child.on("exit", stopped);
   };
   const reload = async (next) => {
+    if (archive && !await archiveCompatible(next.launcher)) {
+      log("the pushed server predates log restoration; keeping the current server");
+      return;
+    }
     reloading = true;
     const previous = child;
     const exited = new Promise((resolve) => previous.once("exit", resolve));

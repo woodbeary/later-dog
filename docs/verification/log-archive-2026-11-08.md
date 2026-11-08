@@ -14,12 +14,22 @@ The root runtime owns the archive store and authenticated loopback service. A fr
 
 ## Isolated evidence
 
-- All 237 home tests pass in 27 files: /tmp/patch-archive-home-all.log.
+- All 238 home tests pass in 28 files after integration with main and the compatibility/counter checks: /tmp/patch-archive-home-final.log.
 - Nine new service/coordinator fixtures cover archive/start contention, coordinator restart while the root archive is still running, root restart with a fresh index, restore outages with autonomous retry, Stop, history failure, exact log-only restoration, scan bounds, descriptor ownership and changes during ownership checks.
 - A real isolated server fixture sends a request with no connected chat, blocks archive restoration, restarts the server, and observes pending-request pickup without a client. Only after storage recovers does the fake engine receive the original request, with the saved event bytes restored first. History reads then return the restored event. The run observed four archive blob reads across archive verification, failed restores and recovery.
 - The real fixture log is recorded in /tmp/patch-archive-home-all.log. It uses temporary data, synthetic credentials and the repository fake engine. No live dog was resumed or replayed.
 - Cloud secret boundary tests (42) and no-comments tests (10) pass: /tmp/patch-archive-boundary.log.
 - Full lint passes with zero warnings/errors: /tmp/patch-archive-lint.log.
+
+## Image compatibility and observability
+
+A bundled capability manifest binds log-archive support to the SHA-256 of index.js. The runtime refuses older pushed code without a matching manifest and keeps the image server, including when unpacking inherited a newer manifest from the base image. This prevents an older pushed server from bypassing restoration after the new runtime activates. A dedicated fixture covers missing, matching, inherited stale and corrupt manifests.
+
+GET /api/storage reports whether the archive bridge is enabled, successful archive file/byte totals since server startup, last scan time and free bytes before/after its last completed scan. The initial live read-only baseline was 1,333,899,264 free bytes on a 19,228,708,864-byte volume; archive counters were absent, proving this code was not active then. No savings are attributed to this baseline.
+
+Linux /proc ownership was also checked in an isolated linux/amd64 Node 24 container on the Mac: an actually held descriptor is refused and the same inode becomes eligible after close. Evidence: /tmp/patch-archive-linux-ownership.log.
+
+All 20 account-continuation regression fixtures pass, including synthetic Grok capacity queues and legacy Kimi migration: /tmp/patch-archive-recovery-regression.log. This remains synthetic provider evidence.
 
 ## Release status
 

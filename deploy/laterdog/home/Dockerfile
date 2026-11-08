@@ -12,6 +12,7 @@ RUN if [ -n "$LATERDOG_BUILD" ]; then printf '%s\n' "$LATERDOG_BUILD" > /app/clo
  && node --check /app/cloud/runtime/run.mjs \
  && node --check /app/cloud/runtime/dev-code.mjs \
  && node --check /app/cloud/runtime/archive.mjs \
+ && node --check /app/cloud/runtime/archive-capability.mjs \
  && node --check /app/cloud/runtime/archive-ownership.mjs \
  && node --check /app/cloud/runtime/sync.mjs \
  && node --check /app/cloud/runtime/restore-points.mjs \

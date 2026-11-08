@@ -10,7 +10,7 @@ Branch `codex/execution-advisor` in `code/.wt/execution-advisor`: server-owned e
 
 ## How to resume
 
-2026-11-08 automatic log archive: the log-only scheduler, per-thread startup/history gates, autonomous restore retry and root descriptor ownership checks are implemented on patch/automatic-log-archive. All 237 isolated home tests pass, including a real server restart during a restore outage without opening its chat. Live activation and disk relief are not yet claimed; see [archive evidence](../verification/log-archive-2026-11-08.md).
+2026-11-08 automatic log archive: the log-only scheduler, per-thread startup/history gates, autonomous restore retry and root descriptor ownership checks are implemented on patch/automatic-log-archive. All 238 isolated home tests pass, including a real server restart during a restore outage without opening its chat. Live activation and disk relief are not yet claimed; see [archive evidence](../verification/log-archive-2026-11-08.md).
 
 2026-11-08 background recovery: the registry now takes a completed background account check from the current snapshot cache, avoiding stale state until another client request. All 20 account-continuation fixtures pass, including an unopened conversation, reset across restart, synthetic Grok capacity dispatch and legacy Kimi queue migration. The 30-hour progressing owner-work test passes with the elapsed ceiling removed. The reported live stall and installed desktop behavior remain unverified; see [recovery evidence](../verification/recovery-2026-11-08.md).
 

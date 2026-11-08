@@ -1,5 +1,6 @@
 import { build } from "esbuild";
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -77,6 +78,9 @@ if (existsSync(join(root, "enterprise", "server", "index.ts"))) {
   });
   copyFileSync(join(root, "enterprise", "LICENSE"), join(root, "dist-server", "enterprise", "LICENSE"));
 }
+
+writeFileSync(join(root, "dist-server", "cloud-home-capabilities.json"), JSON.stringify({ logArchive: 1,
+  indexSha256: createHash("sha256").update(readFileSync(join(root, "dist-server", "index.js"))).digest("hex") }));
 
 copyFileSync(join(root, "scripts", "desktop-server-entry.mjs"), join(root, "dist-server", "desktop-entry.mjs"));
 
