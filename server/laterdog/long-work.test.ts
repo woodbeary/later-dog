@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { APPROVAL_MODES } from "../../shared/approval-mode.ts";
 import { DEFAULT_ROOM_TURN_TIMEOUT_MINUTES } from "../config.ts";
 import {
-  LONG_WORK_TURN_MINUTES, autoContinuedLine, handoffRunNote, ownerAutoWork, ownersWork, restartLine, roomHandoffResult, roomTurnMinutes,
+  LONG_WORK_TURN_MINUTES, autoContinuedLine, handoffRunNote, ownerAutoWork, ownersWork, roomHandoffResult, roomTurnMinutes,
   runsUnattended, stalledTurnOutcome, stoppedWorkLine, timedOutAgain, turnStallDetail,
 } from "./long-work.ts";
 
@@ -74,12 +74,8 @@ describe("timeouts are timeouts", () => {
   });
 });
 
-describe("plain lines after a restart or an automatic continue", () => {
-  it("names the work picked back up, or each handoff to send again", () => {
-    expect(restartLine([{ name: "Builder", text: "Build it" }], true)).toBe("notice: later.dog restarted while Builder was working, so it picked that work back up.");
-    const lost = restartLine([{ name: "Builder", text: "Build\n it" }, { name: "Scout", text: "Find the files" }], false);
-    expect(lost).toBe("notice: later.dog restarted while Builder, Scout were working, and that work did not carry over. Re-send: @Builder: Build it; @Scout: Find the files");
-    expect(lost.split("\n")).toHaveLength(1);
+describe("plain line after an automatic continue", () => {
+  it("says how long nothing moved", () => {
     expect(autoContinuedLine("idle", 20 * 60_000)).toBe("notice: Nothing moved for 20 minutes, so later.dog picked the work back up.");
   });
 });

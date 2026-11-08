@@ -51,7 +51,6 @@ export interface RoomHandoffHooks {
   closed?(root: RoomHandoff, end: HandoffEnd): void;
   longWork?(node: RoomHandoff): boolean;
   continued?(old: RoomHandoff, root: RoomHandoff, end: HandoffEnd): void;
-  restarted?(root: RoomHandoff, nodes: RoomHandoff[], resumed: boolean): void;
 }
 
 export class RoomHandoffs {
@@ -140,8 +139,6 @@ export class RoomHandoffs {
           else { n.status = "queued"; n.restarted = true; }
         }
         this.stampProgress(root);
-        const picked = open.filter(n => n.parentId);
-        if (picked.length) this.hooks.restarted?.(root, picked, true);
         continue;
       }
       for (const n of open) this.lostToRestart(n);

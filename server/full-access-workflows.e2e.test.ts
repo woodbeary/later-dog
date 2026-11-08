@@ -248,7 +248,8 @@ it("applies requested Full Access workflows through MCP without duplicate approv
     await restart();
     const recovered = await api("GET", pendingRoute);
     expect(recovered).toMatchObject({ phase: "waiting" });
-    await expect.poll(async () => (await messages(interrupted.threadId)).some((message: any) => /picked that work back up/.test(message.tool?.name ?? "")), { timeout: 15_000 }).toBe(true);
+    await new Promise(resolve => setTimeout(resolve, 1_000));
+    expect((await messages(interrupted.threadId)).filter((message: any) => /picked that work back up|did not carry over/.test(message.tool?.name ?? message.text ?? ""))).toEqual([]);
     expect(recovered.messages.some((message: any) => message.turnTerminal && message.text === "Assigned the restart check" && message.turnSucceeded)).toBe(true);
     expect((await api("GET", guardedRoutes.get(inverse.activeTaskId)!)).phase).toBe("settled");
     await new Promise(resolve => setTimeout(resolve, 250));

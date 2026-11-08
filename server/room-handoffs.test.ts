@@ -873,7 +873,7 @@ describe("long work for the owner's auto dogs", () => {
     expect((hooks.run as ReturnType<typeof vi.fn>).mock.calls.filter(call => call[0].id === node.id)).toHaveLength(1);
   }));
 
-  it("picks the owner's auto work back up after a restart and says so once", () => fixture(async (engine, hooks, file) => {
+  it("picks the owner's auto work back up after a restart without posting anything about it", () => fixture(async (engine, hooks, file) => {
     hooks.run = () => new Promise(() => {});
     hooks.busy = node => node.botId === "scout";
     const { node } = engine.enqueue(chief, "turn", undefined, builder, "build", "Build it");
@@ -881,18 +881,14 @@ describe("long work for the owner's auto dogs", () => {
     engine.tick(); await flush();
     expect(node.status).toBe("running");
     expect(waiting.status).toBe("queued");
-    const restartedLine = vi.fn();
     const runs: Array<{ key: string; restarted?: boolean; resumed: boolean }> = [];
     const after: RoomHandoffHooks = {
-      ...hooks, busy: () => false, longWork: () => true, restarted: restartedLine,
+      ...hooks, busy: () => false, longWork: () => true,
       run: vi.fn(async (n, resumed) => { runs.push({ key: n.key, restarted: n.restarted, resumed }); return { ok: true, text: `${n.key} done` }; }),
     };
     const restarted = new RoomHandoffs(file, after);
     expect(restarted.nodes.get(node.id)?.status).toBe("running");
     await settle(restarted, 8);
-    expect(restartedLine).toHaveBeenCalledTimes(1);
-    expect(restartedLine).toHaveBeenCalledWith(expect.objectContaining({ id: "turn" }),
-      expect.arrayContaining([expect.objectContaining({ id: node.id }), expect.objectContaining({ id: waiting.id })]), true);
     expect(runs).toEqual(expect.arrayContaining([
       { key: "build", restarted: true, resumed: false },
       { key: "scout", restarted: undefined, resumed: false },
@@ -907,12 +903,10 @@ describe("long work for the owner's auto dogs", () => {
     const { node } = engine.enqueue(chief, "turn", undefined, builder, "build", "Build it");
     const other = engine.enqueue(chief, "turn", undefined, scout, "scout", "Find it").node;
     engine.tick(); await flush();
-    const restartedLine = vi.fn();
-    const after: RoomHandoffHooks = { ...hooks, longWork: () => false, restarted: restartedLine, report: vi.fn(), run: vi.fn() };
+    const after: RoomHandoffHooks = { ...hooks, longWork: () => false, report: vi.fn(), run: vi.fn() };
     const restarted = new RoomHandoffs(file, after);
     await settle(restarted, 4);
     for (const id of [node.id, other.id, "turn"]) expect(restarted.nodes.get(id)).toMatchObject({ status: "failed", endedBy: "restart" });
-    expect(restartedLine).not.toHaveBeenCalled();
     expect(after.run).not.toHaveBeenCalled();
     expect(JSON.parse(readFileSync(file, "utf8")).every((n: { status: string }) => n.status === "failed")).toBe(true);
   }));
@@ -924,16 +918,13 @@ describe("long work for the owner's auto dogs", () => {
     engine.tick(); await flush();
     expect(engine.nodes.get("turn")?.routineRunId).toBe("routine-run");
     const owner = engine.enqueue(scout, "owner-turn", undefined, builder, "owner", "Check it").node;
-    const restartedLine = vi.fn();
-    const after: RoomHandoffHooks = { ...hooks, busy: () => false, longWork: () => true, restarted: restartedLine, report: vi.fn(),
+    const after: RoomHandoffHooks = { ...hooks, busy: () => false, longWork: () => true, report: vi.fn(),
       run: vi.fn(async (n) => ({ ok: true, text: `${n.key} done` })) };
     const restarted = new RoomHandoffs(file, after);
     await settle(restarted, 8);
     for (const id of [node.id, later.id, "turn"]) expect(restarted.nodes.get(id)).toMatchObject({ status: "failed", endedBy: "restart" });
     expect(restarted.nodes.get(owner.id)?.status).toBe("completed");
     expect(after.run).not.toHaveBeenCalledWith(expect.objectContaining({ rootId: "turn" }), expect.anything(), expect.anything());
-    expect(restartedLine).toHaveBeenCalledTimes(1);
-    expect(restartedLine).toHaveBeenCalledWith(expect.objectContaining({ id: "owner-turn" }), expect.anything(), true);
   }));
 });
 

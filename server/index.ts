@@ -22,7 +22,7 @@ import { RoomHandoffs, type RoomHandoff } from "./room-handoffs.ts";
 import { isHandoffEnd, type HandoffEnd } from "./laterdog/handoff-budget.ts";
 import { continueNoticeTool, continuingNoticeTool, handoffActivity } from "./laterdog/handoff-continue.ts";
 import {
-  autoContinuedLine, handoffRunNote, ownersWork, restartLine, roomHandoffResult, roomTurnMinutes, runsUnattended,
+  autoContinuedLine, handoffRunNote, ownersWork, roomHandoffResult, roomTurnMinutes, runsUnattended,
   stalledTurnOutcome, stoppedWorkLine, turnStallDetail, type HandoffRunResult,
 } from "./laterdog/long-work.ts";
 import { assertRequestTarget, guardedRequestPath, requestConflict, requestNeedsInput, requestSourceForCard } from "./guarded-requests.ts";
@@ -4312,7 +4312,6 @@ function handoffLine(root: RoomHandoff, name: string): void {
 const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
   longWork: handoffLongWork,
   continued: (old, _root, end) => handoffLine(old, autoContinuedLine(end, roomHandoffLimits(cfg).idleMs)),
-  restarted: (root, nodes, resumed) => handoffLine(root, restartLine(nodes.map(node => ({ name: store.bot(node.botId)?.name ?? "Teammate", text: node.text })), resumed)),
   validate: (node, parent) => {
     const sender = parent ? store.bot(parent.botId) : undefined;
     return roomHandoffProblem(node, parent) ??

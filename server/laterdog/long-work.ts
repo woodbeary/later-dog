@@ -79,19 +79,6 @@ export function stalledTurnOutcome(detail: string): HandoffRunResult {
   return { ok: false, text: detail, timedOut: true };
 }
 
-export interface LostHandoff {
-  name: string;
-  text: string;
-}
-
-export function restartLine(lost: readonly LostHandoff[], resumed: boolean): string {
-  const names = [...new Set(lost.map(item => item.name))];
-  const who = names.length ? names.join(", ") : "your teammates";
-  if (resumed) return `notice: later.dog restarted while ${who} ${names.length === 1 ? "was" : "were"} working, so it picked that work back up.`;
-  const items = lost.map(item => `@${item.name}: ${item.text.replace(/\s+/g, " ").trim().slice(0, 120)}`).join("; ");
-  return `notice: later.dog restarted while ${who} ${names.length === 1 ? "was" : "were"} working, and that work did not carry over. Re-send: ${items}`;
-}
-
 export function autoContinuedLine(end: HandoffEnd, idleMs: number): string {
   if (end === "idle") return `notice: Nothing moved for ${plainDuration(idleMs)}, so later.dog picked the work back up.`;
   return "notice: Picking the work back up where it stopped.";
