@@ -4,6 +4,10 @@
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
+## Optional execution advisor (2026-11-08)
+
+Branch `codex/execution-advisor` in `code/.wt/execution-advisor`: server-owned execution evidence in the usage ledger and the read-only `execution_advice` dog tool. Selected models stay authoritative; provider success stays unverified. The advisor exposes observations and abstains without controlled verified comparisons. Verification and remaining limits: [execution advisor](../verification/execution-advisor.md). Not deployed; native sessions need a fresh tool catalog after rollout.
+
 ## How to resume
 
 2026-11-08 background recovery: the registry now takes a completed background account check from the current snapshot cache, avoiding stale state until another client request. All 20 account-continuation fixtures pass, including an unopened conversation, reset across restart, synthetic Grok capacity dispatch and legacy Kimi queue migration. The 30-hour progressing owner-work test passes with the elapsed ceiling removed. The reported live stall and installed desktop behavior remain unverified; see [recovery evidence](../verification/recovery-2026-11-08.md).

@@ -445,6 +445,10 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     const r = await api("/api/internal/vault-secret", { method: "POST", body: JSON.stringify({ action: args.action, name: args.name, length: args.length, charset: args.charset }) });
     return typeof r.text === "string" ? { text: r.text } : { text: String(r.error ?? JSON.stringify(r)), isError: true };
   }
+  if (name === "execution_advice") {
+    const r = await api("/api/internal/execution-advice", { method: "POST", body: JSON.stringify({ task: args.task }) });
+    return { text: typeof r.text === "string" ? r.text : JSON.stringify(r), ...(r.error ? { isError: true } : {}) };
+  }
   if (name === "dog_accounts") {
     const assigning = args.dogs !== undefined || args.account !== undefined;
     const r = assigning
