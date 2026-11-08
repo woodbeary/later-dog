@@ -553,3 +553,15 @@ it("resumes the original coordination source after its account switches while a 
     expect((await rows()).find((row: any) => row.role === "user" && row.text === "Delegate this review and summarize the result.").requestPending).toBe(false);
   });
 }, 90_000);
+
+it("continues on the next account without opening or polling the chat", async () => {
+  await withBatteryFixture({}, async fixture => {
+    const chat = await batteryBot(fixture, "Unopened handoff");
+    writeFileSync(fixture.gate, "out of usage");
+    await chat.send("FINISH_WITHOUT_OPENING_CHAT");
+    await expect.poll(() => fixture.secondPrompts().length, { timeout: 30_000, interval: 250 }).toBe(1);
+    expect(promptText(fixture.secondPrompts()[0])).toContain("FINISH_WITHOUT_OPENING_CHAT");
+    await chat.settled(rows => lastReply(rows)?.text === "hello from account 2");
+    fixture.evidence.push({ unopenedHandoff: await chat.messages() });
+  });
+}, 60_000);
