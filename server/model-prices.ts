@@ -25,6 +25,8 @@ const price = (source: string, input: number, cached: number, output: number, ex
 });
 
 export const LIST_PRICES: Readonly<Record<string, ListPrice>> = {
+  "gpt-6.1-sol": price(OPENAI, 2, 0.1, 10, { asOf: "2026-11-08" }),
+  "gpt-6-luna": price(OPENAI, 0.1, 0.01, 0.5, { asOf: "2026-11-08" }),
   "gpt-6-astra": price(OPENAI, 10, 1, 50),
   "gpt-5.6-sol": price(OPENAI, 4, 0.4, 20),
   "gpt-5.6-terra": price(OPENAI, 2, 0.2, 12),

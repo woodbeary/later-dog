@@ -4,6 +4,10 @@
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
+## Optional execution advisor (2026-11-08)
+
+Branch `codex/execution-advisor` in `code/.wt/execution-advisor`: server-owned execution evidence in the usage ledger and the read-only `execution_advice` dog tool. Selected models stay authoritative; provider success stays unverified. The advisor exposes observations and abstains without controlled verified comparisons. Verification and remaining limits: [execution advisor](../verification/execution-advisor.md). Not deployed; native sessions need a fresh tool catalog after rollout.
+
 ## How to resume
 
 2026-11-08 account usage: full five-hour or seven-day readings now keep an account resting until reset without needing a limit event. Limit continuation chooses the eligible account with the most room, including pinned dogs. Desktop Accounts rows now expose the saved account on/off setting. Regression coverage includes full-window routing, a recovered pinned account during fallback, usage-sheet reports, and successful/rejected desktop toggles. The isolated account-continuation fixture passes all 16 scenarios. Desktop appearance and the reported Grok/Kimi queued messages remain unverified.

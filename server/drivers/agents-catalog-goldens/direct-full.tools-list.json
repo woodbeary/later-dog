@@ -1,6 +1,30 @@
 {
   "tools": [
     {
+      "name": "execution_advice",
+      "description": "Optionally consult your own execution history and available models before a bounded task. Returns attribution, cost provenance, observed durations, evidence references and unknowns. Advice only: never changes models, effort, accounts or dispatch. Provider success is not verified task completion; without controlled comparisons it keeps the selected model. Native engine orchestration remains in charge.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "task"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "tool_result_read",
       "description": "Read a missing portion of an oversized agents-tool result using the saved id and next offset from its notice. Returns at most 16,000 characters, only from this bot in this conversation. Use only when the preview is insufficient; do not load every page by default. Results expire after one hour, on app restart, or under cache pressure. This never reruns the original action.",
       "inputSchema": {

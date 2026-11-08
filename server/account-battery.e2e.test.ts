@@ -403,6 +403,9 @@ it("keeps going on Codex when every Claude account is recharging, on the model t
     await expect.poll(() => fixture.codexCalls().filter((call) => call.method === "thread/start").length, { timeout: 10_000 }).toBe(1);
     const started = fixture.codexCalls().filter((call) => call.method === "thread/start");
     expect(started[0]!.params.model).toBe("gpt-page-two");
+    await expect.poll(() => readUsage(fixture.dataDir, { from: new Date(Date.now() - 86_400_000), to: new Date() })
+      .findLast((row) => row.threadId === chat.threadId && row.instanceId === "codex-last")?.execution, { timeout: 10_000 })
+      .toMatchObject({ selected: FIRST, dispatched: { instanceId: "codex-last", model: "gpt-page-two" }, providerSucceeded: true, verification: "unverified" });
     await chat.send("NEXT_MESSAGE_STRAIGHT_TO_CODEX");
     await chat.settled((rows) => repliesAfter(rows, "NEXT_MESSAGE_STRAIGHT_TO_CODEX").some((row) => row.text === "Finished on Codex"));
     expect(fixture.firstPrompts()).toHaveLength(1);

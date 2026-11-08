@@ -1,3 +1,5 @@
+import { ExecutionEvidenceTracker } from "./laterdog/execution-evidence.ts";
+import { createExecutionAdviceRoute } from "./routes/execution-advice.ts";
 import { fileURLToPath } from "node:url";
 import { BOOT_CLOUD_SECRETS } from "./cloud-secrets-boot.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -1898,6 +1900,8 @@ function usageTriggerFor(auth: RequestAuth): UsageTrigger {
 function operatorPrices(): PriceList | null {
   return entitled("billing") && cfg.billing?.prices && Object.keys(cfg.billing.prices).length ? cfg.billing.prices : null;
 }
+
+const executionEvidence = new ExecutionEvidenceTracker();
 
 function bookTurnUsage(row: Omit<UsageRow, "at" | "costSource">, tokensReported = true, notificationThreadId = row.threadId): void {
   const cost = tokensReported || row.costUsd !== null ? ledgerCost(row, operatorPrices()) : { costUsd: null };
@@ -6636,6 +6640,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
     const publicEvent = event.type === "request.opened" ? { ...event, command: undefined } : event;
     broadcast({ kind: "runtime", event: publicEvent });
   }
+  executionEvidence.observe(event);
   const movingOn = movingToPick(event);
   const carryingOn = automaticallyCarriesOn(event) || movingOn;
   const routineRun = privateImageEvent ? null : carryingOn ? routineRunForTurn(event.threadId) : (routines?.handleRuntimeEvent(event) ?? null);
@@ -6973,6 +6978,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       }
       break;
     case "turn.completed": {
+      const execution = executionEvidence.complete(event);
       settleWaitingOnPersonChips(event.threadId);
       const internal = isInternalTurn(event.threadId);
       clearInternalTurn(event.threadId);
@@ -7106,7 +7112,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           threadId: event.threadId,
           instanceId: ranOn,
           driverKind: registry.get(ranOn)?.driverKind ?? "unknown",
-          model: measuredSelection.model,
+          model: execution?.attribution === "conflict" ? "unknown" : execution?.reportedModel ?? execution?.dispatched.model ?? measuredSelection.model,
+          ...(execution ? { execution } : {}),
           input: tokens?.input ?? 0,
           output: tokens?.output ?? 0,
           ...(typeof tokens?.cachedInput === "number" ? { cachedInput: tokens.cachedInput } : {}),
@@ -7171,7 +7178,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           threadId: event.threadId,
           instanceId: ranOn ?? "unknown",
           driverKind: (ranOn && registry.get(ranOn)?.driverKind) ?? "unknown",
-          model: selection?.model ?? "unknown",
+          model: execution?.attribution === "conflict" ? "unknown" : execution?.reportedModel ?? execution?.dispatched.model ?? "unknown",
+          ...(execution ? { execution } : {}),
           input: tokens?.input ?? 0,
           output: tokens?.output ?? 0,
           ...(typeof tokens?.cachedInput === "number" ? { cachedInput: tokens.cachedInput } : {}),
@@ -8692,6 +8700,7 @@ async function startTurn(
         conversations: fromPerson,
         userName: cfg.profile?.name?.trim() || "User",
       });
+      executionEvidence.dispatch(threadId, (store.projectBotForTask(bot.id, threadId) ?? bot).modelSelection, { instanceId, model, effort }, store.taskByThread(bot.id, threadId)?.title ?? "");
       runningTurnEngines.set(threadId, instance);
       const dispatchedConfig = sessionConfig(liveBot?.soul ?? bot.soul);
       if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
@@ -10519,6 +10528,7 @@ async function runGroupMemberTurn(
     onProviderHandshakeStarted?.();
     providerDispatched = true;
     turnPromptBytes.set(threadId, { stable: Buffer.byteLength(roomSystem.stable), volatile: Buffer.byteLength(roomSystem.volatile) });
+    executionEvidence.dispatch(threadId, readyBot.modelSelection, { instanceId: instance.instanceId, ...(instance.instanceId === readyBot.modelSelection.instanceId ? memberTurnSelection(readyBot.modelSelection) : { model: instance.models.default }) }, store.groupTaskByThread(group.id, threadId)?.title ?? group.name);
     runningTurnEngines.set(threadId, instance);
     const roomRecalled = cardContinuation ? "" : autoRecallPrompt(bot, threadId, resolvedLatestImages.text, { conversations: false, userName });
     guardTurnDispatch(instance.adapter.sendTurn({
@@ -12958,6 +12968,17 @@ INTERNAL_ROUTES.push(createVaultSecretRoute({
   save: (name, value, by) => ({ replaced: vaultStore.saveSecret(name, value, by).replaced }),
 }));
 
+INTERNAL_ROUTES.push(createExecutionAdviceRoute({
+  active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+  current: (botId, threadId) => store.projectBotForTask(botId, threadId)?.modelSelection,
+  rows: () => readUsage(DATA_DIR, { from: new Date(Date.now() - 30 * 86_400_000), to: new Date() }),
+  candidates: async () => (await describeInstances()).flatMap((instance) => instance.models.options.map((model) => ({
+    instanceId: instance.instanceId, model: model.id, enabled: instance.enabled,
+    authenticated: "authenticated" in instance.snapshot && instance.snapshot.authenticated === true, available: instance.snapshot.state === "available",
+    effortLevels: model.effortLevels,
+    restingUntil: accountBattery.status(batteryAccounts()).resting[instance.instanceId]?.until,
+  }))),
+}));
 INTERNAL_ROUTES.push(createDogAccountsRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   ownerActing: (_capability, threadId) => ownerWorkThread(threadId),

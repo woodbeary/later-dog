@@ -211,6 +211,12 @@ flow, credential rotation, account ownership, and native Responses routing.
 The [mention fixture](mentions.md) checks candidate selection, composer highlighting,
 sent mentions, multiline scrolling and responsive wrapping in real chat views.
 
+The [account recovery recipe](recovery-2026-11-08.md) covers isolated account handoff checks.
+
+The [optional execution advisor](execution-advisor.md) checks read-only advice,
+private history, selected versus executing models, ledger evidence and expired
+capabilities in an isolated fake-engine server.
+
 ## Installed app
 
 A release is checked the way a new user meets it, never by opening it over this
