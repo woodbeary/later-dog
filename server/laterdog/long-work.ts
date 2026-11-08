@@ -83,3 +83,17 @@ export function autoContinuedLine(end: HandoffEnd, idleMs: number): string {
   if (end === "idle") return `notice: Nothing moved for ${plainDuration(idleMs)}, so later.dog picked the work back up.`;
   return "notice: Picking the work back up where it stopped.";
 }
+
+export function endsSentWork(options?: { by?: HandoffEnd; endSentWork?: boolean }): boolean {
+  return Boolean(options?.by || options?.endSentWork);
+}
+
+export function onePerTeammate<T extends { botId: string; threadId: string }>(running: readonly T[]): T[] {
+  const seen = new Set<string>();
+  return running.filter(node => {
+    const key = `${node.botId}\n${node.threadId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}

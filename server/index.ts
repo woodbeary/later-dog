@@ -22,7 +22,7 @@ import { RoomHandoffs, type RoomHandoff } from "./room-handoffs.ts";
 import { isHandoffEnd, type HandoffEnd } from "./laterdog/handoff-budget.ts";
 import { continueNoticeTool, continuingNoticeTool, handoffActivity } from "./laterdog/handoff-continue.ts";
 import {
-  autoContinuedLine, handoffRunNote, ownersWork, roomHandoffResult, roomTurnMinutes, runsUnattended,
+  autoContinuedLine, endsSentWork, handoffRunNote, onePerTeammate, ownersWork, roomHandoffResult, roomTurnMinutes, runsUnattended,
   stalledTurnOutcome, stoppedWorkLine, turnStallDetail, type HandoffRunResult,
 } from "./laterdog/long-work.ts";
 import { assertRequestTarget, guardedRequestPath, requestConflict, requestNeedsInput, requestSourceForCard } from "./guarded-requests.ts";
@@ -552,6 +552,7 @@ import { computerFreeAfterText, computerParkedText, computerStoppedWaitingText, 
 import { modelContextWindow } from "./model-context-window.ts";
 import { cloudPlaceRefusal, computerToolsRefusal, parseSurface, PlaceUnavailableError, placeUnavailable, resolveSurface, surfaceLabel, surfaceOfComputerKind, surfacePrompt, type PlaceSource, type Surface } from "./surface.ts";
 import { cloudRefusal, type PlaceRow } from "../shared/place-view.ts";
+import { passingCloudFailure, startRetryingPassingFailures } from "./laterdog/cloud-start.ts";
 import {
   PendingTurnCancellations,
   ProviderTurnGenerationRegistry,
@@ -2625,7 +2626,7 @@ function requestedTaskBot(botId: string, rawThreadId: unknown): BotRecord {
   return task;
 }
 
-async function interruptDirectThread(botId: string, threadId: string, options?: { preserveComputerResume?: boolean; by?: HandoffEnd }): Promise<void> {
+async function interruptDirectThread(botId: string, threadId: string, options?: { preserveComputerResume?: boolean; by?: HandoffEnd; endSentWork?: boolean }): Promise<void> {
   if (!options?.preserveComputerResume && pendingComputerResumes.delete(threadId)
       && store.taskByThread(botId, threadId)?.activity === "parked.computer") {
     store.setTaskActivity(botId, threadId, "idle");
@@ -2636,7 +2637,7 @@ async function interruptDirectThread(botId: string, threadId: string, options?: 
     requestOwner.stopped = true;
     if (requestOwner.messageId) store.patchMessage(threadId, requestOwner.messageId, { requestCancelled: true });
   }
-  noteTeammatesLeftRunning(botId, threadId, roomHandoffs.stopAwaitingDirect(threadId, options?.by ?? "interrupted"));
+  if (endsSentWork(options)) noteTeammatesLeftRunning(botId, threadId, roomHandoffs.stopAwaitingDirect(threadId, options?.by ?? "interrupted"));
   const owner = botForThread(botId, threadId);
   const generation = directTurnGenerationByThread.get(threadId);
   if (accountBattery.pending(threadId, generation)) {
@@ -2660,7 +2661,7 @@ async function stopThreadTurn(botId: string, threadId: string, by: "person" | "a
 
 function noteTeammatesLeftRunning(botId: string, threadId: string, running: RoomHandoff[]): void {
   if (!store.taskByThread(botId, threadId)) return;
-  for (const node of running) {
+  for (const node of onePerTeammate(running)) {
     const name = store.bot(node.botId)?.name ?? "A teammate";
     const task = store.taskByThread(node.botId, node.threadId);
     store.appendMessage(threadId, {
@@ -2678,7 +2679,7 @@ async function interruptAllDirectThreads(botId: string): Promise<void> {
     cancelDirectTurnDispatch(botId, task.threadId);
     revokeInternalCapabilitiesForThread(task.threadId);
   }
-  await Promise.all(threads.map((task) => interruptDirectThread(botId, task.threadId)));
+  await Promise.all(threads.map((task) => interruptDirectThread(botId, task.threadId, { endSentWork: true })));
 }
 const retiredProviderTurns = new RetiredTurnRegistry();
 const pendingCancelledProviderHandshakes = new PendingTurnCancellations();
@@ -5896,6 +5897,7 @@ const CLOUD_COMPUTER_START_WAIT_MS = Math.max(1_000, Number(process.env.LATERDOG
 const CLOUD_COMPUTER_START_BUDGET_MS = Math.max(1_000, Number(process.env.LATERDOG_CLOUD_COMPUTER_START_BUDGET_MS) || 150_000);
 const CLOUD_COMPUTER_STARTING = "The cloud computer is still starting. This call was not performed. Take a fresh screenshot in a moment.";
 const CLOUD_COMPUTER_DID_NOT_START = "the cloud computer didn't start in time";
+const CLOUD_COMPUTER_RETRY_PAUSE_MS = Math.max(100, Number(process.env.LATERDOG_CLOUD_COMPUTER_RETRY_PAUSE_MS) || 5_000);
 
 function mountBotBoat(
   bot: BotRecord,
@@ -5940,7 +5942,14 @@ function claimedBoatId(capability: InternalCapability): string | undefined {
 async function attachBotBoat(bot: BotRecord, owner: TurnOwner, start: { budgetMs: number; onSeated: () => void }) {
   await bindTurnComputer(owner, `computer:box-bot:${bot.id}`, true);
   start.onSeated();
-  const machine = await withinBudget(startBotBoat(bot), start.budgetMs, CLOUD_COMPUTER_DID_NOT_START);
+  const deadline = Date.now() + start.budgetMs;
+  const machine = await withinBudget(startRetryingPassingFailures(() => startBotBoat(bot), {
+    deadline,
+    pauseMs: CLOUD_COMPUTER_RETRY_PAUSE_MS,
+    now: Date.now,
+    sleep: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
+    passing: (error) => passingCloudFailure(error, boat.boatAccount(cfg)?.included === true),
+  }), start.budgetMs, CLOUD_COMPUTER_DID_NOT_START);
   if (!machine) return null;
   await bindTurnComputer(owner, `computer:box:${machine.id}`);
   return {

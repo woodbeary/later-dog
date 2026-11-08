@@ -27,7 +27,7 @@ describe("a slow cloud computer start", () => {
   let relay: Server;
   const rows: Array<{ id: string; name?: string; state: string }> = [];
   const requests: string[] = [];
-  const hold = { provisioning: false, desktop: false };
+  const hold = { provisioning: false, desktop: false, refuseCreates: 0 };
   const held: ServerResponse[] = [];
 
   const api = async (method: string, path: string, body?: unknown) => {
@@ -92,6 +92,10 @@ describe("a slow cloud computer start", () => {
         if (req.headers.authorization !== `Bearer ${INCLUDED}`) return send(401, { ok: false, code: "unauthorized" });
         if (path === "/boxes" && req.method === "GET") return send(200, { ok: true, boxes: rows, pageInfo: { nextCursor: null } });
         if (path === "/boxes" && req.method === "POST") {
+          if (hold.refuseCreates > 0) {
+            hold.refuseCreates -= 1;
+            return send(503, { ok: false, code: "service_unavailable", error: "Cloud computers are briefly unavailable" });
+          }
           const row = { id: `bx_${"23456789abcdefgh"[rows.length]}3456789`, state: "provisioning" };
           rows.push(row);
           return send(201, { ok: true, box: row });
@@ -147,6 +151,7 @@ describe("a slow cloud computer start", () => {
         LATERDOG_CLOUD_BOAT_TOKEN: INCLUDED,
         LATERDOG_CLOUD_COMPUTER_START_WAIT_MS: String(CALL_WAIT_MS),
         LATERDOG_CLOUD_COMPUTER_START_BUDGET_MS: String(START_BUDGET_MS),
+        LATERDOG_CLOUD_COMPUTER_RETRY_PAUSE_MS: "300",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -195,6 +200,19 @@ describe("a slow cloud computer start", () => {
     await until(() => task(bot.id), current => current?.busy === false && current.tasks.every((entry: any) => !entry.busy), 30_000);
     await api("DELETE", `/api/bots/${bot.id}`);
   }, 60_000);
+
+  it("a start the service briefly refuses is tried again, and the turn gets its computer with no failure row", async () => {
+    hold.refuseCreates = 2;
+    const bot = await cloudBot("Refused starter");
+    const sent = await startTurn(bot.id, "Open the cloud desktop");
+    const answer = await until(() => screenshot(sent), result => !result.isError, 20_000);
+    expect(answer.content[0]).toMatchObject({ type: "image" });
+    expect(hold.refuseCreates).toBe(0);
+    writeFileSync(finishFile, "finish");
+    await until(() => task(bot.id), current => current?.busy === false);
+    expect(await failedRows(bot.id)).toEqual([]);
+    await api("DELETE", `/api/bots/${bot.id}`);
+  }, 45_000);
 
   it("a start that stalls ends at the start budget with one row that says it didn't start, and the turn ends", async () => {
     hold.desktop = true;

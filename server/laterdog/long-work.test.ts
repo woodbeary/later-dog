@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { APPROVAL_MODES } from "../../shared/approval-mode.ts";
 import { DEFAULT_ROOM_TURN_TIMEOUT_MINUTES } from "../config.ts";
 import {
-  LONG_WORK_TURN_MINUTES, autoContinuedLine, handoffRunNote, ownerAutoWork, ownersWork, roomHandoffResult, roomTurnMinutes,
+  LONG_WORK_TURN_MINUTES, autoContinuedLine, endsSentWork, onePerTeammate, handoffRunNote, ownerAutoWork, ownersWork, roomHandoffResult, roomTurnMinutes,
   runsUnattended, stalledTurnOutcome, stoppedWorkLine, timedOutAgain, turnStallDetail,
 } from "./long-work.ts";
 
@@ -77,5 +77,20 @@ describe("timeouts are timeouts", () => {
 describe("plain line after an automatic continue", () => {
   it("says how long nothing moved", () => {
     expect(autoContinuedLine("idle", 20 * 60_000)).toBe("notice: Nothing moved for 20 minutes, so later.dog picked the work back up.");
+  });
+});
+
+describe("a dog's turn ending without anyone stopping it", () => {
+  it("leaves the work it sent to other dogs queued; only a stop with a reason ends it", () => {
+    expect(endsSentWork(undefined)).toBe(false);
+    expect(endsSentWork({})).toBe(false);
+    expect(endsSentWork({ by: "person" })).toBe(true);
+    expect(endsSentWork({ by: "idle" })).toBe(true);
+    expect(endsSentWork({ endSentWork: true })).toBe(true);
+  });
+
+  it("posts one Stopped here per teammate chat, not one per request", () => {
+    const running = [{ botId: "patch", threadId: "p", id: "1" }, { botId: "patch", threadId: "p", id: "2" }, { botId: "task", threadId: "t", id: "3" }];
+    expect(onePerTeammate(running).map(node => node.id)).toEqual(["1", "3"]);
   });
 });
