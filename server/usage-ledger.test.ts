@@ -38,6 +38,20 @@ describe("usage ledger files", () => {
   beforeEach(() => { dataDir = mkdtempSync(join(tmpdir(), "laterdog-usage-")); });
   afterEach(async () => { await removeTempDir(dataDir); });
 
+  it("treats malformed execution metadata as legacy usage", async () => {
+    const at = new Date("2026-11-08T10:00:00Z");
+    await appendUsage(dataDir, row({ at: at.toISOString() }));
+    await flushUsageLedger(dataDir);
+    const file = usageFileFor(dataDir, at);
+    const raw = JSON.parse(readFileSync(file, "utf8").trim());
+    raw.execution = { durationMs: -1, task: 12 };
+    writeFileSync(file, JSON.stringify(raw) + "\n");
+    const records = readUsage(dataDir, { from: at, to: at });
+    expect(records).toHaveLength(1);
+    expect(records[0]?.execution).toBeUndefined();
+    expect(records[0]?.input).toBe(1200);
+  });
+
   it("appends one private row per turn into the month's file and reads it back in order", async () => {
     appendUsage(dataDir, row({ at: "2026-09-03T10:00:00.000Z" }));
     appendUsage(dataDir, row({ at: "2026-09-03T11:00:00.000Z", botId: "b2", botName: "Clerk", costUsd: null }));

@@ -4,6 +4,10 @@
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
+## Optional execution advisor (2026-11-08)
+
+Branch `codex/execution-advisor` in `code/.wt/execution-advisor`: server-owned execution evidence in the usage ledger and the read-only `execution_advice` dog tool. Selected models stay authoritative; provider success stays unverified. The advisor exposes observations and abstains without controlled verified comparisons. Verification and remaining limits: [execution advisor](../verification/execution-advisor.md). Not deployed; native sessions need a fresh tool catalog after rollout.
+
 ## How to resume
 
 2026-11-08 automatic log archive: the log-only scheduler, per-thread startup/history gates, autonomous restore retry and root descriptor ownership checks are implemented on patch/automatic-log-archive. All 237 isolated home tests pass, including a real server restart during a restore outage without opening its chat. Live activation and disk relief are not yet claimed; see [archive evidence](../verification/log-archive-2026-11-08.md).

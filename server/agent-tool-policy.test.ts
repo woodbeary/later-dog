@@ -4,6 +4,7 @@ import { agentToolAnnotations, asksForItself, isReadOnlyAgentTool, OPEN_WORLD_RE
 describe("built-in agent tool read policy", () => {
   it("includes only the reviewed local reads", () => {
     expect([...READ_ONLY_AGENT_TOOL_NAMES]).toEqual([
+      "execution_advice",
       "list_bots",
       "account_usage",
       "list_shared_computers",

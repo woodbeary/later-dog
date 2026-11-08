@@ -154,6 +154,11 @@ const SELF_CHANGE_OUTCOME = " Read the result: a change to your own routines, sk
 
 const TOOL_DEFINITIONS = [
   {
+    name: "execution_advice",
+    description: "Optionally consult your own execution history and available models before a bounded task. Returns attribution, cost provenance, observed durations, evidence references and unknowns. Advice only: never changes models, effort, accounts or dispatch. Provider success is not verified task completion; without controlled comparisons it keeps the selected model. Native engine orchestration remains in charge.",
+    inputSchema: { type: "object", properties: { task: { type: "string", minLength: 1, maxLength: 2000 } }, required: ["task"], additionalProperties: false },
+  },
+  {
     name: "create_options_card",
     description:
       "Show the person a native card with 2-6 choices in this Watcher conversation. The card is passive: a click returns the selected words as a reply and never authorizes or performs an external action. Use it for Watcher's review and draft-selection steps, then wait for the person's response.",

@@ -1,3 +1,5 @@
+import { validExecutionEvidence } from "./laterdog/execution-evidence.ts";
+import type { ExecutionEvidence } from "./laterdog/execution-evidence.ts";
 import { readFileSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -11,6 +13,7 @@ export type UsageTrigger =
   | { kind: "bot"; botId?: string };
 
 export interface UsageRow {
+  execution?: ExecutionEvidence;
   at: string;
   botId: string;
   botName: string;
@@ -154,7 +157,12 @@ export function readUsage(dataDir: string, range: { from: Date; to: Date }): Usa
         const value: unknown = JSON.parse(line);
         if (!isUsageRow(value)) continue;
         const at = Date.parse(value.at);
-        if (at >= from && at <= to) rows.push(value);
+        if (at >= from && at <= to) {
+          if (value.execution && !validExecutionEvidence(value.execution)) {
+            const { execution: _execution, ...legacy } = value;
+            rows.push(legacy);
+          } else rows.push(value);
+        }
       } catch {}
     }
   }

@@ -12,6 +12,10 @@ const OFFICIAL = [
 ];
 
 describe("built-in list prices", () => {
+  it("prices the current Sol and Luna base rates with their own source date", () => {
+    expect(LIST_PRICES["gpt-6.1-sol"]).toMatchObject({ inputPerMillion: 2, cachedInputPerMillion: 0.1, outputPerMillion: 10, asOf: "2026-11-08" });
+    expect(LIST_PRICES["gpt-6-luna"]).toMatchObject({ inputPerMillion: 0.1, cachedInputPerMillion: 0.01, outputPerMillion: 0.5, asOf: "2026-11-08" });
+  });
   it("names an official source and the day it was read for every entry, with sane numbers", () => {
     expect(Object.keys(LIST_PRICES).length).toBeGreaterThan(20);
     for (const [model, entry] of Object.entries(LIST_PRICES)) {
