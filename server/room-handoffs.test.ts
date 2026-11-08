@@ -756,26 +756,19 @@ describe("long work for the owner's auto dogs", () => {
   const builder = { botId: "builder", threadId: "builder-work" };
   const scout = { botId: "scout", threadId: "scout-work" };
 
-  it("keeps working past the 4-hour cap while the dogs are busy, then stops at 12 hours with one plain line", async () => {
+  it("never stops a long team task for time while its dogs keep making progress, even past a day", async () => {
     let nowMs = 0;
     await fixture(async (engine, hooks) => {
-      let reason: unknown;
       const closed = vi.fn();
       hooks.longWork = () => true;
       hooks.closed = closed;
       hooks.activity = () => ({ at: nowMs });
-      hooks.run = (_node, _resumed, signal) => new Promise(resolve =>
-        signal.addEventListener("abort", () => { reason = signal.reason; resolve({ ok: false, text: "aborted" }); }));
+      hooks.run = () => new Promise(() => {});
       const { node } = engine.enqueue(chief, "turn", undefined, builder, "build", "Build it");
       engine.sourceSettled("turn", true);
-      for (nowMs = 10 * MIN; nowMs < 12 * 60 * MIN; nowMs += 10 * MIN) { engine.tick(); await flush(); expect(node.status).toBe("running"); }
-      nowMs = 12 * 60 * MIN; engine.tick(); await flush(); engine.tick();
-      expect(node).toMatchObject({ status: "failed", endedBy: "ceiling" });
-      expect(node.result).toContain("Stopped after 12 hours");
-      expect(reason).toBe("ceiling");
-      expect(closed).toHaveBeenCalledTimes(1);
-      expect(closed).toHaveBeenCalledWith(expect.objectContaining({ id: "turn", endedBy: "ceiling" }), "ceiling");
-      expect(engine.continuable("turn")).toBe(false);
+      for (nowMs = 10 * MIN; nowMs <= 30 * 60 * MIN; nowMs += 10 * MIN) { engine.tick(); await flush(); expect(node.status).toBe("running"); }
+      expect(() => engine.enqueue(builder, "turn", node.id, scout, "scout", "Find it")).not.toThrow();
+      expect(closed).not.toHaveBeenCalled();
     }, () => nowMs);
   });
 

@@ -174,13 +174,11 @@ export class RoomHandoffs {
     }
     return idle;
   }
-  private timeEnd(n: RoomHandoff, idle: ReadonlySet<string>): "idle" | "capped" | "ceiling" | undefined {
+  private timeEnd(n: RoomHandoff, idle: ReadonlySet<string>): "idle" | "capped" | undefined {
     const root = this.root(n);
-    const long = this.longTree(root.id);
-    if (this.budget.pastHardCap(root, long)) {
-      const end = long ? "ceiling" : "capped";
-      if (!this.owesOnlySynthesis(n)) return end;
-      if (n.status === "running" && this.now() > (n.startedAt ?? n.createdAt) + this.limits.minRunwayMs) return end;
+    if (!this.longTree(root.id) && this.budget.pastHardCap(root)) {
+      if (!this.owesOnlySynthesis(n)) return "capped";
+      if (n.status === "running" && this.now() > (n.startedAt ?? n.createdAt) + this.limits.minRunwayMs) return "capped";
       return undefined;
     }
     return idle.has(root.id) ? "idle" : undefined;
@@ -231,8 +229,7 @@ export class RoomHandoffs {
     const root = fresh ? parent : this.root(parent);
     const count = [...this.nodes.values()].filter(n => n.rootId === parent!.rootId && n.parentId).length;
     if (count >= this.limits.requests) throw new Error("Room handoff budget exhausted");
-    const long = !fresh && this.longTree(root.id);
-    if (!this.budget.hasRunway(root, long)) throw new Error(this.budget.refusal(root, long));
+    if (!(!fresh && this.longTree(root.id)) && !this.budget.hasRunway(root)) throw new Error(this.budget.refusal(root));
     if (this.nodes.size >= 1000) {
       const oldRoots = [...this.nodes.values()].filter(n => !n.parentId && terminal(n)).sort((a, b) => a.createdAt - b.createdAt);
       for (const old of oldRoots) {
@@ -379,7 +376,7 @@ export class RoomHandoffs {
   }
 
   private continuesOnItsOwn(old: RoomHandoff): boolean {
-    if (old.endedBy === "ceiling" || !this.longTree(old.id) || !this.continuable(old.id) || !this.budget.hasRunway(old, true)) return false;
+    if (old.endedBy === "ceiling" || !this.longTree(old.id) || !this.continuable(old.id)) return false;
     try {
       const { rootId } = this.continueTree(old.id);
       this.hooks.continued?.(old, this.nodes.get(rootId)!, old.endedBy!);
