@@ -239,7 +239,7 @@ import { createDogAccountsRoute, matchDogs } from "./routes/dog-accounts.ts";
 import { vaultInput, withoutSecret } from "./laterdog/vault-input.ts";
 import { createDogQueueRoute, type QueuedMessageRow } from "./routes/dog-queue.ts";
 import { SAFE_STOP_GRACE_MS, safeStopWords, stoppedByLine } from "./laterdog/safe-stop.ts";
-import { accountTurnPrompt, type AccountUsageInput } from "./laterdog/account-usage.ts";
+import { accountTurnPrompt, USAGE_HANDLED_LINE, type AccountUsageInput } from "./laterdog/account-usage.ts";
 import { CONTINUE_AFTER_PICK, pickMovesTurn, pickNotice } from "./laterdog/account-pick.ts";
 import { codexHome } from "./drivers/codex-identity.ts";
 import { resolveClaudeConfigDir } from "./drivers/claude.ts";
@@ -8639,7 +8639,7 @@ async function startTurn(
         { id: "plan", label: "Surface", text: surfacePrompt({ computer: mountedComputer, browser: Boolean(integrations.browser) }, { note: plan.note, canSelect: computerSelectionTurns.has(threadId), cloudHome: Boolean(CLOUD_HOME) }) },
         { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled()) : "" },
         { id: "today", label: "Today", text: CLOUD_HOME ? todayPrompt() : "" },
-        { id: "account", label: "Account", text: accountPromptFor(instanceId) },
+        { id: "account", label: "Account", text: accountPromptFor(instanceId, bot.id) },
         { id: "composio", label: "Connected apps", text: integrations.composio ? composioSystemPrompt(liveBot?.connectorTools ?? bot.connectorTools) : "" },
         { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
         { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
@@ -10391,7 +10391,7 @@ async function runGroupMemberTurn(
     { id: "plan", label: "Surface", text: surfacePrompt({ computer: roomVmTarget ? "vm" : surfaceOfComputerKind(roomComputerKind), browser: Boolean(integrations.browser) }, { note: roomPlan.note, cloudHome: Boolean(CLOUD_HOME) }) },
     { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled()) : "" },
     { id: "today", label: "Today", text: CLOUD_HOME ? todayPrompt() : "" },
-    { id: "account", label: "Account", text: accountPromptFor(instance.instanceId) },
+    { id: "account", label: "Account", text: accountPromptFor(instance.instanceId, bot.id) },
     { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
     { id: "recall", label: "Recall", text: integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "" },
     { id: "recent", label: "Recent work", text: recentWorkPrompt(recentLines) },
@@ -12804,9 +12804,10 @@ function accountUsageInputs(): AccountUsageInput[] {
   });
 }
 
-function accountPromptFor(instanceId: string): string {
-  if (hostedModels) return "";
-  return accountTurnPrompt(accountUsageInputs().find((input) => input.account.instanceId === instanceId), Date.now(), process.env.TZ);
+function accountPromptFor(instanceId: string, botId: string): string {
+  if (hostedModels) return USAGE_HANDLED_LINE;
+  const managesAccounts = botId === store.mainBotId();
+  return accountTurnPrompt(managesAccounts ? accountUsageInputs().find((input) => input.account.instanceId === instanceId) : undefined, Date.now(), process.env.TZ, managesAccounts);
 }
 
 function inheritedHelperSelection(sender: BotRecord, threadId: string): ModelSelection | undefined {

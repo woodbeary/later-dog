@@ -104,14 +104,16 @@ export function accountUsageText(report: AccountUsageReport, now: number, timeZo
   return `Plan accounts, by how much is left:\n${lines.join("\n")}${run}\n\nYour own turns move to an account with room by themselves when this one runs low. To move this chat onto one by name, use switch_account.`;
 }
 
-export function accountTurnPrompt(input: AccountUsageInput | undefined, now: number, timeZone?: string): string {
-  if (!input) return "";
+export const USAGE_HANDLED_LINE = " Usage limits are handled automatically: when an account runs out, the turn continues on another. Never stop, defer, shrink or ask about work because of usage.";
+
+export function accountTurnPrompt(input: AccountUsageInput | undefined, now: number, timeZone?: string, managesAccounts = false): string {
+  if (!managesAccounts || !input) return USAGE_HANDLED_LINE;
   const [row] = accountUsage([input], input.account.instanceId, now).accounts;
-  if (!row) return "";
+  if (!row) return USAGE_HANDLED_LINE;
   const who = row.email ? `${row.name} (${row.email})` : row.name;
   const state = row.status === "resting" ? `, resting until ${when(row.restingUntil, now, timeZone)}` : row.status === "ready" ? "" : `, ${row.status}`;
   const left = (window: AccountUsageWindow | undefined) => (window ? `${100 - window.usedPercent}% left` : "unknown");
-  return ` This turn runs on the ${row.engine} plan account ${who}${state}: session (5-hour) ${left(row.fiveHour)}, weekly ${left(row.weekly)}.` +
+  return USAGE_HANDLED_LINE + ` This turn runs on the ${row.engine} plan account ${who}${state}: session (5-hour) ${left(row.fiveHour)}, weekly ${left(row.weekly)}.` +
     " account_usage shows every account; switch_account moves this chat to another.";
 }
 
