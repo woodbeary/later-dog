@@ -36,13 +36,11 @@ Everything goes to `~/.laterdog-dev-tools/logs/all.log` as `HH:MM:SS source | li
   just the server process. If pushed code stops within 30 seconds, the home goes back to its image's server and says so
   in its log. `pnpm dev:home off` stops new pickups.
 
-Jacob's own Cloud home takes later.dog `main` from GitHub, never from a Mac. After main's CI passes, the
-`Cloud home code` workflow (`.github/workflows/cloud-home-code.yml`, `scripts/publish-home-code.mjs`) bundles the
-server, uploads it to the `laterdog-homes` bucket and moves `dev-code/current.json` to it. The home picks it up at
-its next moment with no dog mid-turn (forced after 6 hours) and goes back to its image's server if the new code stops
-within 30 seconds. A run whose commit is no longer main's head uploads but leaves the pointer to the newer run. It
-needs the `CLOUDFLARE_API_TOKEN` (R2 edit) and `CLOUDFLARE_ACCOUNT_ID` repository secrets; `gh workflow run
-cloud-home-code.yml` publishes main again by hand. No release step needs a Mac.
+Jacob's own Cloud home takes server code from his Mac: `node scripts/dev-home.mjs push --session
+~/.laterdog-dev-tools/my-home.session.json` from a checkout of `main` bundles the server, uploads it to the
+`laterdog-homes` bucket and moves `dev-code/current.json` to it. The home picks it up at its next moment with no dog
+mid-turn (forced after 6 hours) and goes back to its image's server if the new code stops within 30 seconds. There is
+no GitHub workflow for it.
 
 To point the phone at a test home, have the probe connect it: `node scripts/probe.mjs connect` in the phone repo uses
 `EXPO_PUBLIC_LATERDOG_TEST_SERVER`, which the loop sets to the proxy.
