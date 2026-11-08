@@ -2609,7 +2609,7 @@ const logArchive = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LAT
       const owner = store.bots.find(bot => store.tasks(bot.id).some(task => task.threadId === id));
       return Boolean(owner && !threadBusy(owner.id, id)
         && !registry.instances().some(instance => instance.adapter.hasSession(id))
-        && !store.messagesFor(id).some(message => message.requestPending === true)
+        && !store.hasPendingRequest(id)
         && !roomHandoffs.activeDirect(id));
     },
     report: message => console.log(`[log archive] ${message}`),

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { DATA_DIR } from "./config.ts";
 import { closeMessageDb,
   deleteThread,
+  hasPendingRequest,
   indexMemoryFile,
   indexedMemoryFiles,
   insertMessage,
@@ -39,6 +40,20 @@ describe("message-db", () => {
     closeMessageDb();
     rmSync(DATA_DIR, { recursive: true, force: true });
     mkdirSync(DATA_DIR, { recursive: true });
+  });
+
+  it("checks pending requests without loading a transcript, protects legacy data and permits cancelled requests", () => {
+    insertMessage("pending-thread", msg("pending", "request", { requestPending: true }));
+    expect(hasPendingRequest("pending-thread", legacy("pending-thread"))).toBe(true);
+    updateMessage("pending-thread", msg("pending", "request", { requestPending: true, requestCancelled: true }));
+    expect(hasPendingRequest("pending-thread", legacy("pending-thread"))).toBe(false);
+    expect(hasPendingRequest("absent-thread", legacy("absent-thread"))).toBe(false);
+    writeFileSync(legacy("legacy-thread"), JSON.stringify({ messages: [msg("old", "request", { requestPending: true })] }));
+    expect(hasPendingRequest("legacy-thread", legacy("legacy-thread"))).toBe(true);
+    expect(existsSync(legacy("legacy-thread"))).toBe(true);
+    const database = new DatabaseSync(join(DATA_DIR, "messages.db"));
+    expect(database.prepare("SELECT 1 FROM thread_state WHERE thread_id = ?").get("legacy-thread")).toBeUndefined();
+    database.close();
   });
 
   it("persists inserts, updates, and the active leaf across a reopen", () => {

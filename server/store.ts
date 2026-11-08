@@ -1247,6 +1247,12 @@ export class Store {
     return t;
   }
 
+  hasPendingRequest(threadId: string): boolean {
+    const cached = this.threads.get(threadId);
+    return cached ? cached.messages.some(message => message.requestPending === true && !message.requestCancelled)
+      : mdb.hasPendingRequest(threadId, messagesFile(threadId));
+  }
+
   messagesFor(threadId: string): Message[] {
     return this.thread(threadId).messages;
   }

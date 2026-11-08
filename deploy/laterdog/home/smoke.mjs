@@ -89,6 +89,43 @@ const list = await bots.json().catch(() => null);
 if (!bots.ok || !Array.isArray(list?.bots)) throw new Error(`the owner could not list dogs: ${bots.status}`);
 console.log(`dogs: ${list.bots.length}`);
 
+if (process.env.HOME_EXPECT_LOG_ARCHIVE === "1") {
+  if (host !== "archive-fixture.example.test" || process.env.HOME !== "/data") throw new Error("archive smoke requires its disposable image fixture");
+  const { mkdir, writeFile, utimes, readFile, access } = await import("node:fs/promises");
+  const authorized = { ...headers, authorization: `Bearer ${session.token}`, "content-type": "application/json" };
+  const storage = async () => {
+    const response = await request(`${base}/api/storage`, { headers: authorized });
+    if (!response.ok) throw new Error("storage report unavailable");
+    return response.json();
+  };
+  if (!(await storage()).archive?.enabled) throw new Error("runtime archive bridge is not active");
+  console.log("runtime archive bridge: active");
+  const known = list.bots[0];
+  const id = known?.threadId ?? known?.activeTaskId ?? known?.tasks?.[0]?.threadId;
+  if (typeof id !== "string") throw new Error("isolated idle thread is missing");
+  const paths = [`/data/.laterdog/events/${id}.ndjson`, `/data/.laterdog/native/${id}.ndjson`];
+  const content = [
+    JSON.stringify({ eventId: "archive-fixture-event", provider: "claudeAgent", providerInstanceId: "claude", threadId: id,
+      turnId: "old-turn", createdAt: new Date(0).toISOString(), type: "content.delta", streamKind: "assistant_text", delta: "x".repeat(1024 * 1024) }) + "\n",
+    JSON.stringify({ at: new Date(0).toISOString(), dir: "in", source: "fixture", msg: { text: "n".repeat(1024 * 1024) } }) + "\n",
+  ];
+  for (let at = 0; at < paths.length; at++) {
+    await mkdir(paths[at].slice(0, paths[at].lastIndexOf("/")), { recursive: true });
+    await writeFile(paths[at], content[at]);
+    await utimes(paths[at], new Date(0), new Date(0));
+  }
+  const result = await until("automatic log archive", async () => {
+    const current = await storage();
+    return current.archive?.archivedFiles >= 2 && current.archive.freeAfter !== null ? current.archive : null;
+  }, 180);
+  for (const path of paths) if (await access(path).then(() => true, () => false)) throw new Error("archived log was not removed");
+  const history = await request(`${base}/api/threads/${id}/events`, { headers: authorized });
+  if (!history.ok) throw new Error("archived event history did not return");
+  await history.arrayBuffer();
+  for (let at = 0; at < paths.length; at++) if (await readFile(paths[at], "utf8") !== content[at]) throw new Error("restored image log bytes changed");
+  console.log(`image archive and history restore: ${JSON.stringify(result)}`);
+}
+
 const stream = await request(`${base}/api/events?screens=off`, { headers: { ...headers, authorization: `Bearer ${session.token}`, accept: "text/event-stream" } });
 if (!stream.ok || !stream.body || !stream.headers.get("content-type")?.startsWith("text/event-stream")) throw new Error(`live updates failed: ${stream.status}`);
 const reader = stream.body.getReader();

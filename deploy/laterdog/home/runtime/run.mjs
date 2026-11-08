@@ -70,7 +70,7 @@ async function main() {
   const included = await seedIncluded(process.env.LATERDOG_HOME || join(DATA, ".laterdog"), { key: process.env.LATERDOG_INCLUDED_KEY, api: process.env.LATERDOG_INCLUDED_API }, dogOwner());
   if (included === "seeded" || included === "replaced") log("included later.dog AI, voice and decisions are ready");
   const environment = { ...process.env };
-  const archive = store ? await serveArchive(createArchiver({ root: DATA, store, owner: dogOwner(), log, canRemove: file => fileIsUnopened(file) }), { token: environment.LATERDOG_CLOUD_ARCHIVE_TOKEN = randomBytes(32).toString("hex") }) : null;
+  const archive = store ? await serveArchive(createArchiver({ root: DATA, store, owner: dogOwner(), log, canRemove: file => fileIsUnopened(file, { asOwner: dogOwner() }) }), { token: environment.LATERDOG_CLOUD_ARCHIVE_TOKEN = randomBytes(32).toString("hex") }) : null;
   if (archive) environment.LATERDOG_CLOUD_ARCHIVE_URL = archive.url;
   delete environment.LATERDOG_STATE_URL;
   delete environment.LATERDOG_STATE_TOKEN;

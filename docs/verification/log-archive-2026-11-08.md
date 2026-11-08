@@ -31,6 +31,14 @@ Linux /proc ownership was also checked in an isolated linux/amd64 Node 24 contai
 
 All 20 account-continuation regression fixtures pass, including synthetic Grok capacity queues and legacy Kimi migration: /tmp/patch-archive-recovery-regression.log. This remains synthetic provider evidence.
 
+## Container user boundary
+
+The assembled-image smoke test exposed EACCES when root tried to stat the dog user's /proc file descriptors without CAP_SYS_PTRACE. It correctly retained all files, but could not make progress. The runtime now checks root-owned descriptors itself and asks a short-lived helper under the existing dog UID/GID to check that user's descriptors. The helper receives only device/inode metadata and a clean PATH-only environment; it receives no archive or state token. Unexpected UIDs, inaccessible descriptors and exhausted time/count budgets still keep the local file. No container capability was added.
+
+The isolated Linux two-user process fixture proves the held dog file is refused, and becomes eligible after close while the dog process is still alive. It also proves the original root-only scan remains refused under that same boundary: /tmp/patch-archive-cross-uid.log.
+
+Pending-request checks now use already-cached messages or a SQLite existence query instead of loading cold transcripts into the server cache. Cancelled requests do not block archiving, and unmigrated legacy files remain protected without importing them. All 20 message database tests pass: /tmp/patch-archive-pending-query.log. All 238 home tests pass again after this change: /tmp/patch-archive-home-uid.log.
+
 ## Build environment
 
 The first amd64 build on this arm64 Mac crashed inside emulated esbuild with SIGSEGV. The JavaScript/frontend build stage now uses BUILDPLATFORM; the shipped runtime stays linux/amd64. Dockerfile contract checks pass (11 tests, three existing skips). The next attempt lost the Docker VM connection during the build; its original two-GiB build VM was restarted with four GiB. These are build-environment observations, not a demonstrated cause of the phone or live home failures.

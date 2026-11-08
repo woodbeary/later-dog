@@ -310,6 +310,18 @@ export interface ThreadTailRows extends ThreadRows {
   hasMore?: boolean;
 }
 
+export function hasPendingRequest(threadId: string, legacyFile: string): boolean {
+  const database = db();
+  const pending = database.prepare(
+    "SELECT 1 FROM messages WHERE thread_id = ? AND role = 'user' " +
+    "AND json_extract(json, '$.requestPending') = 1 AND json_extract(json, '$.requestCancelled') IS NOT 1 LIMIT 1",
+  ).get(threadId);
+  if (pending) return true;
+  const known = database.prepare("SELECT 1 FROM thread_state WHERE thread_id = ?").get(threadId)
+    || database.prepare("SELECT 1 FROM messages WHERE thread_id = ? LIMIT 1").get(threadId);
+  return !known && existsSync(legacyFile);
+}
+
 export function readThreadTail(threadId: string, legacyFile: string, limit: number): ThreadTailRows {
   const rows = db()
     .prepare("SELECT json FROM messages WHERE thread_id = ? ORDER BY rowid DESC LIMIT ?")
