@@ -1,7 +1,7 @@
 FROM caddy:2.10.2 AS edge
 RUN cp /usr/bin/caddy /caddy
 
-FROM node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS build
+FROM --platform=$BUILDPLATFORM node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS build
 WORKDIR /src
 RUN npm install -g pnpm@10.33.0
 ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1

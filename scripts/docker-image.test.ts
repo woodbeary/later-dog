@@ -23,7 +23,7 @@ function stages(text: string): Stage[] {
     const [, op, args] = /^\s*(\S+)\s*([\s\S]*)$/.exec(pending)!;
     pending = "";
     if (op.toUpperCase() === "FROM") {
-      const [, from, name] = /^(\S+)(?:\s+AS\s+(\S+))?$/i.exec(args.trim())!;
+      const [, from, name] = /^(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?$/i.exec(args.trim())!;
       all.push({ name: name ?? `#${all.length}`, from, steps: [] });
     } else all.at(-1)?.steps.push({ op: op.toUpperCase(), args: args.trim() });
   }

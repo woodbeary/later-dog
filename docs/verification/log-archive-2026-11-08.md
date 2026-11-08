@@ -31,6 +31,10 @@ Linux /proc ownership was also checked in an isolated linux/amd64 Node 24 contai
 
 All 20 account-continuation regression fixtures pass, including synthetic Grok capacity queues and legacy Kimi migration: /tmp/patch-archive-recovery-regression.log. This remains synthetic provider evidence.
 
+## Build environment
+
+The first amd64 build on this arm64 Mac crashed inside emulated esbuild with SIGSEGV. The JavaScript/frontend build stage now uses BUILDPLATFORM; the shipped runtime stays linux/amd64. Dockerfile contract checks pass (11 tests, three existing skips). The next attempt lost the Docker VM connection during the build; its original two-GiB build VM was restarted with four GiB. These are build-environment observations, not a demonstrated cause of the phone or live home failures.
+
 ## Release status
 
 Not yet deployed at this documentation checkpoint. No live disk relief is claimed. Actual Worker/runtime image deployment, isolated image checks, release identity and live read-only counts/disk measurements are recorded when those gates complete.
