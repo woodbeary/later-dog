@@ -51,7 +51,7 @@ export function executionAdvice(input: {
         recordedTurns: rows.length, attributedTurns: attributed.length, nonzeroUsageTurns: samples.length,
         providerSucceeded: attributed.filter((row) => row.execution!.providerSucceeded).length,
         verifiedTasks: 0,
-        medianObservedExecutionMs: durations.length ? durations[Math.floor(durations.length / 2)]! : null,
+        medianObservedExecutionMs: durations.length ? (durations[Math.floor((durations.length - 1) / 2)]! + durations[Math.floor(durations.length / 2)]!) / 2 : null,
         recordedCostUsd: priced.length ? priced.reduce((sum, row) => sum + row.costUsd!, 0) : null,
         unpricedTurns: rows.length - priced.length,
         estimatedCostTurns: rows.filter((row) => row.costSource === "estimated").length,

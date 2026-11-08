@@ -32,6 +32,11 @@ describe("optional execution advice", () => {
     expect(result.recommendation.action).toBe("keep_current");
   });
 
+  it("reports the median across both middle observations for even samples", () => {
+    const result = advise([row({ execution: { ...execution, turnId: "first", durationMs: 100 } }), row({ execution: { ...execution, turnId: "second", durationMs: 10_000 } })]);
+    expect(result.candidates[0]?.observations.medianObservedExecutionMs).toBe(5050);
+  });
+
   it("marks a resting account unavailable until its reset", () => {
     const result = advise([], [{ ...candidate, restingUntil: "2026-11-09T00:00:00Z" }]);
     expect(result.candidates[0]).toMatchObject({ eligible: false, unavailableReason: "usage_limit" });

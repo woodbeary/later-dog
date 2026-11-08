@@ -41,6 +41,10 @@ it("a dog consults advice through its real tool capability without changing its 
     await expect.poll(() => readUsage(dataDir, { from: new Date(0), to: new Date() }).filter((row) => row.botId === initial.id), { timeout: 15_000 }).not.toHaveLength(0);
     const rows = readUsage(dataDir, { from: new Date(0), to: new Date() }).filter((row) => row.botId === initial.id);
     expect(rows.at(-1)?.execution).toMatchObject({ selected: initial.modelSelection, dispatched: initial.modelSelection, verification: "unverified", providerSucceeded: false });
+    const monitorResponse = await fetch(url + "/api/usage/executions?limit=20", { headers: { origin: url } });
+    expect(monitorResponse.status).toBe(200);
+    const monitor = await monitorResponse.json() as { receipts: Array<{ botId: string }> };
+    expect(monitor.receipts.some((receipt) => receipt.botId === initial.id)).toBe(true);
     const expired = await client.apiResponse("/api/internal/execution-advice", { method: "POST", body: JSON.stringify({ task: "inspect" }) });
     expect(expired.status).toBe(401);
     writeFileSync(join(evidenceDir, "receipt.json"), JSON.stringify({ url, logPath, advice, execution: rows.at(-1)?.execution, selectedBefore: initial.modelSelection, selectedAfter: beforeStop.modelSelection, expiredCapabilityStatus: expired.status }, null, 2));

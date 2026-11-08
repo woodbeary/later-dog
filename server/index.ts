@@ -1,3 +1,4 @@
+import { createExecutionReceiptsRoute } from "./routes/execution-receipts.ts";
 import { ExecutionEvidenceTracker } from "./laterdog/execution-evidence.ts";
 import { createExecutionAdviceRoute } from "./routes/execution-advice.ts";
 import { fileURLToPath } from "node:url";
@@ -10126,8 +10127,9 @@ async function runGroupMemberTurn(
     if (Object.keys(custom).length) integrations.custom = custom;
   }
   if (isCancelled?.()) return false;
-  const readyBot = onBatteryAccount(store.bot(bot.id));
-  if (!readyBot) return false;
+  const selectedBot = store.bot(bot.id);
+  const readyBot = onBatteryAccount(selectedBot);
+  if (!readyBot || !selectedBot) return false;
   toolScopeForTurn(readyBot.id);
   const readyGroup = store.group(group.id);
   const stillOwnsThread = readyGroup?.dm
@@ -10528,7 +10530,7 @@ async function runGroupMemberTurn(
     onProviderHandshakeStarted?.();
     providerDispatched = true;
     turnPromptBytes.set(threadId, { stable: Buffer.byteLength(roomSystem.stable), volatile: Buffer.byteLength(roomSystem.volatile) });
-    executionEvidence.dispatch(threadId, readyBot.modelSelection, { instanceId: instance.instanceId, ...(instance.instanceId === readyBot.modelSelection.instanceId ? memberTurnSelection(readyBot.modelSelection) : { model: instance.models.default }) }, store.groupTaskByThread(group.id, threadId)?.title ?? group.name);
+    executionEvidence.dispatch(threadId, selectedBot.modelSelection, { instanceId: instance.instanceId, ...(instance.instanceId === readyBot.modelSelection.instanceId ? memberTurnSelection(readyBot.modelSelection) : { model: instance.models.default }) }, store.groupTaskByThread(group.id, threadId)?.title ?? group.name);
     runningTurnEngines.set(threadId, instance);
     const roomRecalled = cardContinuation ? "" : autoRecallPrompt(bot, threadId, resolvedLatestImages.text, { conversations: false, userName });
     guardTurnDispatch(instance.adapter.sendTurn({
@@ -12667,6 +12669,7 @@ ROUTES.push(createDeciderRoutes({ decider }));
 ROUTES.push(createJobTraceRoutes());
 ROUTES.push(typingSuggestions.routes);
 ROUTES.push(createLaterDogRoutes());
+ROUTES.push(createExecutionReceiptsRoute({ rows: () => readUsage(DATA_DIR, { from: new Date(Date.now() - 30 * 86_400_000), to: new Date() }) }));
 ROUTES.push(createGitHubActivityRoutes({ read: () => githubActivity.read() }));
 ROUTES.push(createHelpersRoutes({
   board: helperBoard,
@@ -12973,12 +12976,16 @@ INTERNAL_ROUTES.push(createExecutionAdviceRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   current: (botId, threadId) => store.projectBotForTask(botId, threadId)?.modelSelection,
   rows: () => readUsage(DATA_DIR, { from: new Date(Date.now() - 30 * 86_400_000), to: new Date() }),
-  candidates: async () => (await describeInstances()).flatMap((instance) => instance.models.options.map((model) => ({
-    instanceId: instance.instanceId, model: model.id, enabled: instance.enabled,
-    authenticated: "authenticated" in instance.snapshot && instance.snapshot.authenticated === true, available: instance.snapshot.state === "available",
-    effortLevels: model.effortLevels,
-    restingUntil: accountBattery.status(batteryAccounts()).resting[instance.instanceId]?.until,
-  }))),
+  candidates: async () => {
+    const configs = providerConfigs();
+    const resting = accountBattery.status(batteryAccounts()).resting;
+    return (await registry.describe()).flatMap((instance) => instance.models.options.map((model) => ({
+      instanceId: instance.instanceId, model: model.id, enabled: configs[instance.instanceId]?.enabled !== false,
+      authenticated: "authenticated" in instance.snapshot && instance.snapshot.authenticated === true,
+      available: instance.snapshot.state === "available" && !policyModelRefusal(instance),
+      effortLevels: model.effortLevels, restingUntil: resting[instance.instanceId]?.until,
+    })));
+  },
 }));
 INTERNAL_ROUTES.push(createDogAccountsRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),

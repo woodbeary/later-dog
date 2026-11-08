@@ -28,6 +28,11 @@ usage ledger. A conflicting provider is marked and its model attribution becomes
 unknown. Old rows are not backfilled with invented attribution. Malformed optional
 metadata is discarded without losing the original usage row.
 
+Admins can monitor the last thirty days through the read-only
+`GET /api/usage/executions?limit=50` endpoint (maximum 200 receipts). It excludes
+trigger email addresses and rejects non-admin callers. This supports passive
+production verification without sending synthetic requests to live dogs.
+
 ## Run
 
 Use Node 24 or newer and pnpm:

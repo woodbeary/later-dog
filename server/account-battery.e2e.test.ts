@@ -502,6 +502,9 @@ it.each([false, true])("continues a room member automatically, including an all-
     expect((await rows()).filter((row: any) => row.tool?.carry)).toHaveLength(resting ? 2 : 1);
     expect(fixture.secondPrompts()).toHaveLength(1);
     expect(promptText(fixture.secondPrompts()[0])).toContain("ROOM_CARRY_REQUEST");
+    await expect.poll(() => readUsage(fixture.dataDir, { from: new Date(Date.now() - 86_400_000), to: new Date() })
+      .findLast((row) => row.threadId === group.threadId && row.instanceId === "claude-two")?.execution, { timeout: 10_000 })
+      .toMatchObject({ selected: FIRST, dispatched: { instanceId: "claude-two", model: FIRST.model }, verification: "unverified" });
     expect(promptText(fixture.secondPrompts()[0])).toContain("Do not redo what was already done.");
   });
 }, 90_000);
