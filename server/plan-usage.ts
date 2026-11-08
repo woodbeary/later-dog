@@ -397,6 +397,10 @@ function signInAgain(driver: PlanDriver): string {
   return `Sign in again in ${PRODUCT_NAME[driver]}`;
 }
 
+function readingAfterUse(driver: PlanDriver): string {
+  return `${PRODUCT_NAME[driver]} renews its sign-in when this account next runs; usage shows again then`;
+}
+
 function couldNotReach(driver: PlanDriver): string {
   return `Could not reach ${PRODUCT_NAME[driver]}`;
 }
@@ -804,7 +808,8 @@ async function fetchProvider(account: PlanAccount, deps: PlanUsageDeps): Promise
   } catch {
     return errorRow(account, signInAgain(account.driver));
   }
-  if (credential.expired || !credential.token) return errorRow(account, signInAgain(account.driver));
+  if (credential.expired) return errorRow(account, readingAfterUse(account.driver));
+  if (!credential.token) return errorRow(account, signInAgain(account.driver));
   try {
     if (account.driver === "claude") return await fetchClaude(account, credential.token, deps);
     if (account.driver === "codex") return await fetchCodex(account, credential.token, credential.accountId, deps);

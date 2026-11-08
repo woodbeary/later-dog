@@ -188,7 +188,7 @@ describe("plan usage parsers", () => {
 });
 
 describe("plan usage fetcher", () => {
-  it("does not call fetch when the Claude token is expired", async () => {
+  it("does not call fetch when the Claude token is expired, and does not call that signed out, since the account renews it on its next run", async () => {
     const fetchImpl = vi.fn<PlanFetch>();
     const configDir = join(tmpdir(), "laterdog-plan-usage-claude");
     const reads: string[] = [];
@@ -209,8 +209,9 @@ describe("plan usage fetcher", () => {
     ]);
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(report.providers).toEqual([
-      expect.objectContaining({ id: "work", name: "Work Claude", driver: "claude", ok: false, error: "Sign in again in Claude" }),
+      expect.objectContaining({ id: "work", name: "Work Claude", driver: "claude", ok: false, error: "Claude renews its sign-in when this account next runs; usage shows again then" }),
     ]);
+    expect(report.providers[0]!.error).not.toContain("Sign in again");
     expect(JSON.stringify(report)).not.toContain(SECRET);
   });
 
