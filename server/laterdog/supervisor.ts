@@ -260,6 +260,36 @@ export class Supervisor {
     const keep = new Set(this.store.jobs().filter((job) => job.trace?.where === "local" && !traceExpired(job.trace)).map((job) => job.id));
     try { this.traces.local.sweep(keep); } catch (error) { console.warn(`later.dog could not sweep local traces: ${message(error)}`); }
   }
+  private async collectFailedCheckpoint(job: Job, adapter: ExecutionAdapter): Promise<void> {
+    const eligible = () => {
+      const current = this.store.job(job.id);
+      return current.state === "needs_attention" && !current.cancelRequested && current.taskId === job.taskId &&
+        current.attempt === job.attempt && current.finishedAt === job.finishedAt && current.blocker === job.blocker && !current.patchArtifact &&
+        !current.headSha && !current.verification && !current.review;
+    };
+    if (job.backend !== "laterdog-cloud" || adapter.capabilities.id !== "laterdog-cloud" || job.kind === "review" || !eligible()) return;
+    const attempt = job.taskId!;
+    if (this.store.db.prepare("SELECT 1 FROM events WHERE job_id=? AND type=? AND detail=? LIMIT 1").get(job.id, "failed_checkpoint_started", attempt)) return;
+    this.store.event(job.id, "failed_checkpoint_started", attempt);
+    if (!adapter.collectPartial) {
+      this.store.event(job.id, "failed_checkpoint_unavailable", "Adapter does not support failed checkpoints; original failure retained");
+      return;
+    }
+    try {
+      const patch = await adapter.collectPartial(job.taskId!, this.context(job));
+      if (!eligible()) return;
+      if (!patch.trim()) {
+        this.store.event(job.id, "failed_checkpoint_unavailable", "No source diff in the failed computer; original failure retained");
+        return;
+      }
+      const changes = patchChanges(patch);
+      const patchArtifact = join(this.artifactDir, `${job.id}.patch`);
+      writeFileSync(patchArtifact, patch, { mode: 0o600, flag: "wx" });
+      this.store.update(job.id, { patchArtifact, changes }, "failed_checkpoint_collected", "Source checkpoint retained from failed task; unverified, computer kept, original provider failure retained");
+    } catch {
+      if (eligible()) this.store.event(job.id, "failed_checkpoint_unavailable", "Failed checkpoint collection unavailable or failed; inspect the retained computer. Original provider failure retained");
+    }
+  }
   private async collect(job: Job): Promise<void> {
     const patch = await this.adapter(job).collect(job.taskId!, this.context(job));
     const patchArtifact = join(this.artifactDir, `${job.id}.patch`); writeFileSync(patchArtifact, patch, { mode: 0o600 });
@@ -363,10 +393,15 @@ export class Supervisor {
         }
         if (state === "failed") {
           this.lastPolled.delete(job.id);
-          await this.keepActivity(job);
-          await this.keepTrace(job);
-          if (this.store.job(job.id).cancelRequested) this.store.update(job.id, { state: "cancelled", finishedAt: new Date().toISOString() }, "cancelled", "Stopped; its computer was deleted");
-          else this.store.update(job.id, { state: "needs_attention", finishedAt: new Date().toISOString(), blocker: adapter.failure?.(job.taskId!) ?? "Provider reports this task failed; an agent can investigate and choose a repair" }, "provider_failed");
+          const current = this.store.job(job.id);
+          if (current.state !== "running" || current.taskId !== job.taskId || current.attempt !== job.attempt || current.updatedAt !== job.updatedAt) continue;
+          if (current.cancelRequested) this.store.update(job.id, { state: "cancelled", finishedAt: new Date().toISOString() }, "cancelled", "Stopped; its computer was deleted");
+          else {
+            const failed = this.store.update(job.id, { state: "needs_attention", finishedAt: new Date().toISOString(), blocker: adapter.failure?.(job.taskId!) ?? "Provider reports this task failed; an agent can investigate and choose a repair" }, "provider_failed");
+            await this.keepActivity(failed);
+            await this.keepTrace(failed);
+            await this.collectFailedCheckpoint(failed, adapter);
+          }
         }
         else if (state === "ready") {
           this.lastPolled.delete(job.id); collecting = true;

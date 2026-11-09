@@ -7,6 +7,7 @@ import { createJobSchema, repositorySchema, scopesOverlap, type Job, type Reposi
 import { WorkspaceStore } from "./store.ts";
 import { Supervisor, correctionTitle } from "./supervisor.ts";
 import { CODEX_CLOUD_CAPABILITIES, SubmissionUnknown, type ExecutionAdapter } from "./codex-cloud.ts";
+import { LATERDOG_CLOUD_CAPABILITIES } from "./laterdog-cloud.ts";
 import { CLAUDE_CLOUD_CAPABILITIES } from "./claude-cloud.ts";
 import { GitHubPublisher } from "./github.ts";
 import { BridgeStore } from "./bridge-store.ts";
@@ -221,3 +222,93 @@ describe("boundaries and local bridge",() => {
   });
 });
 export type { Job, Repository };
+
+
+describe("failed cloud checkpoints", () => {
+  function failedFixture() {
+    const f = fixture({ remote: true });
+    f.adapter.capabilities = LATERDOG_CLOUD_CAPABILITIES;
+    const collectPartial = vi.fn(async () => f.collect());
+    Object.assign(f.adapter, { collectPartial, failure: () => "Claude allowance exhausted" });
+    f.inspect.mockResolvedValue("failed");
+    return { ...f, collectPartial };
+  }
+  it.each(["implementation", "repair"])("retains an unverified failed %s diff once without publishing or replay", async (kind) => {
+    const f = failedFixture(); const job = f.create({ kind });
+    await f.supervisor.tick(); await f.supervisor.tick(); await f.supervisor.tick();
+    const failed = f.store.job(job.id);
+    expect(failed).toMatchObject({ state: "needs_attention", blocker: "Claude allowance exhausted" });
+    expect(readFileSync(failed.patchArtifact!, "utf8")).toContain("+new");
+    expect(failed.changes).toBeTruthy(); expect(failed.verification).toBeUndefined();
+    expect(f.collectPartial).toHaveBeenCalledTimes(1); expect(f.submit).toHaveBeenCalledTimes(1);
+    expect(f.publisher.publish).not.toHaveBeenCalled();
+    expect(f.store.events(job.id).some(e => e.type === "failed_checkpoint_collected")).toBe(true);
+    f.store.update(job.id, { state: "running" });
+    await f.supervisor.tick(); expect(f.collectPartial).toHaveBeenCalledTimes(1);
+  });
+  it.each(["empty", "error", "unsupported"])("keeps the original failure with a diagnostic for %s collection", async (mode) => {
+    const f = failedFixture();
+    if (mode === "empty") f.collectPartial.mockResolvedValue("  ");
+    if (mode === "error") f.collectPartial.mockRejectedValue(new Error("private raw error text"));
+    if (mode === "unsupported") Reflect.deleteProperty(f.adapter, "collectPartial");
+    const job = f.create(); await f.supervisor.tick(); await f.supervisor.tick(); await f.supervisor.tick();
+    expect(f.store.job(job.id)).toMatchObject({ state: "needs_attention", blocker: "Claude allowance exhausted" });
+    expect(f.store.job(job.id).patchArtifact).toBeUndefined();
+    const events = f.store.events(job.id);
+    expect(events.some(e => e.type === "failed_checkpoint_unavailable")).toBe(true);
+    expect(JSON.stringify(events)).not.toContain("private raw error text");
+    expect(f.submit).toHaveBeenCalledTimes(1);
+  });
+  it.each(["review", "cancel", "submission_unknown", "other_backend", "published", "prior_artifact", "review_artifact"])("excludes %s from partial collection", async (mode) => {
+    const f = failedFixture();
+    if (mode === "other_backend") f.adapter.capabilities = CODEX_CLOUD_CAPABILITIES;
+    const job = f.create({ kind: mode === "review" ? "review" : "implementation" });
+    await f.supervisor.tick();
+    if (mode === "cancel") f.supervisor.cancel(job.id);
+    if (mode === "submission_unknown") f.store.update(job.id, { state: "submission_unknown" });
+    if (mode === "published") f.store.update(job.id, { headSha: NEW_SHA });
+    if (mode === "review_artifact") f.store.update(job.id, { review: { headSha: SHA, reviewerJobId: "prior", verdict: "pass", summary: "prior", at: new Date().toISOString() } });
+    if (mode === "prior_artifact") f.store.update(job.id, { patchArtifact: "prior.patch" });
+    await f.supervisor.tick(); expect(f.collectPartial).not.toHaveBeenCalled();
+    if (mode === "published") expect(f.store.job(job.id).headSha).toBe(NEW_SHA);
+    if (mode === "prior_artifact") expect(f.store.job(job.id).patchArtifact).toBe("prior.patch");
+  });
+  it.each(["cancel", "new_task", "new_state"])("does not attach an in-flight checkpoint after %s", async (mode) => {
+    const f = failedFixture(); const job = f.create(); await f.supervisor.tick();
+    let release!: (patch: string) => void;
+    f.collectPartial.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+    const tick = f.supervisor.tick();
+    await vi.waitFor(() => expect(f.collectPartial).toHaveBeenCalledTimes(1));
+    if (mode === "cancel") f.supervisor.cancel(job.id);
+    if (mode === "new_task") f.store.update(job.id, { state: "running", taskId: "task_new" });
+    if (mode === "new_state") f.store.update(job.id, { state: "ready", headSha: NEW_SHA });
+    const current = f.store.job(job.id);
+    release(await f.collect()); await tick;
+    expect(f.store.job(job.id)).toEqual(current);
+    expect(f.store.job(job.id).patchArtifact).toBeUndefined();
+  });
+  it("does not replace newer state returned during provider inspection", async () => {
+    const f = failedFixture(); const job = f.create(); await f.supervisor.tick();
+    f.inspect.mockImplementation(async () => { f.store.update(job.id, { state: "cancelled" }); return "failed"; });
+    await f.supervisor.tick();
+    expect(f.store.job(job.id).state).toBe("cancelled"); expect(f.collectPartial).not.toHaveBeenCalled();
+  });
+  it("keeps its attempt marker across a supervisor restart", async () => {
+    const f = failedFixture(); f.collectPartial.mockRejectedValue(new Error("offline"));
+    const job = f.create(); await f.supervisor.tick(); await f.supervisor.tick();
+    f.supervisor.stop(); await f.supervisor.drain();
+    for (let n = 0; n < 210; n += 1) f.store.event(job.id, "fixture", "later event");
+    f.store.update(job.id, { state: "running" });
+    const next = new Supervisor(f.store, f.supervisor.options); supervisors.push(next);
+    await next.tick(); expect(f.collectPartial).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains a checkpoint even when trace collection fails", async () => {
+    const f = failedFixture();
+    f.adapter.trace = vi.fn(async () => { throw new Error("trace unavailable"); });
+    const job = f.create(); await f.supervisor.tick(); await f.supervisor.tick();
+    expect(f.store.job(job.id).patchArtifact).toBeTruthy();
+    expect(f.store.job(job.id).blocker).toBe("Claude allowance exhausted");
+  });
+
+});
