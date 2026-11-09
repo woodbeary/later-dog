@@ -1,0 +1,37 @@
+{
+  "passed": true,
+  "scope": "Read-only actual production home after archive image release; no synthetic user turns",
+  "windowStart": "2026-11-09T21:13:55.880Z",
+  "windowEnd": "2026-11-09T21:24:04.290Z",
+  "samples": 21,
+  "retainedDogs": 80,
+  "allBaselineTaskIdentitiesRetained": true,
+  "wowIdle": true,
+  "savedCloverPatchPreferences": "Codex / gpt-6.1-sol / medium",
+  "samePid": true,
+  "savedProjectionSamples": 0,
+  "minFreeBytes": 1134923776,
+  "maxFreeBytes": 1805934592,
+  "lowSpaceSamples": 21,
+  "firstArchive": {
+    "enabled": true,
+    "archivedFiles": 0,
+    "archivedBytes": 0,
+    "sessionFiles": 0,
+    "sessionBytes": 0,
+    "lastScanAt": null,
+    "freeBefore": null,
+    "freeAfter": null
+  },
+  "lastArchive": {
+    "enabled": true,
+    "archivedFiles": 0,
+    "archivedBytes": 0,
+    "sessionFiles": 53,
+    "sessionBytes": 279145189,
+    "lastScanAt": 1794259433577,
+    "freeBefore": 1239519232,
+    "freeAfter": 1243451392
+  },
+  "privateReceiptSha256": "31ebe3cae6e781f7127185e22f96212274d89f45a4ecd39bbc2e50f522906c06"
+}

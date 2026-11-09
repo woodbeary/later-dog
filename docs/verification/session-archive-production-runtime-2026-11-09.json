@@ -1,0 +1,17 @@
+{
+  "observedAt": "2026-11-09T21:18:42.663Z",
+  "source": "Patch post-restart Bash on the actual production home",
+  "pid": 24,
+  "build": "0e0c163240ed3023f036a20f570badad966ce185",
+  "capability": 3,
+  "files": {
+    "index.js": {
+      "sha256": "32f873c009cac3cdb6d0d39f92495c06c06718acc2d6e4838a9b515d3c109e74",
+      "manifestMatches": true
+    },
+    "cloud-home-start.js": {
+      "sha256": "acbb7f6642abffec2dfc78515af6c07dcd62664e3648e915b9ec82931362db08",
+      "manifestMatches": true
+    }
+  }
+}

@@ -1,5 +1,7 @@
 # Engine session archive, 2026-11-09
 
+> Historical pre-release implementation evidence. For the deployed image, activation, live measurements and remaining limits, see [the production release record](session-archive-release-2026-11-09.md). Statements below about unmerged or undeployed work describe the original fixture phase.
+
 Continues the live automatic log archive ([log archive evidence](log-archive-2026-11-08.md)). Branch `kennel/session-archive`, based on main `16d20b46b`. Not merged, not released.
 
 ## Why
@@ -54,14 +56,14 @@ Mutation check: with session restoration removed from `beforeTurn`, the three re
 
 `archive-capability.test.ts` now also proves that a version-2 manifest with matching hashes is refused.
 
-## Not done
+## Original pre-release gaps (historical)
 
 - Not merged, built into an image or deployed. Live savings are unmeasured.
 - Sessions that no resume cursor names (after a context reset, rewind or deleted task) are not scheduled. Part of the measured 1.9 GB may be in that state. Removing them would need a separate, deliberate retention rule.
 - Codex, Grok and other engines' session stores are not included.
 - Destructive archive GC stays disabled. Archived versions are kept.
 
-## Release needs
+## Original release checklist (historical)
 
 1. Merge to main after review.
 2. Rebuild both home images. The runtime (`archive.mjs`, `archive-capability.mjs`) and the bundled server/manifest must ship together. The Dockerfile capability check rejects a mismatch.
