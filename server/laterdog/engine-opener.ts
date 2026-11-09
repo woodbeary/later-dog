@@ -1,4 +1,3 @@
-// Production opener: an engine relay on the dog's own cloud computer.
 import { engineComputer } from "../computers.ts";
 import { engineScripts, prepareEngineComputer, processStreamLink, relayCommand } from "./engine-computer.ts";
 import type { EngineOpener } from "./engine-placement.ts";

@@ -7,7 +7,6 @@ import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { EngineFileReceiver, engineFileKey, engineInventory, readEngineFile, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 
-// Tests mirror the home under a scratch folder; production mirrors the same absolute paths.
 const TEST_ROOT = process.env.LATERDOG_ENGINE_TEST_ROOT ?? "";
 let homeRoots: string[] = [];
 const mirrored = (value: string) => TEST_ROOT && homeRoots.some((root) => value === root || value.startsWith(`${root}/`)) ? `${TEST_ROOT}${value}` : value;
@@ -75,8 +74,6 @@ function fail(error?: unknown): void {
 }
 const reply = (id: unknown, body: unknown) => send({ type: "reply", id, body });
 
-// One engine per chat on a computer: a second launch for the same chat is refused while the
-// first still runs, so a lost connection can never leave two copies of one conversation working.
 let lockFile = "";
 function takeLock(path: string): boolean {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
@@ -91,10 +88,7 @@ function takeLock(path: string): boolean {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       const [holder, engine] = readFileSync(path, "utf8").split(" ").map(Number);
       try { if (Number.isSafeInteger(holder) && holder > 1) { process.kill(holder, 0); return false; } } catch {}
-      // Its relay is gone, so nothing the old engine does can reach the home: stop it before
-      // this chat's engine starts again.
       if (Number.isSafeInteger(engine) && engine > 1) {
-        // On Linux, only a group that is still a relocated engine (process ids can be reused).
         let ours = process.platform !== "linux";
         try { ours = readFileSync(`/proc/${engine}/environ`, "latin1").includes("LATERDOG_ENGINE_SOCKET="); } catch {}
         if (ours) try { process.kill(-engine, "SIGKILL"); } catch {}
@@ -133,8 +127,6 @@ async function launch(frame: any): Promise<void> {
           opened = true;
           await send({ type: "hook", id, index: Number.isSafeInteger(message.index) ? message.index : 0, payload: message.payload });
         } else if (message.type === "data" && opened) {
-          // A home tool may read the working folder (attach_file, for one), so the home gets the
-          // engine's edits before a tool call reaches it.
           if (Buffer.from(String(message.data), "base64").includes("tools/call")) await checkpoint();
           await send({ type: "proxy_stdin", id, data: message.data });
         } else if (message.type === "end" && opened) await send({ type: "proxy_end", id });

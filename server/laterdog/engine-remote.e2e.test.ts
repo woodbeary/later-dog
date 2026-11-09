@@ -118,13 +118,10 @@ it("runs a turn on the computer with home-held tools, hooks and authority, and r
   expect(result.hookAuthorityVisible).toBe(false);
   expect(result).toMatchObject({ credentialAccess: true, credentialRefresh: false });
   expect(readFileSync(join(w.base, "hooks.jsonl"), "utf8")).toContain("pnpm install");
-  // Checkpoint before completion: the home had the engine's files when the result arrived.
   expect(atResult).toEqual({ turnFile: true, session: true, removed: true });
   expect(readFileSync(join(w.cwd, "turn-1.txt"), "utf8")).toBe("hello");
-  // Packages stay on the computer.
   expect(existsSync(join(w.cwd, "node_modules"))).toBe(false);
   expect(existsSync(w.mirror(join(w.cwd, "node_modules", "marker")))).toBe(true);
-  // The refresh token never left the home.
   expect(readFileSync(w.mirror(join(w.configDir, ".credentials.json")), "utf8")).not.toContain("refresh-value");
   engine.stdin.end();
   expect(await closed(engine)).toBe(0);
@@ -143,7 +140,6 @@ it("reuses project setup in a new session and continues the same native session 
   expect(resumed).toMatchObject({ reused: true, sessionLines: 2 });
   second.engine.stdin.end();
   await closed(second.engine);
-  // The computer is unavailable now: the same session continues on the home from its own copy.
   const home = w.start(w.plan(true), async () => { throw new Error("computer asleep"); }, true);
   const local = await turn(home.engine, "three");
   expect(home.placed).toEqual(["home"]);
@@ -199,7 +195,6 @@ it("fails a turn whose connection drops after launch, never re-runs it, and stop
   expect(await closed(engine)).toBe(1);
   expect(w.localLaunches()).toBe(0);
   expect(() => process.kill(orphan, 0)).not.toThrow();
-  // The next launch for this chat finds the dead relay's lock and stops its engine first.
   const again = w.start(w.plan(true), undefined, true);
   await turn(again.engine, "after");
   expect(() => process.kill(orphan, 0)).toThrow();
@@ -220,7 +215,6 @@ it("runs on the home when the computer surely never started the engine", async (
 
 it("does not run a turn twice when the launch outcome is unknown", async () => {
   const w = world();
-  // A relay that prepares but never answers the launch.
   const silent = join(w.base, "silent-relay.mjs");
   writeFileSync(silent, `import { createInterface } from "node:readline"; const say = (v) => process.stdout.write(JSON.stringify(v) + "\\n"); say({ type: "ready" });
 createInterface({ input: process.stdin }).on("line", (l) => { const f = JSON.parse(l); if (f.type === "configure") say({ type: "reply", id: f.id, body: { files: [] } }); if (f.type === "prepared") say({ type: "reply", id: f.id, body: { prepared: true } }); if (f.type === "launch") setTimeout(() => process.exit(0), 200); });\n`);

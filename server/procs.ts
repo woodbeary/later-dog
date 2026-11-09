@@ -38,7 +38,6 @@ export function assertSafeCliArgv(
 }
 
 const cliGroups = new WeakSet<ChildProcess>();
-// Engines that do not run as a local child (one on the dog's cloud computer) stop themselves.
 const treeStoppers = new WeakMap<object, (timeoutMs: number) => Promise<boolean>>();
 export function registerTreeStopper(child: object, stop: (timeoutMs: number) => Promise<boolean>): void { treeStoppers.set(child, stop); }
 const stopping = new WeakMap<ChildProcess, Promise<boolean>>();

@@ -784,7 +784,6 @@ import { withScopeHint } from "./connector-scope-hint.ts";
 import { setEngineOpener } from "./laterdog/engine-placement.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
 
-// Engines of dogs chosen in remote-engines.json may run on their own cloud computers.
 setEngineOpener(computerEngineOpener());
 
 const PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);

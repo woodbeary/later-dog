@@ -316,9 +316,6 @@ export interface VerificationServer {
   close(): Promise<void>;
 }
 
-// Only the running Node goes on the fixture's PATH. Its install folder often also holds
-// globally installed agent CLIs (nvm puts `codex` and `claude` next to `node`), which the
-// fixture must not discover.
 export function sealedFixtureBin(dataDir: string): string {
   if (process.platform === "win32") return dirname(process.execPath);
   const bin = join(dataDir, ".fixture-bin");

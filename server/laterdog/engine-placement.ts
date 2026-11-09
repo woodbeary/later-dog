@@ -1,8 +1,3 @@
-// Decides where a Claude engine runs and builds what the computer needs. An engine moves to the
-// dog's own cloud computer only when the dog is chosen for it (LATERDOG_REMOTE_ENGINE_BOTS or
-// <data>/remote-engines.json), cloud computers are set up, and the launch can be mirrored
-// exactly: same paths, same account, model and effort, same native session file. Anything else
-// runs on the home as before.
 import { createHash, randomUUID } from "node:crypto";
 import type { ChildProcess } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -29,7 +24,6 @@ export function remoteEngineBots(dataDir: string, env: NodeJS.ProcessEnv = proce
 
 export function claudeProjectSlug(cwd: string): string { return cwd.replace(/[^a-zA-Z0-9]/g, "-"); }
 
-/** The npm package and version of the CLI the home would run, so the computer runs the same one. */
 export function claudeCliPackage(resolvedCommand: string): { name: string; version: string } | null {
   let at: string;
   try { at = realpathSync(resolvedCommand); } catch { return null; }
@@ -45,7 +39,6 @@ export function claudeCliPackage(resolvedCommand: string): { name: string; versi
   return null;
 }
 
-/** A credential the computer can use but not renew: the refresh token stays on the home. */
 export function scopedClaudeCredential(text: string, now = Date.now()): Buffer | null {
   try {
     const parsed = JSON.parse(text) as { claudeAiOauth?: Record<string, unknown> };
@@ -70,13 +63,11 @@ export interface ClaudePlacement {
   dataDir: string;
   proxyPath: string;
   now?: number;
-  /** Where the relay keeps its own files on the computer. */
   remoteBase?: string;
 }
 
 export interface ClaudeRemotePlan { launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[] }
 
-/** Builds the remote launch, or says why the engine stays on the home. */
 export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePlan } | { stay: string } {
   if (input.managed) return { stay: "managed account" };
   const base = input.env.ANTHROPIC_BASE_URL;
@@ -136,7 +127,6 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
     writeFileSync(target, JSON.stringify(settings), { mode: 0o600 });
     args[settingsIndex] = target;
   }
-  // Any other launch file (a system prompt, for one) travels in the staging folder too.
   for (let index = 0; index < args.length; index++) {
     const value = args[index];
     if (index === mcpIndex || index === settingsIndex || !isAbsolute(value) || within(stagingDir, value)) continue;
@@ -194,11 +184,9 @@ function stdioSpecFor(server: Record<string, unknown>): StdioSpec | null {
 
 export interface EngineOpener { proxyPath: string; remoteBase?: string; open(botId: string, plan: ClaudeRemotePlan): Promise<EngineLink> }
 let opener: EngineOpener | null = null;
-/** Set once at startup where cloud computers exist; until then every engine runs on the home. */
 export function setEngineOpener(value: EngineOpener | null): void { opener = value; }
 export function engineOpener(): EngineOpener | null { return opener; }
 
-/** A link that becomes real once the computer is ready; a failure before then closes it. */
 export function deferredLink(open: Promise<EngineLink>): EngineLink {
   const link = new EventEmitter() as EngineLink;
   let real: EngineLink | null = null;
@@ -217,7 +205,6 @@ export function deferredLink(open: Promise<EngineLink>): EngineLink {
   return link;
 }
 
-/** Starts an engine on the computer when planned, otherwise on the home. */
 export function spawnPlacedEngine(plan: ClaudeRemotePlan, openLink: (plan: ClaudeRemotePlan) => Promise<EngineLink>, local: () => ChildProcess,
   onPlaced?: (where: "computer" | "home", why?: string) => void): EngineProcess {
   const session = new RemoteSession(deferredLink(openLink(plan)), plan.launch);

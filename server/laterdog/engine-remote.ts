@@ -1,12 +1,3 @@
-// The home's side of a relocated engine. An EngineProcess looks like the child process a driver
-// spawns, but the engine may run on the dog's own cloud computer through engine-relay.ts. The
-// home keeps everything that carries authority: MCP servers and hooks run here with the home's
-// own environment, and the engine only ever sees proxy commands. Files go out before launch and
-// come back at each checkpoint, which the relay takes before it forwards a turn's completion.
-//
-// Fallback rule: the engine runs on the home only when the remote launch definitely did not
-// start (no launch frame sent, or the relay refused it explicitly). Once a launch frame is out
-// and no answer comes, the outcome is unknown and the turn fails instead of running twice.
 import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
@@ -20,7 +11,6 @@ export interface EngineLink extends EventEmitter {
   close(): void;
 }
 
-/** A relay reached by running a command whose stdio carries the frames (tests, docker, ssh). */
 export function commandLink(command: string, args: string[], env?: NodeJS.ProcessEnv): EngineLink {
   const link = new EventEmitter() as EngineLink;
   const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], env: env ?? process.env });
@@ -44,15 +34,10 @@ export interface RemoteLaunch {
   args: string[];
   cwd: string;
   env: Record<string, string>;
-  /** Roots on the home; the computer mirrors them at the same paths. */
   roots: EngineFileRoot[];
-  /** Roots whose changes come back to the home. Every other root is input only. */
   outputIds: string[];
-  /** Files written on the computer from bytes the home builds, such as a scoped credential. */
   pushes?: () => PushedFile[];
-  /** Real MCP servers, run on the home when the engine opens the proxy of that name. */
   mcp: Record<string, StdioSpec>;
-  /** Real hook commands by index, run on the home with this environment. */
   hooks: string[];
   hookEnv: Record<string, string>;
   socketPath: string;
@@ -71,7 +56,6 @@ const PUSH_EVERY_MS = 30_000;
 
 type Pending = { resolve: (body: any) => void; reject: (error: Error) => void };
 
-/** One remote engine session over a relay link. */
 export class RemoteSession extends EventEmitter {
   #link: EngineLink;
   #launch: RemoteLaunch;
@@ -131,13 +115,11 @@ export class RemoteSession extends EventEmitter {
     }
   }
 
-  /** Prepares the computer and starts the engine there. Throws NotDispatched when it surely did not start. */
   async start(): Promise<void> {
     await this.#ready;
     const launch = this.#launch;
     let configured: { files: EngineFile[] };
     let home: EngineFile[];
-    // Roots the home fills itself (a scoped credential) are never read from the home's disk.
     const pushedRoots = new Set((launch.pushes?.() ?? []).map((file) => file.root));
     try {
       home = engineInventory(launch.roots.filter((root) => !pushedRoots.has(root.id)));
@@ -154,12 +136,10 @@ export class RemoteSession extends EventEmitter {
       const root = launch.roots.find((entry) => entry.id === file.root)!;
       this.#sendFile(file.root, file.path, readEngineFile(root, file.path), file.mode);
     }
-    // Files the home no longer has are removed on the computer, except in roots the home pushes itself.
     for (const file of configured.files) if (!present.has(engineFileKey(file)) && !pushedRoots.has(file.root)) this.#send({ type: "file_remove", file });
     this.#pushScoped(remote);
     try { await this.#request({ type: "prepared" }, SYNC_REPLY_MS); }
     catch (error) { throw new NotDispatched((error as Error).message); }
-    // What the computer now holds is the baseline the engine's changes are judged against.
     this.#receiver = new EngineFileReceiver(launch.roots.filter((root) => launch.outputIds.includes(root.id)).map((root) => ({ ...root, writable: true })),
       home.filter((file) => launch.outputIds.includes(file.root)));
     if (this.#closed) throw new NotDispatched("The cloud computer's connection closed before launch.");
@@ -169,7 +149,6 @@ export class RemoteSession extends EventEmitter {
       body = await this.#request({ type: "launch", cli: launch.cli, args: launch.args, cwd: launch.cwd, env: launch.env,
         socketPath: launch.socketPath, stateFile: launch.stateFile, lockFile: launch.lockFile }, HANDSHAKE_MS);
     } catch (error) {
-      // The launch frame left; the engine may be running. Never run this turn again elsewhere.
       throw new Error(`The cloud computer did not confirm the engine started: ${(error as Error).message}`);
     }
     if (body?.refused === "spawn_failed") throw new NotDispatched("The engine could not start on the cloud computer.", "spawn_failed");
@@ -254,8 +233,6 @@ export class RemoteSession extends EventEmitter {
     for (const pending of this.#pending.values()) pending.reject(new Error(`The cloud computer connection ended (${why}).`));
     this.#pending.clear();
     if (this.#started && !this.#exited) {
-      // The process stream stops the engine when its connection ends, so nothing keeps running
-      // there; the turn ends here with an explicit error and is not run again.
       this.emit("stderr", Buffer.from("The connection to the cloud computer ended during this turn. The engine there was stopped, and the turn was not run again.\n"));
       this.#exited = true;
       this.emit("native-exit", 1, null);
@@ -274,10 +251,6 @@ export class RemoteSession extends EventEmitter {
   get launchSent(): boolean { return this.#launchSent; }
 }
 
-/**
- * The object a driver holds. It starts on the computer when it can and falls back to a local
- * child only when the remote launch surely did not start.
- */
 export class EngineProcess extends EventEmitter {
   readonly stdin = new PassThrough();
   readonly stdout = new PassThrough();
@@ -298,7 +271,6 @@ export class EngineProcess extends EventEmitter {
     this.stdin.on("error", () => {});
     this.stdin.pause();
     this.#remote = remote;
-    // The relay's own complaints go where the engine's would, so a failure explains itself.
     remote.on("diagnostic", (text: string) => { if (!this.stderr.writableEnded) this.stderr.write(`[cloud computer] ${text}`); });
     void remote.start().then(() => {
       this.placement = "computer";
@@ -351,7 +323,6 @@ export class EngineProcess extends EventEmitter {
     const done = () => { this.emit("exit", this.exitCode, signal); this.emit("close", this.exitCode, signal); this.#markClosed(); };
     if (!this.stdout.writableEnded) this.stdout.end();
     if (!this.stderr.writableEnded) this.stderr.end();
-    // Readers see every byte before close, as with a real child process.
     let pending = 2;
     const settle = () => { if (--pending === 0) setImmediate(done); };
     for (const stream of [this.stdout, this.stderr]) {
@@ -362,7 +333,6 @@ export class EngineProcess extends EventEmitter {
     }
   }
 
-  /** Stops the engine wherever it runs; resolves true once it has ended. */
   async stopTree(timeoutMs: number, stopLocal: (child: ChildProcess, timeoutMs: number) => Promise<boolean>): Promise<boolean> {
     if (this.exitCode !== null || this.signalCode !== null) return true;
     this.#stopRequested = true;

@@ -1,7 +1,3 @@
-// Runs on a dog's cloud computer next to a relocated engine. The engine starts it in place of
-// each MCP server ("mcp <socket> <name>") and each hook command ("hook <index>"); it carries the
-// bytes over the relay's local socket to the home, where the real server or hook runs with the
-// home's own secrets. Hooks fail open, as the home's own hook helper does.
 import { connect } from "node:net";
 import { createInterface } from "node:readline";
 

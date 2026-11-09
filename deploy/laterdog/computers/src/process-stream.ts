@@ -33,7 +33,6 @@ export interface StreamSocket {
   addEventListener(type: "message" | "close" | "error", listener: (event: { data?: unknown }) => void): void;
 }
 
-/** One process per socket: a start frame, then stdin in and stdout/stderr/exit out. */
 export function runProcessStream(socket: StreamSocket, host: ProcessStreamHost): void {
   let controller: ReadableStreamDefaultController<Uint8Array>;
   const stdin = new ReadableStream<Uint8Array>({ start(value) { controller = value; } }, { highWaterMark: MAX_QUEUED, size: chunk => chunk.byteLength });

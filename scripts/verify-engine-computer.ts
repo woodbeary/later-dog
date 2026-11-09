@@ -1,10 +1,3 @@
-// Live check of engine placement on a dog's own cloud computer. Runs on a Cloud home (bundled
-// with esbuild next to dist-server/laterdog/engine-{relay,proxy}.js) and prints one JSON report.
-// It runs the real Claude CLI of the given account on that dog's computer: one session that uses
-// Bash, a home MCP tool and a home hook; a second session that resumes it there; and a third that
-// resumes it on the home. It touches only its own scratch folder and that account's session file.
-//
-//   node verify-engine-computer.js <botId> <claudeConfigDir> <scratchDir> [model]
 import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -47,7 +40,6 @@ const message = (text: string) => `${JSON.stringify({ type: "user", message: { r
 const opener = computerEngineOpener();
 const report: Record<string, unknown> = { botId, sessionId, cwd, model, relay: engineScripts().dir, at: new Date().toISOString() };
 
-// "[x]rest" matches the engine's command line but not the shell that runs pgrep.
 const pattern = `[${sessionId[0]}]${sessionId.slice(1)}`;
 function homeEngines(): number {
   try { return Number(execFileSync("sh", ["-c", `pgrep -f -- '${pattern}' | wc -l`], { encoding: "utf8" }).trim()); } catch { return 0; }

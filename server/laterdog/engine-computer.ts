@@ -1,6 +1,3 @@
-// Opens an engine relay on a dog's own cloud computer: the relay scripts and the same Claude CLI
-// version are put there once, the mirrored folders are made for the dog user, and the relay's
-// stdio is carried over the computer's process stream.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { EventEmitter } from "node:events";
@@ -32,7 +29,6 @@ export interface EngineBox {
   write(path: string, bytes: Uint8Array): Promise<unknown>;
 }
 
-/** Everything before the relay starts. Any failure here means the engine never left the home. */
 export async function prepareEngineComputer(box: EngineBox, plan: ClaudeRemotePlan, relay = engineScripts()): Promise<void> {
   const present = await box.exec(`test -f ${quote(`${relay.dir}/.ready`)} && echo present || true`, 20_000);
   if (!present.stdout.includes("present")) {
@@ -49,7 +45,6 @@ export async function prepareEngineComputer(box: EngineBox, plan: ClaudeRemotePl
   if (made.exitCode !== 0) throw new Error("The mirrored folders could not be made on the cloud computer.");
 }
 
-/** Wraps the computer's process stream as a relay link. */
 export function processStreamLink(socket: WebSocket, command: string): EngineLink {
   const link = new EventEmitter() as EngineLink;
   let closed = false;

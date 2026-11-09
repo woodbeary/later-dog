@@ -69,7 +69,6 @@ it("runs a chosen dog's Claude turn on its computer with the same model and sess
   expect(existsSync(`${remoteRoot}${cwd}/brief.md`)).toBe(true);
   expect(logs.some((line) => line.includes("runs on the dog's cloud computer"))).toBe(true);
 
-  // A dog that is not chosen stays on the home.
   const homeDump = join(base, "home-dump.json");
   process.env.FAKE_CLAUDE_DUMP = homeDump;
   await instance.adapter.sendTurn({ threadId: "home-thread", botId: "dog-home", text: "Hi", cwd } as never);

@@ -22,7 +22,6 @@ it("pins the fixture starter bot's name deterministically (#1257)", async () => 
 });
 
 function machineInstalledCli(): string | undefined {
-  // Node's own folder counts too: nvm installs global CLIs such as `codex` beside `node`.
   const nodeDir = dirname(process.execPath);
   const dirs = process.platform === "win32" ? ["/opt/homebrew/bin", "/usr/local/bin"] : [nodeDir, "/opt/homebrew/bin", "/usr/local/bin"];
   for (const dir of dirs) {

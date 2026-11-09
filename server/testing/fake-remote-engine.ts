@@ -1,7 +1,3 @@
-// A stand-in Claude engine for engine-remote tests. Per user message it reads and writes working
-// files, appends to its native session file, calls one MCP server and one hook from its launch
-// files, and answers with a stream-json result. "hang" waits to be stopped; "crash" writes a file
-// and exits 3.
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -34,7 +30,6 @@ createInterface({ input: process.stdin }).on("line", async (raw) => {
   mkdirSync(join(sessionFile, ".."), { recursive: true });
   appendFileSync(sessionFile, `${JSON.stringify({ text })}\n`);
   if (text === "crash") process.exit(3);
-  // A package install on the computer stays there for later sessions.
   const reused = existsSync(join(process.cwd(), "node_modules", "marker"));
   mkdirSync(join(process.cwd(), "node_modules"), { recursive: true });
   writeFileSync(join(process.cwd(), "node_modules", "marker"), "installed");
