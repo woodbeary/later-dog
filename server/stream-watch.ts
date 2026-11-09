@@ -1,12 +1,5 @@
 import { randomUUID } from "node:crypto";
 
-// A live-events client can opt in to on-screen streaming with `?watch=1`.
-// Streamed text and reasoning (`runtime` events of type `content.delta`) then
-// reach it only for the chats it says are on screen. Every other event still
-// arrives, so lists, working states and finished messages stay current.
-// `threads: "all"` turns the filter off again for that stream (the phone's
-// Run Check uses it to measure the old behaviour).
-
 export const STREAM_WATCH_MAX = 16;
 
 export interface StreamWatchClient {
