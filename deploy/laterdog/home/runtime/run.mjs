@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { devCodeWatcher, homeIdle } from "./dev-code.mjs";
+import { noteHomeHealth, outputTail, pushedCodeFellBack } from "./home-health.mjs";
 import { seedIncluded } from "./included.mjs";
 import { RESTORE_POINTS, appRelease, upgradeFrom, upgradeKeeper } from "./restore-points.mjs";
 import { FINAL_SAVE_MS, collectGarbageWithin, createHttpStore, restore, settleWithin, snapshot } from "./sync.mjs";
@@ -16,6 +17,7 @@ const SCRATCH = "/tmp/laterdog-sync";
 const SERVER_DIR = "/app/dist-server";
 const LAUNCHER = join(SERVER_DIR, "cloud-home-start.js");
 const DEV_CODE_DIR = "/tmp/laterdog-dev-server";
+const HEALTH_DIR = process.env.LATERDOG_HOME || join(process.env.HOME || "/data", ".laterdog");
 const SERVER_PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
 const STOP_CHILD_MS = 20_000;
 const PUSHED_CODE_GRACE_MS = 30_000;
@@ -135,10 +137,13 @@ async function main() {
   process.on("SIGTERM", forward("SIGTERM"));
   process.on("SIGINT", forward("SIGINT"));
   let startedAt = 0;
+  const stderrTail = outputTail();
   const stopped = async (code, signal) => {
     if (reloading) return;
     if (launcher !== LAUNCHER && code !== 0 && Date.now() - startedAt < PUSHED_CODE_GRACE_MS) {
-      log(`the pushed server code stopped right away (exit code ${code ?? "none"}, signal ${signal ?? "none"}); going back to this image's server`);
+      const said = pushedCodeFellBack({ code, signal, tail: stderrTail.text() });
+      log(said);
+      noteHomeHealth(HEALTH_DIR, said, { owner: dogOwner() });
       launcher = LAUNCHER;
       start();
       return;
@@ -153,7 +158,12 @@ async function main() {
   };
   const start = () => {
     startedAt = Date.now();
-    child = spawn(process.execPath, [launcher], { stdio: ["inherit", "inherit", "inherit", "ipc"], env: environment });
+    stderrTail.clear();
+    child = spawn(process.execPath, [launcher], { stdio: ["inherit", "inherit", "pipe", "ipc"], env: environment });
+    child.stderr.on("data", (chunk) => {
+      process.stderr.write(chunk);
+      stderrTail.push(chunk);
+    });
     child.on("exit", stopped);
   };
   const reload = async (next) => {
