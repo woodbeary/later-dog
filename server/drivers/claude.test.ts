@@ -97,6 +97,15 @@ describe("ClaudeDriver.decodeConfig", () => {
     }
   });
 
+  it("asks before each shell command only when the home guards heavy commands", () => {
+    const plain = claudeHookSettings("/tmp/helper.ts");
+    expect(plain).not.toHaveProperty("PreToolUse");
+    const guarded = claudeHookSettings("/tmp/helper.ts", { guardShell: true }) as Record<string, Array<{ matcher: string; hooks: Array<{ command: string }> }>>;
+    expect(guarded.PreToolUse).toHaveLength(1);
+    expect(guarded.PreToolUse![0]!.matcher).toBe("Bash");
+    expect(guarded.PreToolUse![0]!.hooks[0]!.command).toBe(guarded.PostToolUse![0]!.hooks[0]!.command);
+  });
+
   it("keeps the per-turn hook token where workspace backups never look", () => {
     const path = relative(DATA_DIR, hookTokenFile("thread", "bot")).replaceAll("\\", "/");
     expect(ephemeralWorkspaceTokenPath(path)).toBe(true);

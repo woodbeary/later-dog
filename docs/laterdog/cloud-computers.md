@@ -128,3 +128,19 @@ disk the others need. A dog sends that kind of command to its own cloud computer
 `scripts/verify-computer-runs.ts` proves it against a real computer: it creates a throwaway one, sends a 30 MB project,
 runs `pnpm install && pnpm build && pnpm test`, checks only the report came back, checks the second run sends one
 file, checks a 2.5-minute command finishes after the call that started it returns, and deletes the computer.
+
+### Reusing a project's packages, and the shell guard (2026-11-08)
+
+- **Setup reuse.** When `run_on_computer` copies a folder the computer has not seen before (for example a new session's
+  copy of the same project), and its lockfile (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lock`,
+  `bun.lockb` or `npm-shrinkwrap.json`) matches a copy whose last command succeeded with a `node_modules`, later.dog copies
+  that `node_modules` into the new folder before the command runs, and says so in the result. The record is
+  `~/runs/.setup/<lockfile hash>` on the dog's own computer and is updated only after a command exits 0. A different
+  lockfile never reuses packages. `server/laterdog/computer-runs.test.ts` proves reuse across two copies and no reuse
+  after a lockfile change or a failed run.
+- **Shell guard (Claude engines).** On a Cloud home with cloud computers set up, a Claude engine's shell commands pass a
+  `PreToolUse` hook first. An install, build, typecheck, full test script, container build or media command
+  (`server/laterdog/heavy-commands.ts`) is refused once per chat with the reason to use `run_on_computer`; running the
+  same command again within 30 minutes goes ahead, so a dog is never stuck when its cloud computer is unavailable.
+  Quick commands, version checks and single test files are not touched. Codex engines are not guarded yet: with Full
+  access Codex never asks before a command, so later.dog does not see it first.

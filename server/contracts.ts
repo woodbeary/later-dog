@@ -107,7 +107,7 @@ export interface SendTurnInput {
       generation?: string;
       scope?: "local-computer";
     };
-    hooks?: { url: string; token: string };
+    hooks?: { url: string; token: string; guardShell?: boolean };
     agents?: { command: string; args: string[]; env: Record<string, string> };
     browser?: { command: string; args: string[]; env: Record<string, string> };
     custom?: Record<string, McpServerSpec>;

@@ -130,6 +130,8 @@ import { HOME_HEALTH_FILE, startHomeHealthLog } from "./laterdog/home-health-log
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
 import { ComputerRuns } from "./laterdog/computer-runs.ts";
+import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
+import { computersSelected } from "./laterdog/cloud-computers.ts";
 import { createComputerRunRoute } from "./routes/computer-run.ts";
 import { createStorageRoutes } from "./routes/storage.ts";
 import * as boat from "./computers.ts";
@@ -2361,7 +2363,7 @@ function agentsIntegration(
 
 
 const hooksEnabled = () => process.env.LATERDOG_HOOKS !== "0";
-function hooksIntegration(botId: string, threadId: string, generation: string): { url: string; token: string } {
+function hooksIntegration(botId: string, threadId: string, generation: string): { url: string; token: string; guardShell?: boolean } {
   const token = mintInternalCapability({
     botId,
     threadId,
@@ -2372,7 +2374,7 @@ function hooksIntegration(botId: string, threadId: string, generation: string): 
     createdBots: 0,
     openedThreads: 0,
   });
-  return { url: `http://127.0.0.1:${PORT}`, token };
+  return { url: `http://127.0.0.1:${PORT}`, token, ...(CLOUD_HOME && computersSelected() ? { guardShell: true } : {}) };
 }
 
 type DirectTurnDispatchClaim = {
@@ -5608,6 +5610,7 @@ const TOOL_RESULTS_DIR = join(DATA_DIR, "tool-results");
 const TOOL_RESULT_SPILL_MAX = 512 * 1024;
 
 const DIGESTS_AFTER_COMPACTION = 2;
+const heavyCommandGuard = new HeavyCommandGuard();
 function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: boolean; ignored?: string; context?: string; hookSpecificOutput?: unknown } {
   const event = body && typeof body === "object" ? (body as { event?: unknown; payload?: unknown }) : {};
   const name = typeof event.event === "string" ? event.event : "";
@@ -5627,6 +5630,10 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
     return { ok: true, context };
   }
   if (name === "Stop") return { ok: true };
+  if (name === "PreToolUse") {
+    const decision = preToolUseDecision(heavyCommandGuard, { active: Boolean(CLOUD_HOME) && computersSelected(), threadId, payload });
+    return decision ? { ok: true, hookSpecificOutput: decision } : { ok: true };
+  }
   if (name !== "PostToolUse") return { ok: true, ignored: name || "unknown" };
   const toolUseId = typeof payload.tool_use_id === "string" ? payload.tool_use_id : "";
   if (!toolUseId) return { ok: true, ignored: "PostToolUse without tool_use_id" };

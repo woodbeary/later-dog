@@ -69,6 +69,39 @@ describe("a heavy command on the dog's own computer", () => {
     expect(outcome.output).not.toContain("package.json");
   });
 
+  it("starts a new session's copy of a project from the packages an earlier copy installed", async () => {
+    const { root, folder, computer, state } = project();
+    mkdirSync(computer);
+    writeFileSync(join(folder, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    const copy = join(root, "next-session", "site");
+    mkdirSync(dirname(copy), { recursive: true });
+    spawnSync("cp", ["-R", folder, copy]);
+    const other = join(root, "other", "site");
+    mkdirSync(dirname(other), { recursive: true });
+    spawnSync("cp", ["-R", folder, other]);
+    writeFileSync(join(other, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\nchanged: true\n");
+    const { box } = localBox(computer);
+    const runs = new ComputerRuns(state, fast);
+    const install = "test -d node_modules/left-pad || (mkdir -p node_modules/left-pad && echo installed > node_modules/left-pad/index.js && echo INSTALLED)";
+
+    const first = await runs.run(box, { botId: "dog", folder, command: install });
+    expect(first.output).toContain("INSTALLED");
+    expect(first.note ?? "").not.toContain("Reused");
+
+    const failed = await runs.run(box, { botId: "dog", folder: other, command: "mkdir -p node_modules/broken; exit 1" });
+    expect(failed.exitCode).toBe(1);
+
+    const second = await runs.run(box, { botId: "dog", folder: copy, command: install });
+    expect(second.exitCode).toBe(0);
+    expect(second.output).not.toContain("INSTALLED");
+    expect(second.note).toContain("Reused the packages");
+    expect(existsSync(join(copy, "node_modules/left-pad"))).toBe(false);
+
+    const unmatched = await runs.run(box, { botId: "dog", folder: other, command: install });
+    expect(unmatched.output).toContain("INSTALLED");
+    expect(unmatched.note ?? "").not.toContain("Reused");
+  });
+
   it("keeps the home's copy of a file someone changed here while the command ran", async () => {
     const { folder, computer, state } = project();
     mkdirSync(computer);

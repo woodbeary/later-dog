@@ -44,6 +44,7 @@ export interface RunRecord {
   startedAt: number;
   sent: FolderStamps;
   restAfter?: boolean;
+  reusedSetup?: boolean;
 }
 
 export interface RunOutcome {
@@ -62,6 +63,24 @@ const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 
 export function runKey(folder: string): string {
   return createHash("sha256").update(folder).digest("hex").slice(0, 16);
+}
+
+export const LOCKFILES = ["pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock", "bun.lockb", "npm-shrinkwrap.json"] as const;
+
+export function setupKey(dir: string): string | null {
+  const hash = createHash("sha256");
+  let found = false;
+  for (const name of LOCKFILES) {
+    let bytes: Buffer;
+    try {
+      const entry = lstatSync(join(dir, name));
+      if (!entry.isFile()) continue;
+      bytes = readFileSync(join(dir, name));
+    } catch { continue; }
+    hash.update(`${name}\0${bytes.length}\0`).update(bytes);
+    found = true;
+  }
+  return found ? hash.digest("hex").slice(0, 24) : null;
 }
 
 export function stampFolder(folder: string): FolderStamps {
@@ -196,10 +215,20 @@ export class ComputerRuns {
     this.#writeJson(this.#sentPath(input.botId, key), now);
     const subdir = (input.subdir ?? "").replace(/^\/+|\/+$/g, "");
     const workDir = subdir ? `${remote}/${subdir}` : remote;
-    const script = `export PATH="$HOME/.local/bin:$PATH"; command -v pnpm > /dev/null || npm install -g --prefix "$HOME/.local" pnpm > /dev/null 2>&1; cd ${quote(workDir)} && touch "$HOME/runs/.logs/${id}.start" && ( ${input.command} ) > "$HOME/runs/.logs/${id}.log" 2>&1; echo $? > "$HOME/runs/.logs/${id}.exit"`;
+    const setup = setupKey(subdir ? join(input.folder, subdir) : input.folder);
+    let reusedSetup = false;
+    if (setup) {
+      const inner = quote(`${subdir ? `${subdir}/` : ""}node_modules`);
+      const seed = `src=$(cat runs/.setup/${setup} 2>/dev/null); if printf %s "$src" | grep -Eqx '[0-9a-f]{16}' && [ "$src" != ${key} ] && [ -d "runs/$src"/${inner} ] && [ ! -e ${quote(`${workDir}/node_modules`)} ]; then cp -a "runs/$src"/${inner} ${quote(`${workDir}/node_modules`)} && echo reused; fi; true`;
+      reusedSetup = (await box.exec(seed, EXEC_MS)).stdout.trim() === "reused";
+    }
+    const remember = setup
+      ? `if [ $rc = 0 ] && [ -d "$HOME"/${quote(`${workDir}/node_modules`)} ]; then mkdir -p "$HOME/runs/.setup" && echo ${key} > "$HOME/runs/.setup/${setup}.${id}" && mv -f "$HOME/runs/.setup/${setup}.${id}" "$HOME/runs/.setup/${setup}"; fi; `
+      : "";
+    const script = `export PATH="$HOME/.local/bin:$PATH"; command -v pnpm > /dev/null || npm install -g --prefix "$HOME/.local" pnpm > /dev/null 2>&1; cd ${quote(workDir)} && touch "$HOME/runs/.logs/${id}.start" && ( ${input.command} ) > "$HOME/runs/.logs/${id}.log" 2>&1; rc=$?; ${remember}echo $rc > "$HOME/runs/.logs/${id}.exit"`;
     const detached = `nohup bash -lc ${quote(script)} > /dev/null 2>&1 < /dev/null &`;
     must(await box.exec(`if command -v setsid > /dev/null; then setsid ${detached} else ${detached} fi; echo started`, 30_000), "starting the command");
-    const record: RunRecord = { id, botId: input.botId, key, folder: input.folder, subdir, command: input.command, startedAt: this.#now(), sent: now, ...(input.restAfter ? { restAfter: true } : {}) };
+    const record: RunRecord = { id, botId: input.botId, key, folder: input.folder, subdir, command: input.command, startedAt: this.#now(), sent: now, ...(input.restAfter ? { restAfter: true } : {}), ...(reusedSetup ? { reusedSetup: true } : {}) };
     this.#writeJson(this.#runPath(input.botId, id), record);
     return { ...record, sentFiles: changed.length, sentBytes };
   }
@@ -258,8 +287,9 @@ export class ComputerRuns {
     }
     const back = await this.bringBack(box, record);
     const conflictNote = back.conflicts.length ? ` Kept your copy of ${back.conflicts.length} file(s) changed here while it ran: ${back.conflicts.slice(0, 10).join(", ")}.` : "";
+    const reusedNote = record.reusedSetup ? " Reused the packages already installed for another copy of this project on your computer." : "";
     const skippedNote = back.skipped.length ? ` Left ${back.skipped.length} large file(s) on the computer: ${back.skipped.slice(0, 10).join(", ")}.` : "";
     return { id: record.id, state: "finished", exitCode: state.exitCode, output: state.output, broughtBack: back.broughtBack, skipped: back.skipped, ...sent,
-      ...(conflictNote || skippedNote ? { note: (conflictNote + skippedNote).trim() } : {}) };
+      ...(reusedNote || conflictNote || skippedNote ? { note: (reusedNote + conflictNote + skippedNote).trim() } : {}) };
   }
 }
