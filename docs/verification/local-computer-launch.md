@@ -139,4 +139,4 @@ connection still frees the gate); a gate that reports a takeover during a call
 aborts it and releases the gate; a held gate with a published driver runs once and
 releases. This is fixture evidence from any platform. It does not show macOS
 permissions or UI control, and the installed app's real gate and permission
-checklist are not exercised by it. Dev's screen control remains unavailable until it runs through the canonical local gate.
+checklist are not exercised by it. The same file reads the controller's outgoing registration: without a local gate it sends `computer:false` with terminal retained, the saved grant stays `computer:true`, and `state()` reports screen unavailable; with the gate it sends `computer:true`, and each screen call still acquires, renews and releases the gate. `scripts/dev-mac.test.ts` drives the real controller with Dev's options and checks the same registration. Dev's screen control remains unavailable until it runs through the canonical local gate.

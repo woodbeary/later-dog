@@ -497,6 +497,8 @@ test("the real macOS check passes a readable folder and a missing one", { skip: 
   await macFolderAccess(dir, "Documents");
 });
 
+const stubEnvId = saved => Object.keys(saved.records)[0];
+
 async function screenFixture(t, { delayMs = 0, lease } = {}) {
   const { dir } = await fixture(t);
   const launches = path.join(dir, "driver-launches");
@@ -510,27 +512,42 @@ setTimeout(() => process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,resu
   stub.state.work.push({ action: "computer_call", tool_name: "get_desktop_state", arguments: {} });
   const events = [];
   const launched = async () => (await readFile(launches, "utf8").catch(() => "")).split("\n").filter(Boolean).length;
+  const registrations = [];
+  const fetchImpl = async (url, init) => {
+    if (String(url).endsWith("/api/shared-computers/connect")) registrations.push(JSON.parse(init.body));
+    return stub.fetchImpl(url, init);
+  };
   const lend = async options => {
     const sharing = createComputerSharing({
-      file: path.join(dir, "profile", "computer-sharing.json"), fetch: stub.fetchImpl,
+      file: path.join(dir, "profile", "computer-sharing.json"), fetch: fetchImpl,
       environments: () => [stub.env], enabled: async () => true, ...options,
       cuaConnection: async () => { events.push("connection"); return options.connection ?? null; },
     });
     t.after(() => sharing.close());
     const info = await sharing.identity(stub.env);
-    await sharing.save(stub.env, { folders: [], terminal: false, computer: true }, info);
+    await sharing.save(stub.env, { folders: [], terminal: true, computer: true }, info);
+    await delay(20);
+    lent.sharing = sharing;
+    lent.file = path.join(dir, "profile", "computer-sharing.json");
     return stub.state.delivered;
   };
-  return { events, launched, lend, connection: { mcpCommand: process.execPath, mcpArgs: [script] } };
+  const lent = {};
+  return { lent, registrations, events, launched, lend, connection: { mcpCommand: process.execPath, mcpArgs: [script] } };
 }
 
 test("screen control without a local control gate is refused before the driver is reached", async t => {
-  const { events, launched, lend, connection } = await screenFixture(t);
+  const { lent, registrations, events, launched, lend, connection } = await screenFixture(t);
   const result = await lend({ connection });
   assert.equal(result.isError, true);
-  assert.match(result.content[0].text, /local computer control gate is unavailable/);
+  assert.match(result.content[0].text, /Screen control is not available through this connection/);
   assert.deepEqual(events, []);
   assert.equal(await launched(), 0);
+  assert.equal(registrations.at(-1).computer, false);
+  assert.equal(registrations.at(-1).terminal, true);
+  const saved = JSON.parse(await readFile(lent.file, "utf8"));
+  assert.equal(Object.values(saved.records)[0].computer, true);
+  assert.equal(lent.sharing.state(stubEnvId(saved)).computer, false);
+  assert.equal(lent.sharing.state(stubEnvId(saved)).terminal, true);
 });
 
 test("a local gate that refuses keeps the driver from launching", async t => {
@@ -574,9 +591,11 @@ test("a local takeover during a screen call aborts it and releases the gate", as
 });
 
 test("with the gate held and the driver published, a screen call runs once and releases the gate", async t => {
-  const { events, launched, lend, connection } = await screenFixture(t);
+  const { lent, registrations, events, launched, lend, connection } = await screenFixture(t);
   const gate = [];
   const result = await lend({ connection, hostControl: async id => { gate.push("acquire"); return { renew: async () => {}, release: async () => { gate.push("release"); } }; } });
+  assert.equal(registrations.at(-1).computer, true);
+  assert.equal(lent.sharing.state(stubEnvId(JSON.parse(await readFile(lent.file, "utf8")))).computer, true);
   assert.equal(result.isError, undefined);
   assert.deepEqual(events, ["connection"]);
   assert.equal(await launched(), 1);
