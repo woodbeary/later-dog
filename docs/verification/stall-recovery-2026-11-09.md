@@ -60,8 +60,28 @@ which did not cover the server build. The explicit integrated server build then
 found an incompatible index signature on the helper's input type. PR136
 `fff683c` removes that signature and keeps the runtime checks through
 `Object.entries`, without a call-site cast. The combined source is `5c6f5df`.
-Its bundle build passed; explicit server-build type verification is retained
-separately before rollout.
+Its bundle build passed, and the explicit local server-build type check exited
+zero. Independent cloud review of `fff683c` also passed that server type check
+and 98 checks across the predicate, isolated integration and naming/comment
+guards. The complete repository suite was not rerun or reported green.
+
+Whole-integration review then blocked the thread-wide owner-started flag across
+an asynchronous readiness wait. PR136 `ea76f2b` removes that flag and uses
+request-local async context for the exact owner's invocation. The manager
+regression holds an owner request, starts an untrusted run on the same source
+thread, and releases the owner request: the reproduced old heuristic stamps
+both; the corrected scope stamps only the owner's run. This counterfactual is
+inside the test, rather than a checkout of the prior server. Durable false
+attestations and Mac refusal are covered separately. Owner-created scheduler
+microtasks inherit the context; an existing foreign run's immutable false mark
+cannot be upgraded by a later queued update.
+
+Independent cloud review of `ea76f2b` passed 124 focused checks and explicit
+server types. Independent combined-source review passed `582ad61` with four
+focused checks; a separate local selection passed the two manager race checks.
+The writer's broader run passed 2,078 checks with five skips and one failure in
+the unchanged removed-dog settings permission fixture. That broader run is not
+green. The final combined server bundle is built from `582ad61`.
 
 Changed-file lint passed. The repository-wide pre-push lint stopped on an
 unchanged unnecessary spread in `server/laterdog/device-approval.ts:178`.
@@ -79,15 +99,29 @@ requested format on those two runs. These are individual transport observations,
 not latency benchmarks, quality scores or proof of the originally queued live
 messages being delivered.
 
+Fresh checks on candidate `d2c16e95` also completed and returned to idle on
+both Grok and Kimi, with matching selected/dispatched/provider receipts. Kimi
+matched the exact marker; Grok included 113 extra characters and did not meet the
+strict reply-format condition. The candidate's transport check passes; its Grok
+exact-format check does not. The earlier strict failure remains retained.
+
 Local full-image verification did not qualify: health timed out and a subsequent
 image pull timed out on the loaded host. Cloud staging is recorded separately.
 The final combined image is pinned in both canonical deployment configurations:
-`registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-stall-recovery@sha256:d2c16e95b57cdc091885396ea3081cc056c2825478e9f325374294eec5459c82`.
-It layers the compiled server and home runtime from `5c6f5df` over the previously
+`registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-stall-recovery@sha256:42d5f0897d1b1ebe6cf85c4652532e13fa49d465c8558ed8d512beb6dab29a21`.
+It layers the compiled server and home runtime from `582ad61` over the previously
 deployed standard image `f45ba413`; native dependencies and web assets remain
 those of that base. Its runtime layer SHA256 is
-`77022f0369ab461998ab1311db8d6eeb470e0041134ada7b756b8a97fc521d8c`.
-The final staging Worker is `5a87e05a-6678-4e1c-bb0a-2212d06d50e8`.
+`0a55ec15b820c4eabaddd4422e877f282d9da4c0329919f99fff595eaedb642d`.
+The final staging Worker is `baf500f1-6d94-4b2d-aa09-85e7b5303a67`.
+The running test instance matches application version 65 and image `42d5f089`;
+direct health and thirty retained conversation lines passed at 09:58:13 UTC.
+Fresh Grok and Kimi turns after that image qualification both completed, returned
+to idle and matched their exact markers, with matching execution receipts.
+Earlier format failures remain failures; these individual replies do not
+establish general output-format reliability or task quality. An earlier read
+before the application/instance version converged failed qualification; its
+provider replies are not counted as qualification of the final image.
 Only image pins changed in the canonical configurations. Production's eight
 plain variables, fourteen bindings, standard and large sizing, and instance
 limits are preserved. Production activation and monitoring remain pending
