@@ -235,3 +235,71 @@ saved destination snapshots, dated result cards, approval links, deleted-thread
 fallback, and continued user conversations staying visible. Native decoding and
 thread-list tests retain hidden execution records for direct navigation and
 approvals while omitting them from ordinary iOS/Android thread pickers.
+
+## Cloud home: reports of the owner's routine runs
+
+The server decides once, when a run is created, whether it is the owner's, and
+keeps that answer for the run in `lending-routines.json` (`runs`, newest 5,000).
+It is never recomputed. A run is the owner's only if its routine was the owner's
+as it stood at that moment, it was not a webhook run, and a manual run was
+started by the owner. The owner's start is known at the moment the run is
+created, even though the run is announced before the request handler returns:
+the app's run route, a confirmed run card and the owner's dog's run request all
+mark that call. Every `routine.run` report written for the run carries the
+answer as `ownersRoutine`, so editing, deleting or later adopting the routine,
+or cancelling the run before it starts, cannot change it. A guest's or
+unproven manual run stays foreign after the owner adopts the routine.
+
+Reports written before this change keep the older reading: a report with no mark
+is judged by the routine as it is now, and stays denied when the routine is
+gone or unproven. A run that was already in flight when the server first ran this
+change has no stored answer, so its new reports are marked foreign rather than
+trusted.
+
+Legacy limitation: a routine's authorship record is removed when the routine is
+deleted, and an old report holds only the routine id and a status, so in general
+nothing retained can show that a deleted routine's old run was the owner's. Those
+reports stay denied, and no user data was changed.
+
+One audited exception is neutral for the reports-from-others check only. An
+unmarked `routine.run` report is neutral when all of these hold from immutable
+server records: the report is the canonical cancelled status (bot role, the exact
+server cancellation text, only the run id, routine id, name, scheduled time and
+`cancelled` status, no other field); the retained run matches it exactly (same run,
+routine, dog, source conversation, name and scheduled time; schedule run, not manual;
+cancelled; no attachments, start, thread, output, error, attention, denials, cost,
+goal, webhook or delivery data; no negative owner attestation); and the same
+conversation holds the server's own deletion receipt (auto-applied, answered allow,
+not undone, a delete of that routine with matching result id, owner-held and
+disabled before, the same name, applied no earlier than the cancellation finished (chronology uses the receipt's applied time, not its message creation)).
+A deferral time is queue scheduling metadata, not execution evidence: it may be absent or a finite number no earlier than the scheduled time and no later than the finish, and a run that was queued behind another turn and cancelled before it started stays neutral. A non-numeric, non-finite or out-of-order deferral time stays denied, as does any start, execution thread, output, error, cost or attachment. The regression `accepts a queued never-started run with a deferral time and an earlier card time` fails on the previous commit (the deferral time rejected it) and passes now; the card's time may precede the finish, and the run's captured prompt may differ from the deleted snapshot. Fixture only: this is not a live-provider qualification.
+This proves only an owner-attested title and a server cancellation, not who owned
+the run: no run owner is stamped, no record is rewritten, and nothing is cached.
+Any missing proof, an explicit negative mark, any other content, or any other
+unknown legacy report stays denied. An owner who wants the Mac back in such a
+conversation starts a new one.
+
+```sh
+pnpm exec vitest run server/cloud-lending.test.ts server/laterdog/routine-provenance.test.ts server/laterdog/routine-provenance.integration.test.ts
+```
+
+The integration test boots a disposable cloud-home server with a fake engine. It
+has the owner's dog run, edit and delete an owner routine, runs a manual run from
+the app route while the target is busy and deletes the routine so the run is
+cancelled before it starts (the report stays the owner's), and runs a manual run
+of a routine with unproven authorship that stays foreign after the owner edits
+it. Against the previous commit the pending-run case fails (the mark is absent).
+Guest-started manual runs, webhook runs and schedule runs are covered by the unit
+tests for the mark. It does not cover a real Mac or a live account.
+
+## Server build type check
+
+`pnpm build:server` compiles with `tsconfig.server.build.json`, which plain `tsc --noEmit` does not read. Before claiming a server change builds, run `pnpm exec tsc -p tsconfig.server.build.json --noEmit` as well as `pnpm exec tsc --noEmit`. The legacy report and retained-run types in `server/laterdog/routine-provenance.ts` carry no index signature, so `WireMessage` and `RoutineRun` pass structurally; the exact-key guards read `Object.entries`.
+
+## Owner provenance of a manual run
+
+A queued manual run is stamped owner-started only when `onRunChanged` fires inside the `createOwnerRunNowScope` of the request that committed it: an owner's internal `run_now` (the scope wraps `routineRequests.submit`, so it survives the cloud-readiness await), the owner's confirmed card, and the owner's direct run. There is no thread-wide state, so a concurrent guest or REST run on the same source conversation is never stamped.
+
+`routine-requests.test.ts` ("owner provenance of a run_now held in async readiness") holds an owner `run_now` in readiness, commits an untrusted manual run on the same source thread, then releases the owner request. The thread-wide rule stamps the untrusted run; the scope leaves it false and stamps only the owner's run. `cloud-lending.test.ts` covers the Mac refusal for an unstamped manual run.
+
+Limits: the scope follows async continuations of the owner request, so work it queues in a microtask (the scheduler tick after `runNow`) also runs inside it; only a queued manual run emitted there could be stamped. The fixture drives the manager directly, not a live Cloud Home or a real Mac.

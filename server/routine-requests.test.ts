@@ -17,6 +17,7 @@ import {
 } from "./routine-requests.ts";
 import { RoutineManager, type RoutineInput } from "./routines.ts";
 import type { JsonValue } from "./schema.ts";
+import { createOwnerRunNowScope } from "./laterdog/routine-provenance.ts";
 import { directApply, routineApply, type DirectApplyCheck } from "./direct-apply.ts";
 
 class MemoryStore implements RoutineRequestStore {
@@ -2019,5 +2020,63 @@ describe("a bot's own routine changes", () => {
     const applied = await service.submit({ botId: "bot-a", threadId: "ask-thread", proposal: createProposal({ instructions: "Another." }) });
     expect(service.undo({ botId: "bot-b", threadId: "ask-thread", requestId: applied.requestId })).toMatchObject({ state: "invalid", status: 403 });
     expect(undo(service, "missing")).toEqual({ claimed: false });
+  });
+});
+
+describe("owner provenance of a run_now held in async readiness", () => {
+  function wired(stamp: (scope: ReturnType<typeof createOwnerRunNowScope>, runId: string, sourceThreadId?: string) => boolean) {
+    const dir = mkdtempSync(join(tmpdir(), "laterdog-routine-owner-scope-"));
+    tempDirs.push(dir);
+    const scope = createOwnerRunNowScope();
+    const ownerStarted = new Set<string>();
+    const threadWide = new Set<string>();
+    const routines = new RoutineManager({
+      file: join(dir, "routines.json"),
+      now: () => Date.parse("2026-08-28T10:00:00Z"),
+      botState: () => "busy",
+      goalState: () => "busy",
+      conversationFor: () => null,
+      startTurn: async () => {},
+      onRunChanged: (run) => {
+        if (run.manual && run.status === "queued" && stamp(scope, run.id, run.sourceThreadId)) ownerStarted.add(run.id);
+      },
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const service = new RoutineRequestService({
+      store: new MemoryStore(), routines, now: () => Date.parse("2026-08-28T10:00:00Z"), timeZone: () => "Asia/Kolkata",
+      cloudReady: async () => { await gate; return { ready: true }; },
+      autoApply: () => "full-access" as const,
+    });
+    return { routines, service, scope, ownerStarted, threadWide, release };
+  }
+
+  async function race(mode: "scoped" | "threadWide") {
+    let threadWideSet!: Set<string>;
+    const ctx = wired((scope, _id, source) => mode === "scoped" ? scope.active() : Boolean(source && threadWideSet.has(source)));
+    threadWideSet = ctx.threadWide;
+    const routine = ctx.routines.create({
+      name: "Cloud brief", prompt: "Do it.", botId: "bot-a", runOn: "cloud", enabled: false,
+      schedule: { type: "daily", time: "09:00", weekdays: [1, 3] },
+    }, { requestId: "r0", messageId: "m0", botId: "bot-a", threadId: "shared-thread", action: "create", fingerprintVersion: 1, fingerprint: "f0" } as never);
+    const ownerRequest = () => ctx.service.submit({ botId: "bot-a", threadId: "shared-thread", proposal: { action: "run_now", routineId: routine.id } });
+    ctx.threadWide.add("shared-thread");
+    const owner = mode === "scoped" ? ctx.scope.within(ownerRequest) : ownerRequest();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const untrusted = ctx.routines.runNow(routine.id)!;
+    const untrustedStamped = ctx.ownerStarted.has(untrusted.id);
+    ctx.release();
+    const applied = await owner;
+    ctx.threadWide.delete("shared-thread");
+    const ownerRunId = (applied as { result: { resultId: string } }).result.resultId;
+    return { untrustedStamped, ownerStamped: ctx.ownerStarted.has(ownerRunId) };
+  }
+
+  it("old thread-wide heuristic falsely stamps a concurrent untrusted run", async () => {
+    expect(await race("threadWide")).toEqual({ untrustedStamped: true, ownerStamped: true });
+  });
+
+  it("request-specific scope leaves the untrusted run false and the owner's run true", async () => {
+    expect(await race("scoped")).toEqual({ untrustedStamped: false, ownerStamped: true });
   });
 });

@@ -19,7 +19,8 @@ import { draftSummary, foldPoint } from "./compaction-summary.ts";
 import { compactBudget, contextWindowFor, shouldCompact } from "./context-budget.ts";
 import { completeSharedOperation, provenRequestPerson, SharedComputers, sharedActionsHeader, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerRegistration, sharedComputerScopeRefusal, type SharedComputerOperation, type SharedComputerRegistration } from "./shared-computers.ts";
 import { MAC_ALLOW_KEY, MacApprovals, type MacLasting } from "./mac-approval.ts";
-import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, type CloudLendingRefusal, type CloudLendingTurn } from "./cloud-lending.ts";
+import { createOwnerRunNowScope, legacyCancelledStatusIsNeutral } from "./laterdog/routine-provenance.ts";
+import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, reportFromOthers, routineReportMark, type CloudLendingRefusal, type CloudLendingTurn } from "./cloud-lending.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
 import { RoomHandoffs, type RoomHandoff } from "./room-handoffs.ts";
 import { isHandoffEnd, type HandoffEnd } from "./laterdog/handoff-budget.ts";
@@ -496,6 +497,7 @@ import { LocalVmIdleTimer } from "./local-vm-idle.ts";
 import { LocalVmLease, LocalVmLeasePool } from "./local-vm-lease.ts";
 import { LocalVmSeatPool, type LocalVmSeatHolder } from "./local-vm-seat-pool.ts";
 import { RepeatDetector, callKey, repeatedCallLine } from "./repeat-detector.ts";
+import { permissionCallKey } from "./laterdog/repeated-tool-call.ts";
 import { redactSecretsInText } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, type Routine, type RoutineGoalStatus, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
@@ -875,7 +877,8 @@ const lendingEnabled = () => sharedComputersEnabled(cfg) || CLOUD_HOME !== null;
 const CLOUD_HOME_LENDER = "cloud-home";
 const cloudRoutineAuthors = CLOUD_HOME ? createCloudRoutineAuthors(join(DATA_DIR, "lending-routines.json")) : null;
 const ownerStartedRoutineRuns = new Set<string>();
-const ownerRunNowThreads = new Set<string>();
+const ownerRunNowScope = createOwnerRunNowScope();
+const asOwnerRunNow = <T>(invoke: () => T): T => ownerRunNowScope.within(invoke);
 if (CLOUD_HOME) readMemoryOnlyFromRegularFiles();
 const cloudPairing = CLOUD_HOME ? createCloudPairing({ secret: CLOUD_HOME.bootstrapSecret, sessions }) : null;
 const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivity({
@@ -1100,7 +1103,7 @@ function cloudLendingTurn(capability: Pick<InternalCapability, "botId" | "thread
     thread: store.messagesFor(capability.threadId),
     guestDriven: cloudGuestDriven(capability.threadId),
     starters: cloudThreadStarters(capability.threadId),
-    reportsFromOthers: store.messagesFor(capability.threadId).some(cloudReportFromOthers),
+    reportsFromOthers: store.messagesFor(capability.threadId).some((line) => cloudReportFromOthers(line, capability.threadId)),
     ownerPerson: cloudProvenOwnerPerson,
     ownersOwnDogs: ownersOwnDogs(capability.threadId),
     cardAnswerer: cloudCardAnswerer,
@@ -1275,11 +1278,33 @@ function cloudLendingView(capability: Pick<InternalCapability, "botId" | "thread
   return CLOUD_HOME !== null && cloudHomeLendingRefusal(cloudLendingTurn(capability)) === null;
 }
 
-function cloudReportFromOthers(line: Message): boolean {
-  if (line.webhookPost) return true;
-  if (line.kind !== "routine.run" || !line.routineRun) return false;
-  const routine = routines?.listRoutines().find((candidate) => candidate.id === line.routineRun!.routineId);
-  return !routine || cloudRoutineAuthors?.authored(routine.id, routine) !== true;
+function cloudReportFromOthers(line: Message, threadId: string): boolean {
+  return reportFromOthers(line, (routineId) => {
+    const routine = routines?.listRoutines().find((candidate) => candidate.id === routineId);
+    return Boolean(routine) && cloudRoutineAuthors?.authored(routineId, routine!) === true;
+  }, () => Boolean(routines && cloudRoutineAuthors) && legacyCancelledStatusIsNeutral(
+    line, threadId, (runId) => routines!.findRun(runId), (runId) => cloudRoutineAuthors!.runAttestation(runId), () => store.messagesFor(threadId),
+  ));
+}
+
+function cloudRoutineReportMark(run: RoutineRun): boolean | undefined {
+  if (!CLOUD_HOME || !cloudRoutineAuthors) return undefined;
+  return cloudRoutineAuthors.runAttestation(run.id) ?? false;
+}
+
+const cloudRunAttestationsFrom = Date.now();
+
+function attestCloudRoutineRun(run: RoutineRun): void {
+  if (!CLOUD_HOME || !cloudRoutineAuthors || run.status !== "queued" || run.createdAt < cloudRunAttestationsFrom) return;
+  if (cloudRoutineAuthors.runAttestation(run.id) !== undefined) return;
+  const routine = routines?.listRoutines().find((candidate) => candidate.id === run.routineId);
+  cloudRoutineAuthors.attestRun(run.id, routineReportMark({
+    triggerSource: run.triggerSource ?? (run.manual ? "manual" : "schedule"),
+    ownerStarted: ownerStartedRoutineRuns.has(run.id),
+    ownerAuthored: Boolean(routine) && cloudRoutineAuthors.authored(run.routineId, {
+      ...routine!, prompt: run.prompt, target: run.target, botId: run.botId, groupId: run.groupId, attachments: run.attachments, runOn: run.runOn,
+    }),
+  }));
 }
 
 const ownerOnlyCache = new Map<string, { length: number; last?: string; owner: boolean }>();
@@ -1297,7 +1322,7 @@ function cloudOwnerOnlyThread(threadId: string): boolean {
   const cached = ownerOnlyCache.get(threadId);
   const lastKey = last ? `${last.id}:${last.card?.answeredBy ? JSON.stringify(last.card.answeredBy) : ""}` : undefined;
   if (cached && cached.length === thread.length && cached.last === lastKey) return cached.owner;
-  const owner = ownerOnlyConversation(thread, cloudProvenOwnerPerson, cloudCardAnswerer, undefined, ownersOwnDogs(threadId)) && !thread.some(cloudReportFromOthers);
+  const owner = ownerOnlyConversation(thread, cloudProvenOwnerPerson, cloudCardAnswerer, undefined, ownersOwnDogs(threadId)) && !thread.some((line) => cloudReportFromOthers(line, threadId));
   if (ownerOnlyCache.size > 5_000) ownerOnlyCache.clear();
   ownerOnlyCache.set(threadId, { length: thread.length, last: lastKey, owner });
   return owner;
@@ -7519,7 +7544,7 @@ bus.subscribe((event: RuntimeEvent) => {
   if (event.type === "item.started" && event.itemType === "tool") {
     const title = event.title ?? "";
     if (/\s|\//.test(title.trim())) key = callKey("tool", title);
-  } else if (event.type === "request.opened" && event.requestType === "permission") key = callKey(event.tool, event.summary);
+  } else if (event.type === "request.opened" && event.requestType === "permission") key = permissionCallKey(event);
   if (!key) return;
   const { threshold } = repeats.record(event.threadId, key);
   if (!threshold) return;
@@ -9112,7 +9137,10 @@ function syncRoutineRunToSource(run: RoutineRun): string | null {
   const text = routineRunFallbackText(card);
   const statusChanged = placed?.message.routineRun?.status !== run.status;
   if (placed) store.patchMessage(threadId, placed.message.id, { text, routineRun: card });
-  else store.appendMessage(threadId, { role: "bot", kind: "routine.run", text, routineRun: card });
+  else {
+    const ownersRoutine = cloudRoutineReportMark(run);
+    store.appendMessage(threadId, { role: "bot", kind: "routine.run", text, routineRun: card, ...(ownersRoutine !== undefined ? { ownersRoutine } : {}) });
+  }
   if (["completed", "failed", "cancelled", "missed"].includes(run.status)) routineCardThreads.delete(run.id);
   else routineCardThreads.set(run.id, threadId);
   if (statusChanged && ["waiting", "completed", "failed", "missed"].includes(run.status)) {
@@ -9219,7 +9247,8 @@ routines = new RoutineManager({
   },
   interruptGoal: interruptRoutineGroupGoal,
   onRunChanged: (run) => {
-    if (run.manual && run.status === "queued" && run.sourceThreadId && ownerRunNowThreads.has(run.sourceThreadId)) ownerStartedRoutineRuns.add(run.id);
+    if (run.manual && run.status === "queued" && ownerRunNowScope.active()) ownerStartedRoutineRuns.add(run.id);
+    attestCloudRoutineRun(run);
     syncRoutineRunToSource(run);
   },
   onRunFailed: (run) => {
@@ -9706,7 +9735,7 @@ function resolveAndSendRoutine(
   )?.card;
   const operation = card?.routineRequest?.operation;
   const wasOwners = operation && operation.action !== "create" ? cloudRoutineIsOwners(operation.routineId) : false;
-  const result = routineRequests.resolve(args);
+  const result = ownersAnswer && CLOUD_HOME && operation?.action === "run_now" ? asOwnerRunNow(() => routineRequests.resolve(args)) : routineRequests.resolve(args);
   if (ownersAnswer && result.claimed && result.state === "applied") {
     cloudOwnerApplied(result.action, result.resultId, wasOwners);
     if (CLOUD_HOME && result.action === "run_now" && result.resultId) ownerStartedRoutineRuns.add(result.resultId);
@@ -14121,14 +14150,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const run = routineRunForTurn(fromThreadId);
         const ownersTurn = cloudOwnerOnlyThread(fromThreadId) || cloudRoutineRunIsOwners(run, from.id, fromThreadId);
         const ownersRunNow = Boolean(CLOUD_HOME) && proposedInput.action === "run_now" && cloudLendingRefusal(internalCapability) === null;
-        if (ownersRunNow) ownerRunNowThreads.add(fromThreadId);
-        const proposed = await routineRequests.submit({
+        const submitRequest = () => routineRequests.submit({
           botId: from.id,
           threadId: fromThreadId,
           proposal: proposedInput,
           from: owner.group ? { botId: from.id, name: from.name, color: from.color } : undefined,
           canCommit: () => internalCapabilityIsActive(internalCapability),
-        }).finally(() => { if (ownersRunNow) ownerRunNowThreads.delete(fromThreadId); });
+        });
+        const proposed = await (ownersRunNow ? asOwnerRunNow(submitRequest) : submitRequest());
         const proposedCard = store.messagesFor(fromThreadId).find((message) => message.id === proposed.messageId)?.card;
         const applied = CLOUD_HOME && proposed.state === "applied" && "result" in proposed ? proposed.result : undefined;
         if (applied?.resultId && ownersTurn) cloudOwnerApplied(applied.action, applied.resultId, wasOwners);
@@ -15200,8 +15229,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     let routineMatch = path.match(/^\/api\/routines\/([\w-]+)\/run$/);
     if (routineMatch && method === "POST") {
-      const run = routines!.runNow(routineMatch[1]);
-      if (run && CLOUD_HOME && cloudOwnerSession(auth)) ownerStartedRoutineRuns.add(run.id);
+      const ownerStarted = Boolean(CLOUD_HOME) && cloudOwnerSession(auth);
+      const run = ownerStarted ? asOwnerRunNow(() => routines!.runNow(routineMatch![1])) : routines!.runNow(routineMatch[1]);
       return run ? json(res, 201, { run }) : json(res, 404, { error: "no such routine" });
     }
     routineMatch = path.match(/^\/api\/routines\/([\w-]+)$/);
