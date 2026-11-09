@@ -17,6 +17,13 @@ canonical production flags remain unchanged. The optional advisor preserves the
 selected model. [Release evidence](../verification/consolidation-release-2026-11-08.md)
 separates publication, activation, provider behavior and device installation.
 
+The subsequent native Codex guard Worker `e85c60e3` superseded that rollout. Its
+separate 03:44:55–03:55:03 UTC window passed 21 consecutive functional samples;
+ten low-storage flags leave capacity unqualified. Canonical production/test
+image pins match this activated version. Both selected settings remain Codex /
+Sol / Medium, while Patch's current attempt reports Claude. Per-dog engine
+placement remains unfinished. The same release evidence keeps these facts separate.
+
 ## Optional execution advisor (2026-11-08)
 
 The server owns execution evidence in the existing usage ledger and exposes the

@@ -293,7 +293,9 @@ The [archive fixture record](cloud-archive-2026-11-08.md) and
 proof from cumulative uploads and free-disk readings. The
 [cloud setup release](cloud-scaling-2026-11-08.md) records package reuse and its
 engine-placement limits. The [consolidation release](consolidation-release-2026-11-08.md)
-joins native work, optional advice, phone publication and production monitoring.
+joins native work, optional advice, phone publication and production monitoring. The
+[next engine-scaling record](engine-scaling-2026-11-08.md) separates native Codex
+hook qualification and baseline-fixture triage from unfinished engine relocation.
 
 Keep the JSON from `wait` and `messages`, the exact command sequence, and the
 fixture's printed log path. Evidence must show both the action and the resulting

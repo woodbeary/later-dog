@@ -193,9 +193,9 @@ One authenticated Claude Code 2.1.319 native Agent child read a synthetic marker
 
 Full Worker `4e2cff6e-c59e-4eec-8b23-9dca6ed906ff` accepted the staged immutable
 images at 02:32:14 UTC. Reviewed runtime source is `c3f2781a2`; configuration
-source is runtime-equivalent main `665557400`. Final traffic remained 100% on that
-Worker. The standard image is pinned at `85ad146353a3…` and the large image at
-`581e3ce682b1…`; the checked-in configurations contain the full digests. All eight
+source is runtime-equivalent main `665557400`. Traffic remained 100% on that
+Worker at the end of its qualification window; the separate follow-up below superseded it. The standard image is pinned at `85ad146353a3…` and the large image at
+`581e3ce682b1…`; the original promotion receipt retains those full digests. The checked-in configurations now pin the separately qualified follow-up below. All eight
 live plain variables, bindings and resource sizes were preserved.
 
 The first qualified direct sample was at 02:47:04 UTC, approximately 14 minutes
@@ -256,12 +256,73 @@ edit. Server/electron changes take effect only when the person chooses
 app. Phone beta `336047c1` is published, while installed-device update uptake and
 real iPhone heat, battery and crashes remain unobserved.
 
+## Subsequent native guard rollout and final image alignment
+
+Patch separately deployed Worker `e85c60e3-0612-493e-b065-7e250e0d6ebd` at
+03:23:26 UTC from committed stage `01b206ee2`. This supersedes the original
+`4e2cff6e` activation without replacing its historical measurements. Root did not
+trigger another production restart to align the checked-in image references.
+The standard image is now frozen at `f45ba413ad8b…`, and the large image at
+`e64ff59e579d…`. Production and test configurations change only their image fields;
+account flags, resource limits, bindings and test SSH settings are preserved.
+Final deployment status reports 100% traffic on `e85c60e3`; the owner instance is
+running application version 52 on the matching large image. All fourteen Worker
+bindings are deeply equal to the previously qualified release.
+
+Direct functional qualification began at 03:44:55 UTC, about 21 minutes 29 seconds
+after Worker acceptance, and passed **21 consecutive samples over 10 minutes
+8 seconds**, through 03:55:03 UTC. All eighty dog/current-thread identities and
+both selected Codex / GPT-6.1 Sol / Medium settings were preserved. Only Patch
+was observed active. Ten receipts retain effort, expose no legacy task field,
+and contain zero independently verified task outcomes. The rolling thirty-day
+coverage was 1,777 turns, ten receipts and 1,767 legacy turns.
+[Separate follow-up observations](consolidation-followup-2026-11-09.json) retain
+these measurements and their scope.
+
+The sampled Worker tail contained 1,429 events, all on `e85c60e3`, and one
+exception at 03:47:45 UTC: `Container port connection closed unexpectedly.`
+Direct functional samples continued passing. This remains an observed transport
+error; the window is not claimed error-free and its cause is not established.
+
+Selection is not proof of execution: Patch's current native attempt reports
+**Claude**, while its selected next settings remain Codex / Sol / Medium. The
+prior Codex attempt is retained as stopped. A paginated read at 03:55:05 found
+99 completed and one failed activity record among the first 100 records, with
+more history available. This demonstrates live progress and retained failures,
+not a clean task result or successful Codex execution. No settings were changed
+to manufacture a matching observation.
+
+Free disk ranged from 1,897,021,440 to 2,427,924,480 bytes, ending at
+2,425,212,928; **ten samples still reported low storage**. Functional recovery
+passed, but storage capacity and large live concurrency remain unqualified.
+The repeated cold restores are a material cost of the current shared-home state,
+not an established performance improvement.
+
+The new native Codex shell hook has separate [mechanism and baseline evidence](engine-scaling-2026-11-08.md).
+An independent local review of the committed stage passed seven focused tests;
+Root's merged-source check passed 33 functional tests. A full local frozen-image
+smoke also passed startup, pairing, unpaired refusal, archive restoration, live
+updates and clean exit. The published dev-code bundle and rebuilt committed
+source differ in raw bytes, but match after normalizing only the esbuild
+dependency path prefix. This is normalized source provenance, not raw artifact
+equality. A full server-suite pass is not claimed.
+
+Root deployed those same frozen images to the isolated staging Worker
+`422e1333`. Direct health returned 200 at 03:50:36 UTC; the prior real-provider
+advice result, exact marker and completed native history survived. Orbit remained
+on Kimi and idle. No new provider turn was sent after this last replacement;
+the earlier provider-tool qualification remains distinct from this retention
+check. Per-dog engine placement remains unfinished and unactivated.
+
 ## Architectural priorities from this evidence
 
-1. Keep the shared home focused on coordination. The task-workspace and provider-state inventory makes cold restore and disk headroom a concrete constraint. Patch's package reuse and Claude heavy-command hook are integrated. That hook does not cover Codex shell commands; per-dog engine placement and the Codex guard remain unfinished in [the scaling record](cloud-scaling-2026-11-08.md). Further archival or relocation needs workspace/session-specific restore proof; deleting live engine state would break continuity. [Native container snapshots](https://developers.cloudflare.com/containers/guides/snapshots/) are a candidate for same-image restarts, but require `durable_object` scheduling, preserve no running processes, expire after thirty days without restore and cannot move across image versions. The inspected applications use `default` scheduling. No snapshot migration is deployed and no recovery code is removed on that assumption.
+1. Keep the shared home focused on coordination. The task-workspace and provider-state inventory makes cold restore and disk headroom a concrete constraint. Patch's package reuse and Claude heavy-command hook are integrated. The subsequent native Codex guard is deployed and has the separate mechanism/functional qualification above; a live provider heavy-command denial has not been qualified. Per-dog engine placement remains unfinished. Further archival or relocation needs workspace/session-specific restore proof; deleting live engine state would break continuity. [Native container snapshots](https://developers.cloudflare.com/containers/guides/snapshots/) are a candidate for same-image restarts, but require `durable_object` scheduling, preserve no running processes, expire after thirty days without restore and cannot move across image versions. The inspected applications use `default` scheduling. No snapshot migration is deployed and no recovery code is removed on that assumption.
 2. Keep native engines as the execution owners. Retain the durable projection and one Activity/detail surface; do not build a second puppy scheduler, model switcher or client recovery engine. Native history backfill still scans retained messages at startup, and expanded phone history can issue multiple detail requests; neither is claimed solved by this release.
 3. Replace synchronous thirty-day ledger parsing only after measuring it in the full request. Grouping improves the pure calculation but does not bound input bytes or remove file parsing from the event loop. An indexed existing store is a smaller next boundary than a separately invalidated cache.
 4. Join independently checked outcomes and engine/version provenance to existing turn/run identities before training a route. Use held-out representative tasks, record total attempts/retries/rescue/queue cost, stratify by model, effort, engine version and account path, and compare quality within a task family. Keep evaluation in shadow mode, version every candidate policy, retain explicit selection and rollback, and promote only on an independently checked benefit. Model confidence needs local calibration; feedback must not simply reward the route that chose itself.
 5. Add bounded extraction or decision inference only where a measured task needs it. Existing provider decision/extraction endpoints can remain tools rather than compulsory dispatch gates. This release does not deploy a Clef/Clairic routing policy, Decisions integration or a new browser-control loop. No Browser Run binding was found in the inspected deployments; the existing container browser path remains in use. A hosted browser is a separate execution capability, not automatically bundled by putting agents on Cloudflare.
+
+6. Use the existing supervisor as one owner of production promotion, current-head checks and rollback receipts. Other dogs can produce candidates while that owner compares frozen artifacts, live settings and actual activation. The configuration incident and consecutive cold restores show why deployment acceptance alone is insufficient. This release did not add a durable deployment lease.
+7. Consolidate freshness into the shared status projection. Retained screen data and live execution health are distinct: a saved conversation can be readable while the home restores. Surface the existing freshness signals consistently on desktop and phone, and keep direct health/runtime qualification separate from cached reads. This is a remaining presentation and orchestration requirement, not a newly deployed cache.
 
 The immediate improvement is durable, consistent work visibility and less duplicated processing/state. Automatic model quality, model-bill savings, large live concurrency and native phone performance remain measurements to earn.
