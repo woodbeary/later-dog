@@ -19,7 +19,7 @@ import { draftSummary, foldPoint } from "./compaction-summary.ts";
 import { compactBudget, contextWindowFor, shouldCompact } from "./context-budget.ts";
 import { completeSharedOperation, provenRequestPerson, SharedComputers, sharedActionsHeader, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerRegistration, sharedComputerScopeRefusal, type SharedComputerOperation, type SharedComputerRegistration } from "./shared-computers.ts";
 import { MAC_ALLOW_KEY, MacApprovals, type MacLasting } from "./mac-approval.ts";
-import { legacyCancelledStatusIsNeutral } from "./laterdog/routine-provenance.ts";
+import { createOwnerRunNowScope, legacyCancelledStatusIsNeutral } from "./laterdog/routine-provenance.ts";
 import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, reportFromOthers, routineReportMark, type CloudLendingRefusal, type CloudLendingTurn } from "./cloud-lending.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
 import { RoomHandoffs, type RoomHandoff } from "./room-handoffs.ts";
@@ -876,12 +876,8 @@ const lendingEnabled = () => sharedComputersEnabled(cfg) || CLOUD_HOME !== null;
 const CLOUD_HOME_LENDER = "cloud-home";
 const cloudRoutineAuthors = CLOUD_HOME ? createCloudRoutineAuthors(join(DATA_DIR, "lending-routines.json")) : null;
 const ownerStartedRoutineRuns = new Set<string>();
-const ownerRunNowThreads = new Set<string>();
-let ownerRunNowInvoked = false;
-function asOwnerRunNow<T>(invoke: () => T): T {
-  ownerRunNowInvoked = true;
-  try { return invoke(); } finally { ownerRunNowInvoked = false; }
-}
+const ownerRunNowScope = createOwnerRunNowScope();
+const asOwnerRunNow = <T>(invoke: () => T): T => ownerRunNowScope.within(invoke);
 if (CLOUD_HOME) readMemoryOnlyFromRegularFiles();
 const cloudPairing = CLOUD_HOME ? createCloudPairing({ secret: CLOUD_HOME.bootstrapSecret, sessions }) : null;
 const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivity({
@@ -9250,7 +9246,7 @@ routines = new RoutineManager({
   },
   interruptGoal: interruptRoutineGroupGoal,
   onRunChanged: (run) => {
-    if (run.manual && run.status === "queued" && (ownerRunNowInvoked || (run.sourceThreadId && ownerRunNowThreads.has(run.sourceThreadId)))) ownerStartedRoutineRuns.add(run.id);
+    if (run.manual && run.status === "queued" && ownerRunNowScope.active()) ownerStartedRoutineRuns.add(run.id);
     attestCloudRoutineRun(run);
     syncRoutineRunToSource(run);
   },
@@ -14153,14 +14149,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         const run = routineRunForTurn(fromThreadId);
         const ownersTurn = cloudOwnerOnlyThread(fromThreadId) || cloudRoutineRunIsOwners(run, from.id, fromThreadId);
         const ownersRunNow = Boolean(CLOUD_HOME) && proposedInput.action === "run_now" && cloudLendingRefusal(internalCapability) === null;
-        if (ownersRunNow) ownerRunNowThreads.add(fromThreadId);
-        const proposed = await routineRequests.submit({
+        const submitRequest = () => routineRequests.submit({
           botId: from.id,
           threadId: fromThreadId,
           proposal: proposedInput,
           from: owner.group ? { botId: from.id, name: from.name, color: from.color } : undefined,
           canCommit: () => internalCapabilityIsActive(internalCapability),
-        }).finally(() => { if (ownersRunNow) ownerRunNowThreads.delete(fromThreadId); });
+        });
+        const proposed = await (ownersRunNow ? asOwnerRunNow(submitRequest) : submitRequest());
         const proposedCard = store.messagesFor(fromThreadId).find((message) => message.id === proposed.messageId)?.card;
         const applied = CLOUD_HOME && proposed.state === "applied" && "result" in proposed ? proposed.result : undefined;
         if (applied?.resultId && ownersTurn) cloudOwnerApplied(applied.action, applied.resultId, wasOwners);

@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 export interface LegacyReportLine {
   id?: string;
   at?: number;
@@ -96,4 +98,17 @@ export function legacyCancelledStatusIsNeutral(
   const run = retainedRun(card.runId);
   if (!run || attestation(run.id) === false || !retainedRunMatches(card, run, threadId)) return false;
   return threadMessages().some((receipt) => receiptProves(receipt, card, run, threadId));
+}
+
+export interface OwnerRunNowScope {
+  within<T>(invoke: () => T): T;
+  active(): boolean;
+}
+
+export function createOwnerRunNowScope(): OwnerRunNowScope {
+  const storage = new AsyncLocalStorage<true>();
+  return {
+    within: (invoke) => storage.run(true, invoke),
+    active: () => storage.getStore() === true,
+  };
 }

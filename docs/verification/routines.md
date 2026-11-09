@@ -295,3 +295,11 @@ tests for the mark. It does not cover a real Mac or a live account.
 ## Server build type check
 
 `pnpm build:server` compiles with `tsconfig.server.build.json`, which plain `tsc --noEmit` does not read. Before claiming a server change builds, run `pnpm exec tsc -p tsconfig.server.build.json --noEmit` as well as `pnpm exec tsc --noEmit`. The legacy report and retained-run types in `server/laterdog/routine-provenance.ts` carry no index signature, so `WireMessage` and `RoutineRun` pass structurally; the exact-key guards read `Object.entries`.
+
+## Owner provenance of a manual run
+
+A queued manual run is stamped owner-started only when `onRunChanged` fires inside the `createOwnerRunNowScope` of the request that committed it: an owner's internal `run_now` (the scope wraps `routineRequests.submit`, so it survives the cloud-readiness await), the owner's confirmed card, and the owner's direct run. There is no thread-wide state, so a concurrent guest or REST run on the same source conversation is never stamped.
+
+`routine-requests.test.ts` ("owner provenance of a run_now held in async readiness") holds an owner `run_now` in readiness, commits an untrusted manual run on the same source thread, then releases the owner request. The thread-wide rule stamps the untrusted run; the scope leaves it false and stamps only the owner's run. `cloud-lending.test.ts` covers the Mac refusal for an unstamped manual run.
+
+Limits: the scope follows async continuations of the owner request, so work it queues in a microtask (the scheduler tick after `runNow`) also runs inside it; only a queued manual run emitted there could be stamped. The fixture drives the manager directly, not a live Cloud Home or a real Mac.
