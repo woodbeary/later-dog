@@ -1475,7 +1475,6 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
       const digests: Array<string | undefined> = [];
       const unknowns: Array<true | undefined> = [];
       for (const [i, args] of [{ dog: "a" }, { dog: "b" }, { dog: "a" }, {}, [], undefined].entries()) {
-        recorder.events.length = 0;
         process.env.FAKE_CODEX_APPROVAL_REQUEST = elicitation("dog_queue", args);
         await create({ authMode: "chatgpt-plan", mode: "approval" });
         await instance.adapter.sendTurn({ threadId: `t-digest-${i}`, text: "go", model: "gpt-6.1-sol", integrations: { custom: { whop } } });
