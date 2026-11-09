@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -130,6 +130,27 @@ describe("later.dog Dev connecting this Mac to the person's Cloud", () => {
     const mac = startDevMac({ sessionFile, dataDir: dir, appFile, appRunning: async () => false, create: create as never, log: () => {}, checkMs: 60_000 });
     await mac.check();
     expect(made[0]!.options.environments()).toEqual([{ id: DEV_ENV_ID, name: "My Cloud", origin: ORIGIN }]);
+    await mac.stop();
+  });
+
+  it("relays only the native connection the app published, never a made-up one", async () => {
+    const { dir, sessionFile, appFile, made, create } = setup();
+    const mac = startDevMac({ sessionFile, dataDir: dir, appFile, appRunning: async () => false, create: create as never, log: () => {}, checkMs: 60_000 });
+    await mac.check();
+    const connection = made[0]!.options.cuaConnection;
+    expect(await connection()).toBeNull();
+
+    mkdirSync(join(dir, "desktop"));
+    const published = join(dir, "desktop", "cua-connection.json");
+    writeFileSync(published, JSON.stringify({ mode: "unavailable", reason: "cua-driver binary not found" }));
+    expect(await connection()).toBeNull();
+
+    writeFileSync(published, "not json");
+    expect(await connection()).toBeNull();
+
+    const ready = { mode: "standalone", mcpCommand: "/fixture/cua-driver", mcpArgs: ["mcp"] };
+    writeFileSync(published, JSON.stringify(ready));
+    expect(await connection()).toEqual(ready);
     await mac.stop();
   });
 });

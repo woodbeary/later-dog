@@ -1,13 +1,13 @@
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const fixture = vi.hoisted(() => ({ home: "", script: "", socketReady: false, children: [], calls: [], embeddedDelays: [], hosts: [], handlers: new Map(), permissionAsks: [] }));
+const fixture = vi.hoisted(() => ({ packaged: false, appPath: "/fixture/app", home: "", script: "", socketReady: false, children: [], calls: [], embeddedDelays: [], hosts: [], handlers: new Map(), permissionAsks: [] }));
 vi.mock("electron", () => ({
-  app: { isPackaged: false, getPath: () => fixture.home },
+  app: { get isPackaged() { return fixture.packaged; }, getPath: () => fixture.home, getAppPath: () => fixture.appPath },
   ipcMain: { handle: (name, handler) => fixture.handlers.set(name, handler) },
   systemPreferences: {
     isTrustedAccessibilityClient: (prompt) => { fixture.permissionAsks.push(prompt); return fixture.embeddedDelays.length > 0; },
@@ -82,6 +82,8 @@ beforeEach(async () => {
   fixture.hosts = [];
   fixture.handlers.clear();
   fixture.permissionAsks = [];
+  fixture.packaged = false;
+  fixture.appPath = "/fixture/app";
   vi.stubEnv("LATERDOG_CUA_EMBEDDED", "1");
   vi.stubEnv("CUA_DRIVER_PATH", "/fixture/cua-driver");
   vi.resetModules();
@@ -256,4 +258,52 @@ it("does not add blocking subprocess calls to Electron runtime modules", () => {
     const matches = readFileSync(join(root, name), "utf8").match(/\b(?:spawnSync|execFileSync|execSync)\b/g) ?? [];
     expect(matches.length, name).toBeLessThanOrEqual(allowed[name] ?? 0);
   }
+});
+
+describe("macOS driver resolution order", () => {
+  const originalPlatform = process.platform;
+  const installed = "/Applications/CuaDriver.app/Contents/MacOS/cua-driver";
+  const stagedFile = () => join(fixture.appPath, "dist-native", process.arch, "cua-driver");
+
+  beforeEach(() => {
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    fixture.appPath = mkdtempSync(join(tmpdir(), "laterdog-cua-stage-"));
+    vi.unstubAllEnvs();
+    vi.stubEnv("LATERDOG_CUA_EMBEDDED", "1");
+  });
+  afterEach(() => {
+    Object.defineProperty(process, "platform", { value: originalPlatform });
+    rmSync(fixture.appPath, { recursive: true, force: true });
+  });
+
+  const stage = () => {
+    mkdirSync(dirname(stagedFile()), { recursive: true });
+    writeFileSync(stagedFile(), "");
+  };
+
+  it.skipIf(!["arm64", "x64"].includes(process.arch))("uses the pinned stage for this architecture without the global app", () => {
+    stage();
+    expect(cua.resolveDriverBinary()).toBe(stagedFile());
+  });
+
+  it("falls back to the installed app when nothing is staged", () => {
+    expect(cua.resolveDriverBinary()).toBe(installed);
+  });
+
+  it.skipIf(!["arm64", "x64"].includes(process.arch))("keeps the explicit override ahead of the stage", () => {
+    stage();
+    vi.stubEnv("CUA_DRIVER_PATH", "/fixture/override");
+    expect(cua.resolveDriverBinary()).toBe("/fixture/override");
+  });
+
+  it.skipIf(!["arm64", "x64"].includes(process.arch))("never reads the source stage from a packaged app", () => {
+    stage();
+    fixture.packaged = true;
+    process.resourcesPath = join(fixture.appPath, "resources");
+    try {
+      expect(cua.resolveDriverBinary()).toBe(installed);
+    } finally {
+      delete process.resourcesPath;
+    }
+  });
 });

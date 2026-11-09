@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url";
 import localOriginModule from "./local-origin.cjs";
 import { permissionChecklist } from "./mac-permissions.mjs";
 import { variant } from "./app-variant.mjs";
+import { stagedMacDriver } from "./cua-driver-path.mjs";
 
 const { localOnly } = localOriginModule;
 
@@ -118,6 +119,10 @@ export function resolveDriverBinary() {
   if (app.isPackaged) {
     const bundled = path.join(process.resourcesPath, "cua-driver" + (process.platform === "win32" ? ".exe" : ""));
     if (fs.existsSync(bundled)) return bundled;
+  }
+  if (!app.isPackaged) {
+    const staged = stagedMacDriver({ appPath: app.getAppPath() });
+    if (staged) return staged;
   }
   if (process.platform === "darwin" && fs.existsSync(INSTALLED_DRIVER)) return INSTALLED_DRIVER;
   if (process.platform === "win32") {
