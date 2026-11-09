@@ -12,6 +12,7 @@ export function createExecutionAdviceRoute(deps: {
   wholeDogHistory(threadId: string): boolean;
   candidates(): Promise<AdviceCandidate[]>;
   rows(): UsageRow[];
+  title(botId: string, threadId: string): string | undefined;
   current(botId: string, threadId: string): ModelSelection | undefined;
   now?: () => number;
 }): InternalRouteHandler {
@@ -23,7 +24,13 @@ export function createExecutionAdviceRoute(deps: {
     const current = deps.current(sender.id, threadId);
     if (!current) return json(res, 404, { error: "no such conversation" });
     const wholeDog = deps.wholeDogHistory(threadId);
-    const advice = { historyVisibility: wholeDog ? "own_dog" : "current_thread", ...executionAdvice({ task: parsed.data.task, current, candidates: await deps.candidates(), rows: deps.rows().filter((row) => row.botId === sender.id && (wholeDog || row.threadId === threadId)), now: deps.now?.() ?? Date.now() }) };
+    const rows = deps.rows().filter((row) => row.botId === sender.id && (wholeDog || row.threadId === threadId));
+    const titles = new Map<string, string>();
+    for (const id of new Set(rows.map((row) => row.threadId))) {
+      const title = deps.title(sender.id, id);
+      if (title) titles.set(id, title);
+    }
+    const advice = { historyVisibility: wholeDog ? "own_dog" : "current_thread", ...executionAdvice({ task: parsed.data.task, current, candidates: await deps.candidates(), rows, titles, now: deps.now?.() ?? Date.now() }) };
     return json(res, 200, advice);
   };
 }

@@ -8749,7 +8749,7 @@ async function startTurn(
         conversations: fromPerson,
         userName: cfg.profile?.name?.trim() || "User",
       });
-      executionEvidence.dispatch(threadId, (store.projectBotForTask(bot.id, threadId) ?? bot).modelSelection, { instanceId, model, effort }, store.taskByThread(bot.id, threadId)?.title ?? "");
+      executionEvidence.dispatch(threadId, (store.projectBotForTask(bot.id, threadId) ?? bot).modelSelection, { instanceId, model, effort });
       runningTurnEngines.set(threadId, instance);
       const dispatchedConfig = sessionConfig(liveBot?.soul ?? bot.soul);
       if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
@@ -10579,7 +10579,7 @@ async function runGroupMemberTurn(
     onProviderHandshakeStarted?.();
     providerDispatched = true;
     turnPromptBytes.set(threadId, { stable: Buffer.byteLength(roomSystem.stable), volatile: Buffer.byteLength(roomSystem.volatile) });
-    executionEvidence.dispatch(threadId, selectedBot.modelSelection, { instanceId: instance.instanceId, ...(instance.instanceId === readyBot.modelSelection.instanceId ? memberTurnSelection(readyBot.modelSelection) : { model: instance.models.default }) }, store.groupTaskByThread(group.id, threadId)?.title ?? group.name);
+    executionEvidence.dispatch(threadId, selectedBot.modelSelection, { instanceId: instance.instanceId, ...(instance.instanceId === readyBot.modelSelection.instanceId ? memberTurnSelection(readyBot.modelSelection) : { model: instance.models.default }) });
     runningTurnEngines.set(threadId, instance);
     const roomRecalled = cardContinuation ? "" : autoRecallPrompt(bot, threadId, resolvedLatestImages.text, { conversations: false, userName });
     guardTurnDispatch(instance.adapter.sendTurn({
@@ -13036,6 +13036,7 @@ INTERNAL_ROUTES.push(createExecutionAdviceRoute({
   wholeDogHistory: ownerWorkThread,
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   current: (botId, threadId) => store.projectBotForTask(botId, threadId)?.modelSelection,
+  title: (botId, threadId) => store.taskByThread(botId, threadId)?.title,
   rows: () => readUsage(DATA_DIR, { from: new Date(Date.now() - 30 * 86_400_000), to: new Date() }),
   candidates: async () => {
     const configs = providerConfigs();

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { RuntimeEvent } from "../contracts.ts";
-import type { ModelSelection } from "../../shared/wire.ts";
+import { EFFORT_LEVELS, type ModelSelection } from "../../shared/wire.ts";
 
 export interface ExecutionEvidence {
   turnId?: string;
@@ -14,21 +14,36 @@ export interface ExecutionEvidence {
   durationMs: number;
   providerSucceeded: boolean;
   verification: "unverified";
-  task: string;
 }
 
-const selectionSchema = z.object({ instanceId: z.string(), model: z.string() });
+const selectionSchema = z.object({
+  instanceId: z.string(), model: z.string(),
+  effort: z.enum(EFFORT_LEVELS).optional().catch(undefined),
+  variant: z.string().optional().catch(undefined),
+  fast: z.boolean().optional().catch(undefined),
+});
 export const executionEvidenceSchema = z.object({
   turnId: z.string().optional(), selected: selectionSchema, dispatched: selectionSchema,
   reportedModel: z.string().optional(), providerInstanceId: z.string(),
   attribution: z.enum(["provider", "dispatch", "conflict"]),
   startedAt: z.string().datetime(), completedAt: z.string().datetime(),
   durationMs: z.number().finite().nonnegative(), providerSucceeded: z.boolean(),
-  verification: z.literal("unverified"), task: z.string().max(300),
+  verification: z.literal("unverified"),
 });
 
-export function validExecutionEvidence(value: unknown): value is ExecutionEvidence {
-  return executionEvidenceSchema.safeParse(value).success;
+export function parseExecutionEvidence(value: unknown): ExecutionEvidence | undefined {
+  const parsed = executionEvidenceSchema.safeParse(value);
+  if (!parsed.success) return undefined;
+  const whole = (selection: z.infer<typeof selectionSchema>): ModelSelection => ({
+    instanceId: selection.instanceId, model: selection.model,
+    ...(selection.effort !== undefined ? { effort: selection.effort } : {}),
+    ...(selection.variant !== undefined ? { variant: selection.variant } : {}),
+    ...(selection.fast !== undefined ? { fast: selection.fast } : {}),
+  });
+  const { selected, dispatched, ...rest } = parsed.data;
+  const evidence: ExecutionEvidence = { ...rest, selected: whole(selected), dispatched: whole(dispatched) };
+  for (const key of Object.keys(evidence) as Array<keyof ExecutionEvidence>) if (evidence[key] === undefined) delete evidence[key];
+  return evidence;
 }
 
 type Pending = Omit<ExecutionEvidence, "completedAt" | "durationMs" | "providerSucceeded" | "verification">;
@@ -40,11 +55,11 @@ export class ExecutionEvidenceTracker {
 
   constructor(now: () => number = Date.now) { this.now = now; }
 
-  dispatch(threadId: string, selected: ModelSelection, dispatched: ModelSelection, task: string): void {
+  dispatch(threadId: string, selected: ModelSelection, dispatched: ModelSelection): void {
     this.pending.set(threadId, {
       selected: { ...selected }, dispatched: { ...dispatched },
       providerInstanceId: dispatched.instanceId, attribution: "dispatch",
-      startedAt: new Date(this.now()).toISOString(), task: task.slice(0, 300),
+      startedAt: new Date(this.now()).toISOString(),
     });
   }
 
