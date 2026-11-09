@@ -4,8 +4,17 @@ export const repoSlug = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-
   .refine((s) => ![".",".."].includes(s.split("/")[1]), "Invalid repository name");
 export const gitRef = z.string().min(1).max(200).regex(/^[A-Za-z0-9][A-Za-z0-9/_.-]*$/)
   .refine((s) => !s.includes("..") && !s.endsWith(".lock") && !s.endsWith("/") && !s.includes("//"), "Invalid Git ref");
-export const scopePath = z.string().min(1).max(300).refine((s) => s === "*" ||
-  (!s.startsWith("/") && !s.includes("\\") && !s.split("/").some((p) => ["..", ".git", ""].includes(p))), "Use a relative path prefix or *");
+const GLOB_TAIL = /(?:\/\*\*)+$/;
+export function canonicalScope(scope: string): string {
+  if (/^\*\*(?:\/\*\*)*$/.test(scope)) return "*";
+  return scope.replace(GLOB_TAIL, "");
+}
+function validScope(canonical: string): boolean {
+  return canonical === "*" || (canonical.length > 0 && !canonical.startsWith("/") && !/[\\*?[\]{}!]/.test(canonical) &&
+    !canonical.split("/").some((p) => ["..", ".git", ""].includes(p)));
+}
+export const scopePath = z.string().min(1).max(300)
+  .refine((s) => validScope(canonicalScope(s)), "Use a relative path prefix, a directory ending in /**, an exact file, or *");
 export const commandSchema = z.array(z.string().min(1).max(2000)).min(1).max(30);
 export const BACKENDS = ["codex-cloud", "claude-cloud", "laterdog-cloud"] as const;
 export type BackendId = typeof BACKENDS[number];
@@ -136,10 +145,12 @@ export interface Wakeup { id: number; botId: string; threadId: string; sendId: s
 export type WakeupSettlement = { outcome: "delivered" } | { outcome: "dropped"; reason: string };
 
 export function scopesOverlap(a: readonly string[], b: readonly string[]): boolean {
-  return a.some((x) => b.some((y) => x === "*" || y === "*" || x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`)));
+  const left = a.map(canonicalScope);
+  const right = b.map(canonicalScope);
+  return left.some((x) => right.some((y) => x === "*" || y === "*" || x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`)));
 }
 export function pathInScopes(path: string, scopes: readonly string[]): boolean {
   return !path.split("/").includes(".git") && !path.startsWith("/") && !path.split("/").includes("..") &&
-    scopes.some((prefix) => prefix === "*" || path === prefix || path.startsWith(`${prefix}/`));
+    scopes.map(canonicalScope).some((prefix) => prefix === "*" || path === prefix || path.startsWith(`${prefix}/`));
 }
 export function activeJob(job: Job): boolean { return (ACTIVE_STATES as readonly string[]).includes(job.state); }
