@@ -47,4 +47,17 @@ describe("optional execution advice", () => {
     expect(result.candidates.map((c) => c.eligible)).toEqual([false, false]);
     expect(result.candidates[1]?.standardApiListPrice).toBeNull();
   });
+
+  it("keeps account and model groups distinct when their identifiers overlap", () => {
+    const candidates = [
+      { ...candidate, instanceId: "account/model", model: "one" },
+      { ...candidate, instanceId: "account", model: "model/one" },
+      { ...candidate, instanceId: "other", model: "one" },
+    ];
+    const rows = candidates.map((selection, index) => row({
+      instanceId: selection.instanceId, model: selection.model,
+      execution: { ...execution, turnId: `turn-${index}`, durationMs: index * 100 },
+    }));
+    expect(advise(rows, candidates).candidates.map((entry) => entry.observations.medianObservedExecutionMs)).toEqual([0, 100, 200]);
+  });
 });
