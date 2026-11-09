@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { bucketFor, bundleKey, confirmSwitch, DEV_BUCKET, HOME_BUCKET, pointerFor, POINTER_KEY, pushOnSave, READY_AFTER_DRAIN_MS, READY_TIMEOUT_MS, RUNTIME_DRAIN_MAX_MS, waitForNewServer, watchedChange } from "./dev-home.mjs";
+import { DEV_CODE_MAX_WAIT_MS } from "../deploy/laterdog/home/runtime/dev-code.mjs";
+import { bucketFor, bundleKey, confirmSwitch, DEV_BUCKET, HOME_BUCKET, pointerFor, POINTER_KEY, pushOnSave, READY_AFTER_DRAIN_MS, READY_TIMEOUT_MS, waitForNewServer, watchedChange } from "./dev-home.mjs";
 
 describe("pushing server code to test homes", () => {
   it("writes only to the test bucket, under the keys test homes read", () => {
@@ -40,10 +41,11 @@ describe("pushing server code from later.dog Dev to the person's own home", () =
     expect(publishBody).not.toMatch(/\b(?:wait\w*|idle|busy)/i);
   });
 
-  it("allows the runtime's full drain plus the restart before calling a switch late", () => {
-    const runtime = readFileSync(new URL("../deploy/laterdog/home/runtime/dev-code.mjs", import.meta.url), "utf8");
-    expect(runtime).toContain(`DEV_CODE_MAX_WAIT_MS = ${RUNTIME_DRAIN_MAX_MS / 60_000} * 60_000`);
-    expect(READY_TIMEOUT_MS).toBe(RUNTIME_DRAIN_MAX_MS + READY_AFTER_DRAIN_MS);
+  it("allows the runtime's full drain plus the restart before calling a switch late, from the runtime's own constant", () => {
+    const source = readFileSync(new URL("./dev-home.mjs", import.meta.url), "utf8");
+    expect(source).not.toMatch(/\d\s*\*\s*60_000/);
+    expect(DEV_CODE_MAX_WAIT_MS).toBe(15 * 60_000);
+    expect(READY_TIMEOUT_MS).toBe(DEV_CODE_MAX_WAIT_MS + READY_AFTER_DRAIN_MS);
   });
 
   it("measures the wait from the moment the pointer was published, so an earlier delay cannot expire it", async () => {
@@ -69,7 +71,7 @@ describe("pushing server code from later.dog Dev to the person's own home", () =
     let clock = 0;
     const stale = await confirmSwitch({ hash: "h", home, before: 7, published: 0, who: "h" }, { read: async () => 7, log: (l: string) => lines.push(l), now: () => clock, wait: async (ms: number) => { clock += ms; }, everyMs: 60_000 });
     expect(stale).toEqual({ hash: "h" });
-    expect(lines.join("\n")).not.toContain("is running it");
+    expect(lines.join("\n")).not.toContain("server pid changed");
     expect(lines[1]).toContain("still runs the old server");
   });
 
@@ -78,7 +80,8 @@ describe("pushing server code from later.dog Dev to the person's own home", () =
     const home = { url: "https://h-home.later.dog", token: "t" };
     const result = await confirmSwitch({ hash: "h", home, before: 7, published: 0, who: "h" }, { read: async () => 8, log: (l: string) => lines.push(l), now: () => 5_000 });
     expect(result).toEqual({ hash: "h", pid: 8 });
-    expect(lines).toEqual(["h is running it (server pid 8) 5 s after the push"]);
+    expect(lines).toEqual(["h server pid changed to 8 5 s after the push; that this exact code (h) is the one running needs separate qualification"]);
+    expect(lines.join("\n")).not.toMatch(/running it|is running/);
   });
 
   it("stops without reporting success when cancelled", async () => {

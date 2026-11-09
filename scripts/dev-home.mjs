@@ -6,6 +6,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { DEV_CODE_MAX_WAIT_MS } from "../deploy/laterdog/home/runtime/dev-code.mjs";
 
 const run = promisify(execFile);
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -16,9 +17,8 @@ export const POINTER_KEY = "dev-code/current.json";
 const SESSION_DIR = process.env.LATERDOG_TEST_HOME_DIR ?? join(homedir(), ".laterdog-test-home");
 const WATCHED = ["server", "shared"];
 const SETTLE_MS = 800;
-export const RUNTIME_DRAIN_MAX_MS = 15 * 60_000;
 export const READY_AFTER_DRAIN_MS = 90_000;
-export const READY_TIMEOUT_MS = RUNTIME_DRAIN_MAX_MS + READY_AFTER_DRAIN_MS;
+export const READY_TIMEOUT_MS = DEV_CODE_MAX_WAIT_MS + READY_AFTER_DRAIN_MS;
 
 export function bundleKey(hash) {
   return `dev-code/${hash}.tgz`;
@@ -116,14 +116,14 @@ export async function publish({ account, note, sessionFile } = {}) {
 export async function confirmSwitch({ hash, home, before, published, who }, { signal, read = () => serverPid(home), log = say, ...timing } = {}) {
   if (!home) return { hash };
   if (before === null) {
-    log(`${who} did not answer before the push, so a switch cannot be confirmed; the home picks the code up once no dog is working or after ${RUNTIME_DRAIN_MAX_MS / 60_000} min`);
+    log(`${who} did not answer before the push, so a switch cannot be confirmed; the home picks the code up once no dog is working or after ${DEV_CODE_MAX_WAIT_MS / 60_000} min`);
     return { hash };
   }
   const pid = await waitForNewServer({ read, before, since: published, signal, ...timing });
   const seconds = Math.round(((timing.now ?? Date.now)() - published) / 1000);
   log(pid === null
-    ? `${who} still runs the old server ${seconds} s after the push; it switches once no dog is working or after ${RUNTIME_DRAIN_MAX_MS / 60_000} min`
-    : `${who} is running it (server pid ${pid}) ${seconds} s after the push`);
+    ? `${who} still runs the old server ${seconds} s after the push; it switches once no dog is working or after ${DEV_CODE_MAX_WAIT_MS / 60_000} min`
+    : `${who} server pid changed to ${pid} ${seconds} s after the push; that this exact code (${hash.slice(0, 12)}) is the one running needs separate qualification`);
   return pid === null ? { hash } : { hash, pid };
 }
 
@@ -171,7 +171,7 @@ function watchAndPush({ account, sessionFile }) {
     });
   }
   say(sessionFile
-    ? `watching ${WATCHED.join(", ")}; every save goes to ${new URL(readSessionFile(sessionFile).url).hostname} at once and the home switches when no dog is working or after ${RUNTIME_DRAIN_MAX_MS / 60_000} min`
+    ? `watching ${WATCHED.join(", ")}; every save goes to ${new URL(readSessionFile(sessionFile).url).hostname} at once and the home switches when no dog is working or after ${DEV_CODE_MAX_WAIT_MS / 60_000} min`
     : `watching ${WATCHED.join(", ")}; every save is pushed to the test homes${account ? ` and checked on ${account}` : ""}`);
   if (!sessionFile) schedule();
 }
