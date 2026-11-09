@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, ChevronLeft, MessageCircleQuestion, X } from "lucide-react";
+import { Check, ChevronLeft, MessageCircleQuestion, Minus, X } from "lucide-react";
 import { useStore, type Bot, type Message } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
@@ -55,6 +55,7 @@ export function QuestionCard({
 
   if (!card || !questions.length || card.dismissed || closing) return null;
   const settled = Boolean(card.answered) || sent !== null;
+  const external = card.answered === "resolved";
   const current = questions[Math.min(active, questions.length - 1)]!;
   const currentIndex = Math.min(active, questions.length - 1);
   const draft = drafts[currentIndex] ?? EMPTY;
@@ -62,8 +63,8 @@ export function QuestionCard({
   const complete = answeredCount === questions.length;
   const lastStep = currentIndex === questions.length - 1;
   const stepAnswered = answered[currentIndex] === true;
-  const answerText = card.answeredText ?? sent;
-  const shownAnswer = settled && answerText ? settledAnswer(answerText, questions) : "";
+  const answerText = card.answeredText ?? (external ? "Resolved externally" : sent);
+  const shownAnswer = external ? answerText ?? "" : settled && answerText ? settledAnswer(answerText, questions) : "";
   const listsQuestions = questions.length > 1 && shownAnswer.startsWith("Q: ");
 
   const update = (index: number, next: Partial<Draft>) =>
@@ -143,6 +144,7 @@ export function QuestionCard({
       <div className="flex items-center justify-between gap-3">
         <div className="text-[14px] font-medium text-ink">
           {bot ? t("question.card.named", { name: bot.name }) : t("question.card.title")}
+          {card.nativeActorLabel && <p className="mt-1 text-[11px] font-normal text-ink-secondary">Requested by {card.nativeActorLabel}</p>}
         </div>
         {!settled && (
           <div className="-my-1 -mr-1 flex shrink-0 items-center gap-2">
@@ -261,7 +263,7 @@ export function QuestionCard({
 
       {settled ? (
         <div className="mt-3 flex items-start gap-1.5 text-[13px] text-ink-secondary">
-          <Check size={14} className="mt-0.5 shrink-0 text-success" />
+          {external ? <Minus size={14} className="mt-0.5 shrink-0" /> : <Check size={14} className="mt-0.5 shrink-0 text-success" />}
           <span className="whitespace-pre-wrap break-words">{shownAnswer || t("question.status.answered")}</span>
         </div>
       ) : questions.length > 1 ? (
@@ -317,13 +319,13 @@ export function QuestionCard({
     </div>
   );
   if (!settled) return body;
-  const line = answerText ? answerSummary(answerText, questions) : t("question.status.answered");
+  const line = external ? answerText! : answerText ? answerSummary(answerText, questions) : t("question.status.answered");
   return (
     <FoldedCard
-      icon={<Check size={14} className="shrink-0 text-success" />}
-      summary={<span className="min-w-0 truncate">{line}</span>}
+      icon={external ? <Minus size={14} className="shrink-0" /> : <Check size={14} className="shrink-0 text-success" />}
+      summary={<span className="min-w-0 truncate">{line}{external && card.nativeActorLabel && <span className="text-ink-tertiary"> · Requested by {card.nativeActorLabel}</span>}</span>}
       title={line}
-      label={t("question.answered.label", { answer: line })}
+      label={external ? line : t("question.answered.label", { answer: line })}
       arriving={!answeredAtMount}
       takeFocus={sent !== null}
     >

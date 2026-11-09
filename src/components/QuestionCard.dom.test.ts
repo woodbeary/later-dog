@@ -91,6 +91,19 @@ describe("closing a dog's question", () => {
     mount(question({ answered: "answer", dismissed: true }));
     expect(host.textContent).toBe("");
   });
+
+  it("settles a provider-resolved native question neutrally without leaving answer actions open", () => {
+    mount(question());
+    mount(question({ answered: "resolved", answeredText: "Resolved by Codex", nativeActorLabel: "Researcher", dismissed: false }));
+    expect(host.textContent).toContain("Resolved by Codex");
+    expect(host.textContent).toContain("Requested by Researcher");
+    expect(host.querySelector('[data-folded-line]')?.getAttribute("aria-label")).toBe("Resolved by Codex");
+    act(() => host.querySelector<HTMLButtonElement>("[data-folded-line]")!.click());
+    expect(host.querySelectorAll('[role="radio"], [data-question-submit], [data-question-close], textarea')).toHaveLength(0);
+    expect(host.querySelector(".text-success")).toBeNull();
+    expect(host.textContent).not.toContain("Waiting for");
+    expect(fixture.dispatch).not.toHaveBeenCalled();
+  });
 });
 
 describe("answering a dog's question", () => {

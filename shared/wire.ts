@@ -313,6 +313,9 @@ export interface OptionCardData {
   dismissed?: boolean;
   answeredBy?: CardAnswerer;
   requestId?: string;
+  nativeActorId?: string;
+  nativeActorLabel?: string;
+  nativeRunId?: string;
   tool?: string;
   held?: string;
   expired?: boolean;
@@ -458,6 +461,7 @@ export interface BotAssignedSkillsWire {
 }
 
 export type ServerFrame =
+  | { kind: "native.run.updated"; threadId: string; run: import("./native-runs.ts").NativeRun }
   | { kind: "sections"; sections: string[] }
   | { kind: "bot.queued"; queues: BotQueuedMessages }
   | { kind: "message"; threadId: string; message: WireMessage }

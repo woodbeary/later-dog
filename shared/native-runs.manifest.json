@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "path": "shared/native-runs.ts",
+      "sha256": "ac6376b810d9f063396bb693c85fb796f28cc667661b9a052f707bdff0302f76"
+    },
+    {
+      "path": "shared/native-run-selectors.ts",
+      "sha256": "5a65b00b095ff4089e9abc82b1a1ded2b1dc22bd29de687526f99acc5638d780"
+    }
+  ],
+  "wire": {
+    "list": "GET /api/threads/:threadId/runs?limit&cursor -> NativeRunList",
+    "detail": "GET /api/threads/:threadId/runs/:runId?limit&cursor -> NativeRunDetail",
+    "stop": "POST /api/threads/:threadId/runs/:runId/actors/:actorId/stop -> 202 {status:'requested'}",
+    "frame": "SSE {kind:'native.run.updated', threadId, run: NativeRun}"
+  }
+}
