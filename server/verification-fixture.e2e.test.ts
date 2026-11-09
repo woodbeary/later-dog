@@ -22,11 +22,13 @@ it("pins the fixture starter bot's name deterministically (#1257)", async () => 
 });
 
 function machineInstalledCli(): string | undefined {
-  const granted = dirname(process.execPath);
-  for (const dir of ["/opt/homebrew/bin", "/usr/local/bin"]) {
-    if (dir === granted || !existsSync(dir)) continue;
+  // Node's own folder counts too: nvm installs global CLIs such as `codex` beside `node`.
+  const nodeDir = dirname(process.execPath);
+  const dirs = process.platform === "win32" ? ["/opt/homebrew/bin", "/usr/local/bin"] : [nodeDir, "/opt/homebrew/bin", "/usr/local/bin"];
+  for (const dir of dirs) {
+    if (!existsSync(dir) || (process.platform === "win32" && dir === nodeDir)) continue;
     for (const name of readdirSync(dir).sort()) {
-      if (!/^[\w.-]+$/.test(name) || existsSync(join(granted, name))) continue;
+      if (!/^[\w.-]+$/.test(name) || /^node(\.exe)?$/.test(name)) continue;
       try {
         const stat = statSync(join(dir, name));
         if (stat.isFile() && stat.mode & 0o111) return name;

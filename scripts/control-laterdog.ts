@@ -1,6 +1,6 @@
 #!/usr/bin/env -S node --experimental-strip-types
 import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, mkdirSync, mkdtempSync, openSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -316,6 +316,17 @@ export interface VerificationServer {
   close(): Promise<void>;
 }
 
+// Only the running Node goes on the fixture's PATH. Its install folder often also holds
+// globally installed agent CLIs (nvm puts `codex` and `claude` next to `node`), which the
+// fixture must not discover.
+export function sealedFixtureBin(dataDir: string): string {
+  if (process.platform === "win32") return dirname(process.execPath);
+  const bin = join(dataDir, ".fixture-bin");
+  mkdirSync(bin, { recursive: true, mode: 0o700 });
+  if (!existsSync(join(bin, "node"))) symlinkSync(process.execPath, join(bin, "node"));
+  return bin;
+}
+
 export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, dataDir: string, port: number): NodeJS.ProcessEnv {
   const childEnv: NodeJS.ProcessEnv = {};
   const platformKeys = new Set(["SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "LANG", "LC_ALL", "TZ"]);
@@ -341,7 +352,7 @@ export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, data
     LATERDOG_WEBHOOK_PORT: String(port + 1),
     FAKE_CLAUDE_MODE: parentEnv.FAKE_CLAUDE_MODE || "happy",
     FAKE_CLAUDE_DUMP: join(dataDir, "fake-claude-dump.json"),
-    PATH: dirname(process.execPath),
+    PATH: sealedFixtureBin(dataDir),
     LATERDOG_TEST_SEALED_PATH: "1",
     LATERDOG_TRIAL_API: parentEnv.LATERDOG_TRIAL_API || "off",
   });

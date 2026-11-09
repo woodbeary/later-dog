@@ -138,9 +138,11 @@ file, checks a 2.5-minute command finishes after the call that started it return
   `~/runs/.setup/<lockfile hash>` on the dog's own computer and is updated only after a command exits 0. A different
   lockfile never reuses packages. `server/laterdog/computer-runs.test.ts` proves reuse across two copies and no reuse
   after a lockfile change or a failed run.
-- **Shell guard (Claude engines).** On a Cloud home with cloud computers set up, a Claude engine's shell commands pass a
+- **Shell guard (Claude and Codex engines).** On a Cloud home with cloud computers set up, a Claude engine's shell commands pass a
   `PreToolUse` hook first. An install, build, typecheck, full test script, container build or media command
   (`server/laterdog/heavy-commands.ts`) is refused once per chat with the reason to use `run_on_computer`; running the
   same command again within 30 minutes goes ahead, so a dog is never stuck when its cloud computer is unavailable.
-  Quick commands, version checks and single test files are not touched. Codex engines are not guarded yet: with Full
-  access Codex never asks before a command, so later.dog does not see it first.
+  Quick commands, version checks and single test files are not touched. Codex engines get the same rule through a
+  root-managed native `PreToolUse` hook (`deploy/laterdog/home/codex-requirements.toml`, installed as
+  `/etc/codex/requirements.toml`), which runs even under Full access; the driver gives each guarded turn its own hook
+  token file (`server/laterdog/codex-shell-guard.ts`).
