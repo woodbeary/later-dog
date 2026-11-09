@@ -29,7 +29,10 @@ The benchmark reads the baseline implementation from Git and gives both variants
 the current price table. It creates and removes a temporary import directory.
 The output is `.laterdog-evidence/execution-advice-benchmark.json`. An explicit
 `--output` path is supported. Both variants receive the same rows, candidates,
-task and time. Each scenario checks complete reply equality, warms twice and
+task, canonical per-thread titles and time. The script rewrites only the
+baseline's task-title lookup, its matching scope and the one limitation sentence
+describing that lookup to the canonical title input, asserts that the rewrite
+happened exactly once and keeps the repeated-scan versus grouped algorithms. Each scenario checks complete reply equality, warms twice and
 records five alternating pairs. The timer includes calculation and serialization
 of a nonempty result. Disk reads, HTTP and provider work are outside that timer.
 Input sizes are 50, 2,000 and 100,000 synthetic rows, each with 100 candidates.
@@ -49,6 +52,10 @@ directory printed by the launcher. The tool fixture keeps its receipt and server
 log in `.laterdog-evidence/execution-advisor/` after cleanup. Benchmark output
 includes machine, load, raw timings, medians, ranges and response byte counts.
 
+The timings below were recorded on 2026-11-08 under the earlier semantics, which
+matched task text stored in each ledger row. They are not comparable with runs of
+the canonical-title benchmark and are kept only as history.
+
 On 2026-11-08 the focused eleven-file suite passed 72 checks. A separate phone
 checkout's seven focused progress, account, stream, outbox and Stop files passed
 78 checks; that does not qualify the installed phone build.
@@ -61,6 +68,16 @@ ranges at 100,000 rows were 404.01–900.05 ms and 124.19–285.21 ms. At 50 row
 ranges overlapped, so no meaningful improvement is claimed there. These are
 local synthetic observations on a host that was not certified idle. They do not
 establish a user-visible speedup or model cost savings.
+
+A rerun on 2026-11-09 under the canonical-title semantics (8-core AMD EPYC cloud
+checkout, Node 24.22.2, load average about 1.5, not certified idle) passed all 103
+equal-reply checks and retained five alternating pairs per size. Median
+calculation-plus-serialization times were 0.35 ms before and 0.30 ms after at 50
+rows (ranges overlap in part: 0.31–0.41 and 0.23–0.32 ms, no improvement
+claimed); 4.48 ms and 2.34 ms at 2,000 rows (4.08–5.06 and 2.25–2.74 ms); 408.24 ms
+and 190.52 ms at 100,000 rows (354.57–629.21 and 145.25–206.47 ms). Raw samples
+are in the benchmark output. These are synthetic, single-host numbers on different
+hardware from the 2026-11-08 run and must not be compared with it.
 
 Thirty-day ledger reads still synchronously read and parse month files before
 advice aggregation. Grouping does not remove that event-loop blocking or bound

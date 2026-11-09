@@ -6,8 +6,9 @@ const now = Date.parse("2026-11-08T12:00:00Z");
 const current = { instanceId: "codex", model: "gpt-6.1-sol", effort: "medium" as const };
 const candidate: AdviceCandidate = { ...current, enabled: true, authenticated: true, available: true };
 const row = (patch: Partial<UsageRow> = {}): UsageRow => ({ at: "2026-11-08T10:00:00Z", botId: "dog", botName: "Dog", threadId: "thread", instanceId: current.instanceId, driverKind: "codex", model: current.model, input: 100, output: 10, costUsd: null, trigger: { kind: "owner" }, ...patch });
-const execution: NonNullable<UsageRow["execution"]> = { selected: current, dispatched: current, providerInstanceId: "codex", attribution: "dispatch", task: "repair accounts", turnId: "turn", startedAt: "2026-11-08T09:59:59Z", completedAt: "2026-11-08T10:00:00Z", durationMs: 1000, providerSucceeded: true, verification: "unverified" };
-const advise = (rows: UsageRow[], candidates = [candidate]) => executionAdvice({ task: "repair accounts", current, candidates, rows, now });
+const execution: NonNullable<UsageRow["execution"]> = { selected: current, dispatched: current, providerInstanceId: "codex", attribution: "dispatch", turnId: "turn", startedAt: "2026-11-08T09:59:59Z", completedAt: "2026-11-08T10:00:00Z", durationMs: 1000, providerSucceeded: true, verification: "unverified" };
+const titles = new Map<string, string>();
+const advise = (rows: UsageRow[], candidates = [candidate]) => executionAdvice({ task: "repair accounts", current, candidates, rows, titles, now });
 
 describe("optional execution advice", () => {
   it("preserves the exact selected model and effort with no observations", () => {
@@ -59,5 +60,27 @@ describe("optional execution advice", () => {
       execution: { ...execution, turnId: `turn-${index}`, durationMs: index * 100 },
     }));
     expect(advise(rows, candidates).candidates.map((entry) => entry.observations.medianObservedExecutionMs)).toEqual([0, 100, 200]);
+  });
+
+  it("matches task words against canonical thread titles and falls back to the whole history without one", () => {
+    const other = row({ threadId: "other", execution: { ...execution, turnId: "other" } });
+    const mine = row({ execution });
+    titles.clear();
+    expect(advise([mine, other]).scope).toBe("own_dog_history");
+    titles.set("thread", "Repair accounts page");
+    titles.set("other", "Unrelated errand");
+    const matched = advise([mine, other]);
+    titles.clear();
+    expect(matched.scope).toBe("matching_task_words");
+    expect(matched.candidates[0]?.observations.recordedTurns).toBe(1);
+    expect(matched.candidates[0]?.evidence.map((item) => item.threadId)).toEqual(["thread"]);
+    expect(matched.limitations.join(" ")).toContain("current title");
+  });
+
+  it("never matches a legacy row without evidence even when its thread has a matching title", () => {
+    titles.set("thread", "Repair accounts");
+    const result = advise([row()]);
+    titles.clear();
+    expect(result.scope).toBe("own_dog_history");
   });
 });

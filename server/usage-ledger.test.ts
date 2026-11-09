@@ -52,6 +52,45 @@ describe("usage ledger files", () => {
     expect(records[0]?.input).toBe(1200);
   });
 
+  const evidence = {
+    selected: { instanceId: "a", model: "m", effort: "high", variant: "v", fast: true },
+    dispatched: { instanceId: "b", model: "n", effort: "low" },
+    providerInstanceId: "b", attribution: "dispatch", startedAt: "2026-11-08T09:59:59.000Z",
+    completedAt: "2026-11-08T10:00:00.000Z", durationMs: 1000, providerSucceeded: true, verification: "unverified",
+  };
+
+  it("writes no task text or unknown fields and keeps selection settings", async () => {
+    const at = new Date("2026-11-08T10:00:00Z");
+    await appendUsage(dataDir, row({ at: at.toISOString(), execution: { ...evidence, task: "SYNTHETIC-PROMPT", extra: "SYNTHETIC-PROMPT" } as never }));
+    await flushUsageLedger(dataDir);
+    const text = readFileSync(usageFileFor(dataDir, at), "utf8");
+    expect(text).not.toContain("SYNTHETIC-PROMPT");
+    expect(JSON.parse(text).execution).toEqual(evidence);
+  });
+
+  it("strips legacy task text on read, keeps effort and usage, and drops malformed optional metadata only", async () => {
+    const at = new Date("2026-11-08T10:00:00Z");
+    await appendUsage(dataDir, row({ at: at.toISOString() }));
+    await flushUsageLedger(dataDir);
+    const file = usageFileFor(dataDir, at);
+    const base = JSON.parse(readFileSync(file, "utf8").trim());
+    const lines = [
+      { ...base, execution: { ...evidence, task: "legacy prompt", extra: true } },
+      { ...base, input: 7, execution: { ...evidence, selected: { ...evidence.selected, effort: "bogus" } } },
+      { ...base, input: 9, execution: { durationMs: -1, task: 12 } },
+    ];
+    writeFileSync(file, lines.map((line) => JSON.stringify(line)).join("\n") + "\n");
+    const records = readUsage(dataDir, { from: at, to: at });
+    expect(records).toHaveLength(3);
+    expect(records[0]?.execution).toEqual(evidence);
+    expect(JSON.stringify(records)).not.toContain("legacy prompt");
+    expect(records[0]?.input).toBe(1200);
+    expect(records[1]?.input).toBe(7);
+    expect(records[1]?.execution?.selected).toEqual({ instanceId: "a", model: "m", variant: "v", fast: true });
+    expect(records[2]?.execution).toBeUndefined();
+    expect(records[2]?.input).toBe(9);
+  });
+
   it("appends one private row per turn into the month's file and reads it back in order", async () => {
     appendUsage(dataDir, row({ at: "2026-09-03T10:00:00.000Z" }));
     appendUsage(dataDir, row({ at: "2026-09-03T11:00:00.000Z", botId: "b2", botName: "Clerk", costUsd: null }));

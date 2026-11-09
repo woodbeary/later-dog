@@ -15,7 +15,15 @@ const temporary = await mkdtemp(join(tmpdir(), "laterdog-advice-bench-"));
 try {
   const source = execFileSync("git", ["show", `${baselineRef}:server/laterdog/execution-advisor.ts`], { encoding: "utf8" });
   const baselinePath = join(temporary, "before.ts");
-  await writeFile(baselinePath, source.replace('"../model-prices.ts"', JSON.stringify(resolve("server/model-prices.ts"))));
+  const oldLookup = "row.execution!.task.toLowerCase()";
+  const canonicalLookup = '(input.titles.get(row.threadId) ?? "").toLowerCase()';
+  assert(source.split(oldLookup).length === 2, "the baseline task-title lookup was not found exactly once");
+  const titleLimitation = `"Task matching compares your words with each thread's current title, not with the task that thread ran at the time; titles are not historical task-quality labels.", `;
+  const limitationAnchor = '"Historical observations are not controlled model comparisons."';
+  assert(source.split(limitationAnchor).length === 2, "the baseline limitation list was not found exactly once");
+  const normalized = source.replace(oldLookup, canonicalLookup).replace(limitationAnchor, titleLimitation + limitationAnchor).replace('"../model-prices.ts"', JSON.stringify(resolve("server/model-prices.ts")));
+  assert(normalized.includes(canonicalLookup) && !normalized.includes(oldLookup) && normalized.includes(titleLimitation));
+  await writeFile(baselinePath, normalized);
   const before = (await import(pathToFileURL(baselinePath).href)).executionAdvice as typeof after;
   const now = Date.parse("2026-11-08T12:00:00Z");
   const candidates: AdviceCandidate[] = Array.from({ length: 100 }, (_, i) => ({ instanceId: `account-${Math.floor(i / 10)}`, model: `model-${i}`, enabled: i % 3 !== 0, authenticated: i % 5 !== 0, available: true }));
@@ -26,9 +34,10 @@ try {
   for (const count of [50, 2000, 100_000]) {
     const rows: UsageRow[] = Array.from({ length: count }, (_, i) => {
       const c = candidates[i % candidates.length];
-      return { at: new Date(now - i % 100 * 1000).toISOString(), botId: "fixture", botName: "Fixture", threadId: `thread-${i % 20}`, instanceId: c.instanceId, driverKind: "fixture", model: c.model, input: 100, output: i % 7, costUsd: i % 5 ? null : .01, costSource: "estimated", trigger: { kind: "owner" }, ...(i % 4 ? { execution: { selected: current, dispatched: { instanceId: c.instanceId, model: c.model }, providerInstanceId: c.instanceId, attribution: i % 17 ? "dispatch" as const : "conflict" as const, startedAt: new Date(now - 10000).toISOString(), completedAt: new Date(now).toISOString(), durationMs: i % 300, providerSucceeded: i % 11 !== 0, verification: "unverified" as const, task: i % 2 ? "inspect account controls" : "repair queue recovery", turnId: `turn-${i}` } } : {}) };
+      return { at: new Date(now - i % 100 * 1000).toISOString(), botId: "fixture", botName: "Fixture", threadId: `thread-${i % 20}`, instanceId: c.instanceId, driverKind: "fixture", model: c.model, input: 100, output: i % 7, costUsd: i % 5 ? null : .01, costSource: "estimated", trigger: { kind: "owner" }, ...(i % 4 ? { execution: { selected: current, dispatched: { instanceId: c.instanceId, model: c.model }, providerInstanceId: c.instanceId, attribution: i % 17 ? "dispatch" as const : "conflict" as const, startedAt: new Date(now - 10000).toISOString(), completedAt: new Date(now).toISOString(), durationMs: i % 300, providerSucceeded: i % 11 !== 0, verification: "unverified" as const, turnId: `turn-${i}` } } : {}) };
     });
-    const input = { task: "inspect account controls", current, candidates, rows, now };
+    const titles = new Map(Array.from({ length: 20 }, (_, t) => [`thread-${t}`, t % 2 ? "inspect account controls" : "repair queue recovery"] as const));
+    const input = { task: "inspect account controls", current, candidates, rows, titles, now };
     assert.deepEqual(after(input), before(input));
     equivalentRepliesChecked++;
     const samples = { before: [] as number[], after: [] as number[] };
@@ -43,6 +52,7 @@ try {
       assert(bytes > 0);
       if (pass >= 2) samples[name].push(ms);
     }
+    assert(samples.before.length === 5 && samples.after.length === 5);
     const stats = (values: number[]) => { const sorted = [...values].sort((a, b) => a - b); return { medianMs: sorted[2], minMs: sorted[0], maxMs: sorted.at(-1), rawMs: values }; };
     const advice = { historyVisibility: "own_dog", ...after(input) };
     const beforeWire = JSON.stringify({ ...advice, text: JSON.stringify(advice) });
@@ -53,11 +63,11 @@ try {
   for (let seed = 0; seed < 100; seed++) {
     const c = candidates[seed % candidates.length];
     const rows: UsageRow[] = Array.from({ length: seed * 3 }, (_, i) => ({ at: new Date(now - i % 5 * 1000).toISOString(), botId: "fixture", botName: "Fixture", threadId: `t-${i % 3}`, instanceId: i % 3 ? c.instanceId : "missing", driverKind: "fixture", model: c.model, input: 0, output: 1, costUsd: i % 2 ? null : 0, trigger: { kind: "owner" } }));
-    const input = { task: seed % 2 ? "account controls" : "", current, candidates: candidates.slice(0, seed), rows, now };
+    const input = { task: seed % 2 ? "account controls" : "", current, candidates: candidates.slice(0, seed), rows, titles: new Map<string, string>(), now };
     assert.deepEqual(after(input), before(input));
     equivalentRepliesChecked++;
   }
-  const result = { at: new Date().toISOString(), baselineRef, scope: "Local synthetic advisor calculation plus JSON serialization; excludes ledger reads, HTTP, models, queueing and task quality. No production capacity or savings claim.", host, equivalentRepliesChecked, results };
+  const result = { at: new Date().toISOString(), baselineRef, normalization: "Only the baseline task-title lookup and matching scope were rewritten, to read the canonical per-thread titles passed in input.titles; both sides receive the same input and the repeated-scan versus grouped algorithms are unchanged. Timings are not comparable with runs that matched stored task text.", scope: "Local synthetic advisor calculation plus JSON serialization; excludes ledger reads, HTTP, models, queueing and task quality. No production capacity or savings claim.", host, equivalentRepliesChecked, results };
   await mkdir(dirname(output), { recursive: true });
   await writeFile(output, JSON.stringify(result, null, 2));
   assert(JSON.parse(await readFile(output, "utf8")).equivalentRepliesChecked === 103);
