@@ -14,7 +14,7 @@ const report = (): LegacyReportLine => ({
   id: "m1", at: FINISHED, role: "bot", kind: "routine.run", text: cancelledStatusText(NAME),
   routineRun: { runId: "run-1", routineId: "routine-1", routineName: NAME, scheduledFor: SCHEDULED, status: "cancelled" },
 });
-const run = (): LegacyRetainedRun => ({
+const run = () => ({
   id: "run-1", routineId: "routine-1", routineName: NAME, prompt: "A different prompt than the deleted snapshot", target: "bot",
   botId: "bot-1", runOn: "local", scheduledFor: SCHEDULED, status: "cancelled", manual: false, attachments: [],
   sourceThreadId: THREAD, createdAt: SCHEDULED, finishedAt: FINISHED,

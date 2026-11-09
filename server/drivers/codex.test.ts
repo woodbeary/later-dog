@@ -1479,6 +1479,7 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
         await create({ authMode: "chatgpt-plan", mode: "approval" });
         await instance.adapter.sendTurn({ threadId: `t-digest-${i}`, text: "go", model: "gpt-6.1-sol", integrations: { custom: { whop } } });
         const opened = await recorder.until((event) => event.type === "request.opened");
+        if (opened.type !== "request.opened") throw new Error("Expected an opened approval request");
         expect(opened.summary).toBe('Allow the whop MCP server to run tool "dog_queue"?');
         digests.push((opened as any).argsDigest);
         unknowns.push((opened as any).argsUnknown);
