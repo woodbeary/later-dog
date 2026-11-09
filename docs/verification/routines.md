@@ -235,3 +235,58 @@ saved destination snapshots, dated result cards, approval links, deleted-thread
 fallback, and continued user conversations staying visible. Native decoding and
 thread-list tests retain hidden execution records for direct navigation and
 approvals while omitting them from ordinary iOS/Android thread pickers.
+
+## Cloud home: reports of the owner's routine runs
+
+The server decides once, when a run is created, whether it is the owner's, and
+keeps that answer for the run in `lending-routines.json` (`runs`, newest 5,000).
+It is never recomputed. A run is the owner's only if its routine was the owner's
+as it stood at that moment, it was not a webhook run, and a manual run was
+started by the owner. The owner's start is known at the moment the run is
+created, even though the run is announced before the request handler returns:
+the app's run route, a confirmed run card and the owner's dog's run request all
+mark that call. Every `routine.run` report written for the run carries the
+answer as `ownersRoutine`, so editing, deleting or later adopting the routine,
+or cancelling the run before it starts, cannot change it. A guest's or
+unproven manual run stays foreign after the owner adopts the routine.
+
+Reports written before this change keep the older reading: a report with no mark
+is judged by the routine as it is now, and stays denied when the routine is
+gone or unproven. A run that was already in flight when the server first ran this
+change has no stored answer, so its new reports are marked foreign rather than
+trusted.
+
+Legacy limitation: a routine's authorship record is removed when the routine is
+deleted, and an old report holds only the routine id and a status, so in general
+nothing retained can show that a deleted routine's old run was the owner's. Those
+reports stay denied, and no user data was changed.
+
+One audited exception is neutral for the reports-from-others check only. An
+unmarked `routine.run` report is neutral when all of these hold from immutable
+server records: the report is the canonical cancelled status (bot role, the exact
+server cancellation text, only the run id, routine id, name, scheduled time and
+`cancelled` status, no other field); the retained run matches it exactly (same run,
+routine, dog, source conversation, name and scheduled time; schedule run, not manual;
+cancelled; no attachments, start, thread, output, error, attention, denials, cost,
+goal, webhook or delivery data; no negative owner attestation); and the same
+conversation holds the server's own deletion receipt (auto-applied, answered allow,
+not undone, a delete of that routine with matching result id, owner-held and
+disabled before, the same name, applied no earlier than the cancellation finished (chronology uses the receipt's applied time, not its message creation)).
+This proves only an owner-attested title and a server cancellation, not who owned
+the run: no run owner is stamped, no record is rewritten, and nothing is cached.
+Any missing proof, an explicit negative mark, any other content, or any other
+unknown legacy report stays denied. An owner who wants the Mac back in such a
+conversation starts a new one.
+
+```sh
+pnpm exec vitest run server/cloud-lending.test.ts server/laterdog/routine-provenance.test.ts server/laterdog/routine-provenance.integration.test.ts
+```
+
+The integration test boots a disposable cloud-home server with a fake engine. It
+has the owner's dog run, edit and delete an owner routine, runs a manual run from
+the app route while the target is busy and deletes the routine so the run is
+cancelled before it starts (the report stays the owner's), and runs a manual run
+of a routine with unproven authorship that stays foreign after the owner edits
+it. Against the previous commit the pending-run case fails (the mark is absent).
+Guest-started manual runs, webhook runs and schedule runs are covered by the unit
+tests for the mark. It does not cover a real Mac or a live account.

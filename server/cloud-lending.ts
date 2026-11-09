@@ -79,15 +79,35 @@ export function routineFingerprint(routine: RoutineShape): string {
   ])).digest("hex");
 }
 
+export function routineReportMark(run: { triggerSource: string; ownerAuthored: boolean; ownerStarted: boolean }): boolean {
+  if (run.triggerSource === "webhook" || !run.ownerAuthored) return false;
+  return run.triggerSource !== "manual" || run.ownerStarted;
+}
+
+export function reportFromOthers(
+  line: { kind?: string; webhookPost?: boolean; ownersRoutine?: boolean; routineRun?: { routineId: string } },
+  liveOwnersRoutine: (routineId: string) => boolean,
+  provenNeutralStatus: () => boolean = () => false,
+): boolean {
+  if (line.webhookPost) return true;
+  if (line.kind !== "routine.run" || !line.routineRun) return false;
+  if (line.ownersRoutine !== undefined) return !line.ownersRoutine;
+  return !liveOwnersRoutine(line.routineRun.routineId) && !provenNeutralStatus();
+}
+
 const authorsFile = z.object({
   version: z.literal(1),
   routines: z.record(z.string().max(128), z.string().regex(/^[a-f0-9]{64}$/)),
   writers: z.record(z.string().max(128), z.string().regex(/^p_[\w-]{22}$/)).optional(),
+  runs: z.record(z.string().max(128), z.boolean()).optional(),
 }).strict();
+
+const MAX_ATTESTED_RUNS = 5000;
 
 export function createCloudRoutineAuthors(file: string) {
   let routines: Record<string, string> = {};
   let writers: Record<string, string> = {};
+  let runs: Record<string, boolean> = {};
   try {
     if (existsSync(file)) {
       const stat = lstatSync(file);
@@ -95,11 +115,19 @@ export function createCloudRoutineAuthors(file: string) {
         const parsed = authorsFile.parse(JSON.parse(readFileSync(file, "utf8")));
         routines = parsed.routines;
         writers = parsed.writers ?? {};
+        runs = parsed.runs ?? {};
       }
     }
-  } catch { routines = {}; writers = {}; }
-  const save = () => writeFileAtomic(file, JSON.stringify({ version: 1, routines, writers }), { mode: 0o600 });
+  } catch { routines = {}; writers = {}; runs = {}; }
+  const save = () => writeFileAtomic(file, JSON.stringify({ version: 1, routines, writers, runs }), { mode: 0o600 });
   return {
+    attestRun(runId: string, owners: boolean) {
+      if (Object.hasOwn(runs, runId)) return;
+      const kept = Object.entries(runs).slice(-(MAX_ATTESTED_RUNS - 1));
+      runs = { ...Object.fromEntries(kept), [runId]: owners };
+      save();
+    },
+    runAttestation(runId: string): boolean | undefined { return Object.hasOwn(runs, runId) ? runs[runId] : undefined; },
     record(id: string, routine: RoutineShape) { routines = { ...routines, [id]: routineFingerprint(routine) }; save(); },
     forget(id: string) { if (Object.hasOwn(routines, id)) { const next = { ...routines }; delete next[id]; routines = next; save(); } },
     wrote(id: string, person: string) { if (writers[id] !== person) { writers = { ...writers, [id]: person }; save(); } },
