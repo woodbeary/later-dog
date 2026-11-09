@@ -272,6 +272,7 @@ goal, webhook or delivery data; no negative owner attestation); and the same
 conversation holds the server's own deletion receipt (auto-applied, answered allow,
 not undone, a delete of that routine with matching result id, owner-held and
 disabled before, the same name, applied no earlier than the cancellation finished (chronology uses the receipt's applied time, not its message creation)).
+A deferral time is queue scheduling metadata, not execution evidence: it may be absent or a finite number no earlier than the scheduled time and no later than the finish, and a run that was queued behind another turn and cancelled before it started stays neutral. A non-numeric, non-finite or out-of-order deferral time stays denied, as does any start, execution thread, output, error, cost or attachment. The regression `accepts a queued never-started run with a deferral time and an earlier card time` fails on the previous commit (the deferral time rejected it) and passes now; the card's time may precede the finish, and the run's captured prompt may differ from the deleted snapshot. Fixture only: this is not a live-provider qualification.
 This proves only an owner-attested title and a server cancellation, not who owned
 the run: no run owner is stamped, no record is rewritten, and nothing is cached.
 Any missing proof, an explicit negative mark, any other content, or any other
