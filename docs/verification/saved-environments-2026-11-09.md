@@ -1,6 +1,6 @@
 # Saved repository environments, 2026-11-09
 
-Branch `kennel/saved-environments`, on main `075609e1a` (started from `16d20b46b`; the one commit between touches none of these files). Nothing was deployed, published, merged or restarted. All
+Merged to main as `fabdacbd2` and released on 2026-11-09: computers Worker version `88404e1d-8c6d-4f67-b5a7-f1caff06b3c4` (`wrangler deploy --containers-rollout=none`, image pin unchanged) and the server bundle built from `fabdacbd2`, running on the home since 12:44:36 UTC. See Live release below. The original branch notes follow. All
 checks ran in Jacob's Mac worktree `~/code/.wt/kennel-envs2` with Node 24.22.1 (the home's `run_on_computer` copies
 only folders on the home, and this worktree is on the Mac, so the Mac ran them).
 
@@ -63,8 +63,7 @@ fast-forwards, and runs the install only after the lockfile changed (a stub `pnp
 
 ## Time to ready, from the environment versus the image
 
-Not measured live. Nothing was deployed, so no computer has restored an environment snapshot yet, and Docker on the Mac
-was not running, so there is no local container timing either.
+Measured live after the release; see Live release below. The fixture estimate that came before it follows.
 
 `test/environments.test.ts` → "time to ready for work on a repository" drives both paths through the Worker code with a
 recorded fixture:
@@ -81,6 +80,16 @@ environment (poll, boot, maintenance), and the computer that started from the en
 the setup time by construction. The real number depends on the repository. Measure it after a deploy: build an
 environment for a real repository, create a computer with and without `repository`, and compare the `screen answering`
 and `maintained ... in N ms` log lines with the builder's `setup` time.
+
+## Live release (2026-11-09)
+
+- Computers Worker `88404e1d-8c6d-4f67-b5a7-f1caff06b3c4`, deployed from `fabdacbd2` with the image pin unchanged. Before it: 447 Worker tests passed, 1 skipped, and `pnpm run check` exited 0.
+- `GET /v1/environments` answered 200 and `POST` answered 202 with the home's computers key.
+- Environment build: `POST /v1/environments {"repository":"woodbeary/later-dog"}` at 12:39:48 UTC. It finished `fresh`, `lastOutcome: ready`, `builtAt` 12:41:52 UTC, `setupMs` 92,619, key `env_9c66ba70a55b57e2ccb136717641756b`, `rebuildAt` 2026-11-16, `expiresAt` 2026-12-09. The private repository cloned without error. A later read-only `GET /v1/environments` returned the same record.
+- Time to ready: wall time from `POST /computers` to the first successful exec of `true`. Both were throwaway computers, deleted afterwards.
+  - With `repository`: 2.46 s (POST answered in 1.08 s). It restored the environment snapshot: `~/repos/woodbeary/later-dog` at `fabdacbd`, 1.9 GB of `node_modules` present. Maintenance fetched and did not install, in 795 ms.
+  - Without `repository`: 1.92 s (POST answered in 0.61 s), with no checkout. Getting the same checkout would have meant the 92.6 s setup.
+- Not yet shown live: a dog's own computer starting from an environment during real work. Today only `run_on_computer` passes `repository`.
 
 ## Release needs
 
