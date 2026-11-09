@@ -152,9 +152,9 @@ it("restores history after runtime and coordinator restart and refuses a blank r
   expect(read).toBe(false);
 });
 
-it("does not restore provider sessions or tool results through the log consumer", async () => {
+it("does not restore engine sessions the thread does not resume through the log consumer", async () => {
   const f = await fixture();
-  const provider = `.claude/projects/project/${ID}.jsonl`;
+  const provider = ".claude/projects/project/0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d.jsonl";
   put(f.root);
   put(f.root, provider);
   await f.archiver.archive([PATH, provider]);

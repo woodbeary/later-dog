@@ -6,7 +6,13 @@ import { dirname, join, normalize, relative } from "node:path";
 import { CHUNK_BYTES } from "./sync.mjs";
 
 export const ARCHIVE_VERSION = 1;
-export const ARCHIVE_ROOTS = [".claude/projects/", ".laterdog/events/", ".laterdog/native/", ".laterdog/tool-results/", ".laterdog/checkpoints/"];
+export const ARCHIVE_ROOTS = [".laterdog/events/", ".laterdog/native/", ".laterdog/tool-results/", ".laterdog/checkpoints/"];
+export const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const SESSION_NAME = "[A-Za-z0-9_][A-Za-z0-9_.-]{0,199}";
+export const SESSION_PATH = new RegExp(`^(?:\\.claude|\\.laterdog/providers/[A-Za-z0-9_][A-Za-z0-9_-]{0,127})/projects/[A-Za-z0-9-]{1,255}/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:[.]jsonl|/(?:${SESSION_NAME}/){0,2}${SESSION_NAME})$`);
+export const LOG_PATH = /^[.]laterdog\/(?:events|native)\/[A-Za-z0-9_-]{8,200}[.]ndjson$/;
+export const MAX_SESSIONS = 200;
+const LEGACY_SESSION_ROOT = ".claude/projects/";
 export const MAX_BODY_BYTES = 4 * 1024 * 1024;
 export const MAX_PATHS = 2000;
 export const MAX_NEEDLES = 50;
@@ -15,19 +21,30 @@ const HASH = /^[a-f0-9]{64}$/;
 const NEEDLE = /^[A-Za-z0-9_.-]{8,200}$/;
 
 export function archivable(path) {
+  return safeRelative(path) && (SESSION_PATH.test(path) || ARCHIVE_ROOTS.some((root) => path.startsWith(root) && path.length > root.length));
+}
+
+function indexable(path) {
+  return archivable(path) || (safeRelative(path) && path.startsWith(LEGACY_SESSION_ROOT) && path.length > LEGACY_SESSION_ROOT.length);
+}
+
+function safeRelative(path) {
   if (typeof path !== "string" || !path || path.startsWith("/") || path.includes("\0")) return false;
   if (normalize(path) !== path) return false;
   const parts = path.split("/");
   if (parts.some((part) => part === ".." || part === "." || part === "" || part.startsWith(RESTORING_PREFIX))) return false;
-  if (parts.some((part) => /^(?:auth|credentials|secrets|tokens?)(?:[.-]|$)/i.test(part))) return false;
-  return ARCHIVE_ROOTS.some((root) => path.startsWith(root) && path.length > root.length);
+  return !parts.some((part) => /^(?:auth|credentials|secrets|tokens?)(?:[.-]|$)/i.test(part));
+}
+
+export function sessionOf(path) {
+  return archivable(path) ? SESSION_PATH.exec(path)?.[1] ?? null : null;
 }
 
 export function parseIndex(input) {
   if (input === null || input === undefined) return { version: ARCHIVE_VERSION, entries: {} };
   if (input.version !== ARCHIVE_VERSION || !input.entries || typeof input.entries !== "object" || Array.isArray(input.entries)) throw new Error("unreadable archive index");
   for (const [path, entry] of Object.entries(input.entries)) {
-    if (!archivable(path)) throw new Error("unsafe archive path");
+    if (!indexable(path)) throw new Error("unsafe archive path");
     if (!Array.isArray(entry?.chunks) || !entry.chunks.every((hash) => HASH.test(hash)) || !Number.isSafeInteger(entry.size) || entry.size < 0 || !Number.isFinite(entry.mtimeMs)) {
       throw new Error("bad archive entry");
     }
@@ -81,7 +98,7 @@ async function writeAll(handle, bytes, position) {
 export function createArchiver({ root, store, owner = null, log = () => {}, now = Date.now, canRemove = async () => true }) {
   let index = null;
   let queue = Promise.resolve();
-  const counts = { archivedFiles: 0, archivedBytes: 0, restoredFiles: 0, restoredBytes: 0, failedFiles: 0 };
+  const counts = { archivedFiles: 0, archivedBytes: 0, sessionFiles: 0, sessionBytes: 0, restoredFiles: 0, restoredBytes: 0, failedFiles: 0 };
 
   const serial = (work) => {
     const next = queue.then(work, work);
@@ -187,6 +204,10 @@ export function createArchiver({ root, store, owner = null, log = () => {}, now 
         }
         counts.archivedFiles += 1;
         counts.archivedBytes += entry.size;
+        if (sessionOf(path)) {
+          counts.sessionFiles += 1;
+          counts.sessionBytes += entry.size;
+        }
         results.push({ path, archived: entry.size });
       }
     }
@@ -239,10 +260,18 @@ export function createArchiver({ root, store, owner = null, log = () => {}, now 
     }
   };
 
-  const restore = (needles, exactPaths = null) => serial(async () => {
-    const wanted = needles.filter((needle) => typeof needle === "string" && NEEDLE.test(needle));
+  const restore = (needles, exactPaths = null) => restoreMatching((path) => exactPaths
+    ? exactPaths.includes(path)
+    : needles.filter((needle) => typeof needle === "string" && NEEDLE.test(needle)).some((needle) => path.includes(needle)));
+
+  const restoreSessions = (sessions) => {
+    const wanted = new Set(sessions.filter((session) => typeof session === "string" && SESSION_ID.test(session)));
+    return restoreMatching((path) => wanted.has(sessionOf(path)));
+  };
+
+  const restoreMatching = (wanted) => serial(async () => {
     const current = await load();
-    const matches = Object.entries(current.entries).filter(([path]) => exactPaths ? exactPaths.includes(path) : wanted.some((needle) => path.includes(needle)));
+    const matches = Object.entries(current.entries).filter(([path]) => wanted(path));
     let restored = 0;
     let bytes = 0;
     let failed = 0;
@@ -281,17 +310,22 @@ export function createArchiver({ root, store, owner = null, log = () => {}, now 
     const current = await load();
     let files = 0;
     let bytes = 0;
+    const sessions = { files: 0, bytes: 0 };
     const paths = [];
     for (const [path, entry] of Object.entries(current.entries)) {
       if (entry.restoredAt) continue;
       files += 1;
       bytes += entry.size;
       paths.push(path);
+      if (sessionOf(path)) {
+        sessions.files += 1;
+        sessions.bytes += entry.size;
+      }
     }
-    return { files, bytes, paths, ...counts };
+    return { files, bytes, paths, sessions, ...counts };
   });
 
-  return { archive, restore, status };
+  return { archive, restore, restoreSessions, status };
 }
 
 function authorized(request, token) {
@@ -333,8 +367,13 @@ export function archiveHandler(archiver, token) {
       if (request.method === "POST" && path === "/archive") return reply(200, await archiver.archive(strings((await body(request)).paths, MAX_PATHS)));
       if (request.method === "POST" && path === "/restore-logs") {
         const paths = strings((await body(request)).paths, MAX_PATHS);
-        if (!paths.every(value => [".laterdog/events/", ".laterdog/native/"].some(root => value.startsWith(root) && /^[A-Za-z0-9_-]{8,200}[.]ndjson$/.test(value.slice(root.length))))) return reply(400, { error: "only exact thread logs" });
+        if (!paths.every(value => LOG_PATH.test(value))) return reply(400, { error: "only exact thread logs" });
         return reply(200, await archiver.restore([], paths));
+      }
+      if (request.method === "POST" && path === "/restore-sessions") {
+        const sessions = strings((await body(request)).sessions, MAX_SESSIONS);
+        if (!sessions.every(value => SESSION_ID.test(value))) return reply(400, { error: "only exact engine sessions" });
+        return reply(200, await archiver.restoreSessions(sessions));
       }
       if (request.method === "POST" && path === "/restore") return reply(200, await archiver.restore(strings((await body(request)).contains, MAX_NEEDLES)));
       return reply(404, { error: "not found" });

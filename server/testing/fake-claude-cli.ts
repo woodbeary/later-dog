@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { appendFileSync, closeSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { createPuppies } from "./fake-claude-puppies.ts";
 import { createNativeActivity } from "./fake-claude-native-activity.ts";
@@ -252,6 +254,15 @@ const runningCost: { total: number; modelUsage: Record<string, FakeModelUsage> }
   }
   return { total: 0, modelUsage: {} };
 })();
+if (process.env.FAKE_CLAUDE_SESSION_PROBE) {
+  const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  const projects = join(configDir, "projects");
+  const found = existsSync(projects)
+    ? readdirSync(projects).map((slug) => join(projects, slug, `${sessionId}.jsonl`)).find((file) => existsSync(file))
+    : undefined;
+  appendFileSync(process.env.FAKE_CLAUDE_SESSION_PROBE, JSON.stringify({ sessionId, configDir, resume: argv.includes("--resume"),
+    sha256: found ? createHash("sha256").update(readFileSync(found)).digest("hex") : null }) + "\n");
+}
 let stdinEnded = false;
 let steerGateArmed = false;
 
