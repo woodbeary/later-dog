@@ -75,3 +75,39 @@ Final checks:
 
 No full server suite, canonical build, native provider qualification or deployment
 is claimed. Independent review and release remain with Root.
+
+## Publication review repair
+
+Independent review of `96339f4994fb8c6b09618a1723627173a0dad7ca` found that
+explicit publication used the ordinary ready transition and cleared the provider
+blocker. Failed provenance now derives from the existing durable checkpoint and
+provider-failure events, without a duplicate job flag. The provider-failure event
+also retains its original cause for recovery after verification and head changes.
+
+Explicit checkpoint publication keeps `needs_attention` and the original failure
+until actual current-head verification passes. The publisher plainly labels new
+and existing PR bodies as unverified source checkpoints from failed tasks, without
+copying the private failure text. Failed/blocked/unavailable verification preserves
+the original failure; passed verification uses the existing ready transition.
+A changed PR head invalidates evidence and restores the original failure gate.
+Merge independently refuses failed checkpoints without passed verification for the
+current recorded head, before invoking the publisher's existing current-head and
+independent-review checks. Ordinary successful publication retains its behavior.
+
+The canonical collector runs `git add -A`: partial collection stages the retained
+computer's Git index and writes `task/patch.diff`. It preserves source files and the
+computer but is not a read-only Git inspection. No artifact text is executed.
+
+Before this review repair, six publication/provenance fixtures had five failures
+and one pass against the published PR head. Afterward all six pass. Logs:
+`/tmp/clover-failed-policy-before.log`, `/tmp/clover-failed-policy-after.log`.
+Further fixtures cover explicit publication failure, new/existing PR labels and
+successful progression after actual current-head verification and review. The
+supervisor and publisher suites together passed 66 tests in
+`/tmp/clover-failed-publication.log`.
+
+Final repaired-head checks: all 142 tests in the same eight focused files passed;
+server TypeScript passed; targeted lint on the four changed policy TypeScript files
+had zero errors or warnings. Logs: `/tmp/clover-failed-repaired-focused.log`,
+`/tmp/clover-failed-repaired-types.log`, `/tmp/clover-failed-repaired-lint.log`.
+Independent review of this repaired head is still required before release.

@@ -15,7 +15,7 @@ async function fixture(){
   const baseSha=await git(work,['rev-parse','HEAD']);const remote=join(dir,'remote.git');await git(dir,['clone','--bare',work,remote]);
   const id=randomUUID();const job:Job={...createJobSchema.parse({requestKey:randomUUID(),repository:'fixture/repo',title:'Change behavior',brief:'new value',writeScopes:['src']}),id,state:'ready',backend:'codex-cloud',attempt:1,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),outputBranch:`laterdog/${id}`,sourceRef:`laterdog/input/${id}`,baseSha};
   await git(remote,['update-ref',`refs/heads/${job.sourceRef}`,baseSha]);
-  let pr: {number:number;url:string;headRefOid:string;state:string}|undefined;let created=0;let uncertain=false;let failClone=false;
+  let pr: {number:number;url:string;headRefOid:string;state:string}|undefined;let created=0;let edited=0;let uncertain=false;let failClone=false;
   const runner:CommandRunner=async(binary,args,options)=>{
     if(binary!=='gh')return runCommand(binary,args,options);
     if(args[0]==='repo'&&args[1]==='clone'){
@@ -27,10 +27,11 @@ async function fixture(){
       created++;pr={number:1,url:'https://github.com/fixture/repo/pull/1',headRefOid:await git(remote,['rev-parse',job.outputBranch]),state:'OPEN'};
       if(uncertain)return {...ok(''),exitCode:1};return ok(pr.url);
     }
+    if(args[0]==='pr'&&args[1]==='edit'){edited++;return ok('');}
     if(args[0]==='pr'&&args[1]==='view')return ok(JSON.stringify({...pr,headRefOid:await git(remote,['rev-parse',job.outputBranch])}));
     throw new Error(`Unexpected fixture command ${args.join(' ')}`);
   };
-  return {dir,remote,job,git,publisher:new GitHubPublisher(join(dir,'checkouts'),runner),repo:repositorySchema.parse({slug:'fixture/repo',environmentId:'fixture'}),created:()=>created,uncertain:()=>{uncertain=true;},failNextClone:()=>{failClone=true;}};
+  return {dir,remote,job,git,publisher:new GitHubPublisher(join(dir,'checkouts'),runner),repo:repositorySchema.parse({slug:'fixture/repo',environmentId:'fixture'}),created:()=>created,edited:()=>edited,uncertain:()=>{uncertain=true;},failNextClone:()=>{failClone=true;}};
 }
 const patch='diff --git a/src/a.txt b/src/a.txt\nindex 3367afd..3e75765 100644\n--- a/src/a.txt\n+++ b/src/a.txt\n@@ -1 +1 @@\n-old\n+new\n';
 it('reports GitHub access the way publishing will use it, without reading the credential',async()=>{
@@ -99,4 +100,19 @@ it('accepts an explicitly configured behavioral check at the current commit',asy
   const dir=mkdtempSync(join(tmpdir(),'laterdog-evidence-'));dirs.push(dir);
   const run:CommandRunner=async(_binary,args)=>ok(JSON.stringify(args[0]==='pr'?{state:'OPEN',headRefOid:'a'.repeat(40)}:args[1].includes('check-runs')?{total_count:2,check_runs:[{name:'browser-acceptance',status:'completed',conclusion:'success'},{name:'optional',status:'completed',conclusion:'skipped'}]}:{statuses:[]}));
   const result=await new GitHubPublisher(dir,run).verify({id:randomUUID(),repository:'fixture/repo',prNumber:1} as Job,repositorySchema.parse({slug:'fixture/repo',environmentId:'fixture',behavioralChecks:['browser-acceptance']}),dir);expect(result.verdict).toBe('passed');
+});
+
+
+it('labels new and existing failed checkpoint PRs without exposing the private failure',async()=>{
+  const f=await fixture();
+  f.job.blocker='private provider failure';
+  const published=await f.publisher.publish(f.job,f.repo,patch,'Recovered source','failed-checkpoint');
+  const body=()=>readFileSync(join(f.dir,'checkouts',`${f.job.id}-pr.md`),'utf8');
+  expect(body()).toContain('Unverified source checkpoint from a failed cloud task');
+  expect(body()).not.toContain(f.job.blocker);
+  expect(published.prNumber).toBe(1);
+  await f.publisher.publish(f.job,f.repo,patch,'Inspect this failed checkpoint','failed-checkpoint');
+  expect(f.created()).toBe(1);expect(f.edited()).toBe(1);
+  expect(body()).toContain('Unverified source checkpoint from a failed cloud task');
+  expect(body()).toContain('Inspect this failed checkpoint');
 });

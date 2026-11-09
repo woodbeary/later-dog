@@ -311,4 +311,61 @@ describe("failed cloud checkpoints", () => {
     expect(f.store.job(job.id).blocker).toBe("Claude allowance exhausted");
   });
 
+  it("keeps failed provenance through explicit publication and refuses unverified merge", async () => {
+    const f = failedFixture();
+    f.store.saveRepository({ ...f.store.repository("fixture/first"), merge: true });
+    const merge = vi.spyOn(f.publisher, "merge").mockResolvedValue();
+    const job = f.create(); await f.supervisor.tick(); await f.supervisor.tick();
+    await f.supervisor.publish(job.id, "Recovered source for inspection");
+    expect(f.store.job(job.id)).toMatchObject({ state: "needs_attention", blocker: "Claude allowance exhausted", headSha: SHA });
+    expect(f.store.job(job.id).verification).toBeUndefined();
+    expect(vi.mocked(f.publisher.publish).mock.calls[0][4]).toBe("failed-checkpoint");
+    await expect(f.supervisor.merge(job.id)).rejects.toThrow(/verification/);
+    f.store.update(job.id, { state: "ready" });
+    await expect(f.supervisor.merge(job.id)).rejects.toThrow(/verification/);
+    expect(merge).not.toHaveBeenCalled();
+  });
+  it.each(["failed", "blocked", "error", "passed"])("preserves failed provenance until actual verification is %s", async mode => {
+    const f = failedFixture();
+    const job = f.create(); await f.supervisor.tick(); await f.supervisor.tick(); await f.supervisor.publish(job.id);
+    const verify = vi.spyOn(f.publisher, "verify");
+    if (mode === "error") verify.mockRejectedValue(new Error("fixture verifier unavailable"));
+    else verify.mockResolvedValue({ headSha: SHA, verdict: mode as "failed" | "blocked" | "passed", commands: [], evidence: "fixture", at: new Date().toISOString() });
+    if (mode === "error") await expect(f.supervisor.verify(job.id)).rejects.toThrow(); else await f.supervisor.verify(job.id);
+    expect(f.store.job(job.id).state).toBe(mode === "passed" ? "ready" : "needs_attention");
+    expect(f.store.job(job.id).blocker).toBe(mode === "passed" ? undefined : "Claude allowance exhausted");
+  });
+  it("restores failed provenance when a verified head changes, and refuses stale passed evidence", async () => {
+    const f = failedFixture(); f.store.saveRepository({ ...f.store.repository("fixture/first"), merge: true });
+    const merge = vi.spyOn(f.publisher, "merge").mockResolvedValue();
+    const job = f.create(); await f.supervisor.tick(); await f.supervisor.tick(); await f.supervisor.publish(job.id);
+    vi.spyOn(f.publisher, "verify").mockResolvedValue({ headSha: SHA, verdict: "passed", commands: [], evidence: "fixture", at: new Date().toISOString() });
+    await f.supervisor.verify(job.id);
+    expect(f.store.job(job.id).state).toBe("ready");
+    for (let n = 0; n < 210; n += 1) f.store.event(job.id, "fixture", "later event");
+    vi.mocked(f.publisher.inspectPublished).mockResolvedValue({ headSha: NEW_SHA, state: "OPEN" });
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 31_000);
+    try { await f.supervisor.tick(); } finally { clock.mockRestore(); }
+    expect(f.store.job(job.id)).toMatchObject({ state: "needs_attention", headSha: NEW_SHA, blocker: "Claude allowance exhausted" });
+    f.store.update(job.id, { state: "ready", verification: { headSha: SHA, verdict: "passed", commands: [], evidence: "stale", at: new Date().toISOString() } });
+    await expect(f.supervisor.merge(job.id)).rejects.toThrow(/verification/); expect(merge).not.toHaveBeenCalled();
+  });
+
+  it("allows the existing merge policy only after current-head verification passes", async () => {
+    const f = failedFixture(); f.store.saveRepository({ ...f.store.repository("fixture/first"), merge: true });
+    const merge = vi.spyOn(f.publisher, "merge").mockResolvedValue();
+    const job = f.create(); await f.supervisor.tick(); await f.supervisor.tick(); await f.supervisor.publish(job.id);
+    vi.spyOn(f.publisher, "verify").mockResolvedValue({ headSha: SHA, verdict: "passed", commands: [], evidence: "fixture", at: new Date().toISOString() });
+    await f.supervisor.verify(job.id);
+    f.store.update(job.id, { review: { headSha: SHA, reviewerJobId: "fixture-review", verdict: "pass", summary: "fixture", at: new Date().toISOString() } });
+    await f.supervisor.merge(job.id);
+    expect(merge).toHaveBeenCalledTimes(1); expect(f.store.job(job.id).state).toBe("merged");
+  });
+  it("preserves the provider failure if explicit checkpoint publication errors", async () => {
+    const f = failedFixture(); const job = f.create(); await f.supervisor.tick(); await f.supervisor.tick();
+    vi.mocked(f.publisher.publish).mockRejectedValue(new Error("fixture publication error"));
+    await expect(f.supervisor.publish(job.id)).rejects.toThrow();
+    expect(f.store.job(job.id)).toMatchObject({ state: "needs_attention", blocker: "Claude allowance exhausted" });
+  });
+
 });
