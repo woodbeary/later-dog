@@ -9,8 +9,11 @@ facts, not checks run in this checkout. Credentials and private paths are redact
   `scripts/bundle-server.mjs`). Later commits `434a13ec` and `df5df16c` correct the
   test lifecycle (retained evidence, owned-child interruption cleanup) and remove an
   alias-only assertion.
-- Root compiled smoke passed 19 checks at `434a13ec`. A separate cloud public
-  `pnpm laterdog:build` and behavioral smoke passed.
+- Root compiled smoke at `434a13ec`: the retained receipt lists 18 successful
+  entries. One is "build skipped by --skip-build", a status and not a test success. The
+  rest are 17 behavior assertions; the canonical bundle was built separately. This is
+  not 19 checks.
+- A separate cloud public `pnpm laterdog:build` and full smoke passed.
 - The old duplicate builder, as a counterfactual, failed with
   `Dynamic require of "events"` before any HTTP.
 
@@ -72,9 +75,54 @@ At the owner's request saved dogs resumed except the WoW dogs.
 
 ## Monitoring and limits
 
-- Actual-work monitor, 21 samples 11:32:40–11:42:58 UTC: functional criteria passed;
-  9 low-space flags and minimum 1731444736 bytes free keep capacity unqualified.
-- Post-supervisor ten-minute monitor started 12:14:29 UTC and was **in progress** at
-  report creation. It has not been shown to pass; no later samples are recorded here.
-- Not qualified: a full Dockerfile image rebuild, fleet capacity, a live provider
-  beyond the receipts above, and production admin restart.
+These are descriptive observations, not throughput or latency benchmarks.
+
+- Initial pre-rollout actual-work monitor: 21 samples, 11:32:40.292–11:42:58.618 UTC,
+  all passed; 9 low-space flags.
+- Final post-rollout monitor is **complete**: 21 consecutive qualified functional
+  samples, 12:14:29.515–12:24:54.613 UTC. All 80 dog identities, all 67 pre-switch jobs
+  and both profiles retained; all four WoW dogs idle; home PID 5161 throughout; Clover
+  and Patch both selected Codex / gpt-6.1-sol / medium on every sample.
+- All 21 samples were low-space flagged. Minimum free space 1531617280 bytes; minimum
+  available memory 4773191680 bytes. Larger-fleet capacity remains unqualified.
+
+## Root observations of quiet testers
+
+- Task testers were checked while quiet: the coordinator reconciled actual recent traces
+  at 12:22; Maria's screenshot at 12:21:53 and planned waiting; Linda 12:18:16; Devon
+  12:19:05, waiting between checks; Kevin an explicit 15 minute wait. Root re-read
+  Maria's newer 12:22 screenshot independently; no restart or duplicated booking.
+- Four original staging testers continue round 13. An actual staging defect in past
+  helper jobs is assigned to Task after reports; it is not declared fixed.
+- Kennel reconciled helpers: archive and saved-environments still running; engine
+  hardening committed `f5ae422e5` awaiting tests. No duplicate cloud job was submitted.
+- After the supervisor switch the documentation repair job `78ddc5c8` completed and its
+  independent review `8cc032b8` completed. The later.dog Cloud provider transport
+  worked; this does not qualify all models or capacity.
+- Patch reports the packaged desktop MCP smoke and 30 Mac helper tests passed on
+  `075609e1a`; app signing and notarization were still ongoing at last read. There is no
+  desktop release claim. Phone physical uptake is unobserved.
+- Sign-in and missing-account blockers stay in the report.
+
+## Failed or incomplete checks
+
+- The automatic supervisor verification action returned 409 "spawn docker ENOENT": the
+  Docker wrapper is unavailable in the supervisor. Automated verification is not green.
+- The configured command `node scripts/smoke-native-work.ts` was then run directly in
+  the root isolated worktree at `924b8925` and returned ok with 7 checks: duplicate
+  event, child isolation, late completion, disk reopen, interrupted recovery, retained
+  result, thread boundary. `providerQualified` was false; a fixture makes no native or
+  provider claim.
+- Root local comments and brand guards at `434a13ec` timed out on 2 tests on a busy Mac;
+  11 passed. No source bug is inferred from the timeout. Cloud writer and reviewer runs
+  at final `924b8925` each passed all 13 guards.
+
+## Cleanup
+
+The isolated QA Worker, container and new R2 bucket were all deleted after receipts were
+retained, confirmed at 12:23 UTC. There was no owner app restart.
+
+## Not qualified
+
+A full Dockerfile image rebuild, fleet capacity, a live provider beyond the receipts
+above, production admin restart, and automated verification via the supervisor.
