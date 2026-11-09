@@ -3,6 +3,7 @@ import { CodexNativeActivity, type CodexActorTarget } from "../laterdog/codex-na
 import { codexToolSurfaceArgs } from "./codex-tool-surface.ts";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { toolArgsDigest } from "../laterdog/repeated-tool-call.ts";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { codexConfigMcpServerNames, mountedMcpServerName } from "./codex-mcp-names.ts";
@@ -1136,6 +1137,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           requestType: isQuestion ? "question" : "permission",
           tool,
           summary,
+          ...(isMcpPermission && toolArgsDigest(params._meta?.tool_params) ? { argsDigest: toolArgsDigest(params._meta?.tool_params) } : {}),
           command: method === "execCommandApproval" || method === "item/commandExecution/requestApproval"
             ? permissionCommand(params.command, params.cwd ?? (
               !params.threadId || params.threadId === codexThreadId ? commandCwd : undefined

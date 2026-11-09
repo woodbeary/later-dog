@@ -103,6 +103,7 @@ export type RuntimeEvent = RuntimeEventBase &
         requestType: "permission" | "question";
         tool: string;
         summary: string;
+        argsDigest?: string;
         command?: { command: string; cwd: string };
         choices?: string[];
         questions?: AskQuestion[];

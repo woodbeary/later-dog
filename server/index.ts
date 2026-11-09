@@ -7519,7 +7519,7 @@ bus.subscribe((event: RuntimeEvent) => {
   if (event.type === "item.started" && event.itemType === "tool") {
     const title = event.title ?? "";
     if (/\s|\//.test(title.trim())) key = callKey("tool", title);
-  } else if (event.type === "request.opened" && event.requestType === "permission") key = callKey(event.tool, event.summary);
+  } else if (event.type === "request.opened" && event.requestType === "permission") key = callKey(event.tool, event.summary, event.argsDigest);
   if (!key) return;
   const { threshold } = repeats.record(event.threadId, key);
   if (!threshold) return;

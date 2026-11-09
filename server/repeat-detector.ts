@@ -1,8 +1,9 @@
+const ARGS_DIGEST_SEPARATOR = "\u0000";
 const REPEATED_CALL = /^Same call repeated \d+× — /;
 
 export function repeatedCallLine(threshold: number, key: string): string {
   const [tool, ...rest] = key.split(":");
-  const args = rest.join(":");
+  const args = rest.join(":").split(ARGS_DIGEST_SEPARATOR)[0];
   return `Same call repeated ${threshold}× — ${tool}: ${args.slice(0, 80)}${args.length > 80 ? "…" : ""} — it may be stuck`;
 }
 
@@ -10,10 +11,10 @@ export function isRepeatedCallLine(name: string | undefined): boolean {
   return REPEATED_CALL.test(name ?? "");
 }
 
-export function callKey(tool: string, args: string | undefined): string | null {
+export function callKey(tool: string, args: string | undefined, argsDigest?: string): string | null {
   const a = (args ?? "").replace(/\s+/g, " ").trim();
   if (!a || a === tool) return null;
-  return `${tool}:${a}`;
+  return `${tool}:${a}${argsDigest ? ARGS_DIGEST_SEPARATOR + argsDigest : ""}`;
 }
 
 export class RepeatDetector {
