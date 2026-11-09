@@ -138,6 +138,11 @@ file, checks a 2.5-minute command finishes after the call that started it return
   `~/runs/.setup/<lockfile hash>` on the dog's own computer and is updated only after a command exits 0. A different
   lockfile never reuses packages. `server/laterdog/computer-runs.test.ts` proves reuse across two copies and no reuse
   after a lockfile change or a failed run.
+- **Engine placement (chosen dogs, Claude).** A dog listed in `<data>/remote-engines.json` runs its Claude engine on
+  its own cloud computer through `server/laterdog/engine-relay.ts`, over the computer's `process` stream. Paths,
+  account, model, effort and the native session are mirrored. MCP servers and hooks stay on the home, and files come
+  back before each result. The engine runs on the home only when the remote launch surely never started. Evidence is
+  in `docs/verification/engine-scaling-2026-11-08.md`.
 - **Shell guard (Claude and Codex engines).** On a Cloud home with cloud computers set up, a Claude engine's shell commands pass a
   `PreToolUse` hook first. An install, build, typecheck, full test script, container build or media command
   (`server/laterdog/heavy-commands.ts`) is refused once per chat with the reason to use `run_on_computer`; running the
