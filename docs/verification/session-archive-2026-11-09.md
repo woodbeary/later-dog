@@ -31,6 +31,7 @@ All runs used Node 24.22.1 on Jacob's Mac in the worktree, against temporary fol
 | `pnpm exec tsc -p tsconfig.server.json --noEmit` | exit 0 |
 | `pnpm exec oxlint --deny-warnings` on the 10 changed code files | 0 warnings, 0 errors |
 | `pnpm exec vitest run scripts/no-comments.test.ts` | 10 passed |
+| `pnpm build:server`, then `archiveCompatible("dist-server/cloud-home-start.js")` | exit 0, manifest `logArchive: 3`, compatible `true` (after rebasing onto main `075609e1a`) |
 | `pnpm exec vitest run scripts/brand-links.test.ts --testTimeout 180000` | 3 passed (the default 20 s timeout expired once under load) |
 
 Logs are in `/tmp/ksa-evidence/` on the Mac.
