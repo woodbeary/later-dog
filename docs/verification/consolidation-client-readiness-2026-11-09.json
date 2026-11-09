@@ -1,0 +1,218 @@
+{
+  "scope": "Fresh client-path and isolated provider checks for daily use; no physical iPhone observation or general capacity guarantee",
+  "checkedAt": "2026-11-09T04:07:14.718Z",
+  "desktop": {
+    "observedApp": "later.dog Dev",
+    "observedCloudConversation": true,
+    "accountSwitchVisible": true,
+    "chatgptEnabled": true,
+    "codexAuthenticated": true,
+    "codexSnapshotState": "available",
+    "existingAccountReenabledForRequestedPreference": true,
+    "selectedBoth": {
+      "instanceId": "codex",
+      "model": "gpt-6.1-sol",
+      "effort": "medium"
+    },
+    "currentWorkNotInterrupted": true,
+    "qaMessagesSentToUserDogs": 0,
+    "providerLimitMayRequireFallback": true
+  },
+  "streams": [
+    {
+      "name": "cloud",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "bytes": 65,
+      "events": 1,
+      "passed": true
+    },
+    {
+      "name": "desktop",
+      "status": 200,
+      "contentType": "text/event-stream",
+      "bytes": 65,
+      "events": 1,
+      "passed": true
+    }
+  ],
+  "phoneUpdateDelivery": {
+    "at": "2026-11-09T04:04:00.440Z",
+    "platform": "ios",
+    "channel": "beta",
+    "runtime": "1.0.1",
+    "group": "336047c1-f650-4353-8287-228882f44069",
+    "platformUpdate": "01a1bdef-acdc-7d76-b8be-293e25f550db",
+    "launchBundle": {
+      "status": 200,
+      "bytes": 5808176,
+      "hashMatches": true
+    },
+    "assetsChecked": 24,
+    "allHashesMatch": true,
+    "bytesDownloaded": 5965171,
+    "usedServerDeclaredAssetHeaders": true,
+    "physicalPhoneUptakeVerified": false
+  },
+  "phoneClientFixture": {
+    "passed": 28,
+    "failed": 0,
+    "syntheticEngine": true,
+    "physicalDevice": false,
+    "isolatedServer": true,
+    "features": [
+      "send and duplicate prevention",
+      "streamed replies in thread state",
+      "history and home hydration",
+      "questions and permissions",
+      "group conversations",
+      "computer selection preserved"
+    ]
+  },
+  "freshIsolatedProviders": {
+    "checks": [
+      {
+        "model": "grok-4.3",
+        "markerReceived": true,
+        "idle": true,
+        "elapsedSeconds": 13.697,
+        "selection": {
+          "instanceId": "laterdogGrok",
+          "model": "grok-4.3"
+        }
+      },
+      {
+        "model": "kimi-k2.6",
+        "markerReceived": true,
+        "idle": true,
+        "elapsedSeconds": 8.287,
+        "selection": {
+          "instanceId": "laterdogAi",
+          "model": "kimi-k2.6"
+        }
+      }
+    ],
+    "restoredSelection": {
+      "instanceId": "laterdogAi",
+      "model": "kimi-k2.6"
+    },
+    "executionReceipts": [
+      {
+        "reportedModel": "kimi-k2.6",
+        "providerInstanceId": "laterdogAi",
+        "selected": {
+          "instanceId": "laterdogAi",
+          "model": "kimi-k2.6"
+        },
+        "dispatched": {
+          "instanceId": "laterdogAi",
+          "model": "kimi-k2.6"
+        },
+        "providerSucceeded": true,
+        "verification": "unverified",
+        "durationMs": 7273
+      },
+      {
+        "reportedModel": "grok-4.3",
+        "providerInstanceId": "laterdogGrok",
+        "selected": {
+          "instanceId": "laterdogGrok",
+          "model": "grok-4.3"
+        },
+        "dispatched": {
+          "instanceId": "laterdogGrok",
+          "model": "grok-4.3"
+        },
+        "providerSucceeded": true,
+        "verification": "unverified",
+        "durationMs": 11325
+      }
+    ],
+    "productionUserConversation": false
+  },
+  "phoneTelemetry": {
+    "historicalEndedReports": 3,
+    "allPredateLatestBeta": true,
+    "hasStackDiagnostics": false,
+    "currentDeviceOnline": false,
+    "updateUptakeConfirmed": false,
+    "absenceOfNewReportsProvesHealth": false
+  },
+  "limits": [
+    "Phone delivery is verified; installation and real-device heat/crashes remain unverified",
+    "Provider completions are transport checks, not independently correct task-quality outcomes",
+    "Codex account is enabled and authenticated, but provider limits and current-attempt fallback remain distinct",
+    "The additional production monitor is recorded separately after completion"
+  ],
+  "connectedComputerBridge": {
+    "listed": 1,
+    "online": 1,
+    "recentPollObserved": true,
+    "commandExecutionProbeSent": false,
+    "scope": "Authenticated status/poll observation, not a new live computer command"
+  },
+  "minuteStreams": {
+    "at": "2026-11-09T04:12:15.157Z",
+    "results": [
+      {
+        "name": "cloud",
+        "status": 200,
+        "contentType": "text/event-stream",
+        "bytes": 143619,
+        "chunks": 107,
+        "dataFrames": 119,
+        "elapsedSeconds": 60.013,
+        "endedBeforeDeadline": false,
+        "passed": true
+      },
+      {
+        "name": "desktop",
+        "status": 200,
+        "contentType": "text/event-stream",
+        "bytes": 143619,
+        "chunks": 73,
+        "dataFrames": 119,
+        "elapsedSeconds": 60.003,
+        "endedBeforeDeadline": false,
+        "passed": true
+      }
+    ]
+  },
+  "additionalProductionWindow": {
+    "first": "2026-11-09T04:02:21.556Z",
+    "last": "2026-11-09T04:12:29.349Z",
+    "consecutiveQualified": 21,
+    "spanSeconds": 607.793,
+    "allDogAndCurrentThreadIdentitiesPreserved": true,
+    "dogs": 80,
+    "selected": [
+      {
+        "name": "Patch",
+        "selection": {
+          "instanceId": "codex",
+          "model": "gpt-6.1-sol",
+          "effort": "medium"
+        }
+      },
+      {
+        "name": "Clover",
+        "selection": {
+          "instanceId": "codex",
+          "model": "gpt-6.1-sol",
+          "effort": "medium"
+        }
+      }
+    ],
+    "active": [
+      "Patch"
+    ],
+    "minimumFreeBytes": 1906761728,
+    "maximumFreeBytes": 2421592064,
+    "lastFreeBytes": 1990778880,
+    "lastLow": true,
+    "lowSamples": 4,
+    "receiptFieldsWithoutLegacyTask": true,
+    "newProductionDeployment": false,
+    "capacityQualified": false
+  }
+}

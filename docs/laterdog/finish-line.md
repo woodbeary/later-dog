@@ -17,6 +17,20 @@ canonical production flags remain unchanged. The optional advisor preserves the
 selected model. [Release evidence](../verification/consolidation-release-2026-11-08.md)
 separates publication, activation, provider behavior and device installation.
 
+The subsequent native Codex guard Worker `e85c60e3` superseded that rollout. Its
+separate 03:44:55–03:55:03 UTC window passed 21 consecutive functional samples;
+ten low-storage flags leave capacity unqualified. Canonical production/test
+image pins match this activated version. Both selected settings remain Codex /
+Sol / Medium, while Patch's current attempt reports Claude. Per-dog engine
+placement remains unfinished. The same release evidence keeps these facts separate.
+
+Daily-use closing checks observed the actual desktop conversation and account
+switch, enabled the existing ChatGPT sign-in to honor Codex selection, verified
+Cloud/desktop event streams, and reran the 28-step isolated phone-client smoke.
+The iPhone beta manifest and all 25 bundle/asset hashes are available and correct;
+fresh staging Grok and Kimi turns completed with matching receipts. Physical
+phone uptake remains unobserved. The same release evidence records exact scopes.
+
 ## Optional execution advisor (2026-11-08)
 
 The server owns execution evidence in the existing usage ledger and exposes the
@@ -32,7 +46,7 @@ rollout. [Verification and limits](../verification/execution-advisor.md).
 ## Native work projection (2026-11-09)
 
 Durable native runs, compact selectable puppies, one detail surface and the phone's
-reused Activity screen are merged and staged. Client scope, Claude approval
+reused Activity screen are merged, activated on Cloud and published on phone beta. Client scope, Claude approval
 attribution, inspector validation and canonical Stop boundaries are repaired.
 The real browser fixture and restart/retention fixtures pass. One authenticated
 Claude foreground-child parser case is qualified; a real production Codex parent
@@ -50,9 +64,9 @@ children and real phone performance remain unqualified. See [verification](../ve
 
 2026-11-09 execution evidence privacy: new ledger execution evidence omits task text. Evidence is whitelisted on append and read, and the advisor matches against canonical current thread titles fetched per query for rows already scoped to the asking dog. Legacy task titles in existing month files are not scrubbed, and current titles are not historical task-quality labels. See [execution advisor](../verification/execution-advisor.md).
 
-2026-11-08 background recovery: the registry now takes a completed background account check from the current snapshot cache, avoiding stale state until another client request. All 20 account-continuation fixtures pass, including an unopened conversation, reset across restart, synthetic Grok capacity dispatch and legacy Kimi queue migration. The 30-hour progressing owner-work test passes with the elapsed ceiling removed. The reported live stall and installed desktop behavior remain unverified; see [recovery evidence](../verification/recovery-2026-11-08.md).
+2026-11-08 background recovery: the registry now takes a completed background account check from the current snapshot cache, avoiding stale state until another client request. All 20 account-continuation fixtures pass, including an unopened conversation, reset across restart, synthetic Grok capacity dispatch and legacy Kimi queue migration. The 30-hour progressing owner-work test passes with the elapsed ceiling removed. The originally queued live messages were not replayed, and a new signed desktop release remains unverified; actual running Dev account controls are checked in the closing release evidence. See [recovery evidence](../verification/recovery-2026-11-08.md).
 
-2026-11-08 account usage: full five-hour or seven-day readings now keep an account resting until reset without needing a limit event. Limit continuation chooses the eligible account with the most room, including pinned dogs. Desktop Accounts rows now expose the saved account on/off setting. Regression coverage includes full-window routing, a recovered pinned account during fallback, usage-sheet reports, and successful/rejected desktop toggles. The isolated account-continuation fixture passes all 16 scenarios. Account row behavior is fixture-tested; installed desktop appearance remains unverified. Staging completed bounded real Grok and Kimi turns, including a new sanitized Kimi receipt on the privacy image. The originally reported live queued messages are not declared delivered by those staging checks.
+2026-11-08 account usage: full five-hour or seven-day readings now keep an account resting until reset without needing a limit event. Limit continuation chooses the eligible account with the most room, including pinned dogs. Desktop Accounts rows now expose the saved account on/off setting. Regression coverage includes full-window routing, a recovered pinned account during fallback, usage-sheet reports, and successful/rejected desktop toggles. The isolated account-continuation fixture passes all 16 scenarios. Account row behavior is fixture-tested; the actual running Dev screen and requested ChatGPT enable operation were observed in the closing release checks. A new signed desktop installer remains unverified. Staging completed bounded real Grok and Kimi turns, including a new sanitized Kimi receipt on the privacy image. The originally reported live queued messages are not declared delivered by those staging checks.
 
 1. Read `AGENTS.md`. The rules there hold for every lane: pnpm, Node 24, no comments in code, new behaviour in new files under `server/laterdog/`, isolated fixtures only.
 2. Find your lane below. Check out its branch in its own worktree. Never switch branches in someone else's worktree.
