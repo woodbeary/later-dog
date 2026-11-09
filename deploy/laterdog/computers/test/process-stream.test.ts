@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runProcessStream, type StreamingProcess, type StreamSocket } from "../src/process-stream";
+import { route } from "../src/routes";
 
 class Socket implements StreamSocket {
   sent: Array<Record<string, unknown>> = [];
@@ -28,6 +29,11 @@ function fakeProcess() {
 const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 describe("process stream", () => {
+  it("is a GET on the computer's own path, so the upgrade reaches the computer object's fetch", () => {
+    expect(route("GET", "/v1/computers/cmp_abcdefghjkmn/process")).toEqual({ kind: "computer", op: "process", id: "cmp_abcdefghjkmn" });
+    expect(route("POST", "/v1/computers/cmp_abcdefghjkmn/process").kind).toBe("method_not_allowed");
+  });
+
   it("starts one process, carries stdin and stdout, and reports its exit", async () => {
     const socket = new Socket();
     const child = fakeProcess();

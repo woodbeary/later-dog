@@ -234,7 +234,8 @@ async function computerRequest(op: ComputerOp, id: string, request: Request, env
       return answer(await (op === "reset" ? stub.reset(allowance) : stub.updateImage(allowance)), (value) => json({ computer: value }));
     }
     case "process":
-      return stub.process(request);
+      // A WebSocket cannot cross an RPC call; the upgrade goes through the object's fetch.
+      return stub.fetch(request);
     case "exec": {
       const body = await readJson(request);
       if (!body.ok) return body.response;

@@ -431,6 +431,7 @@ export class DogComputer extends DurableObject<Env> {
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const target = route(request.method, url.pathname);
+    if (target.kind === "computer" && target.op === "process" && target.id === this.load()?.id) return this.process(request);
     if (target.kind !== "desktop") return new Response("Not found", { status: 404 });
     const nonce = newNonce();
     const page = (status: number, title: string, message: string) =>
