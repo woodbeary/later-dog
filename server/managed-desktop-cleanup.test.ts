@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import { expect, it } from "vitest";
-import { stoppedWorkLine } from "./laterdog/long-work.ts";
+import { endsSentWork, stoppedWorkLine } from "./laterdog/long-work.ts";
 
 const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 function section(start: string, end: string) {
@@ -21,7 +21,7 @@ const code = ts.transpileModule([
   section("async function stopCompanyInstances(", "async function persistProviderInstance("),
 ].join("\n"), { compilerOptions: { target: ts.ScriptTarget.ESNext } }).outputText;
 const reloadProvidersCode = ts.transpileModule(
-  section("async function reloadProviders()", "let providerConfigBusy = false;"),
+  section("async function reloadProviders()", "function providerTurnsRunning(): boolean {"),
   { compilerOptions: { target: ts.ScriptTarget.ESNext } },
 ).outputText;
 
@@ -79,7 +79,7 @@ function fixture(kind: "direct" | "group", threadIds = ["first"]) {
     turnResourceOwners: owners, directTurnGenerationByThread: generations, directTurnBots: directBots, groupSpeakers: speakers,
     directRequestOwners: new Map(),
     accountBattery: { pending: (threadId: string, generation: string) => pendingBatteryTurns.get(threadId) === generation },
-    stoppedWorkLine,
+    endsSentWork, stoppedWorkLine,
     cancelBatteryContinuation: (threadId: string, reason: string) => {
       cancelledBatteryTurns.push({ threadId, reason });
       pendingBatteryTurns.delete(threadId);

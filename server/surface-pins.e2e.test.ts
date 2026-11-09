@@ -79,7 +79,9 @@ describe("surface pin provenance against the real server", () => {
         APPDATA: join(home, "appdata"), LOCALAPPDATA: join(home, "localappdata"),
         TEMP: home, TMP: home, TMPDIR: home,
         LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1), LATERDOG_STATIC_DIR: ui, LATERDOG_TEST_VM_STATE: stateFile,
-        LATERDOG_BOX_API: boatApi, LATERDOG_USER_DATA: join(home, "user-data"),
+        LATERDOG_BOX_API: boatApi,
+        LATERDOG_CLOUD_COMPUTER_START_WAIT_MS: "1000", LATERDOG_CLOUD_COMPUTER_START_BUDGET_MS: "1000",
+        LATERDOG_CLOUD_COMPUTER_RETRY_PAUSE_MS: "1000", LATERDOG_USER_DATA: join(home, "user-data"),
       }, stdio: ["ignore", "pipe", "pipe"],
     });
     child = proc;

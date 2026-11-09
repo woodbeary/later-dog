@@ -80,7 +80,9 @@ describe("a cloud computer that can't start, against the real server", () => {
         APPDATA: join(home, "appdata"), LOCALAPPDATA: join(home, "localappdata"),
         TEMP: home, TMP: home, TMPDIR: home, LATERDOG_TEST_SEALED_PATH: "1",
         LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1), LATERDOG_STATIC_DIR: ui,
-        LATERDOG_BOX_API: boatApi, LATERDOG_USER_DATA: join(home, "user-data"),
+        LATERDOG_BOX_API: boatApi,
+        LATERDOG_CLOUD_COMPUTER_START_WAIT_MS: "1000", LATERDOG_CLOUD_COMPUTER_START_BUDGET_MS: "1000",
+        LATERDOG_CLOUD_COMPUTER_RETRY_PAUSE_MS: "1000", LATERDOG_USER_DATA: join(home, "user-data"),
         ...(included ? { LATERDOG_CLOUD_BOAT_URL: boatApi, LATERDOG_CLOUD_BOAT_TOKEN: "relay_place_view_fixture" } : {}),
       }, stdio: ["ignore", "pipe", "pipe"],
     });
