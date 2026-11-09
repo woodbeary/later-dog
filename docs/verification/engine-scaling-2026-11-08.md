@@ -79,12 +79,38 @@ The check's home-side process tree was sampled every 0.5 s during the third run,
 - During the remote sessions, the whole home-side tree peaked at 172,880 KB. That tree is the check script itself plus the home MCP server and hooks, which exist in both placements. In production the relay link runs inside the existing server process.
 - So each engine moved saves about one engine's RSS, roughly 0.26 GB. This is a per-engine measurement. No home-wide before/after RAM change is claimed, because no dog is moved by default.
 
+### Hardening before more dogs (2026-11-09, branch `kennel/engine-hardening`)
+
+Sign-in renewal during long remote turns. While a dog's engine runs on its computer, the home holds that account's `.credentials.json` in `server/laterdog/engine-renewal.ts`. Once a minute it checks the expiry. When fewer than five minutes are left (the same margin the home gate and the CLI use), it claims the existing refresh gate in `claude-refresh-lock.ts` (new `claim`: wait for any turn already refreshing, then lead so home turns wait for this refresh) and runs the account's own pinned CLI as `claude auth status --json` with the home environment. One renewal runs per account however many engines share it. A failed renewal is retried after two minutes. Nothing is held for engines that stay on the home, and the hold ends when the engine closes. The existing 30-second push then sends the new access token, still without its refresh token.
+
+The CLI behaviour was checked, not assumed, with `scripts/verify-claude-sign-in-renewal.mjs` against the real Claude Code 2.1.316 Linux package. An isolated TLS-intercepting proxy with a private CA stood in for every Anthropic address, so no real account or provider was used. Results:
+
+- With 10 minutes left, `auth status` made no token request.
+- With 2 minutes left, and once expired, it made one `refresh_token` grant and saved the new access and refresh tokens. It made no model request.
+- A running `-p` stream-json engine given a lent token without a refresh token used the replaced `.credentials.json` on its next request. With 3 minutes left it made no token request and kept using the lent token.
+
+So the computer picks up a renewal without restarting the engine. That makes `auth status` the cheapest non-model refresh. The home only renews on Linux, where the sign-in is a file; a Mac keeps it in the Keychain, and the planner lends nothing there.
+
+The dog's private folder, read-only. `workspaces/<bot id>` is mirrored to the same absolute path on the computer, with `MEMORY.md`, `memory/` and the rest. It is bounded: files over 8 MB are skipped, as are build output (`node_modules`, `dist`, `build` and the others the workspace already skips) and symbolic links. The total stops at 64 MB. It is left out when it would overlap the working folder or the account folder. A working folder inside it is excluded from it. Its files arrive without write permission and the folder is never a checkpoint output, so nothing written there comes back. Writes still go through MCP tools.
+
+Placement setting. `GET`/`PUT /api/bots/:id/engine-placement` (`server/routes/engine-placement.ts`) reads and sets `{"placement": "computer" | "home"}`. It needs the owner's admin scope and refuses the local-tools token, so a dog cannot move itself. It writes `remote-engines.json` atomically with mode 600 and keeps other dogs and fields. It refuses to rewrite a file it cannot parse. A dog placed by `LATERDOG_REMOTE_ENGINE_BOTS` is reported as `fromEnvironment` and cannot be moved back here. The app has no control for it yet.
+
+Tests (Node 24.22.1, in isolated temporary folders):
+
+- Engine suites on a Linux cloud computer: 57 tests in 8 files. That is 11 end-to-end transport tests, 3 of them new: the bot folder is mirrored read-only with its bounds; a near-expiry sign-in is renewed on the home during a long remote turn and reaches the computer without its refresh token; and no renewal is held for an engine that fell back to the home. The rest are 11 planner tests (3 new: bot-folder root rules, renewal input, atomic placement file), 7 file tests (1 new: bounded inventory), 5 new renewal tests, 4 new route tests, 10 refresh-gate tests and 9 trim tests. The end-to-end file passed 11/11 in each of three runs.
+- The renewal tests cover these cases. It runs only within five minutes of expiry, and only while a remote engine holds the account. It waits for a home turn already refreshing and never refreshes after it. It holds home turns back while it refreshes. It renews once per account, takes over after a home turn's refresh fails, and backs off after its own failure. It runs `auth status --json` in the account folder.
+- The route tests cover these cases. It needs admin scope. The local-tools token, unknown dogs, malformed bodies and other methods are refused and change nothing. An unreadable file is left untouched. An environment-placed dog cannot be moved back.
+- Claude and Codex driver suites: 16 files, 600 passed and 1 skipped under load. One Codex sign-out test (`blocks new ChatGPT turns and sign-in while active tasks stop and credentials revoke`) failed on a spawn count in that run. Alone it passed on this branch and on main, and `codex.test.ts` then passed all 230 tests. This change does not touch Codex.
+- `pnpm typecheck` passed. Lint of the changed files had 0 warnings. Full `pnpm lint` still reports 2 warnings in `electron/shared-computer-access.node-test.mjs`, which exist on main; for that reason the push skipped the pre-push hook. The comment and brand/link checks passed 13 tests. `index-route-ratchet` already fails on main (145 `path === "/` guards against 144); this change adds none.
+- On Jacob's Mac (load average about 30), the same unit, route and refresh-gate files passed 37/37. The existing end-to-end case `fails a turn whose connection drops after launch…` failed there 3 of 3 times on main and 3 of 4 times on this branch. The orphan engine had already exited when it was checked. This is a Mac timing problem that predates this change, and it passes on Linux.
+- The computers Worker, images and wrangler configs were not changed.
+
 ### Not yet done
 
 - Codex engines stay on the home. The app-server's own auth refresh and thread store need their own design.
-- A remote engine sees only its working folder, its session files and its launch files. Other home paths, such as the dog's private bot folder, are not mirrored, so the engine cannot read them directly. MCP tools still reach them.
-- If an access token expires during a long remote turn, the computer gets a new one only when the home renews it. The home renews tokens on its own turns, not for remote ones.
 - A dropped connection ends the turn instead of reattaching to the running engine.
-- Turning placement on for a dog is a data-folder setting, with no app control yet.
+- The placement setting has a server route but no app control.
+- Renewal is fixture-qualified, not yet observed on a live account over a real token expiry. The first long remote turn after release should show one `auth status` run in the home's process list and a changed `expiresAt` on both the home and the computer.
+- Other home paths outside the working folder, session files, launch files and the bot folder (for example another dog's folder or shared team files) are still not mirrored.
 
 Session/provider archiving and archive deletion remain off. Other dogs were not started and existing worktrees and diffs were preserved.
