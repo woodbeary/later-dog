@@ -1,5 +1,4 @@
-import { validExecutionEvidence } from "./laterdog/execution-evidence.ts";
-import type { ExecutionEvidence } from "./laterdog/execution-evidence.ts";
+import { parseExecutionEvidence, type ExecutionEvidence } from "./laterdog/execution-evidence.ts";
 import { readFileSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -82,10 +81,12 @@ export function usageRowKey(row: Pick<UsageRow, "at" | "threadId" | "botId">): s
 }
 
 export function appendUsage(dataDir: string, row: Omit<UsageRow, "at"> & { at?: string }): Promise<boolean> {
-  const { promptBytes: rawPromptBytes, ...rest } = row;
+  const { promptBytes: rawPromptBytes, execution: rawExecution, ...rest } = row;
   const promptBytes = promptBytesOf(rawPromptBytes);
+  const execution = parseExecutionEvidence(rawExecution);
   const record: UsageRow = {
     ...rest,
+    ...(execution ? { execution } : {}),
     at: row.at ?? new Date().toISOString(),
     input: clean(row.input),
     output: clean(row.output),
@@ -158,10 +159,9 @@ export function readUsage(dataDir: string, range: { from: Date; to: Date }): Usa
         if (!isUsageRow(value)) continue;
         const at = Date.parse(value.at);
         if (at >= from && at <= to) {
-          if (value.execution && !validExecutionEvidence(value.execution)) {
-            const { execution: _execution, ...legacy } = value;
-            rows.push(legacy);
-          } else rows.push(value);
+          const { execution: rawExecution, ...rest } = value;
+          const execution = parseExecutionEvidence(rawExecution);
+          rows.push(execution ? { ...rest, execution } : rest);
         }
       } catch {}
     }
