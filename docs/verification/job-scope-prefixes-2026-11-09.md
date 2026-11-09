@@ -1,0 +1,45 @@
+# Job write scopes: trailing `/**` as a directory prefix
+
+Source head: `fcfbc41d06e385641b56ea65b1090fcde70bfe0f` plus the uncommitted diff to
+`shared/laterdog.ts` and `shared/laterdog.test.ts`. Not deployed, not released, and no live
+job was inspected or changed.
+
+## Defect
+
+`scopesOverlap(["server/laterdog/**"], ["server/laterdog/janitor.ts"])` and
+`pathInScopes("server/laterdog/engine-files.ts", ["server/laterdog/**"])` were both `false`:
+the schema accepted `dir/**` but the predicates compared it as a literal prefix.
+
+## Change (`shared/laterdog.ts`)
+
+- `canonicalScope` turns trailing `/**` (repeated) into its directory and `**` into `*`.
+- `scopesOverlap` and `pathInScopes` canonicalize every scope first, so scopes already stored
+  as `dir/**` are read as `dir` for both publish permission checks and concurrency checks.
+- `scopePath` validates the canonical form and now refuses embedded glob syntax
+  (`* ? [ ] { } !` anywhere but a trailing `/**`), as well as the existing traversal, `.git`,
+  absolute, backslash and empty-segment refusals. `*` and exact files stay valid.
+- Directory boundary is unchanged: `server/foo` does not match `server/foobar`.
+
+## Checks
+
+- Before the fix (source change stashed, new test kept):
+  `pnpm vitest run shared/laterdog.test.ts` gave 5 failed, 2 passed.
+- After: `pnpm vitest run shared/laterdog.test.ts scripts/no-comments.test.ts scripts/brand-links.test.ts`
+  gave 3 files, 20 tests passed.
+- `pnpm vitest run server/laterdog` gave 210 files passed, 1 failed. The failure is
+  `removed-dog-settings.test.ts` (file-not-writable case), which also fails with this change
+  stashed. `cloud-account-sign-in.test.ts` failed once under load and passed on its own rerun
+  with the change stashed.
+- `npx tsc --noEmit -p .` printed no errors.
+
+## Remaining limits
+
+- Scopes are not rewritten in storage. Stored `dir/**` scopes stay as written and are read
+  as `dir`; the prompt text and PR body still print them as stored.
+- Canonicalizing new requests when a job is created would need a change in
+  `server/laterdog/supervisor.ts`, outside this job's write scopes. A zod transform on
+  `scopePath` was tried and reverted: it breaks `z.toJSONSchema` for the MCP tool schema
+  (`http.test.ts`, `job-trace-http.test.ts` failed with "Transforms cannot be represented").
+- Scopes such as `dir/*` or `a/**/b` are now refused for new requests; already-stored ones are
+  treated as literal paths.
+- Not deployed; no claim about live jobs, including job 29b2ff1d.
