@@ -1122,6 +1122,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           nativeActivity.request(params, requestId, summary, alreadyResolved ? "Resolved by Codex" : `${behavior} (${source})`);
           emit({ ...base(threadId, turnId), type: "request.resolved", requestId, behavior, source, ...(alreadyResolved ? { resolvedExternally: true } : {}), ...(nativeActorId ? { nativeActorId } : {}) });
         };
+        const mcpArgsDigest = isMcpPermission ? toolArgsDigest(params._meta?.tool_params) : undefined;
+        const mcpArgsIdentity = !isMcpPermission ? {} : mcpArgsDigest ? { argsDigest: mcpArgsDigest } : { argsUnknown: true as const };
         const timer = setTimeout(
           () => finish("deny", isQuestion ? undefined : DENY_TIMEOUT_NOTE, "timeout"),
           15 * 60_000,
@@ -1137,7 +1139,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           requestType: isQuestion ? "question" : "permission",
           tool,
           summary,
-          ...(isMcpPermission && toolArgsDigest(params._meta?.tool_params) ? { argsDigest: toolArgsDigest(params._meta?.tool_params) } : {}),
+          ...mcpArgsIdentity,
           command: method === "execCommandApproval" || method === "item/commandExecution/requestApproval"
             ? permissionCommand(params.command, params.cwd ?? (
               !params.threadId || params.threadId === codexThreadId ? commandCwd : undefined

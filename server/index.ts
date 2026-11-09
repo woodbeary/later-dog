@@ -496,6 +496,7 @@ import { LocalVmIdleTimer } from "./local-vm-idle.ts";
 import { LocalVmLease, LocalVmLeasePool } from "./local-vm-lease.ts";
 import { LocalVmSeatPool, type LocalVmSeatHolder } from "./local-vm-seat-pool.ts";
 import { RepeatDetector, callKey, repeatedCallLine } from "./repeat-detector.ts";
+import { permissionCallKey } from "./laterdog/repeated-tool-call.ts";
 import { redactSecretsInText } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, type Routine, type RoutineGoalStatus, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
@@ -7519,7 +7520,7 @@ bus.subscribe((event: RuntimeEvent) => {
   if (event.type === "item.started" && event.itemType === "tool") {
     const title = event.title ?? "";
     if (/\s|\//.test(title.trim())) key = callKey("tool", title);
-  } else if (event.type === "request.opened" && event.requestType === "permission") key = callKey(event.tool, event.summary, event.argsDigest);
+  } else if (event.type === "request.opened" && event.requestType === "permission") key = permissionCallKey(event);
   if (!key) return;
   const { threshold } = repeats.record(event.threadId, key);
   if (!threshold) return;

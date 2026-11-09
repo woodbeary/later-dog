@@ -104,6 +104,7 @@ export type RuntimeEvent = RuntimeEventBase &
         tool: string;
         summary: string;
         argsDigest?: string;
+        argsUnknown?: true;
         command?: { command: string; cwd: string };
         choices?: string[];
         questions?: AskQuestion[];
