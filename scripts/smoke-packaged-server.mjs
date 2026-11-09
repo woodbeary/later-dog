@@ -141,6 +141,7 @@ if (listening) {
     env: fixtureEnv,
     stdio: ["pipe", "pipe", "pipe"],
   });
+  const closed = new Promise((resolve) => mcp.once("close", (code, signal) => resolve({ code, signal })));
   let stdout = "";
   let stderr = "";
   mcp.stdout.on("data", (chunk) => (stdout += chunk));
@@ -164,7 +165,6 @@ if (listening) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   mcp.stdin.end(`${JSON.stringify({ jsonrpc: "2.0", id: 3, method: "ping" })}\n`);
-  const closed = new Promise((resolve) => mcp.once("close", (code, signal) => resolve({ code, signal })));
   let timeout;
   const exit = await Promise.race([
     closed,

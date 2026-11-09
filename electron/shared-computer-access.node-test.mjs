@@ -562,7 +562,7 @@ test("a local gate that refuses keeps the driver from launching", async t => {
 test("a published driver connection that is unavailable keeps the driver from launching and still frees the gate", async t => {
   const { events, launched, lend } = await screenFixture(t);
   const gate = [];
-  const result = await lend({ connection: { mode: "unavailable", reason: "cua-driver binary not found" }, hostControl: async id => { gate.push("acquire"); return { renew: async () => {}, release: async () => { gate.push("release"); } }; } });
+  const result = await lend({ connection: { mode: "unavailable", reason: "cua-driver binary not found" }, hostControl: async () => { gate.push("acquire"); return { renew: async () => {}, release: async () => { gate.push("release"); } }; } });
   assert.equal(result.isError, true);
   assert.deepEqual(events, ["connection"]);
   assert.equal(await launched(), 0);
@@ -593,7 +593,7 @@ test("a local takeover during a screen call aborts it and releases the gate", as
 test("with the gate held and the driver published, a screen call runs once and releases the gate", async t => {
   const { lent, registrations, events, launched, lend, connection } = await screenFixture(t);
   const gate = [];
-  const result = await lend({ connection, hostControl: async id => { gate.push("acquire"); return { renew: async () => {}, release: async () => { gate.push("release"); } }; } });
+  const result = await lend({ connection, hostControl: async () => { gate.push("acquire"); return { renew: async () => {}, release: async () => { gate.push("release"); } }; } });
   assert.equal(registrations.at(-1).computer, true);
   assert.equal(lent.sharing.state(stubEnvId(JSON.parse(await readFile(lent.file, "utf8")))).computer, true);
   assert.equal(result.isError, undefined);

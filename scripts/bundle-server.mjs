@@ -16,6 +16,18 @@ const yamlEsmPlugin = {
   },
 };
 
+const nodeEsmBuild = {
+  bundle: true,
+  platform: "node",
+  target: "node20",
+  format: "esm",
+  allowOverwrite: true,
+  logLevel: "info",
+  banner: {
+    js: 'import { createRequire as __laterdogCreateRequire } from "node:module"; const require = __laterdogCreateRequire(import.meta.url);',
+  },
+};
+
 const ENTRY_POINTS = [
   "laterdog/main.ts",
   "laterdog/mcp.ts",
@@ -44,42 +56,24 @@ const ENTRY_POINTS = [
 ];
 
 await build({
+  ...nodeEsmBuild,
   entryPoints: ENTRY_POINTS.map((entry) => join(server, entry)),
-  bundle: true,
-  platform: "node",
-  target: "node20",
-  format: "esm",
   outbase: server,
   outdir: join(root, "dist-server"),
-  allowOverwrite: true,
-  logLevel: "info",
   plugins: [yamlEsmPlugin],
-  banner: {
-    js: 'import { createRequire as __laterdogCreateRequire } from "node:module"; const require = __laterdogCreateRequire(import.meta.url);',
-  },
 });
 
 await build({
+  ...nodeEsmBuild,
   entryPoints: [join(root, "scripts", "mcp-server.ts")],
-  bundle: true,
-  platform: "node",
-  target: "node20",
-  format: "esm",
   outfile: join(root, "dist-server", "mcp-server.js"),
-  allowOverwrite: true,
-  logLevel: "info",
 });
 
 if (existsSync(join(root, "enterprise", "server", "index.ts"))) {
   await build({
+    ...nodeEsmBuild,
     entryPoints: [join(root, "enterprise", "server", "index.ts")],
-    bundle: true,
-    platform: "node",
-    target: "node20",
-    format: "esm",
     outfile: join(root, "dist-server", "enterprise", "server", "index.js"),
-    allowOverwrite: true,
-    logLevel: "info",
   });
   copyFileSync(join(root, "enterprise", "LICENSE"), join(root, "dist-server", "enterprise", "LICENSE"));
 }
@@ -97,5 +91,5 @@ copyFileSync(join(server, "model-catalog", "models-dev.snapshot.json"), catalogS
 const piMcpExtSrc = join(server, "drivers", "pi-mcp-extension.ts");
 const piMcpExtDest = join(root, "dist-server", "drivers", "pi-mcp-extension.ts");
 mkdirSync(dirname(piMcpExtDest), { recursive: true });
-await build({ entryPoints: [piMcpExtSrc], outfile: piMcpExtDest, bundle: true,
-  platform: "node", target: "node24", format: "esm", external: ["typebox"], });
+await build({ ...nodeEsmBuild, entryPoints: [piMcpExtSrc], outfile: piMcpExtDest,
+  target: "node24", external: ["typebox"], });
