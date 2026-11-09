@@ -139,7 +139,8 @@ import { isEffortLevel, type BotVisibility, type CardAnswerer, type ResolvedSend
 import { waitingOn } from "./laterdog/waiting-on.ts";
 import { personAsk } from "./laterdog/asks-person.ts";
 import { engineRefusesEffort, fittedEffort, offeredEffortLevels } from "./laterdog/effort-levels.ts";
-import { isPersistentQuestionCard, shouldSettleRequestCard } from "../shared/ask-question.ts";
+import { isPersistentQuestionCard } from "../shared/ask-question.ts";
+import { requestCardResolution } from "./laterdog/native-request-resolution.ts";
 import { canUseMcpServer, parseToolScope, toolScopeWidens } from "../shared/tool-scope.ts";
 import type { TeamComputersPayload } from "../shared/team-computer.ts";
 import { boatCreateRecoverySnapshot, retireDeletedBoatCreate } from "./boat-create-idempotency.ts";
@@ -386,6 +387,13 @@ import { Handoffs, handedStateUsable, recordHanded, renderUnseen, sessionStart, 
 import { extractTurnImages } from "./turn-images.ts";
 import { threadTitlePrompt, titleConversationExcerpt, type ThreadTitleSource } from "./thread-title.ts";
 import { HelperBoard } from "./laterdog/helper-board.ts";
+import { NativeRunProjector } from "./laterdog/native-run-projector.ts";
+import { NativeRunPublisher } from "./laterdog/native-run-publisher.ts";
+import { NativeRunStore } from "./laterdog/native-run-store.ts";
+import type { NativeActorStopper } from "./laterdog/native-run-store.ts";
+import { threadsPastRetention } from "./laterdog/native-run-retention.ts";
+import { nativeRunDatabase } from "./message-db.ts";
+import { createNativeRunRoutes } from "./routes/native-runs.ts";
 import { TurnWatchdog } from "./turn-watchdog.ts";
 import { TurnResources, type TurnOwner } from "./turn-resources.ts";
 import {
@@ -5216,7 +5224,20 @@ const GROUP_MEMBER_WAIT_MAX_MS = Math.max(1_000, Number(process.env.LATERDOG_GRO
 const COMPUTER_WAIT_MAX_MS = Math.max(1_000, Number(process.env.LATERDOG_COMPUTER_WAIT_MAX_MS) || 30 * 60_000);
 const roomStallCompletions = new RoomTurnStallRegistry();
 const helperBoard = new HelperBoard();
-helpersWorkingIn = threadId => helperBoard.runningCount(threadId);
+const nativeRunStore = new NativeRunStore(nativeRunDatabase);
+nativeRunStore.recoverInterrupted();
+const nativeRunPublisher = new NativeRunPublisher(run => broadcast({ kind: "native.run.updated", threadId: run.threadId, run }));
+const nativeRuns = new NativeRunProjector(nativeRunStore, run => nativeRunPublisher.publish(run), threadId => {
+  const bot = store.botByThread(threadId);
+  const speaker = groupSpeakers.get(threadId);
+  return { botId: bot?.id ?? speaker?.botId, label: bot?.name ?? speaker?.name };
+});
+function nativeRequestAttribution(event: Extract<RuntimeEvent, { type: "request.opened" }>): { nativeActorId?: string; nativeActorLabel?: string; nativeRunId?: string } {
+  if (!event.nativeActorId) return {};
+  const run = nativeRuns.forEvent(event);
+  return { nativeActorId: event.nativeActorId, nativeActorLabel: run?.actors.find(actor => actor.id === event.nativeActorId)?.label, nativeRunId: run?.id };
+}
+helpersWorkingIn = threadId => Math.max(helperBoard.runningCount(threadId), nativeRuns.runningCount(threadId));
 
 function announceHelpersChanged(threadId: string): void {
   const owner = store.botByThread(threadId);
@@ -5294,12 +5315,18 @@ watchdog.start();
 
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
+  const nativeBefore = nativeRuns.runningCount(event.threadId);
+  nativeRuns.observe(event);
+  if (event.type === "native.observed") {
+    watchdog.setWaitingOnHelpers(event.threadId, helperBoard.running(event.threadId) || nativeRuns.running(event.threadId));
+    if (nativeRuns.runningCount(event.threadId) !== nativeBefore) announceHelpersChanged(event.threadId);
+  }
   if (event.type === "turn.started") helperBoard.start(event.threadId);
   if (event.type === "helper.updated") {
     const before = helperBoard.runningCount(event.threadId);
     helperBoard.update(event.threadId, event.helper);
-    watchdog.setWaitingOnHelpers(event.threadId, helperBoard.running(event.threadId));
-    if (helperBoard.runningCount(event.threadId) !== before) announceHelpersChanged(event.threadId);
+    watchdog.setWaitingOnHelpers(event.threadId, helperBoard.running(event.threadId) || nativeRuns.running(event.threadId));
+    if (helperBoard.runningCount(event.threadId) !== before || nativeRuns.runningCount(event.threadId) !== nativeBefore) announceHelpersChanged(event.threadId);
   }
   if (event.type === "turn.completed") helperBoard.settle(event.threadId);
   watchdog.observeTool(event);
@@ -6643,6 +6670,7 @@ function recoverUnsettledTurn(event: RuntimeEvent, error: unknown): void {
 
 bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
+  if (event.type === "native.observed") return;
   const localVmTarget = localVmThreadTargets.get(event.threadId);
   if (localVmTarget) {
     localVmLeaseFor(localVmTarget).touch(event.threadId);
@@ -6806,6 +6834,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
             options: event.choices?.length ? event.choices : permission ? ["Allow", "Deny"] : [],
             requestId: event.requestId,
             requestType: permission ? "permission" : "question",
+            ...nativeRequestAttribution(event),
             tool: permission ? event.tool : undefined,
             questionRequest: questions
               ? { version: 1, questions, ...(event.origin === "output" ? { origin: "output" as const } : {}) }
@@ -6953,15 +6982,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       if (messageId) {
         const existing = store.messagesFor(event.threadId).find((m) => m.id === messageId);
         if (existing?.card && !existing.card.answered) {
-          if (shouldSettleRequestCard(existing.card, event.source)) {
-            store.patchMessage(event.threadId, messageId, {
-              card: {
-                ...existing.card,
-                answered: event.behavior,
-                dismissed: isPersistentQuestionCard(existing.card) ? false : event.source !== "user",
-              },
-            });
-          }
+          const resolution = requestCardResolution(existing.card, event);
+          if (resolution) store.patchMessage(event.threadId, messageId, { card: { ...existing.card, ...resolution } });
         }
         if (event.requestId) askMessageByRequest.delete(`${event.threadId}:${event.requestId}`);
       }
@@ -10501,6 +10523,7 @@ async function runGroupMemberTurn(
     let unsub = () => {};
     let unregisterStall = () => {};
     const deadline = new RoomTurnDeadline(timeoutMinutes, () => {
+      nativeRuns.interrupt(threadId, "The room turn timed out; helper shutdown was requested.");
       for (const helper of helperBoard.fail(threadId, "The room turn timed out; helper shutdown was requested.")) {
         bus.publish({ type: "helper.updated", eventId: newId(), provider: instance.driverKind,
           providerInstanceId: instance.instanceId, threadId, turnId: providerTurnId, createdAt: new Date().toISOString(), helper });
@@ -12696,6 +12719,18 @@ ROUTES.push(createHelpersRoutes({
   visibleThreads: auth => {
     const visible = visibleTo(viewerFor(auth));
     return threadId => visible.thread(threadId);
+  },
+}));
+ROUTES.push(createNativeRunRoutes({
+  store: nativeRunStore,
+  visibleThreads: auth => {
+    const visible = visibleTo(viewerFor(auth));
+    return threadId => visible.thread(threadId);
+  },
+  stop: async (run, actor) => {
+    const adapter = (run.providerInstanceId ? registry.get(run.providerInstanceId) : undefined)?.adapter as NativeActorStopper | undefined;
+    if (!adapter?.stopNativeActor) throw new Error("This harness does not offer individual helper interruption");
+    await adapter.stopNativeActor(run.threadId, actor);
   },
 }));
 const firstHelloDeps: FirstHelloDeps = {
@@ -20375,7 +20410,9 @@ function sweepThreadEventLogsNow(): void {
       busy: threadBusy(bot.id, task.threadId),
       openDirectHandoff: roomHandoffs.activeDirect(task.threadId),
     })));
-  const swept = sweepThreadEventLogs(candidates, retentionDays);
+  const now = Date.now();
+  for (const threadId of threadsPastRetention(candidates, retentionDays, now)) nativeRunStore.pruneDetails(now, threadId);
+  const swept = sweepThreadEventLogs(candidates, retentionDays, now);
   if (swept > 0) console.log(`[retention] removed event logs for ${swept} idle thread(s) past ${retentionDays} day(s)`);
 }
 
