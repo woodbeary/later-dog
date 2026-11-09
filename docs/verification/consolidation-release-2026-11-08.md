@@ -77,7 +77,7 @@ This is not model/effort selection. Configuration and source were inspected here
 no new room decision or screenshot task was sent to live dogs to qualify it.
 
 The inspected contract also has concrete scaling boundaries: 24,000 bytes of
-state, at most 64 options and four questions per free-form call; the service
+state, up to four questions per call and at most 64 options per choice question; the service
 source sets 200 free-form calls per key per day, separate from 500 room decisions
 and 1,000 screen checks. Twenty workers sharing one key share those budgets.
 This inventory does not change or load-test the deployed quotas. An eventual
@@ -99,8 +99,9 @@ Legacy `execution.task` and unknown execution fields are stripped on read and on
 The owner/admin inventory can inspect workspace-wide receipt coverage, but the
 dog-callable tool intentionally remains scoped to its own dog/current thread.
 It does not aggregate every worker's private history for a chief of staff. Its
-current statistics group by account and model, not by effort or engine version;
-those settings are retained in evidence but are not yet controlled comparisons.
+current statistics group by account and model. Effort, variant and fast settings
+are retained in execution evidence but do not stratify these statistics;
+engine-version provenance is not yet joined. These are not controlled comparisons.
 An owner-authorized aggregate using existing turn identities is future work,
 with the same permission boundary rather than another stored conversation copy.
 
