@@ -309,4 +309,50 @@ describe("macOS driver resolution order", () => {
       else delete process.resourcesPath;
     }
   });
+
+  describe.skipIf(!["arm64", "x64"].includes(process.arch))("default source Dev launch", () => {
+    const launch = async () => {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+      cua = await import("./cua.mjs");
+      fixture.embeddedDelays = [1];
+      return cua.startCua();
+    };
+
+    it("starts the embedded host with the staged helper when no flag, override or daemon exists", async () => {
+      stage();
+      const result = await launch();
+      expect(fixture.hosts).toHaveLength(1);
+      expect(result).toMatchObject({ mode: "embedded", mcpCommand: stagedFile() });
+    });
+
+    it("keeps the standalone path when a global daemon socket is already alive", async () => {
+      stage();
+      fixture.socketReady = true;
+      const result = await launch();
+      expect(fixture.hosts).toHaveLength(0);
+      expect(result).toMatchObject({ mode: "standalone", mcpCommand: stagedFile() });
+    });
+
+    it("does not start embedded when the flag is explicitly off", async () => {
+      stage();
+      vi.stubEnv("LATERDOG_CUA_EMBEDDED", "0");
+      vi.resetModules();
+      cua = await import("./cua.mjs");
+      const result = await cua.startCua();
+      expect(fixture.hosts).toHaveLength(0);
+      expect(result.mode).toBe("unavailable");
+    });
+
+    it("does not auto-embed a custom driver path", async () => {
+      stage();
+      vi.unstubAllEnvs();
+      vi.stubEnv("CUA_DRIVER_PATH", "/fixture/override");
+      vi.resetModules();
+      cua = await import("./cua.mjs");
+      const result = await cua.startCua();
+      expect(fixture.hosts).toHaveLength(0);
+      expect(result.mode).toBe("unavailable");
+    });
+  });
 });

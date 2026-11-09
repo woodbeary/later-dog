@@ -231,6 +231,13 @@ async function startEmbedded(binary, signal) {
   }
 }
 
+async function sourceMacUsesPinnedStage(binary) {
+  if (process.platform !== "darwin" || app.isPackaged) return false;
+  if (process.env.CUA_DRIVER_PATH || process.env.LATERDOG_CUA_EMBEDDED !== undefined) return false;
+  if (stagedMacDriver({ appPath: app.getAppPath() }) !== binary) return false;
+  return !(await socketAlive(STANDALONE_SOCKET));
+}
+
 export async function startCua() {
   if (process.platform === "linux") return ensureLinuxRuntime().initialize();
   lifecycleGeneration++;
@@ -246,7 +253,10 @@ export async function startCua() {
   }
 
   const wantEmbedded =
-    process.platform === "win32" || app.isPackaged || process.env.LATERDOG_CUA_EMBEDDED === "1";
+    process.platform === "win32" ||
+    app.isPackaged ||
+    process.env.LATERDOG_CUA_EMBEDDED === "1" ||
+    (await sourceMacUsesPinnedStage(binary));
   let nextConnection;
 
   if (wantEmbedded) {

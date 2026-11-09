@@ -124,7 +124,10 @@ Do not use the operator's later.dog data or authenticated browser profiles as fi
 checks, with a temporary stage and no Mac data, that an unpackaged app resolves
 `dist-native/<arch>/cua-driver` for its own architecture only, that a directory in
 its place is rejected, that `CUA_DRIVER_PATH` wins, that a packaged app never reads
-the source stage, and that Dev's Mac connection passes no driver connection (even
+the source stage, that a default source launch (flag unset, no override, no daemon
+socket) starts the embedded host with the staged helper while a live daemon socket,
+an explicit `LATERDOG_CUA_EMBEDDED` value or a custom driver path keeps its earlier
+path (all with a faked host and processes), and that Dev's Mac connection passes no driver connection (even
 when a published `cua-connection.json` names one), no local control gate and no
 Screen Recording check.
 
@@ -136,4 +139,4 @@ connection still frees the gate); a gate that reports a takeover during a call
 aborts it and releases the gate; a held gate with a published driver runs once and
 releases. This is fixture evidence from any platform. It does not show macOS
 permissions or UI control, and the installed app's real gate and permission
-checklist are not exercised by it. Dev's screen control remains off.
+checklist are not exercised by it. Dev's screen control remains unavailable until it runs through the canonical local gate.
