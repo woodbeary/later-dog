@@ -25,6 +25,8 @@ Durable server-owned native run projection, compact activity row with selectable
 
 ## How to resume
 
+2026-11-08 cloud workspace scaling: main `5027f5692` is active in Jacob's home. Successful same-lockfile packages are reused across session folders on a dog's computer; a Claude shell hook directs heavy commands there. The production Worker and both runtime images deployed. Engine processes remain on the shared home; remote engine transport and workspace migration are unfinished. [Release evidence](../verification/cloud-scaling-2026-11-08.md) records the phone/desktop model-line fixes, baseline test failures, runtime activation and remaining limits.
+
 2026-11-08 automatic log archive: the log-only scheduler, per-thread startup/history gates, autonomous restore retry and root descriptor ownership checks are implemented on patch/automatic-log-archive. All 240 isolated home tests pass, including a real server restart during a restore outage without opening its chat. Production image activation and cumulative archive uploads are verified; see [archive evidence](../verification/log-archive-2026-11-08.md).
 
 2026-11-08 execution advice scale candidate: per-query account/model grouping replaces repeated history scans, and the private advice response carries one JSON representation. The isolated twenty-dog scenario proves separate fake-engine processes, advice capabilities, duplicate-safe sends and twenty completion receipts. Reproducible local timings and their active-host limits are in [the scale recipe](../verification/execution-advisor-scale.md). [Execution visibility](execution-visibility-design.md) records the proposed shared projection and the proof required before mobile, desktop or capacity claims. This candidate has not been deployed.
