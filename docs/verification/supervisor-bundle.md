@@ -56,3 +56,11 @@ This proves the compiled bundle, not the supervisor image, a native CLI, the com
 service, GitHub or a live provider task. Job preparation reaches the stubbed `gh` and
 stops there; no submission is made. Qualify the image and a full Wrangler deploy
 separately.
+
+## Production rollout (2026-11-09)
+
+The pinned image is a layered build, not a full Dockerfile rebuild: five compiled
+`dist-server/laterdog` files from `a4256c8a` appended to the prior image as one folder
+replacement layer. The compiled bundle came from `scripts/bundle-server.mjs`. Receipts,
+the isolated Worker check and the unfinished post-switch monitor are in
+[the rollout record](dog-resume-2026-11-09.md).

@@ -6,6 +6,14 @@ Started 2026-10-13. This file is the single place that says what is in progress,
 
 ## Consolidation release (2026-11-08)
 
+November 9 supervisor pin (PR141): production runs a layered image (five compiled
+files from `a4256c8a` over the prior image), pinned by digest in the Wrangler config;
+this is not a full Dockerfile rebuild. A full production deploy activated Worker
+`d3debf95`; the admin restart after it did not run and is not claimed. Readiness
+recovered with all 67 jobs retained. Saved dogs resumed except the WoW dogs, all 80 IDs
+retained. The post-supervisor ten-minute monitor was in progress at report time; fleet
+capacity stays unqualified. See [rollout record](../verification/dog-resume-2026-11-09.md).
+
 November 9 stall repair qualification: PR138 combines immutable routine-run
 authority, a strictly proven neutral legacy cancellation, distinct MCP repeat
 diagnostics and one runtime-owned update drain. Final source `582ad61` is bundled
