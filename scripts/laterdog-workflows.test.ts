@@ -1,33 +1,28 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { parse } from "yaml";
 
-const WORKFLOWS = new URL("../.github/workflows/", import.meta.url);
-const triggers = (name: string) => parse(readFileSync(new URL(name, WORKFLOWS), "utf8")).on;
+const root = new URL("../", import.meta.url);
 
-describe("GitHub workflows run only where later.dog needs them", () => {
-  it("keeps the set of workflows to CI, the Cloud home images and Worker, and the macOS build", () => {
-    expect(readdirSync(WORKFLOWS).sort()).toEqual(["ci.yml", "cloud-home-delta-image.yml", "cloud-home-image.yml", "cloud-home-worker.yml", "macos.yml"]);
+describe("later.dog builds, tests and releases run from Jacob's Mac", () => {
+  it("keeps no GitHub Actions workflows", () => {
+    expect(existsSync(new URL(".github/workflows/", root))).toBe(false);
   });
 
-  it("runs CI on pull requests and on pushes to main only", () => {
-    const on = triggers("ci.yml");
-    expect(Object.keys(on).sort()).toEqual(["pull_request", "push"]);
-    expect(on.push).toEqual({ branches: ["main"] });
+  it("ships the desktop release from an executable Mac script that notarizes before publishing", () => {
+    const script = new URL("scripts/laterdog-release-mac.sh", root);
+    expect(statSync(script).mode & 0o111).not.toBe(0);
+    const text = readFileSync(script, "utf8");
+    const notarized = text.indexOf("xcrun stapler staple \"$DMG\"");
+    const published = text.indexOf("gh release create");
+    expect(notarized).toBeGreaterThan(0);
+    expect(published).toBeGreaterThan(notarized);
+    expect(text).toContain("refusing to replace its binaries");
+    expect(text).toContain("scripts/laterdog-release-files.mjs");
   });
 
-  it("builds the Cloud home image only when someone runs it by hand", () => {
-    expect(triggers("cloud-home-image.yml")).toEqual({ workflow_dispatch: null });
-  });
-
-  it("builds the Cloud home delta image only when someone runs it by hand", () => {
-    expect(Object.keys(triggers("cloud-home-delta-image.yml"))).toEqual(["workflow_dispatch"]);
-  });
-
-  it("deploys the Cloud home Worker only when someone runs it by hand, leaving its containers and image alone", () => {
-    expect(triggers("cloud-home-worker.yml")).toEqual({ workflow_dispatch: null });
-    const deploys = readFileSync(new URL("cloud-home-worker.yml", WORKFLOWS), "utf8").split("\n").filter((line) => line.includes("wrangler deploy"));
-    expect(deploys).toHaveLength(1);
-    expect(deploys[0]).toContain("--containers-rollout=none");
+  it("points the release doc at the Mac script, not a workflow", () => {
+    const doc = readFileSync(new URL("docs/laterdog/releasing.md", root), "utf8");
+    expect(doc).toContain("scripts/laterdog-release-mac.sh");
+    expect(doc).not.toContain("gh workflow run");
   });
 });

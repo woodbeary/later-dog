@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.46 — 2026-11-09
+
+- **Plan accounts take care of themselves.** A chat whose account runs out moves to the one with the most left, accounts come back into use after a limit resets, and an idle Claude account is no longer called signed out. You can switch a chat's account from the desktop, and a chat says when it runs on another engine's account.
+- **Dogs work together more clearly.** Each dog-to-dog exchange shows in a dog's chat as one row with a gist and its state, queued requests survive a failed turn, and your dogs can stop, cancel or replace each other's work, fix another dog's engine, and search each other's chats and memory.
+- **Secrets stay out of chats.** Dogs make, use and keep tokens and passwords through the vault, and can type a saved password into a Mac command, without ever seeing them.
+- **New dogs greet you in one warm message** that guesses what they're for, then ask a question tailored to it.
+- **My Cloud keeps heavy work off the shared home.** Installs, builds and tests run on a dog's own cloud computer, you can pick that computer's size, old chat logs are archived and restored when needed, and new home code switches in within 15 minutes.
+- **Settings changes wait for running turns** to finish instead of cutting them off, and a restart picks work back up without a line per request.
+
 ## 0.3.45 — 2026-11-05
 
 - **Using apps on your Mac works after one grant.** Turning on Accessibility and Screen Recording is enough: later.dog starts computer control again by itself, and a slow Mac no longer reports itself as "in use".

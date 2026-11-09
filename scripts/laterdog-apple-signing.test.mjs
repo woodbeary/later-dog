@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_REPO, EXPORT_IDENTITY_C, SECRET_NAMES, developerIdNames, parseArguments } from "./laterdog-apple-signing.mjs";
+import { DEFAULT_REPO, EXPORT_IDENTITY_C, developerIdNames, parseArguments } from "./laterdog-apple-signing.mjs";
 
 const ISSUER = "57246542-96fe-1a63-e053-0824d011072a";
 
@@ -39,12 +39,7 @@ describe("developerIdNames", () => {
   });
 });
 
-describe("the secrets the macOS workflow reads", () => {
-  it("names every secret the workflow's Developer ID path uses", async () => {
-    const workflow = await import("node:fs").then((fs) => fs.readFileSync(new URL("../.github/workflows/macos.yml", import.meta.url), "utf8"));
-    for (const name of SECRET_NAMES) expect(workflow).toContain(`secrets.${name}`);
-  });
-
+describe("the Developer ID export", () => {
   it("exports one identity by exact certificate name with a passphrase from the environment", () => {
     expect(EXPORT_IDENTITY_C).toContain("SecItemExport(match, kSecFormatPKCS12");
     expect(EXPORT_IDENTITY_C).toContain('getenv("LATERDOG_P12_OUT")');
