@@ -10,7 +10,7 @@ export function canonicalScope(scope: string): string {
   return scope.replace(GLOB_TAIL, "");
 }
 function validScope(canonical: string): boolean {
-  return canonical === "*" || (canonical.length > 0 && !canonical.startsWith("/") && !/[\\*?[\]{}!]/.test(canonical) &&
+  return canonical === "*" || (canonical.length > 0 && !canonical.startsWith("/") && !/[\\*?]/.test(canonical) &&
     !canonical.split("/").some((p) => ["..", ".git", ""].includes(p)));
 }
 export const scopePath = z.string().min(1).max(300)

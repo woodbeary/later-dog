@@ -16,7 +16,7 @@ the schema accepted `dir/**` but the predicates compared it as a literal prefix.
 - `scopesOverlap` and `pathInScopes` canonicalize every scope first, so scopes already stored
   as `dir/**` are read as `dir` for both publish permission checks and concurrency checks.
 - `scopePath` validates the canonical form and now refuses embedded glob syntax
-  (`* ? [ ] { } !` anywhere but a trailing `/**`), as well as the existing traversal, `.git`,
+  (`*` and `?` anywhere but a trailing `/**`), as well as the existing traversal, `.git`,
   absolute, backslash and empty-segment refusals. `*` and exact files stay valid.
 - Directory boundary is unchanged: `server/foo` does not match `server/foobar`.
 
@@ -43,3 +43,46 @@ the schema accepted `dir/**` but the predicates compared it as a literal prefix.
 - Scopes such as `dir/*` or `a/**/b` are now refused for new requests; already-stored ones are
   treated as literal paths.
 - Not deployed; no claim about live jobs, including job 29b2ff1d.
+
+## Literal route compatibility repair
+
+Base: `49c1f18bb744848f66f2a4dc11c7fcd19413462f` (PR 144). Branch:
+`clover/literal-route-scopes-20261109`. This follow-up changes only this record and
+`shared/laterdog.ts` / `shared/laterdog.test.ts`.
+
+The previous validator incorrectly rejected literal `[]{}!` characters. Actual
+route paths `src/app/[handle]/page.tsx`,
+`src/app/api/notifications/[id]/route.ts`, and
+`src/app/api/operator/refunds/[id]/route.ts` matched literal scope predicates but
+could not pass job creation validation. The validator now permits these characters
+without adding glob interpretation, a parser, a dependency, a filesystem lookup,
+or a schema transform.
+
+Eight acceptance cases cover those routes, `[...slug]`, `[[...slug]]/**`, braces,
+exclamation marks and combined punctuation. Separate matching checks retain exact
+and directory-prefix boundaries in both overlap directions, excluding `app/123`,
+other bracket names, expanded brace alternatives and sibling names. Unsupported
+embedded `*` and `?`, traversal, `.git`, absolute paths, backslashes and empty
+segments remain rejected. Root `*`, the intentional `**` alias and repeated terminal
+`/**` normalization remain covered by existing checks.
+
+Verification ran on Clover's own cloud computer in
+`/home/dog/literal-route-scopes-20261109`, with Node `v24.22.0` and pnpm `10.33.0`:
+
+- Before the source change, the updated shared tests gave **8 failed, 15 passed**.
+  All eight failures were literal-scope validation cases. Log:
+  `/tmp/clover-literal-before.log`.
+- After the one-line validator change, this exact focused command passed **7 files,
+  83 tests**: `corepack pnpm exec vitest run shared/laterdog.test.ts
+  server/laterdog/supervisor.test.ts server/laterdog/github.test.ts
+  server/laterdog/http.test.ts server/laterdog/job-trace-http.test.ts
+  scripts/no-comments.test.ts scripts/brand-links.test.ts`.
+  Log: `/tmp/clover-literal-focused.log`.
+- Direct `z.toJSONSchema(createJobSchema)` and actual `mcpTools` serialization passed
+  for supervisor (15 tools) and dog (3 tools) contexts. Log:
+  `/tmp/clover-literal-mcp-schema.log`.
+
+These are isolated fixtures and pure schema checks; no owner data, live dogs,
+customer operations or provider tasks were mutated. No full server suite or build
+was run for this repair. Canonical build, independent review and production
+activation remain outside this branch. No deployment, merge or restart occurred.
