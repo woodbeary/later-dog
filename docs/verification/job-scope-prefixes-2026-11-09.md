@@ -1,8 +1,48 @@
 # Job write scopes: trailing `/**` as a directory prefix
 
-Source head: `fcfbc41d06e385641b56ea65b1090fcde70bfe0f` plus the uncommitted diff to
+Initial authoring snapshot (superseded by the qualification below). Source head: `fcfbc41d06e385641b56ea65b1090fcde70bfe0f` plus the uncommitted diff to
 `shared/laterdog.ts` and `shared/laterdog.test.ts`. Not deployed, not released, and no live
 job was inspected or changed.
+
+## Production qualification, November 9
+
+PR144 and PR145 are merged. The final source is
+`f3320ad3a4c39219703d93e778853be94920a44b`; independent Claude review on a
+separate cloud computer passed 83 focused tests and reproduced all eight
+literal-route failures before the repair. Its additional literal boundary and
+MCP schema probes passed. The canonical `pnpm laterdog:build` exited zero.
+
+Five canonical bundles replace `/app/laterdog` as one opaque Linux image layer
+over the exact previous production image. This is not a full Dockerfile rebuild.
+The final image is
+`registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-supervisor-scope@sha256:3615411a0a2e68b39af78b52ab2aba616d45473a43b664a9d97679c03bdb3f9c`.
+The archive fixes uid/gid to zero, directories to 0755 and files to 0644; compiled
+source hashes are unchanged. An earlier isolated candidate used a private
+0700 staging-directory mode and could not start as the runtime user. It was
+rejected before production and is not the released image.
+
+Dedicated native staging Worker `f23da358-faf4-4231-b35e-11765db9db88` passed:
+wrong-token refusal; actual Linux startup; trailing directory and literal
+bracket/brace/exclamation scopes; duplicate-safe creation; five malformed scope
+refusals; and graceful restart retaining three exact synthetic job IDs. Jobs
+were held behind a cancelled synthetic dependency. No owner database, provider
+credentials or provider tasks were used. `providerQualified` remains false.
+
+A read-only fresh R2 backup passed SQLite quick_check and retained all 81
+production job IDs and two profiles before deployment. Full `wrangler deploy`
+activated production Worker `9f3ff9b0-b6ce-4acd-a69d-e0bd5b7433e3` on the final
+image. All ten binding definitions, including five secret names and both exact
+plain-text values, match the pre-deployment settings; compatibility and
+observability settings match. The owner's home was not restarted. The bounded
+post-rollout retention and health window is in progress; it is not yet a
+completed monitoring qualification. Home storage still reports low space, so
+this release does not qualify a larger fleet or remove provider quotas.
+
+Private receipts are under `.laterdog-evidence/scope-release/`: canonical build
+exit/log, Linux layer provenance, native staging qualification, pre-promotion
+backup, full deploy log, binding comparison and production monitor. Encrypted
+sign-in backups were never decrypted. Failed-job checkpoint PR147 and the
+computer-workspace prototype PR146 are separate, unactivated work.
 
 ## Defect
 

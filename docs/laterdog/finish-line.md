@@ -4,6 +4,19 @@
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
+## Current production scope repair (2026-11-09)
+
+PR144/145 are merged. Canonical source `f3320ad3` is active in immutable image
+`3615411a` through full supervisor Worker deployment `9f3ff9b0`. Dedicated native
+staging passed literal-route validation and restart retention without provider
+submission. Production bindings and the fresh 81-job/two-profile backup are
+verified; the bounded post-rollout window is in progress. The owner's home
+remains PID24 with all 80 dogs retained. Storage remains low and larger-fleet
+capacity is unqualified. Failed-job checkpoint PR147, the remote account-handoff
+repair, transfer/PATH repair and startup-budget repair are not activated. The
+larger PR146 workspace prototype stays default-off and is not their prerequisite.
+See [scope qualification](../verification/job-scope-prefixes-2026-11-09.md).
+
 ## Consolidation release (2026-11-08)
 
 November 9 supervisor pin (PR141): production runs a layered image (five compiled
