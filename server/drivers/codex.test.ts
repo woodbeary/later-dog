@@ -8,8 +8,7 @@ import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ProviderAdapter, ProviderInstance, RuntimeEvent } from "../contracts.ts";
-import type { NativeActorStopper } from "../laterdog/native-run-store.ts";
+import type { ProviderInstance, RuntimeEvent } from "../contracts.ts";
 import { DATA_DIR, NATIVE_DIR } from "../config.ts";
 import { ChatGptPlanAuthController } from "./chatgpt-plan-auth.ts";
 import { CodexDeviceAuthController } from "./codex-device-auth.ts";
@@ -722,9 +721,9 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     const started = await instance.adapter.sendTurn({ threadId: "native-helper-stop", text: "Delegate then continue" });
     const permission = await recorder.until(event => event.type === "request.opened");
     const target = { id: "codex:helper:0", nativeThreadId: "helper", nativeTurnId: "helper-turn", generation: "0" };
-    await expect((instance.adapter as ProviderAdapter & NativeActorStopper).stopNativeActor!("native-helper-stop", { ...target, nativeTurnId: "stale" })).rejects.toThrow("no longer running");
-    await expect((instance.adapter as ProviderAdapter & NativeActorStopper).stopNativeActor!("native-helper-stop", { ...target, nativeThreadId: "codex-thread-1" })).rejects.toThrow("no longer running");
-    await (instance.adapter as ProviderAdapter & NativeActorStopper).stopNativeActor!("native-helper-stop", target);
+    await expect(instance.adapter.stopNativeActor!("native-helper-stop", { ...target, nativeTurnId: "stale" })).rejects.toThrow("no longer running");
+    await expect(instance.adapter.stopNativeActor!("native-helper-stop", { ...target, nativeThreadId: "codex-thread-1" })).rejects.toThrow("no longer running");
+    await instance.adapter.stopNativeActor!("native-helper-stop", target);
     await recorder.until(event => event.type === "native.observed" && event.observation.kind === "actor" && event.observation.actor.id === target.id && event.observation.actor.state === "stopped");
     expect(recorder.events.some(event => event.type === "turn.completed")).toBe(false);
     expect(recorder.events.filter(event => event.type === "content.delta")).toEqual([]);
@@ -734,7 +733,7 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
     await instance.adapter.respondToRequest("native-helper-stop", permission.requestId!, { behavior: "allow" });
     await recorder.until(event => event.type === "turn.completed" && event.turnId === started.turnId);
     expect(recorder.events.at(-1)).toMatchObject({ type: "turn.completed", ok: true });
-    await expect((instance.adapter as ProviderAdapter & NativeActorStopper).stopNativeActor!("native-helper-stop", target)).rejects.toThrow("no longer connected");
+    await expect(instance.adapter.stopNativeActor!("native-helper-stop", target)).rejects.toThrow("no longer connected");
   });
 
   it("attributes a helper's permission and its resolution to the native actor", async () => {

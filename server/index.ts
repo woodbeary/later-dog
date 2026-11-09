@@ -390,7 +390,6 @@ import { HelperBoard } from "./laterdog/helper-board.ts";
 import { NativeRunProjector } from "./laterdog/native-run-projector.ts";
 import { NativeRunPublisher } from "./laterdog/native-run-publisher.ts";
 import { NativeRunStore } from "./laterdog/native-run-store.ts";
-import type { NativeActorStopper } from "./laterdog/native-run-store.ts";
 import { threadsPastRetention } from "./laterdog/native-run-retention.ts";
 import { nativeRunDatabase } from "./message-db.ts";
 import { createNativeRunRoutes } from "./routes/native-runs.ts";
@@ -12728,7 +12727,7 @@ ROUTES.push(createNativeRunRoutes({
     return threadId => visible.thread(threadId);
   },
   stop: async (run, actor) => {
-    const adapter = (run.providerInstanceId ? registry.get(run.providerInstanceId) : undefined)?.adapter as NativeActorStopper | undefined;
+    const adapter = (run.providerInstanceId ? registry.get(run.providerInstanceId) : undefined)?.adapter;
     if (!adapter?.stopNativeActor) throw new Error("This harness does not offer individual helper interruption");
     await adapter.stopNativeActor(run.threadId, actor);
   },

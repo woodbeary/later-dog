@@ -4,9 +4,20 @@
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
+## Consolidation release (2026-11-08)
+
+Phone PR166 is merged and beta update `4f712589-ea94-41c1-a8ed-db81d67e6490`
+is published from `1b4b320`. Archive production activation is verified; the
+consolidated server/native activity release is in PR129 and undergoing its exact
+integration checks and independent review. Root integration repairs client scope,
+Claude approval provenance and inspector validation, adds the real browser
+fixture and moves Stop into the canonical adapter interface. The optional advisor
+preserves the selected model. [Release evidence](../verification/consolidation-release-2026-11-08.md)
+separates implementation, publication, activation and provider/device qualification.
+
 ## Optional execution advisor (2026-11-08)
 
-Branch `codex/execution-advisor` in `code/.wt/execution-advisor`: server-owned execution evidence in the usage ledger and the read-only `execution_advice` dog tool. Selected models stay authoritative; provider success stays unverified. The advisor exposes observations and abstains without controlled verified comparisons. Verification and remaining limits: [execution advisor](../verification/execution-advisor.md). Not deployed; native sessions need a fresh tool catalog after rollout.
+Branch `codex/execution-advisor` in `code/.wt/execution-advisor`: server-owned execution evidence in the usage ledger and the read-only `execution_advice` dog tool. Selected models stay authoritative; provider success stays unverified. The advisor exposes observations and abstains without controlled verified comparisons. Verification and remaining limits: [execution advisor](../verification/execution-advisor.md). The foundation is in the archive-capable production image; the aggregation change is in PR129. Native sessions need a fresh tool catalog after rollout.
 
 ## Native work projection (2026-11-09)
 
@@ -14,7 +25,7 @@ Durable server-owned native run projection, compact activity row with selectable
 
 ## How to resume
 
-2026-11-08 automatic log archive: the log-only scheduler, per-thread startup/history gates, autonomous restore retry and root descriptor ownership checks are implemented on patch/automatic-log-archive. All 240 isolated home tests pass, including a real server restart during a restore outage without opening its chat. Live activation and disk relief are not yet claimed; see [archive evidence](../verification/log-archive-2026-11-08.md).
+2026-11-08 automatic log archive: the log-only scheduler, per-thread startup/history gates, autonomous restore retry and root descriptor ownership checks are implemented on patch/automatic-log-archive. All 240 isolated home tests pass, including a real server restart during a restore outage without opening its chat. Production image activation and cumulative archive uploads are verified; see [archive evidence](../verification/log-archive-2026-11-08.md).
 
 2026-11-08 execution advice scale candidate: per-query account/model grouping replaces repeated history scans, and the private advice response carries one JSON representation. The isolated twenty-dog scenario proves separate fake-engine processes, advice capabilities, duplicate-safe sends and twenty completion receipts. Reproducible local timings and their active-host limits are in [the scale recipe](../verification/execution-advisor-scale.md). [Execution visibility](execution-visibility-design.md) records the proposed shared projection and the proof required before mobile, desktop or capacity claims. This candidate has not been deployed.
 

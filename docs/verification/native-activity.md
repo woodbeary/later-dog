@@ -20,9 +20,26 @@ Use Node 24 and pnpm. Run focused behavior checks:
 pnpm exec vitest run server/laterdog/native-run-projector.test.ts server/laterdog/native-run-publisher.test.ts server/laterdog/native-run-persistence.test.ts server/laterdog/native-run-retention.test.ts server/laterdog/native-run-frame.test.ts server/routes/native-runs.test.ts server/laterdog/claude-native-activity.test.ts server/laterdog/codex-native-activity.test.ts shared/native-run-selectors.test.ts src/lib/native-runs-state.test.ts src/components/NativeWork.test.ts --maxWorkers=1 --no-file-parallelism
 ```
 
-The renderer is covered by happy-dom component tests (`src/components/NativeWork.test.ts`) that open the real detail surface. A browser-level fixture against the fake Claude CLI is not part of this change: it needs a `native-activity` mode in `server/testing/fake-claude-cli.ts`, and no such test has been run.
+The renderer is covered by component tests and the real headless browser against
+an isolated fake CLI. Run:
 
-Also run the driver fixtures, authorization/visibility, inspector-history, retention and full workspace-backup suites. CI runs the complete suite and renderer tests. Check exact source identities and inspect failing logs before changing timeouts or expectations.
+```sh
+LATERDOG_UI_E2E=1 LATERDOG_UI_EVIDENCE_DIR=.laterdog-evidence/native-work pnpm exec vitest run scripts/testing/native-activity-ui.e2e.test.ts --maxWorkers=1
+node scripts/smoke-native-work.ts
+```
+
+The browser fixture checks seven puppies with five visible, overflow, nested
+selection, source/results, child-text isolation, focus containment, completion
+and retained receipts after reload. It waits for conversation hydration before
+reopening a receipt. Screenshots and the final projected run survive cleanup.
+The dependency-free smoke opens a real temporary SQLite file, records duplicate
+and late events, closes and reopens it, and checks retained results, interrupted
+recovery and thread boundaries. It can run in the remote verifier without package
+installation or network access.
+
+Also run the driver fixtures, authorization/visibility, inspector-history,
+retention and workspace-backup suites. GitHub Actions are absent on current main;
+local and remote command receipts are the evidence, not an inferred CI result.
 
 ## Live acceptance still required
 
@@ -34,10 +51,16 @@ The phone repository has separate decoding, reducer, contract and UI checks. Phy
 
 Cloud home is the canonical workspace; no companion or Mac-routing restoration is part of this release. Native Projects, native fork operations and after-parent execution lifetimes are separate capabilities, not implied by the activity view. Keep raw account screenshots and traces private. Record final evidence and pending gates in [finish-line.md](../laterdog/finish-line.md).
 
-## Known gaps in this integration
+## Compatibility boundaries
 
-- `server/request-auth.ts` does not yet list the runs endpoints as client scope, so they require admin scope. Required lines in `CLIENT_ALLOW`: `GET /^\/api\/threads\/[\w-]+\/runs(?:\/[\w-]+)?$/` and `POST /^\/api\/threads\/[\w-]+\/runs\/[\w-]+\/actors\/[\w.:%-]+\/stop$/`.
-- `server/permission-proxy.ts` does not yet forward `tool_use_id` and `agent_id`, so a Claude helper's approval card carries no helper name (it is not misattributed). Codex attribution is complete.
-- `server/thread-events.ts` `isRuntimeEvent` does not yet accept `native.observed`, so those events do not appear in the inspector history. The durable projection is unaffected.
-- `ProviderAdapter.stopNativeActor` is carried by `NativeActorStopper` in `server/laterdog/native-run-store.ts` instead of `server/contracts.ts`.
-- `GET /api/helpers` still reads the in-memory helper board; the durable projection feeds the activity row, receipts, the live-helper count and the watchdog.
+Client scope explicitly allows the history and supported actor-stop endpoints;
+thread visibility is still enforced by the route. Claude approval requests carry
+native invocation provenance when the provider supplies it. Inspector validation
+accepts typed native observations and rejects malformed states. Native Stop is
+an optional capability on the canonical ProviderAdapter contract.
+
+`GET /api/helpers` remains a compatibility view of the in-memory helper board.
+The durable projection owns the new activity row and receipts, live-helper count
+and watchdog checks. Engines lacking native coverage keep the existing progress
+presentation. Exact limits and release evidence are in
+[the consolidation record](consolidation-release-2026-11-08.md).

@@ -29,7 +29,8 @@ function fixture() {
 }
 
 describe("native work access", () => {
-  it("keeps mutating methods other than helper stop on the admin scope", () => {
+  it("assigns client scope to explicit native endpoints and keeps other mutations administrative", () => {
+    for (const [method, path] of [["GET", "/api/threads/visible/runs"], ["GET", "/api/threads/visible/runs/run"], ["POST", "/api/threads/visible/runs/run/actors/codex%3Achild%3Aturn/stop"]]) expect(requiredScope(method, path)).toBe("client");
     expect(requiredScope("DELETE", "/api/threads/visible/runs/run")).toBe("admin");
     expect(requiredScope("PUT", "/api/threads/visible/runs/run")).toBe("admin");
   });

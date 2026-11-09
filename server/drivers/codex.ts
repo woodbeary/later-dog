@@ -1,5 +1,4 @@
 import { CodexHelpers } from "./codex-helpers.ts";
-import { nativeActorStopper } from "../laterdog/native-run-store.ts";
 import { CodexNativeActivity, type CodexActorTarget } from "../laterdog/codex-native-activity.ts";
 import { codexToolSurfaceArgs } from "./codex-tool-surface.ts";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -1825,13 +1824,11 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       interruptTurn: async (threadId) => {
         await active.get(threadId)?.stop();
       },
-      ...nativeActorStopper({
-        stopNativeActor: async (threadId, actor) => {
-          const turn = active.get(threadId);
-          if (!turn) throw new Error("This native run is no longer connected.");
-          await turn.stopNativeActor(actor);
-        },
-      }),
+      stopNativeActor: async (threadId, actor) => {
+        const turn = active.get(threadId);
+        if (!turn) throw new Error("This native run is no longer connected.");
+        await turn.stopNativeActor(actor);
+      },
       steer: async (threadId, text, images, onRead) => {
         const turn = active.get(threadId);
         return turn?.steer ? await turn.steer(text, images, onRead) : "refused";

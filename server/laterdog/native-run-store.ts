@@ -188,9 +188,3 @@ export class NativeRunStore {
     });
   }
 }
-
-export interface NativeActorStopper {
-  stopNativeActor?(threadId: string, actor: { id: string; nativeThreadId?: string; nativeTurnId?: string; generation?: string }): Promise<void>;
-}
-
-export const nativeActorStopper = (stopper: Required<NativeActorStopper>): NativeActorStopper => stopper;

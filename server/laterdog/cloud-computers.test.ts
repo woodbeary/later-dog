@@ -131,9 +131,9 @@ describe("the computers API", () => {
     for (const call of calls) expect(call.url.href).not.toContain(KEY);
   });
 
-  it("keeps only a computer's id, name and state", async () => {
+  it("keeps a computer's safe identity, state and size without private connection fields", async () => {
     const { fetch } = service(() => json(200, { computer: { ...computer(), size: "standard", desktopUrl: "https://secret.example/?token=do-not-leak", address: "203.0.113.8" } }));
-    expect(await new ComputersClient(connection, { fetch }).get("cmp_one")).toEqual(computer());
+    expect(await new ComputersClient(connection, { fetch }).get("cmp_one")).toEqual({ ...computer(), size: "standard" });
   });
 
   it("fails a malformed answer closed instead of reading it as absence", async () => {
