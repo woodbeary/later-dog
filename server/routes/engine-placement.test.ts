@@ -7,6 +7,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { json, readBody } from "../harness/http.ts";
 import { remoteEngineBots, remoteEngineChoice, setRemoteEngineBot } from "../laterdog/engine-placement.ts";
+import { beginOwnership, pointerPaths, readPointer, savePointer } from "../laterdog/engine-pointer.ts";
+import type { EngineLink } from "../laterdog/engine-remote.ts";
+import { mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { requiredScope, type RequestAuth } from "../request-auth.ts";
 import { createEnginePlacementRoutes } from "./engine-placement.ts";
 import { dispatchRoutes } from "./table.ts";
@@ -20,13 +24,14 @@ afterEach(async () => {
 
 const OWNER: RequestAuth = { kind: "loopback", scopes: ["admin", "client"] };
 
-async function serve(auth: RequestAuth = OWNER, env: NodeJS.ProcessEnv = {}) {
+async function serve(auth: RequestAuth = OWNER, env: NodeJS.ProcessEnv = {}, relay: (botId: string) => Promise<EngineLink> = async () => { throw new Error("the cloud computer did not wake"); }) {
   const dataDir = realpathSync(mkdtempSync(join(tmpdir(), "laterdog-placement-route-")));
   scratch.push(dataDir);
   const routes = [createEnginePlacementRoutes({
     botExists: (id) => id === "patch" || id === "nimbus",
     read: (id) => remoteEngineChoice(dataDir, id, env),
     save: (id, computer) => setRemoteEngineBot(dataDir, id, computer, env),
+    workspaces: { dataDir, relay },
   })];
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -44,7 +49,8 @@ async function serve(auth: RequestAuth = OWNER, env: NodeJS.ProcessEnv = {}) {
     const response = await fetch(`${base}/api/bots/${bot}/engine-placement`, { method, ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) }) });
     return { status: response.status, body: await response.json() as Record<string, unknown> };
   };
-  return { dataDir, call, file: join(dataDir, "remote-engines.json") };
+  const raw = (path: string, init?: RequestInit) => fetch(`${base}${path}`, init);
+  return { dataDir, call, raw, file: join(dataDir, "remote-engines.json") };
 }
 
 describe("/api/bots/:id/engine-placement", () => {
@@ -55,7 +61,7 @@ describe("/api/bots/:id/engine-placement", () => {
 
   it("reads and saves where a dog's Claude engine runs, in the data folder the engine reads", async () => {
     const { call, dataDir, file } = await serve();
-    expect(await call("patch")).toEqual({ status: 200, body: { botId: "patch", placement: "home", fromEnvironment: false, engines: ["claude"] } });
+    expect(await call("patch")).toEqual({ status: 200, body: { botId: "patch", placement: "home", workspace: "home", heldWorkspaces: 0, fromEnvironment: false, engines: ["claude"] } });
     expect(await call("patch", "PUT", { placement: "computer" })).toMatchObject({ status: 200, body: { placement: "computer" } });
     expect(await call("nimbus", "PUT", { placement: "computer" })).toMatchObject({ status: 200 });
     expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ bots: ["patch", "nimbus"] });
@@ -90,5 +96,68 @@ describe("/api/bots/:id/engine-placement", () => {
     expect(await call("patch")).toMatchObject({ body: { placement: "computer", fromEnvironment: true } });
     expect((await call("patch", "PUT", { placement: "home" })).status).toBe(409);
     expect((await call("patch", "PUT", { placement: "computer" })).status).toBe(200);
+  });
+
+  it("saves the workspace option only beside a placed engine, and leaves it alone when it is not sent", async () => {
+    const { call, file } = await serve();
+    expect((await call("patch", "PUT", { placement: "home", workspace: "computer" })).status).toBe(400);
+    expect((await call("patch", "PUT", { placement: "computer", workspace: "disk" })).status).toBe(400);
+    expect(await call("patch", "PUT", { placement: "computer", workspace: "computer" })).toMatchObject({ status: 200, body: { placement: "computer", workspace: "computer" } });
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ bots: ["patch"], workspaceOnComputer: ["patch"] });
+    expect(await call("patch", "PUT", { placement: "computer" })).toMatchObject({ body: { workspace: "computer" } });
+    expect(await call("patch", "PUT", { placement: "computer", workspace: "home" })).toMatchObject({ status: 200, body: { workspace: "home" } });
+  });
+});
+
+describe("/api/bots/:id/engine-workspaces", () => {
+  const cwd = "/srv/task-workspaces/one";
+  const sha = (text: string) => createHash("sha256").update(text).digest("hex");
+  function held(dataDir: string) {
+    const pointer = beginOwnership(dataDir, "patch", cwd, 1_000);
+    const paths = pointerPaths(dataDir, "patch", cwd);
+    mkdirSync(paths.artifacts, { recursive: true });
+    writeFileSync(join(paths.artifacts, "report.md"), "saved report");
+    savePointer(dataDir, { ...pointer, seeded: true, writtenAt: 2_000, artifacts: [{ path: "report.md", hash: sha("saved report"), size: 12 }],
+      manifest: { at: 2_000, files: [{ path: "report.md", size: 12, hash: sha("saved report"), mtimeMs: 1 }, { path: "big.bin", size: 9e9, hash: "e".repeat(64), mtimeMs: 1 }], totalFiles: 2, totalBytes: 9e9 + 12, truncated: false, git: null } });
+  }
+
+  it("refuses to move a dog's engine or workspace home while the computer holds its work", async () => {
+    const { call, dataDir } = await serve();
+    await call("patch", "PUT", { placement: "computer", workspace: "computer" });
+    held(dataDir);
+    expect(await call("patch")).toMatchObject({ body: { heldWorkspaces: 1 } });
+    expect(await call("patch", "PUT", { placement: "home" })).toMatchObject({ status: 409, body: { error: expect.stringMatching(/Bring them home first/) } });
+    expect((await call("patch", "PUT", { placement: "computer", workspace: "home" })).status).toBe(409);
+  });
+
+  it("lists bounded pointers and serves a file from a saved copy that matches the manifest when the computer cannot wake", async () => {
+    const { raw, dataDir } = await serve();
+    held(dataDir);
+    const listed = await (await raw("/api/bots/patch/engine-workspaces")).json() as { workspaces: Array<Record<string, unknown>> };
+    expect(listed.workspaces).toEqual([expect.objectContaining({ cwd, state: "held", seeded: true, files: 2, listed: 2, artifacts: { files: 1, bytes: 12 } })]);
+    const read = await raw(`/api/bots/patch/engine-workspaces/file?cwd=${encodeURIComponent(cwd)}&path=report.md`);
+    expect(read.status).toBe(200);
+    expect(read.headers.get("x-laterdog-workspace-source")).toBe("artifact");
+    expect(decodeURIComponent(read.headers.get("x-laterdog-workspace-note")!)).toMatch(/could not be reached \(the cloud computer did not wake\)/);
+    expect(await read.text()).toBe("saved report");
+    const onlyThere = await raw(`/api/bots/patch/engine-workspaces/file?cwd=${encodeURIComponent(cwd)}&path=big.bin`);
+    expect(onlyThere.status).toBe(503);
+    expect((await raw(`/api/bots/patch/engine-workspaces/file?cwd=/elsewhere&path=report.md`)).status).toBe(404);
+    expect((await raw("/api/bots/ghost/engine-workspaces")).status).toBe(404);
+  });
+
+  it("keeps the workspace held when bringing it home cannot reach the computer, and only the owner may ask", async () => {
+    const { raw, dataDir } = await serve();
+    held(dataDir);
+    const brought = await raw("/api/bots/patch/engine-workspaces/home", { method: "POST", body: JSON.stringify({ cwd }) });
+    expect(brought.status).toBe(503);
+    expect(readPointer(dataDir, "patch", cwd)).toMatchObject({ state: "held", seeded: true });
+    expect((await raw("/api/bots/patch/engine-workspaces/home", { method: "POST", body: "{}" })).status).toBe(400);
+    for (const auth of [{ kind: "loopback", scopes: ["client"] }, { kind: "loopback", scopes: ["admin", "client"], localTools: true }] as RequestAuth[]) {
+      const other = await serve(auth);
+      held(other.dataDir);
+      expect((await other.raw("/api/bots/patch/engine-workspaces")).status).toBe(403);
+      expect((await other.raw("/api/bots/patch/engine-workspaces/home", { method: "POST", body: JSON.stringify({ cwd }) })).status).toBe(403);
+    }
   });
 });

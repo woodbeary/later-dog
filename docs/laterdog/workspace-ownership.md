@@ -142,3 +142,169 @@ Workspace content can move without transferring Mac credentials. Provider sessio
 ## Deferred work
 
 Cloud authority, data migration, automatic task routing, autonomous offline writers and merging retained cloud records are deferred. No cloud data is deleted by the phone-access change.
+
+## Placed Claude task workspaces: computer or home (2026-11-09)
+
+This section is separate from the account-workspace design above: it covers only the task
+folder a placed Claude engine works in. Status: recommended 2026-11-09; Option A is implemented behind a per-dog flag for
+placed Claude dogs only, default off, not deployed. Evidence:
+[workspace-ownership-2026-11-09](../verification/workspace-ownership-2026-11-09.md).
+
+### Where this starts
+
+The later.dog Cloud home is one Cloudflare container with default scheduling, a 20 GB
+disk and no snapshot support. Moving it to `durable_object` scheduling would need a new
+class and namespace, and that is out of scope. Its working set is about 14 GB:
+task-workspaces 4.42 GB, providers 3.63 GB, `.claude` 1.48 GB, older media and downloads
+about 2.8 GB. The rollout records in [finish-line.md](finish-line.md) show the home
+regularly flagged low on space (minimum free about 1.5 GB).
+
+Each dog's cloud computer (`deploy/laterdog/computers`, the `DogComputer` Durable Object,
+`durable_object` scheduling) already takes a native container snapshot every time it
+sleeps and restores it on wake. It also has saved per-repository environments.
+
+Remote Claude engine placement is live
+(`server/laterdog/engine-{remote,placement,files,relay,proxy,opener,renewal}.ts`). Before
+each launch it mirrors the working folder to the computer. At every checkpoint (each
+result and each MCP tool call) it copies changed files back to the home. So the home
+still holds every workspace in full, and placing engines does not reduce the home's disk
+use at all.
+
+### The two options
+
+#### Option A: the dog's computer owns the task workspace
+
+The computer's native snapshot is the durable copy. The home keeps a bounded pointer per
+workspace (`<data>/engine-workspaces/<dog>/<key>/`):
+
+| Part | Cap | Notes |
+| --- | --- | --- |
+| `pointer.json` manifest: path, size, sha256, mtime | 20,000 entries and 2 MiB of entries; past the cap the manifest says `truncated` and still counts total files and bytes | Rebuildable folders (`node_modules`, `dist`, `.cache`, …) are skipped, the same set the mirror skips today |
+| Artifacts: copies of the newest small files | 1 MiB per file, 2,000 files, 16 MiB total including the git patch | Checked again on the home as each file arrives (`ArtifactBudget`) |
+| Git state: HEAD, branch, `git diff --binary HEAD` | Patch up to 2 MiB; past that, only `patchTooLarge` is recorded | Untracked files are not in the patch; they are in the manifest and, if small, in the artifacts |
+
+New writes stay on the computer. The session transcript, file history and the account
+folder keep syncing exactly as today, because the chat and resume need them on the home.
+
+#### Option B: the home owns the workspace (today)
+
+The home's copy is authoritative. The computer receives a mirror before each launch and
+copies changes back at every checkpoint.
+
+### Trade-offs
+
+| | Option A: computer owns | Option B: home owns |
+| --- | --- | --- |
+| Home disk per placed workspace | Bounded: at most about 2 MiB of manifest plus 16 MiB of artifacts | The full workspace, as today |
+| Checkpoint cost | Hash and walk on the computer, then send the manifest plus changed small files | Every changed file crosses the relay |
+| Home reading a file | Goes through the relay, which wakes the computer (seconds to about a minute); can fail if the computer cannot start | Local and instant |
+| Durable copy | One native snapshot per computer, taken on sleep, with a 30-day lifetime | The home's disk; its own backup story applies |
+| Computer lost | Work since the home's last copy is lost except the artifacts, which are listed exactly | Only the work since the last checkpoint is lost |
+| Engine falls back to the home | Not allowed once the computer owns the work; the turn fails and says why | Allowed, and the next run carries on from the home copy |
+| Size ceiling | Seeding a new workspace is still limited to the mirror's 512 MiB transfer cap. After seeding, the size limit is the computer's disk | 512 MiB per launch transfer |
+
+#### Snapshot lifetime and image ties
+
+- A container snapshot lasts 30 days, and the clock resets when it is restored. The Worker
+  already models this as `SNAPSHOT_TTL_MS` with a three-day `TTL_MARGIN_MS`
+  (`deploy/laterdog/computers/src/environments.ts`). Hold checks treat a snapshot as proof
+  only before `snapshotAt + 30 days - 3 days`. They ignore the reset-on-restore extension,
+  which is conservative.
+- A snapshot belongs to the image it was taken on. **Update** moves a computer to the
+  current image and carries only `/home/dog` (`carry.ts` `PACK_SCRIPT`). A placed
+  workspace sits at the home's absolute path, outside `/home/dog`, so an Update would drop
+  it. With Option A, Update is refused while any workspace is held.
+- **Reset** restarts from the last snapshot. Anything written since that snapshot is
+  gone. With Option A, Reset is allowed only when the last snapshot is newer than the newest
+  held write and still within its lifetime.
+- **Delete** removes the record, and with it the only reference to the snapshot. A
+  snapshot can never prove capture for a delete, so Delete is refused while any workspace
+  is held.
+- A computer asleep for more than 27 days with a held workspace is the one way Option A can
+  lose work without any operation being refused. The hold view reports
+  `snapshotExpiresAt` so the home can see it coming. A periodic refresh wake is **not
+  built**; see the release needs in the verification note.
+
+#### What the home and the chat need from a workspace
+
+- **Session transcript, file history, account file:** still synced to the home, unchanged.
+  Resume, carry-on and the transcript reader keep working.
+- **File reads for the chat and the home's tools** (opening a file the dog mentions,
+  links in the transcript, review tools): `readOwnedWorkspaceFile` asks the computer
+  through the existing process stream and relay (`read` frame). Asking wakes the computer
+  if it is asleep (`engineComputer` → `waitRunning` → wake). If the computer cannot be
+  reached, it falls back only to a copy whose hash matches the manifest: first the saved
+  artifact, then the home's older copy. Otherwise it fails honestly with 503 and the
+  reason. The owner can reach it at
+  `GET /api/bots/:id/engine-workspaces/file?cwd=&path=`. The existing readers in
+  `server/index.ts` and `server/workspace.ts` still read the home path directly. Rewiring
+  them is outside the paths this change may write and is listed as a release need.
+- **Listing:** the bounded manifest answers "what is there and how big" without waking
+  the computer (`GET /api/bots/:id/engine-workspaces`).
+
+#### Recovery, honestly
+
+| Event | What survives |
+| --- | --- |
+| Computer asleep, snapshot fresh | Everything, after a wake |
+| Computer reset with a fresh snapshot | Everything up to that snapshot. Reset is refused otherwise |
+| Computer or snapshot lost (expired, failed restore, deleted outside later.dog) | The next launch finds the computer folder empty. It rebuilds the workspace from the home's last copy plus every artifact whose hash matches the manifest. The chat's stderr and `pointer.recovered` name exactly which manifest files could not be recovered. The git patch is kept on the home, but it is not reapplied automatically |
+| Engine running when the computer dies | Writes since the last checkpoint are lost, the same as Option B |
+| Owner wants the workspace back on the home | `POST /api/bots/:id/engine-workspaces/home`. Checks free space first: needs `totalBytes + 512 MiB`, otherwise 507. Copies every file through the relay and never deletes a home file. A home file edited after the computer took ownership is kept, and the computer's version goes to `conflicts/`. Only after every file arrived does it ask the computer to release the hold; the computer refuses if newer work exists |
+
+#### Home restart and stale leases
+
+- The hold lives in the computer's Durable Object, so it outlives the home. A restarted
+  home finds `pointer.json` on its data disk and the hold still in place.
+- A turn that was running when the home stopped behaves exactly as today: the relay
+  loses its transport and kills the engine, and the per-thread lock file
+  (`<remote>/locks/<thread>.lock`) is taken over by the next relay once its holder pid is
+  gone. The credential lease from `engine-renewal.ts` is in memory and ends with the
+  process. A new turn asks for a new one.
+- A home that lost its data disk loses the pointers but not the holds. The computer then
+  refuses Delete and Update, which is the safe direction. Clearing that state needs the
+  workspace brought home, which needs a pointer. A data-disk loss on the home therefore
+  needs an operator; see release needs.
+
+#### Codex
+
+Out of scope. Placement is Claude-only, and the Codex driver does not import any
+placement or workspace module (`engine-workspace.test.ts`, "Codex dogs").
+
+### Recommendation: Option A, behind the existing placement flag
+
+Option A is the only design that lowers the home's disk use. It does so with the provider's
+native snapshot and a bounded pointer. It adds no new storage layer, cache, FUSE mount
+or retention service. Its failure modes are explicit refusals rather than silent loss.
+The one exception is the 27-day sleep window, which is named above and in the release
+needs. Option B stays the default and is unchanged.
+
+### How it is built
+
+- **Option:** `remote-engines.json` gains `workspaceOnComputer: [dogIds]`. Set it with
+  `PUT /api/bots/:id/engine-placement {"placement":"computer","workspace":"computer"}`.
+  The option counts only while the engine is placed on the computer. Free-trial computers
+  never hold a workspace. Turning the option or the placement off is refused (409) while
+  the computer owns work.
+- **Ownership (`ownedWorkspace`, `engine-pointer.ts`):**
+  1. Before configuring, the home asks the computer to hold the workspace key (a `hold`
+     frame on the process stream). If the computer will not hold it (an older Worker,
+     too many holds), the launch is not dispatched and, on a first launch, runs on the
+     home.
+  2. **Not yet seeded:** the home copy is authoritative and is mirrored as today. Removals
+     on the computer are allowed because nothing there is authoritative yet. If this
+     fails, the hold is released and the pointer goes back to `home`.
+  3. **Seeded, and the computer has files:** nothing is pushed. The computer wins.
+  4. **Seeded, and the computer folder is empty:** recovery, as above.
+  5. At each checkpoint the relay sends the manifest, changed artifacts, the git patch,
+     and removals of evicted artifacts. The home re-caps and stores them, then raises
+     the hold to the manifest time.
+- **Computer side (`deploy/laterdog/computers`):** `workspace-holds.ts` holds the rules.
+  `DogComputer` stores `holds` (at most 64 keys, each the newest write time) and shows
+  `workspaces: { held, writtenAt, captured, snapshotExpiresAt }` on the computer view.
+  Reset, Update and Delete refuse with `409 workspace_held` as described. A refused delete
+  keeps the computer listed. Trial expiry stops on a held computer and retries rather than
+  deleting it.
+- **Fallback:** `EngineProcess` gets a `homeFallback` switch. It is off once the computer
+  owns the workspace, so a placement failure fails the turn with
+  "This dog's workspace lives on its cloud computer…".

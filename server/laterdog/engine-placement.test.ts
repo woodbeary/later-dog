@@ -190,16 +190,16 @@ it("gives the home's sign-in renewal the same CLI and the home environment only 
 it("saves a dog's placement atomically, keeps other dogs and fields, and never rewrites a file it cannot read", () => {
   const base = realpathSync(mkdtempSync("/tmp/ldplan-")); scratch.push(base);
   const file = join(base, "remote-engines.json");
-  expect(remoteEngineChoice(base, "b1", {})).toEqual({ botId: "b1", computer: false, fromEnvironment: false });
+  expect(remoteEngineChoice(base, "b1", {})).toEqual({ botId: "b1", computer: false, fromEnvironment: false, workspaceOnComputer: false, heldWorkspaces: 0 });
   writeFileSync(file, JSON.stringify({ bots: ["b2", 7, ""], note: "kept" }));
-  expect(setRemoteEngineBot(base, "b1", true, {})).toEqual({ botId: "b1", computer: true, fromEnvironment: false });
+  expect(setRemoteEngineBot(base, "b1", true, {})).toEqual({ botId: "b1", computer: true, fromEnvironment: false, workspaceOnComputer: false, heldWorkspaces: 0 });
   expect(setRemoteEngineBot(base, "b1", true, {}).computer).toBe(true);
   expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ bots: ["b2", "b1"], note: "kept" });
   expect(statSync(file).mode & 0o777).toBe(0o600);
   expect([...remoteEngineBots(base, {})].sort()).toEqual(["b1", "b2"]);
-  expect(setRemoteEngineBot(base, "b1", false, {})).toEqual({ botId: "b1", computer: false, fromEnvironment: false });
+  expect(setRemoteEngineBot(base, "b1", false, {})).toEqual({ botId: "b1", computer: false, fromEnvironment: false, workspaceOnComputer: false, heldWorkspaces: 0 });
   expect(JSON.parse(readFileSync(file, "utf8")).bots).toEqual(["b2"]);
-  expect(remoteEngineChoice(base, "b3", { LATERDOG_REMOTE_ENGINE_BOTS: "b3" })).toEqual({ botId: "b3", computer: true, fromEnvironment: true });
+  expect(remoteEngineChoice(base, "b3", { LATERDOG_REMOTE_ENGINE_BOTS: "b3" })).toEqual({ botId: "b3", computer: true, fromEnvironment: true, workspaceOnComputer: false, heldWorkspaces: 0 });
   writeFileSync(file, "{broken");
   expect(() => setRemoteEngineBot(base, "b1", true, {})).toThrow("left unchanged");
   expect(readFileSync(file, "utf8")).toBe("{broken");

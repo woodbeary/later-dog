@@ -1,4 +1,6 @@
+import type { Refusal } from "./auth";
 import { parseExec, type ExecInput } from "./inputs";
+import { parseHoldFrame, type HoldFrame } from "./workspace-holds";
 
 export interface StreamingProcess {
   exitCode: Promise<number>;
@@ -11,6 +13,7 @@ export interface ProcessStreamHost {
   start(input: ExecInput, stdin: ReadableStream<Uint8Array>): Promise<StreamingProcess>;
   active(): void;
   finished(): void;
+  control?(frame: HoldFrame): Promise<{ ok: true; value: unknown } | { ok: false; refusal: Refusal }>;
 }
 
 const MAX_FRAME = 1024 * 1024;
@@ -82,9 +85,20 @@ export function runProcessStream(socket: StreamSocket, host: ProcessStreamHost):
     if (typeof event.data !== "string" || event.data.length > MAX_FRAME) { stop(); return; }
     lastActive = Date.now();
     host.active();
-    let frame: { channel?: string; data?: string; input?: unknown };
+    let frame: { channel?: string; data?: string; input?: unknown; id?: unknown };
     try { frame = JSON.parse(event.data); } catch { stop(); return; }
     if (frame.channel === "pong") return;
+    if (frame.channel === "hold" || frame.channel === "release") {
+      const id = typeof frame.id === "number" && Number.isSafeInteger(frame.id) ? frame.id : null;
+      const parsed = parseHoldFrame(frame);
+      if (id === null || !parsed) { send({ channel: "control", id, ok: false, message: "That workspace hold request is not valid." }); return; }
+      if (!host.control) { send({ channel: "control", id, ok: false, message: "This computer cannot hold workspaces." }); return; }
+      void host.control(parsed).then(
+        (result) => send(result.ok ? { channel: "control", id, ok: true, body: result.value } : { channel: "control", id, ok: false, code: result.refusal.code, message: result.refusal.message }),
+        () => send({ channel: "control", id, ok: false, message: "The computer could not record the workspace hold." }),
+      );
+      return;
+    }
     if (!started) {
       if (frame.channel !== "start") { stop(); return; }
       const parsed = parseExec(frame.input);

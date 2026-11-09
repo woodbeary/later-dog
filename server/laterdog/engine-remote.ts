@@ -5,10 +5,28 @@ import { createInterface } from "node:readline";
 import { EngineFileReceiver, engineFileKey, engineInventory, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
 import { readEngineFile } from "./engine-files.ts";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 export interface EngineLink extends EventEmitter {
   send(line: string): void;
   close(): void;
+  control?(frame: { channel: "hold" | "release"; key: string; writtenAt?: number; through?: number }): Promise<unknown>;
+}
+
+export interface WorkspaceOwnership {
+  root: string;
+  key: string;
+  homeFallback: boolean;
+  outputs: EngineFileRoot[];
+  begin(): { reseed: boolean };
+  configure(): Record<string, unknown>;
+  recovery(homeFiles: EngineFile[]): { overlay: Map<string, string>; missing: string[] };
+  seeded(): void;
+  abandoned(): void;
+  admit(file: EngineFile): string | null;
+  removed(file: Pick<EngineFile, "root" | "path">): void;
+  manifest(raw: unknown): number;
+  held(ok: boolean, why?: string, writtenAt?: number): void;
 }
 
 export function commandLink(command: string, args: string[], env?: NodeJS.ProcessEnv): EngineLink {
@@ -38,6 +56,7 @@ export interface RemoteLaunch {
   outputIds: string[];
   pushes?: () => PushedFile[];
   pushEveryMs?: number;
+  ownership?: WorkspaceOwnership;
   mcp: Record<string, StdioSpec>;
   hooks: string[];
   hookEnv: Record<string, string>;
@@ -122,27 +141,51 @@ export class RemoteSession extends EventEmitter {
     let configured: { files: EngineFile[] };
     let home: EngineFile[];
     const pushedRoots = new Set((launch.pushes?.() ?? []).map((file) => file.root));
+    const owned = launch.ownership;
+    let reseed = false;
+    if (owned) {
+      if (!this.#link.control) throw new NotDispatched("This cloud computer connection cannot hold a workspace.");
+      const at = Date.now();
+      try { await this.#link.control({ channel: "hold", key: owned.key, writtenAt: at }); }
+      catch (error) { owned.held(false, (error as Error).message); throw new NotDispatched(`The cloud computer did not agree to hold the workspace: ${(error as Error).message}`); }
+      owned.held(true, undefined, at);
+      reseed = owned.begin().reseed;
+    }
     try {
-      home = engineInventory(launch.roots.filter((root) => !pushedRoots.has(root.id)));
+      const skipped = (id: string) => pushedRoots.has(id) || (owned !== undefined && !reseed && id === owned.root);
+      try {
+        home = engineInventory(launch.roots.filter((root) => !skipped(root.id)));
+      } catch (error) {
+        throw new NotDispatched(`The working files cannot move to the cloud computer: ${(error as Error).message}`);
+      }
+      let remoteOwned: { hasFiles?: boolean } | undefined;
+      try {
+        const reply = await this.#request({ type: "configure", roots: launch.roots.map((root) => ({ ...root, writable: true })), outputIds: launch.outputIds, names: Object.keys(launch.mcp),
+          ...(owned ? { ownership: { ...owned.configure(), reseed } } : {}) }, SYNC_REPLY_MS) as { files: EngineFile[]; owned?: { hasFiles?: boolean } };
+        configured = reply;
+        remoteOwned = reply.owned;
+      } catch (error) { throw new NotDispatched((error as Error).message); }
+      if (owned && !remoteOwned) throw new NotDispatched("The cloud computer's engine relay does not support a workspace it owns.");
+      const remote = new Map(configured.files.map((file) => [engineFileKey(file), file.hash]));
+      const present = new Set(home.map(engineFileKey));
+      for (const file of home) {
+        if (remote.get(engineFileKey(file)) === file.hash) continue;
+        const root = launch.roots.find((entry) => entry.id === file.root)!;
+        this.#sendFile(file.root, file.path, readEngineFile(root, file.path), root.readOnly ? (file.mode & 0o444) | 0o400 : file.mode);
+      }
+      for (const file of configured.files) if (!present.has(engineFileKey(file)) && !skipped(file.root)) this.#send({ type: "file_remove", file });
+      if (owned && !reseed && !remoteOwned?.hasFiles) this.#recover(owned);
+      this.#pushScoped(remote);
+      try { await this.#request({ type: "prepared" }, SYNC_REPLY_MS); }
+      catch (error) { throw new NotDispatched((error as Error).message); }
+      owned?.seeded();
     } catch (error) {
-      throw new NotDispatched(`The working files cannot move to the cloud computer: ${(error as Error).message}`);
+      if (owned && reseed) this.#abandon(owned);
+      throw error;
     }
-    try {
-      configured = await this.#request({ type: "configure", roots: launch.roots.map((root) => ({ ...root, writable: true })), outputIds: launch.outputIds, names: Object.keys(launch.mcp) }, SYNC_REPLY_MS);
-    } catch (error) { throw new NotDispatched((error as Error).message); }
-    const remote = new Map(configured.files.map((file) => [engineFileKey(file), file.hash]));
-    const present = new Set(home.map(engineFileKey));
-    for (const file of home) {
-      if (remote.get(engineFileKey(file)) === file.hash) continue;
-      const root = launch.roots.find((entry) => entry.id === file.root)!;
-      this.#sendFile(file.root, file.path, readEngineFile(root, file.path), root.readOnly ? (file.mode & 0o444) | 0o400 : file.mode);
-    }
-    for (const file of configured.files) if (!present.has(engineFileKey(file)) && !pushedRoots.has(file.root)) this.#send({ type: "file_remove", file });
-    this.#pushScoped(remote);
-    try { await this.#request({ type: "prepared" }, SYNC_REPLY_MS); }
-    catch (error) { throw new NotDispatched((error as Error).message); }
-    this.#receiver = new EngineFileReceiver(launch.roots.filter((root) => launch.outputIds.includes(root.id)).map((root) => ({ ...root, writable: true })),
-      home.filter((file) => launch.outputIds.includes(file.root)));
+    const ownedOutputs = owned?.outputs ?? [];
+    this.#receiver = new EngineFileReceiver([...launch.roots.filter((root) => launch.outputIds.includes(root.id)), ...ownedOutputs].map((root) => ({ ...root, writable: true })),
+      [...home.filter((file) => launch.outputIds.includes(file.root)), ...(ownedOutputs.length ? engineInventory(ownedOutputs) : [])]);
     if (this.#closed) throw new NotDispatched("The cloud computer's connection closed before launch.");
     this.#launchSent = true;
     let body: any;
@@ -158,6 +201,29 @@ export class RemoteSession extends EventEmitter {
     this.#started = true;
     this.#pushTimer = setInterval(() => this.#pushScoped(new Map()), launch.pushEveryMs ?? PUSH_EVERY_MS);
     this.#pushTimer.unref();
+  }
+
+  #abandon(owned: WorkspaceOwnership): void {
+    owned.abandoned();
+    void this.#link.control?.({ channel: "release", key: owned.key, through: Date.now() }).catch(() => {});
+  }
+
+  #recover(owned: WorkspaceOwnership): void {
+    const root = this.#launch.roots.find((entry) => entry.id === owned.root)!;
+    let homeFiles: EngineFile[];
+    try { homeFiles = engineInventory([root]); }
+    catch (error) { throw new NotDispatched(`The workspace is missing on the cloud computer and the home copy cannot be sent: ${(error as Error).message}`); }
+    const plan = owned.recovery(homeFiles);
+    const sent = new Set<string>();
+    for (const file of homeFiles) {
+      const over = plan.overlay.get(file.path);
+      this.#sendFile(owned.root, file.path, over ? readFileSync(over) : readEngineFile(root, file.path), file.mode);
+      sent.add(file.path);
+    }
+    for (const [path, from] of plan.overlay) if (!sent.has(path)) this.#sendFile(owned.root, path, readFileSync(from), 0o600);
+    const lost = plan.missing.length ? ` ${plan.missing.length} file(s) that existed only on the computer could not be recovered: ${plan.missing.slice(0, 20).join(", ")}${plan.missing.length > 20 ? ", …" : ""}.` : "";
+    this.emit("workspace-recovered", plan.missing);
+    this.emit("diagnostic", `The workspace was missing on the cloud computer, so it was rebuilt from the home's copy and ${plan.overlay.size} saved file(s).${lost}\n`);
   }
 
   write(bytes: Buffer): void { if (this.#started && !this.#closed) this.#send({ type: "stdin", data: bytes.toString("base64") }); }
@@ -176,13 +242,29 @@ export class RemoteSession extends EventEmitter {
       case "stderr": this.emit("stderr", Buffer.from(frame.data, "base64")); return;
       case "native_error": this.emit("stderr", Buffer.from("The engine reported a process error on the cloud computer.\n")); return;
       case "native_exit": this.#exit(Number.isInteger(frame.code) ? frame.code : null, typeof frame.signal === "string" ? frame.signal : null); return;
+      case "workspace_manifest": {
+        const owned = this.#launch.ownership;
+        if (!owned) return;
+        let writtenAt: number;
+        try { writtenAt = owned.manifest(frame.manifest); }
+        catch (error) { this.conflicts.push(`workspace manifest: ${(error as Error).message}`); this.emit("conflict", "workspace manifest", (error as Error).message); return; }
+        void this.#link.control?.({ channel: "hold", key: owned.key, writtenAt }).then(() => owned.held(true, undefined, writtenAt), (error: Error) => {
+          owned.held(false, error.message);
+          this.emit("diagnostic", `The cloud computer did not confirm it holds this workspace: ${error.message}\n`);
+        });
+        return;
+      }
       case "file_begin":
-        try { this.#receiver!.begin(frame.file); this.#skipping = false; }
+        try {
+          const refused = this.#launch.ownership?.admit(frame.file) ?? null;
+          if (refused) throw new Error(refused);
+          this.#receiver!.begin(frame.file); this.#skipping = false;
+        }
         catch (error) { this.#skipping = true; this.conflicts.push(`${frame.file?.path}: ${(error as Error).message}`); this.emit("conflict", frame.file?.path, (error as Error).message); }
         return;
       case "file_chunk": if (!this.#skipping) try { this.#receiver!.chunk(Buffer.from(frame.data, "base64")); } catch (error) { this.#skipping = true; this.#receiver!.close(); this.conflicts.push((error as Error).message); } return;
       case "file_end": if (!this.#skipping) try { this.#receiver!.end(); } catch (error) { this.conflicts.push((error as Error).message); } this.#skipping = false; return;
-      case "file_remove": try { this.#receiver!.remove(frame.file); } catch (error) { this.conflicts.push(`${frame.file?.path}: ${(error as Error).message}`); } return;
+      case "file_remove": try { this.#receiver!.remove(frame.file); this.#launch.ownership?.removed(frame.file); } catch (error) { this.conflicts.push(`${frame.file?.path}: ${(error as Error).message}`); } return;
       case "checkpoint": this.#receiver?.resetBudget(); this.emit("checkpoint", frame.id); this.#send({ type: "ack", id: frame.id }); return;
       case "proxy_open": this.#openProxy(String(frame.id), String(frame.name)); return;
       case "proxy_stdin": this.#proxies.get(String(frame.id))?.stdin?.write(Buffer.from(frame.data, "base64")); return;
@@ -266,7 +348,7 @@ export class EngineProcess extends EventEmitter {
   #closed: Promise<void>;
   #markClosed!: () => void;
 
-  constructor(remote: RemoteSession, fallback: () => ChildProcess, onPlaced?: (where: "computer" | "home", why?: string) => void) {
+  constructor(remote: RemoteSession, fallback: () => ChildProcess, onPlaced?: (where: "computer" | "home", why?: string) => void, homeFallback = true) {
     super();
     this.#closed = new Promise((resolve) => { this.#markClosed = resolve; });
     this.stdin.on("error", () => {});
@@ -284,7 +366,7 @@ export class EngineProcess extends EventEmitter {
       this.stdin.resume();
       if (this.#stopRequested) remote.stop();
     }, (error: Error) => {
-      if (error instanceof NotDispatched && !remote.launchSent || (error instanceof NotDispatched && error.refused === "spawn_failed")) {
+      if (homeFallback && (error instanceof NotDispatched && !remote.launchSent || (error instanceof NotDispatched && error.refused === "spawn_failed"))) {
         remote.close();
         this.#remote = null;
         if (this.#stopRequested) { this.placement = "home"; this.#finish(null, "SIGTERM"); return; }
@@ -296,7 +378,8 @@ export class EngineProcess extends EventEmitter {
       this.placement = "computer";
       onPlaced?.("computer", error.message);
       remote.close();
-      this.stderr.write(`${error.message}\n`);
+      const kept = !homeFallback && error instanceof NotDispatched ? "This dog's workspace lives on its cloud computer, so the turn was not run on the home's older copy. " : "";
+      this.stderr.write(`${kept}${error.message}\n`);
       this.#finish(1, null);
     });
   }
