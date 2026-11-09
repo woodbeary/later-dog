@@ -29,7 +29,7 @@ async function spellings(dir) {
   return folded;
 }
 
-function stubWorkspace() {
+function stubWorkspace({ lease = () => true } = {}) {
   const sessionId = randomUUID();
   const environmentId = randomUUID();
   const env = { id: "fixture-workspace", name: "Fixture", origin: "https://workspace.test" };
@@ -48,7 +48,7 @@ function stubWorkspace() {
       if (!operation) throw new Error("fixture workspace has no more work");
       return json({ job: { id: randomUUID(), operation: { computer_id: state.connected.id, folder_id: state.connected.folders[0]?.id, ...operation } } });
     }
-    if (route.endsWith("/lease")) return json({ active: true });
+    if (route.endsWith("/lease")) return json({ active: lease() });
     if (route.endsWith("/result")) { deliver(body.result); return json({}); }
     if (route.endsWith("/disconnect")) return json({});
     throw new Error(`fixture workspace has no route ${route}`);
@@ -495,4 +495,110 @@ test("the real macOS check passes a readable folder and a missing one", { skip: 
   await mkdir(path.join(dir, "Desktop"));
   await macFolderAccess(dir, "Desktop");
   await macFolderAccess(dir, "Documents");
+});
+
+const stubEnvId = saved => Object.keys(saved.records)[0];
+
+async function screenFixture(t, { delayMs = 0, lease } = {}) {
+  const { dir } = await fixture(t);
+  const launches = path.join(dir, "driver-launches");
+  const script = path.join(dir, "driver.mjs");
+  await writeFile(script, `import readline from 'node:readline'; import fs from 'node:fs';
+fs.appendFileSync(${JSON.stringify(launches)}, 'started\\n');
+readline.createInterface({input:process.stdin}).on('line', line => { const m=JSON.parse(line); if(!m.id)return;
+const result=m.method==='initialize'?{protocolVersion:'2024-11-05',capabilities:{tools:{}}}:m.method==='tools/list'?{tools:[]}:{content:[{type:'text',text:'done'}]};
+setTimeout(() => process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n'), m.method==='tools/call'?${delayMs}:0); });`);
+  const stub = stubWorkspace({ lease });
+  stub.state.work.push({ action: "computer_call", tool_name: "get_desktop_state", arguments: {} });
+  const events = [];
+  const launched = async () => (await readFile(launches, "utf8").catch(() => "")).split("\n").filter(Boolean).length;
+  const registrations = [];
+  const fetchImpl = async (url, init) => {
+    if (String(url).endsWith("/api/shared-computers/connect")) registrations.push(JSON.parse(init.body));
+    return stub.fetchImpl(url, init);
+  };
+  const lend = async options => {
+    const sharing = createComputerSharing({
+      file: path.join(dir, "profile", "computer-sharing.json"), fetch: fetchImpl,
+      environments: () => [stub.env], enabled: async () => true, ...options,
+      cuaConnection: async () => { events.push("connection"); return options.connection ?? null; },
+    });
+    t.after(() => sharing.close());
+    const info = await sharing.identity(stub.env);
+    await sharing.save(stub.env, { folders: [], terminal: true, computer: true }, info);
+    await delay(20);
+    lent.sharing = sharing;
+    lent.file = path.join(dir, "profile", "computer-sharing.json");
+    return stub.state.delivered;
+  };
+  const lent = {};
+  return { lent, registrations, events, launched, lend, connection: { mcpCommand: process.execPath, mcpArgs: [script] } };
+}
+
+test("screen control without a local control gate is refused before the driver is reached", async t => {
+  const { lent, registrations, events, launched, lend, connection } = await screenFixture(t);
+  const result = await lend({ connection });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /Screen control is not available through this connection/);
+  assert.deepEqual(events, []);
+  assert.equal(await launched(), 0);
+  assert.equal(registrations.at(-1).computer, false);
+  assert.equal(registrations.at(-1).terminal, true);
+  const saved = JSON.parse(await readFile(lent.file, "utf8"));
+  assert.equal(Object.values(saved.records)[0].computer, true);
+  assert.equal(lent.sharing.state(stubEnvId(saved)).computer, false);
+  assert.equal(lent.sharing.state(stubEnvId(saved)).terminal, true);
+});
+
+test("a local gate that refuses keeps the driver from launching", async t => {
+  const { events, launched, lend, connection } = await screenFixture(t);
+  const result = await lend({ connection, hostControl: async () => { throw new Error("This computer is in use locally or held by a person. Wait, then observe it again before acting."); } });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /held by a person/);
+  assert.deepEqual(events, []);
+  assert.equal(await launched(), 0);
+});
+
+test("a published driver connection that is unavailable keeps the driver from launching and still frees the gate", async t => {
+  const { events, launched, lend } = await screenFixture(t);
+  const gate = [];
+  const result = await lend({ connection: { mode: "unavailable", reason: "cua-driver binary not found" }, hostControl: async id => { gate.push("acquire"); return { renew: async () => {}, release: async () => { gate.push("release"); } }; } });
+  assert.equal(result.isError, true);
+  assert.deepEqual(events, ["connection"]);
+  assert.equal(await launched(), 0);
+  assert.deepEqual(gate, ["acquire", "release"]);
+});
+
+test("a screenshot is refused when the grant was already revoked, before the gate or driver", async t => {
+  const { events, launched, lend, connection } = await screenFixture(t, { lease: () => false });
+  const gate = [];
+  const result = await lend({ connection, hostControl: async () => { gate.push("acquire"); return { renew: async () => {}, release: async () => { gate.push("release"); } }; } });
+  assert.equal(result.isError, true);
+  assert.deepEqual(gate, []);
+  assert.deepEqual(events, []);
+  assert.equal(await launched(), 0);
+});
+
+test("a local takeover during a screen call aborts it and releases the gate", async t => {
+  const { launched, lend, connection } = await screenFixture(t, { delayMs: 5_000 });
+  const gate = [];
+  const result = await lend({ connection, hostControl: async () => ({ renew: async () => { gate.push("renew"); throw new Error("taken over"); }, release: async () => { gate.push("release"); } }) });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /revoked or the requesting turn ended/);
+  assert.equal(await launched(), 1);
+  await delay(50);
+  assert.deepEqual(gate, ["renew", "release"]);
+});
+
+test("with the gate held and the driver published, a screen call runs once and releases the gate", async t => {
+  const { lent, registrations, events, launched, lend, connection } = await screenFixture(t);
+  const gate = [];
+  const result = await lend({ connection, hostControl: async id => { gate.push("acquire"); return { renew: async () => {}, release: async () => { gate.push("release"); } }; } });
+  assert.equal(registrations.at(-1).computer, true);
+  assert.equal(lent.sharing.state(stubEnvId(JSON.parse(await readFile(lent.file, "utf8")))).computer, true);
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(events, ["connection"]);
+  assert.equal(await launched(), 1);
+  await delay(50);
+  assert.deepEqual(gate.filter(step => step !== "renew"), ["acquire", "release"]);
 });

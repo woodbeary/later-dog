@@ -117,3 +117,26 @@ AX click, pixel click, typing, scroll, covered windows, other Spaces, and actual
 user takeover. Keep permissions and the host control gate enabled. Repeat through
 the packaged embedded daemon, including signing and supported Mac architectures.
 Do not use the operator's later.dog data or authenticated browser profiles as fixtures.
+
+## Source Mac driver lookup and Dev's closed screen
+
+`pnpm exec vitest run electron/cua-driver-path.test.mjs electron/cua-launch.test.mjs scripts/dev-mac.test.ts`
+checks, with a temporary stage and no Mac data, that an unpackaged app resolves
+`dist-native/<arch>/cua-driver` for its own architecture only, that a directory in
+its place is rejected, that `CUA_DRIVER_PATH` wins, that a packaged app never reads
+the source stage, that a default source launch (flag unset, no override, no daemon
+socket) starts the embedded host with the staged helper while a live daemon socket,
+an explicit `LATERDOG_CUA_EMBEDDED` value or a custom driver path keeps its earlier
+path (all with a faked host and processes), that a default launch whose embedded host is refused for permissions or fails to start reports unavailable with no `open -a CuaDriver` and no standalone process even with the global app mocked as installed (explicit `LATERDOG_CUA_EMBEDDED=1` keeps that fallback), that stopping during daemon detection publishes no host or descriptor, and that Dev's Mac connection passes no driver connection (even
+when a published `cua-connection.json` names one), no local control gate and no
+Screen Recording check.
+
+`node --test electron/shared-computer-access.node-test.mjs` (temporary folders and a
+stub workspace, no live app or data) drives the real sharing controller with a fake
+driver that records each launch: no gate, a refusing gate, an unavailable driver
+connection and an already revoked grant never start the driver (the unavailable
+connection still frees the gate); a gate that reports a takeover during a call
+aborts it and releases the gate; a held gate with a published driver runs once and
+releases. This is fixture evidence from any platform. It does not show macOS
+permissions or UI control, and the installed app's real gate and permission
+checklist are not exercised by it. The same file reads the controller's outgoing registration: without a local gate it sends `computer:false` with terminal retained, the saved grant stays `computer:true`, and `state()` reports screen unavailable; with the gate it sends `computer:true`, and each screen call still acquires, renews and releases the gate. `scripts/dev-mac.test.ts` drives the real controller with Dev's options and checks the same registration. Dev's screen control remains unavailable until it runs through the canonical local gate.

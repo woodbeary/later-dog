@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url";
 import localOriginModule from "./local-origin.cjs";
 import { permissionChecklist } from "./mac-permissions.mjs";
 import { variant } from "./app-variant.mjs";
+import { stagedMacDriver } from "./cua-driver-path.mjs";
 
 const { localOnly } = localOriginModule;
 
@@ -119,6 +120,10 @@ export function resolveDriverBinary() {
     const bundled = path.join(process.resourcesPath, "cua-driver" + (process.platform === "win32" ? ".exe" : ""));
     if (fs.existsSync(bundled)) return bundled;
   }
+  if (!app.isPackaged) {
+    const staged = stagedMacDriver({ appPath: app.getAppPath() });
+    if (staged) return staged;
+  }
   if (process.platform === "darwin" && fs.existsSync(INSTALLED_DRIVER)) return INSTALLED_DRIVER;
   if (process.platform === "win32") {
     const staged = path.join(app.getAppPath(), "dist-native", "cua-win32-x64", "cua-driver.exe");
@@ -226,6 +231,13 @@ async function startEmbedded(binary, signal) {
   }
 }
 
+async function sourceMacUsesPinnedStage(binary) {
+  if (process.platform !== "darwin" || app.isPackaged) return false;
+  if (process.env.CUA_DRIVER_PATH || process.env.LATERDOG_CUA_EMBEDDED !== undefined) return false;
+  if (stagedMacDriver({ appPath: app.getAppPath() }) !== binary) return false;
+  return !(await socketAlive(STANDALONE_SOCKET));
+}
+
 export async function startCua() {
   if (process.platform === "linux") return ensureLinuxRuntime().initialize();
   lifecycleGeneration++;
@@ -240,8 +252,13 @@ export async function startCua() {
     });
   }
 
+  const pinnedStageDefault = await sourceMacUsesPinnedStage(binary);
+  signal.throwIfAborted();
   const wantEmbedded =
-    process.platform === "win32" || app.isPackaged || process.env.LATERDOG_CUA_EMBEDDED === "1";
+    process.platform === "win32" ||
+    app.isPackaged ||
+    process.env.LATERDOG_CUA_EMBEDDED === "1" ||
+    pinnedStageDefault;
   let nextConnection;
 
   if (wantEmbedded) {
@@ -250,7 +267,7 @@ export async function startCua() {
     } catch (err) {
       signal.throwIfAborted();
       try {
-        nextConnection = await attachStandalone(signal);
+        nextConnection = pinnedStageDefault ? null : await attachStandalone(signal);
       } catch (standaloneError) {
         signal.throwIfAborted();
         nextConnection = {

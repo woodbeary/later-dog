@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -131,5 +131,42 @@ describe("later.dog Dev connecting this Mac to the person's Cloud", () => {
     await mac.check();
     expect(made[0]!.options.environments()).toEqual([{ id: DEV_ENV_ID, name: "My Cloud", origin: ORIGIN }]);
     await mac.stop();
+  });
+
+  it("keeps screen control closed: no driver connection and no local control gate", async () => {
+    const { dir, sessionFile, appFile, made, create } = setup();
+    const mac = startDevMac({ sessionFile, dataDir: dir, appFile, appRunning: async () => false, create: create as never, log: () => {}, checkMs: 60_000 });
+    await mac.check();
+    const options = made[0]!.options;
+    mkdirSync(join(dir, "desktop"));
+    writeFileSync(join(dir, "desktop", "cua-connection.json"), JSON.stringify({ mode: "standalone", mcpCommand: "/fixture/cua-driver", mcpArgs: ["mcp"] }));
+    expect(await options.cuaConnection()).toBeNull();
+    expect(options.hostControl).toBeUndefined();
+    expect(options.screenRecording).toBeUndefined();
+    await mac.stop();
+  });
+
+  it("registers screen as unavailable through the real sharing controller while keeping files and terminal", async () => {
+    const { dir, sessionFile, appFile } = setup();
+    const registered: Record<string, unknown>[] = [];
+    const session = "1f2e3d4c-5b6a-4987-8a7b-6c5d4e3f2a1b";
+    const environment = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+    const fetchImpl = async (url: string, init: { body?: string } = {}) => {
+      const route = new URL(url).pathname;
+      if (route === "/api/shared-computers/connect") registered.push(JSON.parse(init.body ?? "{}"));
+      const body = route === "/api/auth/session" ? { kind: "session", id: session, cloudHome: true, scopes: ["admin"] }
+        : route === "/.well-known/laterdog/environment" ? { environmentId: environment, capabilities: { sharedComputers: true } }
+        : route.endsWith("/poll") ? { job: null } : {};
+      if (route.endsWith("/poll")) await new Promise(resolve => setTimeout(resolve, 200));
+      return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
+    };
+    const { createComputerSharing } = await import("../electron/computer-sharing.mjs");
+    const mac = startDevMac({ sessionFile, dataDir: dir, appFile, appRunning: async () => false, create: ((options: Record<string, unknown>) => createComputerSharing({ ...options, home: dir } as never)) as never, fetchImpl: fetchImpl as never, log: () => {}, checkMs: 60_000, home: dir });
+    await mac.check();
+    for (let wait = 0; wait < 100 && registered.length === 0; wait++) await new Promise(resolve => setTimeout(resolve, 20));
+    const kept = JSON.parse(readFileSync(join(dir, DEV_SHARING_NAME), "utf8")).records[APP_ENV];
+    await mac.stop();
+    expect(registered[0]).toMatchObject({ computer: false, terminal: true });
+    expect(kept.computer).toBe(true);
   });
 });

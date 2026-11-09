@@ -21,6 +21,7 @@ const RETRY_MAX_MS = 60_000;
 const PAIR_FIRST_MS = 30_000;
 const PAIR_MAX_MS = 15 * 60_000;
 const HOME_WORDS = { asleep: "My Cloud is resting.", waking: "My Cloud is waking up.", busy: "later.dog is busy right now." };
+const SCREEN_UNAVAILABLE = "Screen control is not available through this connection. Use files and the terminal, or the installed later.dog app.";
 const UNNAMED = "This computer";
 const CUA_OFF = process.platform === "darwin"
   ? "later.dog can't use apps on this Mac yet. On the Mac, turn on later.dog in System Settings → Privacy & Security → Accessibility and Screen Recording. If it still can't, quit and reopen later.dog on the Mac."
@@ -144,6 +145,7 @@ export function createComputerSharing({
   let maintainerOff = false;
   const active = new Map();
   let screenQueue = Promise.resolve();
+  const screenReady = grant => grant?.computer === true && typeof hostControl === "function";
   const busyNow = () => [...active.values()].at(-1) ?? null;
   let homing = null;
   let homeAgain = false;
@@ -309,11 +311,11 @@ export function createComputerSharing({
               if (records[env.id]?.id === grant.id) store({ ...records, [env.id]: grant });
             }
           } else await validateSharedFolders(grant.folders);
-          const effectiveGrant = { ...grant, protectedPaths: protectedRoots };
+          const effectiveGrant = { ...grant, computer: screenReady(grant), protectedPaths: protectedRoots };
           await gate();
           await request(env, "/api/shared-computers/connect", {
             id: grant.id, name: await macName(), environmentId: grant.environmentId,
-            folders: grant.folders.map(({ id, name, write }) => ({ id, name, write })), terminal: grant.terminal, computer: grant.computer,
+            folders: grant.folders.map(({ id, name, write }) => ({ id, name, write })), terminal: grant.terminal, computer: effectiveGrant.computer,
             ...(grant.home ? { home: true } : {}),
           }, signal, grant.secret, { "x-laterdog-computer-actions": SHARED_ACTIONS.join(",") });
           if (signal.aborted) break;
@@ -346,11 +348,9 @@ export function createComputerSharing({
             const work = async () => {
               if (screen) {
                 await firstLease; jobSignal.throwIfAborted();
-                if (grant.computer) {
-                  if (!hostControl) throw new Error("The local computer control gate is unavailable");
-                  control = await hostControl(job.id, jobSignal);
-                  jobSignal.throwIfAborted();
-                }
+                if (!effectiveGrant.computer) throw new Error(SCREEN_UNAVAILABLE);
+                control = await hostControl(job.id, jobSignal);
+                jobSignal.throwIfAborted();
               }
               const stopped = new Promise((_, reject) => {
                 const quit = () => reject(new Error("Computer access was revoked or the requesting turn ended. Inspect the result before retrying."));
@@ -424,7 +424,7 @@ export function createComputerSharing({
   };
   const state = id => {
     const grant = records[id];
-    return { enabled: grant?.enabled === true, folders: Array.isArray(grant?.folders) ? grant.folders : [], terminal: grant?.terminal === true, computer: grant?.computer === true, ...status.get(id) };
+    return { enabled: grant?.enabled === true, folders: Array.isArray(grant?.folders) ? grant.folders : [], terminal: grant?.terminal === true, computer: screenReady(grant), ...status.get(id) };
   };
   const disconnect = (env, grant) => {
     stop(env.id);

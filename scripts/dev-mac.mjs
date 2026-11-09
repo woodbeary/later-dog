@@ -87,8 +87,8 @@ export function startDevMac({
     let connected = false;
     const created = create({
       file, fetch: authorized, environments: () => [env], cloud: () => current,
-      enabled: async () => false, cuaConnection: async () => null,
-      hostControl: async () => ({ renew: async () => {}, release: async () => {} }),
+      enabled: async () => false,
+      cuaConnection: async () => null,
       protectedPaths: devProtectedPaths(home), home,
       onChange: () => {
         const now = created?.state?.(env.id)?.connected === true;
