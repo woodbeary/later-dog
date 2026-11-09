@@ -87,6 +87,7 @@ export async function waitForNewServer({ read, before, since, timeoutMs = READY_
   while (now() - since < timeoutMs) {
     if (signal?.aborted) throw new Error("stopped before the home switched");
     const pid = await read();
+    if (signal?.aborted) throw new Error("stopped before the home switched");
     if (pid !== null && pid !== before) return pid;
     await wait(everyMs, signal);
   }
@@ -122,7 +123,7 @@ export async function confirmSwitch({ hash, home, before, published, who }, { si
   const pid = await waitForNewServer({ read, before, since: published, signal, ...timing });
   const seconds = Math.round(((timing.now ?? Date.now)() - published) / 1000);
   log(pid === null
-    ? `${who} still runs the old server ${seconds} s after the push; it switches once no dog is working or after ${DEV_CODE_MAX_WAIT_MS / 60_000} min`
+    ? `${who} switch not confirmed ${seconds} s after the push; it switches once no dog is working or after ${DEV_CODE_MAX_WAIT_MS / 60_000} min`
     : `${who} server pid changed to ${pid} ${seconds} s after the push; that this exact code (${hash.slice(0, 12)}) is the one running needs separate qualification`);
   return pid === null ? { hash } : { hash, pid };
 }
