@@ -1,0 +1,108 @@
+{
+  "scope": "Read-only functional follow-up after a separately deployed native Codex guard; not task-quality, installed-device or live-capacity qualification",
+  "worker": "e85c60e3-0612-493e-b065-7e250e0d6ebd",
+  "workerCreatedAt": "2026-11-09T03:23:26.524Z",
+  "runtimeSource": "01b206ee2770053d74beaf7e2e9bc46942f0f8d5",
+  "firstQualified": "2026-11-09T03:44:55.417Z",
+  "lastQualified": "2026-11-09T03:55:03.311Z",
+  "consecutiveQualified": 21,
+  "qualifiedSpanSeconds": 607.894,
+  "acceptanceToFirstQualifiedSeconds": 1288.893,
+  "fleet": {
+    "dogs": 80,
+    "allDogAndCurrentThreadIdentitiesPreserved": true,
+    "historicalThreadAudit": false,
+    "selected": [
+      {
+        "name": "Patch",
+        "selection": {
+          "instanceId": "codex",
+          "model": "gpt-6.1-sol",
+          "effort": "medium"
+        }
+      },
+      {
+        "name": "Clover",
+        "selection": {
+          "instanceId": "codex",
+          "model": "gpt-6.1-sol",
+          "effort": "medium"
+        }
+      }
+    ],
+    "observedActive": [
+      "Patch"
+    ],
+    "queuedThreads": 0,
+    "queueScope": "botQueuedMessages only; excludes separate supervisor and account waits"
+  },
+  "actualCurrentExecution": {
+    "provider": "claudeAgent",
+    "state": "running",
+    "observation": "live",
+    "selectionIsExecution": false
+  },
+  "usage": {
+    "status": 200,
+    "coverage": {
+      "recordedTurns": 1777,
+      "receipts": 10,
+      "legacyTurns": 1767
+    },
+    "returned": 10,
+    "withLegacyTaskField": 0,
+    "selectedEffortPresent": 10,
+    "verifiedTaskResults": 0
+  },
+  "storage": {
+    "minimumFreeBytes": 1897021440,
+    "maximumFreeBytes": 2427924480,
+    "lastFreeBytes": 2425212928,
+    "lowSamples": 10,
+    "capacityQualified": false
+  },
+  "productionInstance": {
+    "state": "running",
+    "applicationVersion": 52,
+    "location": "dfw05"
+  },
+  "staging": {
+    "worker": "422e1333-2e34-4d7c-abb6-a5b5c06db859",
+    "directHealthAt": "2026-11-09T03:50:36.367Z",
+    "status": 200,
+    "priorAdviceToolSuccessRetained": true,
+    "priorMarkerRetained": true,
+    "selectedModel": "kimi-k2.6",
+    "busy": false,
+    "newProviderTurnAfterLatestReplacement": false
+  },
+  "localChecks": {
+    "fullImageSmoke": "passed; health, pairing, refusal, archive restoration, live updates and clean exit",
+    "nativeGuardMechanism": "Pinned native CLI with synthetic loopback responses; first heavy command denied, repeated fallback executed; no live provider",
+    "bundleComparison": "Published and rebuilt raw hashes differ; equality after normalizing only esbuild dependency path prefix",
+    "progress": {
+      "at": "2026-11-09T03:55:05.199Z",
+      "status": 200,
+      "state": "running",
+      "provider": "claudeAgent",
+      "observation": "live",
+      "activities": 100,
+      "completed": 99,
+      "failed": 1,
+      "hasMore": true
+    }
+  },
+  "imagePins": {
+    "CloudHomeHost": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-home-cloudhomehost@sha256:f45ba413ad8bfee9cdb601c1b3bc968f4b6a63ebc782a6266b06bc26f90dde8e",
+    "CloudHomeHostLarge": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-home-cloudhomehostlarge@sha256:e64ff59e579d590b4bb4df7045ea58575805137be9eb5db963a732fa51d5de42"
+  },
+  "limits": [
+    "No independently verified task outcomes",
+    "No model-bill saving proven",
+    "Twenty live dogs not capacity-qualified",
+    "Per-dog engine placement remains unfinished",
+    "Actual current provider differs from selected next settings",
+    "Ten low-storage flags in this follow-up window",
+    "Full server suite not claimed passing"
+  ]
+}
