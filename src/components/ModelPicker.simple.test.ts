@@ -1119,7 +1119,7 @@ describe("the message field's one AI menu", () => {
       routed: { "thread-scout": { from: "claude", on: "codex" } },
       resting: { claude: { until: new Date(NOW + 3_600_000).toISOString() } } };
     const closed = renderPart(bot());
-    expect(closed.html).toContain('title="Running on Codex"');
+    expect(closed.html).toContain('title="Claude is used up, running on Codex (ChatGPT)"');
     const opened = openPart(bot());
     const rows = accountMenu(opened)!.props.rows;
     expect(rows.map((row) => row.instance.instanceId)).toEqual(["codex", "claude"]);
@@ -1127,6 +1127,19 @@ describe("the message field's one AI menu", () => {
     expect(rows[1]!.rest).toBeDefined();
     expect(rows.every((row) => !row.movable)).toBe(true);
     expect(opened.html).toContain("Automatically managed");
+  });
+
+  it("says the chosen engine is off when the home runs the chat on another engine's account", () => {
+    const chatgpt = { ...engine("codex", "codex", "ChatGPT", "subscription", [{ id: "gpt-6.1-sol", label: "GPT-6.1-Sol" }]), enabled: false };
+    fixture.instances = [chatgpt, { ...claude(), displayName: "jacob" }];
+    fixture.battery = { enabled: true, auto: true, order: {}, sequence: ["codex", "claude"],
+      routed: { "thread-scout": { from: "codex", on: "claude" } }, resting: {} };
+    const closed = renderPart(bot(undefined, "codex", "gpt-6.1-sol"));
+    expect(closed.html).toContain('title="ChatGPT is off, running on jacob (Claude)"');
+    expect(closed.html).toMatch(/data-model-account[^>]*>.*jacob \(Claude\)/);
+    expect(closed.html).toContain("GPT-6.1-Sol, jacob (Claude), ChatGPT is off, running on jacob (Claude)");
+    const opened = openPart(bot(undefined, "codex", "gpt-6.1-sol"));
+    expect(opened.html).toMatch(/data-model-routed[^>]*>ChatGPT is off, running on jacob \(Claude\)</);
   });
 
   it("lets the menu reorder accounts once the server keeps an order", () => {
