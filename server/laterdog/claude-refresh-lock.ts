@@ -83,6 +83,7 @@ export interface ClaudeRefreshGateOptions {
 
 export interface ClaudeRefreshGate {
   enter(env: NodeJS.ProcessEnv): Promise<void>;
+  claim(env: NodeJS.ProcessEnv): Promise<boolean>;
 }
 
 export function createClaudeRefreshGate(options: ClaudeRefreshGateOptions = {}): ClaudeRefreshGate {
@@ -110,19 +111,30 @@ export function createClaudeRefreshGate(options: ClaudeRefreshGateOptions = {}):
     });
     leads.set(file, refreshed);
   };
+  const fileFor = (env: NodeJS.ProcessEnv): string | null => {
+    if (platform !== "linux") return null;
+    if (ACCOUNT_TOKEN_ENV.some((key) => env[key])) return null;
+    try {
+      return claudeCredentialsFile(env, env.HOME || env.USERPROFILE || homedir());
+    } catch {
+      return null;
+    }
+  };
   return {
     async enter(env) {
-      if (platform !== "linux") return;
-      if (ACCOUNT_TOKEN_ENV.some((key) => env[key])) return;
-      let file: string;
-      try {
-        file = claudeCredentialsFile(env, env.HOME || env.USERPROFILE || homedir());
-      } catch {
-        return;
-      }
+      const file = fileFor(env);
+      if (!file) return;
       const running = leads.get(file);
       if (running) return running;
       if (due(file)) lead(file);
+    },
+    async claim(env) {
+      const file = fileFor(env);
+      if (!file) return false;
+      for (let running = leads.get(file); running; running = leads.get(file)) await running;
+      if (!due(file)) return false;
+      lead(file);
+      return true;
     },
   };
 }

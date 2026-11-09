@@ -73,3 +73,25 @@ it("leaves packages and build output on the computer and restricts selected sess
   expect(() => new EngineFileReceiver([root]).begin(file("bad", "other.jsonl"))).toThrow("writable selection");
   expect(engineInventory([{ ...root, files: undefined }]).map(file => file.path).sort()).toEqual(["other.jsonl", "own.jsonl"]);
 });
+
+it("lists a bounded folder without large files, build output, links, excluded paths, or more than its total", () => {
+  const path = folder();
+  mkdirSync(join(path, "memory"), { recursive: true });
+  mkdirSync(join(path, "node_modules", "pkg"), { recursive: true });
+  mkdirSync(join(path, "dist"), { recursive: true });
+  mkdirSync(join(path, "projects", "site"), { recursive: true });
+  writeFileSync(join(path, "MEMORY.md"), "# Memory");
+  writeFileSync(join(path, "memory", "topic.md"), "topic");
+  writeFileSync(join(path, "big.bin"), Buffer.alloc(2048));
+  writeFileSync(join(path, "node_modules", "pkg", "index.js"), "x");
+  writeFileSync(join(path, "dist", "out.js"), "x");
+  writeFileSync(join(path, "projects", "site", "page.html"), "x");
+  writeFileSync(join(path, "projects", "notes.md"), "x");
+  symlinkSync("/etc/hosts", join(path, "hosts"));
+  const root = { id: "bot", path, writable: false, bounded: { fileBytes: 1024, totalBytes: 1024 * 1024, exclude: ["projects/site"] } };
+  expect(engineInventory([root]).map((entry) => entry.path).sort()).toEqual(["MEMORY.md", "memory/topic.md", "projects/notes.md"]);
+  const tight = engineInventory([{ ...root, bounded: { ...root.bounded, totalBytes: 9 } }]);
+  expect(tight.reduce((total, entry) => total + entry.size, 0)).toBeLessThanOrEqual(9);
+  expect(tight.length).toBeGreaterThan(0);
+  expect(() => engineInventory([{ id: "workspace", path, writable: true }])).toThrow();
+});

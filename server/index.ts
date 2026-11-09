@@ -798,7 +798,8 @@ import { createAntigravityLeftoverRoutes } from "./routes/antigravity-leftovers.
 import { findAntigravityLeftovers, removeAntigravityLeftovers } from "./drivers/antigravity-temp.ts";
 import { createLiveRoutes } from "./routes/live.ts";
 import { withScopeHint } from "./connector-scope-hint.ts";
-import { setEngineOpener } from "./laterdog/engine-placement.ts";
+import { remoteEngineChoice, setEngineOpener, setRemoteEngineBot } from "./laterdog/engine-placement.ts";
+import { createEnginePlacementRoutes } from "./routes/engine-placement.ts";
 import { computerEngineOpener } from "./laterdog/engine-opener.ts";
 
 setEngineOpener(computerEngineOpener());
@@ -12803,6 +12804,11 @@ ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: (
 const orgInstallStatuses = () => orgLibrary?.installStatuses() ?? new Map();
 ROUTES.push(createBotPresetRoutes({ presets: presetStore, orgStatuses: orgInstallStatuses }));
 ROUTES.push(createSidebarSectionOrderRoutes({ order: (sections) => store.orderSections(sections) }));
+ROUTES.push(createEnginePlacementRoutes({
+  botExists: (id) => Boolean(store.bot(id)),
+  read: (id) => remoteEngineChoice(DATA_DIR, id),
+  save: (id, computer) => setRemoteEngineBot(DATA_DIR, id, computer),
+}));
 ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk") }));
 ROUTES.push(createLinkPreviewRoutes());
 ROUTES.push(createBotMemoryRoutes({

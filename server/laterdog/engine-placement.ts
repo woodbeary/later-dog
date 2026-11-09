@@ -1,11 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { ChildProcess } from "node:child_process";
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { writeFileAtomic } from "../atomic.ts";
 import { killCliTree, registerTreeStopper } from "../procs.ts";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import type { EngineFileRoot } from "./engine-files.ts";
+import { claudeRenewer, type ClaudeRenewal } from "./engine-renewal.ts";
 import { EngineProcess, RemoteSession, type EngineLink, type PushedFile, type RemoteLaunch, type StdioSpec } from "./engine-remote.ts";
 
 export const REMOTE_ENGINE_BASE = "/home/dog/.laterdog-engine";
@@ -16,10 +18,36 @@ export function remoteEngineBots(dataDir: string, env: NodeJS.ProcessEnv = proce
   const chosen = new Set<string>();
   for (const id of (env.LATERDOG_REMOTE_ENGINE_BOTS ?? "").split(",")) if (id.trim()) chosen.add(id.trim());
   try {
-    const file = JSON.parse(readFileSync(join(dataDir, "remote-engines.json"), "utf8")) as { bots?: unknown };
+    const file = JSON.parse(readFileSync(join(dataDir, REMOTE_ENGINES_FILE), "utf8")) as { bots?: unknown };
     if (Array.isArray(file.bots)) for (const id of file.bots) if (typeof id === "string" && id) chosen.add(id);
   } catch {}
   return chosen;
+}
+
+export const REMOTE_ENGINES_FILE = "remote-engines.json";
+
+export interface RemoteEngineChoice { botId: string; computer: boolean; fromEnvironment: boolean }
+
+const environmentBots = (env: NodeJS.ProcessEnv) => new Set((env.LATERDOG_REMOTE_ENGINE_BOTS ?? "").split(",").map((id) => id.trim()).filter(Boolean));
+
+export function remoteEngineChoice(dataDir: string, botId: string, env: NodeJS.ProcessEnv = process.env): RemoteEngineChoice {
+  return { botId, computer: remoteEngineBots(dataDir, env).has(botId), fromEnvironment: environmentBots(env).has(botId) };
+}
+
+export function setRemoteEngineBot(dataDir: string, botId: string, computer: boolean, env: NodeJS.ProcessEnv = process.env): RemoteEngineChoice {
+  const file = join(dataDir, REMOTE_ENGINES_FILE);
+  let saved: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) saved = parsed as Record<string, unknown>;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("The saved engine placement could not be read, so it was left unchanged.");
+  }
+  const bots = Array.isArray(saved.bots) ? saved.bots.filter((id): id is string => typeof id === "string" && id.length > 0 && id !== botId) : [];
+  if (computer) bots.push(botId);
+  mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  writeFileAtomic(file, `${JSON.stringify({ ...saved, bots }, null, 2)}\n`, { mode: 0o600 });
+  return remoteEngineChoice(dataDir, botId, env);
 }
 
 export const ENGINE_PLACEMENT_LOG = "engine-placement.log";
@@ -94,7 +122,7 @@ export interface ClaudePlacement {
   remoteBase?: string;
 }
 
-export interface ClaudeRemotePlan { launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[] }
+export interface ClaudeRemotePlan { launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; renewal?: ClaudeRenewal | null }
 
 export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePlan } | { stay: string } {
   if (input.managed) return { stay: "managed account" };
@@ -179,6 +207,8 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
     { id: "launch", path: stagingDir, writable: false },
   ];
   if (credential) roots.push({ id: "credential", path: configDir, writable: false, files: [".credentials.json"] });
+  const botFolder = botFolderRoot(input.dataDir, input.botId, cwd, configDir, stagingDir);
+  if (botFolder) roots.push(botFolder);
   const pushes = credential ? (): PushedFile[] => {
     let bytes: Buffer | null = null;
     try { bytes = scopedClaudeCredential(readFileSync(credentialFile, "utf8"), 0); } catch {}
@@ -204,7 +234,20 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
     stateFile: `${remoteBase}/state/${threadKey}.json`,
     lockFile: `${remoteBase}/locks/${threadKey}.lock`,
   };
-  return { plan: { launch, cli, stagingDir, mkdirs: [...new Set(roots.map((root) => root.path))] } };
+  const renewal = credential ? { command: input.cliCommand, env: hookEnv } : null;
+  return { plan: { launch, cli, stagingDir, mkdirs: [...new Set(roots.map((root) => root.path))], renewal } };
+}
+
+export const BOT_FOLDER_FILE_BYTES = 8 * 1024 * 1024;
+export const BOT_FOLDER_TOTAL_BYTES = 64 * 1024 * 1024;
+
+export function botFolderRoot(dataDir: string, botId: string, cwd: string, configDir: string, stagingDir: string): EngineFileRoot | null {
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(botId)) return null;
+  const path = join(resolve(dataDir), "workspaces", botId);
+  try { if (!lstatSync(path).isDirectory()) return null; } catch { return null; }
+  if (within(cwd, path) || within(path, configDir) || within(configDir, path) || within(path, stagingDir)) return null;
+  const exclude = within(path, cwd) ? [relative(path, cwd)] : [];
+  return { id: "bot", path, writable: false, readOnly: true, bounded: { fileBytes: BOT_FOLDER_FILE_BYTES, totalBytes: BOT_FOLDER_TOTAL_BYTES, exclude } };
 }
 
 function stdioSpecFor(server: Record<string, unknown>): StdioSpec | null {
@@ -238,10 +281,19 @@ export function deferredLink(open: Promise<EngineLink>): EngineLink {
 }
 
 export function spawnPlacedEngine(plan: ClaudeRemotePlan, openLink: (plan: ClaudeRemotePlan) => Promise<EngineLink>, local: () => ChildProcess,
-  onPlaced?: (where: "computer" | "home", why?: string) => void): EngineProcess {
+  onPlaced?: (where: "computer" | "home", why?: string) => void, renewer: Pick<typeof claudeRenewer, "hold"> = claudeRenewer): EngineProcess {
   const session = new RemoteSession(deferredLink(openLink(plan)), plan.launch);
-  const engine = new EngineProcess(session, local, onPlaced);
+  let release: (() => void) | null = null;
+  let closed = false;
+  const engine = new EngineProcess(session, local, (where, why) => {
+    if (where === "computer" && plan.renewal && !release && !closed) release = renewer.hold(plan.renewal);
+    onPlaced?.(where, why);
+  });
   registerTreeStopper(engine, (timeoutMs) => engine.stopTree(timeoutMs, killCliTree));
-  engine.once("close", () => { try { rmSync(plan.stagingDir, { recursive: true, force: true }); } catch {} });
+  engine.once("close", () => {
+    closed = true;
+    release?.();
+    try { rmSync(plan.stagingDir, { recursive: true, force: true }); } catch {}
+  });
   return engine;
 }

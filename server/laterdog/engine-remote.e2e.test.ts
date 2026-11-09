@@ -1,12 +1,14 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { killCliTree } from "../procs.ts";
 import { claudeProjectSlug, planClaudeRemote, spawnPlacedEngine, type ClaudeRemotePlan } from "./engine-placement.ts";
+import { createClaudeRefreshGate } from "./claude-refresh-lock.ts";
 import { commandLink, type EngineLink } from "./engine-remote.ts";
+import { createClaudeRenewer, type ClaudeRenewer } from "./engine-renewal.ts";
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
 const RELAY = here("./engine-relay.ts");
@@ -71,9 +73,9 @@ function world(sessionId = "s-1") {
     running.push(child);
     return child;
   };
-  const start = (planned: ClaudeRemotePlan, link: () => Promise<EngineLink> = async () => relay(), resume = false) => {
+  const start = (planned: ClaudeRemotePlan, link: () => Promise<EngineLink> = async () => relay(), resume = false, renewer?: ClaudeRenewer) => {
     const placed: string[] = [];
-    const engine = spawnPlacedEngine(planned, link, local(resume), (where) => placed.push(where));
+    const engine = spawnPlacedEngine(planned, link, local(resume), (where) => placed.push(where), renewer);
     running.push(engine);
     return { engine, placed };
   };
@@ -239,4 +241,73 @@ it("refuses a second engine for a chat whose engine still runs on the computer",
   expect(w.launches()).toHaveLength(1);
   first.engine.stdin.end();
   await closed(first.engine);
+}, 60_000);
+
+it("mirrors the dog's private folder read-only and bounded, and never brings changes made there back", async () => {
+  const w = world();
+  const botDir = join(w.base, "data", "workspaces", "bot-1");
+  const memory = "# Memory\n- likes tea\n";
+  mkdirSync(join(botDir, "memory"), { recursive: true });
+  writeFileSync(join(botDir, "MEMORY.md"), memory);
+  writeFileSync(join(botDir, "memory", "people.md"), "Ada");
+  writeFileSync(join(botDir, "huge.bin"), Buffer.alloc(8 * 1024 * 1024 + 1));
+  mkdirSync(join(botDir, "dist"), { recursive: true });
+  writeFileSync(join(botDir, "dist", "bundle.js"), "built");
+  symlinkSync("/etc/hosts", join(botDir, "hosts"));
+  const { engine, placed } = w.start(w.plan());
+  await turn(engine, "one");
+  expect(placed).toEqual(["computer"]);
+  const remote = w.mirror(botDir);
+  expect(readFileSync(join(remote, "MEMORY.md"), "utf8")).toBe(memory);
+  expect(readFileSync(join(remote, "memory", "people.md"), "utf8")).toBe("Ada");
+  expect(statSync(join(remote, "MEMORY.md")).mode & 0o222).toBe(0);
+  for (const name of ["huge.bin", "dist/bundle.js", "hosts"]) expect(existsSync(join(remote, name))).toBe(false);
+  writeFileSync(join(remote, "made-remotely.md"), "not for the home");
+  await turn(engine, "two");
+  expect(existsSync(join(botDir, "made-remotely.md"))).toBe(false);
+  expect(readFileSync(join(botDir, "MEMORY.md"), "utf8")).toBe(memory);
+  engine.stdin.end();
+  expect(await closed(engine)).toBe(0);
+}, 60_000);
+
+it("renews a near-expiry sign-in on the home during a long remote turn and brings it to the computer without its refresh token", async () => {
+  const w = world();
+  const planned = w.plan();
+  planned.launch.pushEveryMs = 50;
+  const ahead = 2 * 3600_000 - 60_000;
+  const shifted = () => Date.now() + ahead;
+  const renewed: string[] = [];
+  const renewer = createClaudeRenewer({ now: shifted, gate: createClaudeRefreshGate({ platform: "linux", now: shifted, pollMs: 5 }), checkMs: 20, run: async (renewal) => {
+    renewed.push(renewal.env.CLAUDE_CONFIG_DIR!);
+    writeFileSync(join(renewal.env.CLAUDE_CONFIG_DIR!, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "renewed-access", refreshToken: "renewed-refresh", expiresAt: Date.now() + 8 * 3600_000 } }));
+    return true;
+  } });
+  expect(renewer.held()).toEqual([]);
+  const { engine, placed } = w.start(planned, undefined, false, renewer);
+  engine.stdin.write(message("hang"));
+  const remoteCredential = w.mirror(join(w.configDir, ".credentials.json"));
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline && !(existsSync(remoteCredential) && readFileSync(remoteCredential, "utf8").includes("renewed-access"))) await new Promise((resolve) => setTimeout(resolve, 25));
+  expect(placed).toEqual(["computer"]);
+  expect(renewer.held()).toEqual([join(w.configDir, ".credentials.json")]);
+  expect(renewed).toEqual([w.configDir]);
+  const arrived = readFileSync(remoteCredential, "utf8");
+  expect(arrived).toContain("renewed-access");
+  expect(arrived).not.toContain("renewed-refresh");
+  expect(readFileSync(join(w.configDir, ".credentials.json"), "utf8")).toContain("renewed-refresh");
+  expect(await killCliTree(engine as unknown as ChildProcess, 2_000)).toBe(true);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(renewer.held()).toEqual([]);
+  expect(w.localLaunches()).toBe(0);
+}, 60_000);
+
+it("never renews for an engine that ran on the home", async () => {
+  const w = world();
+  const renewer = createClaudeRenewer({ now: () => Date.now() + 2 * 3600_000, gate: { claim: async () => true }, run: async () => { throw new Error("renewed for a home engine"); } });
+  const { engine, placed } = w.start(w.plan(), async () => commandLink("/nonexistent/relay", []), false, renewer);
+  await turn(engine, "fallback");
+  expect(placed).toEqual(["home"]);
+  expect(renewer.held()).toEqual([]);
+  engine.stdin.end();
+  await closed(engine);
 }, 60_000);

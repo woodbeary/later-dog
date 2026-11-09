@@ -7,6 +7,8 @@ export interface EngineFileRoot {
   path: string;
   writable: boolean;
   files?: string[];
+  bounded?: { fileBytes: number; totalBytes: number; exclude?: string[] };
+  readOnly?: boolean;
 }
 export interface EngineFile { root: string; path: string; hash: string; size: number; mode: number }
 export const ENGINE_FILE_LIMIT = 128 * 1024 * 1024;
@@ -42,10 +44,15 @@ export function readEngineFile(root: EngineFileRoot, name: string): Buffer {
 export function engineInventory(roots: readonly EngineFileRoot[]): EngineFile[] {
   const files: EngineFile[] = [];
   let total = 0;
+  let rootTotal = 0;
   const add = (root: EngineFileRoot, path: string) => {
     const full = engineFilePath(root, path);
     let stat;
     try { stat = lstatSync(full); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
+    if (root.bounded) {
+      if (!stat.isFile() || stat.size > root.bounded.fileBytes || rootTotal + stat.size > root.bounded.totalBytes) return;
+      rootTotal += stat.size;
+    }
     if (!stat.isFile()) throw new Error("Engine sync needs regular files");
     total += stat.size;
     if (stat.size > ENGINE_FILE_LIMIT || total > ENGINE_TRANSFER_LIMIT) throw new Error("Engine workspace is too large to transfer safely");
@@ -59,11 +66,13 @@ export function engineInventory(roots: readonly EngineFileRoot[]): EngineFile[] 
     for (const entry of readdirSync(full, { withFileTypes: true })) {
       if (SKIP.has(entry.name)) continue;
       const path = at ? `${at}/${entry.name}` : entry.name;
+      if (root.bounded?.exclude?.includes(path)) continue;
       if (entry.isDirectory()) walk(root, path);
-      else if (entry.isFile() || entry.isSymbolicLink()) add(root, path);
+      else if (entry.isFile() || (entry.isSymbolicLink() && !root.bounded)) add(root, path);
     }
   };
   for (const root of roots) {
+    rootTotal = 0;
     if (root.files) for (const file of root.files) add(root, file);
     else walk(root, "");
   }

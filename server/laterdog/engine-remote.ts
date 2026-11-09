@@ -37,6 +37,7 @@ export interface RemoteLaunch {
   roots: EngineFileRoot[];
   outputIds: string[];
   pushes?: () => PushedFile[];
+  pushEveryMs?: number;
   mcp: Record<string, StdioSpec>;
   hooks: string[];
   hookEnv: Record<string, string>;
@@ -134,7 +135,7 @@ export class RemoteSession extends EventEmitter {
     for (const file of home) {
       if (remote.get(engineFileKey(file)) === file.hash) continue;
       const root = launch.roots.find((entry) => entry.id === file.root)!;
-      this.#sendFile(file.root, file.path, readEngineFile(root, file.path), file.mode);
+      this.#sendFile(file.root, file.path, readEngineFile(root, file.path), root.readOnly ? (file.mode & 0o444) | 0o400 : file.mode);
     }
     for (const file of configured.files) if (!present.has(engineFileKey(file)) && !pushedRoots.has(file.root)) this.#send({ type: "file_remove", file });
     this.#pushScoped(remote);
@@ -155,7 +156,7 @@ export class RemoteSession extends EventEmitter {
     if (body?.refused === "busy") throw new Error("This chat's engine is still running on the cloud computer; it was not started a second time.");
     if (!body?.started) throw new Error("The cloud computer gave an unexpected answer to the engine launch.");
     this.#started = true;
-    this.#pushTimer = setInterval(() => this.#pushScoped(new Map()), PUSH_EVERY_MS);
+    this.#pushTimer = setInterval(() => this.#pushScoped(new Map()), launch.pushEveryMs ?? PUSH_EVERY_MS);
     this.#pushTimer.unref();
   }
 

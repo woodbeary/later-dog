@@ -1,10 +1,10 @@
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import type WebSocket from "ws";
 import { prepareEngineComputer, processStreamLink, type EngineScripts } from "./engine-computer.ts";
-import { commandOnPath, ENGINE_PLACEMENT_LOG, notePlacement, planClaudeRemote, remoteEngineBots, scopedClaudeCredential, type ClaudePlacement } from "./engine-placement.ts";
+import { BOT_FOLDER_FILE_BYTES, botFolderRoot, commandOnPath, ENGINE_PLACEMENT_LOG, notePlacement, planClaudeRemote, remoteEngineBots, remoteEngineChoice, scopedClaudeCredential, setRemoteEngineBot, type ClaudePlacement } from "./engine-placement.ts";
 
 const scratch: string[] = [];
 afterEach(() => { for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -151,4 +151,59 @@ it("carries relay lines over the process stream, whole even when a character is 
   expect(socket.sent.at(-1)).toEqual({ channel: "stdin", data: Buffer.from("{\"type\":\"stop\"}\n").toString("base64") });
   socket.emit("message", JSON.stringify({ channel: "exit", code: 0 }));
   expect(closed).toBe("relay exited 0");
+});
+
+it("lends the dog's private folder read-only and bounded, never overlapping the working folder or the account", () => {
+  const { base, cwd, config, input } = setup();
+  const botDir = join(input.dataDir, "workspaces", "bot");
+  mkdirSync(join(botDir, "memory"), { recursive: true });
+  writeFileSync(join(botDir, "MEMORY.md"), "# Memory");
+  const planned = planClaudeRemote(input);
+  if (!("plan" in planned)) throw new Error(planned.stay);
+  const root = planned.plan.launch.roots.find((entry) => entry.id === "bot")!;
+  expect(root).toEqual({ id: "bot", path: botDir, writable: false, readOnly: true, bounded: { fileBytes: BOT_FOLDER_FILE_BYTES, totalBytes: 64 * 1024 * 1024, exclude: [] } });
+  expect(BOT_FOLDER_FILE_BYTES).toBe(8 * 1024 * 1024);
+  expect(planned.plan.launch.outputIds).not.toContain("bot");
+  expect(planned.plan.mkdirs).toContain(botDir);
+  const staging = planned.plan.stagingDir;
+  expect(botFolderRoot(input.dataDir, "missing", cwd, config, staging)).toBeNull();
+  expect(botFolderRoot(input.dataDir, "../bot", cwd, config, staging)).toBeNull();
+  expect(botFolderRoot(input.dataDir, "bot", botDir, config, staging)).toBeNull();
+  expect(botFolderRoot(input.dataDir, "bot", base, config, staging)).toBeNull();
+  expect(botFolderRoot(input.dataDir, "bot", cwd, join(botDir, "config"), staging)).toBeNull();
+  expect(botFolderRoot(input.dataDir, "bot", join(botDir, "projects", "site"), config, staging)?.bounded?.exclude).toEqual(["projects/site"]);
+  rmSync(botDir, { recursive: true });
+  symlinkSync(cwd, botDir);
+  expect(botFolderRoot(input.dataDir, "bot", join(base, "elsewhere"), config, staging)).toBeNull();
+});
+
+it("gives the home's sign-in renewal the same CLI and the home environment only when a sign-in is lent", () => {
+  const { config, input } = setup();
+  const planned = planClaudeRemote(input);
+  if (!("plan" in planned)) throw new Error(planned.stay);
+  expect(planned.plan.renewal).toEqual({ command: input.cliCommand, env: expect.objectContaining({ CLAUDE_CONFIG_DIR: config, HOME: input.env.HOME }) });
+  const keyed = planClaudeRemote({ ...input, env: { ...input.env, ANTHROPIC_API_KEY: "sk-ant-fixture" } });
+  if (!("plan" in keyed)) throw new Error(keyed.stay);
+  expect(keyed.plan.renewal).toBeNull();
+});
+
+it("saves a dog's placement atomically, keeps other dogs and fields, and never rewrites a file it cannot read", () => {
+  const base = realpathSync(mkdtempSync("/tmp/ldplan-")); scratch.push(base);
+  const file = join(base, "remote-engines.json");
+  expect(remoteEngineChoice(base, "b1", {})).toEqual({ botId: "b1", computer: false, fromEnvironment: false });
+  writeFileSync(file, JSON.stringify({ bots: ["b2", 7, ""], note: "kept" }));
+  expect(setRemoteEngineBot(base, "b1", true, {})).toEqual({ botId: "b1", computer: true, fromEnvironment: false });
+  expect(setRemoteEngineBot(base, "b1", true, {}).computer).toBe(true);
+  expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ bots: ["b2", "b1"], note: "kept" });
+  expect(statSync(file).mode & 0o777).toBe(0o600);
+  expect([...remoteEngineBots(base, {})].sort()).toEqual(["b1", "b2"]);
+  expect(setRemoteEngineBot(base, "b1", false, {})).toEqual({ botId: "b1", computer: false, fromEnvironment: false });
+  expect(JSON.parse(readFileSync(file, "utf8")).bots).toEqual(["b2"]);
+  expect(remoteEngineChoice(base, "b3", { LATERDOG_REMOTE_ENGINE_BOTS: "b3" })).toEqual({ botId: "b3", computer: true, fromEnvironment: true });
+  writeFileSync(file, "{broken");
+  expect(() => setRemoteEngineBot(base, "b1", true, {})).toThrow("left unchanged");
+  expect(readFileSync(file, "utf8")).toBe("{broken");
+  const fresh = join(base, "fresh");
+  expect(setRemoteEngineBot(fresh, "b4", true, {}).computer).toBe(true);
+  expect(JSON.parse(readFileSync(join(fresh, "remote-engines.json"), "utf8"))).toEqual({ bots: ["b4"] });
 });
