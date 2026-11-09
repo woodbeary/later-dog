@@ -235,3 +235,22 @@ saved destination snapshots, dated result cards, approval links, deleted-thread
 fallback, and continued user conversations staying visible. Native decoding and
 thread-list tests retain hidden execution records for direct navigation and
 approvals while omitting them from ordinary iOS/Android thread pickers.
+
+## Cloud home: reports of the owner's routine runs
+
+A `routine.run` report in a conversation carries the server's own `ownersRoutine`
+mark, written once when the report is created from the routine's authorship at
+that run (never for webhook runs, and for manual runs only when the owner started
+them). A marked report keeps its meaning after the routine is edited, deleted or
+later adopted by the owner. A report with no mark (older, or a manual run the
+owner did not start) is still judged by the routine as it is now, and stays
+denied when the routine is gone or unproven.
+
+```sh
+pnpm exec vitest run server/cloud-lending.test.ts server/laterdog/routine-provenance.integration.test.ts
+```
+
+The integration test boots a disposable cloud-home server with a fake engine,
+has the owner's dog run, edit and delete an owner routine, and checks the Mac
+tool still answers without the "Someone else wrote" notice. Before the change it
+failed at the delete step. It does not cover a real Mac or a live account.

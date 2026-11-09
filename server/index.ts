@@ -19,7 +19,7 @@ import { draftSummary, foldPoint } from "./compaction-summary.ts";
 import { compactBudget, contextWindowFor, shouldCompact } from "./context-budget.ts";
 import { completeSharedOperation, provenRequestPerson, SharedComputers, sharedActionsHeader, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerRegistration, sharedComputerScopeRefusal, type SharedComputerOperation, type SharedComputerRegistration } from "./shared-computers.ts";
 import { MAC_ALLOW_KEY, MacApprovals, type MacLasting } from "./mac-approval.ts";
-import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, type CloudLendingRefusal, type CloudLendingTurn } from "./cloud-lending.ts";
+import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, reportFromOthers, routineReportMark, type CloudLendingRefusal, type CloudLendingTurn } from "./cloud-lending.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
 import { RoomHandoffs, type RoomHandoff } from "./room-handoffs.ts";
 import { isHandoffEnd, type HandoffEnd } from "./laterdog/handoff-budget.ts";
@@ -1276,10 +1276,22 @@ function cloudLendingView(capability: Pick<InternalCapability, "botId" | "thread
 }
 
 function cloudReportFromOthers(line: Message): boolean {
-  if (line.webhookPost) return true;
-  if (line.kind !== "routine.run" || !line.routineRun) return false;
-  const routine = routines?.listRoutines().find((candidate) => candidate.id === line.routineRun!.routineId);
-  return !routine || cloudRoutineAuthors?.authored(routine.id, routine) !== true;
+  return reportFromOthers(line, (routineId) => {
+    const routine = routines?.listRoutines().find((candidate) => candidate.id === routineId);
+    return Boolean(routine) && cloudRoutineAuthors?.authored(routineId, routine!) === true;
+  });
+}
+
+function cloudRoutineReportMark(run: RoutineRun): boolean | undefined {
+  if (!CLOUD_HOME || !cloudRoutineAuthors) return undefined;
+  const routine = routines?.listRoutines().find((candidate) => candidate.id === run.routineId);
+  return routineReportMark({
+    triggerSource: run.triggerSource ?? (run.manual ? "manual" : "schedule"),
+    ownerStarted: ownerStartedRoutineRuns.has(run.id),
+    ownerAuthored: Boolean(routine) && cloudRoutineAuthors.authored(run.routineId, {
+      ...routine!, prompt: run.prompt, target: run.target, botId: run.botId, groupId: run.groupId, attachments: run.attachments, runOn: run.runOn,
+    }),
+  });
 }
 
 const ownerOnlyCache = new Map<string, { length: number; last?: string; owner: boolean }>();
@@ -9112,7 +9124,10 @@ function syncRoutineRunToSource(run: RoutineRun): string | null {
   const text = routineRunFallbackText(card);
   const statusChanged = placed?.message.routineRun?.status !== run.status;
   if (placed) store.patchMessage(threadId, placed.message.id, { text, routineRun: card });
-  else store.appendMessage(threadId, { role: "bot", kind: "routine.run", text, routineRun: card });
+  else {
+    const ownersRoutine = cloudRoutineReportMark(run);
+    store.appendMessage(threadId, { role: "bot", kind: "routine.run", text, routineRun: card, ...(ownersRoutine !== undefined ? { ownersRoutine } : {}) });
+  }
   if (["completed", "failed", "cancelled", "missed"].includes(run.status)) routineCardThreads.delete(run.id);
   else routineCardThreads.set(run.id, threadId);
   if (statusChanged && ["waiting", "completed", "failed", "missed"].includes(run.status)) {

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, routineFingerprint, type CloudLendingTurn } from "./cloud-lending.ts";
+import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, reportFromOthers, routineFingerprint, routineReportMark, type CloudLendingTurn } from "./cloud-lending.ts";
 
 const OWNER = "p_owner", GUEST = "p_guest";
 const ownerPerson = (person: string | undefined) => person === OWNER;
@@ -170,5 +170,45 @@ describe("the owner's routines", () => {
     symlinkSync(join(dir, "real.json"), join(dir, "linked.json"));
     expect(createCloudRoutineAuthors(join(dir, "linked.json")).authored("r1", routine)).toBe(false);
     expect(createCloudRoutineAuthors(join(dir, "real.json")).authored("r1", routine)).toBe(true);
+  });
+});
+
+describe("reports of routine runs", () => {
+  const card = (extra: Record<string, unknown> = {}) => ({ kind: "routine.run", routineRun: { routineId: "r1" }, ...extra });
+  const gone = () => false;
+  const live = () => true;
+  const run = (triggerSource: string, ownerAuthored: boolean, ownerStarted = false) => routineReportMark({ triggerSource, ownerAuthored, ownerStarted });
+
+  it("an owner-run report stays the owner's after the routine is edited or deleted", () => {
+    const stamped = card({ ownersRoutine: run("schedule", true) });
+    expect(reportFromOthers(stamped, gone)).toBe(false);
+    expect(reportFromOthers(stamped, live)).toBe(false);
+  });
+  it("a guest-run report stays foreign after the owner adopts the routine", () => {
+    const stamped = card({ ownersRoutine: run("schedule", false) });
+    expect(reportFromOthers(stamped, live)).toBe(true);
+  });
+  it("a webhook run is never the owner's, even for an owner-written routine", () => {
+    expect(run("webhook", true)).toBe(false);
+    expect(reportFromOthers(card({ ownersRoutine: run("webhook", true) }), live)).toBe(true);
+    expect(reportFromOthers({ webhookPost: true }, live)).toBe(true);
+  });
+  it("a manual run counts only when the owner started it; otherwise it falls back to the routine as it is now", () => {
+    expect(run("manual", true, true)).toBe(true);
+    expect(run("manual", true, false)).toBeUndefined();
+    expect(reportFromOthers(card({ ownersRoutine: run("manual", true, false) }), live)).toBe(false);
+    expect(reportFromOthers(card({ ownersRoutine: run("manual", true, false) }), gone)).toBe(true);
+  });
+  it("a report with no stamp is judged by the routine as it is now, so a deleted or unproven one stays denied", () => {
+    expect(reportFromOthers(card(), gone)).toBe(true);
+    expect(reportFromOthers(card(), live)).toBe(false);
+  });
+  it("lending stays denied for a foreign report and allowed for an owner-run one", () => {
+    const refusal = (reportsFromOthers: boolean) => cloudHomeLendingRefusal({
+      request: undefined, generation: "g1", thread: [], guestDriven: false, ownerPerson: () => true, cardAnswerer: () => undefined,
+      routineRun: () => null, reportsFromOthers,
+    } as CloudLendingTurn);
+    expect(refusal(reportFromOthers(card({ ownersRoutine: true }), gone))).toBeNull();
+    expect(refusal(reportFromOthers(card({ ownersRoutine: false }), live))).toBe("someone-else");
   });
 });

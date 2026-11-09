@@ -79,6 +79,21 @@ export function routineFingerprint(routine: RoutineShape): string {
   ])).digest("hex");
 }
 
+export function routineReportMark(run: { triggerSource: string; ownerAuthored: boolean; ownerStarted: boolean }): boolean | undefined {
+  if (run.triggerSource === "webhook" || !run.ownerAuthored) return false;
+  return run.triggerSource !== "manual" || run.ownerStarted ? true : undefined;
+}
+
+export function reportFromOthers(
+  line: { kind?: string; webhookPost?: boolean; ownersRoutine?: boolean; routineRun?: { routineId: string } },
+  liveOwnersRoutine: (routineId: string) => boolean,
+): boolean {
+  if (line.webhookPost) return true;
+  if (line.kind !== "routine.run" || !line.routineRun) return false;
+  if (line.ownersRoutine !== undefined) return !line.ownersRoutine;
+  return !liveOwnersRoutine(line.routineRun.routineId);
+}
+
 const authorsFile = z.object({
   version: z.literal(1),
   routines: z.record(z.string().max(128), z.string().regex(/^[a-f0-9]{64}$/)),
