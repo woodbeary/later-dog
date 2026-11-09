@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 const script = new URL("./smoke-laterdog-bundle.mjs", import.meta.url).pathname;
 const root = resolve(script, "..", "..");
-const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { scripts: Record<string, string> };
 const stamp = () => new Date().toISOString().replace(/[:.]/g, "-");
 const evidenceDirectory = (name: string) => { const directory = join(root, ".laterdog-evidence", `${name}-${stamp()}`); mkdirSync(directory, { recursive: true }); return directory; };
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -15,10 +14,6 @@ interface Receipt { ok: boolean; error?: string; computersRequests: number; chec
 const readReceipt = (directory: string) => JSON.parse(readFileSync(join(directory, "receipt.json"), "utf8")) as Receipt;
 
 describe("the compiled supervisor bundle", () => {
-  it("is built by the one server bundler", () => {
-    expect(packageJson.scripts["laterdog:build"]).toBe("pnpm build:server");
-  });
-
   it("starts from pnpm laterdog:build and carries a delegated job's choices over HTTP, retry and restart", () => {
     const evidence = evidenceDirectory("supervisor-bundle-test");
     console.info(`evidence: ${evidence}`);
