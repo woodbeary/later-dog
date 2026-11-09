@@ -60,9 +60,16 @@ async function busyNow(home) {
   return busyFromAnswer(response.status, response.ok ? await response.json() : null);
 }
 
-export async function waitUntilIdle(home, { check = busyNow, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log = say, everyMs = IDLE_CHECK_MS } = {}) {
+export const SWITCH_MAX_WAIT_MS = 15 * 60_000;
+
+export async function waitUntilIdle(home, { check = busyNow, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log = say, everyMs = IDLE_CHECK_MS, maxWaitMs = SWITCH_MAX_WAIT_MS, now = Date.now } = {}) {
   let told = "";
+  const started = now();
   for (;;) {
+    if (now() - started >= maxWaitMs) {
+      log(`switching after ${Math.round(maxWaitMs / 60_000)} min; dogs still working pick their turns up again after the restart`);
+      return;
+    }
     const busy = await check(home).catch(() => null);
     if (busy && busy.length === 0) return;
     const line = busy ? `waiting for ${busy.join(", ")} to finish before switching` : "waiting for the home to answer before switching";

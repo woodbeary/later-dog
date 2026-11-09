@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { devCodeWatcher, homeIdle, unpackDevCode } from "../runtime/dev-code.mjs";
+import { DEV_CODE_MAX_WAIT_MS, devCodeWatcher, homeIdle, unpackDevCode } from "../runtime/dev-code.mjs";
 
 function bundle(files: Record<string, string>) {
   const dir = mkdtempSync(join(tmpdir(), "dev-code-src-"));
@@ -124,7 +124,11 @@ describe("server code pushed to a test home", () => {
     clock += 1;
     expect(await watcher.tick()).toBe(true);
     expect(switched).toEqual(["two"]);
-    expect(logs.at(-1)).toBe("pushed server code waited too long for the dogs to stop; switching now");
+    expect(logs.at(-1)).toBe("pushed server code waited 1 min for the dogs to stop; switching now, and dogs still working pick their turns up again after the restart");
+  });
+
+  it("never waits more than 15 minutes for every dog to stop, since interrupted turns resume after the restart", () => {
+    expect(DEV_CODE_MAX_WAIT_MS).toBe(15 * 60_000);
   });
 
   it("drops a waiting push once pushed code is turned off", async () => {

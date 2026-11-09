@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 export const DEV_CODE_POLL_MS = 3_000;
-export const DEV_CODE_MAX_WAIT_MS = 6 * 60 * 60_000;
+export const DEV_CODE_MAX_WAIT_MS = 15 * 60_000;
 export const DEV_CODE_LAUNCHER = "cloud-home-start.js";
 export const HOME_ACTIVITY_PATH = "/api/cloud/activity";
 const HOME_ACTIVITY_TIMEOUT_MS = 5_000;
@@ -86,7 +86,7 @@ export function devCodeWatcher({ store, base, root, log, onCode, idle = async ()
         if (next) log(`pushed server code ${next.hash.slice(0, 12)} waits until no dog is working`);
         return false;
       }
-      if (overdue) log("pushed server code waited too long for the dogs to stop; switching now");
+      if (overdue) log(`pushed server code waited ${Math.round(maxWaitMs / 60_000)} min for the dogs to stop; switching now, and dogs still working pick their turns up again after the restart`);
       const ready = waiting.code;
       waiting = null;
       await onCode(ready);

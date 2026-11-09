@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bucketFor, bundleKey, busyDogs, busyFromAnswer, DEV_BUCKET, HOME_BUCKET, pointerFor, POINTER_KEY, pushOnSave, waitUntilIdle, watchedChange } from "./dev-home.mjs";
+import { bucketFor, bundleKey, busyDogs, busyFromAnswer, DEV_BUCKET, HOME_BUCKET, pointerFor, POINTER_KEY, pushOnSave, SWITCH_MAX_WAIT_MS, waitUntilIdle, watchedChange } from "./dev-home.mjs";
 
 describe("pushing server code to test homes", () => {
   it("writes only to the test bucket, under the keys test homes read", () => {
@@ -54,6 +54,21 @@ describe("pushing server code from later.dog Dev to the person's own home", () =
     });
     expect(waited).toBe(3);
     expect(lines).toEqual(["waiting for Clover to finish before switching", "waiting for the home to answer before switching"]);
+  });
+
+  it("stops waiting after 15 minutes so dogs that never all stop at once cannot hold a release back", async () => {
+    let clock = 0;
+    const lines: string[] = [];
+    await waitUntilIdle({ url: "https://h-home.later.dog", token: "t" }, {
+      check: async () => ["Hound"],
+      wait: async (ms: number) => { clock += ms; },
+      log: (line: string) => lines.push(line),
+      now: () => clock,
+      everyMs: 60_000,
+    });
+    expect(SWITCH_MAX_WAIT_MS).toBe(15 * 60_000);
+    expect(clock).toBe(15 * 60_000);
+    expect(lines.at(-1)).toBe("switching after 15 min; dogs still working pick their turns up again after the restart");
   });
 
   it("folds saves made during a push into one more push", async () => {
