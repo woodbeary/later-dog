@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bucketFor, bundleKey, busyDogs, busyFromAnswer, DEV_BUCKET, HOME_BUCKET, pointerFor, POINTER_KEY, pushOnSave, SWITCH_MAX_WAIT_MS, waitUntilIdle, watchedChange } from "./dev-home.mjs";
+import { readFileSync } from "node:fs";
+import { bucketFor, bundleKey, confirmSwitch, DEV_BUCKET, HOME_BUCKET, pointerFor, POINTER_KEY, pushOnSave, READY_AFTER_DRAIN_MS, READY_TIMEOUT_MS, RUNTIME_DRAIN_MAX_MS, waitForNewServer, watchedChange } from "./dev-home.mjs";
 
 describe("pushing server code to test homes", () => {
   it("writes only to the test bucket, under the keys test homes read", () => {
@@ -31,44 +32,68 @@ describe("pushing server code from later.dog Dev to the person's own home", () =
     expect(HOME_BUCKET).toBe("laterdog-homes");
   });
 
-  it("names the dogs still working", () => {
-    expect(busyDogs([{ name: "Clover", busy: true }, { name: "Rio", busy: false }, { busy: true }])).toEqual(["Clover", "a dog"]);
-    expect(busyDogs(undefined)).toEqual([]);
+  it("publishes the pointer without waiting for dogs to stop, leaving the drain to the home runtime", () => {
+    const source = readFileSync(new URL("./dev-home.mjs", import.meta.url), "utf8");
+    const publishBody = source.slice(source.indexOf("export async function publish"), source.indexOf("export async function confirmSwitch"));
+    expect(source).not.toMatch(/waitUntilIdle|busyNow|api\/bots/);
+    expect(publishBody.indexOf("POINTER_KEY")).toBeGreaterThan(-1);
+    expect(publishBody).not.toMatch(/\b(?:wait\w*|idle|busy)/i);
   });
 
-  it("replaces code whose dog list fails, since no dog can be working through it, and waits while the home is waking", () => {
-    expect(busyFromAnswer(500, null)).toEqual([]);
-    expect(busyFromAnswer(200, { bots: [{ name: "Clover", busy: true }] })).toEqual(["Clover"]);
-    expect(() => busyFromAnswer(503, null)).toThrow("503");
-    expect(() => busyFromAnswer(401, null)).toThrow("401");
+  it("allows the runtime's full drain plus the restart before calling a switch late", () => {
+    const runtime = readFileSync(new URL("../deploy/laterdog/home/runtime/dev-code.mjs", import.meta.url), "utf8");
+    expect(runtime).toContain(`DEV_CODE_MAX_WAIT_MS = ${RUNTIME_DRAIN_MAX_MS / 60_000} * 60_000`);
+    expect(READY_TIMEOUT_MS).toBe(RUNTIME_DRAIN_MAX_MS + READY_AFTER_DRAIN_MS);
   });
 
-  it("switches only once no dog is working, so nobody is cut off mid-task", async () => {
-    const answers = [["Clover"], ["Clover"], null, []];
-    const lines: string[] = [];
-    let waited = 0;
-    await waitUntilIdle({ url: "https://h-home.later.dog", token: "t" }, {
-      check: async () => { const next = answers.shift(); if (next === null) throw new Error("waking"); return next!; },
-      wait: async () => { waited += 1; },
-      log: (line: string) => lines.push(line),
-    });
-    expect(waited).toBe(3);
-    expect(lines).toEqual(["waiting for Clover to finish before switching", "waiting for the home to answer before switching"]);
+  it("measures the wait from the moment the pointer was published, so an earlier delay cannot expire it", async () => {
+    let clock = 20 * 60_000;
+    const pids = [10, 10, 10, 11];
+    const pid = await waitForNewServer({ read: async () => pids.shift()!, before: 10, since: clock, now: () => clock, wait: async (ms: number) => { clock += ms; }, everyMs: 60_000 });
+    expect(pid).toBe(11);
+    expect(clock).toBe(20 * 60_000 + 3 * 60_000);
   });
 
-  it("stops waiting after 15 minutes so dogs that never all stop at once cannot hold a release back", async () => {
+  it("gives up only after the drain and restart window has passed since publishing", async () => {
     let clock = 0;
+    const pid = await waitForNewServer({ read: async () => 10, before: 10, since: 0, now: () => clock, wait: async (ms: number) => { clock += ms; }, everyMs: 30_000 });
+    expect(pid).toBeNull();
+    expect(clock).toBe(READY_TIMEOUT_MS);
+  });
+
+  it("does not claim a switch when the home was not answering before the push or still reports the old server", async () => {
     const lines: string[] = [];
-    await waitUntilIdle({ url: "https://h-home.later.dog", token: "t" }, {
-      check: async () => ["Hound"],
-      wait: async (ms: number) => { clock += ms; },
-      log: (line: string) => lines.push(line),
-      now: () => clock,
-      everyMs: 60_000,
-    });
-    expect(SWITCH_MAX_WAIT_MS).toBe(15 * 60_000);
-    expect(clock).toBe(15 * 60_000);
-    expect(lines.at(-1)).toBe("switching after 15 min; dogs still working pick their turns up again after the restart");
+    const home = { url: "https://h-home.later.dog", token: "t" };
+    const unknown = await confirmSwitch({ hash: "h", home, before: null, published: 0, who: "h" }, { read: async () => 7, log: (l: string) => lines.push(l) });
+    expect(unknown).toEqual({ hash: "h" });
+    let clock = 0;
+    const stale = await confirmSwitch({ hash: "h", home, before: 7, published: 0, who: "h" }, { read: async () => 7, log: (l: string) => lines.push(l), now: () => clock, wait: async (ms: number) => { clock += ms; }, everyMs: 60_000 });
+    expect(stale).toEqual({ hash: "h" });
+    expect(lines.join("\n")).not.toContain("is running it");
+    expect(lines[1]).toContain("still runs the old server");
+  });
+
+  it("reports the new server only after its pid differs from the one before the push", async () => {
+    const lines: string[] = [];
+    const home = { url: "https://h-home.later.dog", token: "t" };
+    const result = await confirmSwitch({ hash: "h", home, before: 7, published: 0, who: "h" }, { read: async () => 8, log: (l: string) => lines.push(l), now: () => 5_000 });
+    expect(result).toEqual({ hash: "h", pid: 8 });
+    expect(lines).toEqual(["h is running it (server pid 8) 5 s after the push"]);
+  });
+
+  it("stops without reporting success when cancelled", async () => {
+    const lines: string[] = [];
+    const home = { url: "https://h-home.later.dog", token: "t" };
+    const controller = new AbortController();
+    const waiting = confirmSwitch({ hash: "h", home, before: 7, published: Date.now(), who: "h" }, { read: async () => 7, log: (l: string) => lines.push(l), signal: controller.signal, everyMs: 60_000 });
+    controller.abort();
+    await expect(waiting).rejects.toThrow("stopped");
+    expect(lines).toEqual([]);
+  });
+
+  it("surfaces a failing read instead of reporting success", async () => {
+    const home = { url: "https://h-home.later.dog", token: "t" };
+    await expect(confirmSwitch({ hash: "h", home, before: 7, published: Date.now(), who: "h" }, { read: async () => { throw new Error("boom"); } })).rejects.toThrow("boom");
   });
 
   it("folds saves made during a push into one more push", async () => {

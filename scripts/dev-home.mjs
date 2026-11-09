@@ -16,8 +16,9 @@ export const POINTER_KEY = "dev-code/current.json";
 const SESSION_DIR = process.env.LATERDOG_TEST_HOME_DIR ?? join(homedir(), ".laterdog-test-home");
 const WATCHED = ["server", "shared"];
 const SETTLE_MS = 800;
-const READY_TIMEOUT_MS = 90_000;
-const IDLE_CHECK_MS = 5_000;
+export const RUNTIME_DRAIN_MAX_MS = 15 * 60_000;
+export const READY_AFTER_DRAIN_MS = 90_000;
+export const READY_TIMEOUT_MS = RUNTIME_DRAIN_MAX_MS + READY_AFTER_DRAIN_MS;
 
 export function bundleKey(hash) {
   return `dev-code/${hash}.tgz`;
@@ -29,10 +30,6 @@ export function pointerFor(hash, label, at = new Date()) {
 
 export function bucketFor(url) {
   return new URL(url).hostname.endsWith("-hometest.later.dog") ? DEV_BUCKET : HOME_BUCKET;
-}
-
-export function busyDogs(bots) {
-  return (Array.isArray(bots) ? bots : []).filter((bot) => bot?.busy === true).map((bot) => String(bot.name ?? "a dog"));
 }
 
 export function watchedChange(file) {
@@ -47,36 +44,6 @@ function readSessionFile(file) {
   const saved = JSON.parse(readFileSync(file, "utf8"));
   if (typeof saved?.url !== "string" || typeof saved?.token !== "string") throw new Error(`${file} is not a later.dog home session`);
   return { url: saved.url.replace(/\/+$/, ""), token: saved.token };
-}
-
-export function busyFromAnswer(status, body) {
-  if (status === 500) return [];
-  if (status < 200 || status >= 300) throw new Error(`the home answered ${status}`);
-  return busyDogs(body?.bots);
-}
-
-async function busyNow(home) {
-  const response = await fetch(`${home.url}/api/bots?messages=0`, { headers: { authorization: `Bearer ${home.token}` }, signal: AbortSignal.timeout(10_000) });
-  return busyFromAnswer(response.status, response.ok ? await response.json() : null);
-}
-
-export const SWITCH_MAX_WAIT_MS = 15 * 60_000;
-
-export async function waitUntilIdle(home, { check = busyNow, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log = say, everyMs = IDLE_CHECK_MS, maxWaitMs = SWITCH_MAX_WAIT_MS, now = Date.now } = {}) {
-  let told = "";
-  const started = now();
-  for (;;) {
-    if (now() - started >= maxWaitMs) {
-      log(`switching after ${Math.round(maxWaitMs / 60_000)} min; dogs still working pick their turns up again after the restart`);
-      return;
-    }
-    const busy = await check(home).catch(() => null);
-    if (busy && busy.length === 0) return;
-    const line = busy ? `waiting for ${busy.join(", ")} to finish before switching` : "waiting for the home to answer before switching";
-    if (line !== told) log(line);
-    told = line;
-    await wait(everyMs);
-  }
 }
 
 async function wrangler(args) {
@@ -108,20 +75,28 @@ async function serverPid(home) {
   }
 }
 
-async function waitForNewServer(home, before, started) {
-  while (Date.now() - started < READY_TIMEOUT_MS) {
-    const pid = await serverPid(home);
+const pause = (ms, signal) => new Promise((resolve, reject) => {
+  if (signal?.aborted) return reject(new Error("stopped before the home switched"));
+  const timer = setTimeout(() => { signal?.removeEventListener("abort", onAbort); resolve(); }, ms);
+  const onAbort = () => { clearTimeout(timer); reject(new Error("stopped before the home switched")); };
+  signal?.addEventListener("abort", onAbort, { once: true });
+});
+
+export async function waitForNewServer({ read, before, since, timeoutMs = READY_TIMEOUT_MS, now = Date.now, wait = pause, signal, everyMs = 1_000 }) {
+  if (before === null || before === undefined) return null;
+  while (now() - since < timeoutMs) {
+    if (signal?.aborted) throw new Error("stopped before the home switched");
+    const pid = await read();
     if (pid !== null && pid !== before) return pid;
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await wait(everyMs, signal);
   }
   return null;
 }
 
-export async function push({ account, note, sessionFile } = {}) {
+export async function publish({ account, note, sessionFile } = {}) {
   const started = Date.now();
   const home = sessionFile ? readSessionFile(sessionFile) : account ? session(account) : null;
   const bucket = sessionFile ? bucketFor(home.url) : DEV_BUCKET;
-  const before = home ? await serverPid(home) : null;
   await run(process.execPath, [join(root, "scripts", "bundle-server.mjs")], { cwd: root, maxBuffer: 16 * 1024 * 1024 });
   const archive = join(await mkdtemp(join(tmpdir(), "laterdog-dev-code-")), "server.tgz");
   await run("tar", ["-czf", archive, "-C", join(root, "dist-server"), "."]);
@@ -131,14 +106,29 @@ export async function push({ account, note, sessionFile } = {}) {
   const pointerFile = join(tmpdir(), `laterdog-dev-pointer-${hash.slice(0, 12)}.json`);
   const name = note ?? (await label());
   writeFileSync(pointerFile, JSON.stringify(pointerFor(hash, name)));
-  if (sessionFile) await waitUntilIdle(home);
+  const before = home ? await serverPid(home) : null;
   await wrangler(["r2", "object", "put", `${bucket}/${POINTER_KEY}`, "--file", pointerFile, "--content-type", "application/json", "--remote"]);
-  say(`pushed ${hash.slice(0, 12)} (${name}, ${Math.round(bytes.length / 1024)} KB) in ${Math.round((Date.now() - started) / 1000)} s`);
+  const published = Date.now();
+  say(`pushed ${hash.slice(0, 12)} (${name}, ${Math.round(bytes.length / 1024)} KB) in ${Math.round((published - started) / 1000)} s`);
+  return { hash, home, before, published, who: account ?? (home ? new URL(home.url).hostname : null) };
+}
+
+export async function confirmSwitch({ hash, home, before, published, who }, { signal, read = () => serverPid(home), log = say, ...timing } = {}) {
   if (!home) return { hash };
-  const pid = await waitForNewServer(home, before, started);
-  const who = account ?? new URL(home.url).hostname;
-  say(pid === null ? `${who} did not come back within ${READY_TIMEOUT_MS / 1000} s; is its home awake?` : `${who} is running it (server pid ${pid}) after ${Math.round((Date.now() - started) / 1000)} s`);
-  return { hash, pid };
+  if (before === null) {
+    log(`${who} did not answer before the push, so a switch cannot be confirmed; the home picks the code up once no dog is working or after ${RUNTIME_DRAIN_MAX_MS / 60_000} min`);
+    return { hash };
+  }
+  const pid = await waitForNewServer({ read, before, since: published, signal, ...timing });
+  const seconds = Math.round(((timing.now ?? Date.now)() - published) / 1000);
+  log(pid === null
+    ? `${who} still runs the old server ${seconds} s after the push; it switches once no dog is working or after ${RUNTIME_DRAIN_MAX_MS / 60_000} min`
+    : `${who} is running it (server pid ${pid}) ${seconds} s after the push`);
+  return pid === null ? { hash } : { hash, pid };
+}
+
+export async function push(options = {}) {
+  return confirmSwitch(await publish(options), { signal: options.signal });
 }
 
 export async function off({ sessionFile } = {}) {
@@ -165,14 +155,23 @@ export function pushOnSave(pushNow, { settleMs = SETTLE_MS, log = say } = {}) {
 }
 
 function watchAndPush({ account, sessionFile }) {
-  const schedule = pushOnSave(() => push({ account, sessionFile }));
+  let confirming = null;
+  const schedule = pushOnSave(async () => {
+    const published = await publish({ account, sessionFile });
+    confirming?.abort();
+    const mine = new AbortController();
+    confirming = mine;
+    confirmSwitch(published, { signal: mine.signal }).catch((error) => {
+      if (!mine.signal.aborted) say(`switch check failed: ${error.message}`);
+    });
+  });
   for (const dir of WATCHED) {
     watch(join(root, dir), { recursive: true }, (_event, file) => {
       if (watchedChange(file)) schedule();
     });
   }
   say(sessionFile
-    ? `watching ${WATCHED.join(", ")}; every save goes to ${new URL(readSessionFile(sessionFile).url).hostname} once no dog is working`
+    ? `watching ${WATCHED.join(", ")}; every save goes to ${new URL(readSessionFile(sessionFile).url).hostname} at once and the home switches when no dog is working or after ${RUNTIME_DRAIN_MAX_MS / 60_000} min`
     : `watching ${WATCHED.join(", ")}; every save is pushed to the test homes${account ? ` and checked on ${account}` : ""}`);
   if (!sessionFile) schedule();
 }
