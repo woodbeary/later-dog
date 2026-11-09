@@ -318,7 +318,7 @@ export interface VerificationServer {
 
 export function sealedFixtureBin(dataDir: string): string {
   if (process.platform === "win32") return dirname(process.execPath);
-  const bin = join(dataDir, ".fixture-bin");
+  const bin = join(dataDir, ".cache", "fixture-bin");
   mkdirSync(bin, { recursive: true, mode: 0o700 });
   if (!existsSync(join(bin, "node"))) symlinkSync(process.execPath, join(bin, "node"));
   return bin;

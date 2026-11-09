@@ -175,7 +175,7 @@ export class DeviceApprovalWatcher {
   async tick(): Promise<void> {
     const now = this.deps.now();
     const checks: Promise<void>[] = [];
-    for (const [key, wait] of [...this.waits]) {
+    for (const [key, wait] of Array.from(this.waits)) {
       if (wait.expiresAt <= now) {
         this.finish(key, wait, "expiry");
         continue;

@@ -49,7 +49,7 @@ The code is in `server/laterdog/engine-{remote,placement,computer,opener,relay,p
 
 These tests pass:
 
-- 8 end-to-end transport tests (`engine-remote.e2e.test.ts`). They cover a remote turn with a home MCP server and hook, checkpoint before completion, package reuse in a new session, and return to the home on the same session. They also cover Stop, a crash, a connection lost after launch (no re-run, orphan stopped), fallback before dispatch, an unanswered launch (no re-run), and the busy lock.
+- 8 end-to-end transport tests (`server/laterdog/engine-remote.e2e.test.ts`). They cover a remote turn with a home MCP server and hook, checkpoint before completion, package reuse in a new session, and return to the home on the same session. They also cover Stop, a crash, a connection lost after launch (no re-run, orphan stopped), fallback before dispatch, an unanswered launch (no re-run), and the busy lock.
 - 6 planner and stream tests.
 - A driver-level test: a chosen dog's Claude turn runs remotely with the same model, effort and session, and an unchosen dog stays on the home.
 - 4 process-stream tests in the computers Worker (425 Worker tests in all).
