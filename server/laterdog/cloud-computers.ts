@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
+import WebSocket from "ws";
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 export const COMPUTER_ID = /^cmp_[A-Za-z0-9_-]{1,64}$/;
@@ -252,6 +253,30 @@ export class ComputersClient {
   update(id: string): Promise<Computer> { return this.#lifecycle(id, "update", undefined, UPDATE_TIMEOUT_MS); }
   async #lifecycle(id: string, action: "wake" | "sleep" | "reset" | "update", signal?: AbortSignal, timeoutMs = 30_000): Promise<Computer> {
     return (await this.#read(await this.#send(`/computers/${computerPath(id)}/${action}`, { method: "POST", body: "{}", headers: JSON_TYPE, timeoutMs, signal }), computerBody)).computer;
+  }
+
+  async process(id: string): Promise<WebSocket> {
+    const url = new URL(`${this.api}/computers/${computerPath(id)}/process`);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return new Promise((resolve, reject) => {
+      const socket = new WebSocket(url, { headers: { authorization: `Bearer ${this.#key}` },
+        handshakeTimeout: 15_000, followRedirects: false, maxPayload: 2 * 1024 * 1024 });
+      let settled = false;
+      const failed = () => {
+        if (settled) return;
+        settled = true;
+        socket.terminate();
+        reject(new ComputersApiError("The cloud computer could not open a process stream.", 502, "process_unavailable"));
+      };
+      socket.on("error", failed);
+      socket.once("unexpected-response", (_request, response) => { response.destroy(); failed(); });
+      socket.once("close", failed);
+      socket.once("open", () => {
+        if (settled) return;
+        settled = true;
+        resolve(socket);
+      });
+    });
   }
 
   async exec(id: string, input: { command: string; timeoutMs?: number; cwd?: string }, options: { signal?: AbortSignal } = {}): Promise<ExecResult> {

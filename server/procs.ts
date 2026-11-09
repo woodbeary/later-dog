@@ -38,6 +38,9 @@ export function assertSafeCliArgv(
 }
 
 const cliGroups = new WeakSet<ChildProcess>();
+// Engines that do not run as a local child (one on the dog's cloud computer) stop themselves.
+const treeStoppers = new WeakMap<object, (timeoutMs: number) => Promise<boolean>>();
+export function registerTreeStopper(child: object, stop: (timeoutMs: number) => Promise<boolean>): void { treeStoppers.set(child, stop); }
 const stopping = new WeakMap<ChildProcess, Promise<boolean>>();
 
 export function spawnCli(
@@ -91,6 +94,8 @@ export function describeSpawnFailure(err: NodeJS.ErrnoException, cli: string): S
 }
 
 export function killCliTree(child: ChildProcess, timeoutMs = 5_000): Promise<boolean> {
+  const own = treeStoppers.get(child);
+  if (own) return own(Number.isFinite(timeoutMs) ? Math.max(0, timeoutMs) : 5_000);
   const existing = stopping.get(child);
   if (existing) return existing;
   const pid = child.pid;

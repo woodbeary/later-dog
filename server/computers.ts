@@ -460,3 +460,19 @@ export async function heavyRunBox(botId: string): Promise<{ box: RunBox; wasAsle
   };
   return { box, wasAsleep, rest: async () => { await stopOwn(client, ready).catch(() => undefined); } };
 }
+
+export async function engineComputer(botId: string): Promise<{ box: RunBox; stream: () => ReturnType<ComputersClient["process"]> }> {
+  if (!computersSelected()) throw new Error("Cloud computers are not configured.");
+  const client = ownClient();
+  const computer = await findOwn(client, botId) ?? await createOwn(client, botId, ownName(botId));
+  const ready = await waitRunning(client, computer.id, PROVISION_BUDGET_MS);
+  if (!ready) throw new Error("The dog's cloud computer could not start.");
+  return {
+    box: {
+      exec: (command, timeoutMs) => runOwn(client, ready.id, command, { timeoutMs }),
+      write: (path, bytes) => client.writeFile(ready.id, path, bytes),
+      read: (path) => client.readFile(ready.id, path),
+    },
+    stream: () => client.process(ready.id),
+  };
+}

@@ -8,6 +8,7 @@ import { type Collected, collect, json, outputText, within } from "./http";
 import { type IdlePolicy, MINUTE, decideIdle, idlePolicy, inactivityTimeoutMs } from "./idle";
 import { type ExecInput, FILE_MAX_BYTES, SIZES, type Size, commandEnv, redact } from "./inputs";
 import { route } from "./routes";
+import { serveProcessStream } from "./process-stream";
 import { trialPolicy } from "./trial";
 import { trials } from "./trial-registry";
 import { QUIT_BROWSER_SCRIPT, QUIT_BROWSER_WAIT_MS } from "./quit-browser";
@@ -353,6 +354,22 @@ export class DogComputer extends DurableObject<Env> {
 
   async meter(): Promise<void> {
     await this.charge();
+  }
+
+  async process(request: Request): Promise<Response> {
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") return new Response("Expected a WebSocket upgrade.", { status: 426 });
+    const record = this.load();
+    if (!record || this.deleting) return json({ error: { code: "not_found", message: "No such computer." } }, 404);
+    if (record.state !== "running" || !this.ctx.container?.running) return json({ error: { code: "asleep", message: "The computer is not running." } }, 409);
+    this.inFlight += 1;
+    this.markActive();
+    return serveProcessStream(request, {
+      start: (input, stdin) => this.container().exec(["timeout", "--kill-after=5", "7200s", "bash", "-lc", input.command], {
+        env: commandEnv(DOG_ENV, input.env), user: DOG, cwd: input.cwd ?? DOG_HOME, stdin,
+      }),
+      active: () => this.markActive(),
+      finished: () => { this.inFlight -= 1; this.markActive(); },
+    });
   }
 
   async exec(input: ExecInput): Promise<Result<ExecResult>> {

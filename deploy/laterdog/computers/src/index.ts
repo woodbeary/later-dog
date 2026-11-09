@@ -233,6 +233,8 @@ async function computerRequest(op: ComputerOp, id: string, request: Request, env
       const allowance = { fullAllowance: Boolean(caller.fullAllowance) };
       return answer(await (op === "reset" ? stub.reset(allowance) : stub.updateImage(allowance)), (value) => json({ computer: value }));
     }
+    case "process":
+      return stub.process(request);
     case "exec": {
       const body = await readJson(request);
       if (!body.ok) return body.response;

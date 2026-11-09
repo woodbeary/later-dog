@@ -781,6 +781,11 @@ import { createAntigravityLeftoverRoutes } from "./routes/antigravity-leftovers.
 import { findAntigravityLeftovers, removeAntigravityLeftovers } from "./drivers/antigravity-temp.ts";
 import { createLiveRoutes } from "./routes/live.ts";
 import { withScopeHint } from "./connector-scope-hint.ts";
+import { setEngineOpener } from "./laterdog/engine-placement.ts";
+import { computerEngineOpener } from "./laterdog/engine-opener.ts";
+
+// Engines of dogs chosen in remote-engines.json may run on their own cloud computers.
+setEngineOpener(computerEngineOpener());
 
 const PORT = Number(process.env.LATERDOG_SERVER_PORT || 8799);
 const WEBHOOK_PORT = Number(process.env.LATERDOG_WEBHOOK_PORT || PORT + 1);

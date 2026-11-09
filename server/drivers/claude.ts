@@ -7,7 +7,8 @@ import { join, dirname, isAbsolute, normalize } from "node:path";
 import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
 import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
-import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, spawnCli } from "../procs.ts";
+import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
+import { engineOpener, planClaudeRemote, remoteEngineBots, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
 import { classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { ClaudeLoginController } from "./claude-login-auth.ts";
 
@@ -1421,11 +1422,20 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       let child: ReturnType<typeof spawnCli>;
       warmEngines.makeRoom(ENGINE_BYTES);
       try {
-        child = spawnCli(config.cli, args, {
-          cwd,
-          env,
-          stdio: ["pipe", "pipe", "pipe"],
-        });
+        const local = () => spawnCli(config.cli, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+        const opener = engineOpener();
+        let remote: ReturnType<typeof planClaudeRemote> | null = null;
+        if (opener && botId && !turn.guestConfined && remoteEngineBots(DATA_DIR).has(botId)) {
+          try {
+            remote = planClaudeRemote({ botId, threadId, sessionId: (sessionId ?? newSessionId)!, cliCommand: resolveCli(config.cli, args, env).command,
+              args, cwd, env, managed: Boolean(config.managed), dataDir: DATA_DIR, proxyPath: opener.proxyPath, remoteBase: opener.remoteBase });
+          } catch (error) { remote = { stay: `launch could not be mirrored: ${(error as Error).message}` }; }
+          if ("stay" in remote) console.log(`[engine] ${botId.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: ${remote.stay}`);
+        }
+        child = remote && "plan" in remote
+          ? spawnPlacedEngine(remote.plan, (plan) => opener!.open(botId!, plan), local, (where, why) =>
+            console.log(`[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`)) as unknown as ReturnType<typeof spawnCli>
+          : local();
       } catch (error) {
         cleanupUnownedLaunch();
         throw error;
