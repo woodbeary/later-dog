@@ -54,6 +54,9 @@ await build({
   allowOverwrite: true,
   logLevel: "info",
   plugins: [yamlEsmPlugin],
+  banner: {
+    js: 'import { createRequire as __laterdogCreateRequire } from "node:module"; const require = __laterdogCreateRequire(import.meta.url);',
+  },
 });
 
 await build({
