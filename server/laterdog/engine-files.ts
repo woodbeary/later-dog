@@ -13,7 +13,7 @@ export interface EngineFileRoot {
 export interface EngineFile { root: string; path: string; hash: string; size: number; mode: number }
 export const ENGINE_FILE_LIMIT = 128 * 1024 * 1024;
 export const ENGINE_TRANSFER_LIMIT = 512 * 1024 * 1024;
-const SKIP = new Set(["node_modules", ".pnpm-store", ".npm", ".cache", "dist", "build", "out", "coverage", "test-results", "playwright-report"]);
+export const ENGINE_SKIPPED_DIRECTORIES: ReadonlySet<string> = new Set(["node_modules", ".pnpm-store", ".npm", ".cache", "dist", "build", "out", "coverage", "test-results", "playwright-report"]);
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 export const engineFileKey = (file: Pick<EngineFile, "root" | "path">) => `${file.root}\0${file.path}`;
 
@@ -64,7 +64,7 @@ export function engineInventory(roots: readonly EngineFileRoot[]): EngineFile[] 
     if (!existsSync(full)) return;
     if (lstatSync(full).isSymbolicLink()) throw new Error("Engine sync refuses symbolic links");
     for (const entry of readdirSync(full, { withFileTypes: true })) {
-      if (SKIP.has(entry.name)) continue;
+      if (ENGINE_SKIPPED_DIRECTORIES.has(entry.name)) continue;
       const path = at ? `${at}/${entry.name}` : entry.name;
       if (root.bounded?.exclude?.includes(path)) continue;
       if (entry.isDirectory()) walk(root, path);

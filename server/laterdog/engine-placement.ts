@@ -8,6 +8,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import type { EngineFileRoot } from "./engine-files.ts";
 import { claudeRenewer, type ClaudeRenewal } from "./engine-renewal.ts";
+import { computerOwnsWork, heldPointers, ownedWorkspace, readPointer } from "./engine-pointer.ts";
 import { EngineProcess, RemoteSession, type EngineLink, type PushedFile, type RemoteLaunch, type StdioSpec } from "./engine-remote.ts";
 
 export const REMOTE_ENGINE_BASE = "/home/dog/.laterdog-engine";
@@ -26,15 +27,26 @@ export function remoteEngineBots(dataDir: string, env: NodeJS.ProcessEnv = proce
 
 export const REMOTE_ENGINES_FILE = "remote-engines.json";
 
-export interface RemoteEngineChoice { botId: string; computer: boolean; fromEnvironment: boolean }
+export interface RemoteEngineChoice { botId: string; computer: boolean; fromEnvironment: boolean; workspaceOnComputer: boolean; heldWorkspaces: number }
+export interface PlacementChange { computer: boolean; workspaceOnComputer?: boolean }
 
 const environmentBots = (env: NodeJS.ProcessEnv) => new Set((env.LATERDOG_REMOTE_ENGINE_BOTS ?? "").split(",").map((id) => id.trim()).filter(Boolean));
 
-export function remoteEngineChoice(dataDir: string, botId: string, env: NodeJS.ProcessEnv = process.env): RemoteEngineChoice {
-  return { botId, computer: remoteEngineBots(dataDir, env).has(botId), fromEnvironment: environmentBots(env).has(botId) };
+export function workspaceOnComputerBots(dataDir: string): Set<string> {
+  try {
+    const file = JSON.parse(readFileSync(join(dataDir, REMOTE_ENGINES_FILE), "utf8")) as { workspaceOnComputer?: unknown };
+    if (Array.isArray(file.workspaceOnComputer)) return new Set(file.workspaceOnComputer.filter((id): id is string => typeof id === "string" && id.length > 0));
+  } catch {}
+  return new Set();
 }
 
-export function setRemoteEngineBot(dataDir: string, botId: string, computer: boolean, env: NodeJS.ProcessEnv = process.env): RemoteEngineChoice {
+export function remoteEngineChoice(dataDir: string, botId: string, env: NodeJS.ProcessEnv = process.env): RemoteEngineChoice {
+  return { botId, computer: remoteEngineBots(dataDir, env).has(botId), fromEnvironment: environmentBots(env).has(botId),
+    workspaceOnComputer: workspaceOnComputerBots(dataDir).has(botId), heldWorkspaces: heldPointers(dataDir, botId).filter(computerOwnsWork).length };
+}
+
+export function setRemoteEngineBot(dataDir: string, botId: string, change: boolean | PlacementChange, env: NodeJS.ProcessEnv = process.env): RemoteEngineChoice {
+  const computer = typeof change === "boolean" ? change : change.computer;
   const file = join(dataDir, REMOTE_ENGINES_FILE);
   let saved: Record<string, unknown> = {};
   try {
@@ -45,8 +57,14 @@ export function setRemoteEngineBot(dataDir: string, botId: string, computer: boo
   }
   const bots = Array.isArray(saved.bots) ? saved.bots.filter((id): id is string => typeof id === "string" && id.length > 0 && id !== botId) : [];
   if (computer) bots.push(botId);
+  const next: Record<string, unknown> = { ...saved, bots };
+  if (typeof change !== "boolean" && change.workspaceOnComputer !== undefined) {
+    const owned = Array.isArray(saved.workspaceOnComputer) ? saved.workspaceOnComputer.filter((id): id is string => typeof id === "string" && id.length > 0 && id !== botId) : [];
+    if (change.workspaceOnComputer) owned.push(botId);
+    next.workspaceOnComputer = owned;
+  }
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-  writeFileAtomic(file, `${JSON.stringify({ ...saved, bots }, null, 2)}\n`, { mode: 0o600 });
+  writeFileAtomic(file, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
   return remoteEngineChoice(dataDir, botId, env);
 }
 
@@ -107,6 +125,17 @@ export function scopedClaudeCredential(text: string, now = Date.now()): Buffer |
 
 const within = (parent: string, child: string) => { const rel = relative(parent, child); return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel)); };
 
+export interface WorkspacePlacement { owned: boolean; required: boolean; why?: string }
+
+export function workspacePlacement(dataDir: string, botId: string, cwd: string, options: { placed: boolean; trial: boolean }): WorkspacePlacement {
+  let required = false;
+  try { required = computerOwnsWork(readPointer(dataDir, botId, cwd)); } catch {}
+  if (required) return { owned: true, required: true };
+  if (!options.placed || !workspaceOnComputerBots(dataDir).has(botId)) return { owned: false, required: false };
+  if (options.trial) return { owned: false, required: false, why: "free trial computers do not hold workspaces" };
+  return { owned: true, required: false };
+}
+
 export interface ClaudePlacement {
   botId: string;
   threadId: string;
@@ -120,6 +149,7 @@ export interface ClaudePlacement {
   proxyPath: string;
   now?: number;
   remoteBase?: string;
+  workspaceOnComputer?: boolean;
 }
 
 export interface ClaudeRemotePlan { launch: RemoteLaunch; cli: { name: string; version: string }; stagingDir: string; mkdirs: string[]; renewal?: ClaudeRenewal | null }
@@ -229,7 +259,8 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
   const launch: RemoteLaunch = {
     cli: `${cliDir}/node_modules/.bin/claude`,
     args, cwd, env: remoteEnv, roots,
-    outputIds: ["workspace", "session", "session-extra", "file-history"],
+    outputIds: input.workspaceOnComputer ? ["session", "session-extra", "file-history"] : ["workspace", "session", "session-extra", "file-history"],
+    ...(input.workspaceOnComputer ? { ownership: ownedWorkspace({ dataDir: input.dataDir, botId: input.botId, cwd, remoteBase }) } : {}),
     pushes, mcp, hooks, hookEnv, socketPath,
     stateFile: `${remoteBase}/state/${threadKey}.json`,
     lockFile: `${remoteBase}/locks/${threadKey}.lock`,
@@ -257,7 +288,7 @@ function stdioSpecFor(server: Record<string, unknown>): StdioSpec | null {
   return null;
 }
 
-export interface EngineOpener { proxyPath: string; remoteBase?: string; open(botId: string, plan: ClaudeRemotePlan): Promise<EngineLink> }
+export interface EngineOpener { proxyPath: string; remoteBase?: string; open(botId: string, plan: ClaudeRemotePlan): Promise<EngineLink>; relay?(botId: string): Promise<EngineLink> }
 let opener: EngineOpener | null = null;
 export function setEngineOpener(value: EngineOpener | null): void { opener = value; }
 export function engineOpener(): EngineOpener | null { return opener; }
@@ -277,6 +308,11 @@ export function deferredLink(open: Promise<EngineLink>): EngineLink {
   }, (error: Error) => { if (!closed) { closed = true; link.emit("diagnostic", error.message); link.emit("close", error.message); } });
   link.send = (line) => { if (real) real.send(line); else if (!closed) queued.push(line); };
   link.close = () => { if (real) real.close(); else if (!closed) { closed = true; link.emit("close", "closed before the computer was ready"); } };
+  link.control = async (frame) => {
+    const ready = await open;
+    if (!ready.control) throw new Error("This cloud computer connection cannot hold a workspace.");
+    return ready.control(frame);
+  };
   return link;
 }
 
@@ -288,7 +324,7 @@ export function spawnPlacedEngine(plan: ClaudeRemotePlan, openLink: (plan: Claud
   const engine = new EngineProcess(session, local, (where, why) => {
     if (where === "computer" && plan.renewal && !release && !closed) release = renewer.hold(plan.renewal);
     onPlaced?.(where, why);
-  });
+  }, plan.launch.ownership?.homeFallback ?? true);
   registerTreeStopper(engine, (timeoutMs) => engine.stopTree(timeoutMs, killCliTree));
   engine.once("close", () => {
     closed = true;

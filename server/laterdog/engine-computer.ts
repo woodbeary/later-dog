@@ -13,7 +13,7 @@ let scripts: EngineScripts | null = null;
 export function engineScripts(): EngineScripts {
   if (scripts) return scripts;
   const bundled = existsSync(join(SERVER_ROOT, "laterdog", "engine-relay.js")) && !existsSync(join(SERVER_ROOT, "laterdog", "engine-relay.ts"));
-  const names = bundled ? ["engine-relay.js", "engine-proxy.js"] : ["engine-relay.ts", "engine-proxy.ts", "engine-files.ts"];
+  const names = bundled ? ["engine-relay.js", "engine-proxy.js"] : ["engine-relay.ts", "engine-proxy.ts", "engine-files.ts", "engine-workspace.ts"];
   const files = names.map((name) => ({ name, bytes: readFileSync(join(SERVER_ROOT, "laterdog", name)) }));
   const hash = createHash("sha256");
   for (const file of files) hash.update(file.name).update("\0").update(file.bytes);
@@ -22,6 +22,7 @@ export function engineScripts(): EngineScripts {
   return scripts;
 }
 
+const CONTROL_REPLY_MS = 20_000;
 const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 
 export interface EngineBox {
@@ -29,14 +30,17 @@ export interface EngineBox {
   write(path: string, bytes: Uint8Array): Promise<unknown>;
 }
 
-export async function prepareEngineComputer(box: EngineBox, plan: ClaudeRemotePlan, relay = engineScripts()): Promise<void> {
+export async function installEngineRelay(box: EngineBox, relay = engineScripts()): Promise<void> {
   const present = await box.exec(`test -f ${quote(`${relay.dir}/.ready`)} && echo present || true`, 20_000);
-  if (!present.stdout.includes("present")) {
-    await box.exec(`mkdir -p ${quote(relay.dir)}`, 20_000);
-    for (const file of relay.files) await box.write(`${relay.dir}/${file.name}`, file.bytes);
-    const marked = await box.exec(`touch ${quote(`${relay.dir}/.ready`)}`, 20_000);
-    if (marked.exitCode !== 0) throw new Error("The engine relay could not be put on the cloud computer.");
-  }
+  if (present.stdout.includes("present")) return;
+  await box.exec(`mkdir -p ${quote(relay.dir)}`, 20_000);
+  for (const file of relay.files) await box.write(`${relay.dir}/${file.name}`, file.bytes);
+  const marked = await box.exec(`touch ${quote(`${relay.dir}/.ready`)}`, 20_000);
+  if (marked.exitCode !== 0) throw new Error("The engine relay could not be put on the cloud computer.");
+}
+
+export async function prepareEngineComputer(box: EngineBox, plan: ClaudeRemotePlan, relay = engineScripts()): Promise<void> {
+  await installEngineRelay(box, relay);
   const cliDir = `${REMOTE_ENGINE_BASE}/cli/claude-code-${plan.cli.version}`;
   const installed = await box.exec(`test -x ${quote(`${cliDir}/node_modules/.bin/claude`)} || (mkdir -p ${quote(cliDir)} && npm install --prefix ${quote(cliDir)} --no-audit --no-fund --loglevel=error ${quote(`${plan.cli.name}@${plan.cli.version}`)} >/dev/null)`, 10 * 60_000);
   if (installed.exitCode !== 0) throw new Error(`Claude Code ${plan.cli.version} could not be installed on the cloud computer.`);
@@ -49,12 +53,28 @@ export function processStreamLink(socket: WebSocket, command: string): EngineLin
   const link = new EventEmitter() as EngineLink;
   let closed = false;
   let buffered = Buffer.alloc(0);
-  const close = (why: string) => { if (closed) return; closed = true; link.emit("close", why); };
+  let controls = 0;
+  const waiting = new Map<number, { resolve(body: unknown): void; reject(error: Error): void }>();
+  const close = (why: string) => {
+    if (closed) return;
+    closed = true;
+    for (const pending of waiting.values()) pending.reject(new Error(`the process stream ended (${why})`));
+    waiting.clear();
+    link.emit("close", why);
+  };
   const send = (value: unknown) => { if (!closed) socket.send(JSON.stringify(value)); };
   socket.on("message", (raw) => {
-    let frame: { channel?: string; data?: string; code?: number; message?: string };
+    let frame: { channel?: string; data?: string; code?: number; message?: string; id?: number; ok?: boolean; body?: unknown };
     try { frame = JSON.parse(String(raw)); } catch { return; }
     if (frame.channel === "ping") { send({ channel: "pong" }); return; }
+    if (frame.channel === "control") {
+      const pending = typeof frame.id === "number" ? waiting.get(frame.id) : undefined;
+      if (!pending) return;
+      waiting.delete(frame.id!);
+      if (frame.ok) pending.resolve(frame.body ?? null);
+      else pending.reject(new Error(frame.message ?? "The cloud computer refused."));
+      return;
+    }
     if (frame.channel === "stdout" && typeof frame.data === "string") {
       buffered = Buffer.concat([buffered, Buffer.from(frame.data, "base64")]);
       let newline: number;
@@ -72,6 +92,14 @@ export function processStreamLink(socket: WebSocket, command: string): EngineLin
   send({ channel: "start", input: { command } });
   link.send = (line) => send({ channel: "stdin", data: Buffer.from(`${line}\n`).toString("base64") });
   link.close = () => { send({ channel: "stop" }); try { socket.close(); } catch {} };
+  link.control = (frame) => new Promise((resolve, reject) => {
+    if (closed) { reject(new Error("the process stream has ended")); return; }
+    const id = ++controls;
+    const timer = setTimeout(() => { if (waiting.delete(id)) reject(new Error("the cloud computer did not answer about the workspace hold")); }, CONTROL_REPLY_MS);
+    timer.unref?.();
+    waiting.set(id, { resolve: (body) => { clearTimeout(timer); resolve(body); }, reject: (error) => { clearTimeout(timer); reject(error); } });
+    send({ ...frame, id });
+  });
   return link;
 }
 

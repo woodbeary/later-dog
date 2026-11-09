@@ -31,6 +31,7 @@ import { trials } from "./trial-registry";
 import { QUIT_BROWSER_SCRIPT, QUIT_BROWSER_WAIT_MS } from "./quit-browser";
 import { DESKTOP_GRACE_MS, DESKTOP_SCRIPT, PAINT_GRACE_MS, READY_POLL_MS, type Upstream, answersRfb, desktopFromExit, holdUpstream } from "./ready";
 import { messagePage, newNonce, pageHeaders, viewerPage } from "./viewer";
+import { type HoldFrame, type HoldView, type Holds, addHold, holdRefusal, holdView, releaseHold } from "./workspace-holds";
 
 export type State = "starting" | "running" | "sleeping" | "stopping" | "error";
 
@@ -45,6 +46,7 @@ export interface ComputerView {
   snapshotAt?: string;
   error?: string;
   environment?: { repository: string; restoredFrom?: string; maintenance?: Maintenance & { at: string; ms: number } };
+  workspaces?: HoldView;
 }
 
 export interface ExecResult {
@@ -81,6 +83,7 @@ interface ComputerRecord {
   environment?: RecordEnvironment;
   maintenance?: Maintenance & { at: number; ms: number; exitCode: number };
   builder?: BuildJob;
+  holds?: Holds;
 }
 
 interface RecordEnvironment {
@@ -148,6 +151,7 @@ function view(record: ComputerRecord): ComputerView {
     ...(record.snapshotAt === undefined ? {} : { snapshotAt: iso(record.snapshotAt) }),
     ...(record.state === "error" && record.error ? { error: record.error } : {}),
     ...(record.environment ? { environment: environmentOf(record) } : {}),
+    ...(record.holds && Object.keys(record.holds).length ? { workspaces: holdView(record.holds, record.snapshotAt, Date.now())! } : {}),
   };
 }
 
@@ -312,6 +316,8 @@ export class DogComputer extends DurableObject<Env> {
       const found = this.load();
       if (!found) return notFound();
       if (found.carry) return UPDATING;
+      const held = holdRefusal("reset", found.holds, found.snapshotAt, Date.now());
+      if (held) return { ok: false, refusal: held };
       const record = this.withAllowance(found, input);
       this.closeViewers(4004, "The computer was reset.");
       if (this.ctx.container?.running) {
@@ -329,6 +335,8 @@ export class DogComputer extends DurableObject<Env> {
       const found = this.load();
       if (!found) return notFound();
       if (found.carry) return UPDATING;
+      const held = holdRefusal("update", found.holds, found.snapshotAt, Date.now());
+      if (held) return { ok: false, refusal: held };
       const record = this.withAllowance(found, input);
       const container = this.container();
       if (record.state !== "running" || !container.running) {
@@ -427,6 +435,8 @@ export class DogComputer extends DurableObject<Env> {
     return this.serially(async () => {
       const record = this.load();
       if (!record) return notFound();
+      const held = holdRefusal("delete", record.holds, record.snapshotAt, Date.now());
+      if (held) return { ok: false, refusal: held };
       this.deleting = true;
       try {
         this.closeViewers(4002, "The computer was deleted.");
@@ -460,6 +470,23 @@ export class DogComputer extends DurableObject<Env> {
       }),
       active: () => this.markActive(),
       finished: () => { this.inFlight -= 1; this.markActive(); },
+      control: (frame) => this.workspaceHold(frame),
+    });
+  }
+
+  async workspaceHold(frame: HoldFrame): Promise<Result<HoldView | null>> {
+    return this.serially(async () => {
+      const record = this.load();
+      if (!record || this.deleting) return notFound();
+      const now = Date.now();
+      const changed = frame.channel === "hold" ? addHold(record.holds, frame.key, frame.writtenAt, now) : releaseHold(record.holds, frame.key, frame.through);
+      if (!changed.ok) return { ok: false, refusal: changed.refusal };
+      const saved = this.update((r) => {
+        if (Object.keys(changed.holds).length) r.holds = changed.holds;
+        else delete r.holds;
+      })!;
+      console.log(`laterdog computers: ${saved.id} ${frame.channel === "hold" ? "holds" : "released"} workspace ${frame.key}; ${Object.keys(saved.holds ?? {}).length} held`);
+      return ok(holdView(saved.holds, saved.snapshotAt, now) ?? null);
     });
   }
 

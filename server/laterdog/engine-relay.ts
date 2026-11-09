@@ -1,17 +1,23 @@
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { once } from "node:events";
-import { closeSync, constants, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, readSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { dirname } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { EngineFileReceiver, engineFileKey, engineInventory, readEngineFile, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
+import { ENGINE_FILE_LIMIT, EngineFileReceiver, engineFileKey, engineInventory, readEngineFile, type EngineFile, type EngineFileRoot } from "./engine-files.ts";
+import { hashFile, pickArtifacts, readWorkspaceFile, walkWorkspace, workspaceGit, workspaceHasFiles, workspaceManifest, WORKSPACE_CAPS, type ManifestEntry, type WorkspaceCaps } from "./engine-workspace.ts";
 
 const TEST_ROOT = process.env.LATERDOG_ENGINE_TEST_ROOT ?? "";
 let homeRoots: string[] = [];
 const mirrored = (value: string) => TEST_ROOT && homeRoots.some((root) => value === root || value.startsWith(`${root}/`)) ? `${TEST_ROOT}${value}` : value;
+const onComputer = (value: string) => TEST_ROOT ? `${TEST_ROOT}${value}` : value;
 let roots: EngineFileRoot[] = [];
+let synced: EngineFileRoot[] = [];
 let outputs: EngineFileRoot[] = [];
+interface Ownership { root: EngineFileRoot; artifacts: Map<string, string>; patchHash: string | null; caps: WorkspaceCaps; cacheFile: string }
+let ownership: Ownership | null = null;
+const READ_LIMIT = 32 * 1024 * 1024;
 let receiver: EngineFileReceiver;
 let baseline = new Map<string, EngineFile>();
 let child: ChildProcessByStdio<Writable, Readable, Readable> | null = null;
@@ -32,10 +38,77 @@ async function send(frame: unknown): Promise<void> {
 }
 async function sendFile(file: EngineFile): Promise<void> {
   const root = roots.find(root => root.id === file.root)!;
-  const bytes = readEngineFile(root, file.path);
+  await sendBytes(file, readEngineFile(root, file.path));
+}
+async function sendBytes(file: EngineFile, bytes: Buffer): Promise<void> {
   await send({ type: "file_begin", file });
   for (let offset = 0; offset < bytes.length; offset += 32 * 1024) await send({ type: "file_chunk", data: bytes.subarray(offset, offset + 32 * 1024).toString("base64") });
   await send({ type: "file_end" });
+}
+async function streamFile(file: EngineFile, full: string): Promise<boolean> {
+  const fd = openSync(full, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    if (fstatSync(fd).size !== file.size) return false;
+    await send({ type: "file_begin", file });
+    const buffer = Buffer.allocUnsafe(32 * 1024);
+    for (let read; (read = readSync(fd, buffer, 0, buffer.length, null)) > 0;) await send({ type: "file_chunk", data: buffer.subarray(0, read).toString("base64") });
+    await send({ type: "file_end" });
+    return true;
+  } finally { closeSync(fd); }
+}
+function cachedManifest(path: string): ManifestEntry[] {
+  try { const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown; return Array.isArray(parsed) ? parsed as ManifestEntry[] : []; } catch { return []; }
+}
+async function sendOwnership(owned: Ownership): Promise<void> {
+  const previous = owned.cacheFile ? cachedManifest(owned.cacheFile) : [];
+  const manifest = workspaceManifest(owned.root.path, owned.caps, previous);
+  const git = workspaceGit(owned.root.path, owned.caps);
+  manifest.git = git?.git ?? null;
+  const patch = git?.patch ?? null;
+  if ((manifest.git?.patchHash ?? null) !== owned.patchHash) {
+    if (patch) await sendBytes({ root: "workspace-git", path: "work.patch", hash: manifest.git!.patchHash!, size: patch.length, mode: 0o600 }, patch);
+    else if (owned.patchHash) await send({ type: "file_remove", file: { root: "workspace-git", path: "work.patch" } });
+    owned.patchHash = manifest.git?.patchHash ?? null;
+  }
+  const picked = pickArtifacts(manifest, owned.caps, patch?.length ?? 0);
+  const kept = new Map<string, string>();
+  for (const artifact of picked) {
+    if (owned.artifacts.get(artifact.path) === artifact.hash) { kept.set(artifact.path, artifact.hash); continue; }
+    let read;
+    try { read = readWorkspaceFile(owned.root, artifact.path, owned.caps.artifactFileBytes); } catch { continue; }
+    await sendBytes({ root: "workspace-artifact", path: artifact.path, hash: read.hash, size: read.bytes.length, mode: 0o600 }, read.bytes);
+    kept.set(artifact.path, read.hash);
+  }
+  for (const path of owned.artifacts.keys()) if (!kept.has(path)) await send({ type: "file_remove", file: { root: "workspace-artifact", path } });
+  owned.artifacts = kept;
+  await send({ type: "workspace_manifest", manifest });
+  if (owned.cacheFile) {
+    try { mkdirSync(dirname(owned.cacheFile), { recursive: true, mode: 0o700 }); writeFileSync(owned.cacheFile, JSON.stringify(manifest.files), { mode: 0o600 }); } catch {}
+  }
+}
+async function exportWorkspace(id: unknown, path: unknown): Promise<void> {
+  if (typeof path !== "string" || !path.startsWith("/")) { await reply(id, { error: "An absolute workspace folder is needed." }); return; }
+  const root = onComputer(path);
+  let files = 0;
+  let bytes = 0;
+  const tooLarge: string[] = [];
+  const changed: string[] = [];
+  const entries: Array<{ path: string; full: string }> = [];
+  walkWorkspace(root, (name, full) => { entries.push({ path: name, full }); });
+  for (const entry of entries) {
+    let hashed;
+    try { hashed = hashFile(entry.full); } catch { changed.push(entry.path); continue; }
+    if (hashed.size > ENGINE_FILE_LIMIT) { tooLarge.push(entry.path); continue; }
+    const mode = fstatMode(entry.full);
+    if (!(await streamFile({ root: "workspace", path: entry.path, hash: hashed.hash, size: hashed.size, mode }, entry.full))) { changed.push(entry.path); continue; }
+    files += 1;
+    bytes += hashed.size;
+  }
+  await reply(id, { files, bytes, tooLarge, changed });
+}
+function fstatMode(path: string): number {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try { return fstatSync(fd).mode & 0o777; } finally { closeSync(fd); }
 }
 function checkpoint(): Promise<void> {
   const run = checkpointWork.then(async () => {
@@ -43,6 +116,7 @@ function checkpoint(): Promise<void> {
     const current = new Map(files.map(file => [engineFileKey(file), file]));
     for (const file of files) if (baseline.get(engineFileKey(file))?.hash !== file.hash) await sendFile(file);
     for (const [key, file] of baseline) if (!current.has(key)) await send({ type: "file_remove", file });
+    if (ownership) await sendOwnership(ownership);
     const id = ++sequence;
     const acknowledged = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => { acknowledgements.delete(id); reject(new Error("Engine checkpoint was not acknowledged")); }, 30_000);
@@ -139,7 +213,7 @@ async function launch(frame: any): Promise<void> {
   await new Promise<void>((resolve, reject) => { server!.once("error", reject); server!.listen(socketPath, resolve); });
   baseline = new Map(engineInventory(outputs).map(file => [engineFileKey(file), file]));
   receiver.baseline.clear();
-  for (const file of engineInventory(roots)) receiver.baseline.set(engineFileKey(file), file);
+  for (const file of engineInventory(synced)) receiver.baseline.set(engineFileKey(file), file);
   try {
     const env = Object.fromEntries(Object.entries(frame.env as Record<string, string>).map(([key, value]) => [key, mirrored(value)]));
     child = spawn(frame.cli, (frame.args as string[]).map(mirrored), { cwd: mirrored(frame.cwd), env: { ...env, LATERDOG_ENGINE_SOCKET: socketPath }, stdio: ["pipe", "pipe", "pipe"], detached: true });
@@ -184,17 +258,40 @@ async function handle(frame: any): Promise<void> {
       if (receiver || child) throw new Error("Engine already configured");
       homeRoots = frame.roots.map((root: EngineFileRoot) => root.path);
       roots = frame.roots.map((root: EngineFileRoot) => ({ ...root, path: mirrored(root.path) }));
-      outputs = roots.filter(root => frame.outputIds.includes(root.id));
+      ownership = null;
+      if (frame.ownership && typeof frame.ownership.root === "string") {
+        const root = roots.find(root => root.id === frame.ownership.root);
+        if (!root) throw new Error("Owned workspace is not one of the engine folders");
+        const artifacts = new Map<string, string>();
+        for (const artifact of Array.isArray(frame.ownership.artifacts) ? frame.ownership.artifacts : []) if (typeof artifact?.path === "string" && typeof artifact?.hash === "string") artifacts.set(artifact.path, artifact.hash);
+        ownership = { root, artifacts, patchHash: typeof frame.ownership.patchHash === "string" ? frame.ownership.patchHash : null,
+          caps: { ...WORKSPACE_CAPS, ...(frame.ownership.caps ?? {}) }, cacheFile: typeof frame.ownership.cacheFile === "string" ? mirrored(frame.ownership.cacheFile) : "" };
+      }
+      synced = roots.filter(root => root !== ownership?.root);
+      outputs = synced.filter(root => frame.outputIds.includes(root.id));
       for (const name of frame.names) names.add(name);
       for (const root of roots) mkdirSync(root.path, { recursive: true, mode: 0o700 });
-      receiver = new EngineFileReceiver(roots.map(root => ({ ...root, writable: true })), engineInventory(roots));
-      await reply(frame.id, { files: engineInventory(roots) });
+      const inventoried = ownership && frame.ownership.reseed === true ? roots : synced;
+      receiver = new EngineFileReceiver(roots.map(root => ({ ...root, writable: true })), engineInventory(inventoried));
+      await reply(frame.id, { files: engineInventory(inventoried), ...(ownership ? { owned: { hasFiles: workspaceHasFiles(ownership.root.path) } } : {}) });
       return;
     case "file_begin": receiver.begin(frame.file); return;
     case "file_chunk": receiver.chunk(Buffer.from(frame.data, "base64")); return;
     case "file_end": receiver.end(); return;
     case "file_remove": receiver.remove(frame.file); return;
     case "prepared": await reply(frame.id, { prepared: true }); return;
+    case "read": {
+      if (typeof frame.path !== "string" || !frame.path.startsWith("/")) { await reply(frame.id, { error: "An absolute workspace folder is needed." }); return; }
+      try {
+        const limit = Math.min(Number(frame.limit) || READ_LIMIT, READ_LIMIT);
+        const read = readWorkspaceFile({ id: "read", path: onComputer(frame.path), writable: false }, String(frame.name), limit);
+        await reply(frame.id, { data: read.bytes.toString("base64"), hash: read.hash, size: read.bytes.length });
+      } catch (error) {
+        await reply(frame.id, { error: (error as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : (error as Error).message });
+      }
+      return;
+    }
+    case "export": await exportWorkspace(frame.id, frame.path); return;
     case "launch": await launch(frame); return;
     case "stdin": child?.stdin.write(Buffer.from(frame.data, "base64")); return;
     case "end": child?.stdin.end(); return;

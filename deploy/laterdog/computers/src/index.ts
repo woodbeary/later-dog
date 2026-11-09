@@ -238,6 +238,7 @@ async function computerRequest(op: ComputerOp, id: string, request: Request, env
     }
     case "delete": {
       const result = await stub.remove();
+      if (!result.ok && result.refusal.code === "workspace_held") return apiError(result.refusal);
       const listed = await caller.registry.remove(id);
       if (!result.ok && !(result.refusal.status === 404 && listed)) return apiError(result.refusal);
       return json({ deleted: true });
