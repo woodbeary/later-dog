@@ -1,0 +1,66 @@
+{
+  "runtimeSource": "c3f2781a2fe261158001594d318e76346d15654a",
+  "configurationSource": "6655574001a4578cb262eff880b9511e764ffa88",
+  "workerVersion": "4e2cff6e-c59e-4eec-8b23-9dca6ed906ff",
+  "deploymentAcceptedAt": "2026-11-09T02:32:14.432Z",
+  "firstQualifiedAt": "2026-11-09T02:47:04.541Z",
+  "lastQualifiedAt": "2026-11-09T02:57:41.115Z",
+  "consecutiveQualified": 21,
+  "observationSpanSeconds": 636.574,
+  "activationObservationDelaySeconds": 890.109,
+  "totalSamples": 49,
+  "qualifiedSamples": 21,
+  "dogCount": 80,
+  "selected": [
+    {
+      "name": "Patch",
+      "selection": {
+        "instanceId": "codex",
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      }
+    },
+    {
+      "name": "Clover",
+      "selection": {
+        "instanceId": "codex",
+        "model": "gpt-6.1-sol",
+        "effort": "medium"
+      }
+    }
+  ],
+  "otherDogsObservedActive": [],
+  "queuedThreads": 0,
+  "usage": {
+    "status": 200,
+    "coverage": {
+      "recordedTurns": 1776,
+      "receipts": 7,
+      "legacyTurns": 1769
+    },
+    "returned": 7,
+    "withLegacyTaskField": 0,
+    "selectedEffortPresent": 7,
+    "verifiedTaskResults": 0
+  },
+  "freeDiskBytes": {
+    "min": 1895456768,
+    "max": 2427301888,
+    "last": 2404868096
+  },
+  "lowStorageSamples": 6,
+  "lastStorageLow": false,
+  "archiveEnabled": true,
+  "runtimeArchiveCounters": {
+    "enabled": true,
+    "archivedFiles": 0,
+    "archivedBytes": 0,
+    "lastScanAt": 1794193016046,
+    "freeBefore": 2405150720,
+    "freeAfter": 2405150720
+  },
+  "qualifications": "Functional health, identity, selected settings, sanitized receipts, expected web asset, native history and archive availability. This does not qualify storage headroom, task quality, real-device behavior or general concurrency.",
+  "allDogAndCurrentThreadIdentitiesPreserved": true,
+  "identityScope": "All eighty dog ids and their current thread ids at promotion; not an exhaustive comparison of every historical thread.",
+  "queueScope": "botQueuedMessages from GET /api/bots; separate supervisor and account-wait mechanisms are outside this count."
+}

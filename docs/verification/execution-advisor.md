@@ -10,7 +10,7 @@ call and requires no new credential.
 The route is `POST /api/internal/execution-advice`, authenticated by the existing
 agents turn capability. Another dog's history is excluded. Shared and guest-driven work is limited to
 the current thread; only owner work can inspect the dog's other threads. Expired capabilities
-are rejected. Task text is not persisted by the advisor.
+are rejected. The advisor adds no task text to usage evidence or its own persistent store. Existing conversation/engine tool traces may retain arguments and results under their existing retention rules.
 
 ## Ownership
 
@@ -28,7 +28,7 @@ usage ledger. A conflicting provider is marked and its model attribution becomes
 unknown. Old rows are not backfilled with invented attribution. Malformed optional
 metadata is discarded without losing the original usage row.
 
-The ledger never stores task or prompt text. `parseExecutionEvidence` whitelists the
+New ledger execution metadata excludes task and prompt fields. `parseExecutionEvidence` whitelists the
 evidence fields, including the selected and dispatched effort, variant and fast
 settings, on every append and every read, so a legacy `execution.task` or any
 unknown field is dropped from what the server returns while valid usage and
@@ -92,6 +92,17 @@ A current title is not the task that thread ran at the time and is not a
 historical task-quality label, and legacy rows without evidence never match.
 It is not a semantic quality judgment. Native engine versions and verified outcome receipts are not yet joined.
 
-The fixture proves the tool contract and evidence collection, not provider quality,
-production availability, cross-model savings or deployment. The feature requires a
-server rollout and a fresh engine session to advertise the new tool.
+The fixture proves the tool contract and evidence collection, not provider quality
+or cross-model savings. Production rollout and functional observations are recorded
+separately in [the release record](consolidation-release-2026-11-08.md). Existing
+engine sessions need a fresh tool catalog to advertise the new tool.
+
+## Real-provider tool observation, 2026-11-09
+
+The isolated staged Kimi provider called `agents_execution_advice` once and settled
+with its selection unchanged. Its recorded tool status was successful and its
+retained preview showed `keep_current`; the preview was shortened and is not a
+complete response capture. [The observation](execution-advisor-provider-2026-11-09.json)
+qualifies discovery and invocation, separate from the full fake-engine contract
+fixture and the production functional watch. Ineligible catalog rows remain
+verbose; no LLM token or model-bill reduction is claimed.

@@ -79,6 +79,20 @@ and 190.52 ms at 100,000 rows (354.57–629.21 and 145.25–206.47 ms). Raw samp
 are in the benchmark output. These are synthetic, single-host numbers on different
 hardware from the 2026-11-08 run and must not be compared with it.
 
+A separately retained canonical-title run at 02:35:22 UTC on November 9 used
+Node 24.22.1 on the eight-core Apple M1, 8 GB RAM, load about 2.1, with active
+workloads and no certified idle host. All 103 equal-reply checks passed. Five
+alternating retained pairs gave medians of 2.17 ms before and 1.10 ms after for
+2,000 rows (ranges 2.167–2.179 and 1.001–1.144 ms); at 100,000 rows, 144.87 ms
+and 56.01 ms (142.90–145.99 and 55.64–56.83 ms). At 50 rows the medians were
+0.183 and 0.160 ms, too small to claim a meaningful user-facing effect. The
+[unaltered raw output](execution-advisor-canonical-2026-11-09.json) retains host,
+timer scope, counts, ranges and every sample. As the script shows, normalization
+also changes the single limitation sentence so complete replies describe the
+same canonical-title semantics; this is documented here explicitly because the
+output's short normalization description mentions only the lookup. Do not compare
+these times with other hosts, earlier semantics or different load windows.
+
 Thirty-day ledger reads still synchronously read and parse month files before
 advice aggregation. Grouping does not remove that event-loop blocking or bound
 ledger bytes. The advisor still preserves the selected model: controlled,

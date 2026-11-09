@@ -1,0 +1,123 @@
+{
+  "at": "2026-11-09T02:35:22.181Z",
+  "baselineRef": "d2c39c4ede7308ee905b620e0473d2a65374a217",
+  "normalization": "Only the baseline task-title lookup and matching scope were rewritten, to read the canonical per-thread titles passed in input.titles; both sides receive the same input and the repeated-scan versus grouped algorithms are unchanged. Timings are not comparable with runs that matched stored task text.",
+  "scope": "Local synthetic advisor calculation plus JSON serialization; excludes ledger reads, HTTP, models, queueing and task quality. No production capacity or savings claim.",
+  "host": {
+    "node": "v24.22.1",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M1",
+    "cores": 8,
+    "totalmem": 8589934592,
+    "freemem": 186646528,
+    "load": [
+      2.0576171875,
+      2.5205078125,
+      2.3623046875
+    ],
+    "otherWork": "User workloads remain active; the host is not certified idle."
+  },
+  "equivalentRepliesChecked": 103,
+  "results": [
+    {
+      "rows": 50,
+      "candidates": 100,
+      "callsPerSample": 30,
+      "before": {
+        "medianMs": 0.18335276666666686,
+        "minMs": 0.18100276666666748,
+        "maxMs": 0.18891666666666632,
+        "rawMs": [
+          0.18540833333333354,
+          0.18100276666666748,
+          0.18159583333333273,
+          0.18335276666666686,
+          0.18891666666666632
+        ]
+      },
+      "after": {
+        "medianMs": 0.16028886666666628,
+        "minMs": 0.15139306666666622,
+        "maxMs": 0.16062640000000006,
+        "rawMs": [
+          0.160322233333333,
+          0.15139306666666622,
+          0.15472083333333256,
+          0.16028886666666628,
+          0.16062640000000006
+        ]
+      },
+      "wireBytes": {
+        "before": 88650,
+        "after": 42040
+      }
+    },
+    {
+      "rows": 2000,
+      "candidates": 100,
+      "callsPerSample": 30,
+      "before": {
+        "medianMs": 2.1697708333333328,
+        "minMs": 2.166965266666667,
+        "maxMs": 2.1794360999999998,
+        "rawMs": [
+          2.1794360999999998,
+          2.1697708333333328,
+          2.166965266666667,
+          2.1704611333333332,
+          2.167901400000001
+        ]
+      },
+      "after": {
+        "medianMs": 1.1020180666666648,
+        "minMs": 1.0011375000000007,
+        "maxMs": 1.1438861333333308,
+        "rawMs": [
+          1.104234733333332,
+          1.0860902666666674,
+          1.1438861333333308,
+          1.1020180666666648,
+          1.0011375000000007
+        ]
+      },
+      "wireBytes": {
+        "before": 140908,
+        "after": 66361
+      }
+    },
+    {
+      "rows": 100000,
+      "candidates": 100,
+      "callsPerSample": 5,
+      "before": {
+        "medianMs": 144.86870819999984,
+        "minMs": 142.9026749999999,
+        "maxMs": 145.99163339999996,
+        "rawMs": [
+          142.9026749999999,
+          145.99163339999996,
+          145.2029584,
+          144.86870819999984,
+          144.58675000000002
+        ]
+      },
+      "after": {
+        "medianMs": 56.00530839999992,
+        "minMs": 55.63825820000002,
+        "maxMs": 56.831991799999926,
+        "rawMs": [
+          56.483966800000054,
+          56.831991799999926,
+          55.63825820000002,
+          56.00530839999992,
+          55.9614583999999
+        ]
+      },
+      "wireBytes": {
+        "before": 142238,
+        "after": 67026
+      }
+    }
+  ]
+}
