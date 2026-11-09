@@ -54,12 +54,15 @@ function sqlStorage() {
   };
 }
 
+export const FAKE_IMAGE = "laterdog-desktop:test";
+export const fakeImages = { desktop: FAKE_IMAGE };
+
 export class FakeContainer {
   running = false;
   failSnapshot = false;
   snapshots = 0;
   readonly starts: unknown[] = [];
-  readonly images = { desktop: "laterdog-desktop:test" };
+  readonly images = fakeImages;
 
   start(options: unknown): void {
     this.starts.push(options);

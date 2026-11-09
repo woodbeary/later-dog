@@ -93,12 +93,14 @@ still drawing has it `false` (see Waking and readiness).
 
 | Request | Answer |
 | --- | --- |
-| `POST /computers` `{ "name"?, "size"?: "small" \| "standard" \| "large" \| "xlarge" }`, optional `Idempotency-Key` header | 201 `{ computer }` in state `starting`. It answers once Cloudflare has placed the container (1 to 16 s measured). Sizes: `standard-1` (½ vCPU, 4 GiB, 8 GB disk), `standard-2` (1 vCPU, 6 GiB, 12 GB; the default), `standard-3` (2 vCPU, 8 GiB, 16 GB) and `standard-4` (4 vCPU, 12 GiB, 20 GB). The same key within 24 hours returns the same computer, with header `Idempotent-Replayed: true`. |
+| `POST /computers` `{ "name"?, "size"?: "small" \| "standard" \| "large" \| "xlarge", "repository"?: "owner/name" }`, optional `Idempotency-Key` header | 201 `{ computer }` in state `starting`. With `repository`, a new computer starts from that repository's saved environment when one is ready (see Saved repository environments), and builds one for the next computer when there is none. It answers once Cloudflare has placed the container (1 to 16 s measured). Sizes: `standard-1` (½ vCPU, 4 GiB, 8 GB disk), `standard-2` (1 vCPU, 6 GiB, 12 GB; the default), `standard-3` (2 vCPU, 8 GiB, 16 GB) and `standard-4` (4 vCPU, 12 GiB, 20 GB). The same key within 24 hours returns the same computer, with header `Idempotent-Replayed: true`. |
 | `GET /computers` | `{ computers: [...] }` |
 | `GET /computers/:id` | `{ computer }` or 404 |
 | `PATCH /computers/:id` `{ "name" }` | `{ computer }` |
 | `DELETE /computers/:id` | `{ deleted: true }`. Destroys the container and forgets the computer. |
-| `POST /computers/:id/wake` | `{ computer }` in state `starting`. Boots from the latest snapshot, or from the image if it never slept. Poll `GET` until `running`. |
+| `POST /computers/:id/wake` `{ "repository"? }` | `{ computer }` in state `starting`. Boots from the latest snapshot, or, if it has none, from the repository's saved environment when one is ready, or from the image. Poll `GET` until `running`. |
+| `POST /environments` `{ "repository", "setupScript"? }` | 202 `{ environment }`. Saves a custom setup script for the repository (`null` puts the default back) and builds its environment if it is missing or due. 403 `environments_not_in_trial` for a free trial key. |
+| `GET /environments` | `{ environments: [...] }`: key, repository, `state` (`none`, `building`, `fresh`, `stale`, `expiring`, `uncached`, `failed`), `builtAt`, `rebuildAt`, `expiresAt`, `setupMs`, `lastOutcome` and `error`. |
 | `POST /computers/:id/sleep` | `{ computer }` in state `sleeping`. Snapshots the disk, then stops the container. Answers when done. |
 | `POST /computers/:id/reset` | `{ computer }` in state `starting`. Throws away everything since the last sleep and boots from the latest snapshot (or the image if it never slept). Desktop links end. 409 `updating` during an update. |
 | `POST /computers/:id/update` | `{ computer }` in state `starting`. Moves a running computer to the current image and brings `/home/dog` along (files and logins; apps and packages installed elsewhere are gone). It first snapshots the computer, packs `/home/dog` (without `.cache` or Chromium's session locks, up to 1 GB, 413 `too_large` above) into Durable Object storage, boots the image, unpacks, and snapshots the updated computer before it reports `running`, so a later reset or wake starts from the updated computer with its files. If the files cannot be put back, or the updated computer cannot be saved, it boots the snapshot taken before the update instead. 409 `asleep` unless `running`; 409 `updating` while one is under way. |
@@ -107,6 +109,32 @@ still drawing has it `false` (see Waking and readiness).
 | `PUT /computers/:id/files?path=` raw body | `{ ok: true }`. Up to 16 MB. Creates missing folders. New files and folders belong to `dog`. |
 | `GET /computers/:id/screenshot` | `image/jpeg` of the whole screen, pointer included. |
 | `POST /computers/:id/desktop` | `{ url, expiresAt }`: a viewer link valid for 2 hours. It is signed (HMAC-SHA256, secret `DESKTOP_SIGNING_KEY`) over the id, the expiry and the boot count, so it also dies when the computer sleeps. Anyone holding it can watch and take over: share it only with the person. Works while the computer is `starting` too: the page shows "Connecting…" and the screen connects as soon as it answers. 409 `asleep` unless `running` or `starting`. |
+
+### Saved repository environments
+
+A dog's computer that starts work on a repository can start from a saved filesystem instead of the bare image, so the
+clone and the first package install are already done.
+
+- **Key.** An environment is keyed by the repository, the hash of its setup script and the computer image, so a new
+  script or a new image makes a new environment. The default setup script clones `https://github.com/<owner>/<name>`
+  into `/home/dog/repos/<owner>/<name>` and installs with the package manager its lockfile names (pnpm, bun, yarn or
+  npm), which also fills that manager's cache. A custom script sees `LATERDOG_REPOSITORY` and
+  `LATERDOG_REPOSITORY_DIR`, and the helper `laterdog_install`.
+- **Build.** At most one build runs per key, on a fresh computer from the image (its own Durable Object, never listed),
+  as `dog`, with a 5-minute budget. A setup that runs longer is stopped and not cached: the environment shows
+  `uncached` with the reason and is tried again only after seven days or a script change; each computer then sets the
+  repository up itself. After a good setup it records the installed lockfile (so `run_on_computer` copies of the same
+  project reuse those packages, see `server/laterdog/computer-runs.ts`), takes a Cloudflare snapshot and removes the
+  builder. The snapshot handle is kept in the registry's `environments` table.
+- **Use.** A computer with no snapshot of its own starts from the environment's snapshot; one that already has its own
+  keeps it. A failed restore falls back to the image on the next wake.
+- **Maintenance.** After every start of a computer that came from an environment, it runs `git fetch`, fast-forwards a
+  clean branch to its upstream, and installs again only if the lockfile changed (up to 2 minutes). The result shows
+  under `computer.environment.maintenance`.
+- **Rebuild.** Seven days after a build the environment is `stale`: computers still start from it while it rebuilds.
+  Snapshots last 30 days from creation or the last restore, so an environment within three days of that is `expiring`
+  and no longer used. A failed build is retried after an hour.
+- **Free trial.** Not offered; a trial's computers start from the image as before.
 
 ### MCP
 

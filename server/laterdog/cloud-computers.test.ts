@@ -131,6 +131,34 @@ describe("the computers API", () => {
     for (const call of calls) expect(call.url.href).not.toContain(KEY);
   });
 
+  it("asks to start from a repository's saved environment on create and wake, and reads environments", async () => {
+    const environment = { key: `env_${"a".repeat(32)}`, repository: "acme/site", state: "fresh", building: false, custom: false, builtAt: "2026-11-09T10:00:00.000Z", setupMs: 90_000, lastOutcome: "ready" };
+    const { calls, fetch } = service((call) => {
+      const path = `${call.method} ${call.url.pathname}`;
+      if (path === "POST /v1/computers") return json(201, { computer: computer() });
+      if (path === "POST /v1/environments") return json(202, { environment: { ...environment, state: "building", building: true } });
+      if (path === "GET /v1/environments") return json(200, { environments: [environment] });
+      return json(200, { computer: computer() });
+    });
+    const client = new ComputersClient(connection, { fetch });
+    await client.create({ name: "dog-x", repository: "acme/site" }, "ldc-create-env");
+    await client.wake("cmp_one", { repository: "acme/site" });
+    await client.wake("cmp_one");
+    expect(await client.prepareEnvironment({ repository: "acme/site", setupScript: "pnpm install" })).toMatchObject({ state: "building", building: true });
+    expect(await client.environments()).toEqual([environment]);
+    expect(calls.map((call) => [`${call.method} ${call.url.pathname}`, call.body === undefined ? undefined : JSON.parse(String(call.body))])).toEqual([
+      ["POST /v1/computers", { name: "dog-x", repository: "acme/site" }],
+      ["POST /v1/computers/cmp_one/wake", { repository: "acme/site" }],
+      ["POST /v1/computers/cmp_one/wake", {}],
+      ["POST /v1/environments", { repository: "acme/site", setupScript: "pnpm install" }],
+      ["GET /v1/environments", undefined],
+    ]);
+    expect(await rejection(client.prepareEnvironment({ repository: "../acme" }))).toMatchObject({ status: 400 });
+    expect(calls).toHaveLength(5);
+    const malformed = service(() => json(200, { environments: [{ ...environment, key: "env_../x" }] }));
+    expect(await rejection(new ComputersClient(connection, { fetch: malformed.fetch }).environments())).toMatchObject({ httpStatus: 502, code: "invalid_response" });
+  });
+
   it("keeps a computer's safe identity, state and size without private connection fields", async () => {
     const { fetch } = service(() => json(200, { computer: { ...computer(), size: "standard", desktopUrl: "https://secret.example/?token=do-not-leak", address: "203.0.113.8" } }));
     expect(await new ComputersClient(connection, { fetch }).get("cmp_one")).toEqual({ ...computer(), size: "standard" });

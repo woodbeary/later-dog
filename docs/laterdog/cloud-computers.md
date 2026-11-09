@@ -151,3 +151,28 @@ file, checks a 2.5-minute command finishes after the call that started it return
   root-managed native `PreToolUse` hook (`deploy/laterdog/home/codex-requirements.toml`, installed as
   `/etc/codex/requirements.toml`), which runs even under Full access; the driver gives each guarded turn its own hook
   token file (`server/laterdog/codex-shell-guard.ts`).
+
+### Saved repository environments (2026-11-09)
+
+A dog's first computer for a repository no longer has to clone and install from nothing. The computers Worker keeps one
+saved environment per repository and builds it once:
+
+- **Keyed** by repository, setup-script hash and image (`env_<hash>` in the registry's `environments` table). The
+  default script clones the repository into `/home/dog/repos/<owner>/<name>` and installs with the lockfile's package
+  manager; a custom script is set with `POST /v1/environments`.
+- **Built** on a fresh computer from the image, at most once per key, with a 5-minute budget. Longer is not cached and
+  is reported as `uncached`. The result is a Cloudflare snapshot handle; the builder computer is then removed.
+- **Used** when a computer with no snapshot of its own is created or woken with `repository`. `run_on_computer` passes
+  the GitHub `owner/name` of the folder's `origin`, so a dog's new computer starts with the repository and its
+  packages in place. The environment records its lockfile in `~/runs/.setup`, the same record the setup reuse above
+  reads, so a session folder with the same lockfile copies those packages instead of installing.
+- **Maintained** after every start: `git fetch`, a fast-forward of a clean branch, and an install only when the
+  lockfile changed.
+- **Rebuilt** after seven days (still used while it rebuilds), after a script or image change (a new key), and never
+  used within three days of Cloudflare's 30-day snapshot expiry, which each restore resets. A failed build is retried
+  after an hour.
+
+Snapshots keep files, not processes, so nothing started by the setup script is running on a restored computer. Not in
+this change: private repositories (the build clones over anonymous HTTPS; a clone credential would have to be injected
+by the Worker on egress, not written into the snapshot), and an R2 mount for caches shared across computers. Evidence:
+[saved-environments-2026-11-09](../verification/saved-environments-2026-11-09.md).

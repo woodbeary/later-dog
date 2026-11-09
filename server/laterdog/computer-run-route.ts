@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { lstatSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
@@ -13,7 +14,24 @@ export interface ComputerRunRequest {
 
 export interface ComputerRunDeps {
   runs: ComputerRuns;
-  computer(botId: string): Promise<{ box: RunBox; wasAsleep: boolean; rest(): Promise<void> }>;
+  computer(botId: string, options?: { repository?: string }): Promise<{ box: RunBox; wasAsleep: boolean; rest(): Promise<void> }>;
+  repositoryOf?(folder: string): string | null;
+}
+
+const GITHUB_REMOTE = /^(?:https:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}?)(?:\.git)?\/?$/;
+
+export function repositoryFromRemote(remote: string): string | null {
+  const match = GITHUB_REMOTE.exec(remote.trim());
+  return match && !match[1].includes("..") ? match[1] : null;
+}
+
+export function repositoryOf(folder: string): string | null {
+  try {
+    const remote = execFileSync("git", ["-C", folder, "config", "--get", "remote.origin.url"], { encoding: "utf8", timeout: 3_000, stdio: ["ignore", "pipe", "ignore"] });
+    return repositoryFromRemote(remote);
+  } catch {
+    return null;
+  }
 }
 
 const busy = new Map<string, number>();
@@ -57,7 +75,8 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
   let computer: Awaited<ReturnType<ComputerRunDeps["computer"]>> | null = null;
   let restAfter = false;
   try {
-    computer = await deps.computer(request.botId);
+    const repository = record ? null : (deps.repositoryOf ?? repositoryOf)(folder);
+    computer = await deps.computer(request.botId, repository ? { repository } : {});
     const outcome = record
       ? await deps.runs.finish(computer.box, record)
       : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, restAfter: computer.wasAsleep });

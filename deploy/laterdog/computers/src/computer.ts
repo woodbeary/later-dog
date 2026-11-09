@@ -4,6 +4,23 @@ import type { Refusal } from "./auth";
 import { DESKTOP_LINK_TTL_SECONDS, signDesktopToken, verifyDesktopToken } from "./desktop-token";
 import { BROWSER_DEFAULT_SCRIPT } from "./browser-default";
 import { CARRY_HOME, CARRY_MAX_BYTES, CARRY_TIMEOUT_MS, type Carry, PACK_SCRIPT, UNPACK_SCRIPT, carryPartKey, partsStream, storeParts } from "./carry";
+import {
+  BUILD_STUCK_MS,
+  type BuildReport,
+  type EnvironmentPlan,
+  type EnvironmentSnapshot,
+  type EnvironmentView,
+  MAINTENANCE_SCRIPT,
+  MAINTENANCE_TIMEOUT_MS,
+  type Maintenance,
+  REGISTER_SCRIPT,
+  SETUP_BUDGET_MS,
+  builderName,
+  environmentEnv,
+  maintenanceFrom,
+  setupCommand,
+  setupRunKey,
+} from "./environments";
 import { type Collected, collect, json, outputText, within } from "./http";
 import { type IdlePolicy, MINUTE, decideIdle, idlePolicy, inactivityTimeoutMs } from "./idle";
 import { type ExecInput, FILE_MAX_BYTES, SIZES, type Size, commandEnv, redact } from "./inputs";
@@ -27,6 +44,7 @@ export interface ComputerView {
   lastActiveAt: string;
   snapshotAt?: string;
   error?: string;
+  environment?: { repository: string; restoredFrom?: string; maintenance?: Maintenance & { at: string; ms: number } };
 }
 
 export interface ExecResult {
@@ -60,6 +78,26 @@ interface ComputerRecord {
   budgetEndsAt?: number;
   chargedUntil?: number;
   unchargedMs?: number;
+  environment?: RecordEnvironment;
+  maintenance?: Maintenance & { at: number; ms: number; exitCode: number };
+  builder?: BuildJob;
+}
+
+interface RecordEnvironment {
+  repository: string;
+  key: string;
+  pending?: { snapshot: EnvironmentSnapshot; image: string };
+  restoredFrom?: string;
+  restoredIn?: number;
+  restoreFailed?: boolean;
+}
+
+export interface BuildJob {
+  key: string;
+  repository: string;
+  script: string;
+  registry: string;
+  image: string;
 }
 
 const RECORD = "computer";
@@ -109,7 +147,24 @@ function view(record: ComputerRecord): ComputerView {
     lastActiveAt: iso(record.lastActiveAt),
     ...(record.snapshotAt === undefined ? {} : { snapshotAt: iso(record.snapshotAt) }),
     ...(record.state === "error" && record.error ? { error: record.error } : {}),
+    ...(record.environment ? { environment: environmentOf(record) } : {}),
   };
+}
+
+function environmentOf(record: ComputerRecord): NonNullable<ComputerView["environment"]> {
+  const environment = record.environment!;
+  const maintenance = record.maintenance;
+  return {
+    repository: environment.repository,
+    ...(environment.restoredFrom ? { restoredFrom: environment.restoredFrom } : {}),
+    ...(maintenance ? { maintenance: { fetched: maintenance.fetched, installed: maintenance.installed, at: iso(maintenance.at), ms: maintenance.ms } } : {}),
+  };
+}
+
+function startedFrom(record: ComputerRecord): string {
+  if (record.snapshot) return "from snapshot";
+  if (record.environment?.restoredIn === record.generation) return `from environment ${record.environment.key}`;
+  return "from image";
 }
 
 function closeQuietly(socket: WebSocket, code: number, reason: string): void {
@@ -160,7 +215,7 @@ export class DogComputer extends DurableObject<Env> {
     }
   }
 
-  async init(input: { id: string; name: string; size: Size; registry?: string; trial?: string; fullAllowance?: boolean }): Promise<Result<ComputerView>> {
+  async init(input: { id: string; name: string; size: Size; registry?: string; trial?: string; fullAllowance?: boolean; repository?: string }): Promise<Result<ComputerView>> {
     return this.serially(async () => {
       const existing = this.load();
       if (existing) return ok(view(existing));
@@ -177,9 +232,44 @@ export class DogComputer extends DurableObject<Env> {
         ...(input.trial === undefined ? {} : { trial: input.trial }),
         ...(input.fullAllowance ? { fullAllowance: true } : {}),
       });
+      await this.offerEnvironment(input.repository);
       const booted = await this.boot();
       return booted.ok ? ok(view(this.load()!)) : booted;
     });
+  }
+
+  async buildEnvironment(job: BuildJob): Promise<Result<{ started: boolean }>> {
+    return this.serially(async () => {
+      if (this.load()?.builder) return ok({ started: false });
+      const now = Date.now();
+      this.save({
+        id: builderName(job.registry, job.key),
+        name: `environment ${job.repository}`,
+        size: "standard",
+        state: "starting",
+        createdAt: now,
+        lastActiveAt: now,
+        generation: 0,
+        registry: job.registry,
+        builder: job,
+      });
+      const image = this.ctx.container?.images?.desktop;
+      const booted: Result<void> = image === job.image ? await this.boot() : fail(409, "image_changed", "The computers image changed while the environment was being planned.");
+      if (!booted.ok) {
+        await this.finishBuild({ key: job.key, outcome: "failed", setupMs: 0, error: booted.refusal.message });
+        return booted;
+      }
+      return ok({ started: true });
+    });
+  }
+
+  async prepareEnvironment(input: { repository: string; setupScript?: string | null; registry: string }): Promise<Result<EnvironmentView>> {
+    if (input.setupScript !== undefined) {
+      await this.env.REGISTRY.get(this.env.REGISTRY.idFromName(input.registry)).setEnvironmentScript({ repository: input.repository, script: input.setupScript });
+    }
+    const plan = await this.planEnvironment(input.repository, input.registry);
+    if (!plan) return fail(503, "not_configured", 'No "desktop" image is configured for this Worker.');
+    return ok(plan.view);
   }
 
   async describe(): Promise<Result<ComputerView>> {
@@ -203,14 +293,15 @@ export class DogComputer extends DurableObject<Env> {
     return ok(view(record));
   }
 
-  async wake(input: { fullAllowance?: boolean } = {}): Promise<Result<ComputerView>> {
+  async wake(input: { fullAllowance?: boolean; repository?: string } = {}): Promise<Result<ComputerView>> {
     return this.serially(async () => {
       const found = this.load();
-      if (!found) return notFound();
+      if (!found || found.builder) return notFound();
       const record = this.withAllowance(found, input);
       if ((record.state === "running" || record.state === "starting") && this.ctx.container?.running) {
         return ok(view(this.markActive()!));
       }
+      await this.offerEnvironment(input.repository);
       const booted = await this.boot();
       return booted.ok ? ok(view(this.load()!)) : booted;
     });
@@ -535,7 +626,8 @@ export class DogComputer extends DurableObject<Env> {
     const record = this.load();
     if (!record) return;
     try {
-      if (record.state === "starting") await this.awaitReady(record.generation);
+      if (record.builder && record.state !== "starting") await this.finishBuild({ key: record.builder.key, outcome: "failed", setupMs: 0, error: "The setup stopped before it finished." });
+      else if (record.state === "starting") await this.awaitReady(record.generation);
       else if (record.state === "running" && record.desktopDrawn === false) await this.awaitDesktop(record.generation);
       else if (record.state === "running") await this.watch();
       else if (record.state === "stopping") await this.sleep("idle");
@@ -567,10 +659,12 @@ export class DogComputer extends DurableObject<Env> {
           }
         });
         if (ready?.state === "running" && ready.generation === generation) {
-          console.log(`laterdog computers: ${ready.id} screen answering ${now - begun} ms after start (generation ${generation}, ${ready.snapshot ? "from snapshot" : "from image"})`);
+          console.log(`laterdog computers: ${ready.id} screen answering ${now - begun} ms after start (generation ${generation}, ${startedFrom(ready)})`);
+          if (ready.builder) return this.runBuild(generation);
           await this.ctx.storage.setAlarm(Date.now() + READY_POLL_MS);
           await this.publish();
           await this.awaitDesktop(generation);
+          await this.maintain(generation);
         }
         return;
       }
@@ -646,12 +740,120 @@ export class DogComputer extends DurableObject<Env> {
       if (r.generation === generation && r.state === "starting") {
         r.state = "error";
         r.error = why;
+        if (r.environment?.restoredIn === generation) r.environment.restoreFailed = true;
       }
     });
     if (failed?.carry && failed.generation === generation) this.abandonCarry();
     console.error(`laterdog computers: ${failed?.id} failed to boot: ${why}`);
     if (this.ctx.container?.running) await this.ctx.container.destroy().catch(() => undefined);
+    if (failed?.builder) return this.finishBuild({ key: failed.builder.key, outcome: "failed", setupMs: 0, error: why });
     await this.charge(true);
+    await this.publish();
+  }
+
+  private async offerEnvironment(repository: string | undefined): Promise<void> {
+    const record = this.load();
+    if (!repository || !record || record.snapshot || record.carry || record.builder || (record.trial && !record.fullAllowance)) return;
+    if (record.environment?.repository === repository && record.environment.restoreFailed) return;
+    let plan: EnvironmentPlan | undefined;
+    try {
+      plan = await this.planEnvironment(repository, record.registry ?? "registry");
+    } catch (error) {
+      console.error(`laterdog computers: ${record.id} could not look up the environment for ${repository}: ${describeError(error)}`);
+      return;
+    }
+    const snapshot = plan?.snapshot;
+    if (!plan || !snapshot) return;
+    const key = plan.key;
+    const image = plan.image;
+    this.update((r) => {
+      r.environment = { repository, key, pending: { snapshot, image } };
+    });
+  }
+
+  private async planEnvironment(repository: string, registry: string): Promise<EnvironmentPlan | undefined> {
+    const image = this.ctx.container?.images?.desktop;
+    if (!image) return undefined;
+    const plan = await this.env.REGISTRY.get(this.env.REGISTRY.idFromName(registry)).environmentPlan({ repository, image });
+    if (plan.decision.build && plan.script !== undefined) {
+      const job: BuildJob = { key: plan.key, repository, script: plan.script, registry, image };
+      try {
+        const started = await this.env.COMPUTER.get(this.env.COMPUTER.idFromName(builderName(registry, plan.key))).buildEnvironment(job);
+        if (!started.ok) console.error(`laterdog computers: the environment for ${repository} could not start building: ${started.refusal.message}`);
+      } catch (error) {
+        console.error(`laterdog computers: the environment for ${repository} could not start building: ${describeError(error)}`);
+        await this.env.REGISTRY.get(this.env.REGISTRY.idFromName(registry))
+          .environmentBuilt({ key: plan.key, outcome: "failed", setupMs: 0, error: describeError(error) })
+          .catch(() => undefined);
+      }
+    }
+    return plan;
+  }
+
+  private async runBuild(generation: number): Promise<void> {
+    const record = this.load();
+    const job = record?.builder;
+    if (!record || !job || record.generation !== generation) return;
+    await this.ctx.storage.setAlarm(Date.now() + BUILD_STUCK_MS);
+    const env = { ...DOG_ENV, ...environmentEnv(job.repository, await setupRunKey(job.repository)) };
+    const started = Date.now();
+    let report: BuildReport;
+    try {
+      const setup = await this.run(["bash", "-lc", setupCommand(job.script)], { timeoutMs: SETUP_BUDGET_MS, cap: 64 * 1024, user: DOG, cwd: DOG_HOME, env });
+      const setupMs = Date.now() - started;
+      if (setup.timedOut || setupMs > SETUP_BUDGET_MS) {
+        report = { key: job.key, outcome: "uncached", setupMs, error: `The setup took longer than ${SETUP_BUDGET_MS / MINUTE} minutes, so it was not saved. Each computer sets this repository up itself.` };
+      } else if (setup.exitCode !== 0) {
+        const tail = (outputText(setup.stderr).trim() || outputText(setup.stdout).trim()).slice(-600);
+        report = { key: job.key, outcome: "failed", setupMs, error: `The setup failed (exit ${setup.exitCode})${tail ? `: ${tail}` : "."}` };
+      } else {
+        await this.run(["bash", "-lc", REGISTER_SCRIPT], { timeoutMs: 60_000, cap: 4096, user: DOG, cwd: DOG_HOME, env });
+        await this.quitBrowser(record.id);
+        await this.run(["sync"], { timeoutMs: 30_000, cap: 1024 }).catch(() => undefined);
+        const snapshot = await this.container().snapshotContainer({ name: job.key });
+        report = { key: job.key, outcome: "ready", setupMs, snapshot: { id: snapshot.id, size: snapshot.size, ...(snapshot.name ? { name: snapshot.name } : {}) } };
+      }
+    } catch (error) {
+      report = { key: job.key, outcome: "failed", setupMs: Date.now() - started, error: describeError(error) };
+    }
+    await this.finishBuild(report);
+  }
+
+  private async finishBuild(report: BuildReport): Promise<void> {
+    const record = this.load();
+    const job = record?.builder;
+    if (!record || !job) return;
+    try {
+      await this.env.REGISTRY.get(this.env.REGISTRY.idFromName(job.registry)).environmentBuilt(report);
+    } catch (error) {
+      console.error(`laterdog computers: the environment ${job.key} could not be recorded: ${describeError(error)}`);
+    }
+    console.log(`laterdog computers: environment ${job.key} for ${job.repository}: ${report.outcome} after ${report.setupMs} ms of setup${report.error ? ` (${report.error})` : ""}`);
+    if (this.ctx.container?.running) await this.ctx.container.destroy().catch(() => undefined);
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+  }
+
+  private async maintain(generation: number): Promise<void> {
+    const record = this.load();
+    const environment = record?.environment;
+    if (!record || !environment || record.generation !== generation || record.state !== "running" || !this.ctx.container?.running) return;
+    const started = Date.now();
+    this.inFlight += 1;
+    try {
+      const env = { ...DOG_ENV, ...environmentEnv(environment.repository, await setupRunKey(environment.repository)) };
+      const result = await this.run(["bash", "-lc", MAINTENANCE_SCRIPT], { timeoutMs: MAINTENANCE_TIMEOUT_MS, cap: 4096, user: DOG, cwd: DOG_HOME, env });
+      const seen: Maintenance = maintenanceFrom(outputText(result.stdout)) ?? { fetched: "no", installed: result.timedOut ? "failed" : "no" };
+      const ms = Date.now() - started;
+      this.update((r) => {
+        if (r.generation === generation) r.maintenance = { ...seen, at: Date.now(), ms, exitCode: result.exitCode };
+      });
+      console.log(`laterdog computers: ${record.id} maintained ${environment.repository} in ${ms} ms (fetched ${seen.fetched}, installed ${seen.installed})`);
+    } catch (error) {
+      console.warn(`laterdog computers: ${record.id} maintenance of ${environment.repository} failed: ${describeError(error)}`);
+    } finally {
+      this.inFlight -= 1;
+    }
     await this.publish();
   }
 
@@ -828,9 +1030,22 @@ export class DogComputer extends DurableObject<Env> {
       env: { LATERDOG_COMPUTER_ID: record.id },
       labels: { computer: record.id, generation: String(record.generation) },
     };
+    const pending = record.snapshot ? undefined : record.environment?.pending;
     try {
       if (record.snapshot) {
         container.start({ ...common, containerSnapshot: { id: record.snapshot.id } });
+      } else if (pending) {
+        container.start({ ...common, containerSnapshot: { id: pending.snapshot.id } });
+        this.update((r) => {
+          r.image = pending.image;
+          if (!r.environment) return;
+          delete r.environment.pending;
+          r.environment.restoredFrom = pending.snapshot.id;
+          r.environment.restoredIn = r.generation;
+        });
+        await this.env.REGISTRY.get(this.env.REGISTRY.idFromName(record.registry ?? "registry"))
+          .environmentRestored(record.environment!.key)
+          .catch((error) => console.error(`laterdog computers: ${record.id} could not note its environment restore: ${describeError(error)}`));
       } else {
         const image = container.images.desktop;
         if (!image) throw new Error('No "desktop" image is configured for this Worker.');
@@ -855,7 +1070,7 @@ export class DogComputer extends DurableObject<Env> {
       console.error(`laterdog computers: ${record.id} could not set the inactivity timeout: ${describeError(error)}`);
     }
     console.log(
-      `laterdog computers: ${record.id} starting (generation ${record.generation}, ${SIZES[record.size]}, ${record.snapshot ? `snapshot ${record.snapshot.id}` : "fresh image"}); running=${container.running}`,
+      `laterdog computers: ${record.id} starting (generation ${record.generation}, ${SIZES[record.size]}, ${record.snapshot ? `snapshot ${record.snapshot.id}` : pending ? `environment ${record.environment!.key}` : "fresh image"}); running=${container.running}`,
     );
     await this.ctx.storage.setAlarm(Date.now() + READY_POLL_MS);
     await this.publish();

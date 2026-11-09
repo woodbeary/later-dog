@@ -1,9 +1,10 @@
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ComputerRuns, RunOutcome, RunRecord } from "./computer-runs.ts";
-import { allowedFolder, handleComputerRun, outcomeText } from "./computer-run-route.ts";
+import { allowedFolder, handleComputerRun, outcomeText, repositoryFromRemote, repositoryOf } from "./computer-run-route.ts";
 
 function home() {
   const root = mkdtempSync(join(tmpdir(), "run-route-"));
@@ -76,6 +77,32 @@ describe("a run_on_computer call", () => {
     const answer = await handleComputerRun({ botId: "dog", body: { command: "pnpm test", folder: join(root, "site") }, workingFolder: null, allowedRoots: [], home: root }, { runs: failingTests.runs, computer });
     expect(answer.failed).toBe(false);
     expect(answer.text).toContain("exit code 1");
+  });
+
+  it("asks for the computer with the repository a folder is cloned from, so a new computer can start from its environment", async () => {
+    const root = home();
+    const site = join(root, "site");
+    spawnSync("git", ["init", "-q", site]);
+    spawnSync("git", ["-C", site, "remote", "add", "origin", "https://github.com/acme/site.git"]);
+    expect(repositoryOf(site)).toBe("acme/site");
+    expect(repositoryOf(join(root, ".claude"))).toBeNull();
+    const asked: unknown[] = [];
+    const computer = async (_botId: string, options?: { repository?: string }) => { asked.push(options); return { box: {} as never, wasAsleep: false, rest: async () => undefined }; };
+    await handleComputerRun({ botId: "dog", body: { command: "pnpm test", folder: site }, workingFolder: null, allowedRoots: [], home: root }, { runs: fakeRuns(outcome("finished")).runs, computer });
+    const plain = join(root, "plain");
+    mkdirSync(plain);
+    await handleComputerRun({ botId: "dog", body: { command: "pnpm test", folder: plain }, workingFolder: null, allowedRoots: [], home: root }, { runs: fakeRuns(outcome("finished")).runs, computer, repositoryOf: () => null });
+    expect(asked).toEqual([{ repository: "acme/site" }, {}]);
+  });
+
+  it("reads only a GitHub owner/name out of a remote, never its credentials", () => {
+    expect(repositoryFromRemote("https://github.com/acme/site.git\n")).toBe("acme/site");
+    expect(repositoryFromRemote("https://x-access-token:secret@github.com/acme/site")).toBe("acme/site");
+    expect(repositoryFromRemote("git@github.com:acme/site.js.git")).toBe("acme/site.js");
+    expect(repositoryFromRemote("ssh://git@github.com/acme/site/")).toBe("acme/site");
+    for (const remote of ["https://gitlab.com/acme/site.git", "https://github.com/acme", "https://github.com/acme/site/tree/main", "https://github.com/acme/..", "/srv/git/site.git"]) {
+      expect(repositoryFromRemote(remote)).toBeNull();
+    }
   });
 
   it("tells the dog what ran, what came back and the end of the output", () => {

@@ -9,6 +9,7 @@ export type DesktopResource = { type: "page" } | { type: "status" } | { type: "s
 export type Route =
   | { kind: "health" }
   | { kind: "collection"; op: CollectionOp }
+  | { kind: "environments"; op: "list" | "prepare" }
   | { kind: "computer"; op: ComputerOp; id: string }
   | { kind: "desktop"; id: string; token: string; resource: DesktopResource }
   | { kind: "redirect"; location: string }
@@ -82,6 +83,10 @@ export function route(method: string, pathname: string): Route {
   if (pathname === "/v1/usage") return method === "GET" ? { kind: "usage" } : { kind: "method_not_allowed", allow: ["GET"] };
   if (pathname === "/v1/usage/owner") return method === "GET" ? { kind: "usage_owner" } : { kind: "method_not_allowed", allow: ["GET"] };
   if (pathname === "/v1/usage/owner/grants") return method === "PUT" ? { kind: "usage_grants" } : { kind: "method_not_allowed", allow: ["PUT"] };
+  if (pathname === "/v1/environments") {
+    const op = method === "GET" ? "list" : method === "POST" ? "prepare" : undefined;
+    return op ? { kind: "environments", op } : { kind: "method_not_allowed", allow: ["GET", "POST"] };
+  }
   if (pathname === "/v1/trial") {
     const op = allow(TRIAL, method) as TrialOp | undefined;
     return op ? { kind: "trial", op } : { kind: "method_not_allowed", allow: Object.keys(TRIAL) };

@@ -6,6 +6,7 @@ import WebSocket from "ws";
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 export const COMPUTER_ID = /^cmp_[A-Za-z0-9_-]{1,64}$/;
+export const REPOSITORY = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
 export const MAX_FRAME_BYTES = 8 * 1024 * 1024;
 const MAX_JSON_BYTES = 16 * 1024 * 1024;
 const MAX_ERROR_BYTES = 64 * 1024;
@@ -113,6 +114,15 @@ const computerBody = z.object({ computer: computerSchema });
 const listBody = z.object({ computers: z.array(computerSchema).max(10_000) });
 const execBody = z.object({ exitCode: z.number().int().nullable(), stdout: z.string(), stderr: z.string() });
 export type ExecResult = z.infer<typeof execBody>;
+const environmentSchema = z.object({
+  key: z.string().regex(/^env_[0-9a-f]{32}$/), repository: z.string().regex(REPOSITORY),
+  state: z.enum(["none", "building", "fresh", "stale", "expiring", "uncached", "failed"]), building: z.boolean(), custom: z.boolean(),
+  builtAt: z.string().max(64).optional(), rebuildAt: z.string().max(64).optional(), expiresAt: z.string().max(64).optional(),
+  setupMs: z.number().int().min(0).optional(), lastOutcome: z.enum(["ready", "uncached", "failed"]).optional(), error: z.string().max(2000).optional(),
+});
+export type RepositoryEnvironment = z.infer<typeof environmentSchema>;
+const environmentBody = z.object({ environment: environmentSchema });
+const environmentsBody = z.object({ environments: z.array(environmentSchema).max(10_000) });
 const desktopBody = z.object({ url: z.string().min(1).max(8192), expiresAt: z.union([z.string(), z.number()]).optional() });
 const errorBody = z.object({ error: z.object({ code: z.string().optional(), message: z.string().optional() }) });
 const planInfo = z.object({ status: z.enum(["none", "pending", "active", "canceled", "ended"]), periodEnd: z.string().min(1).max(64).optional() });
@@ -219,7 +229,7 @@ export class ComputersClient {
     return computer;
   }
 
-  async create(input: { name: string; size?: string }, idempotencyKey: string): Promise<Computer> {
+  async create(input: { name: string; size?: string; repository?: string }, idempotencyKey: string): Promise<Computer> {
     const send = () => this.#send("/computers", { method: "POST", body: JSON.stringify(input), timeoutMs: 45_000,
       headers: { ...JSON_TYPE, "idempotency-key": idempotencyKey } });
     let response: Response;
@@ -247,12 +257,23 @@ export class ComputersClient {
     return "deleted";
   }
 
-  wake(id: string, options: { signal?: AbortSignal } = {}): Promise<Computer> { return this.#lifecycle(id, "wake", options.signal); }
+  wake(id: string, options: { signal?: AbortSignal; repository?: string } = {}): Promise<Computer> {
+    return this.#lifecycle(id, "wake", options.signal, undefined, options.repository ? { repository: options.repository } : {});
+  }
   sleep(id: string): Promise<Computer> { return this.#lifecycle(id, "sleep"); }
   reset(id: string): Promise<Computer> { return this.#lifecycle(id, "reset"); }
   update(id: string): Promise<Computer> { return this.#lifecycle(id, "update", undefined, UPDATE_TIMEOUT_MS); }
-  async #lifecycle(id: string, action: "wake" | "sleep" | "reset" | "update", signal?: AbortSignal, timeoutMs = 30_000): Promise<Computer> {
-    return (await this.#read(await this.#send(`/computers/${computerPath(id)}/${action}`, { method: "POST", body: "{}", headers: JSON_TYPE, timeoutMs, signal }), computerBody)).computer;
+  async #lifecycle(id: string, action: "wake" | "sleep" | "reset" | "update", signal?: AbortSignal, timeoutMs = 30_000, input: Record<string, string> = {}): Promise<Computer> {
+    return (await this.#read(await this.#send(`/computers/${computerPath(id)}/${action}`, { method: "POST", body: JSON.stringify(input), headers: JSON_TYPE, timeoutMs, signal }), computerBody)).computer;
+  }
+
+  async prepareEnvironment(input: { repository: string; setupScript?: string | null }): Promise<RepositoryEnvironment> {
+    if (!REPOSITORY.test(input.repository)) throw Object.assign(new Error("repository must be owner/name"), { status: 400 });
+    return (await this.#read(await this.#send("/environments", { method: "POST", body: JSON.stringify(input), headers: JSON_TYPE, timeoutMs: 45_000 }), environmentBody)).environment;
+  }
+
+  async environments(): Promise<RepositoryEnvironment[]> {
+    return (await this.#read(await this.#send("/environments"), environmentsBody)).environments;
   }
 
   async process(id: string): Promise<WebSocket> {

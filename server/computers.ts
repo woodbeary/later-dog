@@ -106,7 +106,7 @@ async function findOwn(client: ComputersClient, botId: string): Promise<OwnCompu
   return own(named[0]);
 }
 
-async function waitRunning(client: ComputersClient, id: string, budgetMs: number): Promise<OwnComputer | null> {
+async function waitRunning(client: ComputersClient, id: string, budgetMs: number, repository?: string): Promise<OwnComputer | null> {
   const deadline = Date.now() + budgetMs;
   const untilDeadline = () => AbortSignal.timeout(Math.max(1, deadline - Date.now()));
   let woke = false; let failure: unknown = null;
@@ -126,7 +126,7 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
         if (state === "error" && woke) return null;
         if (state === "archived" || state === "error") {
           try {
-            const woken = await client.wake(id, { signal: untilDeadline() });
+            const woken = await client.wake(id, { signal: untilDeadline(), ...(repository ? { repository } : {}) });
             woke = true; failure = null;
             if (asBoatState(woken.state) === "running") return own(woken);
           } catch (error) {
@@ -148,12 +148,12 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
   return null;
 }
 
-async function createOwn(client: ComputersClient, botId: string, name: string, size?: string): Promise<OwnComputer> {
+async function createOwn(client: ComputersClient, botId: string, name: string, size?: string, repository?: string): Promise<OwnComputer> {
   let replacing = "";
   let releasedForTrial = false;
   for (let hop = 0; hop < MAX_CREATE_HOPS; hop += 1) {
     let created: Computer;
-    try { created = await client.create({ name, ...(size ? { size } : {}) }, createKey(botId, replacing)); }
+    try { created = await client.create({ name, ...(size ? { size } : {}), ...(repository ? { repository } : {}) }, createKey(botId, replacing)); }
     catch (error) {
       if (error instanceof ComputersApiError && error.code === "trial_one_computer" && !releasedForTrial && trialInUse() && !ownComputersChosen()) {
         releasedForTrial = true;
@@ -446,12 +446,12 @@ export async function inspectBoatIdentity(cfg: AppConfig, boxId: string): Promis
   return { available: true, identity: computer ? { boxId: computer.id, name: computer.name, state: asBoatState(computer.state) } : null, problem: null };
 }
 
-export async function heavyRunBox(botId: string): Promise<{ box: RunBox; wasAsleep: boolean; rest(): Promise<void> }> {
+export async function heavyRunBox(botId: string, options: { repository?: string } = {}): Promise<{ box: RunBox; wasAsleep: boolean; rest(): Promise<void> }> {
   if (!computersSelected()) throw Object.assign(new Error("Cloud computers are not set up here, so run it in your own folder instead."), { status: 409 });
   const client = ownClient();
-  const computer = await findOwn(client, botId) ?? await createOwn(client, botId, ownName(botId));
+  const computer = await findOwn(client, botId) ?? await createOwn(client, botId, ownName(botId), undefined, options.repository);
   const wasAsleep = computer.state !== "running";
-  const ready = await waitRunning(client, computer.id, PROVISION_BUDGET_MS);
+  const ready = await waitRunning(client, computer.id, PROVISION_BUDGET_MS, options.repository);
   if (!ready) throw new Error("your cloud computer did not wake within 90 seconds; try again in a minute");
   const box: RunBox = {
     exec: (command, timeoutMs) => runOwn(client, ready.id, command, { timeoutMs }),

@@ -9,6 +9,7 @@ import { DECIDE_MAX_IMAGE_BODY_BYTES, DECISIONS_PER_DAY, DECISIONS_TOTAL_PER_DAY
 import { COMPLETE_DEFAULT_MODEL, COMPLETE_MAX_BODY_BYTES, COMPLETIONS_PER_DAY, COMPLETIONS_TOTAL_PER_DAY, completeInput, completeRequest, completionFrom } from "./complete";
 import { FILE_MAX_BYTES, JSON_MAX_BYTES, parseCreate, parseExec, parseIdempotencyKey, parsePath, parseRename } from "./inputs";
 import { type McpBackend, handleMcp } from "./mcp";
+import { parseEnvironmentRequest, plannerName, repositoryField } from "./environments";
 import type { ComputerRegistry } from "./registry";
 import { type ComputerOp, type TrialOp, route } from "./routes";
 import {
@@ -150,6 +151,22 @@ async function readJson(request: Request): Promise<Body> {
   }
 }
 
+const NO_ENVIRONMENTS: Refusal = { status: 403, code: "environments_not_in_trial", message: "Saved repository environments come with later.dog Cloud, not the free trial." };
+
+const registryName = (caller: Caller) => (caller.trial ? trialListing(caller.trial.id) : "registry");
+
+async function environmentsRequest(op: "list" | "prepare", request: Request, env: Env, caller: Caller): Promise<Response> {
+  if (trialLimited(caller)) return apiError(NO_ENVIRONMENTS);
+  if (op === "list") return json({ environments: await caller.registry.environments() });
+  const body = await readJson(request);
+  if (!body.ok) return body.response;
+  const input = parseEnvironmentRequest(body.value);
+  if (!input.ok) return apiError(input.refusal);
+  const name = registryName(caller);
+  const planner = env.COMPUTER.get(env.COMPUTER.idFromName(plannerName(name)));
+  return answer(await planner.prepareEnvironment({ ...input.value, registry: name }), (value) => json({ environment: value }, 202));
+}
+
 async function listComputers(caller: Caller): Promise<Response> {
   return json({ computers: await caller.registry.list() });
 }
@@ -163,6 +180,8 @@ async function createComputer(request: Request, env: Env, caller: Caller): Promi
   if (!body.ok) return body.response;
   const input = parseCreate(body.value);
   if (!input.ok) return apiError(input.refusal);
+  const repository = repositoryField(body.value);
+  if (!repository.ok) return apiError(repository.refusal);
   if (limited && input.value.size !== "standard") {
     return apiError({ status: 403, code: "trial_size", message: "A free trial computer is the standard size." });
   }
@@ -186,6 +205,7 @@ async function createComputer(request: Request, env: Env, caller: Caller): Promi
       size: reservation.size,
       ...(caller.trial ? { registry: trialListing(caller.trial.id), trial: caller.trial.id } : {}),
       ...(caller.fullAllowance ? { fullAllowance: true } : {}),
+      ...(repository.value === undefined || limited ? {} : { repository: repository.value }),
     });
   } catch (error) {
     result = { ok: false, refusal: { status: 502, code: "start_failed", message: error instanceof Error ? error.message : String(error) } };
@@ -222,9 +242,15 @@ async function computerRequest(op: ComputerOp, id: string, request: Request, env
       if (!result.ok && !(result.refusal.status === 404 && listed)) return apiError(result.refusal);
       return json({ deleted: true });
     }
-    case "wake":
+    case "wake": {
       if (trialLimited(caller) && !trialPolicy(env).enabled) return apiError(TRIALS_OFF);
-      return answer(await stub.wake({ fullAllowance: Boolean(caller.fullAllowance) }), (value) => json({ computer: value }));
+      const body = await readJson(request);
+      if (!body.ok) return body.response;
+      const repository = repositoryField(body.value);
+      if (!repository.ok) return apiError(repository.refusal);
+      const input = { fullAllowance: Boolean(caller.fullAllowance), ...(repository.value === undefined || trialLimited(caller) ? {} : { repository: repository.value }) };
+      return answer(await stub.wake(input), (value) => json({ computer: value }));
+    }
     case "sleep":
       return answer(await stub.sleep("request"), (value) => json({ computer: value }));
     case "reset":
@@ -1051,6 +1077,7 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
       case "trial":
       case "trial_grant":
       case "collection":
+      case "environments":
       case "computer": {
         const identified = await identify(request, env, via);
         if (!identified.ok) return identified.response;
@@ -1058,6 +1085,7 @@ async function serve(request: Request, env: Env, via: Via, ctx?: ExecutionContex
         if (target.kind === "trial") return await trialRequest(target.op, env, caller);
         if (target.kind === "trial_grant") return await grantTrial(request, env, caller);
         if (target.kind === "collection") return target.op === "list" ? await listComputers(caller) : await createComputer(request, env, caller);
+        if (target.kind === "environments") return await environmentsRequest(target.op, request, env, caller);
         return await computerRequest(target.op, target.id, request, env, url, caller);
       }
     }

@@ -1,9 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { bringBackList, changesSince, ComputerRuns, parts, type RunBox, stampFolder } from "./computer-runs.ts";
+import { bringBackList, changesSince, ComputerRuns, parts, type RunBox, setupKey, stampFolder } from "./computer-runs.ts";
+
+const ENVIRONMENTS_MODULE = "../../deploy/laterdog/computers/src/environments.ts";
+const environments = await import(ENVIRONMENTS_MODULE);
 
 function localBox(home: string) {
   const commands: string[] = [];
@@ -130,6 +133,84 @@ describe("a heavy command on the dog's own computer", () => {
     const second = await runs.finish(box, record);
     expect(second.state).toBe("finished");
     expect(readFileSync(join(folder, "out.txt"), "utf8")).toBe("done\n");
+  });
+});
+
+function computerShell(home: string, repoDir: string, runKey: string) {
+  return (script: string) => {
+    const out = spawnSync("bash", ["-c", script], { cwd: home, encoding: "utf8",
+      env: { PATH: process.env.PATH, HOME: home, LATERDOG_REPOSITORY: "acme/site", LATERDOG_REPOSITORY_DIR: repoDir, LATERDOG_RUN_KEY: runKey } });
+    return { exitCode: out.status, stdout: out.stdout, stderr: out.stderr };
+  };
+}
+
+const git = (cwd: string, ...args: string[]) => {
+  const out = spawnSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.test", "-c", "init.defaultBranch=main", ...args], { cwd, encoding: "utf8" });
+  if (out.status !== 0) throw new Error(out.stderr);
+  return out.stdout;
+};
+
+describe("a repository environment on the dog's computer", () => {
+  it("leaves its packages where run_on_computer reuses them for a session's copy with the same lockfile", async () => {
+    const { folder, computer, state } = project();
+    mkdirSync(computer);
+    writeFileSync(join(folder, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    const repoDir = join(computer, "repos/acme/site");
+    mkdirSync(join(repoDir, "node_modules/left-pad"), { recursive: true });
+    writeFileSync(join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    writeFileSync(join(repoDir, "node_modules/left-pad/index.js"), "from the environment");
+    const runKey = await environments.setupRunKey("acme/site");
+    const shell = computerShell(computer, repoDir, runKey);
+    expect(shell(environments.REGISTER_SCRIPT).exitCode).toBe(0);
+    expect(readFileSync(join(computer, "runs/.setup", setupKey(folder)!), "utf8").trim()).toBe(runKey);
+    expect(readlinkSync(join(computer, "runs", runKey))).toBe(repoDir);
+    expect(shell(`${environments.ENVIRONMENT_PRELUDE}\ncd ${JSON.stringify(repoDir)} && laterdog_lock_key`).stdout.trim()).toBe(setupKey(folder));
+
+    const { box } = localBox(computer);
+    const outcome = await new ComputerRuns(state, fast).run(box, { botId: "dog", folder, command: "cat node_modules/left-pad/index.js" });
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.output).toContain("from the environment");
+    expect(outcome.note).toContain("Reused the packages");
+  });
+
+  it("fetches on wake and installs again only when the lockfile changed", async () => {
+    const root = mkdtempSync(join(tmpdir(), "environment-maintenance-"));
+    const computer = join(root, "computer");
+    const origin = join(root, "origin.git");
+    const work = join(root, "work");
+    mkdirSync(join(computer, ".local/bin"), { recursive: true });
+    writeFileSync(join(computer, ".local/bin/pnpm"), "#!/bin/sh\necho \"$@\" >> \"$HOME/pnpm-calls\"\nmkdir -p node_modules/.installed\n");
+    chmodSync(join(computer, ".local/bin/pnpm"), 0o755);
+    git(root, "init", "-q", "--bare", origin);
+    git(root, "clone", "-q", origin, work);
+    writeFileSync(join(work, "package.json"), "{}\n");
+    writeFileSync(join(work, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    git(work, "add", ".");
+    git(work, "commit", "-q", "-m", "first");
+    git(work, "push", "-q", "origin", "HEAD:main");
+    const repoDir = join(computer, "repos/acme/site");
+    mkdirSync(dirname(repoDir), { recursive: true });
+    git(root, "clone", "-q", "--branch", "main", origin, repoDir);
+    mkdirSync(join(repoDir, "node_modules"));
+    const shell = computerShell(computer, repoDir, await environments.setupRunKey("acme/site"));
+    expect(shell(environments.REGISTER_SCRIPT).exitCode).toBe(0);
+
+    const unchanged = shell(environments.MAINTENANCE_SCRIPT);
+    expect(environments.maintenanceFrom(unchanged.stdout)).toEqual({ fetched: "yes", installed: "no" });
+    expect(existsSync(join(computer, "pnpm-calls"))).toBe(false);
+
+    writeFileSync(join(work, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\npackages: {}\n");
+    git(work, "commit", "-q", "-am", "new lockfile");
+    git(work, "push", "-q", "origin", "HEAD:main");
+    const changed = shell(environments.MAINTENANCE_SCRIPT);
+    expect(environments.maintenanceFrom(changed.stdout)).toEqual({ fetched: "yes", installed: "yes" });
+    expect(readFileSync(join(repoDir, "pnpm-lock.yaml"), "utf8")).toContain("packages: {}");
+    expect(readFileSync(join(computer, "pnpm-calls"), "utf8")).toBe("install --frozen-lockfile --prefer-offline\n");
+    expect(existsSync(join(computer, "runs/.setup", setupKey(repoDir)!))).toBe(true);
+
+    expect(environments.maintenanceFrom(shell(environments.MAINTENANCE_SCRIPT).stdout)).toEqual({ fetched: "yes", installed: "no" });
+    const missing = computerShell(computer, join(computer, "repos/acme/none"), "0000000000000000");
+    expect(environments.maintenanceFrom(missing(environments.MAINTENANCE_SCRIPT).stdout)).toEqual({ fetched: "no_checkout", installed: "no" });
   });
 });
 
