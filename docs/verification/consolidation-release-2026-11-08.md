@@ -314,6 +314,75 @@ on Kimi and idle. No new provider turn was sent after this last replacement;
 the earlier provider-tool qualification remains distinct from this retention
 check. Per-dog engine placement remains unfinished and unactivated.
 
+## Daily-use client closing checks
+
+At 04:01 UTC, the existing desktop window rendered the Cloud conversation and
+Codex / Sol / Medium composer. Direct Cloud and desktop-proxy health, fleet and
+storage responses agreed on the same PID and eighty dogs. Read-only event-stream
+requests returned HTTP 200 and an initial event through both paths. These checks
+observe the actual running desktop connection, alongside the isolated UI tests;
+they do not measure desktop performance or qualify a new signed installer. The
+connected-computer inventory also reports the existing Mac online with a fresh
+poll. No live computer command was submitted as a verification probe.
+
+The desktop Accounts screen also exposed a concrete configuration gap: the
+existing ChatGPT sign-in was switched off. Root enabled it to honor the requested
+Codex preference, then observed the switch on and confirmed the server reports
+Codex enabled, authenticated and available at 04:07:14 UTC. This was the requested
+operational account change, not a test toggle. No test message was sent to a user
+dog and current work was not interrupted. The account's usage display also
+reported recharge, so enabling it does not guarantee allowance. An already
+running fallback attempt and the next selected model remain distinct.
+
+The iOS beta manifest for runtime 1.0.1 resolves to update group `336047c1`, with
+platform update `01a1bdef-acdc-7d76-b8be-293e25f550db`. Its 5,808,176-byte launch
+bundle and all twenty-four assets downloaded with matching SHA-256 hashes using
+the asset request headers declared by the update service. The initial bare asset
+requests returned 403 because they omitted those declared headers; that probe
+failure is not concealed as a delivery success. The correct client-protocol
+requests all returned 200. Total downloaded size was 5,965,171 bytes.
+
+The existing phone-client smoke was run again against a freshly launched isolated
+server: **28/28 steps passed**, including send deduplication, streamed replies,
+history, questions/permissions, group conversations and preserving computer
+selection. The fixture was stopped and its evidence retained. It uses the real
+phone client/state code with a synthetic engine, not a physical iPhone.
+
+On the latest frozen staging image, fresh exact-marker turns completed on both
+Grok 4.3 and Kimi K2.6, returning idle. Execution receipts match selected,
+dispatched and reported models and mark provider completion successful. Their
+observed send-to-idle checks were 13.697 and 8.287 seconds, respectively; these
+single observations are transport checks, not latency benchmarks or task-quality
+scores. Orbit's original Kimi selection was restored. The first model-setting
+probe used the wrong instance and was rejected before any message was sent; the
+correct Grok instance was then obtained from the existing contract. An initial
+health read also observed the test home's configured sleep/wake cycle. Neither
+failure is relabeled as a provider completion.
+
+[Client closing observations](consolidation-client-readiness-2026-11-09.json)
+retain these scopes. The phone's existing crash endpoint has three historical
+Build 9 `ended` records, all from earlier updates and without stack diagnostics.
+The phone was not connected for remote device inspection. Neither those records
+nor the absence of a new report proves the latest update is installed or crash
+free. Real device heat, battery and crash causes remain unqualified.
+
+Normal Cloud-backed conversation use is already served by the active backend;
+the current desktop proxy and window were observed working. Pending local helper
+changes still load through the user-owned **later.dog Dev → Restart later.dog Dev**
+menu action. For the newest phone UI, use **Restart to update** when offered, or
+tap the version line at the bottom of phone Settings to check, download and apply
+the beta update. Device uptake cannot be completed remotely from this session.
+
+The additional closing production window passed **21 consecutive functional
+samples over 607.793 seconds**, from 04:02:21 through 04:12:29 UTC, without
+another production deployment. All eighty dog/current-thread identities and both
+selected model settings were preserved; only Patch was observed active. Four
+samples still reported low storage. Free disk ranged from 1,906,761,728
+to 2,421,592,064 bytes and ended at 1,990,778,880 bytes;
+capacity remains unqualified. Separate one-minute Cloud and desktop-proxy streams
+each received 119 data frames and 143,619 bytes without an early disconnect. These
+are bounded observation windows, not a promise of uninterrupted future service.
+
 ## Architectural priorities from this evidence
 
 1. Keep the shared home focused on coordination. The task-workspace and provider-state inventory makes cold restore and disk headroom a concrete constraint. Patch's package reuse and Claude heavy-command hook are integrated. The subsequent native Codex guard is deployed and has the separate mechanism/functional qualification above; a live provider heavy-command denial has not been qualified. Per-dog engine placement remains unfinished. Further archival or relocation needs workspace/session-specific restore proof; deleting live engine state would break continuity. [Native container snapshots](https://developers.cloudflare.com/containers/guides/snapshots/) are a candidate for same-image restarts, but require `durable_object` scheduling, preserve no running processes, expire after thirty days without restore and cannot move across image versions. The inspected applications use `default` scheduling. No snapshot migration is deployed and no recovery code is removed on that assumption.
