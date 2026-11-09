@@ -266,7 +266,8 @@ The standard image is now frozen at `f45ba413ad8b…`, and the large image at
 `e64ff59e579d…`. Production and test configurations change only their image fields;
 account flags, resource limits, bindings and test SSH settings are preserved.
 Final deployment status reports 100% traffic on `e85c60e3`; the owner instance is
-running application version 52 on the matching large image.
+running application version 52 on the matching large image. All fourteen Worker
+bindings are deeply equal to the previously qualified release.
 
 Direct functional qualification began at 03:44:55 UTC, about 21 minutes 29 seconds
 after Worker acceptance, and passed **21 consecutive samples over 10 minutes
@@ -277,6 +278,11 @@ and contain zero independently verified task outcomes. The rolling thirty-day
 coverage was 1,777 turns, ten receipts and 1,767 legacy turns.
 [Separate follow-up observations](consolidation-followup-2026-11-09.json) retain
 these measurements and their scope.
+
+The sampled Worker tail contained 1,429 events, all on `e85c60e3`, and one
+exception at 03:47:45 UTC: `Container port connection closed unexpectedly.`
+Direct functional samples continued passing. This remains an observed transport
+error; the window is not claimed error-free and its cause is not established.
 
 Selection is not proof of execution: Patch's current native attempt reports
 **Claude**, while its selected next settings remain Codex / Sol / Medium. The

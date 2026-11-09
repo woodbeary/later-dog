@@ -104,5 +104,16 @@
     "Actual current provider differs from selected next settings",
     "Ten low-storage flags in this follow-up window",
     "Full server suite not claimed passing"
-  ]
+  ],
+  "bindings": {
+    "count": 14,
+    "deepEqualToPreviouslyQualifiedRelease": true
+  },
+  "sampledWorkerTail": {
+    "events": 1429,
+    "observedExceptions": 1,
+    "message": "Container port connection closed unexpectedly.",
+    "at": "2026-11-09T03:47:45.639Z",
+    "scope": "Sampled tail only; direct functional probes continued passing; no claim of error-free transport"
+  }
 }
