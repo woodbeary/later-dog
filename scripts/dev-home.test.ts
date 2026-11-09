@@ -72,7 +72,14 @@ describe("pushing server code from later.dog Dev to the person's own home", () =
     const stale = await confirmSwitch({ hash: "h", home, before: 7, published: 0, who: "h" }, { read: async () => 7, log: (l: string) => lines.push(l), now: () => clock, wait: async (ms: number) => { clock += ms; }, everyMs: 60_000 });
     expect(stale).toEqual({ hash: "h" });
     expect(lines.join("\n")).not.toContain("server pid changed");
-    expect(lines[1]).toContain("still runs the old server");
+    expect(lines[1]).toContain("switch not confirmed")
+    expect(lines.join("\n")).not.toContain("old server")
+    const silent: string[] = [];
+    let tick = 0;
+    await confirmSwitch({ hash: "h", home, before: 7, published: 0, who: "h" }, { read: async () => null, log: (l: string) => silent.push(l), now: () => tick, wait: async (ms: number) => { tick += ms; }, everyMs: 60_000 });
+    expect(silent).toHaveLength(1);
+    expect(silent[0]).toContain("switch not confirmed");
+    expect(silent[0]).not.toContain("old server");;
   });
 
   it("reports the new server only after its pid differs from the one before the push", async () => {
@@ -92,6 +99,25 @@ describe("pushing server code from later.dog Dev to the person's own home", () =
     controller.abort();
     await expect(waiting).rejects.toThrow("stopped");
     expect(lines).toEqual([]);
+  });
+
+  it("does not report a changed pid when cancelled during the read", async () => {
+    const lines: string[] = [];
+    const home = { url: "https://h-home.later.dog", token: "t" };
+    const controller = new AbortController();
+    let release: (pid: number) => void = () => {};
+    const waiting = confirmSwitch({ hash: "h", home, before: 7, published: Date.now(), who: "h" }, { read: () => new Promise<number>((resolve) => { release = resolve; }), log: (l: string) => lines.push(l), signal: controller.signal });
+    controller.abort();
+    release(8);
+    await expect(waiting).rejects.toThrow("stopped");
+    expect(lines).toEqual([]);
+  });
+
+  it("stops before reading when already cancelled", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const home = { url: "https://h-home.later.dog", token: "t" };
+    await expect(confirmSwitch({ hash: "h", home, before: 7, published: Date.now(), who: "h" }, { read: async () => 8, log: () => {}, signal: controller.signal })).rejects.toThrow("stopped");
   });
 
   it("surfaces a failing read instead of reporting success", async () => {
