@@ -17,6 +17,7 @@ export function executionAdvice(input: {
   current: ModelSelection;
   candidates: readonly AdviceCandidate[];
   rows: readonly UsageRow[];
+  titles: ReadonlyMap<string, string>;
   now: number;
 }) {
   const words = input.task.toLowerCase().match(/[a-z0-9]{3,}/g) ?? [];
@@ -31,7 +32,12 @@ export function executionAdvice(input: {
     seen.add(key);
     return true;
   });
-  const matching = unique.filter((row) => row.execution && words.some((word) => row.execution!.task.toLowerCase().includes(word)));
+  const lowered = new Map<string, string>();
+  for (const [threadId, title] of input.titles) lowered.set(threadId, title.toLowerCase());
+  const matching = unique.filter((row) => {
+    const title = row.execution ? lowered.get(row.threadId) : undefined;
+    return title !== undefined && words.some((word) => title.includes(word));
+  });
   const evidence = matching.length ? matching : unique;
   const grouped = new Map<string, Map<string, UsageRow[]>>();
   for (const row of evidence) {
@@ -73,6 +79,6 @@ export function executionAdvice(input: {
     scope: matching.length ? "matching_task_words" : "own_dog_history",
     coverage: { recordedTurns: unique.length, legacyTurns: unique.filter((row) => !row.execution).length, conflictingTurns: unique.filter((row) => row.execution?.attribution === "conflict").length, duplicateRowsExcluded: recent.length - unique.length, candidatesOmitted: Math.max(0, ordered.length - candidates.length) },
     candidates,
-    limitations: ["Provider success is not task verification.", "Historical observations are not controlled model comparisons.", "API list prices are standard base rates, not subscription charges or an invoice; cache writes, long context, processing tiers and regional premiums may differ.", "Execution duration excludes queue time, earlier attempts and later rescue.", "No model, effort, account or dispatch setting was changed."],
+    limitations: ["Provider success is not task verification.", "Task matching compares your words with each thread's current title, not with the task that thread ran at the time; titles are not historical task-quality labels.", "Historical observations are not controlled model comparisons.", "API list prices are standard base rates, not subscription charges or an invoice; cache writes, long context, processing tiers and regional premiums may differ.", "Execution duration excludes queue time, earlier attempts and later rescue.", "No model, effort, account or dispatch setting was changed."],
   };
 }

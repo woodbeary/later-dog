@@ -28,6 +28,14 @@ usage ledger. A conflicting provider is marked and its model attribution becomes
 unknown. Old rows are not backfilled with invented attribution. Malformed optional
 metadata is discarded without losing the original usage row.
 
+The ledger never stores task or prompt text. `parseExecutionEvidence` whitelists the
+evidence fields, including the selected and dispatched effort, variant and fast
+settings, on every append and every read, so a legacy `execution.task` or any
+unknown field is dropped from what the server returns while valid usage and
+selection metadata stay. The reader does not rewrite files: month files written
+before this change still hold their old task titles at rest. They are neither
+scrubbed nor deleted here, and removing them is a separate, explicit step.
+
 Admins can monitor the last thirty days through the read-only
 `GET /api/usage/executions?limit=50` endpoint (maximum 200 receipts). It excludes
 trigger email addresses and rejects non-admin callers. This supports passive
@@ -77,8 +85,12 @@ benchmark promotion, Clef selection call or live quality claim is implemented.
 Historical cost is recorded usage, not a subscription invoice. Base API rates do
 not cover every cache-write, long-context, regional or processing-tier adjustment.
 Execution duration excludes queue time, earlier failed attempts and later rescue.
-Task matching is word overlap against recorded task titles, not a semantic quality
-judgment. Native engine versions and verified outcome receipts are not yet joined.
+Task matching is word overlap against each thread's current canonical title,
+looked up per query only for rows already limited to the asking dog and the
+current-thread or own-dog scope; nothing is stored or returned from that lookup.
+A current title is not the task that thread ran at the time and is not a
+historical task-quality label, and legacy rows without evidence never match.
+It is not a semantic quality judgment. Native engine versions and verified outcome receipts are not yet joined.
 
 The fixture proves the tool contract and evidence collection, not provider quality,
 production availability, cross-model savings or deployment. The feature requires a
