@@ -47,7 +47,7 @@ function world(sessionId = "s-1") {
   const mcpPath = join(base, "launch", "mcp.json");
   writeFileSync(mcpPath, JSON.stringify({ mcpServers: { probe: { command: process.execPath, args: [mcpServer], env: { PROBE_SECRET: "home-only" }, alwaysLoad: true } } }));
   const settingsPath = join(base, "launch", "settings.json");
-  writeFileSync(settingsPath, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: `"${process.execPath}" "${hookScript}"`, timeout: 5 }] }] } }));
+  writeFileSync(settingsPath, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "exit 2", timeout: 5 }] }], PostToolUse: [{ matcher: "", hooks: [{ type: "command", command: `"${process.execPath}" "${hookScript}"`, timeout: 5 }] }] } }));
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH, HOME: join(base, "home"), CLAUDE_CONFIG_DIR: configDir, FAKE_ENGINE_SLUG: claudeProjectSlug(cwd),
     FAKE_ENGINE_LAUNCHES: join(base, "launches.txt"), LATERDOG_HOOK_TOKEN_FILE: join(base, "token"),
@@ -116,6 +116,7 @@ it("runs a turn on the computer with home-held tools, hooks and authority, and r
   expect(JSON.parse(result.mcp).result).toEqual({ secret: "home-only", ran: w.cwd });
   expect(JSON.parse(result.hook).hookSpecificOutput).toEqual({ permissionDecision: "deny", token: true });
   expect(result.hookAuthorityVisible).toBe(false);
+  expect(result.shellGuard).toBe(false);
   expect(result).toMatchObject({ credentialAccess: true, credentialRefresh: false });
   expect(readFileSync(join(w.base, "hooks.jsonl"), "utf8")).toContain("pnpm install");
   expect(atResult).toEqual({ turnFile: true, session: true, removed: true });

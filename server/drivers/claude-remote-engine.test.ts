@@ -21,7 +21,7 @@ afterEach(() => {
   for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
-function fakePackage(base: string, at: string): string {
+function fakePackage(at: string): string {
   const pkg = join(at, "node_modules", "@anthropic-ai", "claude-code");
   mkdirSync(join(pkg, "bin"), { recursive: true });
   writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "@anthropic-ai/claude-code", version: "2.1.316" }));
@@ -38,7 +38,7 @@ it("runs a chosen dog's Claude turn on its computer with the same model and sess
   for (const dir of [cwd, config, remoteRoot]) mkdirSync(dir, { recursive: true });
   writeFileSync(join(cwd, "brief.md"), "from home");
   writeFileSync(join(config, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "a", refreshToken: "r", expiresAt: Date.now() + 3600_000 } }));
-  const cli = fakePackage(base, join(base, "lib"));
+  const cli = fakePackage(join(base, "lib"));
   const remoteBin = join(remoteBase, "cli", "claude-code-2.1.316", "node_modules", ".bin");
   mkdirSync(remoteBin, { recursive: true });
   writeFileSync(join(remoteBin, "claude"), `#!/bin/sh\nexec "${process.execPath}" "${FAKE_CLI}" "$@"\n`);

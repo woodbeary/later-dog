@@ -65,8 +65,8 @@ it("mirrors the same model, effort and session, and keeps tools, hooks and their
   expect(launch.mcp.agents.env).toEqual({ LATERDOG_TOKEN: "home-token" });
   expect(launch.mcp.dog.args).toEqual(["/app/permission-proxy.js", "/data/perm.sock"]);
   const settings = JSON.parse(readFileSync(launch.args[launch.args.indexOf("--settings") + 1], "utf8"));
-  expect(settings.hooks.PreToolUse[0].hooks[0]).toEqual({ type: "command", command: `node ${input.proxyPath} hook 0`, timeout: 30 });
-  expect(settings.hooks.Stop[0].hooks[0].command).toBe(`node ${input.proxyPath} hook 0`);
+  expect(settings.hooks.PreToolUse).toBeUndefined();
+  expect(settings.hooks.Stop[0].hooks[0]).toEqual({ type: "command", command: `node ${input.proxyPath} hook 0`, timeout: 30 });
   expect(settings.fastMode).toBe(true);
   expect(launch.hooks).toEqual(["node /app/hooks/laterdog-hook.js"]);
   expect(readFileSync(launch.args[launch.args.indexOf("--system-prompt-file") + 1], "utf8")).toBe("system prompt");

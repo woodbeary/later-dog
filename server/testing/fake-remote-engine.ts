@@ -36,13 +36,14 @@ createInterface({ input: process.stdin }).on("line", async (raw) => {
   rmSync(join(process.cwd(), "remove-me.txt"), { force: true });
   const mcpConfig = JSON.parse(readFileSync(after("--mcp-config")!, "utf8")).mcpServers.probe;
   const mcp = await line(mcpConfig.command, mcpConfig.args, `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {} })}\n`, { ...process.env, ...mcpConfig.env });
-  const hookCommand = JSON.parse(readFileSync(after("--settings")!, "utf8")).hooks.PreToolUse[0].hooks[0].command;
-  const hook = await line("/bin/sh", ["-c", hookCommand], JSON.stringify({ hook_event_name: "PreToolUse", tool_input: { command: "pnpm install" } }));
+  const settings = JSON.parse(readFileSync(after("--settings")!, "utf8"));
+  const hookCommand = settings.hooks.PostToolUse[0].hooks[0].command;
+  const hook = await line("/bin/sh", ["-c", hookCommand], JSON.stringify({ hook_event_name: "PostToolUse", tool_input: { command: "pnpm install" } }));
   let credential: Record<string, unknown> = {};
   try { credential = JSON.parse(readFileSync(join(configDir, ".credentials.json"), "utf8")).claudeAiOauth; } catch {}
   emit({ type: "result", subtype: "success", result: JSON.stringify({
     input: existsSync("input.txt") ? readFileSync("input.txt", "utf8") : null,
-    mcp: mcp.out, hook: hook.out, hookCode: hook.code, reused,
+    mcp: mcp.out, hook: hook.out, hookCode: hook.code, reused, shellGuard: Boolean(settings.hooks.PreToolUse),
     sessionLines: readFileSync(sessionFile, "utf8").trim().split("\n").length,
     credentialRefresh: "refreshToken" in credential, credentialAccess: typeof credential.accessToken === "string",
     hookAuthorityVisible: Boolean(process.env.LATERDOG_HOOK_TOKEN_FILE || process.env.PROBE_SECRET),
