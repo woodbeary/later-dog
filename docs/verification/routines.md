@@ -291,3 +291,7 @@ of a routine with unproven authorship that stays foreign after the owner edits
 it. Against the previous commit the pending-run case fails (the mark is absent).
 Guest-started manual runs, webhook runs and schedule runs are covered by the unit
 tests for the mark. It does not cover a real Mac or a live account.
+
+## Server build type check
+
+`pnpm build:server` compiles with `tsconfig.server.build.json`, which plain `tsc --noEmit` does not read. Before claiming a server change builds, run `pnpm exec tsc -p tsconfig.server.build.json --noEmit` as well as `pnpm exec tsc --noEmit`. The legacy report and retained-run types in `server/laterdog/routine-provenance.ts` carry no index signature, so `WireMessage` and `RoutineRun` pass structurally; the exact-key guards read `Object.entries`.

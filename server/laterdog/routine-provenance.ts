@@ -6,7 +6,6 @@ export interface LegacyReportLine {
   text?: string;
   ownersRoutine?: boolean;
   routineRun?: { runId: string; routineId: string; routineName: string; scheduledFor?: number; status: string };
-  [key: string]: unknown;
 }
 
 export interface LegacyRetainedRun {
@@ -21,7 +20,7 @@ export interface LegacyRetainedRun {
   triggerSource?: string;
   attachments?: unknown[];
   finishedAt?: number;
-  [key: string]: unknown;
+  deferredAt?: number;
 }
 
 export interface LegacyReceiptLine {
@@ -58,7 +57,7 @@ export function cancelledStatusText(routineName: string): string {
 function canonicalStatusReport(line: LegacyReportLine): boolean {
   const card = line.routineRun;
   if (!card || line.kind !== "routine.run" || line.role !== "bot" || line.ownersRoutine !== undefined) return false;
-  if (Object.keys(line).some((key) => !REPORT_KEYS.has(key) && line[key] !== undefined)) return false;
+  if (Object.entries(line).some(([key, value]) => !REPORT_KEYS.has(key) && value !== undefined)) return false;
   if (Object.keys(card).some((key) => !CARD_KEYS.includes(key))) return false;
   if (typeof card.routineName !== "string" || typeof card.scheduledFor !== "number") return false;
   return card.status === "cancelled" && line.text === cancelledStatusText(card.routineName);
@@ -69,7 +68,7 @@ function retainedRunMatches(card: NonNullable<LegacyReportLine["routineRun"]>, r
   if (run.scheduledFor !== card.scheduledFor || run.status !== "cancelled" || run.sourceThreadId !== threadId) return false;
   if (run.manual !== false || (run.triggerSource !== undefined && run.triggerSource !== "schedule")) return false;
   if (!Array.isArray(run.attachments) || run.attachments.length !== 0) return false;
-  if (!ABSENT_RUN_FIELDS.every((field) => run[field] === undefined) || typeof run.finishedAt !== "number") return false;
+  if (!Object.entries(run).every(([field, value]) => value === undefined || !ABSENT_RUN_FIELDS.includes(field)) || typeof run.finishedAt !== "number") return false;
   return run.deferredAt === undefined
     || (typeof run.deferredAt === "number" && Number.isFinite(run.deferredAt)
       && run.deferredAt >= run.scheduledFor && run.deferredAt <= run.finishedAt);
