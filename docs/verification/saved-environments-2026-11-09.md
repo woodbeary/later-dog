@@ -86,7 +86,7 @@ and `maintained ... in N ms` log lines with the builder's `setup` time.
 - Computers Worker `88404e1d-8c6d-4f67-b5a7-f1caff06b3c4`, deployed from `fabdacbd2` with the image pin unchanged. Before it: 447 Worker tests passed, 1 skipped, and `pnpm run check` exited 0.
 - `GET /v1/environments` answered 200 and `POST` answered 202 with the home's computers key.
 - Environment build: `POST /v1/environments {"repository":"woodbeary/later-dog"}` at 12:39:48 UTC. It finished `fresh`, `lastOutcome: ready`, `builtAt` 12:41:52 UTC, `setupMs` 92,619, key `env_9c66ba70a55b57e2ccb136717641756b`, `rebuildAt` 2026-11-16, `expiresAt` 2026-12-09. The private repository cloned without error. A later read-only `GET /v1/environments` returned the same record.
-- Time to ready: wall time from `POST /computers` to the first successful exec of `true`. Both were throwaway computers, deleted afterwards.
+- Time to ready, one live observation of each path (a ballpark live check, not a repeated benchmark or a throughput figure): wall time from `POST /computers` to the first successful exec of `true`. Both were throwaway computers, deleted afterwards.
   - With `repository`: 2.46 s (POST answered in 1.08 s). It restored the environment snapshot: `~/repos/woodbeary/later-dog` at `fabdacbd`, 1.9 GB of `node_modules` present. Maintenance fetched and did not install, in 795 ms.
   - Without `repository`: 1.92 s (POST answered in 0.61 s), with no checkout. Getting the same checkout would have meant the 92.6 s setup.
 - Not yet shown live: a dog's own computer starting from an environment during real work. Today only `run_on_computer` passes `repository`.
