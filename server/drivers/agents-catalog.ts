@@ -512,6 +512,24 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "request_device_approval",
+    description:
+      "For every device-code sign-in a CLI prints (codex login --device-auth, wrangler or cf login, gh auth login, tailscale up): start the login in the background, then call this instead of pasting the link and code into chat. The person gets a card with the code, Copy and Open. End the turn after calling; later.dog wakes you when check succeeds, the pid exits, they tap Approved, or the code expires.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        service: { type: "string", maxLength: 60, description: "What is being signed in to, for example \"GitHub CLI\"." },
+        url: { type: "string", maxLength: 2000, description: "The https page where the code is entered." },
+        code: { type: "string", maxLength: 64, description: "The device code the CLI printed." },
+        expiresAt: { type: "string", description: "When the code expires: ISO date-time or epoch seconds. Default 15 minutes, at most an hour." },
+        check: { type: "string", maxLength: 2000, description: "A shell command, run here every few seconds, that exits 0 once signed in, for example \"gh auth status\"." },
+        pid: { type: "integer", minimum: 2, description: "Instead of check: the login process id; you wake when it exits." },
+      },
+      required: ["service", "url"],
+    },
+  },
+  {
     name: "send_voice_note",
     description:
       "Send the user a voice note: a short spoken message synthesized with your configured voice, stored as audio, and attached to your reply when the turn ends. Write the note as speakable words, exactly as it should be said — no lists, links or markdown meant for screens. The same text becomes the note's visible caption and transcript, so the person can read or listen. Use it for warmth, tone or emphasis a written line cannot carry; use ordinary text otherwise.",

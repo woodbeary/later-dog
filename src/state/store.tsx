@@ -129,6 +129,7 @@ export interface OptionCardData extends Pick<import("../../shared/wire").OptionC
   modelRequest?: ModelRequestCardData;
   questionRequest?: QuestionRequestCardData;
   takeoverRequest?: import("../../shared/takeover").TakeoverRequestCardData;
+  deviceApproval?: import("../../shared/device-approval").DeviceApprovalCardData;
 }
 
 export interface ConnectorCardData {

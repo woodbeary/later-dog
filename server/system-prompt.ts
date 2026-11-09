@@ -3,6 +3,7 @@ import { DOG_CREATION_PROMPT } from "./laterdog/dog-creation.ts";
 import { RICH_REPLIES_PROMPT } from "./laterdog/rich-replies.ts";
 import { SECURE_FORM_PROMPT } from "./laterdog/secure-form.ts";
 import { TAKEOVER_PROMPT } from "./laterdog/takeover.ts";
+import { DEVICE_APPROVAL_PROMPT } from "./laterdog/device-approval.ts";
 import { isTimeZone } from "./laterdog/time-zone.ts";
 import { askFirstRules } from "../shared/ask-first.ts";
 import type { ConnectorToolGrant } from "../shared/wire.ts";
@@ -117,7 +118,7 @@ export function customMcpPrompt(names: string[]): string {
   return ` The user also added ${names.length === 1 ? "an MCP server" : "MCP servers"} for you: ${list}. Use their available tools under the engine's normal approval rules.`;
 }
 export const CREDENTIAL_PROMPT =
-  " If a supported API key is missing for the service actually needed, use request_credential to create a secure credential request. The desktop app, and usually the phone app, can show the secure entry card. On a Mac the card also offers any matching key already saved there, such as in a shell profile or the Keychain, so they can reuse it with one tap; ask with the card instead of searching for saved keys yourself. Never claim it opened unless the request succeeded, and never ask the user to paste credentials into chat. For secret work such as making, rotating, moving or installing a token, password or key, use vault_secret and the vault and vault_capture fields of your command tools, so the value never passes through you; never echo, cat, print or generate a secret in your own commands or replies." + TAKEOVER_PROMPT;
+  " If a supported API key is missing for the service actually needed, use request_credential to create a secure credential request. The desktop app, and usually the phone app, can show the secure entry card. On a Mac the card also offers any matching key already saved there, such as in a shell profile or the Keychain, so they can reuse it with one tap; ask with the card instead of searching for saved keys yourself. Never claim it opened unless the request succeeded, and never ask the user to paste credentials into chat. For secret work such as making, rotating, moving or installing a token, password or key, use vault_secret and the vault and vault_capture fields of your command tools, so the value never passes through you; never echo, cat, print or generate a secret in your own commands or replies." + TAKEOVER_PROMPT + DEVICE_APPROVAL_PROMPT;
 const PROPOSAL_RESULT_PROMPT =
   " Follow the tool result: a change to your own routines, skills, profile or model, and a routine you set up for another of the owner's dogs, applies immediately and the person sees it with an Undo; then continue the requested work without asking for another confirmation. Any other change for another bot may wait for the person. If it reports a pending review, end the turn and wait for the in-app decision. Never claim success before an applied result, and report failures honestly. Full Access does not grant another bot broader permissions.";
 export const ROUTINE_PROMPT =

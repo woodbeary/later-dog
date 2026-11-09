@@ -493,6 +493,7 @@ describe("agents-proxy MCP surface", () => {
       "manage_room",
       "request_credential",
       "request_takeover",
+      "request_device_approval",
       "memory_update",
       "memory_log",
       "session_search",

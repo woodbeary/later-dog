@@ -595,6 +595,17 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
     if (!ok) return { text: String(body.error ?? "The take-over card could not be shown."), isError: true };
     return { text: takeoverRequestedText(input.step, body.status === "in-control") };
   }
+  if (name === "request_device_approval") {
+    const { ok, body } = await apiResponse("/api/internal/device-approval", {
+      method: "POST",
+      body: JSON.stringify({
+        fromBotId: BOT_ID, fromThreadId: THREAD_ID,
+        service: args.service, url: args.url, code: args.code, expiresAt: args.expiresAt ?? args.expires_at, check: args.check, pid: args.pid,
+      }),
+    });
+    if (!ok || typeof body.text !== "string") return { text: String(body.error ?? "The device sign-in card could not be shown."), isError: true };
+    return { text: body.text };
+  }
   if (name === "send_voice_note") {
     if (typeof args.text !== "string" || !args.text.trim()) {
       return { text: "send_voice_note needs text: the short speakable note, at most 1000 characters.", isError: true };

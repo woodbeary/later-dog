@@ -10657,6 +10657,35 @@ describe("bot memory API", () => {
     }
   });
 
+  it("request_device_approval shows a device-code card and the person's Approved closes it", async () => {
+    const bot = (await api("POST", "/api/bots", {})).body.bot;
+    try {
+      const post = async (body: Record<string, unknown>) =>
+        fetch(`${BASE}/api/internal/device-approval`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${await mintTestCapability(BASE, bot.id, bot.threadId)}`, "content-type": "application/json" },
+          body: JSON.stringify({ fromBotId: bot.id, fromThreadId: bot.threadId, ...body }),
+        });
+      const made = await post({ service: "GitHub CLI", url: "https://github.com/login/device", code: "WXYZ-9876" });
+      expect(made.status).toBe(201);
+      const { messageId, text } = (await made.json()) as { messageId: string; text: string };
+      expect(text).toContain("End this turn");
+      const cardOf = async () =>
+        ((await api("GET", `/api/threads/${bot.threadId}/messages`)).body.messages as Array<{ id: string; card?: { deviceApproval?: Record<string, unknown> } }>)
+          .find((m) => m.id === messageId)?.card?.deviceApproval;
+      expect(await cardOf()).toMatchObject({ version: 1, service: "GitHub CLI", code: "WXYZ-9876", status: "waiting", watching: "expiry" });
+      expect((await post({ service: "x", url: "http://x.dev" })).status).toBe(400);
+      const done = await api("POST", `/api/bots/${bot.id}/device-approvals/${messageId}/done`, { threadId: bot.threadId });
+      expect(done.status).toBe(200);
+      expect(done.body.card).toMatchObject({ status: "approved", endedBy: "person" });
+      expect(await cardOf()).toMatchObject({ status: "approved", endedBy: "person" });
+      expect((await api("POST", `/api/bots/${bot.id}/device-approvals/nope/done`, { threadId: bot.threadId })).status).toBe(404);
+    } finally {
+      await api("POST", `/api/bots/${bot.id}/interrupt`);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
   it("tells the desktop whether to hold the computer awake for a routine due within the hour", async () => {
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     let routineId: string | null = null;

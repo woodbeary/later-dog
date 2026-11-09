@@ -1,7 +1,7 @@
 {
   "direct": {
-    "bytes": 40985,
-    "sha256": "c42d1f24a19e1cd43b58749ff18df797cfbbe13656706ad6f72f711bc6f8f324",
+    "bytes": 42262,
+    "sha256": "3ebe4ac6d8b2e9b0599e48ea18fc446eb2f87c8e7092ea0f822743764fd2e932",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -20,6 +20,7 @@
       "manage_room",
       "request_credential",
       "request_takeover",
+      "request_device_approval",
       "memory_update",
       "memory_log",
       "session_search",
@@ -33,8 +34,8 @@
     ]
   },
   "direct+voice": {
-    "bytes": 41726,
-    "sha256": "7f1ac81111f7ea15825e1a34ba7840cbed0267c5301158c0bf3b24b5d897a9ca",
+    "bytes": 43003,
+    "sha256": "f17512c24e24fe8568a40b5c85cdb203ca0f5bf40219f555fae570a14ddace88",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -53,6 +54,7 @@
       "manage_room",
       "request_credential",
       "request_takeover",
+      "request_device_approval",
       "send_voice_note",
       "memory_update",
       "memory_log",
@@ -67,8 +69,8 @@
     ]
   },
   "direct+shared": {
-    "bytes": 46014,
-    "sha256": "3be941b8d792d349d4323b8d97e42985b7d31430489a11d3e15349329c9ac9ec",
+    "bytes": 47291,
+    "sha256": "221916c099a2f549806abfccd8f693e0c4a9645a689aa94ca5243adb79d6584c",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -89,6 +91,7 @@
       "manage_room",
       "request_credential",
       "request_takeover",
+      "request_device_approval",
       "memory_update",
       "memory_log",
       "session_search",
@@ -102,8 +105,8 @@
     ]
   },
   "direct+shared+voice": {
-    "bytes": 46755,
-    "sha256": "d3edef665059baa4112ad179d79a2645369a67fd97f3f19b362b876c671a3b41",
+    "bytes": 48032,
+    "sha256": "9d8f70ec257cc38c96300a2b83dd9d39cd9b5bc640266fa574a84cfc6130f5f2",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -124,6 +127,7 @@
       "manage_room",
       "request_credential",
       "request_takeover",
+      "request_device_approval",
       "send_voice_note",
       "memory_update",
       "memory_log",
@@ -138,8 +142,8 @@
     ]
   },
   "direct+skills": {
-    "bytes": 43038,
-    "sha256": "5a293ce27d91c7356add5c0fa7cbd96998d6bf8ea7f03e106c984a2faf0078de",
+    "bytes": 44315,
+    "sha256": "f3b7a6d658d2264600147c11482745ed64c1731a1f817c3bc61fd6c0926b596d",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -158,6 +162,7 @@
       "manage_room",
       "request_credential",
       "request_takeover",
+      "request_device_approval",
       "memory_update",
       "memory_log",
       "session_search",
@@ -173,8 +178,8 @@
     ]
   },
   "direct+skills+voice": {
-    "bytes": 43779,
-    "sha256": "c09f413ab712fdc02bcbb14b1c3cac861f7f3f9e77d29c5e25d146cf81693fa6",
+    "bytes": 45056,
+    "sha256": "4ba79f82b241cc7d8e444ec5af20f6b0b39e6250476781a37521ef8381dfac3d",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -193,6 +198,7 @@
       "manage_room",
       "request_credential",
       "request_takeover",
+      "request_device_approval",
       "send_voice_note",
       "memory_update",
       "memory_log",
@@ -209,8 +215,8 @@
     ]
   },
   "direct+skills+shared": {
-    "bytes": 48067,
-    "sha256": "0e859cbd9009f309d2ea63deec80a9badf05ecaed7e9cacb287985f287342d1e",
+    "bytes": 49344,
+    "sha256": "4e535ad759f489be9d0c35dca75e0757cbd2b10aa5e13ce30849d5d22f48aee8",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -231,6 +237,7 @@
       "manage_room",
       "request_credential",
       "request_takeover",
+      "request_device_approval",
       "memory_update",
       "memory_log",
       "session_search",
@@ -246,8 +253,8 @@
     ]
   },
   "direct+skills+shared+voice": {
-    "bytes": 48808,
-    "sha256": "7ca5cd88d6dcf09537666cc501a4eba624e650a40c8cd3580ecb0b99dc3aa159",
+    "bytes": 50085,
+    "sha256": "cd4c78c27460f37acd0b9cc254f06fa1f25069f1e3c18b3f78d88fa81f925484",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -268,6 +275,7 @@
       "manage_room",
       "request_credential",
       "request_takeover",
+      "request_device_approval",
       "send_voice_note",
       "memory_update",
       "memory_log",
@@ -284,8 +292,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home": {
-    "bytes": 51916,
-    "sha256": "6ddb801477bd238d44222aca8dba2bd8b5acd7b1f63c786601f891c8b4f59942",
+    "bytes": 53193,
+    "sha256": "d21849092750ae3703d3c0827e1294b103c5d90f3dcd31099fda7cf79f85cf43",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -310,6 +318,7 @@
       "manage_room",
       "request_credential",
       "request_takeover",
+      "request_device_approval",
       "send_voice_note",
       "memory_update",
       "memory_log",
@@ -326,8 +335,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home+phone": {
-    "bytes": 55946,
-    "sha256": "eae76179ba226f7e4787041dd09e7e69b3b2e3064e155721fa7ad0d8eee6ea21",
+    "bytes": 57223,
+    "sha256": "a52b1c126d52c55b8d8a208e0c5e1ba2c3ff82182303f78b56334297ec6ae5d1",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -356,6 +365,7 @@
       "manage_room",
       "request_credential",
       "request_takeover",
+      "request_device_approval",
       "send_voice_note",
       "memory_update",
       "memory_log",

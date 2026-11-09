@@ -5,6 +5,7 @@ import type { TurnDigest } from "./digest.ts";
 import type { BotAvatarCrop } from "./bot-avatar.ts";
 import type { MascotBodyId } from "./mascot-bodies.ts";
 import type { CredentialTargetId } from "./credential-request.ts";
+import type { DeviceApprovalCardData } from "./device-approval.ts";
 import type { RoutineRequestCardData } from "./routine-request.ts";
 import type { ProfileRequestCardData } from "./profile-request.ts";
 import type { PlaceRow } from "./place-view.ts";
@@ -333,6 +334,7 @@ export interface OptionCardData {
   skillRequest?: SkillRequestCardData;
   questionRequest?: QuestionRequestCardData;
   takeoverRequest?: TakeoverRequestCardData;
+  deviceApproval?: DeviceApprovalCardData;
   routinePause?: RoutinePauseCardData;
 }
 

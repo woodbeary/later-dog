@@ -778,6 +778,9 @@ import { createHomeAccountRoutes, withHandedOverEmail } from "./laterdog/home-ac
 import { createMacAccountRoutes } from "./laterdog/mac-accounts.ts";
 import { engineAnswer } from "./laterdog/person-denied.ts";
 import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeover.ts";
+import { createDeviceApprovalCardRoutes, createDeviceApprovalRequestRoute } from "./routes/device-approval.ts";
+import { DeviceApprovalWatcher, deviceApprovalOutcome, deviceApprovalResumePrompt, processAlive, runDeviceCheck } from "./laterdog/device-approval.ts";
+import { isOpenDeviceApproval, type DeviceApprovalCardData, type DeviceApprovalEndedBy } from "../shared/device-approval.ts";
 import { createSecureFormRoutes } from "./routes/secure-forms.ts";
 import { createVaultRoutes } from "./routes/vault.ts";
 import { RoutinePauses } from "./laterdog/routine-pause.ts";
@@ -2932,6 +2935,12 @@ function connectedAppsIntegration(bot: Pick<BotRecord, "id" | "connectorTools">,
 
 const computerControlRevision = new Map<string, number>();
 const takeoverWaits = new TakeoverWaits();
+const deviceApprovals = new DeviceApprovalWatcher({
+  now: () => Date.now(),
+  runCheck: runDeviceCheck,
+  alive: processAlive,
+  settle: (wait, endedBy) => endDeviceApproval(wait.botId, wait.threadId, wait.messageId, endedBy),
+});
 const computerControl = new ComputerControl((key, snapshot) => {
   if (!key.startsWith(teamComputerOwner(""))) {
     const botId = key;
@@ -7658,6 +7667,7 @@ async function acceptDirectSend(
         throw Object.assign(new Error("the target task no longer exists"), { status: 409 });
       }
       if (personPresent) answerTakeoverByTyping(currentAtStart.id, threadId);
+      if (personPresent) answerDeviceApprovalsByTyping(threadId);
 
       if (guardedStart) return guardedStart(currentAtStart);
 
@@ -12037,6 +12047,34 @@ function endTakeover(wait: TakeoverWait, outcome: "done" | "skipped" | "replied"
   return next;
 }
 
+function deviceApprovalMessage(botId: string, threadId: string, messageId: string): Message | null {
+  const owner = connectorThread(botId, threadId);
+  if (!owner) return null;
+  const message = store.activePath(threadId).find((candidate) => candidate.id === messageId);
+  if (owner.group && message?.from?.botId !== botId) return null;
+  return message?.kind === "options" && message.card?.deviceApproval ? message : null;
+}
+
+function endDeviceApproval(botId: string, threadId: string, messageId: string, endedBy: DeviceApprovalEndedBy): DeviceApprovalCardData | null {
+  deviceApprovals.remove({ threadId, messageId });
+  const message = deviceApprovalMessage(botId, threadId, messageId);
+  const card = message?.card?.deviceApproval;
+  if (!message?.card || !card || !isOpenDeviceApproval(card)) return null;
+  const next: DeviceApprovalCardData = { ...card, status: deviceApprovalOutcome(endedBy), endedBy };
+  store.patchMessage(threadId, message.id, { card: { ...message.card, deviceApproval: next } });
+  if (endedBy !== "reply" && endedBy !== "replaced") {
+    dispatchTakeoverResume({ botId, threadId, messageId, prompt: deviceApprovalResumePrompt(card, endedBy) });
+  }
+  return next;
+}
+
+function answerDeviceApprovalsByTyping(threadId: string): void {
+  for (const wait of deviceApprovals.waitingIn(threadId)) {
+    if (wait.check || wait.pid) continue;
+    endDeviceApproval(wait.botId, threadId, wait.messageId, "reply");
+  }
+}
+
 function answerTakeoverByTyping(botId: string, threadId: string): void {
   const bot = store.bot(botId);
   if (!bot) return;
@@ -13152,6 +13190,23 @@ INTERNAL_ROUTES.push(createMacMessagesRoute({
   enabled: () => CLOUD_HOME !== null && lendingEnabled(),
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   mac: (capability, computerId) => messagesMac(capability as InternalCapability, computerId),
+}));
+INTERNAL_ROUTES.push(createDeviceApprovalRequestRoute({
+  owner: connectorThread,
+  mayRunCheck: (sender, threadId) => {
+    const threadBot = store.projectBotForTask(sender.id, threadId) ?? sender;
+    return ownerWorkThread(threadId) && runsUnattended(approvalModeForTurn(threadBot, false, threadId), autoReviewOn(cfg.features));
+  },
+  cwd: (sender, threadId) => store.taskByThread(sender.id, threadId)?.cwd ?? sender.cwd ?? workspaceDir(sender.id),
+  messages: store,
+  watch: (wait) => deviceApprovals.add(wait),
+  unwatch: (wait) => deviceApprovals.remove(wait),
+  notify: (sender, threadId, detail, room) => notify(buildNotification("takeover", sender, threadId, detail, { group: room })),
+  now: () => Date.now(),
+}));
+ROUTES.push(createDeviceApprovalCardRoutes({
+  read: (botId, threadId, messageId) => deviceApprovalMessage(botId, threadId, messageId)?.card?.deviceApproval ?? null,
+  end: endDeviceApproval,
 }));
 INTERNAL_ROUTES.push(createTakeoverRequestRoute({
   ...takeoverLease,

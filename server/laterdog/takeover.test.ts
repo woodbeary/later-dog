@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEVICE_APPROVAL_PROMPT } from "./device-approval.ts";
 import type { TakeoverRequestCardData } from "../../shared/takeover.ts";
 import { CREDENTIAL_PROMPT, SIGN_IN_PROMPT } from "../system-prompt.ts";
 import {
@@ -152,7 +153,10 @@ describe("what the dog is told", () => {
 
 describe("what every dog with later.dog's tools knows up front", () => {
   it("does the legwork, hands over just the human step, and never refuses a sign-in", () => {
-    expect(CREDENTIAL_PROMPT.endsWith(TAKEOVER_PROMPT)).toBe(true);
+    expect(CREDENTIAL_PROMPT.endsWith(TAKEOVER_PROMPT + DEVICE_APPROVAL_PROMPT)).toBe(true);
+    expect(DEVICE_APPROVAL_PROMPT).toMatch(/For every device-code sign-in/);
+    expect(DEVICE_APPROVAL_PROMPT).toMatch(/call request_device_approval/);
+    expect(DEVICE_APPROVAL_PROMPT).toMatch(/Never paste the url and code into chat/);
     expect(TAKEOVER_PROMPT.startsWith(" ")).toBe(true);
     expect(TAKEOVER_PROMPT).toMatch(/do all the legwork first/);
     expect(TAKEOVER_PROMPT).toMatch(/a sign-in or code you have no Secure Form for/);
