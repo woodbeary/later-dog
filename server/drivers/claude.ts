@@ -8,7 +8,7 @@ import { DATA_DIR, stripWorkspaceCredentialEnv } from "../config.ts";
 import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
-import { engineOpener, planClaudeRemote, remoteEngineBots, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
+import { engineOpener, notePlacement, planClaudeRemote, remoteEngineBots, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
 import { classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { ClaudeLoginController } from "./claude-login-auth.ts";
 
@@ -1267,6 +1267,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const commandCwd = permissionLaunchCwd(cwd);
       const unkeyedFlags = new Set<string>(["--mcp-config", "--settings", ...FLAGS_LEARNED_AFTER_LAUNCH]);
       const keyArgs = args.filter((a, i) => a !== "--forward-subagent-text" && !unkeyedFlags.has(a) && !unkeyedFlags.has(args[i - 1] ?? ""));
+      const chosenRemote = Boolean(botId && !turn.guestConfined && remoteEngineBots(DATA_DIR).has(botId));
       const argsParts = Object.fromEntries(Object.entries({
         args: keyArgs,
         system: turn.systemStable ?? turn.system ?? null,
@@ -1279,6 +1280,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         fast: Boolean(turn.fast),
         quiet: Boolean(turn.quietWork),
         reviewerGrant: permissionMode === "auto" ? turn.reviewerGrant ?? null : null,
+        placement: chosenRemote ? "computer" : "home",
         auth: createHash("sha256").update(JSON.stringify({
           settings: authSettings,
           env: Object.fromEntries(CLAUDE_ACCOUNT_ENV_KEYS.map((key) => [key, env[key]])),
@@ -1425,16 +1427,17 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         const local = () => spawnCli(config.cli, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
         const opener = engineOpener();
         let remote: ReturnType<typeof planClaudeRemote> | null = null;
-        if (opener && botId && !turn.guestConfined && remoteEngineBots(DATA_DIR).has(botId)) {
+        if (chosenRemote && !opener) notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: no cloud computer opener in this server`);
+        if (opener && chosenRemote) {
           try {
-            remote = planClaudeRemote({ botId, threadId, sessionId: (sessionId ?? newSessionId)!, cliCommand: resolveCli(config.cli, args, env).command,
+            remote = planClaudeRemote({ botId: botId!, threadId, sessionId: (sessionId ?? newSessionId)!, cliCommand: resolveCli(config.cli, args, env).command,
               args, cwd, env, managed: Boolean(config.managed), dataDir: DATA_DIR, proxyPath: opener.proxyPath, remoteBase: opener.remoteBase });
           } catch (error) { remote = { stay: `launch could not be mirrored: ${(error as Error).message}` }; }
-          if ("stay" in remote) console.log(`[engine] ${botId.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: ${remote.stay}`);
+          if ("stay" in remote) notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} stays on the home: ${remote.stay}`);
         }
         child = remote && "plan" in remote
           ? spawnPlacedEngine(remote.plan, (plan) => opener!.open(botId!, plan), local, (where, why) =>
-            console.log(`[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`)) as unknown as ReturnType<typeof spawnCli>
+            notePlacement(DATA_DIR, `[engine] ${botId!.slice(0, 8)} ${threadId.slice(0, 8)} runs on the ${where === "computer" ? "dog's cloud computer" : "home"}${why ? ` (${why})` : ""}`)) as unknown as ReturnType<typeof spawnCli>
           : local();
       } catch (error) {
         cleanupUnownedLaunch();

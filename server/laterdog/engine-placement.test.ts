@@ -1,10 +1,10 @@
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import type WebSocket from "ws";
 import { prepareEngineComputer, processStreamLink, type EngineScripts } from "./engine-computer.ts";
-import { planClaudeRemote, remoteEngineBots, scopedClaudeCredential, type ClaudePlacement } from "./engine-placement.ts";
+import { commandOnPath, ENGINE_PLACEMENT_LOG, notePlacement, planClaudeRemote, remoteEngineBots, scopedClaudeCredential, type ClaudePlacement } from "./engine-placement.ts";
 
 const scratch: string[] = [];
 afterEach(() => { for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true }); });
@@ -44,6 +44,29 @@ it("keeps the engine on the home whenever the launch cannot be mirrored exactly"
   expect(planClaudeRemote(setup({}, { accessToken: "a", expiresAt: Date.now() + 60_000 }).input)).toEqual({ stay: "no current sign-in to lend" });
   const home = setup();
   expect(planClaudeRemote({ ...home.input, cwd: home.base })).toEqual({ stay: "working folder cannot be mirrored" });
+});
+
+it("finds the npm Claude CLI when the home launches it by bare name through PATH, as a Linux Cloud home does", () => {
+  const { base, input } = setup();
+  const bin = join(base, "bin");
+  mkdirSync(bin);
+  symlinkSync(input.cliCommand, join(bin, "claude"));
+  const planned = planClaudeRemote({ ...input, cliCommand: "claude", env: { ...input.env, PATH: `/nonexistent:${bin}:/usr/bin` } });
+  if (!("plan" in planned)) throw new Error(planned.stay);
+  expect(planned.plan.cli).toEqual({ name: "@anthropic-ai/claude-code", version: "2.1.316" });
+  expect(planClaudeRemote({ ...input, cliCommand: "claude", env: { ...input.env, PATH: "/usr/bin" } })).toEqual({ stay: "Claude CLI is not an npm install" });
+  expect(commandOnPath("./claude", bin)).toBeNull();
+});
+
+it("keeps each placement decision in a capped log in the home's data folder", () => {
+  const { base } = setup();
+  notePlacement(base, "[engine] bot thread stays on the home: why", new Date("2026-11-09T06:00:00Z"));
+  expect(readFileSync(join(base, ENGINE_PLACEMENT_LOG), "utf8")).toBe("2026-11-09T06:00:00.000Z [engine] bot thread stays on the home: why\n");
+  writeFileSync(join(base, ENGINE_PLACEMENT_LOG), "x".repeat(300 * 1024) + "\nold line\n");
+  notePlacement(base, "new line");
+  const kept = readFileSync(join(base, ENGINE_PLACEMENT_LOG), "utf8");
+  expect(kept.length).toBeLessThan(200 * 1024);
+  expect(kept.endsWith("new line\n")).toBe(true);
 });
 
 it("lends the computer an access token but never the refresh token", () => {

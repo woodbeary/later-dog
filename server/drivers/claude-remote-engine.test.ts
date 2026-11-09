@@ -1,7 +1,8 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, expect, it, onTestFinished, vi } from "vitest";
+import { resetPathCacheForTests } from "../env-path.ts";
 import { ensureDirs } from "../config.ts";
 import { recordEvents } from "../testing/events.ts";
 import { ClaudeDriver } from "./claude.ts";
@@ -75,5 +76,62 @@ it("runs a chosen dog's Claude turn on its computer with the same model and sess
   await recorder.until((event) => event.type === "turn.completed" && event.threadId === "home-thread");
   expect(JSON.parse(readFileSync(homeDump, "utf8")).cwd).toBe(cwd);
   expect(opened).toEqual(["dog-remote"]);
+  await instance.dispose?.();
+}, 60_000);
+
+it("places a dog launched by bare name through PATH, as on a Linux Cloud home, and moves a warm engine when its placement changes", async () => {
+  ensureDirs();
+  const base = realpathSync(mkdtempSync("/tmp/ldclaude-"));
+  scratch.push(base);
+  const cwd = join(base, "work"); const config = join(base, "config"); const remoteRoot = join(base, "remote"); const remoteBase = join(base, "rb"); const bin = join(base, "bin");
+  for (const dir of [cwd, config, remoteRoot, bin]) mkdirSync(dir, { recursive: true });
+  writeFileSync(join(config, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "a", refreshToken: "r", expiresAt: Date.now() + 3600_000 } }));
+  const bare = `claude-ldtest-${process.pid}`;
+  symlinkSync(fakePackage(join(base, "lib")), join(bin, bare));
+  const remoteBin = join(remoteBase, "cli", "claude-code-2.1.316", "node_modules", ".bin");
+  mkdirSync(remoteBin, { recursive: true });
+  writeFileSync(join(remoteBin, "claude"), `#!/bin/sh\nexec "${process.execPath}" "${FAKE_CLI}" "$@"\n`);
+  chmodSync(join(remoteBin, "claude"), 0o755);
+  symlinkSync(process.execPath, join(remoteBin, "node"));
+  const opened: string[] = [];
+  setEngineOpener({ proxyPath: PROXY, remoteBase, open: async (botId) => { opened.push(botId); return commandLink(process.execPath, [RELAY], { ...process.env, LATERDOG_ENGINE_TEST_ROOT: remoteRoot }); } });
+  vi.spyOn(console, "log").mockImplementation(() => {});
+  const pathBefore = process.env.PATH;
+  process.env.PATH = `${bin}:${pathBefore}`;
+  resetPathCacheForTests();
+  onTestFinished(() => { process.env.PATH = pathBefore; resetPathCacheForTests(); });
+
+  const instance = await ClaudeDriver.create({ instanceId: "claude-bare", displayName: "Claude", enabled: true,
+    environment: { CLAUDE_CONFIG_DIR: config, FAKE_CLAUDE_VERSION: "2.1.316" }, config: { cli: bare, permissionMode: "acceptEdits" } });
+  const recorder = recordEvents(instance.adapter);
+  let turns = 0;
+  let resumeCursor: string | undefined;
+  const turn = async () => {
+    const dump = join(base, `dump-${++turns}.json`);
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    await instance.adapter.sendTurn({ threadId: "warm-thread", botId: "dog-warm", text: `turn ${turns}`, cwd, model: "claude-opus-5-5", resumeCursor } as never);
+    const done = await recorder.until((event) => event.type === "turn.completed" && event.threadId === "warm-thread" && recorder.events.filter((e) => e.type === "turn.completed" && e.threadId === "warm-thread").length === turns);
+    expect((done as { ok?: boolean }).ok, JSON.stringify(recorder.events.filter((e) => e.threadId === "warm-thread").slice(-6))).toBe(true);
+    return existsSync(dump) ? JSON.parse(readFileSync(dump, "utf8")) : null;
+  };
+
+  const first = await turn();
+  expect(first.cwd).toBe(cwd);
+  resumeCursor = (recorder.events.find((event) => event.type === "session.started" && event.threadId === "warm-thread") as { sessionId?: string }).sessionId;
+  expect(resumeCursor).toBeTruthy();
+  expect(await turn()).toBeNull();
+  expect(opened).toEqual([]);
+
+  process.env.LATERDOG_REMOTE_ENGINE_BOTS = "dog-warm";
+  const moved = await turn();
+  expect(opened).toEqual(["dog-warm"]);
+  expect(moved.cwd).toBe(`${remoteRoot}${cwd}`);
+  expect(moved.argv[moved.argv.indexOf("--resume") + 1]).toBe(resumeCursor);
+
+  delete process.env.LATERDOG_REMOTE_ENGINE_BOTS;
+  const back = await turn();
+  expect(back.cwd).toBe(cwd);
+  expect(back.argv[back.argv.indexOf("--resume") + 1]).toBe(resumeCursor);
+  expect(opened).toEqual(["dog-warm"]);
   await instance.dispose?.();
 }, 60_000);

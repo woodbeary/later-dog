@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { ChildProcess } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { killCliTree, registerTreeStopper } from "../procs.ts";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -22,11 +22,39 @@ export function remoteEngineBots(dataDir: string, env: NodeJS.ProcessEnv = proce
   return chosen;
 }
 
+export const ENGINE_PLACEMENT_LOG = "engine-placement.log";
+const ENGINE_PLACEMENT_LOG_MAX_BYTES = 256 * 1024;
+
+export function notePlacement(dataDir: string, line: string, now = new Date()): void {
+  const text = `${now.toISOString()} ${line}`;
+  console.log(text);
+  const file = join(dataDir, ENGINE_PLACEMENT_LOG);
+  try {
+    let kept = "";
+    try { if (statSync(file).size > ENGINE_PLACEMENT_LOG_MAX_BYTES) kept = readFileSync(file, "utf8").slice(-ENGINE_PLACEMENT_LOG_MAX_BYTES / 2).replace(/^[^\n]*\n/, ""); } catch {}
+    if (kept) writeFileSync(file, kept, { mode: 0o600 });
+    appendFileSync(file, `${text}\n`, { mode: 0o600 });
+  } catch {}
+}
+
 export function claudeProjectSlug(cwd: string): string { return cwd.replace(/[^a-zA-Z0-9]/g, "-"); }
 
-export function claudeCliPackage(resolvedCommand: string): { name: string; version: string } | null {
+export function commandOnPath(command: string, path: string | undefined): string | null {
+  if (isAbsolute(command)) return command;
+  if (command.includes("/")) return null;
+  for (const dir of (path ?? "").split(":")) {
+    if (!dir || !isAbsolute(dir)) continue;
+    const candidate = join(dir, command);
+    try { if (statSync(candidate).isFile()) return candidate; } catch {}
+  }
+  return null;
+}
+
+export function claudeCliPackage(resolvedCommand: string, path?: string): { name: string; version: string } | null {
+  const found = commandOnPath(resolvedCommand, path);
+  if (!found) return null;
   let at: string;
-  try { at = realpathSync(resolvedCommand); } catch { return null; }
+  try { at = realpathSync(found); } catch { return null; }
   for (let dir = dirname(at); dir !== dirname(dir); dir = dirname(dir)) {
     const file = join(dir, "package.json");
     if (!existsSync(file)) continue;
@@ -72,7 +100,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
   if (input.managed) return { stay: "managed account" };
   const base = input.env.ANTHROPIC_BASE_URL;
   if (base) { try { if (LOOPBACK.test(new URL(base).hostname)) return { stay: "account reached through the home" }; } catch { return { stay: "unreadable account address" }; } }
-  const cli = claudeCliPackage(input.cliCommand);
+  const cli = claudeCliPackage(input.cliCommand, input.env.PATH ?? process.env.PATH);
   if (!cli) return { stay: "Claude CLI is not an npm install" };
   const home = input.env.HOME || homedir();
   const configDir = resolve(input.env.CLAUDE_CONFIG_DIR || join(home, ".claude"));
