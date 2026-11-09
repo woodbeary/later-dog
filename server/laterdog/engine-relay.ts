@@ -265,7 +265,7 @@ async function handle(frame: any): Promise<void> {
         const artifacts = new Map<string, string>();
         for (const artifact of Array.isArray(frame.ownership.artifacts) ? frame.ownership.artifacts : []) if (typeof artifact?.path === "string" && typeof artifact?.hash === "string") artifacts.set(artifact.path, artifact.hash);
         ownership = { root, artifacts, patchHash: typeof frame.ownership.patchHash === "string" ? frame.ownership.patchHash : null,
-          caps: { ...WORKSPACE_CAPS, ...(frame.ownership.caps ?? {}) }, cacheFile: typeof frame.ownership.cacheFile === "string" ? mirrored(frame.ownership.cacheFile) : "" };
+          caps: { ...WORKSPACE_CAPS, ...frame.ownership.caps }, cacheFile: typeof frame.ownership.cacheFile === "string" ? mirrored(frame.ownership.cacheFile) : "" };
       }
       synced = roots.filter(root => root !== ownership?.root);
       outputs = synced.filter(root => frame.outputIds.includes(root.id));

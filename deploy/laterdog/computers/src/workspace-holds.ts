@@ -54,7 +54,7 @@ export function holdView(holds: Holds | undefined, snapshotAt: number | undefine
 
 export function addHold(holds: Holds | undefined, key: string, writtenAt: number, now: number): { ok: true; holds: Holds } | { ok: false; refusal: Refusal } {
   if (writtenAt > now + HOLD_FUTURE_SLACK_MS) return { ok: false, refusal: { status: 400, code: "bad_hold", message: "That workspace time is in the future." } };
-  const next = { ...(holds ?? {}) };
+  const next = { ...holds };
   if (!(key in next) && Object.keys(next).length >= MAX_HOLDS) {
     return { ok: false, refusal: { status: 409, code: "too_many_holds", message: `This computer already holds ${MAX_HOLDS} workspaces; bring some home first.` } };
   }
@@ -63,7 +63,7 @@ export function addHold(holds: Holds | undefined, key: string, writtenAt: number
 }
 
 export function releaseHold(holds: Holds | undefined, key: string, through: number): { ok: true; holds: Holds } | { ok: false; refusal: Refusal } {
-  const next = { ...(holds ?? {}) };
+  const next = { ...holds };
   const held = next[key];
   if (held === undefined) return { ok: true, holds: next };
   if (held > through) return { ok: false, refusal: { status: 409, code: "newer_work", message: "The workspace changed after it was copied home, so the computer keeps holding it." } };
