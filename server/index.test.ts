@@ -4457,6 +4457,25 @@ describe("harness HTTP API", () => {
     expect(cleared.body.bot.avatarCrop).toBe("mascot");
   });
 
+  it("lets a live stream say which chats are on screen", async () => {
+    const plain = await openSse(`${BASE}/api/events?screens=off`);
+    const watching = await openSse(`${BASE}/api/events?screens=off&watch=1`);
+    try {
+      expect((await plain.until((frame) => frame.kind === "hello")).watch).toBeUndefined();
+      const hello = await watching.until((frame) => frame.kind === "hello");
+      expect(hello.watch).toMatch(/^[0-9a-f-]{36}$/);
+      const saved = await api("POST", "/api/events/watch", { id: hello.watch, threads: ["t-open"] });
+      expect(saved.status).toBe(200);
+      expect(saved.body).toEqual({ threads: ["t-open"] });
+      expect((await api("POST", "/api/events/watch", { id: hello.watch, threads: "all" })).body).toEqual({ threads: "all" });
+      expect((await api("POST", "/api/events/watch", { id: "gone", threads: [] })).status).toBe(404);
+      expect((await api("POST", "/api/events/watch", { id: hello.watch, threads: [7] })).status).toBe(400);
+    } finally {
+      plain.close();
+      watching.close();
+    }
+  });
+
   it("limits paired profile writes to validated profile fields and broadcasts the result", async () => {
     const created = await api("POST", "/api/bots");
     const bot = created.body.bot;

@@ -661,6 +661,7 @@ import {
 } from "./bot-visibility.ts";
 import { describeBrand, loadBrand } from "./brand.ts";
 import { deliverSseFrame, keepSseAlive } from "./sse-fanout.ts";
+import { openStreamWatch, streamWatchSkips, updateStreamWatch } from "./stream-watch.ts";
 import {
   PHONE_SECRET_PROTOCOL_VERSION,
   PhoneSecretBridge,
@@ -4990,6 +4991,8 @@ interface SseClient {
   backpressured: boolean;
   viewer: Viewer;
   seen: StreamSeen;
+  watchId?: string;
+  watch?: Set<string>;
   close: () => void;
 }
 const sseClients = new Set<SseClient>();
@@ -5076,7 +5079,7 @@ function broadcast(payload: Record<string, unknown>, options: { adminOnly?: bool
   replayBuffer.push({ seq, kind, frame: kind === "screen" ? null : frame, clientFrame: kind === "screen" ? null : clientFrame, payload: kind === "screen" ? null : payload });
   if (replayBuffer.length > REPLAY_MAX) replayBuffer.shift();
   for (const client of Array.from(sseClients)) {
-    if (!wants(client, kind)) continue;
+    if (!wants(client, kind) || streamWatchSkips(client, payload)) continue;
     const out = client.admin ? frame : clientFrame === null ? null : memberFrame(client, seq, payload, clientFrame);
     if (out === null) continue;
     if (deliverSseFrame(client, kind, out) === "disconnected") client.close();
@@ -13571,7 +13574,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (await workspaceBackupRoutes(req, res, path, auth)) return;
     if (await cloudMoveRoutes(req, res, path, auth)) return;
     if (await cloudHoldRoutes(req, res, path, auth)) return;
-    if (path.startsWith("/api/") && path !== "/api/events" && path !== "/api/health" && !path.startsWith("/api/shared-computers/") && !isPhoneDevicePath(path) && !isWorkspaceBackupSessionControl(method, path)) {
+    if (path.startsWith("/api/") && path !== "/api/events" && path !== "/api/events/watch" && path !== "/api/health" && !path.startsWith("/api/shared-computers/") && !isPhoneDevicePath(path) && !isWorkspaceBackupSessionControl(method, path)) {
       releaseWorkspaceRequest = workspaceMaintenance.request();
     }
 
@@ -15409,6 +15412,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         close: () => {},
       };
       if (auth.kind === "session") client.sessionId = auth.session.id;
+      openStreamWatch(client, url.searchParams);
       res.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
@@ -15429,11 +15433,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           kind: "hello",
           cursor: `${STREAM_ID}:${lastSeq}`,
           resumed,
+          ...(client.watchId ? { watch: client.watchId } : {}),
         })}\n\n`,
       );
       if (resumed) {
         for (const buffered of replayBuffer) {
-          if (buffered.seq <= since || !wants(client, buffered.kind)) continue;
+          if (buffered.seq <= since || !wants(client, buffered.kind) || (buffered.payload && streamWatchSkips(client, buffered.payload))) continue;
           const frame = client.admin
             ? buffered.frame
             : buffered.payload
@@ -15451,6 +15456,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         onClose: () => sseClients.delete(client),
       });
       return;
+    }
+
+    if (method === "POST" && path === "/api/events/watch") {
+      const result = updateStreamWatch(sseClients, await readBody(req), auth.kind === "session" ? auth.session.id : undefined);
+      return result.ok ? json(res, 200, { threads: result.threads }) : json(res, result.status, { error: result.error });
     }
 
     const requirePinnedClientThread = (botId: string, threadId: unknown): void => {
