@@ -1,6 +1,6 @@
 # Execution visibility and a smaller shared contract
 
-This is a proposed direction, not implemented mobile or desktop behavior.
+The durable native projection and compact desktop/phone surfaces below are implemented and merged. The final server image passed its production activation and ten-minute functional window; the phone beta is published. Storage headroom and large live capacity remain unqualified. Publication does not prove installed-device behavior; see [release evidence](../verification/consolidation-release-2026-11-08.md).
 
 ## Current owners
 
@@ -12,9 +12,7 @@ evidence records selected, dispatched and reported models in the usage ledger.
 
 `server/laterdog/helper-board.ts` is an in-memory live board whose settled entries
 expire after ten seconds. It is not a durable puppy history. The desktop and phone
-each parse helper snapshots and derive activity states. The phone's single context
-contains the full application state and dispatches each received runtime frame.
-These are code observations; they do not by themselves explain a device crash.
+retain helper snapshots only for legacy or unavailable native activity. The native lifecycle is persisted by the server and projected through the shared contract and selectors. The phone retains bounded live snapshots, revalidates paginated history on reconnect/focus, batches frames and selects state for mounted views. These code changes do not by themselves establish fewer device crashes or lower heat.
 
 ## Designs considered
 
@@ -58,12 +56,9 @@ Native engine scheduling is not replaced with another orchestration loop.
   storage and restore checks. A browser environment and a shell environment stay
   separate capabilities behind the existing execution interfaces.
 
-## Required proof before implementation claims
+## Remaining qualification
 
-Replay the same recorded event stream into both clients and compare projections.
-Cover native child restart, late terminal events, parent completion, account
-fallback, Stop, lost acknowledgements and reconnect. Prove only one writer starts
-each attempt. Record real-device navigation, frame time, memory and thermal
+The mapped fixtures cover native restart, late events, parent/child separation, visibility, guarded Stop and reconnect. Shared selectors have a checked immutable source manifest. Broader live provider combinations still need qualification; the standalone Claude child and observed Codex parent are narrower cases. Record real-device navigation, frame time, memory and thermal
 observations under an explicit workload before claiming a phone improvement.
 
 Evaluate optional classification against held-out tasks with independent result

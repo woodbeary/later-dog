@@ -1,0 +1,15 @@
+{
+  "at": "2026-11-09T03:04:05.683Z",
+  "scope": "Isolated staged Orbit conversation; real Kimi provider",
+  "calls": 1,
+  "tool": "agents_execution_advice",
+  "toolOk": true,
+  "keepCurrentVisible": true,
+  "retainedPreviewShortened": true,
+  "selectionAfter": {
+    "instanceId": "laterdogAi",
+    "model": "kimi-k2.6"
+  },
+  "busyAfter": false,
+  "qualification": "Real tool discovery/invocation and visible keep_current result; fixture contract tests cover full result. No production dog received a synthetic QA turn; no model-quality or savings claim."
+}

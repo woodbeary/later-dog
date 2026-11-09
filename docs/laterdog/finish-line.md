@@ -6,36 +6,53 @@ Started 2026-10-13. This file is the single place that says what is in progress,
 
 ## Consolidation release (2026-11-08)
 
-Phone PR166 is merged and beta update `4f712589-ea94-41c1-a8ed-db81d67e6490`
-is published from `1b4b320`. Archive production activation is verified; the
-consolidated server/native activity release is in PR129 and undergoing its exact
-integration checks and independent review. Root integration repairs client scope,
-Claude approval provenance and inspector validation, adds the real browser
-fixture and moves Stop into the canonical adapter interface. The optional advisor
-preserves the selected model. [Release evidence](../verification/consolidation-release-2026-11-08.md)
-separates implementation, publication, activation and provider/device qualification.
+Phone beta `336047c1-f650-4353-8287-228882f44069` is published from main
+`9312d21`, with 1,798 phone checks and the full release verifier passed. Server
+native/advice integration PR129, privacy repair PR130 and immutable image pins
+PR131 are merged. Production Worker `4e2cff6e` activated the final staged images. Twenty-one
+consecutive functional samples from 02:47:04 through 02:57:41 UTC passed; six
+low-storage flags keep capacity unqualified. The account settings
+cleared by an earlier temporary deployment configuration were restored; the
+canonical production flags remain unchanged. The optional advisor preserves the
+selected model. [Release evidence](../verification/consolidation-release-2026-11-08.md)
+separates publication, activation, provider behavior and device installation.
 
 ## Optional execution advisor (2026-11-08)
 
-Branch `codex/execution-advisor` in `code/.wt/execution-advisor`: server-owned execution evidence in the usage ledger and the read-only `execution_advice` dog tool. Selected models stay authoritative; provider success stays unverified. The advisor exposes observations and abstains without controlled verified comparisons. Verification and remaining limits: [execution advisor](../verification/execution-advisor.md). The foundation is in the archive-capable production image; the aggregation change is in PR129. Native sessions need a fresh tool catalog after rollout.
+The server owns execution evidence in the existing usage ledger and exposes the
+read-only `execution_advice` dog tool. It records selected, dispatched and reported
+model facts without changing selection or adding an inference call. Per-query
+aggregation and privacy repairs are merged; canonical current titles are fetched
+only after caller scoping and are not copied into new usage records. Legacy month
+files are not purged. The observed thirty-day ledger had 1,775 turns but only five
+new execution receipts and no independently verified task outcomes, so the tool
+abstains from model changes. Native sessions need a fresh tool catalog after
+rollout. [Verification and limits](../verification/execution-advisor.md).
 
 ## Native work projection (2026-11-09)
 
-Durable server-owned native run projection, compact activity row with selectable puppies, one detail surface, and phone-reusable contract and selectors are ported onto main. Fixture success only: no live Claude or Codex qualification and no phone measurement. Open gaps (client-scope routes, Claude helper approval provenance, inspector event validation) and the phone recipe: [verification](../verification/native-activity.md), [phone guide](native-work-phone-guide.md).
+Durable native runs, compact selectable puppies, one detail surface and the phone's
+reused Activity screen are merged and staged. Client scope, Claude approval
+attribution, inspector validation and canonical Stop boundaries are repaired.
+The real browser fixture and restart/retention fixtures pass. One authenticated
+Claude foreground-child parser case is qualified; a real production Codex parent
+was observed live during natural work. Full native-provider combinations, Codex
+children and real phone performance remain unqualified. See [verification](../verification/native-activity.md),
+[phone guide](native-work-phone-guide.md) and [release evidence](../verification/consolidation-release-2026-11-08.md).
 
 ## How to resume
 
-2026-11-08 cloud workspace scaling: main `5027f5692` is active in Jacob's home. Successful same-lockfile packages are reused across session folders on a dog's computer; a Claude shell hook directs heavy commands there. The production Worker and both runtime images deployed. Engine processes remain on the shared home; remote engine transport and workspace migration are unfinished. [Release evidence](../verification/cloud-scaling-2026-11-08.md) records the phone/desktop model-line fixes, baseline test failures, runtime activation and remaining limits.
+2026-11-08 cloud workspace scaling: main `5027f5692` was observed active in Jacob's home at 02:22 UTC before the final privacy-image rollout. Successful same-lockfile packages are reused across session folders on a dog's computer; a Claude shell hook directs heavy commands there. The production Worker and both runtime images deployed. Engine processes remain on the shared home; remote engine transport and workspace migration are unfinished. [Release evidence](../verification/cloud-scaling-2026-11-08.md) records the phone/desktop model-line fixes, baseline test failures, runtime activation and remaining limits.
 
 2026-11-08 automatic log archive: the log-only scheduler, per-thread startup/history gates, autonomous restore retry and root descriptor ownership checks are implemented on patch/automatic-log-archive. All 240 isolated home tests pass, including a real server restart during a restore outage without opening its chat. Production image activation and cumulative archive uploads are verified; see [archive evidence](../verification/log-archive-2026-11-08.md).
 
-2026-11-08 execution advice scale candidate: per-query account/model grouping replaces repeated history scans, and the private advice response carries one JSON representation. The isolated twenty-dog scenario proves separate fake-engine processes, advice capabilities, duplicate-safe sends and twenty completion receipts. Reproducible local timings and their active-host limits are in [the scale recipe](../verification/execution-advisor-scale.md). [Execution visibility](execution-visibility-design.md) records the proposed shared projection and the proof required before mobile, desktop or capacity claims. This candidate has not been deployed.
+2026-11-08 execution advice scale integration: per-query account/model grouping replaces repeated history scans, and the private advice response carries one JSON representation. The isolated twenty-dog scenario proves separate fake-engine processes, advice capabilities, duplicate-safe sends and twenty completion receipts. Reproducible local timings and their active-host limits are in [the scale recipe](../verification/execution-advisor-scale.md). [Execution visibility](execution-visibility-design.md) records the implemented shared projection and remaining qualification work. The final privacy image is active and its ten-minute functional window passed; synthetic concurrency is not a live capacity claim.
 
-2026-11-09 execution evidence privacy: the usage ledger no longer stores task text. Evidence is whitelisted on append and read, and the advisor matches against canonical current thread titles fetched per query for rows already scoped to the asking dog. Legacy task titles in existing month files are not scrubbed, and current titles are not historical task-quality labels. See [execution advisor](../verification/execution-advisor.md).
+2026-11-09 execution evidence privacy: new ledger execution evidence omits task text. Evidence is whitelisted on append and read, and the advisor matches against canonical current thread titles fetched per query for rows already scoped to the asking dog. Legacy task titles in existing month files are not scrubbed, and current titles are not historical task-quality labels. See [execution advisor](../verification/execution-advisor.md).
 
 2026-11-08 background recovery: the registry now takes a completed background account check from the current snapshot cache, avoiding stale state until another client request. All 20 account-continuation fixtures pass, including an unopened conversation, reset across restart, synthetic Grok capacity dispatch and legacy Kimi queue migration. The 30-hour progressing owner-work test passes with the elapsed ceiling removed. The reported live stall and installed desktop behavior remain unverified; see [recovery evidence](../verification/recovery-2026-11-08.md).
 
-2026-11-08 account usage: full five-hour or seven-day readings now keep an account resting until reset without needing a limit event. Limit continuation chooses the eligible account with the most room, including pinned dogs. Desktop Accounts rows now expose the saved account on/off setting. Regression coverage includes full-window routing, a recovered pinned account during fallback, usage-sheet reports, and successful/rejected desktop toggles. The isolated account-continuation fixture passes all 16 scenarios. Desktop appearance and the reported Grok/Kimi queued messages remain unverified.
+2026-11-08 account usage: full five-hour or seven-day readings now keep an account resting until reset without needing a limit event. Limit continuation chooses the eligible account with the most room, including pinned dogs. Desktop Accounts rows now expose the saved account on/off setting. Regression coverage includes full-window routing, a recovered pinned account during fallback, usage-sheet reports, and successful/rejected desktop toggles. The isolated account-continuation fixture passes all 16 scenarios. Account row behavior is fixture-tested; installed desktop appearance remains unverified. Staging completed bounded real Grok and Kimi turns, including a new sanitized Kimi receipt on the privacy image. The originally reported live queued messages are not declared delivered by those staging checks.
 
 1. Read `AGENTS.md`. The rules there hold for every lane: pnpm, Node 24, no comments in code, new behaviour in new files under `server/laterdog/`, isolated fixtures only.
 2. Find your lane below. Check out its branch in its own worktree. Never switch branches in someone else's worktree.
@@ -139,6 +156,7 @@ Owned by one session ("App regression review"). Other sessions: do not start lan
 - Archive of every branch tip before this work: kept off GitHub on the person's backup drive.
 - Cloud image build: GitHub Actions "Cloud home image", started by hand (workflow_dispatch).
 
-## Cloud archive foundation, 2026-11-08
+## Cloud archive foundation, 2026-11-08 (historical)
 
-Clover preserved the stopped worktrees and hardened the cold archive primitive in clover/cloud-archive. Home tests: 227 pass; Worker typecheck, 10 no-comments tests and focused lint pass. The loopback archiver is not started and no scheduler is enabled on live data. Activation requires guarded selection, process ownership checks, restore-before-resume, race fixtures and a Worker/runtime release. Evidence and exact remaining gates: docs/verification/cloud-archive-2026-11-08.md. Remote engines and workspace migration remain unfinished.
+This pre-activation checkpoint is superseded by the automatic archive activation
+and production receipts above. At that checkpoint, Clover preserved the stopped worktrees and hardened the cold archive primitive in clover/cloud-archive. Home tests: 227 pass; Worker typecheck, 10 no-comments tests and focused lint pass. The loopback archiver was not yet started and no scheduler was enabled on live data. Activation then required guarded selection, process ownership checks, restore-before-resume, race fixtures and a Worker/runtime release. The original evidence is [the foundation record](../verification/cloud-archive-2026-11-08.md); current activation is [the archive production record](../verification/log-archive-2026-11-08.md). Remote engines and workspace migration remain unfinished.
