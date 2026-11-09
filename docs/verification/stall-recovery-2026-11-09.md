@@ -168,9 +168,32 @@ proof that automatic restart pickup succeeded on those interrupted attempts.
 Clover subsequently received and summarized Ziggy's finished stream-filtering
 work. Patch began its separate home-code and phone-beta release task. The new
 home bundle labelled `9e49441e4` was published at 10:51:20 UTC. Its publication
-does not establish activation or qualify phone installation. A separate
-read-only monitor checks the new stream's watch-capable hello, health and
-retained fleet; the earlier image window cannot substitute for that check.
+does not establish activation or qualify phone installation. The actual task
+reported the switch at 11:04:06. A separate read-only monitor first observed PID
+5161 and the new watch-capable stream hello at 11:04:16. It passed **21 consecutive
+functional samples through 11:14:30 UTC**, retaining all 80 identities. Five of
+those storage reads reported low space; passing functionality does not qualify
+capacity. The optional publisher reported the PID change with an explicit caveat
+that a PID alone cannot establish the exact bundle. The new stream behavior is
+separate evidence of the newer implementation, not a binary attestation.
+
+The actual existing home/phone release task received a restart-recovery notice,
+resumed its commands and reported the home update to Ziggy. This is one observed
+automatic recovery of real work, distinct from the earlier operator continuations.
+Clover completed another real Codex / Sol / Medium turn after that switch. The
+release task had its own explicit Claude override; it was corrected to follow
+Patch's Codex / Sol / Medium setting at 11:07 without interrupting that provider
+turn. A setting change does not change the provider of an already running attempt.
+
+The Mac connection then appeared online after a transient reconnect. The
+operator continued Patch's saved desktop release again at 11:09. Its actual
+release checks resumed; a signed desktop release is still not qualified here.
+The phone verification log ended with exit 1, 1,828 passes, one failure and one
+unhandled error. Its opening-chat test timed out, and its unhandled error and
+remaining coverage still require investigation. The operator continued that
+existing release task on Codex at 11:15 with the failed log and instructions to
+reuse existing results and withhold beta publication until verification passes.
+The phone release is not claimed complete by this incident report.
 
 ## Capacity and native Mac limits
 
@@ -186,6 +209,13 @@ to the existing app's lifetime. The final local explicit server-build type check
 and bundle build passed; the final naming/comment guard run passed 13 checks.
 Earlier failed runs above remain failed runs.
 
+The documentation follow-up's repeated comment-guard run passed nine cases but
+timed out in the repository-wide scan at its explicit 180-second test limit.
+That run remains failed; it does not undo the earlier 13-case guard pass and is
+not described as another green suite.
+The canonical Node 24 `node scripts/no-comments.ts --check` then completed with
+exit zero and no comments found, without a test-runner deadline.
+
 An additional actual Mac screen-control attempt failed. The app's native
 connection file reported `cua-driver binary not found`; that is not evidence of
 missing macOS permissions. The pinned 0.28.2 arm64 executable was staged through
@@ -193,9 +223,31 @@ missing macOS permissions. The pinned 0.28.2 arm64 executable was staged through
 PR139 addresses source lookup. Review blocked the first proposed relay change:
 reading a native descriptor must not enable screen control through a no-op
 host-control gate. The Dev proxy points to the Cloud and is not this Mac's local
-control gate. This separate native path remains unqualified until a safe repair,
-activation and actual Mac permission/control check are complete. File and shell
-work already observed on the Mac does not prove screen control.
+control gate. Review also caught a default source launch that never started the
+staged helper without an external flag, a misleading screen capability when no
+local gate existed, and an unintended global-app fallback after automatic source
+startup failed. The published repair at `7125169` reuses the existing embedded
+startup for the pinned stage, keeps its automatic failure unavailable without
+opening a global app, and derives advertised, effective and UI screen capability
+from the requested grant and presence of the real control provider. Execution
+still has to acquire and renew the actual lease. Saved user grants remain intact;
+Dev's file and terminal capabilities remain available.
+
+PR139 merged as `7ddcf2c`. Final independent review on the Mac passed all 40
+focused resolver, startup and Dev-connection checks without skips, plus six
+real-controller gate fixtures. Permission-denied and SDK-start failures made no
+subprocess or global-app-open calls; an explicit embedded opt-in retained its
+existing fallback. The native host, permissions and driver were mocked. Cloud
+review also passed the final source and guards, but its platform skips and
+unrerun earlier capability cases are not represented as real Mac checks.
+
+Dev's Cloud connection has no canonical local screen-control gate. Its screen
+capability therefore stays unavailable; the repair must not pretend to supply
+that gate by reading a native descriptor or by calling the Cloud proxy. A future
+integration with the app's local control owner remains unfinished. This separate
+native path is not qualified as working Mac screen control. File and shell work
+already observed on the Mac does not prove screen control. The running Dev app
+and helper were not restarted to activate this source change.
 
 The repository's app-lifecycle instruction requires the person to choose
 **later.dog Dev → Restart later.dog Dev** for Electron changes. No agent restarted

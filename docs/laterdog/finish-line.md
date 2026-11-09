@@ -16,8 +16,13 @@ exact-marker checks pass on the matching running image. Production Worker
 10:22:19 through 10:32:29 UTC passed, preserving all 80 dog identities. Actual
 Clover coordination completed on Codex / Sol / Medium and Patch's resumed native
 Codex release work progressed. Five low-space flags in twenty capacity samples
-keep fleet capacity unqualified. A separate Dev Mac helper defect and later
-home/phone releases have independent activation limits. The [incident evidence](../verification/stall-recovery-2026-11-09.md)
+keep fleet capacity unqualified. The later `9e49441e4` stream implementation
+passed a separate 21-sample window from 11:04:16 through 11:14:30 UTC; actual
+Patch work recovered automatically after that switch. The phone release's
+verification still failed, and its existing task is continuing. The Dev Mac
+helper repair is merged through PR139 with 40 focused Mac fixtures and six gate
+fixtures passed; Dev screen control still lacks a local
+gate and remains unavailable, with app activation left to the person. The [incident evidence](../verification/stall-recovery-2026-11-09.md)
 records the actual retained-record replay, failed checks and remaining limits.
 
 Phone beta `336047c1-f650-4353-8287-228882f44069` is published from main
