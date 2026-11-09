@@ -3,6 +3,7 @@ import { CodexNativeActivity, type CodexActorTarget } from "../laterdog/codex-na
 import { codexToolSurfaceArgs } from "./codex-tool-surface.ts";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { toolArgsDigest } from "../laterdog/repeated-tool-call.ts";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { codexConfigMcpServerNames, mountedMcpServerName } from "./codex-mcp-names.ts";
@@ -1121,6 +1122,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           nativeActivity.request(params, requestId, summary, alreadyResolved ? "Resolved by Codex" : `${behavior} (${source})`);
           emit({ ...base(threadId, turnId), type: "request.resolved", requestId, behavior, source, ...(alreadyResolved ? { resolvedExternally: true } : {}), ...(nativeActorId ? { nativeActorId } : {}) });
         };
+        const mcpArgsDigest = isMcpPermission ? toolArgsDigest(params._meta?.tool_params) : undefined;
+        const mcpArgsIdentity = !isMcpPermission ? {} : mcpArgsDigest ? { argsDigest: mcpArgsDigest } : { argsUnknown: true as const };
         const timer = setTimeout(
           () => finish("deny", isQuestion ? undefined : DENY_TIMEOUT_NOTE, "timeout"),
           15 * 60_000,
@@ -1136,6 +1139,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           requestType: isQuestion ? "question" : "permission",
           tool,
           summary,
+          ...mcpArgsIdentity,
           command: method === "execCommandApproval" || method === "item/commandExecution/requestApproval"
             ? permissionCommand(params.command, params.cwd ?? (
               !params.threadId || params.threadId === codexThreadId ? commandCwd : undefined

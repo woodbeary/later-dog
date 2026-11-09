@@ -1470,6 +1470,32 @@ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');});`)
       expect(JSON.parse(readFileSync(dump, "utf8")).decision).toEqual({ action: "accept", content: {} });
     });
 
+    it("tells apart MCP approvals that differ only by arguments, without changing the wording", async () => {
+      plan();
+      const digests: Array<string | undefined> = [];
+      const unknowns: Array<true | undefined> = [];
+      for (const [i, args] of [{ dog: "a" }, { dog: "b" }, { dog: "a" }, {}, [], undefined].entries()) {
+        recorder.events.length = 0;
+        process.env.FAKE_CODEX_APPROVAL_REQUEST = elicitation("dog_queue", args);
+        await create({ authMode: "chatgpt-plan", mode: "approval" });
+        await instance.adapter.sendTurn({ threadId: `t-digest-${i}`, text: "go", model: "gpt-6.1-sol", integrations: { custom: { whop } } });
+        const opened = await recorder.until((event) => event.type === "request.opened");
+        expect(opened.summary).toBe('Allow the whop MCP server to run tool "dog_queue"?');
+        digests.push((opened as any).argsDigest);
+        unknowns.push((opened as any).argsUnknown);
+        await instance.adapter.respondToRequest(`t-digest-${i}`, opened.requestId!, { behavior: "allow" });
+        await recorder.until((event) => event.type === "turn.completed");
+      }
+      expect(digests[0]).toMatch(/^[0-9a-f]{16}$/);
+      expect(digests[1]).not.toBe(digests[0]);
+      expect(digests[2]).toBe(digests[0]);
+      expect(digests[3]).toMatch(/^[0-9a-f]{16}$/);
+      expect(digests[4]).toMatch(/^[0-9a-f]{16}$/);
+      expect(digests[4]).not.toBe(digests[3]);
+      expect(digests[5]).toBeUndefined();
+      expect(unknowns).toEqual([undefined, undefined, undefined, undefined, undefined, true]);
+    });
+
     it("answers a catalog read for no card only when Codex asks exactly about it", async () => {
       plan();
       process.env.FAKE_CODEX_APPROVAL_REQUEST = JSON.stringify({ method: "mcpServer/elicitation/request", params: {
