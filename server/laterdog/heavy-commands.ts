@@ -15,11 +15,27 @@ const QUICK = /(?:^|\s)(?:--version|-v|--help|-h)(?:\s|$)/;
 const ENV_PREFIX = /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|\S*)\s+)+/;
 const WRAPPERS = /^(?:sudo|time|nice|nohup|env|exec|command)\s+/;
 
-function segments(command: string): string[] {
-  return command
-    .split(/&&|\|\||;|\||\n|\(|\)|`|\$\(/)
-    .map((part) => part.trim())
-    .filter(Boolean);
+export function segments(command: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let quote: string | null = null;
+  for (let index = 0; index < command.length; index += 1) {
+    const ch = command[index];
+    if (quote) {
+      if (ch === "\\" && quote === "\"" && index + 1 < command.length) { current += ch + command[index + 1]; index += 1; continue; }
+      if (ch === quote) quote = null;
+      current += ch;
+      continue;
+    }
+    if (ch === "\\" && index + 1 < command.length) { current += ch + command[index + 1]; index += 1; continue; }
+    if (ch === "'" || ch === "\"") { quote = ch; current += ch; continue; }
+    if (ch === "$" && command[index + 1] === "(") { parts.push(current); current = ""; index += 1; continue; }
+    if (ch === "&" && command[index + 1] === "&") { parts.push(current); current = ""; index += 1; continue; }
+    if (ch === "|" || ch === ";" || ch === "\n" || ch === "(" || ch === ")" || ch === "`") { parts.push(current); current = ""; if (ch === "|" && command[index + 1] === "|") index += 1; continue; }
+    current += ch;
+  }
+  parts.push(current);
+  return parts.map((part) => part.trim()).filter(Boolean);
 }
 
 function bare(segment: string): string {

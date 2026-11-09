@@ -39,7 +39,16 @@ describe("heavy commands on a shared Cloud home", () => {
       "rg 'npm test' docs",
       "pnpm why react",
       "npm view react version",
+      "ps aux | grep -E 'node|bun' | head",
+      "ps -eo pid,args | grep -E \"node|bun|yarn\"",
+      "pgrep -af 'claude|pnpm'",
     ]) expect(heavyCommandKind(command), command).toBeNull();
+  });
+
+  it("still splits on pipes and separators outside quotes", () => {
+    expect(heavyCommandKind("echo 'a|b' && pnpm install")).toBe("a package install");
+    expect(heavyCommandKind("echo \"x;y\" | bun add zod")).toBe("a package install");
+    expect(heavyCommandKind("out=$(pnpm build)")).not.toBeNull();
   });
 
   it("refuses a heavy command once per chat and lets the same command through when the dog runs it again", () => {
