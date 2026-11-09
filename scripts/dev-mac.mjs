@@ -88,8 +88,7 @@ export function startDevMac({
     const created = create({
       file, fetch: authorized, environments: () => [env], cloud: () => current,
       enabled: async () => false,
-      cuaConnection: async () => { const connection = readJson(join(dataDir, "desktop", "cua-connection.json")); return connection?.mcpCommand ? connection : null; },
-      hostControl: async () => ({ renew: async () => {}, release: async () => {} }),
+      cuaConnection: async () => null,
       protectedPaths: devProtectedPaths(home), home,
       onChange: () => {
         const now = created?.state?.(env.id)?.connected === true;

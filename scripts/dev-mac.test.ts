@@ -133,24 +133,16 @@ describe("later.dog Dev connecting this Mac to the person's Cloud", () => {
     await mac.stop();
   });
 
-  it("relays only the native connection the app published, never a made-up one", async () => {
+  it("keeps screen control closed: no driver connection and no local control gate", async () => {
     const { dir, sessionFile, appFile, made, create } = setup();
     const mac = startDevMac({ sessionFile, dataDir: dir, appFile, appRunning: async () => false, create: create as never, log: () => {}, checkMs: 60_000 });
     await mac.check();
-    const connection = made[0]!.options.cuaConnection;
-    expect(await connection()).toBeNull();
-
+    const options = made[0]!.options;
     mkdirSync(join(dir, "desktop"));
-    const published = join(dir, "desktop", "cua-connection.json");
-    writeFileSync(published, JSON.stringify({ mode: "unavailable", reason: "cua-driver binary not found" }));
-    expect(await connection()).toBeNull();
-
-    writeFileSync(published, "not json");
-    expect(await connection()).toBeNull();
-
-    const ready = { mode: "standalone", mcpCommand: "/fixture/cua-driver", mcpArgs: ["mcp"] };
-    writeFileSync(published, JSON.stringify(ready));
-    expect(await connection()).toEqual(ready);
+    writeFileSync(join(dir, "desktop", "cua-connection.json"), JSON.stringify({ mode: "standalone", mcpCommand: "/fixture/cua-driver", mcpArgs: ["mcp"] }));
+    expect(await options.cuaConnection()).toBeNull();
+    expect(options.hostControl).toBeUndefined();
+    expect(options.screenRecording).toBeUndefined();
     await mac.stop();
   });
 });

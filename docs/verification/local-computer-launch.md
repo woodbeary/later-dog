@@ -118,11 +118,22 @@ user takeover. Keep permissions and the host control gate enabled. Repeat throug
 the packaged embedded daemon, including signing and supported Mac architectures.
 Do not use the operator's later.dog data or authenticated browser profiles as fixtures.
 
-## Source Mac driver lookup
+## Source Mac driver lookup and Dev's closed screen
 
 `pnpm exec vitest run electron/cua-driver-path.test.mjs electron/cua-launch.test.mjs scripts/dev-mac.test.ts`
 checks, with a temporary stage and no Mac data, that an unpackaged app resolves
-`dist-native/<arch>/cua-driver` for its own architecture only, that
-`CUA_DRIVER_PATH` wins, that a packaged app never reads the source stage, and
-that Dev relays only a published connection naming `mcpCommand`. This is
-fixture evidence from any platform; it does not show macOS permissions or UI control.
+`dist-native/<arch>/cua-driver` for its own architecture only, that a directory in
+its place is rejected, that `CUA_DRIVER_PATH` wins, that a packaged app never reads
+the source stage, and that Dev's Mac connection passes no driver connection (even
+when a published `cua-connection.json` names one), no local control gate and no
+Screen Recording check.
+
+`node --test electron/shared-computer-access.node-test.mjs` (temporary folders and a
+stub workspace, no live app or data) drives the real sharing controller with a fake
+driver that records each launch: no gate, a refusing gate, an unavailable driver
+connection and an already revoked grant never start the driver (the unavailable
+connection still frees the gate); a gate that reports a takeover during a call
+aborts it and releases the gate; a held gate with a published driver runs once and
+releases. This is fixture evidence from any platform. It does not show macOS
+permissions or UI control, and the installed app's real gate and permission
+checklist are not exercised by it. Dev's screen control remains off.

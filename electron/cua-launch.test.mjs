@@ -299,11 +299,14 @@ describe("macOS driver resolution order", () => {
   it.skipIf(!["arm64", "x64"].includes(process.arch))("never reads the source stage from a packaged app", () => {
     stage();
     fixture.packaged = true;
+    const had = Object.hasOwn(process, "resourcesPath");
+    const original = process.resourcesPath;
     process.resourcesPath = join(fixture.appPath, "resources");
     try {
       expect(cua.resolveDriverBinary()).toBe(installed);
     } finally {
-      delete process.resourcesPath;
+      if (had) process.resourcesPath = original;
+      else delete process.resourcesPath;
     }
   });
 });

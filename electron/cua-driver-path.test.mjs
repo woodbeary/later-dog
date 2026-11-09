@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { stagedMacDriver } from "./cua-driver-path.mjs";
 
@@ -28,6 +31,12 @@ describe("staged macOS driver lookup", () => {
   });
 
   it("does not accept a directory in place of the executable", () => {
-    expect(stagedMacDriver({ appPath: "/repo", platform: "darwin", arch: "arm64" })).toBeNull();
+    const appPath = mkdtempSync(join(tmpdir(), "laterdog-stage-dir-"));
+    try {
+      mkdirSync(join(appPath, "dist-native", "arm64", "cua-driver"), { recursive: true });
+      expect(stagedMacDriver({ appPath, platform: "darwin", arch: "arm64" })).toBeNull();
+    } finally {
+      rmSync(appPath, { recursive: true, force: true });
+    }
   });
 });
