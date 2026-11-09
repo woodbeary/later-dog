@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, symlinkSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -65,6 +65,26 @@ describe("build output in task workspaces", () => {
     expect(existsSync(join(dir, "app/src/page.tsx"))).toBe(true);
     expect(existsSync(join(dir, "app/dist/site.html"))).toBe(true);
     expect(existsSync(join(dir, ".git/node_modules"))).toBe(true);
+  });
+
+  it("recognizes .open-next and only .wrangler/tmp, never other .wrangler content, source or symlinks", () => {
+    const dir = scratch();
+    const outside = scratch();
+    for (const path of ["app/.open-next/assets", "app/.wrangler/tmp/dev-a", "app/.wrangler/state/v3", "app/.wrangler/cache", "app/tmp", "app/media", "app/node_modules/x", "app/src/.wrangler/tmp"]) mkdirSync(join(dir, path), { recursive: true });
+    writeFileSync(join(dir, "app/.open-next/assets/a.js"), "x".repeat(5000));
+    writeFileSync(join(dir, "app/.wrangler/tmp/dev-a/b.js"), "x".repeat(5000));
+    writeFileSync(join(dir, "app/.wrangler/state/v3/db.sqlite"), "state");
+    writeFileSync(join(dir, "app/media/clip.mp4"), "media");
+    writeFileSync(join(dir, "package.json"), "{}");
+    writeFileSync(join(outside, "keep.txt"), "keep");
+    symlinkSync(outside, join(dir, ".open-next"));
+    mkdirSync(join(dir, "w/.wrangler"), { recursive: true });
+    symlinkSync(outside, join(dir, "w/.wrangler/tmp"));
+    expect(findBuildOutput(dir).map((path) => path.slice(dir.length + 1)).sort()).toEqual(["app/.open-next", "app/.wrangler/tmp", "app/node_modules", "app/src/.wrangler/tmp"]);
+    clearBuildOutput([{ dir, busy: false, closed: true, lastActiveAt: now }], now);
+    for (const kept of ["app/.wrangler/state/v3/db.sqlite", "app/.wrangler/cache", "app/tmp", "app/media/clip.mp4", "package.json", ".open-next", "w/.wrangler/tmp"]) expect(existsSync(join(dir, kept))).toBe(true);
+    expect(existsSync(join(outside, "keep.txt"))).toBe(true);
+    for (const gone of ["app/.open-next", "app/.wrangler/tmp", "app/node_modules"]) expect(existsSync(join(dir, gone))).toBe(false);
   });
 
   it("leaves a busy task's build output alone", () => {
