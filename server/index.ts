@@ -876,6 +876,11 @@ const CLOUD_HOME_LENDER = "cloud-home";
 const cloudRoutineAuthors = CLOUD_HOME ? createCloudRoutineAuthors(join(DATA_DIR, "lending-routines.json")) : null;
 const ownerStartedRoutineRuns = new Set<string>();
 const ownerRunNowThreads = new Set<string>();
+let ownerRunNowInvoked = false;
+function asOwnerRunNow<T>(invoke: () => T): T {
+  ownerRunNowInvoked = true;
+  try { return invoke(); } finally { ownerRunNowInvoked = false; }
+}
 if (CLOUD_HOME) readMemoryOnlyFromRegularFiles();
 const cloudPairing = CLOUD_HOME ? createCloudPairing({ secret: CLOUD_HOME.bootstrapSecret, sessions }) : null;
 const homeActivityRoute = CLOUD_HOME ? createHomeActivityRoute(createHomeActivity({
@@ -1284,14 +1289,22 @@ function cloudReportFromOthers(line: Message): boolean {
 
 function cloudRoutineReportMark(run: RoutineRun): boolean | undefined {
   if (!CLOUD_HOME || !cloudRoutineAuthors) return undefined;
+  return cloudRoutineAuthors.runAttestation(run.id) ?? false;
+}
+
+const cloudRunAttestationsFrom = Date.now();
+
+function attestCloudRoutineRun(run: RoutineRun): void {
+  if (!CLOUD_HOME || !cloudRoutineAuthors || run.status !== "queued" || run.createdAt < cloudRunAttestationsFrom) return;
+  if (cloudRoutineAuthors.runAttestation(run.id) !== undefined) return;
   const routine = routines?.listRoutines().find((candidate) => candidate.id === run.routineId);
-  return routineReportMark({
+  cloudRoutineAuthors.attestRun(run.id, routineReportMark({
     triggerSource: run.triggerSource ?? (run.manual ? "manual" : "schedule"),
     ownerStarted: ownerStartedRoutineRuns.has(run.id),
     ownerAuthored: Boolean(routine) && cloudRoutineAuthors.authored(run.routineId, {
       ...routine!, prompt: run.prompt, target: run.target, botId: run.botId, groupId: run.groupId, attachments: run.attachments, runOn: run.runOn,
     }),
-  });
+  }));
 }
 
 const ownerOnlyCache = new Map<string, { length: number; last?: string; owner: boolean }>();
@@ -9234,7 +9247,8 @@ routines = new RoutineManager({
   },
   interruptGoal: interruptRoutineGroupGoal,
   onRunChanged: (run) => {
-    if (run.manual && run.status === "queued" && run.sourceThreadId && ownerRunNowThreads.has(run.sourceThreadId)) ownerStartedRoutineRuns.add(run.id);
+    if (run.manual && run.status === "queued" && (ownerRunNowInvoked || (run.sourceThreadId && ownerRunNowThreads.has(run.sourceThreadId)))) ownerStartedRoutineRuns.add(run.id);
+    attestCloudRoutineRun(run);
     syncRoutineRunToSource(run);
   },
   onRunFailed: (run) => {
@@ -9721,7 +9735,7 @@ function resolveAndSendRoutine(
   )?.card;
   const operation = card?.routineRequest?.operation;
   const wasOwners = operation && operation.action !== "create" ? cloudRoutineIsOwners(operation.routineId) : false;
-  const result = routineRequests.resolve(args);
+  const result = ownersAnswer && CLOUD_HOME && operation?.action === "run_now" ? asOwnerRunNow(() => routineRequests.resolve(args)) : routineRequests.resolve(args);
   if (ownersAnswer && result.claimed && result.state === "applied") {
     cloudOwnerApplied(result.action, result.resultId, wasOwners);
     if (CLOUD_HOME && result.action === "run_now" && result.resultId) ownerStartedRoutineRuns.add(result.resultId);
@@ -15215,8 +15229,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     }
     let routineMatch = path.match(/^\/api\/routines\/([\w-]+)\/run$/);
     if (routineMatch && method === "POST") {
-      const run = routines!.runNow(routineMatch[1]);
-      if (run && CLOUD_HOME && cloudOwnerSession(auth)) ownerStartedRoutineRuns.add(run.id);
+      const ownerStarted = Boolean(CLOUD_HOME) && cloudOwnerSession(auth);
+      const run = ownerStarted ? asOwnerRunNow(() => routines!.runNow(routineMatch![1])) : routines!.runNow(routineMatch[1]);
       return run ? json(res, 201, { run }) : json(res, 404, { error: "no such routine" });
     }
     routineMatch = path.match(/^\/api\/routines\/([\w-]+)$/);

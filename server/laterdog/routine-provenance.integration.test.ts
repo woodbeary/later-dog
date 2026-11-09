@@ -63,6 +63,24 @@ async function agentTools() {
   return (name: string, args: unknown) => request("tools/call", { name, arguments: args });
 }
 
+async function boot() {
+  const port = await freePortBlock([0, 1]);
+  base = `http://127.0.0.1:${port}`;
+  const offline = `data:text/javascript,${encodeURIComponent('const real = globalThis.fetch; globalThis.fetch = async (url, init) => String(url).startsWith("http://127.0.0.1:") ? real(url, init) : new Response("offline fixture", { status: 503 });')}`;
+  child = spawn(process.execPath, ["--import", offline, join(SERVER_DIR, "index.ts")], {
+    cwd: join(SERVER_DIR, ".."),
+    env: {
+      PATH: process.env.PATH, HOME: home, USERPROFILE: home, LATERDOG_HOME: dataDir, LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1),
+      LATERDOG_CLOUD_ROLE: "home", LATERDOG_CLOUD_MACHINE_ID: "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93", LATERDOG_CLOUD_ADMIN_URL: "https://cloud.example.test",
+      LATERDOG_CLOUD_BOOTSTRAP_SECRET: secret, LATERDOG_PUBLIC_URL: `https://${HOST}`,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout?.on("data", (chunk) => { log += chunk; });
+  child.stderr?.on("data", (chunk) => { log += chunk; });
+  await until(async () => { try { return (await fetch(`${base}/api/health`)).ok; } catch { return false; } }, "the server to start", 25_000);
+}
+
 beforeAll(async () => {
   home = mkdtempSync(join(tmpdir(), "laterdog-routine-provenance-"));
   dataDir = join(home, ".laterdog");
@@ -82,21 +100,7 @@ await import(${JSON.stringify(pathToFileURL(join(SERVER_DIR, "testing", "fake-cl
       held: { driver: "claudeAgent", displayName: "Held", config: { cli } },
     },
   }));
-  const port = await freePortBlock([0, 1]);
-  base = `http://127.0.0.1:${port}`;
-  const offline = `data:text/javascript,${encodeURIComponent('const real = globalThis.fetch; globalThis.fetch = async (url, init) => String(url).startsWith("http://127.0.0.1:") ? real(url, init) : new Response("offline fixture", { status: 503 });')}`;
-  child = spawn(process.execPath, ["--import", offline, join(SERVER_DIR, "index.ts")], {
-    cwd: join(SERVER_DIR, ".."),
-    env: {
-      PATH: process.env.PATH, HOME: home, USERPROFILE: home, LATERDOG_HOME: dataDir, LATERDOG_SERVER_PORT: String(port), LATERDOG_WEBHOOK_PORT: String(port + 1),
-      LATERDOG_CLOUD_ROLE: "home", LATERDOG_CLOUD_MACHINE_ID: "3f9c2a4e-8b1d-4c6e-9a7f-2d5e8c1b0a93", LATERDOG_CLOUD_ADMIN_URL: "https://cloud.example.test",
-      LATERDOG_CLOUD_BOOTSTRAP_SECRET: secret, LATERDOG_PUBLIC_URL: `https://${HOST}`,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  child.stdout?.on("data", (chunk) => { log += chunk; });
-  child.stderr?.on("data", (chunk) => { log += chunk; });
-  await until(async () => { try { return (await fetch(`${base}/api/health`)).ok; } catch { return false; } }, "the server to start", 25_000);
+  await boot();
 }, 60_000);
 
 afterAll(async () => {
@@ -133,3 +137,59 @@ it("a report of the owner's own routine run keeps the owner's Mac open after the
   expect((await reports())[0]?.ownersRoutine).toBe(true);
   expect(await mac()).not.toContain(NOTICE);
 }, 120_000);
+
+async function stop() {
+  for (const proxy of proxies.splice(0)) proxy.kill();
+  if (child) await waitForExit(child, { signal: "SIGTERM" });
+}
+
+async function setup(name: string, owner: string) {
+  const bot = (await api("POST", "/api/bots", { token: owner, body: { name, modelSelection: { instanceId: "held", model: "claude-sonnet-5" } } })).body.bot;
+  expect((await api("PATCH", `/api/bots/${bot.id}`, { token: owner, body: { cwd: join(home, "projects", "site"), approvalMode: "auto" } })).status).toBe(200);
+  const schedule = { type: "interval", everyMinutes: 60, anchorAt: Date.now() + 3_600_000 };
+  const routineId = (await api("POST", "/api/routines", { token: owner, body: { name: `${name} routine`, prompt: "Build the site.", botId: bot.id, enabled: false, schedule } })).body.routine.id as string;
+  const reports = async () => ((await api("GET", `/api/threads/${bot.threadId}/messages`, { token: owner })).body.messages as any[]).filter((message) => message.kind === "routine.run");
+  return { bot, routineId, reports };
+}
+
+async function holdTurn(owner: string, bot: { id: string; threadId: string }) {
+  rmSync(held(), { force: true });
+  expect((await api("POST", `/api/bots/${bot.id}/messages`, { token: owner, body: { text: "Stay busy.", threadId: bot.threadId } })).status).toBe(202);
+  await until(() => { try { readFileSync(held(), "utf8"); return true; } catch { return false; } }, "the turn to start");
+  const tools = await agentTools();
+  return async () => JSON.stringify(await tools("shared_computer", { action: "list_files", path: "." }));
+}
+
+it("an owner's manual run from the app keeps its meaning when the routine is deleted before it starts, and a cancelled record is attested", async () => {
+  const owner = await adminPairing();
+  const { bot, routineId, reports } = await setup("Pending owner", owner);
+  const mac = await holdTurn(owner, bot);
+  const run = (await api("POST", `/api/routines/${routineId}/run`, { token: owner })).body.run;
+  await until(async () => (await reports()).some((report) => report.routineRun.runId === run.id), "the pending report");
+  expect((await reports()).find((report) => report.routineRun.runId === run.id).ownersRoutine).toBe(true);
+  expect((await api("DELETE", `/api/routines/${routineId}`, { token: owner })).status).toBe(200);
+  await until(async () => (await reports()).some((report) => report.routineRun.runId === run.id && report.routineRun.status === "cancelled"), "the cancelled report");
+  const final = (await reports()).find((report) => report.routineRun.runId === run.id);
+  expect(final.ownersRoutine).toBe(true);
+  expect(await mac()).not.toContain(NOTICE);
+}, 120_000);
+
+it("a manual run of a routine whose authorship is unproven stays foreign after the owner adopts the routine", async () => {
+  const owner = await adminPairing();
+  const { bot, routineId, reports } = await setup("Unowned", owner);
+  await stop();
+  const authorsFile = join(dataDir, "lending-routines.json");
+  const authors = JSON.parse(readFileSync(authorsFile, "utf8"));
+  expect(authors.writers[routineId]).toBeTruthy();
+  delete authors.routines[routineId];
+  writeFileSync(authorsFile, JSON.stringify(authors));
+  await boot();
+  const mac = await holdTurn(owner, bot);
+  const run = (await api("POST", `/api/routines/${routineId}/run`, { token: owner })).body.run;
+  await until(async () => (await reports()).some((report) => report.routineRun.runId === run.id), "the report");
+  expect((await reports()).find((report) => report.routineRun.runId === run.id).ownersRoutine).toBe(false);
+  expect(await mac()).toContain(NOTICE);
+  expect((await api("PATCH", `/api/routines/${routineId}`, { token: owner, body: { prompt: "Build the site again." } })).status).toBe(200);
+  expect((await reports()).find((report) => report.routineRun.runId === run.id).ownersRoutine).toBe(false);
+  expect(await mac()).toContain(NOTICE);
+}, 180_000);

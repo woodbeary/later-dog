@@ -193,12 +193,31 @@ describe("reports of routine runs", () => {
     expect(reportFromOthers(card({ ownersRoutine: run("webhook", true) }), live)).toBe(true);
     expect(reportFromOthers({ webhookPost: true }, live)).toBe(true);
   });
-  it("a manual run counts only when the owner started it; otherwise it falls back to the routine as it is now", () => {
+  it("a manual run counts only when the owner started it, and the answer is fixed either way", () => {
     expect(run("manual", true, true)).toBe(true);
-    expect(run("manual", true, false)).toBeUndefined();
-    expect(reportFromOthers(card({ ownersRoutine: run("manual", true, false) }), live)).toBe(false);
-    expect(reportFromOthers(card({ ownersRoutine: run("manual", true, false) }), gone)).toBe(true);
+    expect(run("manual", true, false)).toBe(false);
+    expect(run("manual", false, true)).toBe(false);
+    expect(reportFromOthers(card({ ownersRoutine: run("manual", true, false) }), live)).toBe(true);
+    expect(reportFromOthers(card({ ownersRoutine: run("manual", true, true) }), gone)).toBe(false);
   });
+  it("a run's attestation is written once, survives a reload, and is capped", () => {
+    const dir = mkdtempSync(join(tmpdir(), "laterdog-cloud-runs-"));
+    const file = join(dir, "runs.json");
+    const authors = createCloudRoutineAuthors(file);
+    expect(authors.runAttestation("run-1")).toBeUndefined();
+    authors.attestRun("run-1", false);
+    authors.attestRun("run-1", true);
+    expect(authors.runAttestation("run-1")).toBe(false);
+    authors.attestRun("run-2", true);
+    const reloaded = createCloudRoutineAuthors(file);
+    expect(reloaded.runAttestation("run-1")).toBe(false);
+    expect(reloaded.runAttestation("run-2")).toBe(true);
+    expect(reloaded.runAttestation("run-3")).toBeUndefined();
+    for (let index = 0; index < 5100; index++) reloaded.attestRun(`bulk-${index}`, true);
+    expect(reloaded.runAttestation("run-1")).toBeUndefined();
+    expect(reloaded.runAttestation("bulk-5099")).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  }, 120_000);
   it("a report with no stamp is judged by the routine as it is now, so a deleted or unproven one stays denied", () => {
     expect(reportFromOthers(card(), gone)).toBe(true);
     expect(reportFromOthers(card(), live)).toBe(false);

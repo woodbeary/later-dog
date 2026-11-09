@@ -238,19 +238,40 @@ approvals while omitting them from ordinary iOS/Android thread pickers.
 
 ## Cloud home: reports of the owner's routine runs
 
-A `routine.run` report in a conversation carries the server's own `ownersRoutine`
-mark, written once when the report is created from the routine's authorship at
-that run (never for webhook runs, and for manual runs only when the owner started
-them). A marked report keeps its meaning after the routine is edited, deleted or
-later adopted by the owner. A report with no mark (older, or a manual run the
-owner did not start) is still judged by the routine as it is now, and stays
-denied when the routine is gone or unproven.
+The server decides once, when a run is created, whether it is the owner's, and
+keeps that answer for the run in `lending-routines.json` (`runs`, newest 5,000).
+It is never recomputed. A run is the owner's only if its routine was the owner's
+as it stood at that moment, it was not a webhook run, and a manual run was
+started by the owner. The owner's start is known at the moment the run is
+created, even though the run is announced before the request handler returns:
+the app's run route, a confirmed run card and the owner's dog's run request all
+mark that call. Every `routine.run` report written for the run carries the
+answer as `ownersRoutine`, so editing, deleting or later adopting the routine,
+or cancelling the run before it starts, cannot change it. A guest's or
+unproven manual run stays foreign after the owner adopts the routine.
+
+Reports written before this change keep the older reading: a report with no mark
+is judged by the routine as it is now, and stays denied when the routine is
+gone or unproven. A run that was already in flight when the server first ran this
+change has no stored answer, so its new reports are marked foreign rather than
+trusted.
+
+Legacy limitation: a routine's authorship record is removed when the routine is
+deleted, and an old report holds only the routine id and a status, so nothing
+retained can show that a deleted routine's old (including cancelled) run was the
+owner's. Those reports stay denied. Repairing them would mean trusting an
+unprovable claim, so none is attempted, and no user data was changed. An owner
+who wants the Mac back in such a conversation starts a new one.
 
 ```sh
 pnpm exec vitest run server/cloud-lending.test.ts server/laterdog/routine-provenance.integration.test.ts
 ```
 
-The integration test boots a disposable cloud-home server with a fake engine,
-has the owner's dog run, edit and delete an owner routine, and checks the Mac
-tool still answers without the "Someone else wrote" notice. Before the change it
-failed at the delete step. It does not cover a real Mac or a live account.
+The integration test boots a disposable cloud-home server with a fake engine. It
+has the owner's dog run, edit and delete an owner routine, runs a manual run from
+the app route while the target is busy and deletes the routine so the run is
+cancelled before it starts (the report stays the owner's), and runs a manual run
+of a routine with unproven authorship that stays foreign after the owner edits
+it. Against the previous commit the pending-run case fails (the mark is absent).
+Guest-started manual runs, webhook runs and schedule runs are covered by the unit
+tests for the mark. It does not cover a real Mac or a live account.
