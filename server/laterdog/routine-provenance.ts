@@ -48,7 +48,7 @@ const REPORT_KEYS = new Set(["id", "at", "parentId", "role", "kind", "text", "ro
 const CARD_KEYS = ["runId", "routineId", "routineName", "scheduledFor", "status"];
 const ABSENT_RUN_FIELDS = [
   "startedAt", "threadId", "output", "attention", "error", "denials", "cost", "goalStatus",
-  "webhookId", "deliveryId", "executionThreadId", "deferredAt",
+  "webhookId", "deliveryId", "executionThreadId",
 ];
 
 export function cancelledStatusText(routineName: string): string {
@@ -69,7 +69,10 @@ function retainedRunMatches(card: NonNullable<LegacyReportLine["routineRun"]>, r
   if (run.scheduledFor !== card.scheduledFor || run.status !== "cancelled" || run.sourceThreadId !== threadId) return false;
   if (run.manual !== false || (run.triggerSource !== undefined && run.triggerSource !== "schedule")) return false;
   if (!Array.isArray(run.attachments) || run.attachments.length !== 0) return false;
-  return ABSENT_RUN_FIELDS.every((field) => run[field] === undefined) && typeof run.finishedAt === "number";
+  if (!ABSENT_RUN_FIELDS.every((field) => run[field] === undefined) || typeof run.finishedAt !== "number") return false;
+  return run.deferredAt === undefined
+    || (typeof run.deferredAt === "number" && Number.isFinite(run.deferredAt)
+      && run.deferredAt >= run.scheduledFor && run.deferredAt <= run.finishedAt);
 }
 
 function receiptProves(receipt: LegacyReceiptLine, card: NonNullable<LegacyReportLine["routineRun"]>, run: LegacyRetainedRun, threadId: string): boolean {

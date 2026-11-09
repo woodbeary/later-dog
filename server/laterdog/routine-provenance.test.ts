@@ -63,6 +63,14 @@ describe("legacy cancelled status-only report", () => {
     expect(neutral(withReceipt((card) => { card.routineRequest!.appliedAt = FINISHED; }))).toBe(true);
   });
 
+  it("accepts a queued never-started run with a deferral time and an earlier card time", () => {
+    const early = { ...report(), at: SCHEDULED + 10 };
+    const deferred = withRun({ deferredAt: SCHEDULED + 1_000, prompt: "Captured prompt differs from the snapshot" });
+    expect(neutral({ ...deferred, line: early })).toBe(true);
+    expect(neutral({ run: { ...run(), deferredAt: SCHEDULED } as LegacyRetainedRun })).toBe(true);
+    expect(neutral({ run: { ...run(), deferredAt: FINISHED } as LegacyRetainedRun })).toBe(true);
+  });
+
   it("never rewrites the stored records", () => {
     const line = report(), retained = run(), proof = receipt();
     const before = JSON.stringify([line, retained, proof]);
@@ -114,6 +122,22 @@ describe("legacy cancelled status-only report", () => {
     ["webhookId", withRun({ webhookId: "w" })],
     ["deliveryId", withRun({ deliveryId: "d" })],
     ["executionThreadId", withRun({ executionThreadId: "e" })],
+    ["deferredAt NaN", withRun({ deferredAt: Number.NaN })],
+    ["deferredAt Infinity", withRun({ deferredAt: Number.POSITIVE_INFINITY })],
+    ["deferredAt string", withRun({ deferredAt: "1700000000500" })],
+    ["deferredAt null", withRun({ deferredAt: null })],
+    ["deferredAt before scheduled", withRun({ deferredAt: SCHEDULED - 1 })],
+    ["deferredAt after finished", withRun({ deferredAt: FINISHED + 1 })],
+    ["deferredAt with startedAt", withRun({ deferredAt: SCHEDULED + 1, startedAt: SCHEDULED + 2 })],
+    ["deferredAt with executionThreadId", withRun({ deferredAt: SCHEDULED + 1, executionThreadId: "e" })],
+    ["deferredAt with output", withRun({ deferredAt: SCHEDULED + 1, output: "o" })],
+    ["deferredAt with error", withRun({ deferredAt: SCHEDULED + 1, error: "e" })],
+    ["deferredAt with cost", withRun({ deferredAt: SCHEDULED + 1, cost: 0 })],
+    ["deferredAt with attachments", withRun({ deferredAt: SCHEDULED + 1, attachments: [{ id: "a" }] })],
+    ["deferredAt manual", withRun({ deferredAt: SCHEDULED + 1, manual: true })],
+    ["deferredAt webhook", withRun({ deferredAt: SCHEDULED + 1, triggerSource: "webhook" })],
+    ["deferredAt without receipt", { ...withRun({ deferredAt: SCHEDULED + 1 }), receipts: [] }],
+    ["deferredAt negative attestation", { ...withRun({ deferredAt: SCHEDULED + 1 }), attestation: false }],
     ["no finishedAt", withRun({ finishedAt: undefined })],
     ["finished after receipt applied", withRun({ finishedAt: FINISHED + 6 })],
     ["receipt not auto applied", withReceipt((card) => { card.autoApplied = false; })],
