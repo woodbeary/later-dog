@@ -199,3 +199,31 @@ export function exchangeWording(item: Pick<ExchangeItem, "rows">): ExchangeWordi
   if (count > 1) return { key: "chat.exchange.messagesWith", count };
   return { key: item.rows[0]!.direction === "to" ? "chat.exchange.messaged" : "chat.exchange.messageFrom", count };
 }
+
+export type ExchangeState = "Queued" | "Working" | "Done" | "Needs you";
+
+export interface ExchangeSummary {
+  gist: string | null;
+  state: ExchangeState;
+}
+
+export function exchangeGist(item: Pick<ExchangeItem, "messages" | "rows">, thread: readonly Message[], working: boolean): ExchangeSummary {
+  const first = item.messages[0];
+  const start = first ? thread.findIndex((message) => message.id === first.id) : -1;
+  const after = start >= 0 ? thread.slice(start) : [];
+  const request = after.find((message) => message.roomRequest?.phase === "request");
+  const id = request?.roomRequest?.id;
+  const line = (request?.text ?? "").replace(/^(?:@\S+\s+)+/, "").replace(/\s+/g, " ").trim();
+  const gist = line ? (line.length > 90 ? `${line.slice(0, 89)}…` : line) : null;
+  const lead = item.rows[0];
+  const answered = after.some((message) => (id && message.roomRequest?.id === id && message.roomRequest.phase !== "request")
+    || message.roomRequest?.phase === "result"
+    || (lead?.direction === "to" && message.comm?.direction === "from" && message.comm.withBotId === lead.withBotId));
+  const needsYou = after.some((message) => message.role === "bot" && Boolean(message.card) && !message.card?.answered && !message.card?.dismissed);
+  const state: ExchangeState = answered ? "Done" : needsYou ? "Needs you" : working ? "Working" : "Queued";
+  return { gist, state };
+}
+
+export function shownToPerson(message: Message): boolean {
+  return !(message.role === "bot" && message.kind === "text" && message.roomRequest);
+}

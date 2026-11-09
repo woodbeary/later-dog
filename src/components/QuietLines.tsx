@@ -1,12 +1,21 @@
-import { memo, useEffect, useId, useState, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useId, useState, type ReactNode } from "react";
 import { ChevronRight, Timer, TriangleAlert } from "lucide-react";
 import { formatTime, openNotificationTarget, useStore, type AppState, type Message } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { currentDogName, freshenDogName } from "@/lib/dog-refs";
 import { openExchange } from "@/lib/exchange-view";
-import { exchangeWording, failedExchange, foldedPreview, sentExchange, singleExchange, type ExchangeItem, type ExchangeRow } from "@/lib/quiet-lines";
+import { exchangeGist, exchangeWording, failedExchange, foldedPreview, sentExchange, singleExchange, type ExchangeItem, type ExchangeRow, type ExchangeState } from "@/lib/quiet-lines";
 import { BotAvatar } from "./Avatar";
+
+export const ExchangeThreadContext = createContext<{ thread: readonly Message[]; working: boolean } | null>(null);
+
+const stateWords = {
+  Queued: "chat.exchange.state.queued",
+  Working: "chat.exchange.state.working",
+  Done: "chat.exchange.state.done",
+  "Needs you": "chat.exchange.state.needsYou",
+} as const satisfies Record<ExchangeState, string>;
 
 export const QUIET_FACE_SIZE = 14;
 
@@ -144,6 +153,7 @@ function SentMessagesLine({ item, forceOpen }: { item: ExchangeItem; forceOpen: 
 
 export const ExchangeLine = memo(function ExchangeLine({ item, forceOpen = false }: { item: ExchangeItem; forceOpen?: boolean }) {
   const { state, dispatch } = useStore();
+  const exchangeThread = useContext(ExchangeThreadContext);
   if (failedExchange(item)) return <FailedResultsLine item={item} forceOpen={forceOpen} />;
   if (sentExchange(item) && item.rows.length > 1) return <SentMessagesLine item={item} forceOpen={forceOpen} />;
   const first = item.rows[0]!;
@@ -156,14 +166,18 @@ export const ExchangeLine = memo(function ExchangeLine({ item, forceOpen = false
   const members = group?.memberIds.map((id) => currentDogName(state.bots, id, "")) ?? [];
   const [one, two] = members.length === 2 ? members : [name, name];
   const label = readOnly ? t("chat.exchange.open", { first: one, second: two }) : t("chat.openConversationWith", { name });
-  const preview = foldedPreview(item);
+  const summary = exchangeThread ? exchangeGist(item, exchangeThread.thread, exchangeThread.working) : null;
+  const preview = summary?.gist ?? foldedPreview(item);
+  const status = summary ? t(stateWords[summary.state]) : null;
+  const said = preview ? `${label}: ${preview}` : label;
+  const described = status ? `${said} · ${status}` : said;
   const open = () => {
     if (target.kind === "dog") openNotificationTarget(dispatch, target, state);
     else if (readOnly) openExchange(target.groupId);
     else dispatch({ type: "select", id: target.groupId });
   };
   return (
-    <QuietLine onClick={open} label={preview ? `${label}: ${preview}` : label} title={preview ? `${label}: ${preview}` : label}>
+    <QuietLine onClick={open} label={described} title={described}>
       <span data-exchange-label>{t(wording.key, { count: wording.count })}</span>
       <BotAvatar
         bot={withBot ?? { name, color: first.withColor }}
@@ -175,6 +189,7 @@ export const ExchangeLine = memo(function ExchangeLine({ item, forceOpen = false
       />
       <span data-exchange-name className="min-w-0 truncate">{name}</span>
       {preview && <span data-exchange-preview className="min-w-0 max-w-[20rem] truncate text-ink-tertiary">· {preview}</span>}
+      {status && <span data-exchange-state={summary!.state} className={cn("shrink-0", summary!.state === "Needs you" ? "text-ink" : "text-ink-tertiary")}>· {status}</span>}
     </QuietLine>
   );
 });
