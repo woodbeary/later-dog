@@ -1,7 +1,7 @@
 import { readdirSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { findBuildOutput, sizeOf } from "./janitor.ts";
+import { buildOutputProject, findBuildOutput, sizeOf } from "./janitor.ts";
 import { isEngineProcess, readProcesses, type ProcessInfo } from "./process-reaper.ts";
 
 export const REBUILT_CACHES = [".npm/_cacache", ".cache/pip", ".cache/uv", ".cache/node-gyp", ".cache/yarn", ".cache/go-build", ".cache/next-swc", ".bun/install/cache"];
@@ -18,7 +18,7 @@ export interface SpaceMakerDeps {
 const within = (path: string, dir: string) => path === dir || path.startsWith(`${dir}/`);
 
 export function inUse(buildDir: string, busyDirs: readonly string[], live: readonly ProcessInfo[]): boolean {
-  const project = dirname(buildDir);
+  const project = buildOutputProject(buildDir);
   if (busyDirs.some((dir) => within(buildDir, dir))) return true;
   return live.some((proc) => within(proc.cwd, project) || proc.argv.includes(project));
 }

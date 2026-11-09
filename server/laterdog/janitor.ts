@@ -1,5 +1,5 @@
 import { lstatSync, readdirSync, rmdirSync, rmSync, statfsSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { trimThreadLog } from "../thread-log-rotation.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -17,6 +17,15 @@ export const BUILD_OUTPUT_DIRS: ReadonlySet<string> = new Set([
   "node_modules", ".next", ".nuxt", ".svelte-kit", ".turbo", ".parcel-cache", ".vite", ".cache",
   "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
 ]);
+
+const GENERATED_DIRS: ReadonlySet<string> = new Set([".open-next"]);
+const SCRATCH_PARENT = ".wrangler";
+const SCRATCH_CHILD = "tmp";
+
+export function buildOutputProject(buildDir: string): string {
+  const parent = dirname(buildDir);
+  return basename(buildDir) === SCRATCH_CHILD && basename(parent) === SCRATCH_PARENT ? dirname(parent) : parent;
+}
 
 export interface DiskUse {
   totalBytes: number;
@@ -121,7 +130,12 @@ export function findBuildOutput(root: string, maxDepth = 6): string[] {
       let entry;
       try { entry = lstatSync(path); } catch { continue; }
       if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
-      if (BUILD_OUTPUT_DIRS.has(name)) { found.push(path); continue; }
+      if (BUILD_OUTPUT_DIRS.has(name) || GENERATED_DIRS.has(name)) { found.push(path); continue; }
+      if (name === SCRATCH_PARENT) {
+        const scratch = join(path, SCRATCH_CHILD);
+        try { if (lstatSync(scratch).isDirectory()) found.push(scratch); } catch {}
+        continue;
+      }
       walk(path, depth + 1);
     }
   };

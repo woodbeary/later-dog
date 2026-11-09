@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildOutputProject } from "./janitor.ts";
 import { inUse, makeSpace } from "./space-maker.ts";
 
 function fill(path: string, bytes = 64 * 1024) {
@@ -57,6 +58,30 @@ describe("making space on a full Cloud home", () => {
     expect(pruned).toBe(false);
     expect(existsSync(join(home, ".npm/_cacache"))).toBe(true);
     expect(run.cleared.some((path) => path.endsWith("site/node_modules"))).toBe(true);
+  });
+
+  it("clears idle .open-next and .wrangler/tmp but keeps them while a program runs at the project root or a chat is busy", () => {
+    const home = mkdtempSync(join(tmpdir(), "space-maker-"));
+    const workspaces = join(home, ".laterdog/task-workspaces");
+    for (const project of ["idle", "running", "named", "busy"]) {
+      fill(join(home, project, ".open-next/assets"));
+      fill(join(home, project, ".wrangler/tmp/dev"));
+      fill(join(home, project, ".wrangler/state/v3"));
+      fill(join(home, project, ".wrangler/cache"));
+    }
+    const run = makeSpace({
+      home,
+      workspacesDir: workspaces,
+      busyDirs: [join(home, "busy")],
+      processes: () => [proc(join(home, "running"), "node server.js"), proc(home, `node ${join(home, "named")}/x.js`)],
+      pruneStore: () => {},
+    });
+    expect(run.cleared.map((path) => path.slice(home.length + 1)).sort()).toEqual(["idle/.open-next", "idle/.wrangler/tmp"]);
+    for (const kept of ["idle/.wrangler/state/v3", "idle/.wrangler/cache", "running/.wrangler/tmp", "running/.open-next", "named/.wrangler/tmp", "busy/.wrangler/tmp", "busy/.open-next"]) expect(existsSync(join(home, kept))).toBe(true);
+    expect(buildOutputProject("/p/app/.wrangler/tmp")).toBe("/p/app");
+    expect(buildOutputProject("/p/app/.open-next")).toBe("/p/app");
+    expect(inUse("/p/app/.wrangler/tmp", [], [proc("/p/app/src", "node dev")])).toBe(true);
+    expect(inUse("/p/app/.wrangler/tmp", [], [proc("/p/other", "node dev")])).toBe(false);
   });
 
   it("counts a folder as in use when a busy chat owns it or a program runs in or names its project", () => {
