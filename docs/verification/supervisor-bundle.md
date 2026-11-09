@@ -27,16 +27,22 @@ through the compiled `mcp.js`:
 
 - authenticated HTTP is reached and a wrong token is refused;
 - `delegate_cloud_job` inherits the dog's model, account and effort;
-- a request for `xlarge` is stored as `standard`, the profile ceiling, with a clamp event;
+- a request for `xlarge` is stored as `standard`, the profile ceiling, with one stored `computer_size_clamped` event naming both sizes;
 - an unknown size is a 400;
 - the same `requestKey` returns the same job and creates no second one;
 - a restart keeps those fields, and no provider task id exists;
 - the computers listener received no request.
 
-Children are stopped and the temporary data removed on every path. `receipt.json`,
-the server and MCP logs, the stub call log and `build.log` are kept in the evidence
-directory (default `.laterdog-evidence/supervisor-bundle-*`) with the synthetic tokens
-redacted. `scripts/smoke-laterdog-bundle.test.ts` runs the same smoke under vitest.
+The evidence path is printed first and again at the end. The server and MCP children are stopped in a `finally`
+even if writing evidence throws, and SIGINT and SIGTERM stop them too (exit 130 or 143), so a wrapper
+timeout leaves no orphans; a child that ignores SIGTERM is sent SIGKILL and awaited. Only the child
+handles the wrapper spawned are signalled. The temporary home and data are removed on every path.
+`receipt.json` (with the owned child PIDs), `children.json`, the server and MCP logs, the stub call
+log and `build.log` are kept, tokens redacted, in the ignored evidence directory
+(default `.laterdog-evidence/supervisor-bundle-*`), including after an assertion failure or
+interruption; nothing deletes them. `scripts/smoke-laterdog-bundle.test.ts` runs the smoke under vitest
+into its own `.laterdog-evidence/` directories, and a second test interrupts the wrapper with SIGTERM
+and checks that the recorded server and MCP PIDs are gone and the receipt says `interrupted`.
 
 ## Counterfactual
 

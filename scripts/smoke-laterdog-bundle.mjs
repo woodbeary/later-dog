@@ -1,11 +1,12 @@
 import { spawn, spawnSync } from "node:child_process";
-import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createServer as createSocketServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { dogToken } from "../server/laterdog/dog-access.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const bundle = join(root, "dist-server", "laterdog");
@@ -13,13 +14,14 @@ const argument = (name) => { const at = process.argv.indexOf(name); return at >=
 const skipBuild = process.argv.includes("--skip-build");
 const evidence = resolve(argument("--evidence") ?? join(root, ".laterdog-evidence", `supervisor-bundle-${new Date().toISOString().replace(/[:.]/g, "-")}`));
 mkdirSync(evidence, { recursive: true });
+console.log(`evidence: ${evidence}`);
 
 const adminToken = randomBytes(32).toString("base64url");
 const claudeToken = `sk-ant-oat01-${randomBytes(72).toString("base64url")}`;
 const computersKey = `ldc_${randomBytes(24).toString("hex")}`;
 const botId = "fixture-dog";
-const dogToken = createHmac("sha256", adminToken).update(`laterdog-dog:${botId}`).digest("base64url");
-const secrets = [adminToken, claudeToken, computersKey, dogToken];
+const dogCredential = dogToken(adminToken, botId);
+const secrets = [adminToken, claudeToken, computersKey, dogCredential];
 const redact = (text) => secrets.reduce((out, secret) => out.split(secret).join("[redacted]"), text);
 
 const receipt = { startedAt: new Date().toISOString(), node: process.version, checks: [], limits: [
@@ -46,6 +48,13 @@ const children = [];
 let computers;
 const computersHits = [];
 
+const pidsFile = join(evidence, "children.json");
+const recordChild = (name, child) => {
+  children.push(child);
+  receipt.children = [...(receipt.children ?? []), { name, pid: child.pid }];
+  writeFileSync(pidsFile, `${JSON.stringify(receipt.children)}\n`);
+};
+
 function finish(ok, error) {
   receipt.ok = ok;
   receipt.finishedAt = new Date().toISOString();
@@ -57,16 +66,37 @@ function finish(ok, error) {
   writeFileSync(join(evidence, "receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`);
 }
 
+const exitOf = (child) => new Promise((done) => {
+  if (child.exitCode !== null || child.signalCode !== null) return done();
+  child.once("exit", () => done());
+});
+
 async function stopAll() {
   for (const child of children.splice(0)) {
     if (child.exitCode !== null || child.signalCode !== null) continue;
     child.kill("SIGTERM");
-    const exited = new Promise((done) => child.once("exit", done));
-    await Promise.race([exited, wait(12_000)]);
-    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await Promise.race([exitOf(child), wait(12_000)]);
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+      await exitOf(child);
+    }
   }
   await new Promise((done) => (computers ? computers.close(done) : done()));
-  rmSync(work, { recursive: true, force: true });
+}
+
+let closing;
+function close(ok, error) {
+  closing ??= (async () => {
+    try { finish(ok, error); } catch (writeError) { console.error(`evidence write failed: ${redact(String(writeError))}`); }
+    try { await stopAll(); } finally { rmSync(work, { recursive: true, force: true }); }
+  })();
+  return closing;
+}
+
+for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143]]) {
+  process.once(signal, () => {
+    close(false, new Error(`interrupted by ${signal}`)).finally(() => { console.error(`FAIL interrupted by ${signal}\nevidence: ${evidence}`); process.exit(code); });
+  });
 }
 
 function build() {
@@ -118,7 +148,7 @@ async function api(port, method, path, body, token = adminToken, headers = {}) {
 async function startServer(logName, port, computersPort) {
   const log = join(work, logName);
   const child = spawn(process.execPath, [join(bundle, "main.js")], { cwd: work, env: childEnvironment(port, computersPort), stdio: ["ignore", "pipe", "pipe"] });
-  children.push(child);
+  recordChild(logName, child);
   const lines = [];
   for (const stream of [child.stdout, child.stderr]) stream.on("data", (chunk) => { lines.push(String(chunk)); writeFileSync(log, lines.join("")); });
   const exited = new Promise((done) => child.once("exit", (code, signal) => done({ code, signal })));
@@ -135,18 +165,17 @@ async function startServer(logName, port, computersPort) {
 }
 
 async function stopServer(child) {
-  const exited = new Promise((done) => child.once("exit", done));
   child.kill("SIGTERM");
-  await Promise.race([exited, wait(15_000)]);
+  await Promise.race([exitOf(child), wait(15_000)]);
   expect("compiled main.js exits on SIGTERM", child.exitCode !== null || child.signalCode !== null);
 }
 
 function mcpSession(port) {
   const child = spawn(process.execPath, [join(bundle, "mcp.js")], { cwd: work, stdio: ["pipe", "pipe", "pipe"],
-    env: { ...childEnvironment(port, 0), LATERDOG_SUPERVISOR_URL: `http://127.0.0.1:${port}`, LATERDOG_TOKEN: dogToken,
+    env: { ...childEnvironment(port, 0), LATERDOG_SUPERVISOR_URL: `http://127.0.0.1:${port}`, LATERDOG_TOKEN: dogCredential,
       LATERDOG_BOT_ID: botId, LATERDOG_CONVERSATION_ID: "fixture-conversation",
       LATERDOG_ACCOUNT: "claude", LATERDOG_MODEL: "claude-opus-5-5", LATERDOG_EFFORT: "high" } });
-  children.push(child);
+  recordChild("mcp", child);
   const pending = new Map();
   let buffer = "";
   const transcript = [];
@@ -195,11 +224,13 @@ async function run() {
   expect("compiled MCP creates the job", created.result && !created.result.isError, created);
   const receiptJob = JSON.parse(created.result.content[0].text);
   const jobId = receiptJob.id;
-  const stored = await api(port, "GET", `/v1/jobs/${jobId}`, undefined, dogToken, { "x-laterdog-bot": botId });
+  const stored = await api(port, "GET", `/v1/jobs/${jobId}`, undefined, dogCredential, { "x-laterdog-bot": botId });
   const storedJob = stored.json.job;
   expect("job record reads back over HTTP", stored.status === 200, stored);
   expect("job inherits model, account and effort from the dog", storedJob.model === "claude-opus-5-5" && storedJob.account === "claude" && storedJob.effort === "high", storedJob);
   expect("requested xlarge clamps to the profile ceiling standard", storedJob.computerSize === "standard", storedJob.computerSize);
+  const clamps = (stored.json.events ?? []).filter((event) => event.type === "computer_size_clamped");
+  expect("one computer_size_clamped event is stored with the asked and ceiling sizes", clamps.length === 1 && /xlarge/.test(clamps[0].detail) && /standard/.test(clamps[0].detail), clamps);
   expect("job names its dog and backend", storedJob.botId === botId && storedJob.backend === "laterdog-cloud", storedJob);
 
   const refusal = await api(port, "POST", "/v1/jobs", { requestKey: `bundle-${randomUUID()}`, repository: "fixture/first", title: "Bad size", brief: "x", profileId: "cloud", computerSize: "huge" });
@@ -229,8 +260,6 @@ async function run() {
 }
 
 let failed;
-try { await run(); } catch (error) { failed = error; }
-finish(!failed, failed);
-await stopAll();
+try { await run(); } catch (error) { failed = error; } finally { await close(!failed, failed); }
 if (failed) { console.error(`FAIL ${redact(String(failed.message ?? failed))}\nevidence: ${evidence}`); process.exit(1); }
 console.log(`PASS compiled supervisor bundle smoke\nevidence: ${evidence}`);
