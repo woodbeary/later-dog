@@ -11,8 +11,12 @@ files from `a4256c8a` over the prior image), pinned by digest in the Wrangler co
 this is not a full Dockerfile rebuild. A full production deploy activated Worker
 `d3debf95`; the admin restart after it did not run and is not claimed. Readiness
 recovered with all 67 jobs retained. Saved dogs resumed except the WoW dogs, all 80 IDs
-retained. The post-supervisor ten-minute monitor was in progress at report time; fleet
-capacity stays unqualified. See [rollout record](../verification/dog-resume-2026-11-09.md).
+retained. The final post-rollout monitor is complete: 21 consecutive qualified functional
+samples, 12:14:29.515–12:24:54.613 UTC, with all 80 dog identities and 67 jobs retained
+and all 21 samples low-space flagged (minimum free 1531617280 bytes), so larger-fleet
+capacity stays unqualified. Automated supervisor verification returned 409 "spawn docker
+ENOENT" and is not green; the direct native smoke passed 7 checks with
+`providerQualified` false. Desktop signing and phone uptake are unconfirmed. See [rollout record](../verification/dog-resume-2026-11-09.md).
 
 November 9 stall repair qualification: PR138 combines immutable routine-run
 authority, a strictly proven neutral legacy cancellation, distinct MCP repeat
