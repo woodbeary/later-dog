@@ -16,7 +16,7 @@
   "containers": [
     {
       "class_name": "CloudHomeHost",
-      "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/later-dog-home:c41d2f0bbb03",
+      "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-home-test-cloudhomehost@sha256:85ad146353a31ad286c722ebd9b4d2803970447dc17d960e78e245127be34e7f",
       "instance_type": "standard-1",
       "max_instances": 2,
       "observability": {
@@ -34,7 +34,7 @@
     },
     {
       "class_name": "CloudHomeHostLarge",
-      "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/later-dog-home:c41d2f0bbb03",
+      "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-home-test-cloudhomehostlarge@sha256:581e3ce682b148f523f2a5b73849679bffbb022e5d25a11843adfcfc01722de9",
       "instance_type": "standard-4",
       "max_instances": 1,
       "observability": {
