@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { BUILD_OUTPUT_DIRS } from "./janitor.ts";
+import { BUILD_OUTPUT_DIRS, isGeneratedPath } from "./janitor.ts";
 
 export const PART_BYTES = 12 * 1024 * 1024;
 export const MAX_SEND_BYTES = 2 * 1024 * 1024 * 1024;
@@ -12,8 +12,8 @@ export const MAX_RUN_MS = 2 * 60 * 60_000;
 export const POLL_MS = 10_000;
 export const OUTPUT_TAIL_CHARS = 12_000;
 const EXEC_MS = 110_000;
-const SKIPPED_NAMES: ReadonlySet<string> = new Set([...BUILD_OUTPUT_DIRS, ".pnpm-store", ".npm", "dist", "build", "out", "coverage", "test-results", "playwright-report"]);
-const NEVER_SENT: ReadonlySet<string> = new Set([...BUILD_OUTPUT_DIRS, ".pnpm-store", ".npm"]);
+const NEVER_SENT: ReadonlySet<string> = new Set([".pnpm-store", ".npm"]);
+const SKIPPED_NAMES: ReadonlySet<string> = new Set([...BUILD_OUTPUT_DIRS, ...NEVER_SENT, "dist", "build", "out", "coverage", "test-results", "playwright-report"]);
 
 export interface BoxExec {
   exitCode: number | null;
@@ -83,6 +83,14 @@ export function setupKey(dir: string): string | null {
   return found ? hash.digest("hex").slice(0, 24) : null;
 }
 
+function safeTransferPath(path: string): boolean {
+  return Boolean(path) && !path.startsWith("/") && !path.includes("\\") && !Array.from(path).some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) && !path.split("/").some(part => part === ".." || part === "." || !part);
+}
+
+function sendablePath(path: string): boolean {
+  return safeTransferPath(path) && !isGeneratedPath(path) && !path.split("/").some(part => NEVER_SENT.has(part));
+}
+
 export function stampFolder(folder: string): FolderStamps {
   const stamps: FolderStamps = {};
   const walk = (at: string) => {
@@ -90,10 +98,10 @@ export function stampFolder(folder: string): FolderStamps {
     try { names = readdirSync(at); } catch { return; }
     for (const name of names) {
       const path = join(at, name);
+      if (!sendablePath(relative(folder, path))) continue;
       let entry;
       try { entry = lstatSync(path); } catch { continue; }
       if (entry.isDirectory()) {
-        if (NEVER_SENT.has(name)) continue;
         walk(path);
       } else if (entry.isFile() || entry.isSymbolicLink()) {
         stamps[relative(folder, path)] = { size: entry.size, mtimeMs: Math.floor(entry.mtimeMs) };
@@ -105,8 +113,8 @@ export function stampFolder(folder: string): FolderStamps {
 }
 
 export function changesSince(before: FolderStamps, now: FolderStamps): { changed: string[]; removed: string[] } {
-  const changed = Object.keys(now).filter((path) => before[path]?.size !== now[path].size || before[path]?.mtimeMs !== now[path].mtimeMs).sort();
-  const removed = Object.keys(before).filter((path) => !(path in now)).sort();
+  const changed = Object.keys(now).filter(sendablePath).filter((path) => before[path]?.size !== now[path].size || before[path]?.mtimeMs !== now[path].mtimeMs).sort();
+  const removed = Object.keys(before).filter(sendablePath).filter((path) => !(path in now)).sort();
   return { changed, removed };
 }
 
@@ -119,7 +127,7 @@ export function bringBackList(listing: string, maxBytes = MAX_BRING_BACK_BYTES):
     if (tab < 1) continue;
     const size = Number(line.slice(0, tab));
     const path = line.slice(tab + 1).replace(/^\.\//, "");
-    if (!path || path.split("/").some((part) => part === ".." || SKIPPED_NAMES.has(part))) continue;
+    if (!safeTransferPath(path) || !Number.isSafeInteger(size) || size < 0 || isGeneratedPath(path) || path.split("/").some(part => SKIPPED_NAMES.has(part))) continue;
     if (total + size > maxBytes) { skipped.push(path); continue; }
     total += size;
     take.push(path);
@@ -267,7 +275,7 @@ export class ComputerRuns {
     for (const name of packed.stdout.split("\n").map((line) => line.trim()).filter(Boolean)) pieces.push(await box.read(`runs/.in/${name}`));
     await box.exec(`rm -f runs/.in/${record.id}.*`, 30_000).catch(() => null);
     await unpackFiles(record.folder, Buffer.concat(pieces));
-    const sent = { ...record.sent, ...stampFolder(record.folder) };
+    const sent = { ...Object.fromEntries(Object.entries(record.sent).filter(([path]) => sendablePath(path))), ...stampFolder(record.folder) };
     this.#writeJson(this.#sentPath(record.botId, record.key), sent);
     return { broughtBack: fetch, skipped, conflicts };
   }

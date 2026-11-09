@@ -207,3 +207,17 @@ it("saves a dog's placement atomically, keeps other dogs and fields, and never r
   expect(setRemoteEngineBot(fresh, "b4", true, {}).computer).toBe(true);
   expect(JSON.parse(readFileSync(join(fresh, "remote-engines.json"), "utf8"))).toEqual({ bots: ["b4"] });
 });
+
+it("puts the exact CLI first, then computer-owned package bins, independently of the home's PATH", () => {
+  const { input } = setup();
+  for (const hostPath of ["/host/credentials/bin:/malicious/bin", "/data/home/.local/bin:/tmp/attacker", ""]) {
+    const planned = planClaudeRemote({ ...input, env: { ...input.env, PATH: hostPath } });
+    if (!("plan" in planned)) throw new Error(planned.stay);
+    const { launch } = planned.plan;
+    const cliBin = launch.cli.slice(0, launch.cli.lastIndexOf("/"));
+    expect(launch.env.PATH?.split(":")).toEqual([cliBin, "/home/dog/.local/bin", "/home/dog/.npm-global/bin", "/usr/local/bin", "/usr/bin", "/bin"]);
+    expect(launch.env.PATH).not.toContain(hostPath || "/tmp/attacker");
+    expect(launch.env.HOME).toBe("/home/dog");
+    expect(launch.env.LATERDOG_HOOK_TOKEN_FILE).toBeUndefined();
+  }
+});

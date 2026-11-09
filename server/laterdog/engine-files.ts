@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
+import { isGeneratedPath } from "./janitor.ts";
+
 export interface EngineFileRoot {
   id: string;
   path: string;
@@ -13,7 +15,7 @@ export interface EngineFileRoot {
 export interface EngineFile { root: string; path: string; hash: string; size: number; mode: number }
 export const ENGINE_FILE_LIMIT = 128 * 1024 * 1024;
 export const ENGINE_TRANSFER_LIMIT = 512 * 1024 * 1024;
-const SKIP = new Set(["node_modules", ".pnpm-store", ".npm", ".cache", "dist", "build", "out", "coverage", "test-results", "playwright-report"]);
+const SKIP = new Set([".pnpm-store", ".npm", "dist", "build", "out", "coverage", "test-results", "playwright-report"]);
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 export const engineFileKey = (file: Pick<EngineFile, "root" | "path">) => `${file.root}\0${file.path}`;
 
@@ -47,6 +49,7 @@ export function engineInventory(roots: readonly EngineFileRoot[]): EngineFile[] 
   let rootTotal = 0;
   const add = (root: EngineFileRoot, path: string) => {
     const full = engineFilePath(root, path);
+    if (isGeneratedPath(path) || path.split("/").some(part => SKIP.has(part))) return;
     let stat;
     try { stat = lstatSync(full); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
     if (root.bounded) {
@@ -66,7 +69,7 @@ export function engineInventory(roots: readonly EngineFileRoot[]): EngineFile[] 
     for (const entry of readdirSync(full, { withFileTypes: true })) {
       if (SKIP.has(entry.name)) continue;
       const path = at ? `${at}/${entry.name}` : entry.name;
-      if (root.bounded?.exclude?.includes(path)) continue;
+      if (isGeneratedPath(path) || root.bounded?.exclude?.includes(path)) continue;
       if (entry.isDirectory()) walk(root, path);
       else if (entry.isFile() || (entry.isSymbolicLink() && !root.bounded)) add(root, path);
     }

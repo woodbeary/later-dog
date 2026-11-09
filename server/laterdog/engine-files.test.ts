@@ -95,3 +95,14 @@ it("lists a bounded folder without large files, build output, links, excluded pa
   expect(tight.length).toBeGreaterThan(0);
   expect(() => engineInventory([{ id: "workspace", path, writable: true }])).toThrow();
 });
+
+it("excludes generated paths in walking and explicit root.files while retaining state, cache and results", () => {
+  const path = folder();
+  const generated = [".open-next/assets/a", "nested/.open-next/a", "nested/.wrangler/tmp/dev/a", "nested/.next/a", "dist/a"];
+  const kept = ["nested/.wrangler/state/db", "nested/.wrangler/cache/db", "src/a", "results/check.txt", ".git/HEAD"];
+  for (const name of [...generated, ...kept]) { mkdirSync(join(path, name, ".."), { recursive: true }); writeFileSync(join(path, name), "x"); }
+  const root = { id: "workspace", path, writable: true };
+  expect(engineInventory([root]).map(f => f.path).sort()).toEqual([...kept].sort());
+  expect(engineInventory([{ ...root, files: [...generated, ...kept] }]).map(f => f.path).sort()).toEqual([...kept].sort());
+  expect(() => engineInventory([{ ...root, files: [".open-next/../escape"] }])).toThrow("Invalid engine file path");
+});
