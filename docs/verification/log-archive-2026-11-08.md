@@ -45,6 +45,10 @@ The root launcher deliberately protects its descriptor table after switching ser
 
 The first amd64 build on this arm64 Mac crashed inside emulated esbuild with SIGSEGV. The JavaScript/frontend build stage now uses BUILDPLATFORM; the shipped runtime stays linux/amd64. Dockerfile contract checks pass (11 tests, three existing skips). The next attempt lost the Docker VM connection during the build; its original two-GiB build VM was restarted with four GiB. These are build-environment observations, not a demonstrated cause of the phone or live home failures.
 
+The packaged descriptor helper must also be readable by the dog UID. The runtime Dockerfile now sets that one nonsecret module to 0644 and checks its syntax under the actual dog account. Other runtime secrets and descriptor tables remain private.
+
+The assembled-image fixture runs with the image's normal tini entrypoint: docker run --rm --platform linux/amd64 -v "$PWD/deploy/laterdog/home:/fixture:ro" IMAGE node /fixture/image-archive-fixture.mjs. Overriding the entrypoint with Node bypasses the process reaper and leaves orphaned zombie CLI probes; the ownership guard correctly refuses those inaccessible descriptor tables. The fixture command was corrected instead of weakening the guard.
+
 ## Release status
 
 Not yet deployed at this documentation checkpoint. No live disk relief is claimed. Actual Worker/runtime image deployment, isolated image checks, release identity and live read-only counts/disk measurements are recorded when those gates complete.

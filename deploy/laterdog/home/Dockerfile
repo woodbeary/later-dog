@@ -8,6 +8,8 @@ ARG LATERDOG_BUILD=""
 RUN if [ -n "$LATERDOG_BUILD" ]; then printf '%s\n' "$LATERDOG_BUILD" > /app/cloud/build; fi \
  && chown -R root:root /app/cloud \
  && chmod -R go-w /app/cloud \
+ && chmod 0644 /app/cloud/runtime/archive-ownership.mjs \
+ && su -s /bin/sh dog -c 'node --check /app/cloud/runtime/archive-ownership.mjs' \
  && LATERDOG_CLOUD_PUBLIC_HOST=validate-home.later.dog caddy validate --config /app/cloud/Caddyfile --adapter caddyfile \
  && node --check /app/cloud/runtime/run.mjs \
  && node --check /app/cloud/runtime/dev-code.mjs \
