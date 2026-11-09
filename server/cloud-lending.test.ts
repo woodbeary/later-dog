@@ -184,6 +184,12 @@ describe("reports of routine runs", () => {
     expect(reportFromOthers(stamped, gone)).toBe(false);
     expect(reportFromOthers(stamped, live)).toBe(false);
   });
+  it("an unmarked report of a deleted routine is neutral only when the proven-status check says so", () => {
+    expect(reportFromOthers(card(), gone, () => true)).toBe(false);
+    expect(reportFromOthers(card(), gone, () => false)).toBe(true);
+    expect(reportFromOthers(card({ ownersRoutine: false }), gone, () => true)).toBe(true);
+    expect(reportFromOthers({ webhookPost: true }, gone, () => true)).toBe(true);
+  });
   it("a guest-run report stays foreign after the owner adopts the routine", () => {
     const stamped = card({ ownersRoutine: run("schedule", false) });
     expect(reportFromOthers(stamped, live)).toBe(true);

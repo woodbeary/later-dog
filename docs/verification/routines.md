@@ -257,14 +257,29 @@ change has no stored answer, so its new reports are marked foreign rather than
 trusted.
 
 Legacy limitation: a routine's authorship record is removed when the routine is
-deleted, and an old report holds only the routine id and a status, so nothing
-retained can show that a deleted routine's old (including cancelled) run was the
-owner's. Those reports stay denied. Repairing them would mean trusting an
-unprovable claim, so none is attempted, and no user data was changed. An owner
-who wants the Mac back in such a conversation starts a new one.
+deleted, and an old report holds only the routine id and a status, so in general
+nothing retained can show that a deleted routine's old run was the owner's. Those
+reports stay denied, and no user data was changed.
+
+One audited exception is neutral for the reports-from-others check only. An
+unmarked `routine.run` report is neutral when all of these hold from immutable
+server records: the report is the canonical cancelled status (bot role, the exact
+server cancellation text, only the run id, routine id, name, scheduled time and
+`cancelled` status, no other field); the retained run matches it exactly (same run,
+routine, dog, source conversation, name and scheduled time; schedule run, not manual;
+cancelled; no attachments, start, thread, output, error, attention, denials, cost,
+goal, webhook or delivery data; no negative owner attestation); and the same
+conversation holds the server's own deletion receipt (auto-applied, answered allow,
+not undone, a delete of that routine with matching result id, owner-held and
+disabled before, the same name, applied no earlier than the cancellation finished (chronology uses the receipt's applied time, not its message creation)).
+This proves only an owner-attested title and a server cancellation, not who owned
+the run: no run owner is stamped, no record is rewritten, and nothing is cached.
+Any missing proof, an explicit negative mark, any other content, or any other
+unknown legacy report stays denied. An owner who wants the Mac back in such a
+conversation starts a new one.
 
 ```sh
-pnpm exec vitest run server/cloud-lending.test.ts server/laterdog/routine-provenance.integration.test.ts
+pnpm exec vitest run server/cloud-lending.test.ts server/laterdog/routine-provenance.test.ts server/laterdog/routine-provenance.integration.test.ts
 ```
 
 The integration test boots a disposable cloud-home server with a fake engine. It

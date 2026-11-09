@@ -19,6 +19,7 @@ import { draftSummary, foldPoint } from "./compaction-summary.ts";
 import { compactBudget, contextWindowFor, shouldCompact } from "./context-budget.ts";
 import { completeSharedOperation, provenRequestPerson, SharedComputers, sharedActionsHeader, sharedComputerOperation, sharedComputerOperationProblem, sharedComputerRegistration, sharedComputerScopeRefusal, type SharedComputerOperation, type SharedComputerRegistration } from "./shared-computers.ts";
 import { MAC_ALLOW_KEY, MacApprovals, type MacLasting } from "./mac-approval.ts";
+import { legacyCancelledStatusIsNeutral } from "./laterdog/routine-provenance.ts";
 import { cloudHomeLendingRefusal, createCloudRoutineAuthors, ownerOnlyConversation, reportFromOthers, routineReportMark, type CloudLendingRefusal, type CloudLendingTurn } from "./cloud-lending.ts";
 import { SharedComputerControl } from "./shared-computer-control.ts";
 import { RoomHandoffs, type RoomHandoff } from "./room-handoffs.ts";
@@ -1105,7 +1106,7 @@ function cloudLendingTurn(capability: Pick<InternalCapability, "botId" | "thread
     thread: store.messagesFor(capability.threadId),
     guestDriven: cloudGuestDriven(capability.threadId),
     starters: cloudThreadStarters(capability.threadId),
-    reportsFromOthers: store.messagesFor(capability.threadId).some(cloudReportFromOthers),
+    reportsFromOthers: store.messagesFor(capability.threadId).some((line) => cloudReportFromOthers(line, capability.threadId)),
     ownerPerson: cloudProvenOwnerPerson,
     ownersOwnDogs: ownersOwnDogs(capability.threadId),
     cardAnswerer: cloudCardAnswerer,
@@ -1280,11 +1281,13 @@ function cloudLendingView(capability: Pick<InternalCapability, "botId" | "thread
   return CLOUD_HOME !== null && cloudHomeLendingRefusal(cloudLendingTurn(capability)) === null;
 }
 
-function cloudReportFromOthers(line: Message): boolean {
+function cloudReportFromOthers(line: Message, threadId: string): boolean {
   return reportFromOthers(line, (routineId) => {
     const routine = routines?.listRoutines().find((candidate) => candidate.id === routineId);
     return Boolean(routine) && cloudRoutineAuthors?.authored(routineId, routine!) === true;
-  });
+  }, () => Boolean(routines && cloudRoutineAuthors) && legacyCancelledStatusIsNeutral(
+    line, threadId, (runId) => routines!.findRun(runId), (runId) => cloudRoutineAuthors!.runAttestation(runId), () => store.messagesFor(threadId),
+  ));
 }
 
 function cloudRoutineReportMark(run: RoutineRun): boolean | undefined {
@@ -1322,7 +1325,7 @@ function cloudOwnerOnlyThread(threadId: string): boolean {
   const cached = ownerOnlyCache.get(threadId);
   const lastKey = last ? `${last.id}:${last.card?.answeredBy ? JSON.stringify(last.card.answeredBy) : ""}` : undefined;
   if (cached && cached.length === thread.length && cached.last === lastKey) return cached.owner;
-  const owner = ownerOnlyConversation(thread, cloudProvenOwnerPerson, cloudCardAnswerer, undefined, ownersOwnDogs(threadId)) && !thread.some(cloudReportFromOthers);
+  const owner = ownerOnlyConversation(thread, cloudProvenOwnerPerson, cloudCardAnswerer, undefined, ownersOwnDogs(threadId)) && !thread.some((line) => cloudReportFromOthers(line, threadId));
   if (ownerOnlyCache.size > 5_000) ownerOnlyCache.clear();
   ownerOnlyCache.set(threadId, { length: thread.length, last: lastKey, owner });
   return owner;

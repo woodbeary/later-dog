@@ -866,6 +866,11 @@ export class RoutineManager {
       .map(cloneRun);
   }
 
+  findRun(id: string): RoutineRun | undefined {
+    const run = this.runs.find((candidate) => candidate.id === id);
+    return run ? cloneRun(run) : undefined;
+  }
+
   activeRunForBot(botId: string): RoutineRun | null {
     const run = this.runs.find(
       (candidate) => candidate.botId === botId && ["running", "waiting"].includes(candidate.status),

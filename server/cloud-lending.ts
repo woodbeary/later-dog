@@ -87,11 +87,12 @@ export function routineReportMark(run: { triggerSource: string; ownerAuthored: b
 export function reportFromOthers(
   line: { kind?: string; webhookPost?: boolean; ownersRoutine?: boolean; routineRun?: { routineId: string } },
   liveOwnersRoutine: (routineId: string) => boolean,
+  provenNeutralStatus: () => boolean = () => false,
 ): boolean {
   if (line.webhookPost) return true;
   if (line.kind !== "routine.run" || !line.routineRun) return false;
   if (line.ownersRoutine !== undefined) return !line.ownersRoutine;
-  return !liveOwnersRoutine(line.routineRun.routineId);
+  return !liveOwnersRoutine(line.routineRun.routineId) && !provenNeutralStatus();
 }
 
 const authorsFile = z.object({
