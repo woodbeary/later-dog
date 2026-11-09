@@ -9,8 +9,7 @@
   "containers": [
     {
       "class_name": "SupervisorHost",
-      "image": "../Dockerfile",
-      "image_build_context": "../../..",
+      "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-supervisor-options@sha256:4e3fff20d758276f3acf70dfd13f1e7226fcc2b60009a2269001d2cb34b5d42e",
       "instance_type": "standard-3",
       "max_instances": 1,
       "observability": { "enabled": true }
