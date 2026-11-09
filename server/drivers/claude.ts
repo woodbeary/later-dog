@@ -32,6 +32,7 @@ import { newEventId, newId } from "../contracts.ts";
 import { askInputSummary, commandSummary, toolDetailPreview } from "../tool-summary.ts";
 import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS } from "./retry.ts";
 import { ClaudeTasks, helperStep } from "./claude-tasks.ts";
+import { ClaudeNativeActivity, claudeChildMessage } from "../laterdog/claude-native-activity.ts";
 import { parseVersionTriple, versionAtLeast } from "./acp/core.ts";
 import {
   applyClaudeInject,
@@ -264,6 +265,7 @@ export const CLAUDE_FLAG_FLOORS = {
   "--autocompact": [2, 1, 122],
   "--system-prompt-snapshot": [2, 1, 267],
   "--restricted": [2, 1, 257],
+  "--forward-subagent-text": [2, 1, 211],
 } as const satisfies Record<string, ClaudeCliVersion>;
 
 const FLAGS_LEARNED_AFTER_LAUNCH = ["--autocompact", "--system-prompt-snapshot"] as const;
@@ -424,6 +426,8 @@ interface Ask {
   tool: string;
   input: Record<string, unknown>;
   at: number;
+  toolUseId?: string;
+  agentId?: string;
 }
 type AskBehavior = "allow" | "deny" | "answer";
 type AskResolutionSource = "user" | "timeout" | "system";
@@ -579,7 +583,7 @@ export async function createPermissionBroker(opts: {
           } catch {}
           continue;
         }
-        const ask: Ask = { id: askId, kind, tool: msg.tool ?? "tool", input: msg.input ?? {}, at: Date.now() };
+        const ask: Ask = { id: askId, kind, tool: msg.tool ?? "tool", input: msg.input ?? {}, at: Date.now(), toolUseId: typeof msg.tool_use_id === "string" ? msg.tool_use_id : undefined, agentId: typeof msg.agent_id === "string" ? msg.agent_id : undefined };
         const finish = (behavior: AskBehavior, message: string | undefined, source: AskResolutionSource, always?: boolean) => {
           if (!pending.delete(askId)) return;
           clearTimeout(timer);
@@ -1005,6 +1009,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       } | null;
       helperTurnId: string;
       helpers: ClaudeTasks;
+      nativeActivity: ClaudeNativeActivity;
       helperTimer: ReturnType<typeof setTimeout> | null;
       repliedSinceResult: boolean;
       closing: boolean;
@@ -1071,8 +1076,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       });
     };
 
+    let nativeSequence = 0;
     const emit = (event: RuntimeEvent) => {
-      for (const l of Array.from(listeners)) l(event);
+      const ordered = { ...event, nativeSequence: ++nativeSequence };
+      for (const l of Array.from(listeners)) l(ordered);
     };
     const base = (threadId: string, turnId: string) => ({
       eventId: newEventId(),
@@ -1144,6 +1151,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
       const replaysUserMessages = cliVersion === null || versionAtLeast(cliVersion, CLAUDE_REPLAY_FLOOR);
       if (replaysUserMessages) args.push("--replay-user-messages");
+      if (cliVersion && claudeCliSupports(cliVersion, "--forward-subagent-text")) args.push("--forward-subagent-text");
       const isolated = !inheritsUserConfig(turnEnvironment);
       if (turn.toolScope !== undefined && (!isolated || turn.mcpFromUserConfig || cliVersion === null || !claudeCliSupports(cliVersion, "--strict-mcp-config"))) {
         throw new Error("Claude cannot confirm a restricted MCP configuration for this account. Disable inherited Claude MCP servers and use a current, identifiable Claude CLI before using tool selection.");
@@ -1255,7 +1263,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       const cwd = turn.cwd ?? homedir();
       const commandCwd = permissionLaunchCwd(cwd);
       const unkeyedFlags = new Set<string>(["--mcp-config", "--settings", ...FLAGS_LEARNED_AFTER_LAUNCH]);
-      const keyArgs = args.filter((a, i) => !unkeyedFlags.has(a) && !unkeyedFlags.has(args[i - 1] ?? ""));
+      const keyArgs = args.filter((a, i) => a !== "--forward-subagent-text" && !unkeyedFlags.has(a) && !unkeyedFlags.has(args[i - 1] ?? ""));
       const argsParts = Object.fromEntries(Object.entries({
         args: keyArgs,
         system: turn.systemStable ?? turn.system ?? null,
@@ -1290,6 +1298,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           stopSession(live);
         }, turnId, broker: live.broker });
         emit({ ...base(threadId, turnId), type: "turn.started" });
+        live.nativeActivity.beginTurn();
         const volatile = turn.systemVolatile ?? "";
         const note = claudeVolatileNote(volatile, live.volatile, turn.mentionTurn);
         const message = note ? claudeUserMessage(withVolatileNote(turn.text, note), turn.images) : promptMsg;
@@ -1348,6 +1357,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               const questions = askQuestions(ask);
               emit({
                 ...base(threadId, eventTurnId),
+                nativeActorId: sessions.get(threadId)?.nativeActivity.actorForRequest(ask),
                 type: "request.opened",
                 requestId: ask.id,
                 requestType: ask.kind,
@@ -1370,6 +1380,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               const eventTurnId = sessions.get(threadId)?.turn?.turnId ?? turnId;
               emit({
                 ...base(threadId, eventTurnId),
+                nativeActorId: sessions.get(threadId)?.nativeActivity.actorForRequest(resolved),
                 type: "request.resolved",
                 requestId: resolved.id,
                 behavior: resolved.behavior,
@@ -1434,6 +1445,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         turn: { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, pendingSteers: new Map(), deferred: null, continuationGrace: null, continuationSilence: null },
         helperTurnId: turnId,
         helpers: new ClaudeTasks((helper) => emit({ ...base(threadId, session.turn?.turnId ?? session.helperTurnId), type: "helper.updated", helper })),
+        nativeActivity: new ClaudeNativeActivity((observation) => emit({ ...base(threadId, session.turn?.turnId ?? session.helperTurnId), type: "native.observed", observation }), { version: cliVersion?.join("."), sessionId: sessionId ?? newSessionId ?? undefined }),
         helperTimer: null,
         repliedSinceResult: false,
         closing: false,
@@ -1540,6 +1552,15 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return;
         }
         appendNative(threadId, { dir: "in", source: "claude.sdk.message", msg: o?.type === "user" && o.isReplay === true && o.message ? diagnosticClaudeUserMessage(o) : o });
+        if (claudeChildMessage(o) || !claudeRefreshLockFrame(o, firstText(o.message?.content))) session.nativeActivity.receive(o);
+        if (claudeChildMessage(o) && (o.type === "assistant" || o.type === "user" || o.type === "stream_event")) {
+          if (o.type === "assistant" && o.parent_tool_use_id) {
+            for (const b of Array.isArray(o.message?.content) ? o.message.content : []) {
+              if (b.type === "tool_use") session.helpers.noteStep(o.parent_tool_use_id, helperStep(b.name, b.input));
+            }
+          }
+          return;
+        }
         if (session.turn?.continuationSilence && !(o.type === "system" && o.subtype === "init") && !(o.type === "user" && o.isReplay === true)) {
           clearTimeout(session.turn.continuationSilence);
           session.turn.continuationSilence = null;
@@ -2014,6 +2035,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       };
       active.set(threadId, { stop, turnId, broker });
       emit({ ...base(threadId, turnId), type: "turn.started" });
+      session.nativeActivity.beginTurn();
 
       const remembered = sessionId ? deliveredVolatile.get(threadId) : undefined;
       const launchNote = turn.systemStable === undefined ? "" : claudeVolatileNote(launchVolatile, remembered?.sessionId === sessionId ? remembered.volatile : null, turn.mentionTurn);

@@ -69,6 +69,7 @@ import { queuedSteerResult } from "@/lib/queued-steer";
 import type { OutboxItem, OutboxRecovery } from "@/lib/outbox";
 import { createSendOutbox, type SendOutbox } from "./send-outbox";
 import { receiveHelperEvent, receiveHelpersSnapshot, forgetHelpers } from "@/lib/helpers-state";
+import { receiveNativeRun, forgetNativeRuns, refreshNativeRuns } from "@/lib/native-runs-state";
 import { receiveReasoningEvent, forgetReasoning } from "@/lib/turn-reasoning";
 import { readSessionState } from "@/lib/session";
 import {
@@ -98,7 +99,7 @@ function trimRoutineRuns(runs: readonly RoutineRun[]): RoutineRun[] {
 export type { DogColor } from "@/lib/mascot";
 export type { RoutineRunCardData } from "../../shared/routine-run";
 
-export interface OptionCardData {
+export interface OptionCardData extends Pick<import("../../shared/wire").OptionCardData, "nativeActorId" | "nativeActorLabel" | "nativeRunId"> {
   title: string;
   subtitle: string;
   options: string[];
@@ -3323,6 +3324,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "routine.run":
           rawDispatch({ type: "routineRunPatched", run: frame.run });
           break;
+        case "native.run.updated":
+          receiveNativeRun(frame.run);
+          break;
         case "runtime": {
           if (receiveHelperEvent(frame.event)) bumpPeripheralVersion("helpers");
           receiveReasoningEvent(frame.event);
@@ -3381,6 +3385,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       onSnapshotRequired: () => {
         clearTimeout(hydrationFallback);
         publishMissedFrames();
+        refreshNativeRuns();
         pendingFrames.splice(0);
         return hydrate();
       },
@@ -3393,6 +3398,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false;
       forgetHelpers();
+      forgetNativeRuns();
       forgetReasoning();
       clearTimeout(hydrationFallback);
       for (const refresh of peripheralRefresh.values()) {

@@ -29,7 +29,7 @@ const ENTRIES = {
   settings: { entry: "/src/testing/bot-settings.tsx", route: "/__bot-settings.html", title: "Isolated Bot Settings" },
   "desktop-signin": { entry: "/scripts/testing/desktop-signin-preview.tsx", route: "/__desktop-signin.html", title: "Isolated desktop sign-in", extraRoutes: desktopSigninRoutes() },
 } as const satisfies Record<string, Parameters<typeof mountPreview>[1]>;
-const FAKE_MODES = ["happy", "exit-early", "hang", "malformed", "stream", "not-logged-in", "slow", "background-result", "puppies"];
+const FAKE_MODES = ["happy", "exit-early", "hang", "malformed", "stream", "not-logged-in", "slow", "background-result", "puppies", "native-activity"];
 const SEEDED_BOT = "Pepper";
 const PLATFORM_ENV = ["SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "LANG", "LC_ALL", "TZ"];
 const CHROME_LAYOUTS: Partial<Record<NodeJS.Platform, string[]>> = {

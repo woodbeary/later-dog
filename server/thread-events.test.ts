@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { readThreadEvents } from "./thread-events.ts";
+import { isRuntimeEvent, readThreadEvents } from "./thread-events.ts";
 
 const dirs: string[] = [];
 function tmp() {
@@ -19,6 +19,23 @@ const line = (o: unknown) => JSON.stringify(o) + "\n";
 const runtime = (event: Record<string, unknown>) => ({ provider: "test", threadId: "t1", ...event });
 
 describe("readThreadEvents", () => {
+  it("keeps native activity and attribution in inspector history while rejecting malformed observations", () => {
+    const base = { eventId: "e", provider: "claude", threadId: "t", createdAt: "2026-11-08T10:00:00Z", nativeActorId: "child", type: "native.observed" };
+    const actor = { id: "child", label: "Research", state: "running", kind: "subagent", startedAt: 1 };
+    for (const observation of [
+      { kind: "actor", actor },
+      { kind: "activity", activity: { ...actor, kind: "search", actorId: "child" } },
+      { kind: "capabilities", version: "1.2.3", limitations: ["Child deltas unavailable"] },
+    ]) expect(isRuntimeEvent({ ...base, observation })).toBe(true);
+    for (const observation of [
+      { kind: "future" },
+      { kind: "actor", actor: { ...actor, state: "imagined" } },
+      { kind: "activity", activity: { ...actor, kind: "search" } },
+      { kind: "capabilities", limitations: [4] },
+    ]) expect(isRuntimeEvent({ ...base, observation })).toBe(false);
+    expect(isRuntimeEvent({ ...base, nativeActorId: 4 })).toBe(false);
+  });
+
   it("returns an empty page when neither log exists", () => {
     const eventsDir = tmp();
     const nativeDir = tmp();

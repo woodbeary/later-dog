@@ -22,7 +22,9 @@ it("restricts shared and guest-driven advice to the current thread", async () =>
       const result = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ task: "inspect" }) });
       return result.json() as Promise<{ coverage: { recordedTurns: number } }>;
     };
-    expect((await advise()).coverage.recordedTurns).toBe(1);
+    const limited = await advise();
+    expect(limited.coverage.recordedTurns).toBe(1);
+    expect(limited).not.toHaveProperty("text");
     wholeDog = true;
     expect((await advise()).coverage.recordedTurns).toBe(2);
   } finally {
