@@ -170,6 +170,20 @@ describe("CodexDriver turns (fake app-server)", () => {
     scratch = mkdtempSync(join(tmpdir(), "laterdog-codex-test-"));
   });
 
+  it("attaches the home shell hook to native Full-access turns without putting its authority on argv", async () => {
+    const dump = join(scratch, "home-hook.json"); process.env.FAKE_CODEX_DUMP = dump;
+    await create({ fullAuto: true, environment: { HOME: scratch, CODEX_HOME: join(scratch, ".codex") } });
+    expect(instance.adapter.capabilities.hooks).toBe(true);
+    await instance.adapter.sendTurn({ threadId: "home-hook", text: "Fixture", approvalMode: "full",
+      integrations: { hooks: { url: "http://127.0.0.1:8799", token: "synthetic-hook-authority", guardShell: true } },
+    });
+    await recorder.until(event => event.type === "turn.completed");
+    const seen = JSON.parse(readFileSync(dump, "utf8"));
+    expect(seen.env.LATERDOG_HOOK_URL).toBe("http://127.0.0.1:8799");
+    expect(readFileSync(seen.env.LATERDOG_HOOK_TOKEN_FILE, "utf8")).toBe("synthetic-hook-authority");
+    expect(JSON.stringify({ argv: seen.argv, calls: seen.calls })).not.toContain("synthetic-hook-authority");
+  });
+
   it("refuses native selection before a Codex prompt, including resumed Full-access turns", async () => {
     const dump = join(scratch, "scope-refused.json"); process.env.FAKE_CODEX_DUMP = dump;
     await create({ fullAuto: true, environment: { HOME: scratch, CODEX_HOME: join(scratch, ".codex") } });

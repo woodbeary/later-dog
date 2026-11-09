@@ -56,6 +56,7 @@ import { gateServer, mcpStdioServer } from "../mcp-gate-config.ts";
 import { CALL_TOOL, DESCRIBE_TOOL, SEARCH_TOOL, directoryCallTarget } from "../mcp-directory.ts";
 import { readEngineModels } from "../laterdog/wait-at-most.ts";
 import { SteerReads } from "./steer-reads.ts";
+import { prepareCodexShellGuard } from "../laterdog/codex-shell-guard.ts";
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 
@@ -745,6 +746,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         decodeCodexSelection(turn.model || models.default).modelProvider === OFFICIAL_CODEX_PROVIDER;
       const launchAttempt = async (attempt: number): Promise<void> => {
         const env = childEnv();
+        prepareCodexShellGuard(env, threadId, turn.integrations?.hooks);
         if (planToken) env.LATERDOG_CHATGPT_TOKEN = planToken;
         const appServerArgs = ["app-server", ...(plan ? chatgptPlanCodexArgs() : config.managed ? managedCodexArgs(config.managed) : codexLocalProviderArgs(env, turn.model)), ...codexToolSurfaceArgs(),
           ...(turn.toolScope === undefined ? [] : ["-c", "features.shell_snapshot=false"]),
@@ -1819,6 +1821,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         nativeImageInput: true,
         effortLevels: ["low", "medium", "high", "xhigh", "max", "ultra"],
         strictResume: true,
+        hooks: true,
       },
       sendTurn,
       interruptTurn: async (threadId) => {

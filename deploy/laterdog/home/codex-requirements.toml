@@ -1,0 +1,13 @@
+[features]
+hooks = true
+
+[hooks]
+managed_dir = "/app/dist-server/hooks"
+
+[[hooks.PreToolUse]]
+matcher = "^Bash$"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "node /app/dist-server/hooks/laterdog-hook.js"
+timeout = 5

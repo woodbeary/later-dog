@@ -4,6 +4,7 @@ USER root
 COPY deploy/laterdog/home/Caddyfile /app/cloud/Caddyfile
 COPY deploy/laterdog/home/runtime/ /app/cloud/runtime/
 COPY package.json /app/cloud/package.json
+COPY deploy/laterdog/home/codex-requirements.toml /etc/codex/requirements.toml
 ARG LATERDOG_BUILD=""
 RUN if [ -n "$LATERDOG_BUILD" ]; then printf '%s\n' "$LATERDOG_BUILD" > /app/cloud/build; fi \
  && chown -R root:root /app/cloud \
