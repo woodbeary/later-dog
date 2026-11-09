@@ -6,6 +6,13 @@ Started 2026-10-13. This file is the single place that says what is in progress,
 
 ## Consolidation release (2026-11-08)
 
+November 9 stall repair qualification: PR138 combines immutable routine-run
+authority, a strictly proven neutral legacy cancellation, distinct MCP repeat
+diagnostics and one runtime-owned update drain. Final source `5c6f5df` is bundled
+in immutable image `d2c16e95`, deployed to staging Worker `5a87e05a`. Production
+activation and monitoring are still pending. The [incident evidence](../verification/stall-recovery-2026-11-09.md)
+records the actual retained-record replay, failed checks and remaining limits.
+
 Phone beta `336047c1-f650-4353-8287-228882f44069` is published from main
 `9312d21`, with 1,798 phone checks and the full release verifier passed. Server
 native/advice integration PR129, privacy repair PR130 and immutable image pins
