@@ -30,6 +30,7 @@ import { AccountSwitcher, accountUsageLines, activeRest, shownAccounts, UsageRin
 import { usePlanUsage, useRefreshAfterTurn, warmPlanUsage } from "./PlanUsage";
 import { chatContextFigure, chatContextReading, type ChatContextLevel } from "@/lib/chat-context";
 import { ChatUsageButton } from "./ChatUsageButton";
+import { crossEngine, routedLine, withEngine } from "@/lib/routed-line";
 import { EffortPanel, effortIsDefault } from "./EffortPanel";
 import { FadingScroll } from "./FadingScroll";
 
@@ -787,7 +788,9 @@ export function ModelPicker({
   const contextReading = part === "chat"
     ? chatContextReading(chatTask?.usage?.context, active?.models.options.find((option) => option.id === selection.model)?.contextWindow)
     : null;
-  const chatAccountName = inUse && (accountRows.length > 1 || routed)
+  const otherEngine = crossEngine(active, inUse);
+  const routedWords = routed ? routedLine(active, inUse, Boolean(active && activeRest(battery?.resting, active.instanceId, usage.now))) : null;
+  const chatAccountName = inUse && otherEngine ? withEngine(inUse) : inUse && (accountRows.length > 1 || routed)
     && !shownModel.toLowerCase().startsWith(inUse.displayName.trim().toLowerCase()) ? inUse.displayName : null;
   const chatEffortName = selectedVariantLabel
     ?? (shownEffortName && !effortIsDefault(active, selection.model, selection.effort) ? shownEffortName : null);
@@ -809,7 +812,7 @@ export function ModelPicker({
       return next;
     });
   };
-  const triggerTitle = [routed && inUse ? t("accounts.runningOn", { name: inUse.displayName }) : summary, ...activeUsage].join("\n");
+  const triggerTitle = [routedWords ?? summary, ...activeUsage].join("\n");
   const triggerMark = active && (ring ? (
     <UsageRing {...ring}>{ring.charging || ring.sleeping ? <SleepingDog size={16} /> : <InstanceProviderMark instance={inUse ?? active} size={14} />}</UsageRing>
   ) : <InstanceProviderMark instance={inUse ?? active} size={14} />);
@@ -830,7 +833,7 @@ export function ModelPicker({
       onFocus={() => { if (usageWanted) warmPlanUsage(); }}
       aria-expanded={open}
       aria-haspopup="dialog"
-      aria-label={[shownModel, chatAccountName, chatEffortName, chatFast ? t("model.fast") : null].filter(Boolean).join(", ")}
+      aria-label={[shownModel, chatAccountName, chatEffortName, chatFast ? t("model.fast") : null, otherEngine ? routedWords : null].filter(Boolean).join(", ")}
       className={cn("flex h-8 min-w-0 max-w-[360px] items-center gap-1.5 rounded-full pr-2 text-[13px] text-ink hover:bg-control", usageMark ? "pl-2" : "pl-1.5", open && "bg-control")}
       title={triggerTitle}
     >
@@ -973,6 +976,7 @@ export function ModelPicker({
               ) : <EffortPanel bot={bot} threadId={threadId} className="shrink-0 border-t border-hairline/40" />}
               <section data-chat-ai-accounts aria-label={t("model.account")} className="shrink-0 border-t border-hairline/40 pt-1">
                 <p className={CHAT_MENU_HEADING}>{t("model.account")}</p>
+                {routedWords && <p data-model-routed className="px-3.5 pb-1 text-[12px] text-ink-secondary">{routedWords}</p>}
                 <AccountMenu rows={accountRows} auto={carryOn.auto} now={usage.now} onPick={chooseAccount} onReorder={(ids) => void carryOn.reorder(ids)} onAdd={() => {
                   setOpen(false);
                   requestAddAccount();
