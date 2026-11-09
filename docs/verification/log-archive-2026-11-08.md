@@ -51,6 +51,25 @@ The assembled-image fixture runs with the image's normal tini entrypoint: docker
 
 ## Release status
 
-Not yet deployed at this documentation checkpoint. No live disk relief is claimed. Actual Worker/runtime image deployment, isolated image checks, release identity and live read-only counts/disk measurements are recorded when those gates complete.
+The assembled linux/amd64 image passes the full production-entrypoint smoke: health, host refusal, pairing, owner session, archive bridge, automatic archive, history restoration and live updates. It archived two logs totaling 2,097,498 bytes, observed free space rise from 85,368,287,232 to 85,370,392,576 bytes (2,105,344 bytes), then restored both exact original byte strings through the history route. The isolated state service retained the archive index and two chunks. This is isolated disk evidence, not live savings. Log: /tmp/patch-archive-image-smoke7.log.
+
+Full Wrangler deployment from Jacob's Mac completed from source main b36277b97 with the existing OAuth login, preserving all eight production variables. Worker version: 3b063918-d4b6-4bf6-a960-2a286c16a54b. Standard image digest: 4720a293b0295e4d725b4263bf34a40ce0fb8bb179d20f780ed932c2a350b81e. Large image digest: 2f1e9b9ead909d74aecd84275a53d66e5ab1668fb4cf82555b6908ce776a5d4b. Log: /tmp/patch-archive-deploy.log.
+
+Activation was initially unconfirmed at this checkpoint. The 00:06:24 UTC read-only home check still returned old PID 775360 with no archive counters. The Large application still reported version 48 and its prior image, with an active rollout and a starting instance. The immediately-before-deploy live baseline was 1,328,283,648 free bytes; the subsequent old-runtime reading was 820,969,472. Neither value establishes archive relief. No stopped dog was woken or its messages replayed.
+
+Clover independently confirmed activation at 2026-11-09 00:37 UTC: /app/cloud/build reports b36277b97 and the packaged home health check succeeds. A fresh filesystem reading shows 2,175,283,200 available bytes on the same 19,228,708,864-byte volume (89% used). That df reading alone is not attributed to archive savings; the authenticated counters below are. Clover reran the five archive/coordinator/launcher/capability/server fixture files on the Mac: all 24 tests pass, including a closed-chat pending request surviving restore failure and server restart, then dispatching only after restoration recovers.
 
 Provider/session migration and workspace/engine scaling remain separate work. Log-only archive savings do not establish that the full home capacity problem is solved.
+
+## Live archive counters
+
+At 2026-11-09 00:38:18 UTC an authenticated read-only GET /api/storage used the desktop app's existing owner session from cloud-access.json through scripts/cloud-access.ts; no token was printed or logged. It returned HTTP 200 from the home Clover checked, and /api/health returned 200.
+
+- archive.enabled: true
+- archivedFiles: 36
+- archivedBytes: 67,101,583
+- lastScanAt: 2026-11-09 00:34:34 UTC
+- freeBefore: 2,112,221,184; freeAfter: 2,174,836,736 (+62,615,552 bytes in that scan)
+- disk at read time: 2,180,206,592 free of 19,228,708,864; janitor freed 0 bytes and stopped 0 processes at 00:35:34 UTC
+
+The free-space gain is measured across one scan on a live volume, so concurrent writes are included; archivedBytes is the logical size of the removed logs since this server started. These 36 files are event or native logs for idle known solo threads only. Session, provider, tool-result and checkpoint archiving and destructive archive GC remain disabled. The rest of the rise from the 1,333,899,264-byte pre-release baseline is not attributed to archiving.
