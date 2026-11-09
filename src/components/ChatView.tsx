@@ -56,9 +56,9 @@ import type { PlaceRow } from "../../shared/place-view";
 import { isProviderSafetyBlock, PROVIDER_SAFETY_GUIDANCE, PROVIDER_SAFETY_HELP_URL } from "../../shared/provider-safety";
 import { isOpenTakeover } from "../../shared/takeover";
 import { BotAvatar } from "./Avatar";
-import { ExchangeLine, PlainNoteLine } from "./QuietLines";
+import { ExchangeLine, ExchangeThreadContext, PlainNoteLine } from "./QuietLines";
 import { ExchangeViewHost } from "./ExchangeViewHost";
-import { foldExchanges, expandedExchange, quietTranscriptItemShown } from "@/lib/quiet-lines";
+import { foldExchanges, expandedExchange, quietTranscriptItemShown, shownToPerson } from "@/lib/quiet-lines";
 import { freshenDogName } from "@/lib/dog-refs";
 import { TurnPresence } from "./TurnPresence";
 import { NativeWork, NativeWorkFallbacks, NativeHistoryNotice } from "./NativeWork";
@@ -1009,7 +1009,9 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   }, []);
 
   const { messages: allMessages, activeLeafId } = bot;
-  const messages = useMemo(() => visibleMessages({ messages: allMessages, activeLeafId }), [allMessages, activeLeafId]);
+  const thread = useMemo(() => visibleMessages({ messages: allMessages, activeLeafId }), [allMessages, activeLeafId]);
+  const messages = useMemo(() => thread.filter(shownToPerson), [thread]);
+  const exchangeThread = useMemo(() => ({ thread, working: Boolean(bot.busy) }), [thread, bot.busy]);
   const lookups = useMemo(() => transcriptLookups(allMessages, messages), [allMessages, messages]);
   const takeoverOpen = useMemo(
     () => messages.some((m) => m.kind === "options" && m.card?.takeoverRequest && isOpenTakeover(m.card.takeoverRequest.status)),
@@ -1274,29 +1276,31 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
             </div>
           ) : null}
           {windowedMessages.length === 0 && !bot.busy && <EmptyChat bot={bot} />}
-          <ChatRowsContext.Provider value={rows}>
-            <DraftContext.Provider value={drafts}>
-              <MessagesList
-                messages={windowedMessages}
-                transcript={messages}
-                plan={plan}
-                lookups={lookups}
-                place={place}
-                today={localDay(Date.now())}
-                emergingId={popping}
-                canRetryLast={!bot.busy && Boolean(lastUserMessage)}
-                engine={state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId)}
-                unreadSince={unreadSince}
-                groupIds={groupIds}
-                editingId={editingId}
-                onStartEdit={startEdit}
-                onCancelEdit={cancelEdit}
-                onSubmitEdit={submitEdit}
-                onRetry={regenerate}
-                onReply={selectReply}
-              />
-            </DraftContext.Provider>
-          </ChatRowsContext.Provider>
+          <ExchangeThreadContext.Provider value={exchangeThread}>
+            <ChatRowsContext.Provider value={rows}>
+              <DraftContext.Provider value={drafts}>
+                <MessagesList
+                  messages={windowedMessages}
+                  transcript={messages}
+                  plan={plan}
+                  lookups={lookups}
+                  place={place}
+                  today={localDay(Date.now())}
+                  emergingId={popping}
+                  canRetryLast={!bot.busy && Boolean(lastUserMessage)}
+                  engine={state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId)}
+                  unreadSince={unreadSince}
+                  groupIds={groupIds}
+                  editingId={editingId}
+                  onStartEdit={startEdit}
+                  onCancelEdit={cancelEdit}
+                  onSubmitEdit={submitEdit}
+                  onRetry={regenerate}
+                  onReply={selectReply}
+                />
+              </DraftContext.Provider>
+            </ChatRowsContext.Provider>
+          </ExchangeThreadContext.Provider>
           {laterCount > 0 && (
             <div className="flex justify-center">
               <button
