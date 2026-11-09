@@ -18,6 +18,7 @@ vi.mock("@trycua/cua-driver/embedded", () => ({
   EmbeddedCuaDriverHost: class {
     constructor() { this.delay = fixture.embeddedDelays.shift(); fixture.hosts.push(this); }
     async start({ signal }) {
+      if (this.delay === "fail") throw new Error("sdk start failed");
       if (this.delay === "until-abort") {
         await new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
       } else {
@@ -324,6 +325,60 @@ describe("macOS driver resolution order", () => {
       const result = await launch();
       expect(fixture.hosts).toHaveLength(1);
       expect(result).toMatchObject({ mode: "embedded", mcpCommand: stagedFile() });
+    });
+
+    const freshModule = async () => {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+      cua = await import("./cua.mjs");
+    };
+    const opens = () => fixture.calls.filter((call) => call.command === "/usr/bin/open");
+
+    it("reports unavailable without opening the global app when permissions are denied", async () => {
+      stage();
+      await freshModule();
+      const result = await cua.startCua();
+      expect(result.mode).toBe("unavailable");
+      expect(result.reason).toContain("Accessibility and Screen Recording required");
+      expect(opens()).toHaveLength(0);
+      expect(fixture.calls).toHaveLength(0);
+      expect(fixture.permissionAsks.every((ask) => ask === false)).toBe(true);
+    });
+
+    it("reports unavailable without the global app when the embedded start throws", async () => {
+      stage();
+      await freshModule();
+      fixture.embeddedDelays = ["fail"];
+      const result = await cua.startCua();
+      expect(result.mode).toBe("unavailable");
+      expect(result.reason).toContain("embedded host failed");
+      expect(opens()).toHaveLength(0);
+      expect(fixture.calls).toHaveLength(0);
+    });
+
+    it("keeps the global fallback when the embedded flag is explicitly on", async () => {
+      stage();
+      vi.stubEnv("LATERDOG_CUA_EMBEDDED", "1");
+      vi.resetModules();
+      cua = await import("./cua.mjs");
+      const result = await cua.startCua();
+      expect(opens()).toHaveLength(1);
+      expect(result.mode).toBe("standalone");
+    });
+
+    it("publishes no host or descriptor when cancelled during daemon detection", async () => {
+      stage();
+      await freshModule();
+      fixture.embeddedDelays = [1];
+      const states = [];
+      cua.setCuaStateListener((state) => states.push(state));
+      const pending = cua.startCua();
+      const settled = pending.then(() => "resolved", () => "rejected");
+      await cua.stopCua();
+      await settled;
+      expect(fixture.hosts).toHaveLength(0);
+      expect(fixture.calls).toHaveLength(0);
+      expect(states.filter((state) => state?.mode === "embedded")).toHaveLength(0);
     });
 
     it("keeps the standalone path when a global daemon socket is already alive", async () => {

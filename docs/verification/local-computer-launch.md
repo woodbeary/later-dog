@@ -127,7 +127,7 @@ its place is rejected, that `CUA_DRIVER_PATH` wins, that a packaged app never re
 the source stage, that a default source launch (flag unset, no override, no daemon
 socket) starts the embedded host with the staged helper while a live daemon socket,
 an explicit `LATERDOG_CUA_EMBEDDED` value or a custom driver path keeps its earlier
-path (all with a faked host and processes), and that Dev's Mac connection passes no driver connection (even
+path (all with a faked host and processes), that a default launch whose embedded host is refused for permissions or fails to start reports unavailable with no `open -a CuaDriver` and no standalone process even with the global app mocked as installed (explicit `LATERDOG_CUA_EMBEDDED=1` keeps that fallback), that stopping during daemon detection publishes no host or descriptor, and that Dev's Mac connection passes no driver connection (even
 when a published `cua-connection.json` names one), no local control gate and no
 Screen Recording check.
 

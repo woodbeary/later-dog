@@ -252,11 +252,13 @@ export async function startCua() {
     });
   }
 
+  const pinnedStageDefault = await sourceMacUsesPinnedStage(binary);
+  signal.throwIfAborted();
   const wantEmbedded =
     process.platform === "win32" ||
     app.isPackaged ||
     process.env.LATERDOG_CUA_EMBEDDED === "1" ||
-    (await sourceMacUsesPinnedStage(binary));
+    pinnedStageDefault;
   let nextConnection;
 
   if (wantEmbedded) {
@@ -265,7 +267,7 @@ export async function startCua() {
     } catch (err) {
       signal.throwIfAborted();
       try {
-        nextConnection = await attachStandalone(signal);
+        nextConnection = pinnedStageDefault ? null : await attachStandalone(signal);
       } catch (standaloneError) {
         signal.throwIfAborted();
         nextConnection = {
