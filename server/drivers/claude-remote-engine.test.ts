@@ -6,6 +6,7 @@ import { resetPathCacheForTests } from "../env-path.ts";
 import { ensureDirs } from "../config.ts";
 import { recordEvents } from "../testing/events.ts";
 import { ClaudeDriver } from "./claude.ts";
+import { ClaudeTasks } from "./claude-tasks.ts";
 import { setEngineOpener } from "../laterdog/engine-placement.ts";
 import { commandLink } from "../laterdog/engine-remote.ts";
 
@@ -134,4 +135,89 @@ it("places a dog launched by bare name through PATH, as on a Linux Cloud home, a
   expect(back.argv[back.argv.indexOf("--resume") + 1]).toBe(resumeCursor);
   expect(opened).toEqual(["dog-warm"]);
   await instance.dispose?.();
+}, 60_000);
+
+it("drains the old account before a second account launches the same remote thread and keeps same-account reuse", async () => {
+  ensureDirs();
+  const base = realpathSync(mkdtempSync("/tmp/ldclaude-"));
+  scratch.push(base);
+  const cwd = join(base, "work"); const config = join(base, "config"); const remoteRoot = join(base, "remote"); const remoteBase = join(base, "rb");
+  for (const dir of [cwd, config, remoteRoot]) mkdirSync(dir, { recursive: true });
+  writeFileSync(join(cwd, "brief.md"), "from home");
+  writeFileSync(join(config, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "a", refreshToken: "r", expiresAt: Date.now() + 3600_000 } }));
+  const cli = fakePackage(join(base, "lib"));
+  const remoteBin = join(remoteBase, "cli", "claude-code-2.1.316", "node_modules", ".bin");
+  mkdirSync(remoteBin, { recursive: true });
+  writeFileSync(join(remoteBin, "claude"), `#!/bin/sh\nexec "${process.execPath}" "${FAKE_CLI}" "$@"\n`);
+  chmodSync(join(remoteBin, "claude"), 0o755);
+  symlinkSync(process.execPath, join(remoteBin, "node"));
+  const opened: string[] = [];
+  const locks: string[] = [];
+  setEngineOpener({ proxyPath: PROXY, remoteBase, open: async (botId) => {
+    opened.push(botId);
+    const link = commandLink(process.execPath, [RELAY], { ...process.env, LATERDOG_ENGINE_TEST_ROOT: remoteRoot });
+    const send = link.send;
+    link.send = (line) => {
+      const frame = JSON.parse(line);
+      if (frame.type === "launch") {
+        expect(existsSync(frame.lockFile), "the previous relay released its lock before launch").toBe(false);
+        locks.push(frame.lockFile);
+      }
+      send(line);
+    };
+    return link;
+  } });
+  process.env.LATERDOG_REMOTE_ENGINE_BOTS = "dog-handoff";
+  const logs: string[] = [];
+  vi.spyOn(console, "log").mockImplementation((...parts: unknown[]) => { logs.push(parts.join(" ")); });
+
+
+  const instances: Awaited<ReturnType<typeof ClaudeDriver.create>>[] = [];
+  const environments: Record<string, string>[] = [];
+  for (const name of ["first", "second"]) {
+    const configDir = join(base, name);
+    mkdirSync(configDir);
+    writeFileSync(join(configDir, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: name, expiresAt: Date.now() + 3600_000 } }));
+    const environment = { CLAUDE_CONFIG_DIR: configDir, FAKE_CLAUDE_VERSION: "2.1.316", FAKE_CLAUDE_STAYS_AFTER_INPUT: "1", FAKE_CLAUDE_EXIT_DELAY_MS: "300" };
+    environments.push(environment);
+    instances.push(await ClaudeDriver.create({ instanceId: name, displayName: name, enabled: true,
+      environment,
+      config: { cli, permissionMode: "acceptEdits" } }));
+  }
+  onTestFinished(async () => { for (const instance of instances) await instance.dispose?.(); });
+  const turn = { threadId: "account-handoff", botId: "dog-handoff", text: "hello", cwd, model: "claude-opus-5-5" };
+  const recorders = instances.map((instance) => recordEvents(instance.adapter));
+  const send = async (account: number, threadId = turn.threadId) => {
+    const { turnId } = await instances[account].adapter.sendTurn({ ...turn, threadId } as never);
+    const done = await recorders[account].until((event) => event.type === "turn.completed" && event.turnId === turnId, 25_000);
+    expect((done as { ok?: boolean }).ok, JSON.stringify(recorders[account].events.slice(-8))).toBe(true);
+  };
+  await send(0);
+  await send(0);
+  expect(opened).toEqual(["dog-handoff"]);
+  await send(0, "unrelated-thread");
+  const unrelatedLock = readFileSync(locks[1], "utf8");
+  await send(1);
+  expect(opened).toHaveLength(3);
+  expect(readFileSync(locks[1], "utf8")).toBe(unrelatedLock);
+  const helper = vi.spyOn(ClaudeTasks.prototype, "running").mockReturnValue(true);
+  const priorLock = readFileSync(locks[2], "utf8");
+  try {
+    await expect(instances[0].adapter.sendTurn(turn as never)).rejects.toThrow("still working");
+    expect(readFileSync(locks[2], "utf8")).toBe(priorLock);
+    expect(opened).toHaveLength(3);
+  } finally { helper.mockRestore(); }
+  await send(1);
+  expect(opened).toHaveLength(3);
+  environments[0].FAKE_CLAUDE_MODE = "hang";
+  const activeTurn = { ...turn, threadId: "active-thread" };
+  const running = await instances[0].adapter.sendTurn(activeTurn as never);
+  await recorders[0].until((event) => event.type === "session.started" && event.threadId === activeTurn.threadId);
+  const activeLock = readFileSync(locks[3], "utf8");
+  await expect(instances[1].adapter.sendTurn(activeTurn as never)).rejects.toThrow("still working");
+  expect(readFileSync(locks[3], "utf8")).toBe(activeLock);
+  expect(opened).toHaveLength(4);
+  await instances[0].adapter.interruptTurn(activeTurn.threadId);
+  await recorders[0].until((event) => event.type === "turn.completed" && event.turnId === running.turnId);
+  expect(recorders.flatMap((recorder) => recorder.events).some((event) => event.type === "runtime.error")).toBe(false);
 }, 60_000);

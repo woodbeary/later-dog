@@ -85,6 +85,10 @@ was observed live during natural work. Full native-provider combinations, Codex
 children and real phone performance remain unqualified. See [verification](../verification/native-activity.md),
 [phone guide](native-work-phone-guide.md) and [release evidence](../verification/consolidation-release-2026-11-08.md).
 
+## Remote account handoff (2026-11-09)
+
+Draft branch `patch/remote-account-handoff-20261109`: retire the exact idle Claude thread owner across accounts and confirm shutdown before replacement. Same-account warm reuse and remote locks remain. Qualification: [remote-account-handoff-2026-11-09.md](../verification/remote-account-handoff-2026-11-09.md). Not merged or deployed; Root owns activation.
+
 ## How to resume
 
 2026-11-09 saved repository environments: merged as `fabdacbd2` and live on computers Worker `88404e1d` (environment `env_9c66ba70a55b57e2ccb136717641756b` for woodbeary/later-dog, setup 92.6 s; one live observation of 2.46 s to ready from the environment, a ballpark check rather than a benchmark). The computers Worker builds one environment per repository (keyed by repository, setup-script hash and image digest) on a fresh computer with a 5-minute budget, keeps its snapshot handle in the registry, and starts a dog's computer that has no snapshot of its own from it; maintenance (`git fetch`, install only on a lockfile change) runs after each start. Rebuilt after seven days, on a script or image change, and before the 30-day snapshot expiry; a setup over budget is not cached. `run_on_computer` passes the folder's GitHub repository. Worker and server tests pass, and time to ready was observed once live (ballpark, not a benchmark). Next: dogs' own computers passing their repository during real work, then private-repository credentials and the R2 cache mount (credential question open). See [saved environments](../verification/saved-environments-2026-11-09.md).
