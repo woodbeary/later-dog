@@ -1,4 +1,4 @@
-import { currentTaskBot, type AppState, type Bot } from "@/state/store";
+import { currentTaskBot, visibleMessages, type AppState, type Bot } from "@/state/store";
 import { botShowsUnread } from "./bot-unread";
 
 export interface DogRowFacts {
@@ -11,7 +11,7 @@ export interface DogRowFacts {
 
 export function dogRowFacts(bot: Bot, pendingQueued: AppState["pendingQueued"]): DogRowFacts {
   const current = currentTaskBot(bot);
-  const waiting = current.activity === "waiting-on-you";
+  const waiting = current.activity === "waiting-on-you" || visibleMessages(current).some((message) => message.needsYou?.status === "waiting");
   const working = !waiting && (Boolean(current.busy) || current.activity === "working");
   const teammates = !waiting && !working && Boolean(current.waitingForTeammates);
   const queued = Boolean(pendingQueued[bot.threadId]?.length);
