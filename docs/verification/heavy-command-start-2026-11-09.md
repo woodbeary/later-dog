@@ -3,7 +3,8 @@
 Branch: `kennel/heavy-start-budget-20261109`, stacked on PR 150, merged up to its repaired head
 `b7fec2be5b6100e6f033e8873c927533801b0d40`.
 First source `2f839db1f27319f2d5572c71d271bd0917429339` (published at `86087f1`, now superseded). Repair source
-`d24ea6b` after Root's review of `86087f1`, merged with PR 150 as `6ea7cc8`. This record is the only
+`d24ea6b` after Root's review of `86087f1`, merged with PR 150 as `6ea7cc8`, and the bring-back
+boundary fix `98796f2`. This record is the only
 later change.
 
 ## Cause
@@ -81,6 +82,15 @@ On Kennel's own cloud computer, Node v24.22.2, pnpm 10.33.0. The repair source w
   `6ea7cc8`, no conflicts: 10 files, 103 tests passed (the 9 above plus
   `cloud-computer-slow-start.e2e.test.ts`, 12), `tsc -p tsconfig.server.json` exit 0,
   `scripts/no-comments.ts` found none.
+- Bring-back boundary, source `98796f2` (one line in `computer-runs.ts`, `>` to `>=`, plus one
+  test). A real `localBox`/`ComputerRuns` run writes `report.txt`, `src/page.ts` and `dist/app.js`;
+  the test sets all three to the exact time of the run's `.start` marker with `touch -r` and checks
+  the nanosecond times match, changes `src/page.ts` here, then calls the real `finish`. Before, on
+  `5a864c3` with the test: 1 failed, 14 passed (`report.txt` not brought back). After: 15 passed,
+  three runs in a row. Only `report.txt` comes back with its content; the copy changed here is kept
+  and reported; `dist` stays on the computer; the untouched older `package.json` is not taken.
+  `tsc` exit 0, `oxlint` 0 warnings and 0 errors on the two files, no comments. The other tests
+  were not rerun for this one-line change; the 103 above stand for `6ea7cc8`.
 - The service's own `test/idle.test.ts`: 12 passed (unchanged). `tsc -p tsconfig.server.json`:
   exit 0. No comments in the changed files.
 
@@ -95,6 +105,9 @@ On Kennel's own cloud computer, Node v24.22.2, pnpm 10.33.0. The repair source w
 - No end-to-end call through the agents MCP server and Claude Code beyond 300 s.
 - The native computer MCP `exec` tool (60 s wait) and `engineComputer` (90 s) are unchanged and not
   claimed fixed.
-- `bringBack` compares file times with `>` against the start marker, so a file written in the same
-  timestamp tick may be missed. Existing behaviour, not changed here.
+- `bringBack` now takes files whose time is at or after the start marker, both on the computer's
+  own filesystem. A file the command did not touch but that happens to carry exactly the marker's
+  time would also be taken; unpacked and reused files keep their original times, and the generated
+  path, size and changed-here checks still apply. This fixes a boundary that could be built on
+  purpose; it is not shown to be the cause of the earlier one-off transfer failure.
 - No live computer, home or provider use. Not deployed.
