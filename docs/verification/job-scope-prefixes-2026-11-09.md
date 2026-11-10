@@ -34,15 +34,20 @@ activated production Worker `9f3ff9b0-b6ce-4acd-a69d-e0bd5b7433e3` on the final
 image. All ten binding definitions, including five secret names and both exact
 plain-text values, match the pre-deployment settings; compatibility and
 observability settings match. The owner's home was not restarted. The bounded
-post-rollout retention and health window is in progress; it is not yet a
-completed monitoring qualification. Home storage still reports low space, so
-this release does not qualify a larger fleet or remove provider quotas.
+post-rollout retention and health window passed 21 consecutive qualified samples
+from 23:58:35.138 UTC November 9 to 00:08:59.557 UTC November 10. All 81 jobs,
+two profiles, 80 dogs and their tasks were retained; the home remained PID24 and
+the four WoW dogs remained idle. All 21 samples reported low space, so this
+release does not qualify a larger fleet or remove provider quotas.
 
 Private receipts are under `.laterdog-evidence/scope-release/`: canonical build
 exit/log, Linux layer provenance, native staging qualification, pre-promotion
 backup, full deploy log, binding comparison and production monitor. Encrypted
-sign-in backups were never decrypted. Failed-job checkpoint PR147 and the
-computer-workspace prototype PR146 are separate, unactivated work.
+sign-in backups were never decrypted. Failed-job checkpoint PR147 subsequently
+superseded this supervisor image through source `0609ec0b` and image `9de367a3`;
+its separate completed native rollout is recorded in
+[failed-source checkpoint qualification](failed-cloud-checkpoint-2026-11-09.md).
+The computer-workspace prototype PR146 remains default-off and unactivated.
 
 ## Defect
 

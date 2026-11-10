@@ -59,8 +59,11 @@ separately.
 
 ## Production rollout (2026-11-09)
 
-The pinned image is a layered build, not a full Dockerfile rebuild: five compiled
-`dist-server/laterdog` files from `a4256c8a` appended to the prior image as one folder
-replacement layer. The compiled bundle came from `scripts/bundle-server.mjs`. Receipts,
-the isolated Worker check and the unfinished post-switch monitor are in
-[the rollout record](dog-resume-2026-11-09.md).
+The current pin is layered image `9de367a3`, not a full Dockerfile rebuild: five
+canonical `dist-server/laterdog` files from `0609ec0b` replace `/app/laterdog` as
+one opaque Linux layer over the prior production image. Full Worker deployment
+`f7be1fac` activated it. The dedicated native checks and completed 21-sample
+production retention window are in
+[failed-source checkpoint qualification](failed-cloud-checkpoint-2026-11-09.md).
+The [earlier rollout record](dog-resume-2026-11-09.md) retains the initial bundle
+activation and automated-verification limitation.

@@ -9,7 +9,7 @@
   "containers": [
     {
       "class_name": "SupervisorHost",
-      "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-supervisor-scope@sha256:3615411a0a2e68b39af78b52ab2aba616d45473a43b664a9d97679c03bdb3f9c",
+      "image": "registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-supervisor-scope@sha256:9de367a3850507087525cddf6b65da11b1019c6c78089baa0dbfff8a290e2a17",
       "instance_type": "standard-3",
       "max_instances": 1,
       "observability": { "enabled": true }

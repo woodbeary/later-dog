@@ -6,16 +6,18 @@ Started 2026-10-13. This file is the single place that says what is in progress,
 
 ## Current production scope repair (2026-11-09)
 
-PR144/145 are merged. Canonical source `f3320ad3` is active in immutable image
-`3615411a` through full supervisor Worker deployment `9f3ff9b0`. Dedicated native
-staging passed literal-route validation and restart retention without provider
-submission. Production bindings and the fresh 81-job/two-profile backup are
-verified; the bounded post-rollout window is in progress. The owner's home
-remains PID24 with all 80 dogs retained. Storage remains low and larger-fleet
-capacity is unqualified. Failed-job checkpoint PR147, the remote account-handoff
-repair, transfer/PATH repair and startup-budget repair are not activated. The
-larger PR146 workspace prototype stays default-off and is not their prerequisite.
-See [scope qualification](../verification/job-scope-prefixes-2026-11-09.md).
+PR144/145/147 are merged and active. Canonical source `0609ec0b` is bundled in
+immutable image `9de367a3` through full supervisor Worker deployment `f7be1fac`.
+Dedicated native staging passed literal-route validation, failed-checkpoint
+merge refusal and restart retention without provider submission. Both completed
+21-sample production windows retained all 81 jobs, two profiles and 80 dogs;
+the latest ran 00:21:57.799–00:32:18.411 UTC on November 10. All 21 latest samples
+reported low storage, so larger-fleet capacity remains unqualified. The owner's
+home remains PID24. The merged cleanup and transfer/PATH repairs await HOME
+activation; remote account-handoff and startup-budget repairs are under review.
+The larger PR146 workspace prototype stays default-off and is not their
+prerequisite. See [scope qualification](../verification/job-scope-prefixes-2026-11-09.md)
+and [failed-source checkpoint qualification](../verification/failed-cloud-checkpoint-2026-11-09.md).
 
 ## Consolidation release (2026-11-08)
 

@@ -110,4 +110,45 @@ Final repaired-head checks: all 142 tests in the same eight focused files passed
 server TypeScript passed; targeted lint on the four changed policy TypeScript files
 had zero errors or warnings. Logs: `/tmp/clover-failed-repaired-focused.log`,
 `/tmp/clover-failed-repaired-types.log`, `/tmp/clover-failed-repaired-lint.log`.
-Independent review of this repaired head is still required before release.
+Independent Claude review on a separate cloud computer passed all 142 focused
+tests and server TypeScript at repaired head
+`6c924e245718f56c0cb8b3ea81300febc309c5fa`, including independent long-event-history,
+restart, publication and merge-boundary probes. The original review's apparent
+merge acceptance used a mock publisher: the real GitHub publisher already required
+current-head verification and review. No real unverified GitHub merge bypass was
+demonstrated. The repair adds the supervisor boundary and preserves failed
+provenance through explicit publication.
+
+## Native production qualification, November 10
+
+PR147 merged as `0609ec0baf19b3b66325370461bcb21cad73079d`. The canonical
+`pnpm laterdog:build` exited zero. Five compiled bundles replace `/app/laterdog`
+as an opaque uid/gid-zero Linux layer, directories 0755 and files 0644, over the
+previous production base. This is not a full Dockerfile rebuild. Immutable image:
+`registry.cloudflare.com/da1336ec3e3f7d9a4971022ae074c5d7/laterdog-supervisor-scope@sha256:9de367a3850507087525cddf6b65da11b1019c6c78089baa0dbfff8a290e2a17`.
+
+Dedicated staging Worker `a973228d-869c-4366-9991-96596f4e185e` restored four
+synthetic-only jobs and refused a failed-checkpoint merge with HTTP409 before
+publisher invocation, despite 250 later events. Wrong authentication and invalid
+glob syntax were refused; a graceful native restart retained all four IDs and the
+merge refusal. The isolated fixture had no owner data, real provider task or
+computer binding. `providerQualified` and `realFailedProviderCollectionQualified`
+remain false.
+
+A fresh R2 backup passed SQLite quick_check and retained 81 jobs and two profiles.
+Full `wrangler deploy` activated production Worker
+`f7be1fac-6757-4cc4-9704-f23ef61a74a0`; the native application reported version22
+with the matching digest. All ten bindings, including five secret names and both
+plain-text values, were preserved. A completed read-only window ran 21 consecutive
+qualified samples from 00:21:57.799 to 00:32:18.411 UTC. Every sample retained all
+81 jobs, two profiles, 80 dogs and their tasks; the home stayed PID24, the WoW dogs
+idle and the saved Clover/Patch selections Codex / Sol / Medium. Saved selections
+do not prove the executing provider. All 21 samples reported low storage, with
+free space approximately 0.75–1.33GB, so larger-fleet capacity remains unqualified.
+
+Receipts are under `.laterdog-evidence/scope-release/`, including canonical build,
+layer provenance, `checkpoint-native-qualification.json`, fresh backup, full
+deployment and `checkpoint-production-native-monitor-private.json`. No production
+failure was induced to test collection. Real provider partial-failure collection
+remains unqualified; no new provider task, account retry or successful outcome was
+invented. The default-off computer-workspace prototype is separate.
