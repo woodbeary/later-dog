@@ -4,7 +4,7 @@ Branch: `kennel/heavy-start-budget-20261109`, stacked on PR 150, merged up to it
 `b7fec2be5b6100e6f033e8873c927533801b0d40`.
 First source `2f839db1f27319f2d5572c71d271bd0917429339` (published at `86087f1`, now superseded). Repair source
 `d24ea6b` after Root's review of `86087f1`, merged with PR 150 as `6ea7cc8`, and the bring-back
-boundary fix `98796f2`. This record is the only
+boundary fix `98796f2`, and the error-state guard `f9d9838`. This record is the only
 later change.
 
 ## Cause
@@ -29,7 +29,11 @@ engine computer) and the 60 s defaults stay as they are.
   service boot plus margin, 330 s, same override), capped by the caller's window. If the computer
   is still confirmed `starting` when the window ends, the call answers that nothing was run yet and
   to call again; the next call keeps waiting without waking it again. Error, missing and unknown
-  states fail at once, and the service still fails a boot after 5 minutes.
+  states fail at once, and the service still fails a boot after 5 minutes. A call that finds the
+  computer already in error, or in a state later.dog does not know, fails without waking it, so a
+  call that only continues to wait cannot reboot a failing computer. A sleeping computer is still
+  woken and a dog with none still gets one created; recovering an errored computer is left to the
+  owner's existing wake control, whose defaults are unchanged.
 - One call has one window (`WAIT_IN_ONE_CALL_MS`, 4 minutes) measured from the start of the call.
   Startup, sending the folder, setup reuse and the command's wait all draw on it: the route passes
   the time left to `ComputerRuns.run`/`finish`, which read it again after sending, so a 60 s wake and
@@ -91,6 +95,16 @@ On Kennel's own cloud computer, Node v24.22.2, pnpm 10.33.0. The repair source w
   and reported; `dist` stays on the computer; the untouched older `package.json` is not taken.
   `tsc` exit 0, `oxlint` 0 warnings and 0 errors on the two files, no comments. The other tests
   were not rerun for this one-line change; the 103 above stand for `6ea7cc8`.
+- Error-state guard, source `f9d9838` (`heavyRunBox` entry check plus two tests in
+  `computers.test.ts`). The sequence goes through the real route, `heavyRunBox` and HTTP client: a
+  first call answers still starting, the fake service then reports error, and the same command
+  again must fail with "reported an error" at once, with 1 wake in total and no create. Before, on
+  `1f59490` with the test: 1 failed (2 wakes; Clover's probe on `86087f1` showed the same, 2 wakes
+  and 0 creates). After: it passes, and a computer already in error or an unknown state fails with
+  0 wakes. The affected files, `computers` 35, `computer-run-route` 16, `computer-runs` 15 and
+  `no-comments` 10, pass 76 of 76, including the 95 s and 240 s boots, the adjacent calls and the
+  ended-turn 409 cases. `tsc` exit 0, `oxlint` 0 and 0 on the changed files, no comments. Whether
+  this happened in Patch's real incident is not known; there is no receipt for it here.
 - The service's own `test/idle.test.ts`: 12 passed (unchanged). `tsc -p tsconfig.server.json`:
   exit 0. No comments in the changed files.
 
