@@ -239,7 +239,7 @@ describe("the limit message", () => {
     });
     await click(button("Continue"));
     expect(fixture.api).toHaveBeenCalledWith("/api/bots/scout/continue-on", {
-      method: "POST", body: JSON.stringify({ threadId: "thread-scout", instanceId: "claude-side" }),
+      method: "POST", body: JSON.stringify({ threadId: "thread-scout", instanceId: "claude-side", byHand: true }),
     });
   });
 
