@@ -377,10 +377,15 @@ describe("home data sync", () => {
       return { now: () => (clock += 10), budgetMs: 15, parallel: 1 };
     };
     const saved = (manifest: { entries: Array<{ path: string }> }) => manifest.entries.map((entry) => entry.path);
+    const later = Date.now() / 1000 + 60;
+    const changeChats = (round: number, text: string) => {
+      writeFileSync(join(source, "messages.json"), text);
+      utimesSync(join(source, "messages.json"), later + round, later + round);
+    };
 
     let fromTheTop = first.manifest;
     for (let round = 1; round <= 5; round += 1) {
-      writeFileSync(join(source, "messages.json"), `chats ${round}, from the top`);
+      changeChats(round, `chats ${round}, from the top`);
       fromTheTop = (await snapshot(source, store, fromTheTop, { scratch: folder(), ...oneFilePerSave() })).manifest;
     }
     expect(saved(fromTheTop)).toContain("workspaces/dog");
@@ -390,7 +395,7 @@ describe("home data sync", () => {
     let resumeAfter: string | undefined;
     const reached: number[] = [];
     for (let round = 1; round <= 4; round += 1) {
-      writeFileSync(join(source, "messages.json"), `chats ${round}, taking turns`);
+      changeChats(round, `chats ${round}, taking turns`);
       const result = await snapshot(source, store, manifest, { scratch: folder(), ...oneFilePerSave(), resumeAfter });
       manifest = result.manifest;
       resumeAfter = result.resumeAfter;

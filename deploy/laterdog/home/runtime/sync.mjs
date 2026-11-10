@@ -285,7 +285,7 @@ export async function snapshot(root, store, previous, { scratch, now = Date.now,
   const deadline = now() + budgetMs;
   if (scratch) await mkdir(scratch, { recursive: true, mode: 0o700 });
   const scanned = await scan(root);
-  const slots = new Array(scanned.length).fill(null);
+  const slots = Array.from({ length: scanned.length }, () => null);
   const waiting = [];
   for (const [index, entry] of scanned.entries()) {
     if (entry.type !== "file") {
