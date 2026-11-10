@@ -225,6 +225,47 @@ describe("sending while the home sleeps", () => {
     expect(received).toEqual([{ text: "first", sendId: "send-0000000000001" }, { text: "second", sendId: "send-0000000000002" }]);
   });
 
+  it("answers Send now for a held message in words, and cancel drops it before the home ever sees it", async () => {
+    const h = await home();
+    const received: unknown[] = [];
+    world.answers.set("POST /api/bots/rex/messages", async (request) => {
+      received.push(await request.json());
+      return Response.json({ ok: true }, { status: 202 });
+    });
+    await knownOwner(h);
+    await h.sleep();
+    h.machine.serving = false;
+    const json = { "content-type": "application/json" };
+    const send = (text: string, sendId: string) => h.visit("/api/bots/rex/messages", asOwner({ method: "POST", headers: json, body: JSON.stringify({ text, sendId, threadId: "t-rex" }) }));
+    await send("keep me", "send-0000000000001");
+    await send("drop me", "send-0000000000002");
+    const sendNow = await h.visit("/api/bots/rex/queue/send-0000000000001/steer", asOwner({ method: "POST", headers: json, body: JSON.stringify({ threadId: "t-rex" }) }));
+    expect(sendNow.status).toBe(200);
+    expect(await sendNow.json()).toEqual({ ok: true, queued: true, reason: desk.HELD_UNTIL_UP, threadId: "t-rex" });
+    const cancel = await h.visit("/api/bots/rex/queue/send-0000000000002", asOwner({ method: "DELETE", headers: json, body: JSON.stringify({ threadId: "t-rex" }) }));
+    expect(cancel.status).toBe(200);
+    expect(await cancel.json()).toEqual({ ok: true });
+    const unknown = await h.visit("/api/bots/rex/queue/send-0000000000009/steer", asOwner({ method: "POST", headers: json, body: "{}" }));
+    expect(unknown.status).toBe(503);
+    const stranger = await h.visit("/api/bots/rex/queue/send-0000000000001", { ...asStranger, method: "DELETE" });
+    expect(stranger.status).toBe(503);
+    h.machine.serving = true;
+    now += 6_000;
+    await h.deliver();
+    expect(received).toEqual([{ text: "keep me", sendId: "send-0000000000001", threadId: "t-rex" }]);
+  });
+
+  it("reads Send now and cancel for a queued message, and nothing else", () => {
+    const ask = (method: string, path: string) => desk.heldQueueAsk(new Request(`https://home.example${path}`, { method }));
+    expect(ask("POST", "/api/bots/dog-1/queue/send-1/steer")).toEqual({ id: "send-1", ask: "send-now" });
+    expect(ask("DELETE", "/api/bots/dog-1/queue/send-1")).toEqual({ id: "send-1", ask: "cancel" });
+    expect(ask("GET", "/api/bots/dog-1/queue/send-1")).toBeNull();
+    expect(ask("DELETE", "/api/bots/dog-1/queue/send-1/steer")).toBeNull();
+    expect(ask("POST", "/api/bots/dog-1/messages")).toBeNull();
+    expect(ask("POST", "/api/groups/room-1/queue/send-1/steer")).toBeNull();
+    expect(desk.HELD_UNTIL_UP).not.toMatch(/object|undefined/i);
+  });
+
   it("names the thread in its receipt so the desktop shows the message as waiting", async () => {
     const h = await home();
     await knownOwner(h);
