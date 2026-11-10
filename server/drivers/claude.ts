@@ -334,6 +334,7 @@ const CLAUDE_5_EFFORT: readonly EffortLevel[] = ["low", "medium", "high", "xhigh
 export const STATIC_CLAUDE_MODELS: ModelCatalog = {
   default: "claude-opus-5-5",
   options: [
+    { id: "claude-fable-5-2", label: "Claude Fable 5.2", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
     { id: "claude-fable-5-1", label: "Claude Fable 5.1", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
     { id: "claude-fable-5", label: "Claude Fable 5", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
     { id: "claude-opus-5-5", label: "Claude Opus 5.5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "medium" },

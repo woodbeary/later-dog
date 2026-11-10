@@ -245,3 +245,7 @@ Owned by one session ("App regression review"). Other sessions: do not start lan
 
 This pre-activation checkpoint is superseded by the automatic archive activation
 and production receipts above. At that checkpoint, Clover preserved the stopped worktrees and hardened the cold archive primitive in clover/cloud-archive. Home tests: 227 pass; Worker typecheck, 10 no-comments tests and focused lint pass. The loopback archiver was not yet started and no scheduler was enabled on live data. Activation then required guarded selection, process ownership checks, restore-before-resume, race fixtures and a Worker/runtime release. The original evidence is [the foundation record](../verification/cloud-archive-2026-11-08.md); current activation is [the archive production record](../verification/log-archive-2026-11-08.md). Remote engines and workspace migration remain unfinished.
+
+## Fable 5.2 catalog (2026-11-10)
+
+Clover: `clover/fable52-20261110` adds Claude Fable 5.2 to the official Claude account catalog, with High as its default effort. Existing defaults stay as selected. Catalog, picker, bot-creation fixture and no-comments checks cover availability and selection. Live provider availability and production rollout require separate verification.
