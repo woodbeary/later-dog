@@ -1,7 +1,7 @@
 # Cloud computer start budget for dog turns
 
 Branch: `kennel/cloud-start-budget-20261109`. Base: `2168474a291b8955b1c426337525f5d9eec2e0b3`.
-Source commit tested: `4a718a4dd6941919529676e43e7136b824014406`. This record is the only later change.
+First source commit: `4a718a4dd6941919529676e43e7136b824014406`. Join repair: `e0c42ddffb3d8449a73ad6b2d28021f0297f14a9`, the source tested below. This record is the only later change.
 
 ## Cause
 
@@ -28,6 +28,19 @@ at 23:45:17 UTC.
   again; the turn ends with its existing "didn't start" row.
 - The 45 s per-call pending answer is unchanged. No queue, watcher, UI or Worker change.
 
+## Joined wakes
+
+Clover's review of `830641cb` reproduced a gap: the Settings wake (`POST /api/bots/:id/computer/provision`
+during an active turn) starts its own 60 s wake, and a turn that joined it died when that wait
+ended, even though the computer was still starting. Repair, at the same caller:
+
+- A turn that joins a wake it did not start, and gets nothing back, checks the computer once. Only
+  if it is confirmed `starting` or `provisioning` does the turn keep waiting, for its own remaining
+  budget, with its own Stop and newer-turn check, and without ever resuming, creating or retrying.
+  Error, asleep, stopped, missing or unknown states end the turn as before.
+- A Settings wake that joins a turn's wake keeps that wake alive while its request is open, so it
+  still reports ready if the turn is stopped.
+
 ## Evidence
 
 On Kennel's own cloud computer, Node v24.22.2, pnpm 10.33.0.
@@ -46,11 +59,20 @@ On Kennel's own cloud computer, Node v24.22.2, pnpm 10.33.0.
 - A unit test reads the service's `BOOT_TIMEOUT_MS` and `MINUTE` and fails if they drift
   from `CLOUD_COMPUTER_BOOT_MS`.
 
+Join repair, at `e0c42dd`:
+
+- Before, `830641c` with the new e2e file: 2 failed, 8 passed. A Settings wake that joined a turn's
+  wake reported `ready: false` after the turn was stopped; a turn that joined a 60 s Settings wake
+  for a 65 s boot ended with `the internal turn capability has expired`.
+- After: 11 files, 80 tests passed (the same set as above; slow-start e2e now 10, cloud-start 7),
+  including the 65 s Settings-first join with one resume and no create, a newer turn after Stop
+  sharing the same wake, and a joined turn failing fast on an error state with one resume.
+  `tsc -p tsconfig.server.json` exit 0; no comments in the changed files.
+
 ## Limits
 
 - The fixtures use the included boat relay path; the later.dog computers path shares the same
   caller and has the same guard in `waitRunning`, covered by its unit suite, not end to end.
-- A turn that joins a wake started by the wake route inherits that route's 60 s wait.
-- A newer turn that joins a pending wake shares the first turn's deadline.
+- A Settings request that joins a turn's wake can wait up to that turn's remaining budget.
 - First-time provisioning still waits 90 s.
 - No live computer, home, provider or full server suite was used. Not deployed.
