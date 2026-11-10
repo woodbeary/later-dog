@@ -53,6 +53,14 @@
 - **After:** 26 of 26 (session-archive 17, log-archive 9), three runs.
 - **Other checks:** server and home `tsc` exit 0, oxlint is 0/0 on the 3 code files, and no-comments finds 0.
 
+## Restore-cap repair (after Clover's review of 1def52c)
+
+- **The finding:** `beforeTurn` restores at most 200 session IDs per thread. At `1def52c`, an ID past that cap was neither tracked nor outside, so it was archived as untracked, even while its thread was busy.
+- **The fix:** ownership now uses a thread's full session list, and a session past its thread's restore cap is always kept. Archiving still uses the capped list.
+- **Before**, at `1def52c` with the new test: that test failed.
+- **After:** 27 of 27 (session-archive 18, log-archive 9), three runs.
+- **Other checks:** server and home `tsc` exit 0, oxlint is 0/0, and no-comments finds 0.
+
 ## Tests
 
 Home package tests `test/session-archive.test.ts` and `test/log-archive.test.ts`, run on Kennel's cloud computer with Node 24 and the home's vitest 3.2.7.

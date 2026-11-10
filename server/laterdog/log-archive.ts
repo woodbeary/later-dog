@@ -187,8 +187,12 @@ export class LogArchiveCoordinator {
     return next(0);
   }
 
+  private allSessionsOf(id: string): string[] {
+    return [...new Set((this.options.sessions?.(id) ?? []).filter(value => SESSION_ID.test(value)))].sort();
+  }
+
   private sessionsOf(id: string): string[] {
-    return [...new Set((this.options.sessions?.(id) ?? []).filter(value => SESSION_ID.test(value)))].sort().slice(0, MAX_SESSIONS);
+    return this.allSessionsOf(id).slice(0, MAX_SESSIONS);
   }
 
   private sessionFree(session: string): boolean {
@@ -196,9 +200,9 @@ export class LogArchiveCoordinator {
     if (outside?.().includes(session)) return false;
     let tracked = false;
     for (const thread of this.options.threads()) {
-      if (!this.sessionsOf(thread).includes(session)) continue;
+      if (!this.allSessionsOf(thread).includes(session)) continue;
       tracked = true;
-      if (!this.options.idle(thread)) return false;
+      if (!this.sessionsOf(thread).includes(session) || !this.options.idle(thread)) return false;
     }
     return tracked || Boolean(outside);
   }
@@ -298,7 +302,7 @@ export class LogArchiveCoordinator {
     this.totals.freeBefore = before;
     this.totals.lastScanAt = this.now();
     const batch = Array.from({ length: maximum }, (_, at) => known[(this.cursor + at) % known.length]);
-    const tracked = new Set(known.flatMap(id => this.sessionsOf(id)));
+    const tracked = new Set(known.flatMap(id => this.allSessionsOf(id)));
     const held = new Set(known.filter(id => !idle(id)).flatMap(id => this.sessionsOf(id)));
     const wanted = new Set(batch.filter(id => idle(id)).flatMap(id => this.sessionsOf(id)).filter(id => !held.has(id)));
     if (this.waiting && tracked.has(this.waiting)) wanted.add(this.waiting);

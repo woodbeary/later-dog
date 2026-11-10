@@ -472,3 +472,17 @@ it("a session larger than the sweep budget goes first in the next sweep, then ot
   expect(await coordinator.beforeTurn(THREAD, () => true)).toBe(true);
   expect(readFileSync(join(f.root, transcriptOf(big)), "utf8")).toBe("x".repeat(100));
 });
+
+it("keeps a session past a thread's 200-session restore cap, busy or idle", async () => {
+  const f = await fixture();
+  const ids = Array.from({ length: 201 }, (_, at) => `b${String(at).padStart(7, "0")}-0000-4000-8000-000000000000`);
+  const beyond = ids[200];
+  put(f.root, transcriptOf(beyond), "past the cap\n");
+  f.cursors[THREAD] = cursorsOf(ids);
+  f.busy.add(THREAD);
+  await f.coordinator(owners(f)).scan();
+  expect(readFileSync(join(f.root, transcriptOf(beyond)), "utf8")).toBe("past the cap\n");
+  f.busy.delete(THREAD);
+  await f.coordinator(owners(f)).scan();
+  expect(readFileSync(join(f.root, transcriptOf(beyond)), "utf8")).toBe("past the cap\n");
+});
