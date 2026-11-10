@@ -309,6 +309,56 @@ describe("a slow cloud computer start", () => {
     }
   }, 60_000);
 
+  it("a Settings wake whose client disconnects does not keep a stopped turn's wake going", async () => {
+    hold.wakeMs = 10 * 60_000;
+    try {
+      const { bot, row } = await sleepingComputer("Abandoned settings");
+      const before = { creates: creates(), resumes: resumes() };
+      const polls = () => requests.filter(request => request === `GET /boxes/${row.id}`).length;
+      const sent = await startTurn(bot.id, "Look again");
+      expect(await screenshot(sent)).toEqual({ isError: true, content: [{ type: "text", text: STILL_STARTING }] });
+      const leaving = new AbortController();
+      const fromSettings = fetch(`${base}/api/bots/${bot.id}/computer/provision`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal: leaving.signal })
+        .then(() => "answered", (error: Error) => error.name);
+      await new Promise(resolve => setTimeout(resolve, 1_000));
+      leaving.abort();
+      expect(await fromSettings).toBe("AbortError");
+      await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
+      await until(() => task(bot.id), current => current?.busy === false, 20_000);
+      await new Promise(resolve => setTimeout(resolve, 4_000));
+      const settled = polls();
+      Object.assign(row, { state: "archived", readyAt: undefined });
+      await new Promise(resolve => setTimeout(resolve, 6_000));
+      expect(polls()).toBe(settled);
+      expect(resumes()).toBe(before.resumes + 1);
+      expect(creates()).toBe(before.creates);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    } finally {
+      hold.wakeMs = 0;
+    }
+  }, 90_000);
+
+  it("a Settings wake whose POST body was read and finished stays joined after Stop and reports ready", async () => {
+    hold.wakeMs = 9_000;
+    try {
+      const { bot } = await sleepingComputer("Connected settings");
+      const before = { creates: creates(), resumes: resumes() };
+      const sent = await startTurn(bot.id, "Look again");
+      expect(await screenshot(sent)).toEqual({ isError: true, content: [{ type: "text", text: STILL_STARTING }] });
+      const fromSettings = fetch(`${base}/api/bots/${bot.id}/computer/provision`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason: "settings" }) })
+        .then(async response => ({ status: response.status, body: await response.json().catch(() => null) as any }));
+      await new Promise(resolve => setTimeout(resolve, 1_000));
+      await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
+      await until(() => task(bot.id), current => current?.busy === false, 20_000);
+      expect(await fromSettings).toMatchObject({ status: 200, body: { ready: true } });
+      expect(resumes()).toBe(before.resumes + 1);
+      expect(creates()).toBe(before.creates);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    } finally {
+      hold.wakeMs = 0;
+    }
+  }, 60_000);
+
   it("a turn that joins a Settings wake fails fast when the computer reports an error, without waking it again", async () => {
     hold.wakeMs = 10 * 60_000;
     hold.failWakeAfterMs = 2_500;
