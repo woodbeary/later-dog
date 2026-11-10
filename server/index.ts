@@ -5893,11 +5893,11 @@ async function wakeBotBoatForTurn(botId: string, deadline: number, wanted: () =>
   if (!current || !stillStarting(current.state)) return null;
   return boat.readyBoat(cfg, botId, remainingStartMs(deadline, Date.now()), { wanted, wake: false });
 }
-function joinBotBoatWake(botId: string) {
+function joinBotBoatWake(botId: string, connected: () => boolean) {
   const pending = boatWakes.pending(botId);
   if (!pending) return undefined;
   let waiting = true;
-  const wanted = () => waiting;
+  const wanted = () => waiting && connected();
   boatWakeWanters.get(botId)?.add(wanted);
   return pending.finally(() => { waiting = false; });
 }
@@ -20529,7 +20529,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (turnLifecycle === "attach") return json(res, 200, { ready: true });
       if (turnLifecycle === "wake") {
-        const pending = joinBotBoatWake(botId);
+        const pending = joinBotBoatWake(botId, () => !res.destroyed);
         const releaseComputerLifecycle = pending ? null : claimBotComputerLifecycle(botId);
         try {
           const woken = await (pending ?? wakeBotBoat(botId));
