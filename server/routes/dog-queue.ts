@@ -34,11 +34,13 @@ const snippet = (text: string) => {
 
 export function queueText(dog: BotRecord, nodes: readonly RoomHandoff[], person: readonly QueuedMessageRow[], busy: readonly string[],
   nameOf: (botId: string | undefined) => string, senderOf: (node: RoomHandoff) => string | undefined): string {
+  const needsYou = nodes.filter((n) => n.status === "needs-you");
   const running = nodes.filter((n) => n.status === "running");
-  const waiting = nodes.filter((n) => n.status !== "running");
+  const waiting = nodes.filter((n) => n.status !== "running" && n.status !== "needs-you");
   const line = (n: RoomHandoff) => `- [requestId: ${n.id}] from ${nameOf(senderOf(n))}${n.urgent ? ", urgent" : ""}: ${snippet(n.text)}`;
   const parts = [
-    `${dog.name} [id: ${dog.id}] is ${busy.length ? `working in ${busy.length} chat${busy.length === 1 ? "" : "s"}` : "idle"}.`,
+    `${dog.name} [id: ${dog.id}] is ${needsYou.length ? "waiting for you" : busy.length ? `working in ${busy.length} chat${busy.length === 1 ? "" : "s"}` : "idle"}.`,
+    ...(needsYou.length ? [`Needs you:\n${needsYou.map(line).join("\n")}`] : []),
     running.length ? `Running:\n${running.map(line).join("\n")}` : busy.length ? "Running: work from the owner or a routine, not a teammate request." : "Running: nothing.",
     waiting.length ? `Queued teammate requests, in the order they run:\n${waiting.map(line).join("\n")}` : "Queued teammate requests: none.",
     ...(person.length ? [`Queued messages from the owner: ${person.length} (${person.map((row) => `"${snippet(row.text)}"`).join(", ")}).`] : []),

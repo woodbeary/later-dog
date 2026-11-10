@@ -696,3 +696,25 @@ it("gives a teammate each request once, never also as a bare assistant line", ()
   expect(second.split("REQUEST_SECOND").length - 1).toBe(1);
   expect(second).not.toMatch(/^Assistant: @/m);
 }, { FAKE_CLAUDE_MODE: "dead-session" }), 60_000);
+
+it("forwards a child's credential card to its delegator and retains Needs you after turn end", () => fixture(async f => {
+  f.plan[f.lead.id] = {
+    steps: [{ tool: "request_credential", arguments: { credential_id: "openaiImageApiKey", reason: "Fixture credential" } }],
+    reply: "Waiting for the credential", resumeReply: "Continuing after the credential decision",
+  };
+  const stream = await openSse(`${f.session.info.url}/api/events`);
+  try {
+    await f.start();
+    await expect.poll(() => f.nodes().find((n: any) => n.botId === f.lead.id)?.status, { timeout: 20_000 }).toBe("needs-you");
+    const source = (await f.messages(f.lead.activeTaskId)).find((m: any) => m.secret);
+    const proxy = (await f.messages(f.chief.activeTaskId)).find((m: any) => m.needsYou);
+    expect(proxy.needsYou).toMatchObject({ botId: f.lead.id, threadId: f.lead.activeTaskId, messageId: source.id, status: "waiting" });
+    expect(proxy.secret).toBeUndefined();
+    expect(proxy.secureForm).toBeUndefined();
+    await stream.until(frame => frame.kind === "notify" && frame.notification?.botId === f.chief.id && frame.notification?.body?.includes("needs you"));
+    const bots = (await f.api("/api/bots")).bots;
+    expect(bots.find((b: any) => b.id === f.chief.id).tasks.find((t: any) => t.threadId === f.chief.activeTaskId).activity).toBe("waiting-on-you");
+    await f.api(`/api/bots/${f.lead.id}/secret-cards/${source.id}/dismiss`, { threadId: f.lead.activeTaskId });
+    await expect.poll(async () => (await f.messages(f.chief.activeTaskId)).find((m: any) => m.id === proxy.id)?.needsYou?.status, { timeout: 15_000 }).toBe("dismissed");
+  } finally { stream.close(); }
+}), 45_000);

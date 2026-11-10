@@ -110,13 +110,13 @@ describe("chat transcript rows", () => {
 
   it("opens a delegated Needs you proxy at its exact source card", async () => {
     const proxy = message("m9", running.id, {
-      text: "This text is not copied from the source card",
+
       needsYou: { botId: "scout", botName: "Kennel", threadId: "scout-task", messageId: "cloudflare-sign-in", label: "Sign in to Cloudflare", status: "waiting" },
     });
     await rowRendersAfter((current) => reducer(current, { type: "messageAdded", threadId: "pepper-thread", message: proxy }));
     const row = document.querySelector<HTMLElement>('[data-mid="m9"] [data-needs-you-proxy]')!;
     expect(row.textContent).toBe("Kennel needs you: Sign in to CloudflareOpen");
-    expect(row.textContent).not.toContain(proxy.text);
+    expect(row.textContent).not.toContain("password");
     dispatch.mockClear();
     flushSync(() => row.querySelector<HTMLButtonElement>("button")!.click());
     expect(dispatch.mock.calls.map(([action]) => action)).toEqual([

@@ -13,7 +13,7 @@ const nodeSchema = z.object({
   groupId: z.string().optional(), threadId: z.string(), botId: z.string(),
   key: z.string(), text: z.string(), createdAt: z.number(),
   requestBatchKey: z.string().optional(),
-  status: z.enum(["source", "queued", "running", "waiting", "resume", "completed", "failed", "cancelled"]),
+  status: z.enum(["source", "queued", "running", "waiting", "resume", "needs-you", "completed", "failed", "cancelled"]),
   result: z.string().default(""), reported: z.boolean().default(false),
   executions: z.number().int().nonnegative().default(0), startedAt: z.number().optional(),
   lastProgressAt: z.number().optional(),
@@ -39,7 +39,7 @@ export const ROOM_HANDOFF_LIMITS = { depth: 4, requests: 24, executions: 48, idl
 const terminal = (n: RoomHandoff) => ["completed", "failed", "cancelled"].includes(n.status);
 export const awaitsReply = (n: RoomHandoff) => n.reply !== "none";
 export const queueOrder = (n: RoomHandoff) => n.orderAt ?? n.createdAt;
-export const QUEUE_STATUSES: readonly RoomHandoff["status"][] = ["running", "resume", "queued"];
+export const QUEUE_STATUSES: readonly RoomHandoff["status"][] = ["running", "resume", "queued", "needs-you"];
 const addressOf = (n: RoomHandoff): RoomAddress => ({ groupId: n.groupId, threadId: n.threadId, botId: n.botId });
 const CONTINUE_NOTE = "\n\n[Continuing: your earlier attempt at this stopped because time ran out. Check what is already done, then carry on from where it stopped.]";
 
@@ -49,6 +49,7 @@ export interface RoomHandoffHooks {
   run(node: RoomHandoff, resumed: boolean, signal: AbortSignal): Promise<HandoffRunResult>;
   report(child: RoomHandoff, parent: RoomHandoff): void;
   changed(groupIds: ReadonlySet<string>, directThreadIds: ReadonlySet<string>): void;
+  needsYou?(node: RoomHandoff): boolean;
   activity?(node: RoomHandoff): HandoffActivity | undefined;
   closed?(root: RoomHandoff, end: HandoffEnd): void;
   longWork?(node: RoomHandoff): boolean;
@@ -80,7 +81,7 @@ export class RoomHandoffs {
       for (const n of saved) this.nodes.set(n.id, n);
       if (hooks.longWork) this.restartPending = saved.some(n => !terminal(n));
       else {
-        for (const n of saved) if (!terminal(n)) this.lostToRestart(n);
+        for (const n of saved) if (!terminal(n) && !saved.some(child => child.rootId === n.rootId && child.status === "needs-you")) this.lostToRestart(n);
         this.save();
       }
     } catch (e) {
@@ -132,8 +133,9 @@ export class RoomHandoffs {
       const root = this.nodes.get(rootId);
       const open = [...this.nodes.values()].filter(n => n.rootId === rootId && !terminal(n));
       if (!root) continue;
-      if (long && !root.routineRunId) {
+      if ((long && !root.routineRunId) || open.some(n => n.status === "needs-you")) {
         for (const n of open) {
+          if (n.status === "needs-you") continue;
           if (n.status === "source") { n.status = "waiting"; continue; }
           if (n.status !== "running") continue;
           const children = this.awaited(n.id);
@@ -172,6 +174,7 @@ export class RoomHandoffs {
     const idle = new Set<string>();
     for (const n of this.nodes.values()) {
       if (terminal(n) || idle.has(n.rootId)) continue;
+      if (n.status === "needs-you" || [...this.nodes.values()].some(child => child.rootId === n.rootId && child.status === "needs-you")) continue;
       const root = this.nodes.get(n.rootId);
       if (root && this.budget.idle(root)) idle.add(root.id);
     }
@@ -179,6 +182,7 @@ export class RoomHandoffs {
   }
   private timeEnd(n: RoomHandoff, idle: ReadonlySet<string>): "idle" | "capped" | undefined {
     const root = this.root(n);
+    if ([...this.nodes.values()].some(child => child.rootId === n.rootId && child.status === "needs-you")) return undefined;
     if (!this.longTree(root.id) && this.budget.pastHardCap(root)) {
       if (!this.owesOnlySynthesis(n)) return "capped";
       if (n.status === "running" && this.now() > (n.startedAt ?? n.createdAt) + this.limits.minRunwayMs) return "capped";
@@ -473,6 +477,10 @@ export class RoomHandoffs {
       if (terminal(n) && parent && !n.reported) {
         this.hooks.report(n, parent); n.reported = true; this.publish(n, parent);
       }
+      if (n.status === "needs-you") {
+        if (this.hooks.needsYou?.(n)) continue;
+        n.status = "resume"; n.reported = false; this.stampProgress(this.root(n)); this.publish(n);
+      }
       if (n.status === "waiting") {
         const children = this.awaited(n.id);
         if (!children.length && this.children(n.id).length) { n.status = "completed"; this.publish(n); }
@@ -497,7 +505,12 @@ export class RoomHandoffs {
         if (terminal(n)) return;
         n.restarted = undefined;
         n.result = result.text.slice(0, 12_000);
-        if (this.awaited(n.id).length > childCount) n.status = "waiting";
+        if (this.hooks.needsYou?.(n)) {
+          n.status = "needs-you";
+          const parent = n.parentId ? this.nodes.get(n.parentId) : undefined;
+          if (parent) this.hooks.report(n, parent);
+        }
+        else if (this.awaited(n.id).length > childCount) n.status = "waiting";
         else if (!result.ok && result.timedOut && !n.retried) { n.retried = true; n.status = resumed ? "resume" : "queued"; this.stampProgress(root); }
         else if (!result.ok && result.timedOut) this.cancelTree(n, timedOutAgain(n.result), "failed", "timeout");
         else if (!result.ok) this.cancelTree(n, n.result || "Room agent failed", "failed", "problem");

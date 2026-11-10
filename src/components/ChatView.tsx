@@ -628,7 +628,7 @@ const Bubble = memo(function Bubble({
           ) : message.needsYou ? (
             <div className="flex min-w-[280px] items-center gap-3" data-needs-you-proxy={message.needsYou.status}>
               <span className="min-w-0 flex-1 truncate">
-                {t("chat.needsYou.proxy", { name: message.needsYou.botName, label: message.needsYou.label })}
+                {t(message.needsYou.status === "waiting" ? "chat.needsYou.proxy" : "chat.needsYou.resolved", { name: message.needsYou.botName, label: message.needsYou.label })}
               </span>
               <button type="button" onClick={openNeedsYou} className="shrink-0 rounded-md px-2 py-1 text-[12px] text-accent hover:bg-raised">
                 {t("chat.needsYou.open")}

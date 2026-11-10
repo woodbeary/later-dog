@@ -818,6 +818,7 @@
   "chat.announce.repliedEmpty": "{name} replied",
   "chat.announce.approval": "{name} needs your approval",
   "chat.needsYou.proxy": "{name} needs you: {label}",
+  "chat.needsYou.resolved": "{name}: {label} · Resolved",
   "chat.needsYou.open": "Open",
   "chat.day.today": "Today",
   "chat.day.yesterday": "Yesterday",
