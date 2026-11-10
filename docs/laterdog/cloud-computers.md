@@ -122,8 +122,9 @@ disk the others need. A dog sends that kind of command to its own cloud computer
   waits up to 4 minutes; after that the dog gets a run id and calls again to keep waiting. A run stops after 2 hours.
 - When it ends, every file the command created or changed comes back, up to 512 MB, except build output. A file that
   was changed here while the command ran is kept, and the dog is told which.
-- A computer that was asleep when the run began goes back to sleep when it ends, so runs use few of the home's computer
-  hours.
+- After a call the computer stays awake, so the next call reuses it without another boot. The computers service puts
+  it to sleep under its own idle policy (10 idle minutes, at most 8 awake hours; trials 5 minutes), which counts every
+  command, file transfer and open viewer as activity. later.dog does not put it to sleep itself (changed 2026-11-10).
 
 `scripts/verify-computer-runs.ts` proves it against a real computer: it creates a throwaway one, sends a 30 MB project,
 runs `pnpm install && pnpm build && pnpm test`, checks only the report came back, checks the second run sends one
