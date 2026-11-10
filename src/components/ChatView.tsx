@@ -458,6 +458,15 @@ const Bubble = memo(function Bubble({
   const sentFiles = attachments?.files ?? [];
   const sentAttachments = sentImages.length + sentFiles.length > 0;
   const sentAbove = sentAttachments && Boolean(visibleText.trim());
+  const openNeedsYou = () => {
+    if (!message.needsYou) return;
+    dispatch({ type: "select", id: message.needsYou.botId });
+    const source = bots.find((candidate) => candidate.id === message.needsYou!.botId);
+    if (source?.threadId !== message.needsYou.threadId) {
+      dispatch({ type: "openTask", botId: message.needsYou.botId, threadId: message.needsYou.threadId });
+    }
+    dispatch({ type: "focusMessage", threadId: message.needsYou.threadId, messageId: message.needsYou.messageId });
+  };
   const attachmentsOnly = !webhookView && !replyTarget && !visibleText.trim() &&
     (user ? hasAttachments : generatedPaths.length + linkedFiles.length > 0);
   const collapsible =
@@ -616,6 +625,15 @@ const Bubble = memo(function Bubble({
                 </button>
               )}
             </>
+          ) : message.needsYou ? (
+            <div className="flex min-w-[280px] items-center gap-3" data-needs-you-proxy={message.needsYou.status}>
+              <span className="min-w-0 flex-1 truncate">
+                {t(message.needsYou.status === "waiting" ? "chat.needsYou.proxy" : "chat.needsYou.resolved", { name: message.needsYou.botName, label: message.needsYou.label })}
+              </span>
+              <button type="button" onClick={openNeedsYou} className="shrink-0 rounded-md px-2 py-1 text-[12px] text-accent hover:bg-raised">
+                {t("chat.needsYou.open")}
+              </button>
+            </div>
           ) : (
             <MessageBoundary key={viewRaw ? "raw" : "rendered"} fallbackText={text || t("chat.generatedImage")}>
               {voiceNotes.length > 0 && (

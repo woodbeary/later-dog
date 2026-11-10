@@ -18,6 +18,27 @@ async function fixture(test: (engine: RoomHandoffs, hooks: RoomHandoffHooks, fil
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 
 describe("addressed room request tree", () => {
+  it("keeps an unanswered card Needs you after turn completion and restart, then resumes", () => fixture(async (engine, hooks, file) => {
+    let waiting = true;
+    hooks.needsYou = () => waiting;
+    const child = engine.enqueue(addr("chief"), "turn", undefined, addr("kennel"), "login", "Sign in").node;
+    engine.sourceSettled("turn", true);
+    engine.tick(); await flush(); engine.tick();
+    expect(child.status).toBe("needs-you");
+    expect(engine.queueOf(child.botId)).toContain(child);
+    expect(hooks.report).toHaveBeenCalledWith(child, engine.nodes.get("turn"));
+    const restored = new RoomHandoffs(file, hooks);
+    expect(restored.nodes.get(child.id)?.status).toBe("needs-you");
+    expect(restored.nodes.get("turn")?.status).toBe("waiting");
+    const restarted = new RoomHandoffs(file, { ...hooks, longWork: () => false });
+    restarted.tick();
+    expect(restarted.nodes.get(child.id)?.status).toBe("needs-you");
+    expect(restarted.nodes.get("turn")?.status).toBe("waiting");
+    waiting = false;
+    engine.tick(); await flush(); engine.tick();
+    expect(child.status).toBe("completed");
+    expect(hooks.run).toHaveBeenCalledTimes(2);
+  }));
   it("never leaves a handoff waiting with nothing under it: it resumes its dog instead", () => fixture(async (engine, hooks) => {
     const source = { botId: "chief", threadId: "chief-chat" };
     const child = engine.enqueue(source, "turn", undefined, { botId: "builder", threadId: "builder-chat" }, "build", "Build it").node;

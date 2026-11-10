@@ -110,6 +110,8 @@ function sectionLabel(id: string): string {
 }
 
 export function waitingLine(visible: Message[]): string {
+  const proxy = visible.findLast((message) => message.needsYou?.status === "waiting")?.needsYou;
+  if (proxy) return t("chat.needsYou.proxy", { name: proxy.botName, label: proxy.label });
   const open = pendingApprovals(visible).at(-1)?.message.card;
   return open ? t("sidebar.preview.waitingFor", { action: approvalAction(open) }) : t("sidebar.preview.waiting");
 }

@@ -16,6 +16,10 @@ describe("the dogs a chat is waiting on", () => {
     ]);
   });
 
+  it("preserves an explicit card wait without relying on reply wording", () => {
+    expect(waitingOn([{ botId: "rio", status: "needs-you" }], nameOf)[0]?.state).toBe("needsYou");
+  });
+
   it("leaves out a dog that no longer exists", () => {
     expect(waitingOn([{ botId: "gone" }, { botId: "rio" }], nameOf)).toEqual([{ botId: "rio", name: "Rio", state: "queued" }]);
     expect(waitingOn([], nameOf)).toEqual([]);

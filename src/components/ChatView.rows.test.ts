@@ -108,6 +108,24 @@ describe("chat transcript rows", () => {
     expect(document.body.textContent).toContain("Read file 2");
   });
 
+  it("opens a delegated Needs you proxy at its exact source card", async () => {
+    const proxy = message("m9", running.id, {
+
+      needsYou: { botId: "scout", botName: "Kennel", threadId: "scout-task", messageId: "cloudflare-sign-in", label: "Sign in to Cloudflare", status: "waiting" },
+    });
+    await rowRendersAfter((current) => reducer(current, { type: "messageAdded", threadId: "pepper-thread", message: proxy }));
+    const row = document.querySelector<HTMLElement>('[data-mid="m9"] [data-needs-you-proxy]')!;
+    expect(row.textContent).toBe("Kennel needs you: Sign in to CloudflareOpen");
+    expect(row.textContent).not.toContain("password");
+    dispatch.mockClear();
+    flushSync(() => row.querySelector<HTMLButtonElement>("button")!.click());
+    expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
+      { type: "select", id: "scout" },
+      { type: "openTask", botId: "scout", threadId: "scout-task" },
+      { type: "focusMessage", threadId: "scout-task", messageId: "cloudflare-sign-in" },
+    ]);
+  });
+
   it("renders no row when another bot changes", async () => {
     const scout = state.bots.find((bot) => bot.id === "scout")!;
     expect(await rowRendersAfter((current) => reducer(current, { type: "botPatched", bot: { ...scout, busy: true } })))

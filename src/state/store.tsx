@@ -160,6 +160,14 @@ export interface SecretRequestCardData {
 
 export interface Message {
   roomRequest?: import("../../shared/wire").WireMessage["roomRequest"];
+  needsYou?: {
+    botId: string;
+    botName: string;
+    threadId: string;
+    messageId: string;
+    label: string;
+    status: "waiting" | "answered" | "dismissed";
+  };
   id: string;
   role: "bot" | "user";
   kind: "text" | "options" | "activity" | "screen" | "connector" | "secret" | "routine.run" | "goal.run" | "digest" | "compaction";

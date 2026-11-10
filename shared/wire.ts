@@ -256,6 +256,14 @@ export interface WireMessage {
   card?: OptionCardData;
   connector?: ConnectorCardData;
   secret?: SecretRequestCardData;
+  needsYou?: {
+    botId: string;
+    botName: string;
+    threadId: string;
+    messageId: string;
+    label: string;
+    status: "waiting" | "answered" | "dismissed";
+  };
   secureForm?: SecureFormCardData;
   routineRun?: RoutineRunCardData;
   tool?: {

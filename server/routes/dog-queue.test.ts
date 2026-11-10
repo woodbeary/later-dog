@@ -6,7 +6,7 @@ import { json, readBody } from "../harness/http.ts";
 import { safeStopWords, stoppedByLine } from "../laterdog/safe-stop.ts";
 import type { RoomHandoff } from "../room-handoffs.ts";
 import type { BotRecord } from "../store.ts";
-import { createDogQueueRoute, DOG_QUEUE_PATH } from "./dog-queue.ts";
+import { createDogQueueRoute, DOG_QUEUE_PATH, queueText } from "./dog-queue.ts";
 import { dispatchInternalRoutes } from "./internal.ts";
 
 const dog = (id: string, name: string): BotRecord => ({ id, name, threadId: `${id}-chat` }) as BotRecord;
@@ -142,4 +142,10 @@ describe("cancelling or replacing one queued request", () => {
     expect((await call({ action: "cancel", dog: "patch" })).status).toBe(400);
     expect((await call({ action: "cancel", requestId: "missing" })).status).toBe(404);
   });
+});
+
+it("lists card waits under Needs you instead of completed or queued work", () => {
+  const text = queueText(PATCH, [request("r-card", "clover", "needs-you", "Sign in")], [], [], () => "Clover", () => "clover");
+  expect(text).toContain("Needs you:\n- [requestId: r-card]");
+  expect(text).toContain("Queued teammate requests: none.");
 });

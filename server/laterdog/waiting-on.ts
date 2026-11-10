@@ -17,7 +17,7 @@ export function waitingOn(
     const name = nameOf(node.botId)?.trim();
     if (!name) continue;
     const ask = node.status === "running" ? null : askOf(node);
-    const state = ask ? "needsYou" : node.status === "running" ? "running" : "queued";
+    const state = ask || node.status === "needs-you" ? "needsYou" : node.status === "running" ? "running" : "queued";
     const known = named.get(node.botId);
     if (known && rank[known.state ?? "queued"] >= rank[state]) continue;
     named.set(node.botId, { botId: node.botId, name, ...(node.threadId ? { threadId: node.threadId } : {}), state, ...(ask ? { ask } : {}) });
