@@ -29,6 +29,28 @@ const dirs: string[] = [];
 const scratch = () => { const dir = mkdtempSync(join(tmpdir(), "laterdog-battery-")); dirs.push(dir); return dir; };
 afterEach(async () => { for (const dir of dirs.splice(0)) await removeTempDir(dir); });
 
+describe("same engine before another engine", () => {
+  const codex = account("codex", { driverKind: "codex", models: ["gpt-5.5"], defaultModel: "gpt-5.5" });
+  const accounts = [...ACCOUNTS, codex];
+  const config = { ...ON, auto: true, sequence: ["claude", "claude-b", "codex", "claude-c"] };
+  const reading = (left: number): PlanProviderRow => ({
+    ok: true, fiveHour: { available: true, usedPercent: 100 - left, resetsAt: at(5 * HOUR) },
+    weekly: { available: true, usedPercent: 100 - left, resetsAt: at(72 * HOUR) }, extra: [], models: [],
+  } as unknown as PlanProviderRow);
+  const usage = (id: string) => reading(({ claude: 0, "claude-b": 0, "claude-c": 30, codex: 95 } as Record<string, number>)[id] ?? 0);
+  const resting = { claude: rest(72 * HOUR, { kind: "weekly" }), "claude-b": rest(72 * HOUR, { kind: "weekly" }) };
+
+  it("moves a Claude chat to another Claude account even when Codex has more room", () => {
+    expect(route({ config, accounts, resting, usage })).toEqual({ ...SELECTION, instanceId: "claude-c" });
+    expect(route({ config, accounts, resting, usage, roomiest: true })).toEqual({ ...SELECTION, instanceId: "claude-c" });
+  });
+
+  it("uses Codex only once every Claude account is out", () => {
+    const allOut = { ...resting, "claude-c": rest(72 * HOUR, { kind: "weekly" }) };
+    expect(route({ config, accounts, resting: allOut, usage, roomiest: true })).toEqual({ instanceId: "codex", model: "gpt-5.5" });
+  });
+});
+
 describe("routing", () => {
   it("changes nothing while the battery is off or for an account it does not manage", () => {
     expect(route({ config: { ...ON, enabled: false } })).toBe(SELECTION);
@@ -73,13 +95,13 @@ describe("routing", () => {
     expect(route({ accounts: twins, resting, config: { enabled: true, order: { claudeAgent: ["claude", "claude-c", "claude-b"] } } }).instanceId).toBe("claude-b");
   });
 
-  it("can continue a Codex conversation on the next provider in the complete list", () => {
+  it("continues a Codex conversation on another Codex account first, then on Claude", () => {
     const codex = (instanceId: string) => account(instanceId, { driverKind: "codex", models: ["gpt-5.5-codex"] });
     const accounts = [...ACCOUNTS, codex("chatgpt"), codex("chatgpt-b")];
     const config = { enabled: true, order: { ...ON.order, codex: ["chatgpt-b", "chatgpt"] } };
     const selection = { instanceId: "chatgpt", model: "gpt-5.5-codex" };
     expect(route({ config, accounts, selection })).toBe(selection);
-    expect(route({ config, accounts, selection, resting: { chatgpt: rest(HOUR) } })).toEqual({ instanceId: "claude-b", model: "claude-sonnet-5" });
+    expect(route({ config, accounts, selection, resting: { chatgpt: rest(HOUR) } })).toEqual({ instanceId: "chatgpt-b", model: "gpt-5.5-codex" });
     expect(route({ config, accounts, selection, resting: { "chatgpt-b": rest(HOUR), chatgpt: rest(HOUR) } })).toEqual({ instanceId: "claude-b", model: "claude-sonnet-5" });
   });
 
