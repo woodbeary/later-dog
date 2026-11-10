@@ -22,7 +22,7 @@ export function tapbackTarget(path: ReadonlyArray<WireMessage>, messageId?: stri
   if (messageId) return path.find((message) => message.id === messageId && message.kind === "text") ?? null;
   for (let index = path.length - 1; index >= 0; index -= 1) {
     const message = path[index]!;
-    if (message.role === "user" && message.kind === "text") return message;
+    if (message.role === "user" && message.kind === "text" && !message.peerAsk && !message.from?.botId) return message;
   }
   return null;
 }

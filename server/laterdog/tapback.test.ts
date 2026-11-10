@@ -22,6 +22,13 @@ describe("a dog's tapback", () => {
     expect(tapbackTarget([text("hi", "bot", "Hello")])).toBeNull();
   });
 
+  it("skips teammate notes when choosing the person's latest message", () => {
+    const path = [text("ok", "user", "ok"), { ...text("peer", "user", "got it"), peerAsk: { botId: "patch", name: "Patch" } }];
+    expect(tapbackTarget(path)?.id).toBe("ok");
+    expect(tapbackTarget(path, "peer")?.id).toBe("peer");
+    expect(tapbackTarget([path[1]!])).toBeNull();
+  });
+
   it("replaces the dog's earlier tapback and leaves everyone else's", () => {
     const before = [{ emoji: "❤️", by: "user" }, { emoji: "👍", by: "clover" }, { emoji: "😂", by: "patch" }];
     expect(withTapback(before, "🎉", "clover")).toEqual([{ emoji: "❤️", by: "user" }, { emoji: "😂", by: "patch" }, { emoji: "🎉", by: "clover" }]);
