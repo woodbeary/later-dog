@@ -20,6 +20,18 @@ describe("threads follow their bot's model", () => {
     rmSync(DATA_DIR, { recursive: true, force: true });
   });
 
+  it("persists an owner's explicit model choice privately and clears it when following the default", () => {
+    const store = open();
+    const bot = store.createBot();
+    store.switchTaskModel(bot.id, bot.threadId, codex, false, false, { ownerModelSelection: codex });
+    const loaded = open();
+    const task = loaded.taskByThread(bot.id, bot.threadId)!;
+    expect(task.ownerModelSelection).toEqual(codex);
+    expect(toWireTask(task, sonnet)).not.toHaveProperty("ownerModelSelection");
+    loaded.followBotModel(bot.id, [bot.threadId]);
+    expect(loaded.taskByThread(bot.id, bot.threadId)?.ownerModelSelection).toBeUndefined();
+  });
+
   it("a new thread has no model of its own and follows every change of its bot's model", () => {
     const store = open();
     const bot = store.createBot();
@@ -259,5 +271,15 @@ describe("the cleanup marker", () => {
   it("is written once the bots are saved", () => {
     open().createBot();
     expect(existsSync(join(DATA_DIR, "thread-model-copies-cleared"))).toBe(true);
+  });
+});
+
+ describe("pinned engine thread overrides", () => {
+  const engine = (instanceId: string) => ({ instanceId, driverKind: drivers[instanceId], enabled: true, snapshot: { state: "available", authenticated: true } } as ThreadEngine);
+  it("rejects a stale Codex override after a pinned dog returns to Claude", () => {
+    expect(threadModelFallback(codex, sonnet, engine, { pinned: true })).toBe("pinned-engine");
+  });
+  it("preserves an explicit owner choice of another engine", () => {
+    expect(threadModelFallback(codex, sonnet, engine, { pinned: true, ownerSelection: codex })).not.toBe("pinned-engine");
   });
 });

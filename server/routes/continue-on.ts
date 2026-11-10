@@ -12,7 +12,8 @@ export interface ContinueOnTask {
 export interface ContinueOnRouteDeps {
   task(botId: string, threadId: string): ContinueOnTask;
   refusal(auth: RequestAuth, threadId: string): string | null;
-  continueOn(task: ContinueOnTask, instanceId: unknown): ContinueOnResult;
+  mayPickEngine(auth: RequestAuth): boolean;
+  continueOn(task: ContinueOnTask, instanceId: unknown, byHand: boolean): ContinueOnResult;
 }
 
 export function createContinueOnRoutes(deps: ContinueOnRouteDeps): RouteHandler {
@@ -24,7 +25,7 @@ export function createContinueOnRoutes(deps: ContinueOnRouteDeps): RouteHandler 
     const task = deps.task(m[1]!, body.threadId);
     const refusal = deps.refusal(auth, task.threadId);
     if (refusal) return json(res, 403, { error: refusal });
-    const outcome = deps.continueOn(task, body.instanceId);
+    const outcome = deps.continueOn(task, body.instanceId, body.byHand === true && deps.mayPickEngine(auth));
     return json(res, outcome.status, outcome.body);
   };
 }

@@ -851,6 +851,7 @@
   "chat.limit.continuing": "Continuing…",
   "chat.limit.continueError": "Could not continue on that account. Please try again.",
   "chat.limit.noneFree": "Your other accounts can't take over right now.",
+  "chat.limit.staysOnEngine": "This dog waits for its own engine to recharge.",
   "chat.limit.noOther": "Add another account to keep going.",
   "chat.limit.carriesOn": "Picks up where it stopped at {time}.",
   "chat.limit.waiting": "{count} message(s) waiting. They'll send once this dog can carry on.",

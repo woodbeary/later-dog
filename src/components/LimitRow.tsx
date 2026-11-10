@@ -67,7 +67,9 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
   };
   const others = limited ? accounts.filter((account) => account !== limited) : [];
   const free = others.filter((account) => signedIn(account) && (account.driverKind !== limited?.driverKind || offers(account)) && !resting(account));
-  const chosen = free.find((account) => account.instanceId === pick) ?? free[0];
+  const keepsEngine = bot?.accountPinned === true;
+  const suggested = keepsEngine ? free.find((account) => account.driverKind === limited?.driverKind) : free[0];
+  const chosen = free.find((account) => account.instanceId === pick) ?? suggested;
   const waiting = threadId ? state.pendingQueued[threadId]?.length ?? 0 : 0;
   const picksUpAt = threadId ? battery?.waiting?.[threadId] : undefined;
   const automaticPickup = carryOn.on && limited ? picksUpAt : undefined;
@@ -79,7 +81,7 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
     try {
       const { continued } = await api<{ continued: boolean }>(`/api/bots/${botId}/continue-on`, {
         method: "POST",
-        body: JSON.stringify({ threadId, instanceId: account.instanceId }),
+        body: JSON.stringify({ threadId, instanceId: account.instanceId, ...(account.instanceId === pick ? { byHand: true } : {}) }),
       });
       if (!continued) onRetry?.();
     } catch (cause) {
@@ -139,8 +141,15 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
         ) : (
           <div className="mt-2.5 flex flex-wrap items-center gap-2">
             <span className="text-[12.5px] text-ink-secondary">
-              {others.length > 0 ? t("chat.limit.noneFree") : t("chat.limit.noOther")}
+              {free.length > 0 ? t("chat.limit.staysOnEngine") : others.length > 0 ? t("chat.limit.noneFree") : t("chat.limit.noOther")}
             </span>
+            {free.length > 0 && (
+              <select aria-label={t("chat.limit.continueOn")} value="" onChange={(event) => setPick(event.target.value)}
+                className="min-w-0 rounded-lg border border-hairline/40 bg-inset px-2.5 py-1.5 text-[13px] text-ink">
+                <option value="" disabled>{t("chat.limit.continueOn")}</option>
+                {free.map((account) => <option key={account.instanceId} value={account.instanceId}>{account.displayName}</option>)}
+              </select>
+            )}
             <button type="button" onClick={() => requestAddAccount()} className={pill}>{t("accounts.add")}</button>
           </div>
         ))}

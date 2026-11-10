@@ -4,6 +4,12 @@
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
+## Pinned account routing, November 10
+
+The account routing repair removes early moves at five percent remaining and
+keeps pinned dogs on their engine, including stale thread model overrides.
+See [checks and live qualification](../verification/pinned-account-routing-2026-11-10.md).
+
 ## Current production scope repair (2026-11-09)
 
 PR144/145/147 are merged and active. Canonical source `0609ec0b` is bundled in

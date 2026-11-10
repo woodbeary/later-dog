@@ -327,6 +327,7 @@ export interface Bot {
   turnStartedAt?: number | null;
   workingStartedAt?: number | null;
   modelSelection: ModelSelection;
+  accountPinned?: boolean;
   computer?: "cloud" | "vm" | "local" | "browser" | "off";
   cloudBackend?: CloudBackend;
   autoStartVps?: boolean;
