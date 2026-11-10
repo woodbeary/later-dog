@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ComputerRuns, RunOutcome, RunRecord } from "./computer-runs.ts";
 import { ComputerRuns as RealComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox } from "./computer-runs.ts";
-import { STILL_STARTING_TEXT, allowedFolder, handleComputerRun, outcomeText, repositoryFromRemote, repositoryOf } from "./computer-run-route.ts";
+import { STILL_STARTING_TEXT, WINDOW_ENDED_TEXT, allowedFolder, handleComputerRun, outcomeText, repositoryFromRemote, repositoryOf } from "./computer-run-route.ts";
 
 function home() {
   const root = mkdtempSync(join(tmpdir(), "run-route-"));
@@ -136,12 +136,13 @@ describe("starting the computer inside one run_on_computer call", () => {
 });
 
 describe("one run_on_computer call with the real run store", () => {
-  function fakeBox(options: { onWrite?: () => Promise<void> | void; exitCode?: number } = {}) {
+  function fakeBox(options: { onWrite?: () => Promise<void> | void; onPoll?: () => void; exitCode?: number } = {}) {
     const execs: Array<{ command: string; timeoutMs: number }> = [];
     const box: RunBox = {
       async exec(command, timeoutMs) {
         execs.push({ command, timeoutMs });
         if (command.startsWith("test -d")) return { exitCode: 0, stdout: "no\n", stderr: "" };
+        if (command.startsWith("cat runs/.logs/")) options.onPoll?.();
         if (command.startsWith("cat runs/.logs/")) return { exitCode: 0, stdout: options.exitCode === undefined ? "<<<\n" : `${options.exitCode}\n<<<\nok`, stderr: "" };
         if (command.includes("nohup")) return { exitCode: 0, stdout: "started\n", stderr: "" };
         return { exitCode: 0, stdout: "", stderr: "" };
@@ -190,9 +191,21 @@ describe("one run_on_computer call with the real run store", () => {
     expect(readdirSync(join(root, "state/dog")).filter((name) => name.startsWith("run-"))).toEqual([]);
   });
 
+  it("never launches the command once sending the folder used up the call's window, and keeps what was sent", async () => {
+    const { root, clock, runs, ask } = setup();
+    const { box, execs } = fakeBox({ onWrite: () => { clock.at += 500_000; } });
+    const computer = async () => ({ box });
+    const answer = await handleComputerRun(ask(() => true), { runs, computer, now: () => clock.at });
+    expect(answer).toEqual({ status: 200, text: WINDOW_ENDED_TEXT });
+    expect(launched(execs)).toBe(0);
+    expect(readdirSync(join(root, "state/dog")).filter((name) => name.startsWith("run-"))).toEqual([]);
+    expect(readdirSync(join(root, "state/dog")).filter((name) => name.endsWith(".sent.json"))).toHaveLength(1);
+  });
+
   it("leaves a finished run's files for the next call when the window is used up, then brings them back by run_id", async () => {
     const { clock, runs, ask } = setup();
-    const { box, execs } = fakeBox({ exitCode: 0, onWrite: () => { clock.at += WAIT_IN_ONE_CALL_MS; } });
+    let polled = false;
+    const { box, execs } = fakeBox({ exitCode: 0, onPoll: () => { if (!polled) clock.at += WAIT_IN_ONE_CALL_MS; polled = true; } });
     const computer = async () => ({ box });
     const first = await handleComputerRun(ask(), { runs, computer, now: () => clock.at });
     expect(first.text).toMatch(/^Finished on your cloud computer with exit code 0 \(run_id [0-9a-f]{8}\); its files are still there\./);

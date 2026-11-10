@@ -36,6 +36,7 @@ export function repositoryOf(folder: string): string | null {
   }
 }
 
+export const WINDOW_ENDED_TEXT = "This call's time ran out while sending the folder, before the command started, so nothing was run. Call run_on_computer again with the same folder and command; the files already sent stay on the computer.";
 export const STILL_STARTING_TEXT = "Your cloud computer is still starting, so nothing was run yet. Call run_on_computer again with the same folder and command to keep waiting.";
 const ENDED_TEXT = "This turn ended before the command started on the cloud computer, so nothing was run.";
 const inside = (path: string, root: string) => { const rel = relative(root, path); return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel)); };
@@ -88,6 +89,7 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
     return { status: 200, text: outcomeText(outcome), failed: outcome.state === "failed" };
   } catch (error) {
     if ((error as { code?: unknown })?.code === "still_starting") return { status: 200, text: STILL_STARTING_TEXT };
+    if ((error as { code?: unknown })?.code === "window_ended") return { status: 200, text: WINDOW_ENDED_TEXT };
     if ((error as { code?: unknown })?.code === "cancelled" || (request.active && !request.active())) return { status: 409, error: ENDED_TEXT };
     return { status: 502, error: error instanceof Error ? error.message : String(error) };
   }

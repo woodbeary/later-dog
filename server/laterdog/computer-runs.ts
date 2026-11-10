@@ -200,7 +200,7 @@ export class ComputerRuns {
     writeFileSync(path, JSON.stringify(value));
   }
 
-  async start(box: RunBox, input: { botId: string; folder: string; subdir?: string; command: string; active?: () => boolean }): Promise<RunRecord & { sentFiles: number; sentBytes: number }> {
+  async start(box: RunBox, input: { botId: string; folder: string; subdir?: string; command: string; active?: () => boolean; left?: () => number }): Promise<RunRecord & { sentFiles: number; sentBytes: number }> {
     const key = runKey(input.folder);
     const id = randomUUID().slice(0, 8);
     const remote = `runs/${key}`;
@@ -236,6 +236,7 @@ export class ComputerRuns {
       : "";
     const script = `export PATH="$HOME/.local/bin:$PATH"; command -v pnpm > /dev/null || npm install -g --prefix "$HOME/.local" pnpm > /dev/null 2>&1; cd ${quote(workDir)} && touch "$HOME/runs/.logs/${id}.start" && ( ${input.command} ) > "$HOME/runs/.logs/${id}.log" 2>&1; rc=$?; ${remember}echo $rc > "$HOME/runs/.logs/${id}.exit"`;
     if (input.active && !input.active()) throw Object.assign(new Error("the turn ended before the command started, so nothing was run"), { code: "cancelled" });
+    if (input.left && input.left() <= 0) throw Object.assign(new Error("the call's time ran out before the command started, so nothing was run"), { code: "window_ended" });
     const detached = `nohup bash -lc ${quote(script)} > /dev/null 2>&1 < /dev/null &`;
     must(await box.exec(`if command -v setsid > /dev/null; then setsid ${detached} else ${detached} fi; echo started`, 30_000), "starting the command");
     const record: RunRecord = { id, botId: input.botId, key, folder: input.folder, subdir, command: input.command, startedAt: this.#now(), sent: now, ...(reusedSetup ? { reusedSetup: true } : {}) };
@@ -288,7 +289,7 @@ export class ComputerRuns {
 
   async run(box: RunBox, input: { botId: string; folder: string; subdir?: string; command: string; active?: () => boolean; left?: () => number }): Promise<RunOutcome> {
     const left = input.left ?? this.window();
-    const started = await this.start(box, input);
+    const started = await this.start(box, { ...input, left });
     return this.finish(box, started, { sentFiles: started.sentFiles, sentBytes: started.sentBytes }, left);
   }
 
