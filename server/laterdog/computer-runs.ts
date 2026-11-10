@@ -280,13 +280,13 @@ export class ComputerRuns {
     return { broughtBack: fetch, skipped, conflicts };
   }
 
-  async run(box: RunBox, input: { botId: string; folder: string; subdir?: string; command: string; restAfter?: boolean }): Promise<RunOutcome> {
+  async run(box: RunBox, input: { botId: string; folder: string; subdir?: string; command: string; restAfter?: boolean; waitMs?: number }): Promise<RunOutcome> {
     const started = await this.start(box, input);
-    return this.finish(box, started, { sentFiles: started.sentFiles, sentBytes: started.sentBytes });
+    return this.finish(box, started, { sentFiles: started.sentFiles, sentBytes: started.sentBytes }, input.waitMs);
   }
 
-  async finish(box: RunBox, record: RunRecord, sent = { sentFiles: 0, sentBytes: 0 }): Promise<RunOutcome> {
-    const state = await this.wait(box, record);
+  async finish(box: RunBox, record: RunRecord, sent = { sentFiles: 0, sentBytes: 0 }, waitMs = WAIT_IN_ONE_CALL_MS): Promise<RunOutcome> {
+    const state = await this.wait(box, record, waitMs);
     if (!state.done) {
       const overdue = this.#now() - record.startedAt >= MAX_RUN_MS;
       if (overdue) await box.exec(`pkill -f ${quote(`runs/.logs/${record.id}.log`)}`, 30_000).catch(() => null);

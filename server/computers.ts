@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import * as boat from "./boat.ts";
+import { cloudComputerStartBudgetMs } from "./laterdog/cloud-start.ts";
 import type { BoatIdentityInspection, ManagedBoatInventory, ManagedBoatInventoryInstance, ManagedBoatMutationClaim, ManagedBoatOwner } from "./boat.ts";
 import { DATA_DIR, type AppConfig } from "./config.ts";
 import { loadEnvironmentId } from "./environment.ts";
@@ -450,13 +451,21 @@ export async function inspectBoatIdentity(cfg: AppConfig, boxId: string): Promis
   return { available: true, identity: computer ? { boxId: computer.id, name: computer.name, state: asBoatState(computer.state) } : null, problem: null };
 }
 
-export async function heavyRunBox(botId: string, options: { repository?: string } = {}): Promise<{ box: RunBox; wasAsleep: boolean; rest(): Promise<void> }> {
+export async function heavyRunBox(botId: string, options: { repository?: string; wanted?: () => boolean; budgetMs?: number } = {}): Promise<{ box: RunBox; wasAsleep: boolean; rest(): Promise<void> }> {
   if (!computersSelected()) throw Object.assign(new Error("Cloud computers are not set up here, so run it in your own folder instead."), { status: 409 });
   const client = ownClient();
   const computer = await findOwn(client, botId) ?? await createOwn(client, botId, ownName(botId), undefined, options.repository);
   const wasAsleep = computer.state !== "running";
-  const ready = await waitRunning(client, computer.id, PROVISION_BUDGET_MS, options.repository);
-  if (!ready) throw new Error("your cloud computer did not wake within 90 seconds; try again in a minute");
+  const startBudgetMs = cloudComputerStartBudgetMs();
+  const budgetMs = Math.min(options.budgetMs ?? startBudgetMs, startBudgetMs);
+  const wanted = options.wanted ?? (() => true);
+  const ready = await waitRunning(client, computer.id, budgetMs, options.repository, { wanted });
+  if (!ready) {
+    const current = wanted() ? await client.get(computer.id).catch(() => null) : null;
+    const state = current ? asBoatState(current.state) : "unknown";
+    if (state === "starting" && budgetMs < startBudgetMs) throw Object.assign(new Error("your cloud computer is still starting, so nothing was run yet"), { code: "still_starting" });
+    throw new Error(state === "error" ? "your cloud computer did not start; it reported an error while starting" : `your cloud computer did not start within ${Math.round(budgetMs / 1000)} seconds; try again in a minute`);
+  }
   const box: RunBox = {
     exec: (command, timeoutMs) => runOwn(client, ready.id, command, { timeoutMs }),
     write: (path, bytes) => client.writeFile(ready.id, path, bytes),

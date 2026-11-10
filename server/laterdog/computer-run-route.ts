@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { lstatSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
-import { ComputerRuns, type RunBox, type RunOutcome } from "./computer-runs.ts";
+import { ComputerRuns, WAIT_IN_ONE_CALL_MS, type RunBox, type RunOutcome } from "./computer-runs.ts";
 
 export interface ComputerRunRequest {
   botId: string;
@@ -10,12 +10,14 @@ export interface ComputerRunRequest {
   workingFolder: string | null;
   allowedRoots: readonly string[];
   home?: string;
+  active?: () => boolean;
 }
 
 export interface ComputerRunDeps {
   runs: ComputerRuns;
-  computer(botId: string, options?: { repository?: string }): Promise<{ box: RunBox; wasAsleep: boolean; rest(): Promise<void> }>;
+  computer(botId: string, options?: { repository?: string; wanted?: () => boolean; budgetMs?: number }): Promise<{ box: RunBox; wasAsleep: boolean; rest(): Promise<void> }>;
   repositoryOf?(folder: string): string | null;
+  now?(): number;
 }
 
 const GITHUB_REMOTE = /^(?:https:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}?)(?:\.git)?\/?$/;
@@ -35,6 +37,8 @@ export function repositoryOf(folder: string): string | null {
 }
 
 const busy = new Map<string, number>();
+const LEAST_RUN_WAIT_MS = 5_000;
+export const STILL_STARTING_TEXT = "Your cloud computer is still starting, so nothing was run yet. Call run_on_computer again with the same folder and command to keep waiting.";
 const inside = (path: string, root: string) => { const rel = relative(root, path); return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel)); };
 
 export function allowedFolder(requested: string, request: Pick<ComputerRunRequest, "workingFolder" | "allowedRoots" | "home">): string | null {
@@ -76,13 +80,21 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
   let restAfter = false;
   try {
     const repository = record ? null : (deps.repositoryOf ?? repositoryOf)(folder);
-    computer = await deps.computer(request.botId, repository ? { repository } : {});
+    const now = deps.now ?? Date.now;
+    const started = now();
+    computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: WAIT_IN_ONE_CALL_MS });
+    if (request.active && !request.active()) {
+      restAfter = !record && computer.wasAsleep;
+      return { status: 409, error: "This turn ended while the cloud computer was starting, so nothing was run." };
+    }
+    const waitMs = Math.max(LEAST_RUN_WAIT_MS, WAIT_IN_ONE_CALL_MS - (now() - started));
     const outcome = record
-      ? await deps.runs.finish(computer.box, record)
-      : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, restAfter: computer.wasAsleep });
+      ? await deps.runs.finish(computer.box, record, undefined, waitMs)
+      : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, restAfter: computer.wasAsleep, waitMs });
     restAfter = outcome.state !== "running" && Boolean(record ? record.restAfter : computer.wasAsleep);
     return { status: 200, text: outcomeText(outcome), failed: outcome.state === "failed" };
   } catch (error) {
+    if ((error as { code?: unknown })?.code === "still_starting") return { status: 200, text: STILL_STARTING_TEXT };
     return { status: 502, error: error instanceof Error ? error.message : String(error) };
   } finally {
     const left = (busy.get(request.botId) ?? 1) - 1;

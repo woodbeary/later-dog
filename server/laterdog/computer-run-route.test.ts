@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ComputerRuns, RunOutcome, RunRecord } from "./computer-runs.ts";
-import { allowedFolder, handleComputerRun, outcomeText, repositoryFromRemote, repositoryOf } from "./computer-run-route.ts";
+import { WAIT_IN_ONE_CALL_MS } from "./computer-runs.ts";
+import { STILL_STARTING_TEXT, allowedFolder, handleComputerRun, outcomeText, repositoryFromRemote, repositoryOf } from "./computer-run-route.ts";
 
 function home() {
   const root = mkdtempSync(join(tmpdir(), "run-route-"));
@@ -92,7 +93,7 @@ describe("a run_on_computer call", () => {
     const plain = join(root, "plain");
     mkdirSync(plain);
     await handleComputerRun({ botId: "dog", body: { command: "pnpm test", folder: plain }, workingFolder: null, allowedRoots: [], home: root }, { runs: fakeRuns(outcome("finished")).runs, computer, repositoryOf: () => null });
-    expect(asked).toEqual([{ repository: "acme/site" }, {}]);
+    expect(asked).toEqual([{ repository: "acme/site", budgetMs: WAIT_IN_ONE_CALL_MS }, { budgetMs: WAIT_IN_ONE_CALL_MS }]);
   });
 
   it("reads only a GitHub owner/name out of a remote, never its credentials", () => {
@@ -107,5 +108,42 @@ describe("a run_on_computer call", () => {
 
   it("tells the dog what ran, what came back and the end of the output", () => {
     expect(outcomeText(outcome("finished"))).toBe("Finished on your cloud computer with exit code 0 (run_id abcd1234).\nSent 2 changed file(s), 2 KB.\nBrought back 1 file(s): report.txt.\n\nOutput (end):\nok");
+  });
+});
+
+describe("starting the computer inside one run_on_computer call", () => {
+  const ask = (root: string, active?: () => boolean) => ({ botId: "dog", body: { command: "pnpm test", folder: join(root, "site") }, workingFolder: null, allowedRoots: [], home: root, ...(active ? { active } : {}) });
+
+  it("never runs the command once the turn that asked has ended during startup", async () => {
+    const root = home();
+    let active = true;
+    let rested = 0;
+    const asked: Array<{ wanted?: () => boolean }> = [];
+    const computer = async (_botId: string, options?: { wanted?: () => boolean }) => { asked.push(options ?? {}); active = false; return { box: {} as never, wasAsleep: true, rest: async () => { rested++; } }; };
+    const runs = fakeRuns(outcome("finished"));
+    const answer = await handleComputerRun(ask(root, () => active), { runs: runs.runs, computer });
+    expect(answer.status).toBe(409);
+    expect(runs.calls).toEqual([]);
+    expect(asked[0].wanted?.()).toBe(false);
+    expect(rested).toBe(1);
+  });
+
+  it("answers that the computer is still starting, without running anything, when one call's window ends", async () => {
+    const root = home();
+    const computer = async () => { throw Object.assign(new Error("still starting"), { code: "still_starting" }); };
+    const runs = fakeRuns(outcome("finished"));
+    const answer = await handleComputerRun(ask(root), { runs: runs.runs, computer });
+    expect(answer).toEqual({ status: 200, text: STILL_STARTING_TEXT });
+    expect(runs.calls).toEqual([]);
+  });
+
+  it.each([[0, WAIT_IN_ONE_CALL_MS], [200_000, WAIT_IN_ONE_CALL_MS - 200_000], [239_000, 5_000]])("after %i ms of startup, waits %i ms for the command so one call stays within its window", async (startupMs, waitMs) => {
+    const root = home();
+    let at = 1_000_000;
+    const waits: unknown[] = [];
+    const runs = { record: () => null, run: async (_box: unknown, input: { waitMs?: number }) => { waits.push(input.waitMs); return outcome("finished"); }, finish: async () => outcome("finished") } as unknown as ComputerRuns;
+    const computer = async () => { at += startupMs; return { box: {} as never, wasAsleep: false, rest: async () => undefined }; };
+    await handleComputerRun(ask(root), { runs, computer, now: () => at });
+    expect(waits).toEqual([waitMs]);
   });
 });
