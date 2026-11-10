@@ -13,6 +13,7 @@ export interface VoiceStreamRouteDeps {
   streams: ReturnType<typeof createVoiceStreams>;
   enabled(): boolean;
   transcriber(): Transcriber | null;
+  language?(): "en" | "auto";
   fetcher?: typeof fetch;
 }
 
@@ -37,14 +38,15 @@ export function createVoiceStreamRoutes(deps: VoiceStreamRouteDeps): RouteHandle
     if (type !== VOICE_STREAM_TYPE) return refuse(415, `Send the voice note as ${VOICE_STREAM_TYPE}.`);
     const seq = Number(url.searchParams.get("seq"));
     if (!Number.isInteger(seq) || seq < 0) return refuse(400, "Number each part of the dictation.");
-    const language = url.searchParams.get("language")?.trim().toLowerCase() ?? "";
+    const requested = url.searchParams.get("language")?.trim().toLowerCase() ?? "";
+    const language = requested || (deps.language?.() === "auto" ? "" : "en");
     if (language && !LANGUAGE.test(language)) return refuse(400, "Name the language with a two-letter code, or leave it out.");
     const final = url.searchParams.get("final") === "1";
     const readStarted = performance.now();
     const audio = await readAudio(req, CHUNK_MAX_BYTES);
     const readMs = Math.round(performance.now() - readStarted);
     if (audio === "too-large") return json(res, 413, { error: "That part of the dictation is too large." });
-    const answer = await deps.streams.add(id, seq, new Uint8Array(audio), final, serviceTranscriber(service, deps.fetcher), language || undefined);
+    const answer = await deps.streams.add(id, seq, new Uint8Array(audio), final, serviceTranscriber(service, deps.fetcher), language);
     if (!answer.ok) return json(res, answer.status, { error: answer.error });
     if (!answer.done) return json(res, 200, { ok: true });
     const { pieces, waitMs, tailMs } = answer.timings;

@@ -295,7 +295,7 @@ export function Composer({
     const write = editText;
     return async (audio: Uint8Array<ArrayBuffer>) => {
       setSharpening((count) => count + 1);
-      const outcome: SharperOutcome = await holdReloadsUntil(transcribeDictation(audio, navigator.language));
+      const outcome: SharperOutcome = await holdReloadsUntil(transcribeDictation(audio, undefined));
       const here = mounted.current && draftIdRef.current === id;
       if (mounted.current) setSharpening((count) => count - 1);
       const said = "text" in outcome ? outcome.text : null;

@@ -12494,6 +12494,7 @@ function configStatus() {
     ...(CLOUD_HOME ? { cloudHome: true } : {}),
     ...damagedDataStatus(),
     language: cfg.language ?? "",
+    dictationLanguage: cfg.dictationLanguage ?? "en",
     rooms: { turnTimeoutMinutes: roomTurnTimeoutMinutes(cfg) },
     mcp: { callTimeoutMinutes: mcpCallTimeoutMinutes(cfg) },
     automaticRecovery: cfg.automaticRecovery ?? { enabled: false },
@@ -13036,10 +13037,11 @@ ROUTES.push(createTimeZoneRoutes({
   changed: () => void routines?.retime(),
 }));
 ROUTES.push(createVoiceTranscribeRoutes({
-  transcribe: (req, url) => transcribeRoute(req, url, cloudDictationEnabled(cfg), pickTranscriber(voiceCredential(cfg.tts?.key), xaiVoice(cfg.xai?.key))),
+  transcribe: (req, url) => transcribeRoute(req, url, cloudDictationEnabled(cfg), pickTranscriber(voiceCredential(cfg.tts?.key), xaiVoice(cfg.xai?.key)), fetch, cfg.dictationLanguage ?? "en"),
 }));
 ROUTES.push(createVoiceStreamRoutes({
   streams: createVoiceStreams(),
+  language: () => cfg.dictationLanguage ?? "en",
   enabled: () => cloudDictationEnabled(cfg),
   transcriber: () => pickTranscriber(voiceCredential(cfg.tts?.key), xaiVoice(cfg.xai?.key)),
 }));

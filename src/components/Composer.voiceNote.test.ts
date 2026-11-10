@@ -125,7 +125,7 @@ describe("cloud dictation", () => {
     expect(micButton()!.getAttribute("aria-pressed")).toBe("true");
     await click(micButton());
     expect(mic.stops).toBe(1);
-    expect(transcribe).toHaveBeenCalledWith("/api/voice/transcribe?language=en", expect.objectContaining({ method: "POST", body: mic.audio }));
+    expect(transcribe).toHaveBeenCalledWith("/api/voice/transcribe", expect.objectContaining({ method: "POST", body: mic.audio }));
     expect(box().value).toBe(HEARD);
     expect(micButton()!.getAttribute("aria-busy")).toBeNull();
   });

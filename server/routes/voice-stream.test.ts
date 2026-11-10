@@ -67,3 +67,13 @@ describe("voice stream route", () => {
     expect(streams.size()).toBe(0);
   });
 });
+
+
+it.each(["en", "auto"] as const)("sends the saved %s preference through streamed dictation", async (language) => {
+  const fetcher = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => Response.json({ text: "hello" }));
+  const route = createVoiceStreamRoutes({ streams: createVoiceStreams(), enabled: () => true, transcriber: () => OWN, language: () => language, fetcher });
+  await route(context("POST", "?id=dictation-lang&seq=0&final=1").ctx);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  const form = fetcher.mock.calls[0]![1]!.body as FormData;
+  expect(form.get("language_code")).toBe(language === "auto" ? null : "en");
+});

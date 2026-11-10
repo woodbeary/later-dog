@@ -2910,5 +2910,9 @@
   "goals.step.run": "Ran a command",
   "goals.step.fill": "Filled in a saved detail",
   "goals.step.other": "Used the computer",
-  "goals.step.failed": "Didn't work"
+  "goals.step.failed": "Didn't work",
+  "settings.dictationLanguage.title": "Dictation language",
+  "settings.dictationLanguage.hint": "Shared by your devices. English helps keep dictated notes in English.",
+  "settings.dictationLanguage.english": "English",
+  "settings.dictationLanguage.auto": "Auto-detect"
 }

@@ -540,6 +540,7 @@ export interface ConfigStatus {
   };
   profile?: { name: string; email: string; aboutMe?: string; reviewLearned?: boolean; learnedWaiting?: number; askFirst?: string[] };
   language?: string;
+  dictationLanguage?: "en" | "auto";
   features?: { skillAuthoring: boolean; showToolCalls?: boolean; browser?: boolean; sharedComputers?: boolean; claudeUserMcp?: boolean; llmThreadTitles?: boolean; skillsLibrary?: boolean; cloudDictation?: boolean; typingSuggestions?: boolean; smarterSuggestions?: boolean; autoReview?: boolean; callButton?: boolean };
   onboarding?: OnboardingStatus;
   browserEngine?: BrowserEngineSummary;
@@ -576,7 +577,7 @@ export interface BrowserProfile {
 
 export type ConfigStatusFrame = Pick<
   ConfigStatus,
-  "xai" | "mistral" | "cerebras" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "fleet" | "composio" | "box" | "vps" | "rooms" | "mcp" | "threads" | "automaticRecovery" | "accountBattery" | "localVm" | "opencodeGo" | "tts" | "decider" | "typing" | "imageGen" | "live" | "profile" | "language" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "managedPolicy" | "cloudHome" | "damagedData"
+  "xai" | "mistral" | "cerebras" | "anthropic" | "openai" | "openrouter" | "openaiCompat" | "fleet" | "composio" | "box" | "vps" | "rooms" | "mcp" | "threads" | "automaticRecovery" | "accountBattery" | "localVm" | "opencodeGo" | "tts" | "decider" | "typing" | "imageGen" | "live" | "profile" | "language" | "dictationLanguage" | "features" | "onboarding" | "browserEngine" | "browserProfiles" | "edition" | "budgets" | "billing" | "managedPolicy" | "cloudHome" | "damagedData"
 >;
 
 export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
@@ -606,6 +607,7 @@ export function configStatusFromFrame(frame: ConfigStatusFrame): ConfigStatus {
     live: frame.live,
     profile: frame.profile,
     language: frame.language,
+    dictationLanguage: frame.dictationLanguage,
     features: frame.features,
     onboarding: frame.onboarding,
     browserEngine: frame.browserEngine,

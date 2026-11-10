@@ -7420,6 +7420,13 @@ describe("harness HTTP API", () => {
     }
   });
 
+  it("shares dictation language through home configuration", async () => {
+    expect((await api("GET", "/api/config")).body.dictationLanguage).toBe("en");
+    expect((await api("PATCH", "/api/config", { dictationLanguage: "auto" })).body.dictationLanguage).toBe("auto");
+    expect((await api("GET", "/api/config")).body.dictationLanguage).toBe("auto");
+    expect((await api("PATCH", "/api/config", { dictationLanguage: "en" })).body.dictationLanguage).toBe("en");
+  });
+
   it("round-trips the UI language and clears it back to system", async () => {
     const set = await api("PUT", "/api/config", { language: "de" });
     expect(set.status).toBe(200);

@@ -49,6 +49,14 @@ import { cacheUntilConfigChanges,
   type AppConfig,
 } from "./config.ts";
 
+it("validates the shared dictation language without reloading engines", () => {
+  for (const dictationLanguage of ["en", "auto"] as const) {
+    expect(parseConfigPatch({ dictationLanguage })).toEqual({ dictationLanguage });
+    expect(providerReloadKeys({ dictationLanguage })).toEqual([]);
+  }
+  expect(() => parseConfigPatch({ dictationLanguage: "english" })).toThrow();
+});
+
 describe("configuration boundaries", () => {
   it("requires an explicit backup to opt into automatic recovery without reloading engines", () => {
     expect(parseStoredConfig({}).automaticRecovery).toBeUndefined();

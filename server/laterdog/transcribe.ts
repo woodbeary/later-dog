@@ -86,7 +86,7 @@ function failure(status: number, body: any, included: boolean): string {
 export async function transcribeAudio(
   audio: Uint8Array,
   credential: ServiceCredential,
-  language?: string,
+  language: string = "en",
   fetcher: typeof fetch = fetch,
 ): Promise<Transcription> {
   const form = new FormData();
@@ -118,6 +118,7 @@ export async function transcribeRoute(
   enabled: boolean,
   credential: Transcriber | null,
   fetcher: typeof fetch = fetch,
+  preference: "en" | "auto" = "en",
 ): Promise<TranscribeAnswer> {
   const refuse = (status: number, error: string, reason?: string): TranscribeAnswer => {
     req.resume();
@@ -129,7 +130,8 @@ export async function transcribeRoute(
   if (!type || !WAV_TYPES.has(type)) return refuse(415, "Send the voice note as audio/wav.");
   const declared = first(req.headers["content-length"]);
   if (declared !== undefined && Number(declared) > TRANSCRIBE_MAX_BYTES) return refuse(413, "That voice note is too long to transcribe.");
-  const language = url.searchParams.get("language")?.trim().toLowerCase() ?? "";
+  const requested = url.searchParams.get("language")?.trim().toLowerCase() ?? "";
+  const language = requested || (preference === "auto" ? "" : "en");
   if (language && !LANGUAGE.test(language)) return refuse(400, "Name the language with a two-letter code, or leave it out.");
   const readStarted = performance.now();
   const audio = await readAudio(req);
@@ -140,8 +142,8 @@ export async function transcribeRoute(
   const timed = () => ({ readMs, serviceMs: Math.round(performance.now() - serviceStarted) });
   try {
     const { text, language: heard } = isXaiVoice(credential)
-      ? await transcribeWithXai(audio, credential, language || undefined, fetcher)
-      : await transcribeAudio(audio, credential, language || undefined, fetcher);
+      ? await transcribeWithXai(audio, credential, language, fetcher)
+      : await transcribeAudio(audio, credential, language, fetcher);
     return { status: 200, body: { text, ...(heard ? { language: heard } : {}), included: credential.included }, timings: timed() };
   } catch (error) {
     return { status: 502, body: { error: error instanceof Error ? error.message : String(error) }, timings: timed() };

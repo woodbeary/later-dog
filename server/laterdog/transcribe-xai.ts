@@ -44,7 +44,7 @@ function xaiFailure(status: number, body: unknown): string {
 export async function transcribeWithXai(
   audio: Uint8Array,
   voice: XaiVoice,
-  language?: string,
+  language: string = "en",
   fetcher: typeof fetch = fetch,
 ): Promise<Transcription> {
   const form = new FormData();

@@ -428,6 +428,7 @@ const appConfigSchema = z.object({
   }).optional(),
   profile: z.object({ name: optionalText, email: optionalText, aboutMe: z.string().max(24_000).optional(), reviewLearned: z.boolean().optional(), askFirst: z.array(z.string().max(1_000)).max(100).transform(askFirstRules).optional() }).optional(),
   language: optionalText,
+  dictationLanguage: z.enum(["en", "auto"]).optional(),
   rooms: roomConfigSchema.optional(),
   mcp: mcpConfigSchema.optional(),
   context: z.object({
@@ -477,6 +478,7 @@ export interface AppConfig {
   };
   mcpServers?: Record<string, unknown>;
   language?: string;
+  dictationLanguage?: "en" | "auto";
   xai?: { key?: string; url?: string };
   mistral?: { key?: string };
   cerebras?: { key?: string };
@@ -724,6 +726,7 @@ export function cloudDictationEnabled(cfg: AppConfig): boolean {
 export const FLEET_NEUTRAL_KEYS: ReadonlySet<string> = new Set([
   "profile",
   "language",
+  "dictationLanguage",
   "tts",
   "decider",
   "imageGen",
@@ -1060,6 +1063,7 @@ export function saveConfig(
   }
   if (checkedPatch.vps !== undefined) disk.vps = normalizeVpsConfig(checkedPatch.vps);
   if (checkedPatch.language !== undefined) disk.language = checkedPatch.language;
+  if (checkedPatch.dictationLanguage !== undefined) disk.dictationLanguage = checkedPatch.dictationLanguage;
   if (checkedPatch.customDomain !== undefined) disk.customDomain = checkedPatch.customDomain;
   if (checkedPatch.signIn !== undefined) disk.signIn = checkedPatch.signIn;
   if (checkedPatch.automaticRecovery !== undefined) disk.automaticRecovery = checkedPatch.automaticRecovery;

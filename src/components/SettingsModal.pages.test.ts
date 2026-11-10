@@ -81,6 +81,14 @@ const groups = (html: string) => [...html.matchAll(/data-settings-group="([^"]+)
 const markers = (html: string) => [...html.matchAll(/MARKER:([^;]+);/g)].map((match) => match[1]);
 
 describe("the Settings rail", () => {
+  it("shows the shared dictation language and an explicit auto-detect choice", () => {
+    fixture.config = { ...fixture.config, dictationLanguage: "auto" };
+    const html = renderToStaticMarkup(createElement(SettingsModal));
+    expect(html).toContain("Dictation language");
+    expect(html).toContain("Auto-detect");
+    expect(html).toContain('value="auto" selected=""');
+  });
+
   it("lists the four settings pages everyone gets, with icons, and the same four in the narrow-window picker", () => {
     const html = render();
     expect(SETTINGS_PAGES.map((page) => page.id)).toEqual(["general", "computer", "vault", "usage", "dashboard"]);

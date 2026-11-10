@@ -44,14 +44,14 @@ describe("transcribing a voice note", () => {
     expect(new Uint8Array(await file.arrayBuffer())).toEqual(WAV);
   });
 
-  it("uses the free trial's included transcription the same way, and leaves the language to the service when none is given", async () => {
+  it("uses the free trial's included transcription the same way, and defaults an omitted language to English", async () => {
     const fetcher = answering(200, { language_code: "es", language_probability: 0.9, text: "hola", words: [] });
     const answer = await transcribeRoute(request([WAV.subarray(0, 3), WAV.subarray(3)]), at(), true, TRIAL, fetcher);
     expect(answer).toEqual({ timings: TIMED, status: 200, body: { text: "hola", language: "es", included: true } });
     const { url, init, form } = sent(fetcher);
     expect(url).toBe("https://computers.example/v1/voice/speech-to-text");
     expect(init.headers).toEqual({ "xi-api-key": TRIAL.token });
-    expect(form.has("language_code")).toBe(false);
+    expect(form.get("language_code")).toBe("en");
     expect(new Uint8Array(await (form.get("file") as File).arrayBuffer())).toEqual(WAV);
   });
 
@@ -113,4 +113,18 @@ describe("transcribing a voice note", () => {
       vi.useRealTimers();
     }
   });
+});
+
+
+it("omits the ElevenLabs hint only for the saved auto-detect choice, and sends English to xAI by default", async () => {
+  const auto = answering(200, { text: "hello" });
+  expect((await transcribeRoute(request(WAV), at(), true, OWN, auto, "auto")).status).toBe(200);
+  expect(sent(auto).form.has("language_code")).toBe(false);
+  const xai = answering(200, { text: "hello" });
+  const voice = { kind: "xai" as const, api: "https://xai.example/v1", token: "fixture", included: false as const };
+  expect((await transcribeRoute(request(WAV), at(), true, voice, xai)).status).toBe(200);
+  expect(sent(xai).form.get("language")).toBe("en");
+  const xaiAuto = answering(200, { text: "hello" });
+  await transcribeRoute(request(WAV), at(), true, voice, xaiAuto, "auto");
+  expect(sent(xaiAuto).form.has("language")).toBe(false);
 });

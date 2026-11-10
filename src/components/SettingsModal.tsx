@@ -36,6 +36,7 @@ import { VaultSettings } from "./VaultSettings";
 import { OwnerDashboard } from "./OwnerDashboard";
 import { useIncludedUsage } from "@/lib/included-usage";
 import { ThemeRow } from "./ThemeRow";
+import { DictationLanguageRow } from "./DictationLanguageRow";
 import { TimeZoneRow } from "./TimeZoneRow";
 import { cn } from "@/lib/cn";
 import { glassPopupFrameStyle } from "@/lib/glass-popup";
@@ -268,6 +269,7 @@ function GeneralPage({ mac }: { mac: boolean }) {
         <SettingsRows>
           <ThemeRow />
           <LanguageRow />
+          <DictationLanguageRow />
           <TimeZoneRow />
           <NotificationSoundsRow />
           <CallButtonRow />

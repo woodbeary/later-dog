@@ -179,7 +179,7 @@ export function createVoiceStreams(now: () => number = () => performance.now()) 
       if (!session) {
         if (seq !== 0) return { ok: false, status: 409, error: "That dictation is no longer on the home. Send it again." };
         if (sessions.size >= STREAM_SESSIONS) return { ok: false, status: 429, error: "Too many dictations at once." };
-        session = { pcm: new Int16Array(STREAM_RATE * 4), length: 0, cut: 0, seq: -1, adpcm: freshAdpcm(), pieces: [], touched: now(), transcribe, ...(language ? { language } : {}) };
+        session = { pcm: new Int16Array(STREAM_RATE * 4), length: 0, cut: 0, seq: -1, adpcm: freshAdpcm(), pieces: [], touched: now(), transcribe, ...(language !== undefined ? { language } : {}) };
         sessions.set(id, session);
       }
       session.touched = now();
