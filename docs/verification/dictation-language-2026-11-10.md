@@ -54,3 +54,14 @@ The desktop source change is on main for the next desktop release.
 
 Physical phone and installed desktop dictation have not been verified by these
 source fixtures. The reported English/Chinese recording was not replayed.
+
+
+## Activation receipt
+
+The home subsequently activated the published dictation bundle. PID 165452 was
+observed running /tmp/laterdog-dev-server/d6a3bf178ac322f2/index.js, with health
+200 and the exact artifact hash recorded above. An authenticated GET /api/config
+returned 200 and dictationLanguage:en. No live setting was changed to test it.
+The combined phone release is pinned to main commit
+7c2b0fba7c75515967eee3c9de8d6bb2dc421305, which includes a6f4804 and the larger
+model labels. Its publication receipt is still pending.
