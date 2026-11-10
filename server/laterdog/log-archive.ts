@@ -16,6 +16,7 @@ const PROTECTED_NAME = /^(?:auth|credentials|secrets|tokens?)(?:[.-]|$)/i;
 const SESSION_FOLDER_DEPTH = 3;
 const SESSION_SCAN_ENTRIES = 50_000;
 const MAX_SESSIONS = 200;
+const MAX_ARCHIVE_PATHS = 2000;
 
 export function claudeSessionIds(cursors: Record<string, unknown> | undefined): string[] {
   const found = new Set<string>();
@@ -26,12 +27,29 @@ export function claudeSessionIds(cursors: Record<string, unknown> | undefined): 
   return [...found].sort();
 }
 
+export type CursorOwner = { threadId?: string; resumeCursors?: Record<string, unknown>; tasks: Array<{ threadId: string; resumeCursors?: Record<string, unknown> }> };
+
+export function outsideSessionOwners(bots: CursorOwner[], excludedThread: (threadId: string) => boolean): string[] {
+  const found = new Set<string>();
+  for (const bot of bots) {
+    for (const task of bot.tasks) {
+      if (excludedThread(task.threadId)) for (const id of claudeSessionIds(task.resumeCursors)) found.add(id);
+    }
+    const active = bot.tasks.find(task => task.threadId === bot.threadId);
+    const mirrored = new Set(active && !excludedThread(active.threadId) ? claudeSessionIds(active.resumeCursors) : []);
+    for (const id of claudeSessionIds(bot.resumeCursors)) if (!mirrored.has(id)) found.add(id);
+  }
+  return [...found].sort();
+}
+
 type SessionFile = { path: string; size: number; mtimeMs: number };
 export type SessionFiles = Map<string, { files: SessionFile[]; unsafe: boolean }>;
+type SessionGroup = { files: SessionFile[]; unsafe: boolean };
 
-export async function findSessionFiles(root: string, wanted: ReadonlySet<string>, entryLimit = SESSION_SCAN_ENTRIES): Promise<SessionFiles> {
+export async function findSessionFiles(root: string, wanted: ReadonlySet<string> | ((id: string) => boolean), entryLimit = SESSION_SCAN_ENTRIES): Promise<SessionFiles> {
   const found: SessionFiles = new Map();
-  if (!wanted.size) return found;
+  const accepts = typeof wanted === "function" ? (id: string) => SESSION_ID.test(id) && wanted(id) : (id: string) => wanted.has(id);
+  if (typeof wanted !== "function" && !wanted.size) return found;
   let entries = 0;
   const folder = async (path: string) => {
     const info = await lstat(join(root, path)).catch(() => null);
@@ -77,7 +95,7 @@ export async function findSessionFiles(root: string, wanted: ReadonlySet<string>
       for (const entry of await list(base) ?? []) {
         const transcript = entry.name.endsWith(".jsonl");
         const id = transcript ? entry.name.slice(0, -".jsonl".length) : entry.name;
-        if (!wanted.has(id)) continue;
+        if (!accepts(id)) continue;
         if (transcript) await record(id, `${base}/${entry.name}`);
         else if (entry.isDirectory()) await walk(id, `${base}/${entry.name}`, 1);
         else session(id).unsafe = true;
@@ -126,6 +144,7 @@ type Options = {
   threads(): string[];
   idle(threadId: string): boolean;
   sessions?(threadId: string): string[];
+  outsideSessions?(): string[];
   now?: () => number;
   ageMs?: number;
   sessionAgeMs?: number;
@@ -136,10 +155,14 @@ type Options = {
   report?(message: string): void;
 };
 
+type SessionBudget = { admit(size: number): boolean };
+
 export class LogArchiveCoordinator {
   private gates = new Map<string, Promise<unknown>>();
   private scanning: Promise<void> | null = null;
   private cursor = 0;
+  private sessionCursor = "";
+  private waiting: string | null = null;
   private totals = { archivedFiles: 0, archivedBytes: 0, sessionFiles: 0, sessionBytes: 0, lastScanAt: null as number | null, freeBefore: null as number | null, freeAfter: null as number | null };
   private readonly now: () => number;
   private readonly report: (message: string) => void;
@@ -158,8 +181,30 @@ export class LogArchiveCoordinator {
     finally { if (this.gates.get(id) === next) this.gates.delete(id); }
   }
 
+  private holding<T>(sessions: string[], action: () => Promise<T>): Promise<T> {
+    const keys = [...new Set(sessions)].sort().map(session => `session:${session}`);
+    const next = (at: number): Promise<T> => at === keys.length ? action() : this.gate(keys[at], () => next(at + 1));
+    return next(0);
+  }
+
+  private allSessionsOf(id: string): string[] {
+    return [...new Set((this.options.sessions?.(id) ?? []).filter(value => SESSION_ID.test(value)))].sort();
+  }
+
   private sessionsOf(id: string): string[] {
-    return [...new Set((this.options.sessions?.(id) ?? []).filter(value => SESSION_ID.test(value)))].sort().slice(0, MAX_SESSIONS);
+    return this.allSessionsOf(id).slice(0, MAX_SESSIONS);
+  }
+
+  private sessionFree(session: string): boolean {
+    const outside = this.options.outsideSessions;
+    if (outside?.().includes(session)) return false;
+    let tracked = false;
+    for (const thread of this.options.threads()) {
+      if (!this.allSessionsOf(thread).includes(session)) continue;
+      tracked = true;
+      if (!this.sessionsOf(thread).includes(session) || !this.options.idle(thread)) return false;
+    }
+    return tracked || Boolean(outside);
   }
 
   async beforeTurn(id: string, current: () => boolean): Promise<boolean> {
@@ -169,9 +214,14 @@ export class LogArchiveCoordinator {
         return await this.gate(id, async () => {
           if (!current()) return false;
           await this.options.bridge.restore(threadLogPaths(id));
-          const sessions = this.sessionsOf(id);
-          if (sessions.length) await this.options.bridge.restoreSessions(sessions);
-          return current();
+          for (;;) {
+            const sessions = this.sessionsOf(id);
+            await this.holding(sessions, async () => {
+              if (sessions.length) await this.options.bridge.restoreSessions(sessions);
+            });
+            if (!current()) return false;
+            if (this.sessionsOf(id).join() === sessions.join()) return true;
+          }
         });
       } catch {
         if (!warned) this.report("saved logs unavailable; keeping the pending turn and retrying");
@@ -208,18 +258,42 @@ export class LogArchiveCoordinator {
     return this.scanning;
   }
 
+  private async archiveSession(session: string, group: SessionGroup | undefined, budget: SessionBudget): Promise<"archived" | "kept" | "waiting"> {
+    const sessionAge = this.options.sessionAgeMs ?? SESSION_AGE_MS;
+    if (!group || group.unsafe || !group.files.length || group.files.length > MAX_ARCHIVE_PATHS) return "kept";
+    if (group.files.some(file => this.now() - file.mtimeMs < sessionAge)) return "kept";
+    return this.holding([session], async () => {
+      if (!this.sessionFree(session)) return "kept";
+      const current = await Promise.all(group.files.map(file => lstat(join(this.options.root, file.path)).catch(() => null)));
+      if (current.some(info => !info?.isFile() || info.isSymbolicLink() || this.now() - info.mtimeMs < sessionAge)) return "kept";
+      if (!this.sessionFree(session)) return "kept";
+      if (!budget.admit(current.reduce((sum, info) => sum + (info?.size ?? 0), 0))) return "waiting";
+      const result = await this.options.bridge.archive(group.files.map(file => file.path));
+      this.totals.sessionFiles += result.archived;
+      this.totals.sessionBytes += result.bytes;
+      return "archived";
+    });
+  }
+
   private async sweep(): Promise<void> {
     const { root, bridge, idle, threads } = this.options;
     const known = threads();
     const maximum = Math.min(known.length, this.options.threadLimit ?? 100);
     const age = this.options.ageMs ?? 24 * 60 * 60_000;
-    const sessionAge = this.options.sessionAgeMs ?? SESSION_AGE_MS;
     let remaining = this.options.byteLimit ?? 64 * 1024 * 1024;
-    let sessionRemaining = this.options.sessionByteLimit ?? 128 * 1024 * 1024;
+    const sessionLimit = this.options.sessionByteLimit ?? 128 * 1024 * 1024;
+    let sessionRemaining = sessionLimit;
+    const budget: SessionBudget = {
+      admit(size) {
+        if (size <= sessionRemaining) { sessionRemaining -= size; return true; }
+        if (sessionRemaining !== sessionLimit) return false;
+        sessionRemaining = 0;
+        return true;
+      },
+    };
     let archived = 0;
     let bytes = 0;
-    let sessionsArchived = 0;
-    let sessionBytes = 0;
+    const sessionsBefore = { files: this.totals.sessionFiles, bytes: this.totals.sessionBytes };
     const free = async () => {
       const disk = await statfs(root);
       return disk.bavail * disk.bsize;
@@ -228,9 +302,18 @@ export class LogArchiveCoordinator {
     this.totals.freeBefore = before;
     this.totals.lastScanAt = this.now();
     const batch = Array.from({ length: maximum }, (_, at) => known[(this.cursor + at) % known.length]);
+    const tracked = new Set(known.flatMap(id => this.allSessionsOf(id)));
     const held = new Set(known.filter(id => !idle(id)).flatMap(id => this.sessionsOf(id)));
     const wanted = new Set(batch.filter(id => idle(id)).flatMap(id => this.sessionsOf(id)).filter(id => !held.has(id)));
+    if (this.waiting && tracked.has(this.waiting)) wanted.add(this.waiting);
     const sessionFiles = await findSessionFiles(root, wanted);
+    const orphanFiles = this.options.outsideSessions ?await findSessionFiles(root, id => !tracked.has(id)) : new Map() as SessionFiles;
+    const waiting = this.waiting;
+    if (waiting) {
+      this.waiting = null;
+      const outcome = await this.archiveSession(waiting, sessionFiles.get(waiting) ?? orphanFiles.get(waiting), budget);
+      if (outcome === "waiting") this.waiting = waiting;
+    }
     for (let count = 0; count < maximum && (remaining > 0 || sessionRemaining > 0); count++) {
       const id = known[this.cursor++ % known.length];
       if (!idle(id)) continue;
@@ -250,26 +333,26 @@ export class LogArchiveCoordinator {
           this.totals.archivedFiles += result.archived;
           this.totals.archivedBytes += result.bytes;
         }
-        const sessionPaths: string[] = [];
         for (const session of this.sessionsOf(id)) {
-          const found = sessionFiles.get(session);
-          if (!wanted.has(session) || !found || found.unsafe || !found.files.length) continue;
-          const current = await Promise.all(found.files.map(file => lstat(join(root, file.path)).catch(() => null)));
-          if (current.some(info => !info?.isFile() || info.isSymbolicLink() || this.now() - info.mtimeMs < sessionAge)) continue;
-          const size = current.reduce((sum, info) => sum + (info?.size ?? 0), 0);
-          if (size > sessionRemaining) continue;
-          sessionRemaining -= size;
-          sessionPaths.push(...found.files.map(file => file.path));
+          if (!wanted.has(session) || session === waiting || sessionRemaining <= 0 || !idle(id)) continue;
+          const outcome = await this.archiveSession(session, sessionFiles.get(session), budget);
+          if (outcome === "waiting") this.waiting ??= session;
         }
-        if (!sessionPaths.length || !idle(id)) return;
-        const result = await bridge.archive(sessionPaths);
-        sessionsArchived += result.archived;
-        sessionBytes += result.bytes;
-        this.totals.sessionFiles += result.archived;
-        this.totals.sessionBytes += result.bytes;
       });
     }
+    const orphans = [...orphanFiles.keys()].sort();
+    const start = orphans.findIndex(id => id > this.sessionCursor);
+    const ordered = start < 0 ? orphans : [...orphans.slice(start), ...orphans.slice(0, start)];
+    for (const session of ordered) {
+      if (sessionRemaining <= 0 || this.waiting) break;
+      if (session === waiting) continue;
+      const outcome = await this.archiveSession(session, orphanFiles.get(session), budget);
+      if (outcome === "waiting") { this.waiting = session; break; }
+      this.sessionCursor = session;
+    }
     this.totals.freeAfter = await free();
+    const sessionsArchived = this.totals.sessionFiles - sessionsBefore.files;
+    const sessionBytes = this.totals.sessionBytes - sessionsBefore.bytes;
     if (archived || sessionsArchived) {
       this.report(`archived ${archived} logs / ${bytes} bytes and ${sessionsArchived} engine session files / ${sessionBytes} bytes; free disk ${before} -> ${this.totals.freeAfter} bytes`);
     }

@@ -536,7 +536,7 @@ import { scoutProject, suggestTeam } from "./project-scout.ts";
 import { fetchGithubTeam, fetchLibraryTeam, fetchTeamCatalog } from "./team-library.ts";
 import { BOT_PACKAGE_MAX_SKILLS, isBotPackage, packageSummary, parsePackageDocument, renderBotPackageMarkdown, type PackageDocument } from "./bot-package.ts";
 import { createTeamManifest, parseTeamManifest } from "./team-manifest.ts";
-import { LogArchiveCoordinator, claudeSessionIds, logArchiveBridge } from "./laterdog/log-archive.ts";
+import { LogArchiveCoordinator, claudeSessionIds, logArchiveBridge, outsideSessionOwners } from "./laterdog/log-archive.ts";
 import { readThreadEvents } from "./thread-events.ts";
 import { describeTool, readBotActivity } from "./activity.ts";
 import { OutboundRequestService } from "./outbound-requests.ts";
@@ -2667,6 +2667,7 @@ const logArchive = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LAT
         && !roomHandoffs.activeDirect(id));
     },
     sessions: id => claudeSessionIds(store.bots.flatMap(bot => store.tasks(bot.id)).find(task => task.threadId === id)?.resumeCursors),
+    outsideSessions: () => outsideSessionOwners(store.bots.map(bot => ({ threadId: bot.threadId, resumeCursors: bot.resumeCursors, tasks: store.tasks(bot.id) })), id => Boolean(store.groupByThread(id))),
     report: message => console.log(`[log archive] ${message}`),
   }) : null;
 
