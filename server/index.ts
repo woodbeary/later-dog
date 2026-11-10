@@ -581,7 +581,7 @@ import { computerFreeAfterText, computerParkedText, computerStoppedWaitingText, 
 import { modelContextWindow } from "./model-context-window.ts";
 import { cloudPlaceRefusal, computerToolsRefusal, parseSurface, PlaceUnavailableError, placeUnavailable, resolveSurface, surfaceLabel, surfaceOfComputerKind, surfacePrompt, type PlaceSource, type Surface } from "./surface.ts";
 import { cloudRefusal, type PlaceRow } from "../shared/place-view.ts";
-import { cloudComputerStartBudgetMs, passingCloudFailure, remainingStartMs, startRetryingPassingFailures } from "./laterdog/cloud-start.ts";
+import { cloudComputerStartBudgetMs, passingCloudFailure, remainingStartMs, startRetryingPassingFailures, stillStarting } from "./laterdog/cloud-start.ts";
 import { createIdleReload } from "./laterdog/idle-reload.ts";
 import {
   PendingTurnCancellations,
@@ -5877,17 +5877,29 @@ const githubActivity = createGitHubActivity();
 const boatWakes = createSharedJoins<Awaited<ReturnType<typeof boat.readyBoat>>>();
 const wakeBotBoat = (botId: string) => boatWakes.run(botId, () => boat.readyBoat(cfg, botId));
 const boatWakeWanters = new Map<string, Set<() => boolean>>();
-function wakeBotBoatForTurn(botId: string, budgetMs: number, wanted: () => boolean) {
+async function wakeBotBoatForTurn(botId: string, deadline: number, wanted: () => boolean) {
   const pending = boatWakes.pending(botId);
-  if (pending) {
-    boatWakeWanters.get(botId)?.add(wanted);
-    return pending;
+  if (!pending) {
+    const wanters = new Set([wanted]);
+    boatWakeWanters.set(botId, wanters);
+    return boatWakes.run(botId, () => boat.readyBoat(cfg, botId, remainingStartMs(deadline, Date.now()), { wanted: () => [...wanters].some(want => want()) }).finally(() => {
+      if (boatWakeWanters.get(botId) === wanters) boatWakeWanters.delete(botId);
+    }));
   }
-  const wanters = new Set([wanted]);
-  boatWakeWanters.set(botId, wanters);
-  return boatWakes.run(botId, () => boat.readyBoat(cfg, botId, budgetMs, () => [...wanters].some(want => want())).finally(() => {
-    if (boatWakeWanters.get(botId) === wanters) boatWakeWanters.delete(botId);
-  }));
+  boatWakeWanters.get(botId)?.add(wanted);
+  const joined = await pending;
+  if (joined || !wanted() || Date.now() >= deadline) return joined;
+  const current = await boat.findBoat(cfg, botId);
+  if (!current || !stillStarting(current.state)) return null;
+  return boat.readyBoat(cfg, botId, remainingStartMs(deadline, Date.now()), { wanted, wake: false });
+}
+function joinBotBoatWake(botId: string) {
+  const pending = boatWakes.pending(botId);
+  if (!pending) return undefined;
+  let waiting = true;
+  const wanted = () => waiting;
+  boatWakeWanters.get(botId)?.add(wanted);
+  return pending.finally(() => { waiting = false; });
 }
 const vpsPreviewRequests = new Map<string, ReturnType<typeof vps.vpsComputerScreenshot>>();
 const vpsJoinRequests = new Map<string, Promise<void>>();
@@ -6131,7 +6143,7 @@ async function startBotBoat(bot: BotRecord, turn: { deadline: number; wanted: ()
   }
   if (lifecycle === "wake") {
     broadcast({ kind: "computer", botId: bot.id, state: "waking", place: "cloud" });
-    b = (await wakeBotBoatForTurn(bot.id, remainingStartMs(turn.deadline, Date.now()), turn.wanted)) ?? b;
+    b = (await wakeBotBoatForTurn(bot.id, turn.deadline, turn.wanted)) ?? b;
     lifecycle = lifecycleOf();
   }
   return b && lifecycle === "attach" ? b : null;
@@ -20516,7 +20528,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       if (turnLifecycle === "attach") return json(res, 200, { ready: true });
       if (turnLifecycle === "wake") {
-        const pending = boatWakes.pending(botId);
+        const pending = joinBotBoatWake(botId);
         const releaseComputerLifecycle = pending ? null : claimBotComputerLifecycle(botId);
         try {
           const woken = await (pending ?? wakeBotBoat(botId));

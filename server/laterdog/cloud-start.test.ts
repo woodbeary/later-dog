@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { CLOUD_COMPUTER_BOOT_MS, CLOUD_COMPUTER_START_MARGIN_MS, cloudComputerStartBudgetMs, passingCloudFailure, remainingStartMs, startRetryingPassingFailures } from "./cloud-start.ts";
+import { CLOUD_COMPUTER_BOOT_MS, CLOUD_COMPUTER_START_MARGIN_MS, cloudComputerStartBudgetMs, passingCloudFailure, remainingStartMs, startRetryingPassingFailures, stillStarting } from "./cloud-start.ts";
 
 const serviceDown = () => Object.assign(new Error("upstream unavailable"), { boatCode: "service_unavailable" });
 
@@ -63,5 +63,12 @@ describe("how long a turn waits for its cloud computer to start", () => {
   it("hands the wake only what is left of the turn's budget, never nothing", () => {
     expect(remainingStartMs(10_000, 4_000)).toBe(6_000);
     expect(remainingStartMs(10_000, 12_000)).toBe(1);
+  });
+});
+
+describe("which computer states may extend a joined wait", () => {
+  it("only a computer confirmed to be starting", () => {
+    for (const state of ["starting", "provisioning"]) expect(stillStarting(state)).toBe(true);
+    for (const state of ["error", "archived", "archiving", "stopped", "running", "unknown", "", null, undefined]) expect(stillStarting(state)).toBe(false);
   });
 });

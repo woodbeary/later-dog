@@ -41,3 +41,9 @@ export function cloudComputerStartBudgetMs(env: NodeJS.ProcessEnv = process.env)
 export function remainingStartMs(deadline: number, now: number): number {
   return Math.max(1, deadline - now);
 }
+
+const STILL_STARTING: ReadonlySet<string> = new Set(["starting", "provisioning"]);
+
+export function stillStarting(state: unknown): boolean {
+  return typeof state === "string" && STILL_STARTING.has(state);
+}
