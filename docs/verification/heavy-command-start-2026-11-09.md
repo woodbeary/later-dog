@@ -1,8 +1,10 @@
 # run_on_computer waits out a cloud computer's boot
 
-Branch: `kennel/heavy-start-budget-20261109`, stacked on PR 150 (`11f2f15eaa7d9d2b04a49230b8e5ae87be9f13ec`).
+Branch: `kennel/heavy-start-budget-20261109`, stacked on PR 150, merged up to its repaired head
+`b7fec2be5b6100e6f033e8873c927533801b0d40`.
 First source `2f839db1f27319f2d5572c71d271bd0917429339` (published at `86087f1`, now superseded). Repair source
-`d24ea6b` after Root's review of `86087f1`. This record is the only later change.
+`d24ea6b` after Root's review of `86087f1`, merged with PR 150 as `6ea7cc8`. This record is the only
+later change.
 
 ## Cause
 
@@ -71,8 +73,14 @@ On Kennel's own cloud computer, Node v24.22.2, pnpm 10.33.0. The repair source w
   client: one wake for a 95 s boot, no create, no sleep request, the computer left running, and the
   abandoned third call answered 409 without running anything. The explicit sleep test still passes.
 - A first after run had one failure in an unchanged transfer test (a file the command wrote was not
-  brought back); that test passed 6 of 6 alone on both `86087f1` and `d24ea6b`, and the full rerun
-  passed. Kept as `/tmp/hsb2-after-attempt1.log`.
+  brought back): 1 failed, 90 passed, kept as `/tmp/hsb2-after-attempt1.log`. The full rerun on
+  `d24ea6b` passed 91 of 91. The old base did not reproduce it: the test passed 6 of 6 alone on both
+  `86087f1` and `d24ea6b`, and the full 9-file set on a clean `86087f1` passed twice (87 of 87 each).
+  It is not shown whether it is the timestamp race below or something else.
+- Merged with PR 150's repaired head `b7fec2be5b6100e6f033e8873c927533801b0d40` (source `1ff6a0e`) as
+  `6ea7cc8`, no conflicts: 10 files, 103 tests passed (the 9 above plus
+  `cloud-computer-slow-start.e2e.test.ts`, 12), `tsc -p tsconfig.server.json` exit 0,
+  `scripts/no-comments.ts` found none.
 - The service's own `test/idle.test.ts`: 12 passed (unchanged). `tsc -p tsconfig.server.json`:
   exit 0. No comments in the changed files.
 
