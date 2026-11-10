@@ -133,6 +133,8 @@ Draft branch `patch/remote-account-handoff-20261109`: retire the exact idle Clau
    - later-dog: `pnpm exec vitest run scripts/no-comments.test.ts`
    - later-dog-phone: `pnpm test -- no-comments`
 
+2026-11-09 fresh scratch guidance: branch `clover/fresh-scratch-guidance-20261109` adds one sentence to `cloudHomePrompt` telling dogs to use a fresh absolute scratch directory for isolated checks and publishing, and not to delete an existing folder just to reuse its name, after three cleanup waits (TASK `2ec3630c`, Patch `7d9c30ee`, Kennel `39ce73e2`). Model guidance only, not enforcement. Pending independent review and home activation; [record](../verification/fresh-scratch-guidance-2026-11-09.md).
+
 ## Priorities
 
 - **P0:** the iPhone app works against production, and the TestFlight build is in Beta App Review.
