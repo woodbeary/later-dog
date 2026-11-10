@@ -1,0 +1,70 @@
+# Phone chat opening and Run Check, November 10
+
+## Measured baseline
+
+Jacob ran Run Check at 10:01 Pacific on Build 9, iOS 26.6.1, six chats.
+The report was read from phone-crashes.json, update
+01a1c699-37f0-75e9-8771-aa4296c800dc.
+
+| Reading | Filtering off | Filtering on |
+| --- | --- | --- |
+| Switches | 26 | 24 |
+| Total renders | 976 | 891 |
+| Renders per switch | 37.5 | 37.1 |
+| Dropped frames | 900 | 868 |
+| Longest stall | 459 ms | 1710 ms |
+| JS heap | 140 MB | 144 MB |
+| Idle home renders | 87 | 23 |
+| Phone-skipped deltas | 0 | 0 |
+
+The historical report counts all selected component renders, including initial
+mounts. It does not identify the phase that stalled or count incoming stream
+deltas. Zero skips therefore cannot establish that the filter failed, nor
+whether there was streaming. A home that filters off-screen deltas can also
+prevent them from reaching the phone in the first place.
+
+## Code observations and changes
+
+Chat and its nested hooks subscribed to the whole store. The message box did
+so only to obtain upload actions. A selected store boundary now invalidates
+for that chat's messages, progress, status and relevant roster changes, with
+stable action functions forwarding to the latest store. Other chats' deltas
+and activity do not invalidate it. Sender model labels also retain their
+identity when the labels have not changed. Header and composer view props
+keep current callbacks without rebuilding unchanged view trees.
+
+Message rows compare their content and props. The inverted FlatList already
+existed; its initial and subsequent batches and render window are now bounded
+explicitly. Cached thread data is still used immediately.
+
+The width check lexed full replies, even when their visible body was folded,
+and the body lexed that Markdown again. A folded preview previously chunked
+the entire reply just to keep the first chunk. Preview extraction now stops
+after its first chunk; width checks inspect that visible preview. A bounded
+LRU shares parsed Markdown across width checks, body rendering and chat visits.
+Usage readings younger than five seconds are reused during rapid navigation;
+manual refreshes, reset refreshes and resumed-app refreshes bypass that guard.
+
+Run Check still uses the same six-chat, switching and idle passes. Its labels
+now say filtering off/on: that switch compares streaming policy, not old and
+new UI code. Reports include incoming and watched delta counts, whether home
+filtering is supported, and timings for Markdown, transcript derivation,
+saved-copy serialization, React commits and chat layout. Timings distinguish
+these operations from the independently measured frame stalls; they do not
+prove a stall's cause until a real-phone report is read.
+
+POST /api/phone/perf saves bounded, validated reports in phone-perf.json with
+mode 0600 and a 50-report cap. GET lists them. The phone no longer disguises
+an unsupported performance endpoint as a crash; it keeps the copied report
+instead. The isolated HTTP fixture proves this path writes no crash file.
+
+## Verification limits
+
+Unit fixtures cover unrelated-stream isolation, live action forwarding, own
+message and reaction invalidation, cache reuse and eviction, bounded previews,
+usage freshness across accounts, and delta/timing diagnostics. The HTTP fixture
+runs a separate temporary home and never writes to production data.
+
+The real-phone target remains under five renders per switch and no stall over
+200 ms. No post-change phone measurement or causal attribution of the 1710 ms
+stall is claimed here. Publication and another Run Check are required.

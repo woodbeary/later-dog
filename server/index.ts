@@ -121,6 +121,8 @@ import { PHONE_NOT_YOURS, PhoneDesk, phoneWants, type PhoneJob, type PhoneOwner 
 import { createPhoneDeviceRoutes, createPhoneToolRoute, isPhoneDevicePath } from "./routes/phone-desk.ts";
 import { createPhoneCrashRoutes } from "./routes/phone-crashes.ts";
 import { PhoneCrashes } from "./laterdog/phone-crashes.ts";
+import { PhonePerformance } from "./laterdog/phone-perf.ts";
+import { createPhonePerformanceRoutes } from "./routes/phone-perf.ts";
 import { createDogTaskRoute } from "./routes/dog-tasks.ts";
 import { briefStep, pageViewOf, SHOWN_PAGE_ROW_CAP, shownPageStart, type PageView } from "./message-pages.ts";
 import { helperSelection, startedFromTask } from "./laterdog/dog-tasks.ts";
@@ -13053,6 +13055,7 @@ ROUTES.push(createDeviceRoutes({ sessions }));
 ROUTES.push(createPhonePushRoutes({ push: phonePush }));
 ROUTES.push(createPhoneDeviceRoutes({ desk: phoneDesk, enabled: phoneToolsEnabled, owner: phoneOwner, gone: requestGone }));
 ROUTES.push(createPhoneCrashRoutes({ crashes: new PhoneCrashes(join(DATA_DIR, "phone-crashes.json")), log: (line) => console.log(line) }));
+ROUTES.push(createPhonePerformanceRoutes(new PhonePerformance(join(DATA_DIR, "phone-perf.json"))));
 INTERNAL_ROUTES.push(createPhoneToolRoute({
   enabled: phoneToolsEnabled,
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),

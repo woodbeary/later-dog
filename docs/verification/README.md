@@ -97,6 +97,7 @@ Use only mapped, tested commands:
 - [Home save: database copy headroom and scratch cleanup (2026-11-10)](sync-snapshot-headroom-2026-11-10.md)
 - [Home reliability release, November 10](home-reliability-release-2026-11-10.md)
 - [Dog tapbacks, November 10](tapbacks-2026-11-10.md)
+- [Phone chat performance, November 10](phone-chat-performance-2026-11-10.md)
 
 `control-laterdog ui` ([Chat UI, driven headlessly](chat-ui.md)) drives the real
 renderer in a headless Chrome by accessible name, so composer sends, transcript
