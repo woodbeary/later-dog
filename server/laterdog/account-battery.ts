@@ -312,7 +312,9 @@ export function pickAccount(input: PickInput): BatteryAccount | undefined {
   if (!own?.eligible) return undefined;
   const nearlyEmpty = (id: string) => roomTier(percentLeft(input.usage?.(id), input.now)) === 2;
   const sequence = batterySequence(input).filter((id) => id !== own.instanceId);
-  const order = input.roomiest ? rankOrder({ all: [own.instanceId, ...sequence] }, input).all! : [own.instanceId, ...sequence.filter((id) => !nearlyEmpty(id)), ...sequence.filter(nearlyEmpty)];
+  const ranked = input.roomiest ? rankOrder({ all: [own.instanceId, ...sequence] }, input).all! : [own.instanceId, ...sequence.filter((id) => !nearlyEmpty(id)), ...sequence.filter(nearlyEmpty)];
+  const sameEngine = (id: string) => accounts.find((account) => account.instanceId === id)?.driverKind === own.driverKind;
+  const order = [...ranked.filter(sameEngine), ...ranked.filter((id) => !sameEngine(id))];
   const listed = own.models.includes(selection.model);
   for (const id of order) {
     const account = accounts.find((candidate) => candidate.instanceId === id);
