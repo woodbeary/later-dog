@@ -106,12 +106,13 @@ async function findOwn(client: ComputersClient, botId: string): Promise<OwnCompu
   return own(named[0]);
 }
 
-async function waitRunning(client: ComputersClient, id: string, budgetMs: number, repository?: string): Promise<OwnComputer | null> {
+async function waitRunning(client: ComputersClient, id: string, budgetMs: number, repository?: string, wanted?: () => boolean): Promise<OwnComputer | null> {
   const deadline = Date.now() + budgetMs;
   const untilDeadline = () => AbortSignal.timeout(Math.max(1, deadline - Date.now()));
-  let woke = false; let failure: unknown = null;
+  let woke = false; let failure: unknown = null; let seenStarting = false;
   try {
     while (Date.now() < deadline) {
+      if (wanted && !wanted()) return null;
       let current: Computer | null | undefined;
       try { current = await client.get(id, { signal: untilDeadline() }); }
       catch (error) {
@@ -123,8 +124,10 @@ async function waitRunning(client: ComputersClient, id: string, budgetMs: number
       if (current) {
         const state = asBoatState(current.state);
         if (state === "running") return own(current);
-        if (state === "error" && woke) return null;
+        if (state === "starting") seenStarting = true;
+        if (state === "error" && (woke || (wanted && seenStarting))) return null;
         if (state === "archived" || state === "error") {
+          if (wanted && !wanted()) return null;
           try {
             const woken = await client.wake(id, { signal: untilDeadline(), ...(repository ? { repository } : {}) });
             woke = true; failure = null;
@@ -282,13 +285,13 @@ export async function findBoat(cfg: AppConfig, botId: string) {
   return computersSelected() ? findOwn(ownClient(), botId) : boat.findBoat(cfg, botId);
 }
 
-export async function readyBoat(cfg: AppConfig, botId: string, budgetMs = 60_000) {
-  if (!computersSelected()) return boat.readyBoat(cfg, botId, budgetMs);
+export async function readyBoat(cfg: AppConfig, botId: string, budgetMs = 60_000, wanted?: () => boolean) {
+  if (!computersSelected()) return boat.readyBoat(cfg, botId, budgetMs, wanted);
   const client = ownClient();
   const computer = await findOwn(client, botId);
   if (!computer) return null;
   await fitSize(client, cfg, computer.id);
-  return computer.state === "running" ? computer : waitRunning(client, computer.id, budgetMs);
+  return computer.state === "running" ? computer : waitRunning(client, computer.id, budgetMs, undefined, wanted);
 }
 
 export async function boatStatus(cfg: AppConfig, botId: string) {

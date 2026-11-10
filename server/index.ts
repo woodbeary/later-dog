@@ -581,7 +581,7 @@ import { computerFreeAfterText, computerParkedText, computerStoppedWaitingText, 
 import { modelContextWindow } from "./model-context-window.ts";
 import { cloudPlaceRefusal, computerToolsRefusal, parseSurface, PlaceUnavailableError, placeUnavailable, resolveSurface, surfaceLabel, surfaceOfComputerKind, surfacePrompt, type PlaceSource, type Surface } from "./surface.ts";
 import { cloudRefusal, type PlaceRow } from "../shared/place-view.ts";
-import { passingCloudFailure, startRetryingPassingFailures } from "./laterdog/cloud-start.ts";
+import { cloudComputerStartBudgetMs, passingCloudFailure, remainingStartMs, startRetryingPassingFailures } from "./laterdog/cloud-start.ts";
 import { createIdleReload } from "./laterdog/idle-reload.ts";
 import {
   PendingTurnCancellations,
@@ -5876,6 +5876,19 @@ const boatLifecycleBusyBots = new Set<string>();
 const githubActivity = createGitHubActivity();
 const boatWakes = createSharedJoins<Awaited<ReturnType<typeof boat.readyBoat>>>();
 const wakeBotBoat = (botId: string) => boatWakes.run(botId, () => boat.readyBoat(cfg, botId));
+const boatWakeWanters = new Map<string, Set<() => boolean>>();
+function wakeBotBoatForTurn(botId: string, budgetMs: number, wanted: () => boolean) {
+  const pending = boatWakes.pending(botId);
+  if (pending) {
+    boatWakeWanters.get(botId)?.add(wanted);
+    return pending;
+  }
+  const wanters = new Set([wanted]);
+  boatWakeWanters.set(botId, wanters);
+  return boatWakes.run(botId, () => boat.readyBoat(cfg, botId, budgetMs, () => [...wanters].some(want => want())).finally(() => {
+    if (boatWakeWanters.get(botId) === wanters) boatWakeWanters.delete(botId);
+  }));
+}
 const vpsPreviewRequests = new Map<string, ReturnType<typeof vps.vpsComputerScreenshot>>();
 const vpsJoinRequests = new Map<string, Promise<void>>();
 const orphanBoatLifecycleBusyIds = new Set<string>();
@@ -6032,7 +6045,7 @@ async function mountBotVps(
 }
 
 const CLOUD_COMPUTER_START_WAIT_MS = Math.max(1_000, Number(process.env.LATERDOG_CLOUD_COMPUTER_START_WAIT_MS) || 45_000);
-const CLOUD_COMPUTER_START_BUDGET_MS = Math.max(1_000, Number(process.env.LATERDOG_CLOUD_COMPUTER_START_BUDGET_MS) || 150_000);
+const CLOUD_COMPUTER_START_BUDGET_MS = cloudComputerStartBudgetMs(process.env);
 const CLOUD_COMPUTER_STARTING = "The cloud computer is still starting. This call was not performed. Take a fresh screenshot in a moment.";
 const CLOUD_COMPUTER_DID_NOT_START = "the cloud computer didn't start in time";
 const PROVIDER_RELOAD_FORCE_MS = Math.max(1_000, Number(process.env.LATERDOG_PROVIDER_RELOAD_FORCE_MS) || 6 * 60 * 60_000);
@@ -6083,7 +6096,9 @@ async function attachBotBoat(bot: BotRecord, owner: TurnOwner, start: { budgetMs
   await bindTurnComputer(owner, `computer:box-bot:${bot.id}`, true);
   start.onSeated();
   const deadline = Date.now() + start.budgetMs;
-  const machine = await withinBudget(startRetryingPassingFailures(() => startBotBoat(bot), {
+  const wanted = () => activeInternalGenerationByThread.get(owner.threadId) === owner.generation &&
+    turnResourceOwners.get(owner.threadId)?.generation === owner.generation;
+  const machine = await withinBudget(startRetryingPassingFailures(() => startBotBoat(bot, { deadline, wanted }), {
     deadline,
     pauseMs: CLOUD_COMPUTER_RETRY_PAUSE_MS,
     now: Date.now,
@@ -6104,7 +6119,7 @@ function withinBudget<T>(work: Promise<T>, ms: number, message: string): Promise
   return Promise.race([work, expired]).finally(() => clearTimeout(timer));
 }
 
-async function startBotBoat(bot: BotRecord) {
+async function startBotBoat(bot: BotRecord, turn: { deadline: number; wanted: () => boolean }) {
   let b = await boat.findBoat(cfg, bot.id);
   const lifecycleOf = () => boat.boatTurnLifecycleAction(typeof b?.state === "string" ? b.state : null);
   let lifecycle = lifecycleOf();
@@ -6116,7 +6131,7 @@ async function startBotBoat(bot: BotRecord) {
   }
   if (lifecycle === "wake") {
     broadcast({ kind: "computer", botId: bot.id, state: "waking", place: "cloud" });
-    b = (await wakeBotBoat(bot.id)) ?? b;
+    b = (await wakeBotBoatForTurn(bot.id, remainingStartMs(turn.deadline, Date.now()), turn.wanted)) ?? b;
     lifecycle = lifecycleOf();
   }
   return b && lifecycle === "attach" ? b : null;

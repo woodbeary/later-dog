@@ -395,7 +395,7 @@ async function mintDesktopUrl(cfg: AppConfig, boxId: string, { vncBudgetMs = 60_
   return body?.desktopUrl ?? body?.url ?? null;
 }
 
-async function waitReady(cfg: AppConfig, boxId: string, budgetMs = 90_000) {
+async function waitReady(cfg: AppConfig, boxId: string, budgetMs = 90_000, wanted?: () => boolean) {
   assertBoatNotDeleting(boxId);
   const deadline = Date.now() + budgetMs;
   const untilDeadline = () => AbortSignal.timeout(Math.max(1, deadline - Date.now()));
@@ -404,11 +404,13 @@ async function waitReady(cfg: AppConfig, boxId: string, budgetMs = 90_000) {
   try {
     while (Date.now() < deadline) {
       assertBoatNotDeleting(boxId);
+      if (wanted && !wanted()) return null;
       const { body } = await boatJson(cfg, `/boxes/${boxId}`, { signal: untilDeadline() });
       const state = body?.box?.state;
       if (READY.has(state)) return body.box;
       if (state === "error") return null;
       if (state === "archived") {
+        if (wanted && !wanted()) return null;
         const resumed = await boatJson(cfg, `/boxes/${boxId}/resume`, { method: "POST", signal: untilDeadline() });
         if (resumed.ok) resumeFailure = null;
         else if (resumed.status !== 409) {
@@ -887,12 +889,12 @@ export async function findBoat(cfg: AppConfig, botId: string) {
   return found;
 }
 
-export async function readyBoat(cfg: AppConfig, botId: string, budgetMs = 60_000) {
+export async function readyBoat(cfg: AppConfig, botId: string, budgetMs = 60_000, wanted?: () => boolean) {
   cfg = snapshotBoatConfig(cfg);
   const boat = await findBoat(cfg, botId);
   if (!boat) return null;
   if (READY.has(boat.state)) return boat;
-  return waitReady(cfg, boat.id, budgetMs);
+  return waitReady(cfg, boat.id, budgetMs, wanted);
 }
 
 export function boatAccount(cfg: AppConfig): ServiceCredential | null {
