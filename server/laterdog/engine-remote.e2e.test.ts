@@ -196,6 +196,7 @@ it("fails a turn whose connection drops after launch, never re-runs it, and stop
   const orphan = Number(w.launches()[0]);
   relayProcess!.kill("SIGKILL");
   expect(await closed(engine)).toBe(1);
+  expect(await killCliTree(engine as unknown as ChildProcess, 0)).toBe(false);
   expect(w.localLaunches()).toBe(0);
   expect(() => process.kill(orphan, 0)).not.toThrow();
   const again = w.start(w.plan(true), undefined, true);

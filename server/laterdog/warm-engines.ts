@@ -13,7 +13,18 @@ export interface RestingEngine {
   close: (why: string) => void;
 }
 
+export interface OwnedEngine {
+  adapter: object;
+  idle(): boolean;
+  drain(): Promise<void>;
+}
+
 export interface WarmEngines {
+  assertVacant(key: string): void;
+  own(key: string, engine: object, owned: OwnedEngine): void;
+  release(key: string, engine: object): void;
+  retire(key: string, engine: object): Promise<void>;
+  launch<T>(key: string, adapter: object, signal: AbortSignal, run: (check: () => void) => Promise<T>): Promise<T>;
   rest(engine: object, resting: RestingEngine): void;
   wake(engine: object): void;
   forget(engine: object): void;
@@ -53,6 +64,8 @@ export function createWarmEngines({
   now?: () => number;
   checkEveryMs?: number;
 }): WarmEngines {
+  const owners = new Map<string, OwnedEngine & { engine: object; draining?: Promise<void> }>();
+  const launches = new Map<string, object>();
   const resting = new Map<object, RestingEngine & { since: number; timer: ReturnType<typeof setTimeout> | null }>();
   let watch: ReturnType<typeof setInterval> | null = null;
 
@@ -79,7 +92,50 @@ export function createWarmEngines({
     }
   };
 
+  const retire = (key: string, engine: object): Promise<void> => {
+    const held = owners.get(key);
+    if (!held || held.engine !== engine) return Promise.reject(new Error("The engine owner changed."));
+    if (!held.draining) {
+      if (!held.idle()) return Promise.reject(new Error("This chat's engine is still working."));
+      held.draining = held.drain();
+    }
+    return held.draining.then(() => {
+      if (owners.get(key) === held) throw new Error("The previous engine stop was not confirmed.");
+    });
+  };
+
   return {
+    assertVacant(key) {
+      if (owners.has(key)) throw new Error("The previous engine stop was not confirmed.");
+    },
+    retire,
+    own(key, engine, owned) {
+      if (owners.has(key)) throw new Error("This chat still has an engine owner.");
+      owners.set(key, { ...owned, engine });
+    },
+    release(key, engine) {
+      if (owners.get(key)?.engine === engine) owners.delete(key);
+    },
+    async launch(key, adapter, signal, run) {
+      const request = {};
+      const held = owners.get(key);
+      if (held && held.adapter !== adapter && !held.draining && !held.idle()) throw new Error("This chat's engine is still working.");
+      launches.set(key, request);
+      const check = () => {
+        if (signal.aborted || launches.get(key) !== request) throw new Error("This engine start was interrupted or replaced by a newer message.");
+      };
+      try {
+        check();
+        if (held && (held.adapter !== adapter || held.draining)) {
+          await retire(key, held.engine);
+          check();
+        }
+        check();
+        return await run(check);
+      } finally {
+        if (launches.get(key) === request) launches.delete(key);
+      }
+    },
     rest(engine, { pid, idleMs, close }) {
       take(engine);
       const timer = idleMs === null ? null : setTimeout(() => take(engine)?.close("idle"), idleMs);

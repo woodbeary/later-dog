@@ -1022,6 +1022,25 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       closed: Promise<void>;
     }
     const sessions = new Map<string, Session>();
+    const adapterOwner = {};
+    const starting = new Map<string, AbortController>();
+    const ownershipKey = (threadId: string) => JSON.stringify([DATA_DIR, "claude", threadId]);
+    const drainSession = async (threadId: string, session: Session) => {
+      if (sessions.get(threadId) !== session || session.turn || session.helpers.running()) throw new Error("The previous engine is no longer idle.");
+      closeSession(threadId, "engine handoff");
+      if (!await killCliTree(session.child, 2_000)) throw new Error("The previous engine stop was not confirmed.");
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          session.closed,
+          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("The previous engine did not finish closing.")), 5_000); }),
+        ]);
+        warmEngines.release(ownershipKey(threadId), session);
+        if (sessions.get(threadId) === session) sessions.delete(threadId);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
     const deliveredVolatile = new Map<string, { sessionId: string | null; volatile: string | null }>();
     const rememberVolatile = (threadId: string, s: Session) => {
       deliveredVolatile.set(threadId, { sessionId: s.sessionId, volatile: s.volatile });
@@ -1094,6 +1113,24 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     const retryState = new Map<string, { attempt: number; cancelled: boolean; rebuilt?: boolean }>();
 
     const sendTurn = async (turn: SendTurnInput, logicalTurnId?: string) => {
+      const controller = new AbortController();
+      starting.get(turn.threadId)?.abort();
+      starting.set(turn.threadId, controller);
+      try {
+        return await warmEngines.launch(ownershipKey(turn.threadId), adapterOwner, controller.signal,
+          (check) => sendOwnedTurn(turn, logicalTurnId, check));
+      } catch (error) {
+        if (logicalTurnId && controller.signal.aborted) {
+          if (active.get(turn.threadId)?.turnId === logicalTurnId) active.delete(turn.threadId);
+          emit({ ...base(turn.threadId, logicalTurnId), type: "turn.completed", ok: false, stopReason: "interrupted", cost: null });
+          return { turnId: logicalTurnId };
+        }
+        throw error;
+      } finally {
+        if (starting.get(turn.threadId) === controller) starting.delete(turn.threadId);
+      }
+    };
+    const sendOwnedTurn = async (turn: SendTurnInput, logicalTurnId: string | undefined, checkStart: () => void) => {
       turn = { ...turn, toolScope: assertToolScopeSupported(DRIVER_KIND, turn.toolScope) };
       if (config.managedModels && (!turn.model || !config.managedModels.includes(turn.model))) throw new Error("This model is not assigned to this workspace.");
       if (config.requireApiKey && !input.environment.ANTHROPIC_API_KEY) throw new Error(NO_ANTHROPIC_KEY);
@@ -1288,41 +1325,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }).map(([key, value]) => [key, JSON.stringify(value)]));
       const argsKey = JSON.stringify(argsParts);
 
-      await claudeRefreshGate.enter(env);
-      const live = sessions.get(threadId);
-      if (!turn.sessionReset && live && !live.turn && !live.closing && live.child.exitCode === null && live.argsKey === argsKey && (!sessionId || sessionId === live.sessionId)) {
-        warmEngines.wake(live);
-        live.helpers.beginTurn();
-        live.helperTurnId = turnId;
-        live.turn = { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, awaitingInit: true, pendingSteers: new Map(), deferred: null, continuationGrace: null, continuationSilence: null };
-        active.set(threadId, { stop: () => {
-          if (live.turn) live.turn.stopRequested = true;
-          closeSession(threadId, "interrupted");
-          retry.cancelled = true;
-          retryAbort.abort();
-          stopSession(live);
-        }, turnId, broker: live.broker });
-        emit({ ...base(threadId, turnId), type: "turn.started" });
-        live.nativeActivity.beginTurn();
-        const volatile = turn.systemVolatile ?? "";
-        const note = claudeVolatileNote(volatile, live.volatile, turn.mentionTurn);
-        const message = note ? claudeUserMessage(withVolatileNote(turn.text, note), turn.images) : promptMsg;
-        live.volatile = volatile;
-        rememberVolatile(threadId, live);
-        const running = live.turn;
-        if (!(await writeUser(live, threadId, message)) && !running?.stopRequested) closeSession(threadId, "stdin write failed");
-        if (mcpConfigPath) {
-          try {
-            rmSync(dirname(mcpConfigPath), { recursive: true, force: true });
-          } catch {}
-        }
-        return { turnId };
-      }
-      if (live) {
-        const changed = Object.keys(argsParts).filter((key) => live.argsParts[key] !== argsParts[key]);
-        closeSession(threadId, turn.sessionReset ? "context reset" : `spawn contract changed${changed.length ? `: ${changed.join(", ")}` : ""}`);
-      }
-
       const cleanupUnownedLaunch = () => {
         broker?.close();
         broker = undefined;
@@ -1336,10 +1338,55 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           removePrivateTempDir(systemPromptPath);
           systemPromptPath = null;
         }
-        retryState.delete(threadId);
+        try { checkStart(); retryState.delete(threadId); } catch {}
       };
 
       try {
+        await claudeRefreshGate.enter(env);
+        checkStart();
+        const live = sessions.get(threadId);
+        if (!turn.sessionReset && live && !live.turn && !live.closing && live.child.exitCode === null && live.argsKey === argsKey && (!sessionId || sessionId === live.sessionId)) {
+          warmEngines.wake(live);
+          live.helpers.beginTurn();
+          live.helperTurnId = turnId;
+          live.turn = { turnId, input: turn, retryAbort, settled: false, sawStreamDelta: false, awaitingInit: true, pendingSteers: new Map(), deferred: null, continuationGrace: null, continuationSilence: null };
+          active.set(threadId, { stop: () => {
+            if (live.turn) live.turn.stopRequested = true;
+            closeSession(threadId, "interrupted");
+            retry.cancelled = true;
+            retryAbort.abort();
+            stopSession(live);
+          }, turnId, broker: live.broker });
+          emit({ ...base(threadId, turnId), type: "turn.started" });
+          live.nativeActivity.beginTurn();
+          const volatile = turn.systemVolatile ?? "";
+          const note = claudeVolatileNote(volatile, live.volatile, turn.mentionTurn);
+          const message = note ? claudeUserMessage(withVolatileNote(turn.text, note), turn.images) : promptMsg;
+          live.volatile = volatile;
+          rememberVolatile(threadId, live);
+          const running = live.turn;
+          if (!(await writeUser(live, threadId, message)) && !running?.stopRequested) closeSession(threadId, "stdin write failed");
+          if (mcpConfigPath) {
+            try {
+              rmSync(dirname(mcpConfigPath), { recursive: true, force: true });
+            } catch {}
+          }
+          return { turnId };
+        }
+        if (live) {
+          const changed = Object.keys(argsParts).filter((key) => live.argsParts[key] !== argsParts[key]);
+          if (live.turn || live.helpers.running()) throw new Error("The previous engine is still working.");
+          appendNative(threadId, { dir: "out", source: "claude.session", msg: { changed } });
+          await warmEngines.retire(ownershipKey(threadId), live);
+          checkStart();
+        }
+      } catch (error) {
+        cleanupUnownedLaunch();
+        throw error;
+      }
+
+      try {
+        checkStart();
         const launchSystem = turn.systemStable ?? turn.system;
         if (launchSystem) {
           systemPromptPath = join(mkdtempSync(join(tmpdir(), "laterdog-system-")), "prompt.txt");
@@ -1424,6 +1471,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       let child: ReturnType<typeof spawnCli>;
       warmEngines.makeRoom(ENGINE_BYTES);
       try {
+        checkStart();
+        warmEngines.assertVacant(ownershipKey(threadId));
         const local = () => spawnCli(config.cli, args, { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
         const opener = engineOpener();
         let remote: ReturnType<typeof planClaudeRemote> | null = null;
@@ -1468,6 +1517,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         costTotal: undefined,
       };
       sessions.set(threadId, session);
+      warmEngines.own(ownershipKey(threadId), session, {
+        adapter: adapterOwner,
+        idle: () => !session.turn && !session.helpers.running(),
+        drain: () => drainSession(threadId, session),
+      });
 
       const settle = (
         ok: boolean,
@@ -1863,6 +1917,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         const confirmed = await killCliTree(child, 0);
         if (closeFinalized) return;
         closeFinalized = true;
+        if (confirmed) warmEngines.release(ownershipKey(threadId), session);
         if (!confirmed) emit({ ...base(threadId, currentTurnId()), type: "runtime.notice", message: leftoverProgramsNotice("Claude Code") });
         if (session.helperTimer) clearTimeout(session.helperTimer);
         session.helperTimer = null;
@@ -2034,7 +2089,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           } catch {}
         }
         removePrivateTempDir(session.systemPromptPath);
-        if (sessions.get(threadId) === session) sessions.delete(threadId);
+        if (confirmed && sessions.get(threadId) === session) sessions.delete(threadId);
       };
       child.on("close", (code) => {
         session.finishClose = () => finalizeClose(code);
@@ -2230,7 +2285,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         },
         sendTurn,
         steer,
-        interruptTurn: async (threadId) => active.get(threadId)?.stop(),
+        interruptTurn: async (threadId) => {
+          starting.get(threadId)?.abort();
+          active.get(threadId)?.stop();
+        },
         respondToRequest: async (threadId, requestId, decision) => {
           const broker = sessions.get(threadId)?.broker ?? active.get(threadId)?.broker;
           if (!broker) return "unavailable";
@@ -2246,6 +2304,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return window > 0 ? window : undefined;
         },
         stopAll: async () => {
+          for (const controller of starting.values()) controller.abort();
           for (const { stop } of active.values()) stop();
           for (const threadId of Array.from(sessions.keys())) closeSession(threadId, "stopAll");
         },
@@ -2265,6 +2324,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         return generateReview(prompt, signal);
       },
       dispose: async () => {
+        for (const controller of starting.values()) controller.abort();
         try {
           await login.dispose();
         } finally {

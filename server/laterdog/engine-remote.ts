@@ -67,6 +67,7 @@ export class RemoteSession extends EventEmitter {
   #launchSent = false;
   #started = false;
   #exited = false;
+  exitConfirmed = false;
   #receiver: EngineFileReceiver | null = null;
   #skipping = false;
   #proxies = new Map<string, ChildProcess>();
@@ -223,6 +224,7 @@ export class RemoteSession extends EventEmitter {
   #exit(code: number | null, signal: string | null): void {
     if (this.#exited) return;
     this.#exited = true;
+    this.exitConfirmed = true;
     this.emit("native-exit", code, signal);
     this.#teardown();
   }
@@ -335,13 +337,16 @@ export class EngineProcess extends EventEmitter {
   }
 
   async stopTree(timeoutMs: number, stopLocal: (child: ChildProcess, timeoutMs: number) => Promise<boolean>): Promise<boolean> {
-    if (this.exitCode !== null || this.signalCode !== null) return true;
+    if (this.exitCode !== null || this.signalCode !== null) return !this.#remote || this.#remote.exitConfirmed;
     this.#stopRequested = true;
     if (this.#local) return stopLocal(this.#local, timeoutMs);
     this.#remote?.stop();
     const ended = await Promise.race([this.#closed.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), Math.max(timeoutMs, 0) + 8_000).unref())]);
-    if (!ended) { this.#remote?.close(); return Promise.race([this.#closed.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 6_000).unref())]); }
-    return true;
+    if (!ended) {
+      this.#remote?.close();
+      await Promise.race([this.#closed, new Promise<void>((resolve) => setTimeout(resolve, 6_000).unref())]);
+    }
+    return Boolean(this.#remote?.exitConfirmed);
   }
 
   kill(): boolean { void this.stopTree(5_000, async (child) => child.kill("SIGTERM")); return true; }
