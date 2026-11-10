@@ -121,6 +121,29 @@ describe("a heavy command on the dog's own computer", () => {
     expect(readFileSync(join(folder, "src/page.ts"), "utf8")).toBe("mine\n");
   });
 
+  it("brings back an output whose time equals the run's start marker, never an untouched older file, build output or a file changed here", async () => {
+    const { folder, computer, state } = project();
+    mkdirSync(computer);
+    const { box } = localBox(computer);
+    const runs = new ComputerRuns(state, fast);
+    const started = await runs.start(box, { botId: "dog", folder, command: "mkdir -p dist && echo built > dist/app.js && echo result-7f3a > report.txt && echo theirs > src/page.ts" });
+    while (!existsSync(join(computer, "runs/.logs", `${started.id}.exit`))) await new Promise((done) => setTimeout(done, 20));
+    const remote = join(computer, "runs", started.key);
+    const marker = join(computer, "runs/.logs", `${started.id}.start`);
+    expect(spawnSync("touch", ["-r", marker, "report.txt", "src/page.ts", "dist/app.js"], { cwd: remote }).status).toBe(0);
+    const [markerTime, outputTime] = spawnSync("stat", ["-c", "%.9Y", marker, join(remote, "report.txt")], { encoding: "utf8" }).stdout.trim().split("\n");
+    expect(outputTime).toBe(markerTime);
+    writeFileSync(join(folder, "src/page.ts"), "mine\n");
+    const outcome = await runs.finish(box, started);
+    expect(outcome.state).toBe("finished");
+    expect(outcome.broughtBack).toEqual(["report.txt"]);
+    expect(readFileSync(join(folder, "report.txt"), "utf8")).toBe("result-7f3a\n");
+    expect(outcome.note).toContain("src/page.ts");
+    expect(readFileSync(join(folder, "src/page.ts"), "utf8")).toBe("mine\n");
+    expect(existsSync(join(folder, "dist"))).toBe(false);
+    expect(readFileSync(join(folder, "package.json"), "utf8")).toBe("{}");
+  });
+
   it("hands back a run id while the command is still going, and finishes it on the next call", async () => {
     const { folder, computer, state } = project();
     mkdirSync(computer);

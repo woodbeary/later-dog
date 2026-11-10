@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ComputerRuns } from "./laterdog/computer-runs.ts";
+import { STILL_STARTING_TEXT, handleComputerRun } from "./laterdog/computer-run-route.ts";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 type State = "starting" | "running" | "sleeping" | "stopping" | "error";
@@ -32,6 +34,8 @@ describe("the cloud computer facade", () => {
   let wakeTo: State = "running";
   let startsOnPoll = false;
   let runsAt = 0;
+  let failsAt = 0;
+  let pollStepMs = 0;
   let dropCreateAnswer = false;
   let trialOne = false;
   let concurrentCreate: string | null = null;
@@ -89,6 +93,8 @@ describe("the cloud computer facade", () => {
         if (!computer) return send(404, { error: { code: "not_found", message: "no such computer" } });
         if (!action && method === "GET") {
           if (startsOnPoll && computer.state === "starting") computer.state = "running";
+          if (pollStepMs) vi.setSystemTime(Date.now() + pollStepMs);
+          if (failsAt && computer.state === "starting" && Date.now() >= failsAt) computer.state = "error";
           if (runsAt && computer.state === "starting" && Date.now() >= runsAt) computer.state = "running";
           return send(200, { computer });
         }
@@ -121,7 +127,7 @@ describe("the cloud computer facade", () => {
 
   beforeEach(() => {
     fleet.clear(); keys.clear(); failures.clear(); requests.length = 0;
-    wakeTo = "running"; startsOnPoll = false; runsAt = 0; dropCreateAnswer = false; trialOne = false; concurrentCreate = null; frame = JPEG;
+    wakeTo = "running"; startsOnPoll = false; runsAt = 0; failsAt = 0; pollStepMs = 0; dropCreateAnswer = false; trialOne = false; concurrentCreate = null; frame = JPEG;
     vi.stubEnv("LATERDOG_COMPUTERS_API", `http://127.0.0.1:${port}/v1`);
     vi.stubEnv("LATERDOG_COMPUTERS_KEY_FILE", join(keyDir, "computers-key"));
   });
@@ -483,6 +489,111 @@ describe("the cloud computer facade", () => {
     await expect(computers.provisionBoat(withBoat, "some-bot", "Some")).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/does not exist/) });
     expect(requests).toHaveLength(0);
   });
+  describe("waking a computer for run_on_computer", () => {
+    const wakes = () => ours().filter((request) => request.method === "POST" && request.path.endsWith("/wake")).length;
+    const sleeping = (botId: string) => { const computer = add(botId, "sleeping"); wakeTo = "starting"; pollStepMs = 10_000; return computer; };
+    beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-10T01:00:00Z")); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it.each([95_000, 240_000])("waits for a snapshot boot of %i ms with one wake and no create", async (bootMs) => {
+      const computer = sleeping("dog-heavy-boot");
+      runsAt = Date.now() + bootMs;
+      const run = await computers.heavyRunBox("dog-heavy-boot", { budgetMs: 290_000 });
+      expect(run.box).toBeDefined();
+      expect(fleet.get(computer.id)?.state).toBe("running");
+      expect(wakes()).toBe(1);
+      expect(creates()).toHaveLength(0);
+    });
+
+    it("says the computer is still starting when one call's window ends, without waking it again", async () => {
+      sleeping("dog-heavy-window");
+      runsAt = Date.now() + 280_000;
+      await expect(computers.heavyRunBox("dog-heavy-window", { budgetMs: 120_000 })).rejects.toMatchObject({ code: "still_starting" });
+      const run = await computers.heavyRunBox("dog-heavy-window", { budgetMs: 290_000 });
+      expect(run.box).toBeDefined();
+      expect(wakes()).toBe(1);
+      expect(creates()).toHaveLength(0);
+    });
+
+    it("gives up at the service's boot budget when the computer never starts", async () => {
+      sleeping("dog-heavy-stuck");
+      const started = Date.now();
+      await expect(computers.heavyRunBox("dog-heavy-stuck")).rejects.toThrow(/did not start within 330 seconds/);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(330_000);
+      expect(wakes()).toBe(1);
+    });
+
+    it("fails at once when the computer reports an error while starting, without waking it again", async () => {
+      sleeping("dog-heavy-error");
+      failsAt = Date.now() + 30_000;
+      const started = Date.now();
+      await expect(computers.heavyRunBox("dog-heavy-error", { budgetMs: 290_000 })).rejects.toThrow(/did not start/);
+      expect(Date.now() - started).toBeLessThan(60_000);
+      expect(wakes()).toBe(1);
+      expect(creates()).toHaveLength(0);
+    });
+
+    it("stops waiting, and never wakes it again, once the caller no longer wants it", async () => {
+      sleeping("dog-heavy-stop");
+      let wanted = true;
+      runsAt = Date.now() + 200_000;
+      const run = computers.heavyRunBox("dog-heavy-stop", { budgetMs: 290_000, wanted: () => wanted });
+      await vi.waitFor(() => expect(wakes()).toBe(1));
+      wanted = false;
+      await expect(run).rejects.toThrow(/did not start/);
+      expect(wakes()).toBe(1);
+    });
+
+    it("does not wake a computer again on the next call once it went from starting to error", async () => {
+      const computer = sleeping("dog-heavy-later-error");
+      runsAt = Date.now() + 400_000;
+      const root = mkdtempSync(join(tmpdir(), "heavy-later-error-"));
+      mkdirSync(join(root, "site"));
+      const ran: string[] = [];
+      const runs = { record: () => null, run: async () => { ran.push("run"); throw new Error("not reached"); }, finish: async () => { throw new Error("not reached"); } } as unknown as ComputerRuns;
+      const call = () => handleComputerRun({ botId: "dog-heavy-later-error", body: { command: "pnpm test", folder: join(root, "site") }, workingFolder: null, allowedRoots: [root] }, { runs, computer: computers.heavyRunBox, repositoryOf: () => null });
+      expect(await call()).toEqual({ status: 200, text: STILL_STARTING_TEXT });
+      failsAt = Date.now();
+      const started = Date.now();
+      const second = await call();
+      expect(second.status).toBe(502);
+      expect(second.error).toMatch(/reported an error/);
+      expect(Date.now() - started).toBeLessThan(60_000);
+      expect(fleet.get(computer.id)?.state).toBe("error");
+      expect(wakes()).toBe(1);
+      expect(creates()).toHaveLength(0);
+      expect(ran).toEqual([]);
+    });
+
+    it("fails without a wake when the computer is in an error or unknown state before the call", async () => {
+      add("dog-heavy-was-error", "error");
+      add("dog-heavy-odd", "migrating" as State);
+      await expect(computers.heavyRunBox("dog-heavy-was-error")).rejects.toThrow(/reported an error/);
+      await expect(computers.heavyRunBox("dog-heavy-odd")).rejects.toThrow(/does not know/);
+      expect(wakes()).toBe(0);
+      expect(creates()).toHaveLength(0);
+    });
+
+    it("wakes once for adjacent calls and leaves the computer running for the service's idle policy, even when one call is abandoned", async () => {
+      const computer = sleeping("dog-heavy-adjacent");
+      runsAt = Date.now() + 95_000;
+      const root = mkdtempSync(join(tmpdir(), "heavy-adjacent-"));
+      mkdirSync(join(root, "site"));
+      const finished = { id: "abcd1234", state: "finished" as const, exitCode: 0, output: "ok", broughtBack: [], skipped: [], sentFiles: 0, sentBytes: 0 };
+      const ran: string[] = [];
+      const runs = { record: () => null, run: async () => { ran.push("run"); return finished; }, finish: async () => finished } as unknown as ComputerRuns;
+      const call = (active?: () => boolean) => handleComputerRun({ botId: "dog-heavy-adjacent", body: { command: "pnpm test", folder: join(root, "site") }, workingFolder: null, allowedRoots: [root], ...(active ? { active } : {}) }, { runs, computer: computers.heavyRunBox, repositoryOf: () => null });
+      expect((await call()).status).toBe(200);
+      expect((await call()).status).toBe(200);
+      expect((await call(() => false)).status).toBe(409);
+      expect(ran).toEqual(["run", "run"]);
+      expect(wakes()).toBe(1);
+      expect(creates()).toHaveLength(0);
+      expect(ours().filter((request) => request.method === "POST" && request.path.endsWith("/sleep"))).toHaveLength(0);
+      expect(fleet.get(computer.id)?.state).toBe("running");
+    });
+  });
+
 });
 
 describe("the size of the owner's dogs' cloud computers", () => {

@@ -12,6 +12,8 @@ export const MAX_RUN_MS = 2 * 60 * 60_000;
 export const POLL_MS = 10_000;
 export const OUTPUT_TAIL_CHARS = 12_000;
 const EXEC_MS = 110_000;
+const POLL_EXEC_MS = 30_000;
+const LEAST_POLL_EXEC_MS = 5_000;
 const NEVER_SENT: ReadonlySet<string> = new Set([".pnpm-store", ".npm"]);
 const SKIPPED_NAMES: ReadonlySet<string> = new Set([...BUILD_OUTPUT_DIRS, ...NEVER_SENT, "dist", "build", "out", "coverage", "test-results", "playwright-report"]);
 
@@ -43,7 +45,6 @@ export interface RunRecord {
   command: string;
   startedAt: number;
   sent: FolderStamps;
-  restAfter?: boolean;
   reusedSetup?: boolean;
 }
 
@@ -199,7 +200,7 @@ export class ComputerRuns {
     writeFileSync(path, JSON.stringify(value));
   }
 
-  async start(box: RunBox, input: { botId: string; folder: string; subdir?: string; command: string; restAfter?: boolean }): Promise<RunRecord & { sentFiles: number; sentBytes: number }> {
+  async start(box: RunBox, input: { botId: string; folder: string; subdir?: string; command: string; active?: () => boolean; left?: () => number }): Promise<RunRecord & { sentFiles: number; sentBytes: number }> {
     const key = runKey(input.folder);
     const id = randomUUID().slice(0, 8);
     const remote = `runs/${key}`;
@@ -234,9 +235,11 @@ export class ComputerRuns {
       ? `if [ $rc = 0 ] && [ -d "$HOME"/${quote(`${workDir}/node_modules`)} ]; then mkdir -p "$HOME/runs/.setup" && echo ${key} > "$HOME/runs/.setup/${setup}.${id}" && mv -f "$HOME/runs/.setup/${setup}.${id}" "$HOME/runs/.setup/${setup}"; fi; `
       : "";
     const script = `export PATH="$HOME/.local/bin:$PATH"; command -v pnpm > /dev/null || npm install -g --prefix "$HOME/.local" pnpm > /dev/null 2>&1; cd ${quote(workDir)} && touch "$HOME/runs/.logs/${id}.start" && ( ${input.command} ) > "$HOME/runs/.logs/${id}.log" 2>&1; rc=$?; ${remember}echo $rc > "$HOME/runs/.logs/${id}.exit"`;
+    if (input.active && !input.active()) throw Object.assign(new Error("the turn ended before the command started, so nothing was run"), { code: "cancelled" });
+    if (input.left && input.left() <= 0) throw Object.assign(new Error("the call's time ran out before the command started, so nothing was run"), { code: "window_ended" });
     const detached = `nohup bash -lc ${quote(script)} > /dev/null 2>&1 < /dev/null &`;
     must(await box.exec(`if command -v setsid > /dev/null; then setsid ${detached} else ${detached} fi; echo started`, 30_000), "starting the command");
-    const record: RunRecord = { id, botId: input.botId, key, folder: input.folder, subdir, command: input.command, startedAt: this.#now(), sent: now, ...(input.restAfter ? { restAfter: true } : {}), ...(reusedSetup ? { reusedSetup: true } : {}) };
+    const record: RunRecord = { id, botId: input.botId, key, folder: input.folder, subdir, command: input.command, startedAt: this.#now(), sent: now, ...(reusedSetup ? { reusedSetup: true } : {}) };
     this.#writeJson(this.#runPath(input.botId, id), record);
     return { ...record, sentFiles: changed.length, sentBytes };
   }
@@ -245,25 +248,29 @@ export class ComputerRuns {
     return /^[0-9a-f]{8}$/.test(id) ? this.#readJson<RunRecord>(this.#runPath(botId, id)) : null;
   }
 
-  async poll(box: RunBox, record: RunRecord): Promise<{ done: boolean; exitCode: number | null; output: string }> {
-    const result = await box.exec(`cat runs/.logs/${record.id}.exit 2>/dev/null; echo '<<<'; tail -c ${OUTPUT_TAIL_CHARS} runs/.logs/${record.id}.log 2>/dev/null`, 30_000);
+  async poll(box: RunBox, record: RunRecord, timeoutMs = POLL_EXEC_MS): Promise<{ done: boolean; exitCode: number | null; output: string }> {
+    const result = await box.exec(`cat runs/.logs/${record.id}.exit 2>/dev/null; echo '<<<'; tail -c ${OUTPUT_TAIL_CHARS} runs/.logs/${record.id}.log 2>/dev/null`, timeoutMs);
     const [head, ...rest] = result.stdout.split("<<<\n");
     const code = head.trim();
     return { done: code !== "", exitCode: code === "" ? null : Number(code), output: rest.join("<<<\n") };
   }
 
-  async wait(box: RunBox, record: RunRecord, budgetMs = WAIT_IN_ONE_CALL_MS) {
+  window(budgetMs = WAIT_IN_ONE_CALL_MS): () => number {
     const until = this.#now() + budgetMs;
+    return () => until - this.#now();
+  }
+
+  async wait(box: RunBox, record: RunRecord, left: () => number = this.window()) {
     for (;;) {
-      const state = await this.poll(box, record);
-      if (state.done || this.#now() >= until || this.#now() - record.startedAt >= MAX_RUN_MS) return state;
-      await this.#sleep(POLL_MS);
+      const state = await this.poll(box, record, Math.min(POLL_EXEC_MS, Math.max(LEAST_POLL_EXEC_MS, left())));
+      if (state.done || left() <= 0 || this.#now() - record.startedAt >= MAX_RUN_MS) return state;
+      await this.#sleep(Math.min(POLL_MS, left()));
     }
   }
 
   async bringBack(box: RunBox, record: RunRecord): Promise<{ broughtBack: string[]; skipped: string[]; conflicts: string[] }> {
     const remote = `runs/${record.key}`;
-    const lister = `import os,sys\nskip=set(sys.argv[2].split(","))\nsince=os.stat(sys.argv[1]).st_mtime\nfor root,dirs,files in os.walk("."):\n  dirs[:]=[d for d in dirs if d not in skip]\n  for f in files:\n    p=os.path.join(root,f)\n    try: st=os.lstat(p)\n    except OSError: continue\n    if st.st_mtime>since: print(f"{st.st_size}\\t{p}")\n`;
+    const lister = `import os,sys\nskip=set(sys.argv[2].split(","))\nsince=os.stat(sys.argv[1]).st_mtime\nfor root,dirs,files in os.walk("."):\n  dirs[:]=[d for d in dirs if d not in skip]\n  for f in files:\n    p=os.path.join(root,f)\n    try: st=os.lstat(p)\n    except OSError: continue\n    if st.st_mtime>=since: print(f"{st.st_size}\\t{p}")\n`;
     const listing = must(await box.exec(`cd ${quote(remote)} && python3 -c ${quote(lister)} ../.logs/${record.id}.start ${quote([...SKIPPED_NAMES].join(","))}`, EXEC_MS), "listing changed files");
     const { take, skipped } = bringBackList(listing.stdout);
     const conflicts = homeChangedSince(record.folder, take, record.sent);
@@ -280,19 +287,22 @@ export class ComputerRuns {
     return { broughtBack: fetch, skipped, conflicts };
   }
 
-  async run(box: RunBox, input: { botId: string; folder: string; subdir?: string; command: string; restAfter?: boolean }): Promise<RunOutcome> {
-    const started = await this.start(box, input);
-    return this.finish(box, started, { sentFiles: started.sentFiles, sentBytes: started.sentBytes });
+  async run(box: RunBox, input: { botId: string; folder: string; subdir?: string; command: string; active?: () => boolean; left?: () => number }): Promise<RunOutcome> {
+    const left = input.left ?? this.window();
+    const started = await this.start(box, { ...input, left });
+    return this.finish(box, started, { sentFiles: started.sentFiles, sentBytes: started.sentBytes }, left);
   }
 
-  async finish(box: RunBox, record: RunRecord, sent = { sentFiles: 0, sentBytes: 0 }): Promise<RunOutcome> {
-    const state = await this.wait(box, record);
+  async finish(box: RunBox, record: RunRecord, sent = { sentFiles: 0, sentBytes: 0 }, left: () => number = this.window()): Promise<RunOutcome> {
+    const state = await this.wait(box, record, left);
     if (!state.done) {
       const overdue = this.#now() - record.startedAt >= MAX_RUN_MS;
       if (overdue) await box.exec(`pkill -f ${quote(`runs/.logs/${record.id}.log`)}`, 30_000).catch(() => null);
       return { id: record.id, state: overdue ? "failed" : "running", exitCode: null, output: state.output, broughtBack: [], skipped: [], ...sent,
         note: overdue ? "Stopped after 2 hours." : `Still running. Call run_on_computer again with run_id "${record.id}" to keep waiting.` };
     }
+    if (left() <= 0) return { id: record.id, state: "running", exitCode: state.exitCode, output: state.output, broughtBack: [], skipped: [], ...sent,
+      note: `It finished, but this call ran out of time before bringing its files back. Call run_on_computer again with run_id "${record.id}" to bring them back.` };
     const back = await this.bringBack(box, record);
     const conflictNote = back.conflicts.length ? ` Kept your copy of ${back.conflicts.length} file(s) changed here while it ran: ${back.conflicts.slice(0, 10).join(", ")}.` : "";
     const reusedNote = record.reusedSetup ? " Reused the packages already installed for another copy of this project on your computer." : "";

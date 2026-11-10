@@ -13237,6 +13237,7 @@ INTERNAL_ROUTES.push(createComputerRunRoute({
   folders: (botId, threadId) => messageFileRootsForThread(botId, threadId).filter((root) => root !== ATTACHMENTS_DIR),
   runs: computerRuns,
   computer: boat.heavyRunBox,
+  active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
 }));
 INTERNAL_ROUTES.push(createEmailMeRoute({
   deliver: CLOUD_HOME ? deliverOwnerEmail : null,
