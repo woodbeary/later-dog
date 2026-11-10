@@ -116,6 +116,17 @@ describe("plan usage parsers", () => {
     expect(JSON.stringify(parsed)).not.toContain(SECRET);
   });
 
+  it("reads paid Codex credits, and leaves them out when there are none", () => {
+    const windows = { primary_window: { used_percent: 0, limit_window_seconds: 18000, reset_at: 1_800_000_000 },
+      secondary_window: { used_percent: 100, limit_window_seconds: 604800, reset_at: 1_800_000_000 } };
+    expect(parseCodexUsage({ rate_limit: windows, credits: { has_credits: true, unlimited: false, balance: "42.5" } }).credits)
+      .toEqual({ unlimited: false, balance: "42.5" });
+    expect(parseCodexUsage({ rate_limit: windows, credits: { has_credits: false, unlimited: true, balance: null } }).credits)
+      .toEqual({ unlimited: true, balance: null });
+    expect(parseCodexUsage({ rate_limit: windows, credits: { has_credits: false, unlimited: false, balance: "0" } }).credits).toBeUndefined();
+    expect(parseCodexUsage({ rate_limit: windows }).credits).toBeUndefined();
+  });
+
   it("keeps Codex model windows separate from the account plan", () => {
     const parsed = parseCodexUsage({
       plan_type: "pro",

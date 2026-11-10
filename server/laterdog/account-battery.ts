@@ -180,7 +180,7 @@ export function percentLeft(row: PlanProviderRow | undefined, now: number): numb
 export const USED_UP_PERCENT = 99.5;
 
 export function usedUpRest(row: PlanProviderRow | undefined, now: number): Rest | undefined {
-  if (!row?.ok) return undefined;
+  if (!row?.ok || row.credits) return undefined;
   const full = [{ kind: "session", window: row.fiveHour }, { kind: "weekly", window: row.weekly }]
     .map(({ kind, window }) => ({ kind, used: window.available ? window.usedPercent : null, reset: window.resetsAt ? Date.parse(window.resetsAt) : Number.NaN }))
     .filter(({ used, reset }) => used !== null && used >= USED_UP_PERCENT && reset > now)
