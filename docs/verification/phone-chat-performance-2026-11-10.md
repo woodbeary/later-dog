@@ -89,3 +89,11 @@ The downloaded index.js matches the Mac artifact byte for byte, SHA-256
 c857d90ce11652d6098e285947265f56d3ee251abab49d1ac9f2b6b4584d3a04.
 The home activated this exact bundle. An authenticated GET /api/phone/perf
 returned 200 with zero reports. A fresh iPhone Run Check is still required.
+
+Performance beta c6c8cf77-483c-4eed-978f-c7faa5cc0d89 is published from f810932.
+Build 9 fingerprint 945b9c2c06f193d0bc54a8c9b0740e75b799c93e matches.
+The actual downloaded iOS asset (update 01a1c72c-b396-7913-a675-9efd0c367f00,
+5867356 bytes) matches the Mac export, SHA-256
+ea8c23678fe817f4ab07b793549059b639dd3d037915e05e5888535a7c37d888.
+Rollback group: 4c72c061-661e-4d64-b381-c1d5c6c02933. Jacob has been asked to
+reopen the phone and run the same check. No post-change numbers are claimed.
