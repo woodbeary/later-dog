@@ -4,7 +4,7 @@ Branch: `kennel/heavy-start-budget-20261109`, stacked on PR 150, merged up to it
 `b7fec2be5b6100e6f033e8873c927533801b0d40`.
 First source `2f839db1f27319f2d5572c71d271bd0917429339` (published at `86087f1`, now superseded). Repair source
 `d24ea6b` after Root's review of `86087f1`, merged with PR 150 as `6ea7cc8`, and the bring-back
-boundary fix `98796f2`, and the error-state guard `f9d9838`. This record is the only
+boundary fix `98796f2`, the error-state guard `f9d9838`, and the launch-time window check `363a34a`. This record is the only
 later change.
 
 ## Cause
@@ -105,12 +105,25 @@ On Kennel's own cloud computer, Node v24.22.2, pnpm 10.33.0. The repair source w
   `no-comments` 10, pass 76 of 76, including the 95 s and 240 s boots, the adjacent calls and the
   ended-turn 409 cases. `tsc` exit 0, `oxlint` 0 and 0 on the changed files, no comments. Whether
   this happened in Patch's real incident is not known; there is no receipt for it here.
+- Launch-time window check, source `363a34a`. `ComputerRuns.start` now also checks the call's time
+  left right before launching the detached command, after the turn check. If sending or setup used
+  it up, nothing is launched, no run record is written, and the call answers that its time ran out
+  before the command started and to call again; the files already sent and their stamps stay, so
+  the next call sends only what changed. This is not reported as "turn ended" or "still starting".
+  Test with the real `ComputerRuns`, a fake computer and fake clock: one write takes 500 s while the
+  turn stays active. Before, on `93b45a3` with the test and only the new answer text exported: 1
+  failed, 16 passed (the command launched and the call answered "Still running"). After:
+  `computer-run-route` 17 and `computer-runs` 15, 32 of 32. The existing "files come back on the
+  next call" test now spends its window at the first status check instead of during sending. `tsc`
+  exit 0, `oxlint` 0 and 0 on the changed files, no comments. The wake cases were not rerun for this
+  change; the 76 and 103 above stand for `93b45a3` and `6ea7cc8`.
 - The service's own `test/idle.test.ts`: 12 passed (unchanged). `tsc -p tsconfig.server.json`:
   exit 0. No comments in the changed files.
 
 ## Limits
 
-- Sending the folder, unpacking, setup reuse and bringing files back are not cut off by the window;
+- Sending the folder, unpacking, setup reuse and bringing files back are not cut off by the window
+  (a command is never launched after it, though);
   they are bounded only by their existing per-step timeouts (30 s and 110 s) and size limits (2 GB
   sent, 512 MB back). The window decides whether to wait for the command and whether to start
   bringing files back, so one call is not bounded end to end and can still pass 300 s.
