@@ -624,6 +624,17 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       return { text: `Voice note not sent: ${error instanceof Error ? error.message : String(error)}`, isError: true };
     }
   }
+  if (name === "react") {
+    const emoji = typeof args.emoji === "string" ? args.emoji.trim() : "";
+    if (!emoji) return { text: "react needs emoji: one emoji, for example 👍.", isError: true };
+    const messageId = typeof args.message_id === "string" && args.message_id.trim() ? args.message_id.trim() : undefined;
+    const { ok, body } = await apiResponse("/api/internal/react", {
+      method: "POST",
+      body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, emoji, ...(messageId ? { messageId } : {}) }),
+    });
+    if (!ok || typeof body.text !== "string") return { text: String(body.error ?? "The tapback could not be added."), isError: true };
+    return { text: body.text };
+  }
   if (name === "list_routines") {
     const query = new URLSearchParams({ fromBotId: BOT_ID, fromThreadId: THREAD_ID });
     const r = await api(`/api/internal/routines?${query.toString()}`);

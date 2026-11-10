@@ -62,6 +62,31 @@ describe("send_voice_note", () => {
   });
 });
 
+describe("react", () => {
+  it("posts the tapback to the home and passes its answer back", async () => {
+    const calls: Array<{ path: string; body: any }> = [];
+    const result = await callTool("react", { emoji: " 👍 ", message_id: " m1 " }, context({
+      client: {
+        api: async () => ({}),
+        apiResponse: async (path, init) => {
+          calls.push({ path, body: JSON.parse(String(init?.body)) });
+          return { ok: true, status: 200, body: { text: "Reacted 👍 to “ok”." } };
+        },
+      },
+    }));
+    expect(result).toEqual({ text: "Reacted 👍 to “ok”." });
+    expect(calls).toEqual([{ path: "/api/internal/react", body: { fromBotId: "bot-voice", fromThreadId: "thread-voice", emoji: "👍", messageId: "m1" } }]);
+  });
+
+  it("asks for an emoji and reports a refused tapback as a tool error", async () => {
+    expect(await callTool("react", { emoji: " " }, context())).toEqual({ text: "react needs emoji: one emoji, for example 👍.", isError: true });
+    const refused = await callTool("react", { emoji: "ok" }, context({
+      client: { api: async () => ({}), apiResponse: async () => ({ ok: false, status: 400, body: { error: "react needs one emoji, for example 👍." } }) },
+    }));
+    expect(refused).toEqual({ text: "react needs one emoji, for example 👍.", isError: true });
+  });
+});
+
 describe("create_bot", () => {
   it("passes a working folder through to the internal create route", async () => {
     const calls: Array<{ path: string; body: any }> = [];

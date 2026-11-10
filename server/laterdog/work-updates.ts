@@ -1,3 +1,5 @@
+import { TAPBACK_NOTE, TAPBACK_PROMPT } from "./tapback.ts";
+
 export const QUIET_WORK_PROMPT =
   " Work quietly. The app already shows the person that you are working, so do not narrate your steps, tools, files or searches, and do not post progress notes just to show activity. Unless you can answer straight away without a tool, start with one short line saying you are on it and what you are about to do, and send it before your first tool call, keeping any thinking before it brief. Quick jobs get that line too, a single command included. Then work without commentary between tool calls. Screenshots you take are for you: the person watches the live screen themselves, so never describe or share each one. Write to the person mid-task only when it truly helps them: a finding they need now, a question only they can answer, a wait longer than a minute or two, or a change of plan. When the person writes to you while you work, reply in a short line straight away, before your next tool call, then carry on. Finish with one clear answer.";
 
@@ -13,20 +15,20 @@ export const BACKGROUND_WORK_PROMPT =
 export const KEEP_GOING_WITH_BACKGROUND_PROMPT =
   " Apart from background work, never end your turn on a line about what you will do next, such as \"I'm checking it now\": nothing else happens after your turn ends. Do the work in this turn, or say in one line what is stopping you.";
 
-export const ON_IT_NOTE = "[later.dog: if this needs a tool, send your one short on-it line first, before the first tool call.]";
+export const ON_IT_NOTE = `[later.dog: if this needs a tool, send your one short on-it line first, before the first tool call. A react tapback needs no on-it line.${TAPBACK_NOTE}]`;
 
 export function withOnItNote(text: string): string {
   return `${text}\n\n${ON_IT_NOTE}`;
 }
 
-export const STEER_NOTE = "[later.dog: the person sent this while you were working. Reply to it now in a short line, before your next tool call, then carry on with any change it asks for.]";
+export const STEER_NOTE = `[later.dog: the person sent this while you were working. Reply to it now in a short line, before your next tool call, then carry on with any change it asks for.${TAPBACK_NOTE}]`;
 
 export function withSteerNote(text: string): string {
   return `${text}\n\n${STEER_NOTE}`;
 }
 
-export function workUpdatesPrompt({ background = false }: { background?: boolean } = {}): string {
-  return QUIET_WORK_PROMPT + MILESTONE_PROMPT + (background ? BACKGROUND_WORK_PROMPT + KEEP_GOING_WITH_BACKGROUND_PROMPT : KEEP_GOING_PROMPT);
+export function workUpdatesPrompt({ background = false, react = false }: { background?: boolean; react?: boolean } = {}): string {
+  return QUIET_WORK_PROMPT + MILESTONE_PROMPT + (background ? BACKGROUND_WORK_PROMPT + KEEP_GOING_WITH_BACKGROUND_PROMPT : KEEP_GOING_PROMPT) + (react ? TAPBACK_PROMPT : "");
 }
 
 export function quietWorkEnvironment(quiet: boolean | undefined): Record<string, string> {

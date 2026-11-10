@@ -25,7 +25,7 @@ import { LinkPreviews } from "./LinkPreviewCard";
 import { startNewConversation } from "@/lib/new-conversation";
 import { MessageActions, messageActionClass } from "@/components/MessageActions";
 import { ReactionPicker } from "@/components/ReactionPicker";
-import { ReactionPills } from "@/components/ReactionPills";
+import { hasTapback, ReactionPills } from "@/components/ReactionPills";
 import type { MentionPeer } from "@/lib/mentions";
 import { myReactions } from "@/lib/reactions";
 import { canReactTo, reactToMessage } from "@/lib/react-to-message";
@@ -501,7 +501,7 @@ const Bubble = memo(function Bubble({
     : [];
 
   return (
-    <div data-from={user ? "user" : "agent"} className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
+    <div data-from={user ? "user" : "agent"} className={cn("group flex w-full flex-col", user ? "items-end" : "items-start", hasTapback(message.reactions) && "pt-3")}>
       {peer && <PeerLabel peer={peer} />}
       {sentAbove && (
         <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId, messageId: message.id }} eager={eagerAttachments} className="mb-1.5 max-w-[min(42rem,78%)]" />
@@ -536,7 +536,7 @@ const Bubble = memo(function Bubble({
         <div
           data-chat-bubble
           className={cn(
-            "w-fit max-w-[min(42rem,78%)] rounded-bubble text-[14px] leading-[21px]",
+            "relative w-fit max-w-[min(42rem,78%)] rounded-bubble text-[14px] leading-[21px]",
             emerging && "turn-answer",
             user && webhookView
               ? "overflow-hidden border border-accent/25 bg-card text-ink shadow-[0_10px_30px_rgba(0,0,0,0.18)]"
@@ -549,6 +549,7 @@ const Bubble = memo(function Bubble({
           title={new Date(message.at).toLocaleString()}
           data-dog-tint={user && !webhookView && !attachmentsOnly ? dogTint(bots.find((candidate) => candidate.id === botId)?.color) : undefined}
         >
+          <ReactionPills reactions={message.reactions} side={user ? "user" : "bot"} nameOf={reactionName} onToggle={reactable ? react : undefined} />
           {replyTarget && (
             <div className="mb-2">
               <ReplyQuote
@@ -659,7 +660,6 @@ const Bubble = memo(function Bubble({
           {formatTime(message.at)}
         </span>
       </div>
-      <ReactionPills reactions={message.reactions} side={user ? "user" : "bot"} nameOf={reactionName} onToggle={reactable ? react : undefined} />
       {user && message.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={message.at} held={message.held} />}
       {user && receipt && message.steered && <ReadReceipt readAt={message.readAt} working={busy} name={botName} />}
       {forks.length > 1 && (

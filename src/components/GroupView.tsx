@@ -45,7 +45,7 @@ import { chatPane } from "@/state/pane-errors";
 import { ReplyQuote } from "./ReplyQuote";
 import { MessageActions, messageActionClass } from "./MessageActions";
 import { ReactionPicker } from "./ReactionPicker";
-import { ReactionPills } from "./ReactionPills";
+import { hasTapback, ReactionPills } from "./ReactionPills";
 import { myReactions } from "@/lib/reactions";
 import { canReactTo, reactToMessage } from "@/lib/react-to-message";
 import { ConnectorCard } from "./ConnectorCard";
@@ -303,7 +303,7 @@ export const Transcript = memo(function Transcript({
           ) : m.kind === "digest" ? (
             showToolCalls ? <DigestChip message={m} /> : null
           ) : m.kind === "text" && (m.text || m.attachments?.length) ? (
-            <div data-from={user ? "user" : "agent"} className={cn("group flex w-full flex-col", user ? "items-end" : "items-start")}>
+            <div data-from={user ? "user" : "agent"} className={cn("group flex w-full flex-col", user ? "items-end" : "items-start", hasTapback(m.reactions) && "pt-3")}>
               {sentAbove && (
                 <AttachmentGallery sent images={sentImages} files={sentFiles} message={{ threadId: group.threadId, messageId: m.id }} eager={m.id === newestMessageId || m.id === newestUserMessageId} className="mb-1.5 max-w-[min(42rem,78%)]" />
               )}
@@ -312,7 +312,7 @@ export const Transcript = memo(function Transcript({
                 <div
                   data-chat-bubble
                   className={cn(
-                    "w-fit max-w-[min(42rem,78%)] rounded-bubble text-[14px] leading-[21px]",
+                    "relative w-fit max-w-[min(42rem,78%)] rounded-bubble text-[14px] leading-[21px]",
                     !user && m.id === emergingId && "turn-answer",
                     (user ? sentOnly : !m.text?.trim() && !m.replyToId && m.attachments?.length)
                       ? "text-ink"
@@ -320,6 +320,12 @@ export const Transcript = memo(function Transcript({
                   )}
                   title={new Date(m.at).toLocaleString()}
                 >
+                  <ReactionPills
+                    reactions={m.reactions}
+                    side={user ? "user" : "bot"}
+                    nameOf={(by) => memberOf(by)?.name ?? (by === m.from?.botId ? m.from.name : by)}
+                    onToggle={!readOnly && canReactTo(m) ? (emoji) => void reactToMessage(dispatch, group.threadId, m, emoji) : undefined}
+                  />
                   {m.replyToId && (() => {
                     const target = transcript.find((candidate) => candidate.id === m.replyToId);
                     return target ? (
@@ -376,12 +382,6 @@ export const Transcript = memo(function Transcript({
                   {formatTime(m.at)}
                 </span>
               </div>
-              <ReactionPills
-                reactions={m.reactions}
-                side={user ? "user" : "bot"}
-                nameOf={(by) => memberOf(by)?.name ?? (by === m.from?.botId ? m.from.name : by)}
-                onToggle={!readOnly && canReactTo(m) ? (emoji) => void reactToMessage(dispatch, group.threadId, m, emoji) : undefined}
-              />
               {user && m.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={m.at} held={m.held} />}
             </div>
           ) : null;

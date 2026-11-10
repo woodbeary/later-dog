@@ -249,3 +249,12 @@ and production receipts above. At that checkpoint, Clover preserved the stopped 
 ## Fable 5.2 catalog (2026-11-10)
 
 Clover: `clover/fable52-20261110` adds Claude Fable 5.2 to the official Claude account catalog, with High as its default effort. Existing defaults stay as selected. Catalog, picker, bot-creation fixture and no-comments checks cover availability and selection. Live provider availability and production rollout require separate verification.
+
+## Dog tapbacks (2026-11-10)
+
+The home adds `react` for acknowledgments, stored on the existing message with
+no reply bubble or notification for a reaction-only turn. Desktop corner
+rendering is merged for inclusion in the next desktop release; this lane does
+not publish a new desktop binary. Phone corner rendering goes in beta after
+Mac checks and the Build 9 fingerprint gate.
+[Verification and release evidence](../verification/tapbacks-2026-11-10.md).

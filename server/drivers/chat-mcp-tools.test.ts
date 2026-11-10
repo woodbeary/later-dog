@@ -526,6 +526,16 @@ describe("Chat MCP schema validation", () => {
 });
 
 describe("later.dog's own reviewed reads", () => {
+  it("adds a tapback without asking, while a custom tool with that name still asks", async () => {
+    const lists = `if (message.method === "tools/list") { reply(message, {tools:[{name:"react",inputSchema:{type:"object",properties:{emoji:{type:"string"}},required:["emoji"]}}]}); continue; }`;
+    const builtIn = fixture(lists);
+    const other = fixture(lists);
+    const session = await mountChatTools({ agents: builtIn.server, custom: { mine: other.server } } as Parameters<typeof mountChatTools>[0], builtIn.controller.signal);
+    sessions.push(session);
+    expect(session.view("agents_react", { emoji: "👍" }).ask).toBe(false);
+    expect(session.view("mine_react", { emoji: "👍" }).ask).toBe(true);
+  });
+
   it("ask nothing on the built-in agents server, while a write there and the same name elsewhere still ask", async () => {
     const lists = `if (message.method === "tools/list") { reply(message, {tools:[{name:"skills_list",inputSchema:{type:"object",properties:{}}},{name:"skill_manage",inputSchema:{type:"object",properties:{}}}]}); continue; }`;
     const builtIn = fixture(lists);

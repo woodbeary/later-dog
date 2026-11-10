@@ -103,6 +103,7 @@ const PHRASES: Array<[RegExp, string]> = [
   [/^add_mcp_server$/, "adding an app"],
   [/^attach_file$/, "attaching a file"],
   [/^send_voice_note$/, "recording a voice note"],
+  [/^react$/, "reacting"],
   [/^create_options_card$/, "putting options together"],
   [/^tool_result_read$/, "reading the results"],
   [SHELL_TOOL, "running a few commands"],

@@ -145,7 +145,7 @@ describe("chat transcript rows", () => {
     expect(document.querySelectorAll(`[data-mid="m5"] [aria-label="${t("chat.messageActions")}"]`).length).toBeGreaterThan(0);
   });
 
-  it("shows a reaction made on the phone under its bubble", async () => {
+  it("shows a reaction made on the phone on its bubble's corner", async () => {
     const answer = messages.find((candidate) => candidate.id === "m5")!;
     await rowRendersAfter((current) => reducer(current, {
       type: "messagePatched", threadId: "pepper-thread", message: { ...answer, reactions: [{ emoji: "👍", by: "user" }, { emoji: "👍", by: "pepper" }] },
@@ -155,6 +155,22 @@ describe("chat transcript rows", () => {
     expect(pill.getAttribute("aria-pressed")).toBe("true");
     expect(pill.getAttribute("aria-label")).toBe(t("chat.reaction.by", { names: `${t("chat.reaction.you")} and pepper`, emoji: "👍" }));
     expect(document.querySelectorAll('[data-mid="m3"] [data-testid="reaction-pills"]')).toHaveLength(0);
+  });
+
+  it("puts a dog's tapback on the top corner of the person's bubble, with no extra row", async () => {
+    const ask = messages.find((candidate) => candidate.id === "m3")!;
+    await rowRendersAfter((current) => reducer(current, {
+      type: "messagePatched", threadId: "pepper-thread", message: { ...ask, reactions: [{ emoji: "👍", by: "pepper" }] },
+    }));
+    const tapback = document.querySelector<HTMLElement>('[data-mid="m3"] [data-testid="reaction-pills"]')!;
+    expect(tapback.dataset.corner).toBe("top-left");
+    expect(tapback.className).toMatch(/\babsolute\b/);
+    expect(tapback.parentElement?.hasAttribute("data-chat-bubble")).toBe(true);
+    expect(tapback.parentElement?.className).toMatch(/\brelative\b/);
+    expect(tapback.querySelector("button")!.textContent).toBe("👍");
+    expect(tapback.querySelector("button")!.getAttribute("aria-label")).toBe(t("chat.reaction.by", { names: "pepper", emoji: "👍" }));
+    expect(document.querySelector('[data-mid="m5"] [data-testid="reaction-pills"]')?.getAttribute("data-corner")).toBe("top-right");
+    await rowRendersAfter((current) => reducer(current, { type: "messagePatched", threadId: "pepper-thread", message: ask }));
   });
 
   it("reacts from the picker and posts the reaction to the home", async () => {

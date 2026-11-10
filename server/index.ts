@@ -740,6 +740,7 @@ import { cloudVaultKey, testVaultKey, VaultStore } from "./laterdog/vault.ts";
 import { transcribeRoute } from "./laterdog/transcribe.ts";
 import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
 import { withOnItNote, withSteerNote, workUpdatesPrompt } from "./laterdog/work-updates.ts";
+import { onlyTapbackText, reactedText, tapbackEmoji, tapbackTarget, tapbackStreamChunk, tapbackTurnKey, withTapback } from "./laterdog/tapback.ts";
 import { createMacWaits } from "./laterdog/mac-waits.ts";
 import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac-prompt.ts";
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
@@ -2779,6 +2780,8 @@ const pendingCancelledProviderHandshakes = new PendingTurnCancellations();
 type ParkedTurnAttachment = NonNullable<Message["attachments"]>[number] & { text?: string };
 
 const turnAttachmentsByTurn = new Map<string, Array<ParkedTurnAttachment>>();
+const reactedTurns = new Set<string>();
+const pendingTapbackText = new Map<string, string>();
 const speechCache = new SpeechCache();
 
 function turnAttachmentKey(threadId: string, turnId?: string): string {
@@ -3579,7 +3582,7 @@ function previewSystemPrompt(bot: BotRecord) {
     { id: "credential", label: "Credentials", text: agentsMounted ? CREDENTIAL_PROMPT : "" },
     { id: "routine", label: "Routines", text: agentsMounted ? ROUTINE_PROMPT : "" },
     { id: "profile", label: "Profile changes", text: agentsMounted ? PROFILE_PROMPT : "" },
-    { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance?.adapter.capabilities.backgroundWork === true }) },
+    { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance?.adapter.capabilities.backgroundWork === true, react: agentsMounted }) },
     { id: "memory", label: "Memory", text: memorySystemPrompt(bot.id, { managedWrites: agentsMounted, fileTools: Boolean(privateWorkspace), enabled: bot.memoryEnabled !== false }) },
     { id: "skills", label: "Skills index", text: privateWorkspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? bot.assignedSkills : undefined) : "" },
   ], cfg.profile?.name);
@@ -6783,10 +6786,20 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   }
   const completedTurnId = event.turnId;
   const privateImageEvent = event.type === "item.completed" && event.itemType === "assistant_image";
-  if (!privateImageEvent) {
-    const publicEvent = event.type === "request.opened" ? { ...event, command: undefined } : event;
-    broadcast({ kind: "runtime", event: publicEvent });
+  const tapbackKey = event.turnId ? tapbackTurnKey(event.threadId, event.turnId) : undefined;
+  let publicEvent = event.type === "request.opened" ? { ...event, command: undefined } : event;
+  let privateTapbackText = tapbackKey && reactedTurns.has(tapbackKey) && event.type === "item.completed" && event.itemType === "assistant_text" && onlyTapbackText(event.text);
+  if (tapbackKey && event.type === "content.delta" && event.streamKind === "assistant_text" && pendingTapbackText.has(tapbackKey)) {
+    const chunk = tapbackStreamChunk(pendingTapbackText.get(tapbackKey), event.delta);
+    if (chunk.pending !== undefined) {
+      pendingTapbackText.set(tapbackKey, chunk.pending);
+      privateTapbackText = true;
+    } else {
+      pendingTapbackText.delete(tapbackKey);
+      publicEvent = { ...event, delta: chunk.delta! };
+    }
   }
+  if (!privateImageEvent && !privateTapbackText) broadcast({ kind: "runtime", event: publicEvent });
   executionEvidence.observe(event);
   const movingOn = movingToPick(event);
   const carryingOn = automaticallyCarriesOn(event) || movingOn;
@@ -6830,6 +6843,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
     case "item.completed":
       if (event.itemType === "assistant_text") {
         const text = event.text;
+        if (event.turnId && reactedTurns.has(tapbackTurnKey(event.threadId, event.turnId)) && onlyTapbackText(text)) break;
         pushMessage({ role: "bot", kind: "text", text, turnId: event.turnId });
         lastReply.set(event.threadId, text);
       } else if (event.itemType === "assistant_image") {
@@ -7120,6 +7134,11 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       break;
     case "turn.completed": {
       const execution = executionEvidence.complete(event);
+      if (event.turnId) {
+        const key = tapbackTurnKey(event.threadId, event.turnId);
+        reactedTurns.delete(key);
+        pendingTapbackText.delete(key);
+      }
       settleWaitingOnPersonChips(event.threadId);
       const internal = isInternalTurn(event.threadId);
       clearInternalTurn(event.threadId);
@@ -8833,7 +8852,7 @@ async function startTurn(
         { id: "routine-execution", label: "Routine execution", text: opts?.automationSource === "schedule" || opts?.automationSource === "manual" ? ROUTINE_EXECUTION_PROMPT : "" },
         { id: "profile", label: "Profile changes", text: profilePrompt },
         { id: "learn", label: "Skill authoring", text: learnPrompt },
-        { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance.adapter.capabilities.backgroundWork === true }) },
+        { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance.adapter.capabilities.backgroundWork === true, react: Boolean(integrations.agents) }) },
         { id: "recent", label: "Recent work", text: recentWorkPrompt(recentWork(recentWorkSources(bot), bot, { userName: cfg.profile?.name?.trim() || "User", currentThreadId: threadId, ...recentWorkFilter() })) },
         { id: "memory", label: "Memory", text: memorySystemPrompt(bot.id, { managedWrites: Boolean(integrations.agents), fileTools: worksInWorkspace, enabled: bot.memoryEnabled !== false, readOnly: foreignTurn }) },
         { id: "skills", label: "Skills index", text: privateWorkspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "" },
@@ -10584,7 +10603,7 @@ async function runGroupMemberTurn(
     { id: "recall", label: "Recall", text: integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "" },
     { id: "cross-recall", label: "Other dogs' chats", text: integrations.agents && crossDogRecallAllowed(bot, threadId) ? CROSS_DOG_RECALL_PROMPT : "" },
     { id: "recent", label: "Recent work", text: recentWorkPrompt(recentLines) },
-    { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance.adapter.capabilities.backgroundWork === true }) },
+    { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance.adapter.capabilities.backgroundWork === true, react: Boolean(integrations.agents) }) },
     { id: "memory", label: "Memory", text: roomMemory ? `\n${roomMemory.trim()}` : "" },
     { id: "skills", label: "Skills index", text: workspace ? skillsSystemPrompt(bot.id, skillsLibraryEnabled(cfg) ? (store.bot(bot.id)?.assignedSkills ?? bot.assignedSkills) : undefined) : "" },
     { id: "skill-instructions", label: "Skill instructions", text: renderSkillInstructions(selectedSkills, { includeRoot: Boolean(workspace) }) },
@@ -14884,6 +14903,25 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           store.patchMessage(fromThreadId, prior.id, { secret: { ...prior.secret, superseded: true } });
         }
         return json(res, 201, { messageId: message.id, label: target.label });
+      }
+      if (method === "POST" && path === "/api/internal/react") {
+        const body = await readInternalBody();
+        const emoji = tapbackEmoji(body.emoji);
+        if (!emoji) return json(res, 400, { error: "react needs one emoji, for example 👍." });
+        const threadId = internalCapability.threadId;
+        const messageId = typeof body.messageId === "string" && body.messageId.trim() ? body.messageId.trim() : undefined;
+        const target = tapbackTarget(store.activePath(threadId), messageId);
+        if (!target) return json(res, 404, { error: messageId ? "No message with that id in this chat." : "There is no message from the person in this chat to react to." });
+        requireActiveInternalCapability();
+        const patched = store.patchMessage(threadId, target.id, { reactions: withTapback(target.reactions, emoji, internalSender.id) });
+        if (!patched) return json(res, 404, { error: "That message is no longer in this chat." });
+        const turnId = liveTurnByThread.get(threadId);
+        if (turnId) {
+          const key = tapbackTurnKey(threadId, turnId);
+          reactedTurns.add(key);
+          if (!pendingTapbackText.has(key)) pendingTapbackText.set(key, "");
+        }
+        return json(res, 200, { messageId: target.id, emoji, text: reactedText(emoji, target) });
       }
       if (method === "POST" && path === "/api/internal/voice-note") {
         const body = await readInternalBody();

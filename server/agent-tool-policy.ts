@@ -36,6 +36,12 @@ export function asksForItself(name: string): boolean {
   return SELF_ASKING_AGENT_TOOL_NAMES.has(name);
 }
 
+export const CHAT_ONLY_AGENT_TOOL_NAMES: ReadonlySet<string> = new Set(["react"]);
+
+export function touchesOnlyTheChat(name: string): boolean {
+  return CHAT_ONLY_AGENT_TOOL_NAMES.has(name);
+}
+
 export function isReadOnlyAgentTool(name: string): boolean {
   return READ_ONLY_AGENT_TOOL_NAMES.has(name) || OPEN_WORLD_READ_TOOL_NAMES.has(name);
 }

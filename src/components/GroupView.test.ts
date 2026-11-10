@@ -1,4 +1,5 @@
 import { createElement } from "react";
+import { Window } from "happy-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -191,8 +192,19 @@ describe("reactions in a group chat", () => {
     group: { ...room, messages }, members: [scout], locale: "en", messages, transcript: messages, onReply: () => {}, readOnly,
   })));
 
-  it("shows each reaction under its bubble with who reacted, and a React button beside Reply", () => {
+  it("shows each reaction on its bubble's top corner with who reacted, and a React button beside Reply", () => {
     const markup = draw();
+    const document = new Window().document;
+    document.body.innerHTML = markup;
+    const tapbacks = document.querySelectorAll('[data-testid="reaction-pills"]');
+    expect(tapbacks).toHaveLength(2);
+    for (const tapback of tapbacks) {
+      expect(tapback.parentElement?.hasAttribute("data-chat-bubble")).toBe(true);
+      expect(tapback.parentElement?.classList.contains("relative")).toBe(true);
+      expect(tapback.classList.contains("absolute")).toBe(true);
+    }
+    expect(markup).toContain('data-corner="top-left"');
+    expect(markup).toContain('data-corner="top-right"');
     expect(markup.match(/data-testid="reaction-pills"/g)).toHaveLength(2);
     expect(markup).toContain('aria-label="Scout reacted with 👍"');
     expect(markup).toContain('aria-label="You reacted with ❤️"');

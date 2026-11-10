@@ -9,6 +9,14 @@ export function reactionPillLabel(summary: ReactionSummary, nameOf: (by: string)
   return t("chat.reaction.by", { names: list, emoji: summary.emoji });
 }
 
+export function tapbackCorner(side: "user" | "bot"): "top-left" | "top-right" {
+  return side === "user" ? "top-left" : "top-right";
+}
+
+export function hasTapback(reactions: ReadonlyArray<Reaction> | undefined): boolean {
+  return Boolean(reactions?.length);
+}
+
 export function ReactionPills({
   reactions,
   side,
@@ -25,7 +33,8 @@ export function ReactionPills({
   return (
     <div
       data-testid="reaction-pills"
-      className={cn("relative z-[1] -mt-1.5 flex max-w-[min(42rem,78%)] flex-wrap gap-1 px-2", side === "user" ? "justify-end" : "justify-start")}
+      data-corner={tapbackCorner(side)}
+      className={cn("absolute -top-3.5 z-[1] flex gap-0.5 whitespace-nowrap", side === "user" ? "-left-2.5 flex-row-reverse" : "-right-2.5")}
     >
       {summary.map((item) => {
         const label = reactionPillLabel(item, nameOf);
@@ -39,7 +48,7 @@ export function ReactionPills({
             aria-label={label}
             title={label}
             className={cn(
-              "animate-pop-in flex h-6 min-w-[30px] items-center justify-center gap-1 rounded-full border-2 border-panel px-1.5 text-[13px] leading-none transition-colors disabled:cursor-default",
+              "animate-pop-in flex h-[22px] min-w-[22px] items-center justify-center gap-0.5 rounded-full border-2 border-panel px-1 text-[12px] leading-none transition-colors disabled:cursor-default",
               item.mine ? "bg-raised-hover text-ink ring-1 ring-ink/35 hover:bg-control-hover" : "bg-card text-ink-secondary hover:bg-raised",
             )}
           >
