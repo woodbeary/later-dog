@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ComputerRuns } from "./laterdog/computer-runs.ts";
-import { handleComputerRun } from "./laterdog/computer-run-route.ts";
+import { STILL_STARTING_TEXT, handleComputerRun } from "./laterdog/computer-run-route.ts";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 type State = "starting" | "running" | "sleeping" | "stopping" | "error";
@@ -542,6 +542,36 @@ describe("the cloud computer facade", () => {
       wanted = false;
       await expect(run).rejects.toThrow(/did not start/);
       expect(wakes()).toBe(1);
+    });
+
+    it("does not wake a computer again on the next call once it went from starting to error", async () => {
+      const computer = sleeping("dog-heavy-later-error");
+      runsAt = Date.now() + 400_000;
+      const root = mkdtempSync(join(tmpdir(), "heavy-later-error-"));
+      mkdirSync(join(root, "site"));
+      const ran: string[] = [];
+      const runs = { record: () => null, run: async () => { ran.push("run"); throw new Error("not reached"); }, finish: async () => { throw new Error("not reached"); } } as unknown as ComputerRuns;
+      const call = () => handleComputerRun({ botId: "dog-heavy-later-error", body: { command: "pnpm test", folder: join(root, "site") }, workingFolder: null, allowedRoots: [root] }, { runs, computer: computers.heavyRunBox, repositoryOf: () => null });
+      expect(await call()).toEqual({ status: 200, text: STILL_STARTING_TEXT });
+      failsAt = Date.now();
+      const started = Date.now();
+      const second = await call();
+      expect(second.status).toBe(502);
+      expect(second.error).toMatch(/reported an error/);
+      expect(Date.now() - started).toBeLessThan(60_000);
+      expect(fleet.get(computer.id)?.state).toBe("error");
+      expect(wakes()).toBe(1);
+      expect(creates()).toHaveLength(0);
+      expect(ran).toEqual([]);
+    });
+
+    it("fails without a wake when the computer is in an error or unknown state before the call", async () => {
+      add("dog-heavy-was-error", "error");
+      add("dog-heavy-odd", "migrating" as State);
+      await expect(computers.heavyRunBox("dog-heavy-was-error")).rejects.toThrow(/reported an error/);
+      await expect(computers.heavyRunBox("dog-heavy-odd")).rejects.toThrow(/does not know/);
+      expect(wakes()).toBe(0);
+      expect(creates()).toHaveLength(0);
     });
 
     it("wakes once for adjacent calls and leaves the computer running for the service's idle policy, even when one call is abandoned", async () => {
