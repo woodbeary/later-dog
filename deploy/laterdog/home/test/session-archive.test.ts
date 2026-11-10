@@ -138,8 +138,6 @@ it("keeps sessions that are recent, belong to busy threads, or contain anything 
   expect(existsSync(join(f.root, TRANSCRIPT))).toBe(true);
   rmSync(join(f.root, `.claude/projects/${SLUG}/${SESSION}/a`), { recursive: true });
   await f.coordinator({ sessionByteLimit: 1 }).scan();
-  expect(existsSync(join(f.root, TRANSCRIPT))).toBe(true);
-  await f.coordinator().scan();
   expect(existsSync(join(f.root, TRANSCRIPT))).toBe(false);
   expect(existsSync(join(f.root, SUBAGENT))).toBe(false);
 });
@@ -264,4 +262,156 @@ it("restores the session before remote placement inventories the files it pushes
     { id: "session", path: `${SESSION}.jsonl`, hash: sha(BYTES) },
     { id: "session-extra", path: "subagents/agent-a1.jsonl", hash: sha("subagent transcript\n") },
   ]);
+});
+
+const ORPHAN = "33333333-4444-4555-8666-777777777777";
+const LATER = "55555555-6666-4777-8888-999999999999";
+const YOUNG = "44444444-5555-4666-8777-888888888888";
+const GROUPED = "66666666-7777-4888-8999-aaaaaaaaaaaa";
+const LOCKED = "77777777-8888-4999-8aaa-bbbbbbbbbbbb";
+const LINKED = "88888888-9999-4aaa-8bbb-cccccccccccc";
+const transcriptOf = (id: string) => `.claude/projects/${SLUG}/${id}.jsonl`;
+const subagentOf = (id: string) => `.claude/projects/${SLUG}/${id}/subagents/agent-a1.jsonl`;
+const referenced = (f: Awaited<ReturnType<typeof fixture>>, extra: string[] = []) => () => [...Object.values(f.cursors).flatMap(cursors => claudeSessionIds(cursors)), ...extra];
+function paused(bridge: ReturnType<typeof logArchiveBridge>) {
+  const events: string[] = [];
+  let release: () => void = () => {};
+  let reached: () => void = () => {};
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  const arrived = new Promise<void>(resolve => { reached = resolve; });
+  let first = true;
+  const wrapped: typeof bridge = {
+    async archive(paths) {
+      if (first) { first = false; events.push("archive held"); reached(); await hold; }
+      const result = await bridge.archive(paths);
+      events.push(`archived ${paths.length}`);
+      return result;
+    },
+    restore: paths => bridge.restore(paths),
+    async restoreSessions(sessions) { events.push(`restore ${sessions.join(",")}`); await bridge.restoreSessions(sessions); },
+  };
+  return { bridge: wrapped, events, release, arrived };
+}
+
+it("archives an untracked session after 72 hours only when every reference is known and no guard holds it", async () => {
+  const f = await fixture();
+  put(f.root, transcriptOf(ORPHAN));
+  put(f.root, subagentOf(ORPHAN), "orphan subagent\n");
+  put(f.root, transcriptOf(YOUNG), "young\n", new Date());
+  put(f.root, transcriptOf(GROUPED), "group chat session\n");
+  put(f.root, transcriptOf(LOCKED), "protected\n");
+  put(f.root, `.claude/projects/${SLUG}/${LOCKED}/credentials.json`, "{}");
+  put(f.root, "elsewhere.jsonl", "outside\n");
+  symlinkSync(join(f.root, "elsewhere.jsonl"), join(f.root, transcriptOf(LINKED)));
+  put(f.root, transcriptOf(BUSY), "busy shared session\n");
+  f.busy.add(OTHER);
+  await f.coordinator().scan();
+  expect(existsSync(join(f.root, transcriptOf(ORPHAN)))).toBe(true);
+  await f.coordinator({ referencedSessions: referenced(f, [GROUPED]) }).scan();
+  expect(existsSync(join(f.root, transcriptOf(ORPHAN)))).toBe(false);
+  expect(existsSync(join(f.root, subagentOf(ORPHAN)))).toBe(false);
+  for (const kept of [transcriptOf(YOUNG), transcriptOf(GROUPED), transcriptOf(LOCKED), `.claude/projects/${SLUG}/${LOCKED}/credentials.json`, transcriptOf(BUSY), "elsewhere.jsonl"]) {
+    expect(existsSync(join(f.root, kept)), kept).toBe(true);
+  }
+  expect(readFileSync(join(f.root, transcriptOf(LINKED)), "utf8")).toBe("outside\n");
+});
+
+it("a later resume of a once-untracked session restores every file before the turn proceeds", async () => {
+  const f = await fixture();
+  put(f.root, transcriptOf(ORPHAN));
+  put(f.root, subagentOf(ORPHAN), "orphan subagent\n");
+  await f.coordinator({ referencedSessions: referenced(f) }).scan();
+  expect(existsSync(join(f.root, transcriptOf(ORPHAN)))).toBe(false);
+  f.cursors[THREAD] = { claude: ORPHAN };
+  f.busy.add(THREAD);
+  expect(await f.coordinator({ referencedSessions: referenced(f) }).beforeTurn(THREAD, () => true)).toBe(true);
+  expect(readFileSync(join(f.root, transcriptOf(ORPHAN)))).toEqual(BYTES);
+  expect(readFileSync(join(f.root, subagentOf(ORPHAN)), "utf8")).toBe("orphan subagent\n");
+  f.store.getArchived = async () => { throw new Error("offline"); };
+  rmSync(join(f.root, transcriptOf(ORPHAN)));
+  rmSync(join(f.root, subagentOf(ORPHAN)));
+  let current = true;
+  setTimeout(() => { current = false; }, 30);
+  expect(await f.coordinator({ referencedSessions: referenced(f) }).beforeTurn(THREAD, () => current)).toBe(false);
+  expect(existsSync(join(f.root, transcriptOf(ORPHAN)))).toBe(false);
+});
+
+it("when the archive wins the session lock, a turn that resumes that session waits and restores it before proceeding", async () => {
+  const f = await fixture();
+  put(f.root, transcriptOf(ORPHAN));
+  const p = paused(f.bridge);
+  const coordinator = f.coordinator({ bridge: p.bridge, referencedSessions: referenced(f) });
+  const scan = coordinator.scan();
+  await p.arrived;
+  f.cursors[THREAD] = { claude: ORPHAN };
+  f.busy.add(THREAD);
+  let ready = false;
+  const turn = coordinator.beforeTurn(THREAD, () => true).then(value => { ready = value; p.events.push("turn ready"); });
+  await new Promise(resolve => setTimeout(resolve, 50));
+  expect(ready).toBe(false);
+  p.release();
+  await Promise.all([scan, turn]);
+  expect(p.events).toEqual(["archive held", "archived 1", `restore ${ORPHAN}`, "turn ready"]);
+  expect(readFileSync(join(f.root, transcriptOf(ORPHAN)))).toEqual(BYTES);
+});
+
+it("rechecks ownership under the session lock, so a session resumed after discovery is kept", async () => {
+  const f = await fixture();
+  put(f.root, transcriptOf(ORPHAN));
+  put(f.root, transcriptOf(LATER), "resumed after the sweep listed it\n");
+  const p = paused(f.bridge);
+  const coordinator = f.coordinator({ bridge: p.bridge, referencedSessions: referenced(f) });
+  const scan = coordinator.scan();
+  await p.arrived;
+  f.cursors[THREAD] = { claude: LATER };
+  f.busy.add(THREAD);
+  expect(await coordinator.beforeTurn(THREAD, () => true)).toBe(true);
+  p.release();
+  await scan;
+  expect(existsSync(join(f.root, transcriptOf(ORPHAN)))).toBe(false);
+  expect(readFileSync(join(f.root, transcriptOf(LATER)), "utf8")).toBe("resumed after the sweep listed it\n");
+  await coordinator.scan();
+  expect(existsSync(join(f.root, transcriptOf(LATER)))).toBe(true);
+});
+
+it("two turns sharing sessions in opposite order and a sweep all finish without deadlock", async () => {
+  const f = await fixture();
+  put(f.root, transcriptOf(ORPHAN));
+  put(f.root, transcriptOf(LATER), "later\n");
+  const coordinator = f.coordinator({ referencedSessions: referenced(f) });
+  await coordinator.scan();
+  f.cursors[THREAD] = { a: ORPHAN, b: LATER };
+  f.cursors[OTHER] = { a: LATER, b: ORPHAN };
+  f.busy.add(THREAD);
+  f.busy.add(OTHER);
+  const all = Promise.all([coordinator.beforeTurn(THREAD, () => true), coordinator.beforeTurn(OTHER, () => true), coordinator.scan()]);
+  const outcome = await Promise.race([all.then(() => "done"), new Promise(resolve => setTimeout(() => resolve("stuck"), 5000))]);
+  expect(outcome).toBe("done");
+  expect(readFileSync(join(f.root, transcriptOf(ORPHAN)))).toEqual(BYTES);
+  expect(readFileSync(join(f.root, transcriptOf(LATER)), "utf8")).toBe("later\n");
+});
+
+it("a session larger than the sweep budget goes first in the next sweep, then other sessions follow", async () => {
+  const f = await fixture();
+  const small = "11111111-1111-4111-8111-111111111111";
+  const big = "55555555-5555-4555-8555-555555555555";
+  const last = "77777777-7777-4777-8777-777777777777";
+  put(f.root, transcriptOf(small), "12345");
+  put(f.root, transcriptOf(big), "x".repeat(100));
+  put(f.root, transcriptOf(last), "67890");
+  const calls: string[][] = [];
+  const bridge = { ...f.bridge, archive: (paths: string[]) => { calls.push(paths); return f.bridge.archive(paths); } };
+  const coordinator = f.coordinator({ bridge, sessionByteLimit: 8, referencedSessions: referenced(f) });
+  await coordinator.scan();
+  expect(calls).toEqual([[transcriptOf(small)]]);
+  await coordinator.scan();
+  expect(calls.slice(1)).toEqual([[transcriptOf(big)]]);
+  expect(existsSync(join(f.root, transcriptOf(last)))).toBe(true);
+  await coordinator.scan();
+  expect(calls.slice(2)).toEqual([[transcriptOf(last)]]);
+  for (const id of [small, big, last]) expect(existsSync(join(f.root, transcriptOf(id))), id).toBe(false);
+  f.cursors[THREAD] = { claude: big };
+  f.busy.add(THREAD);
+  expect(await coordinator.beforeTurn(THREAD, () => true)).toBe(true);
+  expect(readFileSync(join(f.root, transcriptOf(big)), "utf8")).toBe("x".repeat(100));
 });

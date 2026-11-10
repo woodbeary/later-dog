@@ -2667,6 +2667,7 @@ const logArchive = CLOUD_SECRETS.LATERDOG_CLOUD_ARCHIVE_TOKEN && process.env.LAT
         && !roomHandoffs.activeDirect(id));
     },
     sessions: id => claudeSessionIds(store.bots.flatMap(bot => store.tasks(bot.id)).find(task => task.threadId === id)?.resumeCursors),
+    referencedSessions: () => store.bots.flatMap(bot => [bot.resumeCursors, ...store.tasks(bot.id).map(task => task.resumeCursors)]).flatMap(cursors => claudeSessionIds(cursors)),
     report: message => console.log(`[log archive] ${message}`),
   }) : null;
 
