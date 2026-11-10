@@ -18182,10 +18182,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const body = await readBody(req);
       requirePinnedClientThread(m[1], body?.threadId);
       const bot = requestedTaskBot(m[1], body?.threadId);
-      const held = holdSteeredQueue(bot.id, bot.threadId, m[2]);
+      const asked = m[2];
+      const held = holdSteeredQueue(bot.id, bot.threadId, asked);
       if (!held) {
-        const landed = store.messagesFor(bot.threadId).some((message) => message.role === "user" && (message.sendId === m[2] || message.queueId === m[2]));
-        if (landed) return json(res, 200, { ok: true, sent: true, threadId: bot.threadId, messages: [], queueIds: [m[2]] });
+        const landed = store.messagesFor(bot.threadId).some((message) => message.role === "user" && (message.sendId === asked || message.queueId === asked));
+        if (landed) return json(res, 200, { ok: true, sent: true, threadId: bot.threadId, messages: [], queueIds: [asked] });
         return json(res, 404, { error: "no such queued message" });
       }
       const currentAtStart = store.projectBotForTask(bot.id, bot.threadId);
@@ -18231,7 +18232,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ...(item.via ? { via: item.via } : {}),
         })));
         for (const message of messages) handoffs.steered(bot.threadId, steerTarget, instance?.instanceId, message.id);
-        const queueIds = askedToo(held.items.map((item) => item.messageId), m[2]);
+        const queueIds = askedToo(held.items.map((item) => item.messageId), asked);
         settleHeldSteeredQueue(held);
         return json(res, 200, { ok: true, steered: true, threadId: bot.threadId, messages, queueIds });
       }
@@ -18252,7 +18253,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         interrupt: () => stopThreadTurn(bot.id, bot.threadId, fromLocalTools(auth) ? "api" : "person"),
         drain: drainQueuedSends,
         messages: () => store.messagesFor(bot.threadId),
-      }), m[2]));
+      }), asked));
     }
 
     m = path.match(/^\/api\/bots\/([\w-]+)\/compact$/);
