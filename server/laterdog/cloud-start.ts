@@ -29,3 +29,21 @@ export async function startRetryingPassingFailures<T>(start: () => Promise<T>, r
     }
   }
 }
+
+export const CLOUD_COMPUTER_BOOT_MS = 5 * 60_000;
+export const CLOUD_COMPUTER_START_MARGIN_MS = 30_000;
+
+export function cloudComputerStartBudgetMs(env: NodeJS.ProcessEnv = process.env): number {
+  const override = Number(env.LATERDOG_CLOUD_COMPUTER_START_BUDGET_MS);
+  return override > 0 ? Math.max(1_000, override) : CLOUD_COMPUTER_BOOT_MS + CLOUD_COMPUTER_START_MARGIN_MS;
+}
+
+export function remainingStartMs(deadline: number, now: number): number {
+  return Math.max(1, deadline - now);
+}
+
+const STILL_STARTING: ReadonlySet<string> = new Set(["starting", "provisioning"]);
+
+export function stillStarting(state: unknown): boolean {
+  return typeof state === "string" && STILL_STARTING.has(state);
+}

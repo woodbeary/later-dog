@@ -15,6 +15,7 @@ const INCLUDED = `box_laterdog_${randomUUID()}`;
 const FRAME = Buffer.from("/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==", "base64");
 const CALL_WAIT_MS = 1_500;
 const START_BUDGET_MS = 20_000;
+const SLOW_WAKE_MS = 65_000;
 const STILL_STARTING = "The cloud computer is still starting. This call was not performed. Take a fresh screenshot in a moment.";
 
 describe("a slow cloud computer start", () => {
@@ -25,9 +26,9 @@ describe("a slow cloud computer start", () => {
   let child: ChildProcess | null = null;
   let output = "";
   let relay: Server;
-  const rows: Array<{ id: string; name?: string; state: string }> = [];
+  const rows: Array<{ id: string; name?: string; state: string; readyAt?: number; failAt?: number }> = [];
   const requests: string[] = [];
-  const hold = { provisioning: false, desktop: false, refuseCreates: 0 };
+  const hold = { provisioning: false, desktop: false, refuseCreates: 0, wakeMs: 0, failWakeAfterMs: 0 };
   const held: ServerResponse[] = [];
 
   const api = async (method: string, path: string, body?: unknown) => {
@@ -49,6 +50,7 @@ describe("a slow cloud computer start", () => {
     }
   }
   const creates = () => requests.filter(request => request === "POST /boxes").length;
+  const resumes = () => requests.filter(request => /^POST \/boxes\/[^/]+\/resume$/.test(request)).length;
   const task = async (botId: string) => (await api("GET", "/api/bots?messages=40")).bots.find((bot: any) => bot.id === botId);
   const failedRows = async (botId: string) => (await task(botId))?.messages.filter((message: any) => message.tool?.name?.startsWith("error:")) ?? [];
   const startTurn = async (botId: string, text: string, threadId?: string) => {
@@ -107,7 +109,13 @@ describe("a slow cloud computer start", () => {
           row.name = (raw ? JSON.parse(raw) : {}).name;
           return send(200, { ok: true, box: row });
         }
+        if (verb === "resume" && req.method === "POST") {
+          if (row.state === "archived") Object.assign(row, { state: "starting", readyAt: Date.now() + hold.wakeMs, failAt: hold.failWakeAfterMs ? Date.now() + hold.failWakeAfterMs : undefined });
+          return send(200, { ok: true, box: row });
+        }
         if (!verb && req.method === "GET") {
+          if (row.state === "starting" && Number.isFinite(row.failAt) && Date.now() >= row.failAt!) row.state = "error";
+          if (row.state === "starting" && Number.isFinite(row.readyAt) && Date.now() >= row.readyAt!) row.state = "ready";
           const seen = { ...row };
           if (row.state === "provisioning" && !hold.provisioning) row.state = "ready";
           return send(200, { ok: true, box: seen });
@@ -138,8 +146,16 @@ describe("a slow cloud computer start", () => {
         environment: { FAKE_CLAUDE_MODE: "slow", FAKE_CLAUDE_DUMP: dumpFile, FAKE_CLAUDE_SLOW_FINISH_GATE: finishFile },
       },
     } }));
+    relayUrl = relayBase;
+    await launch(START_BUDGET_MS);
+  }, 60_000);
+
+  let relayUrl = "";
+  async function launch(startBudgetMs: number) {
     const port = await freePortBlock([0, 1]);
     base = `http://127.0.0.1:${port}`;
+    const relayBase = relayUrl;
+    const data = join(home, "data");
     child = spawn(process.execPath, [join(ROOT, "server/index.ts")], {
       cwd: ROOT,
       env: {
@@ -150,7 +166,7 @@ describe("a slow cloud computer start", () => {
         LATERDOG_CLOUD_BOAT_URL: `${relayBase}/relay/api/box/v1`,
         LATERDOG_CLOUD_BOAT_TOKEN: INCLUDED,
         LATERDOG_CLOUD_COMPUTER_START_WAIT_MS: String(CALL_WAIT_MS),
-        LATERDOG_CLOUD_COMPUTER_START_BUDGET_MS: String(START_BUDGET_MS),
+        LATERDOG_CLOUD_COMPUTER_START_BUDGET_MS: String(startBudgetMs),
         LATERDOG_CLOUD_COMPUTER_RETRY_PAUSE_MS: "300",
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -161,7 +177,7 @@ describe("a slow cloud computer start", () => {
       if (child!.exitCode !== null) throw new Error(`the server exited:\n${output}`);
       try { return (await fetch(`${base}/api/health`)).ok; } catch { return false; }
     }, Boolean, 30_000);
-  }, 60_000);
+  }
 
   afterAll(async () => {
     if (child) await waitForExit(child, { signal: "SIGTERM" });
@@ -232,4 +248,208 @@ describe("a slow cloud computer start", () => {
       hold.desktop = false;
     }
   }, 60_000);
+
+  async function sleepingComputer(name: string) {
+    const bot = await cloudBot(name);
+    const created = creates();
+    const first = await startTurn(bot.id, "Open the cloud desktop");
+    await until(() => screenshot(first), result => !result.isError, 20_000);
+    writeFileSync(finishFile, "finish");
+    await until(() => task(bot.id), current => current?.busy === false);
+    expect(creates()).toBe(created + 1);
+    const row = rows[rows.length - 1];
+    Object.assign(row, { state: "archived", readyAt: undefined, failAt: undefined });
+    return { bot, row };
+  }
+
+  const wakeFromSettings = async (botId: string) => {
+    const response = await fetch(`${base}/api/bots/${botId}/computer/provision`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    return { status: response.status, body: await response.json().catch(() => null) as any };
+  };
+
+  it("a newer turn after Stop keeps the same wake and gets the computer, with one wake", async () => {
+    hold.wakeMs = 8_000;
+    try {
+      const { bot } = await sleepingComputer("Newer waker");
+      const before = { creates: creates(), resumes: resumes() };
+      const first = await startTurn(bot.id, "Look again");
+      expect(await screenshot(first)).toEqual({ isError: true, content: [{ type: "text", text: STILL_STARTING }] });
+      await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
+      await until(() => task(bot.id), current => current?.busy === false, 20_000);
+      const second = await startTurn(bot.id, "Try once more");
+      const answer = await until(() => screenshot(second), result => !result.isError, 20_000);
+      expect(answer.content[0]).toMatchObject({ type: "image" });
+      expect(resumes()).toBe(before.resumes + 1);
+      expect(creates()).toBe(before.creates);
+      writeFileSync(finishFile, "finish");
+      await until(() => task(bot.id), current => current?.busy === false);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    } finally {
+      hold.wakeMs = 0;
+    }
+  }, 60_000);
+
+  it("a Settings wake that joins a turn's wake still reports ready after that turn is stopped", async () => {
+    hold.wakeMs = 8_000;
+    try {
+      const { bot } = await sleepingComputer("Joined by settings");
+      const before = { creates: creates(), resumes: resumes() };
+      const sent = await startTurn(bot.id, "Look again");
+      expect(await screenshot(sent)).toEqual({ isError: true, content: [{ type: "text", text: STILL_STARTING }] });
+      const fromSettings = wakeFromSettings(bot.id);
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
+      expect(await fromSettings).toMatchObject({ status: 200, body: { ready: true } });
+      expect(resumes()).toBe(before.resumes + 1);
+      expect(creates()).toBe(before.creates);
+      await until(() => task(bot.id), current => current?.busy === false, 20_000);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    } finally {
+      hold.wakeMs = 0;
+    }
+  }, 60_000);
+
+  it("a Settings wake whose client disconnects does not keep a stopped turn's wake going", async () => {
+    hold.wakeMs = 10 * 60_000;
+    try {
+      const { bot, row } = await sleepingComputer("Abandoned settings");
+      const before = { creates: creates(), resumes: resumes() };
+      const polls = () => requests.filter(request => request === `GET /boxes/${row.id}`).length;
+      const sent = await startTurn(bot.id, "Look again");
+      expect(await screenshot(sent)).toEqual({ isError: true, content: [{ type: "text", text: STILL_STARTING }] });
+      const leaving = new AbortController();
+      const fromSettings = fetch(`${base}/api/bots/${bot.id}/computer/provision`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal: leaving.signal })
+        .then(() => "answered", (error: Error) => error.name);
+      await new Promise(resolve => setTimeout(resolve, 1_000));
+      leaving.abort();
+      expect(await fromSettings).toBe("AbortError");
+      await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
+      await until(() => task(bot.id), current => current?.busy === false, 20_000);
+      await new Promise(resolve => setTimeout(resolve, 4_000));
+      const settled = polls();
+      Object.assign(row, { state: "archived", readyAt: undefined });
+      await new Promise(resolve => setTimeout(resolve, 6_000));
+      expect(polls()).toBe(settled);
+      expect(resumes()).toBe(before.resumes + 1);
+      expect(creates()).toBe(before.creates);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    } finally {
+      hold.wakeMs = 0;
+    }
+  }, 90_000);
+
+  it("a Settings wake whose POST body was read and finished stays joined after Stop and reports ready", async () => {
+    hold.wakeMs = 9_000;
+    try {
+      const { bot } = await sleepingComputer("Connected settings");
+      const before = { creates: creates(), resumes: resumes() };
+      const sent = await startTurn(bot.id, "Look again");
+      expect(await screenshot(sent)).toEqual({ isError: true, content: [{ type: "text", text: STILL_STARTING }] });
+      const fromSettings = fetch(`${base}/api/bots/${bot.id}/computer/provision`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ reason: "settings" }) })
+        .then(async response => ({ status: response.status, body: await response.json().catch(() => null) as any }));
+      await new Promise(resolve => setTimeout(resolve, 1_000));
+      await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
+      await until(() => task(bot.id), current => current?.busy === false, 20_000);
+      expect(await fromSettings).toMatchObject({ status: 200, body: { ready: true } });
+      expect(resumes()).toBe(before.resumes + 1);
+      expect(creates()).toBe(before.creates);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    } finally {
+      hold.wakeMs = 0;
+    }
+  }, 60_000);
+
+  it("a turn that joins a Settings wake fails fast when the computer reports an error, without waking it again", async () => {
+    hold.wakeMs = 10 * 60_000;
+    hold.failWakeAfterMs = 2_500;
+    try {
+      const { bot } = await sleepingComputer("Failing waker");
+      const before = { creates: creates(), resumes: resumes() };
+      const sent = await startTurn(bot.id, "Look again");
+      const fromSettings = wakeFromSettings(bot.id);
+      await until(() => resumes(), count => count === before.resumes + 1, 10_000);
+      const started = Date.now();
+      expect(await screenshot(sent)).toEqual({ isError: true, content: [{ type: "text", text: STILL_STARTING }] });
+      const [row] = await until(() => failedRows(bot.id), found => found.length > 0, 15_000);
+      expect(Date.now() - started).toBeLessThan(START_BUDGET_MS - 5_000);
+      expect(row.tool.place).toMatchObject({ state: "cc-no-start" });
+      expect((await fromSettings).body).toMatchObject({ ready: false });
+      expect(resumes()).toBe(before.resumes + 1);
+      expect(creates()).toBe(before.creates);
+      await until(() => task(bot.id), current => current?.busy === false, 20_000);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    } finally {
+      hold.wakeMs = 0;
+      hold.failWakeAfterMs = 0;
+    }
+  }, 60_000);
+
+  it("a turn that is stopped while its computer wakes stops waiting and never wakes it again", async () => {
+    hold.wakeMs = 10 * 60_000;
+    try {
+      const { bot, row } = await sleepingComputer("Stopped waker");
+      const before = { creates: creates(), resumes: resumes() };
+      const sent = await startTurn(bot.id, "Look again");
+      expect(await screenshot(sent)).toEqual({ isError: true, content: [{ type: "text", text: STILL_STARTING }] });
+      expect(resumes()).toBe(before.resumes + 1);
+      await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
+      await until(() => task(bot.id), current => current?.busy === false, 20_000);
+      Object.assign(row, { state: "archived", readyAt: undefined });
+      await new Promise(resolve => setTimeout(resolve, 6_000));
+      expect(resumes()).toBe(before.resumes + 1);
+      expect(creates()).toBe(before.creates);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    } finally {
+      hold.wakeMs = 0;
+    }
+  }, 90_000);
+
+  it("a wake slower than the old one-minute wait still attaches within the start budget, with one wake and no create", async () => {
+    if (child) await waitForExit(child, { signal: "SIGTERM" });
+    await launch(SLOW_WAKE_MS + 25_000);
+    hold.wakeMs = SLOW_WAKE_MS;
+    try {
+      const { bot } = await sleepingComputer("Slow waker");
+      const before = { creates: creates(), resumes: resumes() };
+      const started = Date.now();
+      const sent = await startTurn(bot.id, "Look again");
+      expect(await screenshot(sent)).toEqual({ isError: true, content: [{ type: "text", text: STILL_STARTING }] });
+      const later = await until(() => screenshot(sent), result => !result.isError, SLOW_WAKE_MS + 20_000);
+      expect(later.content[0]).toMatchObject({ type: "image" });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(SLOW_WAKE_MS);
+      expect(resumes()).toBe(before.resumes + 1);
+      expect(creates()).toBe(before.creates);
+      expect(await failedRows(bot.id)).toEqual([]);
+      writeFileSync(finishFile, "finish");
+      await until(() => task(bot.id), current => current?.busy === false);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    } finally {
+      hold.wakeMs = 0;
+    }
+  }, SLOW_WAKE_MS + 90_000);
+
+  it("a turn that joins a one-minute Settings wake keeps waiting while the computer is still starting, with one wake and no create", async () => {
+    hold.wakeMs = SLOW_WAKE_MS;
+    try {
+      const { bot } = await sleepingComputer("Settings first");
+      const before = { creates: creates(), resumes: resumes() };
+      const sent = await startTurn(bot.id, "Look again");
+      const started = Date.now();
+      const fromSettings = wakeFromSettings(bot.id);
+      await until(() => resumes(), count => count === before.resumes + 1, 10_000);
+      expect(await screenshot(sent)).toEqual({ isError: true, content: [{ type: "text", text: STILL_STARTING }] });
+      const later = await until(() => screenshot(sent), result => !result.isError, SLOW_WAKE_MS + 20_000);
+      expect(later.content[0]).toMatchObject({ type: "image" });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(SLOW_WAKE_MS - 1_000);
+      expect((await fromSettings).status).toBe(200);
+      expect(resumes()).toBe(before.resumes + 1);
+      expect(creates()).toBe(before.creates);
+      expect(await failedRows(bot.id)).toEqual([]);
+      writeFileSync(finishFile, "finish");
+      await until(() => task(bot.id), current => current?.busy === false);
+      await api("DELETE", `/api/bots/${bot.id}`);
+    } finally {
+      hold.wakeMs = 0;
+    }
+  }, SLOW_WAKE_MS + 90_000);
 });
