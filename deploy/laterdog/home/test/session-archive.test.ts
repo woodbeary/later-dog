@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { archivable, createArchiver, serveArchive } from "../runtime/archive.mjs";
-import { LogArchiveCoordinator, SESSION_AGE_MS, claudeSessionIds, findSessionFiles, logArchiveBridge } from "../../../../server/laterdog/log-archive.ts";
+import { LogArchiveCoordinator, SESSION_AGE_MS, claudeSessionIds, findSessionFiles, logArchiveBridge, outsideSessionOwners, type CursorOwner } from "../../../../server/laterdog/log-archive.ts";
 import { claudeProjectSlug, planClaudeRemote } from "../../../../server/laterdog/engine-placement.ts";
 import { engineInventory } from "../../../../server/laterdog/engine-files.ts";
 
@@ -270,9 +270,17 @@ const YOUNG = "44444444-5555-4666-8777-888888888888";
 const GROUPED = "66666666-7777-4888-8999-aaaaaaaaaaaa";
 const LOCKED = "77777777-8888-4999-8aaa-bbbbbbbbbbbb";
 const LINKED = "88888888-9999-4aaa-8bbb-cccccccccccc";
+const GROUP_THREAD = "thread-group-chat";
 const transcriptOf = (id: string) => `.claude/projects/${SLUG}/${id}.jsonl`;
 const subagentOf = (id: string) => `.claude/projects/${SLUG}/${id}/subagents/agent-a1.jsonl`;
-const referenced = (f: Awaited<ReturnType<typeof fixture>>, extra: string[] = []) => () => [...Object.values(f.cursors).flatMap(cursors => claudeSessionIds(cursors)), ...extra];
+const cursorsOf = (ids: string[]) => Object.fromEntries(ids.map((id, at) => [`claude-${at}`, id]));
+function ownership(bots: () => CursorOwner[]) {
+  return { outsideSessions: () => outsideSessionOwners(bots(), thread => thread === GROUP_THREAD) };
+}
+function owners(f: Awaited<ReturnType<typeof fixture>>, group: string[] = []) {
+  return ownership(() => [{ threadId: THREAD, resumeCursors: f.cursors[THREAD],
+    tasks: [...[THREAD, OTHER].map(threadId => ({ threadId, resumeCursors: f.cursors[threadId] })), { threadId: GROUP_THREAD, resumeCursors: cursorsOf(group) }] }]);
+}
 function paused(bridge: ReturnType<typeof logArchiveBridge>) {
   const events: string[] = [];
   let release: () => void = () => {};
@@ -293,7 +301,7 @@ function paused(bridge: ReturnType<typeof logArchiveBridge>) {
   return { bridge: wrapped, events, release, arrived };
 }
 
-it("archives an untracked session after 72 hours only when every reference is known and no guard holds it", async () => {
+it("archives an untracked session after 72 hours only when ownership is known and no guard holds it", async () => {
   const f = await fixture();
   put(f.root, transcriptOf(ORPHAN));
   put(f.root, subagentOf(ORPHAN), "orphan subagent\n");
@@ -307,7 +315,7 @@ it("archives an untracked session after 72 hours only when every reference is kn
   f.busy.add(OTHER);
   await f.coordinator().scan();
   expect(existsSync(join(f.root, transcriptOf(ORPHAN)))).toBe(true);
-  await f.coordinator({ referencedSessions: referenced(f, [GROUPED]) }).scan();
+  await f.coordinator(owners(f, [GROUPED])).scan();
   expect(existsSync(join(f.root, transcriptOf(ORPHAN)))).toBe(false);
   expect(existsSync(join(f.root, subagentOf(ORPHAN)))).toBe(false);
   for (const kept of [transcriptOf(YOUNG), transcriptOf(GROUPED), transcriptOf(LOCKED), `.claude/projects/${SLUG}/${LOCKED}/credentials.json`, transcriptOf(BUSY), "elsewhere.jsonl"]) {
@@ -316,15 +324,64 @@ it("archives an untracked session after 72 hours only when every reference is kn
   expect(readFileSync(join(f.root, transcriptOf(LINKED)), "utf8")).toBe("outside\n");
 });
 
+it("keeps a session an idle thread shares with a group chat or another dog's own cursor, and archives a bot's mirror of its active task", async () => {
+  const f = await fixture();
+  const withGroup = "a1111111-1111-4111-8111-111111111111";
+  const withOtherDog = "a2222222-2222-4222-8222-222222222222";
+  const groupOnly = "a3333333-3333-4333-8333-333333333333";
+  const otherDogOnly = "a4444444-4444-4444-8444-444444444444";
+  const mirrored = "a5555555-5555-4555-8555-555555555555";
+  const otherActive = "a6666666-6666-4666-8666-666666666666";
+  for (const id of [withGroup, withOtherDog, groupOnly, otherDogOnly, mirrored]) put(f.root, transcriptOf(id), `${id}\n`);
+  f.cursors[THREAD] = cursorsOf([withGroup, withOtherDog, mirrored]);
+  const coordinator = f.coordinator(ownership(() => [
+    { threadId: THREAD, resumeCursors: { claude: mirrored }, tasks: [{ threadId: THREAD, resumeCursors: f.cursors[THREAD] }, { threadId: OTHER, resumeCursors: f.cursors[OTHER] },
+      { threadId: GROUP_THREAD, resumeCursors: cursorsOf([withGroup, groupOnly]) }] },
+    { threadId: "thread-second-dog", resumeCursors: cursorsOf([withOtherDog, otherDogOnly]), tasks: [{ threadId: "thread-second-dog", resumeCursors: { claude: otherActive } }] },
+  ]));
+  await coordinator.scan();
+  await coordinator.scan();
+  expect(existsSync(join(f.root, transcriptOf(mirrored)))).toBe(false);
+  for (const id of [withGroup, withOtherDog, groupOnly, otherDogOnly]) expect(readFileSync(join(f.root, transcriptOf(id)), "utf8"), id).toBe(`${id}\n`);
+});
+
+it("rechecks ownership that appears while the archive waits for the session lock", async () => {
+  const f = await fixture();
+  put(f.root, transcriptOf(LATER), "shared later\n");
+  f.cursors[THREAD] = { claude: LATER };
+  f.cursors[OTHER] = { claude: LATER };
+  const group: string[] = [];
+  let release: () => void = () => {};
+  let reached: () => void = () => {};
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  const arrived = new Promise<void>(resolve => { reached = resolve; });
+  const archived: string[][] = [];
+  const bridge = { ...f.bridge,
+    archive: (paths: string[]) => { archived.push(paths); return f.bridge.archive(paths); },
+    async restoreSessions(sessions: string[]) { reached(); await hold; await f.bridge.restoreSessions(sessions); } };
+  const coordinator = f.coordinator({ bridge, ...owners(f, group) });
+  const turn = coordinator.beforeTurn(OTHER, () => true);
+  await arrived;
+  const scan = coordinator.scan();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  group.push(LATER);
+  f.cursors[OTHER] = { claude: BUSY };
+  release();
+  expect(await turn).toBe(true);
+  await scan;
+  expect(archived).toEqual([]);
+  expect(readFileSync(join(f.root, transcriptOf(LATER)), "utf8")).toBe("shared later\n");
+});
+
 it("a later resume of a once-untracked session restores every file before the turn proceeds", async () => {
   const f = await fixture();
   put(f.root, transcriptOf(ORPHAN));
   put(f.root, subagentOf(ORPHAN), "orphan subagent\n");
-  await f.coordinator({ referencedSessions: referenced(f) }).scan();
+  await f.coordinator(owners(f)).scan();
   expect(existsSync(join(f.root, transcriptOf(ORPHAN)))).toBe(false);
   f.cursors[THREAD] = { claude: ORPHAN };
   f.busy.add(THREAD);
-  expect(await f.coordinator({ referencedSessions: referenced(f) }).beforeTurn(THREAD, () => true)).toBe(true);
+  expect(await f.coordinator(owners(f)).beforeTurn(THREAD, () => true)).toBe(true);
   expect(readFileSync(join(f.root, transcriptOf(ORPHAN)))).toEqual(BYTES);
   expect(readFileSync(join(f.root, subagentOf(ORPHAN)), "utf8")).toBe("orphan subagent\n");
   f.store.getArchived = async () => { throw new Error("offline"); };
@@ -332,7 +389,7 @@ it("a later resume of a once-untracked session restores every file before the tu
   rmSync(join(f.root, subagentOf(ORPHAN)));
   let current = true;
   setTimeout(() => { current = false; }, 30);
-  expect(await f.coordinator({ referencedSessions: referenced(f) }).beforeTurn(THREAD, () => current)).toBe(false);
+  expect(await f.coordinator(owners(f)).beforeTurn(THREAD, () => current)).toBe(false);
   expect(existsSync(join(f.root, transcriptOf(ORPHAN)))).toBe(false);
 });
 
@@ -340,7 +397,7 @@ it("when the archive wins the session lock, a turn that resumes that session wai
   const f = await fixture();
   put(f.root, transcriptOf(ORPHAN));
   const p = paused(f.bridge);
-  const coordinator = f.coordinator({ bridge: p.bridge, referencedSessions: referenced(f) });
+  const coordinator = f.coordinator({ bridge: p.bridge, ...owners(f) });
   const scan = coordinator.scan();
   await p.arrived;
   f.cursors[THREAD] = { claude: ORPHAN };
@@ -360,7 +417,7 @@ it("rechecks ownership under the session lock, so a session resumed after discov
   put(f.root, transcriptOf(ORPHAN));
   put(f.root, transcriptOf(LATER), "resumed after the sweep listed it\n");
   const p = paused(f.bridge);
-  const coordinator = f.coordinator({ bridge: p.bridge, referencedSessions: referenced(f) });
+  const coordinator = f.coordinator({ bridge: p.bridge, ...owners(f) });
   const scan = coordinator.scan();
   await p.arrived;
   f.cursors[THREAD] = { claude: LATER };
@@ -378,7 +435,7 @@ it("two turns sharing sessions in opposite order and a sweep all finish without 
   const f = await fixture();
   put(f.root, transcriptOf(ORPHAN));
   put(f.root, transcriptOf(LATER), "later\n");
-  const coordinator = f.coordinator({ referencedSessions: referenced(f) });
+  const coordinator = f.coordinator(owners(f));
   await coordinator.scan();
   f.cursors[THREAD] = { a: ORPHAN, b: LATER };
   f.cursors[OTHER] = { a: LATER, b: ORPHAN };
@@ -401,7 +458,7 @@ it("a session larger than the sweep budget goes first in the next sweep, then ot
   put(f.root, transcriptOf(last), "67890");
   const calls: string[][] = [];
   const bridge = { ...f.bridge, archive: (paths: string[]) => { calls.push(paths); return f.bridge.archive(paths); } };
-  const coordinator = f.coordinator({ bridge, sessionByteLimit: 8, referencedSessions: referenced(f) });
+  const coordinator = f.coordinator({ bridge, sessionByteLimit: 8, ...owners(f) });
   await coordinator.scan();
   expect(calls).toEqual([[transcriptOf(small)]]);
   await coordinator.scan();

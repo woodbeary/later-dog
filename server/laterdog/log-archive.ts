@@ -27,6 +27,21 @@ export function claudeSessionIds(cursors: Record<string, unknown> | undefined): 
   return [...found].sort();
 }
 
+export type CursorOwner = { threadId?: string; resumeCursors?: Record<string, unknown>; tasks: Array<{ threadId: string; resumeCursors?: Record<string, unknown> }> };
+
+export function outsideSessionOwners(bots: CursorOwner[], excludedThread: (threadId: string) => boolean): string[] {
+  const found = new Set<string>();
+  for (const bot of bots) {
+    for (const task of bot.tasks) {
+      if (excludedThread(task.threadId)) for (const id of claudeSessionIds(task.resumeCursors)) found.add(id);
+    }
+    const active = bot.tasks.find(task => task.threadId === bot.threadId);
+    const mirrored = new Set(active && !excludedThread(active.threadId) ? claudeSessionIds(active.resumeCursors) : []);
+    for (const id of claudeSessionIds(bot.resumeCursors)) if (!mirrored.has(id)) found.add(id);
+  }
+  return [...found].sort();
+}
+
 type SessionFile = { path: string; size: number; mtimeMs: number };
 export type SessionFiles = Map<string, { files: SessionFile[]; unsafe: boolean }>;
 type SessionGroup = { files: SessionFile[]; unsafe: boolean };
@@ -129,7 +144,7 @@ type Options = {
   threads(): string[];
   idle(threadId: string): boolean;
   sessions?(threadId: string): string[];
-  referencedSessions?(): string[];
+  outsideSessions?(): string[];
   now?: () => number;
   ageMs?: number;
   sessionAgeMs?: number;
@@ -177,15 +192,15 @@ export class LogArchiveCoordinator {
   }
 
   private sessionFree(session: string): boolean {
+    const outside = this.options.outsideSessions;
+    if (outside?.().includes(session)) return false;
     let tracked = false;
     for (const thread of this.options.threads()) {
       if (!this.sessionsOf(thread).includes(session)) continue;
       tracked = true;
       if (!this.options.idle(thread)) return false;
     }
-    if (tracked) return true;
-    const referenced = this.options.referencedSessions;
-    return Boolean(referenced) && !referenced!().includes(session);
+    return tracked || Boolean(outside);
   }
 
   async beforeTurn(id: string, current: () => boolean): Promise<boolean> {
@@ -247,8 +262,8 @@ export class LogArchiveCoordinator {
       if (!this.sessionFree(session)) return "kept";
       const current = await Promise.all(group.files.map(file => lstat(join(this.options.root, file.path)).catch(() => null)));
       if (current.some(info => !info?.isFile() || info.isSymbolicLink() || this.now() - info.mtimeMs < sessionAge)) return "kept";
-      if (!budget.admit(current.reduce((sum, info) => sum + (info?.size ?? 0), 0))) return "waiting";
       if (!this.sessionFree(session)) return "kept";
+      if (!budget.admit(current.reduce((sum, info) => sum + (info?.size ?? 0), 0))) return "waiting";
       const result = await this.options.bridge.archive(group.files.map(file => file.path));
       this.totals.sessionFiles += result.archived;
       this.totals.sessionBytes += result.bytes;
@@ -288,7 +303,7 @@ export class LogArchiveCoordinator {
     const wanted = new Set(batch.filter(id => idle(id)).flatMap(id => this.sessionsOf(id)).filter(id => !held.has(id)));
     if (this.waiting && tracked.has(this.waiting)) wanted.add(this.waiting);
     const sessionFiles = await findSessionFiles(root, wanted);
-    const orphanFiles = this.options.referencedSessions ? await findSessionFiles(root, id => !tracked.has(id)) : new Map() as SessionFiles;
+    const orphanFiles = this.options.outsideSessions ?await findSessionFiles(root, id => !tracked.has(id)) : new Map() as SessionFiles;
     const waiting = this.waiting;
     if (waiting) {
       this.waiting = null;

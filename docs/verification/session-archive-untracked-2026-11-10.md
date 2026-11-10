@@ -18,14 +18,18 @@
 ## What changed
 
 - **Discovery:** `findSessionFiles` also accepts a predicate. A second pass finds untracked session groups with the same walker, the same name, protected-name, symlink and depth rules, and its own 50,000-entry limit. If that limit overflows, only the untracked groups are refused.
-- **Who may archive an untracked group:** only when `referencedSessions` is wired. The server passes every Claude session id in any bot's or task's `resumeCursors`, including group threads. Without it, untracked groups are kept.
+- **Ownership snapshot:** the server wires `outsideSessions` through `outsideSessionOwners(bots, isGroupThread)`, a read-only snapshot of the Store. It lists every Claude session that a non-thread owner references:
+  - a group-thread task's cursors
+  - a bot-level cursor, unless it matches that bot's own active task (`bot.threadId`), which is only a mirror, because turns resume from the task record
+
+  A bot with no active task has all its cursors listed. Without `outsideSessions`, untracked groups are kept.
 - **Session locks:** `session:<id>` keys in the same gate map.
   - `beforeTurn` holds the thread gate, then the thread's session locks in sorted order, restores, and re-reads the cursors. If they changed while it waited, it restores again.
   - Every session archive holds that session's lock. A sweep takes the thread gate first, then one session lock, and never the reverse.
-- **Recheck under the lock, right before upload:**
-  - A session referenced by a thread is archived only if every such thread is idle.
-  - A session referenced only outside threads (group chats, bot-level cursors) is kept.
-  - An unreferenced session needs `referencedSessions`.
+- **Recheck under the lock, after the files are re-read and right before the budget is spent and the upload starts:**
+  - Any session in a fresh `outsideSessions()` snapshot is kept, even if an idle thread also tracks it.
+  - Otherwise, a session referenced by a thread is archived only if every such thread is idle.
+  - An unreferenced session needs `outsideSessions`.
   - Every file must still be a regular file, not a symlink, and 72 h old.
 - **Budget:** 128 MiB per sweep stays. At most one group larger than the budget is archived, and only as the first session work of a sweep, which uses up the budget. A group that didn't fit is remembered and goes first next sweep. Untracked groups are visited round-robin by id. A group over the bridge's 2,000-path limit is kept.
 - **Unchanged:** the 72 h age, the bridge, its 120 s call timeout, restore by session id, and the thread-log path.
@@ -37,6 +41,17 @@
 - **The turn wins the lock:** it restores and returns. Its thread is busy from the dispatch claim, so the recheck keeps the session.
 - **The turn's cursor changes after discovery:** the recheck under the lock sees the busy thread and keeps the session.
 - **A bridge call times out on the server's side while the root keeps going:** a later `restore-sessions` waits in the root's serial queue behind that archive.
+
+## Ownership repair (after native review of 4b587ac)
+
+- **Root's native review** (`task_e_6af28ee34d188329b28fb012fef92290`) found that `4b587ac` archived a session that an idle thread shares with a group thread or with an independent bot-level cursor. `sessionFree` returned true once any eligible thread tracked it.
+- **The flat `referencedSessions` list was replaced** by the ownership snapshot above. It tells a normal mirror apart from an independent owner, so tracked sessions still archive.
+- **The budget is now spent only after the final ownership check,** so a refused session no longer uses up the oversized slot.
+- **Before**, `4b587ac` with its own flat-list wiring and the new tests: 2 failed, 15 passed.
+  - The session shared with a group chat or another dog's cursor was archived.
+  - Group ownership that appeared while the archive waited on the lock was ignored.
+- **After:** 26 of 26 (session-archive 17, log-archive 9), three runs.
+- **Other checks:** server and home `tsc` exit 0, oxlint is 0/0 on the 3 code files, and no-comments finds 0.
 
 ## Tests
 
@@ -51,7 +66,9 @@ Home package tests `test/session-archive.test.ts` and `test/log-archive.test.ts`
 - **Other checks:** server `tsc -p tsconfig.server.json` exits 0, home `tsc --noEmit` exits 0, oxlint is 0/0 on the 3 changed files, and the no-comments check finds 0.
 
 The new cases cover:
-- A 72 h untracked group archived while young, protected, symlinked, busy-thread and group-only sessions are kept, and nothing is archived without `referencedSessions`.
+- A 72 h untracked group archived while young, protected, symlinked, busy-thread and group-only sessions are kept, and nothing is archived without `outsideSessions`.
+- A session an idle thread shares with a group chat or with another dog's independent cursor is kept, group-only and other-dog-only sessions are kept, and a bot's mirror of its own active task is archived.
+- Group ownership that appears while the archive waits for the session lock is seen by the recheck.
 - A later resume of that id restores every file before the turn.
 - During a restore outage the turn stays pending, and Stop returns false without writing an empty file.
 - Both race orders, with a paused bridge.
