@@ -260,6 +260,36 @@ export class Supervisor {
     const keep = new Set(this.store.jobs().filter((job) => job.trace?.where === "local" && !traceExpired(job.trace)).map((job) => job.id));
     try { this.traces.local.sweep(keep); } catch (error) { console.warn(`later.dog could not sweep local traces: ${message(error)}`); }
   }
+  private async collectFailedCheckpoint(job: Job, adapter: ExecutionAdapter): Promise<void> {
+    const eligible = () => {
+      const current = this.store.job(job.id);
+      return current.state === "needs_attention" && !current.cancelRequested && current.taskId === job.taskId &&
+        current.attempt === job.attempt && current.finishedAt === job.finishedAt && current.blocker === job.blocker && !current.patchArtifact &&
+        !current.headSha && !current.verification && !current.review;
+    };
+    if (job.backend !== "laterdog-cloud" || adapter.capabilities.id !== "laterdog-cloud" || job.kind === "review" || !eligible()) return;
+    const attempt = job.taskId!;
+    if (this.store.db.prepare("SELECT 1 FROM events WHERE job_id=? AND type=? AND detail=? LIMIT 1").get(job.id, "failed_checkpoint_started", attempt)) return;
+    this.store.event(job.id, "failed_checkpoint_started", attempt);
+    if (!adapter.collectPartial) {
+      this.store.event(job.id, "failed_checkpoint_unavailable", "Adapter does not support failed checkpoints; original failure retained");
+      return;
+    }
+    try {
+      const patch = await adapter.collectPartial(job.taskId!, this.context(job));
+      if (!eligible()) return;
+      if (!patch.trim()) {
+        this.store.event(job.id, "failed_checkpoint_unavailable", "No source diff in the failed computer; original failure retained");
+        return;
+      }
+      const changes = patchChanges(patch);
+      const patchArtifact = join(this.artifactDir, `${job.id}.patch`);
+      writeFileSync(patchArtifact, patch, { mode: 0o600, flag: "wx" });
+      this.store.update(job.id, { patchArtifact, changes }, "failed_checkpoint_collected", "Source checkpoint retained from failed task; unverified, computer kept, original provider failure retained");
+    } catch {
+      if (eligible()) this.store.event(job.id, "failed_checkpoint_unavailable", "Failed checkpoint collection unavailable or failed; inspect the retained computer. Original provider failure retained");
+    }
+  }
   private async collect(job: Job): Promise<void> {
     const patch = await this.adapter(job).collect(job.taskId!, this.context(job));
     const patchArtifact = join(this.artifactDir, `${job.id}.patch`); writeFileSync(patchArtifact, patch, { mode: 0o600 });
@@ -288,32 +318,48 @@ export class Supervisor {
     this.inFlight.add(id);
     try { return await run(); } finally { this.inFlight.delete(id); }
   }
+  private failedCheckpointCause(job: Job): string | undefined {
+    const checkpoint = this.store.db.prepare("SELECT sequence FROM events WHERE job_id=? AND type='failed_checkpoint_collected' ORDER BY sequence DESC LIMIT 1").get(job.id) as { sequence: number } | undefined;
+    if (!checkpoint) return undefined;
+    const failure = this.store.db.prepare("SELECT detail FROM events WHERE job_id=? AND type='provider_failed' AND sequence<? ORDER BY sequence DESC LIMIT 1").get(job.id, checkpoint.sequence) as { detail: string } | undefined;
+    return failure?.detail && failure.detail !== "needs_attention" ? failure.detail : job.blocker ?? "Provider failed before source checkpoint; verification required";
+  }
+  private hasCurrentVerification(job: Job, headSha = job.headSha): boolean {
+    return Boolean(headSha && job.verification?.headSha === headSha && job.verification.verdict === "passed");
+  }
   async publish(id: string, summary?: string): Promise<Job> { return this.operation(id,() => this.publishResult(id,summary)); }
   private async publishResult(id: string, summary?: string): Promise<Job> {
     this.remote(); const job = this.store.job(id);
     if (job.cancelRequested || job.kind === "review" || !["ready", "needs_attention"].includes(job.state) || !job.patchArtifact) throw new Error("Collect an implementation diff before publishing");
-    this.store.update(id, { state: "publishing", blocker: undefined }, "publishing");
+    const checkpointCause = this.failedCheckpointCause(job);
+    this.store.update(id, { state: "publishing", blocker: checkpointCause }, "publishing");
     try {
-      const result = await this.publisher.publish(job, this.store.repository(job.repository), readFileSync(job.patchArtifact, "utf8"),summary);
+      const result = await this.publisher.publish(job, this.store.repository(job.repository), readFileSync(job.patchArtifact, "utf8"), summary, checkpointCause ? "failed-checkpoint" : undefined);
       if (job.parentId) this.store.update(job.parentId, { verification: undefined, review: undefined }, "evidence_invalidated", "Correction published a new PR commit");
-      return this.store.update(id, { ...result, state: result.merged ? "merged" : "ready" }, "published", result.prUrl);
-    } catch (error) { this.store.update(id, { state: "needs_attention", blocker: message(error) }, "publication_blocked"); throw error; }
+      const unverifiedCheckpoint = checkpointCause && !this.hasCurrentVerification(job, result.headSha);
+      return this.store.update(id, { ...result, state: unverifiedCheckpoint ? "needs_attention" : result.merged ? "merged" : "ready",
+        blocker: unverifiedCheckpoint ? checkpointCause : undefined,
+        ...(checkpointCause && result.headSha !== job.headSha ? { verification: undefined, review: undefined } : {}) }, "published", result.prUrl);
+    } catch (error) { this.store.update(id, { state: "needs_attention", blocker: checkpointCause ?? message(error) }, "publication_blocked", checkpointCause ? "Failed checkpoint publication blocked; original provider failure retained" : undefined); throw error; }
   }
   async verify(id: string): Promise<Job> { return this.operation(id,() => this.verifyResult(id)); }
   private async verifyResult(id: string): Promise<Job> {
     this.remote(); const job = this.store.job(id);
     if (!["ready","needs_attention"].includes(job.state)) throw new Error("Job must be ready before verification");
+    const checkpointCause = this.failedCheckpointCause(job);
     this.store.update(id, { state: "verifying" }, "verifying");
     try {
       const verification = await this.publisher.verify(job, this.store.repository(job.repository), this.artifactDir);
       const changed = job.headSha !== verification.headSha;
-      return this.store.update(id, { state: "ready", headSha: verification.headSha, verification, ...(changed ? { review: undefined } : {}),
-        blocker: verification.verdict === "passed" ? undefined : `Verification ${verification.verdict}; evidence retained` }, "verified", verification.verdict);
-    } catch (error) { this.store.update(id, { state: "ready", blocker: message(error) }, "verification_blocked"); throw error; }
+      const unverifiedCheckpoint = checkpointCause && verification.verdict !== "passed";
+      return this.store.update(id, { state: unverifiedCheckpoint ? "needs_attention" : "ready", headSha: verification.headSha, verification, ...(changed ? { review: undefined } : {}),
+        blocker: verification.verdict === "passed" ? undefined : checkpointCause ?? `Verification ${verification.verdict}; evidence retained` }, "verified", verification.verdict);
+    } catch (error) { this.store.update(id, { state: checkpointCause ? "needs_attention" : "ready", blocker: checkpointCause ?? message(error) }, "verification_blocked", checkpointCause ? "Failed checkpoint verification unavailable; original provider failure retained" : undefined); throw error; }
   }
   async merge(id: string): Promise<Job> { return this.operation(id,() => this.mergeResult(id)); }
   private async mergeResult(id: string): Promise<Job> {
     this.remote(); const job = this.store.job(id);
+    if (this.failedCheckpointCause(job) && !this.hasCurrentVerification(job)) throw new Error("Failed checkpoint requires current-head passed verification before merging");
     if (job.state !== "ready" || job.cancelRequested) throw new Error("Settle the active job before merging");
     if (!this.store.repository(job.repository).merge) throw new Error("Merge authority has not been granted for this repository");
     await this.publisher.merge(job);
@@ -341,7 +387,7 @@ export class Supervisor {
           const { headSha, state } = await this.publisher.inspectPublished(job);
           if (state === "MERGED") { this.store.update(job.id,{ state: "merged", headSha, ...(headSha !== job.headSha ? { verification: undefined, review: undefined } : {}) },"merged","Observed the merge on GitHub"); continue; }
           if (state === "CLOSED") { const blocker = "The PR was closed on GitHub; decide whether to start new work"; if (job.blocker !== blocker) this.store.update(job.id,{ state: "needs_attention", blocker },"publication_blocked"); continue; }
-          if (headSha !== job.headSha) this.store.update(job.id,{ headSha, verification: undefined, review: undefined },"evidence_invalidated","PR head changed; previous verdicts no longer apply");
+          if (headSha !== job.headSha) this.store.update(job.id,{ headSha, verification: undefined, review: undefined, ...(this.failedCheckpointCause(job) ? { state: "needs_attention", blocker: this.failedCheckpointCause(job) } : {}) },"evidence_invalidated","PR head changed; previous verdicts no longer apply");
         } catch {}
         finally { this.inFlight.delete(job.id); }
       }
@@ -363,10 +409,15 @@ export class Supervisor {
         }
         if (state === "failed") {
           this.lastPolled.delete(job.id);
-          await this.keepActivity(job);
-          await this.keepTrace(job);
-          if (this.store.job(job.id).cancelRequested) this.store.update(job.id, { state: "cancelled", finishedAt: new Date().toISOString() }, "cancelled", "Stopped; its computer was deleted");
-          else this.store.update(job.id, { state: "needs_attention", finishedAt: new Date().toISOString(), blocker: adapter.failure?.(job.taskId!) ?? "Provider reports this task failed; an agent can investigate and choose a repair" }, "provider_failed");
+          const current = this.store.job(job.id);
+          if (current.state !== "running" || current.taskId !== job.taskId || current.attempt !== job.attempt || current.updatedAt !== job.updatedAt) continue;
+          if (current.cancelRequested) this.store.update(job.id, { state: "cancelled", finishedAt: new Date().toISOString() }, "cancelled", "Stopped; its computer was deleted");
+          else {
+            const failed = this.store.update(job.id, { state: "needs_attention", finishedAt: new Date().toISOString(), blocker: adapter.failure?.(job.taskId!) ?? "Provider reports this task failed; an agent can investigate and choose a repair" }, "provider_failed", adapter.failure?.(job.taskId!) ?? "Provider reports this task failed; an agent can investigate and choose a repair");
+            await this.keepActivity(failed);
+            await this.keepTrace(failed);
+            await this.collectFailedCheckpoint(failed, adapter);
+          }
         }
         else if (state === "ready") {
           this.lastPolled.delete(job.id); collecting = true;

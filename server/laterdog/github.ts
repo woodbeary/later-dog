@@ -57,7 +57,7 @@ export class GitHubPublisher {
       { ref: `refs/heads/${sourceRef}`, sha: ref.object.sha }), "Create isolated input branch");
     return { baseSha: ref.object.sha, sourceRef };
   }
-  async publish(job: Job, repo: Repository, patch: string, summary?: string): Promise<PublishedResult> {
+  async publish(job: Job, repo: Repository, patch: string, summary?: string, provenance?: "failed-checkpoint"): Promise<PublishedResult> {
     if (!repo.publish) throw new Error("PR publication is not enabled for this repository");
     if (!job.baseSha || !job.sourceRef) throw new Error("Job has no pinned starting commit");
     if (patch.trim() && !patch.endsWith("\n")) patch = `${patch}\n`;
@@ -103,9 +103,14 @@ export class GitHubPublisher {
     const previousHead = remote.split(/\s+/)[0];
     if (previousHead && previousHead !== head && previousHead !== job.baseSha) throw new Error("Output branch moved; refusing to overwrite another writer");
     await this.git(dir, ["push", "origin", `HEAD:refs/heads/${job.outputBranch}`]);
-    if (existing) return { headSha: head, prUrl: existing.url, prNumber: existing.number };
-    const body = `${summary ?? job.title}\n\nJob: ${job.id}\nWrite scopes: ${job.writeScopes.join(", ")}\nRequirements are retained in the private workspace.\n\nCreated by later.dog.\n\nCloud task: ${job.taskUrl || job.taskId}\nStarting commit: ${job.baseSha}\nVerification and independent review are tracked separately; this PR is not yet marked verified.`;
+    if (existing && !provenance) return { headSha: head, prUrl: existing.url, prNumber: existing.number };
+    const checkpointNotice = provenance === "failed-checkpoint" ? "Unverified source checkpoint from a failed cloud task. Publication does not establish completion or verification.\n\n" : "";
+    const body = `${checkpointNotice}${summary ?? job.title}\n\nJob: ${job.id}\nWrite scopes: ${job.writeScopes.join(", ")}\nRequirements are retained in the private workspace.\n\nCreated by later.dog.\n\nCloud task: ${job.taskUrl || job.taskId}\nStarting commit: ${job.baseSha}\nVerification and independent review are tracked separately; this PR is not yet marked verified.`;
     const bodyPath = join(this.root, `${job.id}-pr.md`); writeFileSync(bodyPath, body, { mode: 0o600 });
+    if (existing) {
+      requireSuccess(await this.gh(["pr", "edit", String(existing.number), "--repo", repo.slug, "--body-file", bodyPath]), "Label failed checkpoint PR");
+      return { headSha: head, prUrl: existing.url, prNumber: existing.number };
+    }
     requireSuccess(await this.gh(["pr", "create", "--repo", repo.slug, "--head", job.outputBranch, "--base", repo.baseRef,
       "--title", job.title, "--body-file", bodyPath, "--draft"]), "Open draft PR");
     const created = JSON.parse(requireSuccess(await this.gh(["pr", "view", job.outputBranch, "--repo", repo.slug, "--json", "number,url,headRefOid"]), "Read published PR")) as { number: number; url: string; headRefOid: string };

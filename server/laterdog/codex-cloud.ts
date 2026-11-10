@@ -18,6 +18,7 @@ export interface ExecutionAdapter {
   submit(environmentId: string, sourceRef: string, prompt: string, context?: JobContext): Promise<{ taskId: string; taskUrl: string }>;
   inspect(taskId: string, context?: JobContext): Promise<"running" | "ready" | "failed">;
   collect(taskId: string, context?: JobContext): Promise<string>;
+  collectPartial?(taskId: string, context?: JobContext): Promise<string>;
   list(): Promise<unknown>;
   describeTask?(taskId: string): { taskUrl: string };
   failure?(taskId: string): string | undefined;

@@ -15,7 +15,7 @@ import { AUTO_SETUP_SCRIPT, SETUP_FAILED_NOTE } from "./cloud-task-files.ts";
 import { StateTraceStore, jobTraceStoreFromEnv } from "./job-trace.ts";
 import { FakeTraceState, slurp } from "./trace-state-fake.ts";
 import {
-  COMPUTER_PREFIX, ComputerSubmissionUnknown, claudeOptions, INTERNAL_COMPUTERS_API, LATERDOG_CLOUD_CAPABILITIES, LaterdogCloudAdapter, laterdogCloudSettings, shellQuote, taskScript,
+  COMPUTER_PREFIX, ComputerSubmissionUnknown, MAX_PATCH_BYTES, claudeOptions, INTERNAL_COMPUTERS_API, LATERDOG_CLOUD_CAPABILITIES, LaterdogCloudAdapter, laterdogCloudSettings, shellQuote, taskScript,
 } from "./laterdog-cloud.ts";
 
 const CLAUDE_TOKEN = `sk-ant-oat01-fixture_claude_secret_${"x".repeat(80)}`;
@@ -611,4 +611,80 @@ describe("later.dog Cloud keeps every trace", () => {
     expect(supervisor.summaries({ ids: [job.id] })[0].trace).toMatchObject({ truncated: false });
     await supervisor.drain();
   });
+});
+
+describe("retained failed cloud source", () => {
+  it("collects actual source after a nonzero Claude exit without deleting or replaying", async () => {
+    const api = new FakeComputersApi(DEFAULT_CLAUDE + "\nexit 3");
+    const env = { LATERDOG_COMPUTERS_URL: API, LATERDOG_COMPUTERS_KEY: COMPUTERS_KEY, CLAUDE_CODE_OAUTH_TOKEN: CLAUDE_TOKEN };
+    const dir = mkdtempSync(join(tmpdir(), "laterdog-failed-source-")); roots.push(dir);
+    const store = new WorkspaceStore(":memory:"); cleanups.push(() => store.close());
+    store.saveRepository(repositorySchema.parse({ slug: "fixture/repo", environmentId: "none" }));
+    const publisher = new GitHubPublisher(join(dir, "checkouts"));
+    vi.spyOn(publisher, "prepare").mockImplementation(async job => { api.inputBranch(job.id); return { baseSha: api.baseSha, sourceRef: `laterdog/input/${job.id}` }; });
+    const publish = vi.spyOn(publisher, "publish");
+    const supervisor = new Supervisor(store, { dataDir: dir, profiles: [profile], concurrency: 1, publishingHost: "local", publisher,
+      adapter: p => new LaterdogCloudAdapter(p, { fetch: api.fetch, env, pollMs: 0 }) });
+    cleanups.push(() => supervisor.stop());
+    const job = supervisor.create({ requestKey: randomUUID(), repository: "fixture/repo", title: "Failed source", brief: "Change src/a.ts", profileId: "cloud" });
+    await supervisor.tick();
+    const deadline = Date.now() + 20_000;
+    while (store.job(job.id).state === "running" && Date.now() < deadline) { await new Promise(resolve => setTimeout(resolve, 50)); await supervisor.tick(); }
+    const failed = store.job(job.id);
+    expect(failed.state).toBe("needs_attention"); expect(failed.blocker).toMatch(/exited 3 during claude/);
+    expect(failed.verification).toBeUndefined(); expect(failed.headSha).toBeUndefined();
+    expect(readFileSync(failed.patchArtifact!, "utf8")).toContain("+new");
+    expect(failed.changes).toBeTruthy(); expect(api.file(failed.taskId!, "work/src/a.ts")).toBe("new\n");
+    expect(api.computers.has(failed.taskId!)).toBe(true); expect(publish).not.toHaveBeenCalled();
+    await supervisor.tick();
+    expect(api.execs.filter(e => e.env)).toHaveLength(1);
+    expect(api.requests.filter(r => r.method === "DELETE" || r.url.endsWith("/wake"))).toHaveLength(0);
+    expectNoSecretOutsideEnv(api); await supervisor.drain();
+  });
+  it.each(["empty", "secret", "collection_error"])("keeps the failed computer for %s", async mode => {
+    const f = setup({ claude: (mode === "empty" ? "cat > /dev/null" : DEFAULT_CLAUDE) + "\nexit 3" });
+    const { taskId } = await f.adapter.submit("none", f.context.sourceRef!, "Prompt", f.context);
+    expect(await settle(f.adapter, taskId)).toBe("failed");
+    if (mode === "secret") writeFileSync(join(f.api.computers.get(taskId)!.home, "work/src/a.ts"), CLAUDE_TOKEN);
+    if (mode === "collection_error") rmSync(join(f.api.computers.get(taskId)!.home, "task/base"));
+    if (mode === "empty") expect(await f.adapter.collectPartial(taskId)).toBe("");
+    else await expect(f.adapter.collectPartial(taskId)).rejects.toThrow();
+    expect(f.api.computers.has(taskId)).toBe(true);
+    expect(f.api.requests.some(r => r.method === "DELETE" || r.url.endsWith("/wake"))).toBe(false);
+    expect(f.adapter.failure(taskId)).toMatch(/exited 3 during claude/);
+  });
+  it.each(["sleeping", "missing", "error"])("does not wake or collect an unavailable %s computer", async mode => {
+    const f = setup({ claude: DEFAULT_CLAUDE + "\nexit 3" });
+    const { taskId } = await f.adapter.submit("none", f.context.sourceRef!, "Prompt", f.context);
+    expect(await settle(f.adapter, taskId)).toBe("failed");
+    if (mode === "missing") f.api.computers.delete(taskId); else f.api.sleepState(taskId, mode);
+    const calls = f.api.execs.length;
+    await expect(f.adapter.collectPartial(taskId)).rejects.toThrow();
+    expect(f.api.execs).toHaveLength(calls);
+    expect(f.api.requests.some(r => r.method === "DELETE" || r.url.endsWith("/wake"))).toBe(false);
+  });
+  it.each(["install", "clone", "setup", "done", "vanished", "success"])("requires a nonzero Claude exit rather than %s", async stage => {
+    const f = setup();
+    const { taskId } = await f.adapter.submit("none", f.context.sourceRef!, "Prompt", f.context);
+    expect(await settle(f.adapter, taskId)).toBe("ready");
+    const home = f.api.computers.get(taskId)!.home;
+    writeFileSync(join(home, "task/stage"), stage === "vanished" || stage === "success" ? "claude" : stage);
+    writeFileSync(join(home, "task/exit"), stage === "success" ? "0" : "3");
+    if (stage === "vanished") rmSync(join(home, "task/exit"));
+    await expect(f.adapter.collectPartial(taskId)).rejects.toThrow(/recorded nonzero Claude-stage exit/);
+    expect(f.api.file(taskId, "work/src/a.ts")).toBe("new\n");
+    expect(f.api.computers.has(taskId)).toBe(true);
+  });
+
+  it("applies the canonical patch byte cap to failed collection and retains the source", async () => {
+    const f = setup({ claude: DEFAULT_CLAUDE + "\nexit 3" });
+    const { taskId } = await f.adapter.submit("none", f.context.sourceRef!, "Prompt", f.context);
+    expect(await settle(f.adapter, taskId)).toBe("failed");
+    writeFileSync(join(f.api.computers.get(taskId)!.home, "work/src/a.ts"), "x".repeat(MAX_PATCH_BYTES + 1));
+    await expect(f.adapter.collectPartial(taskId)).rejects.toThrow(/over the .*byte files limit/);
+    expect(f.api.computers.has(taskId)).toBe(true);
+    expect(f.api.file(taskId, "work/src/a.ts").length).toBe(MAX_PATCH_BYTES + 1);
+    expect(f.api.requests.some(r => r.method === "DELETE")).toBe(false);
+  });
+
 });

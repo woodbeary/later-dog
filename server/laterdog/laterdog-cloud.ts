@@ -404,11 +404,22 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
     throw new Error(`Unrecognized job status on computer ${id}`);
   }
 
-  async collect(taskId: string): Promise<string> {
+  async collect(taskId: string): Promise<string> { return this.collectPatch(taskId, false); }
+
+  async collectPartial(taskId: string): Promise<string> { return this.collectPatch(taskId, true); }
+
+  private async collectPatch(taskId: string, retainFailed: boolean): Promise<string> {
     const id = LaterdogCloudAdapter.id(taskId);
-    const { computers } = this.client();
+    const { computers, settings } = this.client();
     const computer = await computers.get(id);
     if (!computer) throw new Error(`Computer ${id} no longer exists; its diff cannot be collected`);
+    if (retainFailed) {
+      if (computer.state !== "running") throw new Error("Failed checkpoint computer is not running; it was not woken");
+      const status = await computers.exec(id, STATUS_COMMAND, 30_000);
+      if (status.exitCode !== 0 || !/^exit [1-9][0-9]* claude$/.test(status.stdout.trim().split("\n")[0])) {
+        throw new Error("Failed checkpoint requires a recorded nonzero Claude-stage exit");
+      }
+    }
     if (computer.state === "sleeping") await computers.wake(id);
     if (computer.state !== "running") await this.waitRunning(computers, id);
     const result = await computers.exec(id, COLLECT_COMMAND, 300_000);
@@ -419,8 +430,13 @@ export class LaterdogCloudAdapter implements ExecutionAdapter {
     const bytes = size === 0 ? Buffer.alloc(0) : await computers.read(id, "task/patch.diff", MAX_PATCH_BYTES);
     if (bytes.length !== size) throw new Error(`The diff read from computer ${id} was ${bytes.length} bytes, not the ${size} it reported`);
     const patch = bytes.toString("utf8");
-    try { await computers.remove(id); }
-    catch (error) { console.warn(`later.dog Cloud collected job computer ${id} but could not delete it: ${error instanceof Error ? error.message : "unknown error"}`); }
+    if (retainFailed && this.knownSecrets(settings).some(secret => patch.includes(secret))) {
+      throw new Error("Failed checkpoint diff contains a configured credential; computer retained for inspection");
+    }
+    if (!retainFailed) {
+      try { await computers.remove(id); }
+      catch (error) { console.warn(`later.dog Cloud collected job computer ${id} but could not delete it: ${error instanceof Error ? error.message : "unknown error"}`); }
+    }
     if (!patch.trim()) return "";
     return patch.endsWith("\n") ? patch : `${patch}\n`;
   }
