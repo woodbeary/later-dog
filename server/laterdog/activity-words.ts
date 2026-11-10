@@ -177,6 +177,10 @@ export function botNames(store: Pick<Store, "bot" | "bots">): NameOf {
   };
 }
 
+export function teammateDoneLabel(name: string, status: string, end?: HandoffEnd): string {
+  return status === "completed" ? `${name} done` : teammateEndLabel(name, status, end);
+}
+
 export function teammateResultLabel(name: string, status: string, withheld: string | null | undefined, room?: string, end?: HandoffEnd): string {
   if (withheld) return `${name}'s reply was held back`;
   if (status === "completed") return room ? `${name} replied · ${room}` : `${name} replied`;
