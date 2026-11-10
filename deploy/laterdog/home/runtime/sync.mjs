@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmod, lchown, lstat, mkdir, open, readdir, readlink, rename, rm, symlink, utimes } from "node:fs/promises";
+import { chmod, lchown, lstat, mkdir, open, readdir, readlink, rename, rm, statfs, symlink, utimes } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 
@@ -9,6 +9,7 @@ export const BLOB_TIMEOUT_MS = 60_000;
 export const REQUEST_TIMEOUT_MS = 60_000;
 export const UPLOAD_TIMEOUT_MS = 120_000;
 export const FINAL_SAVE_MS = 120_000;
+export const SNAPSHOT_RESERVE_BYTES = 256 * 1024 * 1024;
 const RESTORING_PREFIX = ".laterdog-restoring-";
 const SQLITE = /\.(?:sqlite3?|db)$/;
 const SKIPPED_NAMES = new Set(["node_modules", ".cache", ".tmp", ".npm", ".pnpm-store", "Cache", "Code Cache", "GPUCache", "ShaderCache", "Crashpad", ".Trash", "lost+found"]);
@@ -229,19 +230,35 @@ async function databaseStamp(path, entry) {
   return `${entry.size}:${entry.mtimeMs}:${wal?.size ?? 0}:${wal ? Math.floor(wal.mtimeMs) : 0}`;
 }
 
+async function diskFree(path) {
+  const stats = await statfs(path);
+  return stats.bavail * stats.bsize;
+}
+
+async function roomForCopy(path, entry, scratch, freeBytes) {
+  const free = await Promise.resolve().then(() => freeBytes(scratch)).catch(() => null);
+  if (typeof free !== "number" || !Number.isFinite(free)) return false;
+  const wal = await lstat(`${path}-wal`).catch((error) => (error?.code === "ENOENT" ? { size: 0 } : null));
+  if (!wal) return false;
+  return free >= entry.size + wal.size + SNAPSHOT_RESERVE_BYTES;
+}
+
 async function databaseCopy(path, scratch) {
   const copy = join(scratch, `${createHash("sha256").update(path).digest("hex")}.sqlite`);
   await rm(copy, { force: true });
   const source = new DatabaseSync(path);
   try {
     await backup(source, copy);
+  } catch (error) {
+    await rm(copy, { force: true }).catch(() => {});
+    throw error;
   } finally {
     source.close();
   }
   return copy;
 }
 
-export async function snapshot(root, store, previous, { scratch, now = Date.now, app, budgetMs = Infinity } = {}) {
+export async function snapshot(root, store, previous, { scratch, now = Date.now, app, budgetMs = Infinity, freeBytes = diskFree } = {}) {
   const known = new Map((previous?.entries ?? []).filter((entry) => entry.type === "file").map((entry) => [entry.path, entry]));
   const entries = [];
   const unsaved = [];
@@ -266,15 +283,25 @@ export async function snapshot(root, store, previous, { scratch, now = Date.now,
       deferred += 1;
       continue;
     }
+    const path = join(root, entry.path);
+    let copy = null;
     try {
-      const source = database && scratch ? await databaseCopy(join(root, entry.path), scratch) : join(root, entry.path);
-      const chunks = await chunksOf(source, store);
-      if (source !== join(root, entry.path)) await rm(source, { force: true });
+      if (database && scratch) {
+        if (!(await roomForCopy(path, entry, scratch, freeBytes))) {
+          if (before) entries.push(before);
+          unsaved.push(entry.path);
+          continue;
+        }
+        copy = await databaseCopy(path, scratch);
+      }
+      const chunks = await chunksOf(copy ?? path, store);
       entries.push({ ...entry, ...(stamp ? { stamp } : {}), chunks });
       uploaded += 1;
     } catch (error) {
       if (before) entries.push(before);
       if (error?.code !== "ENOENT") unsaved.push(entry.path);
+    } finally {
+      if (copy) await rm(copy, { force: true }).catch(() => {});
     }
   }
   const manifest = { version: MANIFEST_VERSION, createdAt: now(), ...(app ? { app } : {}), entries };

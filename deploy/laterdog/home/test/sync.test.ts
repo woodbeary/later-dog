@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { CHUNK_BYTES, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, parseManifest, referencedBlobs, restore, settleWithin, skipped, skippedPath, snapshot, StoreRefused, transient } from "../runtime/sync.mjs";
+import { CHUNK_BYTES, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, parseManifest, referencedBlobs, restore, settleWithin, skipped, skippedPath, snapshot, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient } from "../runtime/sync.mjs";
 
 function memoryStore() {
   const blobs = new Map<string, Uint8Array>();
@@ -482,6 +482,159 @@ describe("home data sync", () => {
     expect(transient({ path: ".claude.lock", type: "dir" })).toBe(true);
     expect(transient({ path: "projects/app/yarn.lock", type: "file" })).toBe(false);
     expect(transient({ path: ".claude/.credentials.json", type: "file" })).toBe(false);
+  });
+});
+
+describe("saving a database only when its copy has room", () => {
+  function liveDatabase(source: string): DatabaseSync {
+    const database = new DatabaseSync(join(source, "messages.db"));
+    database.exec("PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; CREATE TABLE notes (body TEXT); INSERT INTO notes VALUES ('first');");
+    return database;
+  }
+
+  function notes(root: string): string[] {
+    const copy = new DatabaseSync(join(root, "messages.db"));
+    try {
+      return copy.prepare("SELECT body FROM notes ORDER BY rowid").all().map((row) => (row as { body: string }).body);
+    } finally {
+      copy.close();
+    }
+  }
+
+  function entryFor(manifest: { entries: Entry[] }, path: string): Entry | undefined {
+    return manifest.entries.find((candidate) => candidate.path === path);
+  }
+
+  function needed(source: string): number {
+    return statSync(join(source, "messages.db")).size + statSync(join(source, "messages.db-wal")).size + SNAPSHOT_RESERVE_BYTES;
+  }
+
+  it("keeps the last saved database, still saves other files, and copies nothing when scratch lacks room for the database, its log and the reserve", async () => {
+    const source = folder();
+    const scratch = folder();
+    writeFileSync(join(source, "chats.json"), "old chats");
+    const database = liveDatabase(source);
+    const store = memoryStore();
+    const first = await snapshot(source, store, null, { scratch });
+    const saved = entryFor(first.manifest, "messages.db");
+    expect(saved?.chunks.length).toBeGreaterThan(0);
+    database.exec("INSERT INTO notes VALUES ('second')");
+    writeFileSync(join(source, "chats.json"), "new chats");
+    const blobs = store.blobs.size;
+    const seen: string[][] = [];
+    const tight = await snapshot(source, store, first.manifest, {
+      scratch,
+      freeBytes: async (path: string) => {
+        seen.push(readdirSync(path));
+        return needed(source) - 1;
+      },
+    });
+    expect(seen).toEqual([[]]);
+    expect(readdirSync(scratch)).toEqual([]);
+    expect(tight.unsaved).toEqual(["messages.db"]);
+    expect(entryFor(tight.manifest, "messages.db")).toEqual(saved);
+    expect(store.blobs.size).toBe(blobs + 1);
+    const target = folder();
+    await restore(target, store, null);
+    expect(readFileSync(join(target, "chats.json"), "utf8")).toBe("new chats");
+    expect(notes(target)).toEqual(["first"]);
+
+    const roomy = await snapshot(source, store, tight.manifest, { scratch, freeBytes: async () => needed(source) });
+    expect(roomy.unsaved).toEqual([]);
+    expect(readdirSync(scratch)).toEqual([]);
+    const later = folder();
+    await restore(later, store, null);
+    expect(notes(later)).toEqual(["first", "second"]);
+    database.close();
+  });
+
+  it("does not copy when free space cannot be read or is not a number, and keeps the last saved entry", async () => {
+    const source = folder();
+    const scratch = folder();
+    const database = liveDatabase(source);
+    const store = memoryStore();
+    const first = await snapshot(source, store, null, { scratch });
+    const saved = entryFor(first.manifest, "messages.db");
+    database.exec("INSERT INTO notes VALUES ('second')");
+    const unreadable = await snapshot(source, store, first.manifest, { scratch, freeBytes: async () => { throw Object.assign(new Error("statfs failed"), { code: "ENOENT" }); } });
+    const unknown = await snapshot(source, store, unreadable.manifest, { scratch, freeBytes: async () => Number.NaN });
+    database.close();
+    for (const result of [unreadable, unknown]) {
+      expect(result.unsaved).toEqual(["messages.db"]);
+      expect(entryFor(result.manifest, "messages.db")).toEqual(saved);
+    }
+    expect(readdirSync(scratch)).toEqual([]);
+  });
+
+  it("never records a database it has not saved before when there is no room for its first copy", async () => {
+    const source = folder();
+    const scratch = folder();
+    writeFileSync(join(source, "chats.json"), "the chats");
+    const database = liveDatabase(source);
+    const store = memoryStore();
+    const tight = await snapshot(source, store, null, { scratch, freeBytes: async () => 0 });
+    database.close();
+    expect(tight.unsaved).toEqual(["messages.db"]);
+    expect(tight.manifest.entries.map((entry: Entry) => entry.path)).toEqual(["chats.json"]);
+    expect(readdirSync(scratch)).toEqual([]);
+  });
+
+  it("saves the newest rows, including those still only in the log, once a later save has room again, measuring the real disk by default", async () => {
+    const source = folder();
+    const scratch = folder();
+    const database = liveDatabase(source);
+    const store = memoryStore();
+    const tight = await snapshot(source, store, null, { scratch, freeBytes: async () => 0 });
+    database.exec("INSERT INTO notes VALUES ('only in the log')");
+    expect(statSync(join(source, "messages.db-wal")).size).toBeGreaterThan(0);
+    const next = await snapshot(source, store, tight.manifest, { scratch });
+    database.close();
+    expect(next.unsaved).toEqual([]);
+    expect(readdirSync(scratch)).toEqual([]);
+    const target = folder();
+    await restore(target, store, null);
+    expect(notes(target)).toEqual(["first", "only in the log"]);
+  });
+
+  it("removes the copy at once when its upload fails, keeps the last saved entry, and saves it on the next try", async () => {
+    const source = folder();
+    const scratch = folder();
+    const database = liveDatabase(source);
+    const store = memoryStore();
+    const first = await snapshot(source, store, null, { scratch });
+    const saved = entryFor(first.manifest, "messages.db");
+    database.exec("INSERT INTO notes VALUES ('second')");
+    const put = store.put.bind(store);
+    let refuse = true;
+    store.put = async (hash: string, bytes: Uint8Array) => {
+      if (refuse) throw new Error("store unavailable");
+      return put(hash, bytes);
+    };
+    const failed = await snapshot(source, store, first.manifest, { scratch });
+    expect(failed.unsaved).toEqual(["messages.db"]);
+    expect(entryFor(failed.manifest, "messages.db")).toEqual(saved);
+    expect(readdirSync(scratch)).toEqual([]);
+    refuse = false;
+    const next = await snapshot(source, store, failed.manifest, { scratch });
+    database.close();
+    expect(next.unsaved).toEqual([]);
+    expect(readdirSync(scratch)).toEqual([]);
+    const target = folder();
+    await restore(target, store, null);
+    expect(notes(target)).toEqual(["first", "second"]);
+  });
+
+  it("removes a partial copy when SQLite's backup itself fails, and still saves the other files", async () => {
+    const source = folder();
+    const scratch = folder();
+    writeFileSync(join(source, "chats.json"), "the chats");
+    writeFileSync(join(source, "broken.db"), randomBytes(64 * 1024));
+    const store = memoryStore();
+    const saved = await snapshot(source, store, null, { scratch });
+    expect(saved.unsaved).toEqual(["broken.db"]);
+    expect(saved.manifest.entries.map((entry: Entry) => entry.path)).toEqual(["chats.json"]);
+    expect(readdirSync(scratch)).toEqual([]);
+    expect(statSync(join(source, "broken.db")).size).toBe(64 * 1024);
   });
 });
 
