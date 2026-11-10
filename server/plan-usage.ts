@@ -29,12 +29,18 @@ export interface PlanModelUsage {
   windows: PlanExtra[];
 }
 
+export interface PlanCredits {
+  unlimited: boolean;
+  balance: string | null;
+}
+
 export interface PlanWindows {
   plan: string | null;
   fiveHour: PlanWindow;
   weekly: PlanWindow;
   extra: PlanExtra[];
   models: PlanModelUsage[];
+  credits?: PlanCredits;
 }
 
 export interface PlanProviderRow {
@@ -48,6 +54,7 @@ export interface PlanProviderRow {
   weekly: PlanWindow;
   extra: PlanExtra[];
   models: PlanModelUsage[];
+  credits?: PlanCredits;
 }
 
 export interface PlanUsageReport {
@@ -180,7 +187,17 @@ export function parseCodexUsage(body: unknown): PlanWindows {
   const extra = [...assigned.extra];
   if (root) collectCodexNamedLimits(root, models, extra);
   sortModelWindows(models);
-  return { ...assigned, extra, models, plan: planLabel(root?.plan_type ?? root?.plan) };
+  const credits = codexCredits(root?.credits);
+  return { ...assigned, extra, models, plan: planLabel(root?.plan_type ?? root?.plan), ...(credits ? { credits } : {}) };
+}
+
+function codexCredits(value: unknown): PlanCredits | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const unlimited = record.unlimited === true;
+  if (!unlimited && record.has_credits !== true) return undefined;
+  const balance = typeof record.balance === "string" || typeof record.balance === "number" ? String(record.balance) : null;
+  return { unlimited, balance };
 }
 
 export function parseGrokUsage(credits: unknown, billing?: unknown, settings?: unknown): PlanWindows {
@@ -798,6 +815,7 @@ function okRow(account: PlanAccount, windows: PlanWindows): PlanProviderRow {
     weekly: windows.weekly,
     extra: windows.extra,
     models: windows.models,
+    ...(windows.credits ? { credits: windows.credits } : {}),
   };
 }
 

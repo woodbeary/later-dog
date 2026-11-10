@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { RoomHandoffs, ROOM_HANDOFF_LIMITS, type RoomHandoffHooks } from "./room-handoffs.ts";
+import { RoomHandoffs, ROOM_HANDOFF_LIMITS, type RoomHandoff, type RoomHandoffHooks } from "./room-handoffs.ts";
 import type { HandoffRunResult } from "./laterdog/long-work.ts";
 import { removeTempDir } from "./testing/cleanup.ts";
 
@@ -992,4 +992,96 @@ describe("managing a dog's queue for the owner", () => {
     expect(engine.queueOf("patch").map((n) => n.text)).toEqual(["Task's earlier", "Scope change", "Clover earlier"]);
     expect(fromTask.status).toBe("queued");
   }, now));
+});
+
+describe("requests sent without waiting for a reply", () => {
+  const chief = { botId: "chief", threadId: "chief-chat" };
+  const relay = (engine: RoomHandoffs, to: string, text = "FYI: the release is live") =>
+    engine.enqueue(chief, "turn", undefined, { botId: to, threadId: `${to}-chat` }, to, text, false, false, "", undefined, undefined, undefined, undefined, false, "none").node;
+
+  it("runs the work, reports it, and never resumes the sender", () => fixture(async (engine, hooks) => {
+    const child = relay(engine, "patch");
+    expect(child.reply).toBe("none");
+    engine.sourceSettled("turn", true);
+    expect(engine.nodes.get("turn")?.status).toBe("completed");
+    expect(engine.activeDirect(chief.threadId)).toBe(false);
+    expect(engine.outstandingDirect(chief.threadId)).toEqual([]);
+    for (let i = 0; i < 4; i++) { engine.tick(); await flush(); }
+    expect(child.status).toBe("completed");
+    expect(hooks.report).toHaveBeenCalledTimes(1);
+    expect(hooks.run).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(hooks.run).mock.calls.map(([node, resumed]) => [node.botId, resumed])).toEqual([["patch", false]]);
+  }));
+
+  it("resumes the sender once for the replies it asked for and leaves the no-reply result out", () => fixture(async (engine, hooks) => {
+    relay(engine, "patch");
+    const asked = engine.enqueue(chief, "turn", undefined, { botId: "clover", threadId: "clover-chat" }, "review", "Review it").node;
+    engine.sourceSettled("turn", true);
+    expect(engine.nodes.get("turn")?.status).toBe("waiting");
+    expect(engine.outstandingDirect(chief.threadId)).toEqual([asked]);
+    for (let i = 0; i < 6; i++) { engine.tick(); await flush(); }
+    const resumes = vi.mocked(hooks.run).mock.calls.filter(([, resumed]) => resumed);
+    expect(resumes.map(([node]) => node.id)).toEqual(["turn"]);
+    expect(engine.awaited("turn").map(node => node.botId)).toEqual(["clover"]);
+    expect(engine.nodes.get("turn")?.status).toBe("completed");
+  }));
+
+  it("lets a dog that only relays work finish its own request without waiting, and the relayed work still runs", () => fixture(async (engine, hooks) => {
+    const lead = { botId: "lead", threadId: "lead-chat" };
+    let relayed: RoomHandoff | undefined;
+    hooks.run = vi.fn(async (node: RoomHandoff, resumed: boolean) => {
+      if (node.botId === lead.botId && !resumed) relayed = engine.enqueue(lead, "unused", node.id, { botId: "tester", threadId: "tester-chat" }, "pass", "Please run the suite",
+        false, false, "", undefined, undefined, undefined, undefined, false, "none").node;
+      return { ok: true, text: "passed it on" };
+    });
+    const asked = engine.enqueue(chief, "turn", undefined, lead, "relay", "Send this to the tester").node;
+    engine.sourceSettled("turn", true);
+    for (let i = 0; i < 8; i++) { engine.tick(); await flush(); }
+    expect(asked.status).toBe("completed");
+    expect(relayed?.status).toBe("completed");
+    expect(vi.mocked(hooks.run).mock.calls.map(([node, resumed]) => [node.botId, resumed])).toEqual([["lead", false], ["tester", false], ["chief", true]]);
+  }));
+
+  it("keeps queued no-reply work after its sender finished and when old trees are pruned", () => fixture(async (engine, hooks) => {
+    let busy = true;
+    hooks.busy = (node) => node.botId === "patch" && busy;
+    const child = relay(engine, "patch");
+    engine.sourceSettled("turn", true);
+    engine.tick(); await flush();
+    expect(child.status).toBe("queued");
+    for (let i = 0; i < 1000; i++) engine.nodes.set(`old-${i}`, { id: `old-${i}`, rootId: `old-${i}`, threadId: "old", botId: "old", key: "root", text: "", createdAt: i,
+      status: "completed", result: "", reported: true, executions: 0, approvalGranted: false, kind: "work" });
+    engine.enqueue({ botId: "other", threadId: "other-chat" }, "later", undefined, { botId: "x", threadId: "x-chat" }, "x", "next");
+    expect(engine.nodes.get(child.id)).toBe(child);
+    expect(engine.nodes.get("turn")).toBeDefined();
+    busy = false;
+    engine.tick(); await flush();
+    expect(child.status).toBe("completed");
+  }));
+
+  it("keeps the choice across a restart and does not resume the sender afterwards", () => fixture(async (engine, hooks, file) => {
+    const child = relay(engine, "patch");
+    const reloaded = new RoomHandoffs(file, { ...hooks, longWork: () => true });
+    expect(reloaded.nodes.get(child.id)?.reply).toBe("none");
+    reloaded.tick(); await flush(); reloaded.tick(); await flush();
+    expect(reloaded.nodes.get("turn")?.status).toBe("completed");
+    expect(vi.mocked(hooks.run).mock.calls.some(([, resumed]) => resumed)).toBe(false);
+  }));
+});
+
+describe("several replies to one sender", () => {
+  it("wakes the sender once after the last reply, not once per reply", () => fixture(async (engine, hooks) => {
+    const chief = { botId: "chief", threadId: "chief-chat" };
+    let held = true;
+    hooks.busy = (node) => node.botId === "slow" && held;
+    engine.enqueue(chief, "turn", undefined, { botId: "fast", threadId: "fast-chat" }, "a", "First check");
+    const slow = engine.enqueue(chief, "turn", undefined, { botId: "slow", threadId: "slow-chat" }, "b", "Second check").node;
+    engine.sourceSettled("turn", true);
+    for (let i = 0; i < 4; i++) { engine.tick(); await flush(); }
+    expect(slow.status).toBe("queued");
+    expect(vi.mocked(hooks.run).mock.calls.filter(([, resumed]) => resumed)).toHaveLength(0);
+    held = false;
+    for (let i = 0; i < 6; i++) { engine.tick(); await flush(); }
+    expect(vi.mocked(hooks.run).mock.calls.filter(([, resumed]) => resumed).map(([node]) => node.id)).toEqual(["turn"]);
+  }));
 });

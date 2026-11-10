@@ -30,12 +30,14 @@ const nodeSchema = z.object({
   restarted: z.boolean().optional(),
   orderAt: z.number().optional(),
   urgent: z.boolean().optional(),
+  reply: z.enum(["none", "result"]).optional(),
   replacedBy: z.string().optional(),
 });
 export type RoomHandoff = z.infer<typeof nodeSchema>;
 export type RoomAddress = Pick<RoomHandoff, "groupId" | "threadId" | "botId">;
 export const ROOM_HANDOFF_LIMITS = { depth: 4, requests: 24, executions: 48, idleMs: HANDOFF_IDLE_MS, minRunwayMs: 10 * 60_000, hardCapMs: HANDOFF_HARD_CAP_MS, ceilingMs: HANDOFF_CEILING_MS };
 const terminal = (n: RoomHandoff) => ["completed", "failed", "cancelled"].includes(n.status);
+export const awaitsReply = (n: RoomHandoff) => n.reply !== "none";
 export const queueOrder = (n: RoomHandoff) => n.orderAt ?? n.createdAt;
 export const QUEUE_STATUSES: readonly RoomHandoff["status"][] = ["running", "resume", "queued"];
 const addressOf = (n: RoomHandoff): RoomAddress => ({ groupId: n.groupId, threadId: n.threadId, botId: n.botId });
@@ -93,6 +95,7 @@ export class RoomHandoffs {
       new Set(nodes.filter(node => !node.groupId).map(node => node.threadId)));
   }
   children(id: string) { return [...this.nodes.values()].filter(n => n.parentId === id); }
+  awaited(id: string) { return this.children(id).filter(awaitsReply); }
   root(n: RoomHandoff) { return this.nodes.get(n.rootId)!; }
   runningRequester(threadId: string): string | undefined {
     const running = [...this.nodes.values()].find(n => n.parentId && n.threadId === threadId && n.status === "running");
@@ -133,7 +136,7 @@ export class RoomHandoffs {
         for (const n of open) {
           if (n.status === "source") { n.status = "waiting"; continue; }
           if (n.status !== "running") continue;
-          const children = this.children(n.id);
+          const children = this.awaited(n.id);
           if (children.some(c => !terminal(c))) n.status = "waiting";
           else if (children.length) n.status = "resume";
           else { n.status = "queued"; n.restarted = true; }
@@ -149,7 +152,7 @@ export class RoomHandoffs {
     root.lastProgressAt = Math.max(root.lastProgressAt ?? root.createdAt, this.now());
   }
   private owesOnlySynthesis(n: RoomHandoff): boolean {
-    const children = this.children(n.id);
+    const children = this.awaited(n.id);
     return children.length > 0 && children.every(c => terminal(c)) &&
       (n.status === "running" || (n.status === "resume" && !this.hooks.busy(n)));
   }
@@ -202,7 +205,7 @@ export class RoomHandoffs {
   enqueue(source: RoomAddress, generation: string, parentId: string | undefined,
     target: RoomAddress, key: string, text: string, approvalGranted = false,
     rework = false, sourceText = "", requestBatchKey?: string, requestedBy?: string, routineRunId?: string,
-    lender?: string, urgent = false): { node: RoomHandoff; duplicate: boolean } {
+    lender?: string, urgent = false, reply: "none" | "result" = "result"): { node: RoomHandoff; duplicate: boolean } {
     if (this.loadError) throw new Error(this.loadError);
     this.settleRestart();
     let parent = parentId ? this.nodes.get(parentId) : this.nodes.get(generation);
@@ -231,7 +234,8 @@ export class RoomHandoffs {
     if (count >= this.limits.requests) throw new Error("Room handoff budget exhausted");
     if (!(!fresh && this.longTree(root.id)) && !this.budget.hasRunway(root)) throw new Error(this.budget.refusal(root));
     if (this.nodes.size >= 1000) {
-      const oldRoots = [...this.nodes.values()].filter(n => !n.parentId && terminal(n)).sort((a, b) => a.createdAt - b.createdAt);
+      const open = new Set([...this.nodes.values()].filter(n => !terminal(n)).map(n => n.rootId));
+      const oldRoots = [...this.nodes.values()].filter(n => !n.parentId && terminal(n) && !open.has(n.id)).sort((a, b) => a.createdAt - b.createdAt);
       for (const old of oldRoots) {
         if (this.nodes.size < 800) break;
         for (const n of this.nodes.values()) if (n.rootId === old.id) this.nodes.delete(n.id);
@@ -242,7 +246,7 @@ export class RoomHandoffs {
     }
     const node: RoomHandoff = { ...target, id: randomUUID(), rootId: parent.rootId, parentId: parent.id,
       key, text, createdAt: this.now(), status: "queued", result: "", reported: false, executions: 0, approvalGranted,
-      kind, ...(target.groupId && requestBatchKey ? { requestBatchKey } : {}), ...(lender ? { lender } : {}) };
+      kind, ...(target.groupId && requestBatchKey ? { requestBatchKey } : {}), ...(lender ? { lender } : {}), ...(reply === "none" ? { reply } : {}) };
     if (urgent) {
       node.urgent = true;
       const ahead = this.waitingFor(target.botId, target.threadId).filter(n => this.senderOf(n) === source.botId);
@@ -318,7 +322,7 @@ export class RoomHandoffs {
     const node = this.nodes.get(generation);
     if (!node || node.status !== "source") return;
     if (!ok) node.result = "The originating turn ended before its teammates returned.";
-    node.status = "waiting";
+    node.status = this.awaited(node.id).length ? "waiting" : "completed";
     this.publish(node);
   }
 
@@ -354,7 +358,7 @@ export class RoomHandoffs {
   }
   outstandingDirect(threadId: string): RoomHandoff[] {
     return [...this.nodes.values()].filter(node => {
-      if (terminal(node) || !node.parentId) return false;
+      if (terminal(node) || !node.parentId || !awaitsReply(node)) return false;
       const parent = this.nodes.get(node.parentId);
       return Boolean(parent && !parent.groupId && parent.threadId === threadId);
     });
@@ -470,19 +474,20 @@ export class RoomHandoffs {
         this.hooks.report(n, parent); n.reported = true; this.publish(n, parent);
       }
       if (n.status === "waiting") {
-        const children = this.children(n.id);
-        if (children.every(c => terminal(c) && c.reported)) { n.status = "resume"; this.publish(n); }
+        const children = this.awaited(n.id);
+        if (!children.length && this.children(n.id).length) { n.status = "completed"; this.publish(n); }
+        else if (children.every(c => terminal(c) && c.reported)) { n.status = "resume"; this.publish(n); }
       }
       if (n.status !== "queued" && n.status !== "resume") continue;
       if (parent && (parent.status === "source" || parent.status === "running") &&
         (parent.threadId === n.threadId || (n.groupId && n.groupId === parent.groupId))) continue;
-      if (parent && terminal(parent) && n.status === "queued") { this.cancelTree(n, endWords("origin", this.limits), "cancelled", "origin"); continue; }
+      if (parent && terminal(parent) && n.status === "queued" && awaitsReply(n)) { this.cancelTree(n, endWords("origin", this.limits), "cancelled", "origin"); continue; }
       if (this.hooks.busy(n)) continue;
       const root = this.root(n);
       const executionCost = 1;
       if (root.executions + executionCost > this.limits.executions) { this.cancelTree(n, endWords("limit", this.limits), "failed", "limit"); continue; }
       const resumed = n.status === "resume";
-      const childCount = this.children(n.id).length;
+      const childCount = this.awaited(n.id).length;
       root.executions += executionCost; n.status = "running"; n.startedAt = this.now();
       this.stampProgress(root);
       this.publish(n, root);
@@ -492,7 +497,7 @@ export class RoomHandoffs {
         if (terminal(n)) return;
         n.restarted = undefined;
         n.result = result.text.slice(0, 12_000);
-        if (this.children(n.id).length > childCount) n.status = "waiting";
+        if (this.awaited(n.id).length > childCount) n.status = "waiting";
         else if (!result.ok && result.timedOut && !n.retried) { n.retried = true; n.status = resumed ? "resume" : "queued"; this.stampProgress(root); }
         else if (!result.ok && result.timedOut) this.cancelTree(n, timedOutAgain(n.result), "failed", "timeout");
         else if (!result.ok) this.cancelTree(n, n.result || "Room agent failed", "failed", "problem");
@@ -501,7 +506,7 @@ export class RoomHandoffs {
       }).catch(e => {
         if (terminal(n)) return;
         n.result = String(e).slice(0, 1000);
-        if (this.children(n.id).length > childCount) {
+        if (this.awaited(n.id).length > childCount) {
           n.status = "waiting";
           this.publish(n);
         } else this.cancelTree(n, n.result, "failed", "problem");

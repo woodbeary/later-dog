@@ -115,6 +115,31 @@ describe("a routine asking another dog through the isolated harness", () => {
     evidence.push({ waitedForBusyPeer: true, resumedRoutine: run.id, threadId: run.threadId, transcript, exchange: exchangeLines, peerTranscript });
   }, 60_000);
 
+  it("hands work off without waiting: the run finishes at once and the peer's result never resumes it", async () => {
+    const run = await start();
+    const launched = await dump(run.threadId);
+    const result = await api("POST", "/api/internal/coordinate-bots", { botIds: [peer.id], message: "FYI: pass this on.", reply: "none" },
+      launched.mcpConfig.mcpServers.agents.env.LATERDOG_COMMS_TOKEN);
+    expect(result.message).toContain("will not come back to you");
+    const receipt = result.receipts[0];
+    expect(handoff(receipt.requestId).reply).toBe("none");
+    finish(run.threadId);
+    await expect.poll(async () => (await runState(run.id))?.status, { timeout: 15_000 }).toBe("completed");
+    const peerThread = await peerThreadId();
+    await expect.poll(() => handoff(receipt.requestId).status, { timeout: 15_000 }).toBe("running");
+    const peerLaunch = await dump(peerThread);
+    expect(JSON.stringify(peerLaunch)).toContain("The sender is not waiting for your reply");
+    finish(peerThread);
+    await expect.poll(() => handoff(receipt.requestId).status, { timeout: 30_000 }).toBe("completed");
+    await expect.poll(async () => (await messages(run.threadId)).some((message) => message.tool?.name === "Routine peer done"), { timeout: 15_000 }).toBe(true);
+    const transcript = await messages(run.threadId);
+    expect(transcript.some((message) => message.roomRequest?.phase === "result")).toBe(false);
+    expect(transcript.some((message) => message.tool?.name?.startsWith("Resumed with"))).toBe(false);
+    expect(transcript.find((message) => message.tool?.name === "Routine peer done")?.comm).toMatchObject({ withBotId: peer.id, direction: "from" });
+    expect((await runState(run.id)).status).toBe("completed");
+    evidence.push({ noReply: true, run: run.id, transcript });
+  }, 60_000);
+
   it("coordinates a new user request on a completed routine's thread without changing its recorded result", async () => {
     const run = await start();
     finish(run.threadId);

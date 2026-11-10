@@ -420,7 +420,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       && typeof canonical.message === "string" && canonical.message.trim().length > 0;
     if (!usable) {
       return {
-        text: `coordinate_bots takes snake_case arguments: bot_ids (an array of 1-4 teammate ids) and message are required; group_id and rework are optional. Received: ${Object.keys(args).join(", ") || "none"}.`,
+        text: `coordinate_bots takes snake_case arguments: bot_ids (an array of 1-4 teammate ids) and message are required; group_id, rework, urgent and reply are optional. Received: ${Object.keys(args).join(", ") || "none"}.`,
         isError: true,
       };
     }
@@ -428,6 +428,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       groupId: canonical.group_id, botIds: ids, message: canonical.message,
       rework: canonical.rework,
       ...(canonical.urgent === true ? { urgent: true } : {}),
+      ...(canonical.reply === "none" || canonical.reply === "result" ? { reply: canonical.reply } : {}),
     }) });
     return { text: JSON.stringify(r), ...(r.error ? { isError: true } : {}) };
   }
@@ -446,7 +447,7 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       return `- ${b.name}${role}${about} [id: ${b.id}, model: ${b.model}${team}${state ? `, ${state}` : ""}]`;
     });
     return {
-      text: `Reachable teammates:\n${lines.join("\n")}\n\nUse coordinate_bots for advice or concrete work, then end your turn. Busy teammates queue and results resume you automatically.${rooms ? `\n\n${rooms}` : ""}`,
+      text: `Reachable teammates:\n${lines.join("\n")}\n\nUse coordinate_bots for advice or concrete work, then end your turn. Busy teammates queue and results resume you automatically; for handoffs, relays and FYIs you don't need back, set reply "none".${rooms ? `\n\n${rooms}` : ""}`,
     };
   }
   if (name === "account_usage") {

@@ -106,3 +106,51 @@ describe("an account at 100% of a usage window", () => {
     expect(onChange).toHaveBeenCalledOnce();
   });
 });
+
+describe("a Codex account past its plan window that still has paid credits", () => {
+  const codex: BatteryAccount = {
+    instanceId: "codex", driverKind: "codex", displayName: "ChatGPT", enabled: true, eligible: true, signedIn: true,
+    models: ["gpt-6.1-sol"], defaultModel: "gpt-6.1-sol",
+  };
+  const accounts = [codex, claude("anthony")];
+  const config: AccountBatteryConfig = { enabled: true, order: { codex: ["codex"], claudeAgent: ["anthony"] }, sequence: ["codex", "anthony"] };
+  const chosen = { instanceId: "codex", model: "gpt-6.1-sol", effort: "medium" as const };
+  const weeklyFull = (credits?: PlanProviderRow["credits"]): PlanProviderRow => ({
+    id: "codex", name: "codex", driver: "codex", plan: "pro", ok: true, error: null,
+    fiveHour: window(0, at(HOUR)), weekly: window(100, at(96 * HOUR)), extra: [], models: [], ...(credits ? { credits } : {}),
+  });
+  const batteryWith = (codexRow: () => PlanProviderRow | undefined) => new AccountBattery({
+    config: () => config, accounts: () => accounts, now: () => NOW, usage: (id) => (id === "codex" ? codexRow() : reading(id, 10, 10)),
+  });
+
+  it("is not called used up, so the dog stays on the Codex it was set to", () => {
+    const credited = weeklyFull({ unlimited: false, balance: "42" });
+    expect(usedUpRest(credited, NOW)).toBeUndefined();
+    const kept = batteryWith(() => credited);
+    expect(kept.route(chosen, accounts, "clover")).toEqual(chosen);
+    expect(kept.arrive("clover", chosen, "codex", accounts)).toBeUndefined();
+    expect(kept.route(chosen, accounts, "clover")).toEqual(chosen);
+  });
+
+  it("does not flip between Codex and Claude as the reading comes and goes", () => {
+    let row: PlanProviderRow | undefined;
+    const flapping = batteryWith(() => row);
+    const notices: Array<string | undefined> = [];
+    for (const next of [undefined, weeklyFull({ unlimited: true, balance: null }), undefined, weeklyFull({ unlimited: false, balance: "3" })]) {
+      row = next;
+      const routed = flapping.route(chosen, accounts, "clover");
+      expect(routed.instanceId).toBe("codex");
+      notices.push(flapping.arrive("clover", chosen, routed.instanceId, accounts));
+    }
+    expect(notices).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
+  it("still moves to Claude, says why, and keeps the saved choice, when the window is full and there are no credits", () => {
+    const empty = batteryWith(() => weeklyFull());
+    expect(usedUpRest(weeklyFull(), NOW)?.kind).toBe("weekly");
+    const routed = empty.route(chosen, accounts, "clover");
+    expect(routed.instanceId).toBe("anthony");
+    expect(empty.arrive("clover", chosen, routed.instanceId, accounts)).toBe("Codex is recharging. Running on Claude.");
+    expect(chosen).toEqual({ instanceId: "codex", model: "gpt-6.1-sol", effort: "medium" });
+  });
+});
