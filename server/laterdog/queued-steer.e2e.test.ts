@@ -131,7 +131,8 @@ describe.skipIf(process.platform === "win32")("Steer on a turn that will not sto
 
     const asked = await api("POST", `/api/bots/${created.id}/queue/${goes}/steer`, { threadId: created.threadId });
     expect(asked.status).toBe(200);
-    expect(asked.body).toEqual({ ok: true, queued: true, threadId: created.threadId, reason: stillStoppingReason(created.name) });
+    if (asked.body.sent) expect(asked.body.queueIds).toEqual([first.body.queueId, goes]);
+    else expect(asked.body).toEqual({ ok: true, queued: true, threadId: created.threadId, reason: stillStoppingReason(created.name) });
 
     await waitFor(
       async () => (await getBot(created.id)).messages.some((m: any) => m.role === "user" && m.text === "goes later"),
