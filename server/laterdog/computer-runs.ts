@@ -269,7 +269,7 @@ export class ComputerRuns {
 
   async bringBack(box: RunBox, record: RunRecord): Promise<{ broughtBack: string[]; skipped: string[]; conflicts: string[] }> {
     const remote = `runs/${record.key}`;
-    const lister = `import os,sys\nskip=set(sys.argv[2].split(","))\nsince=os.stat(sys.argv[1]).st_mtime\nfor root,dirs,files in os.walk("."):\n  dirs[:]=[d for d in dirs if d not in skip]\n  for f in files:\n    p=os.path.join(root,f)\n    try: st=os.lstat(p)\n    except OSError: continue\n    if st.st_mtime>since: print(f"{st.st_size}\\t{p}")\n`;
+    const lister = `import os,sys\nskip=set(sys.argv[2].split(","))\nsince=os.stat(sys.argv[1]).st_mtime\nfor root,dirs,files in os.walk("."):\n  dirs[:]=[d for d in dirs if d not in skip]\n  for f in files:\n    p=os.path.join(root,f)\n    try: st=os.lstat(p)\n    except OSError: continue\n    if st.st_mtime>=since: print(f"{st.st_size}\\t{p}")\n`;
     const listing = must(await box.exec(`cd ${quote(remote)} && python3 -c ${quote(lister)} ../.logs/${record.id}.start ${quote([...SKIPPED_NAMES].join(","))}`, EXEC_MS), "listing changed files");
     const { take, skipped } = bringBackList(listing.stdout);
     const conflicts = homeChangedSince(record.folder, take, record.sent);
