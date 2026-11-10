@@ -26,5 +26,7 @@ it("keeps only the end of a long error and never fails the runtime when the log 
   tail.push("\nlast line");
   expect(tail.text().length).toBe(64);
   expect(lastError("a\n\n b \n" + "y".repeat(2000)).length).toBeLessThanOrEqual(601);
-  expect(noteHomeHealth("/proc/1/nope", "message")).toBe(false);
+  const notAFolder = join(mkdtempSync(join(tmpdir(), "home-health-")), "a-file");
+  writeFileSync(notAFolder, "");
+  expect(noteHomeHealth(join(notAFolder, "nope"), "message")).toBe(false);
 });
