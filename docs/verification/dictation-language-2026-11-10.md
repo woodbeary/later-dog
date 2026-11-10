@@ -65,3 +65,21 @@ returned 200 and dictationLanguage:en. No live setting was changed to test it.
 The combined phone release is pinned to main commit
 7c2b0fba7c75515967eee3c9de8d6bb2dc421305, which includes a6f4804 and the larger
 model labels. Its publication receipt is still pending.
+
+## Phone publication receipt
+
+The combined phone beta is published as aae01c1a-cd3a-48d9-b0be-50a7bd6a72f5,
+source 7c2b0fba7c75515967eee3c9de8d6bb2dc421305, runtime 1.0.1. The exact
+Build 9 fingerprint matched. The actual downloaded iOS update
+01a1c76e-c273-7920-9206-9a40275fb56a matches the Mac export (5868960 bytes),
+SHA-256 c1a80052e6f3f4bfba8ff5202111e7aedaddbceb168eb9bfcd7a4dba6607431d.
+The publishing script exited zero. Rollback is performance beta
+c6c8cf77-483c-4eed-978f-c7faa5cc0d89.
+
+The earlier Mac search import timeout passed unchanged on retry, 8/8. Final
+Mac typecheck/lint passed; a redundant full Mac rerun was stopped and is not
+counted as passing. Pane supplied the 1871-test product-source run and final
+five model checks after the source-only test assertion update. No additional
+Pane test rerun was needed for publication. Physical dictation and a fresh
+real-phone performance check remain unverified; desktop source is ready for
+its next binary release.
