@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ComputerRuns } from "./laterdog/computer-runs.ts";
+import { handleComputerRun } from "./laterdog/computer-run-route.ts";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 type State = "starting" | "running" | "sleeping" | "stopping" | "error";
@@ -497,7 +499,7 @@ describe("the cloud computer facade", () => {
       const computer = sleeping("dog-heavy-boot");
       runsAt = Date.now() + bootMs;
       const run = await computers.heavyRunBox("dog-heavy-boot", { budgetMs: 290_000 });
-      expect(run.wasAsleep).toBe(true);
+      expect(run.box).toBeDefined();
       expect(fleet.get(computer.id)?.state).toBe("running");
       expect(wakes()).toBe(1);
       expect(creates()).toHaveLength(0);
@@ -508,7 +510,7 @@ describe("the cloud computer facade", () => {
       runsAt = Date.now() + 280_000;
       await expect(computers.heavyRunBox("dog-heavy-window", { budgetMs: 120_000 })).rejects.toMatchObject({ code: "still_starting" });
       const run = await computers.heavyRunBox("dog-heavy-window", { budgetMs: 290_000 });
-      expect(run.wasAsleep).toBe(true);
+      expect(run.box).toBeDefined();
       expect(wakes()).toBe(1);
       expect(creates()).toHaveLength(0);
     });
@@ -540,6 +542,25 @@ describe("the cloud computer facade", () => {
       wanted = false;
       await expect(run).rejects.toThrow(/did not start/);
       expect(wakes()).toBe(1);
+    });
+
+    it("wakes once for adjacent calls and leaves the computer running for the service's idle policy, even when one call is abandoned", async () => {
+      const computer = sleeping("dog-heavy-adjacent");
+      runsAt = Date.now() + 95_000;
+      const root = mkdtempSync(join(tmpdir(), "heavy-adjacent-"));
+      mkdirSync(join(root, "site"));
+      const finished = { id: "abcd1234", state: "finished" as const, exitCode: 0, output: "ok", broughtBack: [], skipped: [], sentFiles: 0, sentBytes: 0 };
+      const ran: string[] = [];
+      const runs = { record: () => null, run: async () => { ran.push("run"); return finished; }, finish: async () => finished } as unknown as ComputerRuns;
+      const call = (active?: () => boolean) => handleComputerRun({ botId: "dog-heavy-adjacent", body: { command: "pnpm test", folder: join(root, "site") }, workingFolder: null, allowedRoots: [root], ...(active ? { active } : {}) }, { runs, computer: computers.heavyRunBox, repositoryOf: () => null });
+      expect((await call()).status).toBe(200);
+      expect((await call()).status).toBe(200);
+      expect((await call(() => false)).status).toBe(409);
+      expect(ran).toEqual(["run", "run"]);
+      expect(wakes()).toBe(1);
+      expect(creates()).toHaveLength(0);
+      expect(ours().filter((request) => request.method === "POST" && request.path.endsWith("/sleep"))).toHaveLength(0);
+      expect(fleet.get(computer.id)?.state).toBe("running");
     });
   });
 

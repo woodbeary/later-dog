@@ -15,7 +15,7 @@ export interface ComputerRunRequest {
 
 export interface ComputerRunDeps {
   runs: ComputerRuns;
-  computer(botId: string, options?: { repository?: string; wanted?: () => boolean; budgetMs?: number }): Promise<{ box: RunBox; wasAsleep: boolean; rest(): Promise<void> }>;
+  computer(botId: string, options?: { repository?: string; wanted?: () => boolean; budgetMs?: number }): Promise<{ box: RunBox }>;
   repositoryOf?(folder: string): string | null;
   now?(): number;
 }
@@ -36,9 +36,8 @@ export function repositoryOf(folder: string): string | null {
   }
 }
 
-const busy = new Map<string, number>();
-const LEAST_RUN_WAIT_MS = 5_000;
 export const STILL_STARTING_TEXT = "Your cloud computer is still starting, so nothing was run yet. Call run_on_computer again with the same folder and command to keep waiting.";
+const ENDED_TEXT = "This turn ended before the command started on the cloud computer, so nothing was run.";
 const inside = (path: string, root: string) => { const rel = relative(root, path); return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel)); };
 
 export function allowedFolder(requested: string, request: Pick<ComputerRunRequest, "workingFolder" | "allowedRoots" | "home">): string | null {
@@ -53,7 +52,8 @@ export function allowedFolder(requested: string, request: Pick<ComputerRunReques
 
 export function outcomeText(outcome: RunOutcome): string {
   const lines: string[] = [];
-  if (outcome.state === "running") lines.push(`Still running on your cloud computer (run_id ${outcome.id}).`);
+  if (outcome.state === "running" && outcome.exitCode !== null) lines.push(`Finished on your cloud computer with exit code ${outcome.exitCode} (run_id ${outcome.id}); its files are still there.`);
+  else if (outcome.state === "running") lines.push(`Still running on your cloud computer (run_id ${outcome.id}).`);
   else if (outcome.state === "failed") lines.push(`Stopped on your cloud computer (run_id ${outcome.id}).`);
   else lines.push(`Finished on your cloud computer with exit code ${outcome.exitCode} (run_id ${outcome.id}).`);
   if (outcome.sentFiles) lines.push(`Sent ${outcome.sentFiles} changed file(s), ${Math.max(1, Math.round(outcome.sentBytes / 1024))} KB.`);
@@ -75,30 +75,20 @@ export async function handleComputerRun(request: ComputerRunRequest, deps: Compu
   if (!folder) return { status: 400, error: "Pass folder: an existing project folder in the home, such as your working folder." };
   const subdir = typeof request.body.subdir === "string" ? request.body.subdir : undefined;
   if (subdir && !inside(join(folder, subdir), folder)) return { status: 400, error: "subdir must be inside folder." };
-  busy.set(request.botId, (busy.get(request.botId) ?? 0) + 1);
-  let computer: Awaited<ReturnType<ComputerRunDeps["computer"]>> | null = null;
-  let restAfter = false;
   try {
     const repository = record ? null : (deps.repositoryOf ?? repositoryOf)(folder);
     const now = deps.now ?? Date.now;
     const started = now();
-    computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: WAIT_IN_ONE_CALL_MS });
-    if (request.active && !request.active()) {
-      restAfter = !record && computer.wasAsleep;
-      return { status: 409, error: "This turn ended while the cloud computer was starting, so nothing was run." };
-    }
-    const waitMs = Math.max(LEAST_RUN_WAIT_MS, WAIT_IN_ONE_CALL_MS - (now() - started));
+    const computer = await deps.computer(request.botId, { ...(repository ? { repository } : {}), ...(request.active ? { wanted: request.active } : {}), budgetMs: WAIT_IN_ONE_CALL_MS });
+    if (request.active && !request.active()) return { status: 409, error: ENDED_TEXT };
+    const left = () => started + WAIT_IN_ONE_CALL_MS - now();
     const outcome = record
-      ? await deps.runs.finish(computer.box, record, undefined, waitMs)
-      : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, restAfter: computer.wasAsleep, waitMs });
-    restAfter = outcome.state !== "running" && Boolean(record ? record.restAfter : computer.wasAsleep);
+      ? await deps.runs.finish(computer.box, record, undefined, left)
+      : await deps.runs.run(computer.box, { botId: request.botId, folder, subdir, command, left, ...(request.active ? { active: request.active } : {}) });
     return { status: 200, text: outcomeText(outcome), failed: outcome.state === "failed" };
   } catch (error) {
     if ((error as { code?: unknown })?.code === "still_starting") return { status: 200, text: STILL_STARTING_TEXT };
+    if ((error as { code?: unknown })?.code === "cancelled" || (request.active && !request.active())) return { status: 409, error: ENDED_TEXT };
     return { status: 502, error: error instanceof Error ? error.message : String(error) };
-  } finally {
-    const left = (busy.get(request.botId) ?? 1) - 1;
-    if (left > 0) busy.set(request.botId, left); else busy.delete(request.botId);
-    if (computer && restAfter && left === 0) await computer.rest();
   }
 }

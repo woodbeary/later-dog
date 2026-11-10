@@ -451,11 +451,10 @@ export async function inspectBoatIdentity(cfg: AppConfig, boxId: string): Promis
   return { available: true, identity: computer ? { boxId: computer.id, name: computer.name, state: asBoatState(computer.state) } : null, problem: null };
 }
 
-export async function heavyRunBox(botId: string, options: { repository?: string; wanted?: () => boolean; budgetMs?: number } = {}): Promise<{ box: RunBox; wasAsleep: boolean; rest(): Promise<void> }> {
+export async function heavyRunBox(botId: string, options: { repository?: string; wanted?: () => boolean; budgetMs?: number } = {}): Promise<{ box: RunBox }> {
   if (!computersSelected()) throw Object.assign(new Error("Cloud computers are not set up here, so run it in your own folder instead."), { status: 409 });
   const client = ownClient();
   const computer = await findOwn(client, botId) ?? await createOwn(client, botId, ownName(botId), undefined, options.repository);
-  const wasAsleep = computer.state !== "running";
   const startBudgetMs = cloudComputerStartBudgetMs();
   const budgetMs = Math.min(options.budgetMs ?? startBudgetMs, startBudgetMs);
   const wanted = options.wanted ?? (() => true);
@@ -471,7 +470,7 @@ export async function heavyRunBox(botId: string, options: { repository?: string;
     write: (path, bytes) => client.writeFile(ready.id, path, bytes),
     read: (path) => client.readFile(ready.id, path),
   };
-  return { box, wasAsleep, rest: async () => { await stopOwn(client, ready).catch(() => undefined); } };
+  return { box };
 }
 
 export async function engineComputer(botId: string): Promise<{ box: RunBox; stream: () => ReturnType<ComputersClient["process"]> }> {
