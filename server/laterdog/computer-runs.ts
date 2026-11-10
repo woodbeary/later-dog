@@ -210,7 +210,9 @@ export class ComputerRuns {
     const { changed, removed } = changesSince(present && before ? before : {}, now);
     const sentBytes = changed.reduce((sum, path) => sum + now[path].size, 0);
     if (sentBytes > MAX_SEND_BYTES) throw new Error(`that folder has ${Math.round(sentBytes / 1024 / 1024)} MB to send; the most is ${MAX_SEND_BYTES / 1024 / 1024} MB. Pick a smaller folder.`);
-    must(await box.exec(`mkdir -p ${quote(remote)} runs/.in runs/.logs && rm -f runs/.in/${id}.*`, 30_000), "preparing the folder");
+    const subdir = (input.subdir ?? "").replace(/^\/+|\/+$/g, "");
+    const workDir = subdir ? `${remote}/${subdir}` : remote;
+    must(await box.exec(`mkdir -p ${quote(remote)} ${quote(workDir)} runs/.in runs/.logs && rm -f runs/.in/${id}.*`, 30_000), "preparing the folder");
     if (changed.length) {
       const archive = await packFiles(input.folder, changed);
       const pieces = parts(archive);
@@ -222,8 +224,6 @@ export class ComputerRuns {
       must(await box.exec(`cd ${quote(remote)} && xargs -0 rm -f -- < ../.in/${id}.removed; rm -f ../.in/${id}.removed`, EXEC_MS), "removing deleted files");
     }
     this.#writeJson(this.#sentPath(input.botId, key), now);
-    const subdir = (input.subdir ?? "").replace(/^\/+|\/+$/g, "");
-    const workDir = subdir ? `${remote}/${subdir}` : remote;
     const setup = setupKey(subdir ? join(input.folder, subdir) : input.folder);
     let reusedSetup = false;
     if (setup) {

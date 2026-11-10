@@ -75,6 +75,20 @@ describe("a heavy command on the dog's own computer", () => {
     expect(outcome.output).not.toContain("package.json");
   });
 
+  it("runs in a subfolder that is still empty on the home and brings back what it made there", async () => {
+    const { folder, computer, state } = project();
+    mkdirSync(computer);
+    mkdirSync(join(folder, "pub"));
+    const { box } = localBox(computer);
+    const runs = new ComputerRuns(state, fast);
+    const outcome = await runs.run(box, { botId: "dog", folder, subdir: "pub", command: "pwd; echo made > made.txt" });
+    expect(outcome.state).toBe("finished");
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.output).toMatch(/\/pub\n/);
+    expect(outcome.broughtBack).toEqual(["pub/made.txt"]);
+    expect(readFileSync(join(folder, "pub/made.txt"), "utf8")).toBe("made\n");
+  });
+
   it("starts a new session's copy of a project from the packages an earlier copy installed", async () => {
     const { root, folder, computer, state } = project();
     mkdirSync(computer);
