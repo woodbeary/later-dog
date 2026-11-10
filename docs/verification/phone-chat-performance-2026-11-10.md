@@ -68,3 +68,24 @@ runs a separate temporary home and never writes to production data.
 The real-phone target remains under five renders per switch and no stall over
 200 ms. No post-change phone measurement or causal attribution of the 1710 ms
 stall is claimed here. Publication and another Run Check are required.
+
+## Release checks
+
+Phone implementation: f810932ab93c5add761fc8ed51ca2c6ff0614b60.
+All 1870 tests passed on the cloud computer and again on Jacob's Mac.
+Typecheck passed; lint reported zero errors and 52 existing warnings.
+The iOS production export passed on the cloud computer. The Mac native
+introspection retained the microphone permission.
+
+Home metrics implementation: 72380c9, released from 46ff07acc after merging
+current main. Typecheck and lint passed. The merged account/metrics checks
+passed 140 tests with one stale manual-choice expectation; updating that
+expectation to require byHand:true produced 34 passing targeted tests.
+The previous Google/vault/catalog merge checks passed 56 tests.
+
+Published home bundle:
+d5bb6aa1c9b95e9dc141f9a138bda98367c65212601ae6888b35abdebe017107.
+The downloaded index.js matches the Mac artifact byte for byte, SHA-256
+c857d90ce11652d6098e285947265f56d3ee251abab49d1ac9f2b6b4584d3a04.
+The home activated this exact bundle. An authenticated GET /api/phone/perf
+returned 200 with zero reports. A fresh iPhone Run Check is still required.
