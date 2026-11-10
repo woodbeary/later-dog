@@ -101,14 +101,16 @@ async function main() {
   let running = null;
   let saves = 0;
   let cleanupLeft = false;
+  let resumeAfter;
   const restorePoints = upgradeKeeper(store, upgraded, { app: APP, limit: KEPT_RESTORE_POINTS, log });
   const save = ({ final = false } = {}) => {
     if (!store) return Promise.resolve();
     if (running) return running;
     running = restorePoints.keep()
-      .then(() => snapshot(DATA, store, manifest, { scratch: SCRATCH, app: APP, budgetMs: final ? FINAL_SAVE_BUDGET_MS : SAVE_BUDGET_MS }))
+      .then(() => snapshot(DATA, store, manifest, { scratch: SCRATCH, app: APP, budgetMs: final ? FINAL_SAVE_BUDGET_MS : SAVE_BUDGET_MS, resumeAfter }))
       .then(async (result) => {
         manifest = result.manifest;
+        resumeAfter = result.resumeAfter;
         if (result.written) log(`saved (${result.uploaded} changed files)`);
         if (result.unsaved.length) log(`could not save ${result.unsaved.length} file(s) this time, first ${result.unsaved[0]}; the next save tries again`);
         if (result.deferred) log(`${result.deferred} changed file(s) wait for the next save, which carries on where this one stopped`);

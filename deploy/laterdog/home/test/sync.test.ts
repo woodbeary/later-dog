@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { CHUNK_BYTES, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, parseManifest, referencedBlobs, restore, settleWithin, skipped, skippedPath, snapshot, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient } from "../runtime/sync.mjs";
+import { CHUNK_BYTES, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, parseManifest, referencedBlobs, restore, resumeOrder, SAVE_PARALLEL, settleWithin, skipped, skippedPath, snapshot, walkOrder, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient } from "../runtime/sync.mjs";
 
 function memoryStore() {
   const blobs = new Map<string, Uint8Array>();
@@ -363,6 +363,115 @@ describe("home data sync", () => {
     expect(next.deferred).toBe(0);
     expect(next.uploaded).toBe(2);
     expect(Object.keys(files(next.manifest)).sort()).toEqual(["a-chats.db.json", "b-notes.md", "c-new.txt"]);
+  });
+
+  it("reaches a new file that sorts after one that changes on every save, where starting from the top each time never does", async () => {
+    const source = folder();
+    mkdirSync(join(source, "workspaces", "dog"), { recursive: true });
+    writeFileSync(join(source, "messages.json"), "chats 0");
+    const store = memoryStore();
+    const first = await snapshot(source, store, null, { scratch: folder() });
+    writeFileSync(join(source, "workspaces", "dog", "notes.md"), "today's notes");
+    const oneFilePerSave = () => {
+      let clock = 0;
+      return { now: () => (clock += 10), budgetMs: 15, parallel: 1 };
+    };
+    const saved = (manifest: { entries: Array<{ path: string }> }) => manifest.entries.map((entry) => entry.path);
+
+    let fromTheTop = first.manifest;
+    for (let round = 1; round <= 5; round += 1) {
+      writeFileSync(join(source, "messages.json"), `chats ${round}, from the top`);
+      fromTheTop = (await snapshot(source, store, fromTheTop, { scratch: folder(), ...oneFilePerSave() })).manifest;
+    }
+    expect(saved(fromTheTop)).toContain("workspaces/dog");
+    expect(saved(fromTheTop)).not.toContain("workspaces/dog/notes.md");
+
+    let manifest = first.manifest;
+    let resumeAfter: string | undefined;
+    const reached: number[] = [];
+    for (let round = 1; round <= 4; round += 1) {
+      writeFileSync(join(source, "messages.json"), `chats ${round}, taking turns`);
+      const result = await snapshot(source, store, manifest, { scratch: folder(), ...oneFilePerSave(), resumeAfter });
+      manifest = result.manifest;
+      resumeAfter = result.resumeAfter;
+      if (saved(manifest).includes("workspaces/dog/notes.md")) reached.push(round);
+    }
+    expect(reached[0]).toBe(2);
+    const woken = folder();
+    await restore(woken, store, null);
+    expect(readFileSync(join(woken, "workspaces", "dog", "notes.md"), "utf8")).toBe("today's notes");
+    expect(readFileSync(join(woken, "messages.json"), "utf8")).toMatch(/^chats [34], taking turns$/);
+  });
+
+  it("always saves at least one waiting file, even when listing the home used up the whole budget", async () => {
+    const source = folder();
+    writeFileSync(join(source, "a.md"), "one");
+    writeFileSync(join(source, "b.md"), "two");
+    const store = memoryStore();
+    let clock = 0;
+    const late = await snapshot(source, store, null, { scratch: folder(), now: () => (clock += 1_000), budgetMs: 1, parallel: 1 });
+    expect(late.uploaded).toBe(1);
+    expect(late.deferred).toBe(1);
+    expect(late.resumeAfter).toBe("a.md");
+    const next = await snapshot(source, store, late.manifest, { scratch: folder(), now: () => (clock += 1_000), budgetMs: 1, parallel: 1, resumeAfter: late.resumeAfter });
+    expect(next.manifest.entries.map((entry: { path: string }) => entry.path).sort()).toEqual(["a.md", "b.md"]);
+    expect(next.resumeAfter).toBeUndefined();
+  });
+
+  it("carries on in the order the home is listed, folder by folder, and wraps round to the top", () => {
+    const listed = ["a", "a/b.md", "a/c/d.md", "a-b.md", "b.md"];
+    expect([...listed].sort(walkOrder)).toEqual(listed);
+    const waiting = listed.map((path) => ({ entry: { path } }));
+    const paths = (items: Array<{ entry: { path: string } }>) => items.map((item) => item.entry.path);
+    expect(paths(resumeOrder(waiting, undefined))).toEqual(listed);
+    expect(paths(resumeOrder(waiting, "a/b.md"))).toEqual(["a/c/d.md", "a-b.md", "b.md", "a", "a/b.md"]);
+    expect(paths(resumeOrder(waiting, "a/gone-since.md"))).toEqual(["a-b.md", "b.md", "a", "a/b.md", "a/c/d.md"]);
+    expect(paths(resumeOrder(waiting, "b.md"))).toEqual(listed);
+    expect(paths(resumeOrder(waiting, "zz.md"))).toEqual(listed);
+  });
+
+  it("uploads several files at once, never more than its limit, and still records every one", async () => {
+    const source = folder();
+    for (let index = 0; index < 40; index += 1) writeFileSync(join(source, `note-${String(index).padStart(2, "0")}.md`), `note ${index}`);
+    const store = memoryStore();
+    let inFlight = 0;
+    let most = 0;
+    const put = store.put.bind(store);
+    store.put = async (hash: string, bytes: Uint8Array) => {
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      inFlight -= 1;
+      return put(hash, bytes);
+    };
+    const result = await snapshot(source, store, null, { scratch: folder() });
+    expect(result.uploaded).toBe(40);
+    expect(most).toBeGreaterThan(1);
+    expect(most).toBeLessThanOrEqual(SAVE_PARALLEL);
+    const woken = folder();
+    await restore(woken, store, null);
+    expect(readdirSync(woken).length).toBe(40);
+    expect(readFileSync(join(woken, "note-39.md"), "utf8")).toBe("note 39");
+  });
+
+  it("copies one database at a time, so two never need scratch room together", async () => {
+    const source = folder();
+    for (const name of ["a.db", "b.db", "c.db"]) {
+      const db = new DatabaseSync(join(source, name));
+      db.exec("create table notes (body text); insert into notes values ('kept')");
+      db.close();
+    }
+    const scratch = folder();
+    const copiesSeen: number[] = [];
+    const result = await snapshot(source, memoryStore(), null, {
+      scratch,
+      freeBytes: () => {
+        copiesSeen.push(readdirSync(scratch).filter((name) => name.endsWith(".sqlite")).length);
+        return Number.MAX_SAFE_INTEGER;
+      },
+    });
+    expect(result.uploaded).toBe(3);
+    expect(copiesSeen).toEqual([0, 0, 0]);
   });
 
   it("never uploads the throwaway .tmp folders engines fill on every start", async () => {

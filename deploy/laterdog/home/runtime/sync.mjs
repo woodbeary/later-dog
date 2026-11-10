@@ -258,58 +258,105 @@ async function databaseCopy(path, scratch) {
   return copy;
 }
 
-export async function snapshot(root, store, previous, { scratch, now = Date.now, app, budgetMs = Infinity, freeBytes = diskFree } = {}) {
+export const SAVE_PARALLEL = 8;
+
+export function walkOrder(left, right) {
+  const leftNames = left.split("/");
+  const rightNames = right.split("/");
+  const shared = Math.min(leftNames.length, rightNames.length);
+  for (let index = 0; index < shared; index += 1) {
+    if (leftNames[index] < rightNames[index]) return -1;
+    if (leftNames[index] > rightNames[index]) return 1;
+  }
+  return leftNames.length - rightNames.length;
+}
+
+export function resumeOrder(waiting, resumeAfter) {
+  if (resumeAfter === undefined) return waiting;
+  const start = waiting.findIndex((item) => walkOrder(item.entry.path, resumeAfter) > 0);
+  return start <= 0 ? waiting : [...waiting.slice(start), ...waiting.slice(0, start)];
+}
+
+export async function snapshot(root, store, previous, { scratch, now = Date.now, app, budgetMs = Infinity, freeBytes = diskFree, resumeAfter, parallel = SAVE_PARALLEL } = {}) {
   const known = new Map((previous?.entries ?? []).filter((entry) => entry.type === "file").map((entry) => [entry.path, entry]));
-  const entries = [];
   const unsaved = [];
   let uploaded = 0;
   let deferred = 0;
   const deadline = now() + budgetMs;
   if (scratch) await mkdir(scratch, { recursive: true, mode: 0o700 });
-  for (const entry of await scan(root)) {
+  const scanned = await scan(root);
+  const slots = new Array(scanned.length).fill(null);
+  const waiting = [];
+  for (const [index, entry] of scanned.entries()) {
     if (entry.type !== "file") {
-      entries.push(entry);
+      slots[index] = entry;
       continue;
     }
     const before = known.get(entry.path);
     const database = SQLITE.test(entry.path);
     const stamp = database ? await databaseStamp(join(root, entry.path), entry) : undefined;
     if (before && before.size === entry.size && before.mtimeMs === entry.mtimeMs && before.stamp === stamp) {
-      entries.push({ ...entry, ...(stamp ? { stamp } : {}), chunks: before.chunks });
+      slots[index] = { ...entry, ...(stamp ? { stamp } : {}), chunks: before.chunks };
       continue;
     }
-    if (now() > deadline) {
-      if (before) entries.push(before);
-      deferred += 1;
-      continue;
-    }
+    waiting.push({ index, entry, before, database, stamp });
+  }
+  let databaseTurn = Promise.resolve();
+  const saveOne = async ({ index, entry, before, database, stamp }) => {
     const path = join(root, entry.path);
     let copy = null;
     try {
       if (database && scratch) {
         if (!(await roomForCopy(path, entry, scratch, freeBytes))) {
-          if (before) entries.push(before);
+          if (before) slots[index] = before;
           unsaved.push(entry.path);
-          continue;
+          return;
         }
         copy = await databaseCopy(path, scratch);
       }
       const chunks = await chunksOf(copy ?? path, store);
-      entries.push({ ...entry, ...(stamp ? { stamp } : {}), chunks });
+      slots[index] = { ...entry, ...(stamp ? { stamp } : {}), chunks };
       uploaded += 1;
     } catch (error) {
-      if (before) entries.push(before);
+      if (before) slots[index] = before;
       if (error?.code !== "ENOENT") unsaved.push(entry.path);
     } finally {
       if (copy) await rm(copy, { force: true }).catch(() => {});
     }
-  }
+  };
+  const order = resumeOrder(waiting, resumeAfter);
+  let next = 0;
+  let started = 0;
+  let lastStarted;
+  const worker = async () => {
+    while (next < order.length) {
+      const item = order[next++];
+      const late = now() > deadline;
+      if (late && started > 0) {
+        if (item.before) slots[item.index] = item.before;
+        deferred += 1;
+        continue;
+      }
+      started += 1;
+      lastStarted = item.entry.path;
+      if (item.database && scratch) {
+        const turn = databaseTurn.then(() => saveOne(item));
+        databaseTurn = turn.catch(() => {});
+        await turn;
+      } else {
+        await saveOne(item);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(parallel, order.length)) }, worker));
+  const entries = slots.filter(Boolean);
+  const carryOn = deferred > 0 ? lastStarted : undefined;
   const manifest = { version: MANIFEST_VERSION, createdAt: now(), ...(app ? { app } : {}), entries };
   if (uploaded > 0 || !previous || (app && previous.app !== app) || previous.entries.length !== entries.length || changedShape(previous.entries, entries)) {
     await store.putManifest(manifest);
-    return { manifest, written: true, uploaded, unsaved, deferred };
+    return { manifest, written: true, uploaded, unsaved, deferred, resumeAfter: carryOn };
   }
-  return { manifest: previous, written: false, uploaded, unsaved, deferred };
+  return { manifest: previous, written: false, uploaded, unsaved, deferred, resumeAfter: carryOn };
 }
 
 export function settleWithin(work, ms) {
