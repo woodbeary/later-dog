@@ -75,9 +75,10 @@ export interface TaskRecord extends Omit<WireTask, TaskWireDerivedKeys> {
   contextFloor?: number;
   lastContextModel?: string;
   surfaceSource?: "user" | "auto";
+  ownerModelSelection?: ModelSelection;
 }
 
-export type TaskWirePrivateKeys = "resumeCursors" | "lastInstanceId" | "handedMessages" | "appliedCompactionId" | "contextFloor" | "lastContextModel" | "surfaceSource";
+export type TaskWirePrivateKeys = "resumeCursors" | "lastInstanceId" | "handedMessages" | "appliedCompactionId" | "contextFloor" | "lastContextModel" | "surfaceSource" | "ownerModelSelection";
 export type TaskWireDerivedKeys = "surfaceAuto" | "followsBotModel";
 export type TaskWireProjection = Pick<TaskRecord, Exclude<keyof TaskRecord, TaskWirePrivateKeys>> & Pick<WireTask, TaskWireDerivedKeys>;
 type AssertExact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
@@ -88,7 +89,7 @@ export const taskWireProjectionIsExact: TaskWireProjectionIsExact = true;
 export function toWireTask(task: TaskRecord, botModel: ModelSelection, bots: readonly Pick<WireBot, "id" | "name">[] = []): WireTask {
   const { resumeCursors: _resumeCursors, lastInstanceId: _lastInstanceId, handedMessages: _handedMessages,
     appliedCompactionId: _appliedCompactionId, contextFloor: _contextFloor, lastContextModel: _lastContextModel,
-    surfaceSource, ...stored } = task;
+    surfaceSource, ownerModelSelection: _ownerModelSelection, ...stored } = task;
   const currentName = (ref: { botId: string; name: string }) => bots.find((bot) => bot.id === ref.botId)?.name ?? ref.name;
   const openedBy = stored.openedBy && { ...stored.openedBy, name: currentName(stored.openedBy) };
   const closedBy = stored.closedBy && { ...stored.closedBy, name: currentName(stored.closedBy) };
@@ -103,7 +104,7 @@ const ASK_NOW = { approvalMode: "ask" as const, autoApprove: false, alwaysAllow:
 const TASK_PATCH_FIELDS = [
   "title", "projectId", "modelSelection", "approvalMode", "autoApprove", "alwaysAllow",
   "unread", "rewound", "archivedAt", "pinned", "pinnedMessageId", "resumeCursors", "lastInstanceId", "cwd",
-  "routineRunId", "surface", "surfaceSource", "snoozedUntil", "appliedCompactionId", "contextFloor", "lastContextModel",
+  "routineRunId", "surface", "surfaceSource", "snoozedUntil", "appliedCompactionId", "contextFloor", "lastContextModel", "ownerModelSelection",
 ] as const satisfies readonly (keyof TaskRecord)[];
 export type TaskPatch = Partial<Pick<TaskRecord, typeof TASK_PATCH_FIELDS[number]>>;
 
@@ -2199,6 +2200,7 @@ export class Store {
     const patches = bot.tasks.map((task): Partial<TaskRecord> | null => !listed.has(task.threadId) || task.modelSelection === undefined ? null : {
       ...reset(task.modelSelection, bot.modelSelection),
       modelSelection: undefined,
+      ownerModelSelection: undefined,
       ...(this.switchNeedsAsk(botId, task.threadId, task.modelSelection, bot.modelSelection) ? structuredClone(ASK_NOW) : {}),
     });
     const moved = bot.tasks.filter((_, index) => patches[index]).map((task) => task.threadId);

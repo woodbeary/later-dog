@@ -3273,6 +3273,8 @@ function threadModelGivingWay(botId: string, threadId: string): ModelSelection |
   const own = store.taskByThread(botId, threadId)?.modelSelection;
   if (!bot || !own) return null;
   return threadModelFallback(own, bot.modelSelection, threadEngine, {
+    pinned: bot.accountPinned === true,
+    ownerSelection: store.taskByThread(botId, threadId)?.ownerModelSelection,
     refusal: policyModelRefusal,
     ...(hostedModels ? { allows: (selection: ModelSelection) => hostedModels!.allows(selection) } : {}),
   }) ? own : null;
@@ -4088,7 +4090,7 @@ function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
     if (!checked.ok) { respond({ ok: false, error: checked.error }); return true; }
     try {
       store.switchTaskModel(botId, threadId as string, checked.selection, message.updateBotDefault, true,
-        hostedModels?.resetTask(target.modelSelection, checked.selection));
+        { ...hostedModels?.resetTask(target.modelSelection, checked.selection), ownerModelSelection: checked.selection });
       followAccountPick(threadId as string, target.modelSelection, checked.selection);
       const fresh = { ...wireBot(store.bot(botId)!), approvalMode: approvalModeFor(store.bot(botId)!) };
       broadcast({ kind: "bot", bot: fresh });
@@ -12984,12 +12986,13 @@ ROUTES.push(createHandoffContinueRoutes({
   },
 }));
 ROUTES.push(createContinueOnRoutes({
+  mayPickEngine: (auth) => !auth.localTools && (auth.kind === "loopback" ? auth.trust !== "service" : cloudOwnerSession(auth)),
   task: requestedTaskBot,
   refusal: cloudThreadRefusal,
-  continueOn: ({ id, threadId, modelSelection }, instanceId) => continueOnAccount({
+  continueOn: ({ id, threadId, modelSelection }, instanceId, byHand) => continueOnAccount({
     battery: accountBattery, accounts: batteryAccounts(), threadId, selection: modelSelection,
     busy: threadBusy(id, threadId), generation: directTurnGenerationByThread.get(threadId), path: store.activePath(threadId),
-    instanceId,
+    instanceId, byHand,
     write: (tool, replaceId) => {
       if (!store.botByThread(threadId)) return;
       if (replaceId) store.patchMessage(threadId, replaceId, { tool });
@@ -18765,7 +18768,8 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       }
       const task = patch.modelSelection
         ? store.switchTaskModel(m[1], m[2], patch.modelSelection, body.updateBotDefault === true, body.resetApprovalToAsk === true,
-          { ...patch, ...hostedModels?.resetTask(current.modelSelection, patch.modelSelection) })!
+          { ...patch, ...hostedModels?.resetTask(current.modelSelection, patch.modelSelection),
+            ownerModelSelection: !auth.localTools && (auth.kind === "loopback" ? auth.trust !== "service" : cloudOwnerSession(auth)) ? patch.modelSelection : undefined })!
         : store.patchTask(m[1], m[2], patch)!;
       if (patch.modelSelection) followAccountPick(m[2], current.modelSelection, patch.modelSelection);
       return json(res, 200, { task: wireTask(task, store.bot(m[1])!.modelSelection), bot: publicBot(store.bot(m[1])!) });

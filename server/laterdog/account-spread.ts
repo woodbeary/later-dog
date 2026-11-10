@@ -15,10 +15,8 @@ export function roomTier(left: number | undefined): 0 | 1 | 2 {
 
 export function leastLoaded(candidates: readonly SpreadCandidate[]): string | undefined {
   return [...candidates].sort((a, b) =>
-    Number(roomTier(a.left) === 2) - Number(roomTier(b.left) === 2) ||
     a.running - b.running ||
     Number(b.own) - Number(a.own) ||
-    roomTier(a.left) - roomTier(b.left) ||
     (b.left ?? 0) - (a.left ?? 0) ||
     a.index - b.index)[0]?.instanceId;
 }

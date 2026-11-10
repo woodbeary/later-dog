@@ -4,9 +4,11 @@ import { sameModelSelection } from "../shared/thread-model.ts";
 
 export type ThreadEngine = SelectableInstance & { enabled: boolean };
 
-export type ThreadModelFallback = "unavailable" | "signed-out";
+export type ThreadModelFallback = "unavailable" | "signed-out" | "pinned-engine";
 
 export interface ThreadModelContext extends DefaultSelectionContext {
+  pinned?: boolean;
+  ownerSelection?: ModelSelection;
   allows?: (selection: ModelSelection) => boolean;
 }
 
@@ -23,6 +25,9 @@ export function threadModelFallback(
 ): ThreadModelFallback | null {
   if (sameModelSelection(own, botModel)) return null;
   const mine = engine(own.instanceId);
+  const pinnedEngine = engine(botModel.instanceId);
+  if (context.pinned && mine && pinnedEngine && mine.driverKind !== pinnedEngine.driverKind &&
+      (!context.ownerSelection || !sameModelSelection(own, context.ownerSelection))) return "pinned-engine";
   if (!canRunOn(mine, own, context)) return "unavailable";
   if (!signedOut(mine)) return null;
   const theirs = engine(botModel.instanceId);

@@ -1,6 +1,6 @@
 import type { ModelSelection } from "../../shared/wire.ts";
 import { failedTurnTool, type FailedTurnTool } from "../../shared/failed-turn.ts";
-import { CONTINUE_AFTER_SWITCH, crossEngineNotice, switchNotice, selectionOnAccount, type AccountBattery, type BatteryAccount } from "./account-battery.ts";
+import { CONTINUE_AFTER_SWITCH, crossEngineNotice, engineName, switchNotice, selectionOnAccount, type AccountBattery, type BatteryAccount } from "./account-battery.ts";
 
 export interface PathMessage {
   id: string;
@@ -39,6 +39,8 @@ export function checkContinueOn(input: {
   from: string;
   to: unknown;
   resting: (account: BatteryAccount) => boolean;
+  pinned?: boolean;
+  byHand?: boolean;
 }): ContinueOnCheck {
   const { accounts, selection } = input;
   if (typeof input.to !== "string" || !input.to) return { ok: false, status: 400, error: "Pick an account to continue on." };
@@ -48,6 +50,9 @@ export function checkContinueOn(input: {
   if (!to?.eligible) return { ok: false, status: 404, error: "That account isn't available any more." };
   if (to.instanceId === from.instanceId) return { ok: false, status: 409, error: "That's the account that ran out." };
   if (!to.enabled || to.signedIn === false) return { ok: false, status: 409, error: `${accountName(to)} isn't signed in.` };
+  if (from.driverKind !== to.driverKind && input.pinned && !input.byHand) {
+    return { ok: false, status: 409, error: `This dog stays on ${engineName(from.driverKind)}.` };
+  }
   if (from.driverKind !== to.driverKind && !to.defaultModel && !to.models.length) {
     return { ok: false, status: 409, error: `${accountName(to)} does not have an available model.` };
   }
@@ -67,6 +72,7 @@ export function continueOnAccount(input: {
   generation: string | undefined;
   path: readonly PathMessage[];
   instanceId: unknown;
+  byHand?: boolean;
   write: (tool: Notice | FailedTurnTool, replaceId?: string) => void;
   now?: number;
 }): ContinueOnResult {
@@ -75,6 +81,7 @@ export function continueOnAccount(input: {
   const limit = latestLimit(path);
   const check = checkContinueOn({
     accounts, selection, from: limit?.tool?.quota?.instanceId ?? selection.instanceId, to: input.instanceId,
+    pinned: battery.keepsEngine(input.threadId), byHand: input.byHand === true,
     resting: (account) => Boolean(battery.restOf(account, accounts, selectionOnAccount(selection, account, accounts, battery.preferredFor(input.threadId)).model)),
   });
   if (!check.ok) return { status: check.status, body: { error: check.error } };

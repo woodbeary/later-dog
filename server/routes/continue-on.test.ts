@@ -17,6 +17,7 @@ const task = { id: "scout", threadId: "t-2", modelSelection: { instanceId: "clau
 async function serve(overrides: Partial<ContinueOnRouteDeps> = {}) {
   const deps: ContinueOnRouteDeps = {
     task: vi.fn(() => task),
+    mayPickEngine: () => true,
     refusal: vi.fn(() => null),
     continueOn: vi.fn(() => ({ status: 200 as const, body: { continued: true } })),
     ...overrides,
@@ -38,13 +39,20 @@ const post = (base: string, path: string, body: unknown) => fetch(`${base}${path
 });
 
 describe("continue on another account", () => {
+  it("honors a hand pick only from the owner", async () => {
+    for (const allowed of [true, false]) {
+      const { base, deps } = await serve({ mayPickEngine: () => allowed });
+      await post(base, "/api/bots/scout/continue-on", { threadId: "t-2", instanceId: "codex", byHand: true });
+      expect(deps.continueOn).toHaveBeenCalledWith(task, "codex", allowed);
+    }
+  });
   it("continues the named thread on the chosen account", async () => {
     const { base, deps } = await serve();
     const response = await post(base, "/api/bots/scout/continue-on", { threadId: "t-2", instanceId: "claude-two" });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ continued: true });
     expect(deps.task).toHaveBeenCalledWith("scout", "t-2");
-    expect(deps.continueOn).toHaveBeenCalledWith(task, "claude-two");
+    expect(deps.continueOn).toHaveBeenCalledWith(task, "claude-two", false);
   });
 
   it("answers with the refusal the account check gives", async () => {

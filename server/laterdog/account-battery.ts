@@ -166,6 +166,7 @@ interface PickInput {
   usage?: PlanReading;
   preferred?: readonly ModelSelection[];
   roomiest?: boolean;
+  sameEngine?: boolean;
 }
 
 export function percentLeft(row: PlanProviderRow | undefined, now: number): number | undefined {
@@ -314,27 +315,13 @@ export function pickAccount(input: PickInput): BatteryAccount | undefined {
   const sequence = batterySequence(input).filter((id) => id !== own.instanceId);
   const ranked = input.roomiest ? rankOrder({ all: [own.instanceId, ...sequence] }, input).all! : [own.instanceId, ...sequence.filter((id) => !nearlyEmpty(id)), ...sequence.filter(nearlyEmpty)];
   const sameEngine = (id: string) => accounts.find((account) => account.instanceId === id)?.driverKind === own.driverKind;
-  const order = [...ranked.filter(sameEngine), ...ranked.filter((id) => !sameEngine(id))];
+  const order = input.sameEngine ? ranked.filter(sameEngine) : [...ranked.filter(sameEngine), ...ranked.filter((id) => !sameEngine(id))];
   const listed = own.models.includes(selection.model);
   for (const id of order) {
     const account = accounts.find((candidate) => candidate.instanceId === id);
     if (canTake(account, input, listed)) return account;
   }
   return undefined;
-}
-
-const ROOMY_PERCENT = 20;
-
-export function roomierThan(own: BatteryAccount, input: PickInput): BatteryAccount | undefined {
-  const left = percentLeft(input.usage?.(own.instanceId), input.now);
-  if (left === undefined || left > NEARLY_EMPTY_PERCENT) return undefined;
-  const listed = own.models.includes(input.selection.model);
-  const order = batterySequence(input);
-  const room = (account: BatteryAccount) => percentLeft(input.usage?.(account.instanceId), input.now) ?? -1;
-  return input.accounts
-    .filter((account) => account !== own && account.driverKind === own.driverKind && order.includes(account.instanceId) &&
-      canTake(account, input, listed) && room(account) >= ROOMY_PERCENT)
-    .sort((a, b) => room(b) - room(a) || order.indexOf(a.instanceId) - order.indexOf(b.instanceId))[0];
 }
 
 export function routeSelection(input: Parameters<typeof pickAccount>[0]): ModelSelection {
@@ -435,7 +422,7 @@ export function switchNotice(input: { to: string; from: string; rest?: Rest; now
   return `Switched to ${to} — ${from} is out of usage${known ? ` until ${resetLabel(known, now, timeZone)}` : " for now"}.`;
 }
 
-export function routedNotice(input: { to: string; from: string; rest?: Rest; why?: "signedOut" | "off" | "low"; now: number; timeZone?: string }): string {
+export function routedNotice(input: { to: string; from: string; rest?: Rest; why?: "signedOut" | "off"; now: number; timeZone?: string }): string {
   const { to, from, rest, now, timeZone } = input;
   if (rest?.kind === SETUP_STOP && Date.parse(rest.until) > now) return `Running on ${to} — ${from} needs signing in again.`;
   if (rest && Date.parse(rest.until) > now) {
@@ -445,7 +432,6 @@ export function routedNotice(input: { to: string; from: string; rest?: Rest; why
   }
   if (input.why === "signedOut") return `Running on ${to} — ${from} isn't signed in.`;
   if (input.why === "off") return `Running on ${to} — ${from} is turned off.`;
-  if (input.why === "low") return `Running on ${to} — ${from} is almost out of usage.`;
   return `Running on ${to} instead of ${from}.`;
 }
 
@@ -512,12 +498,14 @@ export class AccountBattery {
     const input = { selection, accounts, resting: this.resting(accounts), now: this.now(), usage: this.options.usage, ...(preferred ? { preferred } : {}) };
     const own = accounts.find((account) => account.instanceId === selection.instanceId);
     if (!own?.eligible) return selection;
-    const roomier = this.enabled ? roomierThan(own, { config: this.options.config(), ...input }) : undefined;
-    if (roomier) return selectionOnAccount(selection, roomier, accounts, preferred);
     const spread = threadId ? this.spreadTo(threadId, own, input) : undefined;
     if (spread && spread.instanceId !== own.instanceId) return selectionOnAccount(selection, spread, accounts, preferred);
     if (spread || canTake(own, input, false)) return selection;
-    return routeSelection({ config: this.options.config(), ...input });
+    return routeSelection({ config: this.options.config(), ...input, ...(this.keepsEngine(threadId) ? { sameEngine: true } : {}) });
+  }
+
+  keepsEngine(threadId: string | undefined): boolean {
+    return Boolean(threadId && this.options.pinnedThread?.(threadId) === true);
   }
 
   private pinned(own: BatteryAccount, accounts: readonly BatteryAccount[]): boolean {
@@ -651,9 +639,11 @@ export class AccountBattery {
     if (!own) return undefined;
     const away = threadId ? this.state.away[threadId] : undefined;
     const listed = own.models.includes(selection.model);
+    const keepsEngine = this.keepsEngine(threadId);
+    const sequence = this.enabled && own.eligible ? batterySequence({ config: this.options.config(), accounts, resting: this.resting(accounts), now: this.now() }) : [];
     const others = [
       ...(away?.to && (away.pick === undefined || away.pick === own.instanceId) ? [away.to] : []),
-      ...(this.enabled && own.eligible ? batterySequence({ config: this.options.config(), accounts, resting: this.resting(accounts), now: this.now() }) : []),
+      ...(keepsEngine ? sequence.filter((id) => find(id)?.driverKind === own.driverKind) : sequence),
     ].map(find).filter((account): account is BatteryAccount => Boolean(account && account !== own && account.eligible && account.enabled &&
       account.signedIn === true && (account.driverKind !== own.driverKind ? Boolean(account.defaultModel || account.models.length) : !listed || account.models.includes(selection.model))));
     let soonest = Infinity;
@@ -755,7 +745,7 @@ export class AccountBattery {
     if (!turn?.rerun || turn.generation !== input.generation) return null;
     const to = pickAccount({
       config: this.options.config(), selection: input.selection, accounts: input.accounts, resting: this.resting(input.accounts), now: this.now(), usage: this.options.usage, roomiest: true,
-      ...(preferred ? { preferred } : {}),
+      ...(preferred ? { preferred } : {}), ...(this.keepsEngine(input.threadId) ? { sameEngine: true } : {}),
     });
     if (!from || !to || to.instanceId === from.instanceId) return null;
     return { turn, from, to, rest: this.restOf(from, input.accounts, input.selection.model), reason: setup ? SETUP_STOP : "usage_limit" };
@@ -835,13 +825,8 @@ export class AccountBattery {
     const engines = rest && Date.parse(rest.until) > this.now() ? crossEngineNotice(from, find(ranOn), "Running") : undefined;
     return engines ?? routedNotice({
       to: name(ranOn), from: name(selection.instanceId), rest,
-      why: from?.signedIn === false ? "signedOut" : from && !from.enabled ? "off" : this.nearlyEmpty(selection.instanceId) ? "low" : undefined, now: this.now(),
+      why: from?.signedIn === false ? "signedOut" : from && !from.enabled ? "off" : undefined, now: this.now(),
     });
-  }
-
-  private nearlyEmpty(instanceId: string): boolean {
-    const left = percentLeft(this.options.usage?.(instanceId), this.now());
-    return left !== undefined && left <= NEARLY_EMPTY_PERCENT;
   }
 
   private place(threadId: string, on: string | undefined, from: string): void {

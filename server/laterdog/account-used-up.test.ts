@@ -54,9 +54,9 @@ describe("an account at 100% of a usage window", () => {
     expect(battery.route({ instanceId: "home", model: "claude-opus-5" }, ACCOUNTS).instanceId).toBe("home");
   });
 
-  it("moves a dog pinned to it, before and mid-turn, to the account with the most room", () => {
+  it("moves a dog off a full account in order, and ranks room after a real failure", () => {
     const { battery } = setup(reading("adam", 100, 40), true);
-    expect(battery.route(ON_ADAM, ACCOUNTS, "pinned-dog").instanceId).toBe("cara");
+    expect(battery.route(ON_ADAM, ACCOUNTS, "pinned-dog").instanceId).toBe("home");
     battery.trackTurn("pinned-dog", { generation: "g1", instanceId: "adam", rerun: vi.fn(async () => undefined) });
     const moved = battery.nextAccount({ threadId: "pinned-dog", generation: "g1", stopReason: "usage_limit", ranOn: "adam", selection: ON_ADAM, accounts: ACCOUNTS });
     expect(moved?.to.instanceId).toBe("cara");
@@ -65,7 +65,7 @@ describe("an account at 100% of a usage window", () => {
 
   it("is usable again once the reset time passes", () => {
     const { battery, advance } = setup(reading("adam", 100, 40), true);
-    expect(battery.route(ON_ADAM, ACCOUNTS, "pinned-dog").instanceId).toBe("cara");
+    expect(battery.route(ON_ADAM, ACCOUNTS, "pinned-dog").instanceId).toBe("home");
     advance(2 * HOUR + 1);
     expect(battery.restOf(claude("adam"), ACCOUNTS)).toBeUndefined();
     expect(battery.status(ACCOUNTS).resting.adam).toBeUndefined();
