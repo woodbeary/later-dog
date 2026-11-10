@@ -21,6 +21,19 @@ and [failed-source checkpoint qualification](../verification/failed-cloud-checkp
 
 ## Consolidation release (2026-11-08)
 
+November 10 closure: runtime source `0ab6c979c266` and immutable image `a1bd8bad`
+are deployed by Worker `2728c797`. The owner's actual container runs that image,
+and the fresh native fixture passed 61 archive/SQLite/R2 checks. Production
+passed 21 consecutive uncached samples from 04:45:30.090 through 04:55:38.968 UTC,
+retaining all 80 dog IDs and all 155 baseline task IDs. Free disk rose from
+1.023 to 1.938 decimal GB across rollout; the new runtime recorded
+288,873,804 session bytes archived. All 21/21 samples remained low-storage
+flagged, so larger-fleet capacity is unqualified. Nextdoor's login wait is intentional;
+the resize experiment is held. Scope is closed after this bounded release and watch.
+[Exact build, failed attempts, monitoring and cleanup](../verification/home-reliability-release-2026-11-10.md).
+
+
+
 November 9 supervisor pin (PR141): production runs a layered image (five compiled
 files from `a4256c8a` over the prior image), pinned by digest in the Wrangler config;
 this is not a full Dockerfile rebuild. A full production deploy activated Worker
