@@ -35,3 +35,8 @@ describe("typing a saved vault password into a Mac command", () => {
     expect(JSON.stringify(withoutSecret(result, "hunter2"))).not.toContain("hunter2");
   });
 });
+
+it("never types a managed connection secret by its vault ID", () => {
+  const source = vault([{ ...login("l1", "google/token/REFRESH_TOKEN", ""), kind: "secret" }]);
+  expect(vaultInput(source, "l1").ok).toBe(false);
+});

@@ -46,6 +46,7 @@ export function secretNameProblem(name: unknown): string | null {
   if (typeof name !== "string" || !VAULT_SECRET_NAME.test(name)) {
     return "Name the vault item with letters, digits, dots, dashes, underscores and slashes, for example ocjr/OPERATOR_DASHBOARD_TOKEN.";
   }
+  if (name.toLowerCase().startsWith("google/")) return "Google connection tokens are managed by later.dog and cannot be used by command tools.";
   return null;
 }
 

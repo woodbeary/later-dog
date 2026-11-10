@@ -258,3 +258,11 @@ rendering is merged for inclusion in the next desktop release; this lane does
 not publish a new desktop binary. Phone corner rendering goes in beta after
 Mac checks and the Build 9 fingerprint gate.
 [Verification and release evidence](../verification/tapbacks-2026-11-10.md).
+
+## Google read-only connector (2026-11-10)
+
+Hound owns native Google consent cards, home callback, encrypted vault refresh
+tokens, explicit multiple-account Gmail read/search and code-to-vault extraction.
+Composio broker source reviewed; live D1 inspection needs Cloudflare reauthentication.
+OAuth client provisioning, activation and Jacob's lopez731@gmail.com consent remain
+live gates. See [verification](../verification/google-connector.md).

@@ -49,7 +49,7 @@ const REMOVED_PEER_TOOLS = ["ask_bot", "delegate_bot", "check_delegation", "wait
 const FULL = { direct: "direct+skills+shared+voice" } as const;
 const PHONE_TOOLS = ["read_phone", "add_to_phone", "change_on_phone", "nearby_places"];
 const MAC_MESSAGE_TOOLS = ["send_text", "read_texts", "send_email"];
-const CLOUD_HOME_ONLY = [...MAC_MESSAGE_TOOLS, "run_on_computer"];
+const CLOUD_HOME_ONLY = [...MAC_MESSAGE_TOOLS, "run_on_computer", "connect_google", "gmail_search", "gmail_read", "gmail_code_to_vault"];
 
 const BUDGET_BASELINE: Record<string, number> = {
   "direct": 42262,
@@ -60,8 +60,8 @@ const BUDGET_BASELINE: Record<string, number> = {
   "direct+skills+voice": 45056,
   "direct+skills+shared": 49344,
   "direct+skills+shared+voice": 50085,
-  "direct+skills+shared+voice+cloud-home": 53193,
-  "direct+skills+shared+voice+cloud-home+phone": 57223,
+  "direct+skills+shared+voice+cloud-home": 56130,
+  "direct+skills+shared+voice+cloud-home+phone": 60160,
 };
 
 const RPC_PREFIX = '{"jsonrpc":"2.0","id":1,"result":';
