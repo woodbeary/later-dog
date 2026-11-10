@@ -222,7 +222,7 @@ export function planClaudeRemote(input: ClaudePlacement): { plan: ClaudeRemotePl
     remoteEnv[key] = value;
   }
   const cliDir = `${remoteBase}/cli/claude-code-${cli.version}`;
-  Object.assign(remoteEnv, { CLAUDE_CONFIG_DIR: configDir, HOME: "/home/dog", PATH: `${cliDir}/node_modules/.bin:/usr/local/bin:/usr/bin:/bin` });
+  Object.assign(remoteEnv, { CLAUDE_CONFIG_DIR: configDir, HOME: "/home/dog", PATH: `${cliDir}/node_modules/.bin:/home/dog/.local/bin:/home/dog/.npm-global/bin:/usr/local/bin:/usr/bin:/bin` });
   const hookEnv: Record<string, string> = {};
   for (const [key, value] of Object.entries(input.env)) if (value !== undefined) hookEnv[key] = value;
 

@@ -3,12 +3,15 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { bringBackList, changesSince, ComputerRuns, parts, type RunBox, setupKey, stampFolder } from "./computer-runs.ts";
+import { bringBackList, changesSince, ComputerRuns, parts, type RunBox, runKey, setupKey, stampFolder } from "./computer-runs.ts";
 
 const ENVIRONMENTS_MODULE = "../../deploy/laterdog/computers/src/environments.ts";
 const environments = await import(ENVIRONMENTS_MODULE);
 
 function localBox(home: string) {
+  mkdirSync(join(home, ".local/bin"), { recursive: true });
+  writeFileSync(join(home, ".local/bin/pnpm"), "#!/bin/sh\nexit 0\n");
+  chmodSync(join(home, ".local/bin/pnpm"), 0o755);
   const commands: string[] = [];
   const box: RunBox = {
     async exec(command) {
@@ -230,4 +233,54 @@ describe("the pieces", () => {
     expect(parts(Buffer.alloc(25), 10).map((part) => part.length)).toEqual([10, 10, 5]);
     expect(parts(Buffer.alloc(0), 10)).toHaveLength(1);
   });
+});
+
+
+describe("generated transfer paths", () => {
+  it("leaves all 252 generated files on the computer while returning source and results", async () => {
+    const { folder, computer, state } = project(); mkdirSync(computer);
+    mkdirSync(join(folder, ".open-next")); writeFileSync(join(folder, ".open-next/keep.js"), "home copy");
+    const { box } = localBox(computer);
+    const outcome = await new ComputerRuns(state, fast).run(box, { botId: "dog", folder,
+      command: "mkdir -p apps/site/.open-next/assets apps/site/.wrangler/tmp/dev apps/site/.wrangler/state apps/site/.wrangler/cache results .git; for i in $(seq 1 252); do echo generated > apps/site/.open-next/assets/$i.js; done; echo scratch > apps/site/.wrangler/tmp/dev/x; echo state > apps/site/.wrangler/state/db; echo cache > apps/site/.wrangler/cache/x; echo source > src/page.ts; echo result > results/check.txt; echo ref > .git/HEAD" });
+    expect(outcome.broughtBack.sort()).toEqual([".git/HEAD", "apps/site/.wrangler/cache/x", "apps/site/.wrangler/state/db", "results/check.txt", "src/page.ts"]);
+    expect(outcome.sentFiles).toBe(2);
+    expect(existsSync(join(folder, "apps/site/.open-next"))).toBe(false);
+    expect(readFileSync(join(folder, ".open-next/keep.js"), "utf8")).toBe("home copy");
+    expect(readFileSync(join(computer, "runs", runKey(folder), "apps/site/.open-next/assets/252.js"), "utf8")).toBe("generated\n");
+  });
+  it("filters legacy stamps before removal while still deleting removed real source remotely", async () => {
+    const { folder, computer, state } = project(); mkdirSync(computer);
+    const key = runKey(folder); const remote = join(computer, "runs", key);
+    const oldPaths = [".open-next/assets/old.js", "apps/site/.wrangler/tmp/old.js", "src/deleted.ts"];
+    for (const path of oldPaths) { mkdirSync(dirname(join(remote, path)), { recursive: true }); writeFileSync(join(remote, path), "retained"); }
+    mkdirSync(join(state, "dog"), { recursive: true });
+    writeFileSync(join(state, "dog", `${key}.sent.json`), JSON.stringify(Object.fromEntries(oldPaths.map(path => [path, { size: 8, mtimeMs: 1 }]))));
+    const { box } = localBox(computer);
+    await new ComputerRuns(state, fast).run(box, { botId: "dog", folder, command: "true" });
+    for (const path of oldPaths.slice(0, 2)) expect(readFileSync(join(remote, path), "utf8")).toBe("retained");
+    expect(existsSync(join(remote, "src/deleted.ts"))).toBe(false);
+    expect(Object.keys(JSON.parse(readFileSync(join(state, "dog", `${key}.sent.json`), "utf8")))).not.toEqual(expect.arrayContaining(oldPaths.slice(0, 2)));
+  });
+  it("excludes generated paths consistently from stamps, deltas and returned lists", () => {
+    const { folder } = project();
+    const skip = [".open-next/a", "apps/site/.open-next/a", "apps/site/.wrangler/tmp/dev/a"];
+    const keep = ["apps/site/.wrangler/state/db", "apps/site/.wrangler/cache/db", "src/tmp/a", "results/a", ".git/HEAD"];
+    for (const path of [...skip, ...keep]) { mkdirSync(dirname(join(folder, path)), { recursive: true }); writeFileSync(join(folder, path), "x"); }
+    const stamps = stampFolder(folder);
+    for (const path of skip) expect(stamps[path], path).toBeUndefined();
+    for (const path of keep) expect(stamps[path], path).toBeTruthy();
+    expect(changesSince(Object.fromEntries(skip.map(path => [path, { size: 1, mtimeMs: 1 }])), {})).toEqual({ changed: [], removed: [] });
+    expect(bringBackList([...skip, ...keep].map(path => `1\t./${path}`).join("\n")).take).toEqual(keep);
+  });
+  it("rejects malicious listing and legacy-stamp paths before transfer or removal", () => {
+    const paths = ["../outside", "/absolute", "a/../../outside", "a//b", "a/./b", "a\\b", "a\0b", "a\tb"];
+    for (const path of paths) {
+      expect(bringBackList(`1\t${path}`).take, path).toEqual([]);
+      expect(changesSince({ [path]: { size: 1, mtimeMs: 1 } }, {}), path).toEqual({ changed: [], removed: [] });
+    }
+    for (const size of ["NaN", "-1", "Infinity", "1.5"]) expect(bringBackList(`${size}\tsrc/a`).take).toEqual([]);
+    expect(bringBackList("10\tsrc/a\n20\tresults/b\n1\tresults/c", 15)).toEqual({ take: ["src/a", "results/c"], skipped: ["results/b"] });
+  });
+
 });
