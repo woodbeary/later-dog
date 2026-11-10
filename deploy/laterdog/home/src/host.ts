@@ -12,7 +12,7 @@ import { devCodeOn, handleDevCode } from "./dev-code.ts";
 import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter, RESTART_AFTER_STOP_S } from "./always-on.ts";
 import { afterCheck, ANSWER_CHECK_TIMEOUT_MS, NOT_ANSWERED_YET, stuckLine, within, type AnswerRecord } from "./hang-watch.ts";
 import {
-  DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskLimit, deskPrefix, deskSend, forgetScope, queuedReceipt, queuedSend,
+  answerHeldQueueAsk, DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskLimit, deskPrefix, deskSend, forgetScope, heldQueueAsk, queuedReceipt, queuedSend,
   refusedSend, saveAnswer, savable, savedAnswer, withQueued, type DeskBucket, type DeskKind, type QueuedSend,
 } from "./desk.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
@@ -499,6 +499,15 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   private async answerAsleep(record: HomeRecord, request: Request, key: string | null): Promise<Response | null> {
+    const asked = key && this.knownDevice(key) ? heldQueueAsk(request) : null;
+    const answered = asked && !this.answering.has(asked.id) ? answerHeldQueueAsk(this.outbox, asked) : null;
+    if (answered) {
+      if (answered.outbox.length !== this.outbox.length) {
+        this.outbox = answered.outbox;
+        await this.ctx.storage.put(OUTBOX_KEY, this.outbox);
+      }
+      return answered.response;
+    }
     if (deskSend(request)) {
       if (!key || !this.knownDevice(key)) return null;
       const queued = await queuedSend(request.clone(), Date.now());

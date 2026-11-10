@@ -151,6 +151,35 @@ export async function queuedSend(request: Request, now: number): Promise<QueuedS
   };
 }
 
+const HELD_QUEUE_PATH = /^\/api\/bots\/[^/]+\/queue\/([\w-]+)(\/steer)?$/;
+export const HELD_UNTIL_UP = "Your home is starting. This message sends as soon as it is up.";
+
+export interface HeldQueueAsk {
+  id: string;
+  ask: "send-now" | "cancel";
+}
+
+export function heldQueueAsk(request: Request): HeldQueueAsk | null {
+  const match = HELD_QUEUE_PATH.exec(new URL(request.url).pathname);
+  if (!match) return null;
+  if (match[2] && request.method === "POST") return { id: match[1]!, ask: "send-now" };
+  if (!match[2] && request.method === "DELETE") return { id: match[1]!, ask: "cancel" };
+  return null;
+}
+
+export function answerHeldQueueAsk(outbox: readonly QueuedSend[], asked: HeldQueueAsk): { outbox: QueuedSend[]; response: Response } | null {
+  const held = outbox.find((queued) => queued.id === asked.id);
+  if (!held) return null;
+  const headers = { "cache-control": "no-store" };
+  if (asked.ask === "cancel") {
+    return { outbox: outbox.filter((queued) => queued.id !== asked.id), response: Response.json({ ok: true }, { headers }) };
+  }
+  return {
+    outbox: [...outbox],
+    response: Response.json({ ok: true, queued: true, reason: HELD_UNTIL_UP, ...(held.threadId ? { threadId: held.threadId } : {}) }, { headers }),
+  };
+}
+
 export function withQueued(outbox: readonly QueuedSend[], next: QueuedSend): QueuedSend[] | null {
   if (outbox.some((queued) => queued.id === next.id)) return [...outbox];
   if (outbox.length >= DESK_OUTBOX_MAX) return null;

@@ -1,7 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { isStorageFailure, plainFailure, tooBigMessage } from "./plain-error.ts";
+import { isStorageFailure, plainFailure, saidBy, tooBigMessage } from "./plain-error.ts";
 
 const coded = (code: string, message: string, status?: number) => Object.assign(new Error(message), { code, ...(status ? { status } : {}) });
+
+describe("failures that are not errors", () => {
+  it("never shows a thrown object as [object Object], whatever shape it has", () => {
+    for (const thrown of [{}, { status: 409 }, { status: 404, body: { reason: "gone" } }, { message: { code: "x" } }, [], null, undefined, Symbol("x"), () => undefined]) {
+      const result = plainFailure(thrown);
+      expect(result.message).not.toContain("[object");
+      expect(result.message).toMatch(/^Something went wrong on this computer/);
+    }
+    expect(plainFailure({ status: 409 })).toMatchObject({ status: 409, internal: false });
+    expect(plainFailure({})).toMatchObject({ status: 500, internal: true });
+  });
+
+  it("uses the words a thrown object does carry", () => {
+    expect(saidBy("the dog is busy")).toBe("the dog is busy");
+    expect(saidBy({ message: "no such bot" })).toBe("no such bot");
+    expect(saidBy({ error: "waking" })).toBe("waking");
+    expect(saidBy({ error: { code: "not_found", message: "no such computer" } })).toBe("no such computer");
+    expect(saidBy(new Error("boom"))).toBe("boom");
+    expect(saidBy({ status: 503 })).toBe("");
+    expect(plainFailure({ status: 404, message: "no such queued message" })).toEqual({ status: 404, internal: false, message: "no such queued message" });
+  });
+});
 
 describe("plain failures", () => {
   it("says a full disk in words, naming the kind of computer, whichever layer noticed it", () => {
