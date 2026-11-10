@@ -10676,6 +10676,26 @@ describe("bot memory API", () => {
     }
   });
 
+  it("answers Google's OAuth callback without a session, and refuses a state it never issued", async () => {
+    const page = await fetch(`${BASE}/google-oauth/callback?state=never-issued&code=x`);
+    expect(page.status).toBe(400);
+    expect(page.headers.get("content-type")).toContain("text/html");
+    expect(page.headers.get("cache-control")).toBe("no-store");
+    expect(await page.text()).toContain("This link has expired");
+    const bot = (await api("POST", "/api/bots", {})).body.bot;
+    try {
+      const listed = await fetch(`${BASE}/api/internal/google`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${await mintTestCapability(BASE, bot.id, bot.threadId)}`, "content-type": "application/json" },
+        body: JSON.stringify({ fromBotId: bot.id, fromThreadId: bot.threadId, action: "accounts" }),
+      });
+      expect(listed.status).toBe(200);
+      expect(((await listed.json()) as { text: string }).text).toContain("No Google account is connected");
+    } finally {
+      await api("DELETE", `/api/bots/${bot.id}`);
+    }
+  });
+
   it("request_device_approval shows a device-code card and the person's Approved closes it", async () => {
     const bot = (await api("POST", "/api/bots", {})).body.bot;
     try {

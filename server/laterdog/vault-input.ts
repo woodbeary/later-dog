@@ -13,7 +13,7 @@ export function vaultInput(vault: VaultSource, asked: string): VaultInput {
   const want = asked.trim();
   if (!want) return { ok: false, error: "vault_login needs the saved login's id or site." };
   const at = want.lastIndexOf("@");
-  const byId = vault.list().filter((login) => login.id === want);
+  const byId = vault.list().filter((login) => login.kind !== "secret" && login.id === want);
   const whole = byId.length ? byId : vault.matching(want);
   const site = whole.length || at <= 0 ? want : want.slice(at + 1);
   const username = whole.length || at <= 0 ? undefined : want.slice(0, at);

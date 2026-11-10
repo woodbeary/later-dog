@@ -12,7 +12,7 @@ export const READ_ONLY_AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
   "skills_list",
 ]);
 
-export const OPEN_WORLD_READ_TOOL_NAMES: ReadonlySet<string> = new Set(["nearby_places"]);
+export const OPEN_WORLD_READ_TOOL_NAMES: ReadonlySet<string> = new Set(["nearby_places", "gmail_search", "gmail_read"]);
 
 interface ReadOnlyAnnotations {
   readonly readOnlyHint: true;

@@ -531,6 +531,43 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "connect_google",
+    description:
+      "Connect one of the owner's Google accounts for read-only Gmail. The owner gets a card that opens Google's own consent page on their phone or Mac, where they approve with their passkey; never open that page in your own browser. End the turn after calling; later.dog wakes you when it connects. With no account, lists what is connected.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {
+      account: { type: "string", maxLength: 320, description: "The Gmail address to connect, for example lopez731@gmail.com." },
+      list: { type: "boolean", description: "Only list connected accounts; post no card." },
+    } },
+  },
+  {
+    name: "gmail_search",
+    description: "Search a connected Gmail account, read-only, with Gmail's own search words (from:, subject:, newer_than:1d, after:). Returns sender, subject, date, snippet and message_id, newest first.",
+    inputSchema: { type: "object", additionalProperties: false, required: ["query"], properties: {
+      query: { type: "string", minLength: 1, maxLength: 500 },
+      limit: { type: "integer", minimum: 1, maximum: 25, description: "Default 10." },
+      account: { type: "string", maxLength: 320, description: "Which connected Google account, by email. Needed only when more than one is connected." },
+    } },
+  },
+  {
+    name: "gmail_read",
+    description: "Read one Gmail message in full, read-only: headers, text body and attachment names. Use a message_id from gmail_search.",
+    inputSchema: { type: "object", additionalProperties: false, required: ["message_id"], properties: {
+      message_id: { type: "string", minLength: 6, maxLength: 64 },
+      account: { type: "string", maxLength: 320, description: "Which connected Google account, by email. Needed only when more than one is connected." },
+    } },
+  },
+  {
+    name: "gmail_code_to_vault",
+    description: "Find the newest emailed sign-in code from a sender and save it straight to the owner's vault under name, without showing it to you. You get the name and a fingerprint; type it with the vault field of a command. Codes stay out of chat.",
+    inputSchema: { type: "object", additionalProperties: false, required: ["from", "name"], properties: {
+      from: { type: "string", minLength: 1, maxLength: 200, description: "Sender address or domain, for example nextdoor.com." },
+      name: { type: "string", minLength: 1, maxLength: 120, description: "Vault item to save it as, for example nextdoor/jacob-reply/CODE." },
+      within_minutes: { type: "integer", minimum: 1, maximum: 1440, description: "How far back to look; default 15." },
+      digits: { type: "integer", minimum: 4, maximum: 10, description: "Code length; default 6." },
+      account: { type: "string", maxLength: 320, description: "Which connected Google account, by email. Needed only when more than one is connected." },
+    } },
+  },
+  {
     name: "send_voice_note",
     description:
       "Send the user a voice note: a short spoken message synthesized with your configured voice, stored as audio, and attached to your reply when the turn ends. Write the note as speakable words, exactly as it should be said — no lists, links or markdown meant for screens. The same text becomes the note's visible caption and transcript, so the person can read or listen. Use it for warmth, tone or emphasis a written line cannot carry; use ordinary text otherwise.",
@@ -866,6 +903,8 @@ const CLOUD_HOME_NEEDS = {
   description: "With auto: what the task needs, in a few words, such as \"file in Downloads\" or \"local project folder\". Only the Mac has those.",
 };
 
+export const GOOGLE_TOOL_NAMES: ReadonlySet<string> = new Set(["connect_google", "gmail_search", "gmail_read", "gmail_code_to_vault"]);
+
 export function availableTools(profile: CatalogProfile) {
   const tools = catalogTools(profile);
   return profile.cloudHome
@@ -898,5 +937,5 @@ function catalogTools(profile: CatalogProfile) {
   const VOICE_READY_TOOLS = profile.voiceNotes
     ? PHONE_READY_TOOLS
     : PHONE_READY_TOOLS.filter((tool) => !VOICE_TOOL_NAMES.has(tool.name));
-  return profile.cloudHome ? VOICE_READY_TOOLS : VOICE_READY_TOOLS.filter((tool) => tool.name !== "run_on_computer");
+  return profile.cloudHome ? VOICE_READY_TOOLS : VOICE_READY_TOOLS.filter((tool) => tool.name !== "run_on_computer" && !GOOGLE_TOOL_NAMES.has(tool.name));
 }

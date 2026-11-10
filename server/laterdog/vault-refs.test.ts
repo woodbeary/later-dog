@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { finishMacVault, prepareMacVault, type VaultItems } from "./vault-commands.ts";
-import { CommandSecrets, generateSecret, maskValues, parseVaultUses, vaultFingerprint, wrapVaultCommand } from "./vault-refs.ts";
+import { CommandSecrets, generateSecret, maskValues, parseVaultUses, secretNameProblem, vaultFingerprint, wrapVaultCommand } from "./vault-refs.ts";
 import { VaultStore } from "./vault.ts";
 
 const KEY = Buffer.alloc(32, 7);
@@ -137,4 +137,9 @@ describe("vault items on the Mac", () => {
     expect(store.secret("cf/NEW_TOKEN")).toBe(printed);
     expect(store.secrets().find((item) => item.site === "cf/NEW_TOKEN")?.createdBy).toBe("nextdoor");
   });
+});
+
+it("refuses managed Google tokens as command inputs and capture names", () => {
+  expect(secretNameProblem("google/lopez731_at_gmail.com/REFRESH_TOKEN")).toContain("managed by later.dog");
+  expect(parseVaultUses([{ name: "google/lopez731_at_gmail.com/REFRESH_TOKEN", as: "stdin" }]).ok).toBe(false);
 });

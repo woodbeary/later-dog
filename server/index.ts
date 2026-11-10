@@ -785,6 +785,22 @@ import { createMacAccountRoutes } from "./laterdog/mac-accounts.ts";
 import { engineAnswer } from "./laterdog/person-denied.ts";
 import { createTakeoverRequestRoute, createTakeoverRoutes } from "./routes/takeover.ts";
 import { createDeviceApprovalCardRoutes, createDeviceApprovalRequestRoute } from "./routes/device-approval.ts";
+import { answerGoogleCallback, createGoogleRoute, type GoogleRouteDeps } from "./routes/google.ts";
+import {
+  GOOGLE_CALLBACK_PATH,
+  GOOGLE_CLIENT_SITE,
+  GOOGLE_PROMPT,
+  GoogleAccessTokens,
+  googleAccountItem,
+  isGoogleAccountItem,
+  parseGoogleAccount,
+  parseGoogleClient,
+  PendingGoogleAuths,
+  type FetchLike,
+  type GoogleAccountRecord,
+  type GoogleClient,
+  type PendingGoogleAuth,
+} from "./laterdog/google.ts";
 import { DeviceApprovalWatcher, deviceApprovalOutcome, deviceApprovalResumePrompt, processAlive, runDeviceCheck } from "./laterdog/device-approval.ts";
 import { isOpenDeviceApproval, type DeviceApprovalCardData, type DeviceApprovalEndedBy } from "../shared/device-approval.ts";
 import { createSecureFormRoutes } from "./routes/secure-forms.ts";
@@ -1204,7 +1220,7 @@ function vaultItemsFor(capability: InternalCapability): VaultItems {
     owner: ownerWorkThread(capability.threadId),
     by: store.bot(capability.botId)?.name ?? "a dog",
     secret: (name) => vaultStore.secret(name),
-    names: () => vaultStore.secrets().map((item) => item.site),
+    names: () => vaultStore.secrets().filter((item) => !isGoogleAccountItem(item.site)).map((item) => item.site),
     save: (name, value, by) => ({ replaced: vaultStore.saveSecret(name, value, by).replaced }),
   };
 }
@@ -8784,7 +8800,7 @@ async function startTurn(
         bot.id === store.mainBotId(),
         integrations.agents && sectionPeers.length > 0 ? PEERS_PROMPT : "",
       );
-      const credentialPrompt = integrations.agents ? CREDENTIAL_PROMPT : "";
+      const credentialPrompt = integrations.agents ? CREDENTIAL_PROMPT + (CLOUD_HOME && vaultStore.available && ownerWorkThread(threadId) ? GOOGLE_PROMPT : "") : "";
       const routinePrompt = integrations.agents ? ROUTINE_PROMPT : "";
       const profilePrompt = integrations.agents ? PROFILE_PROMPT : "";
       const recallPrompt = integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "";
@@ -13200,7 +13216,7 @@ INTERNAL_ROUTES.push(createVaultSecretRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   ownerActing: (threadId) => ownerWorkThread(threadId),
   by: (senderId) => store.bot(senderId)?.name ?? "a dog",
-  list: () => vaultStore.secrets().map((item) => ({ name: item.site, ...(item.createdBy ? { createdBy: item.createdBy } : {}), updatedAt: item.updatedAt })),
+  list: () => vaultStore.secrets().filter((item) => !isGoogleAccountItem(item.site)).map((item) => ({ name: item.site, ...(item.createdBy ? { createdBy: item.createdBy } : {}), updatedAt: item.updatedAt })),
   save: (name, value, by) => ({ replaced: vaultStore.saveSecret(name, value, by).replaced }),
 }));
 
@@ -13294,6 +13310,77 @@ INTERNAL_ROUTES.push(createMacMessagesRoute({
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
   mac: (capability, computerId) => messagesMac(capability as InternalCapability, computerId),
 }));
+const googleFetch: FetchLike = (target, init) => fetch(target, init);
+const googleTokens = new GoogleAccessTokens(googleFetch);
+const googlePending = new PendingGoogleAuths();
+
+function googleClientFromVault(): GoogleClient | null {
+  for (const login of vaultStore.matching(GOOGLE_CLIENT_SITE)) {
+    const saved = vaultStore.credentials(login.id);
+    const client = saved ? parseGoogleClient(saved.username, saved.password) : null;
+    if (client) return client;
+  }
+  return null;
+}
+
+function googleRedirectUri(): string | null {
+  const origin = CLOUD_HOME?.publicOrigin ?? publicUrl();
+  return origin ? `${origin.replace(/\/+$/, "")}${GOOGLE_CALLBACK_PATH}` : null;
+}
+
+function googleAccounts(): GoogleAccountRecord[] {
+  if (!vaultStore.available) return [];
+  return vaultStore.secrets().filter((item) => isGoogleAccountItem(item.site))
+    .map((item) => parseGoogleAccount(vaultStore.secret(item.site)))
+    .filter((account): account is GoogleAccountRecord => account !== null)
+    .sort((a, b) => a.connectedAt - b.connectedAt);
+}
+
+function finishGoogleCard(pending: PendingGoogleAuth, outcome: "connected" | "failed", detail: string): void {
+  if (!pending.messageId) return;
+  deviceApprovals.remove({ threadId: pending.threadId, messageId: pending.messageId });
+  const message = deviceApprovalMessage(pending.botId, pending.threadId, pending.messageId);
+  const card = message?.card?.deviceApproval;
+  if (!message?.card || !card || !isOpenDeviceApproval(card)) return;
+  store.patchMessage(pending.threadId, message.id, {
+    card: { ...message.card, deviceApproval: { ...card, status: outcome === "connected" ? "approved" : "ended", endedBy: outcome === "connected" ? "check" : "dismissed" } },
+  });
+  dispatchTakeoverResume({
+    botId: pending.botId, threadId: pending.threadId, messageId: pending.messageId,
+    prompt: outcome === "connected"
+      ? `later.dog Google update: ${detail} Carry on with the task using gmail_search, gmail_read or gmail_code_to_vault.`
+      : `later.dog Google update: the Google connection did not complete. ${detail} Tell the owner in one short line, and offer connect_google again only if they want it.`,
+  });
+}
+
+const googleRouteDeps: GoogleRouteDeps = {
+  ownerActing: (threadId) => ownerWorkThread(threadId),
+  client: googleClientFromVault,
+  redirectUri: googleRedirectUri,
+  accounts: googleAccounts,
+  saveAccount: (account, by) => { vaultStore.saveSecret(googleAccountItem(account.email), JSON.stringify(account), by); },
+  saveSecret: (name, value, by) => ({ replaced: vaultStore.saveSecret(name, value, by).replaced }),
+  pending: googlePending,
+  tokens: googleTokens,
+  fetcher: googleFetch,
+  postCard: (sender, threadId, input) => {
+    const owner = connectorThread(sender.id, threadId);
+    const deviceApproval: DeviceApprovalCardData = { version: 1, service: input.service, url: input.url, expiresAt: input.expiresAt, status: "waiting", watching: "check" };
+    const messageId = store.appendMessage(threadId, {
+      role: "bot",
+      kind: "options",
+      ...(owner?.group ? { from: { botId: sender.id, name: sender.name, color: sender.color } } : {}),
+      card: { title: `Connect ${input.service}`, subtitle: "Approve read-only Gmail on Google's page", options: [], deviceApproval },
+    }).id;
+    deviceApprovals.add({ botId: sender.id, threadId, messageId, expiresAt: input.expiresAt });
+    notify(buildNotification("takeover", sender, threadId, `Connect ${input.service}: approve on Google's page`, owner?.group ? { group: { id: owner.group.id, name: owner.group.name } } : undefined));
+    return messageId;
+  },
+  finishCard: finishGoogleCard,
+  now: () => Date.now(),
+};
+INTERNAL_ROUTES.push(createGoogleRoute(googleRouteDeps));
+
 INTERNAL_ROUTES.push(createDeviceApprovalRequestRoute({
   owner: connectorThread,
   mayRunCheck: (sender, threadId) => {
@@ -13472,6 +13559,14 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
     if (method === "POST" && ["/api/auth/pair", "/api/pair", "/api/auth/pairing", "/api/auth/email/start", "/api/auth/email/verify"].includes(path)) {
       const refusal = managedPolicy.remoteAccessRefusal();
       if (refusal) return json(res, 403, { error: refusal, code: "managed_policy" });
+    }
+    if (path === GOOGLE_CALLBACK_PATH) {
+      const answer = method === "GET"
+        ? await answerGoogleCallback(googleRouteDeps, url.searchParams)
+        : { status: 405, html: "" };
+      res.writeHead(answer.status, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" });
+      res.end(answer.html);
+      return;
     }
     if (path === MCP_OAUTH_CALLBACK_PATH) {
       const answer = method === "GET"

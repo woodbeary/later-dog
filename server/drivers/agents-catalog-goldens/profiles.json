@@ -300,8 +300,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home": {
-    "bytes": 54013,
-    "sha256": "ad1b8a2fcfa3d604c9996a9130a8045788fe6dacfbca453379f8992f9fd7cfc9",
+    "bytes": 56950,
+    "sha256": "c4147b57e83aeed6c986180834e0828a6deff3417d9abe2110bfec26f8f333fe",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -327,6 +327,10 @@
       "request_credential",
       "request_takeover",
       "request_device_approval",
+      "connect_google",
+      "gmail_search",
+      "gmail_read",
+      "gmail_code_to_vault",
       "send_voice_note",
       "react",
       "memory_update",
@@ -344,8 +348,8 @@
     ]
   },
   "direct+skills+shared+voice+cloud-home+phone": {
-    "bytes": 58043,
-    "sha256": "f98d81846fb0aabb6bb03f3c4931e5f5027f9d12ca36a64a03f11bd2b835eed9",
+    "bytes": 60980,
+    "sha256": "4ef3efa1e052b01af09a9cb0c9a3f3e48f94a3a573ea44c8d9127e574c26d8c1",
     "tools": [
       "execution_advice",
       "tool_result_read",
@@ -375,6 +379,10 @@
       "request_credential",
       "request_takeover",
       "request_device_approval",
+      "connect_google",
+      "gmail_search",
+      "gmail_read",
+      "gmail_code_to_vault",
       "send_voice_note",
       "react",
       "memory_update",
