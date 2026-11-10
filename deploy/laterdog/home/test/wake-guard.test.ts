@@ -387,3 +387,49 @@ describe("a home that boots only for its owner", () => {
     expect(world.overlaps).toEqual([]);
   });
 });
+
+describe("a message the edge holds while the home cannot take it", () => {
+  const SEND = "send-0000000000001";
+  const sendWords = () => ({
+    method: "POST",
+    headers: { ...asOwner().headers, "content-type": "application/json" },
+    body: JSON.stringify({ text: "hi", sendId: SEND }),
+  });
+  const asked = (method: string) => ({ method, headers: { ...asOwner().headers, "content-type": "application/json" }, body: JSON.stringify({}) });
+  const delivered = (proxied: { mock: { calls: [Request][] } }) => proxied.mock.calls.filter(([request]) => request.method === "POST" && new URL(request.url).pathname === "/api/bots/rex/messages").length;
+
+  it("answers Send now and cancel by send id while the home is asleep, and never delivers a cancelled message", async () => {
+    const { home, visit, sleep, machine } = await awakeHome();
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
+    await visit("/api/bots", asOwner());
+    await sleep();
+    machine.serving = false;
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(202);
+    const sendNow = await visit(`/api/bots/rex/queue/${SEND}/steer`, asked("POST"));
+    expect(await sendNow.json()).toMatchObject({ ok: true, queued: true });
+    expect(await (await visit(`/api/bots/rex/queue/${SEND}`, asked("DELETE"))).json()).toEqual({ ok: true });
+    const proxied = vi.spyOn(home as unknown as { containerFetch(request: Request): Promise<Response> }, "containerFetch");
+    machine.serving = true;
+    await visit("/api/bots", asOwner());
+    expect(delivered(proxied as never)).toBe(0);
+  });
+
+  it("cancels from the edge when the awake home has not taken the message yet", async () => {
+    const { home, visit, sleep, machine } = await awakeHome();
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
+    await visit("/api/bots", asOwner());
+    await sleep();
+    machine.serving = false;
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(202);
+    world.answers.set("POST /api/bots/rex/messages", () => new Response(null, { status: 503 }));
+    const proxied = vi.spyOn(home as unknown as { containerFetch(request: Request): Promise<Response> }, "containerFetch");
+    machine.serving = true;
+    const cancel = await visit(`/api/bots/rex/queue/${SEND}`, asked("DELETE"));
+    expect(await cancel.json()).toEqual({ ok: true });
+    expect(proxied.mock.calls.some(([request]) => request.method === "DELETE")).toBe(false);
+    world.answers.delete("POST /api/bots/rex/messages");
+    const tries = delivered(proxied as never);
+    await visit("/api/bots", asOwner());
+    expect(delivered(proxied as never)).toBe(tries);
+  });
+});

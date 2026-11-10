@@ -424,6 +424,8 @@ export class CloudHomeHost extends Container<Env> {
     if (running) {
       if (this.streams.size && !this.answering.size) this.closeDeskStreams();
       if (this.outbox.length) await this.deliverDesk(record);
+      const held = await this.answerHeld(request, key);
+      if (held) return held;
       const kind = deskKind(request);
       const response = wakes ? await super.fetch(request) : await this.quietly(request);
       if (credential && key) this.learn(record, credential, key, response);
@@ -498,16 +500,21 @@ export class CloudHomeHost extends Container<Env> {
     return response;
   }
 
-  private async answerAsleep(record: HomeRecord, request: Request, key: string | null): Promise<Response | null> {
+  private async answerHeld(request: Request, key: string | null): Promise<Response | null> {
+    if (!this.outbox.length) return null;
     const asked = key && this.knownDevice(key) ? heldQueueAsk(request) : null;
     const answered = asked && !this.answering.has(asked.id) ? answerHeldQueueAsk(this.outbox, asked) : null;
-    if (answered) {
-      if (answered.outbox.length !== this.outbox.length) {
-        this.outbox = answered.outbox;
-        await this.ctx.storage.put(OUTBOX_KEY, this.outbox);
-      }
-      return answered.response;
+    if (!answered) return null;
+    if (answered.outbox.length !== this.outbox.length) {
+      this.outbox = answered.outbox;
+      await this.ctx.storage.put(OUTBOX_KEY, this.outbox);
     }
+    return answered.response;
+  }
+
+  private async answerAsleep(record: HomeRecord, request: Request, key: string | null): Promise<Response | null> {
+    const held = await this.answerHeld(request, key);
+    if (held) return held;
     if (deskSend(request)) {
       if (!key || !this.knownDevice(key)) return null;
       const queued = await queuedSend(request.clone(), Date.now());
