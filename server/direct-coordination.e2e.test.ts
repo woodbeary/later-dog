@@ -698,10 +698,11 @@ it("gives a teammate each request once, never also as a bare assistant line", ()
 }, { FAKE_CLAUDE_MODE: "dead-session" }), 60_000);
 
 it("forwards a child's credential card to its delegator and retains Needs you after turn end", () => fixture(async f => {
-  f.plan[f.lead.id] = {
-    steps: [{ tool: "request_credential", arguments: { credential_id: "openaiImageApiKey", reason: "Fixture credential" } }],
-    reply: "Waiting for the credential", resumeReply: "Continuing after the credential decision",
-  };
+  f.plan[f.lead.id] = { turns: [
+    { steps: [{ tool: "request_credential", arguments: { credential_id: "openaiImageApiKey", reason: "Fixture credential" } }], reply: "Waiting for the credential" },
+    { reply: "Continued after the credential decision" },
+    { reply: "Finished the remaining delegated work" },
+  ] };
   const stream = await openSse(`${f.session.info.url}/api/events`);
   try {
     await f.start();
@@ -716,5 +717,7 @@ it("forwards a child's credential card to its delegator and retains Needs you af
     expect(bots.find((b: any) => b.id === f.chief.id).tasks.find((t: any) => t.threadId === f.chief.activeTaskId).activity).toBe("waiting-on-you");
     await f.api(`/api/bots/${f.lead.id}/secret-cards/${source.id}/dismiss`, { threadId: f.lead.activeTaskId });
     await expect.poll(async () => (await f.messages(f.chief.activeTaskId)).find((m: any) => m.id === proxy.id)?.needsYou?.status, { timeout: 15_000 }).toBe("dismissed");
+    await expect.poll(() => f.nodes().find((n: any) => n.botId === f.lead.id)?.status, { timeout: 20_000 }).toBe("completed");
+    expect((await f.messages(f.lead.activeTaskId)).filter((m: any) => m.secret)).toHaveLength(1);
   } finally { stream.close(); }
-}), 45_000);
+}), 90_000);
