@@ -64,7 +64,7 @@ On Kennel's own cloud computer, Node v24.22.2, pnpm 10.33.0. The repair source w
 
 - First publication, `2f839db`: 9 files, 87 tests passed; before it (`11f2f15` with those tests)
   12 failed, 33 passed. 95 s and 240 s boots failed with "did not wake within 90 seconds".
-- Repair, before (`86087f1` with the repaired `computers.test.ts` and `computer-run-route.test.ts`):
+- Repair, before (`86087f1` with the repaired `server/computers.test.ts` and `server/laterdog/computer-run-route.test.ts`):
   8 failed, 41 passed. The 60 s wake plus 70 s transfer gave the command 180 s instead of 110 s; a
   turn ended while the folder was uploading still had its command launched (200, not 409); a used-up
   window still brought files back; an abandoned call next to a running one answered 502 instead of
@@ -74,7 +74,7 @@ On Kennel's own cloud computer, Node v24.22.2, pnpm 10.33.0. The repair source w
   `boat-turn` 1, `no-comments` 10). New cases use the real `ComputerRuns` with a fake computer and
   fake clock: the 110 s budget and poll cap, a write blocked while the turn ends (no launch, no run
   record), a finished run whose files come back on the next call, and an abandoned call overlapping a
-  running one. `computers.test.ts` runs three adjacent calls through the real `heavyRunBox` and HTTP
+  running one. `server/computers.test.ts` runs three adjacent calls through the real `heavyRunBox` and HTTP
   client: one wake for a 95 s boot, no create, no sleep request, the computer left running, and the
   abandoned third call answered 409 without running anything. The explicit sleep test still passes.
 - A first after run had one failure in an unchanged transfer test (a file the command wrote was not
@@ -84,19 +84,19 @@ On Kennel's own cloud computer, Node v24.22.2, pnpm 10.33.0. The repair source w
   It is not shown whether it is the timestamp race below or something else.
 - Merged with PR 150's repaired head `b7fec2be5b6100e6f033e8873c927533801b0d40` (source `1ff6a0e`) as
   `6ea7cc8`, no conflicts: 10 files, 103 tests passed (the 9 above plus
-  `cloud-computer-slow-start.e2e.test.ts`, 12), `tsc -p tsconfig.server.json` exit 0,
+  `server/cloud-computer-slow-start.e2e.test.ts`, 12), `tsc -p tsconfig.server.json` exit 0,
   `scripts/no-comments.ts` found none.
 - Bring-back boundary, source `98796f2` (one line in `computer-runs.ts`, `>` to `>=`, plus one
-  test). A real `localBox`/`ComputerRuns` run writes `report.txt`, `src/page.ts` and `dist/app.js`;
+  test). A real `localBox`/`ComputerRuns` run writes `report.txt`, the fixture-local source file `page.ts` and `dist/app.js`;
   the test sets all three to the exact time of the run's `.start` marker with `touch -r` and checks
-  the nanosecond times match, changes `src/page.ts` here, then calls the real `finish`. Before, on
+  the nanosecond times match, changes the fixture-local source file `page.ts` here, then calls the real `finish`. Before, on
   `5a864c3` with the test: 1 failed, 14 passed (`report.txt` not brought back). After: 15 passed,
   three runs in a row. Only `report.txt` comes back with its content; the copy changed here is kept
   and reported; `dist` stays on the computer; the untouched older `package.json` is not taken.
   `tsc` exit 0, `oxlint` 0 warnings and 0 errors on the two files, no comments. The other tests
   were not rerun for this one-line change; the 103 above stand for `6ea7cc8`.
 - Error-state guard, source `f9d9838` (`heavyRunBox` entry check plus two tests in
-  `computers.test.ts`). The sequence goes through the real route, `heavyRunBox` and HTTP client: a
+  `server/computers.test.ts`). The sequence goes through the real route, `heavyRunBox` and HTTP client: a
   first call answers still starting, the fake service then reports error, and the same command
   again must fail with "reported an error" at once, with 1 wake in total and no create. Before, on
   `1f59490` with the test: 1 failed (2 wakes; Clover's probe on `86087f1` showed the same, 2 wakes
@@ -117,7 +117,7 @@ On Kennel's own cloud computer, Node v24.22.2, pnpm 10.33.0. The repair source w
   next call" test now spends its window at the first status check instead of during sending. `tsc`
   exit 0, `oxlint` 0 and 0 on the changed files, no comments. The wake cases were not rerun for this
   change; the 76 and 103 above stand for `93b45a3` and `6ea7cc8`.
-- The service's own `test/idle.test.ts`: 12 passed (unchanged). `tsc -p tsconfig.server.json`:
+- The service's own `deploy/laterdog/computers/test/idle.test.ts`: 12 passed (unchanged). `tsc -p tsconfig.server.json`:
   exit 0. No comments in the changed files.
 
 ## Limits

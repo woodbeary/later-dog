@@ -81,6 +81,20 @@ Use only mapped, tested commands:
 - [Memory: recall, upkeep and the tidy-up](memory-layer.md)
 - [Spend cap and sell prices](spend-cap.md)
 - [Stability sweep: sends, approvals, updates, errors and a full disk](stability-sweep.md)
+- [Cloud computer start budget for dog turns](cloud-start-budget-2026-11-09.md)
+- [Source checkpoints from failed cloud implementations](failed-cloud-checkpoint-2026-11-09.md)
+- [Fresh scratch directories for isolated checks and publishing](fresh-scratch-guidance-2026-11-09.md)
+- [Generated transfer exclusions and remote package PATH](generated-transfer-path-2026-11-09.md)
+- [run_on_computer waits out a cloud computer's boot](heavy-command-start-2026-11-09.md)
+- [Idle generated build output: .open-next and .wrangler/tmp (2026-11-09)](home-cache-cleanup-2026-11-09.md)
+- [Job write scopes: trailing `/**` as a directory prefix](job-scope-prefixes-2026-11-09.md)
+- [Remote Claude account handoff](remote-account-handoff-2026-11-09.md)
+- [Saved repository environments, 2026-11-09](saved-environments-2026-11-09.md)
+- [Engine session archive, 2026-11-09](session-archive-2026-11-09.md)
+- [Session archive production release, 2026-11-09](session-archive-release-2026-11-09.md)
+- [Archive untracked engine sessions (2026-11-10)](session-archive-untracked-2026-11-10.md)
+- [Conversation stall repair, November 9](stall-recovery-2026-11-09.md)
+- [Home save: database copy headroom and scratch cleanup (2026-11-10)](sync-snapshot-headroom-2026-11-10.md)
 
 `control-laterdog ui` ([Chat UI, driven headlessly](chat-ui.md)) drives the real
 renderer in a headless Chrome by accessible name, so composer sends, transcript

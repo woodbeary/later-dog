@@ -28,7 +28,7 @@ All runs used Node 24.22.1 on Jacob's Mac in the worktree, against temporary fol
 | Command (from the worktree) | Result |
 | --- | --- |
 | `cd deploy/laterdog/home && pnpm exec vitest run` | 31 files, 253 passed, 0 failed |
-| `cd deploy/laterdog/home && pnpm exec vitest run test/session-archive.test.ts test/log-archive.test.ts test/archive-capability.test.ts test/archive.test.ts` | 4 files, 30 passed, 0 failed |
+| `cd deploy/laterdog/home && pnpm exec vitest run session-archive.test log-archive.test archive-capability.test archive.test` | 4 files, 30 passed, 0 failed |
 | `pnpm exec vitest run server/drivers/claude.test.ts server/drivers/claude-remote-engine.test.ts server/drivers/claude-compaction.test.ts server/drivers/claude-tasks.test.ts server/laterdog/engine-placement.test.ts server/testing/fakes-self-contained.test.ts` | 6 files, 261 passed, 1 skipped (already skipped on main), 0 failed |
 | `pnpm exec tsc -p tsconfig.server.json --noEmit` | exit 0 |
 | `pnpm exec oxlint --deny-warnings` on the 10 changed code files | 0 warnings, 0 errors |
@@ -54,7 +54,7 @@ Real server fixture in `deploy/laterdog/home/test/log-archive-server.test.ts`: t
 
 Mutation check: with session restoration removed from `beforeTurn`, the three restore tests (exact bytes, outage retry, remote placement) fail.
 
-`archive-capability.test.ts` now also proves that a version-2 manifest with matching hashes is refused.
+`deploy/laterdog/home/test/archive-capability.test.ts` now also proves that a version-2 manifest with matching hashes is refused.
 
 ## Original pre-release gaps (historical)
 

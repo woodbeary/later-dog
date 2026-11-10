@@ -41,7 +41,7 @@ A skipped database appears only in the runtime log on stderr: `could not save N 
 
 ## Tests
 
-Node 24.22.2 and pnpm 10.33.0 on Kennel's cloud computer. New cases in `test/sync.test.ts` use real temporary SQLite databases in WAL mode with autocheckpoint off:
+Node 24.22.2 and pnpm 10.33.0 on Kennel's cloud computer. New cases in `deploy/laterdog/home/test/sync.test.ts` use real temporary SQLite databases in WAL mode with autocheckpoint off:
 
 1. Scratch one byte short of database + WAL + reserve: no copy (scratch is empty when free space is read and afterwards), previous entry kept exactly, `unsaved` is `messages.db`, an ordinary file still saves, and a restore gives the old rows. With exactly enough room, the next save restores the new rows.
 2. Free space that can't be read, or reads as NaN: no copy, previous entry kept, listed in `unsaved`.

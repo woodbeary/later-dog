@@ -50,7 +50,7 @@ No physical Mac, owner data, customer operations or real provider tasks were use
   the end-to-end nonzero Claude-stage fixture specifically failed because no patch
   artifact existed. `/tmp/clover-failed-real-before.log`.
 - The real-process fixture uses a disposable Git repository and fake computers API,
-  runs the actual task script and canonical collector, writes `src/a.ts`, then exits
+  runs the actual task script and canonical collector, writes the fixture-local source file `a.ts`, then exits
   Claude with code 3. It checks the retained patch/source, truthful failure, one
   launch, no publication, no wake and no deletion.
 - Fixtures also cover empty diffs, configured-secret rejection, collection errors,

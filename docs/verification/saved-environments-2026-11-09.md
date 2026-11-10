@@ -49,9 +49,9 @@ only folders on the home, and this worktree is on the Mac, so the Mac ran them).
 
 | Check | Result |
 | --- | --- |
-| Computers Worker `vitest run` | 38 files: 37 passed, 1 skipped; 447 tests passed, 1 skipped (425 before; 22 new in `test/environments.test.ts`) |
+| Computers Worker `vitest run` | 38 files: 37 passed, 1 skipped; 447 tests passed, 1 skipped (425 before; 22 new in `deploy/laterdog/computers/test/environments.test.ts`) |
 | Computers Worker `wrangler types && tsc --noEmit` | exit 0 |
-| `server/laterdog/cloud-computers.test.ts`, `computer-runs.test.ts`, `computer-run-route.test.ts`, `server/computers.test.ts` | 16, 10, 8 and 26 tests passed (5 new) |
+| `server/laterdog/cloud-computers.test.ts`, `server/laterdog/computer-runs.test.ts`, `server/laterdog/computer-run-route.test.ts`, `server/computers.test.ts` | 16, 10, 8 and 26 tests passed (5 new) |
 | `scripts/brand-links.test.ts` | 3 passed, with the new files staged |
 | `scripts/no-comments.test.ts` | 10 passed before the new files were staged. Rerun with them staged, its 180 s scan timed out on the loaded Mac (load average about 26), so the 17 changed files were checked directly with `remainingComments` and `node scripts/no-comments.ts --check`: no comments in code |
 | `pnpm lint` | 0 warnings, 0 errors after rebasing onto main `075609e1a` (at `16d20b46b` it had 2 warnings in `electron/shared-computer-access.node-test.mjs`, which this branch does not touch) |
@@ -65,7 +65,7 @@ fast-forwards, and runs the install only after the lockfile changed (a stub `pnp
 
 Measured live after the release; see Live release below. The fixture estimate that came before it follows.
 
-`test/environments.test.ts` → "time to ready for work on a repository" drives both paths through the Worker code with a
+`deploy/laterdog/computers/test/environments.test.ts` → "time to ready for work on a repository" drives both paths through the Worker code with a
 recorded fixture:
 
 | Input | Value | Source |

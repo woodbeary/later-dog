@@ -63,7 +63,7 @@
 
 ## Tests
 
-Home package tests `test/session-archive.test.ts` and `test/log-archive.test.ts`, run on Kennel's cloud computer with Node 24 and the home's vitest 3.2.7.
+Home package tests `deploy/laterdog/home/test/session-archive.test.ts` and `deploy/laterdog/home/test/log-archive.test.ts`, run on Kennel's cloud computer with Node 24 and the home's vitest 3.2.7.
 
 - **Before**, base `05b509d7` source with the new tests: 6 failed, 18 passed.
   - The untracked group was never archived.

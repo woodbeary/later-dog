@@ -72,8 +72,8 @@ the schema accepted `dir/**` but the predicates compared it as a literal prefix.
 - After: `pnpm vitest run shared/laterdog.test.ts scripts/no-comments.test.ts scripts/brand-links.test.ts`
   gave 3 files, 20 tests passed.
 - `pnpm vitest run server/laterdog` gave 210 files passed, 1 failed. The failure is
-  `removed-dog-settings.test.ts` (file-not-writable case), which also fails with this change
-  stashed. `cloud-account-sign-in.test.ts` failed once under load and passed on its own rerun
+  `server/laterdog/removed-dog-settings.test.ts` (file-not-writable case), which also fails with this change
+  stashed. `server/laterdog/cloud-account-sign-in.test.ts` failed once under load and passed on its own rerun
   with the change stashed.
 - `npx tsc --noEmit -p .` printed no errors.
 
@@ -84,7 +84,7 @@ the schema accepted `dir/**` but the predicates compared it as a literal prefix.
 - Canonicalizing new requests when a job is created would need a change in
   `server/laterdog/supervisor.ts`, outside this job's write scopes. A zod transform on
   `scopePath` was tried and reverted: it breaks `z.toJSONSchema` for the MCP tool schema
-  (`http.test.ts`, `job-trace-http.test.ts` failed with "Transforms cannot be represented").
+  (`server/laterdog/http.test.ts`, `server/laterdog/job-trace-http.test.ts` failed with "Transforms cannot be represented").
 - Scopes such as `dir/*` or `a/**/b` are now refused for new requests; already-stored ones are
   treated as literal paths.
 - Not deployed; no claim about live jobs, including job 29b2ff1d.
