@@ -32,9 +32,25 @@ objects were incomplete; that failed scratch directory was retained.
 The new isolated HTTP config round-trip passed. All 157 no-comments/store
 checks and locale validation passed. Phone typecheck, six focused tests and
 lint passed (zero errors, 52 existing warnings). Phone setting commit a6f4804
-is on main. Mac verification was requested but its start timed out; the Mac
-then reported disconnected. Its command outcome must be inspected on reconnect
-before retrying. No dictation OTA or home release is claimed yet.
+is on main. Mac verification initially timed out without starting (confirmed by unchanged
+HEAD and absent logs). After reconnection, all 215 home config/transcription
+checks passed on the Mac, including the permission case. The phone's Mac
+typecheck and lint passed; its full suite was still running at the last readable
+log. Later Mac command_output and log-read calls timed out, so the full suite's
+final result and native introspection remain unconfirmed. Do not duplicate the
+running command 2012cfe6-fc32-4db3-a568-24ff73d70c0f; inspect it on reconnect.
+
+Home source ad16de8b3 published bundle
+d6a3bf178ac322f29c41a3f7735d3b6c64312305390cb06b203866569dc3df10.
+Downloaded index.js matches the Mac artifact, SHA-256
+a6f0f8a5ece9cb890d9e911e0d0bddfd7db34de4049cfcad728e5d017ea9b9e3.
+At 20:53 UTC the home still ran performance bundle d5bb6aa1c9b95e9d,
+so dictation activation is pending its safe switch. No forced restart was used.
+The phone dictation OTA has not been started. Its release needs the existing
+Mac verification result, native check and Build 9 fingerprint gate before
+publication. The current published beta is the performance release
+c6c8cf77-483c-4eed-978f-c7faa5cc0d89; that is the next rollback target.
+The desktop source change is on main for the next desktop release.
 
 Physical phone and installed desktop dictation have not been verified by these
 source fixtures. The reported English/Chinese recording was not replayed.
