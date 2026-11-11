@@ -1089,6 +1089,7 @@
   "composer.dictation.noService": "No transcription service is set up. Start the free trial, or add an ElevenLabs or xAI key in Settings → API keys.",
   "composer.dictation.off": "Dictation is turned off in Settings.",
   "composer.failed.notSent": "Not sent: “{text}”",
+  "composer.failed.sendAgain": "Send again",
   "composer.failed.attachment": "attachment",
   "composer.failed.dismiss": "Dismiss",
   "composer.failed.dismissAria": "Dismiss failed message",

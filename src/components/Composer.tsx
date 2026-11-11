@@ -826,7 +826,7 @@ export function Composer({
               onClick={() => retryFailedSend(failed)}
               className="shrink-0 rounded px-2 py-1 font-medium text-ink hover:bg-inset"
             >
-              {t("chat.retry")}
+              {t("composer.failed.sendAgain")}
             </button>
             <button
               type="button"

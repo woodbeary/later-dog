@@ -28,7 +28,7 @@ vi.mock("@/state/store", async (importOriginal) => {
 vi.mock("@/lib/analytics", () => ({ track: vi.fn() }));
 
 const { Composer } = await import("./Composer");
-const { appendComposerDraft } = await import("@/lib/drafts");
+const { appendComposerDraft, rememberFailedComposerSend } = await import("@/lib/drafts");
 const { setLocale } = await import("@/lib/i18n");
 
 const biscuit = (busy: boolean): Bot => ({
@@ -110,5 +110,22 @@ describe("an account that isn't signed in yet", () => {
     await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
     expect(sends()).toHaveLength(1);
     expect(document.body.textContent).not.toContain("Sign in to Claude");
+  });
+});
+
+describe("a message that was not sent", () => {
+  it("is kept above the message box with its words and Send again, which sends it under the same id", async () => {
+    const bot = { ...biscuit(false), threadId: "thread-not-sent" };
+    rememberFailedComposerSend(`bot:${bot.id}:${bot.threadId}`, {
+      sendId: "not-sent-0001", text: "ship the build", requestText: "ship the build", threadId: bot.threadId,
+    });
+    await act(async () => root.render(createElement(Composer, { bot })));
+    expect(host.textContent).toContain("Not sent: “ship the build”");
+    const buttons = [...host.querySelectorAll("button")];
+    expect(buttons.some((button) => button.textContent === "Retry")).toBe(false);
+    const sendAgain = buttons.find((button) => button.textContent === "Send again")!;
+    await act(async () => { sendAgain.click(); });
+    expect(sends()).toEqual([expect.objectContaining({ botId: "biscuit", sendId: "not-sent-0001", text: "ship the build" })]);
+    expect(host.textContent).not.toContain("Not sent:");
   });
 });

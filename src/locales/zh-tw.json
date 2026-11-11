@@ -424,6 +424,7 @@
   "composer.dictation.hint": "語音輸入",
   "composer.dictation.transcribing": "正在轉錄…",
   "composer.failed.notSent": "未送出：「{text}」",
+  "composer.failed.sendAgain": "重新傳送",
   "composer.failed.attachment": "附件",
   "composer.failed.dismiss": "關閉",
   "composer.failed.dismissAria": "關閉傳送失敗的訊息",
