@@ -750,10 +750,10 @@ export function botRowProps(
   state: AppState,
   dispatch: Dispatch<Action>,
   bot: Bot,
-  layout: Pick<BotRowProps, "density" | "onMenu" | "onRenameHandled"> & { renameRequest?: { botId: string; at: number } | null },
+  layout: Pick<BotRowProps, "density" | "onMenu" | "onRenameHandled"> & { renameRequest?: { botId: string; at: number } | null; locale?: string },
 ): BotRowProps {
   const selected = state.selectedId === bot.id;
-  const { renameRequest, ...rest } = layout;
+  const { renameRequest, locale = activeLocale(), ...rest } = layout;
   return {
     ...rest,
     renameRequest: renameRequest?.botId === bot.id ? renameRequest.at : 0,
@@ -765,7 +765,7 @@ export function botRowProps(
     instances: state.instances,
     showToolCalls: showToolCallsEnabled(state.config),
     liveCall: state.liveCall,
-    locale: activeLocale(),
+    locale,
     dispatch,
   };
 }
@@ -829,7 +829,7 @@ export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, ma
   );
 });
 
-type DogRowLayout = Pick<BotRowProps, "density" | "onMenu" | "onRenameHandled" | "draggableToSection"> & {
+type DogRowLayout = Pick<BotRowProps, "density" | "onMenu" | "onRenameHandled" | "draggableToSection" | "locale"> & {
   renameRequest?: { botId: string; at: number } | null;
 };
 
@@ -847,9 +847,9 @@ const SidebarDog = memo(function SidebarDog({ botId, circle = false, onPinDrop, 
   return circle ? <PinnedBotCircle {...row} onPinDrop={onPinDrop} /> : <BotListItem {...row} draggableToSection={draggableToSection} />;
 });
 
-const SidebarRoom = memo(function SidebarRoom({ groupId, ...layout }: Omit<Parameters<typeof GroupListItem>[0], "group"> & { groupId: string }) {
+const SidebarRoom = memo(function SidebarRoom({ groupId, density, onMenu, draggableToSection }: Omit<Parameters<typeof GroupListItem>[0], "group"> & { groupId: string; locale: string }) {
   const group = useStoreSelector((state) => state.groups.find((candidate) => candidate.id === groupId));
-  return group ? <GroupListItem group={group} {...layout} /> : null;
+  return group ? <GroupListItem group={group} density={density} onMenu={onMenu} draggableToSection={draggableToSection} /> : null;
 });
 
 function PinnedBotRoster({
@@ -1271,7 +1271,8 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
     savePinOrder(next);
   };
 
-  const dogRow: DogRowLayout = { density, onMenu: setMenu, renameRequest, onRenameHandled: clearRenameRequest };
+  const locale = activeLocale();
+  const dogRow: DogRowLayout = { density, onMenu: setMenu, renameRequest, onRenameHandled: clearRenameRequest, locale };
   const iconRail = density === "icons";
   const searchButton = (
     <button
@@ -1513,6 +1514,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
                       <SidebarRoom
                         key={group.id}
                         groupId={group.id}
+                        locale={locale}
                         density={density}
                         onMenu={setRoomMenu}
                         draggableToSection={layoutInteractive && sectionNames.length > 0}
