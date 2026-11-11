@@ -174,7 +174,7 @@ const PAGE_PROBE = `(() => {
     slowFrames: perf.frames.filter((gap) => gap > 25).length,
     worstFrameMs: perf.frames.reduce((worst, gap) => Math.max(worst, gap), 0),
     keys: [...perf.keys],
-    top: [...perf.names.entries()].sort((left, right) => right[1] - left[1]).slice(0, 30).map(([name, count]) => name + " " + count),
+    top: [...perf.names.entries()].sort((left, right) => right[1] - left[1]).slice(0, 120).map(([name, count]) => name + " " + count),
   });
   perf.until = (test, timeoutMs) => new Promise((done, fail) => {
     const deadline = performance.now() + timeoutMs;
