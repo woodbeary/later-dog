@@ -356,6 +356,7 @@ export function verificationServerEnvironment(parentEnv: NodeJS.ProcessEnv, data
   for (const [key, value] of Object.entries(parentEnv)) {
     if (key.startsWith("FAKE_CLAUDE_") && key !== "FAKE_CLAUDE_DUMP" && value) childEnv[key] = value;
   }
+  if (parentEnv.LATERDOG_TEST_STATIC_DIR && existsSync(join(parentEnv.LATERDOG_TEST_STATIC_DIR, "index.html"))) childEnv.LATERDOG_STATIC_DIR = parentEnv.LATERDOG_TEST_STATIC_DIR;
   if (parentEnv.LATERDOG_TEST_ORG_LIBRARY_KEY) childEnv.LATERDOG_TEST_ORG_LIBRARY_KEY = parentEnv.LATERDOG_TEST_ORG_LIBRARY_KEY;
   if (parentEnv.LATERDOG_TEST_VAULT_KEY) childEnv.LATERDOG_TEST_VAULT_KEY = parentEnv.LATERDOG_TEST_VAULT_KEY;
   const liveUrl = parentEnv.LATERDOG_OPENAI_LIVE_URL?.trim() ?? "";

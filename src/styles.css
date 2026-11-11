@@ -1867,3 +1867,11 @@ button:disabled.bg-danger {
 }
 :root[data-reduced-motion="true"] .dog-snooze::before { opacity: 0.8; transform: translate(0, 0.15em); }
 :root[data-reduced-motion="true"] .dog-snooze::after { opacity: 0.6; transform: translate(0.45em, -0.5em); }
+
+[data-sidebar-row] > [data-sidebar-bot-row] {
+  content-visibility: auto;
+  overflow-clip-margin: 6px;
+}
+[data-sidebar-row="plain"] > [data-sidebar-bot-row] { contain-intrinsic-size: auto 37.5px; }
+[data-sidebar-row="titled"] > [data-sidebar-bot-row] { contain-intrinsic-size: auto 53.5px; }
+[data-sidebar-row="icon"] > [data-sidebar-bot-row] { contain-intrinsic-size: auto 44px; }

@@ -21,7 +21,8 @@ harness/webhook port pair, installs only the repository's fake engine, prints
 the URL, PID, data directory, and persistent log path, then stays attached to
 that exact child. The parent shell and the user's later.dog data are
 untouched. Only `FAKE_CLAUDE_*` variables cross from the launcher's
-environment into that child, so a recipe can script the fake engine's mode,
+environment into that child (plus `LATERDOG_TEST_STATIC_DIR`, which becomes the
+server's static folder when it holds a built `index.html`), so a recipe can script the fake engine's mode,
 replies and tool calls without writing a wrapper CLI. Live calls add one
 exception: `LATERDOG_OPENAI_LIVE_URL` crosses when it is a loopback
 `http://127.0.0.1:PORT` (the fake GPT-Live that
@@ -57,6 +58,7 @@ Use only mapped, tested commands:
 - [Peer approval denial, expiry, and cancellation](peer-approvals.md)
 - [Waiting for an occupied desktop](computer-wait.md)
 - [Chat UI, driven headlessly](chat-ui.md)
+- [Desktop performance, measured against a fixture](desktop-performance.md)
 - [Welcome flow](onboarding.md)
 - [Channels](channels.md)
 - [In-chat team coordination](room-coordination.md)
@@ -98,7 +100,11 @@ Use only mapped, tested commands:
 - [Home reliability release, November 10](home-reliability-release-2026-11-10.md)
 - [Dog tapbacks, November 10](tapbacks-2026-11-10.md)
 - [Phone chat performance, November 10](phone-chat-performance-2026-11-10.md)
+- [Shared dictation language, November 10](dictation-language-2026-11-10.md)
+- [Google connector](google-connector.md)
+- [Pinned account routing, November 10](pinned-account-routing-2026-11-10.md)
 - [Rust, measured seam by seam, November 10](rust-seams.md)
+- [Decision and extraction model evaluation, November 10](decision-eval.md)
 
 `control-laterdog ui` ([Chat UI, driven headlessly](chat-ui.md)) drives the real
 renderer in a headless Chrome by accessible name, so composer sends, transcript

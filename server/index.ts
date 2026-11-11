@@ -663,7 +663,7 @@ import {
   type ThreadOwner,
   type Viewer,
 } from "./bot-visibility.ts";
-import { describeBrand, loadBrand } from "./brand.ts";
+import { brandForAnyone, describeBrand, loadBrand } from "./brand.ts";
 import { deliverSseFrame, keepSseAlive } from "./sse-fanout.ts";
 import { openStreamWatch, streamWatchSkips, updateStreamWatch } from "./stream-watch.ts";
 import {
@@ -13761,7 +13761,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       return json(res, 200, { app: "laterdog" });
     }
     if (method === "GET" && path === "/api/brand" && !gate.auth) {
-      return json(res, 200, loadBrand());
+      return json(res, 200, brandForAnyone(loadBrand()));
     }
     if (!gate.auth) return json(res, gate.status, { error: gate.error });
     const auth = gate.auth;

@@ -149,9 +149,7 @@
 .ld-dog[data-mood="think"] .ld-dog-brow--l { translate: 0 1px; }
 .ld-dog[data-mood="think"] .ld-dog-brow--r { rotate: -10deg; translate: 0 -1.6px; }
 
-.ld-dog-blink { animation: ld-dog-blink 5.4s linear infinite; }
 .ld-dog[data-blink] .ld-dog-blink { animation: ld-dog-blink-once 180ms var(--ld-ease) 1; }
-@keyframes ld-dog-blink { 0%, 94%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.12); } }
 @keyframes ld-dog-blink-once { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.12); } }
 @keyframes ld-dog-scan { 0%, 100% { transform: translateX(-2px); } 50% { transform: translateX(2px); } }
 
