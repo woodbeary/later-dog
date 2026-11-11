@@ -10,6 +10,8 @@ import { launchVerificationServer, type VerificationServer } from "./control-lat
 import { fixtureApi } from "./testing/preview-fixture.ts";
 
 const WELCOME_VERSION = 2;
+const WINDOW_ROWS = 120;
+const VIEWPORT = { width: 1440, height: 900 };
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 interface Options {
@@ -182,7 +184,20 @@ const PAGE_PROBE = `(() => {
     look();
   });
   perf.shown = () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+  perf.holdFill = () => {
+    perf.holding = true;
+    const press = () => { if (!perf.holding) return; window.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift" })); requestAnimationFrame(press); };
+    press();
+  };
+  perf.releaseFill = () => { perf.holding = false; };
 })();`;
+
+type PagePerf = {
+  until(test: () => boolean, timeoutMs: number): Promise<number>;
+  shown(): Promise<void>;
+  holdFill(): void;
+  releaseFill(): void;
+};
 
 type Page = {
   goto(url: string): Promise<unknown>;
@@ -190,6 +205,7 @@ type Page = {
   waitForSelector(selector: string, options?: { timeout?: number }): Promise<unknown>;
   waitForTimeout(ms: number): Promise<void>;
   click(selector: string): Promise<void>;
+  screenshot(options: { path: string }): Promise<unknown>;
   keyboard: { type(text: string, options?: { delay?: number }): Promise<void>; press(key: string): Promise<void> };
   mouse: { move(x: number, y: number): Promise<void>; wheel(x: number, y: number): Promise<void> };
   context(): { newCDPSession(page: Page): Promise<{ send(method: string, params?: unknown): Promise<{ metrics?: Array<{ name: string; value: number }> }> }> };
@@ -208,6 +224,121 @@ async function open(page: Page, dog: Dog): Promise<number> {
     await perf.shown();
     return performance.now() - started;
   }, { row: rowOf(dog), composer: composerOf(dog), name: dog.name });
+}
+
+interface Opening {
+  shownMs: number;
+  rowsAtFirstSight: number;
+  filledMs: number | null;
+  rows: number;
+  pixelsFromBottom: number;
+}
+
+async function openFilling(page: Page, dog: Dog, hold = false): Promise<Opening> {
+  return page.evaluate(async ({ row, composer, name, hold, full }: { row: string; composer: string; name: string; hold: boolean; full: number }) => {
+    const perf = (window as unknown as { __perf: PagePerf }).__perf;
+    const rows = () => document.querySelectorAll(`[role="log"][aria-label*=${JSON.stringify(name)}] [data-mid]`).length;
+    if (hold) perf.holdFill();
+    const started = performance.now();
+    (document.querySelector(row) as HTMLElement).click();
+    const shown = await perf.until(() => Boolean(document.querySelector(composer)) && rows() > 0, 30_000);
+    const rowsAtFirstSight = rows();
+    const filled = hold ? null : await perf.until(() => rows() >= full, 20_000).catch(() => null);
+    await perf.shown();
+    const scroller = document.querySelector('[role="log"]')!.parentElement!;
+    return {
+      shownMs: Math.round(shown - started),
+      rowsAtFirstSight,
+      filledMs: filled === null ? null : Math.round(filled - started),
+      rows: rows(),
+      pixelsFromBottom: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
+    };
+  }, { row: rowOf(dog), composer: composerOf(dog), name: dog.name, hold, full: WINDOW_ROWS });
+}
+
+interface FixtureFiles {
+  stream: string;
+  replyIndex: string;
+}
+
+const scriptedReplies = replies();
+const longestReply = scriptedReplies.reduce((longest, text) => Math.max(longest, text.length), 0);
+
+async function fillUnderStream(page: Page, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, files: FixtureFiles) {
+  const working = async () => {
+    const state = await api("GET", "/api/bots") as { bots: Array<{ id: string; busy?: boolean; activity?: string }> };
+    return state.bots.some((bot) => bot.id === dogs.long.id && Boolean(bot.busy || bot.activity === "working"));
+  };
+  const startLongReply = async () => {
+    await open(page, dogs.others[0]!);
+    const next = Number(readFileSync(files.replyIndex, "utf8")) || 0;
+    writeFileSync(files.replyIndex, String(scriptedReplies.findIndex((text, index) => index >= next && text.length > longestReply * 0.9)));
+    writeFileSync(files.stream, JSON.stringify({ everyMs: 30, chars: 3 }));
+    await api("POST", `/api/bots/${dogs.long.id}/messages`, { text: "Give me the whole picture again.", threadId: dogs.long.threadId, sendId: randomUUID().replaceAll("-", "") });
+    await page.waitForTimeout(1_600);
+  };
+
+  await startLongReply();
+  const following = await openFilling(page, dogs.long);
+  const followingStillStreaming = await working();
+  await settled(api, [dogs.long.id]);
+
+  await startLongReply();
+  const held = await openFilling(page, dogs.long, true);
+  await page.mouse.move(820, 420);
+  await page.mouse.wheel(0, -300);
+  await page.waitForTimeout(400);
+  const reader = await page.evaluate(async ({ name, full }: { name: string; full: number }) => {
+    const perf = (window as unknown as { __perf: PagePerf }).__perf;
+    const log = document.querySelector(`[role="log"][aria-label*=${JSON.stringify(name)}]`)!;
+    const scroller = log.parentElement!;
+    const rows = () => log.querySelectorAll("[data-mid]").length;
+    const top = scroller.getBoundingClientRect().top;
+    const row = [...log.querySelectorAll("[data-mid]")].find((candidate) => candidate.getBoundingClientRect().top >= top)!;
+    const before = row.getBoundingClientRect().top;
+    const rowsWhenReleased = rows();
+    const heightWhenReleased = scroller.scrollHeight;
+    let moved = 0;
+    const watch = () => { moved = Math.max(moved, Math.abs(row.getBoundingClientRect().top - before)); };
+    perf.releaseFill();
+    const released = performance.now();
+    const filled = await perf.until(() => { watch(); return rows() >= full; }, 20_000).catch(() => null);
+    for (let frame = 0; frame < 30; frame += 1) {
+      await new Promise((done) => requestAnimationFrame(done));
+      watch();
+    }
+    return {
+      rowsWhenReleased,
+      rows: rows(),
+      filledMsAfterRelease: filled === null ? null : Math.round(filled - released),
+      readerRowMovedPx: Math.round(moved * 10) / 10,
+      readerRowEndedPx: Math.round((row.getBoundingClientRect().top - before) * 10) / 10,
+      transcriptGrewPx: Math.round(scroller.scrollHeight - heightWhenReleased),
+    };
+  }, { name: dogs.long.name, full: WINDOW_ROWS });
+  const readerStillStreaming = await working();
+  await settled(api, [dogs.long.id]);
+  rmSync(files.stream, { force: true });
+  return {
+    following: { ...following, replyStillStreaming: followingStillStreaming },
+    scrolledUp: { rowsAtFirstSight: held.rowsAtFirstSight, ...reader, replyStillStreaming: readerStillStreaming },
+  };
+}
+
+async function fillsWhileIdle(page: Page, dogs: { long: Dog; others: Dog[] }, rounds: number) {
+  const filled: number[] = [];
+  const firstRows = new Set<number>();
+  let unfilled = 0;
+  let pixelsFromBottom = 0;
+  for (let round = 0; round < rounds; round += 1) {
+    await open(page, dogs.others[0]!);
+    const opening = await openFilling(page, dogs.long);
+    firstRows.add(opening.rowsAtFirstSight);
+    if (opening.filledMs === null) unfilled += 1;
+    else filled.push(opening.filledMs);
+    pixelsFromBottom = Math.max(pixelsFromBottom, opening.pixelsFromBottom);
+  }
+  return { filledMs: distribution(filled), unfilled, rowsAtFirstSight: [...firstRows].sort((left, right) => left - right), worstPixelsFromBottom: pixelsFromBottom };
 }
 
 type Cdp = Awaited<ReturnType<ReturnType<Page["context"]>["newCDPSession"]>>;
@@ -443,8 +574,9 @@ async function devServer(apiUrl: string, scratch: string): Promise<{ url: string
   }
 }
 
-async function pass(browser: { newContext(options: unknown): Promise<{ addInitScript(script: string): Promise<void>; newPage(): Promise<Page>; close(): Promise<void> }> }, fixture: VerificationServer, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, setup: Options, streamFile: string, counting: boolean) {
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+async function pass(browser: { newContext(options: unknown): Promise<{ addInitScript(script: string): Promise<void>; newPage(): Promise<Page>; close(): Promise<void> }> }, fixture: VerificationServer, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, setup: Options, files: FixtureFiles, counting: boolean) {
+  const streamFile = files.stream;
+  const context = await browser.newContext({ viewport: VIEWPORT });
   await context.addInitScript(PAGE_PROBE);
   const page = await context.newPage();
   await page.goto(fixture.info.url);
@@ -456,6 +588,9 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
   const named = process.argv.includes("--names");
   const trim = ({ keys: _keys, value: _value, top, ...rest }: Activity & { keys: number[]; top: string[]; value: unknown }) => (named && counting ? { ...rest, top } : rest);
   const idle = await heap(page);
+  const rendererIdleMb = rendererMemoryMb(process.pid);
+  const rendererSeenMb = [rendererIdleMb];
+  const sampleRenderer = () => { rendererSeenMb.push(rendererMemoryMb(process.pid)); };
   const idling = await measured(page, cdp, false, async () => {
     await page.waitForTimeout(3_000);
   });
@@ -513,6 +648,7 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
       toShort.push(await open(page, short));
     }
   });
+  sampleRenderer();
 
   await open(page, dogs.long);
   await page.click(composerOf(dogs.long));
@@ -520,6 +656,7 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
     await page.keyboard.type("Can you also check whether the release notes mention the bigger chat text and the new usage sheet, and fix them if not?", { delay: 35 });
     await page.waitForTimeout(300);
   });
+  sampleRenderer();
   for (let index = 0; index < 130; index += 1) await page.keyboard.press("Backspace");
 
   await page.mouse.move(820, 420);
@@ -531,6 +668,7 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
     await page.waitForTimeout(300);
   });
 
+  sampleRenderer();
   writeFileSync(streamFile, JSON.stringify({ everyMs: 30, chars: 10 }));
   await open(page, dogs.long);
   await page.click(composerOf(dogs.long));
@@ -554,6 +692,7 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
     await page.waitForTimeout(400);
     return seen;
   });
+  sampleRenderer();
 
   const elsewhere = await measured(page, cdp, counting, async () => {
     await Promise.all(dogs.others.slice(0, 4).map((dog) => api("POST", `/api/bots/${dog.id}/messages`, { text: "Run the checks again and show me the table.", threadId: dog.threadId, sendId: randomUUID().replaceAll("-", "") })));
@@ -562,14 +701,19 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
     await page.waitForTimeout(400);
   });
   rmSync(streamFile, { force: true });
+  sampleRenderer();
 
   const after = await heap(page);
+  const fill = counting ? null : { idle: await fillsWhileIdle(page, dogs, setup.switches), whileReplyStreams: await fillUnderStream(page, api, dogs, files) };
   await context.close();
   return {
     idle: { ...trim(idling), animations, blinkSeenMs },
     longChatOpened,
+    ...(fill ? { fill } : {}),
     heapIdleMb: idle.heapMb,
     heapAfterMb: after.heapMb,
+    rendererIdleMb,
+    rendererPeakMb: Math.max(...rendererSeenMb),
     domNodesAfter: after.nodes,
     switchToLongMs: distribution(toLong),
     switchToShortMs: distribution(toShort),
@@ -660,6 +804,184 @@ async function coldLoads(browser: { newContext(options: unknown): Promise<{ addI
   return { firstPaintMs: distribution(painted), composerReadyMs: distribution(ready) };
 }
 
+type Browser = { newContext(options: unknown): Promise<{ addInitScript(script: string): Promise<void>; newPage(): Promise<Page>; close(): Promise<void> }> };
+
+async function openingShots(browser: Browser, url: string, dogs: { long: Dog; others: Dog[] }, folder: string, label: string) {
+  mkdirSync(folder, { recursive: true });
+  const seen: Array<Record<string, unknown>> = [];
+  for (const scheme of ["light", "dark"] as const) {
+    const context = await browser.newContext({ viewport: VIEWPORT, colorScheme: scheme });
+    await context.addInitScript(PAGE_PROBE);
+    const page = await context.newPage();
+    await page.goto(url);
+    await page.waitForSelector('textarea[aria-label^="Message "]', { timeout: 60_000 });
+    await open(page, dogs.long);
+    await page.waitForTimeout(1_500);
+    await open(page, dogs.others[0]!);
+    const look = async (stage: string) => {
+      const state = await page.evaluate(() => {
+        const log = document.querySelector('[role="log"]')!;
+        const scroller = log.parentElement!;
+        const rows = [...log.querySelectorAll("[data-mid]")];
+        return {
+          rows: rows.length,
+          pixelsFromBottom: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
+          newestRowBottomPx: Math.round(rows.at(-1)!.getBoundingClientRect().bottom),
+          earlierWorkLine: document.querySelector("[data-native-work-fallbacks] summary")?.textContent ?? null,
+          pills: [...document.querySelectorAll('[data-new-messages-pill], button[aria-label="Jump to latest messages"]')].map((pill) => pill.textContent ?? ""),
+          arrivingRows: log.querySelectorAll("[data-arriving]").length,
+        };
+      });
+      const file = join(folder, `${label}-${stage}-${scheme}.png`);
+      await page.screenshot({ path: file });
+      seen.push({ scheme, stage, file, ...state });
+    };
+    const first = (await openFilling(page, dogs.long, true)).rowsAtFirstSight;
+    await page.evaluate(() => (window as unknown as { __perf: PagePerf }).__perf.shown());
+    await look("open-1-newest-rows");
+    await page.evaluate(async (shown: number) => {
+      const perf = (window as unknown as { __perf: PagePerf }).__perf;
+      perf.releaseFill();
+      await perf.until(() => document.querySelectorAll('[role="log"] [data-mid]').length > shown, 10_000);
+      perf.holdFill();
+      await perf.shown();
+    }, first);
+    await look("open-2-filling");
+    await page.evaluate(async (full: number) => {
+      const perf = (window as unknown as { __perf: PagePerf }).__perf;
+      perf.releaseFill();
+      await perf.until(() => document.querySelectorAll('[role="log"] [data-mid]').length >= full, 10_000);
+      await perf.shown();
+    }, WINDOW_ROWS);
+    await page.waitForTimeout(300);
+    await look("open-3-filled");
+
+    await open(page, dogs.others[0]!);
+    const everyFrame = await page.evaluate(async ({ row, name, full }: { row: string; name: string; full: number }) => {
+      const perf = (window as unknown as { __perf: PagePerf }).__perf;
+      const log = () => document.querySelector(`[role="log"][aria-label*=${JSON.stringify(name)}]`);
+      const earlierWorkLines = new Set<string>();
+      const pills = new Set<string>();
+      const rowCounts = new Set<number>();
+      let worstPixelsFromBottom = 0;
+      let arrivingRows = 0;
+      let frames = 0;
+      const watch = () => {
+        const transcript = log();
+        if (!transcript) return;
+        frames += 1;
+        const scroller = transcript.parentElement!;
+        rowCounts.add(transcript.querySelectorAll("[data-mid]").length);
+        worstPixelsFromBottom = Math.max(worstPixelsFromBottom, Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight));
+        arrivingRows = Math.max(arrivingRows, transcript.querySelectorAll("[data-arriving]").length);
+        earlierWorkLines.add(document.querySelector("[data-native-work-fallbacks] summary")?.textContent ?? "none");
+        for (const pill of document.querySelectorAll('[data-new-messages-pill], button[aria-label="Jump to latest messages"]')) pills.add(pill.textContent ?? "");
+      };
+      (document.querySelector(row) as HTMLElement).click();
+      await perf.until(() => { watch(); return (log()?.querySelectorAll("[data-mid]").length ?? 0) >= full; }, 20_000);
+      for (let frame = 0; frame < 45; frame += 1) {
+        await new Promise((done) => requestAnimationFrame(done));
+        watch();
+      }
+      return { frames, rowCounts: [...rowCounts], earlierWorkLines: [...earlierWorkLines], pills: [...pills], worstPixelsFromBottom, arrivingRows };
+    }, { row: rowOf(dogs.long), name: dogs.long.name, full: WINDOW_ROWS });
+    seen.push({ scheme, stage: "every frame of one more open", ...everyFrame });
+    await context.close();
+  }
+  return seen;
+}
+
+async function sidebarRows(browser: Browser, url: string, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, shots: string | null, label: string) {
+  for (const [index, dog] of dogs.others.entries()) if (index % 2 === 1) await api("PATCH", `/api/bots/${dog.id}/profile`, { title: "Release notes and checks" });
+  const context = await browser.newContext({ viewport: VIEWPORT });
+  await context.addInitScript(PAGE_PROBE);
+  const page = await context.newPage();
+  const load = async () => {
+    await page.goto(url);
+    await page.waitForSelector('textarea[aria-label^="Message "]', { timeout: 60_000 });
+    await page.waitForSelector("[data-sidebar-row]", { timeout: 60_000 });
+    await page.waitForTimeout(1_000);
+  };
+  const heldHeights = () => page.evaluate(() => {
+    const held: Record<string, number[]> = {};
+    let rows = 0;
+    let notDrawn = 0;
+    for (const row of document.querySelectorAll("[data-sidebar-row]")) {
+      rows += 1;
+      if (row.firstElementChild!.checkVisibility({ contentVisibilityAuto: true })) continue;
+      notDrawn += 1;
+      const kind = row.getAttribute("data-sidebar-row") || "unmarked";
+      const height = Math.round(row.getBoundingClientRect().height * 10) / 10;
+      held[kind] = [...new Set([...(held[kind] ?? []), height])];
+    }
+    return { rows, notDrawn, held };
+  });
+  const drawnHeights = () => page.evaluate(async () => {
+    const drawn: Record<string, number[]> = {};
+    for (const row of document.querySelectorAll("[data-sidebar-row]")) {
+      row.scrollIntoView({ block: "center" });
+      await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+      const kind = row.getAttribute("data-sidebar-row") || "unmarked";
+      const height = Math.round(row.getBoundingClientRect().height * 10) / 10;
+      drawn[kind] = [...new Set([...(drawn[kind] ?? []), height])];
+    }
+    return drawn;
+  });
+
+  await load();
+  const before = await heldHeights();
+  const target = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll("[data-sidebar-row]")];
+    const row = rows[rows.length - 12]!;
+    const notDrawnAbove = rows.slice(0, rows.length - 12).filter((candidate) => !candidate.firstElementChild!.checkVisibility({ contentVisibilityAuto: true })).length;
+    return { id: row.querySelector("[data-sidebar-bot-row]")!.getAttribute("data-sidebar-bot-row")!, kind: row.getAttribute("data-sidebar-row"), notDrawnAbove };
+  });
+  await api("PATCH", `/api/bots/${target.id}`, { unread: true });
+  await page.waitForSelector('[data-more-unreads="below"]', { timeout: 15_000 });
+  await page.click('[data-more-unreads="below"]');
+  const landed = await page.evaluate(async (id: string) => {
+    const scroller = document.querySelector("[data-sidebar-scroller]")!;
+    const started = performance.now();
+    let still = 0;
+    let last = scroller.scrollTop;
+    let settledAt = started;
+    while (still < 30 && performance.now() - started < 10_000) {
+      await new Promise((done) => requestAnimationFrame(done));
+      if (scroller.scrollTop === last) still += 1;
+      else { still = 0; last = scroller.scrollTop; settledAt = performance.now(); }
+    }
+    const view = scroller.getBoundingClientRect();
+    const row = document.querySelector(`[data-sidebar-bot-row=${JSON.stringify(id)}]`)!.getBoundingClientRect();
+    return {
+      inView: row.top >= view.top && row.bottom <= view.bottom,
+      pxFromCentre: Math.round((row.top + row.bottom) / 2 - (view.top + view.bottom) / 2),
+      scrolledToPx: Math.round(scroller.scrollTop),
+      scrollTookMs: Math.round(settledAt - started),
+      pillStillShown: Boolean(document.querySelector('[data-more-unreads="below"]')),
+    };
+  }, target.id);
+  if (shots) {
+    mkdirSync(shots, { recursive: true });
+    await page.screenshot({ path: join(shots, `${label}-sidebar-unread-jump.png`) });
+  }
+  const drawn = await drawnHeights();
+
+  await page.evaluate(() => localStorage.setItem("laterdog.sidebarDensity", "icons"));
+  await load();
+  const iconsHeld = await heldHeights();
+  const iconsDrawn = await drawnHeights();
+  await page.evaluate(() => localStorage.removeItem("laterdog.sidebarDensity"));
+  await context.close();
+  return {
+    rows: before.rows,
+    rowsNotDrawnAtLoad: before.notDrawn,
+    heightHeldWhileNotDrawnPx: { ...before.held, ...iconsHeld.held },
+    heightWhenDrawnPx: { ...drawn, ...iconsDrawn },
+    iconRail: { rows: iconsHeld.rows, rowsNotDrawnAtLoad: iconsHeld.notDrawn },
+    unreadJump: { target: target.kind, rowsNotDrawnAbove: target.notDrawnAbove, ...landed },
+  };
+}
+
 function redraws(activity: Activity & { top?: string[] }) {
   return { commits: activity.commits, rendered: activity.rendered, ...(activity.top ? { top: activity.top } : {}) };
 }
@@ -671,12 +993,13 @@ async function main() {
   const scratch = mkdtempSync(join(tmpdir(), "laterdog-desktop-perf-"));
   const streamFile = join(scratch, "stream.json");
   const repliesFile = join(scratch, "replies.json");
-  writeFileSync(repliesFile, JSON.stringify(replies()));
+  const replyIndexFile = join(scratch, "reply-index");
+  writeFileSync(repliesFile, JSON.stringify(scriptedReplies));
   const fixture = await launchVerificationServer({
     ...process.env,
     LATERDOG_TEST_STATIC_DIR: staticDir,
     FAKE_CLAUDE_REPLIES_FILE: repliesFile,
-    FAKE_CLAUDE_REPLY_STATE: join(scratch, "reply-index"),
+    FAKE_CLAUDE_REPLY_STATE: replyIndexFile,
     FAKE_CLAUDE_TOOL_CALLS: "[]",
     FAKE_CLAUDE_STREAM_FILE: streamFile,
   });
@@ -771,9 +1094,21 @@ async function main() {
       process.stdout.write(`${JSON.stringify(await switchProfile(browser, fixture.info.url, dogs, process.argv.includes("--profile-typing")), null, 2)}\n`);
       return;
     }
+    const files = { stream: streamFile, replyIndex: replyIndexFile };
+    if (process.argv.includes("--opening-shots")) {
+      process.stdout.write(`${JSON.stringify(await openingShots(browser, fixture.info.url, dogs, resolve(option("opening-shots")), setup.label), null, 2)}\n`);
+      return;
+    }
+    if (process.argv.includes("--sidebar-rows")) {
+      const result = { label: setup.label, at: new Date().toISOString(), dogs: dogs.others.length + 1, ...await sidebarRows(browser, fixture.info.url, api, dogs, process.argv.includes("--shots") ? resolve(option("shots")) : null, setup.label) };
+      mkdirSync(dirname(setup.out), { recursive: true });
+      writeFileSync(setup.out, `${JSON.stringify(result, null, 2)}\n`);
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
     const cold = await coldLoads(browser, fixture.info.url, setup.coldRuns);
-    const timed = await pass(browser, fixture, api, dogs, setup, streamFile, false);
-    const counted = await pass(browser, fixture, api, dogs, setup, streamFile, true);
+    const timed = await pass(browser, fixture, api, dogs, setup, files, false);
+    const counted = await pass(browser, fixture, api, dogs, setup, files, true);
     const serverTreeRssMb = treeRss(fixture.info.pid);
     const memoryAtPeak = { serverTreeRssMb, browserTreeRssMb: treeRss(process.pid) - serverTreeRssMb - Math.round(process.memoryUsage().rss / 1024 / 1024) };
     const result = {

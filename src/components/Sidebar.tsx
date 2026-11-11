@@ -85,6 +85,7 @@ import {
   type SectionDropPlace,
 } from "@/lib/sidebar-layout";
 import { publishSidebarOrder } from "@/lib/sidebar-order";
+import { sidebarRowKind } from "@/lib/sidebar-row-kind";
 import { MoreUnreadsPills } from "./MoreUnreadsPills";
 import { sidebarSectionAttention } from "@/lib/sidebar-attention";
 import { DOG_DRAG_TYPE, GROUP_DRAG_TYPE, PIN_DRAG_TYPE, dogDropChangesSection, sectionForDogDrop } from "@/lib/section-drop";
@@ -987,7 +988,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
   };
 
   return (
-    <div className="group relative" data-sidebar-row="" title={iconOnly ? bot.name : undefined}>
+    <div className="group relative" data-sidebar-row={sidebarRowKind({ iconOnly, titled: Boolean(title) && !renaming })} title={iconOnly ? bot.name : undefined}>
       <div
         role={renaming ? undefined : "button"}
         tabIndex={renaming ? undefined : 0}
