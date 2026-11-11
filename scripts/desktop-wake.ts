@@ -562,8 +562,8 @@ async function sendNowAndCancel(world: World, run: Run): Promise<CaseResult> {
   await typeAndSend(page, dog, jobWords);
   await world.edge.seen("sent", { after: started }, 30_000);
   await world.engine.started(jobWords);
-  stream(world, AT_ONCE);
   await page.waitForTimeout(500);
+  stream(world, AT_ONCE);
   await reloadWithFreshSave(world, page, dog);
   const wakingAt = Date.now();
   world.edge.sleep();
@@ -765,8 +765,8 @@ async function connection(world: World, run: Run): Promise<CaseResult> {
   await typeAndSend(page, dog, words);
   await world.edge.seen("sent", { after: started }, 30_000);
   await world.engine.started(words);
-  stream(world, AT_ONCE);
   await page.waitForTimeout(700);
+  stream(world, AT_ONCE);
   const cutAt = Date.now();
   world.edge.dropConnection(world.setup.dropMs);
   await page.waitForTimeout(600);
@@ -994,10 +994,13 @@ async function staleSavedChat(world: World, run: Run): Promise<CaseResult> {
     seen(`home stopped ${label}`, asleep);
     defect(`home stopped ${label}: the newest exchange stays on screen while the home wakes`, asleep.bubbles === 1 && asleep.answers === 1, { bubbles: asleep.bubbles, answers: asleep.answers });
     await shoot(page, `${idleMs ? "2" : "1"}-waking-${idleMs ? "after-idle" : "right-after-reply"}`);
-    await world.edge.seen("serving", { after: wakingAt }, world.setup.wakeMs + 15_000);
-    await page.waitForTimeout(2_500);
+    const serving = await world.edge.seen("serving", { after: wakingAt }, world.setup.wakeMs + 15_000);
+    const backAt = await seenInPage(page, "sent bubble", words, 30_000).catch(() => null);
+    await page.waitForTimeout(400);
     const up = await look(page, words, sent.answer);
-    check(`${label}: the exchange is on screen once the home is up`, up.bubbles === 1 && up.answers === 1, { bubbles: up.bubbles, answers: up.answers });
+    check(`${label}: the exchange is on screen again once the home is up`, backAt !== null && up.bubbles === 1 && up.answers === 1, { bubbles: up.bubbles, answers: up.answers });
+    if (backAt !== null && asleep.bubbles === 0) result.numbers[`home stopped ${label}: home up to the exchange back on screen, ms`] = round(backAt - serving.at);
+    result.numbers[`home stopped ${label}: messages of this exchange on screen while the home wakes`] = asleep.bubbles + asleep.answers;
   }
   await shoot(page, "3-home-up-again");
   return result;
