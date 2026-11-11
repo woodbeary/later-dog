@@ -107,40 +107,40 @@ The default timed run: base 1 run, main 1 run.
 
 | Measure | base 651cf65, median (range), 1 run | main 89b1439, median (range), 1 run | Difference of medians | Verdict |
 |---|---|---|---|---|
-| Open the long chat, median of 8 (ms) | 301.9 (301.9 to 301.9) | 266.9 (266.9 to 266.9) | -35 (-12%) | lower in every run |
-| Open the long chat, slowest of 8 (ms) | 339.8 (339.8 to 339.8) | 280 (280 to 280) | -59.8 (-18%) | lower in every run |
-| Long chat: rows drawn when it is first shown | 120 (120 to 120) | 30 (30 to 30) | -90 (-75%) | changed |
-| Long chat: all 120 rows in place, median of 8 (ms) | 292 (292 to 292) | 375 (375 to 375) | +83 (+28%) | higher in every run |
-| Long chat: openings of 8 that never reached 120 rows | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
-| Open a short chat, median of 8 (ms) | 63.6 (63.6 to 63.6) | 69.2 (69.2 to 69.2) | +5.6 (+9%) | higher in every run |
-| Long tasks across 16 switches (ms) | 2,261 (2,261 to 2,261) | 2,792 (2,792 to 2,792) | +531 (+23%) | higher in every run |
-| Key press to frame, median of 119 keys (ms) | 23.6 (23.6 to 23.6) | 23.6 (23.6 to 23.6) | 0 | same |
-| Key press to frame, 95th of 119 keys (ms) | 32.2 (32.2 to 32.2) | 31.9 (31.9 to 31.9) | -0.3 (-1%) | lower in every run |
-| Key press to frame, slowest of 119 keys (ms) | 32.9 (32.9 to 32.9) | 32.9 (32.9 to 32.9) | 0 | same |
-| Typing: frames slower than 25 ms | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
-| Typing: main thread busy over 5.5 s (ms) | 2,257 (2,257 to 2,257) | 2,000 (2,000 to 2,000) | -257 (-11%) | lower in every run |
-| Typing: layouts for 119 keys | 768 (768 to 768) | 569 (569 to 569) | -199 (-26%) | lower in every run |
-| Typing: components redrawn for 119 keys | 3,221 (3,221 to 3,221) | 3,223 (3,223 to 3,223) | +2 (+0%) | higher in every run |
-| Cold load: first paint, median of 5 (ms) | 372 (372 to 372) | 452 (452 to 452) | +80 (+22%) | higher in every run |
-| Cold load: message box ready, median of 5 (ms) | 547.2 (547.2 to 547.2) | 649.8 (649.8 to 649.8) | +102.6 (+19%) | higher in every run |
-| Cold load: message box ready, slowest of 5 (ms) | 593.1 (593.1 to 593.1) | 668.2 (668.2 to 668.2) | +75.1 (+13%) | higher in every run |
-| Idle: main thread busy per 3 s (ms) | 130 (130 to 130) | 77 (77 to 77) | -53 (-41%) | lower in every run |
-| Idle: style passes per 3 s | 181 (181 to 181) | 0 (0 to 0) | -181 (-100%) | lower in every run |
-| A streamed reply: frames slower than 25 ms | 5 (5 to 5) | 2 (2 to 2) | -3 (-60%) | lower in every run |
-| A streamed reply: components redrawn | 8,628 (8,628 to 8,628) | 5,487 (5,487 to 5,487) | -3,141 (-36%) | lower in every run |
-| Own bubble after Enter (ms) | 36.9 (36.9 to 36.9) | 28.1 (28.1 to 28.1) | -8.8 (-24%) | lower in every run |
-| Four other dogs working: frames slower than 25 ms | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
-| Four other dogs working: main thread busy (ms) | 970 (970 to 970) | 797 (797 to 797) | -173 (-18%) | lower in every run |
-| Four other dogs working: components redrawn | 1,322 (1,322 to 1,322) | 636 (636 to 636) | -686 (-52%) | lower in every run |
-| Switching: components redrawn across 16 switches | 31,091 (31,091 to 31,091) | 32,933 (32,933 to 32,933) | +1,842 (+6%) | higher in every run |
-| JS heap at idle, after a collection (MB) | 12.8 (12.8 to 12.8) | 12.7 (12.7 to 12.7) | -0.1 (-1%) | lower in every run |
-| JS heap after the run, after a collection (MB) | 25.8 (25.8 to 25.8) | 26 (26 to 26) | +0.2 (+1%) | higher in every run |
-| Page process memory at idle (MB) | 61 (61 to 61) | 59 (59 to 59) | -2 (-3%) | lower in every run |
-| Page process memory, highest of 6 samples (MB) | 373 (373 to 373) | 344 (344 to 344) | -29 (-8%) | lower in every run |
-| Browser process tree at idle, resident (MB) | 1,001 (1,001 to 1,001) | 1,002 (1,002 to 1,002) | +1 (+0%) | higher in every run |
-| Browser process tree, highest in the run, resident (MB) | 1,337 (1,337 to 1,337) | 1,314 (1,314 to 1,314) | -23 (-2%) | lower in every run |
-| DOM nodes after the run | 10,933 (10,933 to 10,933) | 10,933 (10,933 to 10,933) | 0 | same |
-| Rows in the long chat 1.5 s after opening | 120 (120 to 120) | 120 (120 to 120) | 0 | same |
+| Open the long chat, median of 8 (ms) | 301.9 (301.9 to 301.9) | 266.9 (266.9 to 266.9) | -35 (-12%) | too few runs to say |
+| Open the long chat, slowest of 8 (ms) | 339.8 (339.8 to 339.8) | 280 (280 to 280) | -59.8 (-18%) | too few runs to say |
+| Long chat: rows drawn when it is first shown | 120 (120 to 120) | 30 (30 to 30) | -90 (-75%) | too few runs to say |
+| Long chat: all 120 rows in place, median of 8 (ms) | 292 (292 to 292) | 375 (375 to 375) | +83 (+28%) | too few runs to say |
+| Long chat: openings of 8 that never reached 120 rows | 0 (0 to 0) | 0 (0 to 0) | 0 | too few runs to say |
+| Open a short chat, median of 8 (ms) | 63.6 (63.6 to 63.6) | 69.2 (69.2 to 69.2) | +5.6 (+9%) | too few runs to say |
+| Long tasks across 16 switches (ms) | 2,261 (2,261 to 2,261) | 2,792 (2,792 to 2,792) | +531 (+23%) | too few runs to say |
+| Key press to frame, median of 119 keys (ms) | 23.6 (23.6 to 23.6) | 23.6 (23.6 to 23.6) | 0 | too few runs to say |
+| Key press to frame, 95th of 119 keys (ms) | 32.2 (32.2 to 32.2) | 31.9 (31.9 to 31.9) | -0.3 (-1%) | too few runs to say |
+| Key press to frame, slowest of 119 keys (ms) | 32.9 (32.9 to 32.9) | 32.9 (32.9 to 32.9) | 0 | too few runs to say |
+| Typing: frames slower than 25 ms | 0 (0 to 0) | 0 (0 to 0) | 0 | too few runs to say |
+| Typing: main thread busy over 5.5 s (ms) | 2,257 (2,257 to 2,257) | 2,000 (2,000 to 2,000) | -257 (-11%) | too few runs to say |
+| Typing: layouts for 119 keys | 768 (768 to 768) | 569 (569 to 569) | -199 (-26%) | too few runs to say |
+| Typing: components redrawn for 119 keys | 3,221 (3,221 to 3,221) | 3,223 (3,223 to 3,223) | +2 (+0%) | too few runs to say |
+| Cold load: first paint, median of 5 (ms) | 372 (372 to 372) | 452 (452 to 452) | +80 (+22%) | too few runs to say |
+| Cold load: message box ready, median of 5 (ms) | 547.2 (547.2 to 547.2) | 649.8 (649.8 to 649.8) | +102.6 (+19%) | too few runs to say |
+| Cold load: message box ready, slowest of 5 (ms) | 593.1 (593.1 to 593.1) | 668.2 (668.2 to 668.2) | +75.1 (+13%) | too few runs to say |
+| Idle: main thread busy per 3 s (ms) | 130 (130 to 130) | 77 (77 to 77) | -53 (-41%) | too few runs to say |
+| Idle: style passes per 3 s | 181 (181 to 181) | 0 (0 to 0) | -181 (-100%) | too few runs to say |
+| A streamed reply: frames slower than 25 ms | 5 (5 to 5) | 2 (2 to 2) | -3 (-60%) | too few runs to say |
+| A streamed reply: components redrawn | 8,628 (8,628 to 8,628) | 5,487 (5,487 to 5,487) | -3,141 (-36%) | too few runs to say |
+| Own bubble after Enter (ms) | 36.9 (36.9 to 36.9) | 28.1 (28.1 to 28.1) | -8.8 (-24%) | too few runs to say |
+| Four other dogs working: frames slower than 25 ms | 0 (0 to 0) | 0 (0 to 0) | 0 | too few runs to say |
+| Four other dogs working: main thread busy (ms) | 970 (970 to 970) | 797 (797 to 797) | -173 (-18%) | too few runs to say |
+| Four other dogs working: components redrawn | 1,322 (1,322 to 1,322) | 636 (636 to 636) | -686 (-52%) | too few runs to say |
+| Switching: components redrawn across 16 switches | 31,091 (31,091 to 31,091) | 32,933 (32,933 to 32,933) | +1,842 (+6%) | too few runs to say |
+| JS heap at idle, after a collection (MB) | 12.8 (12.8 to 12.8) | 12.7 (12.7 to 12.7) | -0.1 (-1%) | too few runs to say |
+| JS heap after the run, after a collection (MB) | 25.8 (25.8 to 25.8) | 26 (26 to 26) | +0.2 (+1%) | too few runs to say |
+| Page process memory at idle (MB) | 61 (61 to 61) | 59 (59 to 59) | -2 (-3%) | too few runs to say |
+| Page process memory, highest of 6 samples (MB) | 373 (373 to 373) | 344 (344 to 344) | -29 (-8%) | too few runs to say |
+| Browser process tree at idle, resident (MB) | 1,001 (1,001 to 1,001) | 1,002 (1,002 to 1,002) | +1 (+0%) | too few runs to say |
+| Browser process tree, highest in the run, resident (MB) | 1,337 (1,337 to 1,337) | 1,314 (1,314 to 1,314) | -23 (-2%) | too few runs to say |
+| DOM nodes after the run | 10,933 (10,933 to 10,933) | 10,933 (10,933 to 10,933) | 0 | too few runs to say |
+| Rows in the long chat 1.5 s after opening | 120 (120 to 120) | 120 (120 to 120) | 0 | too few runs to say |
 
 ### Timed run at 80 dogs
 
@@ -148,40 +148,40 @@ The default timed run with `--other-dogs 79 --other-turns 2`: base 1 run, main 1
 
 | Measure | base 651cf65, median (range), 1 run | main 89b1439, median (range), 1 run | Difference of medians | Verdict |
 |---|---|---|---|---|
-| Open the long chat, median of 8 (ms) | 560.6 (560.6 to 560.6) | 402.5 (402.5 to 402.5) | -158.1 (-28%) | lower in every run |
-| Open the long chat, slowest of 8 (ms) | 651.9 (651.9 to 651.9) | 485.3 (485.3 to 485.3) | -166.6 (-26%) | lower in every run |
-| Long chat: rows drawn when it is first shown | 120 (120 to 120) | 30 (30 to 30) | -90 (-75%) | changed |
-| Long chat: all 120 rows in place, median of 8 (ms) | 453 (453 to 453) | 510 (510 to 510) | +57 (+13%) | higher in every run |
-| Long chat: openings of 8 that never reached 120 rows | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
-| Open a short chat, median of 8 (ms) | 91.8 (91.8 to 91.8) | 72.7 (72.7 to 72.7) | -19.1 (-21%) | lower in every run |
-| Long tasks across 16 switches (ms) | 4,428 (4,428 to 4,428) | 4,234 (4,234 to 4,234) | -194 (-4%) | lower in every run |
-| Key press to frame, median of 119 keys (ms) | 67.2 (67.2 to 67.2) | 24.6 (24.6 to 24.6) | -42.6 (-63%) | lower in every run |
-| Key press to frame, 95th of 119 keys (ms) | 122.9 (122.9 to 122.9) | 31.9 (31.9 to 31.9) | -91 (-74%) | lower in every run |
-| Key press to frame, slowest of 119 keys (ms) | 145 (145 to 145) | 33.1 (33.1 to 33.1) | -111.9 (-77%) | lower in every run |
-| Typing: frames slower than 25 ms | 159 (159 to 159) | 0 (0 to 0) | -159 (-100%) | lower in every run |
-| Typing: main thread busy over 5.5 s (ms) | 9,732 (9,732 to 9,732) | 1,659 (1,659 to 1,659) | -8,073 (-83%) | lower in every run |
-| Typing: layouts for 119 keys | 716 (716 to 716) | 263 (263 to 263) | -453 (-63%) | lower in every run |
-| Typing: components redrawn for 119 keys | 3,195 (3,195 to 3,195) | 3,223 (3,223 to 3,223) | +28 (+1%) | higher in every run |
-| Cold load: first paint, median of 5 (ms) | 376 (376 to 376) | 368 (368 to 368) | -8 (-2%) | lower in every run |
-| Cold load: message box ready, median of 5 (ms) | 790.8 (790.8 to 790.8) | 791.7 (791.7 to 791.7) | +0.9 (+0%) | higher in every run |
-| Cold load: message box ready, slowest of 5 (ms) | 891.4 (891.4 to 891.4) | 841.5 (841.5 to 841.5) | -49.9 (-6%) | lower in every run |
-| Idle: main thread busy per 3 s (ms) | 527 (527 to 527) | 85 (85 to 85) | -442 (-84%) | lower in every run |
-| Idle: style passes per 3 s | 181 (181 to 181) | 0 (0 to 0) | -181 (-100%) | lower in every run |
-| A streamed reply: frames slower than 25 ms | 20 (20 to 20) | 4 (4 to 4) | -16 (-80%) | lower in every run |
-| A streamed reply: components redrawn | 8,351 (8,351 to 8,351) | 5,497 (5,497 to 5,497) | -2,854 (-34%) | lower in every run |
-| Own bubble after Enter (ms) | 41.8 (41.8 to 41.8) | 32.2 (32.2 to 32.2) | -9.6 (-23%) | lower in every run |
-| Four other dogs working: frames slower than 25 ms | 31 (31 to 31) | 0 (0 to 0) | -31 (-100%) | lower in every run |
-| Four other dogs working: main thread busy (ms) | 2,221 (2,221 to 2,221) | 350 (350 to 350) | -1,871 (-84%) | lower in every run |
-| Four other dogs working: components redrawn | 964 (964 to 964) | 683 (683 to 683) | -281 (-29%) | lower in every run |
-| Switching: components redrawn across 16 switches | 30,105 (30,105 to 30,105) | 31,449 (31,449 to 31,449) | +1,344 (+4%) | higher in every run |
-| JS heap at idle, after a collection (MB) | 15 (15 to 15) | 15.2 (15.2 to 15.2) | +0.2 (+1%) | higher in every run |
-| JS heap after the run, after a collection (MB) | 28.2 (28.2 to 28.2) | 28.3 (28.3 to 28.3) | +0.1 (+0%) | higher in every run |
-| Page process memory at idle (MB) | 92 (92 to 92) | 86 (86 to 86) | -6 (-7%) | lower in every run |
-| Page process memory, highest of 6 samples (MB) | 503 (503 to 503) | 348 (348 to 348) | -155 (-31%) | lower in every run |
-| Browser process tree at idle, resident (MB) | 1,048 (1,048 to 1,048) | 1,042 (1,042 to 1,042) | -6 (-1%) | lower in every run |
-| Browser process tree, highest in the run, resident (MB) | 1,455 (1,455 to 1,455) | 1,389 (1,389 to 1,389) | -66 (-5%) | lower in every run |
-| DOM nodes after the run | 15,748 (15,748 to 15,748) | 15,779 (15,779 to 15,779) | +31 (+0%) | higher in every run |
-| Rows in the long chat 1.5 s after opening | 120 (120 to 120) | 120 (120 to 120) | 0 | same |
+| Open the long chat, median of 8 (ms) | 560.6 (560.6 to 560.6) | 402.5 (402.5 to 402.5) | -158.1 (-28%) | too few runs to say |
+| Open the long chat, slowest of 8 (ms) | 651.9 (651.9 to 651.9) | 485.3 (485.3 to 485.3) | -166.6 (-26%) | too few runs to say |
+| Long chat: rows drawn when it is first shown | 120 (120 to 120) | 30 (30 to 30) | -90 (-75%) | too few runs to say |
+| Long chat: all 120 rows in place, median of 8 (ms) | 453 (453 to 453) | 510 (510 to 510) | +57 (+13%) | too few runs to say |
+| Long chat: openings of 8 that never reached 120 rows | 0 (0 to 0) | 0 (0 to 0) | 0 | too few runs to say |
+| Open a short chat, median of 8 (ms) | 91.8 (91.8 to 91.8) | 72.7 (72.7 to 72.7) | -19.1 (-21%) | too few runs to say |
+| Long tasks across 16 switches (ms) | 4,428 (4,428 to 4,428) | 4,234 (4,234 to 4,234) | -194 (-4%) | too few runs to say |
+| Key press to frame, median of 119 keys (ms) | 67.2 (67.2 to 67.2) | 24.6 (24.6 to 24.6) | -42.6 (-63%) | too few runs to say |
+| Key press to frame, 95th of 119 keys (ms) | 122.9 (122.9 to 122.9) | 31.9 (31.9 to 31.9) | -91 (-74%) | too few runs to say |
+| Key press to frame, slowest of 119 keys (ms) | 145 (145 to 145) | 33.1 (33.1 to 33.1) | -111.9 (-77%) | too few runs to say |
+| Typing: frames slower than 25 ms | 159 (159 to 159) | 0 (0 to 0) | -159 (-100%) | too few runs to say |
+| Typing: main thread busy over 5.5 s (ms) | 9,732 (9,732 to 9,732) | 1,659 (1,659 to 1,659) | -8,073 (-83%) | too few runs to say |
+| Typing: layouts for 119 keys | 716 (716 to 716) | 263 (263 to 263) | -453 (-63%) | too few runs to say |
+| Typing: components redrawn for 119 keys | 3,195 (3,195 to 3,195) | 3,223 (3,223 to 3,223) | +28 (+1%) | too few runs to say |
+| Cold load: first paint, median of 5 (ms) | 376 (376 to 376) | 368 (368 to 368) | -8 (-2%) | too few runs to say |
+| Cold load: message box ready, median of 5 (ms) | 790.8 (790.8 to 790.8) | 791.7 (791.7 to 791.7) | +0.9 (+0%) | too few runs to say |
+| Cold load: message box ready, slowest of 5 (ms) | 891.4 (891.4 to 891.4) | 841.5 (841.5 to 841.5) | -49.9 (-6%) | too few runs to say |
+| Idle: main thread busy per 3 s (ms) | 527 (527 to 527) | 85 (85 to 85) | -442 (-84%) | too few runs to say |
+| Idle: style passes per 3 s | 181 (181 to 181) | 0 (0 to 0) | -181 (-100%) | too few runs to say |
+| A streamed reply: frames slower than 25 ms | 20 (20 to 20) | 4 (4 to 4) | -16 (-80%) | too few runs to say |
+| A streamed reply: components redrawn | 8,351 (8,351 to 8,351) | 5,497 (5,497 to 5,497) | -2,854 (-34%) | too few runs to say |
+| Own bubble after Enter (ms) | 41.8 (41.8 to 41.8) | 32.2 (32.2 to 32.2) | -9.6 (-23%) | too few runs to say |
+| Four other dogs working: frames slower than 25 ms | 31 (31 to 31) | 0 (0 to 0) | -31 (-100%) | too few runs to say |
+| Four other dogs working: main thread busy (ms) | 2,221 (2,221 to 2,221) | 350 (350 to 350) | -1,871 (-84%) | too few runs to say |
+| Four other dogs working: components redrawn | 964 (964 to 964) | 683 (683 to 683) | -281 (-29%) | too few runs to say |
+| Switching: components redrawn across 16 switches | 30,105 (30,105 to 30,105) | 31,449 (31,449 to 31,449) | +1,344 (+4%) | too few runs to say |
+| JS heap at idle, after a collection (MB) | 15 (15 to 15) | 15.2 (15.2 to 15.2) | +0.2 (+1%) | too few runs to say |
+| JS heap after the run, after a collection (MB) | 28.2 (28.2 to 28.2) | 28.3 (28.3 to 28.3) | +0.1 (+0%) | too few runs to say |
+| Page process memory at idle (MB) | 92 (92 to 92) | 86 (86 to 86) | -6 (-7%) | too few runs to say |
+| Page process memory, highest of 6 samples (MB) | 503 (503 to 503) | 348 (348 to 348) | -155 (-31%) | too few runs to say |
+| Browser process tree at idle, resident (MB) | 1,048 (1,048 to 1,048) | 1,042 (1,042 to 1,042) | -6 (-1%) | too few runs to say |
+| Browser process tree, highest in the run, resident (MB) | 1,455 (1,455 to 1,455) | 1,389 (1,389 to 1,389) | -66 (-5%) | too few runs to say |
+| DOM nodes after the run | 15,748 (15,748 to 15,748) | 15,779 (15,779 to 15,779) | +31 (+0%) | too few runs to say |
+| Rows in the long chat 1.5 s after opening | 120 (120 to 120) | 120 (120 to 120) | 0 | too few runs to say |
 
 ### One dog streams, at 7 dogs
 

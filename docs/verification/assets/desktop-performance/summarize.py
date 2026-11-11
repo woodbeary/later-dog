@@ -130,6 +130,8 @@ def cell(values):
 def verdict(base, main, better):
     if not base or not main:
         return "not measured"
+    if len(base) < 3 or len(main) < 3:
+        return "too few runs to say"
     if min(base) == max(base) == min(main) == max(main):
         return "same"
     if max(main) < min(base):
