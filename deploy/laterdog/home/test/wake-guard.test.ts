@@ -462,4 +462,57 @@ describe("a message the edge holds while the home cannot take it", () => {
     await visit("/api/bots", asOwner());
     expect(delivered(proxied as never)).toBe(tries);
   });
+
+  const SECOND = "send-0000000000002";
+  const wordsFor = (sendId: string) => ({ ...sendWords(), body: JSON.stringify({ text: sendId, sendId }) });
+
+  async function twoHeldWithTheFirstOnItsWay() {
+    const started = await awakeHome();
+    const { visit, sleep, machine } = started;
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
+    await visit("/api/bots", asOwner());
+    await sleep();
+    machine.serving = false;
+    expect((await visit("/api/bots/rex/messages", wordsFor(SEND))).status).toBe(202);
+    now += 30 * 60 * 1000;
+    expect((await visit("/api/bots/rex/messages", wordsFor(SECOND))).status).toBe(202);
+    const taken: string[] = [];
+    let answerFirst: (response: Response) => void = () => undefined;
+    world.answers.set("POST /api/bots/rex/messages", async (request) => {
+      const { sendId } = await request.json() as { sendId: string };
+      taken.push(sendId);
+      return sendId === SEND ? new Promise<Response>((resolve) => { answerFirst = resolve; }) : Response.json({ ok: true });
+    });
+    machine.serving = true;
+    const page = visit("/api/bots", asOwner());
+    await vi.waitFor(() => expect(taken).toEqual([SEND]));
+    const whatBecame = () => visit(`/api/held-sends?ids=${SEND},${SECOND}`, asOwner()).then((answer) => answer.json());
+    return { ...started, taken, page, whatBecame, homeTakesTheFirst: () => answerFirst(Response.json({ ok: true })) };
+  }
+
+  it("does not call a message expired while it is on its way to the home, and still delivers the one behind it", async () => {
+    const { home, taken, page, whatBecame, homeTakesTheFirst } = await twoHeldWithTheFirstOnItsWay();
+    now += 31 * 60 * 1000;
+    const hourCheck = (home as unknown as { deliverQueued(): Promise<void> }).deliverQueued();
+    homeTakesTheFirst();
+    await Promise.all([hourCheck, page]);
+    expect(taken).toEqual([SEND, SECOND]);
+    expect(await whatBecame()).toEqual({ held: [], dropped: [] });
+  });
+
+  it("does not answer a cancel from the edge while the message is on its way to the home, and still delivers the one behind it", async () => {
+    const { visit, sleep, machine, taken, page, whatBecame, homeTakesTheFirst } = await twoHeldWithTheFirstOnItsWay();
+    world.answers.set(`DELETE /api/bots/rex/queue/${SEND}`, () => Response.json({ ok: true, sent: true }));
+    await sleep();
+    const cancel = visit(`/api/bots/rex/queue/${SEND}`, asked("DELETE"));
+    homeTakesTheFirst();
+    const answer = await cancel;
+    await page;
+    expect(await answer.json()).toEqual({ ok: true, sent: true });
+    machine.serving = true;
+    await visit("/api/bots", asOwner());
+    expect(taken.filter((id) => id === SEND)).toHaveLength(1);
+    expect(taken.filter((id) => id === SECOND)).toHaveLength(1);
+    expect(await whatBecame()).toEqual({ held: [], dropped: [] });
+  });
 });

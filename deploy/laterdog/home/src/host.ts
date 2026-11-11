@@ -505,9 +505,13 @@ export class CloudHomeHost extends Container<Env> {
 
   private async answerHeld(request: Request, key: string | null): Promise<Response | null> {
     const ids = key && this.knownDevice(key) ? heldSendsAsk(request) : null;
-    if (ids) return heldSendsAnswer(this.outbox, this.dropped, ids);
+    if (ids) {
+      await this.delivering;
+      return heldSendsAnswer(this.outbox, this.dropped, ids);
+    }
     if (!this.outbox.length) return null;
     const asked = key && this.knownDevice(key) ? heldQueueAsk(request) : null;
+    if (asked) await this.delivering;
     const answered = asked && !this.answering.has(asked.id) ? answerHeldQueueAsk(this.outbox, asked) : null;
     if (!answered) return null;
     if (answered.outbox.length !== this.outbox.length) {
@@ -658,6 +662,7 @@ export class CloudHomeHost extends Container<Env> {
   async deliverQueued(): Promise<void> {
     const record = this.record;
     if (!record || this.removed || !this.outbox.length) return;
+    await this.delivering;
     const now = Date.now();
     const kept = this.outbox.filter((queued) => now - queued.at < DESK_GIVE_UP_MS);
     if (kept.length !== this.outbox.length) {
@@ -691,10 +696,10 @@ export class CloudHomeHost extends Container<Env> {
           console.error(`laterdog home ${record.machineId}: the home refused a message sent while it slept (${status})`);
           await this.rememberDropped([queued], "refused", Date.now());
         }
-        this.outbox = this.outbox.slice(1);
+        this.outbox = this.outbox.filter((held) => held.id !== queued.id);
         await this.ctx.storage.put(OUTBOX_KEY, this.outbox);
       }
-    })().finally(() => {
+    })().catch(() => undefined).finally(() => {
       this.delivering = null;
     });
     return this.delivering;
