@@ -144,7 +144,44 @@ The default timed run: base 1 run, main 1 run.
 
 ### Timed run at 80 dogs
 
-The default timed run with `--other-dogs 79 --other-turns 2`: base 0 runs, main 0 runs.
+The default timed run with `--other-dogs 79 --other-turns 2`: base 1 run, main 1 run.
+
+| Measure | base 651cf65, median (range), 1 run | main 89b1439, median (range), 1 run | Difference of medians | Verdict |
+|---|---|---|---|---|
+| Open the long chat, median of 8 (ms) | 560.6 (560.6 to 560.6) | 402.5 (402.5 to 402.5) | -158.1 (-28%) | lower in every run |
+| Open the long chat, slowest of 8 (ms) | 651.9 (651.9 to 651.9) | 485.3 (485.3 to 485.3) | -166.6 (-26%) | lower in every run |
+| Long chat: rows drawn when it is first shown | 120 (120 to 120) | 30 (30 to 30) | -90 (-75%) | changed |
+| Long chat: all 120 rows in place, median of 8 (ms) | 453 (453 to 453) | 510 (510 to 510) | +57 (+13%) | higher in every run |
+| Long chat: openings of 8 that never reached 120 rows | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
+| Open a short chat, median of 8 (ms) | 91.8 (91.8 to 91.8) | 72.7 (72.7 to 72.7) | -19.1 (-21%) | lower in every run |
+| Long tasks across 16 switches (ms) | 4,428 (4,428 to 4,428) | 4,234 (4,234 to 4,234) | -194 (-4%) | lower in every run |
+| Key press to frame, median of 119 keys (ms) | 67.2 (67.2 to 67.2) | 24.6 (24.6 to 24.6) | -42.6 (-63%) | lower in every run |
+| Key press to frame, 95th of 119 keys (ms) | 122.9 (122.9 to 122.9) | 31.9 (31.9 to 31.9) | -91 (-74%) | lower in every run |
+| Key press to frame, slowest of 119 keys (ms) | 145 (145 to 145) | 33.1 (33.1 to 33.1) | -111.9 (-77%) | lower in every run |
+| Typing: frames slower than 25 ms | 159 (159 to 159) | 0 (0 to 0) | -159 (-100%) | lower in every run |
+| Typing: main thread busy over 5.5 s (ms) | 9,732 (9,732 to 9,732) | 1,659 (1,659 to 1,659) | -8,073 (-83%) | lower in every run |
+| Typing: layouts for 119 keys | 716 (716 to 716) | 263 (263 to 263) | -453 (-63%) | lower in every run |
+| Typing: components redrawn for 119 keys | 3,195 (3,195 to 3,195) | 3,223 (3,223 to 3,223) | +28 (+1%) | higher in every run |
+| Cold load: first paint, median of 5 (ms) | 376 (376 to 376) | 368 (368 to 368) | -8 (-2%) | lower in every run |
+| Cold load: message box ready, median of 5 (ms) | 790.8 (790.8 to 790.8) | 791.7 (791.7 to 791.7) | +0.9 (+0%) | higher in every run |
+| Cold load: message box ready, slowest of 5 (ms) | 891.4 (891.4 to 891.4) | 841.5 (841.5 to 841.5) | -49.9 (-6%) | lower in every run |
+| Idle: main thread busy per 3 s (ms) | 527 (527 to 527) | 85 (85 to 85) | -442 (-84%) | lower in every run |
+| Idle: style passes per 3 s | 181 (181 to 181) | 0 (0 to 0) | -181 (-100%) | lower in every run |
+| A streamed reply: frames slower than 25 ms | 20 (20 to 20) | 4 (4 to 4) | -16 (-80%) | lower in every run |
+| A streamed reply: components redrawn | 8,351 (8,351 to 8,351) | 5,497 (5,497 to 5,497) | -2,854 (-34%) | lower in every run |
+| Own bubble after Enter (ms) | 41.8 (41.8 to 41.8) | 32.2 (32.2 to 32.2) | -9.6 (-23%) | lower in every run |
+| Four other dogs working: frames slower than 25 ms | 31 (31 to 31) | 0 (0 to 0) | -31 (-100%) | lower in every run |
+| Four other dogs working: main thread busy (ms) | 2,221 (2,221 to 2,221) | 350 (350 to 350) | -1,871 (-84%) | lower in every run |
+| Four other dogs working: components redrawn | 964 (964 to 964) | 683 (683 to 683) | -281 (-29%) | lower in every run |
+| Switching: components redrawn across 16 switches | 30,105 (30,105 to 30,105) | 31,449 (31,449 to 31,449) | +1,344 (+4%) | higher in every run |
+| JS heap at idle, after a collection (MB) | 15 (15 to 15) | 15.2 (15.2 to 15.2) | +0.2 (+1%) | higher in every run |
+| JS heap after the run, after a collection (MB) | 28.2 (28.2 to 28.2) | 28.3 (28.3 to 28.3) | +0.1 (+0%) | higher in every run |
+| Page process memory at idle (MB) | 92 (92 to 92) | 86 (86 to 86) | -6 (-7%) | lower in every run |
+| Page process memory, highest of 6 samples (MB) | 503 (503 to 503) | 348 (348 to 348) | -155 (-31%) | lower in every run |
+| Browser process tree at idle, resident (MB) | 1,048 (1,048 to 1,048) | 1,042 (1,042 to 1,042) | -6 (-1%) | lower in every run |
+| Browser process tree, highest in the run, resident (MB) | 1,455 (1,455 to 1,455) | 1,389 (1,389 to 1,389) | -66 (-5%) | lower in every run |
+| DOM nodes after the run | 15,748 (15,748 to 15,748) | 15,779 (15,779 to 15,779) | +31 (+0%) | higher in every run |
+| Rows in the long chat 1.5 s after opening | 120 (120 to 120) | 120 (120 to 120) | 0 | same |
 
 ### One dog streams, at 7 dogs
 
@@ -207,6 +244,8 @@ The default timed run with `--other-dogs 79 --other-turns 2`: base 0 runs, main 
 | main-7-default-1 | x | 159 | 92 | 2.11 2.61 2.86 | 0 |
 | base-80-kept-1 | s | 92 | 82 | 0.96 2.11 2.66 | 0 |
 | base-80-layers-1 | x | 658 | 72 | 2.13 1.42 1.94 | 0 |
+| base-80-default-1 | x | 0 | 177 | 1.91 1.54 1.94 | 0 |
+| main-80-default-1 | x | 0 | 128 | 1.89 1.80 1.98 | 0 |
 
 ## History: results at 456e978, 2026-11-10
 
