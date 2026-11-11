@@ -108,7 +108,7 @@ describe("decision cases", () => {
       const scored = items.filter((item) => item.group === group && item.gold.kind !== "unscored");
       return scored.filter((item) => ruleCorrect(item)).length / scored.length;
     };
-    expect(share("heavyCommand")).toBeGreaterThan(0.7);
+    expect(share("heavyCommand")).toBe(1);
     expect(share("waitingOnOwner")).toBeGreaterThan(0.7);
     expect(share("roomRouting")).toBeLessThan(0.5);
   });
