@@ -794,10 +794,7 @@ export class CloudHomeHost extends Container<Env> {
       if (denied) this.refusedMidCheck.set(key, () => this.learn(record, credential, key, response));
       return;
     }
-    if (this.checking.size >= CHECKS_AT_ONCE || (!known && this.refused.has(key))) {
-      if (known && denied) this.ctx.waitUntil(this.distrust(record, key));
-      return;
-    }
+    if (!known && (this.checking.size >= CHECKS_AT_ONCE || this.refused.has(key))) return;
     const check = this.quietly(sessionCheck(record.origin, credential))
       .then(sessionCheckOutcome)
       .catch((): CheckOutcome => "unknown")
