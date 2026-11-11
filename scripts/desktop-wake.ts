@@ -183,8 +183,13 @@ const WAKE_PROBE = `(() => {
     const send = { startedAt: wake.wall(), answeredAt: null, status: null, body: init && typeof init.body === "string" ? init.body : "" };
     wake.sends.push(send);
     return plainFetch.apply(this, arguments).then((response) => {
-      send.answeredAt = wake.wall();
-      send.status = response.status;
+      response.clone().arrayBuffer().then(() => {
+        send.answeredAt = wake.wall();
+        send.status = response.status;
+      }, () => {
+        send.answeredAt = wake.wall();
+        send.status = 0;
+      });
       return response;
     }, (error) => {
       send.answeredAt = wake.wall();
