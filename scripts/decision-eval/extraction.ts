@@ -156,7 +156,8 @@ export function resetWallClock(
   if (parts.waitSeconds !== null && parts.waitSeconds >= 0) return wallClockIn(zone, nowMs + parts.waitSeconds * 1000);
   if (!parts.time) return null;
   const nowWall = wallClockIn(zone, nowMs);
-  if (parts.date) return `${parts.date}T${parts.time}`;
+  const stated = parts.date ? `${parts.date}T${parts.time}` : null;
+  if (stated && stated > nowWall) return stated;
   const today = `${nowWall.slice(0, 10)}T${parts.time}`;
   return today > nowWall ? today : `${dayAfter(nowWall.slice(0, 10))}T${parts.time}`;
 }
