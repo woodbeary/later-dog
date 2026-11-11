@@ -10,13 +10,19 @@ import {
   type TouchEvent,
   type WheelEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow, useBottomFollowResize } from "@/lib/bottom-follow";
 import { useFocusMessage } from "@/lib/focus-message";
 import {
   TRANSCRIPT_WINDOW_SIZE,
+  countedBefore,
+  filledWindow,
   focusWindowRange,
   followWindowStart,
+  openingWindow,
   resolveTranscriptWindow,
+  stagedStart,
+  widenedWindow,
   windowEndAfter,
   windowStartBefore,
   type CountsInWindow,
@@ -34,6 +40,8 @@ export function endKeyScrolls(event: Pick<KeyboardEvent, "key" | "metaKey" | "ct
   if (target instanceof HTMLTextAreaElement) return target.value.length === 0;
   return !(target instanceof HTMLElement && target.isContentEditable);
 }
+
+export const TYPING_PAUSE_MS = 300;
 
 const LEAVE_BOTTOM_KEYS = new Set(["PageUp", "Home", "ArrowUp"]);
 
@@ -57,6 +65,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   pinOn,
   transcriptShown = true,
   counts,
+  unread,
 }: {
   ownerId: string;
   threadId: string;
@@ -64,6 +73,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   pinOn: DependencyList;
   transcriptShown?: boolean;
   counts?: CountsInWindow<T>;
+  unread?: (message: T) => boolean;
 }) {
   const { state, dispatch } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -76,33 +86,49 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
 
   const transcriptKey = `${ownerId}:${threadId}`;
   const tailStart = useMemo(() => windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts), [messages, counts]);
-  const [transcriptWindow, setTranscriptWindow] = useState<{
-    key: string;
-    start: number;
-    end: number | null;
-  }>(() => ({
-    key: transcriptKey,
-    start: tailStart,
-    end: null,
-  }));
+  const opening = useMemo(() => ({ ...openingWindow(transcriptKey, messages, counts, unread), ownerId }), [transcriptKey, messages, counts, unread, ownerId]);
+  const [transcriptWindow, setTranscriptWindow] = useState(opening);
   const switched = transcriptWindow.key !== transcriptKey;
-  const nextStart = switched
-    ? tailStart
-    : follow && transcriptWindow.end === null
+  const reopened = switched || (transcriptWindow.empty && messages.length > 0);
+  const opensAtBottom = follow || transcriptWindow.ownerId !== ownerId;
+  const reopening = opensAtBottom ? opening : filledWindow(opening, tailStart);
+  const staged = reopened ? null : transcriptWindow.staged;
+  const stagedAt = staged ? stagedStart(staged, messages) : -1;
+  const stagingOver = staged !== null && (stagedAt <= tailStart || messages[0]?.id !== staged.oldestId);
+  const nextStart = reopened
+    ? reopening.start
+    : !staged && follow && transcriptWindow.end === null
       ? followWindowStart(messages, transcriptWindow.start, counts)
       : transcriptWindow.start;
-  if (switched || nextStart !== transcriptWindow.start) {
-    setTranscriptWindow({ key: transcriptKey, start: nextStart, end: null });
+  if (reopened) {
+    setTranscriptWindow(reopening);
+  } else if (stagingOver) {
+    setTranscriptWindow(filledWindow(transcriptWindow, stagedAt < 0 ? tailStart : Math.min(stagedAt, tailStart)));
+  } else if (!staged && nextStart !== transcriptWindow.start) {
+    setTranscriptWindow({ ...transcriptWindow, start: nextStart, end: null });
   }
+  const windowStart = staged && !stagingOver ? stagedAt : transcriptWindow.start;
+  const lastKeyAt = useRef(Number.NEGATIVE_INFINITY);
+  const latest = useRef({ messages, counts });
+  latest.current = { messages, counts };
   const {
     visible: windowedMessages,
-    hiddenCount,
+    hiddenCount: hiddenBeforeShown,
     laterCount,
     startIndex,
     endIndex,
   } = useMemo(
-    () => resolveTranscriptWindow(messages, transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end, counts),
-    [messages, transcriptWindow.start, transcriptWindow.end, counts],
+    () => resolveTranscriptWindow(messages, windowStart, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end, counts),
+    [messages, windowStart, transcriptWindow.end, counts],
+  );
+  const filledStart = staged ? Math.min(startIndex, tailStart) : startIndex;
+  const filledMessages = useMemo(
+    () => (staged ? messages.slice(filledStart) : windowedMessages),
+    [staged, windowedMessages, messages, filledStart],
+  );
+  const hiddenCount = useMemo(
+    () => (filledStart === startIndex ? hiddenBeforeShown : countedBefore(messages, filledStart, counts)),
+    [filledStart, startIndex, hiddenBeforeShown, messages, counts],
   );
 
   const setBottomFollow = useCallback((next: boolean) => {
@@ -122,8 +148,8 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     appliedFocus.current = focus.nonce;
     const range = focusWindowRange(messages.length, targetIndex);
     setBottomFollow(false);
-    setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end });
-  }, [threadId, messages, setBottomFollow, state.focusMessage, transcriptKey]);
+    setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end, staged: null, empty: false, ownerId });
+  }, [threadId, messages, setBottomFollow, state.focusMessage, transcriptKey, ownerId]);
   useFocusMessage(threadId, messages.length > 0);
 
   useEffect(() => {
@@ -140,6 +166,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     setBottomFollow(false);
   };
   const oldestId = messages[0]?.id;
+  const stagedFirstId = transcriptWindow.staged?.firstId;
   useLayoutEffect(() => {
     const el = scrollRef.current;
     const captured = preExpandHeight.current;
@@ -148,12 +175,32 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     if (captured.key !== transcriptKey) return;
     el.scrollTop += el.scrollHeight - captured.height;
     previousScrollTop.current = el.scrollTop;
-  }, [transcriptWindow.start, oldestId, transcriptKey]);
+  }, [transcriptWindow.start, stagedFirstId, oldestId, transcriptKey]);
+
+  const waitingToFill = staged !== null && !stagingOver;
+  useEffect(() => {
+    if (!waitingToFill) return;
+    let frame = 0;
+    const widen = () => {
+      if (performance.now() - lastKeyAt.current < TYPING_PAUSE_MS) {
+        frame = requestAnimationFrame(widen);
+        return;
+      }
+      const held = !followRef.current && scrollRef.current ? { key: transcriptKey, height: scrollRef.current.scrollHeight } : null;
+      if (held) preExpandHeight.current = held;
+      flushSync(() => {
+        setTranscriptWindow((current) => (current.key === transcriptKey ? widenedWindow(current, latest.current.messages, latest.current.counts) : current));
+      });
+      if (preExpandHeight.current === held) preExpandHeight.current = null;
+    };
+    frame = requestAnimationFrame(widen);
+    return () => cancelAnimationFrame(frame);
+  }, [waitingToFill, transcriptKey, stagedFirstId]);
 
   const showEarlier = () => {
     holdRowForPrepend();
-    const start = windowStartBefore(messages, startIndex, TRANSCRIPT_WINDOW_SIZE, counts);
-    setTranscriptWindow((w) => ({ ...w, start }));
+    const start = windowStartBefore(messages, filledStart, TRANSCRIPT_WINDOW_SIZE, counts);
+    setTranscriptWindow((w) => filledWindow(w, start));
   };
   const showLater = () => {
     setBottomFollow(false);
@@ -169,6 +216,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   const jumpRef = useRef<() => void>(() => {});
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      lastKeyAt.current = performance.now();
       if (scrollKeyLeavesBottom(e, e.target, scrollRef.current)) setBottomFollow(false);
       if (endKeyScrolls(e, e.target) && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
         e.preventDefault();
@@ -185,7 +233,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   };
   const jumpToLatest = () => {
     setBottomFollow(true);
-    setTranscriptWindow({ key: transcriptKey, start: tailStart, end: null });
+    setTranscriptWindow({ key: transcriptKey, start: tailStart, end: null, staged: null, empty: false, ownerId });
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: scrollBehavior() });
     });
@@ -237,6 +285,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     following: follow,
     followingRef: followRef,
     windowedMessages,
+    filledMessages,
     hiddenCount,
     laterCount,
     olderPending,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronRight, CirclePause, Loader2, Minus, Search, TriangleAlert, X } from "lucide-react";
 import type { NativeActivity, NativeActorState, NativeRun, NativeRunDetail } from "../../shared/native-runs";
@@ -166,7 +166,7 @@ export function NativeWorkDetail({ run, selectedActorId, onSelect, onClose, sele
   </div>, document.body);
 }
 
-export function NativeWork({ run, color = "yellow", bodyId, live = false, label, avatar, selection }: { run: NativeRun; color?: DogColor; bodyId?: MascotBodyId | null; live?: boolean; label?: string; avatar?: ReactNode; selection?: NativeExecutionSelection }) {
+export const NativeWork = memo(function NativeWork({ run, color = "yellow", bodyId, live = false, label, avatar, selection }: { run: NativeRun; color?: DogColor; bodyId?: MascotBodyId | null; live?: boolean; label?: string; avatar?: ReactNode; selection?: NativeExecutionSelection }) {
   const [selected, setSelected] = useState<string | null>(null);
   const puppies = nativePuppies(run);
   useEffect(() => setSelected(null), [run.id]);
@@ -178,7 +178,7 @@ export function NativeWork({ run, color = "yellow", bodyId, live = false, label,
     {!!puppies.length && <span className="flex items-center gap-0.5" aria-label={`${puppies.length} native puppies`}>{puppies.slice(0, NATIVE_PUPPY_LIMIT).map(actor => <button key={actor.id} type="button" aria-label={`View ${actor.label} · ${stateText[actor.state]}`} title={`${actor.label} · ${stateText[actor.state]}`} onClick={() => setSelected(actor.id)} className="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2"><DogAvatar color={color} bodyId={bodyId ?? undefined} size={23} state={dogState[actor.state]} label={actor.label} trackPointer={false} animated={!reduced && live} /></button>)}{puppies.length > NATIVE_PUPPY_LIMIT && <button type="button" onClick={() => setSelected(puppies[NATIVE_PUPPY_LIMIT]!.id)} aria-label={`View ${puppies.length - NATIVE_PUPPY_LIMIT} more puppies`} className="rounded-lg px-1.5 text-[11px] tabular-nums text-ink-secondary">+{puppies.length - NATIVE_PUPPY_LIMIT}</button>}</span>}
     {selected !== null && <NativeWorkDetail run={run} selectedActorId={selected} onSelect={setSelected} onClose={() => setSelected(null)} selection={selection} />}
   </div>;
-}
+});
 
 export function NativeWorkFallbacks({ runs, messages, ownerForRun }: { runs: readonly NativeRun[]; messages: readonly { id: string; turnId?: string; role: string; kind: string; at: number }[]; ownerForRun?: (run: NativeRun) => { color: DogColor; mascotBody?: MascotBodyId | null } | undefined }) {
   const anchored = new Set([...nativeReceiptAnchors(runs, messages).values()].flat().map(run => run.id));

@@ -22,6 +22,7 @@ vi.mock("@/lib/cloud-guest", () => ({ useCanWriteIn: () => true }));
 const { Sidebar } = await import("./Sidebar");
 const { BotEditorStore, initialState, reducer } = await import("@/state/store");
 const { setLocale } = await import("@/lib/i18n");
+const { setSidebarDensity } = await import("@/lib/sidebar-preferences");
 
 const HOUR = 3_600_000;
 const NOW = new Date(2026, 9, 4, 12, 0).getTime();
@@ -135,5 +136,21 @@ describe("sidebar rows", () => {
       setLocale("en");
       await draw();
     }
+  });
+
+  it("marks each row with its kind, so a row scrolled out of view holds the right height", async () => {
+    const kind = (id: string) => document.querySelector(`[data-sidebar-bot-row="${id}"]`)?.closest("[data-sidebar-row]")?.getAttribute("data-sidebar-row");
+    expect([kind("atlas"), kind("scout")]).toEqual(["plain", "plain"]);
+    await update((current) => reducer(current, { type: "botPatched", bot: { ...bot("scout"), title: "Release notes" } }))();
+    expect([kind("atlas"), kind("scout")]).toEqual(["plain", "titled"]);
+    try {
+      setSidebarDensity("icons");
+      await draw();
+      expect([kind("atlas"), kind("scout")]).toEqual(["icon", "icon"]);
+    } finally {
+      setSidebarDensity("comfortable");
+      await update((current) => reducer(current, { type: "botPatched", bot: { ...bot("scout"), title: "" } }))();
+    }
+    expect(kind("scout")).toBe("plain");
   });
 });
