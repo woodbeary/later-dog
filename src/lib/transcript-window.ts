@@ -1,5 +1,14 @@
 export const TRANSCRIPT_WINDOW_SIZE = 120;
 
+export const TRANSCRIPT_OPENING_SIZE = 30;
+
+export interface OpenTranscriptWindow {
+  key: string;
+  start: number;
+  end: number | null;
+  filled: boolean;
+}
+
 export interface TranscriptWindow<T> {
   visible: T[];
   hiddenCount: number;
@@ -104,4 +113,14 @@ export function resolveTranscriptWindow<T>(
     startIndex: start,
     endIndex: end,
   };
+}
+
+export function openingWindow<T>(key: string, messages: readonly T[], counts?: CountsInWindow<T>): OpenTranscriptWindow {
+  const start = windowStartBefore(messages, messages.length, TRANSCRIPT_OPENING_SIZE, counts);
+  return { key, start, end: null, filled: start === windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts) };
+}
+
+export function filledWindow<T>(window: OpenTranscriptWindow, messages: readonly T[], counts?: CountsInWindow<T>): OpenTranscriptWindow {
+  if (window.filled) return window;
+  return { ...window, start: Math.min(window.start, windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts)), filled: true };
 }

@@ -237,6 +237,11 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
   const idle = await heap(page);
   const short = dogs.others[0]!;
   await open(page, dogs.long);
+  await page.waitForTimeout(1_500);
+  const longChatOpened = await page.evaluate(() => {
+    const scroller = document.querySelector('[role="log"]')!.parentElement!;
+    return { rows: document.querySelectorAll('[role="log"] [data-mid]').length, pixelsFromBottom: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight) };
+  });
   await open(page, short);
 
   const toLong: number[] = [];
@@ -301,6 +306,7 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
   await context.close();
   const trim = ({ keys: _keys, value: _value, ...rest }: Activity & { keys: number[]; value: unknown }) => rest;
   return {
+    longChatOpened,
     heapIdleMb: idle.heapMb,
     heapAfterMb: after.heapMb,
     domNodesAfter: after.nodes,
@@ -314,6 +320,39 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
     streaming: trim(streaming),
     otherDogsWorking: trim(elsewhere),
   };
+}
+
+interface ProfileNode {
+  id: number;
+  callFrame: { functionName: string; url: string; lineNumber: number };
+}
+
+async function switchProfile(browser: { newContext(options: unknown): Promise<{ addInitScript(script: string): Promise<void>; newPage(): Promise<Page>; close(): Promise<void> }> }, url: string, dogs: { long: Dog; others: Dog[] }) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await context.addInitScript(PAGE_PROBE);
+  const page = await context.newPage();
+  await page.goto(url);
+  await page.waitForSelector('textarea[aria-label^="Message "]', { timeout: 60_000 });
+  await open(page, dogs.long);
+  await open(page, dogs.others[0]!);
+  const session = await page.context().newCDPSession(page) as unknown as { send(method: string, params?: unknown): Promise<{ profile?: { nodes: ProfileNode[]; samples: number[]; timeDeltas: number[] } }> };
+  await session.send("Profiler.enable");
+  await session.send("Profiler.setSamplingInterval", { interval: 200 });
+  await session.send("Profiler.start");
+  for (let round = 0; round < 6; round += 1) {
+    await open(page, dogs.long);
+    await open(page, dogs.others[0]!);
+  }
+  const { profile } = await session.send("Profiler.stop");
+  await context.close();
+  if (!profile) return [];
+  const names = new Map(profile.nodes.map((node) => [node.id, `${node.callFrame.functionName || "(anonymous)"} ${node.callFrame.url.split("/").at(-1)}:${node.callFrame.lineNumber}`]));
+  const self = new Map<string, number>();
+  profile.samples.forEach((id, index) => {
+    const name = names.get(id) ?? "?";
+    self.set(name, (self.get(name) ?? 0) + (profile.timeDeltas[index] ?? 0) / 1000);
+  });
+  return [...self.entries()].sort((left, right) => right[1] - left[1]).slice(0, 40).map(([name, ms]) => `${Math.round(ms)} ms  ${name}`);
 }
 
 async function coldLoads(browser: { newContext(options: unknown): Promise<{ addInitScript(script: string): Promise<void>; newPage(): Promise<Page>; close(): Promise<void> }> }, url: string, runs: number) {
@@ -338,7 +377,7 @@ async function coldLoads(browser: { newContext(options: unknown): Promise<{ addI
 
 async function main() {
   const setup = options();
-  const staticDir = join(ROOT, "dist");
+  const staticDir = resolve(option("dist", join(ROOT, "dist")));
   if (!existsSync(join(staticDir, "index.html"))) throw new Error("build the renderer first: pnpm exec vite build");
   const scratch = mkdtempSync(join(tmpdir(), "laterdog-desktop-perf-"));
   const streamFile = join(scratch, "stream.json");
@@ -359,6 +398,61 @@ async function main() {
     const seedStarted = Date.now();
     const dogs = await seed(api, setup);
     const seedSeconds = Math.round((Date.now() - seedStarted) / 1000);
+    if (process.argv.includes("--probe-remove")) {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+      await context.addInitScript(PAGE_PROBE);
+      const page = await context.newPage();
+      await page.goto(fixture.info.url);
+      await page.waitForSelector('textarea[aria-label^="Message "]', { timeout: 60_000 });
+      await open(page, dogs.long);
+      const probe = await page.evaluate(() => {
+        const log = document.querySelector('[role="log"]') as HTMLElement;
+        const settle = () => document.body.getBoundingClientRect().height;
+        const copies = [0, 1, 2].map(() => log.cloneNode(true) as HTMLElement);
+        for (const copy of copies) { copy.removeAttribute("role"); log.parentElement!.append(copy); }
+        settle();
+        const timed = (work: () => void) => { const started = performance.now(); work(); const removed = performance.now() - started; settle(); return { removeMs: Math.round(removed * 10) / 10, withLayoutMs: Math.round((performance.now() - started) * 10) / 10 }; };
+        const oneByOne = timed(() => { while (copies[0]!.firstChild) copies[0]!.removeChild(copies[0]!.firstChild); });
+        const whole = timed(() => copies[1]!.remove());
+        const hiddenFirst = timed(() => { copies[2]!.style.display = "none"; settle(); copies[2]!.remove(); });
+        return { children: log.children.length, nodes: log.querySelectorAll("*").length, oneByOne, whole, hiddenFirst, observers: (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize };
+      });
+      process.stdout.write(`${JSON.stringify(probe)}\n`);
+      await page.evaluate(() => {
+        const slow: string[] = [];
+        (window as unknown as { __slow: string[] }).__slow = slow;
+        const original = Node.prototype.removeChild;
+        Node.prototype.removeChild = function patched<T extends Node>(this: Node, child: T): T {
+          const started = performance.now();
+          const element = child as unknown as Element;
+          const about = `${element.tagName ?? child.nodeName} .${String(element.className ?? "").slice(0, 70)} nodes=${element.querySelectorAll ? element.querySelectorAll("*").length : 0} parent=${(this as Element).tagName}.${String((this as Element).className ?? "").slice(0, 50)}`;
+          const result = original.call(this, child) as T;
+          const took = performance.now() - started;
+          if (took > 1.5) slow.push(`${took.toFixed(1)} ms ${about}`);
+          return result;
+        };
+      });
+      await open(page, dogs.others[0]!);
+      await open(page, dogs.long);
+      await open(page, dogs.others[0]!);
+      process.stdout.write(`${JSON.stringify(await page.evaluate(() => (window as unknown as { __slow: string[] }).__slow), null, 1)}\n`);
+      const rounds = async (blurFirst: boolean) => {
+        const times: number[] = [];
+        for (let round = 0; round < 8; round += 1) {
+          await open(page, dogs.others[0]!);
+          if (blurFirst) await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+          times.push(await open(page, dogs.long));
+        }
+        return distribution(times);
+      };
+      process.stdout.write(`${JSON.stringify({ asIs: await rounds(false), blurFirst: await rounds(true), asIsAgain: await rounds(false) })}\n`);
+      await context.close();
+      return;
+    }
+    if (process.argv.includes("--profile-switch")) {
+      process.stdout.write(`${JSON.stringify(await switchProfile(browser, fixture.info.url, dogs), null, 2)}\n`);
+      return;
+    }
     const cold = await coldLoads(browser, fixture.info.url, setup.coldRuns);
     const timed = await pass(browser, fixture, api, dogs, setup, streamFile, false);
     const counted = await pass(browser, fixture, api, dogs, setup, streamFile, true);

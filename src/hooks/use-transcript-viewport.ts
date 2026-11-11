@@ -1,4 +1,5 @@
 import {
+  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -14,8 +15,10 @@ import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow, useBottomFollowResiz
 import { useFocusMessage } from "@/lib/focus-message";
 import {
   TRANSCRIPT_WINDOW_SIZE,
+  filledWindow,
   focusWindowRange,
   followWindowStart,
+  openingWindow,
   resolveTranscriptWindow,
   windowEndAfter,
   windowStartBefore,
@@ -76,24 +79,21 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
 
   const transcriptKey = `${ownerId}:${threadId}`;
   const tailStart = useMemo(() => windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts), [messages, counts]);
-  const [transcriptWindow, setTranscriptWindow] = useState<{
-    key: string;
-    start: number;
-    end: number | null;
-  }>(() => ({
-    key: transcriptKey,
-    start: tailStart,
-    end: null,
-  }));
+  const opening = useMemo(() => openingWindow(transcriptKey, messages, counts), [transcriptKey, messages, counts]);
+  const [transcriptWindow, setTranscriptWindow] = useState(opening);
   const switched = transcriptWindow.key !== transcriptKey;
-  const nextStart = switched
-    ? tailStart
+  const nextStart = switched || !transcriptWindow.filled
+    ? opening.start
     : follow && transcriptWindow.end === null
       ? followWindowStart(messages, transcriptWindow.start, counts)
       : transcriptWindow.start;
-  if (switched || nextStart !== transcriptWindow.start) {
-    setTranscriptWindow({ key: transcriptKey, start: nextStart, end: null });
+  if (switched) {
+    setTranscriptWindow(opening);
+  } else if (nextStart !== transcriptWindow.start) {
+    setTranscriptWindow({ ...transcriptWindow, start: nextStart, end: null });
   }
+  const latest = useRef({ messages, counts });
+  latest.current = { messages, counts };
   const {
     visible: windowedMessages,
     hiddenCount,
@@ -122,7 +122,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     appliedFocus.current = focus.nonce;
     const range = focusWindowRange(messages.length, targetIndex);
     setBottomFollow(false);
-    setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end });
+    setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end, filled: true });
   }, [threadId, messages, setBottomFollow, state.focusMessage, transcriptKey]);
   useFocusMessage(threadId, messages.length > 0);
 
@@ -149,6 +149,24 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     el.scrollTop += el.scrollHeight - captured.height;
     previousScrollTop.current = el.scrollTop;
   }, [transcriptWindow.start, oldestId, transcriptKey]);
+
+  const waitingToFill = !transcriptWindow.filled && !switched && messages.length > 0;
+  useEffect(() => {
+    if (!waitingToFill) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      timer = setTimeout(() => {
+        if (!followRef.current && scrollRef.current) preExpandHeight.current = { key: transcriptKey, height: scrollRef.current.scrollHeight };
+        startTransition(() => {
+          setTranscriptWindow((current) => (current.key === transcriptKey ? filledWindow(current, latest.current.messages, latest.current.counts) : current));
+        });
+      }, 0);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [waitingToFill, transcriptKey]);
 
   const showEarlier = () => {
     holdRowForPrepend();
@@ -185,7 +203,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   };
   const jumpToLatest = () => {
     setBottomFollow(true);
-    setTranscriptWindow({ key: transcriptKey, start: tailStart, end: null });
+    setTranscriptWindow({ key: transcriptKey, start: tailStart, end: null, filled: true });
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: scrollBehavior() });
     });
