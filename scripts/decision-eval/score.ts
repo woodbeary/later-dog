@@ -7,7 +7,7 @@ import {
 } from "./extraction.ts";
 import {
   ABSTAIN_THRESHOLDS, abstainSweep, accuracy, accuracyWithFallback, brier, costPerThousand, expectedCalibrationError, latencySummary,
-  reliability, type AbstainPoint, type Graded, type ReliabilityBin,
+  percentile, reliability, type AbstainPoint, type Graded, type ReliabilityBin,
 } from "./metrics.ts";
 
 export const DECISION_BUDGET_MS = 1_500;
@@ -39,9 +39,14 @@ export interface DecisionScore {
   failed: number;
   invalid: number;
   failures: Record<string, number>;
+  valid: number;
   scored: number;
+  right: number;
   accuracy: number | null;
+  ruleRight: number;
+  ruleScored: number;
   ruleAccuracy: number | null;
+  againstRule: { modelOnly: number; ruleOnly: number; both: number; neither: number };
   brier: number | null;
   calibrationError: number | null;
   reliability: ReliabilityBin[];
@@ -54,6 +59,14 @@ export interface DecisionScore {
   meanInputTokens: number | null;
   dollarsPerThousand: number | null;
   wrong: Array<{ item: string; confidence: number }>;
+}
+
+export interface RuleScore {
+  case: DecisionCase;
+  scored: number;
+  right: number;
+  accuracy: number | null;
+  wrong: string[];
 }
 
 type Outcome = "correct" | "wrong" | "missed" | "falseValue" | "correctNull";
@@ -73,12 +86,13 @@ export interface ExtractionScore {
     rule: Tally;
     ruleThenModel: Tally;
     fields: Array<{ field: string; tally: Tally }>;
+    waitsLabelled: number;
     waitWithinTolerance: number;
     nullThresholds: Array<{ threshold: number; tally: Tally }>;
     wrong: Array<{ item: string; got: string | null; want: string | null; confidence: number | null }>;
   };
   shortText: { items: number; amount: { model: Tally; rule: Tally }; date: { model: Tally; rule: Tally }; amountsWrittenInTheText: number; amountsReturned: number; wrong: string[] };
-  computed: { items: number; correct: number; wrong: string[]; estimates: number; estimateCovers: number; estimateWithinStep: number };
+  computed: { items: number; correct: number; numbers: number; numbersCorrect: number; wrong: string[]; estimates: number; estimateCovers: number; estimateWithinStep: number };
   evidence: { textAnswers: number; spanReturned: number; spanSupportsValue: number; spanSupportsRightValue: number; typedAnswers: number; typedWithSpan: number };
   confidence: { whenRight: number | null; whenWrong: number | null };
 }
@@ -93,7 +107,7 @@ export interface ModelLatency {
 export interface Results {
   receipts: Array<{ target: string; calls: number; first: string; last: string }>;
   latency: ModelLatency[];
-  rules: Array<{ case: DecisionCase; scored: number; accuracy: number | null }>;
+  rules: RuleScore[];
   decisions: DecisionScore[];
   extraction: ExtractionScore[];
 }
@@ -166,6 +180,11 @@ function scoreDecisions(receipts: readonly Receipt[], items: readonly DecisionIt
     const caseItems = items.filter((item) => item.group === group && item.gold.kind !== "unscored");
     const ruleById = new Map(caseItems.map((item) => [item.id, ruleCorrect(item) === true]));
     const gradedRows = [...graded.values()];
+    const againstRule = { modelOnly: 0, ruleOnly: 0, both: 0, neither: 0 };
+    for (const row of gradedRows) {
+      const ruleRight = ruleById.get(row.id) === true;
+      againstRule[row.correct ? (ruleRight ? "both" : "modelOnly") : ruleRight ? "ruleOnly" : "neither"] += 1;
+    }
     const price = DOLLARS_PER_MILLION_INPUT[model as keyof typeof DOLLARS_PER_MILLION_INPUT];
     scores.push({
       case: group,
@@ -175,9 +194,14 @@ function scoreDecisions(receipts: readonly Receipt[], items: readonly DecisionIt
       failed: Object.values(failures).reduce((total, count) => total + count, 0),
       invalid,
       failures,
+      valid: gradedRows.length + unscored,
       scored: gradedRows.length,
+      right: gradedRows.filter((row) => row.correct).length,
       accuracy: accuracy(gradedRows),
+      ruleRight: caseItems.filter((item) => ruleById.get(item.id)).length,
+      ruleScored: caseItems.length,
       ruleAccuracy: mean(caseItems.map((item) => (ruleById.get(item.id) ? 1 : 0))),
+      againstRule,
       brier: brier(gradedRows),
       calibrationError: expectedCalibrationError(gradedRows),
       reliability: reliability(gradedRows),
@@ -280,7 +304,8 @@ function scoreExtraction(receipts: readonly Receipt[]): ExtractionScore[] {
     const resetFields = { reset_time: emptyTally(), reset_date: emptyTally(), time_zone: emptyTally(), wait: emptyTally() };
     const reset = {
       items: fixture.resets.length, model: emptyTally(), rule: emptyTally(), ruleThenModel: emptyTally(),
-      fields: Object.entries(resetFields).map(([field, tally]) => ({ field, tally })), waitWithinTolerance: 0,
+      fields: Object.entries(resetFields).map(([field, tally]) => ({ field, tally })),
+      waitsLabelled: fixture.resets.filter((item) => item.waitSeconds !== null).length, waitWithinTolerance: 0,
       nullThresholds: NULL_THRESHOLDS.map((threshold) => ({ threshold, tally: emptyTally() })), wrong: [] as ExtractionScore["resetTime"]["wrong"],
     };
     for (const item of fixture.resets) {
@@ -340,7 +365,10 @@ function scoreExtraction(receipts: readonly Receipt[]): ExtractionScore[] {
       if (dateResult !== "correct" && dateResult !== "correctNull") short.wrong.push(`${item.id} date ${dateResult}`);
     }
 
-    const computed = { items: fixture.computed.length, correct: 0, wrong: [] as string[], estimates: 0, estimateCovers: 0, estimateWithinStep: 0 };
+    const computed = {
+      items: fixture.computed.length, correct: 0, numbers: fixture.computed.filter((item) => typeof item.gold === "number").length, numbersCorrect: 0,
+      wrong: [] as string[], estimates: 0, estimateCovers: 0, estimateWithinStep: 0,
+    };
     for (const item of fixture.computed) {
       const fields: Record<string, FieldSpec> = {
         value: item.field,
@@ -353,7 +381,8 @@ function scoreExtraction(receipts: readonly Receipt[]): ExtractionScore[] {
         ? typeof answer.value === "number" && sameNumber(answer.value, item.gold)
         : (item.field.type === "time" ? clockTime(answer.value) : calendarDate(answer.value)) === item.gold;
       if (right) computed.correct += 1;
-      else computed.wrong.push(`${item.id} got ${String(answer.value)}`);
+      if (right && typeof item.gold === "number") computed.numbersCorrect += 1;
+      if (!right) computed.wrong.push(`${item.id} got ${String(answer.value)}`);
       note(answer, right ? "correct" : "wrong");
       const estimated = parsed.answers.estimated;
       if (item.estimate && estimated && typeof item.gold === "number") {
@@ -391,71 +420,154 @@ export function scoreAll(receipts: readonly Receipt[]): Results {
     latency: latencyByModel(receipts),
     rules: DECISION_CASES.map((group) => {
       const scored = items.filter((item) => item.group === group && item.gold.kind !== "unscored");
-      return { case: group, scored: scored.length, accuracy: mean(scored.map((item) => (ruleCorrect(item) ? 1 : 0))) };
+      const wrong = scored.filter((item) => !ruleCorrect(item)).map((item) => item.id);
+      return { case: group, scored: scored.length, right: scored.length - wrong.length, accuracy: mean(scored.map((item) => (ruleCorrect(item) ? 1 : 0))), wrong };
     }),
     decisions: scoreDecisions(receipts, items),
     extraction: scoreExtraction(receipts),
   };
 }
 
+export interface RuleLatency {
+  case: DecisionCase;
+  calls: number;
+  p50Micros: number | null;
+  p95Micros: number | null;
+  worstMicros: number | null;
+  slowest: string;
+}
+
+export function timeRules(items: readonly DecisionItem[], repeats: number, now: () => number = () => performance.now()): RuleLatency[] {
+  for (const item of items) item.applyRule();
+  return DECISION_CASES.map((group) => {
+    const micros: number[] = [];
+    let slowest = "";
+    let worst = -1;
+    for (let pass = 0; pass < repeats; pass += 1) {
+      for (const item of items) {
+        if (item.group !== group) continue;
+        const started = now();
+        item.applyRule();
+        const took = (now() - started) * 1000;
+        micros.push(took);
+        if (took > worst) {
+          worst = took;
+          slowest = item.id;
+        }
+      }
+    }
+    return { case: group, calls: micros.length, p50Micros: percentile(micros, 0.5), p95Micros: percentile(micros, 0.95), worstMicros: percentile(micros, 1), slowest };
+  });
+}
+
+export function renderRuleLatency(rows: readonly RuleLatency[]): string {
+  return `${table(
+    ["Case", "Rule calls timed", "p50 µs", "p95 µs", "Worst µs", "Slowest item"],
+    rows.map((row) => [row.case, String(row.calls), fixed(row.p50Micros, 1), fixed(row.p95Micros, 1), fixed(row.worstMicros, 1), row.slowest]),
+  )}\n`;
+}
+
 const percent = (value: number | null) => (value === null ? "n/a" : `${(value * 100).toFixed(1)}%`);
 const fixed = (value: number | null, digits = 3) => (value === null ? "n/a" : value.toFixed(digits));
+const share = (count: number, total: number) => (total ? `${count} of ${total} (${percent(count / total)})` : "n/a");
 const table = (head: string[], rows: string[][]) =>
   [`| ${head.join(" | ")} |`, `|${head.map(() => "---").join("|")}|`, ...rows.map((row) => `| ${row.join(" | ")} |`)].join("\n");
 const tally = (value: Tally) => `${value.correct + value.correctNull} right (${value.correctNull} of them correctly empty), ${value.wrong} wrong value, ${value.falseValue} value where none exists, ${value.missed} missed`;
+const ms = (value: number | null) => String(value ?? "n/a");
 
 export function renderMarkdown(results: Results): string {
   const parts: string[] = [];
+  const decisions = results.decisions;
+  const named = (row: DecisionScore) => [row.case, row.model];
+
+  parts.push("### Receipts scored");
   parts.push(table(["Receipts from", "Calls", "First", "Last"], results.receipts.map((row) => [row.target, String(row.calls), row.first, row.last])));
+
+  parts.push("### Accuracy against the labelled outcome");
   parts.push(table(
-    ["Model", "Path", "Answered", "p50 ms", "p95 ms", "Worst ms", ...LATENCY_MARKS_MS.map((ms) => `Within ${ms} ms`)],
-    results.latency.map((row) => [
-      row.model, row.target, String(row.latency.count), String(row.latency.p50 ?? "n/a"), String(row.latency.p95 ?? "n/a"), String(row.latency.worst ?? "n/a"),
-      ...row.within.map((mark) => percent(mark.share)),
+    ["Case", "Model", "Model right", "Rule right", "Model right where the rule is wrong", "Rule right where the model is wrong", "Both wrong"],
+    decisions.map((row) => [
+      ...named(row), share(row.right, row.scored), share(row.ruleRight, row.ruleScored),
+      String(row.againstRule.modelOnly), String(row.againstRule.ruleOnly), String(row.againstRule.neither),
     ]),
   ));
-  parts.push(table(
-    ["Case", "Model", "Path", "Scored", "Right", "Rule", "Brier", "Calibration gap", "p50 ms", "p95 ms", "Worst ms", `Over ${DECISION_BUDGET_MS} ms`, "Failed", "Invalid", "$ per 1,000"],
-    results.decisions.map((row) => [
-      row.case, row.model, row.target, String(row.scored), percent(row.accuracy), percent(row.ruleAccuracy), fixed(row.brier), fixed(row.calibrationError),
-      String(row.latency.p50 ?? "n/a"), String(row.latency.p95 ?? "n/a"), String(row.latency.worst ?? "n/a"), String(row.latency.overBudget),
-      String(row.failed), String(row.invalid), fixed(row.dollarsPerThousand, 4),
-    ]),
-  ));
-  for (const row of results.decisions) {
-    parts.push(`${row.case}, ${row.model}, ${row.target}`);
-    parts.push(table(
-      ["Confidence", "Answers", "Mean confidence", "Right"],
-      row.reliability.filter((bin) => bin.count > 0).map((bin) => [`${bin.from} to ${bin.to}`, String(bin.count), fixed(bin.meanConfidence), percent(bin.accuracy)]),
-    ));
-    parts.push(table(
-      ["Answer only at or above", "Answered", "Right when answered", "Wrong when answered", "Right with the rule for the rest"],
-      row.abstain.map((point, index) => [
-        String(point.threshold), `${point.answered} (${percent(point.coverage)})`, percent(point.accuracyWhenAnswered), String(point.wrongWhenAnswered),
-        percent(row.withRuleFallback[index]?.accuracy ?? null),
-      ]),
-    ));
-    if (row.meanReciprocalRank !== null) parts.push(`First choice is the primary dog ${percent(row.primaryAccuracy)}; mean reciprocal rank ${fixed(row.meanReciprocalRank)}.`);
-    if (row.unscored.count) parts.push(`Messages meant for nobody: ${row.unscored.count}, of which ${row.unscored.atOrAbove06} were answered at 0.6 or above.`);
-    if (row.wrong.length) parts.push(`Wrong: ${row.wrong.map((wrong) => `${wrong.item} (${wrong.confidence})`).join(", ")}`);
+  for (const row of decisions) {
+    const notes: string[] = [];
+    if (row.meanReciprocalRank !== null) notes.push(`first choice is the primary dog ${percent(row.primaryAccuracy)}, mean reciprocal rank ${fixed(row.meanReciprocalRank)}`);
+    if (row.unscored.count) notes.push(`${row.unscored.count} messages meant for nobody are not scored, and ${row.unscored.atOrAbove06} of them were answered at 0.6 or above`);
+    if (row.wrong.length) notes.push(`wrong: ${row.wrong.map((wrong) => `${wrong.item} (${wrong.confidence})`).join(", ")}`);
+    if (notes.length) parts.push(`${row.case}, ${row.model}: ${notes.join("; ")}.`);
   }
+  parts.push(table(["Case", "Rule right", "Rule wrong on"], results.rules.map((rule) => [rule.case, share(rule.right, rule.scored), rule.wrong.join(", ") || "none"])));
+
+  parts.push("### Calibration");
+  parts.push(table(
+    ["Case", "Model", "Scored", "Brier score", "Expected calibration error"],
+    decisions.map((row) => [...named(row), String(row.scored), fixed(row.brier), fixed(row.calibrationError)]),
+  ));
+  parts.push(table(
+    ["Case", "Model", "Confidence", "Answers", "Mean confidence", "Right"],
+    decisions.flatMap((row) => row.reliability.filter((bin) => bin.count > 0).map((bin) => [
+      ...named(row), `${bin.from} to ${bin.to}`, String(bin.count), fixed(bin.meanConfidence), share(Math.round((bin.accuracy ?? 0) * bin.count), bin.count),
+    ])),
+  ));
+
+  parts.push("### Abstention");
+  parts.push(table(
+    ["Case", "Model", "Answer only at or above", "Answered", "Abstained", "Right when answered", "Wrong when answered", "Right with the rule for the rest"],
+    decisions.flatMap((row) => row.abstain.map((point, index) => [
+      ...named(row), String(point.threshold), `${point.answered} (${percent(point.coverage)})`, percent(1 - point.coverage),
+      percent(point.accuracyWhenAnswered), String(point.wrongWhenAnswered), percent(row.withRuleFallback[index]?.accuracy ?? null),
+    ])),
+  ));
+
+  parts.push("### Answers that pass the product's checks");
+  parts.push(table(
+    ["Case", "Model", "Asked", "No answer", "Valid", "Invalid"],
+    decisions.map((row) => [...named(row), String(row.asked), String(row.failed), share(row.valid, row.asked), String(row.invalid)]),
+  ));
+
+  parts.push("### Latency");
+  parts.push(table(
+    ["Model", "Answered", "p50 ms", "p95 ms", "Worst ms", ...LATENCY_MARKS_MS.map((mark) => `Within ${mark} ms`)],
+    results.latency.map((row) => [
+      row.model, String(row.latency.count), ms(row.latency.p50), ms(row.latency.p95), ms(row.latency.worst), ...row.within.map((mark) => percent(mark.share)),
+    ]),
+  ));
+  parts.push(table(
+    ["Case", "Model", "Answered", "p50 ms", "p95 ms", "Worst ms", `Over ${DECISION_BUDGET_MS} ms`],
+    decisions.map((row) => [...named(row), String(row.latency.count), ms(row.latency.p50), ms(row.latency.p95), ms(row.latency.worst), String(row.latency.overBudget)]),
+  ));
+
+  parts.push("### Cost");
+  parts.push(table(
+    ["Case", "Model", "Mean input tokens", "$ per call", "$ per 1,000 calls"],
+    decisions.map((row) => [
+      ...named(row), fixed(row.meanInputTokens, 0), fixed(row.dollarsPerThousand === null ? null : row.dollarsPerThousand / 1000, 7), fixed(row.dollarsPerThousand, 4),
+    ]),
+  ));
+
   for (const row of results.extraction) {
-    parts.push(`Extraction, ${row.target}: ${row.asked} calls, ${row.failed} failed, ${row.invalid} invalid; p50 ${row.latency.p50} ms, p95 ${row.latency.p95} ms, worst ${row.latency.worst} ms; ${fixed(row.meanInputTokens, 0)} input tokens a call, $${fixed(row.dollarsPerThousand, 4)} per 1,000.`);
-    parts.push(table([`Reset time, ${row.resetTime.items} messages`, "Result"], [
+    parts.push("### Extraction");
+    parts.push(table(["Calls", "No answer", "Valid", "Invalid", "p50 ms", "p95 ms", "Worst ms", "Mean input tokens", "$ per call", "$ per 1,000 calls"], [[
+      String(row.asked), String(row.failed), share(row.asked - row.failed - row.invalid, row.asked), String(row.invalid), ms(row.latency.p50), ms(row.latency.p95), ms(row.latency.worst),
+      fixed(row.meanInputTokens, 0), fixed(row.dollarsPerThousand === null ? null : row.dollarsPerThousand / 1000, 7), fixed(row.dollarsPerThousand, 4),
+    ]]));
+    parts.push(table([`Reset time, ${row.resetTime.items} messages, as the wall-clock time of the reset`, "Result"], [
       ["Model", tally(row.resetTime.model)],
       ["Rule", tally(row.resetTime.rule)],
       ["Rule, then the model where the rule finds nothing", tally(row.resetTime.ruleThenModel)],
-      ...row.resetTime.nullThresholds.map((point) => [`Model, empty above ${point.threshold}`, tally(point.tally)]),
+      ...row.resetTime.nullThresholds.map((point) => [`Model, empty when its chance of nothing is above ${point.threshold}`, tally(point.tally)]),
     ]));
-    parts.push(table(["Reset field", "Result"], row.resetTime.fields.map((field) => [field.field, tally(field.tally)])));
-    parts.push(`Waits within ${WAIT_TOLERANCE * 100}% of the labelled seconds: ${row.resetTime.waitWithinTolerance}.`);
+    parts.push(table(["Reset field, exact match", "Result"], row.resetTime.fields.map((field) => [field.field, tally(field.tally)])));
+    parts.push(`Waits within ${WAIT_TOLERANCE * 100}% of the labelled seconds: ${row.resetTime.waitWithinTolerance} of ${row.resetTime.waitsLabelled}.`);
     if (row.resetTime.wrong.length) parts.push(`Reset misses: ${row.resetTime.wrong.map((wrong) => `${wrong.item} got ${wrong.got ?? "nothing"} want ${wrong.want ?? "nothing"} (${fixed(wrong.confidence, 2)})`).join("; ")}`);
     parts.push(table([`Short text, ${row.shortText.items} messages`, "Model", "Rule"], [
-      ["Amount", tally(row.shortText.amount.model), tally(row.shortText.amount.rule)],
-      ["Date", tally(row.shortText.date.model), tally(row.shortText.date.rule)],
+      ["Amount, within half a cent", tally(row.shortText.amount.model), tally(row.shortText.amount.rule)],
+      ["Date, exact", tally(row.shortText.date.model), tally(row.shortText.date.rule)],
     ]));
     if (row.shortText.wrong.length) parts.push(`Short text misses: ${row.shortText.wrong.join("; ")}`);
-    parts.push(`Computed values: ${row.computed.correct} of ${row.computed.items} right. Estimates: ${row.computed.estimateCovers} of ${row.computed.estimates} had the true value between the 10th and 90th percentile, ${row.computed.estimateWithinStep} landed within one step.`);
+    parts.push(`Computed values: ${row.computed.correct} of ${row.computed.items} right, of which numbers within half a cent ${row.computed.numbersCorrect} of ${row.computed.numbers}. Estimates: ${row.computed.estimateCovers} of ${row.computed.estimates} had the true value between the 10th and 90th percentile, ${row.computed.estimateWithinStep} of ${row.computed.estimates} landed within one step.`);
     if (row.computed.wrong.length) parts.push(`Computed misses: ${row.computed.wrong.join("; ")}`);
     parts.push(`Evidence: ${row.evidence.spanSupportsValue} of ${row.evidence.textAnswers} text answers came with a span that reads back as the value (${row.evidence.spanReturned} had a span), and ${row.evidence.spanSupportsRightValue} of those were the right value; ${row.evidence.typedWithSpan} of ${row.evidence.typedAnswers} typed answers carried a span. ${row.shortText.amountsWrittenInTheText} of ${row.shortText.amountsReturned} amounts returned are written as digits in the text.`);
     parts.push(`Mean reported confidence: ${fixed(row.confidence.whenRight)} when right, ${fixed(row.confidence.whenWrong)} when wrong.`);

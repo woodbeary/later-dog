@@ -53,8 +53,13 @@ export interface DecisionItem {
   state: unknown;
   question: DeciderQuestion;
   gold: { kind: "yesno"; yes: boolean } | { kind: "choice"; accepted: string[]; primary?: string } | { kind: "unscored" };
-  rule: { kind: "yesno"; yes: boolean } | { kind: "choice"; choice: string };
+  rule: RuleAnswer;
+  applyRule: () => RuleAnswer;
 }
+
+export type RuleAnswer = { kind: "yesno"; yes: boolean } | { kind: "choice"; choice: string };
+
+const ruled = (applyRule: () => RuleAnswer) => ({ applyRule, rule: applyRule() });
 
 const NAMED = (name: string) => new RegExp(`(?:^|[^A-Za-z0-9])@?${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:[^A-Za-z0-9]|$)`, "i");
 
@@ -105,7 +110,7 @@ export function decisionItems(): DecisionItem[] {
       state,
       question: { type: "choice", ...question },
       gold: item.gold.includes("nobody") ? { kind: "unscored" } : { kind: "choice", accepted: item.gold },
-      rule: { kind: "choice", choice: ruleRoomResponder(item.message, room.members) },
+      ...ruled(() => ({ kind: "choice", choice: ruleRoomResponder(item.message, room.members) })),
     });
   }
   for (const item of heavy.items) {
@@ -115,7 +120,7 @@ export function decisionItems(): DecisionItem[] {
       state: { command: item.command },
       question: HEAVY_COMMAND_QUESTION,
       gold: { kind: "yesno", yes: item.heavy },
-      rule: { kind: "yesno", yes: heavyCommandKind(item.command) !== null },
+      ...ruled(() => ({ kind: "yesno", yes: heavyCommandKind(item.command) !== null })),
     });
   }
   for (const item of waiting.items) {
@@ -125,7 +130,7 @@ export function decisionItems(): DecisionItem[] {
       state: { last_message: item.message },
       question: WAITING_ON_OWNER_QUESTION,
       gold: { kind: "yesno", yes: item.waiting },
-      rule: { kind: "yesno", yes: ruleWaitingOnOwner(item.message) },
+      ...ruled(() => ({ kind: "yesno", yes: ruleWaitingOnOwner(item.message) })),
     });
   }
   const options = Object.fromEntries(ranking.dogs.map((dog) => [dog.id, `${dog.name}, ${dog.title} dog. ${dog.description}`]));
@@ -136,7 +141,7 @@ export function decisionItems(): DecisionItem[] {
       state: { request: item.request },
       question: { type: "choice", instructions: DOG_RANKING_INSTRUCTIONS, options },
       gold: { kind: "choice", accepted: item.acceptable, primary: item.primary },
-      rule: { kind: "choice", choice: ruleDogRanking(item.request, ranking.dogs) },
+      ...ruled(() => ({ kind: "choice", choice: ruleDogRanking(item.request, ranking.dogs) })),
     });
   }
   return items;

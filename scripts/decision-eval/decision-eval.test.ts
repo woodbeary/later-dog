@@ -9,7 +9,8 @@ import {
   abstainSweep, accuracy, accuracyWithFallback, brier, costPerThousand, expectedCalibrationError, latencySummary, percentile, reciprocalRank,
   reliability, type Graded,
 } from "./metrics.ts";
-import { renderMarkdown, scoreAll, type Receipt } from "./score.ts";
+import { MADE_UP_INVALID_ANSWERS, MADE_UP_TARGET, renderProbes, replayProbes } from "./probes.ts";
+import { renderMarkdown, renderRuleLatency, scoreAll, timeRules, writtenInText, type Receipt } from "./score.ts";
 
 const graded = (id: string, correct: boolean, confidence: number): Graded => ({ id, correct, confidence });
 
@@ -195,10 +196,110 @@ describe("scoring receipts", () => {
       receipt(heavy[3]!.id, { result: { answers: {} } }),
     ]);
     const score = results.decisions[0]!;
-    expect(score).toMatchObject({ case: "heavyCommand", model: "clef", asked: 4, failed: 1, invalid: 1, scored: 2, accuracy: 0.5, failures: { timeout: 1 } });
+    expect(score).toMatchObject({ case: "heavyCommand", model: "clef", asked: 4, failed: 1, invalid: 1, valid: 2, scored: 2, right: 1, accuracy: 0.5, failures: { timeout: 1 } });
+    const ruleRight = [heavy[0]!, heavy[1]!].map((item) => ruleCorrect(item) === true);
+    expect(score.againstRule).toEqual({
+      both: ruleRight[0] ? 1 : 0, modelOnly: ruleRight[0] ? 0 : 1, ruleOnly: ruleRight[1] ? 1 : 0, neither: ruleRight[1] ? 0 : 1,
+    });
+    expect(score.ruleScored).toBe(142);
     expect(score.latency).toMatchObject({ count: 3, overBudget: 1 });
     expect(score.dollarsPerThousand).toBeCloseTo(0.096);
     expect(results.rules.map((rule) => rule.case)).toEqual(["roomRouting", "heavyCommand", "waitingOnOwner", "dogRanking"]);
-    expect(renderMarkdown(results)).toContain("| heavyCommand | clef | test | 2 | 50.0% |");
+    expect(results.rules.every((rule) => rule.right + rule.wrong.length === rule.scored)).toBe(true);
+    const markdown = renderMarkdown(results);
+    expect(markdown).toContain("| heavyCommand | clef | 1 of 2 (50.0%) |");
+    expect(markdown).toContain("| heavyCommand | clef | 4 | 1 | 2 of 4 (50.0%) | 1 |");
+    expect(markdown).toContain("| heavyCommand | clef | 400 | 0.0000960 | 0.0960 |");
+  });
+
+  it("scores extraction field by field, the rule before the model, and what evidence came back", () => {
+    const fixture = extractionFixture();
+    const reset = fixture.resets[0]!;
+    const waited = fixture.resets.find((item) => item.waitSeconds !== null)!;
+    const written = fixture.shortTexts.find((item) => item.id === "s001")!;
+    const spelled = fixture.shortTexts.find((item) => item.id === "s007")!;
+    const receipt = (group: string, item: string, text: string, answers: Record<string, unknown>): Receipt => ({
+      id: `clairic:${group}:${item}`, group, model: "clairic", item, target: "test", at: "2026-11-10T00:00:00.000Z", latencyMs: 300, status: 200, ok: true,
+      result: { answers, state_text: text, usage: { input_tokens: 200 } },
+    });
+    const span = (text: string, part: string): [number, number] => [text.indexOf(part), text.indexOf(part) + part.length];
+    const nothing = { value: null };
+    const [score] = scoreAll([
+      receipt("resetTime", reset.id, reset.text, {
+        reset_time: { value: "15:00:00", confidence: 0.99 }, reset_date: nothing, wait: nothing,
+        time_zone: { value: "America/Los_Angeles", span: span(reset.text, "America/Los_Angeles") },
+      }),
+      receipt("resetTime", waited.id, waited.text, {
+        reset_time: nothing, reset_date: nothing, wait: { value: waited.waitSeconds },
+        time_zone: { value: "2 hours", span: span(waited.text, "2 hours") },
+      }),
+      receipt("shortText", written.id, written.text, { amount: { value: 1240.5 }, date: { value: "2027-03-03" } }),
+      receipt("shortText", spelled.id, spelled.text, { amount: { value: 1200 }, date: { value: "2027-06-30" } }),
+    ]).extraction;
+    expect(score).toMatchObject({ asked: 4, failed: 0, invalid: 0, meanInputTokens: 200 });
+    expect(score!.dollarsPerThousand).toBeCloseTo(0.02);
+    expect(score!.resetTime.model).toMatchObject({ correct: 2, wrong: 0, missed: 0 });
+    expect(score!.resetTime.ruleThenModel.missed).toBe(score!.resetTime.rule.missed - 1);
+    expect(score!.resetTime.ruleThenModel.correct).toBe(score!.resetTime.rule.correct + 1);
+    const field = (name: string) => score!.resetTime.fields.find((entry) => entry.field === name)!.tally;
+    expect(field("time_zone")).toMatchObject({ correct: 1, falseValue: 1 });
+    expect(field("wait")).toMatchObject({ correct: 1, correctNull: 1 });
+    expect(score!.resetTime).toMatchObject({ waitsLabelled: 4, waitWithinTolerance: 1 });
+    expect(score!.evidence).toEqual({ textAnswers: 2, spanReturned: 2, spanSupportsValue: 2, spanSupportsRightValue: 1, typedAnswers: 6, typedWithSpan: 0 });
+    expect(score!.shortText).toMatchObject({ amountsReturned: 2, amountsWrittenInTheText: 1, amount: { model: { correct: 2 } }, date: { model: { correct: 2 } } });
+    expect(renderMarkdown(scoreAll([receipt("shortText", written.id, written.text, { amount: { value: "a lot" }, date: nothing })]))).toContain("| 1 | 0 | 0 of 1 (0.0%) | 1 |");
+  });
+
+  it("finds an amount in the text only when its digits are written there", () => {
+    expect(writtenInText(1240.5, "due for $1,240.50.")).toBe(true);
+    expect(writtenInText(65, "The fine of $65 must be paid")).toBe(true);
+    expect(writtenInText(65, "Order 1650 shipped")).toBe(false);
+    expect(writtenInText(1200, "twelve hundred dollars")).toBe(false);
+    expect(writtenInText(2_500_000, "The grant is $2.5 million.")).toBe(false);
+  });
+
+  it("times every rule call after one warm-up pass and names the slowest item", () => {
+    const items = decisionItems();
+    let clock = 0;
+    let calls = 0;
+    const timed = timeRules(items, 2, () => {
+      calls += 1;
+      clock += calls % 2 === 0 ? 4 : 0;
+      return clock;
+    });
+    expect(timed.map((row) => row.calls)).toEqual([106, 284, 140, 80]);
+    expect(timed[0]).toMatchObject({ case: "roomRouting", slowest: items[0]!.id });
+    expect(timed[0]).toMatchObject({ p50Micros: 4_000, p95Micros: 4_000, worstMicros: 4_000 });
+    expect(renderRuleLatency(timed)).toContain("| heavyCommand | 284 | 4000.0 | 4000.0 | 4000.0 |");
+  });
+});
+
+describe("failure probes through the product's decider", () => {
+  const probe = (id: string, extra: Partial<Receipt>): Receipt => ({
+    id, group: "heavyCommand", model: "clef-flash", item: "h001", target: "probe", at: "2026-11-10T00:00:00.000Z", latencyMs: 100, ok: false, ...extra,
+  });
+
+  it("hands the question to the rule on a missed deadline, a refused request and an answer that does not check out", async () => {
+    const replays = await replayProbes([
+      probe("deadline", { error: "timeout" }),
+      probe("refused", { group: "invalid", item: "one-option", status: 422, error: "validation" }),
+      probe("unreachable", { error: "unreachable" }),
+      probe("answered", { ok: true, status: 200, result: { answers: { answer: { type: "noul", noul: 0.9 } } } }),
+      probe("extraction", { model: "clairic", status: 400, error: "bad input" }),
+      ...MADE_UP_INVALID_ANSWERS,
+    ]);
+    expect(replays.map((replay) => [replay.id, replay.decider, replay.ruleAnswered])).toEqual([
+      ["deadline", "timeout", true],
+      ["refused", "http_error", true],
+      ["unreachable", "unreachable", true],
+      ["answered", "answered", false],
+      ...MADE_UP_INVALID_ANSWERS.map((receipt) => [receipt.id, "malformed", true]),
+    ]);
+    expect(replays.find((replay) => replay.id === "refused")!.ruleRight).toBeNull();
+    expect(replays.find((replay) => replay.id === "deadline")!.ruleRight).toBe(true);
+    const markdown = renderProbes(replays);
+    expect(markdown).toContain("| probe | no answer by the deadline | 1 | timeout | 1 of 1 | 1 of 1 |");
+    expect(markdown).toContain("| probe | HTTP 200 | 1 | answered | 0 of 1 | n/a |");
+    expect(markdown).toContain(`| ${MADE_UP_TARGET} | HTTP 200 | ${MADE_UP_INVALID_ANSWERS.length} | malformed | ${MADE_UP_INVALID_ANSWERS.length} of ${MADE_UP_INVALID_ANSWERS.length} |`);
   });
 });
