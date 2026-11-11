@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { createHttpStore, scan, snapshot } from "../../../deploy/laterdog/home/runtime/sync.mjs";
-import { scanInWorker, scanSync, scanTogether } from "./walk-variants.mjs";
+import { scanAcross, scanInBatches, scanInWorker, scanOneAtATime, scanSync, scanTogether } from "./walk-variants.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BINARY = process.env.SAVE_WALK_BINARY ?? join(HERE, "target/release/save-walk");
@@ -87,7 +87,10 @@ function rustWalk(root) {
 }
 
 const WALKS = {
+  "node-scan-one-at-a-time": scanOneAtATime,
   "node-scan": scan,
+  "node-scan-batches": (root) => scanInBatches(root, Number(option("width"))),
+  "node-scan-across": (root) => scanAcross(root, Number(option("width"))),
   "node-scan-together": scanTogether,
   "node-scan-sync": async (root) => scanSync(root),
   "node-scan-worker": scanInWorker,
@@ -102,7 +105,7 @@ async function child(mode, root, previousPath) {
     const totalMs = performance.now() - started;
     const stallMs = stalled();
     const peak = peakRssMb();
-    const same = process.argv.includes("--check") ? isDeepStrictEqual(entries, await scan(root)) : undefined;
+    const same = process.argv.includes("--check") ? isDeepStrictEqual(entries, await scanOneAtATime(root)) : undefined;
     return { mode, entries: entries.length, totalMs, stallMs, same, peakRssMb: peak };
   }
   const previous = JSON.parse(readFileSync(previousPath, "utf8"));
@@ -137,7 +140,7 @@ function runOnce(command, args) {
 
 async function measure(label, runs, command, args) {
   const results = [];
-  for (let run = 0; run < runs; run += 1) results.push(await runOnce(command, args));
+  for (let run = 0; run < runs; run += 1) results.push(await runOnce(command, run === 0 ? args : args.filter((argument) => argument !== "--check")));
   const first = results[0];
   const phases = Object.fromEntries(["scanMs", "compareMs", "hashMs", "stallMs"].filter((key) => key in first).map((key) => [key, summary(results.map((result) => result[key]))]));
   return {
@@ -156,6 +159,12 @@ async function measure(label, runs, command, args) {
   };
 }
 
+async function inTurn(steps) {
+  const rows = [];
+  for (const step of steps) rows.push(await step());
+  return rows;
+}
+
 async function orchestrate() {
   const root = resolve(option("root"));
   const work = resolve(option("work", join(dirname(root), "save-bench-work")));
@@ -169,9 +178,13 @@ async function orchestrate() {
   }
   const self = fileURLToPath(import.meta.url);
   const node = (mode, extra = []) => [self, "child", mode, root, previousPath, ...extra];
+  const widths = option("widths", "").split(",").filter(Boolean);
   const walks = [
-    await measure("Node today: walk, one lstat at a time", runs, process.execPath, node("node-scan")),
-    await measure("Node: walk, a folder's lstats together", runs, process.execPath, node("node-scan-together", ["--check"])),
+    await measure("Node before: walk, one lstat at a time", runs, process.execPath, node("node-scan-one-at-a-time")),
+    await measure("Node now (sync.mjs): walk, a folder's lstats 32 at a time", runs, process.execPath, node("node-scan", ["--check"])),
+    ...(await inTurn(widths.map((width) => () => measure(`Node: walk, a folder's lstats ${width} at a time`, runs, process.execPath, node("node-scan-batches", ["--width", width, "--check"]))))),
+    ...(await inTurn(widths.map((width) => () => measure(`Node: walk, ${width} lstats at a time across folders`, runs, process.execPath, node("node-scan-across", ["--width", width, "--check"]))))),
+    await measure("Node: walk, all of a folder's lstats together", runs, process.execPath, node("node-scan-together", ["--check"])),
     await measure("Node: walk with synchronous calls", runs, process.execPath, node("node-scan-sync", ["--check"])),
     await measure("Node: the synchronous walk in a worker thread", runs, process.execPath, node("node-scan-worker", ["--check"])),
     await measure("Rust: walk only, inside the binary", runs, BINARY, ["scan", root]),

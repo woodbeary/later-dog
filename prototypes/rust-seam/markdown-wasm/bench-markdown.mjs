@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
@@ -40,8 +41,7 @@ remarkGfm.call({ data: () => gfmParseData });
 const normalizationParseOptions = { extensions: gfmParseData.micromarkExtensions, mdastExtensions: gfmParseData.fromMarkdownExtensions ?? [] };
 const processor = unified().use(remarkParse).use(remarkGfm).use(remarkMath).use(remarkRehype).use(rehypeKatex);
 
-async function rustParser(wasmPath) {
-  const { instance } = await WebAssembly.instantiate(readFileSync(wasmPath), {});
+function crossing(instance) {
   const { memory, reserve, release, parse } = instance.exports;
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
@@ -56,7 +56,50 @@ async function rustParser(wasmPath) {
     release(answer, held);
     return json;
   };
-  return { text: crossed, tree: (text) => JSON.parse(crossed(text)), bytes: readFileSync(wasmPath).length };
+  return { text: crossed, tree: (text) => JSON.parse(crossed(text)) };
+}
+
+async function rustParser(wasmPath) {
+  const { instance } = await WebAssembly.instantiate(readFileSync(wasmPath), {});
+  return { ...crossing(instance), bytes: readFileSync(wasmPath).length };
+}
+
+async function coldStart(wasmPath, texts) {
+  const since = (started) => Math.round((performance.now() - started) * 1000) / 1000;
+  let started = performance.now();
+  const bytes = readFileSync(wasmPath);
+  const readMs = since(started);
+  started = performance.now();
+  const module = await WebAssembly.compile(bytes);
+  const compileMs = since(started);
+  started = performance.now();
+  const instance = await WebAssembly.instantiate(module, {});
+  const instantiateMs = since(started);
+  const rust = crossing(instance);
+  started = performance.now();
+  rust.tree(texts[0]);
+  const rustFirstMessageMs = since(started);
+  started = performance.now();
+  texts.forEach((text) => rust.tree(text));
+  const rustFirstWindowMs = since(started);
+  started = performance.now();
+  processor.parse(texts[0]);
+  const jsFirstMessageMs = since(started);
+  started = performance.now();
+  texts.forEach((text) => processor.parse(text));
+  const jsFirstWindowMs = since(started);
+  return { readMs, compileMs, instantiateMs, rustFirstMessageMs, rustFirstWindowMs, jsFirstMessageMs, jsFirstWindowMs };
+}
+
+function summarized(values) {
+  const sorted = [...values].sort((left, right) => left - right);
+  return { median: sorted[Math.floor(sorted.length / 2)], min: sorted[0], max: sorted.at(-1) };
+}
+
+function coldStarts(wasmPath, runs) {
+  const self = fileURLToPath(import.meta.url);
+  const results = Array.from({ length: runs }, () => JSON.parse(execFileSync(process.execPath, [self, "cold", "--wasm", wasmPath], { encoding: "utf8" })));
+  return { freshProcesses: runs, window: "the newest 30 messages", ...Object.fromEntries(Object.keys(results[0]).map((key) => [key, summarized(results.map((result) => result[key]))])) };
 }
 
 function nodeTypes(tree) {
@@ -111,7 +154,12 @@ const turns = Number(option("turns", "120"));
 const passes = Number(option("passes", "40"));
 const messages = transcript(turns);
 const texts = messages.map((message) => message.text);
-const rust = await rustParser(resolve(option("wasm", join(HERE, "target/wasm32-unknown-unknown/release/markdown_wasm.wasm"))));
+const wasmPath = resolve(option("wasm", join(HERE, "target/wasm32-unknown-unknown/release/markdown_wasm.wasm")));
+if (process.argv[2] === "cold") {
+  process.stdout.write(`${JSON.stringify(await coldStart(wasmPath, texts.slice(-30)))}\n`);
+  process.exit(0);
+}
+const rust = await rustParser(wasmPath);
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const sameShape = texts.filter((text) => nodeTypes(processor.parse(text)) === nodeTypes(rust.tree(text))).length;
@@ -134,7 +182,8 @@ const planning = {
   jsVisiblePathAndLookupsMs: timed(passes * 5, () => lookups(visiblePath(messages, leafId))),
   crossingAloneMs: timed(passes * 5, () => JSON.parse(decoder.decode(encoder.encode(JSON.stringify(messages))))),
 };
-const report = { platform: `${process.platform} ${process.arch}`, node: process.version, wasmBytes: rust.bytes, sameNodeTypes: `${sameShape} of ${texts.length}`, passes, rows, planning };
+const cold = coldStarts(wasmPath, Number(option("cold-runs", "15")));
+const report = { platform: `${process.platform} ${process.arch}`, node: process.version, wasmBytes: rust.bytes, sameNodeTypes: `${sameShape} of ${texts.length}`, passes, rows, planning, cold };
 const out = option("out");
 if (out) writeFileSync(resolve(out), `${JSON.stringify(report, null, 2)}\n`);
 process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
