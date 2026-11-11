@@ -109,4 +109,39 @@ describe("removing comments", () => {
     const script = "#!/bin/bash\n# Explains.\nset -e\ncat <<'EOF'\n# data, not a comment\nEOF\n";
     expect(strip("a.sh", script).text).toBe("#!/bin/bash\nset -e\ncat <<'EOF'\n# data, not a comment\nEOF\n");
   });
+
+  it("handles Rust, leaving strings, raw strings, characters and lifetimes alone", () => {
+    const before = [
+      "// Walks the home.",
+      "/// Names a thing.",
+      "fn name<'a>(text: &'a str) -> &'a str {",
+      "    let url = \"https://later.dog\"; // why",
+      "    let raw = r#\"// not \"one\" /* either */\"#;",
+      "    let bytes = br\"// kept\";",
+      "    let slash = '/';",
+      "    let quote = '\\'';",
+      "    let escaped = \"a \\\" // kept\";",
+      "    /* outer /* nested */ still a comment */",
+      "    text",
+      "}",
+      "",
+    ].join("\n");
+    const after = [
+      "fn name<'a>(text: &'a str) -> &'a str {",
+      "    let url = \"https://later.dog\";",
+      "    let raw = r#\"// not \"one\" /* either */\"#;",
+      "    let bytes = br\"// kept\";",
+      "    let slash = '/';",
+      "    let quote = '\\'';",
+      "    let escaped = \"a \\\" // kept\";",
+      "    text",
+      "}",
+      "",
+    ].join("\n");
+    expect(strip("a.rs", before)).toEqual({ text: after, removed: 4 });
+    expect(strip("a.rs", after)).toEqual({ text: after, removed: 0 });
+    expect(remainingComments("a.rs", "fn main() {} // why\n")).toEqual([{ line: 1, text: "// why" }]);
+    const licensed = "// SPDX-License-Identifier: MIT\nfn main() {}\n";
+    expect(strip("a.rs", licensed)).toEqual({ text: licensed, removed: 0 });
+  });
 });
