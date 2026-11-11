@@ -785,6 +785,12 @@ function rememberConsumedQueueId(
   return next;
 }
 
+function forgetConsumedQueueId(state: AppState, queueId: string | undefined): AppState {
+  if (!queueId || !state.consumedQueueIds[queueId]) return state;
+  const { [queueId]: _sentAgain, ...consumedQueueIds } = state.consumedQueueIds;
+  return { ...state, consumedQueueIds };
+}
+
 interface QueueReceiptSnapshot {
   messages?: Message[];
 }
@@ -1924,7 +1930,7 @@ function baseReducer(state: AppState, action: Action): AppState {
     }
     case "send": {
       const animated = withMascotMotion(
-        dismissOnboardingCard(state, action.botId),
+        dismissOnboardingCard(forgetConsumedQueueId(state, action.sendId), action.botId),
         action.botId,
         "working",
       );
@@ -1999,10 +2005,11 @@ function baseReducer(state: AppState, action: Action): AppState {
       return state;
     case "sendGroup": {
       if (!action.sendId) return state;
-      const group = state.groups.find((candidate) => candidate.id === action.groupId);
+      const sentAgain = forgetConsumedQueueId(state, action.sendId);
+      const group = sentAgain.groups.find((candidate) => candidate.id === action.groupId);
       const threadId = action.threadId ?? group?.threadId;
-      if (!group || threadId !== group.threadId) return state;
-      if (group.messages.some((message) => message.sendId === action.sendId)) return state;
+      if (!group || threadId !== group.threadId) return sentAgain;
+      if (group.messages.some((message) => message.sendId === action.sendId)) return sentAgain;
       const message = optimisticUserMessage(
         action.text,
         action.sendId,
@@ -2010,8 +2017,8 @@ function baseReducer(state: AppState, action: Action): AppState {
         null,
       );
       return bumpThreadUpdatedAt({
-        ...state,
-        groups: state.groups.map((candidate) => candidate.id === group.id
+        ...sentAgain,
+        groups: sentAgain.groups.map((candidate) => candidate.id === group.id
           ? { ...candidate, messages: [...candidate.messages, message] }
           : candidate),
       }, threadId, message.at);

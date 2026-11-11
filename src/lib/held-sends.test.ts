@@ -17,6 +17,13 @@ describe("held sends kept on the device", () => {
     expect(sorted.lost.map((held) => held.sendId)).toEqual(["send-0000000000002"]);
   });
 
+  it("believes held over dropped when one id is in both lists, as after a send again", () => {
+    const answer = heldAnswer({ held: ["send-0000000000001"], dropped: [{ id: "send-0000000000001", why: "refused", at: 3 }, { id: "send-0000000000002", why: "expired", at: 4 }] })!;
+    const sorted = sortHeldSends([send("send-0000000000001"), send("send-0000000000002")], answer, 10);
+    expect(sorted.keep.map((held) => held.sendId)).toEqual(["send-0000000000001"]);
+    expect(sorted.lost.map((held) => held.sendId)).toEqual(["send-0000000000002"]);
+  });
+
   it("takes an answer that is not the edge's as no answer", () => {
     expect(heldAnswer({ error: "not found" })).toBeNull();
     expect(heldAnswer(null)).toBeNull();

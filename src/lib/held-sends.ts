@@ -56,9 +56,8 @@ export function sortHeldSends(waiting: readonly HeldSend[], answer: HeldAnswer |
   const keep: HeldSend[] = [];
   const lost: HeldSend[] = [];
   for (const send of waiting) {
-    if (answer?.dropped.has(send.sendId)) lost.push(send);
-    else if (answer ? answer.held.has(send.sendId) : now - send.at < HELD_GIVE_UP_MS) keep.push(send);
-    else if (!answer) lost.push(send);
+    if (answer ? answer.held.has(send.sendId) : now - send.at < HELD_GIVE_UP_MS) keep.push(send);
+    else if (!answer || answer.dropped.has(send.sendId)) lost.push(send);
   }
   return { keep, lost };
 }

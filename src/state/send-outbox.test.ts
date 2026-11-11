@@ -287,6 +287,40 @@ describe("a message the edge held for a sleeping home", () => {
     expect(failedComposerSends(draft).slice(before)).toHaveLength(1);
   });
 
+  it("after a drop, shows the message sent again as queued and trusts the edge that holds it over the old drop", async () => {
+    const before = failedBefore();
+    let state = { ...initialState, bots: [{ id: "bot", threadId: "thread", messages: [], activeLeafId: null, busy: false } as unknown as Bot] } as AppState;
+    const apply = (action: Action) => { state = reducer(state, action); };
+    const store = memoryStore();
+    const showError = vi.fn();
+    const drop = { id: sent.sendId, why: "refused", at: 5 };
+    let answer: unknown = { held: [], dropped: [drop] };
+    const request = vi.fn(async (path: string) => (path === "/api/bots/bot/messages" ? heldReceipt : answer));
+    const outbox = createSendOutbox({ request, dispatch: apply, showError, store, after: () => () => {} });
+    const sendIt = async () => {
+      apply({ type: "send", botId: "bot", threadId: "thread", text: sent.text, sendId: sent.sendId });
+      outbox.send(sent);
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    };
+    const queuedRow = [{ queueId: sent.sendId, text: sent.text }];
+
+    await sendIt();
+    expect(state.pendingQueued.thread).toEqual(queuedRow);
+    apply({ type: "botQueues", queues: {} });
+    await outbox.settleHeld([{ messages: [] }], [], {});
+    expect(state.pendingQueued.thread).toBeUndefined();
+    expect(showError).toHaveBeenCalledTimes(1);
+
+    answer = { held: [sent.sendId], dropped: [drop] };
+    await sendIt();
+    expect(state.pendingQueued.thread).toEqual(queuedRow);
+    expect(state.bots[0]!.messages).toEqual([]);
+    await outbox.settleHeld([{ messages: [] }], [], {});
+    expect(kept(store)).toEqual([expect.objectContaining({ sendId: sent.sendId })]);
+    expect(showError).toHaveBeenCalledTimes(1);
+    expect(failedComposerSends(draft).slice(before)).toHaveLength(1);
+  });
+
   it("keeps waiting while the edge still holds it, and lets go quietly once the edge delivered it", async () => {
     const before = failedBefore();
     let answer: unknown = { held: [sent.sendId], dropped: [] };
