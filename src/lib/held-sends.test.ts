@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { heldSendsAnswer, withDropped } from "../../deploy/laterdog/home/src/desk.ts";
-import { HELD_GIVE_UP_MS, HELD_SENDS_KEY, heldAnswer, readHeldSends, sortHeldSends, writeHeldSends, type HeldSend } from "./held-sends";
+import { DESK_OUTBOX_MAX, heldSendsAnswer, withDropped } from "../../deploy/laterdog/home/src/desk.ts";
+import { HELD_ASK_MAX, HELD_GIVE_UP_MS, HELD_SENDS_KEY, heldAnswer, heldAskGroups, heldReply, heldReplyAfterFailure, readHeldSends, sortHeldSends, writeHeldSends, type HeldSend } from "./held-sends";
 
 const send = (sendId: string, at = 0): HeldSend => ({ sendId, threadId: "thread", draftId: "bot:bot:thread", text: "hi", requestText: "hi", at });
 const queued = (id: string) => ({ id, path: "/api/bots/rex/messages", headers: {}, body: "{}", at: 0 });
@@ -30,10 +30,30 @@ describe("held sends kept on the device", () => {
     expect(heldAnswer({ held: "all", dropped: [] })).toBeNull();
   });
 
-  it("without an answer, keeps a send for as long as the edge would and then calls it lost", () => {
+  it("with no edge to ask, keeps a send for as long as the edge would and then calls it lost", () => {
     const young = send("send-0000000000001", 1_000);
-    expect(sortHeldSends([young], null, 1_000 + HELD_GIVE_UP_MS - 1)).toEqual({ keep: [young], lost: [] });
-    expect(sortHeldSends([young], null, 1_000 + HELD_GIVE_UP_MS)).toEqual({ keep: [], lost: [young] });
+    expect(heldReply({ error: "not found" })).toBe("no-edge");
+    expect(heldReplyAfterFailure(Object.assign(new Error("not found"), { status: 404 }))).toBe("no-edge");
+    expect(sortHeldSends([young], "no-edge", 1_000 + HELD_GIVE_UP_MS - 1)).toEqual({ keep: [young], lost: [] });
+    expect(sortHeldSends([young], "no-edge", 1_000 + HELD_GIVE_UP_MS)).toEqual({ keep: [], lost: [young] });
+  });
+
+  it("takes a failed ask as no answer at all, however old the send is", () => {
+    const old = send("send-0000000000001", 1_000);
+    const failures = [new TypeError("Failed to fetch"), Object.assign(new Error("signal timed out"), { name: "TimeoutError" }), Object.assign(new Error("waking"), { status: 503 }), Object.assign(new Error("boom"), { status: 500 }), Object.assign(new Error("sign in"), { status: 401 })];
+    for (const failure of failures) {
+      const reply = heldReplyAfterFailure(failure);
+      expect(reply).toBe("no-answer");
+      expect(sortHeldSends([old], reply, 1_000 + 10 * HELD_GIVE_UP_MS)).toEqual({ keep: [old], lost: [] });
+    }
+  });
+
+  it("asks about at most as many sends at once as the edge reads", () => {
+    const groups = heldAskGroups(Array.from({ length: 2 * HELD_ASK_MAX + 1 }, (_, index) => index));
+    expect(groups.map((group) => group.length)).toEqual([HELD_ASK_MAX, HELD_ASK_MAX, 1]);
+    expect(groups.flat()).toHaveLength(2 * HELD_ASK_MAX + 1);
+    expect(HELD_ASK_MAX).toBe(DESK_OUTBOX_MAX);
+    expect(heldAskGroups([])).toEqual([]);
   });
 
   it("survives a reload and ignores entries it cannot read", () => {

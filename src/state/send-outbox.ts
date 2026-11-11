@@ -1,5 +1,5 @@
 import { rememberFailedComposerSend } from "@/lib/drafts";
-import { HELD_NOT_SENT, heldAnswer, readHeldSends, sortHeldSends, writeHeldSends } from "@/lib/held-sends";
+import { HELD_NOT_SENT, heldAskGroups, heldReply, heldReplyAfterFailure, readHeldSends, sortHeldSends, writeHeldSends } from "@/lib/held-sends";
 import {
   SEND_ATTEMPT_TIMEOUT_MS,
   browserStore,
@@ -173,15 +173,18 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     const waiting = held.filter((send) => !atHome.has(send.sendId));
     if (waiting.length !== held.length) writeHeldSends(store, waiting);
     if (waiting.length === 0) return;
-    const answer = await deps
-      .request(`/api/held-sends?ids=${waiting.map((send) => send.sendId).join(",")}`, { timeoutMs: 10_000, rideWake: false })
-      .then(heldAnswer, () => null);
-    const asked = new Set(waiting.map((send) => send.sendId));
-    const { keep, lost } = sortHeldSends(waiting, answer, now());
-    writeHeldSends(store, [...readHeldSends(store).filter((send) => !asked.has(send.sendId)), ...keep]);
-    for (const send of lost) {
-      rememberFailedComposerSend(send.draftId, { sendId: send.sendId, text: send.text, requestText: send.requestText, replyToId: send.replyToId, threadId: send.threadId });
-      deps.showError(new SendRefusedError(HELD_NOT_SENT), send.threadId);
+    for (const group of heldAskGroups(waiting)) {
+      const ids = group.map((send) => send.sendId);
+      const reply = await deps
+        .request(`/api/held-sends?ids=${ids.join(",")}`, { timeoutMs: 10_000, rideWake: false })
+        .then(heldReply, heldReplyAfterFailure);
+      const asked = new Set(ids);
+      const { keep, lost } = sortHeldSends(group, reply, now());
+      writeHeldSends(store, [...readHeldSends(store).filter((send) => !asked.has(send.sendId)), ...keep]);
+      for (const send of lost) {
+        rememberFailedComposerSend(send.draftId, { sendId: send.sendId, text: send.text, requestText: send.requestText, replyToId: send.replyToId, threadId: send.threadId });
+        deps.showError(new SendRefusedError(HELD_NOT_SENT), send.threadId);
+      }
     }
   };
 

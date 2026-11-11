@@ -1,5 +1,6 @@
 export const HELD_SENDS_KEY = "laterdog-held-sends";
 export const HELD_GIVE_UP_MS = 65 * 60 * 1000;
+export const HELD_ASK_MAX = 50;
 export const HELD_NOT_SENT = "Your home never took this message, so it was not sent. It is kept below to send again.";
 
 export interface HeldSend {
@@ -52,12 +53,30 @@ export function heldAnswer(body: unknown): HeldAnswer | null {
   };
 }
 
-export function sortHeldSends(waiting: readonly HeldSend[], answer: HeldAnswer | null, now: number): { keep: HeldSend[]; lost: HeldSend[] } {
+export type HeldReply = HeldAnswer | "no-edge" | "no-answer";
+
+export function heldReply(body: unknown): HeldReply {
+  return heldAnswer(body) ?? "no-edge";
+}
+
+export function heldReplyAfterFailure(error: unknown): HeldReply {
+  return (error as { status?: unknown } | null)?.status === 404 ? "no-edge" : "no-answer";
+}
+
+export function heldAskGroups<T>(sends: readonly T[]): T[][] {
+  const groups: T[][] = [];
+  for (let start = 0; start < sends.length; start += HELD_ASK_MAX) groups.push(sends.slice(start, start + HELD_ASK_MAX));
+  return groups;
+}
+
+export function sortHeldSends(asked: readonly HeldSend[], reply: HeldReply, now: number): { keep: HeldSend[]; lost: HeldSend[] } {
   const keep: HeldSend[] = [];
   const lost: HeldSend[] = [];
-  for (const send of waiting) {
-    if (answer ? answer.held.has(send.sendId) : now - send.at < HELD_GIVE_UP_MS) keep.push(send);
-    else if (!answer || answer.dropped.has(send.sendId)) lost.push(send);
+  for (const send of asked) {
+    if (reply === "no-answer") keep.push(send);
+    else if (reply === "no-edge") (now - send.at < HELD_GIVE_UP_MS ? keep : lost).push(send);
+    else if (reply.held.has(send.sendId)) keep.push(send);
+    else if (reply.dropped.has(send.sendId)) lost.push(send);
   }
   return { keep, lost };
 }

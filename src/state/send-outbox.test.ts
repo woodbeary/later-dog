@@ -376,6 +376,49 @@ describe("a message the edge held for a sleeping home", () => {
     expect(failedComposerSends(draft).slice(before)).toEqual([expect.objectContaining({ sendId: sent.sendId, text: "wake up and ship it" })]);
   });
 
+  it("keeps the copy however long asking the edge fails, and settles it only on a real answer", async () => {
+    const before = failedBefore();
+    let answer: () => unknown = () => { throw new TypeError("Failed to fetch"); };
+    const { store, showError, outbox, clock } = await holding(async () => answer());
+    clock.now += 3 * HELD_GIVE_UP_MS;
+    await outbox.settleHeld([], []);
+    answer = () => { throw Object.assign(new Error("signal timed out"), { name: "TimeoutError" }); };
+    await outbox.settleHeld([], []);
+    answer = () => { throw Object.assign(new Error("Your home is waking up."), { name: "ApiError", status: 503, wake: "waking" }); };
+    await outbox.settleHeld([], []);
+    answer = () => { throw Object.assign(new Error("Something went wrong."), { name: "ApiError", status: 500 }); };
+    await outbox.settleHeld([], []);
+    expect(kept(store)).toHaveLength(1);
+    expect(showError).not.toHaveBeenCalled();
+    expect(failedBefore()).toBe(before);
+
+    answer = () => ({ held: [], dropped: [{ id: sent.sendId, why: "expired", at: 5 }] });
+    await outbox.settleHeld([], []);
+    expect(kept(store)).toEqual([]);
+    expect(failedComposerSends(draft).slice(before)).toHaveLength(1);
+  });
+
+  it("asks about fifty messages at a time and settles only the ones it asked about", async () => {
+    const before = failedBefore();
+    const ids = Array.from({ length: 120 }, (_, index) => `many-held-send-${String(index).padStart(4, "0")}`);
+    const store = memoryStore({ [HELD_SENDS_KEY]: JSON.stringify(ids.map((sendId) => ({ sendId, threadId: "thread", draftId: draft, text: sendId, requestText: sendId, at: 1_000 }))) });
+    const asks: string[][] = [];
+    const request = vi.fn(async (path: string) => {
+      const asked = new URL(path, "https://home.test").searchParams.get("ids")!.split(",");
+      asks.push(asked);
+      if (asks.length === 2) throw new TypeError("Failed to fetch");
+      return { held: [], dropped: asks.length === 3 ? asked.map((id) => ({ id, why: "refused", at: 2 })) : [] };
+    });
+    const showError = vi.fn();
+    const outbox = createSendOutbox({ request, dispatch: vi.fn(), showError, store, now: () => 2_000 });
+    await outbox.settleHeld([], []);
+    expect(asks.map((asked) => asked.length)).toEqual([50, 50, 20]);
+    expect(asks.flat()).toEqual(ids);
+    expect(kept(store).map((held) => held.sendId)).toEqual(ids.slice(50, 100));
+    expect(failedComposerSends(draft).slice(before).map((failed) => failed.sendId)).toEqual(ids.slice(100));
+    expect(showError).toHaveBeenCalledTimes(20);
+  });
+
   it("does not keep a copy for a message the home itself queued under its own id", async () => {
     const store = memoryStore();
     const request = vi.fn(async () => ({ ok: true, queued: true, queueId: "home-queue-9", threadId: "thread" }));
