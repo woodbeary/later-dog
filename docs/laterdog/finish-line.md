@@ -173,6 +173,13 @@ has the stale weekly hold. Credit/context presentation and restart persistence
 pass isolated fixture checks. No live turn was sent to qualify the change.
 See [account usage evidence](../verification/account-usage-2026-11-10.md).
 
+Final Dev check at 05:22 UTC November 11: the existing conversation serves
+202,712 of 1,000,000 context tokens, including the legacy case with missing model
+metadata. Fresh provider readings now show zero session allowance on all three
+Claude accounts; Jacob's old weekly hold is gone. Full typecheck, lint, focused
+regressions and the final ten no-comments tests pass. Screenshot review remains
+open because the isolated headless browser did not finish starting.
+
 ## Priorities
 
 - **P0:** the iPhone app works against production, and the TestFlight build is in Beta App Review.

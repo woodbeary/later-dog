@@ -45,3 +45,27 @@ was sent as a test. No dog received a message or a queued instruction.
 
 The credit and context presentation checks use synthetic provider data. They do
 not qualify a new desktop installer or a native provider's quota enforcement.
+
+## Final Dev qualification
+
+The live check found an additional legacy case: a quota failure had removed the
+last measured model while retaining the previous context count. The inferred
+window now falls back to the selected model when that metadata is absent. A
+known previous model and an explicitly reported native window remain intact.
+The regression and strict store-file typecheck passed. Full renderer/server
+typecheck and lint passed before this follow-up; its focused lint also passed.
+The final full no-comments suite passed all ten tests.
+
+Follow-up `96956a443` was applied in the Dev checkout as `629e4bb4b` and published
+with bundle prefix `a5eb2fdfa6ba`.
+At 05:22:26 UTC, the owner's home served PID 71578 and the same existing
+conversation returned 202,712 context tokens, a 1,000,000-token window and model
+provenance. No verification turn was sent.
+
+That fresh usage check showed Jacob, Anthony and Daniel at zero session
+allowance. Jacob's weekly allowance remained 89%; this is a new session limit,
+not the stale weekly hold observed earlier. Codex reported 49,226.6563335 credits.
+
+The disposable Settings preview server was launched and cleaned up. Its
+headless browser did not finish starting, so screenshot review remains open.
+Only the owned fixture processes were stopped; the person's app was not quit.
