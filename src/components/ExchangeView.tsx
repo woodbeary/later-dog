@@ -3,7 +3,7 @@ import { useStore } from "@/state/store";
 import { activeLocale, t } from "@/lib/i18n";
 import { closeExchange } from "@/lib/exchange-view";
 import { BotAvatar } from "./Avatar";
-import { Transcript } from "./GroupView";
+import { Transcript } from "./RoomTranscript";
 
 const NOOP = () => {};
 
