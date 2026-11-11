@@ -758,6 +758,37 @@ describe("a message the edge held for a sleeping home", () => {
     expect(state.pendingQueued["room-thread"]).toEqual([{ queueId: roomSend.sendId, text: roomSend.text }]);
   });
 
+  it("after a restart, puts a held group message back on screen as queued at the first refresh, once, and not one the home already shows or one in a dog's chat", async () => {
+    const copy = (sendId: string, threadId: string, text: string) => ({ sendId, threadId, draftId: `group:team:${threadId}`, text, requestText: text, at: 1 });
+    const store = memoryStore({ [HELD_SENDS_KEY]: JSON.stringify([
+      copy("room-restart-send-0001", "room-thread", "Room, wake up"),
+      copy("room-restart-send-0002", "room-task-thread", "Task, wake up"),
+      copy("room-restart-send-0003", "room-thread", "Already there"),
+      copy("dog-restart-send-0004", "thread", "For the dog"),
+    ]) });
+    const start = chatState();
+    const landed = { id: "room-line-9", role: "user", kind: "text", text: "Already there", at: 9, sendId: "room-restart-send-0003" };
+    let state = { ...start, groups: [{ ...start.groups[0]!, tasks: [{ threadId: "room-task-thread" }], messages: [landed] }] } as unknown as AppState;
+    const apply = (action: Action) => { state = reducer(state, action); };
+    const held = ["room-restart-send-0001", "room-restart-send-0002", "dog-restart-send-0004"];
+    const request = vi.fn(async () => ({ held, dropped: [] }));
+    const outbox = createSendOutbox({ request, dispatch: apply, showError: vi.fn(), store, after: manualTimers().after });
+    expect(state.pendingQueued).toEqual({});
+
+    expect(outbox.pending(state.bots, state.groups, {})).toEqual([]);
+    await outbox.settleHeld(state.bots, state.groups, {});
+    expect(state.pendingQueued).toEqual({
+      "room-thread": [{ queueId: "room-restart-send-0001", text: "Room, wake up" }],
+      "room-task-thread": [{ queueId: "room-restart-send-0002", text: "Task, wake up" }],
+    });
+    expect(kept(store).map((send) => send.sendId)).toEqual(held);
+
+    apply({ type: "cancelGroupQueued", groupId: "team", threadId: "room-thread", queueId: "room-restart-send-0001" });
+    outbox.pending(state.bots, state.groups, {});
+    expect(state.pendingQueued["room-thread"]).toBeUndefined();
+    expect(state.pendingQueued["room-task-thread"]).toHaveLength(1);
+  });
+
   it("takes a held group message's queued row away once a refresh shows it in the chat under the home's own queue id", () => {
     const waiting = { ...chatState(), pendingQueued: { "room-thread": [{ queueId: "room-held-send-0002", text: "Room, wake up" }, { queueId: "home-queue-7", text: "still waiting" }] } } as AppState;
     const landed = { id: "room-line-1", role: "user", kind: "text", text: "Room, wake up", at: 9, sendId: "room-held-send-0002", queueId: "home-queue-3" };

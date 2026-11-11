@@ -41,7 +41,7 @@ export interface SendHooks {
 
 export interface SendOutbox {
   send(item: OutboxItem, hooks?: SendHooks): void;
-  pending(bots: readonly Pick<Bot, "messages">[], groups: readonly Pick<Group, "messages">[], queues?: unknown): OutboxItem[];
+  pending(bots: readonly Pick<Bot, "messages">[], groups: GroupChats, queues?: unknown): OutboxItem[];
   echoed(sendId: string): void;
   queued(queues: unknown): void;
   settleHeld(bots: readonly Pick<Bot, "messages">[], groups: readonly Pick<Group, "messages">[], queues?: unknown): Promise<void>;
@@ -49,6 +49,8 @@ export interface SendOutbox {
   resume(): void;
   dispose(): void;
 }
+
+type GroupChats = readonly (Pick<Group, "messages"> & Partial<Pick<Group, "threadId" | "tasks">>)[];
 
 export class SendRefusedError extends Error {
   constructor(message: string) {
@@ -323,6 +325,18 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     if (threadId !== undefined) heldSends.keep(heldCopy(item, threadId || item.threadId));
   };
 
+  let heldGroupRowsShown = false;
+  const showHeldGroupRows = (bots: Chats, groups: GroupChats, queues: unknown) => {
+    if (heldGroupRowsShown) return;
+    heldGroupRowsShown = true;
+    const groupThreads = new Set(groups.flatMap((group) => [group.threadId, ...(group.tasks ?? []).map((task) => task.threadId)]));
+    const atHome = sendIdsAtHome(bots, groups, queues);
+    for (const send of readHeldSends(store)) {
+      if (!groupThreads.has(send.threadId) || atHome.has(send.sendId)) continue;
+      deps.dispatch({ type: "pendingQueued", threadId: send.threadId, queueId: send.sendId, text: send.requestText });
+    }
+  };
+
   const forget = (sendId: string) => {
     hooks.delete(sendId);
     outbox.acknowledge(sendId);
@@ -335,6 +349,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
       outbox.enqueue(item);
     },
     pending(bots, groups, queues) {
+      showHeldGroupRows(bots, groups, queues);
       const landed = landedSendIds(bots, groups, queues);
       const atEdge = threadsOfSendsAtEdge(bots, groups, queues);
       for (const item of outbox.items()) {

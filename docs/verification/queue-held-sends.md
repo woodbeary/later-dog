@@ -32,6 +32,11 @@ half (`src/**`) in one pull request, and replaces pull requests #157 and #159.
   the device writes the same copy from the outbox item before it lets the
   outbox item go, so a later drop still comes back as Not sent with the words.
   A row or line that shows the home took the message writes no copy.
+- After a restart, at the first refresh, the device puts a queued row back for
+  every held copy that belongs to a group chat and that the home does not
+  already show, so a held group message is on screen with cancel and Send now.
+  (The edge's saved chat list carries such rows only for dogs' chats.) It does
+  this once per start.
 - The copy is let go only on a definite answer: the home shows the message in
   the chat or in its own queue (a queue row whose id differs from the send id,
   or a line whose id does not start with `desk-`), the edge says it no longer

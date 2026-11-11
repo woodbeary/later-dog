@@ -241,4 +241,31 @@ describe("held messages through the app's own store", () => {
     expect(keptOnDevice()).toEqual([]);
     expect(seen.paneErrors["chat:room-thread"]).toBeUndefined();
   });
+
+  it("after a restart, shows a group message the edge still holds as queued again, and cancel takes it away for good", async () => {
+    const roomSend = "wiring-room-send-0002";
+    localStorage.setItem(HELD_SENDS_KEY, JSON.stringify([{ sendId: roomSend, threadId: "room-thread", draftId: "group:room:room-thread", text: "Room, wake up", requestText: "Room, wake up", at: Date.now() }]));
+    const home: Home = {
+      chats: savedChats,
+      held: { held: [roomSend], dropped: [] },
+      answer: (path, init) => path === `/api/groups/room/queue/${roomSend}` && init?.method === "DELETE" ? new Response(JSON.stringify({ ok: true })) : undefined,
+    };
+    const { requests } = await mount(home);
+    expect(seen.pendingQueued["room-thread"]).toEqual([{ queueId: roomSend, text: "Room, wake up" }]);
+    expect(keptOnDevice()).toEqual([roomSend]);
+
+    await reconnect();
+    expect(seen.pendingQueued["room-thread"]).toEqual([{ queueId: roomSend, text: "Room, wake up" }]);
+
+    flushSync(() => dispatch({ type: "cancelGroupQueued", groupId: "room", threadId: "room-thread", queueId: roomSend }));
+    await settle();
+    expect(requests.mock.calls.filter(([path]) => path === `/api/groups/room/queue/${roomSend}`)).toHaveLength(1);
+    expect(seen.pendingQueued["room-thread"]).toBeUndefined();
+    expect(keptOnDevice()).toEqual([]);
+
+    home.held = { held: [], dropped: [] };
+    await reconnect();
+    expect(seen.pendingQueued["room-thread"]).toBeUndefined();
+    expect(seen.paneErrors["chat:room-thread"]).toBeUndefined();
+  });
 });
