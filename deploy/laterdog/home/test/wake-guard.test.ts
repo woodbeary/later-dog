@@ -444,6 +444,41 @@ describe("a message the edge holds while the home cannot take it", () => {
     expect(await (await visit(`/api/held-sends?ids=${SEND}`, asOwner())).json()).toEqual({ held: [], dropped: [] });
   });
 
+  async function refusedOnce() {
+    const started = await awakeHome();
+    const { visit, sleep, machine } = started;
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
+    await visit("/api/bots", asOwner());
+    await sleep();
+    machine.serving = false;
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(202);
+    world.answers.set("POST /api/bots/rex/messages", () => Response.json({ error: "no such dog" }, { status: 404 }));
+    machine.serving = true;
+    const whatBecame = () => visit(`/api/held-sends?ids=${SEND}`, asOwner()).then((answer) => answer.json());
+    expect(await whatBecame()).toEqual({ held: [], dropped: [{ id: SEND, why: "refused", at: expect.any(Number) }] });
+    return { ...started, whatBecame };
+  }
+
+  it("stops calling a message dropped once the same send is held again, and once the home takes it", async () => {
+    const { visit, sleep, machine, whatBecame } = await refusedOnce();
+    await sleep();
+    machine.serving = false;
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(202);
+    expect(await whatBecame()).toEqual({ held: [SEND], dropped: [] });
+    world.answers.set("POST /api/bots/rex/messages", () => Response.json({ ok: true }));
+    machine.serving = true;
+    expect(await whatBecame()).toEqual({ held: [], dropped: [] });
+  });
+
+  it("stops calling a message dropped once the awake home takes the same send again, and not when it refuses it again", async () => {
+    const { visit, whatBecame } = await refusedOnce();
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(404);
+    expect(await whatBecame()).toMatchObject({ held: [], dropped: [{ id: SEND, why: "refused" }] });
+    world.answers.set("POST /api/bots/rex/messages", () => Response.json({ ok: true }));
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(200);
+    expect(await whatBecame()).toEqual({ held: [], dropped: [] });
+  });
+
   it("cancels from the edge when the awake home has not taken the message yet", async () => {
     const { home, visit, sleep, machine } = await awakeHome();
     world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
