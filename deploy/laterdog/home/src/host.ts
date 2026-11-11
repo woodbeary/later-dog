@@ -90,6 +90,11 @@ export type PairOutcome =
 
 type MachineState = "stopped" | "starting" | "serving";
 
+interface WakerList {
+  knowsWaker(key: string): Promise<boolean>;
+  forgetWaker(key: string): Promise<void>;
+}
+
 export class CloudHomeHost extends Container<Env> {
   defaultPort = HOME_PORT;
   sleepAfter = PERSON_SLEEP_AFTER;
@@ -758,6 +763,13 @@ export class CloudHomeHost extends Container<Env> {
     return remembered(this.wakers, key, Date.now());
   }
 
+  async forgetWaker(key: string): Promise<void> {
+    if (!(key in this.wakers)) return;
+    const { [key]: _, ...rest } = this.wakers;
+    this.wakers = rest;
+    await this.ctx.storage.put(WAKERS_KEY, this.wakers);
+  }
+
   private async mayWake(key: string | null, askSibling: boolean): Promise<boolean> {
     const now = Date.now();
     if (now < this.pairingOpenUntil) return true;
@@ -773,11 +785,15 @@ export class CloudHomeHost extends Container<Env> {
     return this.size === "large" || this.storedStanding !== null;
   }
 
+  private otherSizeHost(record: HomeRecord): WakerList {
+    const namespace = homeNamespace(this.env, otherSize(this.size));
+    return namespace.get(namespace.idFromName(record.machineId));
+  }
+
   private async siblingKnows(key: string): Promise<boolean> {
     const record = this.record;
     if (!record) return false;
-    const namespace = homeNamespace(this.env, otherSize(this.size));
-    return namespace.get(namespace.idFromName(record.machineId)).knowsWaker(key).catch(() => false);
+    return this.otherSizeHost(record).knowsWaker(key).catch(() => false);
   }
 
   private learn(record: HomeRecord, credential: WakeCredential, key: string, response: Response): void {
@@ -821,11 +837,8 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   private async distrust(record: HomeRecord, key: string): Promise<void> {
-    if (key in this.wakers) {
-      const { [key]: _, ...rest } = this.wakers;
-      this.wakers = rest;
-      await this.ctx.storage.put(WAKERS_KEY, this.wakers);
-    }
+    await this.forgetWaker(key);
+    if (this.mayHaveMoved()) this.ctx.waitUntil(this.otherSizeHost(record).forgetWaker(key).catch(() => undefined));
     await this.forgetDevice(record, key);
   }
 
