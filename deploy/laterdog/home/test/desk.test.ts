@@ -448,3 +448,36 @@ describe("answering while the home sleeps", () => {
     throw new Error("the desk stream stayed open after the home came up");
   });
 });
+
+describe("what became of a message the desk was holding", () => {
+  const held = (id: string, at = 0) => ({ id, path: "/api/bots/rex/messages", headers: {}, body: "{}", at });
+  const ask = (query: string, method = "GET") => desk.heldSendsAsk(new Request(`https://home.example/api/held-sends${query}`, { method }));
+
+  it("reads only well-formed send ids from the question, and ignores other paths and methods", () => {
+    expect(ask("?ids=send-0000000000001,short,send-0000000000002")).toEqual(["send-0000000000001", "send-0000000000002"]);
+    expect(ask("")).toEqual([]);
+    expect(ask("?ids=send-0000000000001", "POST")).toBeNull();
+    expect(desk.heldSendsAsk(new Request("https://home.example/api/bots"))).toBeNull();
+  });
+
+  it("answers held and dropped for the ids asked about, and nothing about anyone else's", async () => {
+    const answer = desk.heldSendsAnswer(
+      [held("send-0000000000001"), held("send-0000000000009")],
+      [{ id: "send-0000000000002", why: "refused", at: 5 }, { id: "send-0000000000008", why: "expired", at: 6 }],
+      ["send-0000000000001", "send-0000000000002", "send-0000000000003"],
+    );
+    expect(answer.headers.get("cache-control")).toBe("no-store");
+    expect(await answer.json()).toEqual({ held: ["send-0000000000001"], dropped: [{ id: "send-0000000000002", why: "refused", at: 5 }] });
+  });
+
+  it("remembers a dropped message once, forgets old ones after the kept time, and keeps a bounded list", () => {
+    const once = desk.withDropped([], [held("send-0000000000001")], "expired", 1_000);
+    expect(once).toEqual([{ id: "send-0000000000001", why: "expired", at: 1_000 }]);
+    expect(desk.withDropped(once, [held("send-0000000000001")], "refused", 2_000)).toEqual(once);
+    expect(desk.withDropped(once, [held("send-0000000000002")], "refused", 1_000 + desk.DESK_KEPT_MS)).toEqual([{ id: "send-0000000000002", why: "refused", at: 1_000 + desk.DESK_KEPT_MS }]);
+    const many = Array.from({ length: desk.DESK_DROPPED_MAX + 5 }, (_, index) => held(`send-${String(index).padStart(13, "0")}`));
+    const bounded = desk.withDropped([], many, "expired", 10);
+    expect(bounded).toHaveLength(desk.DESK_DROPPED_MAX);
+    expect(bounded.at(-1)?.id).toBe(many.at(-1)?.id);
+  });
+});
