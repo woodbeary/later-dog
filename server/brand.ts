@@ -67,6 +67,10 @@ export function loadBrand(options: { file?: string; isEntitled?: (feature: strin
   return { brand: parsed.data, source: "file", file };
 }
 
+export function brandForAnyone(status: BrandStatus): BrandStatus {
+  return { brand: status.brand, source: status.source, file: "" };
+}
+
 export function describeBrand(status: BrandStatus): string {
   if (status.source === "file") return `brand: ${status.brand.name} (from ${status.file})`;
   return `brand: default${status.notice ? ` (${status.notice})` : ""}`;

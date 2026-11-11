@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DEFAULT_BRAND, describeBrand, loadBrand } from "./brand.ts";
+import { DEFAULT_BRAND, brandForAnyone, describeBrand, loadBrand } from "./brand.ts";
 
 const dirs: string[] = [];
 const licensed = (feature: string) => feature === "whitelabel";
@@ -73,6 +73,17 @@ describe("brand.json", () => {
   it("validates before gating, so an unlicensed operator still learns about a broken file", () => {
     const status = loadBrand({ file: brandFile(JSON.stringify({ name: "Acme", accent: "nope" })), isEntitled: unlicensed });
     expect(status.notice).toMatch(/accent/);
+  });
+});
+
+describe("what someone who is not signed in is told", () => {
+  it("is the brand itself, never where its file is kept or what is wrong with it", () => {
+    const file = brandFile("{ not json");
+    const status = loadBrand({ file, isEntitled: licensed });
+    expect(status.notice).toContain(file);
+    const told = brandForAnyone(status);
+    expect(told).toEqual({ brand: DEFAULT_BRAND, source: "default", file: "" });
+    expect(JSON.stringify(told)).not.toContain(file);
   });
 });
 
