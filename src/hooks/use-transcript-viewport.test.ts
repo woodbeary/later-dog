@@ -249,6 +249,33 @@ describe("transcript viewport", () => {
     expect(filled()).toEqual(whole);
   });
 
+  it("counts the rows above the filled window at every step, so the offer of earlier rows never appears and then goes or changes its number", () => {
+    const hiddenAtEachStep = (count: number) => {
+      react.runtime.slots = [];
+      const view = mount({ messages: rows(count) }, { opening: true });
+      const shown = [view.current.windowedMessages.length];
+      const hidden = [view.current.hiddenCount];
+      for (let step = 0; step < 6 && shown.at(-1)! < Math.min(count, 120); step++) {
+        view.frame();
+        shown.push(view.current.windowedMessages.length);
+        hidden.push(view.current.hiddenCount);
+      }
+      return { shown, hidden };
+    };
+    expect(hiddenAtEachStep(100)).toEqual({ shown: [30, 60, 90, 100], hidden: [0, 0, 0, 0] });
+    expect(hiddenAtEachStep(300)).toEqual({ shown: [30, 60, 90, 120], hidden: [180, 180, 180, 180] });
+
+    react.runtime.slots = [];
+    const everyOther = (row: Row) => Number(row.id.slice(1)) % 2 === 0;
+    const counted = mount({ messages: rows(300), counts: everyOther }, { opening: true });
+    const settledAt = counted.current.hiddenCount;
+    expect(counted.current.filledMessages.length).toBeGreaterThan(counted.current.windowedMessages.length);
+    counted.settle();
+    expect(counted.current.filledMessages).toBe(counted.current.windowedMessages);
+    expect(counted.current.hiddenCount).toBe(settledAt);
+    expect(settledAt).toBe(30);
+  });
+
   it("keeps the reader's row where it is when they scroll up before the rest has filled in", () => {
     const view = mount({ messages: rows(300) }, { opening: true });
     view.act(() => view.current.scrollHandlers.onWheel({ deltaY: -40 } as never));
