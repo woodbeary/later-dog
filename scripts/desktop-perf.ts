@@ -704,7 +704,10 @@ async function openingShots(browser: Browser, url: string, dogs: { long: Dog; ot
 }
 
 async function sidebarRows(browser: Browser, url: string, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, shots: string | null, label: string) {
-  for (const [index, dog] of dogs.others.entries()) if (index % 2 === 1) await api("PATCH", `/api/bots/${dog.id}/profile`, { title: "Release notes and checks" });
+  const titled = dogs.others.filter((_, index) => index % 2 === 1).map((dog) => dog.id);
+  for (const id of titled) await api("PATCH", `/api/bots/${id}/profile`, { title: "Release notes and checks" });
+  const everyDog = await api("GET", "/api/bots") as { bots: Array<{ id: string; threadId: string }> };
+  for (const dog of everyDog.bots) await api("POST", `/api/bots/${dog.id}/read`, { threadId: dog.threadId });
   const context = await browser.newContext({ viewport: VIEWPORT });
   await context.addInitScript(PAGE_PROBE);
   const page = await context.newPage();
@@ -742,14 +745,22 @@ async function sidebarRows(browser: Browser, url: string, api: ReturnType<typeof
 
   await load();
   const before = await heldHeights();
-  const target = await page.evaluate(() => {
+  const target = await page.evaluate((titled: string[]) => {
     const rows = [...document.querySelectorAll("[data-sidebar-row]")];
     const row = rows[rows.length - 12]!;
-    const notDrawnAbove = rows.slice(0, rows.length - 12).filter((candidate) => !candidate.firstElementChild!.checkVisibility({ contentVisibilityAuto: true })).length;
-    return { id: row.querySelector("[data-sidebar-bot-row]")!.getAttribute("data-sidebar-bot-row")!, kind: row.getAttribute("data-sidebar-row"), notDrawnAbove };
-  });
+    const notDrawn = (candidate: Element) => !candidate.firstElementChild!.checkVisibility({ contentVisibilityAuto: true });
+    const above = rows.slice(0, rows.length - 12);
+    return {
+      id: row.querySelector("[data-sidebar-bot-row]")!.getAttribute("data-sidebar-bot-row")!,
+      kind: row.getAttribute("data-sidebar-row") || "unmarked",
+      notDrawnAbove: above.filter(notDrawn).length,
+      titledNotDrawnAbove: above.filter((candidate) => notDrawn(candidate) && titled.includes(candidate.querySelector("[data-sidebar-bot-row]")?.getAttribute("data-sidebar-bot-row") ?? "")).length,
+      unreadRowsBefore: document.querySelectorAll("[data-sidebar-unread]").length,
+    };
+  }, titled);
   await api("PATCH", `/api/bots/${target.id}`, { unread: true });
   await page.waitForSelector('[data-more-unreads="below"]', { timeout: 15_000 });
+  const unreadRows = await page.evaluate(() => document.querySelectorAll("[data-sidebar-unread]").length);
   await page.click('[data-more-unreads="below"]');
   const landed = await page.evaluate(async (id: string) => {
     const scroller = document.querySelector("[data-sidebar-scroller]")!;
@@ -766,7 +777,7 @@ async function sidebarRows(browser: Browser, url: string, api: ReturnType<typeof
     const row = document.querySelector(`[data-sidebar-bot-row=${JSON.stringify(id)}]`)!.getBoundingClientRect();
     return {
       inView: row.top >= view.top && row.bottom <= view.bottom,
-      pxFromCentre: Math.round((row.top + row.bottom) / 2 - (view.top + view.bottom) / 2),
+      pxFromCentre: Math.round(((row.top + row.bottom) / 2 - (view.top + view.bottom) / 2) * 10) / 10,
       scrolledToPx: Math.round(scroller.scrollTop),
       scrollTookMs: Math.round(settledAt - started),
       pillStillShown: Boolean(document.querySelector('[data-more-unreads="below"]')),
@@ -790,7 +801,7 @@ async function sidebarRows(browser: Browser, url: string, api: ReturnType<typeof
     heightHeldWhileNotDrawnPx: { ...before.held, ...iconsHeld.held },
     heightWhenDrawnPx: { ...drawn, ...iconsDrawn },
     iconRail: { rows: iconsHeld.rows, rowsNotDrawnAtLoad: iconsHeld.notDrawn },
-    unreadJump: { target: target.kind, rowsNotDrawnAbove: target.notDrawnAbove, ...landed },
+    unreadJump: { target: target.kind, unreadRowsBefore: target.unreadRowsBefore, unreadRows, rowsNotDrawnAbove: target.notDrawnAbove, titledRowsNotDrawnAbove: target.titledNotDrawnAbove, clicks: 1, ...landed },
   };
 }
 
