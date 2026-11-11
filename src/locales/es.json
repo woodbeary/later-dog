@@ -350,6 +350,7 @@
   "composer.dictation.hint": "Dictar",
   "composer.dictation.transcribing": "Transcribiendo…",
   "composer.failed.notSent": "No enviado: «{text}»",
+  "composer.failed.sendAgain": "Enviar de nuevo",
   "composer.failed.attachment": "adjunto",
   "composer.failed.dismiss": "Descartar",
   "composer.failed.dismissAria": "Descartar el mensaje fallido",

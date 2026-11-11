@@ -2,6 +2,13 @@ import type { Message } from "@/state/store";
 
 export const STILL_QUEUED_LINE = "Your message is still queued. It will be sent when this turn ends.";
 
+export class StillWaitingError extends Error {
+  constructor(line: string) {
+    super(line);
+    this.name = "StillWaitingError";
+  }
+}
+
 export type QueuedSteerResult =
   | { delivered: true; threadId: string | null; messages: Message[]; queueIds: string[] }
   | { delivered: false; line: string };

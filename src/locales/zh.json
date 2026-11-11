@@ -424,6 +424,7 @@
   "composer.dictation.hint": "听写",
   "composer.dictation.transcribing": "正在转写…",
   "composer.failed.notSent": "未发送：“{text}”",
+  "composer.failed.sendAgain": "重新发送",
   "composer.failed.attachment": "附件",
   "composer.failed.dismiss": "忽略",
   "composer.failed.dismissAria": "忽略发送失败的消息",

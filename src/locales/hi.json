@@ -350,6 +350,7 @@
   "composer.dictation.hint": "बोलकर लिखें",
   "composer.dictation.transcribing": "बोली को टेक्स्ट में बदला जा रहा है…",
   "composer.failed.notSent": "नहीं भेजा गया: “{text}”",
+  "composer.failed.sendAgain": "फिर से भेजें",
   "composer.failed.attachment": "अटैचमेंट",
   "composer.failed.dismiss": "हटाएँ",
   "composer.failed.dismissAria": "विफल संदेश हटाएँ",

@@ -66,7 +66,7 @@ import {
   type PaneKey,
 } from "./pane-errors";
 import { ApiError, api, type ApiInit } from "@/lib/api";
-import { queuedSteerResult } from "@/lib/queued-steer";
+import { queuedSteerResult, StillWaitingError } from "@/lib/queued-steer";
 import type { OutboxItem, OutboxRecovery } from "@/lib/outbox";
 import { createSendOutbox, type SendOutbox } from "./send-outbox";
 import { receiveHelperEvent, receiveHelpersSnapshot, forgetHelpers } from "@/lib/helpers-state";
@@ -2404,11 +2404,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
     const receiveQueuedSteer = (body: unknown) => {
       const result = queuedSteerResult(body);
-      if (!result.delivered) throw new Error(result.line);
+      if (!result.delivered) throw new StillWaitingError(result.line);
       if (result.threadId === null) return;
       for (const message of result.messages) rawDispatch({ type: "messageAdded", threadId: result.threadId, message });
       for (const queueId of result.queueIds) rawDispatch({ type: "consumePendingQueued", threadId: result.threadId, queueId });
     };
+    const steerNotDelivered = (pane: PaneKey | undefined, again: () => void) => (error: unknown) =>
+      reportError(error, pane, error instanceof StillWaitingError ? {} : { retry: again });
     const cardTarget = (action: { botId: string; messageId: string; groupId?: string }) => {
       const host = action.groupId
         ? stateRef.current.groups.find((g) => g.id === action.groupId)
@@ -2657,7 +2659,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               action.onSettled?.();
             })
             .catch((error) => {
-              failIn(botChat(action.botId, action.threadId))(error);
+              steerNotDelivered(botChat(action.botId, action.threadId), again)(error);
               action.onError?.();
             });
           break;
@@ -2680,7 +2682,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               action.onSettled?.();
             })
             .catch((error) => {
-              failIn(groupChat(action.groupId, action.threadId))(error);
+              steerNotDelivered(groupChat(action.groupId, action.threadId), again)(error);
               action.onError?.();
             });
           break;
