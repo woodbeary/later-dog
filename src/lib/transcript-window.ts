@@ -2,11 +2,16 @@ export const TRANSCRIPT_WINDOW_SIZE = 120;
 
 export const TRANSCRIPT_OPENING_SIZE = 30;
 
+export interface StagedOpening {
+  firstId: string;
+  oldestId: string;
+}
+
 export interface OpenTranscriptWindow {
   key: string;
   start: number;
   end: number | null;
-  filled: boolean;
+  staged: StagedOpening | null;
   empty: boolean;
 }
 
@@ -116,7 +121,11 @@ export function resolveTranscriptWindow<T>(
   };
 }
 
-export function openingWindow<T>(
+function stagedFrom<T extends { id: string }>(messages: readonly T[], start: number): StagedOpening {
+  return { firstId: messages[start]!.id, oldestId: messages[0]!.id };
+}
+
+export function openingWindow<T extends { id: string }>(
   key: string,
   messages: readonly T[],
   counts?: CountsInWindow<T>,
@@ -125,14 +134,29 @@ export function openingWindow<T>(
   const newest = windowStartBefore(messages, messages.length, TRANSCRIPT_OPENING_SIZE, counts);
   const tail = windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts);
   const unreadAbove = unread ? messages.slice(0, newest).some(unread) : false;
-  const start = unreadAbove ? tail : newest;
-  return { key, start, end: null, filled: start <= tail, empty: messages.length === 0 };
+  const stages = newest > tail && !unreadAbove;
+  return { key, start: stages ? newest : tail, end: null, staged: stages ? stagedFrom(messages, newest) : null, empty: messages.length === 0 };
 }
 
-export function widenedWindow<T, Opened extends OpenTranscriptWindow>(window: Opened, messages: readonly T[], counts?: CountsInWindow<T>): Opened {
-  if (window.filled) return window;
+export function stagedStart<T extends { id: string }>(staged: StagedOpening, messages: readonly T[]): number {
+  for (let index = messages.length - 1; index >= 0; index--) if (messages[index]!.id === staged.firstId) return index;
+  return -1;
+}
+
+export function filledWindow<Opened extends OpenTranscriptWindow>(window: Opened, start: number): Opened {
+  return { ...window, start, staged: null };
+}
+
+export function widenedWindow<T extends { id: string }, Opened extends OpenTranscriptWindow>(
+  window: Opened,
+  messages: readonly T[],
+  counts?: CountsInWindow<T>,
+): Opened {
+  if (!window.staged) return window;
   const tail = windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts);
-  if (window.start <= tail) return { ...window, filled: true };
-  const start = Math.max(tail, windowStartBefore(messages, window.start, TRANSCRIPT_OPENING_SIZE, counts));
-  return { ...window, start, filled: start <= tail };
+  const from = stagedStart(window.staged, messages);
+  if (from < 0) return filledWindow(window, tail);
+  if (from <= tail || messages[0]!.id !== window.staged.oldestId) return filledWindow(window, Math.min(from, tail));
+  const start = Math.max(tail, windowStartBefore(messages, from, TRANSCRIPT_OPENING_SIZE, counts));
+  return start <= tail ? filledWindow(window, tail) : { ...window, start, staged: stagedFrom(messages, start) };
 }
