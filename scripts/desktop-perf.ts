@@ -4,11 +4,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { launchVerificationServer, type VerificationServer } from "./control-laterdog.ts";
 import { fixtureApi } from "./testing/preview-fixture.ts";
 
-const WELCOME_VERSION = 2;
+export const WELCOME_VERSION = 2;
 const WINDOW_ROWS = 120;
 const VIEWPORT = { width: 1440, height: 900 };
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -25,13 +25,13 @@ interface Options {
   switches: number;
 }
 
-interface Dog {
+export interface Dog {
   id: string;
   name: string;
   threadId: string;
 }
 
-interface Distribution {
+export interface Distribution {
   count: number;
   p50: number;
   p95: number;
@@ -85,7 +85,7 @@ function options(): Options {
   };
 }
 
-function distribution(values: readonly number[]): Distribution {
+export function distribution(values: readonly number[]): Distribution {
   const sorted = [...values].sort((left, right) => left - right);
   const at = (share: number) => sorted.length === 0 ? 0 : Math.round(sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))]! * 10) / 10;
   return { count: sorted.length, p50: at(0.5), p95: at(0.95), max: at(1) };
@@ -100,7 +100,7 @@ function replies(): string[] {
   return Array.from({ length: 1200 }, (_, index) => `Answer ${index + 1}. ${shapes[index % shapes.length]}`);
 }
 
-async function settled(api: ReturnType<typeof fixtureApi>, botIds: readonly string[], timeoutMs = 120_000): Promise<void> {
+export async function settled(api: ReturnType<typeof fixtureApi>, botIds: readonly string[], timeoutMs = 120_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const state = await api("GET", "/api/bots") as { bots: Array<{ id: string; busy?: boolean; activity?: string }> };
@@ -134,7 +134,7 @@ async function seed(api: ReturnType<typeof fixtureApi>, setup: Options): Promise
   return { long, others };
 }
 
-const PAGE_PROBE = `(() => {
+export const PAGE_PROBE = `(() => {
   const perf = { commits: 0, rendered: 0, counting: false, longTasks: [], frames: [], composerAt: null, keys: [], names: new Map() };
   window.__perf = perf;
   const component = (tag) => tag === 0 || tag === 1 || tag === 11 || tag === 14 || tag === 15;
@@ -203,7 +203,7 @@ type PagePerf = {
   releaseFill(): void;
 };
 
-type Page = {
+export type Page = {
   goto(url: string): Promise<unknown>;
   evaluate<T>(run: string | ((argument: never) => T | Promise<T>), argument?: unknown): Promise<T>;
   waitForSelector(selector: string, options?: { timeout?: number }): Promise<unknown>;
@@ -216,10 +216,10 @@ type Page = {
   close(): Promise<void>;
 };
 
-const composerOf = (dog: Dog) => `textarea[aria-label=${JSON.stringify(`Message ${dog.name}`)}]`;
+export const composerOf = (dog: Dog) => `textarea[aria-label=${JSON.stringify(`Message ${dog.name}`)}]`;
 const rowOf = (dog: Dog) => `[data-sidebar-bot-row=${JSON.stringify(dog.id)}]`;
 
-async function open(page: Page, dog: Dog): Promise<number> {
+export async function open(page: Page, dog: Dog): Promise<number> {
   return page.evaluate(async ({ row, composer, name }: { row: string; composer: string; name: string }) => {
     const perf = (window as unknown as { __perf: { until(test: () => boolean, timeoutMs: number): Promise<number>; shown(): Promise<void> } }).__perf;
     const started = performance.now();
@@ -1161,7 +1161,9 @@ async function main() {
   }
 }
 
-main().then(() => process.exit(0), (error) => {
-  process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().then(() => process.exit(0), (error) => {
+    process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
+    process.exit(1);
+  });
+}
