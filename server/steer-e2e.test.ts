@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -741,19 +742,34 @@ posixOnly("mid-turn steering e2e", () => {
     expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "first" })).status).toBe(202);
     await waitFor(async () => (await getGroup())?.busyBotId === created.id, "the hung room turn to start");
     const person = await asPairedPerson();
-    const queued = await person("POST", `/api/groups/${room.id}/messages`, { text: "second" });
+    const sendersOwnId = randomUUID();
+    const queued = await person("POST", `/api/groups/${room.id}/messages`, { text: "second", sendId: sendersOwnId });
     expect(queued.status).toBe(202);
     expect(queued.body).toMatchObject({ ok: true, queued: true });
+    expect(queued.body.queueId).not.toBe(sendersOwnId);
+    const behind = await person("POST", `/api/groups/${room.id}/messages`, { text: "cancelled by the sender's own id", sendId: "room-cancel-by-send-id-0001" });
+    expect(behind.body).toMatchObject({ ok: true, queued: true });
+    expect(await api("POST", `/api/groups/${room.id}/queue/room-cancel-by-send-id-0001/steer`, { threadId: room.threadId })).toEqual({ status: 409, body: { error: "only the first queued message can steer" } });
+    expect(await api("DELETE", `/api/groups/${room.id}/queue/room-cancel-by-send-id-0001`)).toEqual({ status: 200, body: { ok: true } });
+    expect(await api("DELETE", `/api/groups/${room.id}/queue/room-cancel-by-send-id-0001`)).toEqual({ status: 404, body: { error: "no such queued message" } });
 
-    const sent = await api("POST", `/api/groups/${room.id}/queue/${queued.body.queueId}/steer`, {
+    const sent = await api("POST", `/api/groups/${room.id}/queue/${sendersOwnId}/steer`, {
       threadId: room.threadId,
     });
     expect(sent.status).toBe(200);
-    expect(sent.body).toMatchObject({ ok: true, sent: true, interrupted: true, queueIds: [queued.body.queueId] });
+    expect(sent.body).toMatchObject({ ok: true, sent: true, interrupted: true, queueIds: [queued.body.queueId, sendersOwnId] });
     const lines = (await getGroup())?.messages.filter((m: any) => m.role === "user" && m.text === "second");
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({ queueId: queued.body.queueId, sender: PAIRED });
+    expect(lines[0]).toMatchObject({ queueId: queued.body.queueId, sendId: sendersOwnId, sender: PAIRED });
     expect(lines[0].steered).toBeUndefined();
+    expect(await api("POST", `/api/groups/${room.id}/queue/${sendersOwnId}/steer`, { threadId: room.threadId }))
+      .toEqual({ status: 200, body: { ok: true, sent: true, threadId: room.threadId, messages: [], queueIds: [sendersOwnId] } });
+    expect(await api("POST", `/api/groups/${room.id}/queue/${randomUUID()}/steer`, { threadId: room.threadId }))
+      .toEqual({ status: 404, body: { error: "no such queued message" } });
+    const again = await person("POST", `/api/groups/${room.id}/messages`, { text: "second", sendId: sendersOwnId });
+    expect(again.body.message).toMatchObject({ id: lines[0].id, sendId: sendersOwnId });
+    expect((await getGroup())?.messages.filter((m: any) => m.role === "user" && m.text === "second")).toHaveLength(1);
+    expect(JSON.stringify((await getGroup())?.messages)).not.toContain("cancelled by the sender's own id");
     await api("POST", `/api/groups/${room.id}/interrupt`, {});
     await waitFor(async () => (await getGroup())?.working === false, "the drained room turn to settle");
   }, 40_000);
