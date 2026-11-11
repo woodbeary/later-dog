@@ -1,6 +1,7 @@
-import { createContext, memo, useContext, useEffect, useId, useState, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { ChevronRight, Timer, TriangleAlert } from "lucide-react";
-import { formatTime, openNotificationTarget, useStore, type AppState, type Message } from "@/state/store";
+import { formatTime, openNotificationTarget, type AppState, type Message } from "@/state/store";
+import { useDogsApartFromMessages, useRoomsApartFromMessages, useStoreDispatch } from "@/state/store-selectors";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { currentDogName, freshenDogName } from "@/lib/dog-refs";
@@ -64,7 +65,7 @@ export function QuietLine({
 }
 
 export function PlainNoteLine({ message }: { message: Message }) {
-  const { state } = useStore();
+  const state = useNamedOwners();
   const tool = message.tool;
   if (!tool) return null;
   const bot = state.bots.find((candidate) => candidate.id === message.threadRef?.botId);
@@ -73,14 +74,23 @@ export function PlainNoteLine({ message }: { message: Message }) {
 
 const failureClass = "flex h-6 min-w-0 max-w-full items-center gap-1.5 rounded-full bg-control/70 px-2 text-[12px] leading-4 text-danger transition-colors hover:bg-raised hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus";
 
-function destinationTitle(row: ExchangeRow, state: AppState): string | undefined {
+type NamedOwners = Pick<AppState, "bots" | "groups">;
+
+function useNamedOwners(): NamedOwners {
+  const bots = useDogsApartFromMessages();
+  const groups = useRoomsApartFromMessages();
+  return useMemo(() => ({ bots, groups }), [bots, groups]);
+}
+
+function destinationTitle(row: ExchangeRow, state: NamedOwners): string | undefined {
   const target = row.target;
   if (target.kind === "group") return state.groups.find(group => group.id === target.groupId)?.name;
   return currentDogName(state.bots, target.botId, row.withName);
 }
 
 function FailureResult({ row }: { row: ExchangeRow }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const state = useNamedOwners();
   const bot = state.bots.find(candidate => candidate.id === row.withBotId);
   const label = freshenDogName(row.message.tool!.name, bot, row.withName, { leading: true });
   const target = row.target;
@@ -99,7 +109,7 @@ function FailureResult({ row }: { row: ExchangeRow }) {
 }
 
 function FailedResultsLine({ item, forceOpen }: { item: ExchangeItem; forceOpen: boolean }) {
-  const { state } = useStore();
+  const state = useNamedOwners();
   const [open, setOpen] = useState(forceOpen);
   const expanded = forceOpen || open;
   const details = useId();
@@ -126,7 +136,7 @@ function FailedResultsLine({ item, forceOpen }: { item: ExchangeItem; forceOpen:
 }
 
 function SentMessagesLine({ item, forceOpen }: { item: ExchangeItem; forceOpen: boolean }) {
-  const { state } = useStore();
+  const state = useNamedOwners();
   const [open, setOpen] = useState(forceOpen);
   const expanded = forceOpen || open;
   const details = useId();
@@ -152,7 +162,8 @@ function SentMessagesLine({ item, forceOpen }: { item: ExchangeItem; forceOpen: 
 }
 
 export const ExchangeLine = memo(function ExchangeLine({ item, forceOpen = false }: { item: ExchangeItem; forceOpen?: boolean }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const state = useNamedOwners();
   const exchangeThread = useContext(ExchangeThreadContext);
   if (failedExchange(item)) return <FailedResultsLine item={item} forceOpen={forceOpen} />;
   if (sentExchange(item) && item.rows.length > 1) return <SentMessagesLine item={item} forceOpen={forceOpen} />;

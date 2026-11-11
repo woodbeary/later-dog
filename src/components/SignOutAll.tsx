@@ -1,7 +1,7 @@
 import { useEffect, useState, type RefObject } from "react";
 import { LogOut } from "lucide-react";
 import type { CloudAccountBridge, CloudAccountState } from "../../electron/cloud-account.mjs";
-import { useStore } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import { t } from "@/lib/i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -45,7 +45,7 @@ export function SignOutDialog({ targets, onClose, returnFocusRef }: {
   onClose: () => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [pending, setPending] = useState(false);
   const confirm = async () => {
     setPending(true);

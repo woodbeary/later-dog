@@ -7,7 +7,8 @@ import {
   dismissLiveNotice, hangUpLiveCall, isLiveCallRunning, liveCallChord, setLiveMuted, takeLiveCallAction, useLiveMedia,
   type LiveCallAction, type LiveMediaState,
 } from "@/lib/live-call-media";
-import { api, liveCallFromFrame, nextLiveCallLookup, useStore, type Action, type Bot } from "@/state/store";
+import { api, liveCallFromFrame, nextLiveCallLookup, type Action, type Bot } from "@/state/store";
+import { useStoreDispatch, useStoreReader, useStoreSelector } from "@/state/store-selectors";
 import { cn } from "@/lib/cn";
 import type { LiveCallState, LiveClient } from "../../shared/wire";
 import { LiveCallSettings } from "./LiveCallSettings";
@@ -82,13 +83,15 @@ export async function hangUpRemoteCall(
 }
 
 export function LiveCallBar({ bot }: { bot: Bot }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const liveCall = useStoreSelector((state) => state.liveCall);
+  const readStore = useStoreReader();
   const media = useLiveMedia();
   const [now, setNow] = useState(() => Date.now());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const gearRef = useRef<HTMLButtonElement>(null);
-  const view = liveCallBarView({ bot, media, server: state.liveCall, now });
+  const view = liveCallBarView({ bot, media, server: liveCall, now });
   const kind = view?.kind;
 
   useEffect(() => {
@@ -144,7 +147,7 @@ export function LiveCallBar({ bot }: { bot: Bot }) {
           type="button"
           aria-label={t("call.live.hangUp")}
           className={cn(button, "bg-danger text-white hover:brightness-110")}
-          onClick={() => void hangUpRemoteCall(callId, state.liveCallVersion, dispatch)}
+          onClick={() => void hangUpRemoteCall(callId, readStore().liveCallVersion, dispatch)}
         >
           <PhoneOff className="size-3.5" /> <span className="hidden sm:inline">{t("call.live.hangUp")}</span>
         </button>

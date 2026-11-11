@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { createPortal } from "react-dom";
 import { GripVertical, Loader2, RefreshCw, X } from "lucide-react";
 import { api, useStore, type ConfigStatus, type InstanceInfo } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { requestAccountSignIn, requestAddAccount, type AddAccountKind } from "@/lib/add-account-request";
@@ -189,7 +190,7 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
   onSignIn: () => void;
   onGone: () => void;
 }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState<"rename" | "remove" | "switch" | null>(null);
   const [asking, setAsking] = useState(false);
@@ -400,7 +401,7 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
   onClose: () => void;
   onSignedIn: (instanceId: string) => void;
 }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const dialogRef = useRef<HTMLDivElement>(null);
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -515,7 +516,7 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
 }
 
 function InstallFirst({ instance, onCancel }: { instance: InstanceInfo; onCancel: () => void }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [error, setError] = useState<string | null>(null);
   const installable = Boolean((instance as { install?: { server?: unknown } }).install?.server);
   useEffect(() => {

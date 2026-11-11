@@ -29,7 +29,8 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { api, useStore, formatTime, visibleMessages, openNotificationTarget, currentTaskBot, type Action, type AppState, type Bot, type Group, type InstanceInfo, type Message } from "@/state/store";
+import { api, formatTime, visibleMessages, openNotificationTarget, currentTaskBot, type Action, type AppState, type Bot, type Group, type InstanceInfo, type Message } from "@/state/store";
+import { dogIn, sameFields, sameItems, useDogsApartFromMessages, useRoomsApartFromMessages, useStoreDispatch, useStoreReader, useStoreSelector } from "@/state/store-selectors";
 import { avatarCropRadius, botAvatarProfile } from "../../shared/bot-avatar";
 import { peerLine } from "@/lib/peer-message";
 
@@ -208,10 +209,13 @@ export function GroupListItem({
   onMenu: (menu: { groupId: string; x: number; y: number }) => void;
   draggableToSection?: boolean;
 }) {
-  const { state, dispatch } = useStore();
-  const selected = state.selectedId === group.id;
+  const dispatch = useStoreDispatch();
+  const selected = useStoreSelector((state) => state.selectedId === group.id);
+  const dogs = useDogsApartFromMessages();
+  const instances = useStoreSelector((state) => state.instances);
+  const showToolCalls = useStoreSelector((state) => showToolCallsEnabled(state.config));
   const members = group.memberIds
-    .map((id) => state.bots.find((b) => b.id === id))
+    .map((id) => dogs.find((b) => b.id === id))
     .filter((b): b is Bot => Boolean(b));
   const last = group.messages.at(-1);
   return (
@@ -253,7 +257,7 @@ export function GroupListItem({
           {selected && last && <span className="shrink-0 text-[10px] text-ink-secondary">{formatTime(last.at)}</span>}
         </div>
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-[11px] text-ink-secondary">{groupPreview(group, state.bots, state.instances, showToolCallsEnabled(state.config))}</span>
+          <span className="truncate text-[11px] text-ink-secondary">{groupPreview(group, dogs, instances, showToolCalls)}</span>
           <StatusDot kind={group.unread ? "unread" : null} />
         </div>
       </div>
@@ -286,14 +290,15 @@ function RoomContextMenu({
 }) {
   const motion = useHeldMenuMotion(menu);
   const shown = motion.value;
-  const { state, dispatch } = useStore();
-  const group = shown ? state.groups.find((g) => g.id === shown.groupId) : undefined;
+  const dispatch = useStoreDispatch();
+  const readStore = useStoreReader();
+  const group = useStoreSelector((state) => (shown ? state.groups.find((g) => g.id === shown.groupId) : undefined));
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(group?.name ?? "");
 
   useEffect(() => {
     if (!menu) return;
-    setDraft(state.groups.find((g) => g.id === menu.groupId)?.name ?? "");
+    setDraft(readStore().groups.find((g) => g.id === menu.groupId)?.name ?? "");
     setRenaming(false);
   }, [menu]);
   useEffect(() => {
@@ -424,6 +429,18 @@ function RoomContextMenu({
   );
 }
 
+const NO_SECTIONS: readonly string[] = [];
+
+function knownSections(state: Pick<AppState, "sections" | "bots" | "groups">): readonly string[] {
+  return [
+    ...new Set([
+      ...(state.sections ?? []),
+      ...state.bots.filter((b) => !b.hidden && b.section).map((b) => b.section!),
+      ...state.groups.filter((g) => g.section).map((g) => g.section!),
+    ]),
+  ];
+}
+
 export function SectionPicker({
   current,
   anchor,
@@ -435,7 +452,6 @@ export function SectionPicker({
   onClose: () => void;
   onAssign: (section: string) => void;
 }) {
-  const { state } = useStore();
   const [name, setName] = useState("");
   const [openedFor, setOpenedFor] = useState(anchor);
   if (anchor !== openedFor) {
@@ -444,6 +460,7 @@ export function SectionPicker({
   }
   const motion = useHeldMenuMotion(anchor);
   const shown = motion.value;
+  const sections = useStoreSelector((state) => (shown ? knownSections(state) : NO_SECTIONS), sameItems);
   const heldCurrent = useRef(current);
   if (anchor) heldCurrent.current = current;
   const trimmed = name.trim();
@@ -463,14 +480,6 @@ export function SectionPicker({
       window.removeEventListener("blur", onClose);
     };
   }, [anchor, onClose]);
-
-  const sections = [
-    ...new Set([
-      ...(state.sections ?? []),
-      ...state.bots.filter((b) => !b.hidden && b.section).map((b) => b.section!),
-      ...state.groups.filter((g) => g.section).map((g) => g.section!),
-    ]),
-  ];
 
   const assign = (section: string) => {
     onAssign(section);
@@ -574,8 +583,9 @@ export function BotContextMenu({
 }) {
   const motion = useHeldMenuMotion(menu);
   const shown = motion.value;
-  const { state, dispatch } = useStore();
-  const bot = shown ? state.bots.find((b) => b.id === shown.botId) : undefined;
+  const dispatch = useStoreDispatch();
+  const bot = useStoreSelector((state) => (shown ? dogIn(state, shown.botId) : undefined));
+  const deleting = useStoreSelector((state) => (shown ? state.deletingBots[shown.botId] === true : false));
   const menuRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const element = menuRef.current;
@@ -612,7 +622,6 @@ export function BotContextMenu({
   }, [menu, onClose]);
 
   if (!motion.shown || !bot || !shown) return null;
-  const deleting = state.deletingBots[bot.id] === true;
   const unread = botShowsUnread(bot);
   const item = (
     icon: React.ReactNode,
@@ -819,6 +828,29 @@ export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, ma
   );
 });
 
+type DogRowLayout = Pick<BotRowProps, "density" | "onMenu" | "onRenameHandled" | "draggableToSection"> & {
+  renameRequest?: { botId: string; at: number } | null;
+};
+
+const SidebarDog = memo(function SidebarDog({ botId, circle = false, onPinDrop, draggableToSection, ...layout }: DogRowLayout & {
+  botId: string;
+  circle?: boolean;
+  onPinDrop?: (draggedId: string, targetId: string) => void;
+}) {
+  const dispatch = useStoreDispatch();
+  const row = useStoreSelector((state) => {
+    const bot = dogIn(state, botId);
+    return bot ? botRowProps(state, dispatch, bot, layout) : null;
+  }, sameFields);
+  if (!row) return null;
+  return circle ? <PinnedBotCircle {...row} onPinDrop={onPinDrop} /> : <BotListItem {...row} draggableToSection={draggableToSection} />;
+});
+
+const SidebarRoom = memo(function SidebarRoom({ groupId, ...layout }: Omit<Parameters<typeof GroupListItem>[0], "group"> & { groupId: string }) {
+  const group = useStoreSelector((state) => state.groups.find((candidate) => candidate.id === groupId));
+  return group ? <GroupListItem group={group} {...layout} /> : null;
+});
+
 function PinnedBotRoster({
   bots,
   density,
@@ -827,7 +859,7 @@ function PinnedBotRoster({
 }: {
   bots: Bot[];
   density: SidebarDensity;
-  row: (bot: Bot) => BotRowProps;
+  row: DogRowLayout;
   onPinDrop: (draggedId: string, targetId: string) => void;
 }) {
   if (density !== "icons") {
@@ -837,13 +869,13 @@ function PinnedBotRoster({
         className="grid gap-1 px-1 pb-1"
         style={{ gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))" }}
       >
-        {bots.map((bot) => <PinnedBotCircle key={bot.id} {...row(bot)} onPinDrop={onPinDrop} />)}
+        {bots.map((bot) => <SidebarDog key={bot.id} botId={bot.id} {...row} circle onPinDrop={onPinDrop} />)}
       </div>
     );
   }
   return (
     <>
-      {bots.map((bot) => <BotListItem key={bot.id} {...row(bot)} />)}
+      {bots.map((bot) => <SidebarDog key={bot.id} botId={bot.id} {...row} />)}
     </>
   );
 }
@@ -1022,7 +1054,15 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
   onClose: () => void;
   collapseToIcons?: boolean;
 }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const readStore = useStoreReader();
+  const bots = useDogsApartFromMessages();
+  const groups = useRoomsApartFromMessages();
+  const sections = useStoreSelector((store) => store.sections);
+  const computerOpen = useStoreSelector((store) => store.computerOpen);
+  const selectedId = useStoreSelector((store) => store.selectedId);
+  const pendingQueued = useStoreSelector((store) => store.pendingQueued);
+  const state = { bots, groups, sections, computerOpen, selectedId, pendingQueued };
   const { capabilities } = useDesktopCapabilities();
   const sidebarRef = useRef<HTMLElement>(null);
   const [confirm, setConfirm] = useState<Bot | null>(null);
@@ -1230,7 +1270,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
     savePinOrder(next);
   };
 
-  const botRow = (bot: Bot) => botRowProps(state, dispatch, bot, { density, onMenu: setMenu, renameRequest, onRenameHandled: clearRenameRequest });
+  const dogRow: DogRowLayout = { density, onMenu: setMenu, renameRequest, onRenameHandled: clearRenameRequest };
   const iconRail = density === "icons";
   const searchButton = (
     <button
@@ -1333,7 +1373,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
           data-sidebar-pins=""
           className="max-h-[min(40vh,280px)] shrink-0 overflow-y-auto border-b border-hairline/40 px-2 pb-2"
         >
-          <PinnedBotRoster bots={pinnedBots} density={density} row={botRow} onPinDrop={dropPin} />
+          <PinnedBotRoster bots={pinnedBots} density={density} row={dogRow} onPinDrop={dropPin} />
         </div>
       )}
 
@@ -1469,15 +1509,15 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
                 <Collapsible open={!collapsed} className="flex flex-col gap-0.5">
                   <>
                     {sectionGroupItems.map((group) => (
-                      <GroupListItem
+                      <SidebarRoom
                         key={group.id}
-                        group={group}
+                        groupId={group.id}
                         density={density}
                         onMenu={setRoomMenu}
                         draggableToSection={layoutInteractive && sectionNames.length > 0}
                       />
                     ))}
-                    {sectionBotItems.map((bot) => <BotListItem key={bot.id} {...botRow(bot)} draggableToSection={layoutInteractive && sectionNames.length > 0} />)}
+                    {sectionBotItems.map((bot) => <SidebarDog key={bot.id} botId={bot.id} {...dogRow} draggableToSection={layoutInteractive && sectionNames.length > 0} />)}
                     {showHeader && layoutInteractive && sectionBotItems.length === 0 && sectionGroupItems.length === 0 && (
                       <p data-section-empty className="mx-3 my-1 rounded-md border border-dashed border-hairline/50 px-2 py-2 text-center text-[12px] text-ink-tertiary">
                         {t("sidebar.section.dropHere")}
@@ -1505,7 +1545,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
                 {hiddenOpen ? <ChevronDown size={13} aria-hidden="true" /> : <ChevronRight size={13} aria-hidden="true" />}
               </button>
               <Collapsible open={hiddenOpen} className="flex flex-col gap-0.5 opacity-70">
-                <>{hiddenBots.map((bot) => <BotListItem key={bot.id} {...botRow(bot)} />)}</>
+                <>{hiddenBots.map((bot) => <SidebarDog key={bot.id} botId={bot.id} {...dogRow} />)}</>
               </Collapsible>
             </div>
           )}
@@ -1519,7 +1559,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
       <GlassBar edge="bottom">
       <LiveCallPill
         currentBotId={state.selectedId}
-        onOpen={(botId, threadId) => openNotificationTarget(dispatch, { botId, threadId }, state)}
+        onOpen={(botId, threadId) => openNotificationTarget(dispatch, { botId, threadId }, readStore())}
         iconOnly={iconRail}
       />
 

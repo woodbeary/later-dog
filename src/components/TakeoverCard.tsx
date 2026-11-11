@@ -4,7 +4,8 @@ import { Check, Loader2, LockKeyhole, Monitor } from "lucide-react";
 import { isOpenTakeover, type TakeoverPlace } from "../../shared/takeover";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { api, useStore, type Message } from "@/state/store";
+import { api, type Message } from "@/state/store";
+import { useStoreDispatch, useStoreReader } from "@/state/store-selectors";
 import { REQUEST_PRIMARY, REQUEST_QUIET, REQUEST_SECONDARY, RequestCard, RequestStatus } from "./RequestCard";
 
 type TakeoverAction = "take" | "done" | "skip";
@@ -35,7 +36,8 @@ export function TakeoverCard({
   threadId: string;
   message: Message;
 }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const readStore = useStoreReader();
   const request = message.card!.takeoverRequest!;
   const [busy, setBusy] = useState<TakeoverAction | null>(null);
   const [failed, setFailed] = useState(false);
@@ -44,7 +46,7 @@ export function TakeoverCard({
   const inControl = request.status === "in-control";
 
   const showComputer = (handOver: boolean) => {
-    if (state.selectedId !== botId) dispatch({ type: "select", id: botId });
+    if (readStore().selectedId !== botId) dispatch({ type: "select", id: botId });
     dispatch({ type: "takeoverIntent", intent: handOver ? { botId, at: Date.now() } : null });
     dispatch({ type: "toggleSettings", open: true, section: "access" });
   };

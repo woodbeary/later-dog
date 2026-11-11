@@ -2,7 +2,8 @@ import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Copy, FileDown, Loader2, Share } from "lucide-react";
 
-import { api, useStore, type Bot } from "@/state/store";
+import { api, type Bot } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import { t, tFromServer } from "@/lib/i18n";
 import { navigateMenu } from "@/lib/menu-keys";
 import { usePopoverDismiss } from "@/hooks/use-popover-dismiss";
@@ -10,7 +11,7 @@ import { useModalDialog } from "@/hooks/use-modal-dialog";
 import { describePart, describeSkip, dogShareBody, notesLine, preparePictures, saveShareFile, type ShareResponse } from "@/lib/dog-share";
 
 export function DogShareButton({ bot }: { bot: Bot }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const root = useRef<HTMLDivElement>(null);

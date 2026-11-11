@@ -26,7 +26,7 @@ import {
   windowStartBefore,
   type CountsInWindow,
 } from "@/lib/transcript-window";
-import { useStore } from "@/state/store";
+import { useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 
 export function scrollBehavior(): ScrollBehavior {
   if (typeof document !== "undefined" && document.documentElement.dataset.reducedMotion === "true") return "auto";
@@ -74,7 +74,9 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   counts?: CountsInWindow<T>;
   unread?: (message: T) => boolean;
 }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const focusMessage = useStoreSelector((state) => (state.focusMessage?.threadId === threadId ? state.focusMessage : null));
+  const olderPending = useStoreSelector((state) => Boolean(state.loadingOlder[threadId]));
   const scrollRef = useRef<HTMLDivElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
 
@@ -135,15 +137,15 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
 
   const appliedFocus = useRef<number | null>(null);
   useEffect(() => {
-    const focus = state.focusMessage;
-    if (!focus || focus.consumed || focus.threadId !== threadId || appliedFocus.current === focus.nonce) return;
+    const focus = focusMessage;
+    if (!focus || focus.consumed || appliedFocus.current === focus.nonce) return;
     const targetIndex = messages.findIndex((message) => message.id === focus.messageId);
     if (targetIndex < 0) return;
     appliedFocus.current = focus.nonce;
     const range = focusWindowRange(messages.length, targetIndex);
     setBottomFollow(false);
     setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end, staged: null, empty: false, ownerId });
-  }, [threadId, messages, setBottomFollow, state.focusMessage, transcriptKey, ownerId]);
+  }, [threadId, messages, setBottomFollow, focusMessage, transcriptKey, ownerId]);
   useFocusMessage(threadId, messages.length > 0);
 
   useEffect(() => {
@@ -200,7 +202,6 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     const nextEnd = windowEndAfter(messages, endIndex, TRANSCRIPT_WINDOW_SIZE, counts);
     setTranscriptWindow((w) => ({ ...w, end: nextEnd >= messages.length ? null : nextEnd }));
   };
-  const olderPending = Boolean(state.loadingOlder[threadId]);
   const loadOlder = () => {
     holdRowForPrepend();
     dispatch({ type: "loadOlderMessages", threadId });

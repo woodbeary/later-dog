@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef } from "react";
-import { useStore } from "@/state/store";
+import { useEffect, useRef } from "react";
+import { dogIn, sameItems, useStoreSelector } from "@/state/store-selectors";
 import { activeLocale, t } from "@/lib/i18n";
 import { closeExchange } from "@/lib/exchange-view";
 import { BotAvatar } from "./Avatar";
@@ -8,12 +8,9 @@ import { Transcript } from "./RoomTranscript";
 const NOOP = () => {};
 
 export default function ExchangeView({ groupId }: { groupId: string }) {
-  const { state } = useStore();
-  const group = state.groups.find((candidate) => candidate.id === groupId);
-  const members = useMemo(
-    () => (group?.memberIds ?? []).flatMap((id) => state.bots.find((bot) => bot.id === id) ?? []),
-    [group?.memberIds, state.bots],
-  );
+  const group = useStoreSelector((state) => state.groups.find((candidate) => candidate.id === groupId));
+  const memberIds = group?.memberIds;
+  const members = useStoreSelector((state) => (memberIds ?? []).flatMap((id) => dogIn(state, id) ?? []), sameItems);
   const closeRef = useRef<HTMLButtonElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {

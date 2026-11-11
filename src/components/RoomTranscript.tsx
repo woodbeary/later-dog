@@ -2,12 +2,12 @@ import { Fragment, memo, useMemo, useState } from "react";
 import { t } from "@/lib/i18n";
 import { ChevronRight, MessageSquareReply } from "lucide-react";
 import {
-  useStore,
   formatTime,
   type Bot,
   type Group,
   type Message,
 } from "@/state/store";
+import { useDogsApartFromMessages, useRoomsApartFromMessages, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { BotAvatar } from "./Avatar";
 import { ScreenFrame } from "./ScreenFrame";
 import { CloudTaskCard, CloudTaskUpdateRow } from "./CloudTaskCard";
@@ -60,19 +60,21 @@ import { highlightCitationSource } from "@/lib/citations-dom";
 import { dayLabel, localDay } from "@/lib/transcript-derivations";
 
 export function RoomToolChip({ message, roomId }: { message: Message; roomId?: string }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const dogs = useDogsApartFromMessages();
+  const instances = useStoreSelector((state) => state.instances);
   const tool = message.tool;
   if (!tool) return null;
   if (message.cloudTask) return <CloudTaskCard message={message} />;
   if (message.threadRef) return <PlainNoteLine message={message} />;
   if (failedTurnCause(tool.name) !== null) {
-    return <FailedTurnRow tool={tool} engine={botEngine(state.bots.find((b) => b.id === message.from?.botId), state.instances)} botId={message.from?.botId} />;
+    return <FailedTurnRow tool={tool} engine={botEngine(dogs.find((b) => b.id === message.from?.botId), instances)} botId={message.from?.botId} />;
   }
   const solo = singleExchange(message);
   if (solo && !(solo.target.kind === "group" && solo.target.groupId === roomId)) return <ExchangeLine item={solo} />;
   const comm = message.comm;
   if (comm && comm.groupId !== roomId) {
-    const withBot = state.bots.find((b) => b.id === comm.withBotId);
+    const withBot = dogs.find((b) => b.id === comm.withBotId);
     return (
       <div className="flex justify-start">
         <button
@@ -97,8 +99,8 @@ export function RoomToolChip({ message, roomId }: { message: Message; roomId?: s
           tool.ok === false ? "text-danger" : "text-ink-secondary",
         )}
       >
-        {comm && <BotAvatar bot={state.bots.find(b => b.id === comm.withBotId) ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />}
-        <span className={cn("max-w-[480px] truncate", !comm && "font-mono")}>{freshenDogName(tool.name, state.bots.find((b) => b.id === comm.withBotId))}</span>
+        {comm && <BotAvatar bot={dogs.find(b => b.id === comm.withBotId) ?? { name: comm.withName, color: comm.withColor }} state="happy" size={16} animated={false} />}
+        <span className={cn("max-w-[480px] truncate", !comm && "font-mono")}>{freshenDogName(tool.name, dogs.find((b) => b.id === comm.withBotId))}</span>
       </div>
     </div>
   );
@@ -132,7 +134,7 @@ function RoomMessageActions({ side, message, threadId, onReply }: {
   threadId: string;
   onReply: (message: Message) => void;
 }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [picking, setPicking] = useState(false);
   return (
     <MessageActions side={side} forceOpen={picking}>
@@ -177,8 +179,11 @@ export const Transcript = memo(function Transcript({
   onReply: (message: Message) => void;
   readOnly?: boolean;
 }) {
-  const { state, dispatch } = useStore();
-  const showToolCalls = showToolCallsEnabled(state.config);
+  const dispatch = useStoreDispatch();
+  const dogs = useDogsApartFromMessages();
+  const rooms = useRoomsApartFromMessages();
+  const showToolCalls = useStoreSelector((state) => showToolCallsEnabled(state.config));
+  const focus = useStoreSelector((state) => (state.focusMessage?.threadId === group.threadId ? state.focusMessage : null));
   const nativeRuns = useNativeRuns(group.threadId, filledWindow[0]?.at);
   const receipts = useMemo(() => nativeReceiptAnchors(nativeRuns, messages), [nativeRuns, messages]);
   const memberOf = (id?: string) => members.find((b) => b.id === id);
@@ -193,8 +198,7 @@ export const Transcript = memo(function Transcript({
     unreadPlaced = true;
     return <UnreadDivider />;
   };
-  const focus = state.focusMessage;
-  const focusedId = focus && !focus.consumed && focus.threadId === group.threadId ? focus.messageId : null;
+  const focusedId = focus && !focus.consumed ? focus.messageId : null;
   return (
     <>
       {items.map((item, i) => {
@@ -239,7 +243,7 @@ export const Transcript = memo(function Transcript({
         const sentOnly = sentAttachments && !sentWords && !m.replyToId;
         const newCluster = !prev || prev.role !== m.role || prev.from?.botId !== m.from?.botId || Boolean(prev.comm) || newDay;
         const routineTarget = m.kind === "routine.run"
-          ? ownerShowingElsewhere([...state.bots, ...state.groups], m.routineRun?.executionThreadId, group.id)
+          ? ownerShowingElsewhere([...dogs, ...rooms], m.routineRun?.executionThreadId, group.id)
           : undefined;
         const row =
           m.kind === "secret" && m.secureForm && m.from?.botId ? (

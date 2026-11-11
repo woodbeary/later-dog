@@ -1,12 +1,13 @@
 import { useEffect } from "react";
 import { isMacPlatform } from "@/lib/keyboard-shortcuts";
 import { handleLiveCallKey, onLiveStreamConnected, onServerCall } from "@/lib/live-call-media";
-import { useStore } from "@/state/store";
+import { useStoreSelector } from "@/state/store-selectors";
 
 export function LiveCallHost() {
-  const { state } = useStore();
-  useEffect(() => onServerCall(state.liveCall), [state.liveCall]);
-  useEffect(() => onLiveStreamConnected(state.connected), [state.connected]);
+  const liveCall = useStoreSelector((state) => state.liveCall);
+  const connected = useStoreSelector((state) => state.connected);
+  useEffect(() => onServerCall(liveCall), [liveCall]);
+  useEffect(() => onLiveStreamConnected(connected), [connected]);
   useEffect(() => {
     const isMac = isMacPlatform();
     const onKey = (event: KeyboardEvent) => {

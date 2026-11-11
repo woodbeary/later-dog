@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Command, MessageSquare, Puzzle, Search } from "lucide-react";
-import { api, useStore, type Action, type AppState, type Bot, type Group } from "@/state/store";
+import { api, type Action, type AppState, type Bot, type Group } from "@/state/store";
+import { useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { rankByName } from "@/lib/palette-rank";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
@@ -69,8 +70,9 @@ type SearchEntry =
   | { kind: "message"; hit: SearchHit };
 
 export function CommandPalette() {
-  const { state, dispatch } = useStore();
-  const open = state.searchOpen;
+  const dispatch = useStoreDispatch();
+  const open = useStoreSelector((store) => store.searchOpen);
+  const state = useStoreSelector((store) => (open ? store : null));
   const [query, setQuery] = useState("");
   const [messageHits, setMessageHits] = useState<SearchHit[]>([]);
   const [cursor, setCursor] = useState(0);
@@ -110,7 +112,7 @@ export function CommandPalette() {
     selectedRef.current?.scrollIntoView({ block: "nearest" });
   }, [cursor, messageHits]);
 
-  if (!open) return null;
+  if (!open || !state) return null;
 
   const bots = searchDogs(state.bots, q);
   const rooms = rankByName(state.groups.filter((group) => !group.dm), q);

@@ -1,10 +1,16 @@
 import { createContext, type Dispatch } from "react";
-import type { Action, AppState } from "@/state/store";
+import type { Action, AppState, BotAnnouncement } from "@/state/store";
 
-export interface StoreChannel {
+export interface StoreActions {
+  dispatch: Dispatch<Action>;
+  flushBotPatches: (botId: string) => Promise<BotAnnouncement | null>;
+  refreshInstances: () => Promise<void>;
+  refreshModels: (instanceId: string) => Promise<void>;
+}
+
+export interface StoreChannel extends StoreActions {
   read(): AppState;
   listen(heard: () => void): () => void;
-  dispatch: Dispatch<Action>;
 }
 
 export interface StoreFeed {
@@ -34,7 +40,7 @@ export function createStoreFeed(first: AppState): StoreFeed {
     announce: () => {
       if (announced === current) return;
       announced = current;
-      for (const heard of [...listeners]) heard();
+      for (const heard of listeners) heard();
     },
   };
 }

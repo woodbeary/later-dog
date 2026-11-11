@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Menu } from "lucide-react";
-import { CLOUD_LINK_SETTINGS, LENDING_SETTINGS, StoreProvider, useStore } from "@/state/store";
+import { CLOUD_LINK_SETTINGS, LENDING_SETTINGS, StoreProvider, type AppState } from "@/state/store";
+import { dogIn, sameFields, useStoreDispatch, useStoreReader, useStoreSelector } from "@/state/store-selectors";
 import { CloudQuietLine } from "@/components/CloudQuietLine";
 import { CloudSignInGate, useCloudSignInGate } from "@/components/CloudSignInGate";
 import { useWelcomeViewer, WelcomeGate } from "@/components/onboarding/WelcomeGate";
@@ -39,12 +40,65 @@ import { botShowsUnread } from "@/lib/bot-unread";
 import { acknowledgeOrganizationSettings } from "@/lib/organization-settings-ack";
 import { useTimeZoneSync } from "@/lib/time-zone-sync";
 
+function shellView(state: AppState, viewer: WelcomeViewer | null) {
+  const group = state.groups.find((g) => g.id === state.selectedId);
+  const bot = group ? undefined : (dogIn(state, state.selectedId) ?? state.bots[0]);
+  return {
+    unreadCount:
+      state.bots.filter((dog) => !dog.hidden && botShowsUnread(dog)).length +
+      state.groups.filter((room) => room.unread && !room.dm).length,
+    language: state.config?.language,
+    cloudHome: Boolean(state.config?.cloudHome),
+    selectedId: state.selectedId,
+    groupId: group?.id,
+    groupThreadId: group?.threadId,
+    botId: bot?.id,
+    botThreadId: bot?.threadId,
+    computerOpen: state.computerOpen,
+    cloudTaskId: state.cloudTaskId,
+    settingsOpen: state.settingsOpen,
+    routinesOpen: state.routinesOpen,
+    appSettingsOpen: state.appSettingsOpen,
+    pluginsOpen: state.pluginsOpen,
+    newBotOpen: state.newBotOpen,
+    shortcutsOpen: state.shortcutsOpen,
+    taskView: state.taskView,
+    connected: state.connected,
+    hydrated: state.hydrated,
+    noEngines:
+      state.connected &&
+      state.instances.length > 0 &&
+      !state.instances.some((i) => i.snapshot.state === "available"),
+    cloudSignIn: cloudSignInDue(viewer, state, engineReady),
+  };
+}
+
+function OpenRoom({ groupId }: { groupId: string }) {
+  const group = useStoreSelector((state) => state.groups.find((g) => g.id === groupId));
+  return group ? <GroupView key={group.id} group={group} /> : null;
+}
+
+function OpenDog({ botId }: { botId: string }) {
+  const bot = useStoreSelector((state) => dogIn(state, botId));
+  return bot ? <ChatView bot={bot} /> : null;
+}
+
+function OpenDogSettings({ botId, overlay }: { botId: string; overlay: boolean }) {
+  const bot = useStoreSelector((state) => dogIn(state, botId));
+  return bot ? <BotSettingsDialog bot={bot} overlay={overlay} /> : null;
+}
+
+function OpenCloudTask({ jobId, botId }: { jobId: string; botId: string | undefined }) {
+  const bot = useStoreSelector((state) => (botId ? dogIn(state, botId) : undefined));
+  return <CloudTaskPanel jobId={jobId} bot={bot} />;
+}
+
 function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const readStore = useStoreReader();
+  const state = useStoreSelector((store) => shellView(store, viewer), sameFields);
   const { capabilities } = useDesktopCapabilities();
-  const unreadCount =
-    state.bots.filter((bot) => !bot.hidden && botShowsUnread(bot)).length +
-    state.groups.filter((group) => group.unread && !group.dm).length;
+  const { unreadCount } = state;
   const twoSidePanelsFit = useMediaQuery(TWO_SIDE_PANELS_FIT, true);
   const sidebarAndPanelFit = useMediaQuery(SIDEBAR_AND_PANEL_FIT, true);
   useEffect(() => {
@@ -70,25 +124,20 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     return window.laterdog.environments.onOpenSettings?.(open);
   }, [dispatch]);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const language = effectiveLanguage(useLanguageChoice(), state.config?.language);
+  const language = effectiveLanguage(useLanguageChoice(), state.language);
   const [, setLocaleEpoch] = useState(0);
   useEffect(() => {
     setLocale(language || globalThis.navigator?.language);
     setLocaleEpoch((epoch) => epoch + 1);
   }, [language]);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
-  const group = state.groups.find((g) => g.id === state.selectedId);
-  const bot = group ? undefined : (state.bots.find((b) => b.id === state.selectedId) ?? state.bots[0]);
+  const { groupId, botId } = state;
   const cloudTaskOpen = state.computerOpen && state.cloudTaskId !== null;
-  const sidePanelOpen = (Boolean(bot) && state.settingsOpen) || cloudTaskOpen;
+  const sidePanelOpen = (Boolean(botId) && state.settingsOpen) || cloudTaskOpen;
   const collapseSidebar = sidePanelOpen && !sidebarAndPanelFit;
   const calendarFocus = state.routinesOpen;
 
-  const noEngines =
-    state.connected &&
-    state.instances.length > 0 &&
-    !state.instances.some((i) => i.snapshot.state === "available");
-  const cloudSignIn = cloudSignInDue(viewer, state, engineReady);
+  const { noEngines, cloudSignIn } = state;
 
   const history = useRef<SelectionHistory>(EMPTY_HISTORY);
   useEffect(() => {
@@ -98,6 +147,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   useEffect(() => {
     const isMac = isMacPlatform();
     const onKey = (e: KeyboardEvent) => {
+      const state = readStore();
       if (e.defaultPrevented || e.isComposing || state.shortcutsOpen) return;
       if (shouldOpenKeyboardShortcuts(e)) {
         e.preventDefault();
@@ -165,7 +215,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [state.bots, state.groups, state.selectedId, state.shortcutsOpen, dispatch]);
+  }, [readStore, dispatch]);
 
   useEffect(() => {
     window.laterdog?.setUnreadCount?.(unreadCount);
@@ -178,11 +228,11 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
 
   useEffect(() => preloadScreens(), []);
 
-  useTimeZoneSync(state.connected ? (state.config?.cloudHome ? "cloud" : "local") : null);
+  useTimeZoneSync(state.connected ? (state.cloudHome ? "cloud" : "local") : null);
 
   useEffect(() => {
     setDrawerOpen(false);
-  }, [state.selectedId, bot?.threadId, group?.threadId, state.pluginsOpen, state.settingsOpen]);
+  }, [state.selectedId, state.botThreadId, state.groupThreadId, state.pluginsOpen, state.settingsOpen]);
 
   useEffect(() => {
     return window.laterdog?.onOpenAppSettings?.(section => {
@@ -253,10 +303,10 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
         <CloudEngineSignIn />
       ) : noEngines ? (
         <NoEngines />
-      ) : group ? (
-        <GroupView key={group.id} group={group} />
-      ) : bot ? (
-        <ChatView bot={bot} />
+      ) : groupId ? (
+        <OpenRoom groupId={groupId} />
+      ) : botId ? (
+        <OpenDog botId={botId} />
       ) : (
         <main className="flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-app text-ink-secondary">
           {!state.connected ? (
@@ -274,11 +324,11 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
           ) : null}
         </main>
       )}
-      {state.settingsOpen && bot && !calendarFocus && (
-        <BotSettingsDialog key={`settings:${bot.id}`} bot={bot} overlay={cloudTaskOpen && !twoSidePanelsFit} />
+      {state.settingsOpen && botId && !calendarFocus && (
+        <OpenDogSettings key={`settings:${botId}`} botId={botId} overlay={cloudTaskOpen && !twoSidePanelsFit} />
       )}
       {cloudTaskOpen && state.cloudTaskId && (
-        <CloudTaskPanel key={`cloud-task:${state.cloudTaskId}`} jobId={state.cloudTaskId} bot={bot} />
+        <OpenCloudTask key={`cloud-task:${state.cloudTaskId}`} jobId={state.cloudTaskId} botId={botId} />
       )}
       {state.appSettingsOpen && <SettingsModal />}
       {state.pluginsOpen && <PluginsPanel />}

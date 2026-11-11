@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { api, useStore, type Action, type AppState } from "@/state/store";
+import { api, type Action, type AppState } from "@/state/store";
+import { useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import type { SearchHit } from "@/lib/search-hit";
 
 const FLASH_CLASSES = ["ring-2", "ring-accent/70", "rounded-2xl", "transition-shadow"];
@@ -62,8 +63,8 @@ function matchRange(root: HTMLElement, text: string): Range | null {
 }
 
 export function useFocusMessage(threadId: string, ready: boolean) {
-  const { state, dispatch } = useStore();
-  const focus = state.focusMessage;
+  const dispatch = useStoreDispatch();
+  const focus = useStoreSelector((state) => (state.focusMessage?.threadId === threadId ? state.focusMessage : null));
   useEffect(() => {
     if (!focus || focus.consumed || focus.threadId !== threadId || !ready) return;
     let tries = 0;

@@ -4,7 +4,8 @@ import type { SendDelivery } from "../../shared/send-delivery";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { ModelPicker } from "./ModelPicker";
 import { ArrowUp, BookOpen, Check, Clock, Loader2, Mic, Square, Users, X } from "lucide-react";
-import { useStore, visibleMessages, currentTaskBot, type Bot, type Group, type Message } from "@/state/store";
+import { visibleMessages, currentTaskBot, type Bot, type Group, type Message } from "@/state/store";
+import { useDrawnDogs, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { chatPane } from "@/state/pane-errors";
 import { waitingOnPerson } from "@/lib/waiting-on-person";
 import { cn } from "@/lib/cn";
@@ -124,14 +125,17 @@ export function Composer({
 }) {
   const bot = profile ? currentTaskBot(profile) : undefined;
   const locked = Boolean(bot?.awaitingThreadSnapshot);
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const instances = useStoreSelector((state) => state.instances);
+  const config = useStoreSelector((state) => state.config);
+  const drawnDogs = useDrawnDogs();
   const busy = group ? Boolean(group.working || group.busyBotId) : Boolean(bot?.busy);
   const asking = !group && waitingOnPerson(bot);
   const working = (busy || Boolean(bot?.waitingForTeammates)) && !asking;
   const steerInstanceId = group
     ? members?.find((member) => member.id === group.busyBotId)?.modelSelection.instanceId
     : bot?.modelSelection.instanceId;
-  const steerCapabilities = state.instances.find((i) => i.instanceId === steerInstanceId)?.capabilities;
+  const steerCapabilities = instances.find((i) => i.instanceId === steerInstanceId)?.capabilities;
   const canSteer = steerCapabilities?.queueing === true;
   const threadId = group?.threadId ?? bot?.threadId ?? "";
   const errorPane = threadId ? chatPane(threadId) : undefined;
@@ -320,7 +324,7 @@ export function Composer({
   const botSupportsImages = (candidate?: Bot) =>
     Boolean(
       candidate &&
-        state.instances.find((i) => i.instanceId === candidate.modelSelection.instanceId)?.capabilities?.images,
+        instances.find((i) => i.instanceId === candidate.modelSelection.instanceId)?.capabilities?.images,
     );
   const imageTargetsSupport = (message: string) => {
     if (!group) return botSupportsImages(bot);
@@ -336,13 +340,13 @@ export function Composer({
     const supportsAgents = (candidate?: Bot) =>
       Boolean(
         candidate &&
-          state.instances.find(
+          instances.find(
             (instance) => instance.instanceId === candidate.modelSelection.instanceId,
           )?.capabilities?.agentsMcp,
       );
     const available: ComposerSlashCommand[] = [];
     if (
-      skillAuthoringEnabled(state.config) &&
+      skillAuthoringEnabled(config) &&
       (group ? (members ?? []).some(supportsAgents) : supportsAgents(bot))
     ) {
       available.push({
@@ -358,7 +362,7 @@ export function Composer({
         command.id.startsWith(query) ||
         command.description.toLowerCase().includes(query),
     );
-  }, [slash, dismissedSlashAt, group, members, bot, state.config, state.instances, locale]);
+  }, [slash, dismissedSlashAt, group, members, bot, config, instances, locale]);
   const commandPickerOpen = commandCandidates.length > 0;
 
   const mention = mentionQueryAt(text, caret);
@@ -369,20 +373,20 @@ export function Composer({
           ...(!group.dm ? [{ id: "__everyone__", name: "everyone" }] : []),
           ...(members ?? []).map((member) => ({ id: member.id, name: member.name, bot: member })),
         ]
-      : state.bots
+      : drawnDogs
           .filter((member) => member.id !== bot?.id && !member.hidden)
           .map((member) => ({ id: member.id, name: member.name, bot: member }));
     return mentionChoicesForQuery(pool, mention.query);
-  }, [mention, dismissedAt, state.bots, bot?.id, group, members]);
+  }, [mention, dismissedAt, drawnDogs, bot?.id, group, members]);
   const mentionPickerOpen = candidates.length > 0;
   const suggestion = useComposerSuggestion({
-    config: state.config,
+    config,
     text,
     caret,
     field: inputRef.current,
     lines: group ? group.messages : bot ? visibleMessages(bot) : [],
     dog: group ? group.name : (bot?.name ?? ""),
-    dogNames: (group ? members ?? [] : state.bots.filter((member) => member.id !== bot?.id && !member.hidden)).map((member) => member.name),
+    dogNames: (group ? members ?? [] : drawnDogs.filter((member) => member.id !== bot?.id && !member.hidden)).map((member) => member.name),
     commands: ["/learn"],
     recording,
     listening,
@@ -436,7 +440,7 @@ export function Composer({
     });
   };
 
-  const queuedMessages = state.pendingQueued[threadId] ?? [];
+  const queuedMessages = useStoreSelector((state) => state.pendingQueued[threadId]) ?? [];
   const pendingCount = queuedMessages.length;
   const canSteerQueued = composerCanSteerQueuedMessages(
     busy,
@@ -598,7 +602,7 @@ export function Composer({
     }
     const body = composeMessage(text, attachments);
     if (!body) return;
-    const account = !group && bot ? state.instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId) : undefined;
+    const account = !group && bot ? instances.find((instance) => instance.instanceId === bot.modelSelection.instanceId) : undefined;
     if (!signedInNow && account?.snapshot && signInFamily(account) && (needsSignIn(account) || needsCli(account))) {
       sendAfterSignIn.current = () => send(true, deliver);
       setSigningIn(account.instanceId);
@@ -1004,7 +1008,7 @@ export function Composer({
           <MentionTextarea
           wrapperClassName={cn("@max-[30rem]/composer:order-first @max-[30rem]/composer:basis-full", expanded && "order-first basis-full")}
           inputRef={inputRef}
-          peers={group ? members ?? [] : state.bots.filter((member) => member.id !== bot?.id)}
+          peers={group ? members ?? [] : drawnDogs.filter((member) => member.id !== bot?.id)}
           everyone={Boolean(group && !group.dm)}
           dir="auto"
           rows={1}
@@ -1106,7 +1110,7 @@ export function Composer({
               : group
                 ? t("composer.placeholder.group", {
                     name: group.name,
-                    hint: groupComposerHint(group, members ?? [], { jevOn: jevRoomRoutingOn(state.config) }),
+                    hint: groupComposerHint(group, members ?? [], { jevOn: jevRoomRoutingOn(config) }),
                   })
                 : t("composer.placeholder.bot", { name: bot?.name ?? "" })
           }
@@ -1135,7 +1139,7 @@ export function Composer({
             {recording ? <Check size={17} strokeWidth={2.5} /> : sharpening > 0 ? <Loader2 size={18} className="animate-spin motion-reduce:animate-none" /> : <Mic size={18} />}
           </button>
         )}
-        {bot && !group && callButtonShown(state.config) && <CallButton bot={bot} />}
+        {bot && !group && callButtonShown(config) && <CallButton bot={bot} />}
         {!locked && stopShown && (
           <button
             type="button"
@@ -1189,7 +1193,7 @@ export function Composer({
       {signingIn && (
         <AddAccountSheet
           sheet={{ step: "signIn", instanceId: signingIn }}
-          instances={state.instances}
+          instances={instances}
           onStep={() => {}}
           onClose={() => setSigningIn(null)}
           onSignedIn={() => {

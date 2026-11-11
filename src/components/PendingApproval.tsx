@@ -1,6 +1,7 @@
 import { ChevronRight, Hand, X } from "lucide-react";
 import { memo } from "react";
-import { useStore, type Bot, type Message } from "@/state/store";
+import type { Bot, Message } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import { cn } from "@/lib/cn";
 import { t, tFromServer } from "@/lib/i18n";
 import { SkillRequestPreview } from "@/components/SkillRequestPreview";
@@ -193,7 +194,7 @@ export function PendingApprovalActions({
   bot?: Bot;
 }) {
   const outbound = pending.message.card ? outboundSummary(pending.message.card) : undefined;
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const ownerOrAdmin = useOwnerOrAdmin();
   const isRoutineRequest = isRoutineApproval(pending);
   const isSkillRequest = isSkillApproval(pending);

@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { activeLocale, t } from "@/lib/i18n";
 import { ArrowDown, Plus, Search } from "lucide-react";
-import {
-  useStore,
-  type Bot,
-  type Group,
-  type Message,
+import type {
+  Group,
+  Message,
 } from "@/state/store";
+import { dogIn, sameItems, useStoreSelector } from "@/state/store-selectors";
 import { BotAvatar } from "./Avatar";
 import { PlaceIcon } from "./PlaceIcon";
 import { effectivePlace, placeLabelKey } from "@/lib/place";
@@ -41,8 +40,8 @@ import { RoomToolChip, Transcript } from "./RoomTranscript";
 export { RoomToolChip, Transcript };
 
 export function GroupView({ group }: { group: Group }) {
-  const { state } = useStore();
-  const showToolCalls = showToolCallsEnabled(state.config);
+  const config = useStoreSelector((state) => state.config);
+  const showToolCalls = showToolCallsEnabled(config);
   const countsInWindow = useCallback((message: Message) => transcriptRowShown(message, showToolCalls), [showToolCalls]);
   const { dragStyle: headerDragStyle, noDragStyle: headerNoDragStyle, controlsShiftStyle } = useCaptionChrome();
   const composerDockRef = useRef<HTMLDivElement>(null);
@@ -68,10 +67,7 @@ export function GroupView({ group }: { group: Group }) {
     return () => window.removeEventListener("keydown", onFind);
   }, []);
 
-  const members = useMemo(
-    () => group.memberIds.map((id) => state.bots.find((b) => b.id === id)).filter((b): b is Bot => Boolean(b)),
-    [group.memberIds, state.bots],
-  );
+  const members = useStoreSelector((state) => group.memberIds.flatMap((id) => dogIn(state, id) ?? []), sameItems);
   const speaker = members.find((b) => b.id === group.busyBotId);
 
   const lastGroupMessage = group.messages.at(-1);
@@ -287,7 +283,7 @@ export function GroupView({ group }: { group: Group }) {
               </div>
               <div className="text-[17px] font-semibold text-ink">{group.name}</div>
               <div className="max-w-[380px] text-[14px] text-ink-secondary">
-                {groupResponseHint(group, members, { jevOn: jevRoomRoutingOn(state.config) })}
+                {groupResponseHint(group, members, { jevOn: jevRoomRoutingOn(config) })}
               </div>
             </div>
           )}

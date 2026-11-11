@@ -1,7 +1,7 @@
 import { RefreshCw, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { useStore } from "@/state/store";
+import { useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { paneErrorsFor, type PaneKey } from "@/state/pane-errors";
 
 export type PaneErrorLook = "tray" | "row" | "icon";
@@ -12,8 +12,9 @@ export function PaneErrorLine({ panes, look = "row", quietLine = false, classNam
   quietLine?: boolean;
   className?: string;
 }) {
-  const { state, dispatch } = useStore();
-  const shown = paneErrorsFor(state.paneErrors, panes);
+  const dispatch = useStoreDispatch();
+  const paneErrors = useStoreSelector((state) => state.paneErrors);
+  const shown = paneErrorsFor(paneErrors, panes);
   if (!shown) return null;
   const { pane, error } = shown;
   const retry = () => dispatch({ type: "retryPane", pane });

@@ -1,6 +1,7 @@
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { useDesktopCapabilities } from "@/components/DesktopCapabilities";
-import { useStore, type InstanceInfo, type Message } from "@/state/store";
+import type { InstanceInfo, Message } from "@/state/store";
+import { dogIn, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { openExternalLink } from "@/lib/app-links";
 import { claudeUpdateTarget } from "@/lib/claude-update-target";
 import { failedTurnCause, signedOutEngine } from "@/lib/failed-turn";
@@ -95,11 +96,12 @@ function PlaceFailedRow({ place, botId, threadId, onRetry }: {
   threadId?: string;
   onRetry?: () => void;
 }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const config = useStoreSelector((state) => state.config);
+  const computer = useStoreSelector((state) => dogIn(state, botId)?.computer);
   const { capabilities } = useDesktopCapabilities();
-  const seat = usePlaceSeat(state.config, capabilities.host.platform);
-  const bot = state.bots.find((candidate) => candidate.id === botId);
-  const view = placeRowViewFor(place, seat, worksOnSimpleLabel(bot?.computer, capabilities.host.platform));
+  const seat = usePlaceSeat(config, capabilities.host.platform);
+  const view = placeRowViewFor(place, seat, worksOnSimpleLabel(computer, capabilities.host.platform));
   const id = view.action?.id;
   const onClick = !id ? undefined
     : id === "try-again" ? onRetry

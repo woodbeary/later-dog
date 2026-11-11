@@ -31,16 +31,17 @@ import { useSpeech } from "@/lib/tts/useSpeech";
 import { useCaptionChrome } from "@/components/DesktopCapabilities";
 import {
   currentTaskBot,
-  useStore,
   formatTime,
   openNotificationTarget,
   visibleMessages,
   type Action,
   type Bot,
+  type Group,
   type InstanceInfo,
   type Message,
   type AppState,
 } from "@/state/store";
+import { useDrawnDogs, useStoreDispatch, useStoreReader, useStoreSelector } from "@/state/store-selectors";
 import { failedTurnCause } from "@/lib/failed-turn";
 import { FailedTurnRow } from "./FailedTurnRow";
 import { isOpenTakeover } from "../../shared/takeover";
@@ -162,14 +163,15 @@ function useChatRows(): ChatRows {
   return rows;
 }
 
-const drawnBot = (bot: Bot) =>
-  [bot.id, bot.name, bot.hidden, bot.color, bot.mascotBody, bot.mascotExpression, bot.avatarUrl, bot.avatarCrop, bot.avatarZoom, bot.avatarFocusX, bot.avatarFocusY].join("\u0001");
+const roomIdsOf = new WeakMap<readonly Group[], string>();
 
-function useDrawnBots(bots: readonly Bot[]): readonly Bot[] {
-  const signature = bots.map(drawnBot).join("\u0002");
-  const cache = useRef({ signature, bots });
-  if (cache.current.signature !== signature) cache.current = { signature, bots };
-  return cache.current.bots;
+function roomIds(groups: readonly Group[]): string {
+  let ids = roomIdsOf.get(groups);
+  if (ids === undefined) {
+    ids = groups.map((group) => group.id).join("|");
+    roomIdsOf.set(groups, ids);
+  }
+  return ids;
 }
 
 function DaySeparator({ at, today }: { at: number; today: number }) {
@@ -632,12 +634,13 @@ const ActivityChip = memo(function ActivityChip({ message, place = "auto" }: { m
 });
 
 function RoutineRunRow({ message, botId }: { message: Message; botId: string }) {
-  const { state, dispatch } = useStore();
-  const target = ownerShowingElsewhere([...state.bots, ...state.groups], message.routineRun?.executionThreadId, botId);
+  const dispatch = useStoreDispatch();
+  const executionThreadId = message.routineRun?.executionThreadId;
+  const targetId = useStoreSelector((state) => ownerShowingElsewhere([...state.bots, ...state.groups], executionThreadId, botId)?.id);
   return (
     <RoutineRunCard
       message={message}
-      onOpen={target ? () => dispatch({ type: "select", id: target.id }) : undefined}
+      onOpen={targetId ? () => dispatch({ type: "select", id: targetId }) : undefined}
     />
   );
 }
@@ -876,7 +879,8 @@ const CHATHEAD_PILL ="flex min-w-0 items-center gap-2 rounded-full border-[0.5px
 
 export function ChatView({ bot: profile }: { bot: Bot }) {
   const bot = useMemo(() => currentTaskBot(profile), [profile]);
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const readStore = useStoreReader();
   const { dragStyle: headerDragStyle, noDragStyle: headerNoDragStyle, controlsShiftStyle } = useCaptionChrome();
   const composerDockRef = useRef<HTMLDivElement>(null);
   const composerDock = useComposerDockPad(composerDockRef);
@@ -909,9 +913,9 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     () => messages.some((m) => m.kind === "options" && m.card?.takeoverRequest && isOpenTakeover(m.card.takeoverRequest.status)),
     [messages],
   );
-  const showToolCalls = showToolCallsEnabled(state.config);
+  const showToolCalls = useStoreSelector((state) => showToolCallsEnabled(state.config));
   const runningSince = bot.busy ? bot.turnStartedAt ?? null : null;
-  const groupIds = useMemo(() => state.groups.map((group) => group.id).join("|"), [state.groups]);
+  const groupIds = useStoreSelector((state) => roomIds(state.groups));
   const plan = useMemo(
     () => planTranscript(messages, { runningSince, quiet: !showToolCalls, foldAll: !showToolCalls }),
     [messages, runningSince, showToolCalls],
@@ -967,9 +971,9 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const belowCount = Math.max(newBelow, unreadPlace === "below" ? visitUnread : 0);
   const belowShown = belowCount > belowDismissed ? belowCount : 0;
 
-  const bots = useDrawnBots(state.bots);
+  const bots = useDrawnDogs();
   const mentionPeers = useMemo<MentionPeer[]>(() => bots.map((peer) => (peer.id === bot.id ? { ...peer, self: true } : peer)), [bots, bot.id]);
-  const focus = state.focusMessage?.threadId === bot.threadId ? state.focusMessage : null;
+  const focus = useStoreSelector((state) => (state.focusMessage?.threadId === bot.threadId ? state.focusMessage : null));
   const locale = activeLocale();
   const branch = useRef(messages);
   branch.current = messages;
@@ -1066,9 +1070,10 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   }, [lastUserMessage, bot.busy, bot.id, bot.threadId, dispatch]);
 
   const executionRunId = bot.tasks?.find((task) => task.threadId === bot.threadId)?.routineRunId;
-  const routineExecution = executionRunId ? state.routineRuns.find((run) => run.id === executionRunId && run.threadId === bot.threadId) : undefined;
+  const routineExecution = useStoreSelector((state) => (executionRunId ? state.routineRuns.find((run) => run.id === executionRunId && run.threadId === bot.threadId) : undefined));
   const resultsThreadId = routineExecution?.sourceThreadId !== bot.threadId ? routineExecution?.sourceThreadId : undefined;
-  const resultsOwner = ownerShowingElsewhere([...state.bots, ...state.groups], resultsThreadId, bot.id);
+  const resultsOwnerId = useStoreSelector((state) => ownerShowingElsewhere([...state.bots, ...state.groups], resultsThreadId, bot.id)?.id);
+  const engine = useStoreSelector((state) => state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId));
 
   return (
     <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
@@ -1106,7 +1111,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           className="flex shrink-0 items-center gap-2 @max-[30rem]/chathead:ml-auto @max-[30rem]/chathead:flex-wrap @max-[30rem]/chathead:justify-end @min-[30rem]/chathead:col-start-3 @min-[30rem]/chathead:justify-self-end"
           style={controlsShiftStyle}
         >
-          <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openNotificationTarget(dispatch, { botId, threadId }, state)} />
+          <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openNotificationTarget(dispatch, { botId, threadId }, readStore())} />
           <ChatHeaderTasks bot={bot} />
           <button
             type="button"
@@ -1129,7 +1134,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 
       {routineExecution && <div className="mx-5 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[11.5px] text-ink-secondary">
         <span className="min-w-0 flex-1 truncate">{t("routines.executionDetails", { name: routineExecution.routineName })}</span>
-        {resultsOwner && <button type="button" onClick={() => dispatch({ type: "select", id: resultsOwner.id })} className="rounded px-2 py-1 text-accent hover:bg-raised">{t("routines.results.back")}</button>}
+        {resultsOwnerId && <button type="button" onClick={() => dispatch({ type: "select", id: resultsOwnerId })} className="rounded px-2 py-1 text-accent hover:bg-raised">{t("routines.results.back")}</button>}
         <button type="button" onClick={() => dispatch({ type: "showRoutines", section: "logs", routineId: routineExecution.routineId, botId: bot.id })} className="rounded px-2 py-1 hover:bg-raised hover:text-ink">{t("routines.logs")}</button>
       </div>}
       {findOpen && <ChatFindBar threadId={bot.threadId} onClose={() => setFindOpen(false)} />}
@@ -1184,7 +1189,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
                   today={localDay(Date.now())}
                   emergingId={popping}
                   canRetryLast={!bot.busy && Boolean(lastUserMessage)}
-                  engine={state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId)}
+                  engine={engine}
                   unreadSince={unreadSince}
                   groupIds={groupIds}
                   editingId={editingId}
@@ -1301,7 +1306,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 }
 
 function ChatHeaderMenu({ bot, messages }: { bot: Bot; messages: readonly Message[] }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [copyStatus, setCopyStatus] = useState<"copied" | "failed" | null>(null);
   const hasMessages = messages.length > 0;
   const transcript = () => formatTranscriptMarkdown({ title: bot.name, messages, botName: bot.name, isGroup: false });
@@ -1358,9 +1363,9 @@ function ChatHeaderMenu({ bot, messages }: { bot: Bot; messages: readonly Messag
 }
 
 function NeedsYouRow({ botId, name }: { botId: string; name: string }) {
-  const { state, dispatch } = useStore();
-  const control = state.computerControl[botId];
-  const computerShown = state.settingsOpen && state.botSettingsExpandAccordion && tabForSection(state.botSettingsSection) === "computer";
+  const dispatch = useStoreDispatch();
+  const control = useStoreSelector((state) => state.computerControl[botId]);
+  const computerShown = useStoreSelector((state) => state.settingsOpen && state.botSettingsExpandAccordion && tabForSection(state.botSettingsSection) === "computer");
   if (!control?.helpReason || control.held || computerShown) return null;
   return (
     <div className="pointer-events-auto mx-auto mb-2 flex w-full max-w-[min(48rem,calc(100%-2.5rem))] items-center gap-2 rounded-xl bg-card px-3 py-2 text-[13px] text-ink ring-[0.5px] ring-ink/10" data-needs-you>

@@ -3475,7 +3475,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     () => ({ state, dispatch, flushBotPatches, refreshInstances, refreshModels }),
     [state, dispatch, flushBotPatches, refreshInstances, refreshModels],
   );
-  const channel = useMemo<StoreChannel>(() => ({ read: feed.read, listen: feed.listen, dispatch }), [feed, dispatch]);
+  const channel = useMemo<StoreChannel>(
+    () => ({ read: feed.read, listen: feed.listen, dispatch, flushBotPatches, refreshInstances, refreshModels }),
+    [feed, dispatch, flushBotPatches, refreshInstances, refreshModels],
+  );
   return <StoreChannelContext.Provider value={channel}><StoreContext.Provider value={value}>{children}</StoreContext.Provider></StoreChannelContext.Provider>;
 }
 

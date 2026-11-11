@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
 import { BreedAvatar } from "@/components/DogAvatar";
 import { DEFAULT_DOG_COLOR } from "@/lib/mascot";
-import { useStore } from "@/state/store";
+import { useStoreSelector } from "@/state/store-selectors";
 
 export const SPLASH_MIN_MS = 700;
 export const SPLASH_FADE_MS = 360;
 
 export function LaunchSplash() {
-  const { state } = useStore();
-  const ready = state.restored === true || state.hydrated === true;
+  const restored = useStoreSelector((state) => state.restored === true);
+  const ready = useStoreSelector((state) => state.restored === true || state.hydrated === true);
   const [held, setHeld] = useState(false);
-  const [phase, setPhase] = useState<"shown" | "leaving" | "gone">(() => (state.restored ? "gone" : "shown"));
+  const [phase, setPhase] = useState<"shown" | "leaving" | "gone">(() => (restored ? "gone" : "shown"));
 
   useEffect(() => {
     const timer = window.setTimeout(() => setHeld(true), SPLASH_MIN_MS);

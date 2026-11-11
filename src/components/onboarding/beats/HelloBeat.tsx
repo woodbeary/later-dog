@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
 import { t } from "@/lib/i18n";
-import { api, useStore } from "@/state/store";
+import { api } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import { inputClass, PrimaryButton, QuietButton, staggerIndex, type BeatProps } from "./shared";
 
 export function HelloBeat({ onNext, onSkip, hosted = false }: BeatProps & { hosted?: boolean }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [name, setName] = useState("");
   const pending = useRef(false);
   const [saving, setSaving] = useState(false);
