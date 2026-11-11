@@ -35,7 +35,19 @@ run:
   switching and after a reload, that the reload opens the same chat, that the
   accessibility tree has a named button for every dog's row whether or not
   its contents are drawn, and that Tab reaches every row with a focus ring and
-  in view, and Enter opens it.
+  in view, and Enter opens it. It then has a dog that is not open take a turn
+  and checks that dog's row shows the working dots and says "Working" while it
+  replies, and afterwards shows the unread dot, says "Unread", previews the
+  reply and is counted with the unread rows, while the open chat stays open.
+
+- `--one-dog-streams` opens the long chat and lets one dog stream a long reply
+  three characters at a time, first a dog that is not open and then the open
+  one. It counts the components that redraw and where they sit (sidebar rows,
+  the rest of the sidebar, the open transcript, the rest of the open chat, the
+  rest of the app), apart for each store change and for each time the reply
+  grows on screen, and then times key press to frame while typing in the open
+  message box with no dog streaming, with another dog streaming, and with the
+  open dog streaming.
 
 Two more modes help find a cause rather than a number:
 
@@ -217,4 +229,39 @@ Run on the Linux cloud computer at fa3141c:
 Left: the timed before and after runs of main against this branch at 7 and 80
 dogs, and their table here and in the pull request. They wait for a turn on
 the cloud computer, which other lanes are using.
+
+## The store branch (`atelier/desktop-store`), 2026-11-11
+
+Stacked on the branch above. What it changes:
+
+- The shell, the sidebar, the chat view, the message box and about sixty
+  smaller parts read only the part of the store they draw
+  (`src/state/store-selectors.ts`, `src/state/store-channel.ts`), instead of
+  redrawing on every store change.
+- The message box measures its height only when its height can change
+  (`src/lib/textarea-height.ts`).
+- A shown status dot is no longer kept on a layer of its own after its
+  entrance (`src/chat-calm.css`).
+- The unread count on the app icon is its own small part
+  (`src/components/UnreadCountBadge.tsx`), so the shell does not redraw when a
+  dog turns unread.
+
+### Where this branch stands
+
+Done, on the Linux cloud computer against the fixture:
+
+- At cd5997b: the renderer and server typechecks and the lint pass with no
+  errors. `pnpm vitest run src scripts/no-comments.test.ts
+  scripts/brand-links.test.ts server/testing`: 421 files, 3,646 tests, 3,645
+  passed. The one failure, `src/components/PlanUsage.test.ts` "shows each
+  window as a bar that fills as it is used", expected "resets in 2h 10m" and
+  got "2h 9m": it reads the clock, the branch does not touch it, and it passed
+  when run again on its own (7 of 7).
+- `--kept` at 10 dogs on this branch, one run: drafts kept after switching and
+  after a reload, the same chat open after the reload, and the dog that was
+  not open showed working, then unread, then read once opened.
+
+Left: the timed runs at 80 dogs of 024af20 against this branch (three each),
+their table here, and the pull request. The runs wait for the exclusive lock
+on the cloud computer, which other lanes hold shared.
 
