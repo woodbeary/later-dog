@@ -36,7 +36,17 @@ interface Distribution {
   max: number;
 }
 
+interface MainThread {
+  scriptMs: number;
+  layoutMs: number;
+  styleMs: number;
+  taskMs: number;
+  layouts: number;
+  styleRecalcs: number;
+}
+
 interface Activity {
+  mainThread?: MainThread;
   ms: number;
   commits: number;
   rendered: number;
@@ -199,7 +209,29 @@ async function open(page: Page, dog: Dog): Promise<number> {
   }, { row: rowOf(dog), composer: composerOf(dog), name: dog.name });
 }
 
-async function measured<T>(page: Page, counting: boolean, work: () => Promise<T>): Promise<Activity & { keys: number[]; top: string[]; value: T }> {
+type Cdp = Awaited<ReturnType<ReturnType<Page["context"]>["newCDPSession"]>>;
+
+async function mainThread(cdp: Cdp): Promise<MainThread> {
+  const { metrics = [] } = await cdp.send("Performance.getMetrics");
+  const value = (name: string) => metrics.find((metric) => metric.name === name)?.value ?? 0;
+  const ms = (name: string) => value(name) * 1000;
+  return { scriptMs: ms("ScriptDuration"), layoutMs: ms("LayoutDuration"), styleMs: ms("RecalcStyleDuration"), taskMs: ms("TaskDuration"), layouts: value("LayoutCount"), styleRecalcs: value("RecalcStyleCount") };
+}
+
+function spent(before: MainThread, after: MainThread): MainThread {
+  const round = (value: number) => Math.round(value);
+  return {
+    scriptMs: round(after.scriptMs - before.scriptMs),
+    layoutMs: round(after.layoutMs - before.layoutMs),
+    styleMs: round(after.styleMs - before.styleMs),
+    taskMs: round(after.taskMs - before.taskMs),
+    layouts: after.layouts - before.layouts,
+    styleRecalcs: after.styleRecalcs - before.styleRecalcs,
+  };
+}
+
+async function measured<T>(page: Page, cdp: Cdp, counting: boolean, work: () => Promise<T>): Promise<Activity & { keys: number[]; top: string[]; value: T }> {
+  const before = await mainThread(cdp);
   await page.evaluate((on: boolean) => {
     const perf = (window as unknown as { __perf: { counting: boolean; begin(): void } }).__perf;
     perf.counting = on;
@@ -207,7 +239,7 @@ async function measured<T>(page: Page, counting: boolean, work: () => Promise<T>
   }, counting);
   const value = await work();
   const result = await page.evaluate(() => (window as unknown as { __perf: { end(): Activity & { keys: number[]; top: string[] } } }).__perf.end());
-  return { ...result, value };
+  return { ...result, mainThread: spent(before, await mainThread(cdp)), value };
 }
 
 function treeRss(rootPid: number): number {
@@ -240,6 +272,8 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
   await page.goto(fixture.info.url);
   await page.waitForSelector('textarea[aria-label^="Message "]', { timeout: 60_000 });
   await page.waitForTimeout(1_000);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Performance.enable");
   const idle = await heap(page);
   const short = dogs.others[0]!;
   await open(page, dogs.long);
@@ -257,7 +291,7 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
 
   const toLong: number[] = [];
   const toShort: number[] = [];
-  const switching = await measured(page, counting, async () => {
+  const switching = await measured(page, cdp, counting, async () => {
     for (let round = 0; round < setup.switches; round += 1) {
       toLong.push(await open(page, dogs.long));
       toShort.push(await open(page, short));
@@ -266,14 +300,14 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
 
   await open(page, dogs.long);
   await page.click(composerOf(dogs.long));
-  const typing = await measured(page, counting, async () => {
+  const typing = await measured(page, cdp, counting, async () => {
     await page.keyboard.type("Can you also check whether the release notes mention the bigger chat text and the new usage sheet, and fix them if not?", { delay: 35 });
     await page.waitForTimeout(300);
   });
   for (let index = 0; index < 130; index += 1) await page.keyboard.press("Backspace");
 
   await page.mouse.move(820, 420);
-  const scrolling = await measured(page, counting, async () => {
+  const scrolling = await measured(page, cdp, counting, async () => {
     for (let step = 0; step < 90; step += 1) {
       await page.mouse.wheel(0, step < 60 ? -700 : 900);
       await page.waitForTimeout(16);
@@ -286,7 +320,7 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
   await page.click(composerOf(dogs.long));
   const token = `streamed-${randomUUID().slice(0, 8)}`;
   await page.keyboard.type(`One more pass please ${token}`, { delay: 5 });
-  const streaming = await measured(page, counting, async () => {
+  const streaming = await measured(page, cdp, counting, async () => {
     const marks = page.evaluate(async (needle: string) => {
       const perf = (window as unknown as { __perf: { until(test: () => boolean, timeoutMs: number): Promise<number> } }).__perf;
       const log = () => document.querySelector('[role="log"]');
@@ -305,7 +339,7 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
     return seen;
   });
 
-  const elsewhere = await measured(page, counting, async () => {
+  const elsewhere = await measured(page, cdp, counting, async () => {
     await Promise.all(dogs.others.slice(0, 4).map((dog) => api("POST", `/api/bots/${dog.id}/messages`, { text: "Run the checks again and show me the table.", threadId: dog.threadId, sendId: randomUUID().replaceAll("-", "") })));
     await new Promise((done) => setTimeout(done, 150));
     await settled(api, dogs.others.map((dog) => dog.id));
