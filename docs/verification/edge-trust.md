@@ -100,6 +100,10 @@ Each was run once with the line taken out of `host.ts`.
 | `deploy/laterdog/home/test/wake-guard.test.ts` "does not boot a home that changed size for a session it stopped trusting, though its other size once learned it" | the call that tells the other size | 1 failed of 37, `expected 'waking' to be 'asleep'`; with main's `host.ts` the same |
 | `deploy/laterdog/home/test/desk.test.ts` "asks the home again about a session it last checked a day ago when all that session asks is which messages the edge holds, and stops trusting one signed out since" | the `learn` call on a request the edge answered | 1 failed of 45, `expected +0 to be 1`; with main's `host.ts` the same |
 
+The counts above are from the commit each test arrived in. All seven removals
+were run again on the source of `e442824`, one run each of the two test files
+together (82 tests): the same tests fail, 1, 2, 1, 2, 1, 1 and 1 of 82.
+
 The first version of the S5 test, with the line taken out, ran the test worker
 out of memory instead of failing (the fake home answers at once, so the checks
 never stopped). The test now has the fake home refuse a second question, so the
