@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GENERIC_MESSAGE,
+  NO_LONGER_WAITING_MESSAGE,
   TOO_SLOW_MESSAGE,
   UNREACHABLE_MESSAGE,
   isBareCode,
@@ -50,5 +51,18 @@ describe("errors the person reads", () => {
     expect(plainClientError(apiError("Your home is taking longer than usual to wake up. Try again in a minute.", 503, { wake: "waking" }))).toMatch(/longer than usual/);
     expect(isBareCode("Your Mac is almost out of space.")).toBe(false);
     expect(isBareCode("spend_cap")).toBe(true);
+  });
+
+  it("says a queued message that is gone in a sentence, whatever the status it came with", () => {
+    const refused = Object.assign(new Error("no such queued message"), { name: "ApiError", status: 404, body: { error: "no such queued message" } });
+    expect(plainClientError(refused)).toBe(NO_LONGER_WAITING_MESSAGE);
+    expect(plainClientError("No such queued message")).toBe(NO_LONGER_WAITING_MESSAGE);
+    expect(refused.body.error).toBe("no such queued message");
+  });
+
+  it("never prints a thrown object as its type", () => {
+    for (const thrown of [{}, { error: { code: "boom" } }, { message: { nested: true } }, [], null, 7, Object.assign(new Error(String({})), { status: 500 })]) {
+      expect(plainClientError(thrown)).not.toContain("[object");
+    }
   });
 });

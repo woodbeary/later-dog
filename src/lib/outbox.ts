@@ -77,7 +77,7 @@ interface Lane {
   cancel: (() => void) | null;
 }
 
-function defaultAfter(ms: number, run: () => void): () => void {
+export function defaultAfter(ms: number, run: () => void): () => void {
   const timer = setTimeout(run, ms);
   return () => clearTimeout(timer);
 }

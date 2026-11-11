@@ -14,6 +14,7 @@ import {
   draftRevision,
   appendDraftAttachments,
   changeDraftAttachmentPending,
+  composerDraftId,
   composerDraftPosition,
   draftAttachments,
   fillUnchangedDraft,
@@ -146,8 +147,8 @@ export function Composer({
       (group.working ? t("composer.busy.team") : t("composer.busy.aBot")))
     : (bot?.name ?? t("composer.busy.theBot"));
   const draftId = group
-    ? `group:${group.id}:${group.threadId}`
-    : `bot:${bot?.id ?? ""}:${bot?.threadId ?? ""}`;
+    ? composerDraftId({ groupId: group.id }, group.threadId)
+    : composerDraftId({ botId: bot?.id ?? "" }, bot?.threadId ?? "");
   const [text, setText, attachments, setAttachments] = useComposerDraft(
     draftId,
     !group && bot ? `bot:${bot.id}` : undefined,

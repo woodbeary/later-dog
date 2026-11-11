@@ -84,12 +84,17 @@ export function queuedChannelMessage(
   return entry.items.find((item) => item.sendId === sendId) ?? null;
 }
 
+function namesQueued(item: Pick<ChannelQueueItem, "id" | "sendId"> | undefined, id: string): boolean {
+  return item !== undefined && (item.id === id || item.sendId === id);
+}
+
 export function cancelChannelMessage(groupId: string, queueId: string): boolean {
   for (const [threadId, entry] of queues) {
     if (entry.groupId !== groupId) continue;
-    const items = entry.items.filter((item) => item.id !== queueId);
-    if (items.length === entry.items.length) continue;
-    settleChatFollowups([queueId], "cancelled");
+    const named = entry.items.filter((item) => namesQueued(item, queueId));
+    if (named.length === 0) continue;
+    const items = entry.items.filter((item) => !namesQueued(item, queueId));
+    settleChatFollowups(named.map((item) => item.id), "cancelled");
     if (items.length === 0) queues.delete(threadId);
     else queues.set(threadId, { groupId, items });
     return true;
@@ -105,9 +110,15 @@ export interface HeldChannelQueue {
 
 export function holdChannelQueue(groupId: string, threadId: string, queueId: string): HeldChannelQueue | null {
   const entry = queues.get(threadId);
-  if (!entry || entry.groupId !== groupId || entry.items[0]?.id !== queueId) return null;
+  if (!entry || entry.groupId !== groupId || !namesQueued(entry.items[0], queueId)) return null;
   queues.delete(threadId);
   return { groupId, threadId, items: entry.items };
+}
+
+export function channelQueueIdsNamed(groupId: string, threadId: string, id: string): string[] {
+  const entry = queues.get(threadId);
+  if (!entry || entry.groupId !== groupId) return [];
+  return entry.items.filter((item) => namesQueued(item, id)).map((item) => item.id);
 }
 
 export function restoreHeldChannelQueue(held: HeldChannelQueue): void {

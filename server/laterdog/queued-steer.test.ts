@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { SteerOutcome } from "../contracts.ts";
 import type { Message } from "../store.ts";
-import { sendQueuedAsNextTurn, steerWhileRunning, stillBlockedReason, stillStoppingReason, type NextTurnSend } from "./queued-steer.ts";
+import { askedToo, sendQueuedAsNextTurn, steerWhileRunning, stillBlockedReason, stillStoppingReason, withAskedQueueId, type NextTurnSend } from "./queued-steer.ts";
 
 const fast = { stopMs: 200, settleMs: 200, pollMs: 5 };
 
@@ -120,5 +120,31 @@ describe("steering a queued message into the running turn", () => {
     const steer = vi.fn(async (): Promise<SteerOutcome> => { throw new Error("pipe closed"); });
     await expect(steerWhileRunning(steer, () => true, quick)).resolves.toBe("indeterminate");
     expect(steer).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("answering with the id the device asked about", () => {
+  it("adds the asked id once, so a device that only knows its own send id can clear its row", () => {
+    expect(askedToo(["queue-1", "queue-2"], "send-9")).toEqual(["queue-1", "queue-2", "send-9"]);
+    expect(askedToo(["queue-1"], "queue-1")).toEqual(["queue-1"]);
+    const sent = { ok: true as const, sent: true as const, interrupted: false, threadId: "t", queueIds: ["queue-1"], messages: [] };
+    expect(withAskedQueueId(sent, "send-9", ["queue-1"]).queueIds).toEqual(["queue-1", "send-9"]);
+    const waiting = { ok: true as const, queued: true as const, threadId: "t", reason: "still busy" };
+    expect(withAskedQueueId(waiting, "send-9", ["queue-1"])).toBe(waiting);
+  });
+
+  it("leaves out the asked id when Send now on a later message only sent the one ahead of it", async () => {
+    const { send, state } = thread({ busy: true, queued: ["queue-a", "queue-b"], stops: "ends", drains: 1 });
+    const receipt = withAskedQueueId(await sendQueuedAsNextTurn(send, fast), "send-b", ["queue-b"]);
+    expect(receipt).toMatchObject({ sent: true, queueIds: ["queue-a"] });
+    expect("messages" in receipt && receipt.messages.map((message) => message.queueId)).toEqual(["queue-a"]);
+    expect(state.queued).toEqual(["queue-b"]);
+    const byQueueId = thread({ busy: true, queued: ["queue-a", "queue-b"], stops: "ends", drains: 1 });
+    expect(withAskedQueueId(await sendQueuedAsNextTurn(byQueueId.send, fast), "queue-b", ["queue-b"])).toMatchObject({ sent: true, queueIds: ["queue-a"] });
+  });
+
+  it("adds the asked id when the message it names went out with the ones ahead of it", async () => {
+    const { send } = thread({ busy: true, queued: ["queue-a", "queue-b"], stops: "ends" });
+    expect(withAskedQueueId(await sendQueuedAsNextTurn(send, fast), "send-b", ["queue-b"])).toMatchObject({ sent: true, queueIds: ["queue-a", "queue-b", "send-b"] });
   });
 });

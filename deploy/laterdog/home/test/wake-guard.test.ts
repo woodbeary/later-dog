@@ -387,3 +387,196 @@ describe("a home that boots only for its owner", () => {
     expect(world.overlaps).toEqual([]);
   });
 });
+
+describe("a message the edge holds while the home cannot take it", () => {
+  beforeEach(() => {
+    world.sessions.add(OWNER_TOKEN);
+  });
+  const SEND = "send-0000000000001";
+  const sendWords = () => ({
+    method: "POST",
+    headers: { ...asOwner().headers, "content-type": "application/json" },
+    body: JSON.stringify({ text: "hi", sendId: SEND }),
+  });
+  const asked = (method: string) => ({ method, headers: { ...asOwner().headers, "content-type": "application/json" }, body: JSON.stringify({}) });
+  const delivered = (proxied: { mock: { calls: [Request][] } }) => proxied.mock.calls.filter(([request]) => request.method === "POST" && new URL(request.url).pathname === "/api/bots/rex/messages").length;
+
+  it("answers Send now and cancel by send id while the home is asleep, and never delivers a cancelled message", async () => {
+    const { home, visit, sleep, machine } = await awakeHome();
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
+    await visit("/api/bots", asOwner());
+    await sleep();
+    machine.serving = false;
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(202);
+    const sendNow = await visit(`/api/bots/rex/queue/${SEND}/steer`, asked("POST"));
+    expect(await sendNow.json()).toMatchObject({ ok: true, queued: true });
+    expect(await (await visit(`/api/bots/rex/queue/${SEND}`, asked("DELETE"))).json()).toEqual({ ok: true });
+    const proxied = vi.spyOn(home as unknown as { containerFetch(request: Request): Promise<Response> }, "containerFetch");
+    machine.serving = true;
+    await visit("/api/bots", asOwner());
+    expect(delivered(proxied as never)).toBe(0);
+  });
+
+  it("says which held messages it still has, and which the home refused, so a device never keeps showing one as queued", async () => {
+    const { visit, sleep, machine } = await awakeHome();
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
+    await visit("/api/bots", asOwner());
+    await sleep();
+    machine.serving = false;
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(202);
+    const ask = () => visit(`/api/held-sends?ids=${SEND},send-0000000000002,not%20an%20id`, asOwner()).then((answer) => answer.json());
+    expect(await ask()).toEqual({ held: [SEND], dropped: [] });
+
+    world.answers.set("POST /api/bots/rex/messages", () => Response.json({ error: "no such dog" }, { status: 404 }));
+    machine.serving = true;
+    const after = await ask() as { held: string[]; dropped: Array<{ id: string; why: string; at: number }> };
+    expect(after.held).toEqual([]);
+    expect(after.dropped).toEqual([{ id: SEND, why: "refused", at: expect.any(Number) }]);
+    expect((await ask() as typeof after).dropped).toHaveLength(1);
+  });
+
+  it("forgets a delivered message without calling it dropped", async () => {
+    const { visit, sleep, machine } = await awakeHome();
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
+    await visit("/api/bots", asOwner());
+    await sleep();
+    machine.serving = false;
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(202);
+    world.answers.set("POST /api/bots/rex/messages", () => Response.json({ ok: true }));
+    machine.serving = true;
+    expect(await (await visit(`/api/held-sends?ids=${SEND}`, asOwner())).json()).toEqual({ held: [], dropped: [] });
+  });
+
+  async function refusedOnce() {
+    const started = await awakeHome();
+    const { visit, sleep, machine } = started;
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
+    await visit("/api/bots", asOwner());
+    await sleep();
+    machine.serving = false;
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(202);
+    world.answers.set("POST /api/bots/rex/messages", () => Response.json({ error: "no such dog" }, { status: 404 }));
+    machine.serving = true;
+    const whatBecame = () => visit(`/api/held-sends?ids=${SEND}`, asOwner()).then((answer) => answer.json());
+    expect(await whatBecame()).toEqual({ held: [], dropped: [{ id: SEND, why: "refused", at: expect.any(Number) }] });
+    return { ...started, whatBecame };
+  }
+
+  it("stops calling a message dropped once the same send is held again, and once the home takes it", async () => {
+    const { visit, sleep, machine, whatBecame } = await refusedOnce();
+    await sleep();
+    machine.serving = false;
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(202);
+    expect(await whatBecame()).toEqual({ held: [SEND], dropped: [] });
+    world.answers.set("POST /api/bots/rex/messages", () => Response.json({ ok: true }));
+    machine.serving = true;
+    expect(await whatBecame()).toEqual({ held: [], dropped: [] });
+  });
+
+  it("stops calling a message dropped once the awake home takes the same send again, and not when it refuses it again", async () => {
+    const { visit, whatBecame } = await refusedOnce();
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(404);
+    expect(await whatBecame()).toMatchObject({ held: [], dropped: [{ id: SEND, why: "refused" }] });
+    world.answers.set("POST /api/bots/rex/messages", () => Response.json({ ok: true }));
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(200);
+    expect(await whatBecame()).toEqual({ held: [], dropped: [] });
+  });
+
+  const storedDropped = (started: { HOMES: InstanceType<typeof FakeNamespace>; machineId: string }) =>
+    started.HOMES.contexts.get(started.HOMES.idFromName(started.machineId).toString())!.storage.get("desk-dropped");
+
+  it("forgets a dropped message seven days later when a device asks about it, without waiting for another drop", async () => {
+    const { DESK_KEPT_MS } = await import("../src/desk.ts");
+    const started = await refusedOnce();
+    now += DESK_KEPT_MS - 60_000;
+    await started.visit("/api/bots", asOwner());
+    expect(await started.whatBecame()).toMatchObject({ held: [], dropped: [{ id: SEND, why: "refused" }] });
+    expect(await storedDropped(started)).toHaveLength(1);
+    now += 60_000;
+    expect(await started.whatBecame()).toEqual({ held: [], dropped: [] });
+    expect(await storedDropped(started)).toEqual([]);
+  });
+
+  it("forgets a dropped message seven days later when the next message is sent to the awake home", async () => {
+    const { DESK_KEPT_MS } = await import("../src/desk.ts");
+    const started = await refusedOnce();
+    now += DESK_KEPT_MS;
+    expect(await storedDropped(started)).toHaveLength(1);
+    world.answers.set("POST /api/bots/rex/messages", () => Response.json({ ok: true }));
+    const next = { ...sendWords(), body: JSON.stringify({ text: "something else", sendId: "send-0000000000009" }) };
+    expect((await started.visit("/api/bots/rex/messages", next)).status).toBe(200);
+    expect(await storedDropped(started)).toEqual([]);
+  });
+
+  it("cancels from the edge when the awake home has not taken the message yet", async () => {
+    const { home, visit, sleep, machine } = await awakeHome();
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
+    await visit("/api/bots", asOwner());
+    await sleep();
+    machine.serving = false;
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(202);
+    world.answers.set("POST /api/bots/rex/messages", () => new Response(null, { status: 503 }));
+    const proxied = vi.spyOn(home as unknown as { containerFetch(request: Request): Promise<Response> }, "containerFetch");
+    machine.serving = true;
+    const cancel = await visit(`/api/bots/rex/queue/${SEND}`, asked("DELETE"));
+    expect(await cancel.json()).toEqual({ ok: true });
+    expect(proxied.mock.calls.some(([request]) => request.method === "DELETE")).toBe(false);
+    world.answers.delete("POST /api/bots/rex/messages");
+    const tries = delivered(proxied as never);
+    await visit("/api/bots", asOwner());
+    expect(delivered(proxied as never)).toBe(tries);
+  });
+
+  const SECOND = "send-0000000000002";
+  const wordsFor = (sendId: string) => ({ ...sendWords(), body: JSON.stringify({ text: sendId, sendId }) });
+
+  async function twoHeldWithTheFirstOnItsWay() {
+    const started = await awakeHome();
+    const { visit, sleep, machine } = started;
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
+    await visit("/api/bots", asOwner());
+    await sleep();
+    machine.serving = false;
+    expect((await visit("/api/bots/rex/messages", wordsFor(SEND))).status).toBe(202);
+    now += 30 * 60 * 1000;
+    expect((await visit("/api/bots/rex/messages", wordsFor(SECOND))).status).toBe(202);
+    const taken: string[] = [];
+    let answerFirst: (response: Response) => void = () => undefined;
+    world.answers.set("POST /api/bots/rex/messages", async (request) => {
+      const { sendId } = await request.json() as { sendId: string };
+      taken.push(sendId);
+      return sendId === SEND ? new Promise<Response>((resolve) => { answerFirst = resolve; }) : Response.json({ ok: true });
+    });
+    machine.serving = true;
+    const page = visit("/api/bots", asOwner());
+    await vi.waitFor(() => expect(taken).toEqual([SEND]));
+    const whatBecame = () => visit(`/api/held-sends?ids=${SEND},${SECOND}`, asOwner()).then((answer) => answer.json());
+    return { ...started, taken, page, whatBecame, homeTakesTheFirst: () => answerFirst(Response.json({ ok: true })) };
+  }
+
+  it("does not call a message expired while it is on its way to the home, and still delivers the one behind it", async () => {
+    const { home, taken, page, whatBecame, homeTakesTheFirst } = await twoHeldWithTheFirstOnItsWay();
+    now += 31 * 60 * 1000;
+    const hourCheck = (home as unknown as { deliverQueued(): Promise<void> }).deliverQueued();
+    homeTakesTheFirst();
+    await Promise.all([hourCheck, page]);
+    expect(taken).toEqual([SEND, SECOND]);
+    expect(await whatBecame()).toEqual({ held: [], dropped: [] });
+  });
+
+  it("does not answer a cancel from the edge while the message is on its way to the home, and still delivers the one behind it", async () => {
+    const { visit, sleep, machine, taken, page, whatBecame, homeTakesTheFirst } = await twoHeldWithTheFirstOnItsWay();
+    world.answers.set(`DELETE /api/bots/rex/queue/${SEND}`, () => Response.json({ ok: true, sent: true }));
+    await sleep();
+    const cancel = visit(`/api/bots/rex/queue/${SEND}`, asked("DELETE"));
+    homeTakesTheFirst();
+    const answer = await cancel;
+    await page;
+    expect(await answer.json()).toEqual({ ok: true, sent: true });
+    machine.serving = true;
+    await visit("/api/bots", asOwner());
+    expect(taken.filter((id) => id === SEND)).toHaveLength(1);
+    expect(taken.filter((id) => id === SECOND)).toHaveLength(1);
+    expect(await whatBecame()).toEqual({ held: [], dropped: [] });
+  });
+});
