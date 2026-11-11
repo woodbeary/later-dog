@@ -2,29 +2,35 @@
  "default-7": {
   "Open the long chat, median of 8 (ms)": {
    "base": [
-    301.9
+    301.9,
+    310.1
    ],
    "main": [
-    266.9
+    266.9,
+    242.4
    ],
-   "difference": "-35 (-12%)",
+   "difference": "-51.4 (-17%)",
    "verdict": "too few runs to say"
   },
   "Open the long chat, slowest of 8 (ms)": {
    "base": [
-    339.8
+    339.8,
+    344.1
    ],
    "main": [
-    280
+    280,
+    274.7
    ],
-   "difference": "-59.8 (-18%)",
+   "difference": "-64.6 (-19%)",
    "verdict": "too few runs to say"
   },
   "Long chat: rows drawn when it is first shown": {
    "base": [
+    120,
     120
    ],
    "main": [
+    30,
     30
    ],
    "difference": "-90 (-75%)",
@@ -32,19 +38,23 @@
   },
   "Long chat: all 120 rows in place, median of 8 (ms)": {
    "base": [
-    292
+    292,
+    301
    ],
    "main": [
-    375
+    375,
+    363
    ],
-   "difference": "+83 (+28%)",
+   "difference": "+72.5 (+24%)",
    "verdict": "too few runs to say"
   },
   "Long chat: openings of 8 that never reached 120 rows": {
    "base": [
+    0,
     0
    ],
    "main": [
+    0,
     0
    ],
    "difference": "0",
@@ -52,59 +62,71 @@
   },
   "Open a short chat, median of 8 (ms)": {
    "base": [
-    63.6
+    63.6,
+    71.1
    ],
    "main": [
-    69.2
+    69.2,
+    74.6
    ],
-   "difference": "+5.6 (+9%)",
+   "difference": "+4.6 (+7%)",
    "verdict": "too few runs to say"
   },
   "Long tasks across 16 switches (ms)": {
    "base": [
-    2261
+    2261,
+    2245
    ],
    "main": [
-    2792
+    2792,
+    2604
    ],
-   "difference": "+531 (+23%)",
+   "difference": "+445 (+20%)",
    "verdict": "too few runs to say"
   },
   "Key press to frame, median of 119 keys (ms)": {
    "base": [
-    23.6
+    23.6,
+    24.2
    ],
    "main": [
-    23.6
+    23.6,
+    23.2
    ],
-   "difference": "0",
+   "difference": "-0.5 (-2%)",
    "verdict": "too few runs to say"
   },
   "Key press to frame, 95th of 119 keys (ms)": {
    "base": [
-    32.2
+    32.2,
+    32.5
    ],
    "main": [
-    31.9
+    31.9,
+    32.1
    ],
-   "difference": "-0.3 (-1%)",
+   "difference": "-0.4 (-1%)",
    "verdict": "too few runs to say"
   },
   "Key press to frame, slowest of 119 keys (ms)": {
    "base": [
-    32.9
+    32.9,
+    33.1
    ],
    "main": [
-    32.9
+    32.9,
+    33
    ],
-   "difference": "0",
+   "difference": "-0.0 (-0%)",
    "verdict": "too few runs to say"
   },
   "Typing: frames slower than 25 ms": {
    "base": [
+    0,
     0
    ],
    "main": [
+    0,
     0
    ],
    "difference": "0",
@@ -112,29 +134,35 @@
   },
   "Typing: main thread busy over 5.5 s (ms)": {
    "base": [
+    2257,
     2257
    ],
    "main": [
-    2000
+    2000,
+    1927
    ],
-   "difference": "-257 (-11%)",
+   "difference": "-293.5 (-13%)",
    "verdict": "too few runs to say"
   },
   "Typing: layouts for 119 keys": {
    "base": [
-    768
+    768,
+    776
    ],
    "main": [
-    569
+    569,
+    564
    ],
-   "difference": "-199 (-26%)",
+   "difference": "-205.5 (-27%)",
    "verdict": "too few runs to say"
   },
   "Typing: components redrawn for 119 keys": {
    "base": [
+    3221,
     3221
    ],
    "main": [
+    3223,
     3223
    ],
    "difference": "+2 (+0%)",
@@ -142,49 +170,59 @@
   },
   "Cold load: first paint, median of 5 (ms)": {
    "base": [
-    372
+    372,
+    360
    ],
    "main": [
-    452
+    452,
+    364
    ],
-   "difference": "+80 (+22%)",
+   "difference": "+42 (+11%)",
    "verdict": "too few runs to say"
   },
   "Cold load: message box ready, median of 5 (ms)": {
    "base": [
-    547.2
+    547.2,
+    512.8
    ],
    "main": [
-    649.8
+    649.8,
+    520.3
    ],
-   "difference": "+102.6 (+19%)",
+   "difference": "+55.0 (+10%)",
    "verdict": "too few runs to say"
   },
   "Cold load: message box ready, slowest of 5 (ms)": {
    "base": [
-    593.1
+    593.1,
+    528.5
    ],
    "main": [
-    668.2
+    668.2,
+    547.3
    ],
-   "difference": "+75.1 (+13%)",
+   "difference": "+47.0 (+8%)",
    "verdict": "too few runs to say"
   },
   "Idle: main thread busy per 3 s (ms)": {
    "base": [
-    130
+    130,
+    116
    ],
    "main": [
-    77
+    77,
+    62
    ],
-   "difference": "-53 (-41%)",
+   "difference": "-53.5 (-43%)",
    "verdict": "too few runs to say"
   },
   "Idle: style passes per 3 s": {
    "base": [
+    181,
     181
    ],
    "main": [
+    0,
     0
    ],
    "difference": "-181 (-100%)",
@@ -192,39 +230,47 @@
   },
   "A streamed reply: frames slower than 25 ms": {
    "base": [
-    5
+    5,
+    4
    ],
    "main": [
-    2
+    2,
+    3
    ],
-   "difference": "-3 (-60%)",
+   "difference": "-2 (-44%)",
    "verdict": "too few runs to say"
   },
   "A streamed reply: components redrawn": {
    "base": [
-    8628
+    8628,
+    8630
    ],
    "main": [
-    5487
+    5487,
+    5491
    ],
-   "difference": "-3,141 (-36%)",
+   "difference": "-3,140 (-36%)",
    "verdict": "too few runs to say"
   },
   "Own bubble after Enter (ms)": {
    "base": [
-    36.90000000037253
+    36.90000000037253,
+    34.299999999813735
    ],
    "main": [
-    28.100000000558794
+    28.100000000558794,
+    26.59999999962747
    ],
-   "difference": "-8.8 (-24%)",
+   "difference": "-8.2 (-23%)",
    "verdict": "too few runs to say"
   },
   "Four other dogs working: frames slower than 25 ms": {
    "base": [
+    0,
     0
    ],
    "main": [
+    0,
     0
    ],
    "difference": "0",
@@ -232,39 +278,47 @@
   },
   "Four other dogs working: main thread busy (ms)": {
    "base": [
-    970
+    970,
+    911
    ],
    "main": [
-    797
+    797,
+    749
    ],
-   "difference": "-173 (-18%)",
+   "difference": "-167.5 (-18%)",
    "verdict": "too few runs to say"
   },
   "Four other dogs working: components redrawn": {
    "base": [
-    1322
+    1322,
+    1225
    ],
    "main": [
-    636
+    636,
+    680
    ],
-   "difference": "-686 (-52%)",
+   "difference": "-615.5 (-48%)",
    "verdict": "too few runs to say"
   },
   "Switching: components redrawn across 16 switches": {
    "base": [
-    31091
+    31091,
+    31265
    ],
    "main": [
-    32933
+    32933,
+    32980
    ],
-   "difference": "+1,842 (+6%)",
+   "difference": "+1,778 (+6%)",
    "verdict": "too few runs to say"
   },
   "JS heap at idle, after a collection (MB)": {
    "base": [
+    12.8,
     12.8
    ],
    "main": [
+    12.7,
     12.7
    ],
    "difference": "-0.1 (-1%)",
@@ -272,9 +326,11 @@
   },
   "JS heap after the run, after a collection (MB)": {
    "base": [
-    25.8
+    25.8,
+    25.7
    ],
    "main": [
+    26,
     26
    ],
    "difference": "+0.2 (+1%)",
@@ -282,49 +338,59 @@
   },
   "Page process memory at idle (MB)": {
    "base": [
-    61
+    61,
+    60
    ],
    "main": [
-    59
+    59,
+    60
    ],
-   "difference": "-2 (-3%)",
+   "difference": "-1 (-2%)",
    "verdict": "too few runs to say"
   },
   "Page process memory, highest of 6 samples (MB)": {
    "base": [
-    373
+    373,
+    345
    ],
    "main": [
-    344
+    344,
+    382
    ],
-   "difference": "-29 (-8%)",
+   "difference": "+4 (+1%)",
    "verdict": "too few runs to say"
   },
   "Browser process tree at idle, resident (MB)": {
    "base": [
-    1001
+    1001,
+    1000
    ],
    "main": [
-    1002
+    1002,
+    998
    ],
-   "difference": "+1 (+0%)",
+   "difference": "-0.5 (-0%)",
    "verdict": "too few runs to say"
   },
   "Browser process tree, highest in the run, resident (MB)": {
    "base": [
-    1337
-   ],
-   "main": [
+    1337,
     1314
    ],
-   "difference": "-23 (-2%)",
+   "main": [
+    1314,
+    1336
+   ],
+   "difference": "-0.5 (-0%)",
    "verdict": "too few runs to say"
   },
   "DOM nodes after the run": {
    "base": [
+    10933,
     10933
    ],
    "main": [
+    10933,
     10933
    ],
    "difference": "0",
@@ -332,9 +398,11 @@
   },
   "Rows in the long chat 1.5 s after opening": {
    "base": [
+    120,
     120
    ],
    "main": [
+    120,
     120
    ],
    "difference": "0",
@@ -344,29 +412,35 @@
  "default-80": {
   "Open the long chat, median of 8 (ms)": {
    "base": [
-    560.6
+    560.6,
+    532.6
    ],
    "main": [
-    402.5
+    402.5,
+    403.9
    ],
-   "difference": "-158.1 (-28%)",
+   "difference": "-143.4 (-26%)",
    "verdict": "too few runs to say"
   },
   "Open the long chat, slowest of 8 (ms)": {
    "base": [
-    651.9
+    651.9,
+    596.3
    ],
    "main": [
-    485.3
+    485.3,
+    428.6
    ],
-   "difference": "-166.6 (-26%)",
+   "difference": "-167.1 (-27%)",
    "verdict": "too few runs to say"
   },
   "Long chat: rows drawn when it is first shown": {
    "base": [
+    120,
     120
    ],
    "main": [
+    30,
     30
    ],
    "difference": "-90 (-75%)",
@@ -374,19 +448,23 @@
   },
   "Long chat: all 120 rows in place, median of 8 (ms)": {
    "base": [
-    453
+    453,
+    431
    ],
    "main": [
-    510
+    510,
+    513
    ],
-   "difference": "+57 (+13%)",
+   "difference": "+69.5 (+16%)",
    "verdict": "too few runs to say"
   },
   "Long chat: openings of 8 that never reached 120 rows": {
    "base": [
+    0,
     0
    ],
    "main": [
+    0,
     0
    ],
    "difference": "0",
@@ -394,89 +472,107 @@
   },
   "Open a short chat, median of 8 (ms)": {
    "base": [
-    91.8
+    91.8,
+    71.9
    ],
    "main": [
-    72.7
+    72.7,
+    70.8
    ],
-   "difference": "-19.1 (-21%)",
+   "difference": "-10.1 (-12%)",
    "verdict": "too few runs to say"
   },
   "Long tasks across 16 switches (ms)": {
    "base": [
-    4428
+    4428,
+    4139
    ],
    "main": [
-    4234
+    4234,
+    4141
    ],
-   "difference": "-194 (-4%)",
+   "difference": "-96 (-2%)",
    "verdict": "too few runs to say"
   },
   "Key press to frame, median of 119 keys (ms)": {
    "base": [
-    67.2
+    67.2,
+    74.7
    ],
    "main": [
-    24.6
+    24.6,
+    24.4
    ],
-   "difference": "-42.6 (-63%)",
+   "difference": "-46.5 (-65%)",
    "verdict": "too few runs to say"
   },
   "Key press to frame, 95th of 119 keys (ms)": {
    "base": [
-    122.9
+    122.9,
+    116.7
    ],
    "main": [
-    31.9
+    31.9,
+    32.3
    ],
-   "difference": "-91 (-74%)",
+   "difference": "-87.7 (-73%)",
    "verdict": "too few runs to say"
   },
   "Key press to frame, slowest of 119 keys (ms)": {
    "base": [
-    145
+    145,
+    145.8
    ],
    "main": [
-    33.1
+    33.1,
+    32.8
    ],
-   "difference": "-111.9 (-77%)",
+   "difference": "-112.5 (-77%)",
    "verdict": "too few runs to say"
   },
   "Typing: frames slower than 25 ms": {
    "base": [
-    159
+    159,
+    144
    ],
    "main": [
+    0,
     0
    ],
-   "difference": "-159 (-100%)",
+   "difference": "-151.5 (-100%)",
    "verdict": "too few runs to say"
   },
   "Typing: main thread busy over 5.5 s (ms)": {
    "base": [
-    9732
+    9732,
+    9970
    ],
    "main": [
-    1659
+    1659,
+    1753
    ],
-   "difference": "-8,073 (-83%)",
+   "difference": "-8,145 (-83%)",
    "verdict": "too few runs to say"
   },
   "Typing: layouts for 119 keys": {
    "base": [
-    716
+    716,
+    732
    ],
    "main": [
+    263,
     263
    ],
-   "difference": "-453 (-63%)",
+   "difference": "-461 (-64%)",
    "verdict": "too few runs to say"
   },
   "Typing: components redrawn for 119 keys": {
    "base": [
+    3195,
     3195
    ],
    "main": [
+    3223,
     3223
    ],
    "difference": "+28 (+1%)",
@@ -484,49 +580,59 @@
   },
   "Cold load: first paint, median of 5 (ms)": {
    "base": [
-    376
+    376,
+    356
    ],
    "main": [
-    368
+    368,
+    380
    ],
-   "difference": "-8 (-2%)",
+   "difference": "+8 (+2%)",
    "verdict": "too few runs to say"
   },
   "Cold load: message box ready, median of 5 (ms)": {
    "base": [
-    790.8
+    790.8,
+    778.4
    ],
    "main": [
-    791.7
+    791.7,
+    827.8
    ],
-   "difference": "+0.9 (+0%)",
+   "difference": "+25.2 (+3%)",
    "verdict": "too few runs to say"
   },
   "Cold load: message box ready, slowest of 5 (ms)": {
    "base": [
-    891.4
+    891.4,
+    886.3
    ],
    "main": [
-    841.5
+    841.5,
+    847.3
    ],
-   "difference": "-49.9 (-6%)",
+   "difference": "-44.4 (-5%)",
    "verdict": "too few runs to say"
   },
   "Idle: main thread busy per 3 s (ms)": {
    "base": [
-    527
+    527,
+    423
    ],
    "main": [
-    85
+    85,
+    83
    ],
-   "difference": "-442 (-84%)",
+   "difference": "-391 (-82%)",
    "verdict": "too few runs to say"
   },
   "Idle: style passes per 3 s": {
    "base": [
+    181,
     181
    ],
    "main": [
+    0,
     0
    ],
    "difference": "-181 (-100%)",
@@ -534,59 +640,71 @@
   },
   "A streamed reply: frames slower than 25 ms": {
    "base": [
-    20
+    20,
+    15
    ],
    "main": [
-    4
+    4,
+    2
    ],
-   "difference": "-16 (-80%)",
+   "difference": "-14.5 (-83%)",
    "verdict": "too few runs to say"
   },
   "A streamed reply: components redrawn": {
    "base": [
-    8351
+    8351,
+    9073
    ],
    "main": [
-    5497
+    5497,
+    5500
    ],
-   "difference": "-2,854 (-34%)",
+   "difference": "-3,214 (-37%)",
    "verdict": "too few runs to say"
   },
   "Own bubble after Enter (ms)": {
    "base": [
-    41.799999999813735
+    41.799999999813735,
+    63.89999999944121
    ],
    "main": [
-    32.19999999925494
+    32.19999999925494,
+    29.200000000186265
    ],
-   "difference": "-9.6 (-23%)",
+   "difference": "-22.1 (-42%)",
    "verdict": "too few runs to say"
   },
   "Four other dogs working: frames slower than 25 ms": {
    "base": [
-    31
+    31,
+    28
    ],
    "main": [
+    0,
     0
    ],
-   "difference": "-31 (-100%)",
+   "difference": "-29.5 (-100%)",
    "verdict": "too few runs to say"
   },
   "Four other dogs working: main thread busy (ms)": {
    "base": [
-    2221
+    2221,
+    2279
    ],
    "main": [
-    350
+    350,
+    371
    ],
-   "difference": "-1,871 (-84%)",
+   "difference": "-1,890 (-84%)",
    "verdict": "too few runs to say"
   },
   "Four other dogs working: components redrawn": {
    "base": [
+    964,
     964
    ],
    "main": [
+    683,
     683
    ],
    "difference": "-281 (-29%)",
@@ -594,79 +712,95 @@
   },
   "Switching: components redrawn across 16 switches": {
    "base": [
-    30105
+    30105,
+    29563
    ],
    "main": [
-    31449
+    31449,
+    31145
    ],
-   "difference": "+1,344 (+4%)",
+   "difference": "+1,463 (+5%)",
    "verdict": "too few runs to say"
   },
   "JS heap at idle, after a collection (MB)": {
    "base": [
+    15,
     15
    ],
    "main": [
-    15.2
+    15.2,
+    15.3
    ],
-   "difference": "+0.2 (+1%)",
+   "difference": "+0.2 (+2%)",
    "verdict": "too few runs to say"
   },
   "JS heap after the run, after a collection (MB)": {
    "base": [
+    28.2,
     28.2
    ],
    "main": [
-    28.3
+    28.3,
+    28.4
    ],
-   "difference": "+0.1 (+0%)",
+   "difference": "+0.2 (+1%)",
    "verdict": "too few runs to say"
   },
   "Page process memory at idle (MB)": {
    "base": [
+    92,
     92
    ],
    "main": [
-    86
+    86,
+    83
    ],
-   "difference": "-6 (-7%)",
+   "difference": "-7.5 (-8%)",
    "verdict": "too few runs to say"
   },
   "Page process memory, highest of 6 samples (MB)": {
    "base": [
-    503
+    503,
+    475
    ],
    "main": [
-    348
+    348,
+    360
    ],
-   "difference": "-155 (-31%)",
+   "difference": "-135 (-28%)",
    "verdict": "too few runs to say"
   },
   "Browser process tree at idle, resident (MB)": {
    "base": [
+    1048,
     1048
    ],
    "main": [
-    1042
+    1042,
+    1039
    ],
-   "difference": "-6 (-1%)",
+   "difference": "-7.5 (-1%)",
    "verdict": "too few runs to say"
   },
   "Browser process tree, highest in the run, resident (MB)": {
    "base": [
-    1455
+    1455,
+    1435
    ],
    "main": [
-    1389
+    1389,
+    1457
    ],
-   "difference": "-66 (-5%)",
+   "difference": "-22 (-2%)",
    "verdict": "too few runs to say"
   },
   "DOM nodes after the run": {
    "base": [
+    15748,
     15748
    ],
    "main": [
+    15779,
     15779
    ],
    "difference": "+31 (+0%)",
@@ -674,9 +808,11 @@
   },
   "Rows in the long chat 1.5 s after opening": {
    "base": [
+    120,
     120
    ],
    "main": [
+    120,
     120
    ],
    "difference": "0",
