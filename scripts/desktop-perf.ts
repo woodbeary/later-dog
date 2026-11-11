@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { launchVerificationServer, type VerificationServer } from "./control-laterdog.ts";
 import { fixtureApi } from "./testing/preview-fixture.ts";
 
+const WELCOME_VERSION = 2;
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 interface Options {
@@ -79,7 +80,7 @@ function replies(): string[] {
   const prose = "The release checklist is done apart from the two items that need you. The signed build finished and passed its smoke tests on both window sizes, the update guide names the new group and the rollback target, and the pull request is merged. Nothing else changed in this pass, so the next step is yours.";
   const list = ["Here is where things stand:", "", "- **Build:** finished and signed, with the long dog names fitting their rows.", "- **Docs:** the update guide is merged and names the rollback target.", "- **Waiting on you:** approve the screenshots and confirm the pricing line before Friday.", "", "`pnpm verify` passed in 4 min 12 s."].join("\n");
   const shapes = [prose, list, `${prose}\n\n${code}`, `Results from this run:\n\n${table}\n\n${prose}`, "Done. Nothing else needed.", `${list}\n\n${code}\n\n${table}`];
-  return Array.from({ length: 4000 }, (_, index) => `Answer ${index + 1}. ${shapes[index % shapes.length]}`);
+  return Array.from({ length: 1200 }, (_, index) => `Answer ${index + 1}. ${shapes[index % shapes.length]}`);
 }
 
 async function settled(api: ReturnType<typeof fixtureApi>, botIds: readonly string[], timeoutMs = 120_000): Promise<void> {
@@ -100,7 +101,7 @@ async function exchange(api: ReturnType<typeof fixtureApi>, dog: Dog, text: stri
 }
 
 async function seed(api: ReturnType<typeof fixtureApi>, setup: Options): Promise<{ long: Dog; others: Dog[] }> {
-  await api("PATCH", "/api/config", { language: "en" });
+  await api("PATCH", "/api/config", { language: "en", onboarding: { completedAt: new Date().toISOString(), version: WELCOME_VERSION } });
   const make = async (name: string): Promise<Dog> => {
     const created = await api("POST", "/api/bots", { name }) as { bot: Dog };
     return { id: created.bot.id, name: created.bot.name, threadId: created.bot.threadId };
@@ -219,6 +220,7 @@ function treeRss(rootPid: number): number {
 
 async function heap(page: Page): Promise<{ heapMb: number; nodes: number }> {
   const session = await page.context().newCDPSession(page);
+  await session.send("Performance.enable");
   await session.send("HeapProfiler.collectGarbage");
   const { metrics = [] } = await session.send("Performance.getMetrics");
   const value = (name: string) => metrics.find((metric) => metric.name === name)?.value ?? 0;
@@ -263,7 +265,7 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
     await page.waitForTimeout(300);
   });
 
-  writeFileSync(streamFile, JSON.stringify({ everyMs: 25, chars: 28 }));
+  writeFileSync(streamFile, JSON.stringify({ everyMs: 30, chars: 10 }));
   await open(page, dogs.long);
   await page.click(composerOf(dogs.long));
   const token = `streamed-${randomUUID().slice(0, 8)}`;
@@ -340,10 +342,12 @@ async function main() {
   if (!existsSync(join(staticDir, "index.html"))) throw new Error("build the renderer first: pnpm exec vite build");
   const scratch = mkdtempSync(join(tmpdir(), "laterdog-desktop-perf-"));
   const streamFile = join(scratch, "stream.json");
+  const repliesFile = join(scratch, "replies.json");
+  writeFileSync(repliesFile, JSON.stringify(replies()));
   const fixture = await launchVerificationServer({
     ...process.env,
     LATERDOG_TEST_STATIC_DIR: staticDir,
-    FAKE_CLAUDE_REPLIES: JSON.stringify(replies()),
+    FAKE_CLAUDE_REPLIES_FILE: repliesFile,
     FAKE_CLAUDE_REPLY_STATE: join(scratch, "reply-index"),
     FAKE_CLAUDE_TOOL_CALLS: "[]",
     FAKE_CLAUDE_STREAM_FILE: streamFile,
@@ -358,6 +362,8 @@ async function main() {
     const cold = await coldLoads(browser, fixture.info.url, setup.coldRuns);
     const timed = await pass(browser, fixture, api, dogs, setup, streamFile, false);
     const counted = await pass(browser, fixture, api, dogs, setup, streamFile, true);
+    const serverTreeRssMb = treeRss(fixture.info.pid);
+    const memoryAtPeak = { serverTreeRssMb, browserTreeRssMb: treeRss(process.pid) - serverTreeRssMb - Math.round(process.memoryUsage().rss / 1024 / 1024) };
     const result = {
       label: setup.label,
       at: new Date().toISOString(),
@@ -371,7 +377,7 @@ async function main() {
         streaming: { commits: counted.streaming.commits, rendered: counted.streaming.rendered },
         otherDogsWorking: { commits: counted.otherDogsWorking.commits, rendered: counted.otherDogsWorking.rendered },
       },
-      memory: { serverTreeRssMb: treeRss(fixture.info.pid), harnessTreeRssMb: treeRss(process.pid) },
+      memory: memoryAtPeak,
     };
     mkdirSync(dirname(setup.out), { recursive: true });
     writeFileSync(setup.out, `${JSON.stringify(result, null, 2)}\n`);

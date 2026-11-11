@@ -30,7 +30,8 @@ const mode = process.env.FAKE_CLAUDE_MODE ?? "happy";
 }
 const scriptedReplies = (() => {
   try {
-    const parsed = JSON.parse(process.env.FAKE_CLAUDE_REPLIES ?? "[]");
+    const file = process.env.FAKE_CLAUDE_REPLIES_FILE;
+    const parsed = JSON.parse(file && existsSync(file) ? readFileSync(file, "utf8") : process.env.FAKE_CLAUDE_REPLIES ?? "[]");
     if (!Array.isArray(parsed)) return [];
     return parsed.filter((value): value is string | string[] =>
       typeof value === "string" || (Array.isArray(value) && value.every((part) => typeof part === "string"))
