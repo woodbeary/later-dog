@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -458,6 +459,32 @@ posixOnly("mid-turn steering e2e", () => {
     await waitFor(async () => (await getBot(created.id)).busy === false, "the queued turn to settle");
   }, 30_000);
 
+  it("Send now on a later message from someone else reports only the message that went and leaves the asked one queued", async () => {
+    const created = (await api("POST", "/api/bots")).body.bot;
+    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "acp", model: "fake-model" } });
+    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "first" })).status).toBe(202);
+    await waitFor(async () => (await getBot(created.id)).busy === true, "the hung turn to start");
+    const ahead = await api("POST", `/api/bots/${created.id}/messages`, { text: "queued ahead by the owner" });
+    expect(ahead.body).toMatchObject({ ok: true, queued: true });
+    const person = await asPairedPerson();
+    const askedSendId = randomUUID();
+    const asked = await person("POST", `/api/bots/${created.id}/messages`, { text: "queued behind by someone else", sendId: askedSendId });
+    expect(asked.body).toMatchObject({ ok: true, queued: true });
+
+    const sent = await api("POST", `/api/bots/${created.id}/queue/${askedSendId}/steer`, { threadId: created.threadId });
+    expect(sent.status).toBe(200);
+    expect(sent.body).toMatchObject({ ok: true, sent: true, interrupted: true, queueIds: [ahead.body.queueId] });
+    expect(sent.body.messages.map((m: any) => m.text)).toEqual(["queued ahead by the owner"]);
+    const queues = (await api("GET", "/api/bots")).body.botQueuedMessages;
+    expect(queues[created.threadId]).toEqual([expect.objectContaining({ queueId: asked.body.queueId, sendId: askedSendId, text: "queued behind by someone else" })]);
+    expect((await getBot(created.id)).messages.some((m: any) => m.text === "queued behind by someone else")).toBe(false);
+
+    expect(await api("DELETE", `/api/bots/${created.id}/queue/${askedSendId}`, { threadId: created.threadId })).toEqual({ status: 200, body: { ok: true } });
+    await api("POST", `/api/bots/${created.id}/interrupt`);
+    await waitFor(async () => (await getBot(created.id)).busy === false, "the drained turn to settle");
+    expect((await getBot(created.id)).messages.some((m: any) => m.text === "queued behind by someone else")).toBe(false);
+  }, 40_000);
+
   it("a message waiting for a free slot still names the paired person once it runs", async () => {
     const created = (await api("POST", "/api/bots")).body.bot;
     await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "acp", model: "fake-model" } });
@@ -741,19 +768,34 @@ posixOnly("mid-turn steering e2e", () => {
     expect((await api("POST", `/api/groups/${room.id}/messages`, { text: "first" })).status).toBe(202);
     await waitFor(async () => (await getGroup())?.busyBotId === created.id, "the hung room turn to start");
     const person = await asPairedPerson();
-    const queued = await person("POST", `/api/groups/${room.id}/messages`, { text: "second" });
+    const sendersOwnId = randomUUID();
+    const queued = await person("POST", `/api/groups/${room.id}/messages`, { text: "second", sendId: sendersOwnId });
     expect(queued.status).toBe(202);
     expect(queued.body).toMatchObject({ ok: true, queued: true });
+    expect(queued.body.queueId).not.toBe(sendersOwnId);
+    const behind = await person("POST", `/api/groups/${room.id}/messages`, { text: "cancelled by the sender's own id", sendId: "room-cancel-by-send-id-0001" });
+    expect(behind.body).toMatchObject({ ok: true, queued: true });
+    expect(await api("POST", `/api/groups/${room.id}/queue/room-cancel-by-send-id-0001/steer`, { threadId: room.threadId })).toEqual({ status: 409, body: { error: "only the first queued message can steer" } });
+    expect(await api("DELETE", `/api/groups/${room.id}/queue/room-cancel-by-send-id-0001`)).toEqual({ status: 200, body: { ok: true } });
+    expect(await api("DELETE", `/api/groups/${room.id}/queue/room-cancel-by-send-id-0001`)).toEqual({ status: 404, body: { error: "no such queued message" } });
 
-    const sent = await api("POST", `/api/groups/${room.id}/queue/${queued.body.queueId}/steer`, {
+    const sent = await api("POST", `/api/groups/${room.id}/queue/${sendersOwnId}/steer`, {
       threadId: room.threadId,
     });
     expect(sent.status).toBe(200);
-    expect(sent.body).toMatchObject({ ok: true, sent: true, interrupted: true, queueIds: [queued.body.queueId] });
+    expect(sent.body).toMatchObject({ ok: true, sent: true, interrupted: true, queueIds: [queued.body.queueId, sendersOwnId] });
     const lines = (await getGroup())?.messages.filter((m: any) => m.role === "user" && m.text === "second");
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatchObject({ queueId: queued.body.queueId, sender: PAIRED });
+    expect(lines[0]).toMatchObject({ queueId: queued.body.queueId, sendId: sendersOwnId, sender: PAIRED });
     expect(lines[0].steered).toBeUndefined();
+    expect(await api("POST", `/api/groups/${room.id}/queue/${sendersOwnId}/steer`, { threadId: room.threadId }))
+      .toEqual({ status: 200, body: { ok: true, sent: true, threadId: room.threadId, messages: [], queueIds: [sendersOwnId] } });
+    expect(await api("POST", `/api/groups/${room.id}/queue/${randomUUID()}/steer`, { threadId: room.threadId }))
+      .toEqual({ status: 404, body: { error: "no such queued message" } });
+    const again = await person("POST", `/api/groups/${room.id}/messages`, { text: "second", sendId: sendersOwnId });
+    expect(again.body.message).toMatchObject({ id: lines[0].id, sendId: sendersOwnId });
+    expect((await getGroup())?.messages.filter((m: any) => m.role === "user" && m.text === "second")).toHaveLength(1);
+    expect(JSON.stringify((await getGroup())?.messages)).not.toContain("cancelled by the sender's own id");
     await api("POST", `/api/groups/${room.id}/interrupt`, {});
     await waitFor(async () => (await getGroup())?.working === false, "the drained room turn to settle");
   }, 40_000);

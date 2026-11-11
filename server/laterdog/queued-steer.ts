@@ -115,6 +115,7 @@ export function askedToo(queueIds: readonly string[], asked: string): string[] {
   return queueIds.includes(asked) ? [...queueIds] : [...queueIds, asked];
 }
 
-export function withAskedQueueId<T extends SentAsNextTurn | StillQueued>(result: T, asked: string): T {
-  return "sent" in result && result.sent ? { ...result, queueIds: askedToo(result.queueIds, asked) } : result;
+export function withAskedQueueId<T extends SentAsNextTurn | StillQueued>(result: T, asked: string, namedByAsked: readonly string[]): T {
+  if (!("sent" in result && result.sent)) return result;
+  return namedByAsked.some((queueId) => result.queueIds.includes(queueId)) ? { ...result, queueIds: askedToo(result.queueIds, asked) } : result;
 }
