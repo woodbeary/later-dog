@@ -31,6 +31,12 @@ run:
   icon rail, and whether one click on the "more unread below" pill lands an
   unread row near the end of the list in view. `--shots DIR` photographs the
   landing.
+- `--sidebar-shots DIR` (with `--other-dogs 79 --other-turns 2`) marks every
+  third dog unread, scrolls the sidebar to its middle, moves keyboard focus to
+  an unread row with Tab, and photographs the sidebar and a close-up of the
+  focused row, in the list and in the icon rail, light and dark, at three
+  device pixels to one. It also records whether the focus ring is on and how
+  far any badge reaches past its row.
 - `--kept` writes a draft in two chats and checks each is still there after
   switching and after a reload, that the reload opens the same chat, that the
   accessibility tree has a named button for every dog's row whether or not
@@ -163,8 +169,43 @@ its run is replaced).
 | Height held and drawn, icon rail | 52 px until drawn once, and 56 px | 56 px and 56 px |
 | One click on the unread pill, 34 rows not drawn above the target, 17 of them titled | In view, 250 px below the middle | In view, 16 px above the middle, pill gone |
 
-The landing was photographed (`--shots`); the photograph was not looked at by
-a person.
+The landing was photographed (`--shots`); that photograph was not looked at.
+
+### Sidebar photographs at 80 dogs (`--sidebar-shots`, one run each of this branch and main)
+
+Taken on the Linux cloud computer from the build of 438977a (no file under
+`src` changed after it) and, for comparison, the build of main 4b377d9. Eight
+photographs of this branch: the whole sidebar and a close-up of the focused
+row, in the list and in the icon rail, light and dark. The helper that
+finished this branch opened each of the eight and looked at it; Jacob has not.
+
+What was seen:
+
+- Icon rail, light and dark. The unread dot sits at the lower right corner of
+  the dog's face on three of the rows in view, the focused row among them.
+  Each dot is a whole circle; none is cut at an edge. The focus ring is a
+  whole rounded rectangle around the focused row, all four sides and all four
+  corners, a thin inner line and a thicker outer one. Not clipped.
+- List, light and dark. A list row has no badge at the face's corner: its
+  unread dot sits at the end of the preview line, and is whole on each of the
+  four rows in view that have one. The focus ring is whole on all four sides
+  and corners, with the row's "more" button inside it. Not clipped.
+- The icon rail and the focused row of main look the same as this branch's in
+  the three photographs of main that were opened (icon rail, its focused row,
+  and the list's focused row, all light).
+- In the icon rail the "12 unread" and "11 unread" pills are as wide as the
+  rail, so their right end meets the rail's edge. Main draws them the same
+  way; this branch does not touch them.
+
+Recorded by the same run, in all four photographs of this branch: Tab landed
+on the intended row and `:focus-visible` matched; 4 badges in the rows in view
+in the list and 5 in the icon rail (three in clear view, one under the header
+and one behind the lower pill), none reaching past its row's box (0 px; a
+row's contents may be drawn up to 6 px past it).
+
+Not photographed: the live-call badge at the upper right corner of a face in
+the icon rail (it needs a live call), the "waiting on you" dot (it is drawn
+in the same place and size as the unread dot), and anything in the Mac app.
 
 ### What `--kept` found, at 80 dogs (one run each)
 
