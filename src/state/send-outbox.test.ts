@@ -7,6 +7,7 @@ import { api, initialState, reducer, StoreProvider, useStore, type Action, type 
 import { createSendOutbox } from "./send-outbox";
 import { HELD_GIVE_UP_MS, HELD_NOT_SENT, HELD_SENDS_KEY } from "@/lib/held-sends";
 import { SendingTrack } from "@/components/SendingTrack";
+import { withDeskQueue } from "../../deploy/laterdog/home/src/desk.ts";
 
 function mount(request: typeof fetch) {
   vi.useFakeTimers();
@@ -243,6 +244,35 @@ describe("a message the edge held for a sleeping home", () => {
     const again = await holding(async () => { throw new Error("not asked"); });
     await again.outbox.settleHeld([], [], { thread: [{ queueId: "home-queue-1", sendId: sent.sendId, text: "wake up and ship it" }] });
     expect(kept(again.store)).toEqual([]);
+  });
+
+  it("keeps the copy through a refresh the edge answers while it still holds the message, then says Not sent when the edge drops it", async () => {
+    const before = failedBefore();
+    let answer: unknown = { held: [sent.sendId], dropped: [] };
+    const { store, showError, request, outbox } = await holding(async () => answer);
+    const asks = () => request.mock.calls.filter(([path]) => String(path).startsWith("/api/held-sends")).length;
+    const waitingAtEdge = { id: sent.sendId, path: "/api/bots/bot/messages", headers: {}, body: JSON.stringify({ text: sent.text, sendId: sent.sendId, threadId: "thread" }), at: 1, threadId: "thread" };
+    const saved = { bots: [{ id: "bot", threadId: "thread", messages: [], activeLeafId: null }], botQueuedMessages: {} };
+    type Served = { bots: Array<Pick<Bot, "messages">>; botQueuedMessages: Record<string, unknown[]> };
+
+    const asRow = withDeskQueue(saved, [waitingAtEdge]) as Served;
+    expect(asRow.botQueuedMessages).toEqual({ thread: [{ queueId: sent.sendId, text: sent.text, sendId: sent.sendId }] });
+    await outbox.settleHeld(asRow.bots, [], asRow.botQueuedMessages);
+    expect(kept(store)).toHaveLength(1);
+    expect(asks()).toBe(1);
+
+    const asLines = withDeskQueue(saved, [{ ...waitingAtEdge, reply: { text: "On it.", model: "fixture" } }]) as Served;
+    expect(asLines.bots[0]!.messages.map((message) => [message.id, message.sendId])).toEqual([[`desk-${sent.sendId}`, sent.sendId], [`desk-${sent.sendId}-reply`, undefined]]);
+    await outbox.settleHeld(asLines.bots, [], asLines.botQueuedMessages);
+    expect(kept(store)).toHaveLength(1);
+    expect(asks()).toBe(2);
+    expect(showError).not.toHaveBeenCalled();
+
+    answer = { held: [], dropped: [{ id: sent.sendId, why: "refused", at: 9 }] };
+    await outbox.settleHeld([{ messages: [] }], [], {});
+    expect(kept(store)).toEqual([]);
+    expect(failedComposerSends(draft).slice(before)).toEqual([expect.objectContaining({ sendId: sent.sendId, text: "wake up and ship it" })]);
+    expect(showError).toHaveBeenCalledWith(expect.objectContaining({ message: HELD_NOT_SENT }), "thread");
   });
 
   it("puts the message in the Not sent row with its words when the edge says the home refused it or the hour ran out", async () => {

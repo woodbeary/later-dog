@@ -57,32 +57,47 @@ function payloadFor(item: OutboxItem): Record<string, unknown> {
   return item.target.kind === "bot" ? { ...base, deliver: item.target.deliver } : base;
 }
 
-export function sendIdsInQueues(queues: unknown): string[] {
+function queueRowsWithSendIds(queues: unknown): Array<{ threadId: string; queueId: unknown; sendId: string }> {
   if (typeof queues !== "object" || queues === null) return [];
-  return Object.values(queues as Record<string, unknown>).flatMap((entries) =>
+  return Object.entries(queues as Record<string, unknown>).flatMap(([threadId, entries]) =>
     Array.isArray(entries)
       ? entries.flatMap((entry) => {
-          const sendId = (entry as { sendId?: unknown } | null)?.sendId;
-          return typeof sendId === "string" && sendId ? [sendId] : [];
+          const { sendId, queueId } = (entry ?? {}) as { sendId?: unknown; queueId?: unknown };
+          return typeof sendId === "string" && sendId ? [{ threadId, queueId, sendId }] : [];
         })
       : [],
   );
+}
+
+export function sendIdsInQueues(queues: unknown): string[] {
+  return queueRowsWithSendIds(queues).map((row) => row.sendId);
+}
+
+export function sendIdsQueuedAtHome(queues: unknown): string[] {
+  return queueRowsWithSendIds(queues).filter((row) => row.queueId !== row.sendId).map((row) => row.sendId);
+}
+
+const OPTIMISTIC_LINE_ID = /^optimistic-/;
+const EDGE_LINE_ID = /^desk-/;
+
+type Chats = readonly Pick<Bot | Group, "messages">[];
+
+function sendIdsOnLines(chats: Chats, counts: (messageId: string) => boolean): string[] {
+  return chats.flatMap((chat) => (chat.messages ?? []).flatMap((message) => (message.sendId && counts(message.id) ? [message.sendId] : [])));
+}
+
+function landedSendIds(bots: Chats, groups: Chats, queues: unknown): Set<string> {
+  return new Set([...sendIdsInQueues(queues), ...sendIdsOnLines([...bots, ...groups], (id) => !OPTIMISTIC_LINE_ID.test(id))]);
+}
+
+function sendIdsAtHome(bots: Chats, groups: Chats, queues: unknown): Set<string> {
+  return new Set([...sendIdsQueuedAtHome(queues), ...sendIdsOnLines([...bots, ...groups], (id) => !OPTIMISTIC_LINE_ID.test(id) && !EDGE_LINE_ID.test(id))]);
 }
 
 export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
   const store = "store" in deps ? deps.store : browserStore();
   const hooks = new Map<string, SendHooks>();
   const now = deps.now ?? Date.now;
-  const landedSendIds = (bots: readonly Pick<Bot, "messages">[], groups: readonly Pick<Group, "messages">[], queues: unknown) => {
-    const landed = new Set<string>(sendIdsInQueues(queues));
-    for (const owner of [...bots, ...groups]) {
-      for (const message of owner.messages ?? []) {
-        if (message.sendId && !message.id.startsWith("optimistic-")) landed.add(message.sendId);
-      }
-    }
-    return landed;
-  };
-
   const settle = (item: OutboxItem, body: any) => {
     if (body?.message && typeof body.threadId === "string") {
       deps.dispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
@@ -176,8 +191,8 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     async settleHeld(bots, groups, queues) {
       const held = readHeldSends(store);
       if (held.length === 0) return;
-      const landed = landedSendIds(bots, groups, queues);
-      const waiting = held.filter((send) => !landed.has(send.sendId));
+      const atHome = sendIdsAtHome(bots, groups, queues);
+      const waiting = held.filter((send) => !atHome.has(send.sendId));
       if (waiting.length !== held.length) writeHeldSends(store, waiting);
       if (waiting.length === 0) return;
       const answer = await deps
