@@ -11,7 +11,9 @@ import {
 } from "./metrics.ts";
 
 export const DECISION_BUDGET_MS = 1_500;
-export const NULL_THRESHOLDS = [0.1, 0.3, 0.5, 0.7, 0.9] as const;
+export const NULL_THRESHOLDS = [0.05, 0.1, 0.3, 0.5, 0.7, 0.9] as const;
+export const LATENCY_MARKS_MS = [100, 250, 500, 1_000, 1_500] as const;
+export const WAIT_TOLERANCE = 0.01;
 
 export interface Receipt {
   id: string;
@@ -69,17 +71,28 @@ export interface ExtractionScore {
     items: number;
     model: Tally;
     rule: Tally;
+    ruleThenModel: Tally;
+    fields: Array<{ field: string; tally: Tally }>;
+    waitWithinTolerance: number;
     nullThresholds: Array<{ threshold: number; tally: Tally }>;
     wrong: Array<{ item: string; got: string | null; want: string | null; confidence: number | null }>;
   };
-  shortText: { items: number; amount: { model: Tally; rule: Tally }; date: { model: Tally; rule: Tally }; wrong: string[] };
+  shortText: { items: number; amount: { model: Tally; rule: Tally }; date: { model: Tally; rule: Tally }; amountsWrittenInTheText: number; amountsReturned: number; wrong: string[] };
   computed: { items: number; correct: number; wrong: string[]; estimates: number; estimateCovers: number; estimateWithinStep: number };
-  evidence: { textAnswers: number; spanReturned: number; spanSupportsValue: number; typedAnswers: number; typedWithSpan: number };
+  evidence: { textAnswers: number; spanReturned: number; spanSupportsValue: number; spanSupportsRightValue: number; typedAnswers: number; typedWithSpan: number };
   confidence: { whenRight: number | null; whenWrong: number | null };
+}
+
+export interface ModelLatency {
+  model: string;
+  target: string;
+  latency: Latency;
+  within: Array<{ ms: number; share: number }>;
 }
 
 export interface Results {
   receipts: Array<{ target: string; calls: number; first: string; last: string }>;
+  latency: ModelLatency[];
   rules: Array<{ case: DecisionCase; scored: number; accuracy: number | null }>;
   decisions: DecisionScore[];
   extraction: ExtractionScore[];
@@ -186,6 +199,29 @@ function scoreDecisions(receipts: readonly Receipt[], items: readonly DecisionIt
 }
 
 const sameText = (a: string, b: string) => a === b;
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+const text = (value: string | number | null): string | null => (typeof value === "string" ? value : null);
+const number = (value: string | number | null): number | null => (typeof value === "number" ? value : null);
+
+export function writtenInText(value: number, source: string): boolean {
+  const digits = source.replace(/(\d),(?=\d{3})/g, "$1");
+  const whole = Number.isInteger(value) ? String(value) : null;
+  const forms = [String(value), value.toFixed(2), ...(whole ? [whole] : [])];
+  return forms.some((form) => new RegExp(`(?:^|[^\\d.])${form.replace(".", "\\.")}(?:\\.0+)?(?![\\d]|\\.\\d)`).test(digits));
+}
+
+function latencyByModel(receipts: readonly Receipt[]): ModelLatency[] {
+  return [...groupBy(receipts.filter((row) => row.ok), (row) => `${row.target}\0${row.model}`)].map(([key, rows]) => {
+    const [target, model] = key.split("\0") as [string, string];
+    const values = rows.map((row) => row.latencyMs);
+    return {
+      model,
+      target,
+      latency: latencySummary(values, DECISION_BUDGET_MS),
+      within: LATENCY_MARKS_MS.map((ms) => ({ ms, share: values.filter((value) => value <= ms).length / values.length })),
+    };
+  });
+}
 
 function zoneFor(answer: ExtractedValue | undefined, item: { zone: string | null; zoneId: string }, homeZone: string): string {
   if (item.zone === null) return item.zoneId;
@@ -210,7 +246,7 @@ function scoreExtraction(receipts: readonly Receipt[]): ExtractionScore[] {
     const tokens: number[] = [];
     const rightConfidence: number[] = [];
     const wrongConfidence: number[] = [];
-    const evidence = { textAnswers: 0, spanReturned: 0, spanSupportsValue: 0, typedAnswers: 0, typedWithSpan: 0 };
+    const evidence = { textAnswers: 0, spanReturned: 0, spanSupportsValue: 0, spanSupportsRightValue: 0, typedAnswers: 0, typedWithSpan: 0 };
     let invalid = 0;
     const read = (group: string, id: string, fields: Record<string, FieldSpec>) => {
       const row = byItem.get(`${group}:${id}`);
@@ -241,11 +277,28 @@ function scoreExtraction(receipts: readonly Receipt[]): ExtractionScore[] {
       if (result === "wrong" || result === "falseValue") wrongConfidence.push(answer.confidence);
     };
 
-    const reset = { items: fixture.resets.length, model: emptyTally(), rule: emptyTally(), nullThresholds: NULL_THRESHOLDS.map((threshold) => ({ threshold, tally: emptyTally() })), wrong: [] as ExtractionScore["resetTime"]["wrong"] };
+    const resetFields = { reset_time: emptyTally(), reset_date: emptyTally(), time_zone: emptyTally(), wait: emptyTally() };
+    const reset = {
+      items: fixture.resets.length, model: emptyTally(), rule: emptyTally(), ruleThenModel: emptyTally(),
+      fields: Object.entries(resetFields).map(([field, tally]) => ({ field, tally })), waitWithinTolerance: 0,
+      nullThresholds: NULL_THRESHOLDS.map((threshold) => ({ threshold, tally: emptyTally() })), wrong: [] as ExtractionScore["resetTime"]["wrong"],
+    };
     for (const item of fixture.resets) {
-      reset.rule[outcome(ruleResetWallClock(item, nowMs), item.local, sameText)] += 1;
+      const ruled = ruleResetWallClock(item, nowMs);
+      reset.rule[outcome(ruled, item.local, sameText)] += 1;
       const parsed = read("resetTime", item.id, RESET_FIELDS);
-      if (!parsed) continue;
+      if (!parsed) {
+        reset.ruleThenModel[outcome(ruled, item.local, sameText)] += 1;
+        continue;
+      }
+      resetFields.reset_time[outcome(clockTime(parsed.answers.reset_time!.value), item.time, sameText)] += 1;
+      resetFields.reset_date[outcome(calendarDate(parsed.answers.reset_date!.value), item.date, sameText)] += 1;
+      const zoneResult = outcome(text(parsed.answers.time_zone!.value), item.zone, sameName);
+      resetFields.time_zone[zoneResult] += 1;
+      if (zoneResult === "correct" && spanSupports(parsed.answers.time_zone!, parsed.stateText)) evidence.spanSupportsRightValue += 1;
+      const waited = number(parsed.answers.wait!.value);
+      resetFields.wait[outcome(waited, item.waitSeconds, sameNumber)] += 1;
+      if (waited !== null && item.waitSeconds !== null && Math.abs(waited - item.waitSeconds) <= item.waitSeconds * WAIT_TOLERANCE) reset.waitWithinTolerance += 1;
       const assemble = (answers: Record<string, ExtractedValue>) => resetWallClock({
         time: clockTime(answers.reset_time!.value),
         date: calendarDate(answers.reset_date!.value),
@@ -254,6 +307,7 @@ function scoreExtraction(receipts: readonly Receipt[]): ExtractionScore[] {
       const got = assemble(parsed.answers);
       const result = outcome(got, item.local, sameText);
       reset.model[result] += 1;
+      reset.ruleThenModel[outcome(ruled ?? got, item.local, sameText)] += 1;
       note(parsed.answers.reset_time, result);
       if (result !== "correct" && result !== "correctNull") {
         reset.wrong.push({ item: item.id, got, want: item.local, confidence: parsed.answers.reset_time!.confidence });
@@ -264,7 +318,7 @@ function scoreExtraction(receipts: readonly Receipt[]): ExtractionScore[] {
       }
     }
 
-    const short = { items: fixture.shortTexts.length, amount: { model: emptyTally(), rule: emptyTally() }, date: { model: emptyTally(), rule: emptyTally() }, wrong: [] as string[] };
+    const short = { items: fixture.shortTexts.length, amount: { model: emptyTally(), rule: emptyTally() }, date: { model: emptyTally(), rule: emptyTally() }, amountsWrittenInTheText: 0, amountsReturned: 0, wrong: [] as string[] };
     for (const item of fixture.shortTexts) {
       const rule = ruleShortText(item.text, referenceYear);
       short.amount.rule[outcome(rule.amount, item.amount, sameNumber)] += 1;
@@ -273,6 +327,10 @@ function scoreExtraction(receipts: readonly Receipt[]): ExtractionScore[] {
       if (!parsed) continue;
       const amount = typeof parsed.answers.amount!.value === "number" ? parsed.answers.amount!.value : null;
       const amountResult = outcome(amount, item.amount, sameNumber);
+      if (amount !== null) {
+        short.amountsReturned += 1;
+        if (writtenInText(amount, item.text)) short.amountsWrittenInTheText += 1;
+      }
       const dateResult = outcome(calendarDate(parsed.answers.date!.value), item.date, sameText);
       short.amount.model[amountResult] += 1;
       short.date.model[dateResult] += 1;
@@ -330,6 +388,7 @@ export function scoreAll(receipts: readonly Receipt[]): Results {
       const times = rows.map((row) => row.at).sort();
       return { target, calls: rows.length, first: times[0] ?? "", last: times.at(-1) ?? "" };
     }),
+    latency: latencyByModel(receipts),
     rules: DECISION_CASES.map((group) => {
       const scored = items.filter((item) => item.group === group && item.gold.kind !== "unscored");
       return { case: group, scored: scored.length, accuracy: mean(scored.map((item) => (ruleCorrect(item) ? 1 : 0))) };
@@ -348,6 +407,13 @@ const tally = (value: Tally) => `${value.correct + value.correctNull} right (${v
 export function renderMarkdown(results: Results): string {
   const parts: string[] = [];
   parts.push(table(["Receipts from", "Calls", "First", "Last"], results.receipts.map((row) => [row.target, String(row.calls), row.first, row.last])));
+  parts.push(table(
+    ["Model", "Path", "Answered", "p50 ms", "p95 ms", "Worst ms", ...LATENCY_MARKS_MS.map((ms) => `Within ${ms} ms`)],
+    results.latency.map((row) => [
+      row.model, row.target, String(row.latency.count), String(row.latency.p50 ?? "n/a"), String(row.latency.p95 ?? "n/a"), String(row.latency.worst ?? "n/a"),
+      ...row.within.map((mark) => percent(mark.share)),
+    ]),
+  ));
   parts.push(table(
     ["Case", "Model", "Path", "Scored", "Right", "Rule", "Brier", "Calibration gap", "p50 ms", "p95 ms", "Worst ms", `Over ${DECISION_BUDGET_MS} ms`, "Failed", "Invalid", "$ per 1,000"],
     results.decisions.map((row) => [
@@ -375,20 +441,23 @@ export function renderMarkdown(results: Results): string {
   }
   for (const row of results.extraction) {
     parts.push(`Extraction, ${row.target}: ${row.asked} calls, ${row.failed} failed, ${row.invalid} invalid; p50 ${row.latency.p50} ms, p95 ${row.latency.p95} ms, worst ${row.latency.worst} ms; ${fixed(row.meanInputTokens, 0)} input tokens a call, $${fixed(row.dollarsPerThousand, 4)} per 1,000.`);
-    parts.push(table(["Reset time, 42 messages", "Result"], [
+    parts.push(table([`Reset time, ${row.resetTime.items} messages`, "Result"], [
       ["Model", tally(row.resetTime.model)],
       ["Rule", tally(row.resetTime.rule)],
+      ["Rule, then the model where the rule finds nothing", tally(row.resetTime.ruleThenModel)],
       ...row.resetTime.nullThresholds.map((point) => [`Model, empty above ${point.threshold}`, tally(point.tally)]),
     ]));
+    parts.push(table(["Reset field", "Result"], row.resetTime.fields.map((field) => [field.field, tally(field.tally)])));
+    parts.push(`Waits within ${WAIT_TOLERANCE * 100}% of the labelled seconds: ${row.resetTime.waitWithinTolerance}.`);
     if (row.resetTime.wrong.length) parts.push(`Reset misses: ${row.resetTime.wrong.map((wrong) => `${wrong.item} got ${wrong.got ?? "nothing"} want ${wrong.want ?? "nothing"} (${fixed(wrong.confidence, 2)})`).join("; ")}`);
-    parts.push(table(["Short text, 24 messages", "Model", "Rule"], [
+    parts.push(table([`Short text, ${row.shortText.items} messages`, "Model", "Rule"], [
       ["Amount", tally(row.shortText.amount.model), tally(row.shortText.amount.rule)],
       ["Date", tally(row.shortText.date.model), tally(row.shortText.date.rule)],
     ]));
     if (row.shortText.wrong.length) parts.push(`Short text misses: ${row.shortText.wrong.join("; ")}`);
     parts.push(`Computed values: ${row.computed.correct} of ${row.computed.items} right. Estimates: ${row.computed.estimateCovers} of ${row.computed.estimates} had the true value between the 10th and 90th percentile, ${row.computed.estimateWithinStep} landed within one step.`);
     if (row.computed.wrong.length) parts.push(`Computed misses: ${row.computed.wrong.join("; ")}`);
-    parts.push(`Evidence: ${row.evidence.spanSupportsValue} of ${row.evidence.textAnswers} text answers came with a span that reads back as the value (${row.evidence.spanReturned} had a span); ${row.evidence.typedWithSpan} of ${row.evidence.typedAnswers} typed answers carried a span.`);
+    parts.push(`Evidence: ${row.evidence.spanSupportsValue} of ${row.evidence.textAnswers} text answers came with a span that reads back as the value (${row.evidence.spanReturned} had a span), and ${row.evidence.spanSupportsRightValue} of those were the right value; ${row.evidence.typedWithSpan} of ${row.evidence.typedAnswers} typed answers carried a span. ${row.shortText.amountsWrittenInTheText} of ${row.shortText.amountsReturned} amounts returned are written as digits in the text.`);
     parts.push(`Mean reported confidence: ${fixed(row.confidence.whenRight)} when right, ${fixed(row.confidence.whenWrong)} when wrong.`);
   }
   return `${parts.join("\n\n")}\n`;
