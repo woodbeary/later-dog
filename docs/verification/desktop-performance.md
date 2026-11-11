@@ -205,6 +205,40 @@ The default timed run with `--other-dogs 79 --other-turns 2`: base 1 run, main 1
 |---|---|---|---|---|
 | base | base-80-layers-1 | 426 | 339 | Layerize 2938 ms x108, Paint 120 ms x312, PrePaint 52 ms x216, Layout 173 ms x300, UpdateLayoutTree 171 ms x300, EventDispatch 590 ms x387, FunctionCall 189 ms x1126 |
 
+### The three claims in #169 that had no result file
+
+#169's description gave three results from an earlier helper with no result
+file, run count or commit. Each was run again here at 80 dogs, once on each
+build. Result files are in `assets/desktop-performance/`.
+
+1. Layers. Still to run on main; the older renderer's count is in the table
+   above.
+2. Kept state (`--kept`). Confirmed on main, one run, `main-80-kept-1.json`.
+   A draft in the long chat and in a short chat was still there after
+   switching and after a reload, and the reload opened the same chat. The dog
+   that was not open showed three working dots and was named "Helper 2 ·
+   Working" while it replied; afterwards it showed one unread dot, was named
+   "Helper 2 · Unread", previewed the reply, and the unread rows went from 77
+   to 78; once opened it was read again (77) and the open chat had stayed
+   open throughout. 81 of 81 rows have a named button in the accessibility
+   tree, 41 of them not drawn at the time; Tab reached 81 of 81, each in view
+   with a focus ring, and Enter opened the focused row.
+   The same run on the older renderer (`base-80-kept-1.json`) agrees on the
+   drafts, the reload, Tab and Enter. It differs in two places, both
+   expected: the older renderer draws all 81 rows (none skipped), and its
+   rows have no spoken state, so the two checks that read "Working" and
+   "Unread" from the row's name report false there although the three dots
+   and the unread dot were on screen.
+3. Message box height (`--message-box`). Confirmed, one run on each build,
+   `base-80-mbox-1.json` and `main-80-mbox-1.json`. The run makes 27 edits
+   (typing past the edge, deleting, up to eight typed lines, a long word, a
+   narrower window, another chat and back, sending) and records the box's
+   height, the height of its text, whether it is expanded, how far it is
+   scrolled, and whether it has focus after each. All 27 steps are identical
+   in every recorded field between the two builds. #169 compared 024af20 with
+   its own branch; this compares 651cf65 with main, which brackets the same
+   change (the message box measuring itself only when its height can change).
+
 ### How the runs were made
 
 - `~/measure/base` is `git archive 651cf65` (tree f7700da, checked with
