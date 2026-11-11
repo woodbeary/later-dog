@@ -691,7 +691,7 @@ async function dropped(world: World, run: Run): Promise<CaseResult> {
     const newest = await newestAnswer(page);
     const again = Date.now();
     const reply = firstWords(page, newest);
-    check(`${why}: Retry can be pressed`, await press(page, "Retry"));
+    check(`${why}: the button that sends it again can be pressed`, await press(page, "Send again") || await press(page, "Retry"));
     const taken = await world.edge.seen("sent", { id: held.id, after: again }, 30_000);
     const engineAt = await world.engine.started(words);
     const first = await reply;
