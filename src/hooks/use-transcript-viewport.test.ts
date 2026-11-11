@@ -116,7 +116,7 @@ let keyListeners: Set<(event: Partial<KeyboardEvent>) => void>;
 let observers: number;
 let dispatched: unknown[];
 
-function mount(initial: Partial<Props> = {}) {
+function mount(initial: Partial<Props> = {}, { opening = false }: { opening?: boolean } = {}) {
   let props: Props = { ownerId: "bot", threadId: "thread", messages: rows(10), pinOn: [false], ...initial };
   let result!: ReturnType<typeof useTranscriptViewport<Row>>;
   const draw = () => {
@@ -133,7 +133,15 @@ function mount(initial: Partial<Props> = {}) {
     frames = [];
     for (const frame of queued) frame(0);
   };
+  const settle = () => {
+    for (let round = 0; round < 20 && frames.length > 0; round++) {
+      flushFrames();
+      react.render(draw, commit);
+    }
+  };
+  let holdOpening = opening;
   react.render(draw, commit);
+  if (!holdOpening) settle();
   return {
     get current() {
       return result;
@@ -141,11 +149,21 @@ function mount(initial: Partial<Props> = {}) {
     rerender(next: Partial<Props>) {
       props = { ...props, ...next };
       react.render(draw, commit);
+      if (!holdOpening) settle();
     },
     act(handler: () => void) {
       handler();
       react.render(draw, commit);
+      if (holdOpening) flushFrames();
+      else settle();
+    },
+    frame() {
       flushFrames();
+      react.render(draw, commit);
+    },
+    settle() {
+      holdOpening = false;
+      settle();
     },
   };
 }
@@ -164,7 +182,15 @@ beforeEach(() => {
     addEventListener: (_: string, listener: (event: Partial<KeyboardEvent>) => void) => keyListeners.add(listener),
     removeEventListener: (_: string, listener: (event: Partial<KeyboardEvent>) => void) => keyListeners.delete(listener),
   });
-  vi.stubGlobal("requestAnimationFrame", (frame: FrameRequestCallback) => frames.push(frame));
+  const asked = new Map<number, FrameRequestCallback>();
+  vi.stubGlobal("requestAnimationFrame", (frame: FrameRequestCallback) => {
+    asked.set(asked.size + 1, frame);
+    frames.push(frame);
+    return asked.size;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (handle: number) => {
+    frames = frames.filter((frame) => frame !== asked.get(handle));
+  });
   vi.stubGlobal("ResizeObserver", class {
     constructor() {
       observers++;
@@ -184,6 +210,51 @@ const press = (key: string, target: unknown = page.body, extra: Partial<Keyboard
 };
 
 describe("transcript viewport", () => {
+  it("opens a long chat on its newest rows, then fills the rest a frame at a time while staying at the bottom", () => {
+    const view = mount({ messages: rows(300) }, { opening: true });
+    expect(view.current.windowedMessages).toHaveLength(30);
+    expect(view.current.windowedMessages.at(-1)?.id).toBe("m299");
+    expect(scroller.scrollTop).toBe(scroller.bottom);
+
+    const shown = [30];
+    for (let step = 0; step < 6 && shown.at(-1)! < 120; step++) {
+      view.frame();
+      shown.push(view.current.windowedMessages.length);
+    }
+    expect(shown).toEqual([30, 60, 90, 120]);
+    expect(view.current.windowedMessages[0]?.id).toBe("m180");
+    expect(view.current.following).toBe(true);
+    view.frame();
+    expect(view.current.windowedMessages).toHaveLength(120);
+  });
+
+  it("keeps the reader's row where it is when they scroll up before the rest has filled in", () => {
+    const view = mount({ messages: rows(300) }, { opening: true });
+    view.act(() => view.current.scrollHandlers.onWheel({ deltaY: -40 } as never));
+    scroller.scrollTop = 600;
+    view.frame();
+    expect(view.current.windowedMessages).toHaveLength(60);
+    expect(scroller.scrollTop).toBe(600 + 30 * ROW);
+    view.settle();
+    expect(view.current.windowedMessages).toHaveLength(120);
+    expect(scroller.scrollTop).toBe(600 + 90 * ROW);
+    expect(view.current.following).toBe(false);
+  });
+
+  it("starts again on a short tail when another chat opens, and when a chat's messages arrive after it opened", () => {
+    const view = mount({ messages: rows(300) });
+    expect(view.current.windowedMessages).toHaveLength(120);
+    view.rerender({ ownerId: "other", threadId: "other-thread", messages: [] });
+    expect(view.current.windowedMessages).toHaveLength(0);
+    view.settle();
+
+    const late = mount({ ownerId: "late", threadId: "late-thread", messages: [] }, { opening: true });
+    late.rerender({ messages: rows(200) });
+    expect(late.current.windowedMessages).toHaveLength(30);
+    late.settle();
+    expect(late.current.windowedMessages).toHaveLength(120);
+  });
+
   it("follows new rows to the bottom until the reader scrolls up", () => {
     const view = mount({ messages: rows(10) });
     expect(view.current.following).toBe(true);

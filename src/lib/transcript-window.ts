@@ -7,6 +7,7 @@ export interface OpenTranscriptWindow {
   start: number;
   end: number | null;
   filled: boolean;
+  empty: boolean;
 }
 
 export interface TranscriptWindow<T> {
@@ -117,10 +118,14 @@ export function resolveTranscriptWindow<T>(
 
 export function openingWindow<T>(key: string, messages: readonly T[], counts?: CountsInWindow<T>): OpenTranscriptWindow {
   const start = windowStartBefore(messages, messages.length, TRANSCRIPT_OPENING_SIZE, counts);
-  return { key, start, end: null, filled: start === windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts) };
+  const tail = windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts);
+  return { key, start, end: null, filled: start <= tail, empty: messages.length === 0 };
 }
 
-export function filledWindow<T>(window: OpenTranscriptWindow, messages: readonly T[], counts?: CountsInWindow<T>): OpenTranscriptWindow {
+export function widenedWindow<T>(window: OpenTranscriptWindow, messages: readonly T[], counts?: CountsInWindow<T>): OpenTranscriptWindow {
   if (window.filled) return window;
-  return { ...window, start: Math.min(window.start, windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts)), filled: true };
+  const tail = windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts);
+  if (window.start <= tail) return { ...window, filled: true };
+  const start = Math.max(tail, windowStartBefore(messages, window.start, TRANSCRIPT_OPENING_SIZE, counts));
+  return { ...window, start, filled: start <= tail };
 }

@@ -4,12 +4,12 @@ import {
   TRANSCRIPT_OPENING_SIZE,
   TRANSCRIPT_WINDOW_SIZE,
   expandWindowStart,
-  filledWindow,
   focusWindowRange,
   followWindowStart,
   openingWindow,
   resolveTranscriptWindow,
   tailWindowStart,
+  widenedWindow,
   windowEndAfter,
   windowStartBefore,
 } from "./transcript-window";
@@ -220,29 +220,43 @@ describe("a window that counts only the rows a person can see", () => {
 
 describe("opening a chat with its newest rows first", () => {
   const thread = (length: number) => Array.from({ length }, (_, index) => ({ id: `m${index}`, shown: index % 2 === 0 }));
+  const settled = <T,>(messages: readonly T[], counts?: (message: T) => boolean) => {
+    let window = openingWindow("dog:thread", messages, counts);
+    const starts = [window.start];
+    while (!window.filled) {
+      window = widenedWindow(window, messages, counts);
+      starts.push(window.start);
+    }
+    return { window, starts };
+  };
 
   it("opens a long chat on a short tail and says the rest is still to come", () => {
     const opened = openingWindow("dog:thread", thread(400));
-    expect(opened).toEqual({ key: "dog:thread", start: 400 - TRANSCRIPT_OPENING_SIZE, end: null, filled: false });
+    expect(opened).toEqual({ key: "dog:thread", start: 400 - TRANSCRIPT_OPENING_SIZE, end: null, filled: false, empty: false });
     expect(resolveTranscriptWindow(thread(400), opened.start).visible).toHaveLength(TRANSCRIPT_OPENING_SIZE);
   });
 
   it("has nothing left to fill when the whole chat fits the opening tail", () => {
-    expect(openingWindow("dog:thread", thread(12))).toEqual({ key: "dog:thread", start: 0, end: null, filled: true });
-    expect(openingWindow("dog:thread", [])).toEqual({ key: "dog:thread", start: 0, end: null, filled: true });
+    expect(openingWindow("dog:thread", thread(12))).toEqual({ key: "dog:thread", start: 0, end: null, filled: true, empty: false });
+    expect(openingWindow("dog:thread", [])).toEqual({ key: "dog:thread", start: 0, end: null, filled: true, empty: true });
   });
 
-  it("fills back to the full window once, keeping the newest rows where they are", () => {
+  it("fills back to the full window a tail at a time, and then stops", () => {
     const messages = thread(400);
-    const filled = filledWindow(openingWindow("dog:thread", messages), messages);
-    expect(filled).toEqual({ key: "dog:thread", start: 400 - TRANSCRIPT_WINDOW_SIZE, end: null, filled: true });
-    expect(filledWindow(filled, thread(900))).toBe(filled);
+    const { window, starts } = settled(messages);
+    expect(starts).toEqual([370, 340, 310, 280]);
+    expect(window).toEqual({ key: "dog:thread", start: 400 - TRANSCRIPT_WINDOW_SIZE, end: null, filled: true, empty: false });
+    expect(widenedWindow(window, thread(900))).toBe(window);
+  });
+
+  it("stops at the start of a chat shorter than the full window", () => {
+    expect(settled(thread(50)).starts).toEqual([20, 0]);
   });
 
   it("never pulls the start forward when earlier rows were already asked for", () => {
     const messages = thread(400);
     const expanded = { ...openingWindow("dog:thread", messages), start: 40 };
-    expect(filledWindow(expanded, messages).start).toBe(40);
+    expect(widenedWindow(expanded, messages)).toEqual({ ...expanded, filled: true });
   });
 
   it("counts only rows that show when some messages are folded away", () => {
@@ -250,7 +264,7 @@ describe("opening a chat with its newest rows first", () => {
     const shown = (message: { shown: boolean }) => message.shown;
     const opened = openingWindow("dog:thread", messages, shown);
     expect(resolveTranscriptWindow(messages, opened.start).visible.filter(shown)).toHaveLength(TRANSCRIPT_OPENING_SIZE);
-    const filled = filledWindow(opened, messages, shown);
-    expect(resolveTranscriptWindow(messages, filled.start).visible.filter(shown)).toHaveLength(TRANSCRIPT_WINDOW_SIZE);
+    const { window } = settled(messages, shown);
+    expect(resolveTranscriptWindow(messages, window.start).visible.filter(shown)).toHaveLength(TRANSCRIPT_WINDOW_SIZE);
   });
 });

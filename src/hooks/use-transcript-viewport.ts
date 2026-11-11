@@ -15,11 +15,11 @@ import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow, useBottomFollowResiz
 import { useFocusMessage } from "@/lib/focus-message";
 import {
   TRANSCRIPT_WINDOW_SIZE,
-  filledWindow,
   focusWindowRange,
   followWindowStart,
   openingWindow,
   resolveTranscriptWindow,
+  widenedWindow,
   windowEndAfter,
   windowStartBefore,
   type CountsInWindow,
@@ -82,12 +82,13 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   const opening = useMemo(() => openingWindow(transcriptKey, messages, counts), [transcriptKey, messages, counts]);
   const [transcriptWindow, setTranscriptWindow] = useState(opening);
   const switched = transcriptWindow.key !== transcriptKey;
-  const nextStart = switched || !transcriptWindow.filled
+  const reopened = switched || (transcriptWindow.empty && messages.length > 0);
+  const nextStart = reopened
     ? opening.start
-    : follow && transcriptWindow.end === null
+    : transcriptWindow.filled && follow && transcriptWindow.end === null
       ? followWindowStart(messages, transcriptWindow.start, counts)
       : transcriptWindow.start;
-  if (switched) {
+  if (reopened) {
     setTranscriptWindow(opening);
   } else if (nextStart !== transcriptWindow.start) {
     setTranscriptWindow({ ...transcriptWindow, start: nextStart, end: null });
@@ -122,7 +123,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     appliedFocus.current = focus.nonce;
     const range = focusWindowRange(messages.length, targetIndex);
     setBottomFollow(false);
-    setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end, filled: true });
+    setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end, filled: true, empty: false });
   }, [threadId, messages, setBottomFollow, state.focusMessage, transcriptKey]);
   useFocusMessage(threadId, messages.length > 0);
 
@@ -150,23 +151,17 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     previousScrollTop.current = el.scrollTop;
   }, [transcriptWindow.start, oldestId, transcriptKey]);
 
-  const waitingToFill = !transcriptWindow.filled && !switched && messages.length > 0;
+  const waitingToFill = !transcriptWindow.filled && !reopened;
   useEffect(() => {
     if (!waitingToFill) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     const frame = requestAnimationFrame(() => {
-      timer = setTimeout(() => {
-        if (!followRef.current && scrollRef.current) preExpandHeight.current = { key: transcriptKey, height: scrollRef.current.scrollHeight };
-        startTransition(() => {
-          setTranscriptWindow((current) => (current.key === transcriptKey ? filledWindow(current, latest.current.messages, latest.current.counts) : current));
-        });
-      }, 0);
+      if (!followRef.current && scrollRef.current) preExpandHeight.current = { key: transcriptKey, height: scrollRef.current.scrollHeight };
+      startTransition(() => {
+        setTranscriptWindow((current) => (current.key === transcriptKey ? widenedWindow(current, latest.current.messages, latest.current.counts) : current));
+      });
     });
-    return () => {
-      cancelAnimationFrame(frame);
-      if (timer !== undefined) clearTimeout(timer);
-    };
-  }, [waitingToFill, transcriptKey]);
+    return () => cancelAnimationFrame(frame);
+  }, [waitingToFill, transcriptKey, transcriptWindow.start]);
 
   const showEarlier = () => {
     holdRowForPrepend();
@@ -203,7 +198,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   };
   const jumpToLatest = () => {
     setBottomFollow(true);
-    setTranscriptWindow({ key: transcriptKey, start: tailStart, end: null, filled: true });
+    setTranscriptWindow({ key: transcriptKey, start: tailStart, end: null, filled: true, empty: false });
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: scrollBehavior() });
     });
