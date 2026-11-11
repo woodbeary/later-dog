@@ -16,7 +16,7 @@ Nothing else is integrated.
 |---|---|---|---|
 | Group chat routing (bounded choice), already in the product | Clef | Keep as it is | 43 of 43 scored messages right through the later.dog relay (95% interval 91.8% to 100%) against 11 of 43 for the rule. At the product's 0.6 threshold it answered 41, all right, and handed 2 to the fallback. Median 394 ms, p95 1,155 ms, 1 of 53 past the 1,500 ms deadline. $0.11 per 1,000 decisions. 53 relay receipts. |
 | Group chat routing | Clef-flash | Do not switch to it | 41 of 43 right (84.5% to 98.7%). One of its two misses came with confidence 0.859, so the 0.6 threshold would have sent it to the wrong dog. It is 120 ms faster at the median and saves $0.09 per 1,000 decisions, which is not worth a wrong dog. Against Clef the split is 2 to 0, which 43 messages cannot tell apart from chance (0.5). 53 relay receipts. |
-| Heavy-command triage (yes or no) | Clef | Do not integrate | 142 of 142 right (97.4% to 100%) against 118 of 142 for the shipped rule, but the answer takes 408 ms at the median and 879 ms at p95, with 2 of 142 past 1,500 ms, on a check that runs before a dog's shell command. The relay allows 500 decisions a day per home and accepts only room routing, so most commands would get the rule anyway. All 24 rule misses are command shapes a rule can name. 142 direct Workers AI receipts, none through the relay. |
+| Heavy-command triage (yes or no) | Clef | Do not integrate | 142 of 142 right (97.4% to 100%) against 118 of 142 for the shipped rule, but the answer takes 408 ms at the median and 879 ms at p95, with 2 of 142 past 1,500 ms, on a check that runs before a dog's shell command. The relay allows 500 decisions a day per key and accepts only room routing, so most commands would get the rule anyway. All 24 rule misses are command shapes a rule can name. 142 direct Workers AI receipts, none through the relay. |
 | Heavy-command triage | Clef-flash | Do not integrate | 127 of 142 right (83.3% to 93.5%); it missed 15 of 77 heavy commands. Against the rule the split is 18 to 9, which could be chance (0.12). 142 direct receipts. |
 | Waiting on the owner (yes or no) | Clef, Clef-flash | Do not integrate | Each 69 of 70 right (92.3% to 99.7%) against 57 of 70 for a rule written for this evaluation. The product does not ask this question of a message's words: it reads the cards and the state a dog records. There is nothing to put a model behind. 70 direct receipts each. |
 | Picking a dog for a request (ranking) | Clef, Clef-flash | Do not integrate | Each 40 of 40 right (91.2% to 100%) against 29 of 40 for a word-overlap rule written for this evaluation. The only product use of this shape is room routing, which is covered above. 40 direct receipts each. |
@@ -46,7 +46,7 @@ Four kinds of evidence are kept apart in this note.
    rule timings are computed from the fixtures by `scripts/decision-eval`. The
    rule timings and the probe replay ran on the Linux cloud computer on
    2026-11-11.
-3. **Read in code only.** The relay's limits (500 decisions a day per home,
+3. **Read in code only.** The relay's limits (500 decisions a day per key,
    100,000 a day in total, in `deploy/laterdog/computers/src/decide.ts`), the
    relay accepting only room routing and the key check
    (`server/decider/relay.ts`), the 1,500 ms deadline and the 0.6 threshold
@@ -272,7 +272,7 @@ The refused relay calls came back in 9 to 17 ms. The retried pass answered all
 default responder for that message.
 
 Where this sits in the product (read in code, and covered by tests): room
-routing is asked after the message is saved and shown, with a 1,500 ms
+routing is asked after the message is saved, with a 1,500 ms
 deadline, and any failure returns `fallback` with its reason. This pull
 request adds `rate_limited` to the list of reasons the routing test covers.
 
