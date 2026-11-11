@@ -60,6 +60,19 @@ const scriptedToolCalls: ScriptedToolCall[] | null = (() => {
     return null;
   }
 })();
+const STREAM_PAUSE = new Int32Array(new SharedArrayBuffer(4));
+const streamPlan = (): { everyMs: number; chars: number } | null => {
+  const file = process.env.FAKE_CLAUDE_STREAM_FILE;
+  if (!file || !existsSync(file)) return null;
+  try {
+    const plan = JSON.parse(readFileSync(file, "utf8")) as { everyMs?: unknown; chars?: unknown };
+    const everyMs = Number(plan.everyMs);
+    const chars = Number(plan.chars);
+    return Number.isFinite(everyMs) && everyMs >= 0 && Number.isInteger(chars) && chars > 0 ? { everyMs, chars } : null;
+  } catch {
+    return null;
+  }
+};
 let toolUseCount = 0;
 let scriptedReplyIndex = 0;
 const nextScriptedReply = (): string[] => {
@@ -637,7 +650,14 @@ const playTurn = async (prompt: JsonValue, late = false) => {
       out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, is_error: !call.ok, content: call.output }] } });
       runHooks("PostToolUse", { tool_name: call.name, tool_input: call.input, tool_response: call.output, tool_use_id: id });
     }
-    if (!scriptedToolCalls.some((call) => call.pending)) for (const text of replyParts) out({ type: "assistant", message: { content: [{ type: "text", text }], usage } });
+    const stream = streamPlan();
+    if (!scriptedToolCalls.some((call) => call.pending)) for (const text of replyParts) {
+      if (stream) for (let at = 0; at < text.length; at += stream.chars) {
+        out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: text.slice(at, at + stream.chars) } } });
+        if (stream.everyMs > 0) Atomics.wait(STREAM_PAUSE, 0, 0, stream.everyMs);
+      }
+      out({ type: "assistant", message: { content: [{ type: "text", text }], usage } });
+    }
   } else {
     replyParts.forEach((text, index) => {
       const content: Array<
