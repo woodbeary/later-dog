@@ -28,7 +28,7 @@ async function standInHome(): Promise<StandInHome> {
       }
       if (req.method === "GET" && path === "/api/bots") {
         res.writeHead(200, { "content-type": "application/json" });
-        return res.end(JSON.stringify({ bots: [{ id: "dog-1", threadId: "thread-1", messages: [] }], botQueuedMessages: {} }));
+        return res.end(JSON.stringify({ bots: [{ id: "dog-1", threadId: "thread-1", messages: taken.map((sent) => ({ id: sent.sendId, sendId: sent.sendId, text: sent.text })) }], botQueuedMessages: {} }));
       }
       if (req.method === "GET" && path === "/api/events") {
         res.writeHead(200, { "content-type": "text/event-stream" });
@@ -194,16 +194,25 @@ describe("the fixture edge", () => {
     expect((await fetch(`${edge.url}/api/bots`)).status).toBe(200);
   });
 
-  it("saves an answer again only after the edge's own pause between saves", async () => {
+  it("saves a changed answer again only after the edge's own pause between saves", async () => {
     await chats();
     await new Promise((done) => setTimeout(done, 20));
+    const first = clock;
+    await send("later");
     clock += DESK_SAVE_EVERY_MS - 1;
     await chats();
+    await new Promise((done) => setTimeout(done, 20));
+    edge.sleep();
+    const early = await fetch(`${edge.url}/api/bots`);
+    expect(Date.parse(early.headers.get(SAVED_HEADER)!)).toBe(first);
+    expect((await early.json()).bots[0].messages).toEqual([]);
+    edge.serve();
     clock += 2;
     await chats();
     await new Promise((done) => setTimeout(done, 20));
     edge.sleep();
     const saved = await fetch(`${edge.url}/api/bots`);
     expect(Date.parse(saved.headers.get(SAVED_HEADER)!)).toBe(clock);
+    expect((await saved.json()).bots[0].messages).toHaveLength(1);
   });
 });
