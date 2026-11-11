@@ -212,6 +212,19 @@ describe("scoring receipts", () => {
     expect(markdown).toContain("| heavyCommand | clef | 400 | 0.0000960 | 0.0960 |");
   });
 
+  it("names where each row's receipts came from once two sources are scored together", () => {
+    const item = decisionItems().find((entry) => entry.group === "heavyCommand")!;
+    const from = (target: string, latencyMs: number): Receipt => ({
+      id: `clef:heavyCommand:${item.id}`, group: "heavyCommand", model: "clef", item: item.id, target, at: "2026-11-10T00:00:00.000Z", latencyMs, ok: true,
+      result: { model: "clef", answers: { answer: { type: "noul", noul: 0.97 } }, usage: { input_tokens: 400, output_tokens: 0 } },
+    });
+    const markdown = renderMarkdown(scoreAll([from("direct", 300), from("relay", 900)]));
+    expect(markdown).toContain("| Case | Model | Receipts from | Model right |");
+    expect(markdown).toContain("| heavyCommand | clef | direct | 1 | 300 | 300 | 300 | 0 |");
+    expect(markdown).toContain("| heavyCommand | clef | relay | 1 | 900 | 900 | 900 | 0 |");
+    expect(markdown).toContain("| clef | relay | 1 | 900 |");
+  });
+
   it("scores extraction field by field, the rule before the model, and what evidence came back", () => {
     const fixture = extractionFixture();
     const reset = fixture.resets[0]!;

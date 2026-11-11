@@ -478,14 +478,16 @@ const ms = (value: number | null) => String(value ?? "n/a");
 export function renderMarkdown(results: Results): string {
   const parts: string[] = [];
   const decisions = results.decisions;
-  const named = (row: DecisionScore) => [row.case, row.model];
+  const severalSources = new Set(decisions.map((row) => row.target)).size > 1;
+  const lead = severalSources ? ["Case", "Model", "Receipts from"] : ["Case", "Model"];
+  const named = (row: DecisionScore) => (severalSources ? [row.case, row.model, row.target] : [row.case, row.model]);
 
   parts.push("### Receipts scored");
   parts.push(table(["Receipts from", "Calls", "First", "Last"], results.receipts.map((row) => [row.target, String(row.calls), row.first, row.last])));
 
   parts.push("### Accuracy against the labelled outcome");
   parts.push(table(
-    ["Case", "Model", "Model right", "Rule right", "Model right where the rule is wrong", "Rule right where the model is wrong", "Both wrong"],
+    [...lead, "Model right", "Rule right", "Model right where the rule is wrong", "Rule right where the model is wrong", "Both wrong"],
     decisions.map((row) => [
       ...named(row), share(row.right, row.scored), share(row.ruleRight, row.ruleScored),
       String(row.againstRule.modelOnly), String(row.againstRule.ruleOnly), String(row.againstRule.neither),
@@ -496,17 +498,17 @@ export function renderMarkdown(results: Results): string {
     if (row.meanReciprocalRank !== null) notes.push(`first choice is the primary dog ${percent(row.primaryAccuracy)}, mean reciprocal rank ${fixed(row.meanReciprocalRank)}`);
     if (row.unscored.count) notes.push(`${row.unscored.count} messages meant for nobody are not scored, and ${row.unscored.atOrAbove06} of them were answered at 0.6 or above`);
     if (row.wrong.length) notes.push(`wrong: ${row.wrong.map((wrong) => `${wrong.item} (${wrong.confidence})`).join(", ")}`);
-    if (notes.length) parts.push(`${row.case}, ${row.model}: ${notes.join("; ")}.`);
+    if (notes.length) parts.push(`${named(row).join(", ")}: ${notes.join("; ")}.`);
   }
   parts.push(table(["Case", "Rule right", "Rule wrong on"], results.rules.map((rule) => [rule.case, share(rule.right, rule.scored), rule.wrong.join(", ") || "none"])));
 
   parts.push("### Calibration");
   parts.push(table(
-    ["Case", "Model", "Scored", "Brier score", "Expected calibration error"],
+    [...lead, "Scored", "Brier score", "Expected calibration error"],
     decisions.map((row) => [...named(row), String(row.scored), fixed(row.brier), fixed(row.calibrationError)]),
   ));
   parts.push(table(
-    ["Case", "Model", "Confidence", "Answers", "Mean confidence", "Right"],
+    [...lead, "Confidence", "Answers", "Mean confidence", "Right"],
     decisions.flatMap((row) => row.reliability.filter((bin) => bin.count > 0).map((bin) => [
       ...named(row), `${bin.from} to ${bin.to}`, String(bin.count), fixed(bin.meanConfidence), share(Math.round((bin.accuracy ?? 0) * bin.count), bin.count),
     ])),
@@ -514,7 +516,7 @@ export function renderMarkdown(results: Results): string {
 
   parts.push("### Abstention");
   parts.push(table(
-    ["Case", "Model", "Answer only at or above", "Answered", "Abstained", "Right when answered", "Wrong when answered", "Right with the rule for the rest"],
+    [...lead, "Answer only at or above", "Answered", "Abstained", "Right when answered", "Wrong when answered", "Right with the rule for the rest"],
     decisions.flatMap((row) => row.abstain.map((point, index) => [
       ...named(row), String(point.threshold), `${point.answered} (${percent(point.coverage)})`, percent(1 - point.coverage),
       percent(point.accuracyWhenAnswered), String(point.wrongWhenAnswered), percent(row.withRuleFallback[index]?.accuracy ?? null),
@@ -523,25 +525,25 @@ export function renderMarkdown(results: Results): string {
 
   parts.push("### Answers that pass the product's checks");
   parts.push(table(
-    ["Case", "Model", "Asked", "No answer", "Valid", "Invalid"],
+    [...lead, "Asked", "No answer", "Valid", "Invalid"],
     decisions.map((row) => [...named(row), String(row.asked), String(row.failed), share(row.valid, row.asked), String(row.invalid)]),
   ));
 
   parts.push("### Latency");
   parts.push(table(
-    ["Model", "Answered", "p50 ms", "p95 ms", "Worst ms", ...LATENCY_MARKS_MS.map((mark) => `Within ${mark} ms`)],
+    ["Model", "Receipts from", "Answered", "p50 ms", "p95 ms", "Worst ms", ...LATENCY_MARKS_MS.map((mark) => `Within ${mark} ms`)],
     results.latency.map((row) => [
-      row.model, String(row.latency.count), ms(row.latency.p50), ms(row.latency.p95), ms(row.latency.worst), ...row.within.map((mark) => percent(mark.share)),
+      row.model, row.target, String(row.latency.count), ms(row.latency.p50), ms(row.latency.p95), ms(row.latency.worst), ...row.within.map((mark) => percent(mark.share)),
     ]),
   ));
   parts.push(table(
-    ["Case", "Model", "Answered", "p50 ms", "p95 ms", "Worst ms", `Over ${DECISION_BUDGET_MS} ms`],
+    [...lead, "Answered", "p50 ms", "p95 ms", "Worst ms", `Over ${DECISION_BUDGET_MS} ms`],
     decisions.map((row) => [...named(row), String(row.latency.count), ms(row.latency.p50), ms(row.latency.p95), ms(row.latency.worst), String(row.latency.overBudget)]),
   ));
 
   parts.push("### Cost");
   parts.push(table(
-    ["Case", "Model", "Mean input tokens", "$ per call", "$ per 1,000 calls"],
+    [...lead, "Mean input tokens", "$ per call", "$ per 1,000 calls"],
     decisions.map((row) => [
       ...named(row), fixed(row.meanInputTokens, 0), fixed(row.dollarsPerThousand === null ? null : row.dollarsPerThousand / 1000, 7), fixed(row.dollarsPerThousand, 4),
     ]),
