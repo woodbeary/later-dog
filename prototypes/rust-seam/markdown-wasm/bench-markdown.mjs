@@ -3,6 +3,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
+import { brotliCompressSync, gzipSync } from "node:zlib";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -102,6 +104,123 @@ function coldStarts(wasmPath, runs) {
   return { freshProcesses: runs, window: "the newest 30 messages", ...Object.fromEntries(Object.keys(results[0]).map((key) => [key, summarized(results.map((result) => result[key]))])) };
 }
 
+function without(node, dropped) {
+  if (Array.isArray(node)) return node.map((child) => without(child, dropped));
+  if (node === null || typeof node !== "object") return node;
+  return Object.fromEntries(
+    Object.entries(node)
+      .filter(([key, value]) => !dropped(key, value))
+      .map(([key, value]) => [key, without(value, dropped)]),
+  );
+}
+
+const position = (key) => key === "position";
+const empty = (key, value) => value === null || value === undefined;
+const positionOrEmpty = (key, value) => position(key) || empty(key, value);
+
+function shown(value) {
+  const text = JSON.stringify(value) ?? "undefined";
+  return text.length > 80 ? `${text.slice(0, 77)}...` : text;
+}
+
+function firstDifference(left, right, path) {
+  if (isDeepStrictEqual(left, right)) return null;
+  const nested = (value) => value !== null && typeof value === "object";
+  if (!nested(left) || !nested(right) || Array.isArray(left) !== Array.isArray(right)) return { at: path, js: shown(left), rust: shown(right) };
+  if (Array.isArray(left)) {
+    if (left.length !== right.length) return { at: `${path}.length`, js: String(left.length), rust: String(right.length) };
+    for (const [index, item] of left.entries()) {
+      const found = firstDifference(item, right[index], `${path} > ${item?.type ?? item?.tagName ?? "item"}`);
+      if (found) return found;
+    }
+    return null;
+  }
+  for (const key of new Set([...Object.keys(left), ...Object.keys(right)])) {
+    if (!(key in left) || !(key in right)) return { at: `${path}.${key}`, js: shown(left[key]), rust: shown(right[key]) };
+    const found = firstDifference(left[key], right[key], key === "children" ? path : `${path}.${key}`);
+    if (found) return found;
+  }
+  return null;
+}
+
+function hastOrFailure(tree) {
+  try {
+    return processor.runSync(tree);
+  } catch (error) {
+    return { failed: String(error?.message ?? error) };
+  }
+}
+
+function compared(samples, rust) {
+  const counts = { texts: samples.length, sameNodeTypes: 0, sameTree: 0, sameTreeIgnoringEmptyFields: 0, sameTreeAndPositions: 0, sameElementTree: 0 };
+  const differences = new Map();
+  const noted = (stage, found) => {
+    if (!found) return;
+    const key = `${stage} ${found.at}`;
+    const known = differences.get(key);
+    if (known) known.texts += 1;
+    else differences.set(key, { stage, ...found, texts: 1 });
+  };
+  for (const text of samples) {
+    const js = processor.parse(text);
+    const wasm = rust.tree(text);
+    if (nodeTypes(js) === nodeTypes(wasm)) counts.sameNodeTypes += 1;
+    const treeDifference = firstDifference(without(js, position), without(wasm, position), "root");
+    if (!treeDifference) counts.sameTree += 1;
+    noted("tree", treeDifference);
+    if (isDeepStrictEqual(without(js, positionOrEmpty), without(wasm, positionOrEmpty))) counts.sameTreeIgnoringEmptyFields += 1;
+    const positionDifference = firstDifference(without(js, empty), without(wasm, empty), "root");
+    if (!positionDifference) counts.sameTreeAndPositions += 1;
+    else if (!treeDifference) noted("positions", positionDifference);
+    const elementDifference = firstDifference(without(hastOrFailure(processor.parse(text)), position), without(hastOrFailure(rust.tree(text)), position), "root");
+    if (!elementDifference) counts.sameElementTree += 1;
+    noted("elements", elementDifference);
+  }
+  return { ...counts, differences: [...differences.values()].sort((left, right) => right.texts - left.texts).slice(0, 12) };
+}
+
+const EXTRAS = [
+  "Euler: $e^{i\\pi} + 1 = 0$ and\n\n$$\n\\int_0^1 x^2 dx\n$$",
+  "- [x] done\n- [ ] still to do",
+  "A claim.[^1]\n\n[^1]: The source.",
+  "~~old~~ see https://later.dog and <https://later.dog/docs>",
+  "1. one\n   - inner\n   - inner two\n2. two",
+  "<details><summary>More</summary>\n\nHidden\n\n</details>",
+  '![alt](a.png "title") and [link](https://later.dog "t")',
+  "> quoted\n\n## Heading\n\n---\n\nline one  \nline two",
+  '```ts title="a.ts"\nconst a = 1;\n```',
+  "| a | b |\n|:--|--:|\n| 1 | 2 |",
+  "Zażółć gęślą jaźń 🐕 **bold** _em_ and `code`",
+  "Loose list:\n\n- one\n\n- two\n\nSetext\n======",
+];
+
+function perMessage(samples, passes, work) {
+  const medians = samples.map((text) => {
+    for (let warm = 0; warm < 3; warm += 1) work(text);
+    const took = [];
+    for (let pass = 0; pass < passes; pass += 1) {
+      const started = performance.now();
+      work(text);
+      took.push(performance.now() - started);
+    }
+    return took.sort((left, right) => left - right)[Math.floor(took.length / 2)];
+  });
+  const round = (value) => Math.round(value * 1000) / 1000;
+  const sorted = medians.sort((left, right) => left - right);
+  return { median: round(sorted[Math.floor(sorted.length / 2)]), min: round(sorted[0]), max: round(sorted.at(-1)) };
+}
+
+function perMessageRows(samples, passes, rust) {
+  return {
+    messages: samples.length,
+    passesEach: passes,
+    jsRenderParseMs: perMessage(samples, passes, (text) => processor.parse(text)),
+    jsParseThenHastMs: perMessage(samples, passes, (text) => processor.runSync(processor.parse(text))),
+    rustParseToTreeMs: perMessage(samples, passes, (text) => rust.tree(text)),
+    rustTreeThenHastMs: perMessage(samples, passes, (text) => processor.runSync(rust.tree(text))),
+  };
+}
+
 function nodeTypes(tree) {
   const counts = new Map();
   const visit = (node) => {
@@ -162,7 +281,8 @@ if (process.argv[2] === "cold") {
 const rust = await rustParser(wasmPath);
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const sameShape = texts.filter((text) => nodeTypes(processor.parse(text)) === nodeTypes(rust.tree(text))).length;
+const fixtureComparison = compared(texts, rust);
+const extrasComparison = compared(EXTRAS, rust);
 const windows = { opening30: texts.slice(-30), window120: texts.slice(-120), all240: texts };
 const rows = {};
 for (const [name, slice] of Object.entries(windows)) {
@@ -174,6 +294,7 @@ for (const [name, slice] of Object.entries(windows)) {
     jsParseThenHastMs: timed(passes, () => slice.forEach((text) => processor.runSync(processor.parse(text)))),
     rustParseToJsonTextMs: timed(passes, () => slice.forEach((text) => rust.text(text))),
     rustParseToTreeMs: timed(passes, () => slice.forEach((text) => rust.tree(text))),
+    rustTreeThenHastMs: timed(passes, () => slice.forEach((text) => processor.runSync(rust.tree(text)))),
   };
 }
 const leafId = messages.at(-1).id;
@@ -183,7 +304,10 @@ const planning = {
   crossingAloneMs: timed(passes * 5, () => JSON.parse(decoder.decode(encoder.encode(JSON.stringify(messages))))),
 };
 const cold = coldStarts(wasmPath, Number(option("cold-runs", "15")));
-const report = { platform: `${process.platform} ${process.arch}`, node: process.version, wasmBytes: rust.bytes, sameNodeTypes: `${sameShape} of ${texts.length}`, passes, rows, planning, cold };
+const wasmFile = readFileSync(wasmPath);
+const size = { wasmBytes: rust.bytes, gzipBytes: gzipSync(wasmFile, { level: 9 }).length, brotliBytes: brotliCompressSync(wasmFile).length };
+const each = { all240: perMessageRows(texts, passes, rust), answers120: perMessageRows(texts.filter((_, index) => index % 2 === 1), passes, rust) };
+const report = { platform: `${process.platform} ${process.arch}`, node: process.version, ...size, sameNodeTypes: `${fixtureComparison.sameNodeTypes} of ${texts.length}`, fixtureComparison, extrasComparison, passes, rows, perMessage: each, planning, cold };
 const out = option("out");
 if (out) writeFileSync(resolve(out), `${JSON.stringify(report, null, 2)}\n`);
 process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);

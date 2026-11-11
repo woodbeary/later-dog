@@ -70,6 +70,12 @@ struct Report {
     peak_rss_mb: f64,
 }
 
+#[derive(Serialize)]
+struct Saved<'a> {
+    entries: &'a [Entry],
+    report: &'a Report,
+}
+
 fn skipped(name: &str) -> bool {
     SKIPPED_NAMES.contains(&name)
         || name.starts_with(RESTORING_PREFIX)
@@ -205,7 +211,7 @@ fn milliseconds(since: Instant) -> f64 {
 fn main() {
     let arguments: Vec<String> = env::args().collect();
     let mode = arguments.get(1).cloned().unwrap_or_default();
-    let root = Path::new(arguments.get(2).expect("save-walk <scan|scan-json|save> <root> [previous.json] [threads]"));
+    let root = Path::new(arguments.get(2).expect("save-walk <scan|scan-json|save|save-json> <root> [previous.json] [threads]"));
     let threads: usize = arguments.get(4).and_then(|value| value.parse().ok()).unwrap_or(1);
     rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().expect("thread pool");
     let started = Instant::now();
@@ -231,7 +237,8 @@ fn main() {
         total_ms: 0.0,
         peak_rss_mb: 0.0,
     };
-    if mode == "save" {
+    let saving = mode == "save" || mode == "save-json";
+    if saving {
         let comparing = Instant::now();
         let previous: Manifest = serde_json::from_str(&fs::read_to_string(&arguments[3]).expect("previous manifest")).expect("manifest json");
         let known: HashMap<&str, &Entry> = previous
@@ -241,31 +248,40 @@ fn main() {
             .map(|entry| (entry.path.as_str(), entry))
             .collect();
         let mut waiting = Vec::new();
-        for entry in scanned.iter_mut().filter(|entry| entry.kind == "file") {
+        for (index, entry) in scanned.iter_mut().enumerate().filter(|(_, entry)| entry.kind == "file") {
             if database(&entry.path) {
                 entry.stamp = Some(database_stamp(root, entry));
             }
-            let unchanged = known
-                .get(entry.path.as_str())
-                .is_some_and(|before| before.size == entry.size && before.mtime_ms == entry.mtime_ms && before.stamp == entry.stamp);
-            if !unchanged {
-                waiting.push(entry.clone());
+            match known.get(entry.path.as_str()) {
+                Some(before) if before.size == entry.size && before.mtime_ms == entry.mtime_ms && before.stamp == entry.stamp => {
+                    entry.chunks = before.chunks.clone();
+                }
+                _ => waiting.push(index),
             }
         }
         report.compare_ms = milliseconds(comparing);
         let hashing = Instant::now();
         let parallel = threads > 1;
         let hashed: Vec<Vec<String>> = if parallel {
-            waiting.par_iter().map(|entry| chunks_of(root, entry, true)).collect()
+            waiting.par_iter().map(|index| chunks_of(root, &scanned[*index], true)).collect()
         } else {
-            waiting.iter().map(|entry| chunks_of(root, entry, false)).collect()
+            waiting.iter().map(|index| chunks_of(root, &scanned[*index], false)).collect()
         };
         report.hash_ms = milliseconds(hashing);
         report.changed = waiting.len();
         report.chunks = hashed.iter().map(Vec::len).sum();
-        report.bytes_hashed = waiting.iter().filter_map(|entry| entry.size).sum();
+        report.bytes_hashed = waiting.iter().filter_map(|index| scanned[*index].size).sum();
+        for (index, chunks) in waiting.iter().zip(hashed) {
+            scanned[*index].chunks = Some(chunks);
+        }
     }
     report.total_ms = milliseconds(started);
     report.peak_rss_mb = peak_rss_mb();
+    if mode == "save-json" {
+        let mut out = BufWriter::new(io::stdout().lock());
+        serde_json::to_writer(&mut out, &Saved { entries: &scanned, report: &report }).expect("saved");
+        out.flush().expect("saved");
+        return;
+    }
     println!("{}", serde_json::to_string(&report).expect("report"));
 }

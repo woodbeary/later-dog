@@ -36,19 +36,36 @@ function filePaths(count) {
 }
 
 function buildTiny(root, count) {
-  const random = seeded(31);
   const made = new Set();
-  for (let index = 0; index < count; index += 1) {
-    const dog = Math.floor(random() * 800).toString(16).padStart(8, "0");
-    const area = ["memory", "memory/log", "src", "src/lib", "docs", "notes/2026", "attachments"][Math.floor(random() * 7)];
-    const folder = join(root, index % 3 === 0 ? "workspaces" : "task-workspaces", dog, area, `part-${index % 3}`);
+  for (const [index, path] of tinyPaths(count).entries()) {
+    const folder = dirname(join(root, path));
     if (!made.has(folder)) {
       mkdirSync(folder, { recursive: true });
       made.add(folder);
     }
-    writeFileSync(join(folder, `file-${index}.md`), `note ${index}\n`);
+    writeFileSync(join(root, path), `note ${index}\n`);
   }
   return made.size;
+}
+
+function tinyPaths(count) {
+  const random = seeded(31);
+  const paths = [];
+  for (let index = 0; index < count; index += 1) {
+    const dog = Math.floor(random() * 800).toString(16).padStart(8, "0");
+    const area = ["memory", "memory/log", "src", "src/lib", "docs", "notes/2026", "attachments"][Math.floor(random() * 7)];
+    paths.push(join(index % 3 === 0 ? "workspaces" : "task-workspaces", dog, area, `part-${index % 3}`, `file-${index}.md`));
+  }
+  return paths;
+}
+
+function changeTiny(root, count, changes) {
+  const random = seeded(Number(option("seed", "23")));
+  const paths = tinyPaths(count);
+  for (let index = 0; index < changes; index += 1) {
+    const path = paths[Math.floor(random() * paths.length)];
+    writeFileSync(join(root, path), `${readFileSync(join(root, path), "utf8")}changed ${index}\n`);
+  }
 }
 
 function build(root, count, databaseMegabytes) {
@@ -95,9 +112,12 @@ if (process.argv[2] === "build") {
 } else if (process.argv[2] === "tiny") {
   mkdirSync(root, { recursive: true });
   process.stdout.write(`${JSON.stringify({ root, files: count, folders: buildTiny(root, count) })}\n`);
+} else if (process.argv[2] === "change-tiny") {
+  changeTiny(root, count, Number(option("changes", "300")));
+  process.stdout.write(`${JSON.stringify({ root, changed: Number(option("changes", "300")) })}\n`);
 } else if (process.argv[2] === "change") {
   change(root, count, Number(option("changes", "300")));
   process.stdout.write(`${JSON.stringify({ root, changed: Number(option("changes", "300")) })}\n`);
 } else {
-  throw new Error("make-home.mjs <build|tiny|change> <root> [--files N] [--db-mb N] [--changes N]");
+  throw new Error("make-home.mjs <build|tiny|change|change-tiny> <root> [--files N] [--db-mb N] [--changes N]");
 }
