@@ -1,10 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import { CHUNK_BYTES, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, parseManifest, referencedBlobs, restore, resumeOrder, SAVE_PARALLEL, settleWithin, skipped, skippedPath, snapshot, walkOrder, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient } from "../runtime/sync.mjs";
+import { CHUNK_BYTES, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, heldLock, LISTING_PARALLEL, parseManifest, referencedBlobs, restore, resumeOrder, SAVE_PARALLEL, scan, settleWithin, skipped, skippedPath, snapshot, walkOrder, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient } from "../runtime/sync.mjs";
 
 function memoryStore() {
   const blobs = new Map<string, Uint8Array>();
@@ -281,6 +282,21 @@ describe("home data sync", () => {
     expect(statSync(join(target, ".laterdog", "attachments")).isDirectory()).toBe(true);
   });
 
+  it("saves and brings back the memory change log, whose folder name ends like a database log", async () => {
+    const source = folder();
+    mkdirSync(join(source, ".laterdog", "memory-journal"), { recursive: true });
+    writeFileSync(join(source, ".laterdog", "memory-journal", "dog.ndjson"), '{"change":"remembered"}\n');
+    writeFileSync(join(source, ".laterdog", "notes.db-journal"), "a rollback log");
+    const store = memoryStore();
+    const saved = await snapshot(source, store, null, { scratch: folder() });
+    expect(saved.written).toBe(true);
+
+    const target = folder();
+    await restore(target, store, null);
+    expect(readFileSync(join(target, ".laterdog", "memory-journal", "dog.ndjson"), "utf8")).toBe('{"change":"remembered"}\n');
+    expect(readdirSync(join(target, ".laterdog")).sort()).toEqual(["memory-journal"]);
+  });
+
   it("uploads only what changed and skips caches", async () => {
     const source = folder();
     writeFileSync(join(source, "a.txt"), "first");
@@ -533,6 +549,16 @@ describe("home data sync", () => {
     expect(skipped(".laterdog-restoring-0123456789abcdef01234567")).toBe(true);
   });
 
+  it("keeps a folder whose name ends like a database log, and still skips the log files", () => {
+    expect(skipped("memory-journal", "dir")).toBe(false);
+    expect(skipped("messages.db-journal")).toBe(true);
+    expect(skipped("node_modules", "dir")).toBe(true);
+    expect(transient({ path: ".laterdog/memory-journal/dog.ndjson", type: "file" })).toBe(false);
+    expect(transient({ path: ".laterdog/memory-journal", type: "dir" })).toBe(false);
+    expect(transient({ path: ".laterdog/messages.db-journal", type: "file" })).toBe(true);
+    expect(transient({ path: ".laterdog/messages.db-wal", type: "link" })).toBe(true);
+  });
+
   function signedInHome(): string {
     const home = folder();
     mkdirSync(join(home, ".claude", ".oauth_refresh.lock"), { recursive: true });
@@ -596,6 +622,118 @@ describe("home data sync", () => {
     expect(transient({ path: ".claude.lock", type: "dir" })).toBe(true);
     expect(transient({ path: "projects/app/yarn.lock", type: "file" })).toBe(false);
     expect(transient({ path: ".claude/.credentials.json", type: "file" })).toBe(false);
+  });
+});
+
+type Listed = { path: string; mode: number; mtimeMs: number; type: string; size?: number; target?: string };
+
+function listedOneAtATime(root: string, directory = root, found: Listed[] = []): Listed[] {
+  for (const name of readdirSync(directory).sort()) {
+    if (skipped(name, "dir")) continue;
+    const path = join(directory, name);
+    if (skippedPath(relative(root, path))) continue;
+    const info = lstatSync(path);
+    if (!info.isDirectory() && skipped(name)) continue;
+    const entry = { path: relative(root, path), mode: info.mode & 0o7777, mtimeMs: Math.floor(info.mtimeMs) };
+    if (info.isDirectory()) {
+      if (heldLock(name, "dir")) continue;
+      found.push({ ...entry, type: "dir" });
+      listedOneAtATime(root, path, found);
+    } else if (info.isSymbolicLink()) {
+      found.push({ ...entry, type: "link", target: readlinkSync(path) });
+    } else if (info.isFile()) {
+      found.push({ ...entry, type: "file", size: info.size });
+    }
+  }
+  return found;
+}
+
+describe("listing the home", () => {
+  function busyHome(): string {
+    const home = folder();
+    const crowded = join(home, "workspaces", "dog", "notes");
+    mkdirSync(crowded, { recursive: true });
+    for (let index = 0; index < LISTING_PARALLEL * 3 + 5; index += 1) writeFileSync(join(crowded, `note-${index}.md`), `note ${index}`);
+    mkdirSync(join(crowded, "note-1"), { recursive: true });
+    writeFileSync(join(crowded, "note-1", "inside.md"), "inside a folder that sorts among the files");
+    mkdirSync(join(home, "workspaces", "dog", "node_modules", "left-pad"), { recursive: true });
+    writeFileSync(join(home, "workspaces", "dog", "node_modules", "left-pad", "index.js"), "module.exports = 1");
+    mkdirSync(join(home, "workspaces", "dog", "empty"));
+    mkdirSync(join(home, "workspaces", "dog.lock"));
+    mkdirSync(join(home, ".local", "share", "pnpm", "store"), { recursive: true });
+    writeFileSync(join(home, ".local", "share", "pnpm", "store", "a1b2"), "a package file");
+    writeFileSync(join(home, "run.sh"), "#!/bin/sh\necho hi\n", { mode: 0o755 });
+    writeFileSync(join(home, "messages.db-wal"), "rows still in the log");
+    mkdirSync(join(home, ".laterdog", "memory-journal"), { recursive: true });
+    writeFileSync(join(home, ".laterdog", "memory-journal", "dog.ndjson"), '{"change":"remembered"}\n');
+    writeFileSync(join(home, ".laterdog", "messages.db-journal"), "a rollback log");
+    symlinkSync("run.sh", join(home, "latest"));
+    symlinkSync("nowhere", join(home, "dangling"));
+    utimesSync(join(home, "run.sh"), new Date(1_700_000_000_123), new Date(1_700_000_000_123));
+    return home;
+  }
+
+  it("lists every entry with the same details and in the same order as reading the home one entry at a time, however many files a folder holds", async () => {
+    const home = busyHome();
+    const listed = await scan(home);
+    expect(listed).toEqual(listedOneAtATime(home));
+    const paths = listed.map((entry: Listed) => entry.path);
+    expect(paths.filter((path: string) => path.startsWith(join("workspaces", "dog", "notes", "note-")))).toHaveLength(LISTING_PARALLEL * 3 + 5 + 2);
+    expect(paths.indexOf(join("workspaces", "dog", "notes", "note-1", "inside.md"))).toBe(paths.indexOf(join("workspaces", "dog", "notes", "note-1")) + 1);
+    expect(paths.indexOf(join("workspaces", "dog", "notes", "note-1.md"))).toBe(paths.indexOf(join("workspaces", "dog", "notes", "note-1")) + 2);
+    expect(paths.filter((path: string) => /node_modules|pnpm|-wal|db-journal|dog\.lock/.test(path))).toEqual([]);
+    expect(paths).toContain(join(".laterdog", "memory-journal", "dog.ndjson"));
+    expect(listed.find((entry: Listed) => entry.path === "run.sh")).toEqual({ path: "run.sh", mode: 0o755, mtimeMs: 1_700_000_000_123, type: "file", size: 18 });
+    expect(listed.find((entry: Listed) => entry.path === "latest")).toMatchObject({ type: "link", target: "run.sh" });
+    expect(listed.find((entry: Listed) => entry.path === "dangling")).toMatchObject({ type: "link", target: "nowhere" });
+    expect(listed.find((entry: Listed) => entry.path === join("workspaces", "dog", "empty"))).toMatchObject({ type: "dir" });
+  });
+
+  it("asks about several entries of a folder at once, and never more than its limit", async () => {
+    const home = busyHome();
+    let asking = 0;
+    let most = 0;
+    const inspect = async (path: string) => {
+      asking += 1;
+      most = Math.max(most, asking);
+      await pause(1);
+      asking -= 1;
+      return lstat(path);
+    };
+    expect(await scan(home, { inspect })).toEqual(listedOneAtATime(home));
+    expect(most).toBe(LISTING_PARALLEL);
+  });
+
+  it("leaves out a file or a link that goes away while the home is being listed, and lists everything else", async () => {
+    const home = folder();
+    writeFileSync(join(home, "a-kept.md"), "kept");
+    writeFileSync(join(home, "b-going.md"), "about to go");
+    writeFileSync(join(home, "c-target.md"), "a link points here");
+    symlinkSync("c-target.md", join(home, "d-going-link"));
+    mkdirSync(join(home, "e-folder"));
+    writeFileSync(join(home, "e-folder", "kept.md"), "kept too");
+    const inspect = async (path: string) => {
+      if (path === join(home, "b-going.md")) rmSync(path);
+      const info = await lstat(path);
+      if (path === join(home, "d-going-link")) rmSync(path);
+      return info;
+    };
+    const listed = await scan(home, { inspect });
+    expect(listed.map((entry: Listed) => entry.path)).toEqual(["a-kept.md", "c-target.md", "e-folder", join("e-folder", "kept.md")]);
+    expect(listed).toEqual(listedOneAtATime(home));
+  });
+
+  it("saves a home whose folders hold more files than it asks about at once, and wakes it whole", async () => {
+    const home = busyHome();
+    const store = memoryStore();
+    const saved = await snapshot(home, store, null, { scratch: folder() });
+    expect(saved.unsaved).toEqual([]);
+    expect(saved.manifest.entries.map((entry: Listed) => entry.path)).toEqual(listedOneAtATime(home).map((entry) => entry.path));
+    const woken = folder();
+    await restore(woken, store, null);
+    expect(readdirSync(join(woken, "workspaces", "dog", "notes")).sort()).toEqual(readdirSync(join(home, "workspaces", "dog", "notes")).sort());
+    expect(readFileSync(join(woken, "workspaces", "dog", "notes", `note-${LISTING_PARALLEL * 3 + 4}.md`), "utf8")).toBe(`note ${LISTING_PARALLEL * 3 + 4}`);
+    expect(readlinkSync(join(woken, "latest"))).toBe("run.sh");
   });
 });
 

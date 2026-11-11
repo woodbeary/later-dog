@@ -103,6 +103,7 @@ Use only mapped, tested commands:
 - [Shared dictation language, November 10](dictation-language-2026-11-10.md)
 - [Google connector](google-connector.md)
 - [Pinned account routing, November 10](pinned-account-routing-2026-11-10.md)
+- [Rust, measured seam by seam, November 10](rust-seams.md)
 
 `control-laterdog ui` ([Chat UI, driven headlessly](chat-ui.md)) drives the real
 renderer in a headless Chrome by accessible name, so composer sends, transcript

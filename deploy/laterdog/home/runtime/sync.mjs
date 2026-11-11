@@ -31,8 +31,8 @@ function restorePointAge(name) {
   return Number(name.slice(0, -".json".length));
 }
 
-export function skipped(name) {
-  return SKIPPED_NAMES.has(name) || REFRESH_LOCK_NAMES.has(name) || name.startsWith(RESTORING_PREFIX) || SKIPPED_SUFFIXES.some((suffix) => name.endsWith(suffix));
+export function skipped(name, type = "file") {
+  return SKIPPED_NAMES.has(name) || REFRESH_LOCK_NAMES.has(name) || name.startsWith(RESTORING_PREFIX) || (type !== "dir" && SKIPPED_SUFFIXES.some((suffix) => name.endsWith(suffix)));
 }
 
 export function skippedPath(path) {
@@ -45,7 +45,13 @@ export function heldLock(name, type) {
 
 export function transient(entry) {
   const names = entry.path.split("/");
-  return skippedPath(entry.path) || names.some((name, index) => skipped(name) || heldLock(name, index < names.length - 1 ? "dir" : entry.type));
+  return (
+    skippedPath(entry.path) ||
+    names.some((name, index) => {
+      const type = index < names.length - 1 ? "dir" : entry.type;
+      return skipped(name, type) || heldLock(name, type);
+    })
+  );
 }
 
 export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { blobTimeoutMs = BLOB_TIMEOUT_MS, requestTimeoutMs = REQUEST_TIMEOUT_MS, uploadTimeoutMs = UPLOAD_TIMEOUT_MS } = {}) {
@@ -169,39 +175,55 @@ export function parseManifest(input) {
   return input;
 }
 
-async function walk(root, directory, found) {
+export const LISTING_PARALLEL = 32;
+
+async function inspected(path, inspect) {
+  try {
+    const info = await inspect(path);
+    return info.isSymbolicLink() ? { info, target: await readlink(path) } : { info };
+  } catch {
+    return null;
+  }
+}
+
+async function inspectedTogether(paths, inspect) {
+  const all = [];
+  for (let start = 0; start < paths.length; start += LISTING_PARALLEL) {
+    all.push(...(await Promise.all(paths.slice(start, start + LISTING_PARALLEL).map((path) => inspected(path, inspect)))));
+  }
+  return all;
+}
+
+async function walk(root, directory, found, inspect) {
   let names;
   try {
     names = await readdir(directory);
   } catch {
     return;
   }
-  for (const name of names.sort()) {
-    if (skipped(name)) continue;
+  const kept = names.sort().filter((name) => !skipped(name, "dir") && !skippedPath(relative(root, join(directory, name))));
+  const listed = await inspectedTogether(kept.map((name) => join(directory, name)), inspect);
+  for (const [index, name] of kept.entries()) {
+    if (!listed[index]) continue;
+    const { info, target } = listed[index];
+    if (!info.isDirectory() && skipped(name)) continue;
     const path = join(directory, name);
-    if (skippedPath(relative(root, path))) continue;
-    let info;
-    try {
-      info = await lstat(path);
-    } catch {
-      continue;
-    }
     const entry = { path: relative(root, path), mode: info.mode & 0o7777, mtimeMs: Math.floor(info.mtimeMs) };
     if (info.isDirectory()) {
       if (heldLock(name, "dir")) continue;
       found.push({ ...entry, type: "dir" });
-      await walk(root, path, found);
+      await walk(root, path, found, inspect);
     } else if (info.isSymbolicLink()) {
-      found.push({ ...entry, type: "link", target: await readlink(path) });
+      found.push({ ...entry, type: "link", target });
     } else if (info.isFile()) {
       found.push({ ...entry, type: "file", size: info.size });
     }
   }
 }
 
-export async function scan(root) {
+export async function scan(root, { inspect = lstat } = {}) {
   const found = [];
-  await walk(root, root, found);
+  await walk(root, root, found, inspect);
   return found;
 }
 

@@ -1,0 +1,728 @@
+{
+ "note": "Synthetic texts for typed extraction. now and homeZone fix the clock for reset times; local is the reset as wall-clock time in zoneId.",
+ "now": "2026-11-10T20:00:00Z",
+ "homeZone": "America/Los_Angeles",
+ "resets": [
+  {
+   "text": "You've hit your session limit · resets 3pm (America/Los_Angeles)",
+   "time": "15:00",
+   "date": null,
+   "zone": "America/Los_Angeles",
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-10T15:00",
+   "id": "r001"
+  },
+  {
+   "text": "You've hit your weekly limit · resets Nov 12 at 9am (America/Los_Angeles)",
+   "time": "09:00",
+   "date": "2026-11-12",
+   "zone": "America/Los_Angeles",
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-12T09:00",
+   "id": "r002"
+  },
+  {
+   "text": "5-hour limit reached ∙ resets 4:30pm",
+   "time": "16:30",
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-10T16:30",
+   "id": "r003"
+  },
+  {
+   "text": "You've reached your usage limit. Try again at 6 PM.",
+   "time": "18:00",
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-10T18:00",
+   "id": "r004"
+  },
+  {
+   "text": "Usage limit reached. Your limit will reset at 9am (America/New_York).",
+   "time": "09:00",
+   "date": null,
+   "zone": "America/New_York",
+   "zoneId": "America/New_York",
+   "waitSeconds": null,
+   "local": "2026-11-11T09:00",
+   "id": "r005"
+  },
+  {
+   "text": "Weekly limit reached · resets Nov 14, 2026 at 12am (America/Los_Angeles)",
+   "time": "00:00",
+   "date": "2026-11-14",
+   "zone": "America/Los_Angeles",
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-14T00:00",
+   "id": "r006"
+  },
+  {
+   "text": "You've hit your opus limit · resets 11:45pm",
+   "time": "23:45",
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-10T23:45",
+   "id": "r007"
+  },
+  {
+   "text": "You've hit your session limit · resets 8am",
+   "time": "08:00",
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-11T08:00",
+   "id": "r008"
+  },
+  {
+   "text": "Rate limit exceeded. Limit resets at 18:00 UTC.",
+   "time": "18:00",
+   "date": null,
+   "zone": "UTC",
+   "zoneId": "UTC",
+   "waitSeconds": null,
+   "local": "2026-11-11T18:00",
+   "id": "r009"
+  },
+  {
+   "text": "Your quota resets in 2 hours 15 minutes.",
+   "time": null,
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": 8100,
+   "local": "2026-11-10T14:15",
+   "id": "r010"
+  },
+  {
+   "text": "Too many requests. Retry after 37 seconds.",
+   "time": null,
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": 37,
+   "local": "2026-11-10T12:00",
+   "id": "r011"
+  },
+  {
+   "text": "You can send more messages after 21:30.",
+   "time": "21:30",
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-10T21:30",
+   "id": "r012"
+  },
+  {
+   "text": "Limit reached. It resets tomorrow at 7am.",
+   "time": "07:00",
+   "date": "2026-11-11",
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-11T07:00",
+   "id": "r013"
+  },
+  {
+   "text": "You have reached your monthly limit. It resets on December 1 at 12:00 AM (UTC).",
+   "time": "00:00",
+   "date": "2026-12-01",
+   "zone": "UTC",
+   "zoneId": "UTC",
+   "waitSeconds": null,
+   "local": "2026-12-01T00:00",
+   "id": "r014"
+  },
+  {
+   "text": "Session limit reached. Resets at 1:05 PM (America/Chicago).",
+   "time": "13:05",
+   "date": null,
+   "zone": "America/Chicago",
+   "zoneId": "America/Chicago",
+   "waitSeconds": null,
+   "local": "2026-11-11T13:05",
+   "id": "r015"
+  },
+  {
+   "text": "You've hit your limit for messages. Limits will reset at 5 PM.",
+   "time": "17:00",
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-10T17:00",
+   "id": "r016"
+  },
+  {
+   "text": "Daily limit reached; next reset 00:00 UTC.",
+   "time": "00:00",
+   "date": null,
+   "zone": "UTC",
+   "zoneId": "UTC",
+   "waitSeconds": null,
+   "local": "2026-11-11T00:00",
+   "id": "r017"
+  },
+  {
+   "text": "Usage limit reached. Please wait 45 minutes before trying again.",
+   "time": null,
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": 2700,
+   "local": "2026-11-10T12:45",
+   "id": "r018"
+  },
+  {
+   "text": "We're experiencing high demand. Please try again later.",
+   "time": null,
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": null,
+   "id": "r019"
+  },
+  {
+   "text": "Your message could not be sent because the conversation is too long.",
+   "time": null,
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": null,
+   "id": "r020"
+  },
+  {
+   "text": "Request failed: 401 Unauthorized. Check your API key.",
+   "time": null,
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": null,
+   "id": "r021"
+  },
+  {
+   "text": "You have 3 messages remaining until 2pm.",
+   "time": "14:00",
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-10T14:00",
+   "id": "r022"
+  },
+  {
+   "text": "Model overloaded (529). No limit was reached; retry shortly.",
+   "time": null,
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": null,
+   "id": "r023"
+  },
+  {
+   "text": "You've hit your session limit · resets 12pm (Europe/London)",
+   "time": "12:00",
+   "date": null,
+   "zone": "Europe/London",
+   "zoneId": "Europe/London",
+   "waitSeconds": null,
+   "local": "2026-11-11T12:00",
+   "id": "r024"
+  },
+  {
+   "text": "Opus weekly limit reached ∙ resets Nov 16 at 10am",
+   "time": "10:00",
+   "date": "2026-11-16",
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-16T10:00",
+   "id": "r025"
+  },
+  {
+   "text": "You've used 92% of your weekly limit.",
+   "time": null,
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": null,
+   "id": "r026"
+  },
+  {
+   "text": "Credit balance is too low. Add credits to continue.",
+   "time": null,
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": null,
+   "id": "r027"
+  },
+  {
+   "text": "Se alcanzó el límite de uso. Se restablece a las 15:00.",
+   "time": "15:00",
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-10T15:00",
+   "id": "r028"
+  },
+  {
+   "text": "Limit hit. Back at 6:15 am (Asia/Tokyo).",
+   "time": "06:15",
+   "date": null,
+   "zone": "Asia/Tokyo",
+   "zoneId": "Asia/Tokyo",
+   "waitSeconds": null,
+   "local": "2026-11-11T06:15",
+   "id": "r029"
+  },
+  {
+   "text": "Your plan's limit resets at midnight.",
+   "time": "00:00",
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-11T00:00",
+   "id": "r030"
+  },
+  {
+   "text": "You've hit your limit · resets at noon (America/Denver)",
+   "time": "12:00",
+   "date": null,
+   "zone": "America/Denver",
+   "zoneId": "America/Denver",
+   "waitSeconds": null,
+   "local": "2026-11-11T12:00",
+   "id": "r031"
+  },
+  {
+   "text": "usage limit reached|1794351300",
+   "time": "14:55",
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-10T14:55",
+   "id": "r032"
+  },
+  {
+   "text": "You've hit your session limit · resets 3pm (America/Los_Angeles). Upgrade to get more.",
+   "time": "15:00",
+   "date": null,
+   "zone": "America/Los_Angeles",
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-10T15:00",
+   "id": "r033"
+  },
+  {
+   "text": "Error: quota exceeded for this model. Quota will be restored in 1 day.",
+   "time": null,
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": 86400,
+   "local": "2026-11-11T12:00",
+   "id": "r034"
+  },
+  {
+   "text": "Hit your fable limit. Resets 9:30am.",
+   "time": "09:30",
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-11T09:30",
+   "id": "r035"
+  },
+  {
+   "text": "API rate limit: 60 requests per minute. Slow down.",
+   "time": null,
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": null,
+   "id": "r036"
+  },
+  {
+   "text": "You've hit your weekly limit · resets Dec 2 at 8am (America/Los_Angeles)",
+   "time": "08:00",
+   "date": "2026-12-02",
+   "zone": "America/Los_Angeles",
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-12-02T08:00",
+   "id": "r037"
+  },
+  {
+   "text": "Your free messages are used up until 4:00 PM today.",
+   "time": "16:00",
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-10T16:00",
+   "id": "r038"
+  },
+  {
+   "text": "Limit resets at 7 p.m. Eastern.",
+   "time": "19:00",
+   "date": null,
+   "zone": "Eastern",
+   "zoneId": "America/New_York",
+   "waitSeconds": null,
+   "local": "2026-11-10T19:00",
+   "id": "r039"
+  },
+  {
+   "text": "Thanks for your patience. Service was restored at 10am.",
+   "time": null,
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": null,
+   "id": "r040"
+  },
+  {
+   "text": "The upload limit is 25 MB per file.",
+   "time": null,
+   "date": null,
+   "zone": null,
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": null,
+   "id": "r041"
+  },
+  {
+   "text": "Limit reached. You can continue at 1:20 PM Pacific.",
+   "time": "13:20",
+   "date": null,
+   "zone": "Pacific",
+   "zoneId": "America/Los_Angeles",
+   "waitSeconds": null,
+   "local": "2026-11-10T13:20",
+   "id": "r042"
+  }
+ ],
+ "shortTexts": [
+  {
+   "text": "Invoice INV-204 is due March 3, 2027 for $1,240.50.",
+   "amount": 1240.5,
+   "date": "2027-03-03",
+   "id": "s001"
+  },
+  {
+   "text": "Paid 45 EUR on 12 January 2026.",
+   "amount": 45,
+   "date": "2026-01-12",
+   "id": "s002"
+  },
+  {
+   "text": "Your order ships on 2026-12-01. Total: USD 89.99",
+   "amount": 89.99,
+   "date": "2026-12-01",
+   "id": "s003"
+  },
+  {
+   "text": "Rent of 2,150 dollars is due on the 1st of December 2026.",
+   "amount": 2150,
+   "date": "2026-12-01",
+   "id": "s004"
+  },
+  {
+   "text": "The meeting moved to this Friday; there is no cost.",
+   "amount": null,
+   "date": "2026-11-13",
+   "id": "s005"
+  },
+  {
+   "text": "Refund of $30.00 issued on Nov 8.",
+   "amount": 30,
+   "date": "2026-11-08",
+   "id": "s006"
+  },
+  {
+   "text": "The quote is twelve hundred dollars, valid until June 30, 2027.",
+   "amount": 1200,
+   "date": "2027-06-30",
+   "id": "s007"
+  },
+  {
+   "text": "Thanks for the update, talk soon.",
+   "amount": null,
+   "date": null,
+   "id": "s008"
+  },
+  {
+   "text": "Balance due: £3,400. Payment terms: on receipt.",
+   "amount": 3400,
+   "date": null,
+   "id": "s009"
+  },
+  {
+   "text": "The flight on Mar 4, 2027 costs $412.",
+   "amount": 412,
+   "date": "2027-03-04",
+   "id": "s010"
+  },
+  {
+   "text": "The subscription renews on January 15, 2027 for 19.00 a month.",
+   "amount": 19,
+   "date": "2027-01-15",
+   "id": "s011"
+  },
+  {
+   "text": "We received 3 boxes on October 2, 2026; nothing was charged.",
+   "amount": null,
+   "date": "2026-10-02",
+   "id": "s012"
+  },
+  {
+   "text": "Total due at pickup on 20 Dec 2026: $1,500.",
+   "amount": 1500,
+   "date": "2026-12-20",
+   "id": "s013"
+  },
+  {
+   "text": "Call 555-0147 before the office closes to confirm.",
+   "amount": null,
+   "date": null,
+   "id": "s014"
+  },
+  {
+   "text": "Order #48213 was delivered.",
+   "amount": null,
+   "date": null,
+   "id": "s015"
+  },
+  {
+   "text": "The price drops to 0.99 on Black Friday, November 27, 2026.",
+   "amount": 0.99,
+   "date": "2026-11-27",
+   "id": "s016"
+  },
+  {
+   "text": "She was born on 4 July 1990.",
+   "amount": null,
+   "date": "1990-07-04",
+   "id": "s017"
+  },
+  {
+   "text": "Total 1.250,00 € fällig am 15.12.2026.",
+   "amount": 1250,
+   "date": "2026-12-15",
+   "id": "s018"
+  },
+  {
+   "text": "The grant is $2.5 million.",
+   "amount": 2500000,
+   "date": null,
+   "id": "s019"
+  },
+  {
+   "text": "The parking fine of $65 must be paid by 2026-11-30.",
+   "amount": 65,
+   "date": "2026-11-30",
+   "id": "s020"
+  },
+  {
+   "text": "Version 3.2.1 was released on 2026-08-19.",
+   "amount": null,
+   "date": "2026-08-19",
+   "id": "s021"
+  },
+  {
+   "text": "Your appointment is on the 22nd of this month.",
+   "amount": null,
+   "date": "2026-11-22",
+   "id": "s022"
+  },
+  {
+   "text": "It cost about fifty bucks.",
+   "amount": 50,
+   "date": null,
+   "id": "s023"
+  },
+  {
+   "text": "No charge was made and no date has been set.",
+   "amount": null,
+   "date": null,
+   "id": "s024"
+  }
+ ],
+ "computed": [
+  {
+   "text": "Invoice issued 2026-09-02, net 30.",
+   "field": {
+    "type": "date",
+    "instructions": "The due date: the issue date plus the net payment days"
+   },
+   "gold": "2026-10-02",
+   "id": "c001"
+  },
+  {
+   "text": "Subtotal $940.00, shipping $60.00, tax $80.00.",
+   "field": {
+    "type": "number",
+    "decimals": 2,
+    "instructions": "The total to pay: subtotal plus shipping plus tax"
+   },
+   "gold": 1080,
+   "estimate": {
+    "min": 0,
+    "max": 5000,
+    "step": 10
+   },
+   "id": "c002"
+  },
+  {
+   "text": "The job started at 09:15 and finished at 11:40.",
+   "field": {
+    "type": "duration",
+    "unit": "minutes",
+    "integer": true,
+    "instructions": "How long the job ran"
+   },
+   "gold": 145,
+   "estimate": {
+    "min": 0,
+    "max": 600,
+    "step": 5
+   },
+   "id": "c003"
+  },
+  {
+   "text": "Issued 2026-11-10, due in 45 days.",
+   "field": {
+    "type": "date",
+    "instructions": "The due date"
+   },
+   "gold": "2026-12-25",
+   "id": "c004"
+  },
+  {
+   "text": "3 seats at $12.50 each.",
+   "field": {
+    "type": "number",
+    "decimals": 2,
+    "instructions": "The total price for all seats"
+   },
+   "gold": 37.5,
+   "estimate": {
+    "min": 0,
+    "max": 200,
+    "step": 0.5
+   },
+   "id": "c005"
+  },
+  {
+   "text": "The trial began on 2026-10-01 and lasts 14 days.",
+   "field": {
+    "type": "date",
+    "instructions": "The date the trial ends"
+   },
+   "gold": "2026-10-15",
+   "id": "c006"
+  },
+  {
+   "text": "Used 3.2 GB of a 5 GB plan.",
+   "field": {
+    "type": "number",
+    "decimals": 1,
+    "unit": "GB",
+    "instructions": "How much of the plan is left"
+   },
+   "gold": 1.8,
+   "estimate": {
+    "min": 0,
+    "max": 5,
+    "step": 0.1
+   },
+   "id": "c007"
+  },
+  {
+   "text": "The first run took 2 minutes 30 seconds and the second took 1 minute 45 seconds.",
+   "field": {
+    "type": "duration",
+    "unit": "seconds",
+    "integer": true,
+    "instructions": "The two runs added together"
+   },
+   "gold": 255,
+   "estimate": {
+    "min": 0,
+    "max": 1200,
+    "step": 5
+   },
+   "id": "c008"
+  },
+  {
+   "text": "The balance was $1,200 and a payment of $450 arrived.",
+   "field": {
+    "type": "number",
+    "decimals": 2,
+    "instructions": "The balance after the payment"
+   },
+   "gold": 750,
+   "estimate": {
+    "min": 0,
+    "max": 2000,
+    "step": 10
+   },
+   "id": "c009"
+  },
+  {
+   "text": "The meeting starts at 14:30 and runs 90 minutes.",
+   "field": {
+    "type": "time",
+    "instructions": "The time the meeting ends"
+   },
+   "gold": "16:00",
+   "id": "c010"
+  },
+  {
+   "text": "The price is $80 with a 25% discount.",
+   "field": {
+    "type": "number",
+    "decimals": 2,
+    "instructions": "The price after the discount"
+   },
+   "gold": 60,
+   "estimate": {
+    "min": 0,
+    "max": 100,
+    "step": 1
+   },
+   "id": "c011"
+  },
+  {
+   "text": "Net 15 from 2026-12-20.",
+   "field": {
+    "type": "date",
+    "instructions": "The due date"
+   },
+   "gold": "2027-01-04",
+   "id": "c012"
+  }
+ ]
+}

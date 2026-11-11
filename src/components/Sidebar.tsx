@@ -993,7 +993,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
         role={renaming ? undefined : "button"}
         tabIndex={renaming ? undefined : 0}
         aria-label={
-          !renaming && iconOnly
+          !renaming
             ? deleting
               ? t("sidebar.bot.deletingAria", { name: bot.name })
               : `${bot.name}${bot.chiefOfStaff ? ` · ${t("mainDog.badge")}` : ""}${onLiveCall ? ` · ${t("call.live.badge")}` : ""}${waiting ? ` · ${waitingLine(visible)}` : working ? ` · ${t("chat.activity.working")}` : teammateWait ? ` · ${t("sidebar.preview.waitingOnTeammate")}` : queued ? ` · ${t("task.queued")}` : ""}${unread ? ` · ${t("task.unread")}` : ""}`

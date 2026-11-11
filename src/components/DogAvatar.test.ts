@@ -5,6 +5,14 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BREEDS, DogFace, type DogMood } from "./DogAvatar";
 
+const blinks = vi.hoisted(() => ({ watched: [] as Element[], forgotten: [] as Element[] }));
+vi.mock("@/lib/dog-blinks", () => ({
+  watchBlinks: (face: Element) => {
+    blinks.watched.push(face);
+    return () => { blinks.forgotten.push(face); };
+  },
+}));
+
 const original = Object.getOwnPropertyDescriptor(Element.prototype, "getAnimations");
 afterEach(() => {
   if (original) Object.defineProperty(Element.prototype, "getAnimations", original);
@@ -32,6 +40,25 @@ describe("dogs on screen at once", () => {
     face("think");
     expect(loop.startTime).toBe(0);
     root.unmount();
+  });
+
+  it("joins the shared blink clock when a face is drawn, once however often it redraws, and leaves it when the face goes", () => {
+    blinks.watched.length = 0;
+    blinks.forgotten.length = 0;
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const face = (mood: DogMood) => flushSync(() => root.render(createElement(DogFace, { look: BREEDS.dog, color: "#009957", mood })));
+
+    face("rest");
+    const drawn = container.querySelector("svg")!;
+    expect(blinks.watched).toEqual([drawn]);
+    face("work");
+    expect(blinks.watched).toEqual([drawn]);
+    expect(blinks.forgotten).toEqual([]);
+
+    flushSync(() => root.unmount());
+    expect(blinks.forgotten).toEqual([drawn]);
   });
 
   it("draws without the animation API", () => {

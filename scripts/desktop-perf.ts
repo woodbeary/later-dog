@@ -48,6 +48,11 @@ interface MainThread {
   styleRecalcs: number;
 }
 
+interface Memory {
+  serverTreeRssMb: number;
+  browserTreeRssMb: number;
+}
+
 interface Activity {
   mainThread?: MainThread;
   ms: number;
@@ -388,6 +393,11 @@ function treeRss(rootPid: number): number {
   return Math.round(total / 1024);
 }
 
+function memory(serverPid: number): Memory {
+  const serverTreeRssMb = treeRss(serverPid);
+  return { serverTreeRssMb, browserTreeRssMb: treeRss(process.pid) - serverTreeRssMb - Math.round(process.memoryUsage().rss / 1024 / 1024) };
+}
+
 async function heap(page: Page): Promise<{ heapMb: number; nodes: number }> {
   const session = await page.context().newCDPSession(page);
   await session.send("Performance.enable");
@@ -611,6 +621,13 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
     }
     return { running: running.length, byName: [...names.entries()].sort((left, right) => right[1] - left[1]).slice(0, 12).map(([name, count]) => `${name} ${count}`) };
   });
+  const memoryIdle = memory(fixture.info.pid);
+  const memoryPeak = { ...memoryIdle };
+  const sampling = setInterval(() => {
+    const now = memory(fixture.info.pid);
+    memoryPeak.serverTreeRssMb = Math.max(memoryPeak.serverTreeRssMb, now.serverTreeRssMb);
+    memoryPeak.browserTreeRssMb = Math.max(memoryPeak.browserTreeRssMb, now.browserTreeRssMb);
+  }, 1_000);
   const short = dogs.others[0]!;
   await open(page, dogs.long);
   await page.waitForTimeout(1_500);
@@ -705,6 +722,8 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
 
   const after = await heap(page);
   const fill = counting ? null : { idle: await fillsWhileIdle(page, dogs, setup.switches), whileReplyStreams: await fillUnderStream(page, api, dogs, files) };
+  clearInterval(sampling);
+  const memoryAfter = memory(fixture.info.pid);
   await context.close();
   return {
     idle: { ...trim(idling), animations, blinkSeenMs },
@@ -714,6 +733,7 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
     heapAfterMb: after.heapMb,
     rendererIdleMb,
     rendererPeakMb: Math.max(...rendererSeenMb),
+    rssMb: { idle: memoryIdle, peak: memoryPeak, afterRun: memoryAfter },
     domNodesAfter: after.nodes,
     switchToLongMs: distribution(toLong),
     switchToShortMs: distribution(toShort),
@@ -892,7 +912,10 @@ async function openingShots(browser: Browser, url: string, dogs: { long: Dog; ot
 }
 
 async function sidebarRows(browser: Browser, url: string, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, shots: string | null, label: string) {
-  for (const [index, dog] of dogs.others.entries()) if (index % 2 === 1) await api("PATCH", `/api/bots/${dog.id}/profile`, { title: "Release notes and checks" });
+  const titled = dogs.others.filter((_, index) => index % 2 === 1).map((dog) => dog.id);
+  for (const id of titled) await api("PATCH", `/api/bots/${id}/profile`, { title: "Release notes and checks" });
+  const everyDog = await api("GET", "/api/bots") as { bots: Array<{ id: string; threadId: string }> };
+  for (const dog of everyDog.bots) await api("POST", `/api/bots/${dog.id}/read`, { threadId: dog.threadId });
   const context = await browser.newContext({ viewport: VIEWPORT });
   await context.addInitScript(PAGE_PROBE);
   const page = await context.newPage();
@@ -908,7 +931,7 @@ async function sidebarRows(browser: Browser, url: string, api: ReturnType<typeof
     let notDrawn = 0;
     for (const row of document.querySelectorAll("[data-sidebar-row]")) {
       rows += 1;
-      if (row.firstElementChild!.checkVisibility({ contentVisibilityAuto: true })) continue;
+      if (row.querySelector("[data-sidebar-bot-row] > *")!.checkVisibility({ contentVisibilityAuto: true })) continue;
       notDrawn += 1;
       const kind = row.getAttribute("data-sidebar-row") || "unmarked";
       const height = Math.round(row.getBoundingClientRect().height * 10) / 10;
@@ -930,14 +953,22 @@ async function sidebarRows(browser: Browser, url: string, api: ReturnType<typeof
 
   await load();
   const before = await heldHeights();
-  const target = await page.evaluate(() => {
+  const target = await page.evaluate((titled: string[]) => {
     const rows = [...document.querySelectorAll("[data-sidebar-row]")];
     const row = rows[rows.length - 12]!;
-    const notDrawnAbove = rows.slice(0, rows.length - 12).filter((candidate) => !candidate.firstElementChild!.checkVisibility({ contentVisibilityAuto: true })).length;
-    return { id: row.querySelector("[data-sidebar-bot-row]")!.getAttribute("data-sidebar-bot-row")!, kind: row.getAttribute("data-sidebar-row"), notDrawnAbove };
-  });
+    const notDrawn = (candidate: Element) => !candidate.querySelector("[data-sidebar-bot-row] > *")!.checkVisibility({ contentVisibilityAuto: true });
+    const above = rows.slice(0, rows.length - 12);
+    return {
+      id: row.querySelector("[data-sidebar-bot-row]")!.getAttribute("data-sidebar-bot-row")!,
+      kind: row.getAttribute("data-sidebar-row") || "unmarked",
+      notDrawnAbove: above.filter(notDrawn).length,
+      titledNotDrawnAbove: above.filter((candidate) => notDrawn(candidate) && titled.includes(candidate.querySelector("[data-sidebar-bot-row]")?.getAttribute("data-sidebar-bot-row") ?? "")).length,
+      unreadRowsBefore: document.querySelectorAll("[data-sidebar-unread]").length,
+    };
+  }, titled);
   await api("PATCH", `/api/bots/${target.id}`, { unread: true });
   await page.waitForSelector('[data-more-unreads="below"]', { timeout: 15_000 });
+  const unreadRows = await page.evaluate(() => document.querySelectorAll("[data-sidebar-unread]").length);
   await page.click('[data-more-unreads="below"]');
   const landed = await page.evaluate(async (id: string) => {
     const scroller = document.querySelector("[data-sidebar-scroller]")!;
@@ -954,7 +985,7 @@ async function sidebarRows(browser: Browser, url: string, api: ReturnType<typeof
     const row = document.querySelector(`[data-sidebar-bot-row=${JSON.stringify(id)}]`)!.getBoundingClientRect();
     return {
       inView: row.top >= view.top && row.bottom <= view.bottom,
-      pxFromCentre: Math.round((row.top + row.bottom) / 2 - (view.top + view.bottom) / 2),
+      pxFromCentre: Math.round(((row.top + row.bottom) / 2 - (view.top + view.bottom) / 2) * 10) / 10,
       scrolledToPx: Math.round(scroller.scrollTop),
       scrollTookMs: Math.round(settledAt - started),
       pillStillShown: Boolean(document.querySelector('[data-more-unreads="below"]')),
@@ -975,10 +1006,132 @@ async function sidebarRows(browser: Browser, url: string, api: ReturnType<typeof
   return {
     rows: before.rows,
     rowsNotDrawnAtLoad: before.notDrawn,
-    heightHeldWhileNotDrawnPx: { ...before.held, ...iconsHeld.held },
-    heightWhenDrawnPx: { ...drawn, ...iconsDrawn },
+    heightHeldWhileNotDrawnPx: { list: before.held, iconRail: iconsHeld.held },
+    heightWhenDrawnPx: { list: drawn, iconRail: iconsDrawn },
     iconRail: { rows: iconsHeld.rows, rowsNotDrawnAtLoad: iconsHeld.notDrawn },
-    unreadJump: { target: target.kind, rowsNotDrawnAbove: target.notDrawnAbove, ...landed },
+    unreadJump: { target: target.kind, unreadRowsBefore: target.unreadRowsBefore, unreadRows, rowsNotDrawnAbove: target.notDrawnAbove, titledRowsNotDrawnAbove: target.titledNotDrawnAbove, clicks: 1, ...landed },
+  };
+}
+
+async function kept(browser: Browser, url: string, dogs: { long: Dog; others: Dog[] }) {
+  const context = await browser.newContext({ viewport: VIEWPORT });
+  await context.addInitScript(PAGE_PROBE);
+  const page = await context.newPage();
+  const load = async () => {
+    await page.goto(url);
+    await page.waitForSelector('textarea[aria-label^="Message "]', { timeout: 60_000 });
+    await page.waitForSelector("[data-sidebar-bot-row]", { timeout: 60_000 });
+    await page.waitForTimeout(1_000);
+  };
+  const draftOf = (dog: Dog) => page.evaluate((selector: string) => (document.querySelector(selector) as HTMLTextAreaElement | null)?.value ?? null, composerOf(dog));
+  const selected = () => page.evaluate(() => document.querySelector('[data-sidebar-bot-row][aria-current="page"]')?.getAttribute("data-sidebar-bot-row") ?? null);
+  const write = async (dog: Dog, text: string) => {
+    await open(page, dog);
+    await page.click(composerOf(dog));
+    await page.keyboard.type(text, { delay: 5 });
+  };
+  const short = dogs.others[0]!;
+  const longDraft = "Draft kept for the long chat";
+  const shortDraft = "Draft kept for the short chat";
+
+  await load();
+  await write(dogs.long, longDraft);
+  await write(short, shortDraft);
+  await open(page, dogs.long);
+  const longAfterSwitch = await draftOf(dogs.long);
+  await open(page, short);
+  const shortAfterSwitch = await draftOf(short);
+  await open(page, dogs.long);
+  await page.waitForTimeout(800);
+  await load();
+  const selectedAfterReload = await selected();
+  const longAfterReload = await draftOf(dogs.long);
+  await open(page, short);
+  const shortAfterReload = await draftOf(short);
+  for (const dog of [short, dogs.long]) {
+    await open(page, dog);
+    await page.click(composerOf(dog));
+    await page.keyboard.press("Control+End");
+    for (let index = 0; index < shortDraft.length + 2; index += 1) await page.keyboard.press("Backspace");
+  }
+
+  if (process.argv.includes("--css")) {
+    await (page as unknown as { addStyleTag(options: { content: string }): Promise<unknown> }).addStyleTag({ content: option("css") });
+    await page.waitForTimeout(300);
+  }
+  const cdp = await page.context().newCDPSession(page) as unknown as { send(method: string, params?: unknown): Promise<Record<string, unknown>> };
+  await cdp.send("DOM.enable");
+  await cdp.send("Accessibility.enable");
+  const root = (await cdp.send("DOM.getDocument", { depth: 0 })).root as { nodeId: number };
+  const { nodeIds } = await cdp.send("DOM.querySelectorAll", { nodeId: root.nodeId, selector: "[data-sidebar-bot-row]" }) as { nodeIds: number[] };
+  const drawnRows = await page.evaluate(() => [...document.querySelectorAll("[data-sidebar-bot-row]")].map((row) => (row.firstElementChild ?? row).checkVisibility({ contentVisibilityAuto: true })));
+  const spoken: Array<{ drawn: boolean; role: string; name: string; ignored: boolean; why: string }> = [];
+  for (const [index, nodeId] of nodeIds.entries()) {
+    const { nodes } = await cdp.send("Accessibility.getPartialAXTree", { nodeId, fetchRelatives: false }) as { nodes: Array<{ ignored: boolean; role?: { value: string }; name?: { value: string }; ignoredReasons?: Array<{ name: string }> }> };
+    const node = nodes[0];
+    spoken.push({ drawn: drawnRows[index] ?? true, role: node?.role?.value ?? "", name: node?.name?.value ?? "", ignored: node?.ignored ?? true, why: (node?.ignoredReasons ?? []).map((reason) => reason.name).join(" ") });
+  }
+  const namedButton = (row: { role: string; name: string; ignored: boolean }) => !row.ignored && row.role === "button" && row.name.trim().length > 0;
+  await page.waitForTimeout(1_500);
+  const transcript = await page.evaluate(() => {
+    const log = document.querySelector('[role="log"]');
+    return { label: log?.getAttribute("aria-label") ?? null, live: log?.getAttribute("aria-live") ?? null, rows: log?.querySelectorAll("[data-mid]").length ?? 0 };
+  });
+
+  await page.evaluate(() => {
+    document.querySelector("[data-sidebar-scroller]")!.scrollTop = 0;
+    (document.querySelector("[data-sidebar-bot-row]") as HTMLElement).focus();
+  });
+  const notDrawnAtTop = await page.evaluate(async () => {
+    await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    return [...document.querySelectorAll("[data-sidebar-bot-row]")].filter((row) => !(row.firstElementChild ?? row).checkVisibility({ contentVisibilityAuto: true })).map((row) => row.getAttribute("data-sidebar-bot-row")!);
+  });
+  const reached: Array<{ id: string; inView: boolean; ring: boolean }> = [];
+  for (let press = 0; press < nodeIds.length * 4 && reached.length < nodeIds.length; press += 1) {
+    const at = await page.evaluate(() => {
+      const row = document.activeElement?.closest("[data-sidebar-bot-row]");
+      if (!row || row !== document.activeElement) return null;
+      const view = document.querySelector("[data-sidebar-scroller]")!.getBoundingClientRect();
+      const box = row.getBoundingClientRect();
+      const style = getComputedStyle(row);
+      return {
+        id: row.getAttribute("data-sidebar-bot-row")!,
+        inView: box.top >= view.top - 1 && box.bottom <= view.bottom + 1,
+        ring: row.matches(":focus-visible") && (style.outlineStyle !== "none" || style.boxShadow !== "none"),
+      };
+    });
+    if (at && !reached.some((row) => row.id === at.id)) reached.push(at);
+    await page.keyboard.press("Tab");
+  }
+  const last = reached[reached.length - 1];
+  await page.evaluate((id: string) => (document.querySelector(`[data-sidebar-bot-row=${JSON.stringify(id)}]`) as HTMLElement).focus(), last?.id ?? dogs.long.id);
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(600);
+  const openedByEnter = await selected();
+  await context.close();
+  return {
+    drafts: {
+      afterSwitching: { long: longAfterSwitch === longDraft, short: shortAfterSwitch === shortDraft },
+      afterReload: { long: longAfterReload === longDraft, short: shortAfterReload === shortDraft },
+    },
+    selection: { openBeforeReload: "long chat", sameChatAfterReload: selectedAfterReload === dogs.long.id },
+    screenReader: {
+      rows: spoken.length,
+      rowsNotDrawn: spoken.filter((row) => !row.drawn).length,
+      namedButtons: spoken.filter(namedButton).length,
+      namedButtonsNotDrawn: spoken.filter((row) => !row.drawn && namedButton(row)).length,
+      exampleDrawn: spoken.find((row) => row.drawn)?.name ?? null,
+      exampleNotDrawn: spoken.find((row) => !row.drawn) ?? null,
+      transcript,
+    },
+    keyboard: {
+      rowsReachedByTab: reached.length,
+      rowsNotDrawnBeforeTabbing: notDrawnAtTop.length,
+      reachedOfThoseNotDrawn: reached.filter((row) => notDrawnAtTop.includes(row.id)).length,
+      inViewWhenFocused: reached.filter((row) => row.inView).length,
+      focusRingShown: reached.filter((row) => row.ring).length,
+      enterOpensTheFocusedRow: Boolean(last) && openedByEnter === last!.id,
+    },
   };
 }
 
@@ -1099,8 +1252,14 @@ async function main() {
       process.stdout.write(`${JSON.stringify(await openingShots(browser, fixture.info.url, dogs, resolve(option("opening-shots")), setup.label), null, 2)}\n`);
       return;
     }
-    if (process.argv.includes("--sidebar-rows")) {
-      const result = { label: setup.label, at: new Date().toISOString(), dogs: dogs.others.length + 1, ...await sidebarRows(browser, fixture.info.url, api, dogs, process.argv.includes("--shots") ? resolve(option("shots")) : null, setup.label) };
+    if (process.argv.includes("--sidebar-rows") || process.argv.includes("--kept")) {
+      const result = {
+        label: setup.label,
+        at: new Date().toISOString(),
+        dogs: dogs.others.length + 1,
+        ...(process.argv.includes("--kept") ? { kept: await kept(browser, fixture.info.url, dogs) } : {}),
+        ...(process.argv.includes("--sidebar-rows") ? await sidebarRows(browser, fixture.info.url, api, dogs, process.argv.includes("--shots") ? resolve(option("shots")) : null, setup.label) : {}),
+      };
       mkdirSync(dirname(setup.out), { recursive: true });
       writeFileSync(setup.out, `${JSON.stringify(result, null, 2)}\n`);
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -1109,8 +1268,6 @@ async function main() {
     const cold = await coldLoads(browser, fixture.info.url, setup.coldRuns);
     const timed = await pass(browser, fixture, api, dogs, setup, files, false);
     const counted = await pass(browser, fixture, api, dogs, setup, files, true);
-    const serverTreeRssMb = treeRss(fixture.info.pid);
-    const memoryAtPeak = { serverTreeRssMb, browserTreeRssMb: treeRss(process.pid) - serverTreeRssMb - Math.round(process.memoryUsage().rss / 1024 / 1024) };
     const result = {
       label: setup.label,
       at: new Date().toISOString(),
@@ -1124,7 +1281,7 @@ async function main() {
         streaming: redraws(counted.streaming),
         otherDogsWorking: redraws(counted.otherDogsWorking),
       },
-      memory: memoryAtPeak,
+      memory: timed.rssMb,
     };
     mkdirSync(dirname(setup.out), { recursive: true });
     writeFileSync(setup.out, `${JSON.stringify(result, null, 2)}\n`);

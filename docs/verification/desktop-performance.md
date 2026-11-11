@@ -22,6 +22,21 @@ Chrome binary (default `/usr/bin/chromium`). `--dist` serves another build,
 size the run. The fixture serves the build because the launcher passes
 `LATERDOG_TEST_STATIC_DIR` through to the server as its static folder.
 
+Two modes check behaviour instead of timing it, and can be combined in one
+run:
+
+- `--sidebar-rows` (best with `--other-dogs 79 --other-turns 2`) gives every
+  second dog a title, then records the height each kind of row holds while its
+  contents are not drawn against its height when drawn, in the list and in the
+  icon rail, and whether one click on the "more unread below" pill lands an
+  unread row near the end of the list in view. `--shots DIR` photographs the
+  landing.
+- `--kept` writes a draft in two chats and checks each is still there after
+  switching and after a reload, that the reload opens the same chat, that the
+  accessibility tree has a named button for every dog's row whether or not
+  its contents are drawn, and that Tab reaches every row with a focus ring and
+  in view, and Enter opens it.
+
 Two more modes help find a cause rather than a number:
 
 - `--names` with an unminified build (`pnpm exec vite build --minify false
@@ -41,7 +56,7 @@ Two more modes help find a cause rather than a number:
 | A streamed reply | Enter to the person's own bubble, and to the first words of the reply; frames and long tasks until the dog settles |
 | Other dogs working | Four other dogs take a streamed turn while an idle chat is open |
 | Redraws | A second pass counts React commits and components that redrew, through the commit hook |
-| Memory | JS heap after a collection, DOM nodes, and resident memory of the server tree and the browser tree |
+| Memory | JS heap after a collection at idle and after the run, DOM nodes, and resident memory of the server tree and the browser tree at idle, at its highest during the timed pass (sampled every second) and at the end |
 
 The fake engine streams a reply in pieces when `FAKE_CLAUDE_STREAM_FILE` names
 a JSON file `{ "everyMs": 30, "chars": 10 }`, and reads scripted replies from
@@ -117,3 +132,89 @@ and 0.5 s of painting.
 - None of this has been measured in the Mac app. One reading from a running
   Mac app on 2026-11-10: five processes, 447 MB resident, 388 MB of it the
   window's renderer, on a machine with 4.2 GB of swap in use.
+
+## Review of 2026-11-10 and what was done about it
+
+An independent read of this branch at 456e978 raised seven findings. Each is
+fixed with a test; the numbers are fixture measurements on the Linux cloud
+computer.
+
+| Finding | What changed | Tests |
+|---|---|---|
+| R1 The "Earlier work" line flashed and changed during the fill | The line is counted against the rows of the filled window from the first frame | `src/components/ChatView.opening.test.ts` "shows the same earlier-work line at every step of the fill"; `src/hooks/use-transcript-viewport.test.ts` "names the rows of the filled window from the first frame" |
+| R2 A skipped sidebar row held the wrong height | Each row is marked plain, titled or icon and holds the height that kind draws at | `src/lib/sidebar-row-kind.test.ts`, `src/components/Sidebar.rows.test.ts`, and `--sidebar-rows` below |
+| R3 Rows filled in after opening slid in as if new | Rows older than the ones the chat opened on never count as arriving | `src/lib/arrivals.test.ts`, `src/components/ChatView.opening.test.ts` "slides in only rows that are newer than the ones the chat opened on" |
+| R4 The "N new" pill could be dismissed by the short opening | A chat whose first unread row is older than the newest rows opens on its whole window | `src/lib/transcript-window.test.ts`, `src/hooks/use-transcript-viewport.test.ts` "opens on the whole window at once when the first unread row is older than the newest rows", `src/components/ChatView.opening.test.ts` |
+| R5 A streaming reply could hold the fill back and move a reader | The fill is applied within the frame that asks for it, with the height captured in that commit | `src/hooks/use-transcript-viewport.test.ts` "fills in within the frame that asks", `src/components/ChatView.opening.test.ts` "fills in at the same pace while the newest reply keeps growing", and the "fill" rows below |
+| R6 The unfilled window was a raw index with no bound | The fill counts from the id of the row it showed first; showing earlier rows or an older page finishes the fill first | `src/lib/transcript-window.test.ts`, `src/hooks/use-transcript-viewport.test.ts` "finishes the fill before showing earlier rows", "shows the same rows and then the whole tail when an older page lands during the fill", "never shows more than a window when a burst of new rows lands during the fill" |
+| R7 The fake engine needed two settings to stream and blocked while it waited | The stream file alone is enough, and the wait between pieces leaves the event loop free | `server/testing/fake-claude-stream.test.ts` (3 tests) |
+
+The reviewer's list of missing tests is covered by the tests above plus
+`src/components/DogAvatar.test.ts` (a face joins and leaves the shared blink
+clock) and `src/components/NativeWork.test.ts` (a work row redraws only when
+its run is replaced).
+
+### Sidebar rows, measured with `--sidebar-rows` at 80 dogs (two runs at 456e978, three now, all the same)
+
+| | At 456e978 | Now |
+|---|---|---|
+| Height held while not drawn, list | 52 px until a row has been drawn once | 53.5 px plain, 69.5 px titled |
+| Height when drawn, list | 53.5 px plain, 69.5 px titled | 53.5 px plain, 69.5 px titled |
+| Height held and drawn, icon rail | 52 px until drawn once, and 56 px | 56 px and 56 px |
+| One click on the unread pill, 34 rows not drawn above the target, 17 of them titled | In view, 250 px below the middle | In view, 16 px above the middle, pill gone |
+
+The landing was photographed (`--shots`); the photograph was not looked at by
+a person.
+
+### What `--kept` found, at 80 dogs (one run each)
+
+| Check | main c96ea63 | 456e978 and 8924500 | Now |
+|---|---|---|---|
+| Draft kept per chat after switching, and after a reload | yes, yes | yes, yes | yes, yes |
+| Reload opens the chat that was open | yes | yes | yes |
+| Dog rows with a named button in the accessibility tree | 81 of 81 | 40 of 81: the 41 rows not drawn were left out as "not rendered" | 81 of 81, 41 of them not drawn |
+| Rows Tab reaches, in view, with a focus ring | 81, 81, 81 | 81, 81, 81 | 81, 81, 81 |
+| Enter opens the focused row | yes | yes | yes |
+
+Skipping a whole off-screen row took it out of the accessibility tree, so a
+screen reader could not find a dog that was scrolled out of view. The row
+itself is now always drawn and only what is inside it is skipped
+(`[data-sidebar-row] > [data-sidebar-bot-row]` in `src/styles.css`), and a
+row in the list carries the same spoken name the icon rail already used: the
+dog's name and its state ("Helper 39 · Unread"). Before this branch a list
+row's spoken name was all of its text, preview line included; the preview is
+no longer part of the name. `src/components/SidebarBotListItem.test.ts`
+"names a row in the list for a screen reader the way the icon rail does".
+
+## What still needs the Mac app
+
+Everything above is a headless Chrome on Linux against a fixture. Not measured
+or checked anywhere yet:
+
+- Cold launch of the packaged app, from click to a usable chat.
+- Memory of the app's whole process tree (main, renderer, GPU, helpers) at
+  idle and under load.
+- Dictation and push-to-talk while a long chat is open.
+- Permission prompts (microphone, screen, accessibility, files).
+- Signing, notarization and the update path.
+- A real screen reader on the Mac reading the sidebar, and a keyboard focus
+  ring photographed on a sidebar row.
+
+## Where this lane stands, 2026-11-11
+
+Run on the Linux cloud computer at fa3141c:
+
+- The Sidebar tests, the row-kind test and the unread-pill test: 18 files, 134
+  tests passed.
+- The whole renderer suite (every test under `src`): 409 files, 3,576 tests
+  passed.
+- The renderer and server typechecks: no errors.
+- `scripts/no-comments.test.ts` and `scripts/brand-links.test.ts`: 13 tests
+  passed.
+- The harness ran end to end in its `--sidebar-rows` and `--kept` modes
+  against the builds of main, 456e978 and this branch.
+
+Left: the timed before and after runs of main against this branch at 7 and 80
+dogs, and their table here and in the pull request. They wait for a turn on
+the cloud computer, which other lanes are using.
+
