@@ -41,6 +41,9 @@ half (`src/**`) in one pull request, and replaces pull requests #157 and #159.
 - `held` wins over `dropped` for the same id. A failed ask (network error,
   timeout, 5xx) is not an answer: the copy stays and the device asks again.
   Only "there is no edge" (404) starts the 65 minute rule.
+- There is no separate hook on sign-out or on a change of home: a 401 or 403
+  from the edge stops the timer, and the timer is thrown away with the store's
+  outbox when the store goes away (the second read in code, the first tested).
 - One settle runs at a time. A refresh that arrives during one is folded into a
   single follow-up run with the newest chats.
 - A dropped send takes its queued row away, goes to the Not sent row with its
@@ -117,8 +120,28 @@ Measured on the Linux cloud computer (Node 24.22.2), 2026-11-11. The first three
 
 ## Full gates
 
-Not finished when this note was first written; the result is added below when
-the run ends.
+Run on the Linux cloud computer at `848e88d` plus this note, 2026-11-11, started 09:31 UTC.
+
+| Gate | Result |
+| --- | --- |
+| `pnpm typecheck` (`tsc -b && tsc -p tsconfig.server.json`) | exit 0 |
+| `pnpm lint` (`oxlint --deny-warnings .`) | 0 warnings, 0 errors, 3034 files |
+| Edge `tsc --noEmit` in `deploy/laterdog/home` | exit 0 |
+| Full `pnpm exec vitest run` (includes `scripts/no-comments.test.ts` and `scripts/brand-links.test.ts`) | IN PROGRESS at 10:00 UTC: 46 of about 1270 files done, slowest first. The next helper finds the log at `~/qd-logs/full-vitest.log` and the status at `~/qd-logs/gates.status` on the cloud computer |
+
+Failures seen so far in the full run, all in files this branch does not touch
+(`git diff origin/main...HEAD` is empty for each test and for `server/drivers`,
+`server/config.ts`, `server/workspace.ts`):
+
+- `server/config.test.ts` "uses the list again once a file the server could not read is readable" and `server/workspace.test.ts` "fails the write, changing nothing, when the archive exists but cannot be read": both make a file unreadable with `chmod 000` and skip only for uid 0. The cloud computer's user can read any file (its process has the capability that overrides file permissions), so the file stays readable. Environment, not code.
+- `server/drivers/agents-proxy.test.ts` "answers the MCP handshake and lists the agents tools": the listed tools include `react`, the expected list does not. The catalog lists it without condition, and both files are the same as on main.
+- `server/delta-context.e2e.test.ts` "resets Claude's native context on edit, then resumes only the replacement branch": failed in two full runs. Not yet run alone or compared with main; do that before calling it unrelated.
+
+## Left for the next helper, if this one is cut off
+
+1. Read the end of `~/qd-logs/full-vitest.log` for the totals and write them here and in pull request #164.
+2. Run `server/delta-context.e2e.test.ts -t "resets Claude's native context on edit"` alone on this branch and on main.
+3. Main moved to `0b90a17` after this branch was cut. It merges without conflicts (`git merge-tree`). After merging, run the edge suite, `scripts/no-comments.test.ts`, `scripts/brand-links.test.ts`, the lane's server and device tests, and typecheck.
 
 ## Fixture-only, and what still needs a real home or the app
 
