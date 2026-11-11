@@ -6,7 +6,7 @@ import { releaseChecksOff, releaseOffer } from "./ReleaseCheck";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 import { SignOutDialog, useSignOutTargets, type SignOutTargets } from "./SignOutAll";
 import { requestUpdateDialog } from "@/lib/update-request";
-import { useStore } from "@/state/store";
+import { useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
 import { brand } from "../lib/brand";
 import { cn } from "@/lib/cn";
@@ -163,14 +163,14 @@ export function SupportMenu({ close, onReportBug }: { close: () => void; onRepor
 }
 
 export function SidebarProfileMenu({ compact = false }: { compact?: boolean }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const profile = useStoreSelector((state) => state.config?.profile);
   const update = useUpdateItem();
   const signOut = useSignOutTargets();
   const [signingOut, setSigningOut] = useState<SignOutTargets | null>(null);
   const [reportingBug, setReportingBug] = useState(false);
   const triggerRef = useRef<HTMLSpanElement>(null);
 
-  const profile = state.config?.profile;
   const name = profileLabel(profile);
 
   const focusTrigger = () => triggerRef.current?.closest("button")?.focus();

@@ -94,6 +94,7 @@ import {
   type RoutineTarget,
 } from "@/lib/routines";
 import { api, useStore, type Bot, type Group } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 
 const HOUR_HEIGHT = 64;
 const DAY_CHIP_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -1039,7 +1040,7 @@ function QuickComposer({
   onSavedRoutine: (routine: Routine) => void;
   onSavedCall: (call: CalendarCall) => void;
 }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [kind, setKind] = useState<EventKind>(seed.kind);
   const [name, setName] = useState(seed.name ?? "");
   const [description, setDescription] = useState(seed.description ?? "");
@@ -1652,7 +1653,7 @@ export function PausedList({
   onEdit: (routine: Routine) => void;
   onOpenRoom: (id: string) => void;
 }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const dialogRef = useRef<HTMLDivElement>(null);
   useModalDialog(dialogRef, onClose);
   return (

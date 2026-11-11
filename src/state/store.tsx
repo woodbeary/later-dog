@@ -3,12 +3,14 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
+import { StoreChannelContext, createStoreFeed, type StoreChannel, type StoreFeed } from "./store-channel";
 import { followsTaskView, followTaskView, reduceTaskView, type TaskView, type TaskViewAction } from "./task-view";
 import type { BotVisibility, CardAnswerer, CloudBackend, ConnectorToolGrant, EffortLevel, InstalledPackageMetadata, LiveCallState, LiveSettings, ServerFrame, GroupThreadUsage, SteerQueueReason, WireWaitingOn } from "../../shared/wire";
 import type { TurnDigest } from "../../shared/digest";
@@ -50,7 +52,6 @@ import { speaker } from "@/lib/tts";
 import { createBotPatchQueue, type BotUpdatePatch } from "./bot-patch-queue";
 import type { OnboardingStatus } from "@/lib/onboarding";
 import { openLiveEvents, publishLiveFrame, publishMissedFrames } from "@/lib/live-events";
-import { statusFallback } from "@/lib/plain-client-error";
 import { t } from "@/lib/i18n";
 import type { LocaleKey } from "@/locales";
 import {
@@ -64,7 +65,7 @@ import {
   type PaneErrors,
   type PaneKey,
 } from "./pane-errors";
-import { HOME_WAKE_WORDS, WAKE_LIMIT_MS, WAKE_TOO_LONG, homeWake, retryAfterMs, wakeDelayMs, type HomeWake } from "../../shared/home-wake";
+import { ApiError, api, type ApiInit } from "@/lib/api";
 import { queuedSteerResult } from "@/lib/queued-steer";
 import type { OutboxItem, OutboxRecovery } from "@/lib/outbox";
 import { createSendOutbox, type SendOutbox } from "./send-outbox";
@@ -2094,20 +2095,7 @@ export function nextLiveCallLookup(): number {
   return liveCallLookups;
 }
 
-export class ApiError extends Error {
-  readonly status: number;
-  readonly body?: Record<string, unknown>;
-  readonly wake?: HomeWake;
-  readonly retryAfterMs?: number;
-  constructor(message: string, status: number, body?: Record<string, unknown>, home?: { wake?: HomeWake | null; retryAfterMs?: number | null }) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.body = body;
-    if (home?.wake) this.wake = home.wake;
-    if (home?.retryAfterMs) this.retryAfterMs = home.retryAfterMs;
-  }
-}
+export { ApiError, api, type ApiInit };
 
 export interface NewDogFields {
   avatarUrl?: string | null;
@@ -2164,53 +2152,6 @@ export function duplicateProfileFor(source: Bot) {
 
 export const MESSAGE_PAGE_SIZE = 200;
 
-
-export type ApiInit = RequestInit & { timeoutMs?: number; rideWake?: boolean };
-
-const sleepUnlessAborted = (ms: number, signal: AbortSignal | null | undefined) =>
-  new Promise<void>((resolve, reject) => {
-    if (signal?.aborted) return reject(signal.reason);
-    const timer = setTimeout(() => {
-      signal?.removeEventListener?.("abort", stop);
-      resolve();
-    }, ms);
-    const stop = () => {
-      clearTimeout(timer);
-      reject(signal?.reason);
-    };
-    signal?.addEventListener?.("abort", stop, { once: true });
-  });
-
-export async function api<T = any>(path: string, init?: ApiInit): Promise<T> {
-  const { timeoutMs, signal, rideWake, ...rest } = init ?? {};
-  const bounded = timeoutMs === undefined
-    ? signal
-    : signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)])
-      : AbortSignal.timeout(timeoutMs);
-  const started = Date.now();
-  for (;;) {
-    const res = await fetch(path, {
-      headers: { "content-type": "application/json" },
-      ...rest,
-      signal: bounded,
-    });
-    const body = await res.json().catch(() => ({}));
-    if (res.ok) return body;
-    const wake = homeWake(res.status, res.headers);
-    const waitMs = retryAfterMs(res.headers, body);
-    if (wake && rideWake !== false && (rest.body == null || typeof rest.body === "string")) {
-      const delay = wakeDelayMs(wake, waitMs);
-      if (Date.now() - started + delay <= WAKE_LIMIT_MS) {
-        await sleepUnlessAborted(delay, bounded);
-        continue;
-      }
-      throw new ApiError(WAKE_TOO_LONG, res.status, body, { wake, retryAfterMs: waitMs });
-    }
-    const message = wake ? HOME_WAKE_WORDS[wake] : typeof body.error === "string" && body.error ? body.error : statusFallback(res.status);
-    throw new ApiError(message, res.status, body, { wake, retryAfterMs: waitMs });
-  }
-}
 
 type TrustedApprovalBridge = {
   setMode(
@@ -2396,6 +2337,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     firstPaint.current ? withFirstPaint(base, firstPaint.current) : base);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const feedRef = useRef<StoreFeed | null>(null);
+  feedRef.current ??= createStoreFeed(state);
+  const feed = feedRef.current;
+  feed.publish(state);
+  useLayoutEffect(() => feed.announce(), [feed, state]);
   const paneErrors = useMemo(() => createPaneErrorReporter({
     dispatch: rawDispatch,
     fallbackPane: () => selectedPane(stateRef.current),
@@ -3549,7 +3495,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     () => ({ state, dispatch, flushBotPatches, refreshInstances, refreshModels }),
     [state, dispatch, flushBotPatches, refreshInstances, refreshModels],
   );
-  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+  const channel = useMemo<StoreChannel>(
+    () => ({ read: feed.read, listen: feed.listen, dispatch, flushBotPatches, refreshInstances, refreshModels }),
+    [feed, dispatch, flushBotPatches, refreshInstances, refreshModels],
+  );
+  return <StoreChannelContext.Provider value={channel}><StoreContext.Provider value={value}>{children}</StoreContext.Provider></StoreChannelContext.Provider>;
 }
 
 export function useOptionalStore() {
@@ -3563,7 +3513,7 @@ export function useStore() {
 }
 
 export function BotEditorStore({ value, children }: { value: ReturnType<typeof useStore>; children: ReactNode }) {
-  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+  return <StoreChannelContext.Provider value={null}><StoreContext.Provider value={value}>{children}</StoreContext.Provider></StoreChannelContext.Provider>;
 }
 
 const TIME_FORMAT = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });

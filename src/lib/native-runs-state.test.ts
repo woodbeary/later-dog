@@ -4,8 +4,8 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NativeRun } from "../../shared/native-runs";
 
-vi.mock("@/state/store", () => ({ api: vi.fn() }));
-const { api } = await import("@/state/store");
+vi.mock("@/lib/api", () => ({ api: vi.fn() }));
+const { api } = await import("@/lib/api");
 const { nativeHistoryIncomplete, currentNativeRuns, forgetNativeRuns, loadNativeRuns, nativeReceiptAnchors, receiveNativeRun, useNativeRuns } = await import("./native-runs-state");
 
 function run(overrides: Partial<NativeRun> = {}): NativeRun {

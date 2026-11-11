@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, KeyRound, Loader2, RefreshCw, Search, Zap } from "lucide-react";
-import { useStore, currentTaskBot, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
+import { currentTaskBot, type Bot, type InstanceInfo, type ModelSelection } from "@/state/store";
+import { dogIn, useStoreActions, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import type { EffortLevel } from "../../shared/wire";
 import { fitEffort } from "../../shared/effort";
 import type { ModelVariantOption } from "../../shared/runtime-events";
@@ -89,9 +90,10 @@ export function EffortRow({
   label?: ReactNode;
   compact?: boolean;
 }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const instances = useStoreSelector((state) => state.instances);
   const selection = bot.modelSelection;
-  const instance = state.instances.find((candidate) => candidate.instanceId === selection.instanceId);
+  const instance = instances.find((candidate) => candidate.instanceId === selection.instanceId);
   if (instance?.capabilities?.modelVariants) {
     return <ModelVariantRow bot={bot} threadId={threadId} updateBotDefault={updateBotDefault} className={className} label={label} compact={compact} />;
   }
@@ -157,11 +159,12 @@ export function ModelVariantRow({ bot, threadId, updateBotDefault, className, la
   compact?: boolean;
   wide?: boolean;
 }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const instances = useStoreSelector((state) => state.instances);
+  const session = useStoreSelector((state) => state.modelVariantSessions[threadId ?? bot.threadId]);
   const selection = bot.modelSelection;
-  const instance = state.instances.find((candidate) => candidate.instanceId === selection.instanceId);
+  const instance = instances.find((candidate) => candidate.instanceId === selection.instanceId);
   if (!instance?.capabilities?.modelVariants) return null;
-  const session = state.modelVariantSessions[threadId ?? bot.threadId];
   const reported = session?.instanceId === selection.instanceId && session.model === selection.model ? session.variants : undefined;
   const options = reported?.options ?? instance.models.options.find((option) => option.id === selection.model)?.variants ?? [];
   if (!options.length && selection.variant === undefined) return null;
@@ -441,7 +444,10 @@ export function ModelPicker({
   part?: "chat";
   label?: ReactNode;
 }) {
-  const { state, dispatch, refreshInstances, refreshModels: refreshInstanceModels } = useStore();
+  const { dispatch, refreshInstances, refreshModels: refreshInstanceModels } = useStoreActions();
+  const instances = useStoreSelector((state) => state.instances);
+  const config = useStoreSelector((state) => state.config);
+  const profile = useStoreSelector((state) => dogIn(state, bot.id)) ?? bot;
   const [open, setOpen] = useState(false);
   const motion = useMenuMotion(open);
   const [railId, setRailId] = useState<string | null>(null);
@@ -451,7 +457,7 @@ export function ModelPicker({
   const [refreshing, setRefreshing] = useState(false);
   const [probingLocal, setProbingLocal] = useState<string | null>(null);
   const ownerOrAdmin = useOwnerOrAdmin();
-  const simpleUpdatesBotDefault = !state.config?.cloudHome || ownerOrAdmin === true;
+  const simpleUpdatesBotDefault = !config?.cloudHome || ownerOrAdmin === true;
   const [fullView, setFullView] = useState(false);
   const [page, setPage] = useState<"accounts" | "models">("accounts");
   const [cameBack, setCameBack] = useState(false);
@@ -482,12 +488,12 @@ export function ModelPicker({
   }, [open, contained, popoverWidth, above]);
 
   const selection = bot.modelSelection;
-  const active = state.instances.find((instance) => instance.instanceId === selection.instanceId);
-  const pickerInstances = signedInModelInstances(state.instances, selection.instanceId);
-  const battery = state.config?.accountBattery;
+  const active = instances.find((instance) => instance.instanceId === selection.instanceId);
+  const pickerInstances = signedInModelInstances(instances, selection.instanceId);
+  const battery = config?.accountBattery;
   const routed = battery?.routed?.[threadId ?? bot.threadId];
-  const inUse = state.instances.find((instance) => instance.instanceId === routed?.on) ?? active;
-  const switcherAccounts = subscriptionAccounts(state.instances, battery)
+  const inUse = instances.find((instance) => instance.instanceId === routed?.on) ?? active;
+  const switcherAccounts = subscriptionAccounts(instances, battery)
     .filter((account) => pickerInstances.some((instance) => instance.instanceId === account.instanceId));
   const usageWanted = simpleUpdatesBotDefault && switcherAccounts.length > 0;
   const usage = usePlanUsage({ enabled: usageWanted });
@@ -504,7 +510,7 @@ export function ModelPicker({
   const openaiAccounts = byAccountOrder(pickerInstances.filter((instance) => signInFamily(instance) === "openai"));
   const openaiRailInstance = openaiAccounts.find((instance) => instance.instanceId === lastOpenaiIdRef.current)
     ?? openaiAccounts.find((instance) => instance.instanceId === selection.instanceId) ?? openaiAccounts[0];
-  const multipleClaudeAccounts = state.instances.filter(isClaudeAccount).length > 1;
+  const multipleClaudeAccounts = instances.filter(isClaudeAccount).length > 1;
   const showActiveAccount = (multipleClaudeAccounts && isClaudeAccount(active)) || Boolean(active?.snapshot.chatgptPlan);
   const claudeRailInstance = claudeAccounts.find((instance) => instance.instanceId === lastClaudeIdRef.current)
     ?? claudeAccounts.find((instance) => instance.instanceId === selection.instanceId) ?? claudeAccounts[0];
@@ -609,14 +615,13 @@ export function ModelPicker({
     resetList();
   };
 
-  const profile = state.bots.find((candidate) => candidate.id === bot.id) ?? bot;
   const pick = (instance: InstanceInfo, model: string, keepOpen = false) => {
     if (instance.policy) return;
     const nextSelection = modelSelectionForPick(selection, instance, model);
     const updateBotDefault = !threadId || simpleUpdatesBotDefault;
     const targets = updateBotDefault ? [currentTaskBot(profile, threadId ?? bot.threadId), profile] : [bot];
     if (targets.some((target) => modelSwitchNeedsAsk(approvalModeFor(target),
-      state.instances.find((candidate) => candidate.instanceId === target.modelSelection.instanceId)?.driverKind,
+      instances.find((candidate) => candidate.instanceId === target.modelSelection.instanceId)?.driverKind,
       instance.driverKind))) {
       setPendingSwitch({ botId: bot.id, threadId: threadId ?? bot.threadId,
         selection: nextSelection, updateBotDefault, name: modelLabel(instance, model) });

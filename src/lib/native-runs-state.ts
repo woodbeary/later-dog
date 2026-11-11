@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
 import type { NativeRun, NativeRunList } from "../../shared/native-runs";
-import { api } from "@/state/store";
+import { api } from "@/lib/api";
 import { applyNativeRun, nativeReceiptAnchors } from "../../shared/native-run-selectors";
 
 const empty: NativeRun[] = [];

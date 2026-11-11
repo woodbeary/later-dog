@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
-import { ChatView, ErrorRow } from "../components/ChatView";
+import { ChatView } from "../components/ChatView";
+import { ErrorRow } from "../components/FailedTurnRow";
 import { DesktopCapabilitiesProvider } from "../components/DesktopCapabilities";
 import { StoreProvider, useStore } from "../state/store";
 import { applySkin } from "../lib/skins";

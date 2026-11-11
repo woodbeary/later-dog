@@ -4,7 +4,8 @@ import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { codingJobLine, dogCloudTasks } from "@/lib/cloud-tasks";
 import { t } from "@/lib/i18n";
-import { useStore, type Bot } from "@/state/store";
+import type { Bot } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import type { CloudTaskSummary } from "../../../shared/cloud-task";
 
 const SHOWN = 5;
@@ -13,7 +14,7 @@ const rowCls = "px-4 py-3";
 const dividedRowCls = "border-t border-hairline/40 px-4 py-3";
 
 export function CodingJobs({ bot }: { bot: Bot }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [jobs, setJobs] = useState<CloudTaskSummary[]>([]);
   const [all, setAll] = useState(false);
 

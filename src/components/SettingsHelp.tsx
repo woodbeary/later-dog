@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useStore } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import { t } from "@/lib/i18n";
 import { FEEDBACK_URL, HELP_CENTER_URL, appVersion, openExternalLink, platformLabel } from "@/lib/app-links";
 import { AboutDialog } from "./AboutDialog";
@@ -9,7 +9,7 @@ import { shortcutLabel } from "./ShortcutHint";
 const pill = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover";
 
 export function HelpRows() {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [aboutOpen, setAboutOpen] = useState(false);
   const platform = platformLabel(typeof window === "undefined" ? undefined : window.laterdog?.platform);
   const showShortcuts = () => {

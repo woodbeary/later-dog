@@ -1,9 +1,9 @@
-import { useStore } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import { AiChoices } from "@/components/AiChoices";
 import { t } from "@/lib/i18n";
 
 export function NoEngines() {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   return (
     <main data-no-engines className="flex h-full min-w-0 flex-1 flex-col overflow-y-auto bg-app">
       <div className="mx-auto w-full max-w-[560px] px-6 py-12">

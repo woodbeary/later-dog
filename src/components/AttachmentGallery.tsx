@@ -11,11 +11,11 @@ import {
   AttachmentPreviewDialog,
   AttachmentThumbnail,
   previewImage,
-  requestMessageFile,
   safeDownloadFilename,
   type MessageAttachmentContext,
   type PreviewImage,
 } from "./AttachmentPreview";
+import { requestMessageFile } from "@/lib/message-file";
 
 export interface GalleryFile extends TranscriptFileAttachment {
   linked?: boolean;

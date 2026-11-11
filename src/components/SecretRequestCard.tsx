@@ -4,7 +4,8 @@ import { Check, ExternalLink, KeyRound, Loader2, LockKeyhole, RefreshCw, X } fro
 import { credentialConfigPatch, credentialResumeOutcome } from "../../shared/credential-request";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
-import { api, useStore, type ConfigStatus, type Message } from "@/state/store";
+import { api, type ConfigStatus, type Message } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import { REQUEST_PRIMARY, REQUEST_QUIET, RequestCard, RequestStatus } from "./RequestCard";
 
 export function SecretRequestCard({
@@ -16,7 +17,7 @@ export function SecretRequestCard({
   threadId: string;
   message: Message;
 }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const secret = message.secret!;
   const [value, setValue] = useState("");
   const [saving, setSaving] = useState(false);

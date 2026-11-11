@@ -4,10 +4,12 @@ import { createPortal } from "react-dom";
 import type { AppLink } from "../../shared/app-link";
 import { appLinkFromBridge, appLinkStep } from "@/lib/app-link-route";
 import { t } from "@/lib/i18n";
-import { useStore } from "@/state/store";
+import { useStoreDispatch, useStoreReader, useStoreSelector } from "@/state/store-selectors";
 
 export function AppLinkHost() {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const readStore = useStoreReader();
+  const hydrated = useStoreSelector((state) => state.hydrated === true);
   const [pending, setPending] = useState<{ link: AppLink } | null>(null);
   const [notFound, setNotFound] = useState(false);
 
@@ -17,8 +19,9 @@ export function AppLinkHost() {
   }), []);
 
   useEffect(() => {
-    if (!pending || !state.hydrated) return;
+    if (!pending || !hydrated) return;
     setPending(null);
+    const state = readStore();
     const step = appLinkStep(pending.link, state);
     if (step.kind === "settings") {
       setNotFound(false);
@@ -32,7 +35,7 @@ export function AppLinkHost() {
     setNotFound(false);
     if (state.appSettingsOpen) dispatch({ type: "toggleAppSettings", open: false });
     dispatch({ type: "select", id: step.id });
-  }, [pending, state, dispatch]);
+  }, [pending, hydrated, readStore, dispatch]);
 
   return <NotFoundDialog open={notFound} onClose={() => setNotFound(false)} />;
 }

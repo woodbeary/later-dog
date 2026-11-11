@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { api, useStore, type InstanceInfo } from "@/state/store";
+import { api, type InstanceInfo } from "@/state/store";
+import { useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { subscribeAddAccount, type AddAccountRequest } from "@/lib/add-account-request";
 import { ACCOUNT_ENGINES, AddAccountSheet, pollSignedIn, signedIn, unusedDefault, type SheetStep } from "./AccountsPanel";
 
@@ -12,10 +13,11 @@ export function sheetFor(request: AddAccountRequest, instances: readonly Instanc
 }
 
 export function AddAccountHost() {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const instances = useStoreSelector((state) => state.instances);
   const [sheet, setSheet] = useState<SheetStep | null>(null);
-  const instancesRef = useRef(state.instances);
-  instancesRef.current = state.instances;
+  const instancesRef = useRef(instances);
+  instancesRef.current = instances;
 
   useEffect(() => subscribeAddAccount((request) => setSheet(sheetFor(request, instancesRef.current))), []);
 
@@ -38,7 +40,7 @@ export function AddAccountHost() {
   return (
     <AddAccountSheet
       sheet={sheet}
-      instances={state.instances}
+      instances={instances}
       onStep={setSheet}
       onClose={() => setSheet(null)}
       onSignedIn={(instanceId) => void finished(instanceId)}

@@ -13,7 +13,8 @@ import {
   WELCOME_BEATS,
   type BeatId,
 } from "@/lib/onboarding";
-import { api, useStore, type Bot } from "@/state/store";
+import { api, type Bot } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import { HelloBeat } from "./beats/HelloBeat";
 import { MeetYourBotBeat } from "./beats/MeetYourBotBeat";
 import { QuietButton } from "./beats/shared";
@@ -48,7 +49,7 @@ export function WelcomeFlow({
   entrance?: Motion;
   hosted?: boolean;
 }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const beats = WELCOME_BEATS;
   const [beat, setBeat] = useState<BeatId>(() => (initialBeat && beats.includes(initialBeat) ? initialBeat : "hello"));
   const [mascot, setMascot] = useState<DogState>(MASCOT_FOR_BEAT[beat]);

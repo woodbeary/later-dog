@@ -3,7 +3,8 @@ import { Check, ListChecks, Loader2, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { dogTasks, TASK_STATUS_LABEL, tasksWaitingOnYou, type DogTask } from "@/lib/tasks";
-import { useStore, type Bot } from "@/state/store";
+import type { Bot } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import { SidebarPopoverMenu, type SidebarMenuItem } from "./SidebarPopoverMenu";
 
 function StatusMark({ row }: { row: DogTask }) {
@@ -13,7 +14,7 @@ function StatusMark({ row }: { row: DogTask }) {
 }
 
 export function ChatHeaderTasks({ bot }: { bot: Bot }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [doneShown, setDoneShown] = useState(false);
   const tasks = dogTasks(bot);
   if (tasks.length === 0) return null;

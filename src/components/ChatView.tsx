@@ -1,7 +1,6 @@
 import { Component, Fragment, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode } from "react";
 import { useCopyFeedback } from "@/lib/copy-text";
 import {
-  AlertTriangle,
   ArrowDown,
   Check,
   ChevronLeft,
@@ -15,7 +14,6 @@ import {
   MessageSquareReply,
   Pencil,
   MoreHorizontal,
-  RefreshCw,
   Search,
   Webhook,
   X,
@@ -30,30 +28,22 @@ import type { MentionPeer } from "@/lib/mentions";
 import { myReactions } from "@/lib/reactions";
 import { canReactTo, reactToMessage } from "@/lib/react-to-message";
 import { useSpeech } from "@/lib/tts/useSpeech";
-import { useCaptionChrome, useDesktopCapabilities } from "@/components/DesktopCapabilities";
+import { useCaptionChrome } from "@/components/DesktopCapabilities";
 import {
   currentTaskBot,
-  useStore,
   formatTime,
   openNotificationTarget,
   visibleMessages,
   type Action,
   type Bot,
+  type Group,
   type InstanceInfo,
   type Message,
   type AppState,
 } from "@/state/store";
-import { EngineSetup } from "./EngineSetup";
-import { CHATGPT_USAGE_URL } from "./ChatGptPlanStatus";
-import { openExternalLink } from "@/lib/app-links";
-import { ClaudeUpdatePrompt } from "./ClaudeUpdatePrompt";
-import { LimitRow } from "./LimitRow";
-import { MacCuaRecoveryActions } from "./MacCuaRecoveryActions";
-import { macCuaPermissionMessage, missingMacCuaPermissions } from "@/lib/mac-cua-permissions";
-import { failedTurnCause, signedOutEngine } from "@/lib/failed-turn";
-import { openPlaceAction, placeRowViewFor, usePlaceSeat, worksOnSimpleLabel } from "@/lib/place-view";
-import type { PlaceRow } from "../../shared/place-view";
-import { isProviderSafetyBlock, PROVIDER_SAFETY_GUIDANCE, PROVIDER_SAFETY_HELP_URL } from "../../shared/provider-safety";
+import { dogIn, useDrawnDogs, useStoreDispatch, useStoreReader, useStoreSelector } from "@/state/store-selectors";
+import { failedTurnCause } from "@/lib/failed-turn";
+import { FailedTurnRow } from "./FailedTurnRow";
 import { isOpenTakeover } from "../../shared/takeover";
 import { BotAvatar } from "./Avatar";
 import { ExchangeLine, ExchangeThreadContext, PlainNoteLine } from "./QuietLines";
@@ -156,6 +146,7 @@ interface ChatRows {
   botName: string;
   busy: boolean;
   bots: readonly Bot[];
+  readStore: () => AppState;
   mentionPeers: readonly MentionPeer[];
   focus: AppState["focusMessage"];
   showToolCalls: boolean;
@@ -173,14 +164,15 @@ function useChatRows(): ChatRows {
   return rows;
 }
 
-const drawnBot = (bot: Bot) =>
-  [bot.id, bot.name, bot.hidden, bot.color, bot.mascotBody, bot.mascotExpression, bot.avatarUrl, bot.avatarCrop, bot.avatarZoom, bot.avatarFocusX, bot.avatarFocusY].join("\u0001");
+const roomIdsOf = new WeakMap<readonly Group[], string>();
 
-function useDrawnBots(bots: readonly Bot[]): readonly Bot[] {
-  const signature = bots.map(drawnBot).join("\u0002");
-  const cache = useRef({ signature, bots });
-  if (cache.current.signature !== signature) cache.current = { signature, bots };
-  return cache.current.bots;
+function roomIds(groups: readonly Group[]): string {
+  let ids = roomIdsOf.get(groups);
+  if (ids === undefined) {
+    ids = groups.map((group) => group.id).join("|");
+    roomIdsOf.set(groups, ids);
+  }
+  return ids;
 }
 
 function DaySeparator({ at, today }: { at: number; today: number }) {
@@ -207,123 +199,6 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
     >
       {state === "copied" ? <Check size={14} className="text-success" /> : state === "failed" ? <X size={14} className="text-danger" /> : <Copy size={14} />}
     </button>
-  );
-}
-
-export function ErrorRow({
-  message,
-  headline: plainHeadline,
-  onRetry,
-  action,
-  setupInstance,
-  claudeUpdateInstance,
-}: {
-  message: string;
-  headline?: string;
-  onRetry?: () => void;
-  action?: { label: string; onClick: () => void } | null;
-  setupInstance?: InstanceInfo;
-  claudeUpdateInstance?: InstanceInfo;
-}) {
-  const { capabilities, ready } = useDesktopCapabilities();
-  const failedPermissions = missingMacCuaPermissions(message);
-  const currentPermissions = missingMacCuaPermissions(capabilities.localComputer.message);
-  const macCuaReason = ready && capabilities.host.platform === "darwin" &&
-    capabilities.localComputer.available === false && capabilities.localComputer.reasonCode !== "remote-server" &&
-    message.startsWith("CUA Driver is not ready for this computer — ") &&
-    failedPermissions.length > 0 && failedPermissions.join(",") === currentPermissions.join(",")
-    ? macCuaPermissionMessage(currentPermissions)
-    : null;
-  const headline = macCuaReason ?? plainHeadline ?? message;
-  return (
-    <div className="flex justify-start">
-      <div data-turn-error className="w-fit max-w-[min(42rem,78%)] rounded-bubble bg-card px-3 py-[7px] text-[14px] leading-[21px] text-ink">
-        <div className="flex items-start gap-2">
-          <AlertTriangle size={14} className="mt-[3.5px] shrink-0 text-ink-secondary" />
-          <span className="min-w-0 break-words">{headline}</span>
-        </div>
-        {headline !== message && <details className="mt-2 text-[12px] text-ink-secondary"><summary className="cursor-pointer">{macCuaReason ? t("computer.mac.permission.driverDetail") : t("chat.error.details")}</summary><p className="mt-1 break-words">{message}</p></details>}
-        {macCuaReason &&
-          <MacCuaRecoveryActions reason={message} />}
-        {message.includes("subscription_sharing_usage_limit_exceeded") ? (
-          <a href={CHATGPT_USAGE_URL} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex rounded-lg bg-ink px-3 py-1.5 text-[12.5px] font-medium text-app" onClick={(event) => {
-            if (window.laterdog?.openExternal) { event.preventDefault(); void openExternalLink(CHATGPT_USAGE_URL); }
-          }}>{t("engineSetup.chatgpt.manageUsage")}</a>
-        ) : claudeUpdateInstance ? (
-          <ClaudeUpdatePrompt instance={claudeUpdateInstance} onRetry={onRetry} />
-        ) : isProviderSafetyBlock(message) ? (
-          <p className="mt-2 text-[12.5px] leading-relaxed text-ink-secondary">
-            {PROVIDER_SAFETY_GUIDANCE}{" "}
-            <a href={PROVIDER_SAFETY_HELP_URL} target="_blank" rel="noreferrer" className="underline transition-opacity hover:opacity-80">About provider safety checks</a>
-          </p>
-        ) : setupInstance &&
-        !(setupInstance.snapshot.state === "available" && setupInstance.snapshot.authenticated !== false) ? (
-          <EngineSetup instance={setupInstance} className="mt-2 text-ink-secondary" />
-        ) : action !== undefined ? (
-          action && (
-            <button
-              type="button"
-              onClick={action.onClick}
-              className="mt-1.5 mb-0.5 flex items-center gap-1.5 rounded-full bg-control px-3 py-1 text-[13px] text-ink hover:bg-control-hover"
-            >
-              {action.label}
-            </button>
-          )
-        ) : (
-          onRetry && (
-            <button
-              onClick={onRetry}
-              className="mt-1.5 mb-0.5 flex items-center gap-1.5 rounded-full bg-control px-3 py-1 text-[13px] text-ink hover:bg-control-hover"
-            >
-              <RefreshCw size={12} /> {t("chat.retry")}
-            </button>
-          )
-        )}
-      </div>
-    </div>
-  );
-}
-
-function PlaceFailedRow({ place, botId, threadId, onRetry }: {
-  place: PlaceRow;
-  botId: string;
-  threadId?: string;
-  onRetry?: () => void;
-}) {
-  const { state, dispatch } = useStore();
-  const { capabilities } = useDesktopCapabilities();
-  const seat = usePlaceSeat(state.config, capabilities.host.platform);
-  const bot = state.bots.find((candidate) => candidate.id === botId);
-  const view = placeRowViewFor(place, seat, worksOnSimpleLabel(bot?.computer, capabilities.host.platform));
-  const id = view.action?.id;
-  const onClick = !id ? undefined
-    : id === "try-again" ? onRetry
-    : () => { openPlaceAction(id, { botId, threadId }, dispatch); };
-  return <ErrorRow message={view.line} action={view.action && onClick ? { label: view.action.label, onClick } : null} />;
-}
-
-export function claudeUpdateTarget(engine: InstanceInfo | undefined): InstanceInfo | undefined {
-  return engine?.driverKind === "claudeAgent" && !engine.readOnly ? engine : undefined;
-}
-
-export function FailedTurnRow({ tool, engine, onRetry, botId, threadId }: {
-  tool: NonNullable<Message["tool"]>;
-  engine: InstanceInfo | undefined;
-  onRetry?: () => void;
-  botId?: string;
-  threadId?: string;
-}) {
-  if (tool.place && botId) return <PlaceFailedRow place={tool.place} botId={botId} threadId={threadId} onRetry={onRetry} />;
-  if (tool.quota) return <LimitRow tool={tool} onRetry={onRetry} botId={botId} threadId={threadId} />;
-  const signedOut = signedOutEngine(tool, engine);
-  return (
-    <ErrorRow
-      message={failedTurnCause(tool.name) ?? tool.name}
-      headline={signedOut && t("chat.error.signedOut", { name: signedOut.displayName })}
-      onRetry={onRetry}
-      setupInstance={tool.setup ? engine : undefined}
-      claudeUpdateInstance={tool.claudeUpdate ? claudeUpdateTarget(engine) : undefined}
-    />
   );
 }
 
@@ -426,7 +301,7 @@ const Bubble = memo(function Bubble({
   onReply: (message: Message) => void;
   receipt?: boolean;
 }) {
-  const { botId, threadId, botName, busy, mentionPeers, focus, dispatch, onBranch, bots, canWrite } = useChatRows();
+  const { botId, threadId, botName, busy, mentionPeers, focus, dispatch, onBranch, bots, readStore, canWrite } = useChatRows();
   const peer = peerLine(message);
   const user = message.role === "user" && !peer;
   const [expanded, setExpanded] = useState(false);
@@ -461,8 +336,7 @@ const Bubble = memo(function Bubble({
   const openNeedsYou = () => {
     if (!message.needsYou) return;
     dispatch({ type: "select", id: message.needsYou.botId });
-    const source = bots.find((candidate) => candidate.id === message.needsYou!.botId);
-    if (source?.threadId !== message.needsYou.threadId) {
+    if (dogIn(readStore(), message.needsYou.botId)?.threadId !== message.needsYou.threadId) {
       dispatch({ type: "openTask", botId: message.needsYou.botId, threadId: message.needsYou.threadId });
     }
     dispatch({ type: "focusMessage", threadId: message.needsYou.threadId, messageId: message.needsYou.messageId });
@@ -760,12 +634,13 @@ const ActivityChip = memo(function ActivityChip({ message, place = "auto" }: { m
 });
 
 function RoutineRunRow({ message, botId }: { message: Message; botId: string }) {
-  const { state, dispatch } = useStore();
-  const target = ownerShowingElsewhere([...state.bots, ...state.groups], message.routineRun?.executionThreadId, botId);
+  const dispatch = useStoreDispatch();
+  const executionThreadId = message.routineRun?.executionThreadId;
+  const targetId = useStoreSelector((state) => ownerShowingElsewhere([...state.bots, ...state.groups], executionThreadId, botId)?.id);
   return (
     <RoutineRunCard
       message={message}
-      onOpen={target ? () => dispatch({ type: "select", id: target.id }) : undefined}
+      onOpen={targetId ? () => dispatch({ type: "select", id: targetId }) : undefined}
     />
   );
 }
@@ -793,6 +668,7 @@ const MessagesList = memo(function MessagesList({
   emergingId,
   canRetryLast,
   engine,
+  selection,
   unreadSince,
   groupIds,
   editingId,
@@ -812,6 +688,7 @@ const MessagesList = memo(function MessagesList({
   emergingId?: string | null;
   canRetryLast: boolean;
   engine: InstanceInfo | undefined;
+  selection: Bot["modelSelection"];
   groupIds: string;
   editingId: string | null;
   onStartEdit: (id: string) => void;
@@ -876,7 +753,7 @@ const MessagesList = memo(function MessagesList({
                         onReply={onReply}
                       />
                     </div>
-                    {receipts.get(message.id)?.map(run => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} selection={owner?.modelSelection} />)}
+                    {receipts.get(message.id)?.map(run => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} selection={selection} />)}
                   </Fragment>
                 ))}
               </TurnNarrationRun>
@@ -986,7 +863,7 @@ const MessagesList = memo(function MessagesList({
               {unreadDivider([m])}
               {row}
             </div>
-            {receipts.get(m.id)?.map(run => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} selection={owner?.modelSelection} />)}
+            {receipts.get(m.id)?.map(run => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} selection={selection} />)}
           </Fragment>
         );
       })}
@@ -1004,7 +881,8 @@ const CHATHEAD_PILL ="flex min-w-0 items-center gap-2 rounded-full border-[0.5px
 
 export function ChatView({ bot: profile }: { bot: Bot }) {
   const bot = useMemo(() => currentTaskBot(profile), [profile]);
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const readStore = useStoreReader();
   const { dragStyle: headerDragStyle, noDragStyle: headerNoDragStyle, controlsShiftStyle } = useCaptionChrome();
   const composerDockRef = useRef<HTMLDivElement>(null);
   const composerDock = useComposerDockPad(composerDockRef);
@@ -1037,9 +915,9 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     () => messages.some((m) => m.kind === "options" && m.card?.takeoverRequest && isOpenTakeover(m.card.takeoverRequest.status)),
     [messages],
   );
-  const showToolCalls = showToolCallsEnabled(state.config);
+  const showToolCalls = useStoreSelector((state) => showToolCallsEnabled(state.config));
   const runningSince = bot.busy ? bot.turnStartedAt ?? null : null;
-  const groupIds = useMemo(() => state.groups.map((group) => group.id).join("|"), [state.groups]);
+  const groupIds = useStoreSelector((state) => roomIds(state.groups));
   const plan = useMemo(
     () => planTranscript(messages, { runningSince, quiet: !showToolCalls, foldAll: !showToolCalls }),
     [messages, runningSince, showToolCalls],
@@ -1095,17 +973,17 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const belowCount = Math.max(newBelow, unreadPlace === "below" ? visitUnread : 0);
   const belowShown = belowCount > belowDismissed ? belowCount : 0;
 
-  const bots = useDrawnBots(state.bots);
+  const bots = useDrawnDogs();
   const mentionPeers = useMemo<MentionPeer[]>(() => bots.map((peer) => (peer.id === bot.id ? { ...peer, self: true } : peer)), [bots, bot.id]);
-  const focus = state.focusMessage?.threadId === bot.threadId ? state.focusMessage : null;
+  const focus = useStoreSelector((state) => (state.focusMessage?.threadId === bot.threadId ? state.focusMessage : null));
   const locale = activeLocale();
   const branch = useRef(messages);
   branch.current = messages;
   const onBranch = useCallback((messageId: string) => branch.current.some((m) => m.id === messageId), []);
   const busy = Boolean(bot.busy);
   const rows = useMemo<ChatRows>(
-    () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite }),
-    [bot.id, bot.threadId, bot.name, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite],
+    () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, busy, bots, readStore, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite }),
+    [bot.id, bot.threadId, bot.name, busy, bots, readStore, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite],
   );
   const drafts = useMemo<DraftScope>(() => ({
     botName: bot.name,
@@ -1194,9 +1072,10 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   }, [lastUserMessage, bot.busy, bot.id, bot.threadId, dispatch]);
 
   const executionRunId = bot.tasks?.find((task) => task.threadId === bot.threadId)?.routineRunId;
-  const routineExecution = executionRunId ? state.routineRuns.find((run) => run.id === executionRunId && run.threadId === bot.threadId) : undefined;
+  const routineExecution = useStoreSelector((state) => (executionRunId ? state.routineRuns.find((run) => run.id === executionRunId && run.threadId === bot.threadId) : undefined));
   const resultsThreadId = routineExecution?.sourceThreadId !== bot.threadId ? routineExecution?.sourceThreadId : undefined;
-  const resultsOwner = ownerShowingElsewhere([...state.bots, ...state.groups], resultsThreadId, bot.id);
+  const resultsOwnerId = useStoreSelector((state) => ownerShowingElsewhere([...state.bots, ...state.groups], resultsThreadId, bot.id)?.id);
+  const engine = useStoreSelector((state) => state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId));
 
   return (
     <main className="relative flex h-full min-w-0 flex-1 flex-col bg-app">
@@ -1234,7 +1113,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
           className="flex shrink-0 items-center gap-2 @max-[30rem]/chathead:ml-auto @max-[30rem]/chathead:flex-wrap @max-[30rem]/chathead:justify-end @min-[30rem]/chathead:col-start-3 @min-[30rem]/chathead:justify-self-end"
           style={controlsShiftStyle}
         >
-          <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openNotificationTarget(dispatch, { botId, threadId }, state)} />
+          <LiveCallChip currentBotId={bot.id} onOpen={(botId, threadId) => openNotificationTarget(dispatch, { botId, threadId }, readStore())} />
           <ChatHeaderTasks bot={bot} />
           <button
             type="button"
@@ -1257,7 +1136,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 
       {routineExecution && <div className="mx-5 mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-hairline/40 bg-inset px-3 py-2 text-[11.5px] text-ink-secondary">
         <span className="min-w-0 flex-1 truncate">{t("routines.executionDetails", { name: routineExecution.routineName })}</span>
-        {resultsOwner && <button type="button" onClick={() => dispatch({ type: "select", id: resultsOwner.id })} className="rounded px-2 py-1 text-accent hover:bg-raised">{t("routines.results.back")}</button>}
+        {resultsOwnerId && <button type="button" onClick={() => dispatch({ type: "select", id: resultsOwnerId })} className="rounded px-2 py-1 text-accent hover:bg-raised">{t("routines.results.back")}</button>}
         <button type="button" onClick={() => dispatch({ type: "showRoutines", section: "logs", routineId: routineExecution.routineId, botId: bot.id })} className="rounded px-2 py-1 hover:bg-raised hover:text-ink">{t("routines.logs")}</button>
       </div>}
       {findOpen && <ChatFindBar threadId={bot.threadId} onClose={() => setFindOpen(false)} />}
@@ -1312,7 +1191,8 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
                   today={localDay(Date.now())}
                   emergingId={popping}
                   canRetryLast={!bot.busy && Boolean(lastUserMessage)}
-                  engine={state.instances.find((i) => i.instanceId === bot.modelSelection.instanceId)}
+                  engine={engine}
+                  selection={bot.modelSelection}
                   unreadSince={unreadSince}
                   groupIds={groupIds}
                   editingId={editingId}
@@ -1429,7 +1309,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
 }
 
 function ChatHeaderMenu({ bot, messages }: { bot: Bot; messages: readonly Message[] }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [copyStatus, setCopyStatus] = useState<"copied" | "failed" | null>(null);
   const hasMessages = messages.length > 0;
   const transcript = () => formatTranscriptMarkdown({ title: bot.name, messages, botName: bot.name, isGroup: false });
@@ -1486,9 +1366,9 @@ function ChatHeaderMenu({ bot, messages }: { bot: Bot; messages: readonly Messag
 }
 
 function NeedsYouRow({ botId, name }: { botId: string; name: string }) {
-  const { state, dispatch } = useStore();
-  const control = state.computerControl[botId];
-  const computerShown = state.settingsOpen && state.botSettingsExpandAccordion && tabForSection(state.botSettingsSection) === "computer";
+  const dispatch = useStoreDispatch();
+  const control = useStoreSelector((state) => state.computerControl[botId]);
+  const computerShown = useStoreSelector((state) => state.settingsOpen && state.botSettingsExpandAccordion && tabForSection(state.botSettingsSection) === "computer");
   if (!control?.helpReason || control.held || computerShown) return null;
   return (
     <div className="pointer-events-auto mx-auto mb-2 flex w-full max-w-[min(48rem,calc(100%-2.5rem))] items-center gap-2 rounded-xl bg-card px-3 py-2 text-[13px] text-ink ring-[0.5px] ring-ink/10" data-needs-you>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 import { t } from "@/lib/i18n";
-import { useStore } from "@/state/store";
+import { useStoreSelector } from "@/state/store-selectors";
 import type { DamagedData } from "../../shared/damaged-data";
 
 export function damagedDataLine(damaged: DamagedData[]): string {
@@ -11,9 +11,9 @@ export function damagedDataLine(damaged: DamagedData[]): string {
 }
 
 export function DamagedDataNotice() {
-  const { state } = useStore();
+  const listed = useStoreSelector((state) => state.config?.damagedData);
   const [dismissed, setDismissed] = useState(false);
-  const damaged = state.config?.damagedData ?? [];
+  const damaged = listed ?? [];
   if (dismissed || damaged.length === 0) return null;
   return (
     <div

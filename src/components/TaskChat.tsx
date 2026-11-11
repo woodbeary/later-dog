@@ -2,14 +2,15 @@ import { useEffect } from "react";
 import { ArrowLeft, Check, Loader2, RotateCcw } from "lucide-react";
 import { t } from "@/lib/i18n";
 import { findTask, taskStatus } from "@/lib/tasks";
-import { api, useStore, type Bot } from "@/state/store";
+import { api, type Bot } from "@/state/store";
+import { dogIn, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import type { TaskView } from "@/state/task-view";
 import { ChatView } from "./ChatView";
 
 export function TaskChat({ view }: { view: TaskView }) {
-  const { state, dispatch } = useStore();
-  const found = findTask(state.bots, view.botId, view.threadId);
-  const owner = found?.bot ?? state.bots.find((bot) => bot.id === view.botId);
+  const dispatch = useStoreDispatch();
+  const owner = useStoreSelector((state) => dogIn(state, view.botId));
+  const found = owner ? findTask([owner], view.botId, view.threadId) : null;
   const back = () => dispatch({ type: "closeTask" });
   const status = found ? taskStatus(found.task) : null;
   const unread = Boolean(found?.task.unread) && !view.loading;

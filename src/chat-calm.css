@@ -8,7 +8,7 @@
 }
 
 .status-dot {
-  animation: dot-in var(--dur-150) var(--ease-calm) both;
+  animation: dot-in var(--dur-150) var(--ease-calm) backwards;
   transition: background-color var(--dur-150) var(--ease-calm);
 }
 

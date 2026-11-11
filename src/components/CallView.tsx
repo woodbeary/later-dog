@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AudioLines, Loader2, PhoneOff, X } from "lucide-react";
 
-import { useStore, visibleMessages, type Bot } from "@/state/store";
+import { visibleMessages, type Bot } from "@/state/store";
+import { useStoreDispatch, dogIn, sameFields, useStoreSelector } from "@/state/store-selectors";
 import { cn } from "@/lib/cn";
 import { useMenuMotion } from "./MenuMotion";
 import { currentCall, deferCallCleanup, endCall, startCall, useOnCall } from "@/lib/call";
@@ -24,20 +25,25 @@ type Phase = "listening" | "sending" | "working" | "speaking";
 const CALL_ENDPOINT_MS = 850;
 
 export function CallButton({ bot }: { bot: Bot }) {
-  const { state } = useStore();
   const { capabilities, ready: capabilitiesReady } = useDesktopCapabilities();
   const media = useLiveMedia();
+  const state = useStoreSelector((store) => ({
+    tts: store.config?.tts,
+    liveConfigured: store.config?.live?.configured === true,
+    liveCall: store.liveCall,
+    liveCallDogName: isLiveCallRunning(media.phase) && media.botId ? dogIn(store, media.botId)?.name : undefined,
+  }), sameFields);
   const liveRunning = isLiveCallRunning(media.phase);
   const onLiveCall = liveRunning && media.botId === bot.id;
   const liveElsewhere = liveRunning && media.botId !== bot.id;
   const onCall = useOnCall() === bot.id;
   const active = onCall || onLiveCall;
-  const voiceReady = callVoiceReady(state.config?.tts, bot.voice);
+  const voiceReady = callVoiceReady(state.tts, bot.voice);
   const route = callRoute({
     capabilitiesReady,
     speechMissing: capabilitiesReady ? callSpeechMissing(capabilities, Boolean(window.laterdog?.speechStart)) : null,
     voiceReady,
-    liveConfigured: state.config?.live?.configured === true,
+    liveConfigured: state.liveConfigured,
     name: bot.name,
   });
   const lineHeld = route.kind === "live" && !active && liveLineHeldElsewhere(media, state.liveCall);
@@ -49,7 +55,7 @@ export function CallButton({ bot }: { bot: Bot }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const helpId = useId();
-  const elsewhereName = liveElsewhere ? state.bots.find((candidate) => candidate.id === media.botId)?.name : undefined;
+  const elsewhereName = liveElsewhere ? state.liveCallDogName : undefined;
   const label = active
     ? t("call.hangUpOn", { name: bot.name })
     : blocked
@@ -175,7 +181,7 @@ export function CallOverlay({ bot }: { bot: Bot }) {
 }
 
 function Call({ bot }: { bot: Bot }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const speech = useSpeech();
   const initialPhase: Phase = bot.busy ? "working" : "listening";
   const [phase, setPhase] = useState<Phase>(initialPhase);

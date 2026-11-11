@@ -17,7 +17,8 @@ import {
 } from "@/lib/mcp-connectors";
 import { updateMcpServers, useMcpServers } from "@/lib/mcp-servers";
 import { completeMcpSignIn, mcpSignInLink, type McpSignInStatus } from "@/lib/mcp-sign-in";
-import { api, useStore } from "@/state/store";
+import { api } from "@/state/store";
+import { useStoreSelector } from "@/state/store-selectors";
 
 import { AddServerToBots } from "./AddServerToBots";
 import { BrandIcon } from "./BrandIcon";
@@ -43,8 +44,7 @@ export function McpConnectorCards({ connectors, refreshKey = 0, grouped, onConne
   onConnected?: (ids: string[]) => void;
   onServersChange?: () => void;
 }) {
-  const { state: store } = useStore();
-  const policy = store.config?.managedPolicy;
+  const policy = useStoreSelector((state) => state.config?.managedPolicy);
   const locked = Boolean(policy && !policy.mcp.allowCustom && !policy.mcp.allowlist.length);
   const [servers, setServers] = useState<McpServerRow[] | null>(null);
   const [loadFailed, setLoadFailed] = useState<string | null>(null);

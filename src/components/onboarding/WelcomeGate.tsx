@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { emailGateDone } from "@/lib/analytics";
 import { hostedMember, LOCAL_VIEWER, welcomeDue, welcomeViewer, type WelcomeViewer } from "@/lib/onboarding";
-import { api, useStore } from "@/state/store";
+import { api } from "@/state/store";
+import { sameFields, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { SharedWorkspaceHint } from "./SharedWorkspaceHint";
 import { WelcomeFlow } from "./WelcomeFlow";
 
@@ -30,7 +31,13 @@ export function useWelcomeViewer(): WelcomeViewer | null {
 }
 
 export function WelcomeGate({ viewer, hold = false }: { viewer: WelcomeViewer | null; hold?: boolean }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const state = useStoreSelector((store) => ({
+    welcomeOpen: store.welcomeOpen,
+    appSettingsOpen: store.appSettingsOpen,
+    config: store.config,
+    firstShownDog: store.bots.find((b) => !b.hidden) ?? null,
+  }), sameFields);
   const [dismissed, setDismissed] = useState(false);
   if (!viewer || hold) return null;
   if (hostedMember(viewer)) {
@@ -53,7 +60,7 @@ export function WelcomeGate({ viewer, hold = false }: { viewer: WelcomeViewer | 
     });
   if (state.appSettingsOpen) return null;
   if (!state.welcomeOpen && !due) return null;
-  const bot = state.bots.find((b) => !b.hidden) ?? null;
+  const bot = state.firstShownDog;
   const replay = state.welcomeOpen && !due;
   return (
     <WelcomeFlow

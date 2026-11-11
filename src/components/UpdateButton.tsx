@@ -9,7 +9,8 @@ import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { dismissUpdateDialog, dismissUpdateReceipt, requestUpdateDialog, subscribeUpdateDialog, updateDialogOpen, updateReceiptDismissed } from "@/lib/update-request";
 import { useUpdaterState, type UpdaterState } from "@/lib/updater";
-import { useStore, type Bot } from "@/state/store";
+import type { Bot } from "@/state/store";
+import { useStoreSelector } from "@/state/store-selectors";
 import { brand } from "../lib/brand";
 import { releaseOffer } from "./ReleaseCheck";
 
@@ -310,7 +311,7 @@ export function UpdateDialogCard({ phase, state, warning: restartWarningLine, pe
 export function UpdateDialog() {
   const open = useSyncExternalStore(subscribeUpdateDialog, updateDialogOpen, updateDialogOpen);
   const state = useUpdaterState();
-  const { state: store } = useStore();
+  const bots = useStoreSelector((store) => (open ? store.bots : null));
   const [pending, setPending] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const phase = updateButtonPhase(state);
@@ -327,7 +328,7 @@ export function UpdateDialog() {
     <UpdateDialogCard
       phase={phase}
       state={state}
-      warning={restartWarning(state, store.bots)}
+      warning={restartWarning(state, bots ?? [])}
       pending={pending}
       onInstall={() => { setPending(true); void updater.install(state.version); }}
       onRetry={() => { setPending(true); void updater.check(); }}

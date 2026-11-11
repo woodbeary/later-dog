@@ -1,10 +1,10 @@
 import { Puzzle } from "lucide-react";
 import { t } from "@/lib/i18n";
 import type { SidebarDensity } from "@/lib/sidebar-preferences";
-import { useStore } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 
 export function ConnectAppsPill() {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   return (
     <button
       type="button"
@@ -18,7 +18,7 @@ export function ConnectAppsPill() {
 }
 
 export function SidebarFooterNav({ density }: { density: SidebarDensity }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   if (density !== "icons") return null;
   return (
     <nav aria-label={t("sidebar.tools")}>
