@@ -70,6 +70,16 @@ async function frame() {
 
 const rowIds = () => [...host.querySelectorAll("[data-mid]")].map((row) => row.getAttribute("data-mid"));
 const earlierWork = () => host.querySelector("[data-native-work-fallbacks] summary")?.textContent ?? null;
+const arrivingIds = () => [...host.querySelectorAll("[data-arriving]")].map((row) => row.getAttribute("data-mid"));
+
+async function fill() {
+  const steps = [rowIds().length];
+  for (let step = 0; step < 6 && steps.at(-1)! < 120; step++) {
+    await frame();
+    steps.push(rowIds().length);
+  }
+  return steps;
+}
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -115,5 +125,16 @@ describe("a long chat opening on its newest rows", () => {
     }
     expect(rowIds()).toHaveLength(120);
     expect(lines).toEqual(["Earlier work · 15", "Earlier work · 15", "Earlier work · 15", "Earlier work · 15"]);
+  });
+
+  it("slides in only rows that are newer than the ones the chat opened on", async () => {
+    const messages = thread(150);
+    await draw(messages);
+    expect(await fill()).toEqual([30, 60, 90, 120]);
+    expect(rowIds()[0]).toBe("m30");
+    expect(arrivingIds()).toEqual([]);
+
+    await draw([...messages, message(150), message(151)]);
+    expect(arrivingIds()).toEqual(["m150", "m151"]);
   });
 });
