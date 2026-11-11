@@ -1,0 +1,291 @@
+{
+  "platform": "linux x64",
+  "node": "v24.22.2",
+  "wasmBytes": 453193,
+  "gzipBytes": 150863,
+  "brotliBytes": 108770,
+  "sameNodeTypes": "240 of 240",
+  "fixtureComparison": {
+    "texts": 240,
+    "sameNodeTypes": 240,
+    "sameTree": 180,
+    "sameTreeIgnoringEmptyFields": 240,
+    "sameTreeAndPositions": 200,
+    "sameElementTree": 240,
+    "differences": [
+      {
+        "stage": "tree",
+        "at": "root > list.start",
+        "js": "null",
+        "rust": "undefined",
+        "texts": 40
+      },
+      {
+        "stage": "tree",
+        "at": "root > code.meta",
+        "js": "null",
+        "rust": "undefined",
+        "texts": 20
+      }
+    ]
+  },
+  "extrasComparison": {
+    "texts": 12,
+    "sameNodeTypes": 12,
+    "sameTree": 7,
+    "sameTreeIgnoringEmptyFields": 11,
+    "sameTreeAndPositions": 9,
+    "sameElementTree": 11,
+    "differences": [
+      {
+        "stage": "tree",
+        "at": "root > list.start",
+        "js": "null",
+        "rust": "undefined",
+        "texts": 2
+      },
+      {
+        "stage": "tree",
+        "at": "root > paragraph > inlineMath.data",
+        "js": "{\"hName\":\"code\",\"hProperties\":{\"className\":[\"language-math\",\"math-inline\"]},\"...",
+        "rust": "undefined",
+        "texts": 1
+      },
+      {
+        "stage": "elements",
+        "at": "root > element > element.type",
+        "js": "\"element\"",
+        "rust": "\"text\"",
+        "texts": 1
+      },
+      {
+        "stage": "tree",
+        "at": "root > paragraph > link.title",
+        "js": "null",
+        "rust": "undefined",
+        "texts": 1
+      },
+      {
+        "stage": "tree",
+        "at": "root > list > listItem.checked",
+        "js": "null",
+        "rust": "undefined",
+        "texts": 1
+      },
+      {
+        "stage": "positions",
+        "at": "root > paragraph > text.position.end.column",
+        "js": "22",
+        "rust": "33",
+        "texts": 1
+      }
+    ]
+  },
+  "passes": 40,
+  "rows": {
+    "opening30": {
+      "messages": 30,
+      "characters": 7252,
+      "jsNormalizationParseMs": {
+        "median": 11.5,
+        "min": 9.126,
+        "max": 27.361
+      },
+      "jsRenderParseMs": {
+        "median": 12.401,
+        "min": 9.329,
+        "max": 23.105
+      },
+      "jsParseThenHastMs": {
+        "median": 14.586,
+        "min": 9.897,
+        "max": 38.788
+      },
+      "rustParseToJsonTextMs": {
+        "median": 2.425,
+        "min": 1.893,
+        "max": 5.034
+      },
+      "rustParseToTreeMs": {
+        "median": 2.838,
+        "min": 2.497,
+        "max": 4.141
+      },
+      "rustTreeThenHastMs": {
+        "median": 4.498,
+        "min": 4.283,
+        "max": 5.013
+      }
+    },
+    "window120": {
+      "messages": 120,
+      "characters": 28712,
+      "jsNormalizationParseMs": {
+        "median": 40.196,
+        "min": 35.358,
+        "max": 52.558
+      },
+      "jsRenderParseMs": {
+        "median": 39.157,
+        "min": 33.986,
+        "max": 57.564
+      },
+      "jsParseThenHastMs": {
+        "median": 48.13,
+        "min": 41.493,
+        "max": 87.731
+      },
+      "rustParseToJsonTextMs": {
+        "median": 8.953,
+        "min": 7.348,
+        "max": 11.63
+      },
+      "rustParseToTreeMs": {
+        "median": 10.927,
+        "min": 9.099,
+        "max": 13.484
+      },
+      "rustTreeThenHastMs": {
+        "median": 17.94,
+        "min": 15.145,
+        "max": 26.685
+      }
+    },
+    "all240": {
+      "messages": 240,
+      "characters": 57364,
+      "jsNormalizationParseMs": {
+        "median": 82.698,
+        "min": 71.981,
+        "max": 119.308
+      },
+      "jsRenderParseMs": {
+        "median": 80.939,
+        "min": 67.808,
+        "max": 117.445
+      },
+      "jsParseThenHastMs": {
+        "median": 96.301,
+        "min": 85.258,
+        "max": 128.372
+      },
+      "rustParseToJsonTextMs": {
+        "median": 16.893,
+        "min": 15.067,
+        "max": 37.69
+      },
+      "rustParseToTreeMs": {
+        "median": 21.004,
+        "min": 18.19,
+        "max": 39.234
+      },
+      "rustTreeThenHastMs": {
+        "median": 34.877,
+        "min": 25.137,
+        "max": 43.844
+      }
+    }
+  },
+  "perMessage": {
+    "all240": {
+      "messages": 240,
+      "passesEach": 40,
+      "jsRenderParseMs": {
+        "median": 0.138,
+        "min": 0.072,
+        "max": 1.197
+      },
+      "jsParseThenHastMs": {
+        "median": 0.157,
+        "min": 0.083,
+        "max": 1.506
+      },
+      "rustParseToTreeMs": {
+        "median": 0.023,
+        "min": 0.014,
+        "max": 0.34
+      },
+      "rustTreeThenHastMs": {
+        "median": 0.039,
+        "min": 0.022,
+        "max": 1.026
+      }
+    },
+    "answers120": {
+      "messages": 120,
+      "passesEach": 40,
+      "jsRenderParseMs": {
+        "median": 0.464,
+        "min": 0.072,
+        "max": 1.444
+      },
+      "jsParseThenHastMs": {
+        "median": 0.558,
+        "min": 0.13,
+        "max": 1.824
+      },
+      "rustParseToTreeMs": {
+        "median": 0.116,
+        "min": 0.015,
+        "max": 0.346
+      },
+      "rustTreeThenHastMs": {
+        "median": 0.178,
+        "min": 0.021,
+        "max": 0.612
+      }
+    }
+  },
+  "planning": {
+    "messages": 240,
+    "jsVisiblePathAndLookupsMs": {
+      "median": 0.054,
+      "min": 0.045,
+      "max": 0.667
+    },
+    "crossingAloneMs": {
+      "median": 0.462,
+      "min": 0.29,
+      "max": 2.191
+    }
+  },
+  "cold": {
+    "freshProcesses": 15,
+    "window": "the newest 30 messages",
+    "readMs": {
+      "median": 0.192,
+      "min": 0.16,
+      "max": 0.3
+    },
+    "compileMs": {
+      "median": 2.603,
+      "min": 1.282,
+      "max": 4.676
+    },
+    "instantiateMs": {
+      "median": 0.401,
+      "min": 0.255,
+      "max": 1.21
+    },
+    "rustFirstMessageMs": {
+      "median": 5.886,
+      "min": 4.765,
+      "max": 13.093
+    },
+    "rustFirstWindowMs": {
+      "median": 8.019,
+      "min": 6.9,
+      "max": 14.015
+    },
+    "jsFirstMessageMs": {
+      "median": 8.909,
+      "min": 7.393,
+      "max": 15.687
+    },
+    "jsFirstWindowMs": {
+      "median": 57.827,
+      "min": 35.795,
+      "max": 98.873
+    }
+  }
+}

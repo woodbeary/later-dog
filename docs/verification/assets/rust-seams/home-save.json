@@ -1,0 +1,360 @@
+{
+  "platform": "linux x64",
+  "node": "v24.22.2",
+  "root": "/home/dog/rust-lane/home",
+  "runs": 7,
+  "rows": [
+    {
+      "label": "Rust: walk in a child process started from Node, entries parsed",
+      "runs": 7,
+      "entries": 21443,
+      "same": true,
+      "wallMs": {
+        "median": 231.7,
+        "min": 216.3,
+        "max": 241.9
+      },
+      "stallMs": {
+        "median": 16.1,
+        "min": 12.1,
+        "max": 18.1
+      },
+      "peakRssMb": {
+        "median": 73.2,
+        "min": 73.1,
+        "max": 73.4
+      },
+      "wallMsEachRun": [
+        232.7,
+        231.7,
+        217.7,
+        241.9,
+        216.3,
+        232.6,
+        224.1
+      ]
+    },
+    {
+      "label": "Node before (one lstat at a time): walk, compare, hash changed files",
+      "runs": 7,
+      "entries": 21443,
+      "same": true,
+      "changed": 301,
+      "has": 379,
+      "put": 302,
+      "putMb": 20,
+      "wallMs": {
+        "median": 2178.8,
+        "min": 2118.6,
+        "max": 3764
+      },
+      "stallMs": {
+        "median": 29.3,
+        "min": 19,
+        "max": 36.1
+      },
+      "peakRssMb": {
+        "median": 330.4,
+        "min": 294.4,
+        "max": 395.6
+      },
+      "wallMsEachRun": [
+        2388.8,
+        2153.5,
+        2176.5,
+        3764,
+        2118.6,
+        2178.8,
+        3152.5
+      ]
+    },
+    {
+      "label": "Node now (a folder's lstats 32 at a time): walk, compare, hash changed files",
+      "runs": 7,
+      "entries": 21443,
+      "changed": 301,
+      "has": 379,
+      "put": 302,
+      "putMb": 20,
+      "wallMs": {
+        "median": 1755.7,
+        "min": 1465.3,
+        "max": 2248.5
+      },
+      "stallMs": {
+        "median": 33.4,
+        "min": 24,
+        "max": 46.7
+      },
+      "peakRssMb": {
+        "median": 347,
+        "min": 279,
+        "max": 383.1
+      },
+      "wallMsEachRun": [
+        1465.3,
+        1547.7,
+        1843.8,
+        1755.7,
+        1536.2,
+        1837.2,
+        2248.5
+      ]
+    },
+    {
+      "label": "Node now, reading each file into a buffer of its own size: walk, compare, hash changed files",
+      "runs": 7,
+      "entries": 21443,
+      "same": true,
+      "changed": 301,
+      "has": 379,
+      "put": 302,
+      "putMb": 20,
+      "wallMs": {
+        "median": 1606.2,
+        "min": 1275.1,
+        "max": 1926.3
+      },
+      "stallMs": {
+        "median": 14.4,
+        "min": 10.4,
+        "max": 19.2
+      },
+      "peakRssMb": {
+        "median": 148.1,
+        "min": 136.2,
+        "max": 151.2
+      },
+      "wallMsEachRun": [
+        1304.8,
+        1570,
+        1926.3,
+        1275.1,
+        1606.2,
+        1771.5,
+        1613.7
+      ]
+    },
+    {
+      "label": "Rust, 1 thread: walk, compare, hash changed files",
+      "runs": 7,
+      "entries": 21443,
+      "changed": 301,
+      "chunks": 379,
+      "wallMs": {
+        "median": 760.6,
+        "min": 732,
+        "max": 767.8
+      },
+      "scanMs": {
+        "median": 183.4,
+        "min": 179.2,
+        "max": 195.4
+      },
+      "compareMs": {
+        "median": 31.6,
+        "min": 28.5,
+        "max": 35
+      },
+      "hashMs": {
+        "median": 541.1,
+        "min": 522.7,
+        "max": 550.4
+      },
+      "peakRssMb": {
+        "median": 27.1,
+        "min": 27,
+        "max": 27.1
+      },
+      "wallMsEachRun": [
+        745,
+        766.2,
+        767.8,
+        732,
+        760.6,
+        755.5,
+        766.1
+      ]
+    },
+    {
+      "label": "Rust, 4 threads: walk, compare, hash changed files",
+      "runs": 7,
+      "entries": 21443,
+      "changed": 301,
+      "chunks": 379,
+      "wallMs": {
+        "median": 371,
+        "min": 356.8,
+        "max": 397.8
+      },
+      "scanMs": {
+        "median": 186.6,
+        "min": 177.9,
+        "max": 196.1
+      },
+      "compareMs": {
+        "median": 30.6,
+        "min": 27.6,
+        "max": 36.8
+      },
+      "hashMs": {
+        "median": 151.8,
+        "min": 147.4,
+        "max": 167.5
+      },
+      "peakRssMb": {
+        "median": 51.7,
+        "min": 51.6,
+        "max": 59.2
+      },
+      "wallMsEachRun": [
+        356.8,
+        391.6,
+        397.8,
+        357.5,
+        364.1,
+        371,
+        392.9
+      ]
+    },
+    {
+      "label": "Rust, 1 thread, in a child process started from Node: walk, compare, hash, listing parsed",
+      "runs": 7,
+      "entries": 21443,
+      "same": true,
+      "changed": 301,
+      "chunks": 379,
+      "answerMb": 3.9,
+      "wallMs": {
+        "median": 823,
+        "min": 820.3,
+        "max": 866.7
+      },
+      "scanMs": {
+        "median": 185.2,
+        "min": 178,
+        "max": 215.4
+      },
+      "compareMs": {
+        "median": 32.3,
+        "min": 30.7,
+        "max": 36.1
+      },
+      "hashMs": {
+        "median": 548.6,
+        "min": 536.8,
+        "max": 560
+      },
+      "parseMs": {
+        "median": 30.6,
+        "min": 29.4,
+        "max": 38
+      },
+      "stallMs": {
+        "median": 30.4,
+        "min": 28.1,
+        "max": 36.9
+      },
+      "childPeakRssMb": {
+        "median": 27.1,
+        "min": 27,
+        "max": 27.2
+      },
+      "peakRssMb": {
+        "median": 85.2,
+        "min": 85,
+        "max": 85.2
+      },
+      "wallMsEachRun": [
+        822.4,
+        823,
+        866.7,
+        830.9,
+        820.3,
+        863.1,
+        820.9
+      ]
+    },
+    {
+      "label": "Rust, 4 threads, in a child process started from Node: walk, compare, hash, listing parsed",
+      "runs": 7,
+      "entries": 21443,
+      "same": true,
+      "changed": 301,
+      "chunks": 379,
+      "answerMb": 3.9,
+      "wallMs": {
+        "median": 453.1,
+        "min": 419.9,
+        "max": 466.4
+      },
+      "scanMs": {
+        "median": 191,
+        "min": 178.5,
+        "max": 198.6
+      },
+      "compareMs": {
+        "median": 32.9,
+        "min": 29,
+        "max": 35.4
+      },
+      "hashMs": {
+        "median": 156.6,
+        "min": 148.9,
+        "max": 163
+      },
+      "parseMs": {
+        "median": 31.4,
+        "min": 29.1,
+        "max": 35.3
+      },
+      "stallMs": {
+        "median": 34.2,
+        "min": 28.3,
+        "max": 38
+      },
+      "childPeakRssMb": {
+        "median": 51.8,
+        "min": 51.7,
+        "max": 59.2
+      },
+      "peakRssMb": {
+        "median": 85.2,
+        "min": 85.1,
+        "max": 85.3
+      },
+      "wallMsEachRun": [
+        453.3,
+        439.3,
+        447.8,
+        419.9,
+        458.1,
+        466.4,
+        453.1
+      ]
+    }
+  ],
+  "binary": {
+    "binaryBytes": 575328,
+    "starts": [
+      {
+        "label": "Starting any small program from Node and waiting for it to end (/bin/true)",
+        "runs": 50,
+        "wallMs": {
+          "median": 1.7,
+          "min": 1.3,
+          "max": 2.7
+        }
+      },
+      {
+        "label": "Starting the Rust binary from Node on an empty folder and waiting for it to end",
+        "runs": 50,
+        "wallMs": {
+          "median": 3,
+          "min": 2.2,
+          "max": 6.2
+        }
+      }
+    ]
+  }
+}

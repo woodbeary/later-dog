@@ -9,6 +9,7 @@ export const SHELL = /\.sh$|^scripts\/git-hooks\/[^/.]+$/;
 export const DOCKER = /(?:^|\/)(?:Dockerfile|[^/]+\.Dockerfile)$/;
 export const SWIFT = /\.swift$/;
 export const PYTHON = /\.py$/;
+export const RUST = /\.rs$/;
 const LINE_COMMENTED = [SHELL, DOCKER, SWIFT, PYTHON];
 export const EXCLUDED = /^(?:third_party|electron\/vendor)\//;
 
@@ -129,6 +130,9 @@ export function remainingComments(file: string, text: string): Array<{ line: num
   const lines = (pos: number) => text.slice(0, pos).split("\n").length;
   if (CSS.test(file)) {
     return cssComments(text).filter(([start, end]) => !text.slice(start, end).startsWith("/*!")).map(([start, end]) => ({ line: lines(start), text: text.slice(start, end) }));
+  }
+  if (RUST.test(file)) {
+    return removableRustComments(text).map(([start, end]) => ({ line: lines(start), text: text.slice(start, end).split("\n")[0]! }));
   }
   if (LINE_COMMENTED.some((pattern) => pattern.test(file))) {
     const comments = lineComments(file, text);
@@ -295,6 +299,65 @@ export function stripCss(text: string): { text: string; removed: number } {
   return { text: apply(text, ranges.map(([start, end]) => spanFor(text, start, end))), removed: ranges.length };
 }
 
+const RUST_NAME = /[A-Za-z0-9_]/;
+
+function rustComments(text: string): Array<[number, number]> {
+  const found: Array<[number, number]> = [];
+  let at = 0;
+  while (at < text.length) {
+    const char = text[at]!;
+    if (text.startsWith("//", at)) {
+      const newline = text.indexOf("\n", at);
+      const stop = newline === -1 ? text.length : newline;
+      found.push([at, stop]);
+      at = stop;
+    } else if (text.startsWith("/*", at)) {
+      let depth = 1;
+      let stop = at + 2;
+      while (stop < text.length && depth > 0) {
+        if (text.startsWith("/*", stop)) {
+          depth += 1;
+          stop += 2;
+        } else if (text.startsWith("*/", stop)) {
+          depth -= 1;
+          stop += 2;
+        } else stop += 1;
+      }
+      found.push([at, stop]);
+      at = stop;
+    } else if (char === '"') {
+      at += 1;
+      while (at < text.length && text[at] !== '"') at += text[at] === "\\" ? 2 : 1;
+      at += 1;
+    } else if ((char === "r" || char === "b") && !RUST_NAME.test(text[at - 1] ?? "")) {
+      const raw = /^b?r(#*)"/.exec(text.slice(at, at + 300));
+      if (!raw) {
+        at += 1;
+        continue;
+      }
+      const close = text.indexOf(`"${raw[1]}`, at + raw[0].length);
+      at = close === -1 ? text.length : close + 1 + raw[1]!.length;
+    } else if (char === "'") {
+      const width = (text.codePointAt(at + 1) ?? 0) > 0xffff ? 2 : 1;
+      if (text[at + 1] === "\\") {
+        const close = text.indexOf("'", at + 3);
+        at = close === -1 ? text.length : close + 1;
+      } else if (text[at + 1 + width] === "'") at += width + 2;
+      else at += 1;
+    } else at += 1;
+  }
+  return found;
+}
+
+function removableRustComments(text: string): Array<[number, number]> {
+  return rustComments(text).filter(([start, end]) => !LICENSE.test(text.slice(start, end)));
+}
+
+export function stripRust(text: string): { text: string; removed: number } {
+  const ranges = removableRustComments(text);
+  return { text: apply(text, ranges.map(([start, end]) => spanFor(text, start, end))), removed: ranges.length };
+}
+
 function lineComments(file: string, text: string): Set<number> {
   const found = new Set<number>();
   const docker = DOCKER.test(file);
@@ -353,11 +416,12 @@ export function stripLines(file: string, text: string): { text: string; removed:
 export function trackedFiles(): string[] {
   return execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
     .split("\0")
-    .filter((file) => file && !EXCLUDED.test(file) && [SOURCE, CSS, ...LINE_COMMENTED, ...CONFIG].some((pattern) => pattern.test(file)));
+    .filter((file) => file && !EXCLUDED.test(file) && [SOURCE, CSS, RUST, ...LINE_COMMENTED, ...CONFIG].some((pattern) => pattern.test(file)));
 }
 
 export function strip(file: string, text: string): { text: string; removed: number } {
   if (CSS.test(file)) return stripCss(text);
+  if (RUST.test(file)) return stripRust(text);
   if (LINE_COMMENTED.some((pattern) => pattern.test(file))) return stripLines(file, text);
   if (CONFIG.some((pattern) => pattern.test(file))) return stripConfig(file, text);
   return stripSource(file, text);

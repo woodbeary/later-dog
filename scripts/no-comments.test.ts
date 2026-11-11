@@ -109,4 +109,90 @@ describe("removing comments", () => {
     const script = "#!/bin/bash\n# Explains.\nset -e\ncat <<'EOF'\n# data, not a comment\nEOF\n";
     expect(strip("a.sh", script).text).toBe("#!/bin/bash\nset -e\ncat <<'EOF'\n# data, not a comment\nEOF\n");
   });
+
+  it("handles Rust, leaving strings, raw strings, characters and lifetimes alone", () => {
+    const before = [
+      "// Walks the home.",
+      "/// Names a thing.",
+      "fn name<'a>(text: &'a str) -> &'a str {",
+      "    let url = \"https://later.dog\"; // why",
+      "    let raw = r#\"// not \"one\" /* either */\"#;",
+      "    let bytes = br\"// kept\";",
+      "    let slash = '/';",
+      "    let quote = '\\'';",
+      "    let escaped = \"a \\\" // kept\";",
+      "    /* outer /* nested */ still a comment */",
+      "    text",
+      "}",
+      "",
+    ].join("\n");
+    const after = [
+      "fn name<'a>(text: &'a str) -> &'a str {",
+      "    let url = \"https://later.dog\";",
+      "    let raw = r#\"// not \"one\" /* either */\"#;",
+      "    let bytes = br\"// kept\";",
+      "    let slash = '/';",
+      "    let quote = '\\'';",
+      "    let escaped = \"a \\\" // kept\";",
+      "    text",
+      "}",
+      "",
+    ].join("\n");
+    expect(strip("a.rs", before)).toEqual({ text: after, removed: 4 });
+    expect(strip("a.rs", after)).toEqual({ text: after, removed: 0 });
+    expect(remainingComments("a.rs", "fn main() {} // why\n")).toEqual([{ line: 1, text: "// why" }]);
+    const licensed = "// SPDX-License-Identifier: MIT\nfn main() {}\n";
+    expect(strip("a.rs", licensed)).toEqual({ text: licensed, removed: 0 });
+  });
+
+  it("handles a Cargo manifest, leaving hashes inside its strings alone", () => {
+    const before = [
+      "# Builds the walker.",
+      "[package]",
+      "name = \"save-walk\" # the binary",
+      "description = \"lists # and hashes\"",
+      "homepage = 'https://later.dog/#save'",
+      "",
+      "[dependencies]",
+      "sha2 = { version = \"0.10\", features = [\"asm\"] } # faster",
+      "notes = \"\"\"",
+      "# kept, inside a multi-line string",
+      "\"\"\"",
+      "escaped = \"a \\\" # kept\"",
+      "",
+    ].join("\n");
+    const after = [
+      "[package]",
+      "name = \"save-walk\"",
+      "description = \"lists # and hashes\"",
+      "homepage = 'https://later.dog/#save'",
+      "",
+      "[dependencies]",
+      "sha2 = { version = \"0.10\", features = [\"asm\"] }",
+      "notes = \"\"\"",
+      "# kept, inside a multi-line string",
+      "\"\"\"",
+      "escaped = \"a \\\" # kept\"",
+      "",
+    ].join("\n");
+    expect(strip("crate/Cargo.toml", before)).toEqual({ text: after, removed: 3 });
+    expect(strip("crate/Cargo.toml", after)).toEqual({ text: after, removed: 0 });
+    expect(remainingComments("crate/Cargo.toml", "strip = true # smaller\n")).toEqual([{ line: 1, text: "# smaller" }]);
+  });
+});
+
+describe("what the check reads", () => {
+  const read = (file: string) => trackedFiles().includes(file);
+
+  it("reads every language the Rust measurements are written in", () => {
+    const measurements = spawnSync("git", ["ls-files", "prototypes/rust-seam"], { encoding: "utf8" }).stdout.split("\n").filter(Boolean);
+    expect(measurements.some((file) => file.endsWith(".rs"))).toBe(true);
+    expect(measurements.some((file) => file.endsWith("/Cargo.toml"))).toBe(true);
+    expect(measurements.filter((file) => !read(file)).filter((file) => !file.endsWith("/Cargo.lock"))).toEqual([]);
+  });
+
+  it("leaves out the lock files Cargo and pnpm write", () => {
+    expect(read("pnpm-lock.yaml")).toBe(false);
+    expect(trackedFiles().filter((file) => file.endsWith("Cargo.lock"))).toEqual([]);
+  });
 });

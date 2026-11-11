@@ -1,0 +1,388 @@
+{
+ "note": "Synthetic requests and a synthetic roster. primary is the dog that should take the request; acceptable lists every dog that would be a reasonable owner.",
+ "dogs": [
+  {
+   "id": "pane",
+   "name": "Pane",
+   "title": "iPhone app UI",
+   "description": "Builds and polishes the iPhone app screens, gestures, sheets and navigation."
+  },
+  {
+   "id": "desk",
+   "name": "Desk",
+   "title": "Desktop app UI",
+   "description": "Builds the Mac desktop app: sidebar, composer, transcript, settings and window behaviour."
+  },
+  {
+   "id": "hound",
+   "name": "Hound",
+   "title": "Server features",
+   "description": "Builds server features: routes, queues, routines, permissions and the message database."
+  },
+  {
+   "id": "kennel",
+   "name": "Kennel",
+   "title": "Cloud scaling",
+   "description": "Keeps the cloud home healthy: storage, saving and restoring files, memory, restarts and container images."
+  },
+  {
+   "id": "patch",
+   "name": "Patch",
+   "title": "Bug fixes and releases",
+   "description": "Fixes reported bugs and publishes releases: phone updates, desktop builds, Worker deploys and rollbacks."
+  },
+  {
+   "id": "scout",
+   "name": "Scout",
+   "title": "Research and writing",
+   "description": "Researches topics on the web, checks sources and writes summaries, comparisons and briefs."
+  },
+  {
+   "id": "ledger",
+   "name": "Ledger",
+   "title": "Billing and invoices",
+   "description": "Handles invoices, subscriptions, refunds, receipts and tax paperwork."
+  },
+  {
+   "id": "mailroom",
+   "name": "Mailroom",
+   "title": "Email and calendar",
+   "description": "Triages the inbox, drafts replies, schedules meetings and keeps the calendar straight."
+  }
+ ],
+ "items": [
+  {
+   "id": "k001",
+   "request": "The swipe back gesture on the chat screen needs a hard pull on my phone.",
+   "primary": "pane",
+   "acceptable": [
+    "pane",
+    "patch"
+   ]
+  },
+  {
+   "id": "k002",
+   "request": "Make the sidebar rows on the Mac less cramped.",
+   "primary": "desk",
+   "acceptable": [
+    "desk"
+   ]
+  },
+  {
+   "id": "k003",
+   "request": "Add a route that lists a dog's queued requests.",
+   "primary": "hound",
+   "acceptable": [
+    "hound"
+   ]
+  },
+  {
+   "id": "k004",
+   "request": "Files vanished after the home restarted last night.",
+   "primary": "kennel",
+   "acceptable": [
+    "kennel",
+    "patch"
+   ]
+  },
+  {
+   "id": "k005",
+   "request": "Publish the latest phone build to beta.",
+   "primary": "patch",
+   "acceptable": [
+    "patch"
+   ]
+  },
+  {
+   "id": "k006",
+   "request": "Compare the three note-taking apps and tell me which syncs best.",
+   "primary": "scout",
+   "acceptable": [
+    "scout"
+   ]
+  },
+  {
+   "id": "k007",
+   "request": "Send the September invoice to Northwind again.",
+   "primary": "ledger",
+   "acceptable": [
+    "ledger",
+    "mailroom"
+   ]
+  },
+  {
+   "id": "k008",
+   "request": "Move tomorrow's call with Dana to Friday afternoon.",
+   "primary": "mailroom",
+   "acceptable": [
+    "mailroom"
+   ]
+  },
+  {
+   "id": "k009",
+   "request": "The usage sheet cuts off the account name on a small iPhone.",
+   "primary": "pane",
+   "acceptable": [
+    "pane",
+    "patch"
+   ]
+  },
+  {
+   "id": "k010",
+   "request": "Typing lags in the composer when a long chat is open on the desktop.",
+   "primary": "desk",
+   "acceptable": [
+    "desk",
+    "patch"
+   ]
+  },
+  {
+   "id": "k011",
+   "request": "Routines should be able to run on the last day of each month.",
+   "primary": "hound",
+   "acceptable": [
+    "hound"
+   ]
+  },
+  {
+   "id": "k012",
+   "request": "The home is at 92 percent disk. Find what is filling it.",
+   "primary": "kennel",
+   "acceptable": [
+    "kennel"
+   ]
+  },
+  {
+   "id": "k013",
+   "request": "Roll back the Worker deploy from an hour ago.",
+   "primary": "patch",
+   "acceptable": [
+    "patch",
+    "kennel"
+   ]
+  },
+  {
+   "id": "k014",
+   "request": "What do the new EU rules say about cookie banners? Sources please.",
+   "primary": "scout",
+   "acceptable": [
+    "scout"
+   ]
+  },
+  {
+   "id": "k015",
+   "request": "A customer wants a refund for last month's subscription.",
+   "primary": "ledger",
+   "acceptable": [
+    "ledger"
+   ]
+  },
+  {
+   "id": "k016",
+   "request": "Draft a reply to the landlord's email about the lease renewal.",
+   "primary": "mailroom",
+   "acceptable": [
+    "mailroom"
+   ]
+  },
+  {
+   "id": "k017",
+   "request": "Dark mode on the phone's settings screen has white text on a white card.",
+   "primary": "pane",
+   "acceptable": [
+    "pane",
+    "patch"
+   ]
+  },
+  {
+   "id": "k018",
+   "request": "The Mac app's window forgets its size after an update.",
+   "primary": "desk",
+   "acceptable": [
+    "desk",
+    "patch"
+   ]
+  },
+  {
+   "id": "k019",
+   "request": "Messages stay queued when another turn is running; fix the dispatcher.",
+   "primary": "hound",
+   "acceptable": [
+    "hound",
+    "patch"
+   ]
+  },
+  {
+   "id": "k020",
+   "request": "Memory keeps climbing on the cloud container until it restarts.",
+   "primary": "kennel",
+   "acceptable": [
+    "kennel"
+   ]
+  },
+  {
+   "id": "k021",
+   "request": "Ship the desktop build with the signing fix.",
+   "primary": "patch",
+   "acceptable": [
+    "patch"
+   ]
+  },
+  {
+   "id": "k022",
+   "request": "Write a two-page brief on how competitors price their team plans.",
+   "primary": "scout",
+   "acceptable": [
+    "scout"
+   ]
+  },
+  {
+   "id": "k023",
+   "request": "Where is the receipt for the domain renewal? I need it for taxes.",
+   "primary": "ledger",
+   "acceptable": [
+    "ledger",
+    "mailroom"
+   ]
+  },
+  {
+   "id": "k024",
+   "request": "Clear my inbox of newsletters and flag anything from the bank.",
+   "primary": "mailroom",
+   "acceptable": [
+    "mailroom"
+   ]
+  },
+  {
+   "id": "k025",
+   "request": "Add a pull-to-refresh on the dog list in the phone app.",
+   "primary": "pane",
+   "acceptable": [
+    "pane"
+   ]
+  },
+  {
+   "id": "k026",
+   "request": "The settings panel on the desktop needs a search box.",
+   "primary": "desk",
+   "acceptable": [
+    "desk"
+   ]
+  },
+  {
+   "id": "k027",
+   "request": "Dogs need a permission level between ask-first and full access.",
+   "primary": "hound",
+   "acceptable": [
+    "hound"
+   ]
+  },
+  {
+   "id": "k028",
+   "request": "Make saving the home faster; it takes most of a minute.",
+   "primary": "kennel",
+   "acceptable": [
+    "kennel"
+   ]
+  },
+  {
+   "id": "k029",
+   "request": "There is a crash when I open a chat with an empty title. Fix it and release.",
+   "primary": "patch",
+   "acceptable": [
+    "patch"
+   ]
+  },
+  {
+   "id": "k030",
+   "request": "Find three studies on remote work and productivity and summarize them.",
+   "primary": "scout",
+   "acceptable": [
+    "scout"
+   ]
+  },
+  {
+   "id": "k031",
+   "request": "Set up the annual plan price in the billing system.",
+   "primary": "ledger",
+   "acceptable": [
+    "ledger"
+   ]
+  },
+  {
+   "id": "k032",
+   "request": "Find a time next week when Priya, Sam and I are all free.",
+   "primary": "mailroom",
+   "acceptable": [
+    "mailroom"
+   ]
+  },
+  {
+   "id": "k033",
+   "request": "The model menu on the phone needs to show which account each model uses.",
+   "primary": "pane",
+   "acceptable": [
+    "pane"
+   ]
+  },
+  {
+   "id": "k034",
+   "request": "Transcript rows jump when a reply streams in on the Mac.",
+   "primary": "desk",
+   "acceptable": [
+    "desk",
+    "patch"
+   ]
+  },
+  {
+   "id": "k035",
+   "request": "Store each message's send id so retries never duplicate.",
+   "primary": "hound",
+   "acceptable": [
+    "hound"
+   ]
+  },
+  {
+   "id": "k036",
+   "request": "Restore yesterday's copy of the workspace folder.",
+   "primary": "kennel",
+   "acceptable": [
+    "kennel"
+   ]
+  },
+  {
+   "id": "k037",
+   "request": "The beta update is broken for some people. Put the previous one back.",
+   "primary": "patch",
+   "acceptable": [
+    "patch"
+   ]
+  },
+  {
+   "id": "k038",
+   "request": "Is it cheaper to lease or buy a small truck for the business? Show the numbers.",
+   "primary": "scout",
+   "acceptable": [
+    "scout",
+    "ledger"
+   ]
+  },
+  {
+   "id": "k039",
+   "request": "The card on file was declined. Chase the customer for a new one.",
+   "primary": "ledger",
+   "acceptable": [
+    "ledger",
+    "mailroom"
+   ]
+  },
+  {
+   "id": "k040",
+   "request": "Decline the conference invitation politely.",
+   "primary": "mailroom",
+   "acceptable": [
+    "mailroom"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,260 @@
+{
+  "platform": "linux x64",
+  "node": "v24.22.2",
+  "databaseBytes": 717910016,
+  "binaryBytes": 2275456,
+  "thread": "marathon",
+  "runs": 7,
+  "rows": [
+    {
+      "label": "Node today: the server's own database handle, statement prepared on every open",
+      "page": "the newest 50 rows",
+      "freshProcesses": 7,
+      "opensEach": 200,
+      "rows": 50,
+      "answerKb": 17.5,
+      "same": true,
+      "openMs": {
+        "median": 0.172,
+        "min": 0.147,
+        "max": 0.188
+      },
+      "slowestOpenMs": {
+        "median": 1.458,
+        "min": 1.122,
+        "max": 4.721
+      },
+      "firstOpenInAFreshProcessMs": {
+        "median": 1.71,
+        "min": 1.591,
+        "max": 2.557
+      },
+      "nodePeakRssMb": {
+        "median": 59.9,
+        "min": 59.8,
+        "max": 60.4
+      },
+      "treePeakRssMb": 59.9
+    },
+    {
+      "label": "Node improved: the same handle with its three statements prepared once",
+      "page": "the newest 50 rows",
+      "freshProcesses": 7,
+      "opensEach": 200,
+      "rows": 50,
+      "answerKb": 17.5,
+      "same": true,
+      "openMs": {
+        "median": 0.154,
+        "min": 0.142,
+        "max": 0.163
+      },
+      "slowestOpenMs": {
+        "median": 1.277,
+        "min": 1.128,
+        "max": 4.32
+      },
+      "firstOpenInAFreshProcessMs": {
+        "median": 1.697,
+        "min": 1.493,
+        "max": 2.189
+      },
+      "nodePeakRssMb": {
+        "median": 59.8,
+        "min": 59.7,
+        "max": 60.4
+      },
+      "treePeakRssMb": 59.8
+    },
+    {
+      "label": "Rust: a child process started for every open, answer parsed in Node",
+      "page": "the newest 50 rows",
+      "freshProcesses": 7,
+      "opensEach": 30,
+      "rows": 50,
+      "answerKb": 17.5,
+      "same": true,
+      "openMs": {
+        "median": 4.247,
+        "min": 3.814,
+        "max": 4.9
+      },
+      "slowestOpenMs": {
+        "median": 8.058,
+        "min": 5.876,
+        "max": 8.976
+      },
+      "firstOpenInAFreshProcessMs": {
+        "median": 8.488,
+        "min": 7.734,
+        "max": 13.261
+      },
+      "nodePeakRssMb": {
+        "median": 58,
+        "min": 57.4,
+        "max": 59.9
+      },
+      "treePeakRssMb": 58
+    },
+    {
+      "label": "Rust: one child process kept running, asked over a pipe, answer parsed in Node",
+      "page": "the newest 50 rows",
+      "freshProcesses": 7,
+      "opensEach": 200,
+      "rows": 50,
+      "answerKb": 17.5,
+      "same": true,
+      "openMs": {
+        "median": 0.17,
+        "min": 0.165,
+        "max": 0.203
+      },
+      "slowestOpenMs": {
+        "median": 1.159,
+        "min": 0.862,
+        "max": 1.676
+      },
+      "firstOpenInAFreshProcessMs": {
+        "median": 7.155,
+        "min": 6.179,
+        "max": 11.857
+      },
+      "nodePeakRssMb": {
+        "median": 55.5,
+        "min": 55.4,
+        "max": 57.5
+      },
+      "helperPeakRssMb": {
+        "median": 4.5,
+        "min": 4.4,
+        "max": 4.6
+      },
+      "treePeakRssMb": 60
+    },
+    {
+      "label": "Node today: the server's own database handle, statement prepared on every open",
+      "page": "the whole chat",
+      "freshProcesses": 7,
+      "opensEach": 200,
+      "rows": 240,
+      "answerKb": 81.5,
+      "same": true,
+      "openMs": {
+        "median": 0.66,
+        "min": 0.627,
+        "max": 0.75
+      },
+      "slowestOpenMs": {
+        "median": 2.519,
+        "min": 1.956,
+        "max": 4.65
+      },
+      "firstOpenInAFreshProcessMs": {
+        "median": 5.445,
+        "min": 5.011,
+        "max": 9.497
+      },
+      "nodePeakRssMb": {
+        "median": 72.8,
+        "min": 72.6,
+        "max": 74.7
+      },
+      "treePeakRssMb": 72.8
+    },
+    {
+      "label": "Node improved: the same handle with its three statements prepared once",
+      "page": "the whole chat",
+      "freshProcesses": 7,
+      "opensEach": 200,
+      "rows": 240,
+      "answerKb": 81.5,
+      "same": true,
+      "openMs": {
+        "median": 0.625,
+        "min": 0.568,
+        "max": 0.682
+      },
+      "slowestOpenMs": {
+        "median": 2.343,
+        "min": 2.245,
+        "max": 4.493
+      },
+      "firstOpenInAFreshProcessMs": {
+        "median": 5.179,
+        "min": 4.739,
+        "max": 7.797
+      },
+      "nodePeakRssMb": {
+        "median": 72.7,
+        "min": 72.7,
+        "max": 74.6
+      },
+      "treePeakRssMb": 72.7
+    },
+    {
+      "label": "Rust: a child process started for every open, answer parsed in Node",
+      "page": "the whole chat",
+      "freshProcesses": 7,
+      "opensEach": 30,
+      "rows": 240,
+      "answerKb": 81.5,
+      "same": true,
+      "openMs": {
+        "median": 7.551,
+        "min": 6.978,
+        "max": 9.395
+      },
+      "slowestOpenMs": {
+        "median": 12.767,
+        "min": 10.98,
+        "max": 26.876
+      },
+      "firstOpenInAFreshProcessMs": {
+        "median": 11.895,
+        "min": 9.995,
+        "max": 19.845
+      },
+      "nodePeakRssMb": {
+        "median": 65.9,
+        "min": 65.2,
+        "max": 69.3
+      },
+      "treePeakRssMb": 65.9
+    },
+    {
+      "label": "Rust: one child process kept running, asked over a pipe, answer parsed in Node",
+      "page": "the whole chat",
+      "freshProcesses": 7,
+      "opensEach": 200,
+      "rows": 240,
+      "answerKb": 81.5,
+      "same": true,
+      "openMs": {
+        "median": 0.728,
+        "min": 0.62,
+        "max": 0.851
+      },
+      "slowestOpenMs": {
+        "median": 2.786,
+        "min": 1.851,
+        "max": 4.508
+      },
+      "firstOpenInAFreshProcessMs": {
+        "median": 9.488,
+        "min": 8.45,
+        "max": 11.277
+      },
+      "nodePeakRssMb": {
+        "median": 58.7,
+        "min": 58.2,
+        "max": 62.1
+      },
+      "helperPeakRssMb": {
+        "median": 5.7,
+        "min": 5.6,
+        "max": 5.8
+      },
+      "treePeakRssMb": 64.4
+    }
+  ]
+}

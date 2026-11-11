@@ -1,0 +1,284 @@
+{
+  "platform": "linux x64",
+  "node": "v24.22.2",
+  "root": "/home/dog/rust-lane/home",
+  "runs": 7,
+  "rows": [
+    {
+      "label": "Node today: walk, one lstat at a time",
+      "runs": 7,
+      "entries": 21443,
+      "wallMs": {
+        "median": 1231.5,
+        "min": 975,
+        "max": 2154.9
+      },
+      "stallMs": {
+        "median": 1.4,
+        "min": 0.9,
+        "max": 3.3
+      },
+      "peakRssMb": {
+        "median": 87,
+        "min": 86.6,
+        "max": 87.5
+      }
+    },
+    {
+      "label": "Node: walk, a folder's lstats together",
+      "runs": 7,
+      "entries": 21443,
+      "same": true,
+      "wallMs": {
+        "median": 626.3,
+        "min": 447.9,
+        "max": 773.5
+      },
+      "stallMs": {
+        "median": 1.5,
+        "min": 1,
+        "max": 3.1
+      },
+      "peakRssMb": {
+        "median": 89.7,
+        "min": 89.2,
+        "max": 90.8
+      }
+    },
+    {
+      "label": "Node: walk with synchronous calls",
+      "runs": 7,
+      "entries": 21443,
+      "same": true,
+      "wallMs": {
+        "median": 343.9,
+        "min": 327.5,
+        "max": 437.8
+      },
+      "stallMs": {
+        "median": 339.1,
+        "min": 322.6,
+        "max": 433
+      },
+      "peakRssMb": {
+        "median": 91.3,
+        "min": 91.1,
+        "max": 92.4
+      }
+    },
+    {
+      "label": "Node: the synchronous walk in a worker thread",
+      "runs": 7,
+      "entries": 21443,
+      "same": true,
+      "wallMs": {
+        "median": 424.2,
+        "min": 400.6,
+        "max": 486.7
+      },
+      "stallMs": {
+        "median": 23.4,
+        "min": 19.5,
+        "max": 25.4
+      },
+      "peakRssMb": {
+        "median": 108.2,
+        "min": 107.6,
+        "max": 108.6
+      }
+    },
+    {
+      "label": "Rust: walk only, inside the binary",
+      "runs": 7,
+      "entries": 21443,
+      "changed": 0,
+      "chunks": 0,
+      "wallMs": {
+        "median": 167.3,
+        "min": 158.8,
+        "max": 172.9
+      },
+      "scanMs": {
+        "median": 167.3,
+        "min": 158.8,
+        "max": 172.9
+      },
+      "compareMs": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "hashMs": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "peakRssMb": {
+        "median": 7.5,
+        "min": 7.4,
+        "max": 7.6
+      }
+    },
+    {
+      "label": "Rust: walk called from Node, entries parsed",
+      "runs": 7,
+      "entries": 21443,
+      "same": true,
+      "wallMs": {
+        "median": 210.1,
+        "min": 195.6,
+        "max": 222.6
+      },
+      "stallMs": {
+        "median": 205.3,
+        "min": 190.8,
+        "max": 217.8
+      },
+      "peakRssMb": {
+        "median": 70.5,
+        "min": 70.3,
+        "max": 70.6
+      }
+    },
+    {
+      "label": "Node: walk, compare, hash changed files",
+      "runs": 7,
+      "entries": 21443,
+      "changed": 301,
+      "has": 379,
+      "put": 302,
+      "putMb": 20,
+      "wallMs": {
+        "median": 2582.4,
+        "min": 2265.1,
+        "max": 4690.8
+      },
+      "peakRssMb": {
+        "median": 332.1,
+        "min": 270.7,
+        "max": 380.9
+      }
+    },
+    {
+      "label": "Rust, 1 thread: walk, compare, hash changed files",
+      "runs": 7,
+      "entries": 21443,
+      "changed": 301,
+      "chunks": 379,
+      "wallMs": {
+        "median": 734.3,
+        "min": 714.2,
+        "max": 775.7
+      },
+      "scanMs": {
+        "median": 164.4,
+        "min": 156.6,
+        "max": 176.6
+      },
+      "compareMs": {
+        "median": 29.2,
+        "min": 26.2,
+        "max": 33.5
+      },
+      "hashMs": {
+        "median": 536.4,
+        "min": 527.4,
+        "max": 570.9
+      },
+      "peakRssMb": {
+        "median": 25.7,
+        "min": 25.6,
+        "max": 25.8
+      }
+    },
+    {
+      "label": "Rust, 4 threads: walk, compare, hash changed files",
+      "runs": 7,
+      "entries": 21443,
+      "changed": 301,
+      "chunks": 379,
+      "wallMs": {
+        "median": 344.6,
+        "min": 338.2,
+        "max": 348.1
+      },
+      "scanMs": {
+        "median": 160,
+        "min": 152.2,
+        "max": 167.7
+      },
+      "compareMs": {
+        "median": 28.5,
+        "min": 27.2,
+        "max": 32.2
+      },
+      "hashMs": {
+        "median": 152.8,
+        "min": 147.1,
+        "max": 157.7
+      },
+      "peakRssMb": {
+        "median": 50.4,
+        "min": 49.9,
+        "max": 57.7
+      }
+    },
+    {
+      "label": "Node: the same plus the database copy",
+      "runs": 7,
+      "entries": 21443,
+      "changed": 301,
+      "has": 379,
+      "put": 302,
+      "putMb": 20,
+      "wallMs": {
+        "median": 6058.4,
+        "min": 5138,
+        "max": 6810.4
+      },
+      "peakRssMb": {
+        "median": 260.5,
+        "min": 250.4,
+        "max": 353.6
+      }
+    },
+    {
+      "label": "Node: the same plus the copy, blob checks over local HTTP",
+      "runs": 7,
+      "entries": 21443,
+      "changed": 301,
+      "has": 379,
+      "put": 302,
+      "putMb": 20,
+      "wallMs": {
+        "median": 6251.9,
+        "min": 5695.9,
+        "max": 6876.8
+      },
+      "peakRssMb": {
+        "median": 376.7,
+        "min": 352.5,
+        "max": 381.4
+      }
+    },
+    {
+      "label": "Node: the same, each blob request answered after 30 ms",
+      "runs": 3,
+      "entries": 21443,
+      "changed": 301,
+      "has": 379,
+      "put": 302,
+      "putMb": 20,
+      "wallMs": {
+        "median": 8974.3,
+        "min": 8848,
+        "max": 9394.7
+      },
+      "peakRssMb": {
+        "median": 278.4,
+        "min": 257.1,
+        "max": 279.7
+      }
+    }
+  ]
+}

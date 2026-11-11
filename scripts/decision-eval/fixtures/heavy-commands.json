@@ -1,0 +1,715 @@
+{
+ "note": "Synthetic shell commands in the shapes dogs really run. heavy is true for package installs, builds, type checks, test runs, dev servers, browser installs and test runs, container builds and media processing.",
+ "items": [
+  {
+   "id": "h001",
+   "command": "pnpm install",
+   "heavy": true
+  },
+  {
+   "id": "h002",
+   "command": "npm ci --no-audit --no-fund",
+   "heavy": true
+  },
+  {
+   "id": "h003",
+   "command": "pnpm i -D vitest",
+   "heavy": true
+  },
+  {
+   "id": "h004",
+   "command": "yarn add lodash",
+   "heavy": true
+  },
+  {
+   "id": "h005",
+   "command": "bun install",
+   "heavy": true
+  },
+  {
+   "id": "h006",
+   "command": "yarn",
+   "heavy": true
+  },
+  {
+   "id": "h007",
+   "command": "pnpm test",
+   "heavy": true
+  },
+  {
+   "id": "h008",
+   "command": "pnpm run build",
+   "heavy": true
+  },
+  {
+   "id": "h009",
+   "command": "npm run test:e2e",
+   "heavy": true
+  },
+  {
+   "id": "h010",
+   "command": "pnpm typecheck",
+   "heavy": true
+  },
+  {
+   "id": "h011",
+   "command": "npx tsc --noEmit",
+   "heavy": true
+  },
+  {
+   "id": "h012",
+   "command": "timeout 300 npx tsc --noEmit -p . 2>&1 | head -20",
+   "heavy": true
+  },
+  {
+   "id": "h013",
+   "command": "cd app && pnpm exec vitest run",
+   "heavy": true
+  },
+  {
+   "id": "h014",
+   "command": "pnpm vitest run",
+   "heavy": true
+  },
+  {
+   "id": "h015",
+   "command": "node --test test/*.test.ts",
+   "heavy": true
+  },
+  {
+   "id": "h016",
+   "command": "node --experimental-strip-types --test \"server/**/*.test.ts\" 2>&1 | tail -5",
+   "heavy": true
+  },
+  {
+   "id": "h017",
+   "command": "npx vitest run --coverage",
+   "heavy": true
+  },
+  {
+   "id": "h018",
+   "command": "npx playwright test",
+   "heavy": true
+  },
+  {
+   "id": "h019",
+   "command": "python3 -m playwright install chromium",
+   "heavy": true
+  },
+  {
+   "id": "h020",
+   "command": "python3 -m pytest -x",
+   "heavy": true
+  },
+  {
+   "id": "h021",
+   "command": "pytest tests/ -q",
+   "heavy": true
+  },
+  {
+   "id": "h022",
+   "command": "pip install -r requirements.txt",
+   "heavy": true
+  },
+  {
+   "id": "h023",
+   "command": "pip install -q --break-system-packages faster-whisper 2>&1 | tail -1",
+   "heavy": true
+  },
+  {
+   "id": "h024",
+   "command": "uv sync",
+   "heavy": true
+  },
+  {
+   "id": "h025",
+   "command": "poetry install",
+   "heavy": true
+  },
+  {
+   "id": "h026",
+   "command": "cargo build --release",
+   "heavy": true
+  },
+  {
+   "id": "h027",
+   "command": "cargo test",
+   "heavy": true
+  },
+  {
+   "id": "h028",
+   "command": "go build ./...",
+   "heavy": true
+  },
+  {
+   "id": "h029",
+   "command": "go test ./...",
+   "heavy": true
+  },
+  {
+   "id": "h030",
+   "command": "make -j8",
+   "heavy": true
+  },
+  {
+   "id": "h031",
+   "command": "make build",
+   "heavy": true
+  },
+  {
+   "id": "h032",
+   "command": "docker build -t app .",
+   "heavy": true
+  },
+  {
+   "id": "h033",
+   "command": "docker compose up --build -d",
+   "heavy": true
+  },
+  {
+   "id": "h034",
+   "command": "/opt/tools/bin/ffmpeg -y -i in.mov -c:v libx264 -crf 20 out.mp4",
+   "heavy": true
+  },
+  {
+   "id": "h035",
+   "command": "FF=/opt/tools/bin/ffmpeg; $FF -v error -y -i a.mov -vf scale=1280:-2 b.mp4",
+   "heavy": true
+  },
+  {
+   "id": "h036",
+   "command": "for f in *.mov; do ffmpeg -i \"$f\" \"${f%.mov}.mp4\"; done",
+   "heavy": true
+  },
+  {
+   "id": "h037",
+   "command": "(NODE_ENV=development nohup npx next dev -p 3000 > /tmp/dev.log 2>&1 &); echo started",
+   "heavy": true
+  },
+  {
+   "id": "h038",
+   "command": "npx next build",
+   "heavy": true
+  },
+  {
+   "id": "h039",
+   "command": "npx vite build",
+   "heavy": true
+  },
+  {
+   "id": "h040",
+   "command": "pnpm exec vite build --minify false --outDir /tmp/dist",
+   "heavy": true
+  },
+  {
+   "id": "h041",
+   "command": "npx expo export --platform ios",
+   "heavy": true
+  },
+  {
+   "id": "h042",
+   "command": "./gradlew assembleDebug",
+   "heavy": true
+  },
+  {
+   "id": "h043",
+   "command": "xcodebuild -scheme App -configuration Release build",
+   "heavy": true
+  },
+  {
+   "id": "h044",
+   "command": "swift build -c release",
+   "heavy": true
+  },
+  {
+   "id": "h045",
+   "command": "npx turbo run build",
+   "heavy": true
+  },
+  {
+   "id": "h046",
+   "command": "npx nx run-many -t test",
+   "heavy": true
+  },
+  {
+   "id": "h047",
+   "command": "sed -i 's/width: 400/width: 480/' test/layout.test.ts && pnpm test 2>&1 | tail -5",
+   "heavy": true
+  },
+  {
+   "id": "h048",
+   "command": "git pull --ff-only && pnpm install --frozen-lockfile && pnpm build",
+   "heavy": true
+  },
+  {
+   "id": "h049",
+   "command": "whisper interview.mp3 --model medium --language en",
+   "heavy": true
+  },
+  {
+   "id": "h050",
+   "command": "blender -b scene.blend -a",
+   "heavy": true
+  },
+  {
+   "id": "h051",
+   "command": "pnpm -r build",
+   "heavy": true
+  },
+  {
+   "id": "h052",
+   "command": "pnpm --filter web test",
+   "heavy": true
+  },
+  {
+   "id": "h053",
+   "command": "npm test -- --watchAll=false",
+   "heavy": true
+  },
+  {
+   "id": "h054",
+   "command": "bundle install",
+   "heavy": true
+  },
+  {
+   "id": "h055",
+   "command": "composer install",
+   "heavy": true
+  },
+  {
+   "id": "h056",
+   "command": "conda create -y -n eval python=3.12",
+   "heavy": true
+  },
+  {
+   "id": "h057",
+   "command": "mvn -q package",
+   "heavy": true
+  },
+  {
+   "id": "h058",
+   "command": "cmake --build build -j",
+   "heavy": true
+  },
+  {
+   "id": "h059",
+   "command": "npx webpack --mode production",
+   "heavy": true
+  },
+  {
+   "id": "h060",
+   "command": "bunx playwright test --project chromium",
+   "heavy": true
+  },
+  {
+   "id": "h061",
+   "command": "env CI=1 pnpm test",
+   "heavy": true
+  },
+  {
+   "id": "h062",
+   "command": "nohup pnpm build > build.log 2>&1 &",
+   "heavy": true
+  },
+  {
+   "id": "h063",
+   "command": "time pnpm typecheck",
+   "heavy": true
+  },
+  {
+   "id": "h064",
+   "command": "corepack enable && pnpm install",
+   "heavy": true
+  },
+  {
+   "id": "h065",
+   "command": "npx tsc -p tsconfig.server.json",
+   "heavy": true
+  },
+  {
+   "id": "h066",
+   "command": "node node_modules/typescript/bin/tsc --noEmit",
+   "heavy": true
+  },
+  {
+   "id": "h067",
+   "command": "node_modules/.bin/vitest run",
+   "heavy": true
+  },
+  {
+   "id": "h068",
+   "command": "./node_modules/.bin/tsc -b",
+   "heavy": true
+  },
+  {
+   "id": "h069",
+   "command": "python3 -m pip install --upgrade pillow",
+   "heavy": true
+  },
+  {
+   "id": "h070",
+   "command": "sudo apt-get update && sudo apt-get install -y build-essential",
+   "heavy": true
+  },
+  {
+   "id": "h071",
+   "command": "npx create-next-app@latest site --ts --use-pnpm",
+   "heavy": true
+  },
+  {
+   "id": "h072",
+   "command": "pnpm exec playwright install --with-deps chromium",
+   "heavy": true
+  },
+  {
+   "id": "h073",
+   "command": "npm rebuild sharp",
+   "heavy": true
+  },
+  {
+   "id": "h074",
+   "command": "(pnpm typecheck > /tmp/tc.log 2>&1; echo \"typecheck exit $?\" >> /tmp/tc.log; pnpm test > /tmp/test.log 2>&1)",
+   "heavy": true
+  },
+  {
+   "id": "h075",
+   "command": "cd engine && npx tsc -p . 2>&1 | head -3; pnpm test 2>&1 | grep -E \"pass|fail\" | head",
+   "heavy": true
+  },
+  {
+   "id": "h076",
+   "command": "timeout 2400 pnpm test > /tmp/pnpm-test.log 2>&1; echo \"exit $?\"",
+   "heavy": true
+  },
+  {
+   "id": "h077",
+   "command": "s=$(date +%s); pnpm build:deploy > /tmp/build.log 2>&1; echo \"build exit $? $(( $(date +%s) - s ))s\"",
+   "heavy": true
+  },
+  {
+   "id": "l001",
+   "command": "grep -rn \"pnpm install\" docs/ | head",
+   "heavy": false
+  },
+  {
+   "id": "l002",
+   "command": "echo \"run pnpm test before pushing\"",
+   "heavy": false
+  },
+  {
+   "id": "l003",
+   "command": "cat package.json | grep build",
+   "heavy": false
+  },
+  {
+   "id": "l004",
+   "command": "ps aux | grep vitest | grep -v grep",
+   "heavy": false
+  },
+  {
+   "id": "l005",
+   "command": "which ffmpeg ffprobe python3",
+   "heavy": false
+  },
+  {
+   "id": "l006",
+   "command": "ffmpeg -version",
+   "heavy": false
+  },
+  {
+   "id": "l007",
+   "command": "pnpm --version",
+   "heavy": false
+  },
+  {
+   "id": "l008",
+   "command": "npm view react version",
+   "heavy": false
+  },
+  {
+   "id": "l009",
+   "command": "git log --oneline -5 -- scripts/build.mjs",
+   "heavy": false
+  },
+  {
+   "id": "l010",
+   "command": "ls node_modules/.bin | grep tsc",
+   "heavy": false
+  },
+  {
+   "id": "l011",
+   "command": "cat > /tmp/shot.py <<'EOF'\nimport asyncio\nfrom playwright.async_api import async_playwright\nprint('ready')\nEOF",
+   "heavy": false
+  },
+  {
+   "id": "l012",
+   "command": "docker ps",
+   "heavy": false
+  },
+  {
+   "id": "l013",
+   "command": "docker logs web --tail 20",
+   "heavy": false
+  },
+  {
+   "id": "l014",
+   "command": "cargo --version",
+   "heavy": false
+  },
+  {
+   "id": "l015",
+   "command": "pip list | head",
+   "heavy": false
+  },
+  {
+   "id": "l016",
+   "command": "pip show requests",
+   "heavy": false
+  },
+  {
+   "id": "l017",
+   "command": "sed -n 1,40p test/engine.test.ts",
+   "heavy": false
+  },
+  {
+   "id": "l018",
+   "command": "tail -20 /tmp/build.log",
+   "heavy": false
+  },
+  {
+   "id": "l019",
+   "command": "pkill -f \"next dev\"",
+   "heavy": false
+  },
+  {
+   "id": "l020",
+   "command": "kill $(pgrep -f vitest)",
+   "heavy": false
+  },
+  {
+   "id": "l021",
+   "command": "git commit -qm \"Run the build before the tests\"",
+   "heavy": false
+  },
+  {
+   "id": "l022",
+   "command": "gh run view 8812 --log | tail -30",
+   "heavy": false
+  },
+  {
+   "id": "l023",
+   "command": "curl -s -o /dev/null -w \"%{http_code}\\n\" http://localhost:3000/health",
+   "heavy": false
+  },
+  {
+   "id": "l024",
+   "command": "python3 -c \"print(1 + 1)\"",
+   "heavy": false
+  },
+  {
+   "id": "l025",
+   "command": "node -e \"console.log(process.version)\"",
+   "heavy": false
+  },
+  {
+   "id": "l026",
+   "command": "wc -l pnpm-lock.yaml",
+   "heavy": false
+  },
+  {
+   "id": "l027",
+   "command": "git diff --stat",
+   "heavy": false
+  },
+  {
+   "id": "l028",
+   "command": "du -sh node_modules",
+   "heavy": false
+  },
+  {
+   "id": "l029",
+   "command": "rm -rf dist",
+   "heavy": false
+  },
+  {
+   "id": "l030",
+   "command": "mkdir -p build && ls build",
+   "heavy": false
+  },
+  {
+   "id": "l031",
+   "command": "jq .scripts.test package.json",
+   "heavy": false
+  },
+  {
+   "id": "l032",
+   "command": "npx --no-install tsc --version",
+   "heavy": false
+  },
+  {
+   "id": "l033",
+   "command": "python3 -m pip --version",
+   "heavy": false
+  },
+  {
+   "id": "l034",
+   "command": "make -n build",
+   "heavy": false
+  },
+  {
+   "id": "l035",
+   "command": "git status --short",
+   "heavy": false
+  },
+  {
+   "id": "l036",
+   "command": "date",
+   "heavy": false
+  },
+  {
+   "id": "l037",
+   "command": "tar -tzf release.tgz | head",
+   "heavy": false
+  },
+  {
+   "id": "l038",
+   "command": "unzip -l bundle.zip",
+   "heavy": false
+  },
+  {
+   "id": "l039",
+   "command": "ffprobe -v error -show_format clip.mp4",
+   "heavy": false
+  },
+  {
+   "id": "l040",
+   "command": "cat .github/workflows/test.yml",
+   "heavy": false
+  },
+  {
+   "id": "l041",
+   "command": "grep -c \"it(\" src/*.test.ts",
+   "heavy": false
+  },
+  {
+   "id": "l042",
+   "command": "pnpm list --depth 0",
+   "heavy": false
+  },
+  {
+   "id": "l043",
+   "command": "npm ls typescript",
+   "heavy": false
+  },
+  {
+   "id": "l044",
+   "command": "docker images",
+   "heavy": false
+  },
+  {
+   "id": "l045",
+   "command": "whisper --help",
+   "heavy": false
+  },
+  {
+   "id": "l046",
+   "command": "ls -la dist | head",
+   "heavy": false
+  },
+  {
+   "id": "l047",
+   "command": "git branch -vv",
+   "heavy": false
+  },
+  {
+   "id": "l048",
+   "command": "cat /tmp/test.log | grep -E \"pass|fail\"",
+   "heavy": false
+  },
+  {
+   "id": "l049",
+   "command": "head -50 vite.config.ts",
+   "heavy": false
+  },
+  {
+   "id": "l050",
+   "command": "find . -name \"*.test.ts\" -not -path \"./node_modules/*\" | wc -l",
+   "heavy": false
+  },
+  {
+   "id": "l051",
+   "command": "git show --stat HEAD",
+   "heavy": false
+  },
+  {
+   "id": "l052",
+   "command": "df -h / | tail -1",
+   "heavy": false
+  },
+  {
+   "id": "l053",
+   "command": "free -m | head -2",
+   "heavy": false
+  },
+  {
+   "id": "l054",
+   "command": "sqlite3 app.db \"select count(*) from messages\"",
+   "heavy": false
+  },
+  {
+   "id": "l055",
+   "command": "cp dist/index.html /tmp/preview.html",
+   "heavy": false
+  },
+  {
+   "id": "l056",
+   "command": "gh pr list --state open --limit 10",
+   "heavy": false
+  },
+  {
+   "id": "l057",
+   "command": "ps -Ao pid,etime,rss,command | grep -E \"vitest|pnpm (test|run)|tsc\" | grep -v grep | cut -c1-200",
+   "heavy": false
+  },
+  {
+   "id": "l058",
+   "command": "git add engine && git commit -qm \"Planner: keep the logo above the fold\"",
+   "heavy": false
+  },
+  {
+   "id": "l059",
+   "command": "echo \"pnpm build\" >> NOTES.md",
+   "heavy": false
+  },
+  {
+   "id": "l060",
+   "command": "cat docs/build.md",
+   "heavy": false
+  },
+  {
+   "id": "l061",
+   "command": "ls ~/.cache/ms-playwright 2>/dev/null",
+   "heavy": false
+  },
+  {
+   "id": "l062",
+   "command": "grep -n \"ffmpeg\" scripts/render.py | head",
+   "heavy": false
+  },
+  {
+   "id": "l063",
+   "command": "git stash list",
+   "heavy": false
+  },
+  {
+   "id": "l064",
+   "command": "tail -3 /tmp/pw.log; ls /tmp/shots | wc -l",
+   "heavy": false
+  },
+  {
+   "id": "l065",
+   "command": "node scripts/print-version.mjs",
+   "heavy": false
+  }
+ ]
+}

@@ -1,11 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, lstatSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
-import { lstat } from "node:fs/promises";
+import { appendFileSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { lstat, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
-import { CHUNK_BYTES, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, heldLock, LISTING_PARALLEL, parseManifest, referencedBlobs, restore, resumeOrder, SAVE_PARALLEL, scan, settleWithin, skipped, skippedPath, snapshot, walkOrder, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient } from "../runtime/sync.mjs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CHUNK_BYTES, chunksOf, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, heldLock, LISTING_PARALLEL, parseManifest, referencedBlobs, restore, resumeOrder, SAVE_PARALLEL, scan, settleWithin, skipped, skippedPath, snapshot, walkOrder, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient } from "../runtime/sync.mjs";
 
 function memoryStore() {
   const blobs = new Map<string, Uint8Array>();
@@ -282,6 +282,21 @@ describe("home data sync", () => {
     expect(statSync(join(target, ".laterdog", "attachments")).isDirectory()).toBe(true);
   });
 
+  it("saves and brings back the memory change log, whose folder name ends like a database log", async () => {
+    const source = folder();
+    mkdirSync(join(source, ".laterdog", "memory-journal"), { recursive: true });
+    writeFileSync(join(source, ".laterdog", "memory-journal", "dog.ndjson"), '{"change":"remembered"}\n');
+    writeFileSync(join(source, ".laterdog", "notes.db-journal"), "a rollback log");
+    const store = memoryStore();
+    const saved = await snapshot(source, store, null, { scratch: folder() });
+    expect(saved.written).toBe(true);
+
+    const target = folder();
+    await restore(target, store, null);
+    expect(readFileSync(join(target, ".laterdog", "memory-journal", "dog.ndjson"), "utf8")).toBe('{"change":"remembered"}\n');
+    expect(readdirSync(join(target, ".laterdog")).sort()).toEqual(["memory-journal"]);
+  });
+
   it("uploads only what changed and skips caches", async () => {
     const source = folder();
     writeFileSync(join(source, "a.txt"), "first");
@@ -534,6 +549,16 @@ describe("home data sync", () => {
     expect(skipped(".laterdog-restoring-0123456789abcdef01234567")).toBe(true);
   });
 
+  it("keeps a folder whose name ends like a database log, and still skips the log files", () => {
+    expect(skipped("memory-journal", "dir")).toBe(false);
+    expect(skipped("messages.db-journal")).toBe(true);
+    expect(skipped("node_modules", "dir")).toBe(true);
+    expect(transient({ path: ".laterdog/memory-journal/dog.ndjson", type: "file" })).toBe(false);
+    expect(transient({ path: ".laterdog/memory-journal", type: "dir" })).toBe(false);
+    expect(transient({ path: ".laterdog/messages.db-journal", type: "file" })).toBe(true);
+    expect(transient({ path: ".laterdog/messages.db-wal", type: "link" })).toBe(true);
+  });
+
   function signedInHome(): string {
     const home = folder();
     mkdirSync(join(home, ".claude", ".oauth_refresh.lock"), { recursive: true });
@@ -604,10 +629,11 @@ type Listed = { path: string; mode: number; mtimeMs: number; type: string; size?
 
 function listedOneAtATime(root: string, directory = root, found: Listed[] = []): Listed[] {
   for (const name of readdirSync(directory).sort()) {
-    if (skipped(name)) continue;
+    if (skipped(name, "dir")) continue;
     const path = join(directory, name);
     if (skippedPath(relative(root, path))) continue;
     const info = lstatSync(path);
+    if (!info.isDirectory() && skipped(name)) continue;
     const entry = { path: relative(root, path), mode: info.mode & 0o7777, mtimeMs: Math.floor(info.mtimeMs) };
     if (info.isDirectory()) {
       if (heldLock(name, "dir")) continue;
@@ -638,6 +664,9 @@ describe("listing the home", () => {
     writeFileSync(join(home, ".local", "share", "pnpm", "store", "a1b2"), "a package file");
     writeFileSync(join(home, "run.sh"), "#!/bin/sh\necho hi\n", { mode: 0o755 });
     writeFileSync(join(home, "messages.db-wal"), "rows still in the log");
+    mkdirSync(join(home, ".laterdog", "memory-journal"), { recursive: true });
+    writeFileSync(join(home, ".laterdog", "memory-journal", "dog.ndjson"), '{"change":"remembered"}\n');
+    writeFileSync(join(home, ".laterdog", "messages.db-journal"), "a rollback log");
     symlinkSync("run.sh", join(home, "latest"));
     symlinkSync("nowhere", join(home, "dangling"));
     utimesSync(join(home, "run.sh"), new Date(1_700_000_000_123), new Date(1_700_000_000_123));
@@ -652,7 +681,8 @@ describe("listing the home", () => {
     expect(paths.filter((path: string) => path.startsWith(join("workspaces", "dog", "notes", "note-")))).toHaveLength(LISTING_PARALLEL * 3 + 5 + 2);
     expect(paths.indexOf(join("workspaces", "dog", "notes", "note-1", "inside.md"))).toBe(paths.indexOf(join("workspaces", "dog", "notes", "note-1")) + 1);
     expect(paths.indexOf(join("workspaces", "dog", "notes", "note-1.md"))).toBe(paths.indexOf(join("workspaces", "dog", "notes", "note-1")) + 2);
-    expect(paths.filter((path: string) => /node_modules|pnpm|-wal|dog\.lock/.test(path))).toEqual([]);
+    expect(paths.filter((path: string) => /node_modules|pnpm|-wal|db-journal|dog\.lock/.test(path))).toEqual([]);
+    expect(paths).toContain(join(".laterdog", "memory-journal", "dog.ndjson"));
     expect(listed.find((entry: Listed) => entry.path === "run.sh")).toEqual({ path: "run.sh", mode: 0o755, mtimeMs: 1_700_000_000_123, type: "file", size: 18 });
     expect(listed.find((entry: Listed) => entry.path === "latest")).toMatchObject({ type: "link", target: "run.sh" });
     expect(listed.find((entry: Listed) => entry.path === "dangling")).toMatchObject({ type: "link", target: "nowhere" });
@@ -1070,5 +1100,77 @@ describe("keeping restore points safe from cleanup", () => {
       "DELETE https://state.invalid/home/restore-points/1.json",
       "PUT https://state.invalid/home/restore-points/2.json",
     ]);
+  });
+});
+
+describe("reading a file into pieces", () => {
+  const made: string[] = [];
+  function scratch(): string {
+    const created = mkdtempSync(join(tmpdir(), "laterdog-pieces-"));
+    made.push(created);
+    return created;
+  }
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const path of made.splice(0)) rmSync(path, { recursive: true, force: true });
+  });
+
+  function sha(bytes: Uint8Array): string {
+    return createHash("sha256").update(bytes).digest("hex");
+  }
+
+  function growingBy(more: Uint8Array) {
+    return async (path: string, flags: string) => {
+      const handle = await open(path, flags);
+      return {
+        async stat() {
+          const info = await handle.stat();
+          appendFileSync(path, more);
+          return info;
+        },
+        read: handle.read.bind(handle),
+        close: handle.close.bind(handle),
+      };
+    };
+  }
+
+  it("asks for no more memory than a small file needs", async () => {
+    const path = join(scratch(), "note.md");
+    writeFileSync(path, "hello");
+    const asked = vi.spyOn(Buffer, "allocUnsafe");
+    const chunks = await chunksOf(path, memoryStore());
+    const sizes = asked.mock.calls.map(([size]) => size);
+    expect(chunks).toEqual([sha(Buffer.from("hello"))]);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(6);
+  });
+
+  it("gives an empty file no pieces and a file of exactly one piece one", async () => {
+    const home = scratch();
+    writeFileSync(join(home, "empty"), "");
+    const exact = Buffer.alloc(CHUNK_BYTES, 3);
+    writeFileSync(join(home, "exact"), exact);
+    expect(await chunksOf(join(home, "empty"), memoryStore())).toEqual([]);
+    expect(await chunksOf(join(home, "exact"), memoryStore())).toEqual([sha(exact)]);
+  });
+
+  it("saves all of a file that grows while it is read", async () => {
+    const path = join(scratch(), "log.txt");
+    writeFileSync(path, "first line\n");
+    const store = memoryStore();
+    const chunks = await chunksOf(path, store, { opened: growingBy(Buffer.from("second line\n")) });
+    expect(chunks).toEqual([sha(Buffer.from("first line\nsecond line\n"))]);
+    expect(Buffer.from(store.blobs.get(chunks[0]!)!).toString("utf8")).toBe("first line\nsecond line\n");
+  });
+
+  it("cuts a file that grows past one piece at the same places as a file that was that long all along", async () => {
+    const home = scratch();
+    const start = Buffer.alloc(10, 1);
+    const more = Buffer.alloc(CHUNK_BYTES + 90, 2);
+    writeFileSync(join(home, "grown"), start);
+    writeFileSync(join(home, "whole"), Buffer.concat([start, more]));
+    const grown = await chunksOf(join(home, "grown"), memoryStore(), { opened: growingBy(more) });
+    const whole = await chunksOf(join(home, "whole"), memoryStore());
+    expect(grown).toEqual(whole);
+    expect(grown).toHaveLength(2);
   });
 });
