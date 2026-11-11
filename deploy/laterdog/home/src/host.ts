@@ -118,6 +118,7 @@ export class CloudHomeHost extends Container<Env> {
   private pairingOpenUntil = 0;
   private readonly checking = new Map<string, Promise<void>>();
   private readonly refused = new Set<string>();
+  private readonly refusedMidCheck = new Map<string, () => void>();
   private readonly handover = new Handover({
     standing: () => this.storedStanding ?? (this.size === "standard" ? "holding" : "released"),
     stand: async (standing) => {
@@ -728,7 +729,10 @@ export class CloudHomeHost extends Container<Env> {
     const denied = response.status === 401 || response.status === 403;
     if (known && !denied && !seenLongAgo(this.wakers, key, now)) return;
     if (!known && denied) this.ctx.waitUntil(this.forgetDevice(record, key));
-    if (this.checking.has(key)) return;
+    if (this.checking.has(key)) {
+      if (denied) this.refusedMidCheck.set(key, () => this.learn(record, credential, key, response));
+      return;
+    }
     if (this.checking.size >= CHECKS_AT_ONCE || (!known && this.refused.has(key))) {
       if (known && denied) this.ctx.waitUntil(this.distrust(record, key));
       return;
@@ -742,14 +746,19 @@ export class CloudHomeHost extends Container<Env> {
         if (outcome === "refused" || (outcome === "unknown" && denied)) await this.distrust(record, key);
       })
       .catch(() => undefined)
-      .finally(() => this.checking.delete(key));
+      .finally(() => {
+        this.checking.delete(key);
+        const lookAgain = this.refusedMidCheck.get(key);
+        this.refusedMidCheck.delete(key);
+        lookAgain?.();
+      });
     this.checking.set(key, check);
     this.ctx.waitUntil(check);
   }
 
   private async confirmed(key: string | null): Promise<boolean> {
     if (!key) return false;
-    await this.checking.get(key);
+    for (let running = this.checking.get(key); running; running = this.checking.get(key)) await running;
     return remembered(this.wakers, key, Date.now());
   }
 

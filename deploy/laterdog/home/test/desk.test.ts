@@ -264,6 +264,40 @@ describe("which devices the desk trusts", () => {
     expect((await h.visit("/api/bots", asOwner())).status).toBe(503);
   });
 
+  it.each([
+    ["the check ends with no clear answer", () => new Response(null, { status: 500 })],
+    ["the check fails", () => Promise.reject(new Error("the home hung up"))],
+    ["the check was answered just before the sign-out", () => Response.json({ kind: "session", scopes: ["admin", "client"] })],
+  ])("stops trusting a session the home refuses while an older check of it is still out, when %s", async (_, answer) => {
+    const h = await home();
+    world.answers.set("GET /api/brand", () => Response.json(BRAND));
+    await knownOwner(h);
+    now += 25 * 60 * 60 * 1000;
+    let letGo = () => undefined as void;
+    const out = new Promise<void>((asked) => {
+      world.answers.set("GET /api/auth/session", () => {
+        asked();
+        return new Promise<Response>((resolve, reject) => {
+          letGo = () => void Promise.resolve().then(answer).then(resolve, reject);
+        });
+      });
+    });
+    const checksBefore = world.sessionChecks;
+    const dayOld = h.visit("/api/brand", asOwner());
+    await out;
+    world.answers.delete("GET /api/auth/session");
+    world.sessions.delete(OWNER_TOKEN);
+    world.answers.set("GET /api/bots", () => Response.json({ error: "unauthorized" }, { status: 401 }));
+    expect((await h.visit("/api/bots", asOwner())).status).toBe(401);
+    letGo();
+    expect((await dayOld).status).toBe(200);
+    await h.settle();
+    expect(world.sessionChecks - checksBefore).toBe(1);
+    expect(keptForDevices(h)).toEqual([]);
+    await h.sleep();
+    expect((await send(h, asOwner())).status).toBe(503);
+  });
+
   it("keeps a device's answers again once the home accepts it again, though they have not changed", async () => {
     const h = await home();
     await knownOwner(h);
