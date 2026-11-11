@@ -389,6 +389,9 @@ describe("a home that boots only for its owner", () => {
 });
 
 describe("a message the edge holds while the home cannot take it", () => {
+  beforeEach(() => {
+    world.sessions.add(OWNER_TOKEN);
+  });
   const SEND = "send-0000000000001";
   const sendWords = () => ({
     method: "POST",
