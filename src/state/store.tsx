@@ -3204,6 +3204,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const outbox = sendOutbox();
           const pending = outbox.pending(bots ?? [], groups ?? [], botQueuedMessages);
           if (pending.length > 0) rawDispatch({ type: "outboxShown", items: pending });
+          void outbox.settleHeld(bots ?? [], groups ?? [], botQueuedMessages);
           outbox.resume();
         });
       const peripherals = peripheralParts.map((part) => ({

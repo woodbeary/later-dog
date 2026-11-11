@@ -151,6 +151,90 @@ export async function queuedSend(request: Request, now: number): Promise<QueuedS
   };
 }
 
+const HELD_QUEUE_PATH = /^\/api\/(?:bots|groups)\/[^/]+\/queue\/([\w-]+)(\/steer)?$/;
+export const HELD_UNTIL_UP = "Your home is starting. This message sends as soon as it is up.";
+export const ALREADY_ANSWERING = "Your dog is already answering this message.";
+
+export interface HeldQueueAsk {
+  id: string;
+  ask: "send-now" | "cancel";
+}
+
+export function heldQueueAsk(request: Request): HeldQueueAsk | null {
+  const match = HELD_QUEUE_PATH.exec(new URL(request.url).pathname);
+  if (!match) return null;
+  if (match[2] && request.method === "POST") return { id: match[1]!, ask: "send-now" };
+  if (!match[2] && request.method === "DELETE") return { id: match[1]!, ask: "cancel" };
+  return null;
+}
+
+export function answerHeldQueueAsk(
+  outbox: readonly QueuedSend[],
+  asked: HeldQueueAsk,
+  answering: ReadonlySet<string> = new Set(),
+): { outbox: QueuedSend[]; response: Response } | null {
+  const held = outbox.find((queued) => queued.id === asked.id);
+  if (!held) return null;
+  const headers = { "cache-control": "no-store" };
+  if (held.reply || answering.has(held.id)) {
+    const response = asked.ask === "cancel"
+      ? Response.json({ error: ALREADY_ANSWERING }, { status: 409, headers })
+      : Response.json({ ok: true, queued: true, reason: ALREADY_ANSWERING, ...(held.threadId ? { threadId: held.threadId } : {}) }, { headers });
+    return { outbox: [...outbox], response };
+  }
+  if (asked.ask === "cancel") {
+    return { outbox: outbox.filter((queued) => queued.id !== asked.id), response: Response.json({ ok: true }, { headers }) };
+  }
+  return {
+    outbox: [...outbox],
+    response: Response.json({ ok: true, queued: true, reason: HELD_UNTIL_UP, ...(held.threadId ? { threadId: held.threadId } : {}) }, { headers }),
+  };
+}
+
+export const DESK_DROPPED_MAX = 50;
+const HELD_SENDS_PATH = "/api/held-sends";
+
+export interface DroppedSend {
+  id: string;
+  why: "refused" | "expired";
+  at: number;
+}
+
+export function heldSendsAsk(request: Request): string[] | null {
+  const url = new URL(request.url);
+  if (request.method !== "GET" || url.pathname !== HELD_SENDS_PATH) return null;
+  return (url.searchParams.get("ids") ?? "").split(",").filter((id) => SEND_ID.test(id)).slice(0, DESK_OUTBOX_MAX);
+}
+
+export function heldSendsAnswer(outbox: readonly QueuedSend[], dropped: readonly DroppedSend[], ids: readonly string[]): Response {
+  const asked = new Set(ids);
+  return Response.json(
+    {
+      held: outbox.filter((queued) => asked.has(queued.id)).map((queued) => queued.id),
+      dropped: dropped.filter((send) => asked.has(send.id)).map(({ id, why, at }) => ({ id, why, at })),
+    },
+    { headers: { "cache-control": "no-store" } },
+  );
+}
+
+export function withDropped(dropped: readonly DroppedSend[], sends: readonly QueuedSend[], why: DroppedSend["why"], now: number): DroppedSend[] {
+  const fresh = sends.filter((send) => !dropped.some((earlier) => earlier.id === send.id)).map((send) => ({ id: send.id, why, at: now }));
+  return [...dropped.filter((send) => now - send.at < DESK_KEPT_MS), ...fresh].slice(-DESK_DROPPED_MAX);
+}
+
+export function withoutDropped(dropped: readonly DroppedSend[], ids: readonly string[]): DroppedSend[] {
+  return dropped.filter((send) => !ids.includes(send.id));
+}
+
+export function sendIdOf(body: string): string | null {
+  try {
+    const sendId = (JSON.parse(body) as { sendId?: unknown } | null)?.sendId;
+    return typeof sendId === "string" && SEND_ID.test(sendId) ? sendId : null;
+  } catch {
+    return null;
+  }
+}
+
 export function withQueued(outbox: readonly QueuedSend[], next: QueuedSend): QueuedSend[] | null {
   if (outbox.some((queued) => queued.id === next.id)) return [...outbox];
   if (outbox.length >= DESK_OUTBOX_MAX) return null;

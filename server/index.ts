@@ -734,7 +734,7 @@ import { runningByAccount } from "./laterdog/account-spread.ts";
 import { latestTurnAnswer, lookedAtImage, postTurnImage } from "./laterdog/turn-images.ts";
 import { mountsAutoCloud } from "./laterdog/auto-cloud.ts";
 import { steerWords } from "./laterdog/steer-images.ts";
-import { sendQueuedAsNextTurn, steerWhileRunning } from "./laterdog/queued-steer.ts";
+import { askedToo, sendQueuedAsNextTurn, steerWhileRunning, withAskedQueueId } from "./laterdog/queued-steer.ts";
 import { asksToCloseQuestion, closeQuestion } from "./laterdog/close-question.ts";
 import { openQuestion, typedReplyAnswer } from "./laterdog/typed-answer.ts";
 import { finishTakeover, TakeoverWaits, takeoverResumePrompt, type TakeoverCards, type TakeoverWait } from "./laterdog/takeover.ts";
@@ -770,7 +770,7 @@ import { createIncludedUsageRoutes } from "./routes/included-usage.ts";
 import { autoStartTrial } from "./laterdog/cloud-trial.ts";
 import { newDogComputer } from "./laterdog/new-dog-computer.ts";
 import { homeCloudPlan, type HomeCloudReadiness } from "./laterdog/home-cloud-computer.ts";
-import { isStorageFailure, plainFailure, tooBigMessage } from "./laterdog/plain-error.ts";
+import { isStorageFailure, plainFailure, saidBy, tooBigMessage } from "./laterdog/plain-error.ts";
 import { retryUntilDone } from "./laterdog/retry-until.ts";
 import { guardTurnEnd } from "./laterdog/turn-end-guard.ts";
 import { expireStaleApprovals } from "./laterdog/stale-approvals.ts";
@@ -7688,7 +7688,7 @@ function drainQueuedSends() {
       }).catch((err) => {
         store.appendMessage(threadId, {
           role: "bot", kind: "activity",
-          tool: failedTurnTool(`queued message could not start — ${err instanceof Error ? err.message : String(err)}`),
+          tool: failedTurnTool(`queued message could not start — ${saidBy(err) || "it did not say why"}`),
         });
         resolve();
         queueMicrotask(drainQueuedSends);
@@ -18182,8 +18182,13 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       const body = await readBody(req);
       requirePinnedClientThread(m[1], body?.threadId);
       const bot = requestedTaskBot(m[1], body?.threadId);
-      const held = holdSteeredQueue(bot.id, bot.threadId, m[2]);
-      if (!held) return json(res, 404, { error: "no such queued message" });
+      const asked = m[2];
+      const held = holdSteeredQueue(bot.id, bot.threadId, asked);
+      if (!held) {
+        const landed = store.messagesFor(bot.threadId).some((message) => message.role === "user" && (message.sendId === asked || message.queueId === asked));
+        if (landed) return json(res, 200, { ok: true, sent: true, threadId: bot.threadId, messages: [], queueIds: [asked] });
+        return json(res, 404, { error: "no such queued message" });
+      }
       const currentAtStart = store.projectBotForTask(bot.id, bot.threadId);
       const instance = currentAtStart?.busy ? runningTurnInstance(currentAtStart, bot.threadId) : undefined;
       let words: ReturnType<typeof steerWords>;
@@ -18227,7 +18232,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           ...(item.via ? { via: item.via } : {}),
         })));
         for (const message of messages) handoffs.steered(bot.threadId, steerTarget, instance?.instanceId, message.id);
-        const queueIds = held.items.map((item) => item.messageId);
+        const queueIds = askedToo(held.items.map((item) => item.messageId), asked);
         settleHeldSteeredQueue(held);
         return json(res, 200, { ok: true, steered: true, threadId: bot.threadId, messages, queueIds });
       }
@@ -18239,7 +18244,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         throw Object.assign(new Error("no such bot"), { status: 404 });
       }
       restoreHeldSteeredQueue(held);
-      return json(res, 200, await sendQueuedAsNextTurn({
+      return json(res, 200, withAskedQueueId(await sendQueuedAsNextTurn({
         threadId: bot.threadId,
         name: bot.name,
         queueIds: held.items.map((item) => item.messageId),
@@ -18248,7 +18253,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         interrupt: () => stopThreadTurn(bot.id, bot.threadId, fromLocalTools(auth) ? "api" : "person"),
         drain: drainQueuedSends,
         messages: () => store.messagesFor(bot.threadId),
-      }));
+      }), asked));
     }
 
     m = path.match(/^\/api\/bots\/([\w-]+)\/compact$/);

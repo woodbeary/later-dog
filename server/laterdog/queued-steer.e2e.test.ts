@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -107,6 +108,43 @@ describe.skipIf(process.platform === "win32")("Steer on a turn that will not sto
     expect(lines).toHaveLength(1);
     expect(lines[0].queueId).toBe(queued.body.queueId);
     expect((await listing()).botQueuedMessages[created.threadId] ?? []).toEqual([]);
+
+    await api("POST", `/api/bots/${created.id}/interrupt`);
+    await waitFor(async () => (await getBot(created.id)).busy === false, "the next turn to settle");
+  }, 60_000);
+
+  it("finds a queued message by the sender's own id, cancels by it, and says a message that already went was sent", async () => {
+    const created = (await api("POST", "/api/bots")).body.bot;
+    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "stubborn", model: "fake-model" } });
+    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "keep going" })).status).toBe(202);
+    await waitFor(async () => (await getBot(created.id)).busy === true, "the stubborn turn to start");
+    const goes = randomUUID();
+    const dropped = randomUUID();
+    const first = await api("POST", `/api/bots/${created.id}/messages`, { text: "goes later", sendId: goes });
+    expect(first.body).toMatchObject({ ok: true, queued: true });
+    expect(first.body.queueId).not.toBe(goes);
+    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "never goes", sendId: dropped })).body).toMatchObject({ queued: true });
+
+    const cancelled = await api("DELETE", `/api/bots/${created.id}/queue/${dropped}`, { threadId: created.threadId });
+    expect(cancelled).toEqual({ status: 200, body: { ok: true } });
+    expect((await listing()).botQueuedMessages[created.threadId]).toEqual([expect.objectContaining({ text: "goes later" })]);
+
+    const asked = await api("POST", `/api/bots/${created.id}/queue/${goes}/steer`, { threadId: created.threadId });
+    expect(asked.status).toBe(200);
+    if (asked.body.sent) expect(asked.body.queueIds).toEqual([first.body.queueId, goes]);
+    else expect(asked.body).toEqual({ ok: true, queued: true, threadId: created.threadId, reason: stillStoppingReason(created.name) });
+
+    await waitFor(
+      async () => (await getBot(created.id)).messages.some((m: any) => m.role === "user" && m.text === "goes later"),
+      "the queued message to go once the turn stops",
+    );
+    const again = await api("POST", `/api/bots/${created.id}/queue/${goes}/steer`, { threadId: created.threadId });
+    expect(again).toEqual({ status: 200, body: { ok: true, sent: true, threadId: created.threadId, messages: [], queueIds: [goes] } });
+    const unknown = await api("POST", `/api/bots/${created.id}/queue/${randomUUID()}/steer`, { threadId: created.threadId });
+    expect(unknown).toEqual({ status: 404, body: { error: "no such queued message" } });
+    const all = (await getBot(created.id)).messages.filter((m: any) => m.role === "user").map((m: any) => m.text);
+    expect(all.filter((text: string) => text === "goes later")).toHaveLength(1);
+    expect(all).not.toContain("never goes");
 
     await api("POST", `/api/bots/${created.id}/interrupt`);
     await waitFor(async () => (await getBot(created.id)).busy === false, "the next turn to settle");

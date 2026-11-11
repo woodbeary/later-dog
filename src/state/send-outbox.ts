@@ -1,4 +1,5 @@
 import { rememberFailedComposerSend } from "@/lib/drafts";
+import { HELD_NOT_SENT, heldAnswer, readHeldSends, sortHeldSends, writeHeldSends } from "@/lib/held-sends";
 import {
   SEND_ATTEMPT_TIMEOUT_MS,
   browserStore,
@@ -18,6 +19,7 @@ export interface SendOutboxDeps {
   showError: (error: unknown, threadId: string) => void;
   store?: Store;
   after?: (ms: number, run: () => void) => () => void;
+  now?: () => number;
 }
 
 export interface SendHooks {
@@ -30,6 +32,7 @@ export interface SendOutbox {
   pending(bots: readonly Pick<Bot, "messages">[], groups: readonly Pick<Group, "messages">[], queues?: unknown): OutboxItem[];
   echoed(sendId: string): void;
   queued(queues: unknown): void;
+  settleHeld(bots: readonly Pick<Bot, "messages">[], groups: readonly Pick<Group, "messages">[], queues?: unknown): Promise<void>;
   resume(): void;
   dispose(): void;
 }
@@ -69,6 +72,16 @@ export function sendIdsInQueues(queues: unknown): string[] {
 export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
   const store = "store" in deps ? deps.store : browserStore();
   const hooks = new Map<string, SendHooks>();
+  const now = deps.now ?? Date.now;
+  const landedSendIds = (bots: readonly Pick<Bot, "messages">[], groups: readonly Pick<Group, "messages">[], queues: unknown) => {
+    const landed = new Set<string>(sendIdsInQueues(queues));
+    for (const owner of [...bots, ...groups]) {
+      for (const message of owner.messages ?? []) {
+        if (message.sendId && !message.id.startsWith("optimistic-")) landed.add(message.sendId);
+      }
+    }
+    return landed;
+  };
 
   const settle = (item: OutboxItem, body: any) => {
     if (body?.message && typeof body.threadId === "string") {
@@ -83,6 +96,12 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
         text: item.text,
         reason: item.target.kind === "bot" && QUEUE_REASONS.has(body.reason) ? body.reason : undefined,
       });
+      if (body.queueId === item.sendId && item.recovery) {
+        writeHeldSends(store, [
+          ...readHeldSends(store).filter((held) => held.sendId !== item.sendId),
+          { sendId: item.sendId, threadId: body.threadId, draftId: item.recovery.draftId, text: item.recovery.text, requestText: item.text, replyToId: item.replyToId, at: now() },
+        ]);
+      }
     }
   };
 
@@ -141,12 +160,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
       outbox.enqueue(item);
     },
     pending(bots, groups, queues) {
-      const landed = new Set<string>(sendIdsInQueues(queues));
-      for (const owner of [...bots, ...groups]) {
-        for (const message of owner.messages ?? []) {
-          if (message.sendId && !message.id.startsWith("optimistic-")) landed.add(message.sendId);
-        }
-      }
+      const landed = landedSendIds(bots, groups, queues);
       for (const item of outbox.items()) if (landed.has(item.sendId)) forget(item.sendId);
       return outbox.items();
     },
@@ -157,6 +171,24 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
         if (!waiting.has(item.sendId)) continue;
         deps.dispatch({ type: "optimisticMessageRemoved", threadId: item.threadId, sendId: item.sendId });
         forget(item.sendId);
+      }
+    },
+    async settleHeld(bots, groups, queues) {
+      const held = readHeldSends(store);
+      if (held.length === 0) return;
+      const landed = landedSendIds(bots, groups, queues);
+      const waiting = held.filter((send) => !landed.has(send.sendId));
+      if (waiting.length !== held.length) writeHeldSends(store, waiting);
+      if (waiting.length === 0) return;
+      const answer = await deps
+        .request(`/api/held-sends?ids=${waiting.map((send) => send.sendId).join(",")}`, { timeoutMs: 10_000, rideWake: false })
+        .then(heldAnswer, () => null);
+      const asked = new Set(waiting.map((send) => send.sendId));
+      const { keep, lost } = sortHeldSends(waiting, answer, now());
+      writeHeldSends(store, [...readHeldSends(store).filter((send) => !asked.has(send.sendId)), ...keep]);
+      for (const send of lost) {
+        rememberFailedComposerSend(send.draftId, { sendId: send.sendId, text: send.text, requestText: send.requestText, replyToId: send.replyToId, threadId: send.threadId });
+        deps.showError(new SendRefusedError(HELD_NOT_SENT), send.threadId);
       }
     },
     resume: () => outbox.resume(),

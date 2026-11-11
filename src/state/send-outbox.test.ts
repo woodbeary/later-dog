@@ -5,6 +5,7 @@ import { OUTBOX_KEY, type OutboxItem } from "@/lib/outbox";
 import { failedComposerSends } from "@/lib/drafts";
 import { api, initialState, reducer, StoreProvider, useStore, type Action, type AppState, type Bot } from "./store";
 import { createSendOutbox } from "./send-outbox";
+import { HELD_GIVE_UP_MS, HELD_NOT_SENT, HELD_SENDS_KEY } from "@/lib/held-sends";
 import { SendingTrack } from "@/components/SendingTrack";
 
 function mount(request: typeof fetch) {
@@ -208,6 +209,87 @@ describe("the saved desktop outbox", () => {
     expect(failedComposerSends("bot:bot:thread")).toEqual([
       expect.objectContaining({ sendId: "held-send", text: "still here", requestText: "still here", threadId: "thread" }),
     ]);
+  });
+});
+
+describe("a message the edge held for a sleeping home", () => {
+  const draft = "bot:bot:thread";
+  const sent: OutboxItem = { sendId: "edge-held-send-0001", threadId: "thread", target: { kind: "bot", botId: "bot" }, text: "wake up and ship it", queuedAt: 1, recovery: { draftId: draft, text: "wake up and ship it" } };
+  const heldReceipt = { ok: true, queued: true, queueId: sent.sendId, threadId: "thread" };
+  const kept = (store: ReturnType<typeof memoryStore>) => JSON.parse(store.values.get(HELD_SENDS_KEY) ?? "[]") as Array<{ sendId: string; text: string }>;
+  const holding = async (answer: (path: string) => Promise<unknown>, clock = { now: 1_000 }) => {
+    const store = memoryStore();
+    const showError = vi.fn();
+    const request = vi.fn(async (path: string) => (path === "/api/bots/bot/messages" ? heldReceipt : answer(path)));
+    const outbox = createSendOutbox({ request, dispatch: vi.fn(), showError, store, now: () => clock.now });
+    outbox.send(sent);
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    return { store, showError, request, outbox, clock };
+  };
+  const failedBefore = () => failedComposerSends(draft).length;
+
+  it("keeps the words on this device when the receipt's queue id is the send id", async () => {
+    const { store } = await holding(async () => ({ held: [sent.sendId], dropped: [] }));
+    expect(kept(store)).toEqual([expect.objectContaining({ sendId: sent.sendId, text: "wake up and ship it", threadId: "thread", draftId: draft })]);
+    expect(store.values.has(OUTBOX_KEY)).toBe(false);
+  });
+
+  it("forgets the copy without asking once the message is in the chat or in the dog's queue", async () => {
+    const { store, request, outbox } = await holding(async () => { throw new Error("not asked"); });
+    await outbox.settleHeld([{ messages: [{ id: "m1", sendId: sent.sendId }] } as never], []);
+    expect(kept(store)).toEqual([]);
+    expect(request.mock.calls.some(([path]) => String(path).startsWith("/api/held-sends"))).toBe(false);
+
+    const again = await holding(async () => { throw new Error("not asked"); });
+    await again.outbox.settleHeld([], [], { thread: [{ queueId: "home-queue-1", sendId: sent.sendId, text: "wake up and ship it" }] });
+    expect(kept(again.store)).toEqual([]);
+  });
+
+  it("puts the message in the Not sent row with its words when the edge says the home refused it or the hour ran out", async () => {
+    const before = failedBefore();
+    const { store, showError, request, outbox } = await holding(async () => ({ held: [], dropped: [{ id: sent.sendId, why: "refused", at: 5 }] }));
+    await outbox.settleHeld([], []);
+    expect(request).toHaveBeenCalledWith(`/api/held-sends?ids=${sent.sendId}`, expect.objectContaining({ rideWake: false }));
+    expect(kept(store)).toEqual([]);
+    expect(failedComposerSends(draft).slice(before)).toEqual([expect.objectContaining({ sendId: sent.sendId, text: "wake up and ship it", requestText: "wake up and ship it", threadId: "thread" })]);
+    expect(showError).toHaveBeenCalledWith(expect.objectContaining({ message: HELD_NOT_SENT }), "thread");
+    await outbox.settleHeld([], []);
+    expect(failedComposerSends(draft).slice(before)).toHaveLength(1);
+  });
+
+  it("keeps waiting while the edge still holds it, and lets go quietly once the edge delivered it", async () => {
+    const before = failedBefore();
+    let answer: unknown = { held: [sent.sendId], dropped: [] };
+    const { store, showError, outbox } = await holding(async () => answer);
+    await outbox.settleHeld([], []);
+    expect(kept(store)).toHaveLength(1);
+    answer = { held: [], dropped: [] };
+    await outbox.settleHeld([], []);
+    expect(kept(store)).toEqual([]);
+    expect(showError).not.toHaveBeenCalled();
+    expect(failedBefore()).toBe(before);
+  });
+
+  it("with no edge to ask, waits out the hour the edge would hold it and then gives the words back", async () => {
+    const before = failedBefore();
+    const { store, showError, outbox, clock } = await holding(async () => { throw Object.assign(new Error("Not found"), { status: 404 }); });
+    clock.now += HELD_GIVE_UP_MS - 1;
+    await outbox.settleHeld([], []);
+    expect(kept(store)).toHaveLength(1);
+    expect(showError).not.toHaveBeenCalled();
+    clock.now += 2;
+    await outbox.settleHeld([], []);
+    expect(kept(store)).toEqual([]);
+    expect(failedComposerSends(draft).slice(before)).toEqual([expect.objectContaining({ sendId: sent.sendId, text: "wake up and ship it" })]);
+  });
+
+  it("does not keep a copy for a message the home itself queued under its own id", async () => {
+    const store = memoryStore();
+    const request = vi.fn(async () => ({ ok: true, queued: true, queueId: "home-queue-9", threadId: "thread" }));
+    const outbox = createSendOutbox({ request, dispatch: vi.fn(), showError: vi.fn(), store });
+    outbox.send(sent);
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(kept(store)).toEqual([]);
   });
 });
 

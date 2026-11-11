@@ -84,6 +84,20 @@ describe("steer-queue module", () => {
     expect(store.messages[0].text).toBe(prompt);
   });
 
+  it("finds a queued message by the id the sender gave it, which is all a device knows when the home took the send while waking", () => {
+    const botId = "bot-send-id";
+    const threadId = "thread-send-id";
+    queueSteeredMessage(botId, threadId, "first", { sendId: "send-first" });
+    queueSteeredMessage(botId, threadId, "second", { sendId: "send-second" });
+    expect(holdSteeredQueue(botId, threadId, "send-nobody-sent")).toBeNull();
+    const held = holdSteeredQueue(botId, threadId, "send-second")!;
+    expect(held.items.map((item) => item.text)).toEqual(["first", "second"]);
+    restoreHeldSteeredQueue(held);
+    expect(cancelSteeredMessage(botId, "send-first", threadId)).toBe(true);
+    expect(cancelSteeredMessage(botId, "send-first", threadId)).toBe(false);
+    expect(holdSteeredQueue(botId, threadId, "send-second")!.items.map((item) => item.text)).toEqual(["second"]);
+  });
+
   it.each([undefined, "capacity", "group-turn"] as const)("detects an exact owner's queued correction with reason %s", (reason) => {
     const botId = `correction-${reason ?? "busy"}`;
     const threadId = `${botId}-thread`;

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { SteerOutcome } from "../contracts.ts";
 import type { Message } from "../store.ts";
-import { sendQueuedAsNextTurn, steerWhileRunning, stillBlockedReason, stillStoppingReason, type NextTurnSend } from "./queued-steer.ts";
+import { askedToo, sendQueuedAsNextTurn, steerWhileRunning, stillBlockedReason, stillStoppingReason, withAskedQueueId, type NextTurnSend } from "./queued-steer.ts";
 
 const fast = { stopMs: 200, settleMs: 200, pollMs: 5 };
 
@@ -120,5 +120,16 @@ describe("steering a queued message into the running turn", () => {
     const steer = vi.fn(async (): Promise<SteerOutcome> => { throw new Error("pipe closed"); });
     await expect(steerWhileRunning(steer, () => true, quick)).resolves.toBe("indeterminate");
     expect(steer).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("answering with the id the device asked about", () => {
+  it("adds the asked id once, so a device that only knows its own send id can clear its row", () => {
+    expect(askedToo(["queue-1", "queue-2"], "send-9")).toEqual(["queue-1", "queue-2", "send-9"]);
+    expect(askedToo(["queue-1"], "queue-1")).toEqual(["queue-1"]);
+    const sent = { ok: true as const, sent: true as const, interrupted: false, threadId: "t", queueIds: ["queue-1"], messages: [] };
+    expect(withAskedQueueId(sent, "send-9").queueIds).toEqual(["queue-1", "send-9"]);
+    const waiting = { ok: true as const, queued: true as const, threadId: "t", reason: "still busy" };
+    expect(withAskedQueueId(waiting, "send-9")).toBe(waiting);
   });
 });
