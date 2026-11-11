@@ -43,7 +43,7 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
   const state = useStoreSelector((store) => ({
     config: store.config,
     instances: store.instances,
-    bot: dogIn(store, botId),
+    bot: botId ? dogIn(store, botId) : undefined,
     waiting: threadId ? store.pendingQueued[threadId]?.length ?? 0 : 0,
   }), sameFields);
   const now = useNow();
