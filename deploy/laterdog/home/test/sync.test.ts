@@ -282,6 +282,21 @@ describe("home data sync", () => {
     expect(statSync(join(target, ".laterdog", "attachments")).isDirectory()).toBe(true);
   });
 
+  it("saves and brings back the memory change log, whose folder name ends like a database log", async () => {
+    const source = folder();
+    mkdirSync(join(source, ".laterdog", "memory-journal"), { recursive: true });
+    writeFileSync(join(source, ".laterdog", "memory-journal", "dog.ndjson"), '{"change":"remembered"}\n');
+    writeFileSync(join(source, ".laterdog", "notes.db-journal"), "a rollback log");
+    const store = memoryStore();
+    const saved = await snapshot(source, store, null, { scratch: folder() });
+    expect(saved.written).toBe(true);
+
+    const target = folder();
+    await restore(target, store, null);
+    expect(readFileSync(join(target, ".laterdog", "memory-journal", "dog.ndjson"), "utf8")).toBe('{"change":"remembered"}\n');
+    expect(readdirSync(join(target, ".laterdog")).sort()).toEqual(["memory-journal"]);
+  });
+
   it("uploads only what changed and skips caches", async () => {
     const source = folder();
     writeFileSync(join(source, "a.txt"), "first");
@@ -534,6 +549,16 @@ describe("home data sync", () => {
     expect(skipped(".laterdog-restoring-0123456789abcdef01234567")).toBe(true);
   });
 
+  it("keeps a folder whose name ends like a database log, and still skips the log files", () => {
+    expect(skipped("memory-journal", "dir")).toBe(false);
+    expect(skipped("messages.db-journal")).toBe(true);
+    expect(skipped("node_modules", "dir")).toBe(true);
+    expect(transient({ path: ".laterdog/memory-journal/dog.ndjson", type: "file" })).toBe(false);
+    expect(transient({ path: ".laterdog/memory-journal", type: "dir" })).toBe(false);
+    expect(transient({ path: ".laterdog/messages.db-journal", type: "file" })).toBe(true);
+    expect(transient({ path: ".laterdog/messages.db-wal", type: "link" })).toBe(true);
+  });
+
   function signedInHome(): string {
     const home = folder();
     mkdirSync(join(home, ".claude", ".oauth_refresh.lock"), { recursive: true });
@@ -604,10 +629,11 @@ type Listed = { path: string; mode: number; mtimeMs: number; type: string; size?
 
 function listedOneAtATime(root: string, directory = root, found: Listed[] = []): Listed[] {
   for (const name of readdirSync(directory).sort()) {
-    if (skipped(name)) continue;
+    if (skipped(name, "dir")) continue;
     const path = join(directory, name);
     if (skippedPath(relative(root, path))) continue;
     const info = lstatSync(path);
+    if (!info.isDirectory() && skipped(name)) continue;
     const entry = { path: relative(root, path), mode: info.mode & 0o7777, mtimeMs: Math.floor(info.mtimeMs) };
     if (info.isDirectory()) {
       if (heldLock(name, "dir")) continue;
@@ -638,6 +664,9 @@ describe("listing the home", () => {
     writeFileSync(join(home, ".local", "share", "pnpm", "store", "a1b2"), "a package file");
     writeFileSync(join(home, "run.sh"), "#!/bin/sh\necho hi\n", { mode: 0o755 });
     writeFileSync(join(home, "messages.db-wal"), "rows still in the log");
+    mkdirSync(join(home, ".laterdog", "memory-journal"), { recursive: true });
+    writeFileSync(join(home, ".laterdog", "memory-journal", "dog.ndjson"), '{"change":"remembered"}\n');
+    writeFileSync(join(home, ".laterdog", "messages.db-journal"), "a rollback log");
     symlinkSync("run.sh", join(home, "latest"));
     symlinkSync("nowhere", join(home, "dangling"));
     utimesSync(join(home, "run.sh"), new Date(1_700_000_000_123), new Date(1_700_000_000_123));
@@ -652,7 +681,8 @@ describe("listing the home", () => {
     expect(paths.filter((path: string) => path.startsWith(join("workspaces", "dog", "notes", "note-")))).toHaveLength(LISTING_PARALLEL * 3 + 5 + 2);
     expect(paths.indexOf(join("workspaces", "dog", "notes", "note-1", "inside.md"))).toBe(paths.indexOf(join("workspaces", "dog", "notes", "note-1")) + 1);
     expect(paths.indexOf(join("workspaces", "dog", "notes", "note-1.md"))).toBe(paths.indexOf(join("workspaces", "dog", "notes", "note-1")) + 2);
-    expect(paths.filter((path: string) => /node_modules|pnpm|-wal|dog\.lock/.test(path))).toEqual([]);
+    expect(paths.filter((path: string) => /node_modules|pnpm|-wal|db-journal|dog\.lock/.test(path))).toEqual([]);
+    expect(paths).toContain(join(".laterdog", "memory-journal", "dog.ndjson"));
     expect(listed.find((entry: Listed) => entry.path === "run.sh")).toEqual({ path: "run.sh", mode: 0o755, mtimeMs: 1_700_000_000_123, type: "file", size: 18 });
     expect(listed.find((entry: Listed) => entry.path === "latest")).toMatchObject({ type: "link", target: "run.sh" });
     expect(listed.find((entry: Listed) => entry.path === "dangling")).toMatchObject({ type: "link", target: "nowhere" });

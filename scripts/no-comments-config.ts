@@ -6,8 +6,9 @@ export const YAML_FILE = /(?:^|\/)(?!pnpm-lock\.yaml$)[^/]+\.ya?ml$/;
 export const JSON_FILE = /\.jsonc?$/;
 export const SQL = /\.sql$/;
 export const MARKUP = /\.(?:html|xml|svg|plist)$/;
-export const HASH_LINES = /(?:^|\/)(?:Caddyfile|CODEOWNERS|chromium-flags|\.gitignore|\.gitattributes|\.dockerignore|[^/]*\.example|[^/]+\.(?:apparmor|desktop|list|rc|toml|conf))$/;
-export const CONFIG = [YAML_FILE, JSON_FILE, SQL, MARKUP, HASH_LINES];
+export const HASH_LINES = /(?:^|\/)(?:Caddyfile|CODEOWNERS|chromium-flags|\.gitignore|\.gitattributes|\.dockerignore|[^/]*\.example|[^/]+\.(?:apparmor|desktop|list|rc|conf))$/;
+export const TOML = /\.toml$/;
+export const CONFIG = [YAML_FILE, JSON_FILE, SQL, MARKUP, TOML, HASH_LINES];
 
 const SHELL_KEYS = new Set(["run", "script"]);
 
@@ -270,6 +271,36 @@ function stripMarkup(file: string, text: string): { text: string; removed: numbe
   return { text: out, removed: ranges.length };
 }
 
+const TOML_QUOTES = ['"""', "'''", '"', "'"];
+
+function tomlComments(text: string): Range[] {
+  const found: Range[] = [];
+  let at = 0;
+  while (at < text.length) {
+    const quote = TOML_QUOTES.find((delimiter) => text.startsWith(delimiter, at));
+    if (quote) {
+      const escapes = quote.startsWith('"');
+      at += quote.length;
+      while (at < text.length && !text.startsWith(quote, at) && (quote.length === 3 || text[at] !== "\n")) at += escapes && text[at] === "\\" ? 2 : 1;
+      at += text.startsWith(quote, at) ? quote.length : 0;
+    } else if (text[at] === "#") {
+      const newline = text.indexOf("\n", at);
+      const stop = newline === -1 ? text.length : newline;
+      found.push([at, stop]);
+      at = stop;
+    } else at += 1;
+  }
+  return found;
+}
+
+function stripToml(file: string, text: string): { text: string; removed: number } {
+  const ranges = tomlComments(text);
+  if (ranges.length === 0) return { text, removed: 0 };
+  const out = removeRanges(text, ranges);
+  if (tomlComments(out).length) throw new Error(`${file}: comments left after removal`);
+  return { text: out, removed: ranges.length };
+}
+
 function hashLines(text: string): Set<number> {
   const found = new Set<number>();
   text.split("\n").forEach((line, index) => {
@@ -287,6 +318,7 @@ export function stripConfig(file: string, text: string): { text: string; removed
   if (JSON_FILE.test(file)) return stripJson(file, text);
   if (SQL.test(file)) return stripSql(file, text);
   if (MARKUP.test(file)) return stripMarkup(file, text);
+  if (TOML.test(file)) return stripToml(file, text);
   const comments = hashLines(text);
   return { text: comments.size ? dropLines(text, comments) : text, removed: comments.size };
 }
@@ -304,5 +336,6 @@ export function configComments(file: string, text: string): FoundComment[] {
   if (JSON_FILE.test(file)) return fromRanges(jsonComments(text));
   if (SQL.test(file)) return fromRanges(sqlComments(text));
   if (MARKUP.test(file)) return fromRanges(markupComments(text));
+  if (TOML.test(file)) return fromRanges(tomlComments(text));
   return [...hashLines(text)].map((index) => ({ line: index + 1, text: lines[index]!.trim() }));
 }
