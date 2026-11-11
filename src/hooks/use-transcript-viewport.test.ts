@@ -228,6 +228,20 @@ describe("transcript viewport", () => {
     expect(view.current.windowedMessages).toHaveLength(120);
   });
 
+  it("names the rows of the filled window from the first frame, so what is counted against them never changes during the fill", () => {
+    const view = mount({ messages: rows(300) }, { opening: true });
+    const filled = () => view.current.filledMessages.map((row) => row.id);
+    const whole = rows(120, 180).map((row) => row.id);
+    expect(view.current.windowedMessages).toHaveLength(30);
+    expect(filled()).toEqual(whole);
+    view.frame();
+    expect(view.current.windowedMessages).toHaveLength(60);
+    expect(filled()).toEqual(whole);
+    view.settle();
+    expect(view.current.filledMessages).toBe(view.current.windowedMessages);
+    expect(filled()).toEqual(whole);
+  });
+
   it("keeps the reader's row where it is when they scroll up before the rest has filled in", () => {
     const view = mount({ messages: rows(300) }, { opening: true });
     view.act(() => view.current.scrollHandlers.onWheel({ deltaY: -40 } as never));
@@ -239,6 +253,21 @@ describe("transcript viewport", () => {
     expect(view.current.windowedMessages).toHaveLength(120);
     expect(scroller.scrollTop).toBe(600 + 90 * ROW);
     expect(view.current.following).toBe(false);
+  });
+
+  it("opens on the whole window at once when the first unread row is older than the newest rows", () => {
+    const unreadFrom = (first: number) => (row: Row) => Number(row.id.slice(1)) >= first;
+    const many = mount({ messages: rows(300), unread: unreadFrom(250) }, { opening: true });
+    expect(many.current.windowedMessages).toHaveLength(120);
+    expect(many.current.windowedMessages[0]?.id).toBe("m180");
+    expect(frames).toHaveLength(0);
+    expect(scroller.scrollTop).toBe(scroller.bottom);
+
+    react.runtime.slots = [];
+    const few = mount({ messages: rows(300), unread: unreadFrom(290) }, { opening: true });
+    expect(few.current.windowedMessages).toHaveLength(30);
+    few.settle();
+    expect(few.current.windowedMessages).toHaveLength(120);
   });
 
   it("waits for a pause in typing before filling in the rest", () => {

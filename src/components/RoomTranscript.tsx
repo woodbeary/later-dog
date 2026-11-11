@@ -161,6 +161,7 @@ export const Transcript = memo(function Transcript({
   group,
   members,
   messages,
+  filledWindow = messages,
   transcript,
   emergingId,
   onReply,
@@ -170,6 +171,7 @@ export const Transcript = memo(function Transcript({
   members: Bot[];
   locale: string;
   messages: Message[];
+  filledWindow?: Message[];
   transcript: Message[];
   emergingId?: string | null;
   onReply: (message: Message) => void;
@@ -177,7 +179,7 @@ export const Transcript = memo(function Transcript({
 }) {
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
-  const nativeRuns = useNativeRuns(group.threadId, messages[0]?.at);
+  const nativeRuns = useNativeRuns(group.threadId, filledWindow[0]?.at);
   const receipts = useMemo(() => nativeReceiptAnchors(nativeRuns, messages), [nativeRuns, messages]);
   const memberOf = (id?: string) => members.find((b) => b.id === id);
   const items = useMemo(() => groupActivityRuns(messages.filter(message =>
@@ -381,7 +383,7 @@ export const Transcript = memo(function Transcript({
           </Fragment>
         );
       })}
-      <NativeWorkFallbacks runs={nativeRuns} messages={messages} ownerForRun={run => memberOf(run.botId)} />
+      <NativeWorkFallbacks runs={nativeRuns} messages={filledWindow} ownerForRun={run => memberOf(run.botId)} />
       <NativeHistoryNotice threadId={group.threadId} />
     </>
   );

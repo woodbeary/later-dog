@@ -141,6 +141,7 @@ export function GroupView({ group }: { group: Group }) {
     following,
     followingRef,
     windowedMessages,
+    filledMessages,
     hiddenCount,
     laterCount,
     olderPending,
@@ -315,6 +316,7 @@ export function GroupView({ group }: { group: Group }) {
             members={members}
             locale={activeLocale()}
             messages={windowedMessages}
+            filledWindow={filledMessages}
             transcript={group.messages}
             emergingId={popping?.id}
             onReply={selectReply}

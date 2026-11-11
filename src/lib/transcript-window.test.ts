@@ -241,6 +241,15 @@ describe("opening a chat with its newest rows first", () => {
     expect(openingWindow("dog:thread", [])).toEqual({ key: "dog:thread", start: 0, end: null, filled: true, empty: true });
   });
 
+  it("opens on the full window when a row the person has not read sits above the short tail", () => {
+    const messages = thread(400);
+    const unreadFrom = (first: number) => (message: { id: string }) => Number(message.id.slice(1)) >= first;
+    expect(openingWindow("dog:thread", messages, undefined, unreadFrom(369))).toEqual({ key: "dog:thread", start: 280, end: null, filled: true, empty: false });
+    expect(openingWindow("dog:thread", messages, undefined, unreadFrom(100)).start).toBe(280);
+    expect(openingWindow("dog:thread", messages, undefined, unreadFrom(370))).toEqual({ key: "dog:thread", start: 370, end: null, filled: false, empty: false });
+    expect(openingWindow("dog:thread", messages, undefined, () => false).filled).toBe(false);
+  });
+
   it("fills back to the full window a tail at a time, and then stops", () => {
     const messages = thread(400);
     const { window, starts } = settled(messages);
