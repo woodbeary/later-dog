@@ -7,16 +7,18 @@ import { fileURLToPath } from "node:url";
 import { HELD_UNTIL_UP } from "../deploy/laterdog/home/src/desk.ts";
 import { launchVerificationServer } from "./control-laterdog.ts";
 import { PAGE_PROBE, WELCOME_VERSION, composerOf, distribution, open, settled, type Distribution, type Dog, type Page } from "./desktop-perf.ts";
-import { startFixtureEdge, type FixtureEdge } from "./testing/fixture-edge.ts";
+import { HELD_NOT_SENT } from "../src/lib/held-sends.ts";
+import { startFixtureEdge, type EdgeEvent, type FixtureEdge } from "./testing/fixture-edge.ts";
 import { fixtureApi } from "./testing/preview-fixture.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const NOT_SENT_LINE = "Your home never took this message, so it was not sent. It is kept below to send again.";
+const NOTICE_SHOWN_MS = 6_000;
 const SENTENCE = "Can you also check whether the release notes mention the bigger chat text and the new usage sheet, and fix them if not?";
 const SECOND_DRAFT = "Remind me to look at the pricing line on Friday";
 const PROSE = "The release checklist is done apart from the two items that need you. The signed build finished and passed its smoke tests on both window sizes, the update guide names the new group and the rollback target, and the pull request is merged. The long dog names fit their rows, the usage sheet opens from the menu, and the bigger chat text holds on the small window. Nothing else changed in this pass, so the next step is yours once you have looked at the screenshots and confirmed the pricing line before Friday.";
 const FIRST_PIECE = 12;
-const QUICK = { everyMs: 30, chars: FIRST_PIECE };
+const AT_ONCE = { everyMs: 0, chars: 4_000 };
+const IN_PIECES = { everyMs: 100, chars: FIRST_PIECE };
 const SELECTED = 6;
 
 type Theme = "light" | "dark";
@@ -84,16 +86,44 @@ interface Look {
   raw: string[];
 }
 
+interface Attempt {
+  startedAt: number;
+  answeredAt: number | null;
+  status: number | null;
+}
+
+interface Shown {
+  enterAt: number;
+  shownAt: number;
+  where: "bubble" | "tray";
+}
+
+interface Timeline {
+  kind: string;
+  shown: Shown;
+  attempts: readonly Attempt[];
+  answered: EdgeEvent;
+  homeAcceptedAt: number;
+  homeReadyAt?: number;
+  queuedRowAt?: number;
+  engineAt: number;
+  replyAt: number;
+}
+
 interface Split {
   kind: string;
-  uiMs: number;
-  networkMs: number;
-  wakeMs: number;
-  queueMs: number;
-  engineMs: number;
-  totalMs: number;
+  rowMs: number;
   queuedRowMs: number | null;
-  homeReadyToAcceptedMs: number | null;
+  receiptMs: number | null;
+  beforeRequestMs: number | null;
+  receiptServerMs: number | null;
+  receiptNetworkMs: number | null;
+  attempts: number;
+  heldMs: number | null;
+  afterHomeReadyMs: number | null;
+  homeMs: number;
+  replyMs: number;
+  totalMs: number;
   shownAs: string;
 }
 
@@ -129,7 +159,7 @@ function setupFromArgs(): Setup {
     browser: option("browser", process.env.PERF_BROWSER ?? "/usr/bin/chromium"),
     label: option("label", "run"),
     runs: Math.max(1, Number(option("runs", "2"))),
-    awakeRuns: Math.max(1, Number(option("awake-runs", "10"))),
+    awakeRuns: Math.max(1, Number(option("awake-runs", "3"))),
     wakeMs: Number(option("wake-ms", "5000")),
     dropMs: Number(option("drop-ms", "4000")),
   };
@@ -143,19 +173,70 @@ const WAKE_PROBE = `(() => {
   wake.tray = () => [...document.querySelectorAll('[aria-label="Queued messages"] li')];
   wake.newest = () => (wake.log().match(/Answer \\d+\\./g) || []).reduce((most, answer) => Math.max(most, Number(answer.slice(7, -1))), 0);
   wake.failed = () => [...document.querySelectorAll("span")].filter((span) => (span.textContent || "").startsWith("Not sent:"));
+  wake.sends = [];
+  const sendPath = new RegExp("^/api/(bots|groups)/[^/]+/messages$");
+  const plainFetch = window.fetch;
+  window.fetch = function (input, init) {
+    const method = (init && init.method) || (typeof input === "object" && input.method) || "GET";
+    const path = new URL(typeof input === "string" ? input : input.url || String(input), location.href).pathname;
+    if (method !== "POST" || !sendPath.test(path)) return plainFetch.apply(this, arguments);
+    const send = { startedAt: wake.wall(), answeredAt: null, status: null, body: init && typeof init.body === "string" ? init.body : "" };
+    wake.sends.push(send);
+    return plainFetch.apply(this, arguments).then((response) => {
+      send.answeredAt = wake.wall();
+      send.status = response.status;
+      return response;
+    }, (error) => {
+      send.answeredAt = wake.wall();
+      send.status = 0;
+      throw error;
+    });
+  };
   addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) wake.enterAt = performance.timeOrigin + event.timeStamp; }, true);
 })();`;
 
 type InPage = {
   __perf: { until(test: () => boolean, timeoutMs: number): Promise<number>; begin(): void; end(): { keys: number[]; longTasks: number; longTaskMs: number; worstFrameMs: number; slowFrames: number } };
-  __wake: { enterAt: number | null; wall(): number; log(): string; tray(): Element[]; newest(): number; failed(): Element[] };
+  __wake: { enterAt: number | null; wall(): number; log(): string; tray(): Element[]; newest(): number; failed(): Element[]; sends: Array<Attempt & { body: string }> };
 };
 
-type Sight = "not sent" | "waiting bubble" | "no tray" | "in tray" | "sent bubble";
+type Sight = "not sent" | "waiting bubble" | "no tray" | "in tray" | "sent bubble" | "line" | "no line";
 
 const pause = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 const token = () => randomUUID().slice(0, 8);
 const round = (value: number) => Math.round(value);
+const between = (later: number | null | undefined, earlier: number | null | undefined) => (later == null || earlier == null ? null : round(later - earlier));
+
+async function until(test: () => boolean, what: string, timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!test()) {
+    if (Date.now() > deadline) throw new Error(`${what} did not happen within ${timeoutMs} ms`);
+    await pause(5);
+  }
+}
+
+function splitOf(line: Timeline): Split {
+  const taken = line.attempts.find((attempt) => attempt.status === 200 || attempt.status === 202);
+  const trip = between(taken?.answeredAt, taken?.startedAt);
+  const server = between(line.answered.at, line.answered.gotAt);
+  const held = line.answered.kind === "held";
+  return {
+    kind: line.kind,
+    rowMs: round(line.shown.shownAt - line.shown.enterAt),
+    queuedRowMs: between(line.queuedRowAt, line.shown.enterAt),
+    receiptMs: between(taken?.answeredAt, line.shown.enterAt),
+    beforeRequestMs: between(taken?.startedAt, line.shown.enterAt),
+    receiptServerMs: server,
+    receiptNetworkMs: trip === null || server === null ? null : trip - server,
+    attempts: line.attempts.length,
+    heldMs: held ? between(line.homeAcceptedAt, taken?.answeredAt) : null,
+    afterHomeReadyMs: held ? between(line.homeAcceptedAt, line.homeReadyAt) : null,
+    homeMs: round(line.engineAt - line.homeAcceptedAt),
+    replyMs: round(line.replyAt - line.engineAt),
+    totalMs: round(line.replyAt - line.shown.enterAt),
+    shownAs: line.shown.where,
+  };
+}
 const numbered = (index: number) => String(index).padStart(4, "0");
 const answerOf = (index: number) => `Answer ${numbered(index)}.`;
 const endOf = (index: number) => `End of answer ${numbered(index)}.`;
@@ -229,7 +310,11 @@ async function look(page: WakePage, needle: string, answer = ""): Promise<Look> 
   }, { needle, answer });
 }
 
-async function typeAndSend(page: WakePage, dog: Dog, words: string): Promise<{ enterAt: number; shownAt: number; where: "bubble" | "tray" }> {
+async function attemptsOf(page: WakePage, needle: string): Promise<Attempt[]> {
+  return page.evaluate((needle: string) => (window as unknown as InPage).__wake.sends.filter((send) => send.body.includes(needle)).map(({ startedAt, answeredAt, status }) => ({ startedAt, answeredAt, status })), needle);
+}
+
+async function typeAndSend(page: WakePage, dog: Dog, words: string): Promise<Shown> {
   await page.click(composerOf(dog));
   await page.keyboard.type(words, { delay: 5 });
   const shown = page.evaluate(async (needle: string) => {
@@ -264,6 +349,7 @@ function seenInPage(page: WakePage, kind: Sight, needle: string, timeoutMs = 30_
     const bubbles = () => [...document.querySelectorAll('[role="log"] [data-from="user"]')].filter((row) => (row.textContent ?? "").includes(needle)).map((row) => row.closest("[data-mid]") ?? row);
     await perf.until(() => {
       if (kind === "not sent") return wake.failed().some((row) => (row.textContent ?? "").includes(needle));
+      if (kind === "line" || kind === "no line") return [...document.querySelectorAll("[data-pane-error]")].some((row) => (row.textContent ?? "").includes(needle)) === (kind === "line");
       if (kind === "no tray") return !listed();
       if (kind === "in tray") return listed();
       if (kind === "sent bubble") return !listed() && bubbles().some((row) => !row.querySelector("[data-send-held]"));
@@ -288,9 +374,11 @@ async function homeCount(world: World, dog: Dog, needle: string): Promise<number
   return (state.bots.find((bot) => bot.id === dog.id)?.messages ?? []).filter((message) => message.role === "user" && message.text?.includes(needle)).length;
 }
 
-async function homeAnswer(world: World, dog: Dog, answer: string): Promise<string> {
+async function homeReplyTo(world: World, dog: Dog, needle: string): Promise<string> {
   const state = await world.home("GET", "/api/bots?messages=200") as HomeBots;
-  return (state.bots.find((bot) => bot.id === dog.id)?.messages ?? []).find((message) => message.role === "bot" && message.text?.startsWith(answer))?.text ?? "";
+  const messages = state.bots.find((bot) => bot.id === dog.id)?.messages ?? [];
+  const asked = messages.findIndex((message) => message.role === "user" && message.text?.includes(needle));
+  return asked === -1 ? "" : messages.slice(asked + 1).find((message) => message.role === "bot" && message.text?.startsWith("Answer "))?.text ?? "";
 }
 
 async function working(world: World, dogs: readonly Dog[]): Promise<number> {
@@ -325,8 +413,11 @@ async function reloadWithFreshSave(world: World, page: WakePage, dog: Dog): Prom
   await ready(page, dog);
 }
 
+const recorded: CaseResult[] = [];
+
 function recorder(run: Run, name: string, short: string) {
   const result: CaseResult = { case: name, run: run.index, theme: run.theme, checks: [], splits: [], looks: {}, numbers: {} };
+  recorded.push(result);
   const check = (label: string, ok: boolean, saw?: unknown) => {
     result.checks.push({ name: label, ok, ...(ok || saw === undefined ? {} : { saw }) });
   };
@@ -338,12 +429,12 @@ function recorder(run: Run, name: string, short: string) {
     check(`${label}: no raw error text on screen`, state.raw.length === 0, state.raw);
   };
   const shoot = async (page: WakePage, state: string) => {
-    if (run.shots) await page.screenshot({ path: join(run.shots, `${short}-${state}.jpg`), type: "jpeg", quality: 55 });
+    if (run.shots) await page.screenshot({ path: join(run.shots, `${short}-${state}.jpg`), type: "jpeg", quality: 85 });
   };
   return { result, check, defect, seen, shoot };
 }
 
-async function awakeSend(world: World, page: WakePage, dog: Dog, words: string): Promise<{ split: Split; index: number; answer: string }> {
+async function awakeSend(world: World, page: WakePage, dog: Dog, words: string, kind = "home awake"): Promise<{ split: Split; index: number; answer: string }> {
   const newest = await newestAnswer(page);
   const started = Date.now();
   const reply = firstWords(page, newest);
@@ -354,27 +445,16 @@ async function awakeSend(world: World, page: WakePage, dog: Dog, words: string):
   return {
     index: first.index,
     answer: answerOf(first.index),
-    split: {
-      kind: "awake",
-      uiMs: round(shown.shownAt - shown.enterAt),
-      networkMs: round(taken.at - shown.shownAt),
-      wakeMs: 0,
-      queueMs: round(engineAt - taken.at),
-      engineMs: round(first.at - engineAt),
-      totalMs: round(first.at - shown.enterAt),
-      queuedRowMs: null,
-      homeReadyToAcceptedMs: null,
-      shownAs: shown.where,
-    },
+    split: splitOf({ kind, shown, attempts: await attemptsOf(page, words), answered: taken, homeAcceptedAt: taken.at, engineAt, replyAt: first.at }),
   };
 }
 
 async function awake(world: World, run: Run): Promise<CaseResult> {
-  const { result, check, seen, shoot } = recorder(run, "0. send to a home that is awake", "0-awake");
+  const { result, check, defect, seen, shoot } = recorder(run, "a. send to a home that is awake", "a-awake");
   const dog = world.dogs.awake;
   const { page, close } = await desk(world, run, dog);
   try {
-    stream(world, QUICK);
+    stream(world, AT_ONCE);
     await awakeSend(world, page, dog, `Warm the chat up ${token()}`);
     await rest(world, dog);
     for (let index = 0; index < world.setup.awakeRuns; index += 1) {
@@ -382,16 +462,29 @@ async function awake(world: World, run: Run): Promise<CaseResult> {
       const words = `Where does the release stand? ${token()}`;
       const sent = await awakeSend(world, page, dog, words);
       result.splits.push(sent.split);
-      if (index === 0) await shoot(page, "1-reply-streaming");
       await rest(world, dog);
       await page.waitForTimeout(500);
       const done = await look(page, words, sent.answer);
       if (index === 0) {
         seen("sent and answered", done);
-        await shoot(page, "2-answered");
+        await shoot(page, "1-answered");
       }
       check(`send ${index + 1}: one bubble, nothing waiting, one reply`, done.bubbles === 1 && done.tray.length === 0 && done.waitingBubbles === 0 && done.answers === 1 && done.notSent.length === 0, { bubbles: done.bubbles, tray: done.tray, answers: done.answers });
       check(`send ${index + 1}: the home took it once`, await homeCount(world, dog, words) === 1);
+      check(`send ${index + 1}: the page asked once`, sent.split.attempts === 1, sent.split.attempts);
+    }
+    if (run.index === 1) {
+      stream(world, IN_PIECES);
+      await page.waitForTimeout(600);
+      const words = `Walk me through the release ${token()}`;
+      const sent = await awakeSend(world, page, dog, words, "reply streamed in pieces");
+      stream(world, AT_ONCE);
+      const whole = await homeReplyTo(world, dog, words);
+      const streamedMs = Math.ceil(whole.length / IN_PIECES.chars) * IN_PIECES.everyMs;
+      await rest(world, dog);
+      result.numbers["a reply the engine streams in pieces: time the engine takes to stream it, ms"] = streamedMs;
+      result.numbers["a reply the engine streams in pieces: engine got the message to reply words on screen, ms"] = sent.split.replyMs;
+      defect("a reply the engine streams in pieces shows its first words before the engine has finished it", sent.split.replyMs < streamedMs / 2, { replyWordsOnScreenAfterMs: sent.split.replyMs, engineStreamsForMs: streamedMs });
     }
   } finally {
     await close();
@@ -400,11 +493,11 @@ async function awake(world: World, run: Run): Promise<CaseResult> {
 }
 
 async function slowWake(world: World, run: Run): Promise<CaseResult> {
-  const { result, check, seen, shoot } = recorder(run, "a. send while the home is asleep, then it wakes", "a-wake");
+  const { result, check, seen, shoot } = recorder(run, "b. send while the home is asleep, then it wakes slowly", "b-wake");
   const dog = world.dogs.wake;
   const { page, close } = await desk(world, run, dog);
   try {
-    stream(world, QUICK);
+    stream(world, AT_ONCE);
     const awakeWords = `Where does the release stand? ${token()}`;
     const before = await awakeSend(world, page, dog, awakeWords);
     await rest(world, dog);
@@ -430,6 +523,7 @@ async function slowWake(world: World, run: Run): Promise<CaseResult> {
     check("the held message shows once, as a queued row with its words", waiting.tray.length === 1 && waiting.bubbles === 0 && waiting.tray[0]!.includes(heldWords), { tray: waiting.tray, bubbles: waiting.bubbles });
     check("the queued row offers Edit and Delete", waiting.trayButtons.includes("Edit queued message 1 of 1") && waiting.trayButtons.includes("Delete queued message 1 of 1"), waiting.trayButtons);
     check("the box is empty again after sending", waiting.composer === "", waiting.composer);
+    check("the home was still waking when the row showed as queued", world.edge.state() === "starting", world.edge.state());
     await shoot(page, "2-queued");
     const reply = firstWords(page, newest);
     const serving = await world.edge.seen("serving", { after: wakingAt }, world.setup.wakeMs + 15_000);
@@ -437,7 +531,6 @@ async function slowWake(world: World, run: Run): Promise<CaseResult> {
     const sentRowAt = await seenInPage(page, "sent bubble", heldWords, 30_000);
     const engineAt = await world.engine.started(heldWords);
     const first = await reply;
-    await shoot(page, "3-sent-reply-streaming");
     await rest(world, dog);
     await page.waitForTimeout(700);
     const done = await look(page, heldWords, answerOf(first.index));
@@ -446,21 +539,12 @@ async function slowWake(world: World, run: Run): Promise<CaseResult> {
     check("the reply on screen is whole", (await look(page, heldWords, endOf(first.index))).answers === 1);
     check("the home took the message once", await homeCount(world, dog, heldWords) === 1);
     check("the edge delivered it once", world.edge.events.filter((event) => event.kind === "delivered" && event.id === held.id).length === 1);
+    const attempts = await attemptsOf(page, heldWords);
+    check("the page asked once and got a 202", attempts.length === 1 && attempts[0]!.status === 202, attempts.map((attempt) => attempt.status));
     const earlier = await look(page, awakeWords, before.answer);
     check("the earlier exchange is still there once", earlier.bubbles === 1 && earlier.answers === 1, { bubbles: earlier.bubbles, answers: earlier.answers });
-    await shoot(page, "4-answered");
-    result.splits.push({
-      kind: `held through a ${world.setup.wakeMs / 1000} s wake`,
-      uiMs: round(shown.shownAt - shown.enterAt),
-      networkMs: round(held.at - shown.shownAt),
-      wakeMs: round(delivered.at - held.at),
-      queueMs: round(engineAt - delivered.at),
-      engineMs: round(first.at - engineAt),
-      totalMs: round(first.at - shown.enterAt),
-      queuedRowMs: round(queuedRowAt - shown.enterAt),
-      homeReadyToAcceptedMs: round(delivered.at - serving.at),
-      shownAs: shown.where,
-    });
+    await shoot(page, "3-delivered-and-answered");
+    result.splits.push(splitOf({ kind: `held through a ${world.setup.wakeMs / 1000} s wake`, shown, attempts, answered: held, homeAcceptedAt: delivered.at, homeReadyAt: serving.at, queuedRowAt, engineAt, replyAt: first.at }));
     result.numbers["home accepted to the row showing as sent, ms"] = round(sentRowAt - delivered.at);
     result.numbers["sent before the home was ready by, ms"] = round(serving.at - held.at);
   } finally {
@@ -470,14 +554,18 @@ async function slowWake(world: World, run: Run): Promise<CaseResult> {
 }
 
 async function sendNowAndCancel(world: World, run: Run): Promise<CaseResult> {
-  const { result, check, seen, shoot } = recorder(run, "b. Send now and cancel on a held row while the home wakes", "b-held-row");
+  const { result, check, seen, shoot } = recorder(run, "e. Send now and cancel on a held message", "e-held-row");
   const dog = world.dogs.busy;
   const { page, close } = await desk(world, run, dog);
   try {
     stream(world, { everyMs: 250, chars: FIRST_PIECE });
     const jobWords = `Start the long job ${token()}`;
-    const job = await awakeSend(world, page, dog, jobWords);
-    stream(world, QUICK);
+    let started = Date.now();
+    await typeAndSend(page, dog, jobWords);
+    await world.edge.seen("sent", { after: started }, 30_000);
+    await world.engine.started(jobWords);
+    stream(world, AT_ONCE);
+    await page.waitForTimeout(500);
     await reloadWithFreshSave(world, page, dog);
     const wakingAt = Date.now();
     world.edge.sleep();
@@ -485,19 +573,21 @@ async function sendNowAndCancel(world: World, run: Run): Promise<CaseResult> {
     await page.waitForTimeout(1_500);
 
     const keptWords = `Also check the release notes ${token()}`;
-    let started = Date.now();
-    await typeAndSend(page, dog, keptWords);
+    started = Date.now();
+    const keptShown = await typeAndSend(page, dog, keptWords);
     const first = await world.edge.seen("held", { after: started }, 15_000);
-    await seenInPage(page, "in tray", keptWords, 15_000);
+    const keptRowAt = await seenInPage(page, "in tray", keptWords, 15_000);
     await page.waitForTimeout(300);
     const waiting = await look(page, keptWords);
     seen("held while the dog is working", waiting);
     check("the held message is a queued row with Send now", waiting.tray.length === 1 && waiting.trayButtons.includes("Send now"), { tray: waiting.tray, buttons: waiting.trayButtons });
     await shoot(page, "1-queued-dog-working");
 
+    const pressedNowAt = Date.now();
     check("Send now can be pressed", await press(page, "Send now", '[aria-label="Queued messages"]'));
     const asked = await world.edge.seen("send-now", { id: first.id }, 10_000);
-    await page.waitForTimeout(500);
+    const saidAt = await seenInPage(page, "line", HELD_UNTIL_UP, 10_000).catch(() => null);
+    await page.waitForTimeout(300);
     const answered = await look(page, keptWords);
     seen("Send now answer", answered);
     check("Send now answers in a sentence that says the message is waiting for the home", answered.lines.includes(HELD_UNTIL_UP), answered.lines);
@@ -515,9 +605,10 @@ async function sendNowAndCancel(world: World, run: Run): Promise<CaseResult> {
     seen("two held", two);
     check("the second held message is listed too", two.tray.length === 1 && two.trayButtons.includes("Delete queued message 2 of 2"), { tray: two.tray, buttons: two.trayButtons });
     await shoot(page, "3-two-queued");
+    const pressedCancelAt = Date.now();
     check("cancel can be pressed", await press(page, "Delete queued message 2 of 2", '[aria-label="Queued messages"]'));
-    await world.edge.seen("cancelled", { id: second.id }, 10_000);
-    await seenInPage(page, "no tray", secondWords, 10_000);
+    const cancelledAtEdge = await world.edge.seen("cancelled", { id: second.id }, 10_000);
+    const goneAt = await seenInPage(page, "no tray", secondWords, 10_000);
     await page.waitForTimeout(300);
     const cancelled = await look(page, secondWords);
     seen("cancelled", cancelled);
@@ -530,6 +621,7 @@ async function sendNowAndCancel(world: World, run: Run): Promise<CaseResult> {
 
     const serving = await world.edge.seen("serving", { after: wakingAt }, world.setup.wakeMs + 20_000);
     const delivered = await world.edge.seen("delivered", { id: first.id }, 30_000);
+    await world.engine.started(keptWords, 120_000);
     await rest(world, dog);
     await page.waitForTimeout(900);
     const done = await look(page, keptWords);
@@ -539,9 +631,17 @@ async function sendNowAndCancel(world: World, run: Run): Promise<CaseResult> {
     check("the home never saw the cancelled message", await homeCount(world, dog, secondWords) === 0);
     const gone = await look(page, secondWords);
     check("the cancelled message did not come back", gone.bubbles === 0 && gone.tray.length === 0 && gone.notSent.length === 0, { bubbles: gone.bubbles, tray: gone.tray, notSent: gone.notSent });
-    const before = await look(page, jobWords, job.answer);
-    check("the long job and its reply are still there once", before.bubbles === 1 && before.answers === 1, { bubbles: before.bubbles, answers: before.answers });
+    const jobReply = await homeReplyTo(world, dog, jobWords);
+    const keptReply = await homeReplyTo(world, dog, keptWords);
+    const job = await look(page, jobWords, jobReply.slice(0, FIRST_PIECE));
+    check("the long job and its whole reply are there once", jobReply.length > FIRST_PIECE && job.bubbles === 1 && job.answers === 1 && (await look(page, jobWords, jobReply.slice(-20))).answers === 1, { bubbles: job.bubbles, answers: job.answers });
+    check("the kept message has one reply on screen", keptReply.length > FIRST_PIECE && (await look(page, keptWords, keptReply.slice(0, FIRST_PIECE))).answers === 1);
     await shoot(page, "5-after-the-wake");
+    result.numbers["Enter to the held row showing as queued, ms"] = round(keptRowAt - keptShown.enterAt);
+    result.numbers["Send now pressed to the edge's answer, ms"] = round(asked.at - pressedNowAt);
+    if (saidAt !== null) result.numbers["Send now pressed to the sentence on screen, ms"] = round(saidAt - pressedNowAt);
+    result.numbers["cancel pressed to the edge taking it out, ms"] = round(cancelledAtEdge.at - pressedCancelAt);
+    result.numbers["cancel pressed to the row gone, ms"] = round(goneAt - pressedCancelAt);
     result.numbers["held to accepted by the home, ms"] = round(delivered.at - first.at);
     result.numbers["home ready to accepted by the home, ms"] = round(delivered.at - serving.at);
   } finally {
@@ -551,23 +651,23 @@ async function sendNowAndCancel(world: World, run: Run): Promise<CaseResult> {
 }
 
 async function dropped(world: World, run: Run): Promise<CaseResult> {
-  const { result, check, seen, shoot } = recorder(run, "c. the home refuses a held message, and a hold runs out", "c-not-sent");
+  const { result, check, defect, seen, shoot } = recorder(run, "d. the home never takes a held message", "d-not-sent");
   const dog = world.dogs.dropped;
   const { page, close } = await desk(world, run, dog);
   try {
-    stream(world, QUICK);
+    stream(world, AT_ONCE);
     for (const why of ["refused", "expired"] as const) {
       const words = `${why === "refused" ? "Ship the build" : "Draft the update note"} ${token()}`;
       world.edge.sleep();
       if (why === "refused") {
         world.edge.refuseNextDelivery(409);
-        world.edge.wakeIn(4_000);
+        world.edge.wakeIn(world.setup.wakeMs);
       }
       await page.waitForTimeout(1_200);
       const started = Date.now();
-      await typeAndSend(page, dog, words);
+      const shown = await typeAndSend(page, dog, words);
       const held = await world.edge.seen("held", { after: started }, 15_000);
-      await seenInPage(page, "in tray", words, 15_000);
+      const queuedRowAt = await seenInPage(page, "in tray", words, 15_000);
       await shoot(page, `${why}-1-queued`);
       if (why === "expired") {
         await page.waitForTimeout(500);
@@ -576,16 +676,22 @@ async function dropped(world: World, run: Run): Promise<CaseResult> {
       }
       const lost = await world.edge.seen(why, { id: held.id }, 30_000);
       const up = await world.edge.seen("serving", { after: started }, 30_000);
-      const toldAt = await seenInPage(page, "not sent", words, 45_000);
+      const toldAt = await seenInPage(page, "not sent", words, 90_000);
+      const lineAt = await seenInPage(page, "line", HELD_NOT_SENT, 5_000).catch(() => null);
       await page.waitForTimeout(300);
       const state = await look(page, words);
       seen(`Not sent (${why})`, state);
       check(`${why}: the row says Not sent and keeps the words`, state.notSent.length === 1 && state.notSent[0]!.includes(words), state.notSent);
       check(`${why}: nothing is left queued or shown as sent`, state.tray.length === 0 && state.bubbles === 0, { tray: state.tray, bubbles: state.bubbles });
-      check(`${why}: a sentence says why`, state.lines.includes(NOT_SENT_LINE), state.lines);
+      check(`${why}: a sentence says why`, state.lines.includes(HELD_NOT_SENT), state.lines);
       check(`${why}: the home has not seen it`, await homeCount(world, dog, words) === 0);
+      check(`${why}: the box is empty, so the words are only in the Not sent row`, state.composer === "", state.composer);
       await shoot(page, `${why}-2-not-sent`);
-      result.numbers[`${why}: Not sent shown after the home was ready, ms`] = round(toldAt - Math.max(lost.at, up.at));
+      const attempts = await attemptsOf(page, words);
+      result.numbers[`${why}: Enter to own words on screen, ms`] = round(shown.shownAt - shown.enterAt);
+      result.numbers[`${why}: Enter to the row showing as queued, ms`] = round(queuedRowAt - shown.enterAt);
+      result.numbers[`${why}: Enter to the edge's 202 in the page, ms`] = between(attempts.find((attempt) => attempt.status === 202)?.answeredAt, shown.enterAt) ?? -1;
+      result.numbers[`${why}: the edge gave up to Not sent on screen, ms`] = round(toldAt - Math.max(lost.at, up.at));
 
       const newest = await newestAnswer(page);
       const again = Date.now();
@@ -599,12 +705,15 @@ async function dropped(world: World, run: Run): Promise<CaseResult> {
       const done = await look(page, words, answerOf(first.index));
       seen(`sent again (${why})`, done);
       check(`${why}: sent again it shows once with one reply and no Not sent row`, done.bubbles === 1 && done.answers === 1 && done.notSent.length === 0 && done.tray.length === 0, { bubbles: done.bubbles, answers: done.answers, notSent: done.notSent });
-      check(`${why}: the sentence is gone after Retry`, !done.lines.includes(NOT_SENT_LINE), done.lines);
       check(`${why}: the home took it once`, await homeCount(world, dog, words) === 1);
       check(`${why}: the edge no longer calls it dropped`, !world.edge.dropped().some((send) => send.id === held.id), world.edge.dropped());
+      defect(`${why}: the sentence saying the words are kept below is gone once they were sent again and answered`, !done.lines.includes(HELD_NOT_SENT), done.lines);
       await shoot(page, `${why}-3-sent-again`);
+      const leftAt = await seenInPage(page, "no line", HELD_NOT_SENT, NOTICE_SHOWN_MS + 4_000).catch(() => null);
+      check(`${why}: the sentence goes away by itself`, leftAt !== null);
+      if (lineAt !== null && leftAt !== null) result.numbers[`${why}: the sentence stayed on screen for, ms`] = round(leftAt - lineAt);
       result.numbers[`${why}: Retry to accepted by the home, ms`] = round(taken.at - again);
-      result.numbers[`${why}: Retry to first reply words, ms`] = round(first.at - again);
+      result.numbers[`${why}: Retry to reply words on screen, ms`] = round(first.at - again);
       result.numbers[`${why}: Retry, home accepted to engine start, ms`] = round(engineAt - taken.at);
     }
   } finally {
@@ -624,18 +733,47 @@ async function clearBox(page: WakePage, dog: Dog): Promise<void> {
   await page.keyboard.press("Backspace");
 }
 
-async function reconnect(world: World, run: Run): Promise<CaseResult> {
-  const { result, check, seen, shoot } = recorder(run, "d. the connection drops mid-reply and comes back", "d-reconnect");
+async function connection(world: World, run: Run): Promise<CaseResult> {
+  const { result, check, seen, shoot } = recorder(run, "c. the connection drops mid-send and comes back", "c-connection");
   const dog = world.dogs.reconnect;
   const { page, close } = await desk(world, run, dog);
   try {
-    stream(world, { everyMs: 150, chars: FIRST_PIECE });
-    const words = `Show me the function you changed ${token()}`;
-    const sent = await awakeSend(world, page, dog, words);
-    stream(world, QUICK);
-    await page.waitForTimeout(1_500);
-    await shoot(page, "1-reply-streaming");
-    const lengthAtCut = (await page.evaluate(() => (window as unknown as InPage).__wake.log())).length;
+    stream(world, AT_ONCE);
+    const lostWords = `Show me the function you changed ${token()}`;
+    const sentFor = (id: string | undefined) => world.edge.events.filter((event) => event.kind === "sent" && event.id === id);
+    let newest = await newestAnswer(page);
+    let started = Date.now();
+    const lostReply = firstWords(page, newest);
+    world.edge.loseNextSendAnswer();
+    const lostShown = await typeAndSend(page, dog, lostWords);
+    const lost = await world.edge.seen("answer-lost", { after: started }, 30_000);
+    const lostEngineAt = await world.engine.started(lostWords);
+    const lostFirst = await lostReply;
+    await shoot(page, "1-answer-lost");
+    await until(() => sentFor(lost.id).length >= 2, "the page asking again after the lost answer", 90_000);
+    const [tookIt, askedAgain] = sentFor(lost.id);
+    await rest(world, dog);
+    await page.waitForTimeout(700);
+    const lostDone = await look(page, lostWords, answerOf(lostFirst.index));
+    seen("after the lost answer", lostDone);
+    const lostAttempts = await attemptsOf(page, lostWords);
+    check("lost answer: one bubble, one reply, nothing waiting and no Not sent row", lostDone.bubbles === 1 && lostDone.answers === 1 && lostDone.waitingBubbles === 0 && lostDone.tray.length === 0 && lostDone.notSent.length === 0, { bubbles: lostDone.bubbles, answers: lostDone.answers, waiting: lostDone.waitingBubbles, tray: lostDone.tray, notSent: lostDone.notSent });
+    check("lost answer: the home took the message once though the page asked twice", await homeCount(world, dog, lostWords) === 1 && lostAttempts.length === 2, lostAttempts.map((attempt) => attempt.status));
+    check("lost answer: the first ask failed in the page and the second was answered", lostAttempts[0]?.status === 0 && lostAttempts[1]?.status === 200, lostAttempts.map((attempt) => attempt.status));
+    await shoot(page, "2-after-the-lost-answer");
+    result.splits.push(splitOf({ kind: "the answer to the send was lost", shown: lostShown, attempts: lostAttempts, answered: askedAgain!, homeAcceptedAt: tookIt!.at, engineAt: lostEngineAt, replyAt: lostFirst.at }));
+    result.numbers["lost answer: the first ask failing to the page asking again, ms"] = between(lostAttempts[1]?.startedAt, lostAttempts[0]?.answeredAt) ?? -1;
+
+    stream(world, { everyMs: 60, chars: FIRST_PIECE });
+    const words = `Run the long check ${token()}`;
+    newest = await newestAnswer(page);
+    started = Date.now();
+    const cutReply = firstWords(page, newest);
+    await typeAndSend(page, dog, words);
+    await world.edge.seen("sent", { after: started }, 30_000);
+    await world.engine.started(words);
+    stream(world, AT_ONCE);
+    await page.waitForTimeout(700);
     const cutAt = Date.now();
     world.edge.dropConnection(world.setup.dropMs);
     await page.waitForTimeout(600);
@@ -648,45 +786,35 @@ async function reconnect(world: World, run: Run): Promise<CaseResult> {
     const cut = await look(page, during);
     seen("connection down", cut);
     check("a message sent while the connection is down shows once as Not sent yet", cut.bubbles === 1 && cut.waitingBubbles === 1, { bubbles: cut.bubbles, waiting: cut.waitingBubbles });
-    const partial = await look(page, words, sent.answer);
-    check("the reply that was streaming stays on screen while the connection is down", partial.bubbles === 1 && partial.answers === 1, { bubbles: partial.bubbles, answers: partial.answers });
-    check("the reply was cut before it finished", (await look(page, words, endOf(sent.index))).answers === 0);
     check("a draft typed while the connection is down is in the box", cut.composer === SECOND_DRAFT, cut.composer);
-    await shoot(page, "2-connection-down");
+    await shoot(page, "3-connection-down");
+    await settled(world.home, [dog.id], 30_000);
+    const whole = await homeReplyTo(world, dog, words);
+    const finishedWhileDown = world.edge.events.every((event) => event.kind !== "connection-back" || event.at < cutAt);
+    check("the dog finished its reply while the connection was down", finishedWhileDown && whole.length > FIRST_PIECE, { finishedWhileDown, replyLength: whole.length });
+    const unseen = await look(page, words, whole.slice(0, FIRST_PIECE));
+    check("that reply is not on screen while the connection is down", unseen.bubbles === 1 && unseen.answers === 0, { bubbles: unseen.bubbles, answers: unseen.answers });
     const back = await world.edge.seen("connection-back", { after: cutAt }, world.setup.dropMs + 5_000);
-    const taken = await world.edge.seen("sent", { after: back.at }, 40_000);
+    const caughtUp = await cutReply;
+    const taken = await world.edge.seen("sent", { after: back.at }, 60_000);
     const engineAt = await world.engine.started(during);
-    const second = await firstWords(page, sent.index);
-    await shoot(page, "3-back-second-reply-streaming");
+    const second = await firstWords(page, caughtUp.index);
     await rest(world, dog);
     await page.waitForTimeout(900);
-    const whole = await homeAnswer(world, dog, sent.answer);
-    const first = await look(page, words, sent.answer);
+    const first = await look(page, words, whole.slice(0, FIRST_PIECE));
     seen("after reconnecting", first);
-    const tail = await look(page, words, endOf(sent.index));
-    check("the cut reply is whole and shown once", first.bubbles === 1 && first.answers === 1 && tail.answers === 1 && whole.endsWith(endOf(sent.index)), { bubbles: first.bubbles, starts: first.answers, ends: tail.answers });
-    const onScreen = await page.evaluate((text: string) => (window as unknown as InPage).__wake.log().includes(text), whole);
-    check("the reply on screen is the reply the home has", onScreen && whole.length > 0);
+    const onScreen = await page.evaluate((text: string) => (window as unknown as InPage).__wake.log().split(text).length - 1, whole);
+    check("the reply that finished while the connection was down is on screen whole, once", first.bubbles === 1 && first.answers === 1 && onScreen === 1, { bubbles: first.bubbles, starts: first.answers, whole: onScreen });
     const late = await look(page, during, answerOf(second.index));
-    check("the message sent while down shows once with one reply and nothing waiting", late.bubbles === 1 && late.waitingBubbles === 0 && late.answers === 1, { bubbles: late.bubbles, waiting: late.waitingBubbles, answers: late.answers });
+    check("the message sent while down shows once with one reply and nothing waiting", late.bubbles === 1 && late.waitingBubbles === 0 && late.answers === 1 && late.notSent.length === 0, { bubbles: late.bubbles, waiting: late.waitingBubbles, answers: late.answers, notSent: late.notSent });
     check("the home took each message once", await homeCount(world, dog, words) === 1 && await homeCount(world, dog, during) === 1);
     check("the draft is still in the box after the connection came back", first.composer === SECOND_DRAFT, first.composer);
     await shoot(page, "4-after-reconnecting");
-    result.splits.push({
-      kind: "sent while the connection was down",
-      uiMs: round(shown.shownAt - shown.enterAt),
-      networkMs: round(taken.at - shown.shownAt),
-      wakeMs: 0,
-      queueMs: round(engineAt - taken.at),
-      engineMs: round(second.at - engineAt),
-      totalMs: round(second.at - shown.enterAt),
-      queuedRowMs: null,
-      homeReadyToAcceptedMs: null,
-      shownAs: shown.where,
-    });
+    const attempts = await attemptsOf(page, during);
+    result.splits.push(splitOf({ kind: `sent while the connection was down for ${world.setup.dropMs / 1000} s`, shown, attempts, answered: taken, homeAcceptedAt: taken.at, engineAt, replyAt: second.at }));
     result.numbers["connection down, ms"] = round(back.at - cutAt);
-    result.numbers["connection back to the held message accepted by the home, ms"] = round(taken.at - back.at);
-    result.numbers["reply characters on screen when the connection dropped"] = lengthAtCut;
+    result.numbers["connection back to the page asking again, ms"] = round((taken.gotAt ?? taken.at) - back.at);
+    result.numbers["connection back to the reply that finished while down on screen, ms"] = round(caughtUp.at - back.at);
     await clearBox(page, dog);
     await page.waitForTimeout(400);
   } finally {
@@ -700,7 +828,7 @@ async function reloadWhileHeld(world: World, run: Run): Promise<CaseResult> {
   const dog = world.dogs.reload;
   const { page, close } = await desk(world, run, dog);
   try {
-    stream(world, QUICK);
+    stream(world, AT_ONCE);
     const wakingAt = Date.now();
     world.edge.sleep();
     world.edge.wakeIn(world.setup.wakeMs + 9_000);
@@ -780,7 +908,7 @@ async function threeDogs(world: World, run: Run): Promise<CaseResult> {
     const asks = streamers.map((dog) => ({ dog, words: `Walk me through the release ${token()}` }));
     await Promise.all(asks.map(({ dog, words }) => world.home("POST", `/api/bots/${dog.id}/messages`, { text: words, threadId: dog.threadId, sendId: randomUUID().replaceAll("-", "") })));
     await Promise.all(asks.map(({ words }) => world.engine.started(words)));
-    stream(world, QUICK);
+    stream(world, AT_ONCE);
     await page.waitForTimeout(300);
     const busy = await typed(page, typing, SENTENCE);
     const stillWorking = await working(world, streamers);
@@ -872,7 +1000,7 @@ async function staleSavedChat(world: World, run: Run): Promise<CaseResult> {
   const dog = world.dogs.stale;
   const { page, close } = await desk(world, run, dog);
   try {
-    stream(world, QUICK);
+    stream(world, AT_ONCE);
     for (const idleMs of [0, 8_000]) {
       const label = idleMs ? `${idleMs / 1000} s after the reply` : "right after the reply";
       const words = `Where does the release stand? ${token()}`;
@@ -899,6 +1027,26 @@ async function staleSavedChat(world: World, run: Run): Promise<CaseResult> {
     await close();
   }
   return result;
+}
+
+async function pageClock(world: World): Promise<{ pageAheadOfHarnessMs: number; askTookMs: number }> {
+  const context = await world.browser.newContext({ viewport: { width: 1280, height: 800 } });
+  try {
+    await context.addInitScript(WAKE_PROBE);
+    const page = await context.newPage();
+    await page.goto(world.edge.url);
+    const samples: Array<{ ahead: number; took: number }> = [];
+    for (let index = 0; index < 9; index += 1) {
+      const asked = Date.now();
+      const wall = await page.evaluate(() => (window as unknown as InPage).__wake.wall());
+      const answered = Date.now();
+      samples.push({ ahead: wall - (asked + answered) / 2, took: answered - asked });
+    }
+    const tightest = samples.sort((left, right) => left.took - right.took)[0]!;
+    return { pageAheadOfHarnessMs: Math.round(tightest.ahead * 10) / 10, askTookMs: tightest.took };
+  } finally {
+    await context.close();
+  }
 }
 
 async function seed(home: ReturnType<typeof fixtureApi>): Promise<Dogs> {
@@ -937,7 +1085,7 @@ async function seed(home: ReturnType<typeof fixtureApi>): Promise<Dogs> {
 function spread(values: readonly number[]): string {
   if (values.length === 0) return "none";
   const sorted = [...values].sort((left, right) => left - right);
-  const middle = sorted[Math.floor((sorted.length - 1) / 2)]!;
+  const middle = sorted.length % 2 ? sorted[(sorted.length - 1) / 2]! : Math.round((sorted[sorted.length / 2 - 1]! + sorted[sorted.length / 2]!) / 2);
   return `${middle} (${sorted[0]} to ${sorted.at(-1)}, ${sorted.length} ${sorted.length === 1 ? "run" : "runs"})`;
 }
 
@@ -946,20 +1094,35 @@ function table(cases: readonly CaseResult[]): string {
   const kinds = [...new Set(splits.map((split) => split.kind))];
   const column = (kind: string, pick: (split: Split) => number | null) => spread(splits.filter((split) => split.kind === kind).flatMap((split) => pick(split) ?? []));
   const rows: Array<[string, (split: Split) => number | null]> = [
-    ["UI: Enter to own words on screen", (split) => split.uiMs],
-    ["Network: own words on screen to the edge's answer", (split) => split.networkMs],
-    ["Wake: the edge's answer to the home accepting the message", (split) => split.wakeMs],
-    ["of which after the home was ready", (split) => split.homeReadyToAcceptedMs],
-    ["Queue: home accepted to the engine getting the message", (split) => split.queueMs],
-    ["Engine: engine got the message to first reply words on screen", (split) => split.engineMs],
-    ["Whole: Enter to first reply words", (split) => split.totalMs],
+    ["Row: Enter to own words on screen", (split) => split.rowMs],
     ["Enter to the row showing as queued", (split) => split.queuedRowMs],
+    ["Receipt: Enter to the edge's answer in the page", (split) => split.receiptMs],
+    ["of which renderer: Enter to the request leaving the page", (split) => split.beforeRequestMs],
+    ["of which server: the edge got the request to the edge had its answer", (split) => split.receiptServerMs],
+    ["of which network and browser: the rest of that round trip", (split) => split.receiptNetworkMs],
+    ["Times the page asked", (split) => split.attempts],
+    ["Held: receipt to the home accepting the message", (split) => split.heldMs],
+    ["of which after the home was ready", (split) => split.afterHomeReadyMs],
+    ["Home: accepted to the engine getting the message", (split) => split.homeMs],
+    ["Reply: the engine got the message to reply words on screen", (split) => split.replyMs],
+    ["Whole: Enter to reply words on screen", (split) => split.totalMs],
   ];
   return [
     `| Step, ms: median (lowest to highest, runs) | ${kinds.join(" | ")} |`,
     `|---|${kinds.map(() => "---").join("|")}|`,
     ...rows.map(([name, pick]) => `| ${name} | ${kinds.map((kind) => column(kind, pick)).join(" | ")} |`),
   ].join("\n");
+}
+
+function otherNumbers(cases: readonly CaseResult[]): string {
+  const named = new Map<string, number[]>();
+  for (const result of cases) {
+    for (const [name, value] of Object.entries(result.numbers)) {
+      const label = `${result.case.slice(0, 1)} | ${name}`;
+      named.set(label, [...(named.get(label) ?? []), typeof value === "number" ? value : value.p50]);
+    }
+  }
+  return ["| Case | What | Median (lowest to highest, runs) |", "|---|---|---|", ...[...named].map(([label, values]) => `| ${label} | ${spread(values)} |`)].join("\n");
 }
 
 async function main() {
@@ -970,7 +1133,7 @@ async function main() {
   const streamFile = join(scratch, "stream.json");
   const repliesFile = join(scratch, "replies.json");
   const promptsFile = join(scratch, "prompts.jsonl");
-  writeFileSync(streamFile, JSON.stringify(QUICK));
+  writeFileSync(streamFile, JSON.stringify(AT_ONCE));
   writeFileSync(repliesFile, JSON.stringify(Array.from({ length: 3000 }, (_, index) => `${answerOf(index + 1)} ${PROSE} ${endOf(index + 1)}`)));
   const fixture = await launchVerificationServer({
     ...process.env,
@@ -988,34 +1151,38 @@ async function main() {
   try {
     const home = fixtureApi(fixture.info.url);
     const world: World = { setup, edge, home, browser, dogs: await seed(home), engine, streamFile };
-    if (setup.shots) mkdirSync(setup.shots, { recursive: true });
+    const clock = await pageClock(world);
     const only = process.argv.includes("--only") ? option("only").split("") : null;
-    const everything: Array<[string, (world: World, run: Run) => Promise<CaseResult>, boolean]> = [
-      ["0", awake, true],
-      ["a", slowWake, false],
-      ["b", sendNowAndCancel, false],
-      ["c", dropped, false],
-      ["d", reconnect, false],
-      ["e", reloadWhileHeld, false],
-      ["f", threeDogs, false],
-      ["g", whileWaking, false],
-      ["h", staleSavedChat, false],
+    const everything: Array<[string, (world: World, run: Run) => Promise<CaseResult>]> = [
+      ["a", awake],
+      ["b", slowWake],
+      ["c", connection],
+      ["d", dropped],
+      ["e", sendNowAndCancel],
+      ["f", reloadWhileHeld],
+      ["g", threeDogs],
+      ["h", whileWaking],
+      ["i", staleSavedChat],
     ];
     const scenarios = everything.filter(([letter]) => !only || only.includes(letter));
     const cases: CaseResult[] = [];
     const everyDog = [...Object.values(world.dogs).filter((dog): dog is Dog => !Array.isArray(dog)), ...world.dogs.streamers];
     for (let index = 0; index < setup.runs; index += 1) {
-      const run: Run = { index: index + 1, theme: index === 1 ? "dark" : "light", shots: index === 0 ? setup.shots : null };
-      for (const [, scenario, once] of scenarios) {
-        if (once && index > 0) continue;
+      const theme: Theme = index % 2 ? "dark" : "light";
+      const run: Run = { index: index + 1, theme, shots: setup.shots && index < 2 ? join(setup.shots, theme) : null };
+      if (run.shots) mkdirSync(run.shots, { recursive: true });
+      for (const [, scenario] of scenarios) {
         const started = Date.now();
+        const before = recorded.length;
         try {
           cases.push(await scenario(world, run));
         } catch (error) {
-          cases.push({ case: scenario.name, run: run.index, theme: run.theme, checks: [{ name: "the case ran to the end", ok: false, saw: error instanceof Error ? error.message : String(error) }], splits: [], looks: {}, numbers: {} });
+          const partial = recorded[before] ?? { case: scenario.name, run: run.index, theme: run.theme, checks: [], splits: [], looks: {}, numbers: {} };
+          partial.checks.push({ name: "the case ran to the end", ok: false, saw: error instanceof Error ? error.message : String(error) });
+          cases.push(partial);
         }
         edge.serve();
-        stream(world, QUICK);
+        stream(world, AT_ONCE);
         await pause(300);
         await settled(home, everyDog.map((dog) => dog.id), 180_000).catch(() => undefined);
         const last = cases.at(-1)!;
@@ -1028,16 +1195,18 @@ async function main() {
     const result = {
       label: setup.label,
       at: new Date().toISOString(),
-      setup: { ...setup, renderer: "production build served by the fixture home through the fixture edge", platform: `${process.platform} ${process.arch}`, injected: { wakeMs: setup.wakeMs, connectionDownMs: setup.dropMs, replyStream: `${QUICK.chars} characters every ${QUICK.everyMs} ms` } },
+      clock,
+      setup: { ...setup, renderer: "production build served by the fixture home through the fixture edge", platform: `${process.platform} ${process.arch}`, injected: { wakeMs: setup.wakeMs, connectionDownMs: setup.dropMs, replyStream: "the fake engine gives its whole reply at once, except where a case says it streams" } },
       passed: cases.reduce((sum, each) => sum + each.checks.filter((check) => check.ok).length, 0),
       failed,
       defects,
       table: table(cases),
+      otherNumbers: otherNumbers(cases),
       cases,
     };
     mkdirSync(dirname(setup.out), { recursive: true });
     writeFileSync(setup.out, `${JSON.stringify(result, null, 2)}\n`);
-    process.stdout.write(`${result.table}\n\n${result.passed} checks passed, ${failed.length} failed, ${defects.length} known defects seen\n${JSON.stringify([...failed, ...defects], null, 2)}\n`);
+    process.stdout.write(`${result.table}\n\n${result.otherNumbers}\n\n${result.passed} checks passed, ${failed.length} failed, ${defects.length} known defects seen\n${JSON.stringify([...failed, ...defects], null, 2)}\n`);
   } finally {
     engine.stop();
     await browser.close();

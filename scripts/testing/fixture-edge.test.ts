@@ -127,6 +127,10 @@ describe("the fixture edge", () => {
     expect(home.taken).toEqual([{ sendId: sendId("held"), text: "words held" }]);
     expect(await asked("held")).toEqual({ held: [], dropped: [] });
     expect(edge.events.filter((event) => event.kind === "delivered")).toHaveLength(1);
+    expect(edge.events.filter((event) => event.kind === "held" || event.kind === "held-again")).toEqual([
+      { at: clock, kind: "held", id: sendId("held"), gotAt: clock },
+      { at: clock, kind: "held-again", id: sendId("held"), gotAt: clock },
+    ]);
   });
 
   it("answers Send now with a sentence and takes a cancelled message out before the home sees it", async () => {

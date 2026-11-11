@@ -75,6 +75,7 @@ export interface EdgeEvent {
   kind: EdgeEventKind;
   id?: string;
   status?: number;
+  gotAt?: number;
 }
 
 export interface FixtureEdgeOptions {
@@ -194,7 +195,7 @@ export async function startFixtureEdge(options: FixtureEdgeOptions): Promise<Fix
   let streamTimer: ReturnType<typeof setInterval> | null = null;
   let closed = false;
 
-  const note = (kind: EdgeEventKind, extra: { id?: string; status?: number } = {}) => {
+  const note = (kind: EdgeEventKind, extra: { id?: string; status?: number; gotAt?: number } = {}) => {
     events.push({ at: now(), kind, ...extra });
     for (const watcher of [...watchers]) watcher();
   };
@@ -350,7 +351,7 @@ export async function startFixtureEdge(options: FixtureEdgeOptions): Promise<Fix
     return answered.response;
   };
 
-  const answerAsleep = async (request: Request): Promise<Response | null> => {
+  const answerAsleep = async (request: Request, gotAt: number): Promise<Response | null> => {
     const held = await answerHeld(request);
     if (held) return held;
     if (deskSend(request)) {
@@ -358,7 +359,7 @@ export async function startFixtureEdge(options: FixtureEdgeOptions): Promise<Fix
       const queued = await queuedSend(request.clone(), now());
       if (queued === "refused") return refusedSend();
       if (queued && outbox.some((earlier) => earlier.id === queued.id)) {
-        note("held-again", { id: queued.id });
+        note("held-again", { id: queued.id, gotAt });
         return queuedReceipt(queued);
       }
       const next = queued ? withQueued(outbox, queued) : null;
@@ -366,7 +367,7 @@ export async function startFixtureEdge(options: FixtureEdgeOptions): Promise<Fix
       outbox = next;
       forgetDropped(queued.id);
       armDelivery();
-      note("held", { id: queued.id });
+      note("held", { id: queued.id, gotAt });
       return queuedReceipt(queued);
     }
     const kind = deskKind(request);
@@ -405,7 +406,7 @@ export async function startFixtureEdge(options: FixtureEdgeOptions): Promise<Fix
     return sendId && dropped.some((send) => send.id === sendId) ? sendId : null;
   };
 
-  const handle = async (request: Request): Promise<Response | null> => {
+  const handle = async (request: Request, gotAt: number): Promise<Response | null> => {
     if (state === "serving") {
       closeDeskStreams();
       if (outbox.length) await deliver();
@@ -418,7 +419,7 @@ export async function startFixtureEdge(options: FixtureEdgeOptions): Promise<Fix
       if (loses) losesNextAnswer = false;
       const response = await forward(request);
       if (again && response.ok) forgetDropped(again);
-      if (deskSend(request)) note("sent", { ...(send ? { id: send } : {}), status: response.status });
+      if (deskSend(request)) note("sent", { ...(send ? { id: send } : {}), status: response.status, gotAt });
       if (loses) {
         await response.arrayBuffer().catch(() => undefined);
         note("answer-lost", send ? { id: send } : {});
@@ -428,7 +429,7 @@ export async function startFixtureEdge(options: FixtureEdgeOptions): Promise<Fix
     }
     const person = !isBackground(request);
     if (deskEvents(request) && deviceKnown && person) return openDeskStream();
-    const saved = await answerAsleep(request);
+    const saved = await answerAsleep(request, gotAt);
     if (saved) return saved;
     const wake = person || state === "starting" ? "waking" : "asleep";
     if (wake === "waking") note("told-waking", { status: 503 });
@@ -440,8 +441,9 @@ export async function startFixtureEdge(options: FixtureEdgeOptions): Promise<Fix
       req.socket.destroy();
       return;
     }
+    const gotAt = now();
     void (async () => {
-      const response = await handle(await requestFrom(req, url));
+      const response = await handle(await requestFrom(req, url), gotAt);
       if (response === null || refusingConnections) {
         req.socket.destroy();
         return;
