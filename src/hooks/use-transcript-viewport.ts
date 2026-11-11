@@ -79,17 +79,19 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
 
   const transcriptKey = `${ownerId}:${threadId}`;
   const tailStart = useMemo(() => windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts), [messages, counts]);
-  const opening = useMemo(() => openingWindow(transcriptKey, messages, counts), [transcriptKey, messages, counts]);
+  const opening = useMemo(() => ({ ...openingWindow(transcriptKey, messages, counts), ownerId }), [transcriptKey, messages, counts, ownerId]);
   const [transcriptWindow, setTranscriptWindow] = useState(opening);
   const switched = transcriptWindow.key !== transcriptKey;
   const reopened = switched || (transcriptWindow.empty && messages.length > 0);
+  const opensAtBottom = follow || transcriptWindow.ownerId !== ownerId;
+  const reopening = opensAtBottom ? opening : { ...opening, start: tailStart, filled: true };
   const nextStart = reopened
-    ? opening.start
+    ? reopening.start
     : transcriptWindow.filled && follow && transcriptWindow.end === null
       ? followWindowStart(messages, transcriptWindow.start, counts)
       : transcriptWindow.start;
   if (reopened) {
-    setTranscriptWindow(opening);
+    setTranscriptWindow(reopening);
   } else if (nextStart !== transcriptWindow.start) {
     setTranscriptWindow({ ...transcriptWindow, start: nextStart, end: null });
   }
@@ -123,8 +125,8 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     appliedFocus.current = focus.nonce;
     const range = focusWindowRange(messages.length, targetIndex);
     setBottomFollow(false);
-    setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end, filled: true, empty: false });
-  }, [threadId, messages, setBottomFollow, state.focusMessage, transcriptKey]);
+    setTranscriptWindow({ key: transcriptKey, start: range.start, end: range.end, filled: true, empty: false, ownerId });
+  }, [threadId, messages, setBottomFollow, state.focusMessage, transcriptKey, ownerId]);
   useFocusMessage(threadId, messages.length > 0);
 
   useEffect(() => {
@@ -198,7 +200,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   };
   const jumpToLatest = () => {
     setBottomFollow(true);
-    setTranscriptWindow({ key: transcriptKey, start: tailStart, end: null, filled: true, empty: false });
+    setTranscriptWindow({ key: transcriptKey, start: tailStart, end: null, filled: true, empty: false, ownerId });
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: scrollBehavior() });
     });

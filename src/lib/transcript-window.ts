@@ -122,7 +122,7 @@ export function openingWindow<T>(key: string, messages: readonly T[], counts?: C
   return { key, start, end: null, filled: start <= tail, empty: messages.length === 0 };
 }
 
-export function widenedWindow<T>(window: OpenTranscriptWindow, messages: readonly T[], counts?: CountsInWindow<T>): OpenTranscriptWindow {
+export function widenedWindow<T, Opened extends OpenTranscriptWindow>(window: Opened, messages: readonly T[], counts?: CountsInWindow<T>): Opened {
   if (window.filled) return window;
   const tail = windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts);
   if (window.start <= tail) return { ...window, filled: true };
