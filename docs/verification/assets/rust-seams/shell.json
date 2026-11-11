@@ -1,0 +1,163 @@
+{
+  "platform": "linux x64",
+  "at": "2026-11-11T03:48:33.762Z",
+  "runs": 7,
+  "fixture": {
+    "url": "http://127.0.0.1:19652",
+    "long": "Marathon",
+    "short": "Helper 1"
+  },
+  "shells": [
+    {
+      "label": "Electron",
+      "engine": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.250 Electron/43.7.9 Safari/537.36",
+      "binaryMb": 315.5,
+      "wallToComposerMs": {
+        "median": 921,
+        "min": 882,
+        "max": 1176
+      },
+      "pageToComposerMs": {
+        "median": 668,
+        "min": 629,
+        "max": 803
+      },
+      "firstPaintMs": {
+        "median": 492,
+        "min": 472,
+        "max": 604
+      },
+      "openLongFirstMs": {
+        "median": 173,
+        "min": 147,
+        "max": 196
+      },
+      "openLongAgainMs": {
+        "median": 128,
+        "min": 116,
+        "max": 175
+      },
+      "rowsShown": 30,
+      "idlePssMb": {
+        "median": 310,
+        "min": 308,
+        "max": 311
+      },
+      "idleRssMb": {
+        "median": 644,
+        "min": 642,
+        "max": 645
+      },
+      "afterLongChatPssMb": {
+        "median": 445,
+        "min": 418,
+        "max": 448
+      },
+      "afterLongChatRssMb": {
+        "median": 792,
+        "min": 766,
+        "max": 796
+      },
+      "processes": [
+        {
+          "name": "electron",
+          "pssMb": 79,
+          "rssMb": 152
+        },
+        {
+          "name": "electron",
+          "pssMb": 14,
+          "rssMb": 54
+        },
+        {
+          "name": "electron",
+          "pssMb": 71,
+          "rssMb": 157
+        },
+        {
+          "name": "electron",
+          "pssMb": 14,
+          "rssMb": 54
+        },
+        {
+          "name": "electron",
+          "pssMb": 240,
+          "rssMb": 296
+        },
+        {
+          "name": "electron",
+          "pssMb": 31,
+          "rssMb": 82
+        }
+      ]
+    },
+    {
+      "label": "Rust shell on WebKitGTK",
+      "engine": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/60.5 Safari/605.1.15",
+      "binaryMb": 0.8,
+      "wallToComposerMs": {
+        "median": 1204,
+        "min": 1079,
+        "max": 1461
+      },
+      "pageToComposerMs": {
+        "median": 642,
+        "min": 541,
+        "max": 767
+      },
+      "firstPaintMs": {
+        "median": 340,
+        "min": 305,
+        "max": 464
+      },
+      "openLongFirstMs": {
+        "median": 483,
+        "min": 416,
+        "max": 589
+      },
+      "openLongAgainMs": {
+        "median": 347,
+        "min": 244,
+        "max": 668
+      },
+      "rowsShown": 30,
+      "idlePssMb": {
+        "median": 410,
+        "min": 408,
+        "max": 410
+      },
+      "idleRssMb": {
+        "median": 639,
+        "min": 637,
+        "max": 640
+      },
+      "afterLongChatPssMb": {
+        "median": 539,
+        "min": 533,
+        "max": 548
+      },
+      "afterLongChatRssMb": {
+        "median": 768,
+        "min": 762,
+        "max": 777
+      },
+      "processes": [
+        {
+          "name": "wry-shell",
+          "pssMb": 80,
+          "rssMb": 178
+        },
+        {
+          "name": "WebKitNetworkPr",
+          "pssMb": 33,
+          "rssMb": 73
+        },
+        {
+          "name": "WebKitWebProces",
+          "pssMb": 432,
+          "rssMb": 525
+        }
+      ]
+    }
+  ]
+}
