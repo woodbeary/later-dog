@@ -589,7 +589,7 @@ async function sendNowAndCancel(world: World, run: Run): Promise<CaseResult> {
   const answered = await look(page, keptWords);
   seen("Send now answer", answered);
   check("Send now answers in a sentence that says the message is waiting for the home", answered.lines.some((line) => line.startsWith(HELD_UNTIL_UP)), answered.lines);
-  check("the message is still held after Send now", answered.tray.length === 1 && world.edge.held().includes(first.id), { tray: answered.tray, held: world.edge.held() });
+  check("the message is still held after Send now", answered.tray.length === 1 && world.edge.held().some((id) => id === first.id), { tray: answered.tray, held: world.edge.held() });
   check("the edge answered Send now with 200", asked.status === 200, asked.status);
   await shoot(page, "2-send-now-answer");
 
@@ -610,7 +610,7 @@ async function sendNowAndCancel(world: World, run: Run): Promise<CaseResult> {
   await page.waitForTimeout(300);
   const cancelled = await look(page, secondWords);
   seen("cancelled", cancelled);
-  check("the cancelled message is gone from the list and the edge", cancelled.tray.length === 0 && cancelled.bubbles === 0 && !world.edge.held().includes(second.id), { tray: cancelled.tray, held: world.edge.held() });
+  check("the cancelled message is gone from the list and the edge", cancelled.tray.length === 0 && cancelled.bubbles === 0 && world.edge.held().every((id) => id !== second.id), { tray: cancelled.tray, held: world.edge.held() });
   check("the cancelled message is not called Not sent", cancelled.notSent.length === 0, cancelled.notSent);
   const kept = await look(page, keptWords);
   check("the other held message is still listed", kept.tray.length === 1, kept.tray);
@@ -839,7 +839,7 @@ async function reloadWhileHeld(world: World, run: Run): Promise<CaseResult> {
   seen("held after the reload", after);
   check("the held row is still there after the reload, once, with its words", after.tray.length === 1 && after.tray[0]!.includes(words) && after.bubbles === 0, { tray: after.tray, bubbles: after.bubbles });
   check("the held message is not called Not sent after the reload", after.notSent.length === 0, after.notSent);
-  check("the edge still holds it", world.edge.held().includes(held.id), world.edge.held());
+  check("the edge still holds it", world.edge.held().some((id) => id === held.id), world.edge.held());
   await shoot(page, "2-queued-after-reload");
   const newest = await newestAnswer(page);
   const reply = firstWords(page, newest);
