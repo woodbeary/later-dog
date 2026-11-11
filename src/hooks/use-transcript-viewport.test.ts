@@ -241,6 +241,22 @@ describe("transcript viewport", () => {
     expect(view.current.following).toBe(false);
   });
 
+  it("waits for a pause in typing before filling in the rest", () => {
+    let clock = 1_000;
+    vi.stubGlobal("performance", { now: () => clock });
+    const view = mount({ messages: rows(300) }, { opening: true });
+    press("a", {});
+    view.frame();
+    clock += 200;
+    view.frame();
+    expect(view.current.windowedMessages).toHaveLength(30);
+    clock += 150;
+    view.frame();
+    expect(view.current.windowedMessages).toHaveLength(60);
+    view.settle();
+    expect(view.current.windowedMessages).toHaveLength(120);
+  });
+
   it("starts again on a short tail when another chat opens, and when a chat's messages arrive after it opened", () => {
     const view = mount({ messages: rows(300) });
     expect(view.current.windowedMessages).toHaveLength(120);

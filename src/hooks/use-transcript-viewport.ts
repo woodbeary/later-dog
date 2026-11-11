@@ -38,6 +38,8 @@ export function endKeyScrolls(event: Pick<KeyboardEvent, "key" | "metaKey" | "ct
   return !(target instanceof HTMLElement && target.isContentEditable);
 }
 
+export const TYPING_PAUSE_MS = 300;
+
 const LEAVE_BOTTOM_KEYS = new Set(["PageUp", "Home", "ArrowUp"]);
 
 export function scrollKeyLeavesBottom(
@@ -95,6 +97,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   } else if (nextStart !== transcriptWindow.start) {
     setTranscriptWindow({ ...transcriptWindow, start: nextStart, end: null });
   }
+  const lastKeyAt = useRef(Number.NEGATIVE_INFINITY);
   const latest = useRef({ messages, counts });
   latest.current = { messages, counts };
   const {
@@ -156,12 +159,18 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   const waitingToFill = !transcriptWindow.filled && !reopened;
   useEffect(() => {
     if (!waitingToFill) return;
-    const frame = requestAnimationFrame(() => {
+    let frame = 0;
+    const widen = () => {
+      if (performance.now() - lastKeyAt.current < TYPING_PAUSE_MS) {
+        frame = requestAnimationFrame(widen);
+        return;
+      }
       if (!followRef.current && scrollRef.current) preExpandHeight.current = { key: transcriptKey, height: scrollRef.current.scrollHeight };
       startTransition(() => {
         setTranscriptWindow((current) => (current.key === transcriptKey ? widenedWindow(current, latest.current.messages, latest.current.counts) : current));
       });
-    });
+    };
+    frame = requestAnimationFrame(widen);
     return () => cancelAnimationFrame(frame);
   }, [waitingToFill, transcriptKey, transcriptWindow.start]);
 
@@ -184,6 +193,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   const jumpRef = useRef<() => void>(() => {});
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      lastKeyAt.current = performance.now();
       if (scrollKeyLeavesBottom(e, e.target, scrollRef.current)) setBottomFollow(false);
       if (endKeyScrolls(e, e.target) && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
         e.preventDefault();
