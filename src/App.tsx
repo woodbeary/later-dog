@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Menu } from "lucide-react";
 import { CLOUD_LINK_SETTINGS, LENDING_SETTINGS, StoreProvider } from "@/state/store";
-import { shellView, unreadChats } from "@/state/shell-view";
+import { shellView } from "@/state/shell-view";
+import { UnreadCountBadge } from "@/components/UnreadCountBadge";
 import { dogIn, sameFields, useStoreDispatch, useStoreReader, useStoreSelector } from "@/state/store-selectors";
 import { CloudQuietLine } from "@/components/CloudQuietLine";
 import { CloudSignInGate, useCloudSignInGate } from "@/components/CloudSignInGate";
@@ -38,14 +39,6 @@ import { isLiveCallRunning, liveCallShortcut, liveMedia } from "@/lib/live-call-
 import { effectiveLanguage, useLanguageChoice } from "@/lib/language-preference";
 import { acknowledgeOrganizationSettings } from "@/lib/organization-settings-ack";
 import { useTimeZoneSync } from "@/lib/time-zone-sync";
-
-function UnreadCountBadge() {
-  const unreadCount = useStoreSelector(unreadChats);
-  useEffect(() => {
-    window.laterdog?.setUnreadCount?.(unreadCount);
-  }, [unreadCount]);
-  return null;
-}
 
 function OpenRoom({ groupId }: { groupId: string }) {
   const group = useStoreSelector((state) => state.groups.find((g) => g.id === groupId));
