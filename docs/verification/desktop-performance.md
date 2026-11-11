@@ -361,19 +361,50 @@ Stacked on the branch above. What it changes:
 
 ### Where this branch stands
 
-Done, on the Linux cloud computer against the fixture:
+Review fixes, after the review of 90f68ac:
 
-- At cd5997b: the renderer and server typechecks and the lint pass with no
-  errors. `pnpm vitest run src scripts/no-comments.test.ts
-  scripts/brand-links.test.ts server/testing`: 421 files, 3,646 tests, 3,645
-  passed. The one failure, `src/components/PlanUsage.test.ts` "shows each
-  window as a bar that fills as it is used", expected "resets in 2h 10m" and
-  got "2h 9m": it reads the clock, the branch does not touch it, and it passed
-  when run again on its own (7 of 7).
-- `--kept` at 10 dogs on this branch, one run: drafts kept after switching and
-  after a reload, the same chat open after the reload, and the dog that was
-  not open showed working, then unread, then read once opened.
+- Language change. The sidebar's dog rows and room rows are memoized, and a
+  language change is not a store change, so they kept the old language. The
+  sidebar now hands both rows the active language
+  (`src/components/Sidebar.tsx`), so the shell's redraw after a language change
+  reaches them. `src/components/Sidebar.language.dom.test.ts` draws the real
+  sidebar under a parent, changes the language and redraws the parent, with no
+  store change. Against the sidebar as it was at 90f68ac it fails twice: the
+  dog row stayed "Scout · Working" where "Scout · Trabajando" was expected,
+  and the room row stayed "The dogs are working…" where "Los perros están
+  trabajando…" was expected. With the fix, 4 of 4 pass.
+- Needs-you row. A click on a needs-you row reads the other dog's open task
+  from the whole store at the click (`src/components/ChatView.tsx`), not from
+  the list of drawn dogs, which is not refreshed when only a dog's open task
+  changes. Before, the click reopened a task the dog already had open.
+- Model line in the work detail. The "Running on … Selected: …" line takes the
+  selected model from the chat's own dog, and from the open task when the task
+  has a model of its own, not from the list of drawn dogs. Before, it showed
+  the previous model after a change.
+- Both chat fixes have a test in `src/components/ChatView.rows.test.ts`; each
+  failed against the chat view as it was at 90f68ac (an extra `openTask` in the
+  dispatched actions; "same" where "next-message" was expected) and passes now.
+- Main f7cae29 is merged in. It touched no file under `src`.
 
-Left: the timed runs at 80 dogs of 024af20 against this branch (three each),
-their table here, and the pull request. The runs wait for the exclusive lock
-on the cloud computer, which other lanes hold shared.
+Done, on the Linux cloud computer against fixtures, with this note in place on
+top of 13f5cd4, one run each:
+
+- `pnpm vitest run src scripts/no-comments.test.ts scripts/brand-links.test.ts
+  scripts/import-cycles.test.ts`: 420 files, 3,639 tests, all passed. The
+  server tests are not in this command.
+- `pnpm typecheck`: no errors. `pnpm lint`: 0 warnings, 0 errors.
+
+Earlier on this branch, not repeated after the review fixes: `--kept` at 10
+dogs, one run: drafts kept after switching and after a reload, the same chat
+open after the reload, and the dog that was not open showed working, then
+unread, then read once opened.
+
+Left:
+
+- No timed table for this branch. The timed runs at 80 dogs were not finished
+  here; they are to be measured on main after this merges.
+- Not run for the review fixes: the server tests, the packaged app, any
+  browser run. The three fixes are covered by component tests only.
+- On the Mac: typing and streaming in the packaged app with real dogs, memory
+  of the app's whole process tree, the status dot's entrance on a real screen,
+  and a language change in Settings with the sidebar in view.
