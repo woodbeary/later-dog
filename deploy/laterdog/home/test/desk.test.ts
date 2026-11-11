@@ -330,6 +330,31 @@ describe("which devices the desk trusts", () => {
     expect((await send(h, asOwner())).status).toBe(202);
   });
 
+  it.each([
+    ["answers the check with an error", () => new Response(null, { status: 500 })],
+    ["hangs up on the check", () => Promise.reject(new Error("the home hung up"))],
+  ])("stops trusting a session the home refuses one thing when the home %s, until the home confirms it again", async (_, answer) => {
+    const h = await home();
+    await knownOwner(h);
+    world.answers.set("POST /api/bots/rex/avatar", () => Response.json({ error: "the image service refused its key" }, { status: 401 }));
+    let asked = 0;
+    world.answers.set("GET /api/auth/session", () => {
+      asked += 1;
+      return answer();
+    });
+    now += 10_000;
+    expect((await h.visit("/api/bots/rex/avatar", asOwner({ method: "POST" }))).status).toBe(401);
+    expect(asked).toBe(1);
+    expect(keptForDevices(h)).toEqual([]);
+    world.answers.delete("GET /api/auth/session");
+    await h.sleep();
+    expect((await send(h, asOwner())).status).toBe(503);
+    now += 10_000;
+    expect((await h.visit("/api/bots", asOwner())).status).toBe(200);
+    await h.sleep();
+    expect((await send(h, asOwner())).status).toBe(202);
+  });
+
   it("keeps a device's answers again once the home accepts it again, though they have not changed", async () => {
     const h = await home();
     await knownOwner(h);
