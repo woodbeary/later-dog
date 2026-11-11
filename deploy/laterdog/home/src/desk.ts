@@ -217,9 +217,13 @@ export function heldSendsAnswer(outbox: readonly QueuedSend[], dropped: readonly
   );
 }
 
+export function droppedStillKept(dropped: readonly DroppedSend[], now: number): DroppedSend[] {
+  return dropped.filter((send) => now - send.at < DESK_KEPT_MS);
+}
+
 export function withDropped(dropped: readonly DroppedSend[], sends: readonly QueuedSend[], why: DroppedSend["why"], now: number): DroppedSend[] {
   const fresh = sends.filter((send) => !dropped.some((earlier) => earlier.id === send.id)).map((send) => ({ id: send.id, why, at: now }));
-  return [...dropped.filter((send) => now - send.at < DESK_KEPT_MS), ...fresh].slice(-DESK_DROPPED_MAX);
+  return [...droppedStillKept(dropped, now), ...fresh].slice(-DESK_DROPPED_MAX);
 }
 
 export function withoutDropped(dropped: readonly DroppedSend[], ids: readonly string[]): DroppedSend[] {

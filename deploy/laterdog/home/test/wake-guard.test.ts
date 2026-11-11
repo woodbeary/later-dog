@@ -479,6 +479,32 @@ describe("a message the edge holds while the home cannot take it", () => {
     expect(await whatBecame()).toEqual({ held: [], dropped: [] });
   });
 
+  const storedDropped = (started: { HOMES: InstanceType<typeof FakeNamespace>; machineId: string }) =>
+    started.HOMES.contexts.get(started.HOMES.idFromName(started.machineId).toString())!.storage.get("desk-dropped");
+
+  it("forgets a dropped message seven days later when a device asks about it, without waiting for another drop", async () => {
+    const { DESK_KEPT_MS } = await import("../src/desk.ts");
+    const started = await refusedOnce();
+    now += DESK_KEPT_MS - 60_000;
+    await started.visit("/api/bots", asOwner());
+    expect(await started.whatBecame()).toMatchObject({ held: [], dropped: [{ id: SEND, why: "refused" }] });
+    expect(await storedDropped(started)).toHaveLength(1);
+    now += 60_000;
+    expect(await started.whatBecame()).toEqual({ held: [], dropped: [] });
+    expect(await storedDropped(started)).toEqual([]);
+  });
+
+  it("forgets a dropped message seven days later when the next message is sent to the awake home", async () => {
+    const { DESK_KEPT_MS } = await import("../src/desk.ts");
+    const started = await refusedOnce();
+    now += DESK_KEPT_MS;
+    expect(await storedDropped(started)).toHaveLength(1);
+    world.answers.set("POST /api/bots/rex/messages", () => Response.json({ ok: true }));
+    const next = { ...sendWords(), body: JSON.stringify({ text: "something else", sendId: "send-0000000000009" }) };
+    expect((await started.visit("/api/bots/rex/messages", next)).status).toBe(200);
+    expect(await storedDropped(started)).toEqual([]);
+  });
+
   it("cancels from the edge when the awake home has not taken the message yet", async () => {
     const { home, visit, sleep, machine } = await awakeHome();
     world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));

@@ -526,6 +526,8 @@ describe("what became of a message the desk was holding", () => {
     expect(once).toEqual([{ id: "send-0000000000001", why: "expired", at: 1_000 }]);
     expect(desk.withDropped(once, [held("send-0000000000001")], "refused", 2_000)).toEqual(once);
     expect(desk.withDropped(once, [held("send-0000000000002")], "refused", 1_000 + desk.DESK_KEPT_MS)).toEqual([{ id: "send-0000000000002", why: "refused", at: 1_000 + desk.DESK_KEPT_MS }]);
+    expect(desk.droppedStillKept(once, 1_000 + desk.DESK_KEPT_MS - 1)).toEqual(once);
+    expect(desk.droppedStillKept(once, 1_000 + desk.DESK_KEPT_MS)).toEqual([]);
     expect(desk.withoutDropped(once, ["send-0000000000001"])).toEqual([]);
     expect(desk.withoutDropped(once, ["send-0000000000002"])).toEqual(once);
     const many = Array.from({ length: desk.DESK_DROPPED_MAX + 5 }, (_, index) => held(`send-${String(index).padStart(13, "0")}`));

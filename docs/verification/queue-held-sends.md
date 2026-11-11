@@ -72,6 +72,9 @@ half (`src/**`) in one pull request, and replaces pull requests #157 and #159.
 - Remembers up to 50 dropped sends for seven days (`refused` or `expired`) and
   answers `GET /api/held-sends` with `held` and `dropped` for the ids asked. An
   id is never in both lists: held again or delivered removes it from dropped.
+  A dropped record older than seven days is removed when the list is read (a
+  device asks, or any request reaches the awake home), not only when another
+  drop is recorded.
 - Expiry and questions about held sends wait for a delivery in flight.
 
 ### Home (`server/steer-queue.ts`, `server/channel-queue.ts`, `server/index.ts`, `server/laterdog/queued-steer.ts`)
