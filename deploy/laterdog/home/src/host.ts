@@ -435,7 +435,10 @@ export class CloudHomeHost extends Container<Env> {
       if (this.streams.size && !this.answering.size) this.closeDeskStreams();
       if (this.outbox.length) await this.deliverDesk(record);
       const held = await this.answerHeld(request, key);
-      if (held) return held;
+      if (held) {
+        if (credential && key) this.learn(record, credential, key, held);
+        return held;
+      }
       const kind = deskKind(request);
       const again = await this.sentAgain(request);
       const response = wakes ? await super.fetch(request) : await this.quietly(request);

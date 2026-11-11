@@ -264,6 +264,21 @@ describe("which devices the desk trusts", () => {
     expect((await h.visit("/api/bots", asOwner())).status).toBe(503);
   });
 
+  it("asks the home again about a session it last checked a day ago when all that session asks is which messages the edge holds, and stops trusting one signed out since", async () => {
+    const h = await home();
+    await knownOwner(h);
+    world.sessions.delete(OWNER_TOKEN);
+    now += 25 * 60 * 60 * 1000;
+    const checksBefore = world.sessionChecks;
+    const list = await h.visit("/api/held-sends?ids=send-0000000000009", asOwner());
+    expect(list.status).toBe(200);
+    expect(await list.json()).toEqual({ held: [], dropped: [] });
+    expect(world.sessionChecks - checksBefore).toBe(1);
+    expect(keptForDevices(h)).toEqual([]);
+    await h.sleep();
+    expect((await send(h, asOwner())).status).toBe(503);
+  });
+
   it.each([
     ["the check ends with no clear answer", () => new Response(null, { status: 500 })],
     ["the check fails", () => Promise.reject(new Error("the home hung up"))],
