@@ -162,7 +162,7 @@ async function answer(res: ServerResponse, response: Response): Promise<void> {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      res.write(value);
+      await new Promise<void>((flushed) => res.write(value, () => flushed()));
     }
   } catch {
     res.destroy();
