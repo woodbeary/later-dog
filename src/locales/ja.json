@@ -352,6 +352,7 @@
   "composer.dictation.hint": "音声入力",
   "composer.dictation.transcribing": "文字起こし中…",
   "composer.failed.notSent": "未送信: 「{text}」",
+  "composer.failed.sendAgain": "再送信",
   "composer.failed.attachment": "添付ファイル",
   "composer.failed.dismiss": "閉じる",
   "composer.failed.dismissAria": "送信できなかったメッセージを閉じる",

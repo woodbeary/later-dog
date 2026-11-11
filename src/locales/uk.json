@@ -375,6 +375,7 @@
   "composer.dictation.hint": "Диктувати",
   "composer.dictation.transcribing": "Розпізнавання мовлення…",
   "composer.failed.notSent": "Не надіслано: «{text}»",
+  "composer.failed.sendAgain": "Надіслати ще раз",
   "composer.failed.attachment": "вкладення",
   "composer.failed.dismiss": "Приховати",
   "composer.failed.dismissAria": "Приховати невдале повідомлення",

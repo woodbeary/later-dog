@@ -350,6 +350,7 @@
   "composer.dictation.hint": "Dicter",
   "composer.dictation.transcribing": "Transcription…",
   "composer.failed.notSent": "Non envoyé : « {text} »",
+  "composer.failed.sendAgain": "Renvoyer",
   "composer.failed.attachment": "pièce jointe",
   "composer.failed.dismiss": "Ignorer",
   "composer.failed.dismissAria": "Ignorer le message en échec",

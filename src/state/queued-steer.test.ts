@@ -135,6 +135,7 @@ describe("pressing Steer on a queued message", () => {
     expect(onError).toHaveBeenCalledOnce();
     expect(onSettled).not.toHaveBeenCalled();
     expect(seen.paneErrors["chat:thread"]?.line).toBe(reason);
+    expect(seen.paneErrors["chat:thread"]?.retryable).toBe(false);
     expect(seen.pendingQueued.thread).toEqual([{ queueId: "q1", text: "hello" }]);
     expect(linesFor("thread", "hello")).toHaveLength(0);
   });
@@ -144,6 +145,7 @@ describe("pressing Steer on a queued message", () => {
     const { onError } = await steerBot();
     expect(onError).toHaveBeenCalledOnce();
     expect(seen.paneErrors["chat:thread"]?.line).toBe(STILL_QUEUED_LINE);
+    expect(seen.paneErrors["chat:thread"]?.retryable).toBe(false);
   });
 
   it("says plainly when later.dog could not be reached", async () => {
@@ -151,6 +153,7 @@ describe("pressing Steer on a queued message", () => {
     const { onError } = await steerBot();
     expect(onError).toHaveBeenCalledOnce();
     expect(seen.paneErrors["chat:thread"]?.line).toBe(UNREACHABLE_MESSAGE);
+    expect(seen.paneErrors["chat:thread"]?.retryable).toBe(true);
     expect(seen.pendingQueued.thread).toEqual([{ queueId: "q1", text: "hello" }]);
   });
 
@@ -165,11 +168,20 @@ describe("pressing Steer on a queued message", () => {
     expect(linesFor("room-thread", "room hello")).toHaveLength(1);
   });
 
+  it("still offers Try again in a room when later.dog could not be reached", async () => {
+    await mount(() => Promise.reject(new TypeError("Failed to fetch")));
+    const { onError } = await steerRoom();
+    expect(onError).toHaveBeenCalledOnce();
+    expect(seen.paneErrors["chat:room-thread"]?.line).toBe(UNREACHABLE_MESSAGE);
+    expect(seen.paneErrors["chat:room-thread"]?.retryable).toBe(true);
+  });
+
   it("shows the room's plain line when its message could not go yet", async () => {
     await mount(reply({ ok: true, queued: true, threadId: "room-thread", reason: "Room hasn't stopped yet. Your message will be sent as soon as it does." }));
     const { onError } = await steerRoom();
     expect(onError).toHaveBeenCalledOnce();
     expect(seen.paneErrors["chat:room-thread"]?.line).toBe("Room hasn't stopped yet. Your message will be sent as soon as it does.");
+    expect(seen.paneErrors["chat:room-thread"]?.retryable).toBe(false);
     expect(seen.pendingQueued["room-thread"]).toEqual([{ queueId: "rq1", text: "room hello" }]);
   });
 });
