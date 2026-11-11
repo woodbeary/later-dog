@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NativeRun, NativeRunDetail } from "../../shared/native-runs";
 
 vi.mock("@/state/store", () => ({ api: vi.fn() }));
-vi.mock("./Avatar", () => ({ DogAvatar: ({ label }: { label: string }) => createElement("span", null, label) }));
+const puppiesDrawn = vi.hoisted(() => ({ count: 0 }));
+vi.mock("./Avatar", () => ({ DogAvatar: ({ label }: { label: string }) => { puppiesDrawn.count += 1; return createElement("span", null, label); } }));
 const { api } = await import("@/state/store");
 const { NativeWork, NativeWorkFallbacks, actorAncestry, nativePuppies } = await import("./NativeWork");
 const { currentNativeRuns, forgetNativeRuns } = await import("@/lib/native-runs-state");
@@ -142,6 +143,23 @@ describe("native work", () => {
     await act(async () => root.render(createElement(NativeWork, { run: data, live: true, label: "Thinking" })));
     expect(host.textContent).toContain("Searching");
     expect(host.textContent).not.toContain("Thinking");
+  });
+
+  it("redraws a work row when its run is replaced by a newer one, and leaves it alone while the same run is handed back", async () => {
+    const data = run();
+    const row = (current: NativeRun) => createElement("div", null, createElement(NativeWork, { run: current, live: true, label: "Thinking" }));
+    await act(async () => root.render(row(data)));
+    const drawnAtFirst = puppiesDrawn.count;
+    expect(host.querySelector('button[aria-label="View Researcher 0 · Working"]')).not.toBeNull();
+
+    await act(async () => root.render(row(data)));
+    expect(puppiesDrawn.count).toBe(drawnAtFirst);
+
+    const advanced = { ...data, revision: 2, actors: data.actors.map(actor => actor.id === "child-0" ? { ...actor, state: "done" as const } : actor) };
+    await act(async () => root.render(row(advanced)));
+    expect(puppiesDrawn.count).toBeGreaterThan(drawnAtFirst);
+    expect(host.querySelector('button[aria-label="View Researcher 0 · Done"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label="View Researcher 0 · Working"]')).toBeNull();
   });
 
   it("refreshes every loaded activity page when the run advances", async () => {
