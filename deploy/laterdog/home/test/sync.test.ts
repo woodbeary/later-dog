@@ -1,11 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, lstatSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
-import { lstat } from "node:fs/promises";
+import { appendFileSync, existsSync, lstatSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { lstat, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
-import { CHUNK_BYTES, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, heldLock, LISTING_PARALLEL, parseManifest, referencedBlobs, restore, resumeOrder, SAVE_PARALLEL, scan, settleWithin, skipped, skippedPath, snapshot, walkOrder, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient } from "../runtime/sync.mjs";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CHUNK_BYTES, chunksOf, CLEANUP_PARALLEL, collectGarbage, collectGarbageWithin, createHttpStore, heldLock, LISTING_PARALLEL, parseManifest, referencedBlobs, restore, resumeOrder, SAVE_PARALLEL, scan, settleWithin, skipped, skippedPath, snapshot, walkOrder, SNAPSHOT_RESERVE_BYTES, StoreRefused, transient } from "../runtime/sync.mjs";
 
 function memoryStore() {
   const blobs = new Map<string, Uint8Array>();
@@ -1100,5 +1100,77 @@ describe("keeping restore points safe from cleanup", () => {
       "DELETE https://state.invalid/home/restore-points/1.json",
       "PUT https://state.invalid/home/restore-points/2.json",
     ]);
+  });
+});
+
+describe("reading a file into pieces", () => {
+  const made: string[] = [];
+  function scratch(): string {
+    const created = mkdtempSync(join(tmpdir(), "laterdog-pieces-"));
+    made.push(created);
+    return created;
+  }
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const path of made.splice(0)) rmSync(path, { recursive: true, force: true });
+  });
+
+  function sha(bytes: Uint8Array): string {
+    return createHash("sha256").update(bytes).digest("hex");
+  }
+
+  function growingBy(more: Uint8Array) {
+    return async (path: string, flags: string) => {
+      const handle = await open(path, flags);
+      return {
+        async stat() {
+          const info = await handle.stat();
+          appendFileSync(path, more);
+          return info;
+        },
+        read: handle.read.bind(handle),
+        close: handle.close.bind(handle),
+      };
+    };
+  }
+
+  it("asks for no more memory than a small file needs", async () => {
+    const path = join(scratch(), "note.md");
+    writeFileSync(path, "hello");
+    const asked = vi.spyOn(Buffer, "allocUnsafe");
+    const chunks = await chunksOf(path, memoryStore());
+    const sizes = asked.mock.calls.map(([size]) => size);
+    expect(chunks).toEqual([sha(Buffer.from("hello"))]);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(6);
+  });
+
+  it("gives an empty file no pieces and a file of exactly one piece one", async () => {
+    const home = scratch();
+    writeFileSync(join(home, "empty"), "");
+    const exact = Buffer.alloc(CHUNK_BYTES, 3);
+    writeFileSync(join(home, "exact"), exact);
+    expect(await chunksOf(join(home, "empty"), memoryStore())).toEqual([]);
+    expect(await chunksOf(join(home, "exact"), memoryStore())).toEqual([sha(exact)]);
+  });
+
+  it("saves all of a file that grows while it is read", async () => {
+    const path = join(scratch(), "log.txt");
+    writeFileSync(path, "first line\n");
+    const store = memoryStore();
+    const chunks = await chunksOf(path, store, { opened: growingBy(Buffer.from("second line\n")) });
+    expect(chunks).toEqual([sha(Buffer.from("first line\nsecond line\n"))]);
+    expect(Buffer.from(store.blobs.get(chunks[0]!)!).toString("utf8")).toBe("first line\nsecond line\n");
+  });
+
+  it("cuts a file that grows past one piece at the same places as a file that was that long all along", async () => {
+    const home = scratch();
+    const start = Buffer.alloc(10, 1);
+    const more = Buffer.alloc(CHUNK_BYTES + 90, 2);
+    writeFileSync(join(home, "grown"), start);
+    writeFileSync(join(home, "whole"), Buffer.concat([start, more]));
+    const grown = await chunksOf(join(home, "grown"), memoryStore(), { opened: growingBy(more) });
+    const whole = await chunksOf(join(home, "whole"), memoryStore());
+    expect(grown).toEqual(whole);
+    expect(grown).toHaveLength(2);
   });
 });
