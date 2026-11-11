@@ -11,6 +11,7 @@ const { CloudHomeHost, CloudHomeHostLarge } = await import("../src/host.ts");
 const { default: worker, HomesApi } = await import("../src/index.ts");
 const { homeIdentity } = await import("../src/identity.ts");
 const { WAKE_HEADER } = await import("../src/waking.ts");
+const { wakerKey } = await import("../src/wake-guard.ts");
 const desk = await import("../src/desk.ts");
 
 const OWNER = "owner-account";
@@ -86,7 +87,7 @@ async function home() {
     machine.exit?.();
     await settle();
   };
-  return { STATE, machine, machineId, visit, sleep, sleepAfterIdle, deliver, settle };
+  return { STATE, host, machine, machineId, visit, sleep, sleepAfterIdle, deliver, settle };
 }
 
 const asOwner = (extra: RequestInit = {}) => ({ ...extra, headers: { accept: "application/json", authorization: `Bearer ${OWNER_TOKEN}`, ...(extra.headers as Record<string, string> | undefined) } });
@@ -178,6 +179,7 @@ describe("which devices the desk trusts", () => {
 
   it("serves a browser signed in by cookie once the home has answered it, never replaying its cookie", async () => {
     const h = await home();
+    world.sessions.add(COOKIE.slice(COOKIE.indexOf("=") + 1));
     world.answers.set("GET /api/bots", () => Response.json(DOGS, { headers: { "set-cookie": "laterdog_session_8799_abc123=renewed; HttpOnly" } }));
     await h.visit("/api/bots", asBrowser);
     now += 10_000;
@@ -188,9 +190,136 @@ describe("which devices the desk trusts", () => {
     expect(await response.json()).toEqual(DOGS);
   });
 
+  const BRAND = { name: "later.dog" };
+  const send = (h: Awaited<ReturnType<typeof home>>, who: { headers: Record<string, string> }) =>
+    h.visit("/api/bots/rex/messages", { method: "POST", headers: { ...who.headers, "content-type": "application/json" }, body: JSON.stringify({ text: "hi", sendId: "send-0000000000009" }) });
+  const keptForDevices = (h: Awaited<ReturnType<typeof home>>) => [...h.STATE.objects.keys()].filter((key) => !key.includes("/desk/ui/"));
+
+  it("keeps a confirmed device's first answer, without waiting for a second visit", async () => {
+    const h = await home();
+    await h.visit("/api/bots", asOwner());
+    await h.sleep();
+    const response = await h.visit("/api/bots", asOwner());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(DOGS);
+  });
+
+  it("does not come to trust someone the home never confirmed, though the home tells anyone its name", async () => {
+    const h = await home();
+    world.answers.set("GET /api/brand", () => Response.json(BRAND));
+    expect((await h.visit("/api/brand", asStranger)).status).toBe(200);
+    now += 10_000;
+    expect((await h.visit("/api/brand?again=1", asStranger)).status).toBe(200);
+    expect(keptForDevices(h)).toEqual([]);
+    await knownOwner(h);
+    await h.sleep();
+    expect((await send(h, asStranger)).status).toBe(503);
+  });
+
+  it("does not trust a signed-out session again because the home still tells it its name", async () => {
+    const h = await home();
+    world.answers.set("GET /api/brand", () => Response.json(BRAND));
+    await knownOwner(h);
+    world.sessions.delete(OWNER_TOKEN);
+    world.answers.set("GET /api/bots", () => Response.json({ error: "unauthorized" }, { status: 401 }));
+    now += 10_000;
+    expect((await h.visit("/api/bots", asOwner())).status).toBe(401);
+    now += 10_000;
+    expect((await h.visit("/api/brand", asOwner())).status).toBe(200);
+    now += 10_000;
+    expect((await h.visit("/api/brand", asOwner())).status).toBe(200);
+    expect(keptForDevices(h)).toEqual([]);
+    await h.sleep();
+    expect((await send(h, asOwner())).status).toBe(503);
+  });
+
+  it("stops counting a note it once kept for someone the home never confirmed", async () => {
+    const h = await home();
+    await knownOwner(h);
+    const stranger = await wakerKey({ kind: "session", token: STRANGER_TOKEN, via: "bearer" });
+    (h.host as unknown as { deskDevices: Record<string, number> }).deskDevices[stranger] = now;
+    await h.sleep();
+    expect((await send(h, asStranger)).status).toBe(503);
+  });
+
+  it("keeps trusting a device whose session still stands when the home refuses it one thing", async () => {
+    const h = await home();
+    await knownOwner(h);
+    world.answers.set("POST /api/bots/rex/avatar", () => Response.json({ error: "the image service refused its key" }, { status: 401 }));
+    now += 10_000;
+    expect((await h.visit("/api/bots/rex/avatar", asOwner({ method: "POST" }))).status).toBe(401);
+    await h.sleep();
+    expect((await send(h, asOwner())).status).toBe(202);
+  });
+
+  it("asks the home again about a session it last checked a day ago, and stops trusting one signed out since", async () => {
+    const h = await home();
+    world.answers.set("GET /api/brand", () => Response.json(BRAND));
+    await knownOwner(h);
+    world.sessions.delete(OWNER_TOKEN);
+    now += 25 * 60 * 60 * 1000;
+    expect((await h.visit("/api/brand", asOwner())).status).toBe(200);
+    expect(keptForDevices(h)).toEqual([]);
+    await h.sleep();
+    expect((await h.visit("/api/bots", asOwner())).status).toBe(503);
+  });
+
+  it.each([
+    ["the check ends with no clear answer", () => new Response(null, { status: 500 })],
+    ["the check fails", () => Promise.reject(new Error("the home hung up"))],
+    ["the check was answered just before the sign-out", () => Response.json({ kind: "session", scopes: ["admin", "client"] })],
+  ])("stops trusting a session the home refuses while an older check of it is still out, when %s", async (_, answer) => {
+    const h = await home();
+    world.answers.set("GET /api/brand", () => Response.json(BRAND));
+    await knownOwner(h);
+    now += 25 * 60 * 60 * 1000;
+    let letGo = () => undefined as void;
+    const out = new Promise<void>((asked) => {
+      world.answers.set("GET /api/auth/session", () => {
+        asked();
+        return new Promise<Response>((resolve, reject) => {
+          letGo = () => void Promise.resolve().then(answer).then(resolve, reject);
+        });
+      });
+    });
+    const checksBefore = world.sessionChecks;
+    const dayOld = h.visit("/api/brand", asOwner());
+    await out;
+    world.answers.delete("GET /api/auth/session");
+    world.sessions.delete(OWNER_TOKEN);
+    world.answers.set("GET /api/bots", () => Response.json({ error: "unauthorized" }, { status: 401 }));
+    expect((await h.visit("/api/bots", asOwner())).status).toBe(401);
+    letGo();
+    expect((await dayOld).status).toBe(200);
+    await h.settle();
+    expect(world.sessionChecks - checksBefore).toBe(1);
+    expect(keptForDevices(h)).toEqual([]);
+    await h.sleep();
+    expect((await send(h, asOwner())).status).toBe(503);
+  });
+
+  it("keeps a device's answers again once the home accepts it again, though they have not changed", async () => {
+    const h = await home();
+    await knownOwner(h);
+    world.sessions.delete(OWNER_TOKEN);
+    world.answers.set("GET /api/bots", () => Response.json({ error: "unauthorized" }, { status: 401 }));
+    now += 10_000;
+    expect((await h.visit("/api/bots", asOwner())).status).toBe(401);
+    world.sessions.add(OWNER_TOKEN);
+    world.answers.set("GET /api/bots", () => Response.json(DOGS));
+    (h.host as unknown as { refused: Set<string> }).refused.clear();
+    now += 10_000;
+    await h.visit("/api/bots", asOwner());
+    await h.sleep();
+    const response = await h.visit("/api/bots", asOwner());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(DOGS);
+  });
+
   it("forgets a device the home stops accepting, and what it kept for it", async () => {
     const h = await home();
     await knownOwner(h);
+    world.sessions.delete(OWNER_TOKEN);
     world.answers.set("GET /api/bots", () => Response.json({ error: "unauthorized" }, { status: 401 }));
     now += 10_000;
     expect((await h.visit("/api/bots", asOwner())).status).toBe(401);
