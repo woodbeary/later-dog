@@ -98,7 +98,8 @@ export function toWireTask(task: TaskRecord, botModel: ModelSelection, bots: rea
     ? `@${openedBy!.name} · work` : stored.title;
   const wire: WireTask = { ...stored, title, ...(openedBy ? { openedBy } : {}), ...(closedBy ? { closedBy } : {}), modelSelection: structuredClone(task.modelSelection ?? botModel), followsBotModel: task.modelSelection === undefined };
   const context = wire.usage?.context;
-  const legacyModel = task.lastContextModel?.match(/(?:^|:)(claude-fable-5(?:[-.][12])?)$/)?.[1];
+  const contextModel = task.lastContextModel ?? (task.modelSelection ?? botModel).model;
+  const legacyModel = contextModel?.match(/(?:^|:)(claude-fable-5(?:[-.][12])?)$/)?.[1];
   if (wire.usage && context?.window === 200_000 && context.windowSource === undefined && legacyModel) {
     wire.usage = { ...wire.usage, context: { ...context, window: modelContextWindow(legacyModel), windowSource: "model" } };
   }

@@ -834,6 +834,11 @@ describe("Store", () => {
     const task = store.taskByThread(bot.id, bot.threadId)!;
     expect(toWireTask(task, bot.modelSelection).usage?.context).toEqual({ tokens: 244_210, window: 1_000_000, windowSource: "model" });
     expect(task.usage?.context?.window).toBe(200_000);
+    store.patchTask(bot.id, bot.threadId, { lastContextModel: undefined, modelSelection: { instanceId: "claude", model: "claude-fable-5-2" } });
+    expect(toWireTask(task, bot.modelSelection).usage?.context).toEqual({ tokens: 244_210, window: 1_000_000, windowSource: "model" });
+    store.patchTask(bot.id, bot.threadId, { lastContextModel: "claude:claude-sonnet-5" });
+    expect(toWireTask(task, bot.modelSelection).usage?.context).toEqual({ tokens: 244_210, window: 200_000 });
+    store.patchTask(bot.id, bot.threadId, { lastContextModel: undefined });
     store.addTaskUsage(bot.id, bot.threadId, { costUsd: null, context: { tokens: 150_000, window: 200_000, windowSource: "provider" } });
     const restored = new Store(selection).taskByThread(bot.id, bot.threadId)!;
     expect(toWireTask(restored, bot.modelSelection).usage?.context).toEqual({ tokens: 150_000, window: 200_000, windowSource: "provider" });
