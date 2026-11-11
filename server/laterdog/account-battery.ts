@@ -59,6 +59,7 @@ export interface Rest {
   kind?: string;
   estimated?: boolean;
   since: string;
+  reading?: string;
 }
 
 export interface Quota {
@@ -96,6 +97,7 @@ const restSchema = z.object({
   kind: z.string().max(40).optional(),
   estimated: z.boolean().optional(),
   since: z.string().max(64),
+  reading: z.string().max(512).optional(),
 });
 const stateSchema = z.object({
   version: z.literal(1),
@@ -210,18 +212,34 @@ export function withReadings(
 
 const KINDS_A_READING_SHOWS: ReadonlySet<string | undefined> = new Set([undefined, "session", "weekly"]);
 
-export function guessesReadingsDisprove(
+function quotaReading(row: PlanProviderRow | undefined, kind: string | undefined) {
+  if (!row?.ok) return undefined;
+  const window = kind === "session" ? row.fiveHour : kind === "weekly" ? row.weekly : undefined;
+  if (!window?.available || window.usedPercent === null) return undefined;
+  const balance = row.credits?.balance == null ? NaN : Number(row.credits.balance);
+  return {
+    key: JSON.stringify([window.usedPercent, window.resetsAt, Boolean(row.credits), row.credits?.unlimited, Number.isFinite(balance) ? balance : null]),
+    hasRoom: Boolean(row.credits) || window.usedPercent < USED_UP_PERCENT,
+  };
+}
+
+export function readingsDisprove(
   resting: Readonly<Record<string, Rest>>,
   usage: PlanReading | undefined,
   usageAt: ((instanceId: string) => number | undefined) | undefined,
   now: number,
 ): string[] {
   return Object.entries(resting).filter(([instanceId, rest]) => {
-    if (!rest.estimated || !KINDS_A_READING_SHOWS.has(rest.kind)) return false;
+    if (!KINDS_A_READING_SHOWS.has(rest.kind)) return false;
     const readAt = usageAt?.(instanceId);
     if (readAt === undefined || !(readAt > Date.parse(rest.since))) return false;
-    const left = percentLeft(usage?.(instanceId), now);
-    return left !== undefined && left > NEARLY_EMPTY_PERCENT;
+    const row = usage?.(instanceId);
+    if (rest.estimated) {
+      const left = percentLeft(row, now);
+      return left !== undefined && left > NEARLY_EMPTY_PERCENT;
+    }
+    const reading = quotaReading(row, rest.kind);
+    return reading?.hasRoom === true && reading.key !== rest.reading;
   }).map(([instanceId]) => instanceId);
 }
 
@@ -491,7 +509,7 @@ export class AccountBattery {
   }
 
   route(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): ModelSelection {
-    this.dropDisprovedGuesses();
+    this.dropDisprovedRests();
     const preferred = this.preferredFor(threadId);
     const chosen = threadId ? this.chosen(threadId, selection, accounts) : undefined;
     if (chosen) return selectionOnAccount(selection, accounts.find((account) => account.instanceId === chosen)!, accounts, preferred);
@@ -568,11 +586,13 @@ export class AccountBattery {
     const reported = resetInstant(quota.resetsAt, now);
     const reset = reported && Date.parse(reported) > now ? reported : undefined;
     const kind = quota.kind && /^[a-z][a-z0-9_-]{0,39}$/i.test(quota.kind) ? quota.kind.toLowerCase() : undefined;
+    const reading = quotaReading(this.options.usage?.(instanceId), kind);
     const rest: Rest = {
       until: reset ?? new Date(now + DEFAULT_REST_MS).toISOString(),
       ...(kind ? { kind } : {}),
       ...(reset ? {} : { estimated: true }),
       since: new Date(now).toISOString(),
+      ...(reading ? { reading: reading.key } : {}),
     };
     this.state.resting[instanceId] = rest;
     this.save();
@@ -617,8 +637,8 @@ export class AccountBattery {
     if (changed) this.save();
   }
 
-  private dropDisprovedGuesses(): void {
-    const disproved = guessesReadingsDisprove(this.state.resting, this.options.usage, this.options.usageAt, this.now());
+  private dropDisprovedRests(): void {
+    const disproved = readingsDisprove(this.state.resting, this.options.usage, this.options.usageAt, this.now());
     if (!disproved.length) return;
     for (const instanceId of disproved) delete this.state.resting[instanceId];
     this.save();
@@ -633,7 +653,7 @@ export class AccountBattery {
   }
 
   readyAt(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): string | undefined {
-    this.dropDisprovedGuesses();
+    this.dropDisprovedRests();
     const find = (instanceId: string) => accounts.find((account) => account.instanceId === instanceId);
     const own = find(selection.instanceId);
     if (!own) return undefined;
@@ -691,7 +711,7 @@ export class AccountBattery {
   }
 
   noteReadings(accounts: readonly BatteryAccount[]): void {
-    this.dropDisprovedGuesses();
+    this.dropDisprovedRests();
     const config = this.options.config();
     const resting = restingKey(Object.fromEntries(accounts.filter((account) => account.eligible)
       .flatMap((account) => { const rest = this.restOf(account, accounts); return rest ? [[account.instanceId, rest]] : []; })));
