@@ -155,7 +155,7 @@ only.
 | Edge, `pnpm check` (`wrangler types && tsc --noEmit`) | exit 0 |
 | `pnpm vitest run src scripts/no-comments.test.ts scripts/brand-links.test.ts` | 3590 passed, 410 files (`src/state/send-outbox.test.ts` 41, `src/state/held-sends-wiring.test.ts` 6, `src/lib/held-sends.test.ts` 9, `scripts/no-comments.test.ts` 14, `scripts/brand-links.test.ts` 3) |
 | Server: `channel-queue`, `steer-queue`, `laterdog/queued-steer`, `laterdog/queued-steer.e2e`, `laterdog/plain-error`, `chat-followups-restart`, `chat-followups`, `steer-e2e`, `laterdog/queue-send-id-restart.e2e`, `send-idempotency`, `routes/dog-queue` | 127 passed, 11 files |
-| Whole `pnpm vitest run` | IN PROGRESS: started 14:53 UTC in the same checkout; the log is `~/q164/logs/full-vitest.log` and the status `~/q164/logs/status` on the cloud computer. Not finished when this was written |
+| Whole `pnpm vitest run` | NOT FINISHED: started 14:53 UTC in the same checkout. At 15:08 UTC 14 of 1308 test files had reported, slowest first, with other lanes' suites on the same four cores; the only failures so far are the two that fail on main (below). The log is `~/q164/logs/full-vitest.log` and the status `~/q164/logs/status` on the cloud computer; `ALL DONE` in the status file means it ended |
 
 Before the merge, at `54a4b95`: the edge suite gave 295 passed in 31 files, and
 `send-outbox.test.ts` with `held-sends-wiring.test.ts` gave 47 passed.
@@ -174,6 +174,14 @@ exists but cannot be read" (the same `chmod 000` cause) and
 `server/delta-context.e2e.test.ts` "resets Claude's native context on edit,
 then resumes only the replacement branch"; the last one has not been run alone
 or compared with main.
+
+## Left
+
+- The whole `pnpm vitest run` has never finished on the cloud computer for this
+  branch. Read the end of `~/q164/logs/full-vitest.log` for the totals; any
+  failure other than the ones named above needs a look.
+- N2, N3, N4, N6 and N7 from the second review are open by decision.
+- Everything under "what still needs a real home or the app" below.
 
 ## Fixture-only, and what still needs a real home or the app
 
