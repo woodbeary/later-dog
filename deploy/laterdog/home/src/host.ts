@@ -28,6 +28,7 @@ import {
   seenLongAgo,
   sessionCheck,
   sessionCheckOutcome,
+  type CheckOutcome,
   wakeCredential,
   wakeGuard,
   wakerKey,
@@ -427,10 +428,6 @@ export class CloudHomeHost extends Container<Env> {
       const kind = deskKind(request);
       const response = wakes ? await super.fetch(request) : await this.quietly(request);
       if (credential && key) this.learn(record, credential, key, response);
-      if (key && credential?.kind === "session" && (response.status === 401 || response.status === 403)) {
-        this.ctx.waitUntil(this.forgetDevice(record, key));
-        if (response.status === 401) this.ctx.waitUntil(this.forgetWaker(key));
-      }
       return kind ? this.keepAnswer(record, kind, key, request, response) : response;
     }
     if (wakes && state === "stopped") this.boot(record, true);
@@ -470,7 +467,9 @@ export class CloudHomeHost extends Container<Env> {
       this.deskDevices = rest;
       await this.ctx.storage.put(DESK_DEVICES_KEY, this.deskDevices);
     }
-    await forgetScope(this.desk(), deskPrefix(this.stateHome(record.machineId), key)).catch(() => 0);
+    const prefix = deskPrefix(this.stateHome(record.machineId), key);
+    for (const where of this.lastSaved.keys()) if (where.startsWith(prefix)) this.lastSaved.delete(where);
+    await forgetScope(this.desk(), prefix).catch(() => 0);
   }
 
   private keepAnswer(record: HomeRecord, kind: Exclude<DeskKind, null>, key: string | null, request: Request, response: Response): Response {
@@ -493,7 +492,10 @@ export class CloudHomeHost extends Container<Env> {
       const where = await deskKey(this.stateHome(record.machineId), scope, request.url);
       const now = Date.now();
       const last = this.lastSaved.get(where);
-      if (last && now - last.at < DESK_SAVE_EVERY_MS) return;
+      if (last && now - last.at < DESK_SAVE_EVERY_MS) {
+        copy.body?.cancel().catch(() => undefined);
+        return;
+      }
       const bytes = new Uint8Array(await copy.arrayBuffer());
       const digest = hex(await sha256(bytes));
       if (last?.digest === digest) {
@@ -718,20 +720,26 @@ export class CloudHomeHost extends Container<Env> {
 
   private learn(record: HomeRecord, credential: WakeCredential, key: string, response: Response): void {
     const now = Date.now();
-    if (remembered(this.wakers, key, now)) {
-      if (seenLongAgo(this.wakers, key, now)) this.ctx.waitUntil(this.remember(key));
-      return;
-    }
+    const known = remembered(this.wakers, key, now);
     if (credential.kind === "hook") {
-      if (hookAccepted(response)) this.ctx.waitUntil(this.remember(key));
+      if (known ? seenLongAgo(this.wakers, key, now) : hookAccepted(response)) this.ctx.waitUntil(this.remember(key));
       return;
     }
-    if (this.checking.has(key) || this.refused.has(key) || this.checking.size >= CHECKS_AT_ONCE) return;
+    const denied = response.status === 401 || response.status === 403;
+    if (known && !denied && !seenLongAgo(this.wakers, key, now)) return;
+    if (!known && denied) this.ctx.waitUntil(this.forgetDevice(record, key));
+    if (this.checking.has(key)) return;
+    if (this.checking.size >= CHECKS_AT_ONCE || (!known && this.refused.has(key))) {
+      if (known && denied) this.ctx.waitUntil(this.distrust(record, key));
+      return;
+    }
     const check = this.quietly(sessionCheck(record.origin, credential))
       .then(sessionCheckOutcome)
+      .catch((): CheckOutcome => "unknown")
       .then(async (outcome) => {
         if (outcome === "owner") await this.remember(key);
         if (outcome === "refused") this.refuse(key);
+        if (outcome === "refused" || (outcome === "unknown" && denied)) await this.distrust(record, key);
       })
       .catch(() => undefined)
       .finally(() => this.checking.delete(key));
@@ -745,11 +753,13 @@ export class CloudHomeHost extends Container<Env> {
     return remembered(this.wakers, key, Date.now());
   }
 
-  private async forgetWaker(key: string): Promise<void> {
-    if (!(key in this.wakers)) return;
-    const { [key]: _, ...rest } = this.wakers;
-    this.wakers = rest;
-    await this.ctx.storage.put(WAKERS_KEY, this.wakers);
+  private async distrust(record: HomeRecord, key: string): Promise<void> {
+    if (key in this.wakers) {
+      const { [key]: _, ...rest } = this.wakers;
+      this.wakers = rest;
+      await this.ctx.storage.put(WAKERS_KEY, this.wakers);
+    }
+    await this.forgetDevice(record, key);
   }
 
   private async remember(key: string): Promise<void> {
