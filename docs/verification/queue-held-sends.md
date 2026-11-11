@@ -87,7 +87,7 @@ half (`src/**`) in one pull request, and replaces pull requests #157 and #159.
 | D8 copy removed without a definite answer | fixed (failed ask, groups of 50); third point accepted as is | `held-sends.test.ts` "takes a failed ask as no answer at all…", "asks about at most as many sends at once as the edge reads"; `send-outbox.test.ts` "keeps the copy however long asking the edge fails…", "asks about fifty messages at a time…" |
 | D10 overlapping settles | fixed | `send-outbox.test.ts` "settles one refresh at a time…", "runs a refresh that arrived during a settle once more afterwards…" |
 | Error text | fixed | `src/lib/plain-client-error.test.ts` "says a queued message that is gone in a sentence…"; wiring test "forgets the copy when cancel is answered, and says a message that is gone in a sentence" |
-| Lookup by send id after a home restart | fixed | `server/steer-queue.test.ts` and `server/channel-queue.test.ts` "after a restart, still finds … by the sender's id, so a send again adds nothing and cancel by that id works" (restore from the durable journal, then cancel); see "Fixture proofs" for the running-home check |
+| Lookup by send id after a home restart | fixed | `server/steer-queue.test.ts` and `server/channel-queue.test.ts` "after a restart, still finds … by the sender's id, so a send again adds nothing and cancel by that id works" (restore from the durable journal, then cancel); `server/laterdog/queue-send-id-restart.e2e.test.ts` does it at a running fixture home that is killed and started again |
 | The store wiring itself | covered | `src/state/held-sends-wiring.test.ts` drives the app's reducer and the real outbox, five tests |
 
 ## Fixture proofs
@@ -98,20 +98,21 @@ home, the Mac app or a phone.
 | Case | Where |
 | --- | --- |
 | Reconnect while the edge holds a message | device: `send-outbox.test.ts` "keeps the copy through a refresh the edge answers…", "keeps the copy while the connection is down, and on reconnecting takes the home's word…"; wiring test "after a restart, keeps the copy and the queued row while the edge answers the refresh…"; edge: `test/desk.test.ts` "keeps a waiting message in the saved chat list" |
-| Home restart with the message queued, then cancel by send id | `server/steer-queue.test.ts`, `server/channel-queue.test.ts` (journal restore, module level) |
+| Home restart with the message queued, then cancel by send id | running fixture home, killed and started again: `server/laterdog/queue-send-id-restart.e2e.test.ts` (two messages wait through the restart; the one still waiting afterwards is cancelled by its send id, is never delivered and is refused when sent again, and the other goes once); passed 5 runs of 5. Journal restore at module level: `server/steer-queue.test.ts`, `server/channel-queue.test.ts` |
 | Cancel racing Send now and delivery | `server/steer-queue.test.ts` "gives a cancel and a delivery of the same message one winner…"; `server/steer-e2e.test.ts` "gives a cancel and a Send now that arrive together one winner…", "tells a cancel that arrives while Send now is delivering the message that it is no longer waiting, and delivers it once" (running fixture home); edge `test/wake-guard.test.ts` "does not answer a cancel from the edge while the message is on its way to the home…" |
 | A retry never delivers twice | `send-outbox.test.ts` "keeps one copy and one queued row when the same send is sent again while the edge holds it"; wiring test "shows one message when the same send is sent again while the edge holds it and again after the home took it"; `server/laterdog/queued-steer.e2e.test.ts` second test; edge `wake-guard.test.ts` |
 | Refused or expired comes back as Not sent with the words | `send-outbox.test.ts` "puts the message in the Not sent row with its words when the edge says the home refused it or the hour ran out", "learns that the edge dropped the message without any refresh…", and the group and no-composer cases; wiring test first test; edge `wake-guard.test.ts` "says which held messages it still has, and which the home refused…" |
 
 ## What was run
 
-Measured on the Linux cloud computer (Node 24.22.2) at head `848e88d`, 2026-11-11.
+Measured on the Linux cloud computer (Node 24.22.2), 2026-11-11. The first three rows ran at `848e88d`.
 
 | Suite | Result |
 | --- | --- |
 | Edge, `deploy/laterdog/home`, `pnpm exec vitest run` | 293 passed, 31 files |
 | Server files this branch touches plus `server/steer-e2e.test.ts` (`channel-queue`, `steer-queue`, `laterdog/queued-steer`, `laterdog/queued-steer.e2e`, `laterdog/plain-error`, `chat-followups-restart`, `steer-e2e`) | 99 passed, 7 files |
 | Device files this branch touches (`src/state/send-outbox`, `src/state/held-sends-wiring`, `src/lib/held-sends`, `src/lib/plain-client-error`, `src/lib/outbox`, `src/lib/drafts`) | 98 passed, 6 files |
+| `server/laterdog/queue-send-id-restart.e2e.test.ts`, added after the runs above | 1 passed, 5 runs of 5 |
 | Repo gates (typecheck, lint, full vitest with no-comments and brand-links) | see "Full gates" below |
 
 ## Full gates
