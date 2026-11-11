@@ -128,4 +128,16 @@ describe("a message that was not sent", () => {
     expect(sends()).toEqual([expect.objectContaining({ botId: "biscuit", sendId: "not-sent-0001", text: "ship the build" })]);
     expect(host.textContent).not.toContain("Not sent:");
   });
+
+  it("tells the store which message was dismissed, so its notice can go with the row", async () => {
+    const bot = { ...biscuit(false), threadId: "thread-dismissed" };
+    rememberFailedComposerSend(`bot:${bot.id}:${bot.threadId}`, {
+      sendId: "not-sent-0002", text: "ship the build", requestText: "ship the build", threadId: bot.threadId,
+    });
+    await act(async () => root.render(createElement(Composer, { bot })));
+    const dismiss = host.querySelector<HTMLButtonElement>('button[aria-label="Dismiss failed message"]')!;
+    await act(async () => { dismiss.click(); });
+    expect(host.textContent).not.toContain("Not sent:");
+    expect(fixture.dispatch.mock.calls.map(([action]) => action)).toContainEqual({ type: "notSentDismissed", sendId: "not-sent-0002" });
+  });
 });

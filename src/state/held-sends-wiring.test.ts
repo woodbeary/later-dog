@@ -337,3 +337,41 @@ describe("held messages through the app's own store", () => {
     expect(seen.pendingQueued["room-thread"]).toBeUndefined();
   });
 });
+
+describe("the notice that a held message was not sent", () => {
+  const dropByEdge = async () => {
+    keepOnDevice();
+    const home: Home = { chats: savedChats, held: { held: [], dropped: [{ id: HELD_ID, why: "refused", at: 9 }] } };
+    await mount(home);
+    expect(seen.paneErrors["chat:thread"]?.line).toBe(HELD_NOT_SENT);
+  };
+
+  it("goes at once when the person presses Send again on that message", async () => {
+    await dropByEdge();
+    flushSync(() => dispatch({ type: "send", botId: "bot", threadId: "thread", text: WORDS, sendId: HELD_ID, recovery: { draftId: DRAFT, text: WORDS } }));
+    expect(seen.paneErrors["chat:thread"]).toBeUndefined();
+    await settle();
+  });
+
+  it("goes at once when the person dismisses that message", async () => {
+    await dropByEdge();
+    flushSync(() => dispatch({ type: "notSentDismissed", sendId: HELD_ID }));
+    expect(seen.paneErrors["chat:thread"]).toBeUndefined();
+  });
+
+  it("leaves a later error in the same chat alone", async () => {
+    await dropByEdge();
+    flushSync(() => dispatch({ type: "reportError", error: null, pane: "chat:thread", line: "That dog is busy." }));
+    flushSync(() => dispatch({ type: "notSentDismissed", sendId: HELD_ID }));
+    expect(seen.paneErrors["chat:thread"]?.line).toBe("That dog is busy.");
+    flushSync(() => dispatch({ type: "send", botId: "bot", threadId: "thread", text: WORDS, sendId: HELD_ID, recovery: { draftId: DRAFT, text: WORDS } }));
+    expect(seen.paneErrors["chat:thread"]?.line).toBe("That dog is busy.");
+    await settle();
+  });
+
+  it("leaves the notice for another message alone", async () => {
+    await dropByEdge();
+    flushSync(() => dispatch({ type: "notSentDismissed", sendId: "wiring-held-send-0002" }));
+    expect(seen.paneErrors["chat:thread"]?.line).toBe(HELD_NOT_SENT);
+  });
+});

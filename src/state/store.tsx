@@ -968,6 +968,7 @@ export type Action =
   | { type: "firstPaintDropped" }
   | PaneErrorAction
   | { type: "reportError"; error: unknown; pane?: PaneKey; line?: string }
+  | { type: "notSentDismissed"; sendId: string }
   | { type: "retryPane"; pane: PaneKey }
   | { type: "toggleSettings"; open?: boolean; section?: BotSettingsSection; botId?: string }
   | { type: "togglePlugins"; open?: boolean; surface?: "apps" | "mcp" }
@@ -1733,6 +1734,7 @@ function baseReducer(state: AppState, action: Action): AppState {
     }
     case "reportError":
     case "retryPane":
+    case "notSentDismissed":
       return state;
     case "toggleSettings": {
       if (action.botId !== undefined && !state.bots.some((bot) => bot.id === action.botId && !bot.hidden)) return state;
@@ -2379,7 +2381,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     sendOutboxRef.current ??= createSendOutbox({
       request: api,
       dispatch: rawDispatch,
-      showError: (error, threadId) => paneErrors.report(error, threadId ? chatPane(threadId) : undefined),
+      showError: (error, threadId) => {
+        const notice = paneErrors.report(error, threadId ? chatPane(threadId) : undefined);
+        return () => rawDispatch({ type: "paneErrorCleared", ...notice });
+      },
     });
     return sendOutboxRef.current;
   }, [paneErrors]);
@@ -2512,6 +2517,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       if (action.type === "retryPane") {
         paneErrors.retry(action.pane);
+        return;
+      }
+      if (action.type === "notSentDismissed") {
+        sendOutbox().dismissed(action.sendId);
         return;
       }
       action = pinBotThreadAction(action, stateRef.current.bots);

@@ -29,7 +29,7 @@ type Store = ReturnType<typeof browserStore>;
 export interface SendOutboxDeps {
   request: (path: string, init: ApiInit) => Promise<any>;
   dispatch: (action: Action) => void;
-  showError: (error: unknown, threadId: string) => void;
+  showError: (error: unknown, threadId: string) => (() => void) | void;
   store?: Store;
   after?: (ms: number, run: () => void) => () => void;
   now?: () => number;
@@ -47,6 +47,7 @@ export interface SendOutbox {
   queued(queues: unknown): void;
   settleHeld(bots: readonly Pick<Bot, "messages">[], groups: readonly Pick<Group, "messages">[], queues?: unknown): Promise<void>;
   cancelled(queueId: string): void;
+  dismissed(sendId: string): void;
   resume(): void;
   dispose(): void;
 }
@@ -240,6 +241,16 @@ function createHeldSendKeeper(deps: {
 export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
   const store = "store" in deps ? deps.store : browserStore();
   const hooks = new Map<string, SendHooks>();
+  const notSentNotices = new Map<string, () => void>();
+  const sayNotSent = (sendId: string, error: unknown, threadId: string) => {
+    const takeBack = deps.showError(error, threadId);
+    if (takeBack) notSentNotices.set(sendId, takeBack);
+    else notSentNotices.delete(sendId);
+  };
+  const takeBackNotSent = (sendId: string) => {
+    notSentNotices.get(sendId)?.();
+    notSentNotices.delete(sendId);
+  };
   const now = deps.now ?? Date.now;
   const heldCopy = (item: OutboxItem, threadId: string): HeldSend => ({
     sendId: item.sendId,
@@ -296,7 +307,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
       const onError = hooks.get(item.sendId)?.onError;
       hooks.delete(item.sendId);
       deps.dispatch({ type: "optimisticMessageRemoved", threadId: item.threadId, sendId: item.sendId });
-      deps.showError(error, item.threadId);
+      sayNotSent(item.sendId, error, item.threadId);
       if (onError) onError();
       else if (item.recovery) {
         rememberFailedComposerSend(item.recovery.draftId, {
@@ -319,7 +330,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     onLost: (send) => {
       deps.dispatch({ type: "consumePendingQueued", threadId: send.threadId, queueId: send.sendId });
       rememberFailedComposerSend(send.draftId, { sendId: send.sendId, text: send.text, requestText: send.requestText, replyToId: send.replyToId, threadId: send.threadId });
-      deps.showError(new SendRefusedError(HELD_NOT_SENT), send.threadId);
+      sayNotSent(send.sendId, new SendRefusedError(HELD_NOT_SENT), send.threadId);
     },
     onGone: (send) => deps.dispatch({ type: "consumePendingQueued", threadId: send.threadId, queueId: send.sendId }),
   });
@@ -350,6 +361,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     send(item, sendHooks) {
       sendHooks?.ready?.catch(() => {});
       if (sendHooks) hooks.set(item.sendId, sendHooks);
+      takeBackNotSent(item.sendId);
       outbox.enqueue(item);
     },
     pending(bots, groups, queues) {
@@ -382,6 +394,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     },
     settleHeld: (bots, groups, queues) => heldSends.settle({ bots, groups, queues }),
     cancelled: (queueId) => heldSends.forget(queueId),
+    dismissed: takeBackNotSent,
     resume: () => outbox.resume(),
     dispose: () => {
       heldSends.dispose();

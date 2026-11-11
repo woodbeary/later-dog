@@ -830,7 +830,10 @@ export function Composer({
             </button>
             <button
               type="button"
-              onClick={() => forgetFailedComposerSend(draftId, failed.id)}
+              onClick={() => {
+                forgetFailedComposerSend(draftId, failed.id);
+                dispatch({ type: "notSentDismissed", sendId: failed.sendId });
+              }}
               aria-label={t("composer.failed.dismissAria")}
               title={t("composer.failed.dismiss")}
               className="flex size-5 shrink-0 items-center justify-center rounded hover:bg-inset hover:text-ink"

@@ -34,15 +34,16 @@ export function withShownLines<T extends SavedChat>(shown: T | undefined, saved:
   const leadingIsOlder = anchor !== null || saved.messages.length === 0 || leading.length === 0 || leading[0]!.at <= saved.messages[0]!.at;
   let messages = leadingIsOlder ? [...leading, ...body] : [...body, ...leading];
 
-  let leaf = shownLeaf(shown);
-  if (leaf === null || !held.has(leaf)) {
-    leaf = saved.activeLeafId ?? null;
-  } else {
+  const ownLeaf = shownLeaf(shown);
+  let leaf = saved.activeLeafId ?? null;
+  if (ownLeaf !== null && held.has(ownLeaf)) {
+    let tip = ownLeaf;
     for (const unseen of saved.messages.filter((message) => !held.has(message.id))) {
-      const line = afterShownLeaf(messages, leaf, unseen);
+      const line: Message = afterShownLeaf(messages, tip, unseen);
       if (line !== unseen) messages = messages.map((message) => (message.id === line.id ? line : message));
-      if ((line.parentId ?? null) === leaf || descendsFrom(messages, line.parentId ?? null, leaf)) leaf = line.id;
+      if (line.parentId === tip || descendsFrom(messages, line.parentId ?? null, tip)) tip = line.id;
     }
+    leaf = tip;
   }
   const leafless = saved.activeLeafId === undefined && shown.activeLeafId === undefined;
   return {

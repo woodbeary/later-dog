@@ -69,8 +69,13 @@ export interface PaneErrorDetails {
   retry?: () => void;
 }
 
+export interface PaneNotice {
+  pane: PaneKey;
+  id: number;
+}
+
 export interface PaneErrorReporter {
-  report: (error: unknown, pane?: PaneKey, details?: PaneErrorDetails) => void;
+  report: (error: unknown, pane?: PaneKey, details?: PaneErrorDetails) => PaneNotice;
   retry: (pane: PaneKey) => void;
 }
 
@@ -96,6 +101,7 @@ export function createPaneErrorReporter(deps: {
         pane,
         error: { id, line: details.line ?? plainClientError(error), retryable: Boolean(details.retry) },
       });
+      return { pane, id };
     },
     retry(pane) {
       const entry = retries.get(pane);
