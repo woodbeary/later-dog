@@ -137,7 +137,7 @@
     33,
     33.1
    ],
-   "difference": "+0.1 (+0%)",
+   "difference": "+0.1 (under 1%)",
    "verdict": "no measurable change"
   },
   "Typing: frames slower than 25 ms": {
@@ -193,7 +193,7 @@
     3223,
     3223
    ],
-   "difference": "+2 (+0%)",
+   "difference": "+2 (under 1%)",
    "verdict": "higher in every run"
   },
   "Cold load: first paint, median of 5 (ms)": {
@@ -431,7 +431,7 @@
     998,
     1000
    ],
-   "difference": "-1 (-0%)",
+   "difference": "-1 (under 1%)",
    "verdict": "no measurable change"
   },
   "Browser process tree, highest in the run, resident (MB)": {
@@ -683,7 +683,7 @@
     1042.7,
     1051.2
    ],
-   "difference": "-2.5 (-0%)",
+   "difference": "-2.5 (under 1%)",
    "verdict": "no measurable change"
   },
   "Four other dogs working: slowest frame (ms)": {
@@ -725,7 +725,7 @@
     1283,
     1312
    ],
-   "difference": "+5 (+0%)",
+   "difference": "+5 (under 1%)",
    "verdict": "no measurable change"
   }
  },
@@ -825,7 +825,7 @@
     4141,
     3781
    ],
-   "difference": "+2 (+0%)",
+   "difference": "+2 (under 1%)",
    "verdict": "no measurable change"
   },
   "Key press to frame, median of 119 keys (ms)": {
@@ -1119,7 +1119,7 @@
     28.4,
     28.3
    ],
-   "difference": "+0.1 (+0%)",
+   "difference": "+0.1 (under 1%)",
    "verdict": "higher in every run"
   },
   "Page process memory at idle (MB)": {
@@ -1189,7 +1189,7 @@
     15779,
     15779
    ],
-   "difference": "+31 (+0%)",
+   "difference": "+31 (under 1%)",
    "verdict": "higher in every run"
   },
   "Rows in the long chat 1.5 s after opening": {

@@ -169,7 +169,8 @@ def difference(base, main):
     if change == 0:
         return "0"
     sign = "+" if change > 0 else "-"
-    share = f" ({sign}{abs(change) / before * 100:.0f}%)" if before else ""
+    percent = abs(change) / before * 100 if before else None
+    share = "" if percent is None else " (under 1%)" if percent < 0.5 else f" ({sign}{percent:.0f}%)"
     return f"{sign}{number(abs(change))}{share}"
 
 
@@ -231,7 +232,23 @@ HEADINGS = {
     "sc-80": "### Store changes, at 80 dogs",
     "layers-80": "### Layers at 80 dogs",
     "waits": "### Every run, in the order it ran",
+    "worse": "### Worse on main in every run",
 }
+
+
+def worse(summary, out):
+    names = {"default": "timed run", "ods": "`--one-dog-streams`", "sc": "`--store-changes`"}
+    found = 0
+    for key, rows in summary.items():
+        kind, dogs = key.split("-")
+        for name, row in rows.items():
+            if row.get("verdict") != "higher in every run":
+                continue
+            found += 1
+            out.append(f"- {dogs} dogs, {names[kind]}. {name}: {cell(row['base'])} on base, {cell(row['main'])} on main, {row['difference']}.")
+    if not found:
+        out.append("None so far.")
+    out.insert(0, f"\nMeasures where every run of main was higher than every run of base, lower being better, {found} in all. Medians, with the lowest and highest run in brackets.\n")
 
 
 def write_note(path, blocks):
@@ -254,6 +271,8 @@ def main():
         for dogs in (7, 80):
             blocks[f"{kind}-{dogs}"] = []
             summary[f"{kind}-{dogs}"] = table(kind, dogs, blocks[f"{kind}-{dogs}"])
+    blocks["worse"] = []
+    worse(summary, blocks["worse"])
     blocks["layers-80"] = []
     summary["layers-80"] = layers(blocks["layers-80"])
     blocks["waits"] = []
