@@ -955,7 +955,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
   };
 
   return (
-    <div className="group relative" title={iconOnly ? bot.name : undefined}>
+    <div className="group relative" data-sidebar-row="" title={iconOnly ? bot.name : undefined}>
       <div
         role={renaming ? undefined : "button"}
         tabIndex={renaming ? undefined : 0}

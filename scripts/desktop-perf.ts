@@ -308,7 +308,22 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
   const shots = process.argv.includes("--shots") ? resolve(option("shots")) : null;
   if (shots && !counting) {
     mkdirSync(shots, { recursive: true });
-    await (page as unknown as { screenshot(options: { path: string }): Promise<unknown> }).screenshot({ path: join(shots, `${setup.label}-long-chat.png`) });
+    const shoot = (name: string) => (page as unknown as { screenshot(options: { path: string }): Promise<unknown> }).screenshot({ path: join(shots, `${setup.label}-${name}.png`) });
+    await shoot("long-chat");
+    await page.mouse.move(160, 400);
+    await page.mouse.wheel(0, 1_400);
+    await page.waitForTimeout(400);
+    await shoot("sidebar-scrolled");
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    await page.waitForTimeout(200);
+    await shoot("sidebar-focus");
+    await page.mouse.move(160, 300);
+    await page.waitForTimeout(200);
+    await shoot("sidebar-hover");
+    await page.mouse.wheel(0, -4_000);
+    await page.waitForTimeout(300);
+    await page.mouse.move(820, 420);
   }
   await open(page, short);
 
@@ -395,7 +410,7 @@ interface ProfileNode {
   callFrame: { functionName: string; url: string; lineNumber: number };
 }
 
-async function switchProfile(browser: { newContext(options: unknown): Promise<{ addInitScript(script: string): Promise<void>; newPage(): Promise<Page>; close(): Promise<void> }> }, url: string, dogs: { long: Dog; others: Dog[] }) {
+async function switchProfile(browser: { newContext(options: unknown): Promise<{ addInitScript(script: string): Promise<void>; newPage(): Promise<Page>; close(): Promise<void> }> }, url: string, dogs: { long: Dog; others: Dog[] }, typing = false) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   await context.addInitScript(PAGE_PROBE);
   const page = await context.newPage();
@@ -406,10 +421,34 @@ async function switchProfile(browser: { newContext(options: unknown): Promise<{ 
   const session = await page.context().newCDPSession(page) as unknown as { send(method: string, params?: unknown): Promise<{ profile?: { nodes: ProfileNode[]; samples: number[]; timeDeltas: number[] } }> };
   await session.send("Profiler.enable");
   await session.send("Profiler.setSamplingInterval", { interval: 200 });
-  await session.send("Profiler.start");
-  for (let round = 0; round < 6; round += 1) {
+  if (!typing) await session.send("Profiler.start");
+  if (typing) {
     await open(page, dogs.long);
-    await open(page, dogs.others[0]!);
+    await page.waitForTimeout(1_500);
+    await page.click(composerOf(dogs.long));
+    const tracer = session as unknown as { on(event: string, listener: (payload: { value?: Array<{ name: string; ph: string; dur?: number }> }) => void): void; send(method: string, params?: unknown): Promise<unknown> };
+    const stages = new Map<string, { ms: number; count: number }>();
+    const finished = new Promise<void>((done) => tracer.on("Tracing.tracingComplete", () => done()));
+    tracer.on("Tracing.dataCollected", ({ value = [] }) => {
+      for (const event of value) {
+        if (event.ph !== "X" || !event.dur) continue;
+        const stage = stages.get(event.name) ?? { ms: 0, count: 0 };
+        stage.ms += event.dur / 1000;
+        stage.count += 1;
+        stages.set(event.name, stage);
+      }
+    });
+    await tracer.send("Tracing.start", { transferMode: "ReportEvents", traceConfig: { includedCategories: ["devtools.timeline"] } });
+    await session.send("Profiler.start");
+    await page.keyboard.type("Can you also check whether the release notes mention the bigger chat text and the new usage sheet?", { delay: 35 });
+    await tracer.send("Tracing.end");
+    await finished;
+    process.stdout.write(`${JSON.stringify([...stages.entries()].sort((left, right) => right[1].ms - left[1].ms).slice(0, 16).map(([name, stage]) => `${Math.round(stage.ms)} ms x${stage.count}  ${name}`), null, 2)}\n`);
+  } else {
+    for (let round = 0; round < 6; round += 1) {
+      await open(page, dogs.long);
+      await open(page, dogs.others[0]!);
+    }
   }
   const { profile } = await session.send("Profiler.stop");
   await context.close();
@@ -521,8 +560,8 @@ async function main() {
       await context.close();
       return;
     }
-    if (process.argv.includes("--profile-switch")) {
-      process.stdout.write(`${JSON.stringify(await switchProfile(browser, fixture.info.url, dogs), null, 2)}\n`);
+    if (process.argv.includes("--profile-switch") || process.argv.includes("--profile-typing")) {
+      process.stdout.write(`${JSON.stringify(await switchProfile(browser, fixture.info.url, dogs, process.argv.includes("--profile-typing")), null, 2)}\n`);
       return;
     }
     const cold = await coldLoads(browser, fixture.info.url, setup.coldRuns);
