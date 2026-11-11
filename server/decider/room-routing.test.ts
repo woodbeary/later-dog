@@ -78,7 +78,7 @@ describe("decideRoomResponder", () => {
   });
 
   it("any decider failure falls back with its reason", async () => {
-    for (const reason of ["timeout", "overloaded", "malformed", "disabled"] as const) {
+    for (const reason of ["timeout", "rate_limited", "overloaded", "malformed", "disabled"] as const) {
       await expect(decideRoomResponder(answering({ ok: false, reason }), INPUT)).resolves.toEqual({ kind: "fallback", reason });
     }
   });

@@ -1,0 +1,355 @@
+{
+ "note": "Synthetic last messages from a dog. waiting is true when the dog cannot continue until the owner answers, approves, supplies something or acts.",
+ "items": [
+  {
+   "id": "w001",
+   "message": "Which of the two layouts do you want me to ship: A, the dense one, or B, the airy one?",
+   "waiting": true
+  },
+  {
+   "id": "w002",
+   "message": "I need the Stripe secret key before I can continue. A secure card is open in this chat.",
+   "waiting": true
+  },
+  {
+   "id": "w003",
+   "message": "The release is built and checked. Say go and I will publish it.",
+   "waiting": true
+  },
+  {
+   "id": "w004",
+   "message": "I cannot go further until you approve the sign-in on your phone.",
+   "waiting": true
+  },
+  {
+   "id": "w005",
+   "message": "Should I delete the old branch, or keep it for a week?",
+   "waiting": true
+  },
+  {
+   "id": "w006",
+   "message": "Blocked: the repository is private and I do not have access. Add me as a collaborator or send a token through the vault card.",
+   "waiting": true
+  },
+  {
+   "id": "w007",
+   "message": "Two options are below. Tell me which one and I will finish the page.",
+   "waiting": true
+  },
+  {
+   "id": "w008",
+   "message": "The payment page is open on the cloud computer. Please take over and enter the card details.",
+   "waiting": true
+  },
+  {
+   "id": "w009",
+   "message": "Before I send this email to the client, read the draft above and tell me if the price is right.",
+   "waiting": true
+  },
+  {
+   "id": "w010",
+   "message": "I found three duplicate customers. Do you want them merged or left alone?",
+   "waiting": true
+  },
+  {
+   "id": "w011",
+   "message": "The CAPTCHA needs a person. Take over the screen when you are ready.",
+   "waiting": true
+  },
+  {
+   "id": "w012",
+   "message": "I drafted the reply but will not send it without your yes.",
+   "waiting": true
+  },
+  {
+   "id": "w013",
+   "message": "What is the launch date? I need it for the countdown banner.",
+   "waiting": true
+  },
+  {
+   "id": "w014",
+   "message": "The domain transfer needs the authorization code from your registrar. Send it through the secure form.",
+   "waiting": true
+  },
+  {
+   "id": "w015",
+   "message": "Your Mac is set to ask first and the request timed out. Allow it and I will pick up where I stopped.",
+   "waiting": true
+  },
+  {
+   "id": "w016",
+   "message": "I can do this two ways and they cost differently: a weekend rewrite or a one-hour patch. Which do you want?",
+   "waiting": true
+  },
+  {
+   "id": "w017",
+   "message": "Please confirm the refund amount of 240 dollars so I can issue it.",
+   "waiting": true
+  },
+  {
+   "id": "w018",
+   "message": "Waiting on you: the passkey prompt is showing on the cloud computer.",
+   "waiting": true
+  },
+  {
+   "id": "w019",
+   "message": "Do you want the report as a PDF or as a spreadsheet? I have the data ready either way.",
+   "waiting": true
+  },
+  {
+   "id": "w020",
+   "message": "The form asks for your date of birth and I do not have it. A secure form is open for it.",
+   "waiting": true
+  },
+  {
+   "id": "w021",
+   "message": "I stopped before deleting the 412 files. Reply delete to go ahead.",
+   "waiting": true
+  },
+  {
+   "id": "w022",
+   "message": "One thing only you can decide: keep Expo, or move the phone app to a native rewrite?",
+   "waiting": true
+  },
+  {
+   "id": "w023",
+   "message": "I need your approval to merge to main; the checks are green.",
+   "waiting": true
+  },
+  {
+   "id": "w024",
+   "message": "The bank wants a one-time code sent to your phone. Enter it in the card when it arrives.",
+   "waiting": true
+  },
+  {
+   "id": "w025",
+   "message": "Which account should pay for this, personal or business?",
+   "waiting": true
+  },
+  {
+   "id": "w026",
+   "message": "I could not find the contract you mentioned. Can you attach it?",
+   "waiting": true
+  },
+  {
+   "id": "w027",
+   "message": "Ready to post. Approve the draft and it goes out.",
+   "waiting": true
+  },
+  {
+   "id": "w028",
+   "message": "The two reviews disagree and I will not pick for you: ship today with the known bug, or wait for the fix on Thursday?",
+   "waiting": true
+  },
+  {
+   "id": "w029",
+   "message": "Tell me the size you want for the banner and I will export it.",
+   "waiting": true
+  },
+  {
+   "id": "w030",
+   "message": "The installer needs your Mac password. It is asking on your screen now.",
+   "waiting": true
+  },
+  {
+   "id": "w031",
+   "message": "Is the meeting on the 14th or the 15th? The invite and your note disagree.",
+   "waiting": true
+  },
+  {
+   "id": "w032",
+   "message": "I paused the migration at step 3 of 5 because it will drop a table. Confirm and I will continue.",
+   "waiting": true
+  },
+  {
+   "id": "w033",
+   "message": "Send me the logo file and I will finish the header.",
+   "waiting": true
+  },
+  {
+   "id": "w034",
+   "message": "I have a question that changes the design: should guests be able to comment?",
+   "waiting": true
+  },
+  {
+   "id": "w035",
+   "message": "Nothing more I can do without the API key. Use the credential card above.",
+   "waiting": true
+  },
+  {
+   "id": "n001",
+   "message": "Done. The pull request is merged and the tests pass.",
+   "waiting": false
+  },
+  {
+   "id": "n002",
+   "message": "Shipped the fix. Nothing is needed from you.",
+   "waiting": false
+  },
+  {
+   "id": "n003",
+   "message": "I am running the test suite now and will report when it finishes.",
+   "waiting": false
+  },
+  {
+   "id": "n004",
+   "message": "Why was it slow? The cache was cold. I fixed that and the page now loads in 300 ms.",
+   "waiting": false
+  },
+  {
+   "id": "n005",
+   "message": "Let me know if you want any changes.",
+   "waiting": false
+  },
+  {
+   "id": "n006",
+   "message": "Here is the summary you asked for: three bugs fixed, one left open with a note in the tracker.",
+   "waiting": false
+  },
+  {
+   "id": "n007",
+   "message": "Waiting for the publishing dog to release the build; I will check back when it does.",
+   "waiting": false
+  },
+  {
+   "id": "n008",
+   "message": "The build failed twice. Retrying with a clean cache now.",
+   "waiting": false
+  },
+  {
+   "id": "n009",
+   "message": "A question for the desktop dog, not for you: which file owns the composer?",
+   "waiting": false
+  },
+  {
+   "id": "n010",
+   "message": "All 1,884 tests pass and the export builds.",
+   "waiting": false
+  },
+  {
+   "id": "n011",
+   "message": "I merged the change and handed the release to the publishing dog.",
+   "waiting": false
+  },
+  {
+   "id": "n012",
+   "message": "The page is live. Before and after screenshots are attached.",
+   "waiting": false
+  },
+  {
+   "id": "n013",
+   "message": "What changed? Only the header spacing and the button label.",
+   "waiting": false
+  },
+  {
+   "id": "n014",
+   "message": "I updated the memory note so the next session knows about the new folder.",
+   "waiting": false
+  },
+  {
+   "id": "n015",
+   "message": "The download is at 60 percent and still going.",
+   "waiting": false
+  },
+  {
+   "id": "n016",
+   "message": "No duplicates found. The customer list is clean.",
+   "waiting": false
+  },
+  {
+   "id": "n017",
+   "message": "I sent the review request to the other dog and I am carrying on with the phone screens meanwhile.",
+   "waiting": false
+  },
+  {
+   "id": "n018",
+   "message": "The invoice total is 1,240 dollars and it was paid on March 3.",
+   "waiting": false
+  },
+  {
+   "id": "n019",
+   "message": "Finished: the banner is exported at three sizes and saved in the shared folder.",
+   "waiting": false
+  },
+  {
+   "id": "n020",
+   "message": "The server restarted during the job. I picked up from the last saved step and it completed.",
+   "waiting": false
+  },
+  {
+   "id": "n021",
+   "message": "Is it faster now? Yes, by about half, measured over five runs.",
+   "waiting": false
+  },
+  {
+   "id": "n022",
+   "message": "I will keep an eye on the queue tonight and post the result in the morning.",
+   "waiting": false
+  },
+  {
+   "id": "n023",
+   "message": "The other dog is reviewing the pull request; I am not blocked and I am writing the tests for the next part.",
+   "waiting": false
+  },
+  {
+   "id": "n024",
+   "message": "Here are the three hotels with prices and distances. The cheapest is 189 dollars a night.",
+   "waiting": false
+  },
+  {
+   "id": "n025",
+   "message": "The cause was a wrong id in the queue. The fix is merged.",
+   "waiting": false
+  },
+  {
+   "id": "n026",
+   "message": "Happy to add dark mode later if you ever want it. Everything you asked for is finished.",
+   "waiting": false
+  },
+  {
+   "id": "n027",
+   "message": "The crawl finished with no errors and 212 pages indexed.",
+   "waiting": false
+  },
+  {
+   "id": "n028",
+   "message": "I retried the upload after the timeout and it went through.",
+   "waiting": false
+  },
+  {
+   "id": "n029",
+   "message": "Summary of today: two releases, one rollback avoided, no open questions.",
+   "waiting": false
+  },
+  {
+   "id": "n030",
+   "message": "The scheduled routine ran at nine and found nothing new.",
+   "waiting": false
+  },
+  {
+   "id": "n031",
+   "message": "Still working: the image build is on step 4 of 9.",
+   "waiting": false
+  },
+  {
+   "id": "n032",
+   "message": "I wrote the plan to the file and started on the first step.",
+   "waiting": false
+  },
+  {
+   "id": "n033",
+   "message": "The cloud computer was asleep, so the first command took a minute. It is awake now and the run is going.",
+   "waiting": false
+  },
+  {
+   "id": "n034",
+   "message": "Thanks. Closing this out; the task is complete.",
+   "waiting": false
+  },
+  {
+   "id": "n035",
+   "message": "The email draft is saved. You did not ask me to send it, so it stays a draft.",
+   "waiting": false
+  }
+ ]
+}
