@@ -118,11 +118,16 @@ async function seed(api: ReturnType<typeof fixtureApi>, setup: Options): Promise
 }
 
 const PAGE_PROBE = `(() => {
-  const perf = { commits: 0, rendered: 0, counting: false, longTasks: [], frames: [], composerAt: null, keys: [] };
+  const perf = { commits: 0, rendered: 0, counting: false, longTasks: [], frames: [], composerAt: null, keys: [], names: new Map() };
   window.__perf = perf;
   const component = (tag) => tag === 0 || tag === 1 || tag === 11 || tag === 14 || tag === 15;
   const visit = (next, previous) => {
-    if (component(next.tag) && (next.flags & 1) === 1) perf.rendered += 1;
+    if (component(next.tag) && (next.flags & 1) === 1) {
+      perf.rendered += 1;
+      const type = next.type && (next.type.type || next.type.render || next.type);
+      const name = (next.type && next.type.displayName) || (type && (type.displayName || type.name)) || "(unnamed)";
+      perf.names.set(name, (perf.names.get(name) || 0) + 1);
+    }
     if (previous && next.child === previous.child) return;
     for (let child = next.child; child; child = child.sibling) visit(child, child.alternate);
   };
@@ -147,7 +152,7 @@ const PAGE_PROBE = `(() => {
     const pressed = event.timeStamp;
     requestAnimationFrame(() => requestAnimationFrame((shown) => perf.keys.push(shown - pressed)));
   }, true);
-  perf.begin = () => { perf.commits = 0; perf.rendered = 0; perf.longTasks.length = 0; perf.frames.length = 0; perf.keys.length = 0; perf.startedAt = performance.now(); };
+  perf.begin = () => { perf.names.clear(); perf.commits = 0; perf.rendered = 0; perf.longTasks.length = 0; perf.frames.length = 0; perf.keys.length = 0; perf.startedAt = performance.now(); };
   perf.end = () => ({
     ms: performance.now() - perf.startedAt,
     commits: perf.commits,
@@ -158,6 +163,7 @@ const PAGE_PROBE = `(() => {
     slowFrames: perf.frames.filter((gap) => gap > 25).length,
     worstFrameMs: perf.frames.reduce((worst, gap) => Math.max(worst, gap), 0),
     keys: [...perf.keys],
+    top: [...perf.names.entries()].sort((left, right) => right[1] - left[1]).slice(0, 30).map(([name, count]) => name + " " + count),
   });
   perf.until = (test, timeoutMs) => new Promise((done, fail) => {
     const deadline = performance.now() + timeoutMs;
@@ -193,14 +199,14 @@ async function open(page: Page, dog: Dog): Promise<number> {
   }, { row: rowOf(dog), composer: composerOf(dog), name: dog.name });
 }
 
-async function measured<T>(page: Page, counting: boolean, work: () => Promise<T>): Promise<Activity & { keys: number[]; value: T }> {
+async function measured<T>(page: Page, counting: boolean, work: () => Promise<T>): Promise<Activity & { keys: number[]; top: string[]; value: T }> {
   await page.evaluate((on: boolean) => {
     const perf = (window as unknown as { __perf: { counting: boolean; begin(): void } }).__perf;
     perf.counting = on;
     perf.begin();
   }, counting);
   const value = await work();
-  const result = await page.evaluate(() => (window as unknown as { __perf: { end(): Activity & { keys: number[] } } }).__perf.end());
+  const result = await page.evaluate(() => (window as unknown as { __perf: { end(): Activity & { keys: number[]; top: string[] } } }).__perf.end());
   return { ...result, value };
 }
 
@@ -242,6 +248,11 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
     const scroller = document.querySelector('[role="log"]')!.parentElement!;
     return { rows: document.querySelectorAll('[role="log"] [data-mid]').length, pixelsFromBottom: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight) };
   });
+  const shots = process.argv.includes("--shots") ? resolve(option("shots")) : null;
+  if (shots && !counting) {
+    mkdirSync(shots, { recursive: true });
+    await (page as unknown as { screenshot(options: { path: string }): Promise<unknown> }).screenshot({ path: join(shots, `${setup.label}-long-chat.png`) });
+  }
   await open(page, short);
 
   const toLong: number[] = [];
@@ -304,7 +315,8 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
 
   const after = await heap(page);
   await context.close();
-  const trim = ({ keys: _keys, value: _value, ...rest }: Activity & { keys: number[]; value: unknown }) => rest;
+  const named = process.argv.includes("--names");
+  const trim = ({ keys: _keys, value: _value, top, ...rest }: Activity & { keys: number[]; top: string[]; value: unknown }) => (named && counting ? { ...rest, top } : rest);
   return {
     longChatOpened,
     heapIdleMb: idle.heapMb,
@@ -373,6 +385,10 @@ async function coldLoads(browser: { newContext(options: unknown): Promise<{ addI
     await context.close();
   }
   return { firstPaintMs: distribution(painted), composerReadyMs: distribution(ready) };
+}
+
+function redraws(activity: Activity & { top?: string[] }) {
+  return { commits: activity.commits, rendered: activity.rendered, ...(activity.top ? { top: activity.top } : {}) };
 }
 
 async function main() {
@@ -465,11 +481,11 @@ async function main() {
       cold,
       timed,
       counted: {
-        switching: { commits: counted.switching.commits, rendered: counted.switching.rendered },
-        typing: { commits: counted.typing.commits, rendered: counted.typing.rendered },
-        scrolling: { commits: counted.scrolling.commits, rendered: counted.scrolling.rendered },
-        streaming: { commits: counted.streaming.commits, rendered: counted.streaming.rendered },
-        otherDogsWorking: { commits: counted.otherDogsWorking.commits, rendered: counted.otherDogsWorking.rendered },
+        switching: redraws(counted.switching),
+        typing: redraws(counted.typing),
+        scrolling: redraws(counted.scrolling),
+        streaming: redraws(counted.streaming),
+        otherDogsWorking: redraws(counted.otherDogsWorking),
       },
       memory: memoryAtPeak,
     };
