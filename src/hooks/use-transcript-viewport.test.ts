@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const react = vi.hoisted(() => {
   type Committed = { deps?: DependencyList; cleanup?: void | (() => void) };
   type Pending = { slot: number; layout: boolean; deps?: DependencyList; run: () => void | (() => void) };
-  const runtime = { slots: [] as unknown[], cursor: 0, dirty: false, pending: [] as Pending[] };
+  const runtime = { slots: [] as unknown[], cursor: 0, dirty: false, pending: [] as Pending[], commitNow: () => {} };
   const same = (a?: DependencyList, b?: DependencyList) =>
     Boolean(a && b && a.length === b.length && a.every((value, index) => Object.is(value, b[index])));
   const effect = (layout: boolean) => (run: () => void | (() => void), deps?: DependencyList) => {
@@ -67,6 +67,12 @@ const react = vi.hoisted(() => {
   return { runtime, hooks, render };
 });
 vi.mock("react", async (original) => ({ ...await original<typeof import("react")>(), ...react.hooks }));
+vi.mock("react-dom", () => ({
+  flushSync: (update: () => void) => {
+    update();
+    react.runtime.commitNow();
+  },
+}));
 
 const store = vi.hoisted(() => ({
   state: {
@@ -140,6 +146,7 @@ function mount(initial: Partial<Props> = {}, { opening = false }: { opening?: bo
     }
   };
   let holdOpening = opening;
+  react.runtime.commitNow = () => react.render(draw, commit);
   react.render(draw, commit);
   if (!holdOpening) settle();
   return {
@@ -154,11 +161,11 @@ function mount(initial: Partial<Props> = {}, { opening = false }: { opening?: bo
     act(handler: () => void) {
       handler();
       react.render(draw, commit);
-      if (holdOpening) flushFrames();
-      else settle();
+      if (!holdOpening) settle();
     },
-    frame() {
+    frame(beforeNextDraw: () => void = () => {}) {
       flushFrames();
+      beforeNextDraw();
       react.render(draw, commit);
     },
     settle() {
@@ -228,6 +235,20 @@ describe("transcript viewport", () => {
     expect(view.current.windowedMessages).toHaveLength(120);
   });
 
+  it("names the rows of the filled window from the first frame, so what is counted against them never changes during the fill", () => {
+    const view = mount({ messages: rows(300) }, { opening: true });
+    const filled = () => view.current.filledMessages.map((row) => row.id);
+    const whole = rows(120, 180).map((row) => row.id);
+    expect(view.current.windowedMessages).toHaveLength(30);
+    expect(filled()).toEqual(whole);
+    view.frame();
+    expect(view.current.windowedMessages).toHaveLength(60);
+    expect(filled()).toEqual(whole);
+    view.settle();
+    expect(view.current.filledMessages).toBe(view.current.windowedMessages);
+    expect(filled()).toEqual(whole);
+  });
+
   it("keeps the reader's row where it is when they scroll up before the rest has filled in", () => {
     const view = mount({ messages: rows(300) }, { opening: true });
     view.act(() => view.current.scrollHandlers.onWheel({ deltaY: -40 } as never));
@@ -239,6 +260,137 @@ describe("transcript viewport", () => {
     expect(view.current.windowedMessages).toHaveLength(120);
     expect(scroller.scrollTop).toBe(600 + 90 * ROW);
     expect(view.current.following).toBe(false);
+  });
+
+  it("fills in within the frame that asks, so a reply growing underneath cannot hold it back or move a reader who scrolled up", () => {
+    const view = mount({ messages: rows(300) }, { opening: true });
+    view.act(() => view.current.scrollHandlers.onWheel({ deltaY: -40 } as never));
+    scroller.scrollTop = 600;
+    const shown: number[] = [];
+    for (let step = 1; step <= 3; step++) {
+      view.frame(() => {
+        shown.push(view.current.windowedMessages.length);
+        scroller.extra += 200;
+      });
+      expect(scroller.scrollTop).toBe(600 + step * 30 * ROW);
+    }
+    expect(shown).toEqual([60, 90, 120]);
+    scroller.extra += 200;
+    view.rerender({ pinOn: [true] });
+    view.settle();
+    expect(scroller.scrollTop).toBe(600 + 90 * ROW);
+    expect(view.current.following).toBe(false);
+  });
+
+  it("finishes the fill before showing earlier rows, and keeps the reader's row", () => {
+    const view = mount({ messages: rows(400) }, { opening: true });
+    view.frame();
+    expect(view.current.windowedMessages).toHaveLength(60);
+    scroller.scrollTop = 200;
+    view.act(() => view.current.showEarlier());
+    expect(view.current.windowedMessages).toHaveLength(240);
+    expect(view.current.windowedMessages[0]?.id).toBe("m160");
+    expect(view.current.filledMessages).toBe(view.current.windowedMessages);
+    expect(scroller.scrollTop).toBe(200 + 180 * ROW);
+    expect(frames).toHaveLength(0);
+    scroller.extra += 300;
+    view.rerender({ pinOn: [true] });
+    view.settle();
+    expect(view.current.windowedMessages).toHaveLength(240);
+    expect(scroller.scrollTop).toBe(200 + 180 * ROW);
+  });
+
+  it("shows the same rows and then the whole tail when an older page lands during the fill", () => {
+    const view = mount({ messages: rows(150, 200) }, { opening: true });
+    expect(view.current.windowedMessages.map((row) => row.id)).toEqual(rows(30, 320).map((row) => row.id));
+    view.rerender({ messages: rows(350) });
+    expect(view.current.windowedMessages).toHaveLength(120);
+    expect(view.current.windowedMessages[0]?.id).toBe("m230");
+    expect(view.current.windowedMessages.at(-1)?.id).toBe("m349");
+    expect(view.current.hiddenCount).toBe(230);
+    expect(frames).toHaveLength(0);
+    expect(scroller.scrollTop).toBe(scroller.bottom);
+  });
+
+  it("never shows more than a window when a burst of new rows lands during the fill", () => {
+    const view = mount({ messages: rows(300) }, { opening: true });
+    view.frame();
+    expect(view.current.windowedMessages).toHaveLength(60);
+    view.rerender({ messages: rows(500) });
+    expect(view.current.windowedMessages).toHaveLength(120);
+    expect(view.current.windowedMessages.at(-1)?.id).toBe("m499");
+    expect(frames).toHaveLength(0);
+    expect(scroller.scrollTop).toBe(scroller.bottom);
+  });
+
+  it("keeps a reader who scrolled up on their rows when a burst of new rows ends the fill", () => {
+    const view = mount({ messages: rows(300) }, { opening: true });
+    view.act(() => view.current.scrollHandlers.onWheel({ deltaY: -40 } as never));
+    scroller.scrollTop = 300;
+    view.rerender({ messages: rows(500) });
+    expect(view.current.windowedMessages[0]?.id).toBe("m270");
+    expect(view.current.windowedMessages).toHaveLength(230);
+    expect(scroller.scrollTop).toBe(300);
+    expect(frames).toHaveLength(0);
+  });
+
+  it("falls back to the tail when the row the fill was counting from is gone", () => {
+    const view = mount({ messages: rows(300) }, { opening: true });
+    view.rerender({ messages: rows(200) });
+    expect(view.current.windowedMessages).toHaveLength(120);
+    expect(view.current.windowedMessages[0]?.id).toBe("m80");
+    expect(frames).toHaveLength(0);
+  });
+
+  it("jumps to the latest rows during the fill and shows the whole window at once", () => {
+    const view = mount({ messages: rows(300) }, { opening: true });
+    view.act(() => view.current.jumpToLatest());
+    expect(view.current.windowedMessages).toHaveLength(120);
+    expect(view.current.windowedMessages[0]?.id).toBe("m180");
+    expect(view.current.following).toBe(true);
+    view.settle();
+    expect(view.current.windowedMessages).toHaveLength(120);
+    expect(scroller.calls.at(-1)).toEqual({ top: 120 * ROW, behavior: "smooth" });
+  });
+
+  it("opens around a search result that arrives during the fill and stops filling", () => {
+    const view = mount({ messages: rows(300) }, { opening: true });
+    expect(view.current.windowedMessages).toHaveLength(30);
+    store.state.focusMessage = { threadId: "thread", messageId: "m10", nonce: 7, consumed: false };
+    view.rerender({});
+    expect(view.current.windowedMessages.map((row) => row.id)).toContain("m10");
+    expect(view.current.windowedMessages).toHaveLength(120);
+    expect(view.current.laterCount).toBe(180);
+    expect(view.current.following).toBe(false);
+    view.settle();
+    expect(view.current.windowedMessages[0]?.id).toBe("m0");
+    expect(view.current.windowedMessages).toHaveLength(120);
+  });
+
+  it("opens another thread of the same dog on its whole window when the reader had scrolled up", () => {
+    const view = mount({ messages: rows(300) });
+    view.act(() => view.current.scrollHandlers.onWheel({ deltaY: -40 } as never));
+    expect(view.current.following).toBe(false);
+    view.rerender({ threadId: "side", messages: rows(300, 1_000) });
+    expect(view.current.windowedMessages).toHaveLength(120);
+    expect(view.current.windowedMessages[0]?.id).toBe("m1180");
+    expect(view.current.filledMessages).toBe(view.current.windowedMessages);
+    expect(frames).toHaveLength(0);
+  });
+
+  it("opens on the whole window at once when the first unread row is older than the newest rows", () => {
+    const unreadFrom = (first: number) => (row: Row) => Number(row.id.slice(1)) >= first;
+    const many = mount({ messages: rows(300), unread: unreadFrom(250) }, { opening: true });
+    expect(many.current.windowedMessages).toHaveLength(120);
+    expect(many.current.windowedMessages[0]?.id).toBe("m180");
+    expect(frames).toHaveLength(0);
+    expect(scroller.scrollTop).toBe(scroller.bottom);
+
+    react.runtime.slots = [];
+    const few = mount({ messages: rows(300), unread: unreadFrom(290) }, { opening: true });
+    expect(few.current.windowedMessages).toHaveLength(30);
+    few.settle();
+    expect(few.current.windowedMessages).toHaveLength(120);
   });
 
   it("waits for a pause in typing before filling in the rest", () => {

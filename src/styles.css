@@ -1870,6 +1870,8 @@ button:disabled.bg-danger {
 
 [data-sidebar-row] {
   content-visibility: auto;
-  contain-intrinsic-size: auto 52px;
   overflow-clip-margin: 6px;
 }
+[data-sidebar-row="plain"] { contain-intrinsic-size: auto 53.5px; }
+[data-sidebar-row="titled"] { contain-intrinsic-size: auto 69.5px; }
+[data-sidebar-row="icon"] { contain-intrinsic-size: auto 56px; }
