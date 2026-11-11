@@ -31,8 +31,8 @@ function restorePointAge(name) {
   return Number(name.slice(0, -".json".length));
 }
 
-export function skipped(name) {
-  return SKIPPED_NAMES.has(name) || REFRESH_LOCK_NAMES.has(name) || name.startsWith(RESTORING_PREFIX) || SKIPPED_SUFFIXES.some((suffix) => name.endsWith(suffix));
+export function skipped(name, type = "file") {
+  return SKIPPED_NAMES.has(name) || REFRESH_LOCK_NAMES.has(name) || name.startsWith(RESTORING_PREFIX) || (type !== "dir" && SKIPPED_SUFFIXES.some((suffix) => name.endsWith(suffix)));
 }
 
 export function skippedPath(path) {
@@ -45,7 +45,13 @@ export function heldLock(name, type) {
 
 export function transient(entry) {
   const names = entry.path.split("/");
-  return skippedPath(entry.path) || names.some((name, index) => skipped(name) || heldLock(name, index < names.length - 1 ? "dir" : entry.type));
+  return (
+    skippedPath(entry.path) ||
+    names.some((name, index) => {
+      const type = index < names.length - 1 ? "dir" : entry.type;
+      return skipped(name, type) || heldLock(name, type);
+    })
+  );
 }
 
 export function createHttpStore(baseUrl, token, fetcher = globalThis.fetch, { blobTimeoutMs = BLOB_TIMEOUT_MS, requestTimeoutMs = REQUEST_TIMEOUT_MS, uploadTimeoutMs = UPLOAD_TIMEOUT_MS } = {}) {
@@ -195,11 +201,12 @@ async function walk(root, directory, found, inspect) {
   } catch {
     return;
   }
-  const kept = names.sort().filter((name) => !skipped(name) && !skippedPath(relative(root, join(directory, name))));
+  const kept = names.sort().filter((name) => !skipped(name, "dir") && !skippedPath(relative(root, join(directory, name))));
   const listed = await inspectedTogether(kept.map((name) => join(directory, name)), inspect);
   for (const [index, name] of kept.entries()) {
     if (!listed[index]) continue;
     const { info, target } = listed[index];
+    if (!info.isDirectory() && skipped(name)) continue;
     const path = join(directory, name);
     const entry = { path: relative(root, path), mode: info.mode & 0o7777, mtimeMs: Math.floor(info.mtimeMs) };
     if (info.isDirectory()) {
