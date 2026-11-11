@@ -169,39 +169,54 @@ export function parseManifest(input) {
   return input;
 }
 
-async function walk(root, directory, found) {
+export const LISTING_PARALLEL = 32;
+
+async function inspected(path, inspect) {
+  try {
+    const info = await inspect(path);
+    return info.isSymbolicLink() ? { info, target: await readlink(path) } : { info };
+  } catch {
+    return null;
+  }
+}
+
+async function inspectedTogether(paths, inspect) {
+  const all = [];
+  for (let start = 0; start < paths.length; start += LISTING_PARALLEL) {
+    all.push(...(await Promise.all(paths.slice(start, start + LISTING_PARALLEL).map((path) => inspected(path, inspect)))));
+  }
+  return all;
+}
+
+async function walk(root, directory, found, inspect) {
   let names;
   try {
     names = await readdir(directory);
   } catch {
     return;
   }
-  for (const name of names.sort()) {
-    if (skipped(name)) continue;
+  const kept = names.sort().filter((name) => !skipped(name) && !skippedPath(relative(root, join(directory, name))));
+  const listed = await inspectedTogether(kept.map((name) => join(directory, name)), inspect);
+  for (const [index, name] of kept.entries()) {
+    if (!listed[index]) continue;
+    const { info, target } = listed[index];
     const path = join(directory, name);
-    if (skippedPath(relative(root, path))) continue;
-    let info;
-    try {
-      info = await lstat(path);
-    } catch {
-      continue;
-    }
     const entry = { path: relative(root, path), mode: info.mode & 0o7777, mtimeMs: Math.floor(info.mtimeMs) };
     if (info.isDirectory()) {
       if (heldLock(name, "dir")) continue;
       found.push({ ...entry, type: "dir" });
-      await walk(root, path, found);
+      await walk(root, path, found, inspect);
     } else if (info.isSymbolicLink()) {
-      found.push({ ...entry, type: "link", target: await readlink(path) });
+      found.push({ ...entry, type: "link", target });
     } else if (info.isFile()) {
       found.push({ ...entry, type: "file", size: info.size });
     }
   }
 }
 
-export async function scan(root) {
+export async function scan(root, { inspect = lstat } = {}) {
   const found = [];
-  await walk(root, root, found);
+  await walk(root, root, found, inspect);
   return found;
 }
 
