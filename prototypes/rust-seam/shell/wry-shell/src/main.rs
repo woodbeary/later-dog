@@ -1,12 +1,15 @@
 use std::io::{self, BufRead};
+#[cfg(target_os = "linux")]
+use tao::platform::unix::WindowExtUnix;
 use tao::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder},
-    platform::unix::WindowExtUnix,
     window::WindowBuilder,
 };
-use wry::{WebViewBuilder, WebViewBuilderExtUnix};
+use wry::WebViewBuilder;
+#[cfg(target_os = "linux")]
+use wry::WebViewBuilderExtUnix;
 
 fn main() {
     let arguments: Vec<String> = std::env::args().collect();
@@ -27,12 +30,14 @@ fn main() {
         .build(&event_loop)
         .expect("window");
     let script = format!("window.__report = (line) => window.ipc.postMessage(line);\n{probe}");
-    let webview = WebViewBuilder::new()
+    let page = WebViewBuilder::new()
         .with_url(&url)
         .with_initialization_script(&script)
-        .with_ipc_handler(|request| println!("SHELL {}", request.body()))
-        .build_gtk(window.default_vbox().expect("gtk container"))
-        .expect("webview");
+        .with_ipc_handler(|request| println!("SHELL {}", request.body()));
+    #[cfg(target_os = "linux")]
+    let webview = page.build_gtk(window.default_vbox().expect("gtk container")).expect("webview");
+    #[cfg(not(target_os = "linux"))]
+    let webview = page.build(&window).expect("webview");
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {

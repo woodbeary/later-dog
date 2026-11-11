@@ -17,8 +17,8 @@ function option(name, fallback) {
   return index === -1 ? fallback : process.argv[index + 1];
 }
 
-function peakRssMb(pid = "self") {
-  const kilobytes = Number(readFileSync(`/proc/${pid}/status`, "utf8").match(/^VmHWM:\s+(\d+) kB/m)?.[1] ?? 0);
+function peakRssMb() {
+  const kilobytes = process.platform === "linux" ? Number(readFileSync("/proc/self/status", "utf8").match(/^VmHWM:\s+(\d+) kB/m)?.[1] ?? 0) : process.resourceUsage().maxRSS;
   return Math.round(kilobytes / 102.4) / 10;
 }
 

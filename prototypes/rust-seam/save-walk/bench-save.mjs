@@ -64,7 +64,7 @@ function blobServer(known, delayMs) {
 }
 
 function peakRssMb() {
-  const kilobytes = Number(readFileSync("/proc/self/status", "utf8").match(/^VmHWM:\s+(\d+) kB/m)?.[1] ?? 0);
+  const kilobytes = process.platform === "linux" ? Number(readFileSync("/proc/self/status", "utf8").match(/^VmHWM:\s+(\d+) kB/m)?.[1] ?? 0) : process.resourceUsage().maxRSS;
   return Math.round(kilobytes / 102.4) / 10;
 }
 

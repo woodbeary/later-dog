@@ -46,23 +46,29 @@ function megabytes(kilobytes) {
   return Math.round(kilobytes / 102.4) / 10;
 }
 
+function memoryKb(pid) {
+  if (process.platform !== "linux") return { pss: 0, rss: Number(execFileSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" }).trim()) };
+  const rollup = readFileSync(`/proc/${pid}/smaps_rollup`, "utf8");
+  return { pss: field(rollup, "Pss"), rss: field(rollup, "Rss") };
+}
+
 function treeMemory(rootPid) {
   let pss = 0;
   let rss = 0;
   const each = [];
   for (const { pid, name } of descendants(rootPid)) {
     try {
-      const rollup = readFileSync(`/proc/${pid}/smaps_rollup`, "utf8");
-      pss += field(rollup, "Pss");
-      rss += field(rollup, "Rss");
-      each.push({ pid, name, pssMb: megabytes(field(rollup, "Pss")) });
+      const own = memoryKb(pid);
+      pss += own.pss;
+      rss += own.rss;
+      each.push({ pid, name, pssMb: megabytes(own.pss), rssMb: megabytes(own.rss) });
     } catch {}
   }
   return { processes: each.length, pssMb: megabytes(pss), rssMb: megabytes(rss), each };
 }
 
 function serverPeakRssMb(pid) {
-  return megabytes(field(readFileSync(`/proc/${pid}/status`, "utf8"), "VmHWM"));
+  return process.platform === "linux" ? megabytes(field(readFileSync(`/proc/${pid}/status`, "utf8"), "VmHWM")) : 0;
 }
 
 function held(dist, extra, onStart) {
@@ -104,7 +110,7 @@ async function bareNodeIdle() {
   return idle;
 }
 
-const alone = (tree, pid) => tree.each.find((process) => process.pid === pid)?.pssMb ?? 0;
+const alone = (tree, pid) => tree.each.find((process) => process.pid === pid) ?? { pssMb: 0, rssMb: 0 };
 
 async function oneRun(dist, turns, dogs, dogTurns, opens) {
   const bare = await bareNodeIdle();
@@ -127,8 +133,8 @@ async function oneRun(dist, turns, dogs, dogTurns, opens) {
   const usedPeakRssMb = serverPeakRssMb(filled.serverPid);
   const databaseBytes = statSync(join(filled.dataDir, "messages.db")).size;
   await used.close();
-  const others = usedIdle.each.filter((process) => process.pid !== filled.serverPid).map(({ name, pssMb }) => ({ name, pssMb }));
-  return { bare, freshIdle, freshPeakRssMb, whileAnswering, usedIdle, usedServerPssMb: alone(usedIdle, filled.serverPid), others, usedPeakRssMb, fillMs, databaseBytes, opens: filled.opens };
+  const others = usedIdle.each.filter((process) => process.pid !== filled.serverPid).map(({ name, pssMb, rssMb }) => ({ name, pssMb, rssMb }));
+  return { bare, freshIdle, freshPeakRssMb, whileAnswering, usedIdle, usedServer: alone(usedIdle, filled.serverPid), others, usedPeakRssMb, fillMs, databaseBytes, opens: filled.opens };
 }
 
 function summary(values) {
@@ -155,7 +161,7 @@ const report = {
   bareNodeIdle: { pssMb: each((result) => result.bare.pssMb), rssMb: each((result) => result.bare.rssMb) },
   freshServerIdle: { pssMb: each((result) => result.freshIdle.pssMb), rssMb: each((result) => result.freshIdle.rssMb), serverPeakRssMb: each((result) => result.freshPeakRssMb), processes: results[0].freshIdle.processes },
   whileDogsAnswer: { treeRssMb: each((result) => result.whileAnswering.rssMb), treePssMb: each((result) => result.whileAnswering.pssMb), mostProcesses: Math.max(...results.map((result) => result.whileAnswering.processes)) },
-  afterTheChatsIdle: { pssMb: each((result) => result.usedIdle.pssMb), rssMb: each((result) => result.usedIdle.rssMb), serverAlonePssMb: each((result) => result.usedServerPssMb), serverPeakRssMb: each((result) => result.usedPeakRssMb), processes: results[0].usedIdle.processes, otherProcessesInTheFirstRun: results[0].others },
+  afterTheChatsIdle: { pssMb: each((result) => result.usedIdle.pssMb), rssMb: each((result) => result.usedIdle.rssMb), serverAlonePssMb: each((result) => result.usedServer.pssMb), serverAloneRssMb: each((result) => result.usedServer.rssMb), serverPeakRssMb: each((result) => result.usedPeakRssMb), processes: results[0].usedIdle.processes, otherProcessesInTheFirstRun: results[0].others },
   fillSeconds: each((result) => result.fillMs / 1000),
   databaseKb: Math.round(results[0].databaseBytes / 1024),
   openLongChatOverHttp: { opensEachRun: opens, newest50Ms: each((result) => median(result.opens.newest50Ms)), newest50FirstMs: each((result) => result.opens.newest50Ms[0]), wholeChatMs: each((result) => median(result.opens.wholeChatMs)) },

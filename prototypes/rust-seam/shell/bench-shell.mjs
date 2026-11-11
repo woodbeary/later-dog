@@ -40,22 +40,28 @@ function field(text, name) {
   return match ? Number(match[1]) : 0;
 }
 
+function memoryKb(pid) {
+  if (process.platform !== "linux") return { pss: 0, rss: Number(execFileSync("ps", ["-o", "rss=", "-p", String(pid)], { encoding: "utf8" }).trim()) };
+  const rollup = readFileSync(`/proc/${pid}/smaps_rollup`, "utf8");
+  return { pss: field(rollup, "Pss"), rss: field(rollup, "Rss") };
+}
+
 function treeMemory(rootPid) {
   let pss = 0;
   let rss = 0;
   const processes = [];
   for (const { pid, name } of descendants(rootPid)) {
-    let rollup;
+    let kilobytes;
     try {
-      rollup = readFileSync(`/proc/${pid}/smaps_rollup`, "utf8");
+      kilobytes = memoryKb(pid);
     } catch {
       continue;
     }
-    const own = { name, pssMb: Math.round(field(rollup, "Pss") / 1024), rssMb: Math.round(field(rollup, "Rss") / 1024) };
+    const own = { name, pssMb: Math.round(kilobytes.pss / 1024), rssMb: Math.round(kilobytes.rss / 1024) };
     if (own.rssMb === 0) continue;
     processes.push(own);
-    pss += field(rollup, "Pss");
-    rss += field(rollup, "Rss");
+    pss += kilobytes.pss;
+    rss += kilobytes.rss;
   }
   return { processes: processes.length, pssMb: Math.round(pss / 1024), rssMb: Math.round(rss / 1024), byProcess: processes };
 }
@@ -128,7 +134,8 @@ function summary(values) {
 }
 
 function folderBytes(path) {
-  return Number(execFileSync("du", ["-sb", path], { encoding: "utf8" }).split(/\s+/)[0]);
+  if (process.platform === "linux") return Number(execFileSync("du", ["-sb", path], { encoding: "utf8" }).split(/\s+/)[0]);
+  return Number(execFileSync("du", ["-sk", path], { encoding: "utf8" }).split(/\s+/)[0]) * 1024;
 }
 
 async function holdFixture(dist) {
@@ -150,11 +157,11 @@ async function main() {
   const shells = [
     {
       label: "Electron",
-      binaryBytes: folderBytes(dirname(electron)),
+      binaryBytes: folderBytes(resolve(option("electron-folder", dirname(electron)))),
       start: (profile) => [electron, [join(HERE, "electron-shell.mjs"), "--no-sandbox", `--user-data-dir=${profile}`, fixture.url, PROBE], { ...process.env }],
     },
     {
-      label: "Rust shell on WebKitGTK",
+      label: process.platform === "linux" ? "Rust shell on WebKitGTK" : "Rust shell on the system webview",
       binaryBytes: statSync(wry).size,
       start: (profile) => [wry, [fixture.url, PROBE], { ...process.env, XDG_DATA_HOME: join(profile, "data"), XDG_CACHE_HOME: join(profile, "cache"), WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS: "1" }],
     },
