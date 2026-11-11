@@ -119,6 +119,12 @@ two. Measured at 456e978, before the review fixes; not re-measured.
 | Open the long chat, median | 320 ms | 267 to 297 ms |
 | Load: message box ready | 1,040 ms | 1,070 to 1,115 ms |
 
+The "Before" column is two runs and the "After" column is two runs. Three
+"After" rows give the second run only; the first recorded 38 of 343 typing
+frames slower than 25 ms, 21 of 158 slow frames while other dogs worked, and
+16 of 131 during a streamed reply. Which commit each of the two "After" runs
+was built from was not written down.
+
 - Every dog's face ran its own endless blink animation, 80 of them, on screen
   or not, which cost a style pass on every frame. Faces now blink together
   from one clock, only the ones on screen, with a 180 ms one-shot animation
@@ -294,6 +300,15 @@ matched the commit (the commits after it change only this note):
 Run earlier, at fa3141c: the harness's `--sidebar-rows` and `--kept` modes
 against the builds of main, 456e978 and this branch. Not rerun since.
 
+Also run at c1c6997: `pnpm lint` again (0 warnings, 0 errors), the
+two rules tests again (17 tests passed), and
+`scripts/testing/verification-docs.test.ts`, which is not part of the command
+above: 4 of its 6 tests passed. The 2 that failed are both about
+`docs/verification/decision-eval.md`, a note that came in from main and that
+this branch does not touch: it is not linked from the index, and it cites four
+test files by name without their folder. Main's index does not link it either
+(read in main's files; the test was not run on main).
+
 Not run: the whole suite (`pnpm vitest run`, with every server test). On this
 cloud computer two server tests fail on main itself, in files this branch
 does not touch: `server/config.test.ts` "uses the list again once a file the
@@ -301,6 +316,10 @@ server could not read is readable" and `server/drivers/agents-proxy.test.ts`
 "answers the MCP handshake and lists the agents tools".
 
 Left: the timed runs of main against this branch at 7 and 80 dogs. They were
-queued at 438977a on 2026-11-11 and did not get the cloud computer to
-themselves: other lanes' test suites held it throughout. Until they run, the
-two tables above describe 456e978.
+queued on 2026-11-11 with the builds of main 4b377d9 and this branch at
+438977a (no file under `src` changed after it), and had not once got the
+cloud computer to themselves when this was written: other lanes' test suites
+held it throughout. Until they run, the two tables above describe 456e978. One round
+(each build at 7 and at 80 dogs, once) is still waiting on the cloud computer;
+if it runs, its results are `~/perf/r158f/{main,head}-{7,80}-1.json` there and
+`python3 ~/perf/r158f/table.py` prints them side by side.
