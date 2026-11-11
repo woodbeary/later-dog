@@ -21,7 +21,8 @@ harness/webhook port pair, installs only the repository's fake engine, prints
 the URL, PID, data directory, and persistent log path, then stays attached to
 that exact child. The parent shell and the user's later.dog data are
 untouched. Only `FAKE_CLAUDE_*` variables cross from the launcher's
-environment into that child, so a recipe can script the fake engine's mode,
+environment into that child (plus `LATERDOG_TEST_STATIC_DIR`, which becomes the
+server's static folder when it holds a built `index.html`), so a recipe can script the fake engine's mode,
 replies and tool calls without writing a wrapper CLI. Live calls add one
 exception: `LATERDOG_OPENAI_LIVE_URL` crosses when it is a loopback
 `http://127.0.0.1:PORT` (the fake GPT-Live that
@@ -57,6 +58,7 @@ Use only mapped, tested commands:
 - [Peer approval denial, expiry, and cancellation](peer-approvals.md)
 - [Waiting for an occupied desktop](computer-wait.md)
 - [Chat UI, driven headlessly](chat-ui.md)
+- [Desktop performance, measured against a fixture](desktop-performance.md)
 - [Welcome flow](onboarding.md)
 - [Channels](channels.md)
 - [In-chat team coordination](room-coordination.md)
