@@ -149,7 +149,9 @@ it("survives a real server crash: queued sends keep receipts, cancellation and u
     expect(channelQueued).toMatchObject({ queued: true, queueId: expect.any(String) });
     const channelCancelledBody = { ...channelBody, text: "Never run cancelled channel task", sendId: "cancelled_channel_send_123456" };
     const channelCancelled = await api("POST", `/api/groups/${channel.id}/messages`, channelCancelledBody, 202);
-    await api("DELETE", `/api/groups/${channel.id}/queue/${channelCancelled.queueId}`);
+    expect(channelCancelled.queueId).not.toBe(channelCancelledBody.sendId);
+    await api("DELETE", `/api/groups/${channel.id}/queue/${channelCancelledBody.sendId}`);
+    await api("DELETE", `/api/groups/${channel.id}/queue/${channelCancelledBody.sendId}`, undefined, 404);
     const lostWorker = (await api("POST", "/api/bots", { name: "Lost reply worker" }, 201)).bot;
     const lost = (await api("POST", "/api/groups", {
       name: "Lost reply channel", memberIds: [lostWorker.id],

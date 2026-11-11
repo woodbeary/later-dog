@@ -786,6 +786,12 @@ function rememberConsumedQueueId(
   return next;
 }
 
+function forgetConsumedQueueId(state: AppState, queueId: string | undefined): AppState {
+  if (!queueId || !state.consumedQueueIds[queueId]) return state;
+  const { [queueId]: _sentAgain, ...consumedQueueIds } = state.consumedQueueIds;
+  return { ...state, consumedQueueIds };
+}
+
 interface QueueReceiptSnapshot {
   messages?: Message[];
 }
@@ -794,10 +800,14 @@ function reconcileSnapshotQueues(
   state: AppState,
   conversations: QueueReceiptSnapshot[],
 ): AppState {
+  const waitingUnderSendId = new Set(Object.values(state.pendingQueued).flatMap((entries) => entries.map((entry) => entry.queueId)));
   const landed: Array<{ queueId: string; at: number }> = [];
   for (const conversation of conversations) {
     for (const message of conversation.messages ?? []) {
       if (message.queueId) landed.push({ queueId: message.queueId, at: message.at });
+      if (message.role === "user" && message.sendId && message.sendId !== message.queueId && waitingUnderSendId.has(message.sendId)) {
+        landed.push({ queueId: message.sendId, at: message.at });
+      }
     }
   }
   if (landed.length === 0) return state;
@@ -1925,7 +1935,7 @@ function baseReducer(state: AppState, action: Action): AppState {
     }
     case "send": {
       const animated = withMascotMotion(
-        dismissOnboardingCard(state, action.botId),
+        dismissOnboardingCard(forgetConsumedQueueId(state, action.sendId), action.botId),
         action.botId,
         "working",
       );
@@ -2000,10 +2010,11 @@ function baseReducer(state: AppState, action: Action): AppState {
       return state;
     case "sendGroup": {
       if (!action.sendId) return state;
-      const group = state.groups.find((candidate) => candidate.id === action.groupId);
+      const sentAgain = forgetConsumedQueueId(state, action.sendId);
+      const group = sentAgain.groups.find((candidate) => candidate.id === action.groupId);
       const threadId = action.threadId ?? group?.threadId;
-      if (!group || threadId !== group.threadId) return state;
-      if (group.messages.some((message) => message.sendId === action.sendId)) return state;
+      if (!group || threadId !== group.threadId) return sentAgain;
+      if (group.messages.some((message) => message.sendId === action.sendId)) return sentAgain;
       const message = optimisticUserMessage(
         action.text,
         action.sendId,
@@ -2011,8 +2022,8 @@ function baseReducer(state: AppState, action: Action): AppState {
         null,
       );
       return bumpThreadUpdatedAt({
-        ...state,
-        groups: state.groups.map((candidate) => candidate.id === group.id
+        ...sentAgain,
+        groups: sentAgain.groups.map((candidate) => candidate.id === group.id
           ? { ...candidate, messages: [...candidate.messages, message] }
           : candidate),
       }, threadId, message.at);
@@ -2633,6 +2644,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "cancelQueued":
           void api(`/api/bots/${action.botId}/queue/${action.queueId}`, { method: "DELETE", body: JSON.stringify({ threadId: action.threadId }) })
             .then(() => {
+              sendOutbox().cancelled(action.queueId);
               rawDispatch(action);
               action.onCancelled?.();
             })
@@ -2652,6 +2664,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "cancelGroupQueued":
           void api(`/api/groups/${action.groupId}/queue/${action.queueId}`, { method: "DELETE" })
             .then(() => {
+              sendOutbox().cancelled(action.queueId);
               rawDispatch(action);
               action.onCancelled?.();
             })
@@ -3150,6 +3163,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const outbox = sendOutbox();
           const pending = outbox.pending(bots ?? [], groups ?? [], botQueuedMessages);
           if (pending.length > 0) rawDispatch({ type: "outboxShown", items: pending });
+          void outbox.settleHeld(bots ?? [], groups ?? [], botQueuedMessages);
           outbox.resume();
         });
       const peripherals = peripheralParts.map((part) => ({
@@ -3209,7 +3223,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         case "message": {
           rawDispatch({ type: "messageAdded", threadId: frame.threadId, message: frame.message as Message });
-          if (frame.message?.role === "user" && typeof frame.message.sendId === "string") sendOutbox().echoed(frame.message.sendId);
+          if (frame.message?.role === "user" && typeof frame.message.sendId === "string") {
+            const landedSendId = frame.message.sendId;
+            sendOutbox().echoed(landedSendId, { messageId: frame.message.id, threadId: frame.threadId });
+            if (stateRef.current.pendingQueued[frame.threadId]?.some((entry) => entry.queueId === landedSendId)) {
+              rawDispatch({ type: "consumePendingQueued", threadId: frame.threadId, queueId: landedSendId });
+            }
+          }
           if (frame.message?.role === "user" && typeof frame.message.queueId === "string") {
             rawDispatch({
               type: "consumePendingQueued",

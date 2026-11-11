@@ -71,9 +71,19 @@ export function isStorageFailure(error: unknown): boolean {
     || OUT_OF_SPACE_WORDS.test(message);
 }
 
+export function saidBy(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  const failure = (error && typeof error === "object" ? error : {}) as Failure & { error?: unknown };
+  if (typeof failure.message === "string") return failure.message;
+  if (typeof failure.error === "string") return failure.error;
+  if (failure.error && typeof failure.error === "object" && typeof (failure.error as Failure).message === "string") return (failure.error as { message: string }).message;
+  return typeof error === "number" || typeof error === "boolean" ? String(error) : "";
+}
+
 export function plainFailure(error: unknown, platform: NodeJS.Platform = process.platform): PlainFailure {
   const failure = (error && typeof error === "object" ? error : {}) as Failure;
-  const raw = error instanceof Error ? error.message : typeof failure.message === "string" ? failure.message : String(error);
+  const raw = saidBy(error);
   const status = typeof failure.status === "number" ? failure.status : 500;
   const limit = BYTE_LIMIT.exec(raw);
   if (limit) {
@@ -87,6 +97,7 @@ export function plainFailure(error: unknown, platform: NodeJS.Platform = process
   }
   const fields = checkedFields(raw);
   if (fields) return { status, internal: false, message: `That wasn't something later.dog could use (${fields}). Check it and try again.` };
+  if (!raw.trim()) return { status, internal: status >= 500, message: FALLBACK };
   if (typeof failure.status === "number" && failure.status < 500) return { status, internal: false, message: raw };
   if (looksInternal(error, failure, raw)) return { status, internal: true, message: FALLBACK };
   return { status, internal: false, message: raw };

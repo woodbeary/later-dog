@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   _queuedChannelCount,
   cancelChannelMessage,
+  channelQueueIdsNamed,
   drainChannelMessages,
   holdChannelQueue,
   queuedChannelMessage,
@@ -12,7 +13,7 @@ import {
   resolveHeldReplyTarget,
   settleHeldChannelQueueHead,
 } from "./channel-queue.ts";
-import { saveChatFollowup } from "./message-db.ts";
+import { cancelledChatFollowup, saveChatFollowup } from "./message-db.ts";
 
 describe("channel queue", () => {
   it("keeps readable citation prompts byte-for-byte through room queue and steer hold", () => {
@@ -113,6 +114,58 @@ describe("channel queue", () => {
     const run = vi.fn();
     drainChannelMessages(() => false, run);
     expect(run).toHaveBeenCalledWith(expect.objectContaining({ items: [expect.objectContaining({ id: keep.id, text: "keep" })] }));
+  });
+
+  it("cancels a channel message by the sender's own id, which is all a device knows when the edge held the send", () => {
+    const keep = queueChannelMessage("group-send-id", "thread-send-id", "keep", { sendId: "send-room-keep" });
+    queueChannelMessage("group-send-id", "thread-send-id", "drop", { sendId: "send-room-drop" });
+
+    expect(cancelChannelMessage("group-other", "send-room-drop")).toBe(false);
+    expect(cancelChannelMessage("group-send-id", "send-nobody-sent")).toBe(false);
+    expect(cancelChannelMessage("group-send-id", "send-room-drop")).toBe(true);
+    expect(cancelChannelMessage("group-send-id", "send-room-drop")).toBe(false);
+    expect(cancelledChatFollowup("channel", "group-send-id", "thread-send-id", "send-room-drop")).toBe(true);
+    expect(queuedChannelMessage("group-send-id", "thread-send-id", "send-room-drop")).toBeNull();
+
+    const run = vi.fn();
+    drainChannelMessages(() => false, run);
+    const drained = run.mock.calls.map(([input]) => input).filter((input) => input.threadId === "thread-send-id");
+    expect(drained.map((input) => input.items)).toEqual([[expect.objectContaining({ id: keep.id, text: "keep", sendId: "send-room-keep" })]]);
+  });
+
+  it("lifts the queue for Send now when the head is named by the sender's own id, and only the head", () => {
+    const head = queueChannelMessage("group-send-now", "thread-send-now", "send me now", { sendId: "send-room-head" });
+    const later = queueChannelMessage("group-send-now", "thread-send-now", "behind it", { sendId: "send-room-later" });
+
+    expect(channelQueueIdsNamed("group-send-now", "thread-send-now", "send-room-later")).toEqual([later.id]);
+    expect(channelQueueIdsNamed("group-send-now", "thread-send-now", later.id)).toEqual([later.id]);
+    expect(channelQueueIdsNamed("group-send-now", "thread-send-now", "send-nobody-sent")).toEqual([]);
+    expect(channelQueueIdsNamed("group-other", "thread-send-now", "send-room-later")).toEqual([]);
+    expect(holdChannelQueue("group-send-now", "thread-send-now", "send-room-later")).toBeNull();
+    expect(holdChannelQueue("group-send-now", "thread-send-now", "send-nobody-sent")).toBeNull();
+    const held = holdChannelQueue("group-send-now", "thread-send-now", "send-room-head")!;
+    expect(held.items.map((item) => item.id)).toEqual([head.id, later.id]);
+    restoreHeldChannelQueue(held);
+    for (const item of held.items) cancelChannelMessage("group-send-now", item.id);
+  });
+
+  it("after a restart, still finds a channel message by the sender's id, so a send again adds nothing and cancel by that id works", () => {
+    const kept = queueChannelMessage("group-restart", "thread-restart", "goes after the restart", { sendId: "send-room-kept" });
+    const dropped = queueChannelMessage("group-restart", "thread-restart", "cancelled after the restart", { sendId: "send-room-cancelled" });
+    restoreChannelMessages();
+    expect(queuedChannelMessage("group-restart", "thread-restart", "send-room-kept")?.id).toBe(kept.id);
+    expect(queuedChannelMessage("group-restart", "thread-restart", "send-room-cancelled")?.id).toBe(dropped.id);
+    expect(_queuedChannelCount("thread-restart")).toBe(2);
+
+    expect(cancelChannelMessage("group-restart", "send-room-cancelled")).toBe(true);
+    restoreChannelMessages();
+    expect(queuedChannelMessage("group-restart", "thread-restart", "send-room-cancelled")).toBeNull();
+    expect(_queuedChannelCount("thread-restart")).toBe(1);
+
+    const run = vi.fn();
+    drainChannelMessages(() => false, run);
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({ threadId: "thread-restart", items: [expect.objectContaining({ id: kept.id, sendId: "send-room-kept" })] }));
+    expect(cancelChannelMessage("group-restart", "send-room-kept")).toBe(false);
   });
 
   it("lifts the whole queue atomically for a live steer, so a settle cannot drain it too", () => {

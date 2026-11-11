@@ -219,12 +219,17 @@ export function queuedSteeredMessage(
   return item ? { id: item.messageId, text: item.text, replyToId: item.replyToId, ...(item.reason ? { reason: item.reason } : {}) } : null;
 }
 
+function namesQueued(item: { messageId: string; sendId?: string }, id: string): boolean {
+  return item.messageId === id || item.sendId === id;
+}
+
 export function cancelSteeredMessage(botId: string, messageId: string, expectedThreadId?: string): boolean {
   for (const [threadId, entry] of queues) {
     if (entry.botId !== botId || (expectedThreadId !== undefined && threadId !== expectedThreadId)) continue;
-    const items = entry.items.filter((item) => item.messageId !== messageId);
-    if (items.length === entry.items.length) continue;
-    settleChatFollowups([messageId], "cancelled");
+    const named = entry.items.filter((item) => namesQueued(item, messageId));
+    if (named.length === 0) continue;
+    const items = entry.items.filter((item) => !namesQueued(item, messageId));
+    settleChatFollowups(named.map((item) => item.messageId), "cancelled");
     if (items.length === 0) queues.delete(threadId);
     else queues.set(threadId, { botId: entry.botId, items });
     changed();
@@ -235,7 +240,7 @@ export function cancelSteeredMessage(botId: string, messageId: string, expectedT
 
 export function holdSteeredQueue(botId: string, threadId: string, queueId: string): HeldSteerQueue | null {
   const entry = queues.get(threadId);
-  if (!entry || entry.botId !== botId || !entry.items.some((item) => item.messageId === queueId)) return null;
+  if (!entry || entry.botId !== botId || !entry.items.some((item) => namesQueued(item, queueId))) return null;
   queues.delete(threadId);
   changed();
   return { botId, threadId, items: entry.items };
