@@ -1,4 +1,4 @@
-import { rememberFailedComposerSend } from "@/lib/drafts";
+import { composerDraftId, rememberFailedComposerSend } from "@/lib/drafts";
 import {
   HELD_ASK_FIRST_MS,
   HELD_NOT_SENT,
@@ -45,6 +45,7 @@ export interface SendOutbox {
   echoed(sendId: string): void;
   queued(queues: unknown): void;
   settleHeld(bots: readonly Pick<Bot, "messages">[], groups: readonly Pick<Group, "messages">[], queues?: unknown): Promise<void>;
+  cancelled(queueId: string): void;
   resume(): void;
   dispose(): void;
 }
@@ -114,6 +115,7 @@ interface Refresh {
 
 interface HeldSendKeeper {
   keep(send: HeldSend): void;
+  forget(sendId: string): void;
   settle(refresh: Refresh | null): Promise<void>;
   dispose(): void;
 }
@@ -131,6 +133,7 @@ function createHeldSendKeeper(deps: {
   let askAgainIn = HELD_ASK_FIRST_MS;
   let stopAskTimer: (() => void) | null = null;
   let disposed = false;
+  const forgottenWhileAsking = new Set<string>();
 
   const stopAsking = () => {
     stopAskTimer?.();
@@ -159,7 +162,8 @@ function createHeldSendKeeper(deps: {
         .then(heldReply, heldReplyAfterFailure);
       if (reply === "signed-out") return { signedIn: false };
       const asked = new Set(ids);
-      const { keep, lost } = sortHeldSends(group, reply, deps.now());
+      const stillWanted = group.filter((send) => !forgottenWhileAsking.has(send.sendId));
+      const { keep, lost } = sortHeldSends(stillWanted, reply, deps.now());
       writeHeldSends(store, [...readHeldSends(store).filter((send) => !asked.has(send.sendId)), ...keep]);
       for (const send of lost) deps.onLost(send);
     }
@@ -184,6 +188,7 @@ function createHeldSendKeeper(deps: {
         } while (current);
       } finally {
         settling = null;
+        forgottenWhileAsking.clear();
         if (signedIn) askLater(askAgainIn);
       }
     })();
@@ -197,6 +202,13 @@ function createHeldSendKeeper(deps: {
       writeHeldSends(store, [...readHeldSends(store).filter((held) => held.sendId !== send.sendId), send]);
       askAgainIn = HELD_ASK_FIRST_MS;
       if (!settling) askLater(askAgainIn);
+    },
+    forget(sendId) {
+      const held = readHeldSends(store);
+      const rest = held.filter((send) => send.sendId !== sendId);
+      if (rest.length !== held.length) writeHeldSends(store, rest);
+      if (settling) forgottenWhileAsking.add(sendId);
+      else if (rest.length === 0) stopAsking();
     },
     settle,
     dispose() {
@@ -214,17 +226,26 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     if (body?.message && typeof body.threadId === "string") {
       deps.dispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
     }
-    if (body?.queued && typeof body.threadId === "string" && typeof body.queueId === "string") {
-      deps.dispatch({ type: "optimisticMessageRemoved", threadId: body.threadId, sendId: item.sendId });
+    const queuedIn = body?.queued && typeof body.queueId === "string" ? (typeof body.threadId === "string" ? body.threadId : item.threadId) : "";
+    if (queuedIn) {
+      deps.dispatch({ type: "optimisticMessageRemoved", threadId: queuedIn, sendId: item.sendId });
       deps.dispatch({
         type: "pendingQueued",
-        threadId: body.threadId,
+        threadId: queuedIn,
         queueId: body.queueId,
         text: item.text,
         reason: item.target.kind === "bot" && QUEUE_REASONS.has(body.reason) ? body.reason : undefined,
       });
-      if (body.queueId === item.sendId && item.recovery) {
-        heldSends.keep({ sendId: item.sendId, threadId: body.threadId, draftId: item.recovery.draftId, text: item.recovery.text, requestText: item.text, replyToId: item.replyToId, at: now() });
+      if (body.queueId === item.sendId) {
+        heldSends.keep({
+          sendId: item.sendId,
+          threadId: queuedIn,
+          draftId: item.recovery?.draftId ?? composerDraftId(item.target.kind === "bot" ? { botId: item.target.botId } : { groupId: item.target.groupId }, queuedIn),
+          text: item.recovery?.text ?? item.text,
+          requestText: item.text,
+          replyToId: item.replyToId,
+          at: now(),
+        });
       }
     }
   };
@@ -278,6 +299,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     after: deps.after ?? defaultAfter,
     now,
     onLost: (send) => {
+      deps.dispatch({ type: "consumePendingQueued", threadId: send.threadId, queueId: send.sendId });
       rememberFailedComposerSend(send.draftId, { sendId: send.sendId, text: send.text, requestText: send.requestText, replyToId: send.replyToId, threadId: send.threadId });
       deps.showError(new SendRefusedError(HELD_NOT_SENT), send.threadId);
     },
@@ -309,6 +331,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
       }
     },
     settleHeld: (bots, groups, queues) => heldSends.settle({ bots, groups, queues }),
+    cancelled: (queueId) => heldSends.forget(queueId),
     resume: () => outbox.resume(),
     dispose: () => {
       heldSends.dispose();

@@ -799,10 +799,14 @@ function reconcileSnapshotQueues(
   state: AppState,
   conversations: QueueReceiptSnapshot[],
 ): AppState {
+  const waitingUnderSendId = new Set(Object.values(state.pendingQueued).flatMap((entries) => entries.map((entry) => entry.queueId)));
   const landed: Array<{ queueId: string; at: number }> = [];
   for (const conversation of conversations) {
     for (const message of conversation.messages ?? []) {
       if (message.queueId) landed.push({ queueId: message.queueId, at: message.at });
+      if (message.role === "user" && message.sendId && message.sendId !== message.queueId && waitingUnderSendId.has(message.sendId)) {
+        landed.push({ queueId: message.sendId, at: message.at });
+      }
     }
   }
   if (landed.length === 0) return state;
@@ -2694,6 +2698,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "cancelQueued":
           void api(`/api/bots/${action.botId}/queue/${action.queueId}`, { method: "DELETE", body: JSON.stringify({ threadId: action.threadId }) })
             .then(() => {
+              sendOutbox().cancelled(action.queueId);
               rawDispatch(action);
               action.onCancelled?.();
             })
@@ -2713,6 +2718,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "cancelGroupQueued":
           void api(`/api/groups/${action.groupId}/queue/${action.queueId}`, { method: "DELETE" })
             .then(() => {
+              sendOutbox().cancelled(action.queueId);
               rawDispatch(action);
               action.onCancelled?.();
             })
@@ -3271,7 +3277,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         case "message": {
           rawDispatch({ type: "messageAdded", threadId: frame.threadId, message: frame.message as Message });
-          if (frame.message?.role === "user" && typeof frame.message.sendId === "string") sendOutbox().echoed(frame.message.sendId);
+          if (frame.message?.role === "user" && typeof frame.message.sendId === "string") {
+            const landedSendId = frame.message.sendId;
+            sendOutbox().echoed(landedSendId);
+            if (stateRef.current.pendingQueued[frame.threadId]?.some((entry) => entry.queueId === landedSendId)) {
+              rawDispatch({ type: "consumePendingQueued", threadId: frame.threadId, queueId: landedSendId });
+            }
+          }
           if (frame.message?.role === "user" && typeof frame.message.queueId === "string") {
             rawDispatch({
               type: "consumePendingQueued",

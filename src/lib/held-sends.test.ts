@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DESK_OUTBOX_MAX, heldSendsAnswer, withDropped } from "../../deploy/laterdog/home/src/desk.ts";
-import { HELD_ASK_MAX, HELD_GIVE_UP_MS, HELD_SENDS_KEY, heldAnswer, heldAskGroups, heldReply, heldReplyAfterFailure, readHeldSends, sortHeldSends, writeHeldSends, type HeldSend } from "./held-sends";
+import { HELD_ASK_CAP_MS, HELD_ASK_FIRST_MS, HELD_ASK_MAX, HELD_GIVE_UP_MS, HELD_SENDS_KEY, heldAnswer, heldAskGroups, heldReply, heldReplyAfterFailure, nextHeldAskDelay, readHeldSends, sortHeldSends, writeHeldSends, type HeldSend } from "./held-sends";
 
 const send = (sendId: string, at = 0): HeldSend => ({ sendId, threadId: "thread", draftId: "bot:bot:thread", text: "hi", requestText: "hi", at });
 const queued = (id: string) => ({ id, path: "/api/bots/rex/messages", headers: {}, body: "{}", at: 0 });
@@ -40,12 +40,28 @@ describe("held sends kept on the device", () => {
 
   it("takes a failed ask as no answer at all, however old the send is", () => {
     const old = send("send-0000000000001", 1_000);
-    const failures = [new TypeError("Failed to fetch"), Object.assign(new Error("signal timed out"), { name: "TimeoutError" }), Object.assign(new Error("waking"), { status: 503 }), Object.assign(new Error("boom"), { status: 500 }), Object.assign(new Error("sign in"), { status: 401 })];
+    const failures = [new TypeError("Failed to fetch"), Object.assign(new Error("signal timed out"), { name: "TimeoutError" }), Object.assign(new Error("waking"), { status: 503 }), Object.assign(new Error("boom"), { status: 500 })];
     for (const failure of failures) {
       const reply = heldReplyAfterFailure(failure);
       expect(reply).toBe("no-answer");
       expect(sortHeldSends([old], reply, 1_000 + 10 * HELD_GIVE_UP_MS)).toEqual({ keep: [old], lost: [] });
     }
+  });
+
+  it("keeps a send through being signed out, and knows that asking again is pointless until signed in", () => {
+    const old = send("send-0000000000001", 1_000);
+    for (const status of [401, 403]) {
+      const reply = heldReplyAfterFailure(Object.assign(new Error("sign in"), { status }));
+      expect(reply).toBe("signed-out");
+      expect(sortHeldSends([old], reply, 1_000 + 10 * HELD_GIVE_UP_MS)).toEqual({ keep: [old], lost: [] });
+    }
+  });
+
+  it("waits 30 seconds before asking again, then twice as long each time, and never more than five minutes", () => {
+    const waits = [HELD_ASK_FIRST_MS];
+    for (let turn = 0; turn < 6; turn++) waits.push(nextHeldAskDelay(waits.at(-1)!));
+    expect(waits).toEqual([30_000, 60_000, 120_000, 240_000, 300_000, 300_000, 300_000]);
+    expect(HELD_ASK_CAP_MS).toBe(300_000);
   });
 
   it("asks about at most as many sends at once as the edge reads", () => {

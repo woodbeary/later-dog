@@ -6,6 +6,10 @@ const ATTACHMENTS_KEY = "laterdog-draft-attachments";
 const SEND_IDS_KEY = "laterdog-draft-send-ids";
 const POSITIONS_KEY = "laterdog-draft-positions";
 const FAILED_SENDS_KEY = "laterdog-failed-sends";
+export function composerDraftId(chat: { botId: string } | { groupId: string }, threadId: string): string {
+  return "groupId" in chat ? `group:${chat.groupId}:${threadId}` : `bot:${chat.botId}:${threadId}`;
+}
+
 const draftRevisions = new Map<string, number>();
 const replyDrafts = new Map<string, string>();
 type DraftRestore = { text: string; attachments: Attachment[] };
