@@ -1,0 +1,144 @@
+{
+  "platform": "linux x64",
+  "node": "v24.22.2",
+  "root": "/home/dog/rust-lane/tiny",
+  "runs": 7,
+  "rows": [
+    {
+      "label": "Node today: walk, one lstat at a time",
+      "runs": 7,
+      "entries": 171198,
+      "wallMs": {
+        "median": 11046.7,
+        "min": 10340.5,
+        "max": 34422.3
+      },
+      "stallMs": {
+        "median": 11,
+        "min": 5.9,
+        "max": 21.1
+      },
+      "peakRssMb": {
+        "median": 213.9,
+        "min": 213.1,
+        "max": 214.3
+      }
+    },
+    {
+      "label": "Node: walk, a folder's lstats together",
+      "runs": 7,
+      "entries": 171198,
+      "same": true,
+      "wallMs": {
+        "median": 7803,
+        "min": 5121.5,
+        "max": 10676
+      },
+      "stallMs": {
+        "median": 15.9,
+        "min": 12.6,
+        "max": 25
+      },
+      "peakRssMb": {
+        "median": 214.8,
+        "min": 213.6,
+        "max": 216.5
+      }
+    },
+    {
+      "label": "Node: walk with synchronous calls",
+      "runs": 7,
+      "entries": 171198,
+      "same": true,
+      "wallMs": {
+        "median": 2526.6,
+        "min": 2433.4,
+        "max": 2617.4
+      },
+      "stallMs": {
+        "median": 2521.8,
+        "min": 2428.6,
+        "max": 2612.6
+      },
+      "peakRssMb": {
+        "median": 238.3,
+        "min": 235.2,
+        "max": 241.9
+      }
+    },
+    {
+      "label": "Node: the synchronous walk in a worker thread",
+      "runs": 7,
+      "entries": 171198,
+      "same": true,
+      "wallMs": {
+        "median": 2958.3,
+        "min": 2795.8,
+        "max": 3135.7
+      },
+      "stallMs": {
+        "median": 176,
+        "min": 167.6,
+        "max": 201.9
+      },
+      "peakRssMb": {
+        "median": 280.2,
+        "min": 279.7,
+        "max": 282.2
+      }
+    },
+    {
+      "label": "Rust: walk only, inside the binary",
+      "runs": 7,
+      "entries": 171198,
+      "changed": 0,
+      "chunks": 0,
+      "wallMs": {
+        "median": 1379.9,
+        "min": 1343.8,
+        "max": 1402.8
+      },
+      "scanMs": {
+        "median": 1379.9,
+        "min": 1343.8,
+        "max": 1402.8
+      },
+      "compareMs": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "hashMs": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "peakRssMb": {
+        "median": 43.5,
+        "min": 43.4,
+        "max": 43.6
+      }
+    },
+    {
+      "label": "Rust: walk called from Node, entries parsed",
+      "runs": 7,
+      "entries": 171198,
+      "same": true,
+      "wallMs": {
+        "median": 1624.9,
+        "min": 1558.3,
+        "max": 1729.3
+      },
+      "stallMs": {
+        "median": 1620.1,
+        "min": 1553.5,
+        "max": 1724.5
+      },
+      "peakRssMb": {
+        "median": 137.4,
+        "min": 137.3,
+        "max": 137.6
+      }
+    }
+  ]
+}

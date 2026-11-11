@@ -1,0 +1,291 @@
+{
+  "platform": "linux x64",
+  "node": "v24.22.2",
+  "root": "/home/dog/rust-lane/tiny",
+  "runs": 5,
+  "rows": [
+    {
+      "label": "Node before: walk, one lstat at a time",
+      "runs": 5,
+      "entries": 171198,
+      "wallMs": {
+        "median": 16631.8,
+        "min": 12471.1,
+        "max": 17736
+      },
+      "stallMs": {
+        "median": 11.6,
+        "min": 8.7,
+        "max": 21.5
+      },
+      "peakRssMb": {
+        "median": 214.6,
+        "min": 213.8,
+        "max": 215.6
+      }
+    },
+    {
+      "label": "Node now (sync.mjs): walk, a folder's lstats 32 at a time",
+      "runs": 5,
+      "entries": 171198,
+      "same": true,
+      "wallMs": {
+        "median": 8035.7,
+        "min": 6254.1,
+        "max": 9076.3
+      },
+      "stallMs": {
+        "median": 11.1,
+        "min": 8.1,
+        "max": 18
+      },
+      "peakRssMb": {
+        "median": 215.7,
+        "min": 215.3,
+        "max": 217.2
+      }
+    },
+    {
+      "label": "Node: walk, a folder's lstats 8 at a time",
+      "runs": 5,
+      "entries": 171198,
+      "same": true,
+      "wallMs": {
+        "median": 9538.3,
+        "min": 5993.3,
+        "max": 11760.6
+      },
+      "stallMs": {
+        "median": 14.3,
+        "min": 10.1,
+        "max": 33.1
+      },
+      "peakRssMb": {
+        "median": 215.2,
+        "min": 214.2,
+        "max": 220.7
+      }
+    },
+    {
+      "label": "Node: walk, a folder's lstats 32 at a time",
+      "runs": 5,
+      "entries": 171198,
+      "same": true,
+      "wallMs": {
+        "median": 9863.1,
+        "min": 9491.5,
+        "max": 10822.1
+      },
+      "stallMs": {
+        "median": 9.6,
+        "min": 6.5,
+        "max": 13.7
+      },
+      "peakRssMb": {
+        "median": 215.3,
+        "min": 214.6,
+        "max": 216.1
+      }
+    },
+    {
+      "label": "Node: walk, a folder's lstats 128 at a time",
+      "runs": 5,
+      "entries": 171198,
+      "same": true,
+      "wallMs": {
+        "median": 9575.1,
+        "min": 7485.2,
+        "max": 13122.8
+      },
+      "stallMs": {
+        "median": 16.1,
+        "min": 8.7,
+        "max": 18.2
+      },
+      "peakRssMb": {
+        "median": 215.4,
+        "min": 214.2,
+        "max": 216.1
+      }
+    },
+    {
+      "label": "Node: walk, 8 lstats at a time across folders",
+      "runs": 5,
+      "entries": 171198,
+      "same": true,
+      "wallMs": {
+        "median": 5726,
+        "min": 5204.3,
+        "max": 6443.2
+      },
+      "stallMs": {
+        "median": 38.9,
+        "min": 32.8,
+        "max": 50.9
+      },
+      "peakRssMb": {
+        "median": 551.5,
+        "min": 519.5,
+        "max": 555.1
+      }
+    },
+    {
+      "label": "Node: walk, 32 lstats at a time across folders",
+      "runs": 5,
+      "entries": 171198,
+      "same": true,
+      "wallMs": {
+        "median": 5132.8,
+        "min": 4614.5,
+        "max": 5752
+      },
+      "stallMs": {
+        "median": 35,
+        "min": 25.3,
+        "max": 55.1
+      },
+      "peakRssMb": {
+        "median": 519.6,
+        "min": 515.5,
+        "max": 587.5
+      }
+    },
+    {
+      "label": "Node: walk, 128 lstats at a time across folders",
+      "runs": 5,
+      "entries": 171198,
+      "same": true,
+      "wallMs": {
+        "median": 4419.3,
+        "min": 4348.5,
+        "max": 4518
+      },
+      "stallMs": {
+        "median": 32.4,
+        "min": 28.6,
+        "max": 35.1
+      },
+      "peakRssMb": {
+        "median": 615.9,
+        "min": 595.6,
+        "max": 641.5
+      }
+    },
+    {
+      "label": "Node: walk, all of a folder's lstats together",
+      "runs": 5,
+      "entries": 171198,
+      "same": true,
+      "wallMs": {
+        "median": 5929.2,
+        "min": 5586.8,
+        "max": 6757.6
+      },
+      "stallMs": {
+        "median": 13.6,
+        "min": 9.6,
+        "max": 20
+      },
+      "peakRssMb": {
+        "median": 216.4,
+        "min": 214.7,
+        "max": 217.2
+      }
+    },
+    {
+      "label": "Node: walk with synchronous calls",
+      "runs": 5,
+      "entries": 171198,
+      "same": true,
+      "wallMs": {
+        "median": 2734.9,
+        "min": 2635.2,
+        "max": 2883.5
+      },
+      "stallMs": {
+        "median": 2730.1,
+        "min": 2630.4,
+        "max": 2878.6
+      },
+      "peakRssMb": {
+        "median": 238.4,
+        "min": 235.7,
+        "max": 239
+      }
+    },
+    {
+      "label": "Node: the synchronous walk in a worker thread",
+      "runs": 5,
+      "entries": 171198,
+      "same": true,
+      "wallMs": {
+        "median": 3251.9,
+        "min": 3185.9,
+        "max": 3304.4
+      },
+      "stallMs": {
+        "median": 179.5,
+        "min": 168.5,
+        "max": 201.2
+      },
+      "peakRssMb": {
+        "median": 280.2,
+        "min": 279.7,
+        "max": 280.5
+      }
+    },
+    {
+      "label": "Rust: walk only, inside the binary",
+      "runs": 5,
+      "entries": 171198,
+      "changed": 0,
+      "chunks": 0,
+      "wallMs": {
+        "median": 1595.4,
+        "min": 1557.7,
+        "max": 1643.5
+      },
+      "scanMs": {
+        "median": 1595.4,
+        "min": 1557.7,
+        "max": 1643.5
+      },
+      "compareMs": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "hashMs": {
+        "median": 0,
+        "min": 0,
+        "max": 0
+      },
+      "peakRssMb": {
+        "median": 43.5,
+        "min": 43.3,
+        "max": 43.6
+      }
+    },
+    {
+      "label": "Rust: walk called from Node, entries parsed",
+      "runs": 5,
+      "entries": 171198,
+      "same": true,
+      "wallMs": {
+        "median": 1866.5,
+        "min": 1818.8,
+        "max": 1944.5
+      },
+      "stallMs": {
+        "median": 1861.7,
+        "min": 1814,
+        "max": 1939.7
+      },
+      "peakRssMb": {
+        "median": 137.5,
+        "min": 137.4,
+        "max": 137.6
+      }
+    }
+  ]
+}
