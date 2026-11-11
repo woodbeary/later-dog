@@ -136,15 +136,51 @@ async function seed(api: ReturnType<typeof fixtureApi>, setup: Options): Promise
 }
 
 const PAGE_PROBE = `(() => {
-  const perf = { commits: 0, rendered: 0, counting: false, longTasks: [], frames: [], composerAt: null, keys: [], names: new Map(), watchingStore: false, store: null, storeChanges: [], startedAt: 0 };
+  const perf = { commits: 0, rendered: 0, counting: false, longTasks: [], frames: [], composerAt: null, keys: [], names: new Map(), watchingStore: false, store: null, storeChanges: [], startedAt: 0, placing: false, change: "beforeAnyChange", changes: {}, rowsThisChange: new Set() };
   window.__perf = perf;
   const component = (tag) => tag === 0 || tag === 1 || tag === 11 || tag === 14 || tag === 15;
+  const firstElement = (fiber) => {
+    for (let at = fiber; at; at = at.sibling) {
+      if (at.tag === 5) return at.stateNode;
+      if (at.tag === 6) return at.stateNode.parentElement;
+      const below = firstElement(at.child);
+      if (below) return below;
+    }
+    return null;
+  };
+  const placeOf = (fiber) => {
+    const element = firstElement(fiber.child);
+    if (!element) return "drawsNothing";
+    const row = element.closest("[data-sidebar-row], [data-sidebar-bot-row], [data-sidebar-unread]");
+    if (row) {
+      const dog = row.matches("[data-sidebar-bot-row]") ? row : row.querySelector("[data-sidebar-bot-row]");
+      perf.rowsThisChange.add(dog ? dog.getAttribute("data-sidebar-bot-row") : row);
+      return "sidebarRows";
+    }
+    if (element.closest("aside")) return "restOfSidebar";
+    if (element.closest('[role="log"]')) return "openChatTranscript";
+    if (element.closest("main")) return "restOfOpenChat";
+    return "restOfApp";
+  };
+  const tally = () => perf.changes[perf.change] || (perf.changes[perf.change] = { storeChanges: 0, commits: 0, rendered: 0, sidebarRows: 0, mostSidebarRows: 0, places: {} });
+  const closeChange = () => {
+    const held = tally();
+    held.sidebarRows += perf.rowsThisChange.size;
+    held.mostSidebarRows = Math.max(held.mostSidebarRows, perf.rowsThisChange.size);
+    perf.rowsThisChange.clear();
+  };
   const visit = (next, previous) => {
     if (component(next.tag) && (next.flags & 1) === 1) {
       perf.rendered += 1;
       const type = next.type && (next.type.type || next.type.render || next.type);
       const name = (next.type && next.type.displayName) || (type && (type.displayName || type.name)) || "(unnamed)";
       perf.names.set(name, (perf.names.get(name) || 0) + 1);
+      if (perf.placing) {
+        const held = tally();
+        const place = placeOf(next);
+        held.rendered += 1;
+        held.places[place] = (held.places[place] || 0) + 1;
+      }
     }
     if (previous && next.child === previous.child) return;
     for (let child = next.child; child; child = child.sibling) visit(child, child.alternate);
@@ -181,12 +217,16 @@ const PAGE_PROBE = `(() => {
       }
     }
     perf.storeChanges.push({ atMs: Math.round(performance.now() - perf.startedAt), fields, dogs, dogFields });
+    if (!perf.placing) return;
+    closeChange();
+    perf.change = dogs > 0 && dogFields.messages && !dogFields.busy && !dogFields.activity && !dogFields.unread && !dogFields["(new dog)"] ? "streamedPiece" : "otherChange";
+    tally().storeChanges += 1;
   };
   window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
     supportsFiber: true,
     renderers: new Map(),
     inject(renderer) { const id = this.renderers.size + 1; this.renderers.set(id, renderer); return id; },
-    onCommitFiberRoot(_id, root) { perf.commits += 1; if (perf.watchingStore) noteStore(root); if (perf.counting) visit(root.current, root.current.alternate); },
+    onCommitFiberRoot(_id, root) { perf.commits += 1; if (perf.watchingStore) noteStore(root); if (perf.placing) tally().commits += 1; if (perf.counting) visit(root.current, root.current.alternate); },
     onPostCommitFiberRoot() {},
     onCommitFiberUnmount() {},
     checkDCE() {},
@@ -216,6 +256,8 @@ const PAGE_PROBE = `(() => {
     keys: [...perf.keys],
     top: [...perf.names.entries()].sort((left, right) => right[1] - left[1]).slice(0, 120).map(([name, count]) => name + " " + count),
   });
+  perf.place = () => { perf.changes = {}; perf.change = "beforeAnyChange"; perf.rowsThisChange.clear(); perf.storeChanges.length = 0; perf.watchingStore = true; perf.counting = true; perf.placing = true; perf.begin(); };
+  perf.placed = () => { closeChange(); perf.placing = false; perf.counting = false; return perf.changes; };
   perf.until = (test, timeoutMs) => new Promise((done, fail) => {
     const deadline = performance.now() + timeoutMs;
     const look = () => { if (test()) done(performance.now()); else if (performance.now() > deadline) fail(new Error("timed out waiting in the page")); else requestAnimationFrame(look); };
@@ -1046,7 +1088,7 @@ async function sidebarRows(browser: Browser, url: string, api: ReturnType<typeof
   };
 }
 
-async function kept(browser: Browser, url: string, dogs: { long: Dog; others: Dog[] }) {
+async function kept(browser: Browser, url: string, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, files: FixtureFiles) {
   const context = await browser.newContext({ viewport: VIEWPORT });
   await context.addInitScript(PAGE_PROBE);
   const page = await context.newPage();
@@ -1141,8 +1183,58 @@ async function kept(browser: Browser, url: string, dogs: { long: Dog; others: Do
   await page.keyboard.press("Enter");
   await page.waitForTimeout(600);
   const openedByEnter = await selected();
+
+  const away = dogs.others.find((dog) => dog.id !== openedByEnter && dog.id !== short.id)!;
+  await open(page, away);
+  await open(page, dogs.long);
+  await page.waitForTimeout(600);
+  const rowOfAway = () => page.evaluate((selector: string) => {
+    const row = document.querySelector(selector)!;
+    return {
+      spoken: row.getAttribute("aria-label") ?? "",
+      workingDots: row.querySelectorAll('[role="status"] .animate-status-pulse').length,
+      unreadDot: row.querySelectorAll('[data-status="unread"]').length,
+      markedUnread: row.hasAttribute("data-sidebar-unread"),
+      text: (row.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+      unreadRows: document.querySelectorAll("[data-sidebar-bot-row][data-sidebar-unread]").length,
+    };
+  }, rowOf(away));
+  const awayBefore = await rowOfAway();
+  const next = Number(readFileSync(files.replyIndex, "utf8")) || 0;
+  const replyAt = scriptedReplies.findIndex((text, index) => index >= next && text.length > longestReply * 0.9);
+  writeFileSync(files.replyIndex, String(replyAt));
+  writeFileSync(files.stream, JSON.stringify({ everyMs: 30, chars: 3 }));
+  await api("POST", `/api/bots/${away.id}/messages`, { text: "Give me the whole picture again.", threadId: away.threadId, sendId: randomUUID().replaceAll("-", "") });
+  let awayWhileReplying = await rowOfAway();
+  for (let look = 0; look < 60 && awayWhileReplying.workingDots === 0; look += 1) {
+    await page.waitForTimeout(50);
+    awayWhileReplying = await rowOfAway();
+  }
+  await settled(api, [away.id]);
+  rmSync(files.stream, { force: true });
+  await page.waitForTimeout(800);
+  const awayAfter = await rowOfAway();
+  const stillOpen = await selected();
+  await open(page, away);
+  await page.waitForTimeout(600);
+  const awayOnceOpened = await rowOfAway();
   await context.close();
   return {
+    aDogThatIsNotOpen: {
+      open: dogs.long.name,
+      notOpen: away.name,
+      before: awayBefore,
+      whileItReplies: awayWhileReplying,
+      afterItReplied: awayAfter,
+      onceOpened: awayOnceOpened,
+      workingShownWhileItReplies: awayBefore.workingDots === 0 && awayWhileReplying.workingDots > 0 && awayWhileReplying.spoken.includes("Working"),
+      workingGoneAfterItReplied: awayAfter.workingDots === 0 && !awayAfter.spoken.includes("Working"),
+      unreadShownAfterItReplied: !awayBefore.markedUnread && awayBefore.unreadDot === 0 && awayAfter.markedUnread && awayAfter.unreadDot === 1 && awayAfter.spoken.includes("Unread"),
+      unreadRowsWentUpByOne: awayAfter.unreadRows === awayBefore.unreadRows + 1,
+      previewShowsTheReply: awayAfter.text !== awayBefore.text && awayAfter.text.includes(scriptedReplies[replyAt]!.slice(0, 12)),
+      openChatStayedOpen: stillOpen === dogs.long.id,
+      unreadClearedOnceOpened: !awayOnceOpened.markedUnread && awayOnceOpened.unreadRows === awayBefore.unreadRows,
+    },
     drafts: {
       afterSwitching: { long: longAfterSwitch === longDraft, short: shortAfterSwitch === shortDraft },
       afterReload: { long: longAfterReload === longDraft, short: shortAfterReload === shortDraft },
@@ -1417,6 +1509,106 @@ async function layers(browser: Browser, url: string, dogs: { long: Dog; others: 
   return { layers: drawn.length, drawing: drawn.filter((layer) => layer.drawsContent).length, why: ranked(why), where: ranked(where), typing: results };
 }
 
+interface PlacedRedraws {
+  storeChanges: number;
+  commits: number;
+  rendered: number;
+  sidebarRows: number;
+  mostSidebarRows: number;
+  places: Record<string, number>;
+}
+
+const TYPED_WHILE_STREAMING = "Can you also check whether the release notes mention the bigger chat text and the new usage sheet, and fix them if not?";
+
+async function oneDogStreams(browser: Browser, url: string, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, files: FixtureFiles) {
+  const context = await browser.newContext({ viewport: VIEWPORT });
+  await context.addInitScript(PAGE_PROBE);
+  const page = await context.newPage();
+  await page.goto(url);
+  await page.waitForSelector('textarea[aria-label^="Message "]', { timeout: 60_000 });
+  await page.evaluate(() => { (window as unknown as { __perf: { watchingStore: boolean } }).__perf.watchingStore = true; });
+  await open(page, dogs.others[0]!);
+  await open(page, dogs.long);
+  await page.waitForTimeout(2_000);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Performance.enable");
+  const elsewhere = dogs.others[1]!;
+  const working = async (dog: Dog) => {
+    const state = await api("GET", "/api/bots") as { bots: Array<{ id: string; busy?: boolean; activity?: string }> };
+    return state.bots.some((bot) => bot.id === dog.id && Boolean(bot.busy || bot.activity === "working"));
+  };
+  const startLongReply = async (dog: Dog) => {
+    const next = Number(readFileSync(files.replyIndex, "utf8")) || 0;
+    writeFileSync(files.replyIndex, String(scriptedReplies.findIndex((text, index) => index >= next && text.length > longestReply * 0.9)));
+    writeFileSync(files.stream, JSON.stringify({ everyMs: 30, chars: 3 }));
+    await api("POST", `/api/bots/${dog.id}/messages`, { text: "Give me the whole picture again.", threadId: dog.threadId, sendId: randomUUID().replaceAll("-", "") });
+  };
+  const each = (total: number, changes: number) => Math.round(total / Math.max(1, changes) * 10) / 10;
+  const perChange = (held: PlacedRedraws | undefined) => held ? {
+    storeChanges: held.storeChanges,
+    commits: held.commits,
+    componentsRedrawn: held.rendered,
+    eachChange: {
+      componentsRedrawn: each(held.rendered, held.storeChanges),
+      sidebarRowsRedrawn: each(held.sidebarRows, held.storeChanges),
+      mostSidebarRowsRedrawn: held.mostSidebarRows,
+      ...Object.fromEntries(Object.entries(held.places).sort((left, right) => right[1] - left[1]).map(([place, count]) => [place, each(count, held.storeChanges)])),
+    },
+  } : null;
+  const counted = async (dog: Dog) => {
+    await page.evaluate(() => (window as unknown as { __perf: { place(): void } }).__perf.place());
+    await startLongReply(dog);
+    await new Promise((done) => setTimeout(done, 150));
+    await settled(api, [dog.id]);
+    await page.waitForTimeout(400);
+    const changes = await page.evaluate(() => (window as unknown as { __perf: { placed(): Record<string, PlacedRedraws> } }).__perf.placed());
+    return { streamedPiece: perChange(changes.streamedPiece), otherChange: perChange(changes.otherChange) };
+  };
+  const typed = async (dog: Dog | null) => {
+    await page.click(composerOf(dogs.long));
+    await page.evaluate(() => { (window as unknown as { __perf: { watchingStore: boolean } }).__perf.watchingStore = false; });
+    if (dog) {
+      await startLongReply(dog);
+      await page.waitForTimeout(1_000);
+    }
+    const activity = await measured(page, cdp, false, async () => {
+      await page.keyboard.type(TYPED_WHILE_STREAMING, { delay: 35 });
+      const stillStreaming = dog ? await working(dog) : false;
+      await page.waitForTimeout(300);
+      return stillStreaming;
+    });
+    if (dog) await settled(api, [dog.id]);
+    for (let index = 0; index < TYPED_WHILE_STREAMING.length + 10; index += 1) await page.keyboard.press("Backspace");
+    await page.waitForTimeout(600);
+    return {
+      keyToFrameMs: distribution(activity.keys),
+      frames: activity.frames,
+      slowFrames: activity.slowFrames,
+      worstFrameMs: Math.round(activity.worstFrameMs),
+      longTasks: activity.longTasks,
+      mainThread: activity.mainThread,
+      ...(dog ? { replyStillStreamingAfterTheLastKey: activity.value } : {}),
+    };
+  };
+  const redrawsWhileAnotherDogStreams = await counted(elsewhere);
+  const redrawsWhileTheOpenDogStreams = await counted(dogs.long);
+  const typingWhileNoDogStreams = await typed(null);
+  const typingWhileAnotherDogStreams = await typed(elsewhere);
+  const typingWhileTheOpenDogStreams = await typed(dogs.long);
+  rmSync(files.stream, { force: true });
+  await context.close();
+  return {
+    stream: "one reply of about " + Math.round(longestReply * 0.9) + " characters or more, 3 characters every 30 ms",
+    open: dogs.long.name,
+    anotherDog: elsewhere.name,
+    redrawsWhileAnotherDogStreams,
+    redrawsWhileTheOpenDogStreams,
+    typingWhileNoDogStreams,
+    typingWhileAnotherDogStreams,
+    typingWhileTheOpenDogStreams,
+  };
+}
+
 function redraws(activity: Activity & { top?: string[] }) {
   return { commits: activity.commits, rendered: activity.rendered, ...(activity.top ? { top: activity.top } : {}) };
 }
@@ -1542,6 +1734,13 @@ async function main() {
       process.stdout.write(`${JSON.stringify(await layers(browser, fixture.info.url, dogs), null, 2)}\n`);
       return;
     }
+    if (process.argv.includes("--one-dog-streams")) {
+      const result = { label: setup.label, at: new Date().toISOString(), dogs: dogs.others.length + 1, oneDogStreams: await oneDogStreams(browser, fixture.info.url, api, dogs, files) };
+      mkdirSync(dirname(setup.out), { recursive: true });
+      writeFileSync(setup.out, `${JSON.stringify(result, null, 2)}\n`);
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
     if (process.argv.includes("--message-box")) {
       const result = { label: setup.label, at: new Date().toISOString(), dogs: dogs.others.length + 1, messageBox: await messageBox(browser, fixture.info.url, dogs) };
       mkdirSync(dirname(setup.out), { recursive: true });
@@ -1554,7 +1753,7 @@ async function main() {
         label: setup.label,
         at: new Date().toISOString(),
         dogs: dogs.others.length + 1,
-        ...(process.argv.includes("--kept") ? { kept: await kept(browser, fixture.info.url, dogs) } : {}),
+        ...(process.argv.includes("--kept") ? { kept: await kept(browser, fixture.info.url, api, dogs, files) } : {}),
         ...(process.argv.includes("--sidebar-rows") ? await sidebarRows(browser, fixture.info.url, api, dogs, process.argv.includes("--shots") ? resolve(option("shots")) : null, setup.label) : {}),
       };
       mkdirSync(dirname(setup.out), { recursive: true });
