@@ -1,0 +1,91 @@
+{
+  "label": "main-80-kept-1",
+  "at": "2026-11-11T19:59:08.256Z",
+  "dogs": 80,
+  "kept": {
+    "aDogThatIsNotOpen": {
+      "open": "Marathon",
+      "notOpen": "Helper 2",
+      "before": {
+        "spoken": "Helper 2",
+        "workingDots": 0,
+        "unreadDot": 0,
+        "markedUnread": false,
+        "text": "Helper 2Answer 40. Results from this run: Step Result Time Install passed 41 s Typecheck passed 18 s Tests 1,884 passed ",
+        "unreadRows": 77
+      },
+      "whileItReplies": {
+        "spoken": "Helper 2 · Working",
+        "workingDots": 3,
+        "unreadDot": 0,
+        "markedUnread": false,
+        "text": "Helper 2Working…",
+        "unreadRows": 77
+      },
+      "afterItReplied": {
+        "spoken": "Helper 2 · Unread",
+        "workingDots": 0,
+        "unreadDot": 1,
+        "markedUnread": true,
+        "text": "Helper 2Answer 282. Here is where things stand: Build: finished and signed, with the long dog names fitting their rows. ",
+        "unreadRows": 78
+      },
+      "onceOpened": {
+        "spoken": "Helper 2",
+        "workingDots": 0,
+        "unreadDot": 0,
+        "markedUnread": false,
+        "text": "Helper 27:59 PMAnswer 282. Here is where things stand: Build: finished and signed, with the long dog names fitting their",
+        "unreadRows": 77
+      },
+      "workingShownWhileItReplies": true,
+      "workingGoneAfterItReplied": true,
+      "unreadShownAfterItReplied": true,
+      "unreadRowsWentUpByOne": true,
+      "previewShowsTheReply": true,
+      "openChatStayedOpen": true,
+      "unreadClearedOnceOpened": true
+    },
+    "drafts": {
+      "afterSwitching": {
+        "long": true,
+        "short": true
+      },
+      "afterReload": {
+        "long": true,
+        "short": true
+      }
+    },
+    "selection": {
+      "openBeforeReload": "long chat",
+      "sameChatAfterReload": true
+    },
+    "screenReader": {
+      "rows": 81,
+      "rowsNotDrawn": 41,
+      "namedButtons": 81,
+      "namedButtonsNotDrawn": 41,
+      "exampleDrawn": "Helper 79 · Unread",
+      "exampleNotDrawn": {
+        "drawn": false,
+        "role": "button",
+        "name": "Helper 39 · Unread",
+        "ignored": false,
+        "why": ""
+      },
+      "transcript": {
+        "label": "Conversation with Marathon",
+        "live": "off",
+        "rows": 120
+      }
+    },
+    "keyboard": {
+      "rowsReachedByTab": 81,
+      "rowsNotDrawnBeforeTabbing": 41,
+      "reachedOfThoseNotDrawn": 41,
+      "inViewWhenFocused": 81,
+      "focusRingShown": 81,
+      "enterOpensTheFocusedRow": true
+    }
+  }
+}

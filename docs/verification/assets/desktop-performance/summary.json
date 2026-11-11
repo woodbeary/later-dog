@@ -1,0 +1,780 @@
+{
+ "default-7": {
+  "Open the long chat, median of 8 (ms)": {
+   "base": [
+    301.9
+   ],
+   "main": [
+    266.9
+   ],
+   "verdict": "lower in every run"
+  },
+  "Open the long chat, slowest of 8 (ms)": {
+   "base": [
+    339.8
+   ],
+   "main": [
+    280
+   ],
+   "verdict": "lower in every run"
+  },
+  "Long chat: rows drawn when it is first shown": {
+   "base": [
+    120
+   ],
+   "main": [
+    30
+   ],
+   "verdict": "changed"
+  },
+  "Long chat: all 120 rows in place, median of 8 (ms)": {
+   "base": [
+    292
+   ],
+   "main": [
+    375
+   ],
+   "verdict": "higher in every run"
+  },
+  "Long chat: openings of 8 that never reached 120 rows": {
+   "base": [
+    0
+   ],
+   "main": [
+    0
+   ],
+   "verdict": "same"
+  },
+  "Open a short chat, median of 8 (ms)": {
+   "base": [
+    63.6
+   ],
+   "main": [
+    69.2
+   ],
+   "verdict": "higher in every run"
+  },
+  "Long tasks across 16 switches (ms)": {
+   "base": [
+    2261
+   ],
+   "main": [
+    2792
+   ],
+   "verdict": "higher in every run"
+  },
+  "Key press to frame, median of 119 keys (ms)": {
+   "base": [
+    23.6
+   ],
+   "main": [
+    23.6
+   ],
+   "verdict": "same"
+  },
+  "Key press to frame, 95th of 119 keys (ms)": {
+   "base": [
+    32.2
+   ],
+   "main": [
+    31.9
+   ],
+   "verdict": "lower in every run"
+  },
+  "Key press to frame, slowest of 119 keys (ms)": {
+   "base": [
+    32.9
+   ],
+   "main": [
+    32.9
+   ],
+   "verdict": "same"
+  },
+  "Typing: frames slower than 25 ms": {
+   "base": [
+    0
+   ],
+   "main": [
+    0
+   ],
+   "verdict": "same"
+  },
+  "Typing: main thread busy over 5.5 s (ms)": {
+   "base": [
+    2257
+   ],
+   "main": [
+    2000
+   ],
+   "verdict": "lower in every run"
+  },
+  "Typing: layouts for 119 keys": {
+   "base": [
+    768
+   ],
+   "main": [
+    569
+   ],
+   "verdict": "lower in every run"
+  },
+  "Typing: components redrawn for 119 keys": {
+   "base": [
+    3221
+   ],
+   "main": [
+    3223
+   ],
+   "verdict": "higher in every run"
+  },
+  "Cold load: first paint, median of 5 (ms)": {
+   "base": [
+    372
+   ],
+   "main": [
+    452
+   ],
+   "verdict": "higher in every run"
+  },
+  "Cold load: message box ready, median of 5 (ms)": {
+   "base": [
+    547.2
+   ],
+   "main": [
+    649.8
+   ],
+   "verdict": "higher in every run"
+  },
+  "Cold load: message box ready, slowest of 5 (ms)": {
+   "base": [
+    593.1
+   ],
+   "main": [
+    668.2
+   ],
+   "verdict": "higher in every run"
+  },
+  "Idle: main thread busy per 3 s (ms)": {
+   "base": [
+    130
+   ],
+   "main": [
+    77
+   ],
+   "verdict": "lower in every run"
+  },
+  "Idle: style passes per 3 s": {
+   "base": [
+    181
+   ],
+   "main": [
+    0
+   ],
+   "verdict": "lower in every run"
+  },
+  "A streamed reply: frames slower than 25 ms": {
+   "base": [
+    5
+   ],
+   "main": [
+    2
+   ],
+   "verdict": "lower in every run"
+  },
+  "A streamed reply: components redrawn": {
+   "base": [
+    8628
+   ],
+   "main": [
+    5487
+   ],
+   "verdict": "lower in every run"
+  },
+  "Own bubble after Enter (ms)": {
+   "base": [
+    36.90000000037253
+   ],
+   "main": [
+    28.100000000558794
+   ],
+   "verdict": "lower in every run"
+  },
+  "Four other dogs working: frames slower than 25 ms": {
+   "base": [
+    0
+   ],
+   "main": [
+    0
+   ],
+   "verdict": "same"
+  },
+  "Four other dogs working: main thread busy (ms)": {
+   "base": [
+    970
+   ],
+   "main": [
+    797
+   ],
+   "verdict": "lower in every run"
+  },
+  "Four other dogs working: components redrawn": {
+   "base": [
+    1322
+   ],
+   "main": [
+    636
+   ],
+   "verdict": "lower in every run"
+  },
+  "Switching: components redrawn across 16 switches": {
+   "base": [
+    31091
+   ],
+   "main": [
+    32933
+   ],
+   "verdict": "higher in every run"
+  },
+  "JS heap at idle, after a collection (MB)": {
+   "base": [
+    12.8
+   ],
+   "main": [
+    12.7
+   ],
+   "verdict": "lower in every run"
+  },
+  "JS heap after the run, after a collection (MB)": {
+   "base": [
+    25.8
+   ],
+   "main": [
+    26
+   ],
+   "verdict": "higher in every run"
+  },
+  "Page process memory at idle (MB)": {
+   "base": [
+    61
+   ],
+   "main": [
+    59
+   ],
+   "verdict": "lower in every run"
+  },
+  "Page process memory, highest of 6 samples (MB)": {
+   "base": [
+    373
+   ],
+   "main": [
+    344
+   ],
+   "verdict": "lower in every run"
+  },
+  "Browser process tree at idle, resident (MB)": {
+   "base": [
+    1001
+   ],
+   "main": [
+    1002
+   ],
+   "verdict": "higher in every run"
+  },
+  "Browser process tree, highest in the run, resident (MB)": {
+   "base": [
+    1337
+   ],
+   "main": [
+    1314
+   ],
+   "verdict": "lower in every run"
+  },
+  "DOM nodes after the run": {
+   "base": [
+    10933
+   ],
+   "main": [
+    10933
+   ],
+   "verdict": "same"
+  },
+  "Rows in the long chat 1.5 s after opening": {
+   "base": [
+    120
+   ],
+   "main": [
+    120
+   ],
+   "verdict": "same"
+  }
+ },
+ "default-80": {
+  "Open the long chat, median of 8 (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Open the long chat, slowest of 8 (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Long chat: rows drawn when it is first shown": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Long chat: all 120 rows in place, median of 8 (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Long chat: openings of 8 that never reached 120 rows": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Open a short chat, median of 8 (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Long tasks across 16 switches (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Key press to frame, median of 119 keys (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Key press to frame, 95th of 119 keys (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Key press to frame, slowest of 119 keys (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing: frames slower than 25 ms": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing: main thread busy over 5.5 s (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing: layouts for 119 keys": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing: components redrawn for 119 keys": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Cold load: first paint, median of 5 (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Cold load: message box ready, median of 5 (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Cold load: message box ready, slowest of 5 (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Idle: main thread busy per 3 s (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Idle: style passes per 3 s": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "A streamed reply: frames slower than 25 ms": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "A streamed reply: components redrawn": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Own bubble after Enter (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Four other dogs working: frames slower than 25 ms": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Four other dogs working: main thread busy (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Four other dogs working: components redrawn": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Switching: components redrawn across 16 switches": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "JS heap at idle, after a collection (MB)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "JS heap after the run, after a collection (MB)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Page process memory at idle (MB)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Page process memory, highest of 6 samples (MB)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Browser process tree at idle, resident (MB)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Browser process tree, highest in the run, resident (MB)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "DOM nodes after the run": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Rows in the long chat 1.5 s after opening": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  }
+ },
+ "ods-7": {
+  "Another dog streams: store changes": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Another dog streams: components redrawn, whole reply": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Another dog streams: components redrawn per store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Another dog streams: sidebar components redrawn per store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Another dog streams: sidebar rows redrawn per store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Another dog streams: most sidebar rows redrawn by one store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Another dog streams: open chat components redrawn per store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Open dog streams: components redrawn, whole reply": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Open dog streams: components redrawn per store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Open dog streams: sidebar components redrawn per store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Open dog streams: components redrawn each time the reply grew": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, no dog streaming: key to frame, median (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, no dog streaming: key to frame, 95th (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, no dog streaming: frames slower than 25 ms": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, no dog streaming: main thread busy (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, another dog streaming: key to frame, median (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, another dog streaming: key to frame, 95th (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, another dog streaming: frames slower than 25 ms": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, another dog streaming: main thread busy (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, open dog streaming: key to frame, median (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, open dog streaming: key to frame, 95th (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, open dog streaming: frames slower than 25 ms": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, open dog streaming: main thread busy (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  }
+ },
+ "ods-80": {
+  "Another dog streams: store changes": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Another dog streams: components redrawn, whole reply": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Another dog streams: components redrawn per store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Another dog streams: sidebar components redrawn per store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Another dog streams: sidebar rows redrawn per store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Another dog streams: most sidebar rows redrawn by one store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Another dog streams: open chat components redrawn per store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Open dog streams: components redrawn, whole reply": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Open dog streams: components redrawn per store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Open dog streams: sidebar components redrawn per store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Open dog streams: components redrawn each time the reply grew": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, no dog streaming: key to frame, median (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, no dog streaming: key to frame, 95th (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, no dog streaming: frames slower than 25 ms": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, no dog streaming: main thread busy (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, another dog streaming: key to frame, median (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, another dog streaming: key to frame, 95th (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, another dog streaming: frames slower than 25 ms": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, another dog streaming: main thread busy (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, open dog streaming: key to frame, median (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, open dog streaming: key to frame, 95th (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, open dog streaming: frames slower than 25 ms": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Typing, open dog streaming: main thread busy (ms)": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  }
+ },
+ "sc-7": {
+  "Four other dogs take a turn: store changes": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Four other dogs take a turn: commits": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Four other dogs take a turn: components redrawn": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Four other dogs take a turn: components redrawn per store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Idle for 3 s: store changes": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Idle for 3 s: components redrawn": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  }
+ },
+ "sc-80": {
+  "Four other dogs take a turn: store changes": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Four other dogs take a turn: commits": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Four other dogs take a turn: components redrawn": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Four other dogs take a turn: components redrawn per store change": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Idle for 3 s: store changes": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  },
+  "Idle for 3 s: components redrawn": {
+   "base": [],
+   "main": [],
+   "verdict": "not measured"
+  }
+ }
+}

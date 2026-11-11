@@ -80,7 +80,39 @@ The fake engine streams a reply in pieces when `FAKE_CLAUDE_STREAM_FILE` names
 a JSON file `{ "everyMs": 30, "chars": 10 }`, and reads scripted replies from
 `FAKE_CLAUDE_REPLIES_FILE` when the list is too long for the environment.
 
-## Results, 2026-11-10
+## Results, 2026-11-11: base 651cf65 against main 89b1439
+
+In progress. This section is being filled in as runs finish; until the table
+is here, the tables under "History" below are the only timed numbers and they
+describe 456e978, not main.
+
+How the runs are made, on the Linux cloud computer (4 cores, 12 GB, Chromium
+156 through Playwright 1.56.1, Node 24.22.2, fixture data, not the Mac app):
+
+- `~/measure/base` is `git archive 651cf65` (tree f7700da, checked with
+  `git write-tree`), `~/measure/main` is main 89b1439 (tree 415d264, checked
+  the same way). Both use the same installed packages; the lockfile did not
+  change between the two commits.
+- Each renderer is built with `pnpm exec vite build --outDir ~/measure/dist-base`
+  (or `dist-main`) from its own tree.
+- The harness only exists on main, so every run is main's
+  `scripts/desktop-perf.ts`, main's fixture server and main's fake engine,
+  serving one of the two builds with `--dist`. Only the renderer differs
+  between the columns.
+- Timed runs hold `flock -x ~/heavy.lock`, alternate base and main, and write
+  one result file and one `.meta.json` (command, lock, wait for the lock, load
+  average at the start and end, exit code) each, under `~/measure/results/`
+  there and in `assets/desktop-performance/` here.
+  `python3 assets/desktop-performance/summarize.py` prints the tables from
+  those files.
+
+Done so far: the builds; one timed run of each build at 7 dogs; `--kept` and
+`--message-box` at 80 dogs, once each on each build (not timed, so they ran
+with the lock shared). Left: everything else in the brief for this note (five
+timed runs of each build at 7 and at 80 dogs, `--one-dog-streams`,
+`--store-changes`, `--layers`).
+
+## History: results at 456e978, 2026-11-10
 
 Both tables below were measured at 456e978, before the review fixes; not
 re-measured. Two later commits change what they time: 51157ef (the fill became

@@ -1,0 +1,266 @@
+{
+  "label": "main-7-default-1",
+  "at": "2026-11-11T20:06:46.860Z",
+  "setup": {
+    "out": "/home/dog/measure/results/main-7-default-1.json",
+    "playwright": "/home/dog/audit/pw",
+    "browser": "/usr/bin/chromium",
+    "label": "main-7-default-1",
+    "longTurns": 120,
+    "otherDogs": 5,
+    "otherTurns": 6,
+    "coldRuns": 5,
+    "switches": 8,
+    "seedSeconds": 10,
+    "renderer": "production build served by the fixture server",
+    "platform": "linux x64",
+    "messagesInLongChat": 240
+  },
+  "cold": {
+    "firstPaintMs": {
+      "count": 5,
+      "p50": 452,
+      "p95": 480,
+      "max": 480
+    },
+    "composerReadyMs": {
+      "count": 5,
+      "p50": 649.8,
+      "p95": 668.2,
+      "max": 668.2
+    }
+  },
+  "timed": {
+    "idle": {
+      "ms": 3003.7999999998137,
+      "commits": 0,
+      "rendered": 0,
+      "longTasks": 0,
+      "longTaskMs": 0,
+      "frames": 180,
+      "slowFrames": 0,
+      "worstFrameMs": 16.800000000000182,
+      "mainThread": {
+        "scriptMs": 10,
+        "layoutMs": 0,
+        "styleMs": 0,
+        "taskMs": 77,
+        "layouts": 0,
+        "styleRecalcs": 0
+      },
+      "animations": {
+        "running": 6,
+        "byName": [
+          "script 6"
+        ]
+      },
+      "blinkSeenMs": 1088
+    },
+    "longChatOpened": {
+      "rows": 120,
+      "pixelsFromBottom": 0
+    },
+    "fill": {
+      "idle": {
+        "filledMs": {
+          "count": 8,
+          "p50": 375,
+          "p95": 452,
+          "max": 452
+        },
+        "unfilled": 0,
+        "rowsAtFirstSight": [
+          30
+        ],
+        "worstPixelsFromBottom": 0
+      },
+      "whileReplyStreams": {
+        "following": {
+          "shownMs": 89,
+          "rowsAtFirstSight": 30,
+          "filledMs": 289,
+          "rows": 120,
+          "pixelsFromBottom": 0,
+          "replyStillStreaming": true
+        },
+        "scrolledUp": {
+          "rowsAtFirstSight": 30,
+          "rowsWhenReleased": 30,
+          "rows": 120,
+          "filledMsAfterRelease": 535,
+          "readerRowMovedPx": 0,
+          "readerRowEndedPx": 0,
+          "transcriptGrewPx": 17045,
+          "replyStillStreaming": true
+        }
+      }
+    },
+    "heapIdleMb": 12.7,
+    "heapAfterMb": 26,
+    "rendererIdleMb": 59,
+    "rendererPeakMb": 344,
+    "rssMb": {
+      "idle": {
+        "serverTreeRssMb": 871,
+        "browserTreeRssMb": 1002
+      },
+      "peak": {
+        "serverTreeRssMb": 915,
+        "browserTreeRssMb": 1314
+      },
+      "afterRun": {
+        "serverTreeRssMb": 873,
+        "browserTreeRssMb": 1313
+      }
+    },
+    "domNodesAfter": 10933,
+    "switchToLongMs": {
+      "count": 8,
+      "p50": 266.9,
+      "p95": 280,
+      "max": 280
+    },
+    "switchToShortMs": {
+      "count": 8,
+      "p50": 69.2,
+      "p95": 77.6,
+      "max": 77.6
+    },
+    "switching": {
+      "ms": 3282.5999999996275,
+      "commits": 107,
+      "rendered": 0,
+      "longTasks": 35,
+      "longTaskMs": 2792,
+      "frames": 48,
+      "slowFrames": 32,
+      "worstFrameMs": 166.70000000000073,
+      "mainThread": {
+        "scriptMs": 1542,
+        "layoutMs": 360,
+        "styleMs": 795,
+        "taskMs": 3234,
+        "layouts": 119,
+        "styleRecalcs": 227
+      }
+    },
+    "typingKeyToFrameMs": {
+      "count": 119,
+      "p50": 23.6,
+      "p95": 31.9,
+      "max": 32.9
+    },
+    "typing": {
+      "ms": 5272.200000000186,
+      "commits": 244,
+      "rendered": 0,
+      "longTasks": 0,
+      "longTaskMs": 0,
+      "frames": 317,
+      "slowFrames": 0,
+      "worstFrameMs": 16.80000000000109,
+      "mainThread": {
+        "scriptMs": 286,
+        "layoutMs": 146,
+        "styleMs": 76,
+        "taskMs": 2000,
+        "layouts": 569,
+        "styleRecalcs": 571
+      }
+    },
+    "scrolling": {
+      "ms": 4249.5,
+      "commits": 4,
+      "rendered": 0,
+      "longTasks": 0,
+      "longTaskMs": 0,
+      "frames": 255,
+      "slowFrames": 0,
+      "worstFrameMs": 16.799999999999272,
+      "mainThread": {
+        "scriptMs": 106,
+        "layoutMs": 73,
+        "styleMs": 225,
+        "taskMs": 1883,
+        "layouts": 258,
+        "styleRecalcs": 259
+      }
+    },
+    "send": {
+      "ownBubbleMs": 28.100000000558794,
+      "firstReplyMs": 1049.7000000001863
+    },
+    "streaming": {
+      "ms": 1665.8999999994412,
+      "commits": 31,
+      "rendered": 0,
+      "longTasks": 0,
+      "longTaskMs": 0,
+      "frames": 96,
+      "slowFrames": 2,
+      "worstFrameMs": 50,
+      "mainThread": {
+        "scriptMs": 194,
+        "layoutMs": 69,
+        "styleMs": 43,
+        "taskMs": 716,
+        "layouts": 115,
+        "styleRecalcs": 118
+      }
+    },
+    "otherDogsWorking": {
+      "ms": 2335.300000000745,
+      "commits": 29,
+      "rendered": 0,
+      "longTasks": 0,
+      "longTaskMs": 0,
+      "frames": 140,
+      "slowFrames": 0,
+      "worstFrameMs": 16.799999999999272,
+      "mainThread": {
+        "scriptMs": 78,
+        "layoutMs": 56,
+        "styleMs": 53,
+        "taskMs": 797,
+        "layouts": 151,
+        "styleRecalcs": 151
+      }
+    }
+  },
+  "counted": {
+    "switching": {
+      "commits": 109,
+      "rendered": 32933
+    },
+    "typing": {
+      "commits": 245,
+      "rendered": 3223
+    },
+    "scrolling": {
+      "commits": 4,
+      "rendered": 98
+    },
+    "streaming": {
+      "commits": 31,
+      "rendered": 5487
+    },
+    "otherDogsWorking": {
+      "commits": 32,
+      "rendered": 636
+    }
+  },
+  "memory": {
+    "idle": {
+      "serverTreeRssMb": 871,
+      "browserTreeRssMb": 1002
+    },
+    "peak": {
+      "serverTreeRssMb": 915,
+      "browserTreeRssMb": 1314
+    },
+    "afterRun": {
+      "serverTreeRssMb": 873,
+      "browserTreeRssMb": 1313
+    }
+  }
+}
