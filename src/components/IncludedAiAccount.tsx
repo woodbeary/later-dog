@@ -5,7 +5,7 @@ import { openExternalLink } from "@/lib/app-links";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { isIncludedEngine } from "../../shared/account-engines";
-import { pill } from "./AccountsPanel";
+import { pill } from "./account-pill";
 import { useCloudTrial, type TrialStatus } from "./CloudTrial";
 
 export type IncludedAi = { ready: true } | { ready: false; reason: string | null };

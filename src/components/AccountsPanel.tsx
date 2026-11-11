@@ -16,6 +16,7 @@ import { usageLines, usageReading, usePlanUsage, type PlanProvider, resetDistanc
 import { backAt, restSummary, SleepingDog, usageLeft } from "./AccountCharge";
 import { AccountCharge } from "./AccountBattery";
 import { useAccountDrag, type AccountDrag } from "./account-drag";
+import { pill } from "./account-pill";
 
 type Battery = NonNullable<ConfigStatus["accountBattery"]>;
 type Rest = NonNullable<Battery["resting"]>[string];
@@ -35,7 +36,6 @@ const DEFAULT_ACCOUNT_IDS = new Set(["claude", "chatgpt", "codex", "grok", "curs
 
 const carriesOn = (instance: InstanceInfo) => (CARRY_ON_KINDS as readonly string[]).includes(instance.driverKind);
 
-export const pill = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45";
 const primary = cn(pill, "bg-accent text-white hover:bg-accent");
 const ROW = "flex min-h-16 items-center gap-3 px-4 py-3";
 

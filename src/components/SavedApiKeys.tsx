@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { InstanceInfo } from "@/state/store";
 import { t } from "@/lib/i18n";
-import { pill } from "./AccountsPanel";
+import { pill } from "./account-pill";
 import { ApiKeyEngineManage, apiKeySection, hasSavedApiKey } from "./EngineSetup";
 
 export function savedKeyEngines(instances: readonly InstanceInfo[]): InstanceInfo[] {
