@@ -298,6 +298,38 @@ describe("which devices the desk trusts", () => {
     expect((await send(h, asOwner())).status).toBe(503);
   });
 
+  it("asks the home once more, and only once, about a standing session it refuses one thing again and again while a check of it is out", async () => {
+    const h = await home();
+    await knownOwner(h);
+    world.answers.set("POST /api/bots/rex/avatar", () => Response.json({ error: "the image service refused its key" }, { status: 401 }));
+    const refusedOneThing = () => h.visit("/api/bots/rex/avatar", asOwner({ method: "POST" }));
+    let letGo = () => undefined as void;
+    const out = new Promise<void>((asked) => {
+      world.answers.set("GET /api/auth/session", () => {
+        asked();
+        return new Promise<Response>((resolve) => {
+          letGo = () => resolve(Response.json({ kind: "session", scopes: ["admin", "client"] }));
+        });
+      });
+    });
+    now += 10_000;
+    const first = refusedOneThing();
+    await out;
+    let askedAgain = 0;
+    world.answers.set("GET /api/auth/session", () => {
+      askedAgain += 1;
+      return askedAgain === 1 ? Response.json({ kind: "session", scopes: ["admin", "client"] }) : Response.json({ error: "unauthorized" }, { status: 401 });
+    });
+    for (let again = 0; again < 5; again += 1) expect((await refusedOneThing()).status).toBe(401);
+    expect(askedAgain).toBe(0);
+    letGo();
+    expect((await first).status).toBe(401);
+    await h.settle();
+    expect(askedAgain).toBe(1);
+    await h.sleep();
+    expect((await send(h, asOwner())).status).toBe(202);
+  });
+
   it("keeps a device's answers again once the home accepts it again, though they have not changed", async () => {
     const h = await home();
     await knownOwner(h);
