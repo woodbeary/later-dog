@@ -246,6 +246,7 @@ function splitOf(line: Timeline): Split {
 const numbered = (index: number) => String(index).padStart(4, "0");
 const answerOf = (index: number) => `Answer ${numbered(index)}.`;
 const endOf = (index: number) => `End of answer ${numbered(index)}.`;
+const indexOf = (answer: string) => Number(/^Answer (\d+)\./.exec(answer)?.[1] ?? 0);
 
 function stream(world: World, plan: { everyMs: number; chars: number }): void {
   writeFileSync(world.streamFile, JSON.stringify(plan));
@@ -791,7 +792,7 @@ async function connection(world: World, run: Run): Promise<CaseResult> {
   const caughtUp = await cutReply;
   const taken = await world.edge.seen("sent", { after: back.at }, 60_000);
   const engineAt = await world.engine.started(during);
-  const second = await firstWords(page, caughtUp.index);
+  const second = await firstWords(page, indexOf(whole) || caughtUp.index);
   await rest(world, dog);
   await page.waitForTimeout(900);
   const first = await look(page, words, whole.slice(0, FIRST_PIECE));
@@ -808,6 +809,8 @@ async function connection(world: World, run: Run): Promise<CaseResult> {
   result.numbers["connection down, ms"] = round(back.at - cutAt);
   result.numbers["connection back to the page asking again, ms"] = round((taken.gotAt ?? taken.at) - back.at);
   result.numbers["connection back to the reply that finished while down on screen, ms"] = round(caughtUp.at - back.at);
+  result.numbers["connection back to the reply to the message sent while down on screen, ms"] = round(second.at - back.at);
+  result.numbers["the reply that finished while down came on screen in the same step as the next reply (1 yes, 0 no)"] = caughtUp.index > indexOf(whole) ? 1 : 0;
   await clearBox(page, dog);
   await page.waitForTimeout(400);
   return result;
