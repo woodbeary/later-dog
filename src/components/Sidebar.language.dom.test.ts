@@ -25,7 +25,7 @@ const dog = (id: string, name: string, patch: Partial<Bot> = {}): Bot => ({
   ...patch,
 });
 const team: Group = {
-  id: "team", threadId: "thread-team", name: "Team", memberIds: ["atlas", "scout"], defaultResponder: "atlas",
+  id: "team", threadId: "thread-team", name: "Team", memberIds: ["atlas", "scout"], defaultResponder: { kind: "mentions" },
   bulletin: "", unread: false, createdAt: NOW, working: true, messages: [],
 };
 
