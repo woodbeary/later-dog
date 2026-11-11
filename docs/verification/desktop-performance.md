@@ -200,3 +200,21 @@ or checked anywhere yet:
 - A real screen reader on the Mac reading the sidebar, and a keyboard focus
   ring photographed on a sidebar row.
 
+## Where this lane stands, 2026-11-11
+
+Run on the Linux cloud computer at fa3141c:
+
+- The Sidebar tests, the row-kind test and the unread-pill test: 18 files, 134
+  tests passed.
+- The whole renderer suite (every test under `src`): 409 files, 3,576 tests
+  passed.
+- The renderer and server typechecks: no errors.
+- `scripts/no-comments.test.ts` and `scripts/brand-links.test.ts`: 13 tests
+  passed.
+- The harness ran end to end in its `--sidebar-rows` and `--kept` modes
+  against the builds of main, 456e978 and this branch.
+
+Left: the timed before and after runs of main against this branch at 7 and 80
+dogs, and their table here and in the pull request. They wait for a turn on
+the cloud computer, which other lanes are using.
+
