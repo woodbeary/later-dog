@@ -51,6 +51,7 @@ export type HomeState = "stopped" | "starting" | "serving";
 export type EdgeEventKind =
   | "asleep"
   | "waking"
+  | "told-waking"
   | "serving"
   | "held"
   | "held-again"
@@ -93,6 +94,7 @@ export interface FixtureEdge {
   serve(): void;
   refuseNextDelivery(status?: number): void;
   loseNextSendAnswer(): void;
+  saveNextAnswers(): void;
   expireHeld(): Promise<void>;
   dropConnection(ms: number): void;
   seen(kind: EdgeEventKind, match?: { id?: string; after?: number }, timeoutMs?: number): Promise<EdgeEvent>;
@@ -428,7 +430,9 @@ export async function startFixtureEdge(options: FixtureEdgeOptions): Promise<Fix
     if (deskEvents(request) && deviceKnown && person) return openDeskStream();
     const saved = await answerAsleep(request);
     if (saved) return saved;
-    return wakeResponse(request, person || state === "starting" ? "waking" : "asleep");
+    const wake = person || state === "starting" ? "waking" : "asleep";
+    if (wake === "waking") note("told-waking", { status: 503 });
+    return wakeResponse(request, wake);
   };
 
   const server = createServer((req, res) => {
@@ -498,6 +502,9 @@ export async function startFixtureEdge(options: FixtureEdgeOptions): Promise<Fix
     },
     loseNextSendAnswer() {
       losesNextAnswer = true;
+    },
+    saveNextAnswers() {
+      lastSaved.clear();
     },
     expireHeld: () => deliverQueued(now() + HELD_GIVE_UP_MS),
     dropConnection(ms) {

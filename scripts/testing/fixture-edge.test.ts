@@ -99,6 +99,7 @@ describe("the fixture edge", () => {
     expect(unsaved.status).toBe(503);
     expect(unsaved.headers.get(WAKE_HEADER)).toBe("waking");
     expect(await unsaved.json()).toEqual({ error: "waking", retryAfter: 2 });
+    expect(edge.events.filter((event) => event.kind === "told-waking")).toEqual([{ at: clock, kind: "told-waking", status: 503 }]);
     const lending = await fetch(`${edge.url}/api/config`, { headers: { "x-laterdog-lending": "1" } });
     expect(lending.headers.get(WAKE_HEADER)).toBe("asleep");
   });
@@ -214,5 +215,17 @@ describe("the fixture edge", () => {
     const saved = await fetch(`${edge.url}/api/bots`);
     expect(Date.parse(saved.headers.get(SAVED_HEADER)!)).toBe(clock);
     expect((await saved.json()).bots[0].messages).toHaveLength(1);
+  });
+
+  it("saves the next answer at once when the pause between saves is skipped", async () => {
+    await chats();
+    await new Promise((done) => setTimeout(done, 20));
+    await send("soon");
+    clock += 1;
+    edge.saveNextAnswers();
+    await chats();
+    await new Promise((done) => setTimeout(done, 20));
+    edge.sleep();
+    expect((await (await fetch(`${edge.url}/api/bots`)).json()).bots[0].messages).toHaveLength(1);
   });
 });
