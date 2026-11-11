@@ -41,7 +41,7 @@ import {
   type Message,
   type AppState,
 } from "@/state/store";
-import { useDrawnDogs, useStoreDispatch, useStoreReader, useStoreSelector } from "@/state/store-selectors";
+import { dogIn, useDrawnDogs, useStoreDispatch, useStoreReader, useStoreSelector } from "@/state/store-selectors";
 import { failedTurnCause } from "@/lib/failed-turn";
 import { FailedTurnRow } from "./FailedTurnRow";
 import { isOpenTakeover } from "../../shared/takeover";
@@ -146,6 +146,7 @@ interface ChatRows {
   botName: string;
   busy: boolean;
   bots: readonly Bot[];
+  readStore: () => AppState;
   mentionPeers: readonly MentionPeer[];
   focus: AppState["focusMessage"];
   showToolCalls: boolean;
@@ -300,7 +301,7 @@ const Bubble = memo(function Bubble({
   onReply: (message: Message) => void;
   receipt?: boolean;
 }) {
-  const { botId, threadId, botName, busy, mentionPeers, focus, dispatch, onBranch, bots, canWrite } = useChatRows();
+  const { botId, threadId, botName, busy, mentionPeers, focus, dispatch, onBranch, bots, readStore, canWrite } = useChatRows();
   const peer = peerLine(message);
   const user = message.role === "user" && !peer;
   const [expanded, setExpanded] = useState(false);
@@ -335,8 +336,7 @@ const Bubble = memo(function Bubble({
   const openNeedsYou = () => {
     if (!message.needsYou) return;
     dispatch({ type: "select", id: message.needsYou.botId });
-    const source = bots.find((candidate) => candidate.id === message.needsYou!.botId);
-    if (source?.threadId !== message.needsYou.threadId) {
+    if (dogIn(readStore(), message.needsYou.botId)?.threadId !== message.needsYou.threadId) {
       dispatch({ type: "openTask", botId: message.needsYou.botId, threadId: message.needsYou.threadId });
     }
     dispatch({ type: "focusMessage", threadId: message.needsYou.threadId, messageId: message.needsYou.messageId });
@@ -668,6 +668,7 @@ const MessagesList = memo(function MessagesList({
   emergingId,
   canRetryLast,
   engine,
+  selection,
   unreadSince,
   groupIds,
   editingId,
@@ -687,6 +688,7 @@ const MessagesList = memo(function MessagesList({
   emergingId?: string | null;
   canRetryLast: boolean;
   engine: InstanceInfo | undefined;
+  selection: Bot["modelSelection"];
   groupIds: string;
   editingId: string | null;
   onStartEdit: (id: string) => void;
@@ -751,7 +753,7 @@ const MessagesList = memo(function MessagesList({
                         onReply={onReply}
                       />
                     </div>
-                    {receipts.get(message.id)?.map(run => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} selection={owner?.modelSelection} />)}
+                    {receipts.get(message.id)?.map(run => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} selection={selection} />)}
                   </Fragment>
                 ))}
               </TurnNarrationRun>
@@ -861,7 +863,7 @@ const MessagesList = memo(function MessagesList({
               {unreadDivider([m])}
               {row}
             </div>
-            {receipts.get(m.id)?.map(run => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} selection={owner?.modelSelection} />)}
+            {receipts.get(m.id)?.map(run => <NativeWork key={run.id} run={run} color={owner?.color} bodyId={owner?.mascotBody} selection={selection} />)}
           </Fragment>
         );
       })}
@@ -980,8 +982,8 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
   const onBranch = useCallback((messageId: string) => branch.current.some((m) => m.id === messageId), []);
   const busy = Boolean(bot.busy);
   const rows = useMemo<ChatRows>(
-    () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite }),
-    [bot.id, bot.threadId, bot.name, busy, bots, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite],
+    () => ({ botId: bot.id, threadId: bot.threadId, botName: bot.name, busy, bots, readStore, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite }),
+    [bot.id, bot.threadId, bot.name, busy, bots, readStore, mentionPeers, focus, showToolCalls, locale, dispatch, onBranch, canWrite],
   );
   const drafts = useMemo<DraftScope>(() => ({
     botName: bot.name,
@@ -1190,6 +1192,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
                   emergingId={popping}
                   canRetryLast={!bot.busy && Boolean(lastUserMessage)}
                   engine={engine}
+                  selection={bot.modelSelection}
                   unreadSince={unreadSince}
                   groupIds={groupIds}
                   editingId={editingId}
