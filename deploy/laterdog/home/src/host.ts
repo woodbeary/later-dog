@@ -12,8 +12,8 @@ import { devCodeOn, handleDevCode } from "./dev-code.ts";
 import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter, RESTART_AFTER_STOP_S } from "./always-on.ts";
 import { afterCheck, ANSWER_CHECK_TIMEOUT_MS, NOT_ANSWERED_YET, stuckLine, within, type AnswerRecord } from "./hang-watch.ts";
 import {
-  answerHeldQueueAsk, DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskLimit, deskPrefix, deskSend, forgetScope, heldQueueAsk, queuedReceipt, queuedSend,
-  refusedSend, saveAnswer, savable, savedAnswer, withQueued, type DeskBucket, type DeskKind, type QueuedSend,
+  answerHeldQueueAsk, DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskLimit, deskPrefix, deskSend, forgetScope, heldQueueAsk, heldSendsAnswer, heldSendsAsk, queuedReceipt, queuedSend,
+  refusedSend, saveAnswer, savable, savedAnswer, withDropped, withQueued, type DeskBucket, type DeskKind, type DroppedSend, type QueuedSend,
 } from "./desk.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
 import { answerable, answerOnDesk, deskConversation, deskReplyHeaders, parseBrain, sentText, signedBrainRequest, type DeskBrain, type DeskDog } from "./desk-answer.ts";
@@ -47,6 +47,7 @@ const REMOVED_KEY = "removed";
 const REMOVED = "This home was removed.";
 const WAKERS_KEY = "wakers";
 const OUTBOX_KEY = "desk-outbox";
+const DROPPED_KEY = "desk-dropped";
 const DESK_DEVICES_KEY = "desk-devices";
 const DESK_DEVICES_KEPT = 50;
 const DESK_RETRY_S = 5;
@@ -102,6 +103,7 @@ export class CloudHomeHost extends Container<Env> {
   private removed = false;
   private wakers: Wakers = {};
   private outbox: QueuedSend[] = [];
+  private dropped: DroppedSend[] = [];
   private deskDevices: Record<string, number> = {};
   private delivering: Promise<void> | null = null;
   private brain: DeskBrain | null = null;
@@ -146,6 +148,7 @@ export class CloudHomeHost extends Container<Env> {
       this.removed = (await ctx.storage.get<boolean>(REMOVED_KEY)) === true;
       this.wakers = (await ctx.storage.get<Wakers>(WAKERS_KEY)) ?? {};
       this.outbox = (await ctx.storage.get<QueuedSend[]>(OUTBOX_KEY)) ?? [];
+      this.dropped = (await ctx.storage.get<DroppedSend[]>(DROPPED_KEY)) ?? [];
       this.deskDevices = (await ctx.storage.get<Record<string, number>>(DESK_DEVICES_KEY)) ?? {};
       this.brain = (await ctx.storage.get<DeskBrain>(BRAIN_KEY)) ?? null;
       this.pairingOpenUntil = (await ctx.storage.get<number>(PAIRING_OPEN_KEY)) ?? 0;
@@ -501,6 +504,8 @@ export class CloudHomeHost extends Container<Env> {
   }
 
   private async answerHeld(request: Request, key: string | null): Promise<Response | null> {
+    const ids = key && this.knownDevice(key) ? heldSendsAsk(request) : null;
+    if (ids) return heldSendsAnswer(this.outbox, this.dropped, ids);
     if (!this.outbox.length) return null;
     const asked = key && this.knownDevice(key) ? heldQueueAsk(request) : null;
     const answered = asked && !this.answering.has(asked.id) ? answerHeldQueueAsk(this.outbox, asked) : null;
@@ -657,6 +662,7 @@ export class CloudHomeHost extends Container<Env> {
     const kept = this.outbox.filter((queued) => now - queued.at < DESK_GIVE_UP_MS);
     if (kept.length !== this.outbox.length) {
       console.error(`laterdog home ${record.machineId}: dropped ${this.outbox.length - kept.length} message(s) the home never took within an hour`);
+      await this.rememberDropped(this.outbox.filter((queued) => !kept.includes(queued)), "expired", now);
       this.outbox = kept;
       await this.ctx.storage.put(OUTBOX_KEY, this.outbox);
     }
@@ -665,6 +671,11 @@ export class CloudHomeHost extends Container<Env> {
     if (state === "serving") await this.deliverDesk(record);
     else if (state === "stopped") this.boot(record, true);
     if (this.outbox.length) await this.armDesk();
+  }
+
+  private async rememberDropped(sends: readonly QueuedSend[], why: DroppedSend["why"], now: number): Promise<void> {
+    this.dropped = withDropped(this.dropped, sends, why, now);
+    await this.ctx.storage.put(DROPPED_KEY, this.dropped);
   }
 
   private deliverDesk(record: HomeRecord): Promise<void> {
@@ -676,7 +687,10 @@ export class CloudHomeHost extends Container<Env> {
           .then((response) => response.status, () => null);
         const outcome = deliveryOutcome(status);
         if (outcome === "retry") break;
-        if (outcome === "refused") console.error(`laterdog home ${record.machineId}: the home refused a message sent while it slept (${status})`);
+        if (outcome === "refused") {
+          console.error(`laterdog home ${record.machineId}: the home refused a message sent while it slept (${status})`);
+          await this.rememberDropped([queued], "refused", Date.now());
+        }
         this.outbox = this.outbox.slice(1);
         await this.ctx.storage.put(OUTBOX_KEY, this.outbox);
       }

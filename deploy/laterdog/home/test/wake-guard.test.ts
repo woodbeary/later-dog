@@ -414,6 +414,36 @@ describe("a message the edge holds while the home cannot take it", () => {
     expect(delivered(proxied as never)).toBe(0);
   });
 
+  it("says which held messages it still has, and which the home refused, so a device never keeps showing one as queued", async () => {
+    const { visit, sleep, machine } = await awakeHome();
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
+    await visit("/api/bots", asOwner());
+    await sleep();
+    machine.serving = false;
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(202);
+    const ask = () => visit(`/api/held-sends?ids=${SEND},send-0000000000002,not%20an%20id`, asOwner()).then((answer) => answer.json());
+    expect(await ask()).toEqual({ held: [SEND], dropped: [] });
+
+    world.answers.set("POST /api/bots/rex/messages", () => Response.json({ error: "no such dog" }, { status: 404 }));
+    machine.serving = true;
+    const after = await ask() as { held: string[]; dropped: Array<{ id: string; why: string; at: number }> };
+    expect(after.held).toEqual([]);
+    expect(after.dropped).toEqual([{ id: SEND, why: "refused", at: expect.any(Number) }]);
+    expect((await ask() as typeof after).dropped).toHaveLength(1);
+  });
+
+  it("forgets a delivered message without calling it dropped", async () => {
+    const { visit, sleep, machine } = await awakeHome();
+    world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));
+    await visit("/api/bots", asOwner());
+    await sleep();
+    machine.serving = false;
+    expect((await visit("/api/bots/rex/messages", sendWords())).status).toBe(202);
+    world.answers.set("POST /api/bots/rex/messages", () => Response.json({ ok: true }));
+    machine.serving = true;
+    expect(await (await visit(`/api/held-sends?ids=${SEND}`, asOwner())).json()).toEqual({ held: [], dropped: [] });
+  });
+
   it("cancels from the edge when the awake home has not taken the message yet", async () => {
     const { home, visit, sleep, machine } = await awakeHome();
     world.answers.set("GET /api/bots", () => Response.json({ bots: [] }));

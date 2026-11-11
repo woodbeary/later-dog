@@ -180,6 +180,37 @@ export function answerHeldQueueAsk(outbox: readonly QueuedSend[], asked: HeldQue
   };
 }
 
+export const DESK_DROPPED_MAX = 50;
+const HELD_SENDS_PATH = "/api/held-sends";
+
+export interface DroppedSend {
+  id: string;
+  why: "refused" | "expired";
+  at: number;
+}
+
+export function heldSendsAsk(request: Request): string[] | null {
+  const url = new URL(request.url);
+  if (request.method !== "GET" || url.pathname !== HELD_SENDS_PATH) return null;
+  return (url.searchParams.get("ids") ?? "").split(",").filter((id) => SEND_ID.test(id)).slice(0, DESK_OUTBOX_MAX);
+}
+
+export function heldSendsAnswer(outbox: readonly QueuedSend[], dropped: readonly DroppedSend[], ids: readonly string[]): Response {
+  const asked = new Set(ids);
+  return Response.json(
+    {
+      held: outbox.filter((queued) => asked.has(queued.id)).map((queued) => queued.id),
+      dropped: dropped.filter((send) => asked.has(send.id)).map(({ id, why, at }) => ({ id, why, at })),
+    },
+    { headers: { "cache-control": "no-store" } },
+  );
+}
+
+export function withDropped(dropped: readonly DroppedSend[], sends: readonly QueuedSend[], why: DroppedSend["why"], now: number): DroppedSend[] {
+  const fresh = sends.filter((send) => !dropped.some((earlier) => earlier.id === send.id)).map((send) => ({ id: send.id, why, at: now }));
+  return [...dropped.filter((send) => now - send.at < DESK_KEPT_MS), ...fresh].slice(-DESK_DROPPED_MAX);
+}
+
 export function withQueued(outbox: readonly QueuedSend[], next: QueuedSend): QueuedSend[] | null {
   if (outbox.some((queued) => queued.id === next.id)) return [...outbox];
   if (outbox.length >= DESK_OUTBOX_MAX) return null;
