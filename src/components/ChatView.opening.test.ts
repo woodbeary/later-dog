@@ -70,6 +70,7 @@ async function frame() {
 
 const rowIds = () => [...host.querySelectorAll("[data-mid]")].map((row) => row.getAttribute("data-mid"));
 const earlierWork = () => host.querySelector("[data-native-work-fallbacks] summary")?.textContent ?? null;
+const showEarlier = () => [...host.querySelectorAll("button")].find((button) => button.textContent?.startsWith("Show earlier"))?.textContent ?? null;
 const newLineRow = () => host.querySelector("[data-unread-divider]")?.closest("[data-mid]")?.getAttribute("data-mid") ?? null;
 const readUpTo = (row: number) => localStorage.setItem("laterdog-seen-at", JSON.stringify({ "pepper/pepper-thread": at(row) }));
 const arrivingIds = () => [...host.querySelectorAll("[data-arriving]")].map((row) => row.getAttribute("data-mid"));
@@ -121,12 +122,28 @@ describe("a long chat opening on its newest rows", () => {
     await draw(messages);
     expect(rowIds()).toHaveLength(30);
     const lines = [earlierWork()];
+    const buttons = [showEarlier()];
     for (let step = 0; step < 6 && rowIds().length < 120; step++) {
       await frame();
       lines.push(earlierWork());
+      buttons.push(showEarlier());
     }
     expect(rowIds()).toHaveLength(120);
     expect(lines).toEqual(["Earlier work · 15", "Earlier work · 15", "Earlier work · 15", "Earlier work · 15"]);
+    expect(buttons).toEqual(Array.from({ length: 4 }, () => "Show earlier messages (30 more)"));
+  });
+
+  it("never offers earlier messages while a chat that fits one window fills in", async () => {
+    await draw(thread(100));
+    const steps = [rowIds().length];
+    const buttons = [showEarlier()];
+    for (let step = 0; step < 6 && steps.at(-1)! < 100; step++) {
+      await frame();
+      steps.push(rowIds().length);
+      buttons.push(showEarlier());
+    }
+    expect(steps).toEqual([30, 60, 90, 100]);
+    expect(buttons).toEqual([null, null, null, null]);
   });
 
   it("opens on the whole window when the New line belongs above the newest rows, so the line never moves", async () => {

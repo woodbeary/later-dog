@@ -15,6 +15,7 @@ import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow, useBottomFollowResiz
 import { useFocusMessage } from "@/lib/focus-message";
 import {
   TRANSCRIPT_WINDOW_SIZE,
+  countedBefore,
   filledWindow,
   focusWindowRange,
   followWindowStart,
@@ -114,7 +115,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   latest.current = { messages, counts };
   const {
     visible: windowedMessages,
-    hiddenCount,
+    hiddenCount: hiddenBeforeShown,
     laterCount,
     startIndex,
     endIndex,
@@ -122,9 +123,14 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     () => resolveTranscriptWindow(messages, windowStart, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end, counts),
     [messages, windowStart, transcriptWindow.end, counts],
   );
+  const filledStart = staged ? Math.min(startIndex, tailStart) : startIndex;
   const filledMessages = useMemo(
-    () => (staged ? messages.slice(Math.min(startIndex, tailStart)) : windowedMessages),
-    [staged, windowedMessages, messages, startIndex, tailStart],
+    () => (staged ? messages.slice(filledStart) : windowedMessages),
+    [staged, windowedMessages, messages, filledStart],
+  );
+  const hiddenCount = useMemo(
+    () => (filledStart === startIndex ? hiddenBeforeShown : countedBefore(messages, filledStart, counts)),
+    [filledStart, startIndex, hiddenBeforeShown, messages, counts],
   );
 
   const setBottomFollow = useCallback((next: boolean) => {
@@ -195,7 +201,6 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
 
   const showEarlier = () => {
     holdRowForPrepend();
-    const filledStart = staged ? Math.min(startIndex, tailStart) : startIndex;
     const start = windowStartBefore(messages, filledStart, TRANSCRIPT_WINDOW_SIZE, counts);
     setTranscriptWindow((w) => filledWindow(w, start));
   };

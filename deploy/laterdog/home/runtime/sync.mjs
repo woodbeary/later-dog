@@ -227,19 +227,36 @@ export async function scan(root, { inspect = lstat } = {}) {
   return found;
 }
 
-async function chunksOf(path, store) {
-  const handle = await open(path, "r");
+async function filled(handle, buffer, from) {
+  let length = from;
+  while (length < buffer.length) {
+    const { bytesRead } = await handle.read(buffer, length, buffer.length - length, null);
+    if (bytesRead === 0) break;
+    length += bytesRead;
+  }
+  return length;
+}
+
+export async function chunksOf(path, store, { opened = open } = {}) {
+  const handle = await opened(path, "r");
   const chunks = [];
   try {
-    const buffer = Buffer.alloc(CHUNK_BYTES);
+    const { size } = await handle.stat();
+    let buffer = Buffer.allocUnsafe(Math.min(CHUNK_BYTES, size + 1));
     for (;;) {
-      const { bytesRead } = await handle.read(buffer, 0, CHUNK_BYTES, null);
-      if (bytesRead === 0) break;
-      const bytes = buffer.subarray(0, bytesRead);
+      let length = await filled(handle, buffer, 0);
+      if (length === buffer.length && length < CHUNK_BYTES) {
+        const whole = Buffer.allocUnsafe(CHUNK_BYTES);
+        buffer.copy(whole);
+        buffer = whole;
+        length = await filled(handle, buffer, length);
+      }
+      if (length === 0) break;
+      const bytes = buffer.subarray(0, length);
       const hash = createHash("sha256").update(bytes).digest("hex");
       if (!(await store.has(hash))) await store.put(hash, Buffer.from(bytes));
       chunks.push(hash);
-      if (bytesRead < CHUNK_BYTES) break;
+      if (length < CHUNK_BYTES) break;
     }
   } finally {
     await handle.close();

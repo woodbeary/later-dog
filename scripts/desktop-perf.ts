@@ -293,7 +293,7 @@ type Page = {
   waitForSelector(selector: string, options?: { timeout?: number }): Promise<unknown>;
   waitForTimeout(ms: number): Promise<void>;
   click(selector: string): Promise<void>;
-  screenshot(options: { path: string }): Promise<unknown>;
+  screenshot(options: { path: string; clip?: { x: number; y: number; width: number; height: number } }): Promise<unknown>;
   keyboard: { type(text: string, options?: { delay?: number }): Promise<void>; press(key: string): Promise<void> };
   mouse: { move(x: number, y: number): Promise<void>; wheel(x: number, y: number): Promise<void> };
   context(): { newCDPSession(page: Page): Promise<{ send(method: string, params?: unknown): Promise<{ metrics?: Array<{ name: string; value: number }> }> }> };
@@ -1096,6 +1096,84 @@ async function sidebarRows(browser: Browser, url: string, api: ReturnType<typeof
   };
 }
 
+async function sidebarShots(browser: Browser, url: string, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, folder: string, label: string) {
+  mkdirSync(folder, { recursive: true });
+  for (const [index, dog] of dogs.others.entries()) {
+    if (index % 2 === 1) await api("PATCH", `/api/bots/${dog.id}/profile`, { title: "Release notes and checks" });
+  }
+  const everyDog = await api("GET", "/api/bots") as { bots: Array<{ id: string; threadId: string }> };
+  for (const dog of everyDog.bots) await api("POST", `/api/bots/${dog.id}/read`, { threadId: dog.threadId });
+  for (const [index, dog] of dogs.others.entries()) {
+    if (index % 3 === 0) await api("PATCH", `/api/bots/${dog.id}`, { unread: true });
+  }
+  const seen: Array<Record<string, unknown>> = [];
+  for (const scheme of ["light", "dark"] as const) {
+    for (const density of ["list", "icons"] as const) {
+      const context = await browser.newContext({ viewport: VIEWPORT, colorScheme: scheme, deviceScaleFactor: 3 });
+      await context.addInitScript(PAGE_PROBE);
+      await context.addInitScript(density === "icons" ? 'localStorage.setItem("laterdog.sidebarDensity", "icons")' : 'localStorage.removeItem("laterdog.sidebarDensity")');
+      const page = await context.newPage();
+      await page.goto(url);
+      await page.waitForSelector('textarea[aria-label^="Message "]', { timeout: 60_000 });
+      await page.waitForSelector("[data-sidebar-bot-row]", { timeout: 60_000 });
+      await page.waitForTimeout(1_000);
+      const before = await page.evaluate(async () => {
+        const scroller = document.querySelector("[data-sidebar-scroller]") as HTMLElement;
+        scroller.scrollTop = Math.round((scroller.scrollHeight - scroller.clientHeight) / 2);
+        await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+        const view = scroller.getBoundingClientRect();
+        const inView = [...document.querySelectorAll<HTMLElement>("[data-sidebar-bot-row]")].filter((row) => {
+          const box = row.getBoundingClientRect();
+          return box.top >= view.top + 60 && box.bottom <= view.bottom - 60;
+        });
+        const unread = inView.filter((row) => row.hasAttribute("data-sidebar-unread"));
+        const target = unread[Math.floor(unread.length / 2)] ?? inView[Math.floor(inView.length / 2)]!;
+        const previous = inView[inView.indexOf(target) - 1]!;
+        previous.focus({ preventScroll: true });
+        return { target: target.getAttribute("data-sidebar-bot-row")!, rowsInView: inView.length };
+      });
+      for (let press = 0; press < 6; press += 1) {
+        await page.keyboard.press("Tab");
+        if (await page.evaluate((id: string) => document.activeElement?.getAttribute("data-sidebar-bot-row") === id, before.target)) break;
+      }
+      await page.waitForTimeout(400);
+      const state = await page.evaluate((id: string) => {
+        const scroller = document.querySelector("[data-sidebar-scroller]") as HTMLElement;
+        const view = scroller.getBoundingClientRect();
+        const aside = (scroller.closest("aside, nav") ?? scroller).getBoundingClientRect();
+        const focused = document.activeElement as HTMLElement;
+        const overhang = (inner: DOMRect, outer: DOMRect) => Math.round(Math.max(0, outer.left - inner.left, inner.right - outer.right, outer.top - inner.top, inner.bottom - outer.bottom) * 10) / 10;
+        const badges = [...document.querySelectorAll<HTMLElement>("[data-sidebar-bot-row] [data-status]")]
+          .filter((badge) => badge.checkVisibility({ contentVisibilityAuto: true }))
+          .map((badge) => ({ badge: badge.getBoundingClientRect(), row: badge.closest("[data-sidebar-bot-row]")!.getBoundingClientRect() }))
+          .filter(({ row }) => row.top >= view.top && row.bottom <= view.bottom);
+        const style = getComputedStyle(focused);
+        const box = focused.getBoundingClientRect();
+        return {
+          read: {
+            focusedRow: focused.getAttribute("data-sidebar-bot-row"),
+            focusedIsTarget: focused.getAttribute("data-sidebar-bot-row") === id,
+            focusVisible: focused.matches(":focus-visible"),
+            focusRing: style.boxShadow,
+            rowClipMargin: style.getPropertyValue("overflow-clip-margin"),
+            rowContentVisibility: style.getPropertyValue("content-visibility"),
+            badgesInView: badges.length,
+            badgeOverhangPastRowPx: badges.map(({ badge, row }) => overhang(badge, row)).reduce((worst, next) => Math.max(worst, next), 0),
+          },
+          sidebar: { x: aside.left, y: aside.top, width: aside.width, height: aside.height },
+          closeUp: { x: aside.left, y: Math.max(aside.top, box.top - 90), width: aside.width, height: Math.min(box.height + 180, aside.bottom - Math.max(aside.top, box.top - 90)) },
+        };
+      }, before.target);
+      const name = `${label}-sidebar-${density === "icons" ? "icon-rail" : "list"}-${scheme}`;
+      await page.screenshot({ path: join(folder, `${name}.png`), clip: state.sidebar });
+      await page.screenshot({ path: join(folder, `${name}-focused-row.png`), clip: state.closeUp });
+      seen.push({ scheme, density, rowsInView: before.rowsInView, ...state.read, files: [`${name}.png`, `${name}-focused-row.png`] });
+      await context.close();
+    }
+  }
+  return seen;
+}
+
 async function kept(browser: Browser, url: string, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, files: FixtureFiles) {
   const context = await browser.newContext({ viewport: VIEWPORT });
   await context.addInitScript(PAGE_PROBE);
@@ -1766,6 +1844,13 @@ async function main() {
     }
     if (process.argv.includes("--message-box")) {
       const result = { label: setup.label, at: new Date().toISOString(), dogs: dogs.others.length + 1, messageBox: await messageBox(browser, fixture.info.url, dogs) };
+      mkdirSync(dirname(setup.out), { recursive: true });
+      writeFileSync(setup.out, `${JSON.stringify(result, null, 2)}\n`);
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      return;
+    }
+    if (process.argv.includes("--sidebar-shots")) {
+      const result = { label: setup.label, at: new Date().toISOString(), dogs: dogs.others.length + 1, sidebarShots: await sidebarShots(browser, fixture.info.url, api, dogs, resolve(option("sidebar-shots")), setup.label) };
       mkdirSync(dirname(setup.out), { recursive: true });
       writeFileSync(setup.out, `${JSON.stringify(result, null, 2)}\n`);
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

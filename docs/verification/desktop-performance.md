@@ -31,6 +31,12 @@ run:
   icon rail, and whether one click on the "more unread below" pill lands an
   unread row near the end of the list in view. `--shots DIR` photographs the
   landing.
+- `--sidebar-shots DIR` (with `--other-dogs 79 --other-turns 2`) marks every
+  third dog unread, scrolls the sidebar to its middle, moves keyboard focus to
+  an unread row with Tab, and photographs the sidebar and a close-up of the
+  focused row, in the list and in the icon rail, light and dark, at three
+  device pixels to one. It also records whether the focus ring is on and how
+  far any badge reaches past its row.
 - `--kept` writes a draft in two chats and checks each is still there after
   switching and after a reload, that the reload opens the same chat, that the
   accessibility tree has a named button for every dog's row whether or not
@@ -76,10 +82,19 @@ a JSON file `{ "everyMs": 30, "chars": 10 }`, and reads scripted replies from
 
 ## Results, 2026-11-10
 
+Both tables below were measured at 456e978, before the review fixes; not
+re-measured. Two later commits change what they time: 51157ef (the fill became
+one step within each frame) and fa3141c (an off-screen sidebar row is laid out
+again and only what is inside it is skipped). The runs were made from the
+working tree as it stood at or before 456e978; the exact commit of each run
+was not written down.
+
 One cloud computer (Linux x64, 4 vCPU, 12 GB), headless Chrome, a 240-message
 chat with code blocks and tables plus five short chats. These are fixture
 numbers on Linux. They are not the Mac app: its launch, its process tree and a
 sleeping Cloud home are not in them.
+
+Measured at 456e978, before the review fixes; not re-measured.
 
 | Measure | Before | After |
 |---|---|---|
@@ -92,6 +107,12 @@ sleeping Cloud home are not in them.
 | Load: first paint, message box ready | 424 ms, 623 ms | 424 ms, 596 to 623 ms |
 | Own bubble after Enter | 37 ms | 28 to 44 ms |
 | JS heap idle, after the run | 12.8 MB, 25.8 MB | 12.6 MB, 25.8 MB |
+
+Of the four "Before" runs one result file is still on the cloud computer (342
+ms median, 698 ms slowest, 2.9 s of long tasks, 11,138 components); the others
+could not be read again. The five "After" files are there and match the
+column, except that one of them, an unminified build opened twice, has a 154
+ms median.
 
 What changed between the columns:
 
@@ -106,27 +127,34 @@ What changed between the columns:
 
 The same run with `--other-dogs 79 --other-turns 2`, the size of a busy home.
 "Before" here already has the two changes above; the columns compare the next
-two.
+two. Measured at 456e978, before the review fixes; not re-measured.
 
 | Measure | Before | After |
 |---|---|---|
-| Main thread busy while idle, per 3 s | 946 ms, a style pass every frame | 133 to 180 ms, no style passes |
-| Typing: frames slower than 25 ms | 112 to 123 of about 330 | 16 of 383 |
-| Key press to frame, median / 95th / worst | 31 / 50 / 101 ms | 22 / 37 / 63 ms |
-| Other dogs working: slow frames, main thread busy | 30 to 38 of about 140, 2.2 s of 3 s | 0 of 177, 0.6 s of 3 s |
-| A streamed reply: slow frames | 30 to 32 of about 110 | 7 of 148 |
-| Open the long chat, median | 320 ms | 267 to 297 ms |
-| Load: message box ready | 1,040 ms | 1,070 to 1,115 ms |
+| Main thread busy while idle, per 3 s | 946 ms, a style pass every frame (one separate run, 80-message chat) | 133 and 180 ms, no style passes |
+| Typing: frames slower than 25 ms | 123 and 112 of 295 | 38 of 343 and 16 of 383 |
+| Key press to frame, median / 95th / worst | 31 / 50 / 101 and 29 / 52 / 73 ms | 24 / 35 / 64 and 23 / 37 / 63 ms |
+| Other dogs working: slow frames | 38 of 138 and 30 of 148 | 21 of 158 and 0 of 177 |
+| Other dogs working: main thread busy, per 3 s | 2.2 s (second run; the first did not record it) | 2.1 s and 0.6 s |
+| A streamed reply: slow frames | 32 of 105 and 30 of 113 | 16 of 131 and 7 of 148 |
+| Open the long chat, median | 320 and 339 ms | 267 and 297 ms |
+| Load: message box ready | 1,040 and 1,192 ms | 1,071 and 1,115 ms |
+
+Each column is two runs, given in the order they ran, read again on 2026-11-11
+from the result files on the cloud computer. An earlier version of this table
+gave only the second "After" run for the slow-frame rows.
 
 - Every dog's face ran its own endless blink animation, 80 of them, on screen
   or not, which cost a style pass on every frame. Faces now blink together
   from one clock, only the ones on screen, with a 180 ms one-shot animation
   (`src/lib/dog-blinks.ts`). The run sees a blink within half a second of
   looking for one.
-- Sidebar rows scrolled out of view are no longer drawn
-  (`[data-sidebar-row]` in `src/styles.css`). Screenshots of the sidebar
-  scrolled to the middle of 80 dogs, and with a row hovered, are taken by
-  `--shots DIR`.
+- What is inside a sidebar row scrolled out of view is no longer drawn
+  (`[data-sidebar-row] > [data-sidebar-bot-row]` in `src/styles.css`). At
+  456e978, where the table was measured, the whole row was skipped
+  (`[data-sidebar-row]`); the row itself is laid out again now so a screen
+  reader can find it. Photographs of the sidebar at 80 dogs are taken by
+  `--sidebar-shots DIR`.
 
 `--profile-typing` prints the rendering stages for typing. At 80 dogs, before
 these two changes, 99 keys cost 1.7 s of layer building, 0.8 s in 683 layouts
@@ -175,8 +203,43 @@ its run is replaced).
 | Height held and drawn, icon rail | 52 px until drawn once, and 56 px | 56 px and 56 px |
 | One click on the unread pill, 34 rows not drawn above the target, 17 of them titled | In view, 250 px below the middle | In view, 16 px above the middle, pill gone |
 
-The landing was photographed (`--shots`); the photograph was not looked at by
-a person.
+The landing was photographed (`--shots`); that photograph was not looked at.
+
+### Sidebar photographs at 80 dogs (`--sidebar-shots`, one run each of this branch and main)
+
+Taken on the Linux cloud computer from the build of 438977a (no file under
+`src` changed after it) and, for comparison, the build of main 4b377d9. Eight
+photographs of this branch: the whole sidebar and a close-up of the focused
+row, in the list and in the icon rail, light and dark. The helper that
+finished this branch opened each of the eight and looked at it; Jacob has not.
+
+What was seen:
+
+- Icon rail, light and dark. The unread dot sits at the lower right corner of
+  the dog's face on three of the rows in view, the focused row among them.
+  Each dot is a whole circle; none is cut at an edge. The focus ring is a
+  whole rounded rectangle around the focused row, all four sides and all four
+  corners, a thin inner line and a thicker outer one. Not clipped.
+- List, light and dark. A list row has no badge at the face's corner: its
+  unread dot sits at the end of the preview line, and is whole on each of the
+  four rows in view that have one. The focus ring is whole on all four sides
+  and corners, with the row's "more" button inside it. Not clipped.
+- The icon rail and the focused row of main look the same as this branch's in
+  the three photographs of main that were opened (icon rail, its focused row,
+  and the list's focused row, all light).
+- In the icon rail the "12 unread" and "11 unread" pills are as wide as the
+  rail, so their right end meets the rail's edge. Main draws them the same
+  way; this branch does not touch them.
+
+Recorded by the same run, in all four photographs of this branch: Tab landed
+on the intended row and `:focus-visible` matched; 4 badges in the rows in view
+in the list and 5 in the icon rail (three in clear view, one under the header
+and one behind the lower pill), none reaching past its row's box (0 px; a
+row's contents may be drawn up to 6 px past it).
+
+Not photographed: the live-call badge at the upper right corner of a face in
+the icon rail (it needs a live call), the "waiting on you" dot (it is drawn
+in the same place and size as the unread dot), and anything in the Mac app.
 
 ### What `--kept` found, at 80 dogs (one run each)
 
@@ -198,6 +261,34 @@ row's spoken name was all of its text, preview line included; the preview is
 no longer part of the name. `src/components/SidebarBotListItem.test.ts`
 "names a row in the list for a screen reader the way the icon rail does".
 
+## Second review of 2026-11-11 and what was done about it
+
+A second independent read, at 024af20, found no blocker and raised two things
+to fix and six notes.
+
+| Finding | What changed | Tests |
+|---|---|---|
+| S1 The tables were measured before the first review's fixes and did not say so | Both tables say they were measured at 456e978, before the review fixes, and name the two later commits that change what they time | none; no code |
+| S2 "Show earlier messages" was counted against the rows shown so far, so a 100-message chat showed it with 70, 40, then 10 more and then lost it, and a longer chat showed a changing number | While a chat fills in, the rows above it are counted from where the window will settle | `src/components/ChatView.opening.test.ts` "shows the same earlier-work line at every step of the fill" (the button reads "30 more" at all four steps of a 150-message chat) and "never offers earlier messages while a chat that fits one window fills in"; `src/hooks/use-transcript-viewport.test.ts` "counts the rows above the filled window at every step" |
+| N1 A group chat opened on its newest 30 rows even when unread rows started above them, so its New line moved | The group chat reads its unread boundary once and hands it to the same opening rule a one-dog chat uses | `src/components/GroupView.opening.test.ts` (3 tests; the first fails without the change: 30 rows instead of 120) |
+| N5 Nothing a person sees had been looked at since the sidebar change | Photographs taken and looked at; see "Sidebar photographs at 80 dogs" above | none |
+
+Left as they are, for a person to decide:
+
+- N2. A list row's spoken name is the dog's name and its state. The title
+  line and the last-message preview are no longer part of it. Not checked
+  with a real screen reader.
+- N3. A row that is off screen when the sidebar changes between list and icon
+  rail, or when it gains or loses a title, holds its old height until it is
+  drawn again. A few pixels a row, and it corrects itself. Not measured: the
+  harness reloads before measuring the icon rail.
+- N4. `src/lib/sidebar-row-kind.test.ts` pins six lines of the row's class
+  names as text, so a restyle of the row fails it.
+- N6. A chat with more than 30 rows of new work since the last visit opens
+  on its whole window, the slower way, so its New line and "N new" pill are
+  right. The fixture's long chat is always read when it is opened, so the
+  opening times in the tables describe read chats.
+
 ## What still needs the Mac app
 
 Everything above is a headless Chrome on Linux against a fixture. Not measured
@@ -209,26 +300,48 @@ or checked anywhere yet:
 - Dictation and push-to-talk while a long chat is open.
 - Permission prompts (microphone, screen, accessibility, files).
 - Signing, notarization and the update path.
-- A real screen reader on the Mac reading the sidebar, and a keyboard focus
-  ring photographed on a sidebar row.
+- A real screen reader on the Mac reading the sidebar, and the sidebar's
+  badges and focus ring seen in the Mac app (they were photographed in
+  headless Chrome on Linux only).
 
 ## Where this lane stands, 2026-11-11
 
-Run on the Linux cloud computer at fa3141c:
+Run on the Linux cloud computer at c688af6, in a copy whose git tree hash
+matched the commit (the commits after it change only this note):
 
-- The Sidebar tests, the row-kind test and the unread-pill test: 18 files, 134
-  tests passed.
-- The whole renderer suite (every test under `src`): 409 files, 3,576 tests
-  passed.
-- The renderer and server typechecks: no errors.
-- `scripts/no-comments.test.ts` and `scripts/brand-links.test.ts`: 13 tests
-  passed.
-- The harness ran end to end in its `--sidebar-rows` and `--kept` modes
-  against the builds of main, 456e978 and this branch.
+- `pnpm typecheck` (`tsc -b && tsc -p tsconfig.server.json`): no errors.
+- `pnpm lint` (`oxlint --deny-warnings .`): 0 warnings, 0 errors, 3,059 files.
+- `pnpm vitest run src scripts/no-comments.test.ts scripts/brand-links.test.ts
+  server/testing`: 418 files, 3,627 tests, all passed.
+- The harness ran end to end in its `--sidebar-shots` mode against the builds
+  of main 4b377d9 and this branch (438977a), once each.
 
-Left: the timed before and after runs of main against this branch at 7 and 80
-dogs, and their table here and in the pull request. They wait for a turn on
-the cloud computer, which other lanes are using.
+Run earlier, at fa3141c: the harness's `--sidebar-rows` and `--kept` modes
+against the builds of main, 456e978 and this branch. Not rerun since.
+
+Also run at c1c6997: `pnpm lint` again (0 warnings, 0 errors), the
+two rules tests again (17 tests passed), and
+`scripts/testing/verification-docs.test.ts`, which is not part of the command
+above: 4 of its 6 tests passed. The 2 that failed are both about
+`docs/verification/decision-eval.md`, a note that came in from main and that
+this branch does not touch: it is not linked from the index, and it cites four
+test files by name without their folder. Main's index does not link it either
+(read in main's files; the test was not run on main).
+
+Not run: the whole suite (`pnpm vitest run`, with every server test). On this
+cloud computer two server tests fail on main itself, in files this branch
+does not touch: `server/config.test.ts` "uses the list again once a file the
+server could not read is readable" and `server/drivers/agents-proxy.test.ts`
+"answers the MCP handshake and lists the agents tools".
+
+Left: the timed runs of main against this branch at 7 and 80 dogs. They were
+queued on 2026-11-11 with the builds of main 4b377d9 and this branch at
+438977a (no file under `src` changed after it), and had not once got the
+cloud computer to themselves when this was written: other lanes' test suites
+held it throughout. Until they run, the two tables above describe 456e978. One round
+(each build at 7 and at 80 dogs, once) is still waiting on the cloud computer;
+if it runs, its results are `~/perf/r158f/{main,head}-{7,80}-1.json` there and
+`python3 ~/perf/r158f/table.py` prints them side by side.
 
 ## The store branch (`atelier/desktop-store`), 2026-11-11
 
@@ -264,4 +377,3 @@ Done, on the Linux cloud computer against the fixture:
 Left: the timed runs at 80 dogs of 024af20 against this branch (three each),
 their table here, and the pull request. The runs wait for the exclusive lock
 on the cloud computer, which other lanes hold shared.
-

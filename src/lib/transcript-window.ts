@@ -69,6 +69,10 @@ function countedBetween<T>(messages: readonly T[], from: number, to: number, cou
   return seen;
 }
 
+export function countedBefore<T>(messages: readonly T[], index: number, counts?: CountsInWindow<T>): number {
+  return countedBetween(messages, 0, Math.min(index, messages.length), counts);
+}
+
 export function followWindowStart<T extends { role?: string }>(
   messages: readonly T[],
   start: number,

@@ -35,7 +35,8 @@ import { latestReply, type TranscriptSnapshot } from "@/lib/transcript-announcer
 import { openQuestion } from "@/lib/open-question";
 import { pendingApprovals } from "./PendingApproval";
 import { TranscriptAnnouncer } from "./TranscriptAnnouncer";
-import { RoomToolChip, Transcript } from "./RoomTranscript";
+import { RoomToolChip, Transcript, TranscriptRows, roomThreadKey } from "./RoomTranscript";
+import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
 
 export { RoomToolChip, Transcript };
 
@@ -130,6 +131,8 @@ export function GroupView({ group }: { group: Group }) {
   const presenceSpeaker =
     speaker ?? awaited ?? members.find((member) => member.id === popping?.botId) ?? members[0];
 
+  const unreadSince = useUnreadBoundary(roomThreadKey(group), group.messages);
+  const unreadRow = useCallback((message: Message) => isUnread(message, unreadSince), [unreadSince]);
   const {
     scrollRef,
     transcriptRef,
@@ -152,6 +155,7 @@ export function GroupView({ group }: { group: Group }) {
     messages: group.messages,
     pinOn: [group.busyBotId, group.working, composerDock.pad],
     counts: countsInWindow,
+    unread: unreadRow,
   });
 
   useScrollAnchor(scrollRef, transcriptRef, followingRef, true);
@@ -307,7 +311,7 @@ export function GroupView({ group }: { group: Group }) {
               </button>
             </div>
           ) : null}
-          <Transcript
+          <TranscriptRows
             group={group}
             members={members}
             locale={activeLocale()}
@@ -316,6 +320,7 @@ export function GroupView({ group }: { group: Group }) {
             transcript={group.messages}
             emergingId={popping?.id}
             onReply={selectReply}
+            unreadSince={unreadSince}
           />
           {laterCount > 0 && (
             <div className="flex justify-center">
