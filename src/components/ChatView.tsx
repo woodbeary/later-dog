@@ -784,6 +784,7 @@ function EmptyChat({ bot }: { bot: Bot }) {
 
 const MessagesList = memo(function MessagesList({
   messages,
+  filledWindow,
   transcript,
   plan,
   lookups,
@@ -802,6 +803,7 @@ const MessagesList = memo(function MessagesList({
   onReply,
 }: {
   messages: Message[];
+  filledWindow: Message[];
   transcript: Message[];
   plan: TranscriptPlan;
   lookups: TranscriptLookups;
@@ -821,7 +823,7 @@ const MessagesList = memo(function MessagesList({
 }) {
   const { botId, threadId, botName, bots, focus, showToolCalls, locale } = useChatRows();
   const owner = bots.find(bot => bot.id === botId);
-  const nativeRuns = useNativeRuns(threadId, messages[0]?.at);
+  const nativeRuns = useNativeRuns(threadId, filledWindow[0]?.at);
   const receipts = useMemo(() => nativeReceiptAnchors(nativeRuns, messages), [nativeRuns, messages]);
   const arriving = useArrivals(`${botId}/${threadId}`, messages);
   const emerged = useRef(new Set<string>());
@@ -988,7 +990,7 @@ const MessagesList = memo(function MessagesList({
           </Fragment>
         );
       })}
-      <NativeWorkFallbacks runs={nativeRuns} messages={messages} ownerForRun={() => owner} />
+      <NativeWorkFallbacks runs={nativeRuns} messages={filledWindow} ownerForRun={() => owner} />
       <NativeHistoryNotice threadId={threadId} />
     </>
   );
@@ -1057,6 +1059,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     following,
     followingRef,
     windowedMessages,
+    filledMessages,
     hiddenCount,
     laterCount,
     olderPending,
@@ -1299,6 +1302,7 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
               <DraftContext.Provider value={drafts}>
                 <MessagesList
                   messages={windowedMessages}
+                  filledWindow={filledMessages}
                   transcript={messages}
                   plan={plan}
                   lookups={lookups}

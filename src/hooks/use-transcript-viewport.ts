@@ -110,6 +110,10 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     () => resolveTranscriptWindow(messages, transcriptWindow.start, TRANSCRIPT_WINDOW_SIZE, transcriptWindow.end, counts),
     [messages, transcriptWindow.start, transcriptWindow.end, counts],
   );
+  const filledMessages = useMemo(
+    () => (transcriptWindow.filled ? windowedMessages : messages.slice(Math.min(startIndex, tailStart))),
+    [transcriptWindow.filled, windowedMessages, messages, startIndex, tailStart],
+  );
 
   const setBottomFollow = useCallback((next: boolean) => {
     followRef.current = next;
@@ -262,6 +266,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
     following: follow,
     followingRef: followRef,
     windowedMessages,
+    filledMessages,
     hiddenCount,
     laterCount,
     olderPending,

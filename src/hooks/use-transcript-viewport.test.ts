@@ -228,6 +228,20 @@ describe("transcript viewport", () => {
     expect(view.current.windowedMessages).toHaveLength(120);
   });
 
+  it("names the rows of the filled window from the first frame, so what is counted against them never changes during the fill", () => {
+    const view = mount({ messages: rows(300) }, { opening: true });
+    const filled = () => view.current.filledMessages.map((row) => row.id);
+    const whole = rows(120, 180).map((row) => row.id);
+    expect(view.current.windowedMessages).toHaveLength(30);
+    expect(filled()).toEqual(whole);
+    view.frame();
+    expect(view.current.windowedMessages).toHaveLength(60);
+    expect(filled()).toEqual(whole);
+    view.settle();
+    expect(view.current.filledMessages).toBe(view.current.windowedMessages);
+    expect(filled()).toEqual(whole);
+  });
+
   it("keeps the reader's row where it is when they scroll up before the rest has filled in", () => {
     const view = mount({ messages: rows(300) }, { opening: true });
     view.act(() => view.current.scrollHandlers.onWheel({ deltaY: -40 } as never));
