@@ -136,7 +136,7 @@ async function seed(api: ReturnType<typeof fixtureApi>, setup: Options): Promise
 }
 
 const PAGE_PROBE = `(() => {
-  const perf = { commits: 0, rendered: 0, counting: false, longTasks: [], frames: [], composerAt: null, keys: [], names: new Map() };
+  const perf = { commits: 0, rendered: 0, counting: false, longTasks: [], frames: [], composerAt: null, keys: [], names: new Map(), watchingStore: false, store: null, storeChanges: [], startedAt: 0 };
   window.__perf = perf;
   const component = (tag) => tag === 0 || tag === 1 || tag === 11 || tag === 14 || tag === 15;
   const visit = (next, previous) => {
@@ -149,11 +149,44 @@ const PAGE_PROBE = `(() => {
     if (previous && next.child === previous.child) return;
     for (let child = next.child; child; child = child.sibling) visit(child, child.alternate);
   };
+  const storeOf = (fiber, depth) => {
+    for (let at = fiber; at; at = at.sibling) {
+      for (let hook = component(at.tag) ? at.memoizedState : null; hook; hook = hook.next) {
+        const held = hook.memoizedState;
+        if (held && typeof held === "object" && Array.isArray(held.bots) && Array.isArray(held.groups) && "selectedId" in held) return held;
+      }
+      const below = depth > 0 && at.child ? storeOf(at.child, depth - 1) : null;
+      if (below) return below;
+    }
+    return null;
+  };
+  const changedFields = (before, after) => [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((name) => !Object.is(before[name], after[name]));
+  const noteStore = (root) => {
+    const store = storeOf(root.current, 12);
+    const last = perf.store;
+    if (!store || store === last) return;
+    perf.store = store;
+    if (!last) return;
+    const fields = changedFields(last, store);
+    const dogFields = {};
+    let dogs = 0;
+    if (last.bots !== store.bots) {
+      const before = new Map(last.bots.map((bot) => [bot.id, bot]));
+      for (const bot of store.bots) {
+        const was = before.get(bot.id);
+        if (was === bot) continue;
+        dogs += 1;
+        for (const name of was ? changedFields(was, bot) : ["(new dog)"]) dogFields[name] = (dogFields[name] || 0) + 1;
+        if (was && changedFields(was, bot).length === 0) dogFields["(same fields, new object)"] = (dogFields["(same fields, new object)"] || 0) + 1;
+      }
+    }
+    perf.storeChanges.push({ atMs: Math.round(performance.now() - perf.startedAt), fields, dogs, dogFields });
+  };
   window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
     supportsFiber: true,
     renderers: new Map(),
     inject(renderer) { const id = this.renderers.size + 1; this.renderers.set(id, renderer); return id; },
-    onCommitFiberRoot(_id, root) { perf.commits += 1; if (perf.counting) visit(root.current, root.current.alternate); },
+    onCommitFiberRoot(_id, root) { perf.commits += 1; if (perf.watchingStore) noteStore(root); if (perf.counting) visit(root.current, root.current.alternate); },
     onPostCommitFiberRoot() {},
     onCommitFiberUnmount() {},
     checkDCE() {},
@@ -1236,6 +1269,154 @@ async function messageBox(browser: Browser, url: string, dogs: { long: Dog; othe
   return steps;
 }
 
+interface StoreChange {
+  atMs: number;
+  fields: string[];
+  dogs: number;
+  dogFields: Record<string, number>;
+}
+
+async function storeChanges(browser: Browser, url: string, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, streamFile: string) {
+  const context = await browser.newContext({ viewport: VIEWPORT });
+  await context.addInitScript(PAGE_PROBE);
+  const page = await context.newPage();
+  await page.goto(url);
+  await page.waitForSelector('textarea[aria-label^="Message "]', { timeout: 60_000 });
+  await open(page, dogs.long);
+  await page.waitForTimeout(2_000);
+  const watched = async (work: () => Promise<void>) => {
+    await page.evaluate(() => {
+      const perf = (window as unknown as { __perf: { watchingStore: boolean; counting: boolean; storeChanges: StoreChange[]; begin(): void } }).__perf;
+      perf.storeChanges.length = 0;
+      perf.watchingStore = true;
+      perf.counting = true;
+      perf.begin();
+    });
+    await work();
+    const seen = await page.evaluate(() => {
+      const perf = (window as unknown as { __perf: { watchingStore: boolean; storeChanges: StoreChange[]; end(): Activity & { top: string[] } } }).__perf;
+      perf.watchingStore = false;
+      return { changes: [...perf.storeChanges], activity: perf.end() };
+    });
+    const kinds = new Map<string, number>();
+    for (const change of seen.changes) {
+      const kind = `${change.fields.join(",")}${change.dogs ? ` [${change.dogs} dogs: ${Object.entries(change.dogFields).map(([name, count]) => `${name} ${count}`).join(", ")}]` : ""}`;
+      kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
+    }
+    return { storeChanges: seen.changes.length, commits: seen.activity.commits, rendered: seen.activity.rendered, kinds: [...kinds.entries()].sort((left, right) => right[1] - left[1]).map(([kind, count]) => `${count} x ${kind}`), top: seen.activity.top.slice(0, 60) };
+  };
+  const idle = await watched(() => page.waitForTimeout(3_000));
+  writeFileSync(streamFile, JSON.stringify({ everyMs: 30, chars: 10 }));
+  const otherDogsWorking = await watched(async () => {
+    await Promise.all(dogs.others.slice(0, 4).map((dog) => api("POST", `/api/bots/${dog.id}/messages`, { text: "Run the checks again and show me the table.", threadId: dog.threadId, sendId: randomUUID().replaceAll("-", "") })));
+    await new Promise((done) => setTimeout(done, 150));
+    await settled(api, dogs.others.map((dog) => dog.id));
+    await page.waitForTimeout(400);
+  });
+  rmSync(streamFile, { force: true });
+  await context.close();
+  return { idle, otherDogsWorking };
+}
+
+interface DrawnLayer {
+  layerId: string;
+  backendNodeId?: number;
+  width: number;
+  height: number;
+  drawsContent: boolean;
+}
+
+async function layers(browser: Browser, url: string, dogs: { long: Dog; others: Dog[] }) {
+  const context = await browser.newContext({ viewport: VIEWPORT });
+  await context.addInitScript(PAGE_PROBE);
+  const page = await context.newPage();
+  await page.goto(url);
+  await page.waitForSelector('textarea[aria-label^="Message "]', { timeout: 60_000 });
+  await open(page, dogs.long);
+  await page.waitForTimeout(2_000);
+  const cdp = await page.context().newCDPSession(page) as unknown as {
+    send(method: string, params?: unknown): Promise<Record<string, unknown>>;
+    on(event: string, listener: (payload: { layers?: DrawnLayer[]; value?: Array<{ name: string; ph: string; dur?: number }> }) => void): void;
+  };
+  let drawn: DrawnLayer[] = [];
+  cdp.on("LayerTree.layerTreeDidChange", (payload) => { if (payload.layers) drawn = payload.layers; });
+  await cdp.send("DOM.enable");
+  await cdp.send("LayerTree.enable");
+  await page.click(composerOf(dogs.long));
+  await page.keyboard.type("ab", { delay: 60 });
+  await page.waitForTimeout(600);
+  const why = new Map<string, number>();
+  const where = new Map<string, number>();
+  for (const layer of drawn) {
+    const { compositingReasonIds = [] } = await cdp.send("LayerTree.compositingReasons", { layerId: layer.layerId }).catch(() => ({})) as { compositingReasonIds?: string[] };
+    const reason = compositingReasonIds.join("+") || "(none given)";
+    why.set(reason, (why.get(reason) ?? 0) + 1);
+    let place = "(no element)";
+    if (layer.backendNodeId) {
+      const described = await cdp.send("DOM.describeNode", { backendNodeId: layer.backendNodeId }).catch(() => null) as { node?: { localName?: string; attributes?: string[] } } | null;
+      const attributes = described?.node?.attributes ?? [];
+      const named = (name: string) => { const index = attributes.indexOf(name); return index === -1 ? "" : attributes[index + 1] ?? ""; };
+      const marks = attributes.filter((_, index) => index % 2 === 0 && attributes[index]!.startsWith("data-")).slice(0, 3).join(" ");
+      place = `${described?.node?.localName ?? "?"} ${marks} .${named("class").slice(0, 60)}`;
+    }
+    where.set(`${reason} @ ${place}`, (where.get(`${reason} @ ${place}`) ?? 0) + 1);
+  }
+  const ranked = (counts: Map<string, number>) => [...counts.entries()].sort((left, right) => right[1] - left[1]).slice(0, 40).map(([name, count]) => `${count} x ${name}`);
+  await cdp.send("LayerTree.disable");
+
+  const typed = async (label: string, selector: string) => {
+    const stages = new Map<string, { ms: number; count: number }>();
+    const collect = (payload: { value?: Array<{ name: string; ph: string; dur?: number }> }) => {
+      for (const event of payload.value ?? []) {
+        if (event.ph !== "X" || !event.dur) continue;
+        const stage = stages.get(event.name) ?? { ms: 0, count: 0 };
+        stage.ms += event.dur / 1000;
+        stage.count += 1;
+        stages.set(event.name, stage);
+      }
+    };
+    let finish = () => {};
+    const finished = new Promise<void>((done) => { finish = done; });
+    cdp.on("Tracing.dataCollected", collect);
+    cdp.on("Tracing.tracingComplete", () => finish());
+    await page.click(selector);
+    await cdp.send("Tracing.start", { transferMode: "ReportEvents", traceConfig: { includedCategories: ["devtools.timeline"] } });
+    await page.keyboard.type("Can you also check whether the notes mention it?", { delay: 35 });
+    await page.waitForTimeout(200);
+    await cdp.send("Tracing.end");
+    await finished;
+    for (let index = 0; index < 60; index += 1) await page.keyboard.press("Backspace");
+    const stage = (name: string) => `${name} ${Math.round(stages.get(name)?.ms ?? 0)} ms x${stages.get(name)?.count ?? 0}`;
+    return `${label}: ${["Layerize", "Paint", "PrePaint", "Layout", "UpdateLayoutTree", "EventDispatch", "FunctionCall"].map(stage).join(", ")}`;
+  };
+  const results: string[] = [];
+  results.push(await typed("message box as it is", composerOf(dogs.long)));
+  await page.evaluate(() => {
+    const plain = document.createElement("textarea");
+    plain.id = "perf-plain-box";
+    plain.style.cssText = "position:fixed;left:600px;top:10px;width:300px;height:40px;z-index:99999";
+    document.body.append(plain);
+  });
+  results.push(await typed("a plain box added to the page", "#perf-plain-box"));
+  await page.evaluate(() => document.querySelector("#perf-plain-box")!.remove());
+  const without = async (label: string, selector: string) => {
+    const hidden = await page.evaluate((target: string) => {
+      const found = [...document.querySelectorAll(target)] as HTMLElement[];
+      for (const element of found) element.style.display = "none";
+      return found.length;
+    }, selector);
+    await page.waitForTimeout(300);
+    results.push(await typed(`${label} hidden (${hidden})`, composerOf(dogs.long)));
+    await page.evaluate((target: string) => { for (const element of [...document.querySelectorAll(target)] as HTMLElement[]) element.style.display = ""; }, selector);
+    await page.waitForTimeout(300);
+  };
+  await without("sidebar rows", "[data-sidebar-row]");
+  await without("transcript", '[role="log"]');
+  if (process.argv.includes("--hide")) await without(option("hide"), option("hide"));
+  await context.close();
+  return { layers: drawn.length, drawing: drawn.filter((layer) => layer.drawsContent).length, why: ranked(why), where: ranked(where), typing: results };
+}
+
 function redraws(activity: Activity & { top?: string[] }) {
   return { commits: activity.commits, rendered: activity.rendered, ...(activity.top ? { top: activity.top } : {}) };
 }
@@ -1351,6 +1532,14 @@ async function main() {
     const files = { stream: streamFile, replyIndex: replyIndexFile };
     if (process.argv.includes("--opening-shots")) {
       process.stdout.write(`${JSON.stringify(await openingShots(browser, fixture.info.url, dogs, resolve(option("opening-shots")), setup.label), null, 2)}\n`);
+      return;
+    }
+    if (process.argv.includes("--store-changes")) {
+      process.stdout.write(`${JSON.stringify(await storeChanges(browser, fixture.info.url, api, dogs, streamFile), null, 2)}\n`);
+      return;
+    }
+    if (process.argv.includes("--layers")) {
+      process.stdout.write(`${JSON.stringify(await layers(browser, fixture.info.url, dogs), null, 2)}\n`);
       return;
     }
     if (process.argv.includes("--message-box")) {

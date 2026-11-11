@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Menu } from "lucide-react";
-import { CLOUD_LINK_SETTINGS, LENDING_SETTINGS, StoreProvider, type AppState } from "@/state/store";
+import { CLOUD_LINK_SETTINGS, LENDING_SETTINGS, StoreProvider } from "@/state/store";
+import { shellView, unreadChats } from "@/state/shell-view";
 import { dogIn, sameFields, useStoreDispatch, useStoreReader, useStoreSelector } from "@/state/store-selectors";
 import { CloudQuietLine } from "@/components/CloudQuietLine";
 import { CloudSignInGate, useCloudSignInGate } from "@/components/CloudSignInGate";
 import { useWelcomeViewer, WelcomeGate } from "@/components/onboarding/WelcomeGate";
-import { cloudSignInDue, type WelcomeViewer } from "@/lib/onboarding";
+import { type WelcomeViewer } from "@/lib/onboarding";
 import { LiveCallHost } from "@/components/LiveCallHost";
 import { initAnalytics } from "@/lib/analytics";
 import { Sidebar } from "@/components/Sidebar";
@@ -24,7 +25,6 @@ import { WindowCaptionButtons } from "@/components/WindowCaptionButtons";
 import { NoEngines } from "@/components/NoEngines";
 import { LaunchSplash } from "@/components/LaunchSplash";
 import { CloudEngineSignIn } from "@/components/CloudEngineSignIn";
-import { engineReady } from "@/components/EngineLibrary";
 import { CommandPalette } from "@/components/CommandPalette";
 import { AddAccountHost } from "@/components/AddAccountHost";
 import { AppLinkHost } from "@/components/AppLinkHost";
@@ -36,41 +36,15 @@ import { sidebarOrder } from "@/lib/sidebar-order";
 import { loadSidebarDensity, setSidebarDensity } from "@/lib/sidebar-preferences";
 import { isLiveCallRunning, liveCallShortcut, liveMedia } from "@/lib/live-call-media";
 import { effectiveLanguage, useLanguageChoice } from "@/lib/language-preference";
-import { botShowsUnread } from "@/lib/bot-unread";
 import { acknowledgeOrganizationSettings } from "@/lib/organization-settings-ack";
 import { useTimeZoneSync } from "@/lib/time-zone-sync";
 
-function shellView(state: AppState, viewer: WelcomeViewer | null) {
-  const group = state.groups.find((g) => g.id === state.selectedId);
-  const bot = group ? undefined : (dogIn(state, state.selectedId) ?? state.bots[0]);
-  return {
-    unreadCount:
-      state.bots.filter((dog) => !dog.hidden && botShowsUnread(dog)).length +
-      state.groups.filter((room) => room.unread && !room.dm).length,
-    language: state.config?.language,
-    cloudHome: Boolean(state.config?.cloudHome),
-    selectedId: state.selectedId,
-    groupId: group?.id,
-    groupThreadId: group?.threadId,
-    botId: bot?.id,
-    botThreadId: bot?.threadId,
-    computerOpen: state.computerOpen,
-    cloudTaskId: state.cloudTaskId,
-    settingsOpen: state.settingsOpen,
-    routinesOpen: state.routinesOpen,
-    appSettingsOpen: state.appSettingsOpen,
-    pluginsOpen: state.pluginsOpen,
-    newBotOpen: state.newBotOpen,
-    shortcutsOpen: state.shortcutsOpen,
-    taskView: state.taskView,
-    connected: state.connected,
-    hydrated: state.hydrated,
-    noEngines:
-      state.connected &&
-      state.instances.length > 0 &&
-      !state.instances.some((i) => i.snapshot.state === "available"),
-    cloudSignIn: cloudSignInDue(viewer, state, engineReady),
-  };
+function UnreadCountBadge() {
+  const unreadCount = useStoreSelector(unreadChats);
+  useEffect(() => {
+    window.laterdog?.setUnreadCount?.(unreadCount);
+  }, [unreadCount]);
+  return null;
 }
 
 function OpenRoom({ groupId }: { groupId: string }) {
@@ -98,7 +72,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   const readStore = useStoreReader();
   const state = useStoreSelector((store) => shellView(store, viewer), sameFields);
   const { capabilities } = useDesktopCapabilities();
-  const { unreadCount } = state;
   const twoSidePanelsFit = useMediaQuery(TWO_SIDE_PANELS_FIT, true);
   const sidebarAndPanelFit = useMediaQuery(SIDEBAR_AND_PANEL_FIT, true);
   useEffect(() => {
@@ -218,10 +191,6 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
   }, [readStore, dispatch]);
 
   useEffect(() => {
-    window.laterdog?.setUnreadCount?.(unreadCount);
-  }, [unreadCount]);
-
-  useEffect(() => {
     if (!state.connected) return;
     void preloadConnectedApps().catch(() => {});
   }, [state.connected]);
@@ -265,6 +234,7 @@ function Shell({ viewer }: { viewer: WelcomeViewer | null }) {
 
   return (
     <div className="flex h-full flex-col">
+      <UnreadCountBadge />
       <div className="pointer-events-none fixed bottom-4 left-4 z-50 flex w-[300px] max-w-[calc(100vw-2rem)] flex-col gap-2 [&>*]:pointer-events-auto">
         <CredentialStoreNotice />
         <DamagedDataNotice />
