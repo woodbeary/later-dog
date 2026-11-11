@@ -4,9 +4,9 @@ import { SIDEBAR_ROW_KINDS, sidebarRowKind } from "./sidebar-row-kind";
 
 const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 const sidebar = readFileSync(new URL("../components/Sidebar.tsx", import.meta.url), "utf8");
-const heldHeight = (kind: string) => Number(new RegExp(`\\[data-sidebar-row="${kind}"\\] \\{ contain-intrinsic-size: auto ([\\d.]+)px; \\}`).exec(css)?.[1]);
+const heldHeight = (kind: string) => Number(new RegExp(`\\[data-sidebar-row="${kind}"\\] > \\[data-sidebar-bot-row\\] \\{ contain-intrinsic-size: auto ([\\d.]+)px; \\}`).exec(css)?.[1]);
 
-const ROW = { padding: 8, nameText: 14, previewText: 11, titleLine: 16, lineHeight: 1.5, iconPadding: 6, iconAvatar: 44 };
+const ROW = { nameText: 14, previewText: 11, titleLine: 16, lineHeight: 1.5, iconAvatar: 44 };
 
 describe("the kind of row a dog gets in the sidebar", () => {
   it("is the icon row in the icon rail, whatever the dog's title", () => {
@@ -28,16 +28,17 @@ describe("the kind of row a dog gets in the sidebar", () => {
     expect(sidebar).toContain('<span className="flex min-w-0 items-center gap-1.5 truncate text-[11px] text-ink-secondary">');
   });
 
-  it("holds the height of a drawn row of its kind while the row is scrolled out of view", () => {
-    const plain = 2 * ROW.padding + ROW.lineHeight * (ROW.nameText + ROW.previewText);
+  it("holds the height of what a drawn row of its kind shows inside its padding while the row is scrolled out of view", () => {
+    const plain = ROW.lineHeight * (ROW.nameText + ROW.previewText);
     expect(Object.fromEntries(SIDEBAR_ROW_KINDS.map((kind) => [kind, heldHeight(kind)]))).toEqual({
       plain,
       titled: plain + ROW.titleLine,
-      icon: 2 * ROW.iconPadding + ROW.iconAvatar,
+      icon: ROW.iconAvatar,
     });
   });
 
-  it("skips drawing every kind of row that is out of view", () => {
-    expect(css).toMatch(/\[data-sidebar-row\] \{\n {2}content-visibility: auto;/);
+  it("skips drawing what is inside a row that is out of view, and keeps the row itself for a screen reader to find", () => {
+    expect(css).toMatch(/\[data-sidebar-row\] > \[data-sidebar-bot-row\] \{\n {2}content-visibility: auto;/);
+    expect(css).not.toMatch(/\[data-sidebar-row[^\]]*\] \{[^}]*content-visibility/);
   });
 });

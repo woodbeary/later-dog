@@ -110,6 +110,11 @@ describe("BotListItem", () => {
     expect(waiting).toContain('aria-label="Atlas · Waiting for you: run a command"');
   });
 
+  it("names a row in the list for a screen reader the way the icon rail does, so a row whose contents are not drawn still has a name", () => {
+    expect(renderRow(bot())).toContain('role="button" tabindex="0" aria-label="Atlas"');
+    for (const density of ["comfortable", "icons"] as const) expect(renderRow(bot({ unread: true }), density)).toContain('aria-label="Atlas · Unread"');
+  });
+
   it("previews a person's own last message exactly as typed", () => {
     const markup = renderRow(bot({
       messages: [{ id: "u1", role: "user", kind: "text", text: "rename *draft* to final", at: 1 }] as Bot["messages"],
