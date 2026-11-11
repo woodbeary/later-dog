@@ -2,3 +2,7 @@ target
 pkg
 node_modules
 results
+*.wasm
+*.db
+*.db-shm
+*.db-wal
