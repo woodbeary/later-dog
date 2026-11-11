@@ -212,8 +212,15 @@ The default timed run with `--other-dogs 79 --other-turns 2`: base 3 runs, main 
 file, run count or commit. Each was run again here at 80 dogs, once on each
 build. Result files are in `assets/desktop-performance/`.
 
-1. Layers. Still to run on main; the older renderer's count is in the table
-   above.
+1. Layers (`--layers`). The claim was "from 145 layers to 23". The 23 is
+   confirmed on main, one run, `main-80-layers-1.json`: 23 layers, 18 of them
+   drawing, none of them a dog's face or a status dot. The 145 was not run
+   again: it described the renderer just before #169, which is not one of the
+   two builds here. The older renderer, before #158 as well, has 426 layers,
+   339 of them drawing, one run, `base-80-layers-1.json`: 82 for dogs' faces
+   animating, 79 for status dots animating, and 253 more that exist only
+   because they overlap those. In this fixture 79 of the 81 rows carry an
+   unread dot, not "about half" as the claim said.
 2. Kept state (`--kept`). Confirmed on main, one run, `main-80-kept-1.json`.
    A draft in the long chat and in a short chat was still there after
    switching and after a reload, and the reload opened the same chat. The dog
