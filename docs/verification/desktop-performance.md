@@ -70,10 +70,17 @@ a JSON file `{ "everyMs": 30, "chars": 10 }`, and reads scripted replies from
 
 ## Results, 2026-11-10
 
+Both tables below were measured at 456e978, before the review fixes; not
+re-measured. Two later commits change what they time: 51157ef (the fill became
+one step within each frame) and fa3141c (an off-screen sidebar row is laid out
+again and only what is inside it is skipped).
+
 One cloud computer (Linux x64, 4 vCPU, 12 GB), headless Chrome, a 240-message
 chat with code blocks and tables plus five short chats. These are fixture
 numbers on Linux. They are not the Mac app: its launch, its process tree and a
 sleeping Cloud home are not in them.
+
+Measured at 456e978, before the review fixes; not re-measured.
 
 | Measure | Before | After |
 |---|---|---|
@@ -100,7 +107,7 @@ What changed between the columns:
 
 The same run with `--other-dogs 79 --other-turns 2`, the size of a busy home.
 "Before" here already has the two changes above; the columns compare the next
-two.
+two. Measured at 456e978, before the review fixes; not re-measured.
 
 | Measure | Before | After |
 |---|---|---|
@@ -117,10 +124,12 @@ two.
   from one clock, only the ones on screen, with a 180 ms one-shot animation
   (`src/lib/dog-blinks.ts`). The run sees a blink within half a second of
   looking for one.
-- Sidebar rows scrolled out of view are no longer drawn
-  (`[data-sidebar-row]` in `src/styles.css`). Screenshots of the sidebar
-  scrolled to the middle of 80 dogs, and with a row hovered, are taken by
-  `--shots DIR`.
+- What is inside a sidebar row scrolled out of view is no longer drawn
+  (`[data-sidebar-row] > [data-sidebar-bot-row]` in `src/styles.css`). At
+  456e978, where the table was measured, the whole row was skipped
+  (`[data-sidebar-row]`); the row itself is laid out again now so a screen
+  reader can find it. Photographs of the sidebar at 80 dogs are taken by
+  `--sidebar-shots DIR`.
 
 `--profile-typing` prints the rendering stages for typing. At 80 dogs, before
 these two changes, 99 keys cost 1.7 s of layer building, 0.8 s in 683 layouts
@@ -227,6 +236,34 @@ row's spoken name was all of its text, preview line included; the preview is
 no longer part of the name. `src/components/SidebarBotListItem.test.ts`
 "names a row in the list for a screen reader the way the icon rail does".
 
+## Second review of 2026-11-11 and what was done about it
+
+A second independent read, at 024af20, found no blocker and raised two things
+to fix and six notes.
+
+| Finding | What changed | Tests |
+|---|---|---|
+| S1 The tables were measured before the first review's fixes and did not say so | Both tables say they were measured at 456e978, before the review fixes, and name the two later commits that change what they time | none; no code |
+| S2 "Show earlier messages" was counted against the rows shown so far, so a 100-message chat showed it with 70, 40, then 10 more and then lost it, and a longer chat showed a changing number | While a chat fills in, the rows above it are counted from where the window will settle | `src/components/ChatView.opening.test.ts` "shows the same earlier-work line at every step of the fill" (the button reads "30 more" at all four steps of a 150-message chat) and "never offers earlier messages while a chat that fits one window fills in"; `src/hooks/use-transcript-viewport.test.ts` "counts the rows above the filled window at every step" |
+| N1 A group chat opened on its newest 30 rows even when unread rows started above them, so its New line moved | The group chat reads its unread boundary once and hands it to the same opening rule a one-dog chat uses | `src/components/GroupView.opening.test.ts` (3 tests; the first fails without the change: 30 rows instead of 120) |
+| N5 Nothing a person sees had been looked at since the sidebar change | Photographs taken and looked at; see "Sidebar photographs at 80 dogs" above | none |
+
+Left as they are, for a person to decide:
+
+- N2. A list row's spoken name is the dog's name and its state. The title
+  line and the last-message preview are no longer part of it. Not checked
+  with a real screen reader.
+- N3. A row that is off screen when the sidebar changes between list and icon
+  rail, or when it gains or loses a title, holds its old height until it is
+  drawn again. A few pixels a row, and it corrects itself. Not measured: the
+  harness reloads before measuring the icon rail.
+- N4. `src/lib/sidebar-row-kind.test.ts` pins six lines of the row's class
+  names as text, so a restyle of the row fails it.
+- N6. A chat with more than 30 rows of new work since the last visit opens
+  on its whole window, the slower way, so its New line and "N new" pill are
+  right. The fixture's long chat is always read when it is opened, so the
+  opening times in the tables describe read chats.
+
 ## What still needs the Mac app
 
 Everything above is a headless Chrome on Linux against a fixture. Not measured
@@ -238,24 +275,32 @@ or checked anywhere yet:
 - Dictation and push-to-talk while a long chat is open.
 - Permission prompts (microphone, screen, accessibility, files).
 - Signing, notarization and the update path.
-- A real screen reader on the Mac reading the sidebar, and a keyboard focus
-  ring photographed on a sidebar row.
+- A real screen reader on the Mac reading the sidebar, and the sidebar's
+  badges and focus ring seen in the Mac app (they were photographed in
+  headless Chrome on Linux only).
 
 ## Where this lane stands, 2026-11-11
 
-Run on the Linux cloud computer at fa3141c:
+Run on the Linux cloud computer at c688af6, in a copy whose git tree hash
+matched the commit (the commits after it change only this note):
 
-- The Sidebar tests, the row-kind test and the unread-pill test: 18 files, 134
-  tests passed.
-- The whole renderer suite (every test under `src`): 409 files, 3,576 tests
-  passed.
-- The renderer and server typechecks: no errors.
-- `scripts/no-comments.test.ts` and `scripts/brand-links.test.ts`: 13 tests
-  passed.
-- The harness ran end to end in its `--sidebar-rows` and `--kept` modes
-  against the builds of main, 456e978 and this branch.
+- `pnpm typecheck` (`tsc -b && tsc -p tsconfig.server.json`): no errors.
+- `pnpm lint` (`oxlint --deny-warnings .`): 0 warnings, 0 errors, 3,059 files.
+- `pnpm vitest run src scripts/no-comments.test.ts scripts/brand-links.test.ts
+  server/testing`: 418 files, 3,627 tests, all passed.
+- The harness ran end to end in its `--sidebar-shots` mode against the builds
+  of main 4b377d9 and this branch (438977a), once each.
 
-Left: the timed before and after runs of main against this branch at 7 and 80
-dogs, and their table here and in the pull request. They wait for a turn on
-the cloud computer, which other lanes are using.
+Run earlier, at fa3141c: the harness's `--sidebar-rows` and `--kept` modes
+against the builds of main, 456e978 and this branch. Not rerun since.
 
+Not run: the whole suite (`pnpm vitest run`, with every server test). On this
+cloud computer two server tests fail on main itself, in files this branch
+does not touch: `server/config.test.ts` "uses the list again once a file the
+server could not read is readable" and `server/drivers/agents-proxy.test.ts`
+"answers the MCP handshake and lists the agents tools".
+
+Left: the timed runs of main against this branch at 7 and 80 dogs. They were
+queued at 438977a on 2026-11-11 and did not get the cloud computer to
+themselves: other lanes' test suites held it throughout. Until they run, the
+two tables above describe 456e978.
