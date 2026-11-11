@@ -420,7 +420,6 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
   const named = process.argv.includes("--names");
   const trim = ({ keys: _keys, value: _value, top, ...rest }: Activity & { keys: number[]; top: string[]; value: unknown }) => (named && counting ? { ...rest, top } : rest);
   const idle = await heap(page);
-  const memoryIdle = memory(fixture.info.pid);
   const idling = await measured(page, cdp, false, async () => {
     await page.waitForTimeout(3_000);
   });
@@ -441,6 +440,13 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
     }
     return { running: running.length, byName: [...names.entries()].sort((left, right) => right[1] - left[1]).slice(0, 12).map(([name, count]) => `${name} ${count}`) };
   });
+  const memoryIdle = memory(fixture.info.pid);
+  const memoryPeak = { ...memoryIdle };
+  const sampling = setInterval(() => {
+    const now = memory(fixture.info.pid);
+    memoryPeak.serverTreeRssMb = Math.max(memoryPeak.serverTreeRssMb, now.serverTreeRssMb);
+    memoryPeak.browserTreeRssMb = Math.max(memoryPeak.browserTreeRssMb, now.browserTreeRssMb);
+  }, 1_000);
   const short = dogs.others[0]!;
   await open(page, dogs.long);
   await page.waitForTimeout(1_500);
@@ -530,6 +536,8 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
 
   const after = await heap(page);
   const fill = counting ? null : { idle: await fillsWhileIdle(page, dogs, setup.switches), whileReplyStreams: await fillUnderStream(page, api, dogs, files) };
+  clearInterval(sampling);
+  const memoryAfter = memory(fixture.info.pid);
   await context.close();
   return {
     idle: { ...trim(idling), animations, blinkSeenMs },
@@ -537,7 +545,7 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
     ...(fill ? { fill } : {}),
     heapIdleMb: idle.heapMb,
     heapAfterMb: after.heapMb,
-    memoryIdle,
+    rssMb: { idle: memoryIdle, peak: memoryPeak, afterRun: memoryAfter },
     domNodesAfter: after.nodes,
     switchToLongMs: distribution(toLong),
     switchToShortMs: distribution(toShort),
@@ -1041,14 +1049,7 @@ async function main() {
       return;
     }
     const cold = await coldLoads(browser, fixture.info.url, setup.coldRuns);
-    const peak: Memory = { serverTreeRssMb: 0, browserTreeRssMb: 0 };
-    const sampling = setInterval(() => {
-      const now = memory(fixture.info.pid);
-      peak.serverTreeRssMb = Math.max(peak.serverTreeRssMb, now.serverTreeRssMb);
-      peak.browserTreeRssMb = Math.max(peak.browserTreeRssMb, now.browserTreeRssMb);
-    }, 1_000);
-    const { memoryIdle, ...timed } = await pass(browser, fixture, api, dogs, setup, files, false).finally(() => clearInterval(sampling));
-    const memoryAfterTimedPass = memory(fixture.info.pid);
+    const timed = await pass(browser, fixture, api, dogs, setup, files, false);
     const counted = await pass(browser, fixture, api, dogs, setup, files, true);
     const result = {
       label: setup.label,
@@ -1063,7 +1064,7 @@ async function main() {
         streaming: redraws(counted.streaming),
         otherDogsWorking: redraws(counted.otherDogsWorking),
       },
-      memory: { idle: memoryIdle, peakInTimedPass: peak, afterTimedPass: memoryAfterTimedPass, afterBothPasses: memory(fixture.info.pid) },
+      memory: timed.rssMb,
     };
     mkdirSync(dirname(setup.out), { recursive: true });
     writeFileSync(setup.out, `${JSON.stringify(result, null, 2)}\n`);
