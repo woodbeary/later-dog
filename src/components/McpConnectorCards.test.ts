@@ -32,6 +32,7 @@ vi.mock("react", async (original) => ({
   },
   useEffect: (effect: EffectCallback, deps?: DependencyList) => { fixture.effects.push({ effect, deps }); },
 }));
+vi.mock("@/state/store-selectors", async (original) => ({ ...await original<typeof import("@/state/store-selectors")>(), ...await (await import("@/testing/store-selectors")).selectorsOverMockedStore() }));
 vi.mock("@/state/store", () => ({
   api: vi.fn(async (path: string, init?: { method?: string; body?: string }) => {
     const method = init?.method ?? "GET";
