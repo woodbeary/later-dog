@@ -69,7 +69,18 @@ async function main() {
   const others: Dog[] = [];
   for (let index = 0; index < otherDogs; index += 1) others.push(await make(`Helper ${index + 1}`));
   await Promise.all([fill(long, longTurns), ...others.map((dog) => fill(dog, otherTurns))]);
-  process.stdout.write(`${JSON.stringify({ url: fixture.info.url, serverPid: fixture.info.pid, long, short: others[0] })}\n`);
+  const timedOpens = Number(option("time-opens", "0"));
+  const pageMs = async (query: string): Promise<number[]> => {
+    const took: number[] = [];
+    for (let pass = 0; pass < timedOpens; pass += 1) {
+      const started = performance.now();
+      await api("GET", `/api/threads/${long.threadId}/messages${query}`);
+      took.push(performance.now() - started);
+    }
+    return took;
+  };
+  const opens = timedOpens > 0 ? { newest50Ms: await pageMs("?limit=50"), wholeChatMs: await pageMs("") } : undefined;
+  process.stdout.write(`${JSON.stringify({ url: fixture.info.url, serverPid: fixture.info.pid, dataDir: fixture.info.dataDir, long, short: others[0], opens })}\n`);
   const stop = () => {
     void fixture.close().finally(() => process.exit(0));
   };
