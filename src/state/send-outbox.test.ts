@@ -592,14 +592,14 @@ describe("a message the edge held for a sleeping home", () => {
     const apply = (action: Action) => { state = reducer(state, action); };
     const store = memoryStore();
     const timers = manualTimers();
-    const request = vi.fn(async (path: string) => (path === "/api/bots/bot/messages" ? heldReceipt : { held: [sent.sendId], dropped: [] }));
+    const request = vi.fn(async (path: string, _init?: { body?: unknown }) => (path === "/api/bots/bot/messages" ? heldReceipt : { held: [sent.sendId], dropped: [] }));
     const outbox = createSendOutbox({ request, dispatch: apply, showError: vi.fn(), store, after: timers.after });
     for (let attempt = 0; attempt < 3; attempt++) {
       apply({ type: "send", botId: "bot", threadId: "thread", text: sent.text, sendId: sent.sendId });
       outbox.send(sent);
       await answered();
     }
-    const posts = request.mock.calls.filter(([path]) => path === "/api/bots/bot/messages").map(([, init]) => JSON.parse(String((init as unknown as RequestInit).body)).sendId);
+    const posts = request.mock.calls.filter(([path]) => path === "/api/bots/bot/messages").map(([, init]) => JSON.parse(String(init?.body)).sendId);
     expect(posts).toEqual([sent.sendId, sent.sendId, sent.sendId]);
     expect(kept(store).map((held) => held.sendId)).toEqual([sent.sendId]);
     expect(state.pendingQueued.thread).toEqual([{ queueId: sent.sendId, text: sent.text }]);
