@@ -1052,6 +1052,9 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     (message: Message) => !plan.hiddenIds.has(message.id) && transcriptRowShown(message, showToolCalls),
     [plan, showToolCalls],
   );
+  const threadKey = `${bot.id}/${bot.threadId}`;
+  const unreadSince = useUnreadBoundary(threadKey, messages);
+  const unreadRow = useCallback((message: Message) => isUnread(message, unreadSince), [unreadSince]);
   const {
     scrollRef,
     transcriptRef,
@@ -1075,12 +1078,11 @@ export function ChatView({ bot: profile }: { bot: Bot }) {
     messages,
     pinOn: [bot.busy, composerDock.pad],
     counts: countsInWindow,
+    unread: unreadRow,
   });
   useScrollAnchor(scrollRef, transcriptRef, followingRef, true);
   const shownRows = useMemo(() => messages.filter(countsInWindow), [messages, countsInWindow]);
   const newBelow = useNewBelow(following, shownRows);
-  const threadKey = `${bot.id}/${bot.threadId}`;
-  const unreadSince = useUnreadBoundary(threadKey, messages);
   const visitUnread = useVisitUnreadCount(threadKey, unreadSince, shownRows);
   const unreadPlace = useUnreadPosition(scrollRef, unreadSince !== null, HEADER_INSET, composerDock.height, windowedMessages.length);
   const [aboveDismissed, setAboveDismissed] = useState<string | null>(null);

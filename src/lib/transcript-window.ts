@@ -116,9 +116,16 @@ export function resolveTranscriptWindow<T>(
   };
 }
 
-export function openingWindow<T>(key: string, messages: readonly T[], counts?: CountsInWindow<T>): OpenTranscriptWindow {
-  const start = windowStartBefore(messages, messages.length, TRANSCRIPT_OPENING_SIZE, counts);
+export function openingWindow<T>(
+  key: string,
+  messages: readonly T[],
+  counts?: CountsInWindow<T>,
+  unread?: (message: T) => boolean,
+): OpenTranscriptWindow {
+  const newest = windowStartBefore(messages, messages.length, TRANSCRIPT_OPENING_SIZE, counts);
   const tail = windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts);
+  const unreadAbove = unread ? messages.slice(0, newest).some(unread) : false;
+  const start = unreadAbove ? tail : newest;
   return { key, start, end: null, filled: start <= tail, empty: messages.length === 0 };
 }
 

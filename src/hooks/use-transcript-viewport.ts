@@ -62,6 +62,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   pinOn,
   transcriptShown = true,
   counts,
+  unread,
 }: {
   ownerId: string;
   threadId: string;
@@ -69,6 +70,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   pinOn: DependencyList;
   transcriptShown?: boolean;
   counts?: CountsInWindow<T>;
+  unread?: (message: T) => boolean;
 }) {
   const { state, dispatch } = useStore();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -81,7 +83,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
 
   const transcriptKey = `${ownerId}:${threadId}`;
   const tailStart = useMemo(() => windowStartBefore(messages, messages.length, TRANSCRIPT_WINDOW_SIZE, counts), [messages, counts]);
-  const opening = useMemo(() => ({ ...openingWindow(transcriptKey, messages, counts), ownerId }), [transcriptKey, messages, counts, ownerId]);
+  const opening = useMemo(() => ({ ...openingWindow(transcriptKey, messages, counts, unread), ownerId }), [transcriptKey, messages, counts, unread, ownerId]);
   const [transcriptWindow, setTranscriptWindow] = useState(opening);
   const switched = transcriptWindow.key !== transcriptKey;
   const reopened = switched || (transcriptWindow.empty && messages.length > 0);

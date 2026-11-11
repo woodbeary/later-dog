@@ -70,6 +70,8 @@ async function frame() {
 
 const rowIds = () => [...host.querySelectorAll("[data-mid]")].map((row) => row.getAttribute("data-mid"));
 const earlierWork = () => host.querySelector("[data-native-work-fallbacks] summary")?.textContent ?? null;
+const newLineRow = () => host.querySelector("[data-unread-divider]")?.closest("[data-mid]")?.getAttribute("data-mid") ?? null;
+const readUpTo = (row: number) => localStorage.setItem("laterdog-seen-at", JSON.stringify({ "pepper/pepper-thread": at(row) }));
 const arrivingIds = () => [...host.querySelectorAll("[data-arriving]")].map((row) => row.getAttribute("data-mid"));
 
 async function fill() {
@@ -125,6 +127,26 @@ describe("a long chat opening on its newest rows", () => {
     }
     expect(rowIds()).toHaveLength(120);
     expect(lines).toEqual(["Earlier work · 15", "Earlier work · 15", "Earlier work · 15", "Earlier work · 15"]);
+  });
+
+  it("opens on the whole window when the New line belongs above the newest rows, so the line never moves", async () => {
+    readUpTo(100);
+    await draw(thread(150));
+    expect(rowIds()).toHaveLength(120);
+    expect(newLineRow()).toBe("m101");
+    await frame();
+    expect(rowIds()).toHaveLength(120);
+    expect(newLineRow()).toBe("m101");
+  });
+
+  it("still opens on the newest rows when everything unread is among them", async () => {
+    readUpTo(140);
+    await draw(thread(150));
+    expect(rowIds()).toHaveLength(30);
+    expect(newLineRow()).toBe("m141");
+    await fill();
+    expect(rowIds()).toHaveLength(120);
+    expect(newLineRow()).toBe("m141");
   });
 
   it("slides in only rows that are newer than the ones the chat opened on", async () => {

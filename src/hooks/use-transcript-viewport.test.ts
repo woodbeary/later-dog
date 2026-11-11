@@ -255,6 +255,21 @@ describe("transcript viewport", () => {
     expect(view.current.following).toBe(false);
   });
 
+  it("opens on the whole window at once when the first unread row is older than the newest rows", () => {
+    const unreadFrom = (first: number) => (row: Row) => Number(row.id.slice(1)) >= first;
+    const many = mount({ messages: rows(300), unread: unreadFrom(250) }, { opening: true });
+    expect(many.current.windowedMessages).toHaveLength(120);
+    expect(many.current.windowedMessages[0]?.id).toBe("m180");
+    expect(frames).toHaveLength(0);
+    expect(scroller.scrollTop).toBe(scroller.bottom);
+
+    react.runtime.slots = [];
+    const few = mount({ messages: rows(300), unread: unreadFrom(290) }, { opening: true });
+    expect(few.current.windowedMessages).toHaveLength(30);
+    few.settle();
+    expect(few.current.windowedMessages).toHaveLength(120);
+  });
+
   it("waits for a pause in typing before filling in the rest", () => {
     let clock = 1_000;
     vi.stubGlobal("performance", { now: () => clock });
