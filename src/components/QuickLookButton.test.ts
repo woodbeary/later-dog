@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const fixture = vi.hoisted(() => ({ request: vi.fn() }));
-vi.mock("./AttachmentPreview", () => ({ requestMessageFile: fixture.request }));
+vi.mock("@/lib/message-file", () => ({ requestMessageFile: fixture.request }));
 
 const { QuickLookButton } = await import("./QuickLookButton");
 
