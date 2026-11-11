@@ -149,6 +149,24 @@ describe("a long chat opening on its newest rows", () => {
     expect(newLineRow()).toBe("m141");
   });
 
+  it("fills in at the same pace while the newest reply keeps growing", async () => {
+    const messages = thread(150);
+    for (const row of messages) if (row.turnId) receiveNativeRun(finishedRun(Number(row.id.slice(1))));
+    await draw(messages);
+    const steps = [rowIds().length];
+    const lines = [earlierWork()];
+    for (let piece = 1; piece <= 3; piece++) {
+      await frame();
+      await draw([...messages.slice(0, -1), { ...messages.at(-1)!, text: `Row 149${" and more".repeat(piece)}` }]);
+      steps.push(rowIds().length);
+      lines.push(earlierWork());
+    }
+    expect(steps).toEqual([30, 60, 90, 120]);
+    expect(lines).toEqual(Array.from({ length: 4 }, () => "Earlier work · 15"));
+    expect(arrivingIds()).toEqual([]);
+    expect(host.querySelector('[data-mid="m149"]')?.textContent).toContain("Row 149 and more and more and more");
+  });
+
   it("slides in only rows that are newer than the ones the chat opened on", async () => {
     const messages = thread(150);
     await draw(messages);
