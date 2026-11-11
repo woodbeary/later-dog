@@ -70,6 +70,18 @@ async function setup(hang: boolean, fakeEnv: NodeJS.ProcessEnv) {
   } finally { if (!ready) await session.close(); }
 }
 
+it.each([1_000_000, 200_000])("persists and serves the native Fable context window %i", (window) => fixture(async f => {
+  await f.api(`/api/bots/${f.bot.id}/tasks/${f.thread}`, {
+    modelSelection: { instanceId: "claude", model: "claude-fable-5-2" },
+  }, "PATCH");
+  await f.send("Report the fixture context");
+  expect(f.task().usage.context).toMatchObject({ tokens: 244_210, window, windowSource: "provider" });
+  await f.restart();
+  const bots = (await f.api("/api/bots?messages=0")).bots;
+  expect(bots.find((bot: any) => bot.id === f.bot.id).tasks.find((task: any) => task.threadId === f.thread).usage.context)
+    .toMatchObject({ tokens: 244_210, window, windowSource: "provider" });
+}, false, { FAKE_CLAUDE_CONTEXT_TOKENS: "244210", FAKE_CLAUDE_CONTEXT_WINDOW: String(window), FAKE_CLAUDE_VERSION: "2.1.316" }), 90_000);
+
 it("compacts durably, keeps corrections and starts a fresh native session without deleting any chats", () => fixture(async f => {
   await f.send("OLDER_REQUEST use port 9000");
   await f.send("CORRECTION use port 9001 instead; cancel the earlier request");

@@ -165,6 +165,14 @@ Draft branch `patch/remote-account-handoff-20261109`: retire the exact idle Clau
 
 2026-11-09 fresh scratch guidance: branch `clover/fresh-scratch-guidance-20261109` adds one sentence to `cloudHomePrompt` telling dogs to use a fresh absolute scratch directory for isolated checks and publishing, and not to delete an existing folder just to reuse its name, after three cleanup waits (TASK `2ec3630c`, Patch `7d9c30ee`, Kennel `39ce73e2`). Model guidance only, not enforcement. Pending independent review and home activation; [record](../verification/fresh-scratch-guidance-2026-11-09.md).
 
+2026-11-10 account usage: `fix/usage-sync-credits-context` reconciles saved quota
+holds after a fresh allowance reset, exposes Codex credit balances and corrects
+Fable context windows from native receipts. The quota correction is active in
+the owner's Dev home: Jacob's fresh 98% session and 100% weekly reading no longer
+has the stale weekly hold. Credit/context presentation and restart persistence
+pass isolated fixture checks. No live turn was sent to qualify the change.
+See [account usage evidence](../verification/account-usage-2026-11-10.md).
+
 ## Priorities
 
 - **P0:** the iPhone app works against production, and the TestFlight build is in Beta App Review.

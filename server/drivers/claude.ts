@@ -334,9 +334,9 @@ const CLAUDE_5_EFFORT: readonly EffortLevel[] = ["low", "medium", "high", "xhigh
 export const STATIC_CLAUDE_MODELS: ModelCatalog = {
   default: "claude-opus-5-5",
   options: [
-    { id: "claude-fable-5-2", label: "Claude Fable 5.2", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
-    { id: "claude-fable-5-1", label: "Claude Fable 5.1", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
-    { id: "claude-fable-5", label: "Claude Fable 5", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
+    { id: "claude-fable-5-2", label: "Claude Fable 5.2", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
+    { id: "claude-fable-5-1", label: "Claude Fable 5.1", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
+    { id: "claude-fable-5", label: "Claude Fable 5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
     { id: "claude-opus-5-5", label: "Claude Opus 5.5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "medium" },
     { id: "claude-opus-5", label: "Claude Opus 5", effortLevels: CLAUDE_5_EFFORT, defaultEffort: "high" },
     { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", contextWindow: 1_000_000, effortLevels: CLAUDE_5_EFFORT, defaultEffort: "medium" },
@@ -776,6 +776,15 @@ export interface ClaudeCostSnapshot {
   models: Record<string, [number, number, number, number]>;
 }
 
+export function claudeReportedContextWindow(modelUsage: unknown, model: string | undefined): number | undefined {
+  if (!modelUsage || typeof modelUsage !== "object" || Array.isArray(modelUsage)) return undefined;
+  const rows = modelUsage as Record<string, { contextWindow?: unknown } | null>;
+  const keys = Object.keys(rows);
+  const key = model ? keys.find((key) => key === model) ?? keys.find((key) => key.startsWith(`${model}-`)) : keys.length === 1 ? keys[0] : undefined;
+  const window = key ? rows[key]?.contextWindow : undefined;
+  return typeof window === "number" && Number.isFinite(window) && window > 0 ? window : undefined;
+}
+
 export function claudeCostSnapshot(total: unknown, modelUsage: unknown): ClaudeCostSnapshot | null {
   if (typeof total !== "number" || !Number.isFinite(total)) return null;
   const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
@@ -998,6 +1007,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         retryAbort: AbortController;
         settled: boolean;
         sawStreamDelta: boolean;
+        contextTokens?: number;
+        usageModel?: string;
         awaitingInit?: boolean;
         authFailed?: boolean;
         refreshLock?: RefreshLockState;
@@ -1666,6 +1677,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               }
               session.sawInit = true;
               if (session.turn) session.turn.awaitingInit = false;
+              if (session.turn && typeof o.model === "string") session.turn.usageModel = o.model;
               session.nativePermissionMode = typeof o.permissionMode === "string" ? o.permissionMode : null;
               if (typeof o.session_id === "string") {
                 session.sessionId = o.session_id;
@@ -1771,6 +1783,11 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               }
             }
             if (msg.usage) {
+              const contextTokens = (msg.usage.input_tokens || 0) + (msg.usage.cache_read_input_tokens || 0) + (msg.usage.cache_creation_input_tokens || 0);
+              if (session.turn) {
+                session.turn.contextTokens = contextTokens;
+                if (typeof msg.model === "string") session.turn.usageModel = msg.model;
+              }
               emit({
                 ...base(threadId, currentTurnId()),
                 type: "thread.token-usage.updated",
@@ -1779,7 +1796,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 ...(typeof msg.usage.cache_read_input_tokens === "number"
                   ? { cachedInput: msg.usage.cache_read_input_tokens }
                   : {}),
-                contextTokens: (msg.usage.input_tokens || 0) + (msg.usage.cache_read_input_tokens || 0) + (msg.usage.cache_creation_input_tokens || 0),
+                contextTokens,
               });
             }
             break;
@@ -1850,6 +1867,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                 : {}),
             };
             const t = session.turn;
+            const contextWindow = claudeReportedContextWindow(o.modelUsage, t?.usageModel ?? injected.model ?? undefined);
+            if (native.usage && contextWindow && t?.contextTokens) {
+              emit({ ...base(threadId, currentTurnId()), type: "thread.token-usage.updated", ...native.usage, contextTokens: t.contextTokens, contextWindow });
+            }
             if (t && !t.settled && session.helpers.backgroundRunning() && native.ok && !t.usageLimited && !t.authFailed && !t.updateRequired) {
               t.deferred = sumNativeTurnResults(t.deferred, native);
               if (t.continuationGrace) clearTimeout(t.continuationGrace);

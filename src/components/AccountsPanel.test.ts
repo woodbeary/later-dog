@@ -300,6 +300,12 @@ describe("account helpers", () => {
 });
 
 describe("Accounts", () => {
+  it("shows a paid credit balance beside the signed-in account", async () => {
+    fixture.report = { providers: [{ ...usage("codex", 100, "Pro"), driver: "codex", credits: { unlimited: false, balance: "49383.7272235000" } }] };
+    await remount({ instances: [codexLogin({ authenticated: true })] });
+    expect(usageOf("codex")?.textContent).toBe("49,383.73 credits remaining");
+  });
+
   it("lists only the account someone really has: no Codex or ChatGPT plan row they never added, and no usage error", async () => {
     fixture.report = { providers: [unchecked("claude")] };
     await remount({ instances: [

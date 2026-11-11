@@ -13,7 +13,7 @@ import { ClaudeSignIn } from "./ClaudeSignIn";
 import { EngineSetup } from "./EngineSetup";
 import { DeviceSignIn, deviceSignInProvider } from "./DeviceSignIn";
 import { IncludedAiAccount } from "./IncludedAiAccount";
-import { usageLines, usageReading, usePlanUsage, type PlanProvider, resetDistance } from "./PlanUsage";
+import { creditsLine, usageLines, usageReading, usePlanUsage, type PlanProvider, resetDistance } from "./PlanUsage";
 import { backAt, restSummary, SleepingDog, usageLeft } from "./AccountCharge";
 import { AccountCharge } from "./AccountBattery";
 import { useAccountDrag, type AccountDrag } from "./account-drag";
@@ -86,16 +86,17 @@ export function unusedDefault(instances: readonly InstanceInfo[], kind: AccountK
 
 type RowUsage =
   | { text: string; detail: string; rest: Rest }
-  | { text: string; detail: string; rest?: undefined; used: number; label: string };
+  | { text: string; detail: string; rest?: undefined; used?: number; label?: string };
 
 function rowUsage(provider: PlanProvider | undefined, rest: Rest | undefined, now: number): RowUsage | null {
   if (rest && Date.parse(rest.until) > now) return { text: backAt(rest, now), detail: restSummary(rest, now), rest };
   const reading = usageReading(provider);
-  return reading ? {
-    text: t("planUsage.left", { left: usageLeft(reading.used) }),
+  const credits = creditsLine(provider);
+  return reading || credits ? {
+    text: credits ?? t("planUsage.left", { left: usageLeft(reading!.used) }),
     detail: usageLines(provider, now).join("\n"),
-    used: reading.used,
-    label: reading.label,
+    used: reading?.used,
+    label: reading?.label,
   } : null;
 }
 
@@ -203,6 +204,7 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
   const signsOut = isSignedIn && instance.authentication?.signOut === true;
   const canRemove = removable(instance) || !isSignedIn || signsOut;
   const usage = isSignedIn ? rowUsage(provider, rest, now) : null;
+  const credits = creditsLine(provider);
   const name = instance.displayName;
   const id = encodeURIComponent(instance.instanceId);
   const dragRow = drag.row(instance.instanceId);
@@ -293,7 +295,7 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
       )}
       <div data-account-row className={ROW}>
         <span aria-hidden="true" className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-control text-ink">
-          {usage && (usage.rest || usage.used >= 100) ? <SleepingDog size={25} /> : <AccountMark kind={instance.driverKind} />}
+          {usage?.rest || (usage?.used !== undefined && usage.used >= 100 && !credits) ? <SleepingDog size={25} /> : <AccountMark kind={instance.driverKind} />}
         </span>
         {asking ? (
           <div
@@ -347,7 +349,9 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
             </div>
             {usage && (
               <span data-account-usage title={usage.detail} className="shrink-0">
-                <AccountCharge used={usage.rest ? undefined : usage.used} rest={usage.rest} now={now} />
+                {credits && !usage.rest
+                  ? <span data-credit-balance className="text-[12px] tabular-nums text-ink-secondary">{credits}</span>
+                  : <AccountCharge used={usage.rest ? undefined : usage.used} rest={usage.rest} now={now} />}
               </span>
             )}
             {isSignedIn && instance.enabled !== undefined && (
