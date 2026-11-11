@@ -6,8 +6,8 @@ import {
   ruleResetWallClock, ruleShortText, sameNumber, spanSupports, type ExtractedValue, type FieldSpec,
 } from "./extraction.ts";
 import {
-  ABSTAIN_THRESHOLDS, abstainSweep, accuracy, accuracyWithFallback, brier, costPerThousand, expectedCalibrationError, latencySummary,
-  percentile, reliability, type AbstainPoint, type Graded, type ReliabilityBin,
+  ABSTAIN_THRESHOLDS, abstainSweep, accuracy, accuracyWithFallback, brier, costPerThousand, evenSplitChance, expectedCalibrationError,
+  latencySummary, percentile, reliability, wilsonInterval, type AbstainPoint, type Graded, type Interval, type ReliabilityBin,
 } from "./metrics.ts";
 
 export const DECISION_BUDGET_MS = 1_500;
@@ -31,6 +31,13 @@ export interface Receipt {
 
 type Latency = ReturnType<typeof latencySummary>;
 
+export interface YesNoMisses {
+  yesItems: number;
+  noItems: number;
+  saidNoToYes: number;
+  saidYesToNo: number;
+}
+
 export interface DecisionScore {
   case: DecisionCase;
   model: string;
@@ -43,10 +50,14 @@ export interface DecisionScore {
   scored: number;
   right: number;
   accuracy: number | null;
+  interval: Interval | null;
   ruleRight: number;
   ruleScored: number;
   ruleAccuracy: number | null;
+  ruleInterval: Interval | null;
   againstRule: { modelOnly: number; ruleOnly: number; both: number; neither: number };
+  evenSplitChance: number | null;
+  yesNo: { model: YesNoMisses; rule: YesNoMisses } | null;
   brier: number | null;
   calibrationError: number | null;
   reliability: ReliabilityBin[];
@@ -139,6 +150,23 @@ function groupBy<T>(rows: readonly T[], key: (row: T) => string): Map<string, T[
   return groups;
 }
 
+function yesNoMisses(items: readonly DecisionItem[], answeredYes: (item: DecisionItem) => boolean | undefined): YesNoMisses {
+  const misses: YesNoMisses = { yesItems: 0, noItems: 0, saidNoToYes: 0, saidYesToNo: 0 };
+  for (const item of items) {
+    if (item.gold.kind !== "yesno") continue;
+    const yes = answeredYes(item);
+    if (yes === undefined) continue;
+    if (item.gold.yes) {
+      misses.yesItems += 1;
+      if (!yes) misses.saidNoToYes += 1;
+    } else {
+      misses.noItems += 1;
+      if (yes) misses.saidYesToNo += 1;
+    }
+  }
+  return misses;
+}
+
 function scoreDecisions(receipts: readonly Receipt[], items: readonly DecisionItem[]): DecisionScore[] {
   const byId = new Map(items.map((item) => [`${item.group}:${item.id}`, item]));
   const scores: DecisionScore[] = [];
@@ -186,6 +214,13 @@ function scoreDecisions(receipts: readonly Receipt[], items: readonly DecisionIt
       againstRule[row.correct ? (ruleRight ? "both" : "modelOnly") : ruleRight ? "ruleOnly" : "neither"] += 1;
     }
     const price = DOLLARS_PER_MILLION_INPUT[model as keyof typeof DOLLARS_PER_MILLION_INPUT];
+    const right = gradedRows.filter((row) => row.correct).length;
+    const ruleRight = caseItems.filter((item) => ruleById.get(item.id)).length;
+    const modelSaidYes = (item: DecisionItem) => {
+      const row = graded.get(item.id);
+      return row === undefined || item.gold.kind !== "yesno" ? undefined : row.correct === item.gold.yes;
+    };
+    const ruleSaidYes = (item: DecisionItem) => (item.rule.kind === "yesno" ? item.rule.yes : undefined);
     scores.push({
       case: group,
       model,
@@ -196,12 +231,18 @@ function scoreDecisions(receipts: readonly Receipt[], items: readonly DecisionIt
       failures,
       valid: gradedRows.length + unscored,
       scored: gradedRows.length,
-      right: gradedRows.filter((row) => row.correct).length,
+      right,
       accuracy: accuracy(gradedRows),
-      ruleRight: caseItems.filter((item) => ruleById.get(item.id)).length,
+      interval: wilsonInterval(right, gradedRows.length),
+      ruleRight,
       ruleScored: caseItems.length,
       ruleAccuracy: mean(caseItems.map((item) => (ruleById.get(item.id) ? 1 : 0))),
+      ruleInterval: wilsonInterval(ruleRight, caseItems.length),
       againstRule,
+      evenSplitChance: evenSplitChance(againstRule.modelOnly, againstRule.ruleOnly),
+      yesNo: caseItems.some((item) => item.gold.kind === "yesno")
+        ? { model: yesNoMisses(caseItems, modelSaidYes), rule: yesNoMisses(caseItems, ruleSaidYes) }
+        : null,
       brier: brier(gradedRows),
       calibrationError: expectedCalibrationError(gradedRows),
       reliability: reliability(gradedRows),
@@ -474,6 +515,9 @@ const table = (head: string[], rows: string[][]) =>
   [`| ${head.join(" | ")} |`, `|${head.map(() => "---").join("|")}|`, ...rows.map((row) => `| ${row.join(" | ")} |`)].join("\n");
 const tally = (value: Tally) => `${value.correct + value.correctNull} right (${value.correctNull} of them correctly empty), ${value.wrong} wrong value, ${value.falseValue} value where none exists, ${value.missed} missed`;
 const ms = (value: number | null) => String(value ?? "n/a");
+const between = (interval: Interval | null) => (interval === null ? "n/a" : `${percent(interval.low)} to ${percent(interval.high)}`);
+const chance = (value: number | null) => (value === null ? "n/a" : value < 0.0001 ? "under 0.0001" : value.toFixed(4));
+const misses = (value: YesNoMisses) => `said no to ${value.saidNoToYes} of ${value.yesItems} that are yes and yes to ${value.saidYesToNo} of ${value.noItems} that are no`;
 
 export function renderMarkdown(results: Results): string {
   const parts: string[] = [];
@@ -487,14 +531,18 @@ export function renderMarkdown(results: Results): string {
 
   parts.push("### Accuracy against the labelled outcome");
   parts.push(table(
-    [...lead, "Model right", "Rule right", "Model right where the rule is wrong", "Rule right where the model is wrong", "Both wrong"],
+    [
+      ...lead, "Model right", "Model 95% interval", "Rule right", "Rule 95% interval", "Model right where the rule is wrong",
+      "Rule right where the model is wrong", "Both wrong", "Chance of a split this uneven if the two were equal",
+    ],
     decisions.map((row) => [
-      ...named(row), share(row.right, row.scored), share(row.ruleRight, row.ruleScored),
-      String(row.againstRule.modelOnly), String(row.againstRule.ruleOnly), String(row.againstRule.neither),
+      ...named(row), share(row.right, row.scored), between(row.interval), share(row.ruleRight, row.ruleScored), between(row.ruleInterval),
+      String(row.againstRule.modelOnly), String(row.againstRule.ruleOnly), String(row.againstRule.neither), chance(row.evenSplitChance),
     ]),
   ));
   for (const row of decisions) {
     const notes: string[] = [];
+    if (row.yesNo) notes.push(`the model ${misses(row.yesNo.model)}, the rule ${misses(row.yesNo.rule)}`);
     if (row.meanReciprocalRank !== null) notes.push(`first choice is the primary dog ${percent(row.primaryAccuracy)}, mean reciprocal rank ${fixed(row.meanReciprocalRank)}`);
     if (row.unscored.count) notes.push(`${row.unscored.count} messages meant for nobody are not scored, and ${row.unscored.atOrAbove06} of them were answered at 0.6 or above`);
     if (row.wrong.length) notes.push(`wrong: ${row.wrong.map((wrong) => `${wrong.item} (${wrong.confidence})`).join(", ")}`);

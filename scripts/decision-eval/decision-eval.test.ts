@@ -6,8 +6,8 @@ import {
   ruleShortText, spanSupports, wallClockIn,
 } from "./extraction.ts";
 import {
-  abstainSweep, accuracy, accuracyWithFallback, brier, costPerThousand, expectedCalibrationError, latencySummary, percentile, reciprocalRank,
-  reliability, type Graded,
+  abstainSweep, accuracy, accuracyWithFallback, brier, costPerThousand, evenSplitChance, expectedCalibrationError, latencySummary, percentile,
+  reciprocalRank, reliability, wilsonInterval, type Graded,
 } from "./metrics.ts";
 import { MADE_UP_INVALID_ANSWERS, MADE_UP_TARGET, renderProbes, replayProbes } from "./probes.ts";
 import { renderMarkdown, renderRuleLatency, scoreAll, timeRules, writtenInText, type Receipt } from "./score.ts";
@@ -43,6 +43,28 @@ describe("decision metrics", () => {
     const rule = new Map([["a", false], ["b", false], ["c", true], ["d", true], ["e", false], ["missing", true]]);
     expect(accuracyWithFallback(["a", "b", "c", "d", "e", "missing"], model, rule, 0.6)).toBeCloseTo(5 / 6);
     expect(accuracyWithFallback(["a", "b", "c", "d", "e", "missing"], model, rule, 0.99)).toBeCloseTo(3 / 6);
+  });
+
+  it("gives a share an interval that stays inside 0 and 1 and narrows with more answers", () => {
+    expect(wilsonInterval(0, 0)).toBeNull();
+    const all = wilsonInterval(43, 43)!;
+    expect(all.high).toBeCloseTo(1, 9);
+    expect(all.low).toBeCloseTo(0.918, 3);
+    const half = wilsonInterval(50, 100)!;
+    expect(half.low).toBeCloseTo(0.404, 3);
+    expect(half.high).toBeCloseTo(0.596, 3);
+    expect(wilsonInterval(5, 10)!.high - wilsonInterval(5, 10)!.low).toBeGreaterThan(half.high - half.low);
+    expect(wilsonInterval(0, 20)!.low).toBeCloseTo(0, 9);
+  });
+
+  it("says how likely a split between two equal answerers is to be this uneven", () => {
+    expect(evenSplitChance(0, 0)).toBeNull();
+    expect(evenSplitChance(1, 1)).toBe(1);
+    expect(evenSplitChance(2, 0)).toBeCloseTo(0.5);
+    expect(evenSplitChance(13, 1)).toBeCloseTo(30 / 16_384);
+    expect(evenSplitChance(1, 13)).toBeCloseTo(30 / 16_384);
+    expect(evenSplitChance(24, 0)).toBeCloseTo(2 / 2 ** 24);
+    expect(evenSplitChance(18, 9)).toBeCloseTo(0.1221, 3);
   });
 
   it("summarises latency, cost and rank", () => {
@@ -202,12 +224,23 @@ describe("scoring receipts", () => {
       both: ruleRight[0] ? 1 : 0, modelOnly: ruleRight[0] ? 0 : 1, ruleOnly: ruleRight[1] ? 1 : 0, neither: ruleRight[1] ? 0 : 1,
     });
     expect(score.ruleScored).toBe(142);
+    expect(score.interval!.low).toBeLessThan(0.5);
+    expect(score.interval!.high).toBeGreaterThan(0.5);
+    expect(score.ruleInterval).toEqual(wilsonInterval(score.ruleRight, 142));
+    expect(score.evenSplitChance).toBe(evenSplitChance(score.againstRule.modelOnly, score.againstRule.ruleOnly));
+    const sides = [heavy[0]!, heavy[1]!].map((item) => item.gold.kind === "yesno" && item.gold.yes);
+    expect(score.yesNo!.model).toEqual({
+      yesItems: sides.filter(Boolean).length, noItems: sides.filter((yes) => !yes).length,
+      saidNoToYes: sides[1] ? 1 : 0, saidYesToNo: sides[0] ? 0 : 1,
+    });
+    expect(score.yesNo!.rule.yesItems + score.yesNo!.rule.noItems).toBe(142);
     expect(score.latency).toMatchObject({ count: 3, overBudget: 1 });
     expect(score.dollarsPerThousand).toBeCloseTo(0.096);
     expect(results.rules.map((rule) => rule.case)).toEqual(["roomRouting", "heavyCommand", "waitingOnOwner", "dogRanking"]);
     expect(results.rules.every((rule) => rule.right + rule.wrong.length === rule.scored)).toBe(true);
     const markdown = renderMarkdown(results);
-    expect(markdown).toContain("| heavyCommand | clef | 1 of 2 (50.0%) |");
+    expect(markdown).toContain("| heavyCommand | clef | 1 of 2 (50.0%) | 9.5% to 90.5% |");
+    expect(markdown).toContain("heavyCommand, clef: the model said no to");
     expect(markdown).toContain("| heavyCommand | clef | 4 | 1 | 2 of 4 (50.0%) | 1 |");
     expect(markdown).toContain("| heavyCommand | clef | 400 | 0.0000960 | 0.0960 |");
   });

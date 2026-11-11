@@ -30,6 +30,35 @@ export function accuracy(rows: readonly Graded[]): number | null {
   return mean(rows.map((row) => (row.correct ? 1 : 0)));
 }
 
+export interface Interval {
+  low: number;
+  high: number;
+}
+
+export const INTERVAL_Z = 1.959964;
+
+export function wilsonInterval(right: number, total: number, z: number = INTERVAL_Z): Interval | null {
+  if (total <= 0) return null;
+  const share = right / total;
+  const spread = z * Math.sqrt((share * (1 - share)) / total + (z * z) / (4 * total * total));
+  const centre = share + (z * z) / (2 * total);
+  const scale = 1 + (z * z) / total;
+  return { low: Math.max(0, (centre - spread) / scale), high: Math.min(1, (centre + spread) / scale) };
+}
+
+export function evenSplitChance(first: number, second: number): number | null {
+  const total = first + second;
+  if (total <= 0) return null;
+  const fewer = Math.min(first, second);
+  let ways = 1;
+  let tail = 0;
+  for (let count = 0; count <= fewer; count += 1) {
+    tail += ways;
+    ways = (ways * (total - count)) / (count + 1);
+  }
+  return Math.min(1, (2 * tail) / 2 ** total);
+}
+
 export function brier(rows: readonly Graded[]): number | null {
   return mean(rows.map((row) => (row.confidence - (row.correct ? 1 : 0)) ** 2));
 }
