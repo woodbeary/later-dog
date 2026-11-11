@@ -262,8 +262,51 @@ describe("sending while the home sleeps", () => {
     expect(ask("GET", "/api/bots/dog-1/queue/send-1")).toBeNull();
     expect(ask("DELETE", "/api/bots/dog-1/queue/send-1/steer")).toBeNull();
     expect(ask("POST", "/api/bots/dog-1/messages")).toBeNull();
-    expect(ask("POST", "/api/groups/room-1/queue/send-1/steer")).toBeNull();
+    expect(ask("POST", "/api/groups/room-1/queue/send-1/steer")).toEqual({ id: "send-1", ask: "send-now" });
+    expect(ask("DELETE", "/api/groups/room-1/queue/send-1")).toEqual({ id: "send-1", ask: "cancel" });
+    expect(ask("DELETE", "/api/rooms/room-1/queue/send-1")).toBeNull();
     expect(desk.HELD_UNTIL_UP).not.toMatch(/object|undefined/i);
+  });
+
+  it("answers Send now and cancel for a message held for a group chat", async () => {
+    const h = await home();
+    await knownOwner(h);
+    await h.sleep();
+    h.machine.serving = false;
+    const json = { "content-type": "application/json" };
+    const received: unknown[] = [];
+    world.answers.set("POST /api/groups/pack/messages", async (request) => {
+      received.push(await request.json());
+      return Response.json({ ok: true }, { status: 202 });
+    });
+    const send = (text: string, sendId: string) => h.visit("/api/groups/pack/messages", asOwner({ method: "POST", headers: json, body: JSON.stringify({ text, sendId }) }));
+    expect((await send("keep me", "send-0000000000001")).status).toBe(202);
+    expect((await send("drop me", "send-0000000000002")).status).toBe(202);
+    const sendNow = await h.visit("/api/groups/pack/queue/send-0000000000001/steer", asOwner({ method: "POST", headers: json, body: "{}" }));
+    expect(await sendNow.json()).toEqual({ ok: true, queued: true, reason: desk.HELD_UNTIL_UP });
+    const cancel = await h.visit("/api/groups/pack/queue/send-0000000000002", asOwner({ method: "DELETE" }));
+    expect(await cancel.json()).toEqual({ ok: true });
+    h.machine.serving = true;
+    now += 6_000;
+    await h.deliver();
+    expect(received).toEqual([{ text: "keep me", sendId: "send-0000000000001" }]);
+  });
+
+  it("refuses to cancel a message a dog is already answering, in words, and says the same to Send now", async () => {
+    const waiting = { id: "send-0000000000001", path: "/api/bots/rex/messages", headers: {}, body: "{}", at: 0 };
+    const answered = { ...waiting, id: "send-0000000000002", reply: { text: "Woof.", model: "kimi-k2.6" } };
+    const outbox = [waiting, answered];
+    const underway = desk.answerHeldQueueAsk(outbox, { id: waiting.id, ask: "cancel" }, new Set([waiting.id]));
+    expect(underway?.response.status).toBe(409);
+    expect(await underway?.response.json()).toEqual({ error: desk.ALREADY_ANSWERING });
+    expect(underway?.outbox).toEqual(outbox);
+    const done = desk.answerHeldQueueAsk(outbox, { id: answered.id, ask: "cancel" });
+    expect(done?.response.status).toBe(409);
+    expect(done?.outbox).toEqual(outbox);
+    const sendNow = desk.answerHeldQueueAsk(outbox, { id: waiting.id, ask: "send-now" }, new Set([waiting.id]));
+    expect(await sendNow?.response.json()).toMatchObject({ ok: true, queued: true, reason: desk.ALREADY_ANSWERING });
+    expect(desk.answerHeldQueueAsk(outbox, { id: waiting.id, ask: "cancel" })?.outbox).toEqual([answered]);
+    expect(desk.ALREADY_ANSWERING).not.toMatch(/object|undefined/i);
   });
 
   it("names the thread in its receipt so the desktop shows the message as waiting", async () => {
@@ -460,6 +503,14 @@ describe("what became of a message the desk was holding", () => {
     expect(desk.heldSendsAsk(new Request("https://home.example/api/bots"))).toBeNull();
   });
 
+  it("reads a send id from a message's body, and nothing from anything else", () => {
+    expect(desk.sendIdOf(JSON.stringify({ text: "hi", sendId: "send-0000000000001" }))).toBe("send-0000000000001");
+    expect(desk.sendIdOf(JSON.stringify({ text: "hi", sendId: "short" }))).toBeNull();
+    expect(desk.sendIdOf(JSON.stringify({ text: "hi" }))).toBeNull();
+    expect(desk.sendIdOf("not json")).toBeNull();
+    expect(desk.sendIdOf("null")).toBeNull();
+  });
+
   it("answers held and dropped for the ids asked about, and nothing about anyone else's", async () => {
     const answer = desk.heldSendsAnswer(
       [held("send-0000000000001"), held("send-0000000000009")],
@@ -475,6 +526,8 @@ describe("what became of a message the desk was holding", () => {
     expect(once).toEqual([{ id: "send-0000000000001", why: "expired", at: 1_000 }]);
     expect(desk.withDropped(once, [held("send-0000000000001")], "refused", 2_000)).toEqual(once);
     expect(desk.withDropped(once, [held("send-0000000000002")], "refused", 1_000 + desk.DESK_KEPT_MS)).toEqual([{ id: "send-0000000000002", why: "refused", at: 1_000 + desk.DESK_KEPT_MS }]);
+    expect(desk.withoutDropped(once, ["send-0000000000001"])).toEqual([]);
+    expect(desk.withoutDropped(once, ["send-0000000000002"])).toEqual(once);
     const many = Array.from({ length: desk.DESK_DROPPED_MAX + 5 }, (_, index) => held(`send-${String(index).padStart(13, "0")}`));
     const bounded = desk.withDropped([], many, "expired", 10);
     expect(bounded).toHaveLength(desk.DESK_DROPPED_MAX);

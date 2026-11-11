@@ -12,7 +12,7 @@ import { devCodeOn, handleDevCode } from "./dev-code.ts";
 import { alwaysOn, KEEP_UP_EVERY_S, personSleepAfter, RESTART_AFTER_STOP_S } from "./always-on.ts";
 import { afterCheck, ANSWER_CHECK_TIMEOUT_MS, NOT_ANSWERED_YET, stuckLine, within, type AnswerRecord } from "./hang-watch.ts";
 import {
-  answerHeldQueueAsk, DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskLimit, deskPrefix, deskSend, forgetScope, heldQueueAsk, heldSendsAnswer, heldSendsAsk, queuedReceipt, queuedSend,
+  answerHeldQueueAsk, DESK_KEPT_MS, DESK_SAVE_EVERY_MS, deliveryOutcome, deskAnswerWithQueue, deskKey, deskKind, deskLimit, deskPrefix, deskSend, forgetScope, heldQueueAsk, heldSendsAnswer, heldSendsAsk, queuedReceipt, queuedSend, sendIdOf, withoutDropped,
   refusedSend, saveAnswer, savable, savedAnswer, withDropped, withQueued, type DeskBucket, type DeskKind, type DroppedSend, type QueuedSend,
 } from "./desk.ts";
 import { isBackground, startFailure, wakeResponse, type HomeWake } from "./waking.ts";
@@ -430,7 +430,9 @@ export class CloudHomeHost extends Container<Env> {
       const held = await this.answerHeld(request, key);
       if (held) return held;
       const kind = deskKind(request);
+      const again = await this.sentAgain(request);
       const response = wakes ? await super.fetch(request) : await this.quietly(request);
+      if (again && response.ok) await this.forgetDropped(again);
       if (credential && key) this.learn(record, credential, key, response);
       if (key && credential?.kind === "session" && (response.status === 401 || response.status === 403)) {
         this.ctx.waitUntil(this.forgetDevice(record, key));
@@ -505,10 +507,14 @@ export class CloudHomeHost extends Container<Env> {
 
   private async answerHeld(request: Request, key: string | null): Promise<Response | null> {
     const ids = key && this.knownDevice(key) ? heldSendsAsk(request) : null;
-    if (ids) return heldSendsAnswer(this.outbox, this.dropped, ids);
+    if (ids) {
+      await this.delivering;
+      return heldSendsAnswer(this.outbox, this.dropped, ids);
+    }
     if (!this.outbox.length) return null;
     const asked = key && this.knownDevice(key) ? heldQueueAsk(request) : null;
-    const answered = asked && !this.answering.has(asked.id) ? answerHeldQueueAsk(this.outbox, asked) : null;
+    if (asked) await this.delivering;
+    const answered = asked ? answerHeldQueueAsk(this.outbox, asked, this.answering) : null;
     if (!answered) return null;
     if (answered.outbox.length !== this.outbox.length) {
       this.outbox = answered.outbox;
@@ -531,6 +537,7 @@ export class CloudHomeHost extends Container<Env> {
       if (dog) this.answering.add(queued.id);
       this.outbox = next;
       await this.ctx.storage.put(OUTBOX_KEY, this.outbox);
+      await this.forgetDropped(queued.id);
       await this.armDesk();
       if (dog && record.includedKey) this.ctx.waitUntil(this.answerInTurn(record, record.includedKey, dog, queued));
       return queuedReceipt(queued);
@@ -658,6 +665,7 @@ export class CloudHomeHost extends Container<Env> {
   async deliverQueued(): Promise<void> {
     const record = this.record;
     if (!record || this.removed || !this.outbox.length) return;
+    await this.delivering;
     const now = Date.now();
     const kept = this.outbox.filter((queued) => now - queued.at < DESK_GIVE_UP_MS);
     if (kept.length !== this.outbox.length) {
@@ -678,6 +686,18 @@ export class CloudHomeHost extends Container<Env> {
     await this.ctx.storage.put(DROPPED_KEY, this.dropped);
   }
 
+  private async forgetDropped(id: string): Promise<void> {
+    if (!this.dropped.some((send) => send.id === id)) return;
+    this.dropped = withoutDropped(this.dropped, [id]);
+    await this.ctx.storage.put(DROPPED_KEY, this.dropped);
+  }
+
+  private async sentAgain(request: Request): Promise<string | null> {
+    if (!this.dropped.length || !deskSend(request)) return null;
+    const sendId = sendIdOf(await request.clone().text().catch(() => ""));
+    return sendId && this.dropped.some((send) => send.id === sendId) ? sendId : null;
+  }
+
   private deliverDesk(record: HomeRecord): Promise<void> {
     this.delivering ??= (async () => {
       while (this.outbox.length) {
@@ -690,11 +710,13 @@ export class CloudHomeHost extends Container<Env> {
         if (outcome === "refused") {
           console.error(`laterdog home ${record.machineId}: the home refused a message sent while it slept (${status})`);
           await this.rememberDropped([queued], "refused", Date.now());
+        } else {
+          await this.forgetDropped(queued.id);
         }
-        this.outbox = this.outbox.slice(1);
+        this.outbox = this.outbox.filter((held) => held.id !== queued.id);
         await this.ctx.storage.put(OUTBOX_KEY, this.outbox);
       }
-    })().finally(() => {
+    })().catch(() => undefined).finally(() => {
       this.delivering = null;
     });
     return this.delivering;
