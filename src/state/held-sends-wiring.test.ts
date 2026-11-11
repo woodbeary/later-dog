@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ServerFrame } from "../../shared/wire";
 import { withDeskQueue } from "../../deploy/laterdog/home/src/desk.ts";
+import { deskUserLine } from "../../deploy/laterdog/home/src/desk-stream.ts";
 import type { Action, AppState, BotAnnouncement, Group } from "./store";
 
 class FixtureEventSource {
@@ -39,6 +40,7 @@ const { StoreProvider, useStore } = await import("./store");
 const { HELD_NOT_SENT, HELD_SENDS_KEY } = await import("@/lib/held-sends");
 const { failedComposerSends } = await import("@/lib/drafts");
 const { NO_LONGER_WAITING_MESSAGE } = await import("@/lib/plain-client-error");
+const { OUTBOX_KEY } = await import("@/lib/outbox");
 
 const HELD_ID = "wiring-held-send-0001";
 const WORDS = "wake up and ship it";
@@ -63,11 +65,12 @@ const frame = async (value: object) => {
 };
 const reconnect = () => frame({ kind: "hello", resumed: false, cursor: `run:${cursor}` });
 const keptOnDevice = () => (JSON.parse(localStorage.getItem(HELD_SENDS_KEY) ?? "[]") as Array<{ sendId: string }>).map((held) => held.sendId);
+const waitingInOutbox = () => ((JSON.parse(localStorage.getItem(OUTBOX_KEY) ?? "{}") as { items?: Array<{ sendId: string }> }).items ?? []).map((item) => item.sendId);
 
 interface Home {
   chats: unknown;
   held: unknown;
-  answer?: (path: string, init?: RequestInit) => Response | undefined;
+  answer?: (path: string, init?: RequestInit) => Response | Promise<Response> | undefined;
 }
 
 async function mount(home: Home) {
@@ -267,5 +270,70 @@ describe("held messages through the app's own store", () => {
     await reconnect();
     expect(seen.pendingQueued["room-thread"]).toBeUndefined();
     expect(seen.paneErrors["chat:room-thread"]).toBeUndefined();
+  });
+
+  it("keeps the words when the edge's own line arrives on the event stream and the receipt never does, and gives them back as Not sent once when the home refuses, with one request sent", async () => {
+    const before = failedComposerSends(DRAFT).length;
+    const home: Home = {
+      chats: savedChats,
+      held: { held: [HELD_ID], dropped: [] },
+      answer: (path, init) => path === "/api/bots/bot/messages" && init?.method === "POST" ? new Promise<Response>(() => {}) : undefined,
+    };
+    const { requests, asks } = await mount(home);
+    flushSync(() => dispatch({ type: "send", botId: "bot", threadId: "thread", text: WORDS, sendId: HELD_ID, recovery: { draftId: DRAFT, text: WORDS } }));
+    await settle();
+    const posts = () => requests.mock.calls.filter(([path, init]) => path === "/api/bots/bot/messages" && init?.method === "POST");
+    const shown = () => seen.bots[0]!.messages.filter((message) => message.sendId === HELD_ID).map((message) => message.id);
+    expect(posts()).toHaveLength(1);
+    expect(waitingInOutbox()).toEqual([HELD_ID]);
+    expect(keptOnDevice()).toEqual([]);
+
+    const edgeLine = deskUserLine({ sendId: HELD_ID, text: WORDS, at: 2, parentId: null });
+    await frame({ kind: "message", threadId: "thread", message: edgeLine } as ServerFrame);
+    expect(waitingInOutbox()).toEqual([]);
+    expect(keptOnDevice()).toEqual([HELD_ID]);
+    expect(shown()).toEqual([edgeLine.id]);
+
+    home.chats = withDeskQueue(savedChats, [{ ...waitingAtEdge, reply: { text: "On it.", model: "fixture" } }]);
+    await reconnect();
+    expect(keptOnDevice()).toEqual([HELD_ID]);
+    expect(shown()).toEqual([edgeLine.id]);
+    expect(asks().length).toBeGreaterThan(0);
+    expect(seen.paneErrors["chat:thread"]).toBeUndefined();
+
+    home.chats = savedChats;
+    home.held = { held: [], dropped: [{ id: HELD_ID, why: "refused", at: 9 }] };
+    await reconnect();
+    expect(keptOnDevice()).toEqual([]);
+    expect(shown()).toEqual([]);
+    expect(seen.pendingQueued.thread).toBeUndefined();
+    expect(seen.paneErrors["chat:thread"]?.line).toBe(HELD_NOT_SENT);
+    expect(failedComposerSends(DRAFT).slice(before)).toEqual([expect.objectContaining({ sendId: HELD_ID, text: WORDS, threadId: "thread" })]);
+
+    await reconnect();
+    expect(failedComposerSends(DRAFT).slice(before)).toHaveLength(1);
+    expect(posts()).toHaveLength(1);
+  });
+
+  it("after a restart, takes a group message's queued row away with its copy once the edge says it neither holds nor dropped it, without calling it Not sent", async () => {
+    const roomSend = "wiring-room-send-0009";
+    const roomDraft = "group:room:room-thread";
+    const before = failedComposerSends(roomDraft).length;
+    localStorage.setItem(HELD_SENDS_KEY, JSON.stringify([{ sendId: roomSend, threadId: "room-thread", draftId: roomDraft, text: "Room, wake up", requestText: "Room, wake up", at: Date.now() }]));
+    const home: Home = { chats: savedChats, held: { held: [roomSend], dropped: [] } };
+    const { asks } = await mount(home);
+    expect(seen.pendingQueued["room-thread"]).toEqual([{ queueId: roomSend, text: "Room, wake up" }]);
+    expect(keptOnDevice()).toEqual([roomSend]);
+
+    home.held = { held: [], dropped: [] };
+    await reconnect();
+    expect(new Set(asks())).toEqual(new Set([`/api/held-sends?ids=${roomSend}`]));
+    expect(keptOnDevice()).toEqual([]);
+    expect(seen.pendingQueued["room-thread"]).toBeUndefined();
+    expect(seen.paneErrors["chat:room-thread"]).toBeUndefined();
+    expect(failedComposerSends(roomDraft).length).toBe(before);
+
+    await reconnect();
+    expect(seen.pendingQueued["room-thread"]).toBeUndefined();
   });
 });

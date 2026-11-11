@@ -1,12 +1,14 @@
 import { useEffect, useId, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { api, useStore, type InstanceInfo, type Message } from "@/state/store";
+import { api, type InstanceInfo, type Message } from "@/state/store";
+import { dogIn, sameFields, useStoreSelector } from "@/state/store-selectors";
 import { t } from "@/lib/i18n";
 import { dogTint } from "@/lib/mascot";
 import { failedTurnCause } from "@/lib/failed-turn";
 import { requestAddAccount } from "@/lib/add-account-request";
 import { Switch } from "./SettingsPrimitives";
-import { pill, signedIn, subscriptionAccounts, useCarryOn } from "./AccountsPanel";
+import { signedIn, subscriptionAccounts, useCarryOn } from "./AccountsPanel";
+import { pill } from "./account-pill";
 import { resetClock, resetDistance } from "./PlanUsage";
 import { rechargeProgress, RechargeLine, SleepingDog } from "./AccountCharge";
 import { DogAvatar } from "./Avatar";
@@ -38,7 +40,12 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
   botId?: string;
   threadId?: string;
 }) {
-  const { state } = useStore();
+  const state = useStoreSelector((store) => ({
+    config: store.config,
+    instances: store.instances,
+    bot: botId ? dogIn(store, botId) : undefined,
+    waiting: threadId ? store.pendingQueued[threadId]?.length ?? 0 : 0,
+  }), sameFields);
   const now = useNow();
   const carryOn = useCarryOn();
   const pickId = useId();
@@ -56,7 +63,7 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
   const cause = failedTurnCause(tool.name) ?? tool.name;
   const actionable = Boolean(onRetry && botId && threadId);
 
-  const bot = state.bots.find((candidate) => candidate.id === botId);
+  const bot = state.bot;
   const model = bot?.modelSelection.model;
   const recharge = rest && !rest.estimated && !over ? rechargeProgress(rest, now) : null;
   const offers = (account: InstanceInfo) => !model || !limited?.models.options.some((option) => option.id === model)
@@ -70,7 +77,7 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
   const keepsEngine = bot?.accountPinned === true;
   const suggested = keepsEngine ? free.find((account) => account.driverKind === limited?.driverKind) : free[0];
   const chosen = free.find((account) => account.instanceId === pick) ?? suggested;
-  const waiting = threadId ? state.pendingQueued[threadId]?.length ?? 0 : 0;
+  const waiting = state.waiting;
   const picksUpAt = threadId ? battery?.waiting?.[threadId] : undefined;
   const automaticPickup = carryOn.on && limited ? picksUpAt : undefined;
 

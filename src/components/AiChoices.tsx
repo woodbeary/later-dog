@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, Loader2, RefreshCw } from "lucide-react";
-import { ACCOUNT_ENGINES, AccountMark, pill, type AccountKind } from "@/components/AccountsPanel";
+import { ACCOUNT_ENGINES, AccountMark, type AccountKind } from "@/components/AccountsPanel";
+import { pill } from "@/components/account-pill";
 import { engineReady } from "@/components/EngineLibrary";
 import { IncludedAiAccount, includedAi } from "@/components/IncludedAiAccount";
 import { requestAccountSignIn } from "@/lib/add-account-request";

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Check, ChevronLeft, MessageCircleQuestion, Minus, X } from "lucide-react";
-import { useStore, type Bot, type Message } from "@/state/store";
+import type { Bot, Message } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import {
@@ -39,7 +40,7 @@ export function QuestionCard({
   bot?: Pick<Bot, "name">;
   message: Message;
 }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const card = message.card;
   const questions = card?.questionRequest?.questions ?? [];
   const [drafts, setDrafts] = useState<Record<number, Draft>>({});

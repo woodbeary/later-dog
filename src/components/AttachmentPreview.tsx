@@ -31,8 +31,11 @@ import {
 } from "@/lib/composer-attachments";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
+import { requestMessageFile, type MessageAttachmentContext } from "@/lib/message-file";
 import { QuickLookButton } from "./QuickLookButton";
 import { TableFileButton } from "./TableFilePreview";
+
+export type { MessageAttachmentContext };
 
 export interface PreviewImage {
   src: string;
@@ -42,8 +45,6 @@ export interface PreviewImage {
   downloadName?: string;
   openUrl?: string;
 }
-
-export interface MessageAttachmentContext { threadId: string; messageId: string }
 
 export function previewImage(path: string, name = attachmentBasename(path)): PreviewImage | null {
   const src = attachmentImageUrl(path);
@@ -192,28 +193,6 @@ export function messageImagePreviewUrl(
 
 function revokeObjectUrlLater(url: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-export async function requestMessageFile(
-  filePath: string,
-  message: MessageAttachmentContext,
-  signal: AbortSignal,
-  folder?: { entry?: string; list?: boolean },
-): Promise<Response> {
-  const response = await fetch(`/api/threads/${encodeURIComponent(message.threadId)}/messages/${encodeURIComponent(message.messageId)}/file`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      path: filePath,
-      ...(folder?.entry !== undefined ? { entry: folder.entry } : folder?.list ? { listFolder: true } : {}),
-    }),
-    signal,
-  });
-  if (!response.ok) {
-    const body = await response.json().catch(() => null) as { error?: string; code?: string } | null;
-    throw Object.assign(new Error(body?.error ?? t("attach.downloadFailed")), { code: body?.code });
-  }
-  return response;
 }
 
 export interface MessageFolderListing {

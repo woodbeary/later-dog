@@ -384,6 +384,26 @@ describe("sending while the home sleeps", () => {
     expect(received).toEqual([{ text: "keep me", sendId: "send-0000000000001", threadId: "t-rex" }]);
   });
 
+  it("says which messages it holds to a session the home confirmed, and nothing to a stranger or to a caller with no credential", async () => {
+    const h = await home();
+    await knownOwner(h);
+    await h.sleep();
+    h.machine.serving = false;
+    const json = { "content-type": "application/json" };
+    const sent = await h.visit("/api/bots/rex/messages", asOwner({ method: "POST", headers: json, body: JSON.stringify({ text: "keep me", sendId: "send-0000000000001", threadId: "t-rex" }) }));
+    expect(sent.status).toBe(202);
+    const list = "/api/held-sends?ids=send-0000000000001";
+    const stranger = await h.visit(list, asStranger);
+    expect(stranger.status).toBe(503);
+    expect(await stranger.text()).not.toContain("send-0000000000001");
+    const nobody = await h.visit(list, { headers: { accept: "application/json" } });
+    expect(nobody.status).toBe(503);
+    expect(await nobody.text()).not.toContain("send-0000000000001");
+    const owner = await h.visit(list, asOwner());
+    expect(owner.status).toBe(200);
+    expect(await owner.json()).toEqual({ held: ["send-0000000000001"], dropped: [] });
+  });
+
   it("reads Send now and cancel for a queued message, and nothing else", () => {
     const ask = (method: string, path: string) => desk.heldQueueAsk(new Request(`https://home.example${path}`, { method }));
     expect(ask("POST", "/api/bots/dog-1/queue/send-1/steer")).toEqual({ id: "send-1", ask: "send-now" });

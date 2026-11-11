@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { createPortal } from "react-dom";
 import { GripVertical, Loader2, RefreshCw, X } from "lucide-react";
 import { api, useStore, type ConfigStatus, type InstanceInfo } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { requestAccountSignIn, requestAddAccount, type AddAccountKind } from "@/lib/add-account-request";
@@ -16,6 +17,7 @@ import { usageLines, usageReading, usePlanUsage, type PlanProvider, resetDistanc
 import { backAt, restSummary, SleepingDog, usageLeft } from "./AccountCharge";
 import { AccountCharge } from "./AccountBattery";
 import { useAccountDrag, type AccountDrag } from "./account-drag";
+import { pill } from "./account-pill";
 
 type Battery = NonNullable<ConfigStatus["accountBattery"]>;
 type Rest = NonNullable<Battery["resting"]>[string];
@@ -35,7 +37,6 @@ const DEFAULT_ACCOUNT_IDS = new Set(["claude", "chatgpt", "codex", "grok", "curs
 
 const carriesOn = (instance: InstanceInfo) => (CARRY_ON_KINDS as readonly string[]).includes(instance.driverKind);
 
-export const pill = "rounded-full bg-control px-3 py-1.5 text-[13px] font-medium text-ink hover:bg-control-hover disabled:opacity-45";
 const primary = cn(pill, "bg-accent text-white hover:bg-accent");
 const ROW = "flex min-h-16 items-center gap-3 px-4 py-3";
 
@@ -189,7 +190,7 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
   onSignIn: () => void;
   onGone: () => void;
 }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState<"rename" | "remove" | "switch" | null>(null);
   const [asking, setAsking] = useState(false);
@@ -400,7 +401,7 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
   onClose: () => void;
   onSignedIn: (instanceId: string) => void;
 }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const dialogRef = useRef<HTMLDivElement>(null);
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -515,7 +516,7 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
 }
 
 function InstallFirst({ instance, onCancel }: { instance: InstanceInfo; onCancel: () => void }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [error, setError] = useState<string | null>(null);
   const installable = Boolean((instance as { install?: { server?: unknown } }).install?.server);
   useEffect(() => {

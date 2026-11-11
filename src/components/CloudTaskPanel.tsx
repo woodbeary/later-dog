@@ -11,7 +11,8 @@ import {
 import { t } from "@/lib/i18n";
 import { effortName } from "@/lib/model-friendly";
 import { useCaptionChrome } from "@/components/DesktopCapabilities";
-import { useStore, type Bot } from "@/state/store";
+import type { Bot } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import { patchFiles, type CloudTaskFileChange, type CloudTaskStep, type CloudTaskTodo } from "../../shared/cloud-task";
 
 const PANEL_WIDTH_KEY = "laterdog-computer-panel-width";
@@ -134,7 +135,7 @@ function Changes({ jobId, files: fileCount }: { jobId: string; files: number }) 
 }
 
 export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const { padClass } = useCaptionChrome();
   const [width] = useState(panelWidth);
   const entry = useCloudTask(jobId);

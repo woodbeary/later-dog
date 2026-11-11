@@ -29,7 +29,8 @@ import {
   type UpkeepStatus,
 } from "@/lib/memory";
 import { t } from "@/lib/i18n";
-import { useStore, type Bot } from "@/state/store";
+import type { Bot } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import { Switch } from "../SettingsPrimitives";
 import { useDesktopCapabilities } from "../DesktopCapabilities";
 
@@ -326,7 +327,7 @@ export function MemoryUpkeepRows({ enabled, status, tidying, onToggle, onTidy, n
 
 export function MemorySection({ bot, active = true, onClose }: { bot: Bot; active?: boolean; onClose: () => void }) {
   const { capabilities } = useDesktopCapabilities();
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const [overview, setOverview] = useState<MemoryOverview | null>(null);
   const [journal, setJournal] = useState<MemoryJournalRow[] | null>(null);
   const [upkeep, setUpkeep] = useState<UpkeepStatus | null>(null);

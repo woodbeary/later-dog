@@ -1,6 +1,7 @@
 import { cn } from "@/lib/cn";
 import { useCallback, useLayoutEffect, useRef, type ReactNode, type RefObject, type TextareaHTMLAttributes } from "react";
 import { type MentionPeer } from "@/lib/mentions";
+import { textBoxHeightCanChange, type MeasuredTextBox } from "@/lib/textarea-height";
 import { MentionText } from "./MentionText";
 
 export function MentionTextarea({ inputRef, peers, everyone = false, wrapperClassName, ghost, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement> & {
@@ -19,14 +20,22 @@ export function MentionTextarea({ inputRef, peers, everyone = false, wrapperClas
     mirror.scrollTop = input.scrollTop;
     mirror.scrollLeft = input.scrollLeft;
   }, [inputRef]);
+  const measuredRef = useRef<MeasuredTextBox | null>(null);
   const resize = useCallback(() => {
     const input = inputRef.current;
     if (!input) return;
-    const scrollTop = input.scrollTop;
-    const line = parseFloat(getComputedStyle(input).lineHeight) || 24;
-    input.style.height = "auto";
-    input.style.height = `${Math.min(input.scrollHeight, line * 6)}px`;
-    input.scrollTop = scrollTop;
+    const lineHeight = parseFloat(getComputedStyle(input).lineHeight) || 24;
+    const value = input.value;
+    if (textBoxHeightCanChange(measuredRef.current, { value, lineHeight, width: input.clientWidth }, () => input.scrollHeight > input.clientHeight)) {
+      const scrollTop = input.scrollTop;
+      const tallest = lineHeight * 6;
+      input.style.height = "auto";
+      const wanted = input.scrollHeight;
+      const smallest = wanted <= input.clientHeight;
+      input.style.height = `${Math.min(wanted, tallest)}px`;
+      input.scrollTop = scrollTop;
+      measuredRef.current = { value, lineHeight, width: input.clientWidth, smallest, tallest: wanted >= tallest };
+    }
     sync();
   }, [inputRef, sync]);
   useLayoutEffect(resize, [props.value, resize]);

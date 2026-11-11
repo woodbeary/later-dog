@@ -3,7 +3,7 @@ import { Eye, LoaderCircle, RotateCcw } from "lucide-react";
 
 import { t } from "@/lib/i18n";
 import { QUICK_LOOK_MAX_BYTES, quickLookWay } from "@/lib/quick-look";
-import { requestMessageFile, type MessageAttachmentContext } from "./AttachmentPreview";
+import { requestMessageFile, type MessageAttachmentContext } from "@/lib/message-file";
 
 const OPEN_TIMEOUT_MS = 60_000;
 

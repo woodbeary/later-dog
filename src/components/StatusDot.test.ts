@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -7,7 +8,16 @@ import { StatusDot } from "./StatusDot";
 const draw = (kind: Parameters<typeof StatusDot>[0]["kind"], announce?: boolean) =>
   renderToStaticMarkup(createElement(StatusDot, { kind, announce }));
 
+const calm = readFileSync(new URL("../chat-calm.css", import.meta.url), "utf8");
+const styles = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+
 describe("StatusDot", () => {
+  it("appears with a short entrance that ends at the dot's own look and is not held afterwards, so a shown dot is not kept on a layer of its own", () => {
+    expect(calm).toMatch(/\.status-dot \{\s*animation: dot-in var\(--dur-150\) var\(--ease-calm\) backwards;/);
+    expect(styles).toMatch(/@keyframes dot-in \{\s*from \{ transform: scale\(0\.5\); opacity: 0; \}\s*to \{ transform: none; opacity: 1; \}\s*\}/);
+    expect(draw("unread")).not.toMatch(/opacity|scale|rotate|translate/);
+  });
+
   it("draws nothing when there is nothing to ask of you", () => {
     expect(draw(null)).toBe("");
   });

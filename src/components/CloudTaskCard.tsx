@@ -8,7 +8,8 @@ import {
   useCloudTask, useCloudTaskActivity, useTraceSave, wakeupLine, type CloudTaskStatusView,
 } from "@/lib/cloud-tasks";
 import { t } from "@/lib/i18n";
-import { useStore, type Message } from "@/state/store";
+import type { Message } from "@/state/store";
+import { useStoreDispatch } from "@/state/store-selectors";
 import type { CloudTaskSummary } from "../../shared/cloud-task";
 
 function useMinuteClock(running: boolean): number {
@@ -22,7 +23,7 @@ function useMinuteClock(running: boolean): number {
 }
 
 export const CloudTaskUpdateRow = memo(function CloudTaskUpdateRow({ message }: { message: Message }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const wakeup = cloudWakeupOf(message);
   const entry = useCloudTask(wakeup?.jobId);
   if (!wakeup) return null;
@@ -164,7 +165,7 @@ function CloudTaskSteps({ jobId, title, summary, view, panelLink }: {
 }
 
 export const CloudTaskCard = memo(function CloudTaskCard({ message }: { message: Message }) {
-  const { dispatch } = useStore();
+  const dispatch = useStoreDispatch();
   const ref = message.cloudTask;
   const entry = useCloudTask(ref?.jobId);
   const summary = entry?.summary;

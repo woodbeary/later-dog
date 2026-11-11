@@ -4,11 +4,13 @@ import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 import { landOnSearchHit } from "@/lib/focus-message";
 import { t } from "@/lib/i18n";
 import type { SearchHit } from "@/lib/search-hit";
-import { api, useStore } from "@/state/store";
+import { api } from "@/state/store";
+import { useStoreDispatch, useStoreReader } from "@/state/store-selectors";
 import { chatPane } from "@/state/pane-errors";
 
 export function ChatFindBar({ threadId, onClose }: { threadId: string; onClose: () => void }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const readStore = useStoreReader();
   const inputRef = useRef<HTMLInputElement>(null);
   const requestRef = useRef(0);
   const [query, setQuery] = useState("");
@@ -54,7 +56,7 @@ export function ChatFindBar({ threadId, onClose }: { threadId: string; onClose: 
     const hit = hits[next];
     if (!hit) return;
     setIndex(next);
-    void landOnSearchHit(hit, state, dispatch).catch((error) =>
+    void landOnSearchHit(hit, readStore(), dispatch).catch((error) =>
       dispatch({ type: "reportError", error, pane: chatPane(threadId), ...(error instanceof Error ? {} : { line: t("chat.find.unavailable") }) }),
     );
   };

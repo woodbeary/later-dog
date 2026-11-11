@@ -41,7 +41,19 @@ run:
   switching and after a reload, that the reload opens the same chat, that the
   accessibility tree has a named button for every dog's row whether or not
   its contents are drawn, and that Tab reaches every row with a focus ring and
-  in view, and Enter opens it.
+  in view, and Enter opens it. It then has a dog that is not open take a turn
+  and checks that dog's row shows the working dots and says "Working" while it
+  replies, and afterwards shows the unread dot, says "Unread", previews the
+  reply and is counted with the unread rows, while the open chat stays open.
+
+- `--one-dog-streams` opens the long chat and lets one dog stream a long reply
+  three characters at a time, first a dog that is not open and then the open
+  one. It counts the components that redraw and where they sit (sidebar rows,
+  the rest of the sidebar, the open transcript, the rest of the open chat, the
+  rest of the app), apart for each store change and for each time the reply
+  grows on screen, and then times key press to frame while typing in the open
+  message box with no dog streaming, with another dog streaming, and with the
+  open dog streaming.
 
 Two more modes help find a cause rather than a number:
 
@@ -330,3 +342,69 @@ held it throughout. Until they run, the two tables above describe 456e978. One r
 (each build at 7 and at 80 dogs, once) is still waiting on the cloud computer;
 if it runs, its results are `~/perf/r158f/{main,head}-{7,80}-1.json` there and
 `python3 ~/perf/r158f/table.py` prints them side by side.
+
+## The store branch (`atelier/desktop-store`), 2026-11-11
+
+Stacked on the branch above. What it changes:
+
+- The shell, the sidebar, the chat view, the message box and about sixty
+  smaller parts read only the part of the store they draw
+  (`src/state/store-selectors.ts`, `src/state/store-channel.ts`), instead of
+  redrawing on every store change.
+- The message box measures its height only when its height can change
+  (`src/lib/textarea-height.ts`).
+- A shown status dot is no longer kept on a layer of its own after its
+  entrance (`src/chat-calm.css`).
+- The unread count on the app icon is its own small part
+  (`src/components/UnreadCountBadge.tsx`), so the shell does not redraw when a
+  dog turns unread.
+
+### Where this branch stands
+
+Review fixes, after the review of 90f68ac:
+
+- Language change. The sidebar's dog rows and room rows are memoized, and a
+  language change is not a store change, so they kept the old language. The
+  sidebar now hands both rows the active language
+  (`src/components/Sidebar.tsx`), so the shell's redraw after a language change
+  reaches them. `src/components/Sidebar.language.dom.test.ts` draws the real
+  sidebar under a parent, changes the language and redraws the parent, with no
+  store change. Against the sidebar as it was at 90f68ac it fails twice: the
+  dog row stayed "Scout · Working" where "Scout · Trabajando" was expected,
+  and the room row stayed "The dogs are working…" where "Los perros están
+  trabajando…" was expected. With the fix, 4 of 4 pass.
+- Needs-you row. A click on a needs-you row reads the other dog's open task
+  from the whole store at the click (`src/components/ChatView.tsx`), not from
+  the list of drawn dogs, which is not refreshed when only a dog's open task
+  changes. Before, the click reopened a task the dog already had open.
+- Model line in the work detail. The "Running on … Selected: …" line takes the
+  selected model from the chat's own dog, and from the open task when the task
+  has a model of its own, not from the list of drawn dogs. Before, it showed
+  the previous model after a change.
+- Both chat fixes have a test in `src/components/ChatView.rows.test.ts`; each
+  failed against the chat view as it was at 90f68ac (an extra `openTask` in the
+  dispatched actions; "same" where "next-message" was expected) and passes now.
+- Main f7cae29 is merged in. It touched no file under `src`.
+
+Done, on the Linux cloud computer against fixtures, with this note in place on
+top of 13f5cd4, one run each:
+
+- `pnpm vitest run src scripts/no-comments.test.ts scripts/brand-links.test.ts
+  scripts/import-cycles.test.ts`: 420 files, 3,639 tests, all passed. The
+  server tests are not in this command.
+- `pnpm typecheck`: no errors. `pnpm lint`: 0 warnings, 0 errors.
+
+Earlier on this branch, not repeated after the review fixes: `--kept` at 10
+dogs, one run: drafts kept after switching and after a reload, the same chat
+open after the reload, and the dog that was not open showed working, then
+unread, then read once opened.
+
+Left:
+
+- No timed table for this branch. The timed runs at 80 dogs were not finished
+  here; they are to be measured on main after this merges.
+- Not run for the review fixes: the server tests, the packaged app, any
+  browser run. The three fixes are covered by component tests only.
+- On the Mac: typing and streaming in the packaged app with real dogs, memory
+  of the app's whole process tree, the status dot's entrance on a real screen,
+  and a language change in Settings with the sidebar in view.

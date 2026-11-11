@@ -42,7 +42,7 @@ export interface SendHooks {
 export interface SendOutbox {
   send(item: OutboxItem, hooks?: SendHooks): void;
   pending(bots: readonly Pick<Bot, "messages">[], groups: GroupChats, queues?: unknown): OutboxItem[];
-  echoed(sendId: string): void;
+  echoed(sendId: string, line?: { messageId: string; threadId: string }): void;
   queued(queues: unknown): void;
   settleHeld(bots: readonly Pick<Bot, "messages">[], groups: readonly Pick<Group, "messages">[], queues?: unknown): Promise<void>;
   cancelled(queueId: string): void;
@@ -142,6 +142,7 @@ function createHeldSendKeeper(deps: {
   after: (ms: number, run: () => void) => () => void;
   now: () => number;
   onLost: (send: HeldSend) => void;
+  onGone: (send: HeldSend) => void;
 }): HeldSendKeeper {
   const { store } = deps;
   let settling: Promise<void> | null = null;
@@ -179,9 +180,10 @@ function createHeldSendKeeper(deps: {
       if (reply === "signed-out") return { signedIn: false };
       const asked = new Set(ids);
       const stillWanted = group.filter((send) => !forgottenWhileAsking.has(send.sendId));
-      const { keep, lost } = sortHeldSends(stillWanted, reply, deps.now());
+      const { keep, lost, gone } = sortHeldSends(stillWanted, reply, deps.now());
       writeHeldSends(store, [...readHeldSends(store).filter((send) => !asked.has(send.sendId)), ...keep]);
       for (const send of lost) deps.onLost(send);
+      for (const send of gone) deps.onGone(send);
     }
     return { signedIn: true };
   };
@@ -318,6 +320,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
       rememberFailedComposerSend(send.draftId, { sendId: send.sendId, text: send.text, requestText: send.requestText, replyToId: send.replyToId, threadId: send.threadId });
       deps.showError(new SendRefusedError(HELD_NOT_SENT), send.threadId);
     },
+    onGone: (send) => deps.dispatch({ type: "consumePendingQueued", threadId: send.threadId, queueId: send.sendId }),
   });
 
   const keepIfAtEdge = (item: OutboxItem, atEdge: ReadonlyMap<string, string>) => {
@@ -359,7 +362,13 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
       }
       return outbox.items();
     },
-    echoed: forget,
+    echoed(sendId, line) {
+      if (line && EDGE_LINE_ID.test(line.messageId)) {
+        const item = outbox.items().find((waiting) => waiting.sendId === sendId);
+        if (item) heldSends.keep(heldCopy(item, line.threadId || item.threadId));
+      }
+      forget(sendId);
+    },
     queued(queues) {
       const waiting = new Set(sendIdsInQueues(queues));
       const atEdge = threadsOfSendsAtEdge([], [], queues);

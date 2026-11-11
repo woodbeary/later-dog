@@ -43,7 +43,9 @@ vi.mock("./ModelPicker", () => ({ ModelPicker: (props: ComponentProps<typeof Mod
 } }));
 vi.mock("./ComposerPlusMenu", () => ({ ComposerPlusMenu: () => createElement("span", { "data-test-plus-menu": true }) }));
 
-const { ChatView, ErrorRow, FailedTurnRow, claudeUpdateTarget } = await import("./ChatView");
+const { ChatView } = await import("./ChatView");
+const { ErrorRow, FailedTurnRow } = await import("./FailedTurnRow");
+const { claudeUpdateTarget } = await import("@/lib/claude-update-target");
 const { activityPreview } = await import("@/lib/failed-turn");
 afterAll(() => vi.unstubAllGlobals());
 

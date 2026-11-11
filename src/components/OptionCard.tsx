@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, X } from "lucide-react";
-import { useStore, visibleMessages, type Message } from "@/state/store";
+import { visibleMessages, type Message } from "@/state/store";
+import { dogIn, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { isPersistentQuestionCard, parseChoices } from "../../shared/ask-question";
@@ -45,12 +46,12 @@ export function OptionCard({
   message: Message;
   groupId?: string;
 }) {
-  const { state, dispatch } = useStore();
+  const dispatch = useStoreDispatch();
+  const bot = useStoreSelector((state) => dogIn(state, botId));
   const [custom, setCustom] = useState("");
   const [picked, setPicked] = useState<string>();
   const [answeredAtMount] = useState(() => Boolean(message.card?.answered));
   const card = message.card;
-  const bot = state.bots.find((candidate) => candidate.id === botId);
   const transcript = bot ? visibleMessages(bot) : [];
   if (!card || shouldHideOnboardingCard(message, transcript) || (card.requestId && card.dismissed && card.answered)) return null;
 
