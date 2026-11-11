@@ -299,15 +299,16 @@ request adds `rate_limited` to the list of reasons the routing test covers.
 ## Checks run
 
 On the Linux cloud computer, 2026-11-11, Node 24.22.2, on the branch after
-merging `origin/main` (c96ea63):
+merging `origin/main` (ece80d7):
 
 | Check | Result |
 |---|---|
 | `vitest run scripts/decision-eval server/decider` | 7 files passed, 1 skipped; 126 tests passed, 1 skipped. By file: `scripts/decision-eval/decision-eval.test.ts` 25, `server/decider/decider.test.ts` 59, `room-routing.test.ts` 11, `auto-room-compat.test.ts` 9, `decider-config.test.ts` 6, and the two decider end-to-end files the pattern also matches, 10 and 6. Skipped: `room-routing.eval.test.ts`, which makes live calls only when given a key. |
 | `pnpm typecheck` | Exit 0 |
-| `vitest run scripts/no-comments.test.ts scripts/brand-links.test.ts` | 2 files, 13 tests passed (10 and 3), over the 3,771 tracked files with this note among them. The cloud copy carries no git history, so the file list the two tests read was rebuilt there from this branch's `git ls-files`. |
+| `vitest run scripts/no-comments.test.ts scripts/brand-links.test.ts` | 2 files, 17 tests passed (14 and 3), over the 3,810 tracked files with this note among them. The cloud copy carries no git history, so the file list the two tests read was rebuilt there from this branch's `git ls-files`. |
 
-The first two rows ran before this note was written; the note changes no code.
+All three ran once on that merge (d18db7a). The only change after it is this
+table.
 
 ## Reproduce
 
