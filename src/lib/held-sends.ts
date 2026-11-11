@@ -77,14 +77,16 @@ export function heldAskGroups<T>(sends: readonly T[]): T[][] {
   return groups;
 }
 
-export function sortHeldSends(asked: readonly HeldSend[], reply: HeldReply, now: number): { keep: HeldSend[]; lost: HeldSend[] } {
+export function sortHeldSends(asked: readonly HeldSend[], reply: HeldReply, now: number): { keep: HeldSend[]; lost: HeldSend[]; gone: HeldSend[] } {
   const keep: HeldSend[] = [];
   const lost: HeldSend[] = [];
+  const gone: HeldSend[] = [];
   for (const send of asked) {
     if (reply === "no-answer" || reply === "signed-out") keep.push(send);
     else if (reply === "no-edge") (now - send.at < HELD_GIVE_UP_MS ? keep : lost).push(send);
     else if (reply.held.has(send.sendId)) keep.push(send);
     else if (reply.dropped.has(send.sendId)) lost.push(send);
+    else gone.push(send);
   }
-  return { keep, lost };
+  return { keep, lost, gone };
 }

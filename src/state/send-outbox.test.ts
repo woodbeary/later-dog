@@ -8,6 +8,7 @@ import { createSendOutbox } from "./send-outbox";
 import { HELD_GIVE_UP_MS, HELD_NOT_SENT, HELD_SENDS_KEY } from "@/lib/held-sends";
 import { SendingTrack } from "@/components/SendingTrack";
 import { withDeskQueue } from "../../deploy/laterdog/home/src/desk.ts";
+import { deskUserLine } from "../../deploy/laterdog/home/src/desk-stream.ts";
 
 function mount(request: typeof fetch) {
   vi.useFakeTimers();
@@ -398,6 +399,52 @@ describe("a message the edge held for a sleeping home", () => {
       for (const run of [atEdge, homeRow, homeLine, homeQueued]) expect(run.showError).not.toHaveBeenCalled();
       expect(failedComposerSends(draft).slice(before)).toEqual([]);
     });
+
+    it("writes the copy when the edge's own line arrives on the event stream before any receipt, so a later drop gives one Not sent row with the words and one notice, and none for the home's line", async () => {
+      const before = failedBefore();
+      let answer: unknown = { held: [sent.sendId], dropped: [] };
+      const atEdge = stillInOutbox(() => answer);
+      const edgeLine = deskUserLine({ sendId: sent.sendId, text: sent.text, at: 2, parentId: null });
+      expect(edgeLine.id).toBe(`desk-${sent.sendId}`);
+      atEdge.outbox.echoed(sent.sendId, { messageId: edgeLine.id, threadId: "thread" });
+      expect(atEdge.store.values.has(OUTBOX_KEY)).toBe(false);
+      expect(kept(atEdge.store)).toEqual([expect.objectContaining({ sendId: sent.sendId, threadId: "thread", draftId: draft, text: sent.text, requestText: sent.text, at: 1_000 })]);
+      atEdge.outbox.echoed(sent.sendId, { messageId: edgeLine.id, threadId: "thread" });
+      expect(kept(atEdge.store)).toHaveLength(1);
+
+      answer = { held: [], dropped: [{ id: sent.sendId, why: "refused", at: 9 }] };
+      await atEdge.timers.fire();
+      expect(kept(atEdge.store)).toEqual([]);
+      expect(failedComposerSends(draft).slice(before)).toEqual([expect.objectContaining({ sendId: sent.sendId, text: sent.text, requestText: sent.text, threadId: "thread" })]);
+      expect(atEdge.showError).toHaveBeenCalledTimes(1);
+      expect(atEdge.showError).toHaveBeenCalledWith(expect.objectContaining({ message: HELD_NOT_SENT }), "thread");
+      expect(atEdge.request.mock.calls.every(([path]) => String(path).startsWith("/api/held-sends"))).toBe(true);
+      expect(atEdge.timers.waiting).toEqual([]);
+
+      const atHome = stillInOutbox(() => { throw new Error("not asked"); });
+      atHome.outbox.echoed(sent.sendId, { messageId: "home-line-1", threadId: "thread" });
+      expect(atHome.store.values.has(OUTBOX_KEY)).toBe(false);
+      expect(kept(atHome.store)).toEqual([]);
+      expect(atHome.asks()).toBe(0);
+      expect(atHome.showError).not.toHaveBeenCalled();
+      expect(failedComposerSends(draft).slice(before)).toHaveLength(1);
+    });
+
+    it("writes no copy for a message the same refresh or the same queue frame also shows waiting at the home", () => {
+      const edgeRow = { queueId: sent.sendId, text: sent.text, sendId: sent.sendId };
+      const homeRow = { queueId: "home-queue-1", text: sent.text, sendId: sent.sendId };
+
+      const refreshed = stillInOutbox(() => { throw new Error("not asked"); });
+      expect(refreshed.outbox.pending(saved.bots as never, [], { thread: [edgeRow, homeRow] })).toEqual([]);
+      expect(refreshed.store.values.has(OUTBOX_KEY)).toBe(false);
+      expect(kept(refreshed.store)).toEqual([]);
+
+      const framed = stillInOutbox(() => { throw new Error("not asked"); });
+      framed.outbox.queued({ thread: [edgeRow, homeRow] });
+      expect(framed.store.values.has(OUTBOX_KEY)).toBe(false);
+      expect(kept(framed.store)).toEqual([]);
+      expect(framed.timers.waiting).toEqual([]);
+    });
   });
 
   it("puts the message in the Not sent row with its words when the edge says the home refused it or the hour ran out", async () => {
@@ -787,6 +834,28 @@ describe("a message the edge held for a sleeping home", () => {
     outbox.pending(state.bots, state.groups, {});
     expect(state.pendingQueued["room-thread"]).toBeUndefined();
     expect(state.pendingQueued["room-task-thread"]).toHaveLength(1);
+  });
+
+  it("after a restart, takes a held group message's queued row away with its copy when the edge says it neither holds nor dropped it, and leaves the one it still holds", async () => {
+    const roomDraft = "group:team:room-thread";
+    const before = failedComposerSends(roomDraft).length;
+    const copy = (sendId: string, text: string) => ({ sendId, threadId: "room-thread", draftId: roomDraft, text, requestText: text, at: 1 });
+    const store = memoryStore({ [HELD_SENDS_KEY]: JSON.stringify([copy("room-taken-send-0001", "Room, wake up"), copy("room-taken-send-0002", "Still held")]) });
+    let state = chatState();
+    const apply = (action: Action) => { state = reducer(state, action); };
+    const showError = vi.fn();
+    const request = vi.fn(async () => ({ held: ["room-taken-send-0002"], dropped: [] }));
+    const outbox = createSendOutbox({ request, dispatch: apply, showError, store, after: manualTimers().after });
+
+    expect(outbox.pending(state.bots, state.groups, {})).toEqual([]);
+    expect(state.pendingQueued["room-thread"]).toEqual([{ queueId: "room-taken-send-0001", text: "Room, wake up" }, { queueId: "room-taken-send-0002", text: "Still held" }]);
+
+    await outbox.settleHeld(state.bots, state.groups, {});
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(kept(store).map((send) => send.sendId)).toEqual(["room-taken-send-0002"]);
+    expect(state.pendingQueued["room-thread"]).toEqual([{ queueId: "room-taken-send-0002", text: "Still held" }]);
+    expect(showError).not.toHaveBeenCalled();
+    expect(failedComposerSends(roomDraft).length).toBe(before);
   });
 
   it("takes a held group message's queued row away once a refresh shows it in the chat under the home's own queue id", () => {

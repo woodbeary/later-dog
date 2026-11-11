@@ -15,6 +15,7 @@ describe("held sends kept on the device", () => {
     const sorted = sortHeldSends([send("send-0000000000001"), send("send-0000000000002"), send("send-0000000000003")], answer, 10);
     expect(sorted.keep.map((held) => held.sendId)).toEqual(["send-0000000000001"]);
     expect(sorted.lost.map((held) => held.sendId)).toEqual(["send-0000000000002"]);
+    expect(sorted.gone.map((held) => held.sendId)).toEqual(["send-0000000000003"]);
   });
 
   it("believes held over dropped when one id is in both lists, as after a send again", () => {
@@ -34,8 +35,8 @@ describe("held sends kept on the device", () => {
     const young = send("send-0000000000001", 1_000);
     expect(heldReply({ error: "not found" })).toBe("no-edge");
     expect(heldReplyAfterFailure(Object.assign(new Error("not found"), { status: 404 }))).toBe("no-edge");
-    expect(sortHeldSends([young], "no-edge", 1_000 + HELD_GIVE_UP_MS - 1)).toEqual({ keep: [young], lost: [] });
-    expect(sortHeldSends([young], "no-edge", 1_000 + HELD_GIVE_UP_MS)).toEqual({ keep: [], lost: [young] });
+    expect(sortHeldSends([young], "no-edge", 1_000 + HELD_GIVE_UP_MS - 1)).toEqual({ keep: [young], lost: [], gone: [] });
+    expect(sortHeldSends([young], "no-edge", 1_000 + HELD_GIVE_UP_MS)).toEqual({ keep: [], lost: [young], gone: [] });
   });
 
   it("takes a failed ask as no answer at all, however old the send is", () => {
@@ -44,7 +45,7 @@ describe("held sends kept on the device", () => {
     for (const failure of failures) {
       const reply = heldReplyAfterFailure(failure);
       expect(reply).toBe("no-answer");
-      expect(sortHeldSends([old], reply, 1_000 + 10 * HELD_GIVE_UP_MS)).toEqual({ keep: [old], lost: [] });
+      expect(sortHeldSends([old], reply, 1_000 + 10 * HELD_GIVE_UP_MS)).toEqual({ keep: [old], lost: [], gone: [] });
     }
   });
 
@@ -53,7 +54,7 @@ describe("held sends kept on the device", () => {
     for (const status of [401, 403]) {
       const reply = heldReplyAfterFailure(Object.assign(new Error("sign in"), { status }));
       expect(reply).toBe("signed-out");
-      expect(sortHeldSends([old], reply, 1_000 + 10 * HELD_GIVE_UP_MS)).toEqual({ keep: [old], lost: [] });
+      expect(sortHeldSends([old], reply, 1_000 + 10 * HELD_GIVE_UP_MS)).toEqual({ keep: [old], lost: [], gone: [] });
     }
   });
 
