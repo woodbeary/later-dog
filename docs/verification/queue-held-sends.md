@@ -120,42 +120,60 @@ home, the Mac app or a phone.
 | A retry never delivers twice | `send-outbox.test.ts` "keeps one copy and one queued row when the same send is sent again while the edge holds it"; wiring test "shows one message when the same send is sent again while the edge holds it and again after the home took it"; `server/laterdog/queued-steer.e2e.test.ts` second test; edge `wake-guard.test.ts` |
 | Refused or expired comes back as Not sent with the words | `send-outbox.test.ts` "puts the message in the Not sent row with its words when the edge says the home refused it or the hour ran out", "learns that the edge dropped the message without any refresh…", and the group and no-composer cases; wiring test first test; edge `wake-guard.test.ts` "says which held messages it still has, and which the home refused…" |
 
+## Second review (`reviews/queue-164-round2.md`, at `67b7f2e`)
+
+No blocker. Changed after it:
+
+| Finding | State | Proof |
+| --- | --- | --- |
+| S1 a send whose receipt the device never read got no copy, and a refresh the edge answered erased the outbox item | fixed | `src/state/send-outbox.test.ts` "when this device never read the edge's receipt": "writes the copy from the outbox when a refresh the edge answers shows the waiting row, so a later drop gives one Not sent row with the words and one notice", "does the same when the edge shows the message as its own line in the chat", "writes the copy when the waiting row arrives by itself, and none for a row or a line that shows the home took the message". All three fail on the source before the fix. |
+| N1 a held group message was not on screen after a restart | fixed, 17 lines of source | `send-outbox.test.ts` "after a restart, puts a held group message back on screen as queued at the first refresh, once…"; `src/state/held-sends-wiring.test.ts` "after a restart, shows a group message the edge still holds as queued again, and cancel takes it away for good" |
+| N5 old dropped records were removed only when a newer drop was recorded | fixed | edge `test/wake-guard.test.ts` "forgets a dropped message seven days later when a device asks about it…", "…when the next message is sent to the awake home"; `test/desk.test.ts` "remembers a dropped message once, forgets old ones after the kept time…" |
+| N8 this note was out of date | fixed | this section and the next |
+
+Known and not changed:
+
+- N2: a cancel the edge answers after a delivery whose answer was lost does not reach the home, so if the home fails twice around the cancel the dog can still answer a message the person cancelled.
+- N3: asking and cancelling at the edge are open to any caller the edge counts as a known device of that home (main's rule, which this branch now also uses for cancel), so a token that once got a 200 JSON answer from the home could cancel a held message if it also knew the random send id.
+- N4: Send now or cancel that meets a refusal by the home says "It may already have been sent" for up to 30 seconds before the Not sent row appears, and the home's reason for refusing is not carried to the device.
+- N6: the edge keeps the held list as one stored value with a 2 MB limit, so about eight sends near the 256 KB size limit could fail to save while the device is told they are held.
+- N7: the held copies are kept under one name for the whole app, like the outbox and the Not sent list, so a desktop window pointed at a different home would ask the wrong home about them; not checked in the Mac app.
+
 ## What was run
 
-Measured on the Linux cloud computer (Node 24.22.2), 2026-11-11. The first three rows ran at `848e88d`.
-
-| Suite | Result |
-| --- | --- |
-| Edge, `deploy/laterdog/home`, `pnpm exec vitest run` | 293 passed, 31 files |
-| Server files this branch touches plus `server/steer-e2e.test.ts` (`channel-queue`, `steer-queue`, `laterdog/queued-steer`, `laterdog/queued-steer.e2e`, `laterdog/plain-error`, `chat-followups-restart`, `steer-e2e`) | 99 passed, 7 files |
-| Device files this branch touches (`src/state/send-outbox`, `src/state/held-sends-wiring`, `src/lib/held-sends`, `src/lib/plain-client-error`, `src/lib/outbox`, `src/lib/drafts`) | 98 passed, 6 files |
-| `server/laterdog/queue-send-id-restart.e2e.test.ts`, added after the runs above | 1 passed, 5 runs of 5 |
-| Repo gates (typecheck, lint, full vitest with no-comments and brand-links) | see "Full gates" below |
-
-## Full gates
-
-Run on the Linux cloud computer at `848e88d` plus this note, 2026-11-11, started 09:31 UTC.
+Measured on the Linux cloud computer (Node 24.22.2), 2026-11-11, 14:43 to
+14:54 UTC, in a git checkout holding exactly the tracked files of `646d219`:
+this branch with `origin/main` at `4b377d9` merged in (no conflicts). Fixtures
+only.
 
 | Gate | Result |
 | --- | --- |
+| `pnpm install --frozen-lockfile` | exit 0 |
 | `pnpm typecheck` (`tsc -b && tsc -p tsconfig.server.json`) | exit 0 |
-| `pnpm lint` (`oxlint --deny-warnings .`) | 0 warnings, 0 errors, 3034 files |
-| Edge `tsc --noEmit` in `deploy/laterdog/home` | exit 0 |
-| Full `pnpm exec vitest run` (includes `scripts/no-comments.test.ts` and `scripts/brand-links.test.ts`) | IN PROGRESS at 10:00 UTC: 46 of about 1270 files done, slowest first. The next helper finds the log at `~/qd-logs/full-vitest.log` and the status at `~/qd-logs/gates.status` on the cloud computer |
+| `pnpm lint` (`oxlint --deny-warnings .`) | 0 warnings, 0 errors, 3055 files |
+| Edge, `deploy/laterdog/home`, `pnpm test` | 301 passed, 31 files (`test/wake-guard.test.ts` 36, `test/desk.test.ts` 27) |
+| Edge, `pnpm check` (`wrangler types && tsc --noEmit`) | exit 0 |
+| `pnpm vitest run src scripts/no-comments.test.ts scripts/brand-links.test.ts` | 3590 passed, 410 files (`src/state/send-outbox.test.ts` 41, `src/state/held-sends-wiring.test.ts` 6, `src/lib/held-sends.test.ts` 9, `scripts/no-comments.test.ts` 14, `scripts/brand-links.test.ts` 3) |
+| Server: `channel-queue`, `steer-queue`, `laterdog/queued-steer`, `laterdog/queued-steer.e2e`, `laterdog/plain-error`, `chat-followups-restart`, `chat-followups`, `steer-e2e`, `laterdog/queue-send-id-restart.e2e`, `send-idempotency`, `routes/dog-queue` | 127 passed, 11 files |
+| Whole `pnpm vitest run` | IN PROGRESS: started 14:53 UTC in the same checkout; the log is `~/q164/logs/full-vitest.log` and the status `~/q164/logs/status` on the cloud computer. Not finished when this was written |
 
-Failures seen so far in the full run, all in files this branch does not touch
-(`git diff origin/main...HEAD` is empty for each test and for `server/drivers`,
-`server/config.ts`, `server/workspace.ts`):
+Before the merge, at `54a4b95`: the edge suite gave 295 passed in 31 files, and
+`send-outbox.test.ts` with `held-sends-wiring.test.ts` gave 47 passed.
 
-- `server/config.test.ts` "uses the list again once a file the server could not read is readable" and `server/workspace.test.ts` "fails the write, changing nothing, when the archive exists but cannot be read": both make a file unreadable with `chmod 000` and skip only for uid 0. The cloud computer's user can read any file (its process has the capability that overrides file permissions), so the file stays readable. Environment, not code.
-- `server/drivers/agents-proxy.test.ts` "answers the MCP handshake and lists the agents tools": the listed tools include `react`, the expected list does not. The catalog lists it without condition, and both files are the same as on main.
-- `server/delta-context.e2e.test.ts` "resets Claude's native context on edit, then resumes only the replacement branch": failed in two full runs. Not yet run alone or compared with main; do that before calling it unrelated.
+Earlier, at `848e88d`: `server/laterdog/queue-send-id-restart.e2e.test.ts`
+passed 5 runs of 5.
 
-## Left for the next helper, if this one is cut off
-
-1. Read the end of `~/qd-logs/full-vitest.log` for the totals and write them here and in pull request #164.
-2. Run `server/delta-context.e2e.test.ts -t "resets Claude's native context on edit"` alone on this branch and on main.
-3. Main moved to `0b90a17` after this branch was cut. It merges without conflicts (`git merge-tree`). After merging, run the edge suite, `scripts/no-comments.test.ts`, `scripts/brand-links.test.ts`, the lane's server and device tests, and typecheck.
+Two tests fail on main itself on the cloud computer and are not this branch's
+(neither file is changed here): `server/config.test.ts` "uses the list again
+once a file the server could not read is readable" (it makes a file unreadable
+with `chmod 000`, and the cloud computer's user can read any file) and
+`server/drivers/agents-proxy.test.ts` "answers the MCP handshake and lists the
+agents tools". Earlier whole-suite runs on this branch also saw
+`server/workspace.test.ts` "fails the write, changing nothing, when the archive
+exists but cannot be read" (the same `chmod 000` cause) and
+`server/delta-context.e2e.test.ts` "resets Claude's native context on edit,
+then resumes only the replacement branch"; the last one has not been run alone
+or compared with main.
 
 ## Fixture-only, and what still needs a real home or the app
 
