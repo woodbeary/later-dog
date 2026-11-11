@@ -485,6 +485,50 @@ posixOnly("mid-turn steering e2e", () => {
     expect((await getBot(created.id)).messages.some((m: any) => m.text === "queued behind by someone else")).toBe(false);
   }, 40_000);
 
+  it("gives a cancel and a Send now that arrive together one winner: cancelled and never sent, or sent exactly once", async () => {
+    const outcomes: string[] = [];
+    for (const first of ["cancel", "send-now", "cancel", "send-now"] as const) {
+      const created = (await api("POST", "/api/bots")).body.bot;
+      await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "acp", model: "fake-model" } });
+      expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "first" })).status).toBe(202);
+      await waitFor(async () => (await getBot(created.id)).busy === true, "the hung turn to start");
+      const sendId = randomUUID();
+      const text = `raced with ${first} first ${sendId}`;
+      const queued = await api("POST", `/api/bots/${created.id}/messages`, { text, sendId });
+      expect(queued.body).toMatchObject({ ok: true, queued: true });
+      const cancel = () => api("DELETE", `/api/bots/${created.id}/queue/${sendId}`, { threadId: created.threadId });
+      const sendNow = () => api("POST", `/api/bots/${created.id}/queue/${sendId}/steer`, { threadId: created.threadId });
+      const answers = await Promise.all(first === "cancel" ? [cancel(), sendNow()] : [sendNow(), cancel()]);
+      const cancelled = first === "cancel" ? answers[0] : answers[1];
+      const sent = first === "cancel" ? answers[1] : answers[0];
+      const lines = async () => (await getBot(created.id)).messages.filter((m: any) => m.role === "user" && m.text === text);
+      const waiting = async () => ((await api("GET", "/api/bots")).body.botQueuedMessages ?? {})[created.threadId] ?? [];
+
+      if (cancelled.status === 200) {
+        outcomes.push("cancelled");
+        expect(cancelled.body).toEqual({ ok: true });
+        expect(sent.body.messages ?? []).toEqual([]);
+        expect(await waiting()).toEqual([]);
+        await api("POST", `/api/bots/${created.id}/interrupt`);
+        await waitFor(async () => (await getBot(created.id)).busy === false, "the turn to settle after the cancel");
+        expect(await lines()).toEqual([]);
+      } else {
+        outcomes.push("sent");
+        expect(cancelled).toEqual({ status: 404, body: { error: "no such queued message" } });
+        expect(sent.body).toMatchObject({ ok: true, sent: true });
+        expect(sent.body.queueIds).toEqual([queued.body.queueId, sendId]);
+        await waitFor(async () => (await lines()).length > 0, "the message that was sent to reach the chat");
+        expect(await waiting()).toEqual([]);
+        await api("POST", `/api/bots/${created.id}/interrupt`);
+        await waitFor(async () => (await getBot(created.id)).busy === false, "the sent turn to settle");
+        expect(await lines()).toHaveLength(1);
+      }
+      expect((await api("POST", `/api/bots/${created.id}/messages`, { text, sendId })).status).toBe(cancelled.status === 200 ? 409 : 202);
+      expect((await lines()).length).toBe(cancelled.status === 200 ? 0 : 1);
+    }
+    expect(outcomes).toHaveLength(4);
+  }, 60_000);
+
   it("a message waiting for a free slot still names the paired person once it runs", async () => {
     const created = (await api("POST", "/api/bots")).body.bot;
     await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "acp", model: "fake-model" } });
@@ -595,6 +639,42 @@ posixOnly("mid-turn steering e2e", () => {
     await api("POST", `/api/bots/${created.id}/interrupt`);
     await waitFor(async () => (await getBot(created.id)).busy === false, "the queue-steered turn to settle");
     expect(stderr).not.toContain("signal SIGTERM");
+  }, 40_000);
+
+  it("tells a cancel that arrives while Send now is delivering the message that it is no longer waiting, and delivers it once", async () => {
+    writeFileSync(codexSteerGate, "refuse the steer until the cancel has been answered");
+    const created = (await api("POST", "/api/bots")).body.bot;
+    const instances = (await api("GET", "/api/instances")).body.instances;
+    const model = instances.find((i: any) => i.instanceId === "codexRace").models.default;
+    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "codexRace", model } });
+    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "first gated turn" })).status).toBe(202);
+    await waitFor(async () => (await getBot(created.id)).busy === true, "the gated turn to start");
+    await waitFor(async () => (await getBot(created.id)).messages.some((m: any) => m.card), "the gated question card");
+    await answerQuestion(created.id, created.threadId);
+
+    const sendId = randomUUID();
+    const text = "on its way when the cancel arrives";
+    const queued = await api("POST", `/api/bots/${created.id}/messages`, { text, sendId, deliver: "queue" });
+    expect(queued.body).toMatchObject({ ok: true, queued: true });
+    const waiting = async () => ((await api("GET", "/api/bots")).body.botQueuedMessages ?? {})[created.threadId] ?? [];
+    expect(await waiting()).toEqual([expect.objectContaining({ queueId: queued.body.queueId, sendId })]);
+
+    const sendNow = api("POST", `/api/bots/${created.id}/queue/${sendId}/steer`, { threadId: created.threadId });
+    await waitFor(async () => (await waiting()).length === 0, "Send now to take the message out of the queue");
+    expect(await api("DELETE", `/api/bots/${created.id}/queue/${sendId}`, { threadId: created.threadId }))
+      .toEqual({ status: 404, body: { error: "no such queued message" } });
+    rmSync(codexSteerGate, { force: true });
+    const delivered = await sendNow;
+    expect(delivered.status).toBe(200);
+    expect(delivered.body.steered === true || delivered.body.sent === true).toBe(true);
+    expect(delivered.body.queueIds).toEqual([queued.body.queueId, sendId]);
+    await waitFor(async () => (await getBot(created.id)).messages.some((m: any) => m.role === "user" && m.text === text), "the message to reach the chat");
+    await expectSentOnce(created.id, created.threadId, text, queued.body.queueId);
+    expect((await api("POST", `/api/bots/${created.id}/messages`, { text, sendId })).body.message).toMatchObject({ sendId, queueId: queued.body.queueId });
+    await expectSentOnce(created.id, created.threadId, text, queued.body.queueId);
+
+    await api("POST", `/api/bots/${created.id}/interrupt`);
+    await waitFor(async () => (await getBot(created.id)).busy === false, "the turn to settle");
   }, 40_000);
 
   it("a message sent while the turn briefly refuses steers is steered in once it can, not queued", async () => {

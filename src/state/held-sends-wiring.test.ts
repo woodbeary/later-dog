@@ -166,6 +166,55 @@ describe("held messages through the app's own store", () => {
     expect(failedComposerSends(DRAFT).length).toBe(before);
   });
 
+  it("shows one message when the same send is sent again while the edge holds it and again after the home took it", async () => {
+    const before = failedComposerSends(DRAFT).length;
+    const homeLine = { id: "home-line-1", role: "user", kind: "text", text: WORDS, at: 5, sendId: HELD_ID, queueId: "home-queue-1" };
+    let homeHasIt = false;
+    const home: Home = {
+      chats: savedChats,
+      held: { held: [HELD_ID], dropped: [] },
+      answer: (path, init) => {
+        if (path !== "/api/bots/bot/messages" || init?.method !== "POST") return undefined;
+        return homeHasIt
+          ? new Response(JSON.stringify({ ok: true, threadId: "thread", message: homeLine }), { status: 202 })
+          : new Response(JSON.stringify({ ok: true, queued: true, queueId: HELD_ID, threadId: "thread" }), { status: 202 });
+      },
+    };
+    const { requests } = await mount(home);
+    const sendIt = async () => {
+      flushSync(() => dispatch({ type: "send", botId: "bot", threadId: "thread", text: WORDS, sendId: HELD_ID, recovery: { draftId: DRAFT, text: WORDS } }));
+      await settle();
+    };
+    const posted = () => requests.mock.calls.filter(([path, init]) => path === "/api/bots/bot/messages" && init?.method === "POST").map(([, init]) => JSON.parse(String(init?.body)).sendId);
+    const shown = () => seen.bots[0]!.messages.filter((message) => message.sendId === HELD_ID);
+
+    await sendIt();
+    await sendIt();
+    expect(posted()).toEqual([HELD_ID, HELD_ID]);
+    expect(seen.pendingQueued.thread).toEqual([{ queueId: HELD_ID, text: WORDS }]);
+    expect(shown()).toEqual([]);
+    expect(keptOnDevice()).toEqual([HELD_ID]);
+
+    homeHasIt = true;
+    await frame({ kind: "message", threadId: "thread", message: homeLine } as ServerFrame);
+    expect(seen.pendingQueued.thread).toBeUndefined();
+    expect(shown().map((message) => message.id)).toEqual(["home-line-1"]);
+
+    await sendIt();
+    expect(posted()).toEqual([HELD_ID, HELD_ID, HELD_ID]);
+    expect(seen.pendingQueued.thread).toBeUndefined();
+    expect(shown().map((message) => message.id)).toEqual(["home-line-1"]);
+
+    home.chats = { ...savedChats, bots: [{ ...bot, messages: [homeLine], activeLeafId: "home-line-1" }] };
+    home.held = { held: [], dropped: [] };
+    await reconnect();
+    expect(keptOnDevice()).toEqual([]);
+    expect(seen.pendingQueued.thread).toBeUndefined();
+    expect(shown().map((message) => message.id)).toEqual(["home-line-1"]);
+    expect(seen.paneErrors["chat:thread"]).toBeUndefined();
+    expect(failedComposerSends(DRAFT).length).toBe(before);
+  });
+
   it("keeps a group message the edge holds, with no composer behind it, and clears its row when the home's line arrives", async () => {
     const roomSend = "wiring-room-send-0001";
     const home: Home = {
