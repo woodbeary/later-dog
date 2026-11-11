@@ -136,7 +136,7 @@ async function seed(api: ReturnType<typeof fixtureApi>, setup: Options): Promise
 }
 
 const PAGE_PROBE = `(() => {
-  const perf = { commits: 0, rendered: 0, counting: false, longTasks: [], frames: [], composerAt: null, keys: [], names: new Map(), watchingStore: false, store: null, storeChanges: [], startedAt: 0, placing: false, change: "beforeAnyChange", changes: {}, rowsThisChange: new Set() };
+  const perf = { commits: 0, rendered: 0, counting: false, longTasks: [], frames: [], composerAt: null, keys: [], names: new Map(), watchingStore: false, store: null, storeChanges: [], startedAt: 0, placing: false, storeChangedAt: -1000, storeChangedThisTask: false, placed: {}, placedNow: null, rowsThisCommit: new Set() };
   window.__perf = perf;
   const component = (tag) => tag === 0 || tag === 1 || tag === 11 || tag === 14 || tag === 15;
   const firstElement = (fiber) => {
@@ -154,7 +154,7 @@ const PAGE_PROBE = `(() => {
     const row = element.closest("[data-sidebar-row], [data-sidebar-bot-row], [data-sidebar-unread]");
     if (row) {
       const dog = row.matches("[data-sidebar-bot-row]") ? row : row.querySelector("[data-sidebar-bot-row]");
-      perf.rowsThisChange.add(dog ? dog.getAttribute("data-sidebar-bot-row") : row);
+      perf.rowsThisCommit.add(dog ? dog.getAttribute("data-sidebar-bot-row") : row);
       return "sidebarRows";
     }
     if (element.closest("aside")) return "restOfSidebar";
@@ -162,12 +162,19 @@ const PAGE_PROBE = `(() => {
     if (element.closest("main")) return "restOfOpenChat";
     return "restOfApp";
   };
-  const tally = () => perf.changes[perf.change] || (perf.changes[perf.change] = { storeChanges: 0, commits: 0, rendered: 0, sidebarRows: 0, mostSidebarRows: 0, places: {} });
-  const closeChange = () => {
+  const tally = () => {
+    const cause = perf.storeChangedThisTask || performance.now() - perf.storeChangedAt < 8 ? "storeChange" : "replyGrowing";
+    return perf.placed[cause] || (perf.placed[cause] = { storeChanges: 0, commits: 0, rendered: 0, sidebarRows: 0, mostSidebarRows: 0, places: {} });
+  };
+  const placedCommit = (root) => {
     const held = tally();
-    held.sidebarRows += perf.rowsThisChange.size;
-    held.mostSidebarRows = Math.max(held.mostSidebarRows, perf.rowsThisChange.size);
-    perf.rowsThisChange.clear();
+    perf.placedNow = held;
+    held.commits += 1;
+    visit(root.current, root.current.alternate);
+    held.sidebarRows += perf.rowsThisCommit.size;
+    held.mostSidebarRows = Math.max(held.mostSidebarRows, perf.rowsThisCommit.size);
+    perf.rowsThisCommit.clear();
+    if (held === perf.placed.storeChange) perf.storeChangedAt = performance.now();
   };
   const visit = (next, previous) => {
     if (component(next.tag) && (next.flags & 1) === 1) {
@@ -176,7 +183,7 @@ const PAGE_PROBE = `(() => {
       const name = (next.type && next.type.displayName) || (type && (type.displayName || type.name)) || "(unnamed)";
       perf.names.set(name, (perf.names.get(name) || 0) + 1);
       if (perf.placing) {
-        const held = tally();
+        const held = perf.placedNow;
         const place = placeOf(next);
         held.rendered += 1;
         held.places[place] = (held.places[place] || 0) + 1;
@@ -218,15 +225,16 @@ const PAGE_PROBE = `(() => {
     }
     perf.storeChanges.push({ atMs: Math.round(performance.now() - perf.startedAt), fields, dogs, dogFields });
     if (!perf.placing) return;
-    closeChange();
-    perf.change = dogs > 0 && dogFields.messages && !dogFields.busy && !dogFields.activity && !dogFields.unread && !dogFields["(new dog)"] ? "streamedPiece" : "otherChange";
+    perf.storeChangedAt = performance.now();
+    perf.storeChangedThisTask = true;
+    setTimeout(() => { perf.storeChangedThisTask = false; }, 0);
     tally().storeChanges += 1;
   };
   window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
     supportsFiber: true,
     renderers: new Map(),
     inject(renderer) { const id = this.renderers.size + 1; this.renderers.set(id, renderer); return id; },
-    onCommitFiberRoot(_id, root) { perf.commits += 1; if (perf.watchingStore) noteStore(root); if (perf.placing) tally().commits += 1; if (perf.counting) visit(root.current, root.current.alternate); },
+    onCommitFiberRoot(_id, root) { perf.commits += 1; if (perf.watchingStore) noteStore(root); if (perf.placing) placedCommit(root); else if (perf.counting) visit(root.current, root.current.alternate); },
     onPostCommitFiberRoot() {},
     onCommitFiberUnmount() {},
     checkDCE() {},
@@ -256,8 +264,8 @@ const PAGE_PROBE = `(() => {
     keys: [...perf.keys],
     top: [...perf.names.entries()].sort((left, right) => right[1] - left[1]).slice(0, 120).map(([name, count]) => name + " " + count),
   });
-  perf.place = () => { perf.changes = {}; perf.change = "beforeAnyChange"; perf.rowsThisChange.clear(); perf.storeChanges.length = 0; perf.watchingStore = true; perf.counting = true; perf.placing = true; perf.begin(); };
-  perf.placed = () => { closeChange(); perf.placing = false; perf.counting = false; return perf.changes; };
+  perf.place = () => { perf.placed = {}; perf.storeChangedAt = -1000; perf.rowsThisCommit.clear(); perf.storeChanges.length = 0; perf.watchingStore = true; perf.placing = true; perf.begin(); };
+  perf.endPlacing = () => { perf.placing = false; return perf.placed; };
   perf.until = (test, timeoutMs) => new Promise((done, fail) => {
     const deadline = performance.now() + timeoutMs;
     const look = () => { if (test()) done(performance.now()); else if (performance.now() > deadline) fail(new Error("timed out waiting in the page")); else requestAnimationFrame(look); };
@@ -1518,6 +1526,7 @@ interface PlacedRedraws {
   places: Record<string, number>;
 }
 
+const STREAMED_PIECE = { everyMs: 30, chars: 3 };
 const TYPED_WHILE_STREAMING = "Can you also check whether the release notes mention the bigger chat text and the new usage sheet, and fix them if not?";
 
 async function oneDogStreams(browser: Browser, url: string, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, files: FixtureFiles) {
@@ -1539,30 +1548,44 @@ async function oneDogStreams(browser: Browser, url: string, api: ReturnType<type
   };
   const startLongReply = async (dog: Dog) => {
     const next = Number(readFileSync(files.replyIndex, "utf8")) || 0;
-    writeFileSync(files.replyIndex, String(scriptedReplies.findIndex((text, index) => index >= next && text.length > longestReply * 0.9)));
-    writeFileSync(files.stream, JSON.stringify({ everyMs: 30, chars: 3 }));
+    const reply = scriptedReplies.findIndex((text, index) => index >= next && text.length > longestReply * 0.9);
+    writeFileSync(files.replyIndex, String(reply));
+    writeFileSync(files.stream, JSON.stringify(STREAMED_PIECE));
     await api("POST", `/api/bots/${dog.id}/messages`, { text: "Give me the whole picture again.", threadId: dog.threadId, sendId: randomUUID().replaceAll("-", "") });
+    return scriptedReplies[reply]!.length;
   };
-  const each = (total: number, changes: number) => Math.round(total / Math.max(1, changes) * 10) / 10;
-  const perChange = (held: PlacedRedraws | undefined) => held ? {
-    storeChanges: held.storeChanges,
-    commits: held.commits,
-    componentsRedrawn: held.rendered,
-    eachChange: {
-      componentsRedrawn: each(held.rendered, held.storeChanges),
-      sidebarRowsRedrawn: each(held.sidebarRows, held.storeChanges),
-      mostSidebarRowsRedrawn: held.mostSidebarRows,
-      ...Object.fromEntries(Object.entries(held.places).sort((left, right) => right[1] - left[1]).map(([place, count]) => [place, each(count, held.storeChanges)])),
-    },
-  } : null;
+  const each = (total: number, times: number) => Math.round(total / Math.max(1, times) * 10) / 10;
+  const places = (held: PlacedRedraws, times: number) => Object.fromEntries(Object.entries(held.places).sort((left, right) => right[1] - left[1]).map(([place, count]) => [place, each(count, times)]));
+  const nothing: PlacedRedraws = { storeChanges: 0, commits: 0, rendered: 0, sidebarRows: 0, mostSidebarRows: 0, places: {} };
   const counted = async (dog: Dog) => {
     await page.evaluate(() => (window as unknown as { __perf: { place(): void } }).__perf.place());
-    await startLongReply(dog);
+    const characters = await startLongReply(dog);
     await new Promise((done) => setTimeout(done, 150));
     await settled(api, [dog.id]);
     await page.waitForTimeout(400);
-    const changes = await page.evaluate(() => (window as unknown as { __perf: { placed(): Record<string, PlacedRedraws> } }).__perf.placed());
-    return { streamedPiece: perChange(changes.streamedPiece), otherChange: perChange(changes.otherChange) };
+    const seen = await page.evaluate(() => (window as unknown as { __perf: { endPlacing(): Record<string, PlacedRedraws> } }).__perf.endPlacing());
+    const store = seen.storeChange ?? nothing;
+    const growing = seen.replyGrowing ?? nothing;
+    return {
+      piecesSent: Math.ceil(characters / STREAMED_PIECE.chars),
+      storeChanges: store.storeChanges,
+      commits: store.commits + growing.commits,
+      componentsRedrawn: store.rendered + growing.rendered,
+      eachStoreChange: {
+        times: store.storeChanges,
+        componentsRedrawn: each(store.rendered, store.storeChanges),
+        sidebarRowsRedrawn: each(store.sidebarRows, store.storeChanges),
+        mostSidebarRowsRedrawn: store.mostSidebarRows,
+        ...places(store, store.storeChanges),
+      },
+      eachTimeTheReplyGrew: {
+        times: growing.commits,
+        componentsRedrawn: each(growing.rendered, growing.commits),
+        sidebarRowsRedrawn: each(growing.sidebarRows, growing.commits),
+        mostSidebarRowsRedrawn: growing.mostSidebarRows,
+        ...places(growing, growing.commits),
+      },
+    };
   };
   const typed = async (dog: Dog | null) => {
     await page.click(composerOf(dogs.long));
@@ -1598,7 +1621,7 @@ async function oneDogStreams(browser: Browser, url: string, api: ReturnType<type
   rmSync(files.stream, { force: true });
   await context.close();
   return {
-    stream: "one reply of about " + Math.round(longestReply * 0.9) + " characters or more, 3 characters every 30 ms",
+    stream: `one reply of ${Math.round(longestReply * 0.9)} characters or more, ${STREAMED_PIECE.chars} characters every ${STREAMED_PIECE.everyMs} ms`,
     open: dogs.long.name,
     anotherDog: elsewhere.name,
     redrawsWhileAnotherDogStreams,
