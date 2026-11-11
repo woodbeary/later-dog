@@ -145,6 +145,7 @@ describe("pressing Steer on a queued message", () => {
     const { onError } = await steerBot();
     expect(onError).toHaveBeenCalledOnce();
     expect(seen.paneErrors["chat:thread"]?.line).toBe(STILL_QUEUED_LINE);
+    expect(seen.paneErrors["chat:thread"]?.retryable).toBe(false);
   });
 
   it("says plainly when later.dog could not be reached", async () => {
@@ -165,6 +166,14 @@ describe("pressing Steer on a queued message", () => {
     expect(linesFor("room-thread", "room hello")).toHaveLength(1);
     await frame({ kind: "message", threadId: "room-thread", message: roomHello } as ServerFrame);
     expect(linesFor("room-thread", "room hello")).toHaveLength(1);
+  });
+
+  it("still offers Try again in a room when later.dog could not be reached", async () => {
+    await mount(() => Promise.reject(new TypeError("Failed to fetch")));
+    const { onError } = await steerRoom();
+    expect(onError).toHaveBeenCalledOnce();
+    expect(seen.paneErrors["chat:room-thread"]?.line).toBe(UNREACHABLE_MESSAGE);
+    expect(seen.paneErrors["chat:room-thread"]?.retryable).toBe(true);
   });
 
   it("shows the room's plain line when its message could not go yet", async () => {

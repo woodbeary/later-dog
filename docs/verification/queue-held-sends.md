@@ -13,7 +13,7 @@ the third review's three Should fix items; this note describes that head.
 - Send now and cancel work on that queued message from the moment it is sent,
   in a dog's chat and in a group chat.
 - If the home refuses the message, or does not come up within the hour, the
-  message comes back in the Not sent row with its words and Retry. It never
+  message comes back in the Not sent row with its words and Send again. It never
   disappears silently.
 - Asking about a queued message that is gone says "That message is no longer
   waiting. It may already have been sent." A failure that carries no words says
@@ -68,7 +68,7 @@ the third review's three Should fix items; this note describes that head.
 - One settle runs at a time. A refresh that arrives during one is folded into a
   single follow-up run with the newest chats.
 - A dropped send takes its queued row away, goes to the Not sent row with its
-  words, and shows one notice. Retry reuses the send id; the re-held message
+  words, and shows one notice. Send again reuses the send id; the re-held message
   shows as queued again.
 
 ### Edge (`deploy/laterdog/home/src/desk.ts`, `host.ts`)
