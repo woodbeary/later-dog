@@ -1,5 +1,4 @@
 import {
-  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -11,6 +10,7 @@ import {
   type TouchEvent,
   type WheelEvent,
 } from "react";
+import { flushSync } from "react-dom";
 import { BOTTOM_FOLLOW_THRESHOLD, shouldResumeBottomFollow, useBottomFollowResize } from "@/lib/bottom-follow";
 import { useFocusMessage } from "@/lib/focus-message";
 import {
@@ -93,7 +93,7 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   const reopening = opensAtBottom ? opening : filledWindow(opening, tailStart);
   const staged = reopened ? null : transcriptWindow.staged;
   const stagedAt = staged ? stagedStart(staged, messages) : -1;
-  const stagingOver = staged !== null && stagedAt <= tailStart;
+  const stagingOver = staged !== null && (stagedAt <= tailStart || messages[0]?.id !== staged.oldestId);
   const nextStart = reopened
     ? reopening.start
     : !staged && follow && transcriptWindow.end === null
@@ -102,11 +102,11 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
   if (reopened) {
     setTranscriptWindow(reopening);
   } else if (stagingOver) {
-    setTranscriptWindow(filledWindow(transcriptWindow, stagedAt < 0 ? tailStart : stagedAt));
+    setTranscriptWindow(filledWindow(transcriptWindow, stagedAt < 0 ? tailStart : Math.min(stagedAt, tailStart)));
   } else if (!staged && nextStart !== transcriptWindow.start) {
     setTranscriptWindow({ ...transcriptWindow, start: nextStart, end: null });
   }
-  const windowStart = staged && stagedAt > tailStart ? stagedAt : transcriptWindow.start;
+  const windowStart = staged && !stagingOver ? stagedAt : transcriptWindow.start;
   const lastKeyAt = useRef(Number.NEGATIVE_INFINITY);
   const latest = useRef({ messages, counts });
   latest.current = { messages, counts };
@@ -180,10 +180,12 @@ export function useTranscriptViewport<T extends { id: string; role?: string }>({
         frame = requestAnimationFrame(widen);
         return;
       }
-      if (!followRef.current && scrollRef.current) preExpandHeight.current = { key: transcriptKey, height: scrollRef.current.scrollHeight };
-      startTransition(() => {
+      const held = !followRef.current && scrollRef.current ? { key: transcriptKey, height: scrollRef.current.scrollHeight } : null;
+      if (held) preExpandHeight.current = held;
+      flushSync(() => {
         setTranscriptWindow((current) => (current.key === transcriptKey ? widenedWindow(current, latest.current.messages, latest.current.counts) : current));
       });
+      if (preExpandHeight.current === held) preExpandHeight.current = null;
     };
     frame = requestAnimationFrame(widen);
     return () => cancelAnimationFrame(frame);

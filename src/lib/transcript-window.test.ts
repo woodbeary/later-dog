@@ -8,6 +8,7 @@ import {
   followWindowStart,
   openingWindow,
   resolveTranscriptWindow,
+  stagedStart,
   tailWindowStart,
   widenedWindow,
   windowEndAfter,
@@ -220,10 +221,10 @@ describe("a window that counts only the rows a person can see", () => {
 
 describe("opening a chat with its newest rows first", () => {
   const thread = (length: number) => Array.from({ length }, (_, index) => ({ id: `m${index}`, shown: index % 2 === 0 }));
-  const settled = <T,>(messages: readonly T[], counts?: (message: T) => boolean) => {
+  const settled = <T extends { id: string }>(messages: readonly T[], counts?: (message: T) => boolean) => {
     let window = openingWindow("dog:thread", messages, counts);
     const starts = [window.start];
-    while (!window.filled) {
+    while (window.staged) {
       window = widenedWindow(window, messages, counts);
       starts.push(window.start);
     }
@@ -232,29 +233,29 @@ describe("opening a chat with its newest rows first", () => {
 
   it("opens a long chat on a short tail and says the rest is still to come", () => {
     const opened = openingWindow("dog:thread", thread(400));
-    expect(opened).toEqual({ key: "dog:thread", start: 400 - TRANSCRIPT_OPENING_SIZE, end: null, filled: false, empty: false });
+    expect(opened).toEqual({ key: "dog:thread", start: 400 - TRANSCRIPT_OPENING_SIZE, end: null, staged: { firstId: "m370", oldestId: "m0" }, empty: false });
     expect(resolveTranscriptWindow(thread(400), opened.start).visible).toHaveLength(TRANSCRIPT_OPENING_SIZE);
   });
 
   it("has nothing left to fill when the whole chat fits the opening tail", () => {
-    expect(openingWindow("dog:thread", thread(12))).toEqual({ key: "dog:thread", start: 0, end: null, filled: true, empty: false });
-    expect(openingWindow("dog:thread", [])).toEqual({ key: "dog:thread", start: 0, end: null, filled: true, empty: true });
+    expect(openingWindow("dog:thread", thread(12))).toEqual({ key: "dog:thread", start: 0, end: null, staged: null, empty: false });
+    expect(openingWindow("dog:thread", [])).toEqual({ key: "dog:thread", start: 0, end: null, staged: null, empty: true });
   });
 
   it("opens on the full window when a row the person has not read sits above the short tail", () => {
     const messages = thread(400);
     const unreadFrom = (first: number) => (message: { id: string }) => Number(message.id.slice(1)) >= first;
-    expect(openingWindow("dog:thread", messages, undefined, unreadFrom(369))).toEqual({ key: "dog:thread", start: 280, end: null, filled: true, empty: false });
+    expect(openingWindow("dog:thread", messages, undefined, unreadFrom(369))).toEqual({ key: "dog:thread", start: 280, end: null, staged: null, empty: false });
     expect(openingWindow("dog:thread", messages, undefined, unreadFrom(100)).start).toBe(280);
-    expect(openingWindow("dog:thread", messages, undefined, unreadFrom(370))).toEqual({ key: "dog:thread", start: 370, end: null, filled: false, empty: false });
-    expect(openingWindow("dog:thread", messages, undefined, () => false).filled).toBe(false);
+    expect(openingWindow("dog:thread", messages, undefined, unreadFrom(370))).toEqual({ key: "dog:thread", start: 370, end: null, staged: { firstId: "m370", oldestId: "m0" }, empty: false });
+    expect(openingWindow("dog:thread", messages, undefined, () => false).staged).not.toBeNull();
   });
 
   it("fills back to the full window a tail at a time, and then stops", () => {
     const messages = thread(400);
     const { window, starts } = settled(messages);
     expect(starts).toEqual([370, 340, 310, 280]);
-    expect(window).toEqual({ key: "dog:thread", start: 400 - TRANSCRIPT_WINDOW_SIZE, end: null, filled: true, empty: false });
+    expect(window).toEqual({ key: "dog:thread", start: 400 - TRANSCRIPT_WINDOW_SIZE, end: null, staged: null, empty: false });
     expect(widenedWindow(window, thread(900))).toBe(window);
   });
 
@@ -262,10 +263,29 @@ describe("opening a chat with its newest rows first", () => {
     expect(settled(thread(50)).starts).toEqual([20, 0]);
   });
 
-  it("never pulls the start forward when earlier rows were already asked for", () => {
-    const messages = thread(400);
-    const expanded = { ...openingWindow("dog:thread", messages), start: 40 };
-    expect(widenedWindow(expanded, messages)).toEqual({ ...expanded, filled: true });
+  it("counts each step from the row it last showed first, wherever that row now sits", () => {
+    const opened = openingWindow("dog:thread", thread(400));
+    const longer = [...thread(400), ...Array.from({ length: 50 }, (_, index) => ({ id: `new${index}`, shown: true }))];
+    expect(stagedStart(opened.staged!, longer)).toBe(370);
+    expect(widenedWindow(opened, longer)).toEqual({ ...opened, start: 340, staged: { firstId: "m340", oldestId: "m0" } });
+  });
+
+  it("finishes on the whole tail in one step when an older page has arrived above", () => {
+    const opened = openingWindow("dog:thread", thread(400));
+    const older = [...Array.from({ length: 200 }, (_, index) => ({ id: `old${index}`, shown: true })), ...thread(400)];
+    expect(stagedStart(opened.staged!, older)).toBe(570);
+    expect(widenedWindow(opened, older)).toEqual({ ...opened, start: 600 - TRANSCRIPT_WINDOW_SIZE, staged: null });
+  });
+
+  it("finishes without pulling the start forward once the tail has moved past the row it showed first", () => {
+    const opened = openingWindow("dog:thread", thread(400));
+    const burst = [...thread(400), ...Array.from({ length: 200 }, (_, index) => ({ id: `new${index}`, shown: true }))];
+    expect(widenedWindow(opened, burst)).toEqual({ ...opened, start: 370, staged: null });
+  });
+
+  it("finishes on the tail when the row it showed first is gone", () => {
+    const opened = openingWindow("dog:thread", thread(400));
+    expect(widenedWindow(opened, thread(300))).toEqual({ ...opened, start: 300 - TRANSCRIPT_WINDOW_SIZE, staged: null });
   });
 
   it("counts only rows that show when some messages are folded away", () => {
