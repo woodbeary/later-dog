@@ -180,16 +180,7 @@ function RoomMessageActions({ side, message, threadId, onReply }: {
   );
 }
 
-export const Transcript = memo(function Transcript({
-  group,
-  members,
-  messages,
-  filledWindow = messages,
-  transcript,
-  emergingId,
-  onReply,
-  readOnly = false,
-}: {
+interface TranscriptProps {
   group: Group;
   members: Bot[];
   locale: string;
@@ -199,7 +190,26 @@ export const Transcript = memo(function Transcript({
   emergingId?: string | null;
   onReply: (message: Message) => void;
   readOnly?: boolean;
-}) {
+}
+
+const roomThreadKey = (group: Group) => `room/${group.id}/${group.threadId}`;
+
+export const Transcript = memo(function Transcript(props: TranscriptProps) {
+  const unreadSince = useUnreadBoundary(roomThreadKey(props.group), props.messages);
+  return <TranscriptRows {...props} unreadSince={unreadSince} />;
+});
+
+const TranscriptRows = memo(function TranscriptRows({
+  group,
+  members,
+  messages,
+  filledWindow = messages,
+  transcript,
+  emergingId,
+  onReply,
+  readOnly = false,
+  unreadSince,
+}: TranscriptProps & { unreadSince: number | null }) {
   const { state, dispatch } = useStore();
   const showToolCalls = showToolCallsEnabled(state.config);
   const nativeRuns = useNativeRuns(group.threadId, filledWindow[0]?.at);
@@ -209,7 +219,6 @@ export const Transcript = memo(function Transcript({
     message.kind !== "activity" || roomActivityVisible(message, showToolCalls))), [messages, showToolCalls]);
   const newestMessageId = messages.at(-1)?.id;
   const newestUserMessageId = [...messages].reverse().find((message) => message.role === "user")?.id;
-  const unreadSince = useUnreadBoundary(`room/${group.id}/${group.threadId}`, messages);
   let unreadPlaced = false;
   const unreadDivider = (rows: readonly Message[]) => {
     if (unreadPlaced || !rows.some((row) => isUnread(row, unreadSince))) return null;
@@ -506,6 +515,8 @@ export function GroupView({ group }: { group: Group }) {
   const presenceSpeaker =
     speaker ?? awaited ?? members.find((member) => member.id === popping?.botId) ?? members[0];
 
+  const unreadSince = useUnreadBoundary(roomThreadKey(group), group.messages);
+  const unreadRow = useCallback((message: Message) => isUnread(message, unreadSince), [unreadSince]);
   const {
     scrollRef,
     transcriptRef,
@@ -528,6 +539,7 @@ export function GroupView({ group }: { group: Group }) {
     messages: group.messages,
     pinOn: [group.busyBotId, group.working, composerDock.pad],
     counts: countsInWindow,
+    unread: unreadRow,
   });
 
   useScrollAnchor(scrollRef, transcriptRef, followingRef, true);
@@ -683,7 +695,7 @@ export function GroupView({ group }: { group: Group }) {
               </button>
             </div>
           ) : null}
-          <Transcript
+          <TranscriptRows
             group={group}
             members={members}
             locale={activeLocale()}
@@ -692,6 +704,7 @@ export function GroupView({ group }: { group: Group }) {
             transcript={group.messages}
             emergingId={popping?.id}
             onReply={selectReply}
+            unreadSince={unreadSince}
           />
           {laterCount > 0 && (
             <div className="flex justify-center">
