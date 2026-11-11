@@ -34,7 +34,7 @@ import { StatusActivityRow } from "@/components/StatusActivityRow";
 import { DOG_COLORS, normalizeState } from "@/lib/mascot";
 import { groupResponseHint, jevRoomRoutingOn } from "@/lib/group-routing";
 import { ChatMarkdown } from "./ChatMarkdown";
-import { FailedTurnRow } from "./ChatView";
+import { FailedTurnRow } from "./FailedTurnRow";
 import { botEngine, failedTurnCause } from "@/lib/failed-turn";
 import { CitationSelectionToolbar, SentCitations } from "./CitationUI";
 import { Composer } from "./Composer";
