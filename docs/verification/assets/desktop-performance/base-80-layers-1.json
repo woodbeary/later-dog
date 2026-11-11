@@ -1,0 +1,46 @@
+{
+  "layers": 426,
+  "drawing": 339,
+  "why": [
+    "253 x Overlap",
+    "82 x ActiveTransformAnimation",
+    "79 x ActiveTransformAnimation+ActiveOpacityAnimation",
+    "3 x BackdropFilter",
+    "3 x BackdropFilterMask",
+    "1 x (none given)",
+    "1 x Viewport+OverflowScrolling",
+    "1 x OverflowScrolling",
+    "1 x RootScroller+OverflowScrolling",
+    "1 x Caret",
+    "1 x Viewport"
+  ],
+  "where": [
+    "82 x ActiveTransformAnimation @ svg data-mood data-breed data-ears .ld-dog",
+    "80 x Overlap @ svg data-mood data-breed data-ears .ld-dog",
+    "80 x Overlap @ button  .pointer-events-none absolute right-1 top-1/2 flex size-7 -tr",
+    "80 x Overlap @ div  .group relative",
+    "79 x ActiveTransformAnimation+ActiveOpacityAnimation @ span data-testid data-status .status-dot shrink-0 rounded-full size-2 bg-unread",
+    "4 x Overlap @ thead  .sticky top-0 z-10 bg-raised",
+    "3 x BackdropFilter @ ::before  .",
+    "3 x BackdropFilterMask @ ::before  .",
+    "2 x Overlap @ div data-glass-bar .glass-bar absolute inset-x-0 z-10 bottom-0",
+    "2 x Overlap @ div data-glass-bar .glass-bar absolute inset-x-0 top-0 z-[25]",
+    "1 x (none given) @ (no element)",
+    "1 x Viewport+OverflowScrolling @   .",
+    "1 x OverflowScrolling @   .",
+    "1 x RootScroller+OverflowScrolling @   .",
+    "1 x Caret @ (no element)",
+    "1 x Overlap @ div data-glass-bar .glass-bar absolute inset-x-0 z-10 top-0",
+    "1 x Overlap @ div data-sidebar-top-row .flex items-center relative pl-4 pr-2 h-12",
+    "1 x Overlap @ div  .relative",
+    "1 x Overlap @ div data-sidebar-resize .absolute inset-y-0 -right-1 z-20 hidden w-2 cursor-col-resiz",
+    "1 x Overlap @ div  .pointer-events-none absolute inset-x-0 z-20 flex justify-cen",
+    "1 x Viewport @ (no element)"
+  ],
+  "typing": [
+    "message box as it is: Layerize 2938 ms x108, Paint 120 ms x312, PrePaint 52 ms x216, Layout 173 ms x300, UpdateLayoutTree 171 ms x300, EventDispatch 590 ms x387, FunctionCall 189 ms x1126",
+    "a plain box added to the page: Layerize 3064 ms x109, Paint 162 ms x977, PrePaint 43 ms x218, Layout 125 ms x159, UpdateLayoutTree 141 ms x112, EventDispatch 53 ms x373, FunctionCall 13 ms x662",
+    "sidebar rows hidden (0): Layerize 2878 ms x108, Paint 145 ms x943, PrePaint 60 ms x216, Layout 181 ms x302, UpdateLayoutTree 154 ms x303, EventDispatch 581 ms x471, FunctionCall 183 ms x1298",
+    "transcript hidden (1): Layerize 389 ms x136, Paint 110 ms x843, PrePaint 42 ms x272, Layout 132 ms x329, UpdateLayoutTree 195 ms x329, EventDispatch 522 ms x517, FunctionCall 172 ms x1463"
+  ]
+}

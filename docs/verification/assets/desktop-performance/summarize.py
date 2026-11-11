@@ -4,7 +4,7 @@ import os
 import statistics
 import sys
 
-FOLDER = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.abspath(__file__))
+FOLDER = os.path.dirname(os.path.abspath(__file__))
 
 
 def dig(value, path):
@@ -152,12 +152,20 @@ def difference(base, main):
     return f"{sign}{number(abs(change))}{share}"
 
 
+def count(runs):
+    return f"{len(runs)} run" if len(runs) == 1 else f"{len(runs)} runs"
+
+
 def table(kind, dogs, out):
     rows = KINDS[kind]
     base, base_failed = load("base", dogs, kind)
     main, main_failed = load("main", dogs, kind)
-    out.append(f"\n{kind} at {dogs} dogs: base {len(base)} runs, main {len(main)} runs" + (f"; failed runs left out: {', '.join(base_failed + main_failed)}" if base_failed or main_failed else ""))
-    out.append(f"\n| Measure | base 651cf65, median (range), {len(base)} runs | main 89b1439, median (range), {len(main)} runs | Difference of medians | Verdict |")
+    names = {"default": "The default timed run", "ods": "`--one-dog-streams`", "sc": "`--store-changes`"}
+    fleet = " with `--other-dogs 79 --other-turns 2`" if dogs == 80 else ""
+    out.append(f"\n{names[kind]}{fleet}: base {count(base)}, main {count(main)}" + (f"; failed runs left out: {', '.join(base_failed + main_failed)}" if base_failed or main_failed else "") + ".")
+    if not base and not main:
+        return {}
+    out.append(f"\n| Measure | base 651cf65, median (range), {count(base)} | main 89b1439, median (range), {count(main)} | Difference of medians | Verdict |")
     out.append("|---|---|---|---|---|")
     summary = {}
     for name, read, better in rows:
@@ -171,7 +179,6 @@ def table(kind, dogs, out):
 
 def layers(out):
     summary = {}
-    out.append("\nlayers at 80 dogs")
     out.append("\n| Build | Run | Layers | Layers that draw | Typing 48 keys in the message box as it is |")
     out.append("|---|---|---|---|---|")
     for build in ("base", "main"):
@@ -194,16 +201,46 @@ def waits(out):
         out.append(f"| {meta['label']} | {meta['lock']} | {meta['lockWaitSeconds']} | {meta['endedAt'] - meta['startedAt']} | {meta['loadAtStart']} | {meta['exit']} |")
 
 
+HEADINGS = {
+    "default-7": "### Timed run at 7 dogs",
+    "default-80": "### Timed run at 80 dogs",
+    "ods-7": "### One dog streams, at 7 dogs",
+    "ods-80": "### One dog streams, at 80 dogs",
+    "sc-7": "### Store changes, at 7 dogs",
+    "sc-80": "### Store changes, at 80 dogs",
+    "layers-80": "### Layers at 80 dogs",
+    "waits": "### Every run, in the order it ran",
+}
+
+
+def write_note(path, blocks):
+    lines = open(path).read().split("\n")
+    for key, block in blocks.items():
+        heading = HEADINGS[key]
+        if heading not in lines:
+            continue
+        first = lines.index(heading)
+        last = next((index for index in range(first + 1, len(lines)) if lines[index].startswith("#")), len(lines))
+        lines[first + 1 : last] = "\n".join(block).strip("\n").split("\n") + [""]
+        lines.insert(first + 1, "")
+    open(path, "w").write("\n".join(lines))
+
+
 def main():
-    out = []
+    blocks = {}
     summary = {}
     for kind in ("default", "ods", "sc"):
         for dogs in (7, 80):
-            summary[f"{kind}-{dogs}"] = table(kind, dogs, out)
-    summary["layers-80"] = layers(out)
-    waits(out)
-    print("\n".join(out))
+            blocks[f"{kind}-{dogs}"] = []
+            summary[f"{kind}-{dogs}"] = table(kind, dogs, blocks[f"{kind}-{dogs}"])
+    blocks["layers-80"] = []
+    summary["layers-80"] = layers(blocks["layers-80"])
+    blocks["waits"] = []
+    waits(blocks["waits"])
+    print("\n".join(line for block in blocks.values() for line in block))
     json.dump(summary, open(os.path.join(FOLDER, "summary.json"), "w"), indent=1)
+    if "--note" in sys.argv:
+        write_note(sys.argv[sys.argv.index("--note") + 1], blocks)
 
 
 main()

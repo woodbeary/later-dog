@@ -1,5 +1,8 @@
 # Desktop performance, measured against a fixture
 
+Every number in this note comes from headless Chromium on Linux against
+fixture data. None of it was measured in the Mac app.
+
 `scripts/desktop-perf.ts` measures the real renderer: the production build from
 `pnpm exec vite build`, served by a fake-engine fixture server, opened in a
 headless Chrome. It seeds one long chat and several short ones through the same
@@ -82,12 +85,90 @@ a JSON file `{ "everyMs": 30, "chars": 10 }`, and reads scripted replies from
 
 ## Results, 2026-11-11: base 651cf65 against main 89b1439
 
-In progress. This section is being filled in as runs finish; until the table
-is here, the tables under "History" below are the only timed numbers and they
-describe 456e978, not main.
+In progress: the runs are still going and the tables below fill in as each
+round finishes. The run count is in each table's heading. Until every table
+has its five runs, read the verdicts as provisional.
 
-How the runs are made, on the Linux cloud computer (4 cores, 12 GB, Chromium
-156 through Playwright 1.56.1, Node 24.22.2, fixture data, not the Mac app):
+"base" is the renderer built at 651cf65, main on 2026-11-10 before the
+desktop work. "main" is the renderer built at 89b1439, with #158, #164, #171
+and #169 in it. Both are measured by main's `scripts/desktop-perf.ts` on the
+Linux cloud computer (4 cores, 12 GB, Chromium 156 through Playwright 1.56.1,
+Node 24.22.2) against fixture data. Nothing here was measured in the Mac app.
+
+How to read the tables: each cell is the median of the runs, with the lowest
+and highest run in brackets. "Difference of medians" is main minus base. The
+verdict is "lower in every run" or "higher in every run" only when the two
+ranges do not touch; when they overlap it is "no measurable change", whatever
+the medians say.
+
+### Timed run at 7 dogs
+
+The default timed run: base 1 run, main 1 run.
+
+| Measure | base 651cf65, median (range), 1 run | main 89b1439, median (range), 1 run | Difference of medians | Verdict |
+|---|---|---|---|---|
+| Open the long chat, median of 8 (ms) | 301.9 (301.9 to 301.9) | 266.9 (266.9 to 266.9) | -35 (-12%) | lower in every run |
+| Open the long chat, slowest of 8 (ms) | 339.8 (339.8 to 339.8) | 280 (280 to 280) | -59.8 (-18%) | lower in every run |
+| Long chat: rows drawn when it is first shown | 120 (120 to 120) | 30 (30 to 30) | -90 (-75%) | changed |
+| Long chat: all 120 rows in place, median of 8 (ms) | 292 (292 to 292) | 375 (375 to 375) | +83 (+28%) | higher in every run |
+| Long chat: openings of 8 that never reached 120 rows | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
+| Open a short chat, median of 8 (ms) | 63.6 (63.6 to 63.6) | 69.2 (69.2 to 69.2) | +5.6 (+9%) | higher in every run |
+| Long tasks across 16 switches (ms) | 2,261 (2,261 to 2,261) | 2,792 (2,792 to 2,792) | +531 (+23%) | higher in every run |
+| Key press to frame, median of 119 keys (ms) | 23.6 (23.6 to 23.6) | 23.6 (23.6 to 23.6) | 0 | same |
+| Key press to frame, 95th of 119 keys (ms) | 32.2 (32.2 to 32.2) | 31.9 (31.9 to 31.9) | -0.3 (-1%) | lower in every run |
+| Key press to frame, slowest of 119 keys (ms) | 32.9 (32.9 to 32.9) | 32.9 (32.9 to 32.9) | 0 | same |
+| Typing: frames slower than 25 ms | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
+| Typing: main thread busy over 5.5 s (ms) | 2,257 (2,257 to 2,257) | 2,000 (2,000 to 2,000) | -257 (-11%) | lower in every run |
+| Typing: layouts for 119 keys | 768 (768 to 768) | 569 (569 to 569) | -199 (-26%) | lower in every run |
+| Typing: components redrawn for 119 keys | 3,221 (3,221 to 3,221) | 3,223 (3,223 to 3,223) | +2 (+0%) | higher in every run |
+| Cold load: first paint, median of 5 (ms) | 372 (372 to 372) | 452 (452 to 452) | +80 (+22%) | higher in every run |
+| Cold load: message box ready, median of 5 (ms) | 547.2 (547.2 to 547.2) | 649.8 (649.8 to 649.8) | +102.6 (+19%) | higher in every run |
+| Cold load: message box ready, slowest of 5 (ms) | 593.1 (593.1 to 593.1) | 668.2 (668.2 to 668.2) | +75.1 (+13%) | higher in every run |
+| Idle: main thread busy per 3 s (ms) | 130 (130 to 130) | 77 (77 to 77) | -53 (-41%) | lower in every run |
+| Idle: style passes per 3 s | 181 (181 to 181) | 0 (0 to 0) | -181 (-100%) | lower in every run |
+| A streamed reply: frames slower than 25 ms | 5 (5 to 5) | 2 (2 to 2) | -3 (-60%) | lower in every run |
+| A streamed reply: components redrawn | 8,628 (8,628 to 8,628) | 5,487 (5,487 to 5,487) | -3,141 (-36%) | lower in every run |
+| Own bubble after Enter (ms) | 36.9 (36.9 to 36.9) | 28.1 (28.1 to 28.1) | -8.8 (-24%) | lower in every run |
+| Four other dogs working: frames slower than 25 ms | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
+| Four other dogs working: main thread busy (ms) | 970 (970 to 970) | 797 (797 to 797) | -173 (-18%) | lower in every run |
+| Four other dogs working: components redrawn | 1,322 (1,322 to 1,322) | 636 (636 to 636) | -686 (-52%) | lower in every run |
+| Switching: components redrawn across 16 switches | 31,091 (31,091 to 31,091) | 32,933 (32,933 to 32,933) | +1,842 (+6%) | higher in every run |
+| JS heap at idle, after a collection (MB) | 12.8 (12.8 to 12.8) | 12.7 (12.7 to 12.7) | -0.1 (-1%) | lower in every run |
+| JS heap after the run, after a collection (MB) | 25.8 (25.8 to 25.8) | 26 (26 to 26) | +0.2 (+1%) | higher in every run |
+| Page process memory at idle (MB) | 61 (61 to 61) | 59 (59 to 59) | -2 (-3%) | lower in every run |
+| Page process memory, highest of 6 samples (MB) | 373 (373 to 373) | 344 (344 to 344) | -29 (-8%) | lower in every run |
+| Browser process tree at idle, resident (MB) | 1,001 (1,001 to 1,001) | 1,002 (1,002 to 1,002) | +1 (+0%) | higher in every run |
+| Browser process tree, highest in the run, resident (MB) | 1,337 (1,337 to 1,337) | 1,314 (1,314 to 1,314) | -23 (-2%) | lower in every run |
+| DOM nodes after the run | 10,933 (10,933 to 10,933) | 10,933 (10,933 to 10,933) | 0 | same |
+| Rows in the long chat 1.5 s after opening | 120 (120 to 120) | 120 (120 to 120) | 0 | same |
+
+### Timed run at 80 dogs
+
+The default timed run with `--other-dogs 79 --other-turns 2`: base 0 runs, main 0 runs.
+
+### One dog streams, at 7 dogs
+
+`--one-dog-streams`: base 0 runs, main 0 runs.
+
+### One dog streams, at 80 dogs
+
+`--one-dog-streams` with `--other-dogs 79 --other-turns 2`: base 0 runs, main 0 runs.
+
+### Store changes, at 7 dogs
+
+`--store-changes`: base 0 runs, main 0 runs.
+
+### Store changes, at 80 dogs
+
+`--store-changes` with `--other-dogs 79 --other-turns 2`: base 0 runs, main 0 runs.
+
+### Layers at 80 dogs
+
+| Build | Run | Layers | Layers that draw | Typing 48 keys in the message box as it is |
+|---|---|---|---|---|
+| base | base-80-layers-1 | 426 | 339 | Layerize 2938 ms x108, Paint 120 ms x312, PrePaint 52 ms x216, Layout 173 ms x300, UpdateLayoutTree 171 ms x300, EventDispatch 590 ms x387, FunctionCall 189 ms x1126 |
+
+### How the runs were made
 
 - `~/measure/base` is `git archive 651cf65` (tree f7700da, checked with
   `git write-tree`), `~/measure/main` is main 89b1439 (tree 415d264, checked
@@ -99,18 +180,33 @@ How the runs are made, on the Linux cloud computer (4 cores, 12 GB, Chromium
   `scripts/desktop-perf.ts`, main's fixture server and main's fake engine,
   serving one of the two builds with `--dist`. Only the renderer differs
   between the columns.
-- Timed runs hold `flock -x ~/heavy.lock`, alternate base and main, and write
-  one result file and one `.meta.json` (command, lock, wait for the lock, load
-  average at the start and end, exit code) each, under `~/measure/results/`
-  there and in `assets/desktop-performance/` here.
-  `python3 assets/desktop-performance/summarize.py` prints the tables from
-  those files.
+- Timed runs hold `flock -x ~/heavy.lock`, so no other lane's build or test
+  suite runs beside them, and go in rounds: one round is each build once at 7
+  dogs and once at 80, base first in odd rounds and main first in even ones.
+  Between rounds other lanes take the lock, so a round often waited for it;
+  the wait and the load average when each run started are in the table below
+  and in each run's `.meta.json`.
+- `--kept` and `--message-box` time nothing and ran with the lock shared
+  (`flock -s`), beside another lane's work.
+- Every run writes one result file and one `.meta.json` (command, lock, wait
+  for the lock, load average at the start and end, exit code), under
+  `~/measure/results/` there and in `assets/desktop-performance/` here.
+  `--store-changes` and `--layers` print their result instead of writing it to
+  `--out`; for those the printed result is the `.json` file here.
+  `python3 assets/desktop-performance/summarize.py --note desktop-performance.md`
+  rewrites the tables in this section from those files.
 
-Done so far: the builds; one timed run of each build at 7 dogs; `--kept` and
-`--message-box` at 80 dogs, once each on each build (not timed, so they ran
-with the lock shared). Left: everything else in the brief for this note (five
-timed runs of each build at 7 and at 80 dogs, `--one-dog-streams`,
-`--store-changes`, `--layers`).
+### Every run, in the order it ran
+
+| Run | Lock | Waited for the lock (s) | Ran (s) | Load at start (1, 5, 15 min) | Exit |
+|---|---|---|---|---|---|
+| main-80-kept-1 | s | 0 | 73 | 2.24 2.86 2.94 | 0 |
+| main-80-mbox-1 | s | 0 | 66 | 3.17 3.12 3.03 | 0 |
+| base-7-default-1 | x | 169 | 88 | 3.08 3.28 3.10 | 0 |
+| base-80-mbox-1 | s | 54 | 159 | 1.53 2.77 2.94 | 0 |
+| main-7-default-1 | x | 159 | 92 | 2.11 2.61 2.86 | 0 |
+| base-80-kept-1 | s | 92 | 82 | 0.96 2.11 2.66 | 0 |
+| base-80-layers-1 | x | 658 | 72 | 2.13 1.42 1.94 | 0 |
 
 ## History: results at 456e978, 2026-11-10
 
