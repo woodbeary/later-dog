@@ -3,12 +3,14 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
+import { StoreChannelContext, createStoreFeed, type StoreChannel, type StoreFeed } from "./store-channel";
 import { followsTaskView, followTaskView, reduceTaskView, type TaskView, type TaskViewAction } from "./task-view";
 import type { BotVisibility, CardAnswerer, CloudBackend, ConnectorToolGrant, EffortLevel, InstalledPackageMetadata, LiveCallState, LiveSettings, ServerFrame, GroupThreadUsage, SteerQueueReason, WireWaitingOn } from "../../shared/wire";
 import type { TurnDigest } from "../../shared/digest";
@@ -2324,6 +2326,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     firstPaint.current ? withFirstPaint(base, firstPaint.current) : base);
   const stateRef = useRef(state);
   stateRef.current = state;
+  const feedRef = useRef<StoreFeed | null>(null);
+  feedRef.current ??= createStoreFeed(state);
+  const feed = feedRef.current;
+  feed.publish(state);
+  useLayoutEffect(() => feed.announce(), [feed, state]);
   const paneErrors = useMemo(() => createPaneErrorReporter({
     dispatch: rawDispatch,
     fallbackPane: () => selectedPane(stateRef.current),
@@ -3468,7 +3475,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     () => ({ state, dispatch, flushBotPatches, refreshInstances, refreshModels }),
     [state, dispatch, flushBotPatches, refreshInstances, refreshModels],
   );
-  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+  const channel = useMemo<StoreChannel>(() => ({ read: feed.read, listen: feed.listen, dispatch }), [feed, dispatch]);
+  return <StoreChannelContext.Provider value={channel}><StoreContext.Provider value={value}>{children}</StoreContext.Provider></StoreChannelContext.Provider>;
 }
 
 export function useOptionalStore() {
@@ -3482,7 +3490,7 @@ export function useStore() {
 }
 
 export function BotEditorStore({ value, children }: { value: ReturnType<typeof useStore>; children: ReactNode }) {
-  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+  return <StoreChannelContext.Provider value={null}><StoreContext.Provider value={value}>{children}</StoreContext.Provider></StoreChannelContext.Provider>;
 }
 
 const TIME_FORMAT = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
