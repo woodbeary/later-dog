@@ -1,0 +1,3960 @@
+{
+  "label": "m1",
+  "at": "2026-11-11T20:37:27.457Z",
+  "clock": {
+    "pageAheadOfHarnessMs": 2.2,
+    "askTookMs": 4
+  },
+  "setup": {
+    "out": "/home/dog/wake2/out/m1.json",
+    "shots": "/home/dog/wake2/shots-m1",
+    "playwright": "/home/dog/audit/pw",
+    "browser": "/usr/bin/chromium",
+    "label": "m1",
+    "runs": 3,
+    "awakeRuns": 3,
+    "wakeMs": 5000,
+    "dropMs": 4000,
+    "renderer": "production build served by the fixture home through the fixture edge",
+    "platform": "linux x64",
+    "injected": {
+      "wakeMs": 5000,
+      "connectionDownMs": 4000,
+      "replyStream": "the fake engine gives its whole reply at once, except where a case says it streams"
+    }
+  },
+  "passed": 363,
+  "failed": [],
+  "defects": [
+    {
+      "case": "a. send to a home that is awake",
+      "run": 1,
+      "name": "a reply the engine streams in pieces shows its first words before the engine has finished it",
+      "ok": false,
+      "defect": true,
+      "saw": {
+        "replyWordsOnScreenAfterMs": 4744,
+        "engineStreamsForMs": 4600
+      }
+    },
+    {
+      "case": "d. the home never takes a held message",
+      "run": 1,
+      "name": "refused: the sentence saying the words are kept below is gone once they were sent again and answered",
+      "ok": false,
+      "defect": true,
+      "saw": [
+        "Your home never took this message, so it was not sent. It is kept below to send again."
+      ]
+    },
+    {
+      "case": "d. the home never takes a held message",
+      "run": 1,
+      "name": "expired: the sentence saying the words are kept below is gone once they were sent again and answered",
+      "ok": false,
+      "defect": true,
+      "saw": [
+        "Your home never took this message, so it was not sent. It is kept below to send again."
+      ]
+    },
+    {
+      "case": "i. the home stops soon after a reply",
+      "run": 1,
+      "name": "home stopped right after the reply: the newest exchange stays on screen while the home wakes",
+      "ok": false,
+      "defect": true,
+      "saw": {
+        "bubbles": 0,
+        "answers": 0
+      }
+    },
+    {
+      "case": "i. the home stops soon after a reply",
+      "run": 1,
+      "name": "home stopped 8 s after the reply: the newest exchange stays on screen while the home wakes",
+      "ok": false,
+      "defect": true,
+      "saw": {
+        "bubbles": 0,
+        "answers": 0
+      }
+    },
+    {
+      "case": "d. the home never takes a held message",
+      "run": 2,
+      "name": "refused: the sentence saying the words are kept below is gone once they were sent again and answered",
+      "ok": false,
+      "defect": true,
+      "saw": [
+        "Your home never took this message, so it was not sent. It is kept below to send again."
+      ]
+    },
+    {
+      "case": "d. the home never takes a held message",
+      "run": 2,
+      "name": "expired: the sentence saying the words are kept below is gone once they were sent again and answered",
+      "ok": false,
+      "defect": true,
+      "saw": [
+        "Your home never took this message, so it was not sent. It is kept below to send again."
+      ]
+    },
+    {
+      "case": "i. the home stops soon after a reply",
+      "run": 2,
+      "name": "home stopped right after the reply: the newest exchange stays on screen while the home wakes",
+      "ok": false,
+      "defect": true,
+      "saw": {
+        "bubbles": 0,
+        "answers": 0
+      }
+    },
+    {
+      "case": "i. the home stops soon after a reply",
+      "run": 2,
+      "name": "home stopped 8 s after the reply: the newest exchange stays on screen while the home wakes",
+      "ok": false,
+      "defect": true,
+      "saw": {
+        "bubbles": 0,
+        "answers": 0
+      }
+    },
+    {
+      "case": "d. the home never takes a held message",
+      "run": 3,
+      "name": "refused: the sentence saying the words are kept below is gone once they were sent again and answered",
+      "ok": false,
+      "defect": true,
+      "saw": [
+        "Your home never took this message, so it was not sent. It is kept below to send again."
+      ]
+    },
+    {
+      "case": "d. the home never takes a held message",
+      "run": 3,
+      "name": "expired: the sentence saying the words are kept below is gone once they were sent again and answered",
+      "ok": false,
+      "defect": true,
+      "saw": [
+        "Your home never took this message, so it was not sent. It is kept below to send again."
+      ]
+    },
+    {
+      "case": "i. the home stops soon after a reply",
+      "run": 3,
+      "name": "home stopped right after the reply: the newest exchange stays on screen while the home wakes",
+      "ok": false,
+      "defect": true,
+      "saw": {
+        "bubbles": 0,
+        "answers": 0
+      }
+    },
+    {
+      "case": "i. the home stops soon after a reply",
+      "run": 3,
+      "name": "home stopped 8 s after the reply: the newest exchange stays on screen while the home wakes",
+      "ok": false,
+      "defect": true,
+      "saw": {
+        "bubbles": 0,
+        "answers": 0
+      }
+    }
+  ],
+  "table": "| Step, ms: median (lowest to highest, runs) | home awake | held through a 5 s wake | answer lost before any byte | answer lost mid-answer | sent while the connection was down for 4 s |\n|---|---|---|---|---|---|\n| Row: Enter to own words on screen | 14 (11 to 48, 9 runs) | 15 (13 to 28, 3 runs) | 23 (17 to 32, 3 runs) | 17 (11 to 20, 3 runs) | 15 (11 to 19, 3 runs) |\n| Enter to the row showing as queued | none | 49 (31 to 58, 3 runs) | none | none | none |\n| Receipt: Enter to the edge's answer in the page | 61 (23 to 80, 9 runs) | 37 (19 to 46, 3 runs) | 151 (74 to 171, 3 runs) | none | 6048 (6041 to 6060, 3 runs) |\n| of which renderer: Enter to the request leaving the page | 10 (9 to 30, 9 runs) | 10 (9 to 13, 3 runs) | 16 (15 to 18, 3 runs) | none | 6034 (6028 to 6042, 3 runs) |\n| of which server: the edge got the request to the edge had its answer | 17 (8 to 39, 9 runs) | 1 (0 to 1, 3 runs) | 9 (5 to 20, 3 runs) | 11 (10 to 12, 3 runs) | 9 (9 to 11, 3 runs) |\n| of which network and browser: the rest of that round trip | 13 (7 to 60, 9 runs) | 26 (10 to 32, 3 runs) | 115 (54 to 144, 3 runs) | none | 5 (5 to 7, 3 runs) |\n| Times the page asked | 1 (1 to 1, 9 runs) | 1 (1 to 1, 3 runs) | 1 (1 to 1, 3 runs) | 1 (1 to 1, 3 runs) | 3 (3 to 3, 3 runs) |\n| Held: receipt to the home accepting the message | none | 4997 (4974 to 5004, 3 runs) | none | none | none |\n| of which after the home was ready | none | 2019 (1925 to 2154, 3 runs) | none | none | none |\n| Home: accepted to the engine getting the message | 6 (4 to 23, 9 runs) | 6 (6 to 9, 3 runs) | 7 (4 to 9, 3 runs) | 7 (5 to 18, 3 runs) | 6 (5 to 7, 3 runs) |\n| Reply: the engine got the message to reply words on screen | 58 (49 to 105, 9 runs) | 446 (64 to 626, 3 runs) | 76 (51 to 114, 3 runs) | 47 (33 to 50, 3 runs) | 524 (510 to 575, 3 runs) |\n| Whole: Enter to reply words on screen | 95 (73 to 193, 9 runs) | 5498 (5081 to 5655, 3 runs) | 115 (88 to 166, 3 runs) | 72 (63 to 93, 3 runs) | 6583 (6560 to 6621, 3 runs) |",
+  "otherNumbers": "| Case | What | Median (lowest to highest, runs) |\n|---|---|---|\n| a | a reply the engine streams in pieces: time the engine takes to stream it, ms | 4600 (4600 to 4600, 1 run) |\n| a | a reply the engine streams in pieces: engine got the message to reply words on screen, ms | 4744 (4744 to 4744, 1 run) |\n| b | home accepted to the row showing as sent, ms | 456 (71 to 633, 3 runs) |\n| b | sent before the home was ready by, ms | 2979 (2872 to 3088, 3 runs) |\n| c | answer lost before any byte: times the page asked | 1 (1 to 1, 3 runs) |\n| c | answer lost before any byte: asks the edge passed to the home | 2 (2 to 2, 3 runs) |\n| c | answer lost mid-answer: times the page asked | 1 (1 to 1, 3 runs) |\n| c | answer lost mid-answer: asks the edge passed to the home | 1 (1 to 1, 3 runs) |\n| c | connection down, ms | 4001 (4001 to 4001, 3 runs) |\n| c | connection back to the page asking again, ms | 3102 (3086 to 3145, 3 runs) |\n| c | connection back to the reply that finished while down on screen, ms | 3654 (3631 to 3663, 3 runs) |\n| c | connection back to the reply to the message sent while down on screen, ms | 3670 (3642 to 3677, 3 runs) |\n| c | the reply that finished while down came on screen in the same step as the next reply (1 yes, 0 no) | 1 (1 to 1, 3 runs) |\n| d | refused: Enter to own words on screen, ms | 15 (14 to 15, 3 runs) |\n| d | refused: Enter to the row showing as queued, ms | 38 (37 to 48, 3 runs) |\n| d | refused: Enter to the edge's 202 in the page, ms | 28 (27 to 38, 3 runs) |\n| d | refused: the edge gave up to Not sent on screen, ms | 1046 (524 to 1062, 3 runs) |\n| d | refused: the sentence stayed on screen for, ms | 5992 (5991 to 6000, 3 runs) |\n| d | refused: Retry to accepted by the home, ms | 25 (18 to 35, 3 runs) |\n| d | refused: Retry to reply words on screen, ms | 98 (65 to 119, 3 runs) |\n| d | refused: Retry, home accepted to engine start, ms | 7 (1 to 8, 3 runs) |\n| d | expired: Enter to own words on screen, ms | 17 (11 to 28, 3 runs) |\n| d | expired: Enter to the row showing as queued, ms | 50 (41 to 69, 3 runs) |\n| d | expired: Enter to the edge's 202 in the page, ms | 40 (30 to 55, 3 runs) |\n| d | expired: the edge gave up to Not sent on screen, ms | 3473 (3468 to 3872, 3 runs) |\n| d | expired: the sentence stayed on screen for, ms | 5988 (5980 to 5990, 3 runs) |\n| d | expired: Retry to accepted by the home, ms | 47 (32 to 49, 3 runs) |\n| d | expired: Retry to reply words on screen, ms | 163 (88 to 164, 3 runs) |\n| d | expired: Retry, home accepted to engine start, ms | 9 (6 to 15, 3 runs) |\n| e | Enter to the held row showing as queued, ms | 55 (43 to 57, 3 runs) |\n| e | Send now pressed to the edge's answer, ms | 7 (6 to 8, 3 runs) |\n| e | Send now pressed to the sentence on screen, ms | 27 (24 to 32, 3 runs) |\n| e | cancel pressed to the edge taking it out, ms | 7 (4 to 8, 3 runs) |\n| e | cancel pressed to the row gone, ms | 27 (16 to 29, 3 runs) |\n| e | held to accepted by the home, ms | 10918 (10885 to 11326, 3 runs) |\n| e | home ready to accepted by the home, ms | 2038 (2028 to 2310, 3 runs) |\n| f | reload to the chat open again while waking, ms | 912 (856 to 1026, 3 runs) |\n| f | home ready to accepted by the home, ms | 1029 (964 to 1064, 3 runs) |\n| g | key to frame with no dog working, ms | 23.8 (22.8 to 24.8, 3 runs) |\n| g | key to frame while three dogs reply, ms | 23.4 (23.3 to 23.8, 3 runs) |\n| g | long tasks while typing, no dog working | 0 (0 to 0, 3 runs) |\n| g | long tasks while typing, three dogs replying | 0 (0 to 0, 3 runs) |\n| g | long task time while typing, three dogs replying, ms | 0 (0 to 0, 3 runs) |\n| g | worst frame while typing, no dog working, ms | 17 (17 to 17, 3 runs) |\n| g | worst frame while typing, three dogs replying, ms | 17 (17 to 17, 3 runs) |\n| g | frames over 25 ms while typing, three dogs replying | 0 (0 to 0, 3 runs) |\n| h | key to frame while the home is up, ms | 24 (23.8 to 24.4, 3 runs) |\n| h | key to frame while the home wakes, ms | 24.5 (24.5 to 24.7, 3 runs) |\n| h | open another chat while waking, ms | 47 (47 to 62, 3 runs) |\n| h | come back to the first chat while waking, ms | 49 (46 to 63, 3 runs) |\n| h | reload to message box while waking, ms | 468 (401 to 617, 3 runs) |\n| h | status lines shown while waking | 0 (0 to 0, 3 runs) |\n| i | home stopped right after the reply: home up to the exchange back on screen, ms | 2075 (2066 to 2552, 3 runs) |\n| i | home stopped right after the reply: messages of this exchange on screen while the home wakes | 0 (0 to 0, 3 runs) |\n| i | home stopped 8 s after the reply: home up to the exchange back on screen, ms | 3396 (2313 to 4062, 3 runs) |\n| i | home stopped 8 s after the reply: messages of this exchange on screen while the home wakes | 0 (0 to 0, 3 runs) |",
+  "cases": [
+    {
+      "case": "a. send to a home that is awake",
+      "run": 1,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "sent and answered: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "send 1: one bubble, nothing waiting, one reply",
+          "ok": true
+        },
+        {
+          "name": "send 1: the home took it once",
+          "ok": true
+        },
+        {
+          "name": "send 1: the page asked once",
+          "ok": true
+        },
+        {
+          "name": "send 2: one bubble, nothing waiting, one reply",
+          "ok": true
+        },
+        {
+          "name": "send 2: the home took it once",
+          "ok": true
+        },
+        {
+          "name": "send 2: the page asked once",
+          "ok": true
+        },
+        {
+          "name": "send 3: one bubble, nothing waiting, one reply",
+          "ok": true
+        },
+        {
+          "name": "send 3: the home took it once",
+          "ok": true
+        },
+        {
+          "name": "send 3: the page asked once",
+          "ok": true
+        },
+        {
+          "name": "a reply the engine streams in pieces shows its first words before the engine has finished it",
+          "ok": false,
+          "defect": true,
+          "saw": {
+            "replyWordsOnScreenAfterMs": 4744,
+            "engineStreamsForMs": 4600
+          }
+        }
+      ],
+      "splits": [
+        {
+          "kind": "home awake",
+          "rowMs": 14,
+          "queuedRowMs": null,
+          "receiptMs": 62,
+          "beforeRequestMs": 10,
+          "receiptServerMs": 39,
+          "receiptNetworkMs": 13,
+          "attempts": 1,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 23,
+          "replyMs": 105,
+          "totalMs": 180,
+          "shownAs": "bubble"
+        },
+        {
+          "kind": "home awake",
+          "rowMs": 48,
+          "queuedRowMs": null,
+          "receiptMs": 76,
+          "beforeRequestMs": 30,
+          "receiptServerMs": 37,
+          "receiptNetworkMs": 9,
+          "attempts": 1,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 22,
+          "replyMs": 103,
+          "totalMs": 193,
+          "shownAs": "bubble"
+        },
+        {
+          "kind": "home awake",
+          "rowMs": 12,
+          "queuedRowMs": null,
+          "receiptMs": 35,
+          "beforeRequestMs": 9,
+          "receiptServerMs": 17,
+          "receiptNetworkMs": 9,
+          "attempts": 1,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 11,
+          "replyMs": 72,
+          "totalMs": 110,
+          "shownAs": "bubble"
+        }
+      ],
+      "looks": {
+        "sent and answered": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Pacer replied: Answer 0028."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "a reply the engine streams in pieces: time the engine takes to stream it, ms": 4600,
+        "a reply the engine streams in pieces: engine got the message to reply words on screen, ms": 4744
+      }
+    },
+    {
+      "case": "b. send while the home is asleep, then it wakes slowly",
+      "run": 1,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "while waking, before sending: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the chat from before the home slept is still on screen while it wakes",
+          "ok": true
+        },
+        {
+          "name": "held: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the held message shows once, as a queued row with its words",
+          "ok": true
+        },
+        {
+          "name": "the queued row offers Edit and Delete",
+          "ok": true
+        },
+        {
+          "name": "the box is empty again after sending",
+          "ok": true
+        },
+        {
+          "name": "the home was still waking when the row showed as queued",
+          "ok": true
+        },
+        {
+          "name": "delivered: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "after the wake: one bubble, nothing queued, one reply",
+          "ok": true
+        },
+        {
+          "name": "the reply on screen is whole",
+          "ok": true
+        },
+        {
+          "name": "the home took the message once",
+          "ok": true
+        },
+        {
+          "name": "the edge delivered it once",
+          "ok": true
+        },
+        {
+          "name": "the page asked once and got a 202",
+          "ok": true
+        },
+        {
+          "name": "the earlier exchange is still there once",
+          "ok": true
+        }
+      ],
+      "splits": [
+        {
+          "kind": "held through a 5 s wake",
+          "rowMs": 28,
+          "queuedRowMs": 58,
+          "receiptMs": 46,
+          "beforeRequestMs": 13,
+          "receiptServerMs": 1,
+          "receiptNetworkMs": 32,
+          "attempts": 1,
+          "heldMs": 4997,
+          "afterHomeReadyMs": 2154,
+          "homeMs": 9,
+          "replyMs": 446,
+          "totalMs": 5498,
+          "shownAs": "bubble"
+        }
+      ],
+      "looks": {
+        "while waking, before sending": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        },
+        "held": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "Run the checks again please 2dbb498d"
+          ],
+          "trayButtons": [
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "delivered": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "home accepted to the row showing as sent, ms": 456,
+        "sent before the home was ready by, ms": 2872
+      }
+    },
+    {
+      "case": "c. the connection drops mid-send and comes back",
+      "run": 1,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "answer lost before any byte: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "answer lost before any byte: one bubble, one reply, nothing waiting and no Not sent row",
+          "ok": true
+        },
+        {
+          "name": "answer lost before any byte: the home took the message once",
+          "ok": true
+        },
+        {
+          "name": "answer lost before any byte: no sentence about a failure is on screen",
+          "ok": true
+        },
+        {
+          "name": "answer lost mid-answer: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "answer lost mid-answer: one bubble, one reply, nothing waiting and no Not sent row",
+          "ok": true
+        },
+        {
+          "name": "answer lost mid-answer: the home took the message once",
+          "ok": true
+        },
+        {
+          "name": "answer lost mid-answer: no sentence about a failure is on screen",
+          "ok": true
+        },
+        {
+          "name": "connection down: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "a message sent while the connection is down shows once as Not sent yet",
+          "ok": true
+        },
+        {
+          "name": "a draft typed while the connection is down is in the box",
+          "ok": true
+        },
+        {
+          "name": "the dog finished its reply while the connection was down",
+          "ok": true
+        },
+        {
+          "name": "that reply is not on screen while the connection is down",
+          "ok": true
+        },
+        {
+          "name": "after reconnecting: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the reply that finished while the connection was down is on screen whole, once",
+          "ok": true
+        },
+        {
+          "name": "the message sent while down shows once with one reply and nothing waiting",
+          "ok": true
+        },
+        {
+          "name": "the home took each message once",
+          "ok": true
+        },
+        {
+          "name": "the draft is still in the box after the connection came back",
+          "ok": true
+        }
+      ],
+      "splits": [
+        {
+          "kind": "answer lost before any byte",
+          "rowMs": 23,
+          "queuedRowMs": null,
+          "receiptMs": 171,
+          "beforeRequestMs": 18,
+          "receiptServerMs": 9,
+          "receiptNetworkMs": 144,
+          "attempts": 1,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 4,
+          "replyMs": 114,
+          "totalMs": 166,
+          "shownAs": "bubble"
+        },
+        {
+          "kind": "answer lost mid-answer",
+          "rowMs": 17,
+          "queuedRowMs": null,
+          "receiptMs": null,
+          "beforeRequestMs": null,
+          "receiptServerMs": 12,
+          "receiptNetworkMs": null,
+          "attempts": 1,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 18,
+          "replyMs": 50,
+          "totalMs": 93,
+          "shownAs": "bubble"
+        },
+        {
+          "kind": "sent while the connection was down for 4 s",
+          "rowMs": 15,
+          "queuedRowMs": null,
+          "receiptMs": 6060,
+          "beforeRequestMs": 6042,
+          "receiptServerMs": 11,
+          "receiptNetworkMs": 7,
+          "attempts": 3,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 5,
+          "replyMs": 524,
+          "totalMs": 6583,
+          "shownAs": "bubble"
+        }
+      ],
+      "looks": {
+        "answer lost before any byte": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Scout replied: Answer 0034."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        },
+        "answer lost before any byte: asks": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Scout replied: Answer 0034."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": [
+            "the page asked 1 time(s): 202",
+            "the edge passed 2 ask(s) to the home"
+          ]
+        },
+        "answer lost mid-answer": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Scout replied: Answer 0035."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        },
+        "answer lost mid-answer: asks": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Scout replied: Answer 0035."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": [
+            "the page asked 1 time(s): 0",
+            "the edge passed 1 ask(s) to the home"
+          ]
+        },
+        "connection down": {
+          "bubbles": 1,
+          "waitingBubbles": 1,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Working…",
+            "Not sent yet",
+            "Scout replied: Answer 0035."
+          ],
+          "composer": "Remind me to look at the pricing line on Friday",
+          "answers": 0,
+          "raw": []
+        },
+        "after reconnecting": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Scout replied: Answer 0037."
+          ],
+          "composer": "Remind me to look at the pricing line on Friday",
+          "answers": 1,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "answer lost before any byte: times the page asked": 1,
+        "answer lost before any byte: asks the edge passed to the home": 2,
+        "answer lost mid-answer: times the page asked": 1,
+        "answer lost mid-answer: asks the edge passed to the home": 1,
+        "connection down, ms": 4001,
+        "connection back to the page asking again, ms": 3102,
+        "connection back to the reply that finished while down on screen, ms": 3631,
+        "connection back to the reply to the message sent while down on screen, ms": 3642,
+        "the reply that finished while down came on screen in the same step as the next reply (1 yes, 0 no)": 1
+      }
+    },
+    {
+      "case": "d. the home never takes a held message",
+      "run": 1,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "Not sent (refused): no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "refused: the row says Not sent and keeps the words",
+          "ok": true
+        },
+        {
+          "name": "refused: nothing is left queued or shown as sent",
+          "ok": true
+        },
+        {
+          "name": "refused: a sentence says why",
+          "ok": true
+        },
+        {
+          "name": "refused: the home has not seen it",
+          "ok": true
+        },
+        {
+          "name": "refused: the box is empty, so the words are only in the Not sent row",
+          "ok": true
+        },
+        {
+          "name": "refused: Retry can be pressed",
+          "ok": true
+        },
+        {
+          "name": "sent again (refused): no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "refused: sent again it shows once with one reply and no Not sent row",
+          "ok": true
+        },
+        {
+          "name": "refused: the home took it once",
+          "ok": true
+        },
+        {
+          "name": "refused: the edge no longer calls it dropped",
+          "ok": true
+        },
+        {
+          "name": "refused: the sentence saying the words are kept below is gone once they were sent again and answered",
+          "ok": false,
+          "defect": true,
+          "saw": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ]
+        },
+        {
+          "name": "refused: the sentence goes away by itself",
+          "ok": true
+        },
+        {
+          "name": "Not sent (expired): no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "expired: the row says Not sent and keeps the words",
+          "ok": true
+        },
+        {
+          "name": "expired: nothing is left queued or shown as sent",
+          "ok": true
+        },
+        {
+          "name": "expired: a sentence says why",
+          "ok": true
+        },
+        {
+          "name": "expired: the home has not seen it",
+          "ok": true
+        },
+        {
+          "name": "expired: the box is empty, so the words are only in the Not sent row",
+          "ok": true
+        },
+        {
+          "name": "expired: Retry can be pressed",
+          "ok": true
+        },
+        {
+          "name": "sent again (expired): no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "expired: sent again it shows once with one reply and no Not sent row",
+          "ok": true
+        },
+        {
+          "name": "expired: the home took it once",
+          "ok": true
+        },
+        {
+          "name": "expired: the edge no longer calls it dropped",
+          "ok": true
+        },
+        {
+          "name": "expired: the sentence saying the words are kept below is gone once they were sent again and answered",
+          "ok": false,
+          "defect": true,
+          "saw": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ]
+        },
+        {
+          "name": "expired: the sentence goes away by itself",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "Not sent (refused)": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [
+            "Not sent: “Ship the build b8be0e44”"
+          ],
+          "lines": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "statuses": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "sent again (refused)": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "statuses": [
+            "Courier replied: Answer 0038.",
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        },
+        "Not sent (expired)": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [
+            "Not sent: “Draft the update note a0ad0fef”"
+          ],
+          "lines": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "statuses": [
+            "Courier replied: Answer 0038.",
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "sent again (expired)": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "statuses": [
+            "Courier replied: Answer 0039.",
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "refused: Enter to own words on screen, ms": 14,
+        "refused: Enter to the row showing as queued, ms": 38,
+        "refused: Enter to the edge's 202 in the page, ms": 27,
+        "refused: the edge gave up to Not sent on screen, ms": 1046,
+        "refused: the sentence stayed on screen for, ms": 5991,
+        "refused: Retry to accepted by the home, ms": 25,
+        "refused: Retry to reply words on screen, ms": 65,
+        "refused: Retry, home accepted to engine start, ms": 1,
+        "expired: Enter to own words on screen, ms": 11,
+        "expired: Enter to the row showing as queued, ms": 41,
+        "expired: Enter to the edge's 202 in the page, ms": 30,
+        "expired: the edge gave up to Not sent on screen, ms": 3468,
+        "expired: the sentence stayed on screen for, ms": 5980,
+        "expired: Retry to accepted by the home, ms": 32,
+        "expired: Retry to reply words on screen, ms": 88,
+        "expired: Retry, home accepted to engine start, ms": 6
+      }
+    },
+    {
+      "case": "e. Send now and cancel on a held message",
+      "run": 1,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "held while the dog is working: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the held message is a queued row with Send now",
+          "ok": true
+        },
+        {
+          "name": "Send now can be pressed",
+          "ok": true
+        },
+        {
+          "name": "Send now answer: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "Send now answers in a sentence that says the message is waiting for the home",
+          "ok": true
+        },
+        {
+          "name": "the message is still held after Send now",
+          "ok": true
+        },
+        {
+          "name": "the edge answered Send now with 200",
+          "ok": true
+        },
+        {
+          "name": "two held: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the second held message is listed too",
+          "ok": true
+        },
+        {
+          "name": "cancel can be pressed",
+          "ok": true
+        },
+        {
+          "name": "cancelled: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the cancelled message is gone from the list and the edge",
+          "ok": true
+        },
+        {
+          "name": "the cancelled message is not called Not sent",
+          "ok": true
+        },
+        {
+          "name": "the other held message is still listed",
+          "ok": true
+        },
+        {
+          "name": "the cancel happened while the home was still waking",
+          "ok": true
+        },
+        {
+          "name": "delivered after Send now: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "after the wake the kept message shows once and nothing is queued",
+          "ok": true
+        },
+        {
+          "name": "the home took the kept message once",
+          "ok": true
+        },
+        {
+          "name": "the home never saw the cancelled message",
+          "ok": true
+        },
+        {
+          "name": "the cancelled message did not come back",
+          "ok": true
+        },
+        {
+          "name": "the long job and its whole reply are there once",
+          "ok": true
+        },
+        {
+          "name": "the kept message has one reply on screen",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "held while the dog is working": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "Also check the release notes 1d4d06c0"
+          ],
+          "trayButtons": [
+            "Send now",
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Working…"
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "Send now answer": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "Also check the release notes 1d4d06c0"
+          ],
+          "trayButtons": [
+            "Send now",
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "statuses": [
+            "Working…",
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "two held": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "And the pricing line fcb68400"
+          ],
+          "trayButtons": [
+            "Send all now",
+            "Edit queued message 1 of 2",
+            "Delete queued message 1 of 2",
+            "Edit queued message 2 of 2",
+            "Delete queued message 2 of 2"
+          ],
+          "notSent": [],
+          "lines": [
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "statuses": [
+            "Working…",
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "cancelled": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [
+            "Send now",
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "statuses": [
+            "Working…",
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "delivered after Send now": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Builder replied: Answer 0041."
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "Enter to the held row showing as queued, ms": 43,
+        "Send now pressed to the edge's answer, ms": 8,
+        "Send now pressed to the sentence on screen, ms": 24,
+        "cancel pressed to the edge taking it out, ms": 7,
+        "cancel pressed to the row gone, ms": 27,
+        "held to accepted by the home, ms": 11326,
+        "home ready to accepted by the home, ms": 2310
+      }
+    },
+    {
+      "case": "f. the app reloads while a message is held",
+      "run": 1,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "held before the reload: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the reload happened while the home was still waking",
+          "ok": true
+        },
+        {
+          "name": "held after the reload: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the held row is still there after the reload, once, with its words",
+          "ok": true
+        },
+        {
+          "name": "the held message is not called Not sent after the reload",
+          "ok": true
+        },
+        {
+          "name": "the edge still holds it",
+          "ok": true
+        },
+        {
+          "name": "delivered after the reload: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "after the wake: one bubble, nothing queued, one reply",
+          "ok": true
+        },
+        {
+          "name": "the home took the message once",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "held before the reload": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "Hold this until you are up 81fcfe2c"
+          ],
+          "trayButtons": [
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "held after the reload": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "Hold this until you are up 81fcfe2c"
+          ],
+          "trayButtons": [
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "delivered after the reload": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "reload to the chat open again while waking, ms": 856,
+        "home ready to accepted by the home, ms": 964
+      }
+    },
+    {
+      "case": "g. three dogs stream replies while the person types in a fourth chat",
+      "run": 1,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "all three dogs were still replying when the typing ended",
+          "ok": true
+        },
+        {
+          "name": "every key landed in the fourth chat's box",
+          "ok": true
+        },
+        {
+          "name": "the last word is selected in the box",
+          "ok": true
+        },
+        {
+          "name": "the selection is the same after the three replies finished",
+          "ok": true
+        },
+        {
+          "name": "the fourth chat is still the open one",
+          "ok": true
+        },
+        {
+          "name": "the draft is the same after the three replies finished",
+          "ok": true
+        },
+        {
+          "name": "typing over the selection replaces only the selected word",
+          "ok": true
+        },
+        {
+          "name": "after the three replies: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "nothing was sent from the fourth chat",
+          "ok": true
+        },
+        {
+          "name": "each of the three dogs shows its finished reply in the sidebar",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "after the three replies": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "Can you also check whether the release notes mention the bigger chat text and the new usage sheet, and fix them iagain?",
+          "answers": 0,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "key to frame with no dog working, ms": {
+          "count": 119,
+          "p50": 22.8,
+          "p95": 31.8,
+          "max": 33
+        },
+        "key to frame while three dogs reply, ms": {
+          "count": 119,
+          "p50": 23.3,
+          "p95": 30.3,
+          "max": 32.8
+        },
+        "long tasks while typing, no dog working": 0,
+        "long tasks while typing, three dogs replying": 0,
+        "long task time while typing, three dogs replying, ms": 0,
+        "worst frame while typing, no dog working, ms": 17,
+        "worst frame while typing, three dogs replying, ms": 17,
+        "frames over 25 ms while typing, three dogs replying": 0
+      }
+    },
+    {
+      "case": "h. typing, drafts and moving between chats while the home wakes",
+      "run": 1,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "every key landed in the box",
+          "ok": true
+        },
+        {
+          "name": "another chat opens while the home wakes",
+          "ok": true
+        },
+        {
+          "name": "the first chat opens again while the home wakes",
+          "ok": true
+        },
+        {
+          "name": "the draft is still in its chat after switching away and back",
+          "ok": true
+        },
+        {
+          "name": "the reload happened while the home was still waking",
+          "ok": true
+        },
+        {
+          "name": "the draft is still there after a reload",
+          "ok": true
+        },
+        {
+          "name": "the other chat's draft is still there after a reload",
+          "ok": true
+        },
+        {
+          "name": "while waking: no raw error text on screen",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "while waking": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "Remind me to look at the pricing line on Friday",
+          "answers": 0,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "key to frame while the home is up, ms": {
+          "count": 119,
+          "p50": 23.8,
+          "p95": 31.6,
+          "max": 32.8
+        },
+        "key to frame while the home wakes, ms": {
+          "count": 119,
+          "p50": 24.5,
+          "p95": 32.4,
+          "max": 32.8
+        },
+        "open another chat while waking, ms": 62,
+        "come back to the first chat while waking, ms": 63,
+        "reload to message box while waking, ms": 617,
+        "status lines shown while waking": 0
+      }
+    },
+    {
+      "case": "i. the home stops soon after a reply",
+      "run": 1,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "right after the reply: the exchange is on screen before the home stops",
+          "ok": true
+        },
+        {
+          "name": "home stopped right after the reply: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "home stopped right after the reply: the newest exchange stays on screen while the home wakes",
+          "ok": false,
+          "defect": true,
+          "saw": {
+            "bubbles": 0,
+            "answers": 0
+          }
+        },
+        {
+          "name": "right after the reply: the exchange is on screen again once the home is up",
+          "ok": true
+        },
+        {
+          "name": "8 s after the reply: the exchange is on screen before the home stops",
+          "ok": true
+        },
+        {
+          "name": "home stopped 8 s after the reply: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "home stopped 8 s after the reply: the newest exchange stays on screen while the home wakes",
+          "ok": false,
+          "defect": true,
+          "saw": {
+            "bubbles": 0,
+            "answers": 0
+          }
+        },
+        {
+          "name": "8 s after the reply: the exchange is on screen again once the home is up",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "home stopped right after the reply": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Archivist replied: Answer 0046."
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "home stopped 8 s after the reply": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Archivist replied: Answer 0047."
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "home stopped right after the reply: home up to the exchange back on screen, ms": 2075,
+        "home stopped right after the reply: messages of this exchange on screen while the home wakes": 0,
+        "home stopped 8 s after the reply: home up to the exchange back on screen, ms": 3396,
+        "home stopped 8 s after the reply: messages of this exchange on screen while the home wakes": 0
+      }
+    },
+    {
+      "case": "a. send to a home that is awake",
+      "run": 2,
+      "theme": "dark",
+      "checks": [
+        {
+          "name": "sent and answered: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "send 1: one bubble, nothing waiting, one reply",
+          "ok": true
+        },
+        {
+          "name": "send 1: the home took it once",
+          "ok": true
+        },
+        {
+          "name": "send 1: the page asked once",
+          "ok": true
+        },
+        {
+          "name": "send 2: one bubble, nothing waiting, one reply",
+          "ok": true
+        },
+        {
+          "name": "send 2: the home took it once",
+          "ok": true
+        },
+        {
+          "name": "send 2: the page asked once",
+          "ok": true
+        },
+        {
+          "name": "send 3: one bubble, nothing waiting, one reply",
+          "ok": true
+        },
+        {
+          "name": "send 3: the home took it once",
+          "ok": true
+        },
+        {
+          "name": "send 3: the page asked once",
+          "ok": true
+        }
+      ],
+      "splits": [
+        {
+          "kind": "home awake",
+          "rowMs": 16,
+          "queuedRowMs": null,
+          "receiptMs": 61,
+          "beforeRequestMs": 10,
+          "receiptServerMs": 10,
+          "receiptNetworkMs": 41,
+          "attempts": 1,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 4,
+          "replyMs": 69,
+          "totalMs": 95,
+          "shownAs": "bubble"
+        },
+        {
+          "kind": "home awake",
+          "rowMs": 24,
+          "queuedRowMs": null,
+          "receiptMs": 71,
+          "beforeRequestMs": 14,
+          "receiptServerMs": 18,
+          "receiptNetworkMs": 39,
+          "attempts": 1,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 7,
+          "replyMs": 53,
+          "totalMs": 94,
+          "shownAs": "bubble"
+        },
+        {
+          "kind": "home awake",
+          "rowMs": 12,
+          "queuedRowMs": null,
+          "receiptMs": 38,
+          "beforeRequestMs": 9,
+          "receiptServerMs": 20,
+          "receiptNetworkMs": 9,
+          "attempts": 1,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 6,
+          "replyMs": 58,
+          "totalMs": 99,
+          "shownAs": "bubble"
+        }
+      ],
+      "looks": {
+        "sent and answered": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Pacer replied: Answer 0049."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        }
+      },
+      "numbers": {}
+    },
+    {
+      "case": "b. send while the home is asleep, then it wakes slowly",
+      "run": 2,
+      "theme": "dark",
+      "checks": [
+        {
+          "name": "while waking, before sending: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the chat from before the home slept is still on screen while it wakes",
+          "ok": true
+        },
+        {
+          "name": "held: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the held message shows once, as a queued row with its words",
+          "ok": true
+        },
+        {
+          "name": "the queued row offers Edit and Delete",
+          "ok": true
+        },
+        {
+          "name": "the box is empty again after sending",
+          "ok": true
+        },
+        {
+          "name": "the home was still waking when the row showed as queued",
+          "ok": true
+        },
+        {
+          "name": "delivered: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "after the wake: one bubble, nothing queued, one reply",
+          "ok": true
+        },
+        {
+          "name": "the reply on screen is whole",
+          "ok": true
+        },
+        {
+          "name": "the home took the message once",
+          "ok": true
+        },
+        {
+          "name": "the edge delivered it once",
+          "ok": true
+        },
+        {
+          "name": "the page asked once and got a 202",
+          "ok": true
+        },
+        {
+          "name": "the earlier exchange is still there once",
+          "ok": true
+        }
+      ],
+      "splits": [
+        {
+          "kind": "held through a 5 s wake",
+          "rowMs": 13,
+          "queuedRowMs": 49,
+          "receiptMs": 37,
+          "beforeRequestMs": 10,
+          "receiptServerMs": 1,
+          "receiptNetworkMs": 26,
+          "attempts": 1,
+          "heldMs": 4974,
+          "afterHomeReadyMs": 2019,
+          "homeMs": 6,
+          "replyMs": 64,
+          "totalMs": 5081,
+          "shownAs": "bubble"
+        }
+      ],
+      "looks": {
+        "while waking, before sending": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        },
+        "held": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "Run the checks again please 467060b4"
+          ],
+          "trayButtons": [
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "delivered": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "home accepted to the row showing as sent, ms": 71,
+        "sent before the home was ready by, ms": 2979
+      }
+    },
+    {
+      "case": "c. the connection drops mid-send and comes back",
+      "run": 2,
+      "theme": "dark",
+      "checks": [
+        {
+          "name": "answer lost before any byte: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "answer lost before any byte: one bubble, one reply, nothing waiting and no Not sent row",
+          "ok": true
+        },
+        {
+          "name": "answer lost before any byte: the home took the message once",
+          "ok": true
+        },
+        {
+          "name": "answer lost before any byte: no sentence about a failure is on screen",
+          "ok": true
+        },
+        {
+          "name": "answer lost mid-answer: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "answer lost mid-answer: one bubble, one reply, nothing waiting and no Not sent row",
+          "ok": true
+        },
+        {
+          "name": "answer lost mid-answer: the home took the message once",
+          "ok": true
+        },
+        {
+          "name": "answer lost mid-answer: no sentence about a failure is on screen",
+          "ok": true
+        },
+        {
+          "name": "connection down: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "a message sent while the connection is down shows once as Not sent yet",
+          "ok": true
+        },
+        {
+          "name": "a draft typed while the connection is down is in the box",
+          "ok": true
+        },
+        {
+          "name": "the dog finished its reply while the connection was down",
+          "ok": true
+        },
+        {
+          "name": "that reply is not on screen while the connection is down",
+          "ok": true
+        },
+        {
+          "name": "after reconnecting: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the reply that finished while the connection was down is on screen whole, once",
+          "ok": true
+        },
+        {
+          "name": "the message sent while down shows once with one reply and nothing waiting",
+          "ok": true
+        },
+        {
+          "name": "the home took each message once",
+          "ok": true
+        },
+        {
+          "name": "the draft is still in the box after the connection came back",
+          "ok": true
+        }
+      ],
+      "splits": [
+        {
+          "kind": "answer lost before any byte",
+          "rowMs": 32,
+          "queuedRowMs": null,
+          "receiptMs": 151,
+          "beforeRequestMs": 16,
+          "receiptServerMs": 20,
+          "receiptNetworkMs": 115,
+          "attempts": 1,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 9,
+          "replyMs": 76,
+          "totalMs": 115,
+          "shownAs": "bubble"
+        },
+        {
+          "kind": "answer lost mid-answer",
+          "rowMs": 20,
+          "queuedRowMs": null,
+          "receiptMs": null,
+          "beforeRequestMs": null,
+          "receiptServerMs": 10,
+          "receiptNetworkMs": null,
+          "attempts": 1,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 7,
+          "replyMs": 33,
+          "totalMs": 63,
+          "shownAs": "bubble"
+        },
+        {
+          "kind": "sent while the connection was down for 4 s",
+          "rowMs": 19,
+          "queuedRowMs": null,
+          "receiptMs": 6041,
+          "beforeRequestMs": 6028,
+          "receiptServerMs": 9,
+          "receiptNetworkMs": 5,
+          "attempts": 3,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 7,
+          "replyMs": 575,
+          "totalMs": 6621,
+          "shownAs": "bubble"
+        }
+      ],
+      "looks": {
+        "answer lost before any byte": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Scout replied: Answer 0054."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        },
+        "answer lost before any byte: asks": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Scout replied: Answer 0054."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": [
+            "the page asked 1 time(s): 202",
+            "the edge passed 2 ask(s) to the home"
+          ]
+        },
+        "answer lost mid-answer": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Scout replied: Answer 0055."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        },
+        "answer lost mid-answer: asks": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Scout replied: Answer 0055."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": [
+            "the page asked 1 time(s): 0",
+            "the edge passed 1 ask(s) to the home"
+          ]
+        },
+        "connection down": {
+          "bubbles": 1,
+          "waitingBubbles": 1,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Working…",
+            "Not sent yet",
+            "Scout replied: Answer 0055."
+          ],
+          "composer": "Remind me to look at the pricing line on Friday",
+          "answers": 0,
+          "raw": []
+        },
+        "after reconnecting": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Scout replied: Answer 0057."
+          ],
+          "composer": "Remind me to look at the pricing line on Friday",
+          "answers": 1,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "answer lost before any byte: times the page asked": 1,
+        "answer lost before any byte: asks the edge passed to the home": 2,
+        "answer lost mid-answer: times the page asked": 1,
+        "answer lost mid-answer: asks the edge passed to the home": 1,
+        "connection down, ms": 4001,
+        "connection back to the page asking again, ms": 3086,
+        "connection back to the reply that finished while down on screen, ms": 3663,
+        "connection back to the reply to the message sent while down on screen, ms": 3677,
+        "the reply that finished while down came on screen in the same step as the next reply (1 yes, 0 no)": 1
+      }
+    },
+    {
+      "case": "d. the home never takes a held message",
+      "run": 2,
+      "theme": "dark",
+      "checks": [
+        {
+          "name": "Not sent (refused): no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "refused: the row says Not sent and keeps the words",
+          "ok": true
+        },
+        {
+          "name": "refused: nothing is left queued or shown as sent",
+          "ok": true
+        },
+        {
+          "name": "refused: a sentence says why",
+          "ok": true
+        },
+        {
+          "name": "refused: the home has not seen it",
+          "ok": true
+        },
+        {
+          "name": "refused: the box is empty, so the words are only in the Not sent row",
+          "ok": true
+        },
+        {
+          "name": "refused: Retry can be pressed",
+          "ok": true
+        },
+        {
+          "name": "sent again (refused): no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "refused: sent again it shows once with one reply and no Not sent row",
+          "ok": true
+        },
+        {
+          "name": "refused: the home took it once",
+          "ok": true
+        },
+        {
+          "name": "refused: the edge no longer calls it dropped",
+          "ok": true
+        },
+        {
+          "name": "refused: the sentence saying the words are kept below is gone once they were sent again and answered",
+          "ok": false,
+          "defect": true,
+          "saw": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ]
+        },
+        {
+          "name": "refused: the sentence goes away by itself",
+          "ok": true
+        },
+        {
+          "name": "Not sent (expired): no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "expired: the row says Not sent and keeps the words",
+          "ok": true
+        },
+        {
+          "name": "expired: nothing is left queued or shown as sent",
+          "ok": true
+        },
+        {
+          "name": "expired: a sentence says why",
+          "ok": true
+        },
+        {
+          "name": "expired: the home has not seen it",
+          "ok": true
+        },
+        {
+          "name": "expired: the box is empty, so the words are only in the Not sent row",
+          "ok": true
+        },
+        {
+          "name": "expired: Retry can be pressed",
+          "ok": true
+        },
+        {
+          "name": "sent again (expired): no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "expired: sent again it shows once with one reply and no Not sent row",
+          "ok": true
+        },
+        {
+          "name": "expired: the home took it once",
+          "ok": true
+        },
+        {
+          "name": "expired: the edge no longer calls it dropped",
+          "ok": true
+        },
+        {
+          "name": "expired: the sentence saying the words are kept below is gone once they were sent again and answered",
+          "ok": false,
+          "defect": true,
+          "saw": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ]
+        },
+        {
+          "name": "expired: the sentence goes away by itself",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "Not sent (refused)": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [
+            "Not sent: “Ship the build c5b90356”"
+          ],
+          "lines": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "statuses": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "sent again (refused)": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "statuses": [
+            "Courier replied: Answer 0058.",
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        },
+        "Not sent (expired)": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [
+            "Not sent: “Draft the update note 3cd844ed”"
+          ],
+          "lines": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "statuses": [
+            "Courier replied: Answer 0058.",
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "sent again (expired)": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "statuses": [
+            "Courier replied: Answer 0059.",
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "refused: Enter to own words on screen, ms": 15,
+        "refused: Enter to the row showing as queued, ms": 48,
+        "refused: Enter to the edge's 202 in the page, ms": 38,
+        "refused: the edge gave up to Not sent on screen, ms": 1062,
+        "refused: the sentence stayed on screen for, ms": 5992,
+        "refused: Retry to accepted by the home, ms": 18,
+        "refused: Retry to reply words on screen, ms": 98,
+        "refused: Retry, home accepted to engine start, ms": 8,
+        "expired: Enter to own words on screen, ms": 17,
+        "expired: Enter to the row showing as queued, ms": 69,
+        "expired: Enter to the edge's 202 in the page, ms": 55,
+        "expired: the edge gave up to Not sent on screen, ms": 3473,
+        "expired: the sentence stayed on screen for, ms": 5988,
+        "expired: Retry to accepted by the home, ms": 47,
+        "expired: Retry to reply words on screen, ms": 164,
+        "expired: Retry, home accepted to engine start, ms": 15
+      }
+    },
+    {
+      "case": "e. Send now and cancel on a held message",
+      "run": 2,
+      "theme": "dark",
+      "checks": [
+        {
+          "name": "held while the dog is working: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the held message is a queued row with Send now",
+          "ok": true
+        },
+        {
+          "name": "Send now can be pressed",
+          "ok": true
+        },
+        {
+          "name": "Send now answer: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "Send now answers in a sentence that says the message is waiting for the home",
+          "ok": true
+        },
+        {
+          "name": "the message is still held after Send now",
+          "ok": true
+        },
+        {
+          "name": "the edge answered Send now with 200",
+          "ok": true
+        },
+        {
+          "name": "two held: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the second held message is listed too",
+          "ok": true
+        },
+        {
+          "name": "cancel can be pressed",
+          "ok": true
+        },
+        {
+          "name": "cancelled: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the cancelled message is gone from the list and the edge",
+          "ok": true
+        },
+        {
+          "name": "the cancelled message is not called Not sent",
+          "ok": true
+        },
+        {
+          "name": "the other held message is still listed",
+          "ok": true
+        },
+        {
+          "name": "the cancel happened while the home was still waking",
+          "ok": true
+        },
+        {
+          "name": "delivered after Send now: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "after the wake the kept message shows once and nothing is queued",
+          "ok": true
+        },
+        {
+          "name": "the home took the kept message once",
+          "ok": true
+        },
+        {
+          "name": "the home never saw the cancelled message",
+          "ok": true
+        },
+        {
+          "name": "the cancelled message did not come back",
+          "ok": true
+        },
+        {
+          "name": "the long job and its whole reply are there once",
+          "ok": true
+        },
+        {
+          "name": "the kept message has one reply on screen",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "held while the dog is working": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "Also check the release notes 1d7bb73e"
+          ],
+          "trayButtons": [
+            "Send now",
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Working…"
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "Send now answer": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "Also check the release notes 1d7bb73e"
+          ],
+          "trayButtons": [
+            "Send now",
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "statuses": [
+            "Working…",
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "two held": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "And the pricing line c160dc94"
+          ],
+          "trayButtons": [
+            "Send all now",
+            "Edit queued message 1 of 2",
+            "Delete queued message 1 of 2",
+            "Edit queued message 2 of 2",
+            "Delete queued message 2 of 2"
+          ],
+          "notSent": [],
+          "lines": [
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "statuses": [
+            "Working…",
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "cancelled": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [
+            "Send now",
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "statuses": [
+            "Working…",
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "delivered after Send now": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Builder replied: Answer 0061."
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "Enter to the held row showing as queued, ms": 57,
+        "Send now pressed to the edge's answer, ms": 6,
+        "Send now pressed to the sentence on screen, ms": 32,
+        "cancel pressed to the edge taking it out, ms": 8,
+        "cancel pressed to the row gone, ms": 29,
+        "held to accepted by the home, ms": 10918,
+        "home ready to accepted by the home, ms": 2038
+      }
+    },
+    {
+      "case": "f. the app reloads while a message is held",
+      "run": 2,
+      "theme": "dark",
+      "checks": [
+        {
+          "name": "held before the reload: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the reload happened while the home was still waking",
+          "ok": true
+        },
+        {
+          "name": "held after the reload: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the held row is still there after the reload, once, with its words",
+          "ok": true
+        },
+        {
+          "name": "the held message is not called Not sent after the reload",
+          "ok": true
+        },
+        {
+          "name": "the edge still holds it",
+          "ok": true
+        },
+        {
+          "name": "delivered after the reload: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "after the wake: one bubble, nothing queued, one reply",
+          "ok": true
+        },
+        {
+          "name": "the home took the message once",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "held before the reload": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "Hold this until you are up f26d8412"
+          ],
+          "trayButtons": [
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "held after the reload": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "Hold this until you are up f26d8412"
+          ],
+          "trayButtons": [
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "delivered after the reload": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "reload to the chat open again while waking, ms": 912,
+        "home ready to accepted by the home, ms": 1029
+      }
+    },
+    {
+      "case": "g. three dogs stream replies while the person types in a fourth chat",
+      "run": 2,
+      "theme": "dark",
+      "checks": [
+        {
+          "name": "all three dogs were still replying when the typing ended",
+          "ok": true
+        },
+        {
+          "name": "every key landed in the fourth chat's box",
+          "ok": true
+        },
+        {
+          "name": "the last word is selected in the box",
+          "ok": true
+        },
+        {
+          "name": "the selection is the same after the three replies finished",
+          "ok": true
+        },
+        {
+          "name": "the fourth chat is still the open one",
+          "ok": true
+        },
+        {
+          "name": "the draft is the same after the three replies finished",
+          "ok": true
+        },
+        {
+          "name": "typing over the selection replaces only the selected word",
+          "ok": true
+        },
+        {
+          "name": "after the three replies: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "nothing was sent from the fourth chat",
+          "ok": true
+        },
+        {
+          "name": "each of the three dogs shows its finished reply in the sidebar",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "after the three replies": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "Can you also check whether the release notes mention the bigger chat text and the new usage sheet, and fix them iagain?",
+          "answers": 0,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "key to frame with no dog working, ms": {
+          "count": 119,
+          "p50": 23.8,
+          "p95": 32,
+          "max": 32.3
+        },
+        "key to frame while three dogs reply, ms": {
+          "count": 119,
+          "p50": 23.4,
+          "p95": 30.6,
+          "max": 32.6
+        },
+        "long tasks while typing, no dog working": 0,
+        "long tasks while typing, three dogs replying": 0,
+        "long task time while typing, three dogs replying, ms": 0,
+        "worst frame while typing, no dog working, ms": 17,
+        "worst frame while typing, three dogs replying, ms": 17,
+        "frames over 25 ms while typing, three dogs replying": 0
+      }
+    },
+    {
+      "case": "h. typing, drafts and moving between chats while the home wakes",
+      "run": 2,
+      "theme": "dark",
+      "checks": [
+        {
+          "name": "every key landed in the box",
+          "ok": true
+        },
+        {
+          "name": "another chat opens while the home wakes",
+          "ok": true
+        },
+        {
+          "name": "the first chat opens again while the home wakes",
+          "ok": true
+        },
+        {
+          "name": "the draft is still in its chat after switching away and back",
+          "ok": true
+        },
+        {
+          "name": "the reload happened while the home was still waking",
+          "ok": true
+        },
+        {
+          "name": "the draft is still there after a reload",
+          "ok": true
+        },
+        {
+          "name": "the other chat's draft is still there after a reload",
+          "ok": true
+        },
+        {
+          "name": "while waking: no raw error text on screen",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "while waking": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "Remind me to look at the pricing line on Friday",
+          "answers": 0,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "key to frame while the home is up, ms": {
+          "count": 119,
+          "p50": 24,
+          "p95": 32,
+          "max": 32.7
+        },
+        "key to frame while the home wakes, ms": {
+          "count": 119,
+          "p50": 24.7,
+          "p95": 32.6,
+          "max": 33
+        },
+        "open another chat while waking, ms": 47,
+        "come back to the first chat while waking, ms": 46,
+        "reload to message box while waking, ms": 401,
+        "status lines shown while waking": 0
+      }
+    },
+    {
+      "case": "i. the home stops soon after a reply",
+      "run": 2,
+      "theme": "dark",
+      "checks": [
+        {
+          "name": "right after the reply: the exchange is on screen before the home stops",
+          "ok": true
+        },
+        {
+          "name": "home stopped right after the reply: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "home stopped right after the reply: the newest exchange stays on screen while the home wakes",
+          "ok": false,
+          "defect": true,
+          "saw": {
+            "bubbles": 0,
+            "answers": 0
+          }
+        },
+        {
+          "name": "right after the reply: the exchange is on screen again once the home is up",
+          "ok": true
+        },
+        {
+          "name": "8 s after the reply: the exchange is on screen before the home stops",
+          "ok": true
+        },
+        {
+          "name": "home stopped 8 s after the reply: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "home stopped 8 s after the reply: the newest exchange stays on screen while the home wakes",
+          "ok": false,
+          "defect": true,
+          "saw": {
+            "bubbles": 0,
+            "answers": 0
+          }
+        },
+        {
+          "name": "8 s after the reply: the exchange is on screen again once the home is up",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "home stopped right after the reply": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Archivist replied: Answer 0066."
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "home stopped 8 s after the reply": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Archivist replied: Answer 0067."
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "home stopped right after the reply: home up to the exchange back on screen, ms": 2066,
+        "home stopped right after the reply: messages of this exchange on screen while the home wakes": 0,
+        "home stopped 8 s after the reply: home up to the exchange back on screen, ms": 4062,
+        "home stopped 8 s after the reply: messages of this exchange on screen while the home wakes": 0
+      }
+    },
+    {
+      "case": "a. send to a home that is awake",
+      "run": 3,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "sent and answered: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "send 1: one bubble, nothing waiting, one reply",
+          "ok": true
+        },
+        {
+          "name": "send 1: the home took it once",
+          "ok": true
+        },
+        {
+          "name": "send 1: the page asked once",
+          "ok": true
+        },
+        {
+          "name": "send 2: one bubble, nothing waiting, one reply",
+          "ok": true
+        },
+        {
+          "name": "send 2: the home took it once",
+          "ok": true
+        },
+        {
+          "name": "send 2: the page asked once",
+          "ok": true
+        },
+        {
+          "name": "send 3: one bubble, nothing waiting, one reply",
+          "ok": true
+        },
+        {
+          "name": "send 3: the home took it once",
+          "ok": true
+        },
+        {
+          "name": "send 3: the page asked once",
+          "ok": true
+        }
+      ],
+      "splits": [
+        {
+          "kind": "home awake",
+          "rowMs": 18,
+          "queuedRowMs": null,
+          "receiptMs": 47,
+          "beforeRequestMs": 10,
+          "receiptServerMs": 8,
+          "receiptNetworkMs": 29,
+          "attempts": 1,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 6,
+          "replyMs": 57,
+          "totalMs": 82,
+          "shownAs": "bubble"
+        },
+        {
+          "kind": "home awake",
+          "rowMs": 11,
+          "queuedRowMs": null,
+          "receiptMs": 23,
+          "beforeRequestMs": 9,
+          "receiptServerMs": 8,
+          "receiptNetworkMs": 7,
+          "attempts": 1,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 6,
+          "replyMs": 49,
+          "totalMs": 73,
+          "shownAs": "bubble"
+        },
+        {
+          "kind": "home awake",
+          "rowMs": 12,
+          "queuedRowMs": null,
+          "receiptMs": 80,
+          "beforeRequestMs": 10,
+          "receiptServerMs": 10,
+          "receiptNetworkMs": 60,
+          "attempts": 1,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 5,
+          "replyMs": 49,
+          "totalMs": 75,
+          "shownAs": "bubble"
+        }
+      ],
+      "looks": {
+        "sent and answered": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Pacer replied: Answer 0069."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        }
+      },
+      "numbers": {}
+    },
+    {
+      "case": "b. send while the home is asleep, then it wakes slowly",
+      "run": 3,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "while waking, before sending: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the chat from before the home slept is still on screen while it wakes",
+          "ok": true
+        },
+        {
+          "name": "held: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the held message shows once, as a queued row with its words",
+          "ok": true
+        },
+        {
+          "name": "the queued row offers Edit and Delete",
+          "ok": true
+        },
+        {
+          "name": "the box is empty again after sending",
+          "ok": true
+        },
+        {
+          "name": "the home was still waking when the row showed as queued",
+          "ok": true
+        },
+        {
+          "name": "delivered: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "after the wake: one bubble, nothing queued, one reply",
+          "ok": true
+        },
+        {
+          "name": "the reply on screen is whole",
+          "ok": true
+        },
+        {
+          "name": "the home took the message once",
+          "ok": true
+        },
+        {
+          "name": "the edge delivered it once",
+          "ok": true
+        },
+        {
+          "name": "the page asked once and got a 202",
+          "ok": true
+        },
+        {
+          "name": "the earlier exchange is still there once",
+          "ok": true
+        }
+      ],
+      "splits": [
+        {
+          "kind": "held through a 5 s wake",
+          "rowMs": 15,
+          "queuedRowMs": 31,
+          "receiptMs": 19,
+          "beforeRequestMs": 9,
+          "receiptServerMs": 0,
+          "receiptNetworkMs": 10,
+          "attempts": 1,
+          "heldMs": 5004,
+          "afterHomeReadyMs": 1925,
+          "homeMs": 6,
+          "replyMs": 626,
+          "totalMs": 5655,
+          "shownAs": "bubble"
+        }
+      ],
+      "looks": {
+        "while waking, before sending": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        },
+        "held": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "Run the checks again please b9079398"
+          ],
+          "trayButtons": [
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "delivered": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "home accepted to the row showing as sent, ms": 633,
+        "sent before the home was ready by, ms": 3088
+      }
+    },
+    {
+      "case": "c. the connection drops mid-send and comes back",
+      "run": 3,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "answer lost before any byte: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "answer lost before any byte: one bubble, one reply, nothing waiting and no Not sent row",
+          "ok": true
+        },
+        {
+          "name": "answer lost before any byte: the home took the message once",
+          "ok": true
+        },
+        {
+          "name": "answer lost before any byte: no sentence about a failure is on screen",
+          "ok": true
+        },
+        {
+          "name": "answer lost mid-answer: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "answer lost mid-answer: one bubble, one reply, nothing waiting and no Not sent row",
+          "ok": true
+        },
+        {
+          "name": "answer lost mid-answer: the home took the message once",
+          "ok": true
+        },
+        {
+          "name": "answer lost mid-answer: no sentence about a failure is on screen",
+          "ok": true
+        },
+        {
+          "name": "connection down: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "a message sent while the connection is down shows once as Not sent yet",
+          "ok": true
+        },
+        {
+          "name": "a draft typed while the connection is down is in the box",
+          "ok": true
+        },
+        {
+          "name": "the dog finished its reply while the connection was down",
+          "ok": true
+        },
+        {
+          "name": "that reply is not on screen while the connection is down",
+          "ok": true
+        },
+        {
+          "name": "after reconnecting: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the reply that finished while the connection was down is on screen whole, once",
+          "ok": true
+        },
+        {
+          "name": "the message sent while down shows once with one reply and nothing waiting",
+          "ok": true
+        },
+        {
+          "name": "the home took each message once",
+          "ok": true
+        },
+        {
+          "name": "the draft is still in the box after the connection came back",
+          "ok": true
+        }
+      ],
+      "splits": [
+        {
+          "kind": "answer lost before any byte",
+          "rowMs": 17,
+          "queuedRowMs": null,
+          "receiptMs": 74,
+          "beforeRequestMs": 15,
+          "receiptServerMs": 5,
+          "receiptNetworkMs": 54,
+          "attempts": 1,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 7,
+          "replyMs": 51,
+          "totalMs": 88,
+          "shownAs": "bubble"
+        },
+        {
+          "kind": "answer lost mid-answer",
+          "rowMs": 11,
+          "queuedRowMs": null,
+          "receiptMs": null,
+          "beforeRequestMs": null,
+          "receiptServerMs": 11,
+          "receiptNetworkMs": null,
+          "attempts": 1,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 5,
+          "replyMs": 47,
+          "totalMs": 72,
+          "shownAs": "bubble"
+        },
+        {
+          "kind": "sent while the connection was down for 4 s",
+          "rowMs": 11,
+          "queuedRowMs": null,
+          "receiptMs": 6048,
+          "beforeRequestMs": 6034,
+          "receiptServerMs": 9,
+          "receiptNetworkMs": 5,
+          "attempts": 3,
+          "heldMs": null,
+          "afterHomeReadyMs": null,
+          "homeMs": 6,
+          "replyMs": 510,
+          "totalMs": 6560,
+          "shownAs": "bubble"
+        }
+      ],
+      "looks": {
+        "answer lost before any byte": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Scout replied: Answer 0074."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        },
+        "answer lost before any byte: asks": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Scout replied: Answer 0074."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": [
+            "the page asked 1 time(s): 202",
+            "the edge passed 2 ask(s) to the home"
+          ]
+        },
+        "answer lost mid-answer": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Scout replied: Answer 0075."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        },
+        "answer lost mid-answer: asks": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Scout replied: Answer 0075."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": [
+            "the page asked 1 time(s): 0",
+            "the edge passed 1 ask(s) to the home"
+          ]
+        },
+        "connection down": {
+          "bubbles": 1,
+          "waitingBubbles": 1,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Working…",
+            "Not sent yet",
+            "Scout replied: Answer 0075."
+          ],
+          "composer": "Remind me to look at the pricing line on Friday",
+          "answers": 0,
+          "raw": []
+        },
+        "after reconnecting": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Scout replied: Answer 0077."
+          ],
+          "composer": "Remind me to look at the pricing line on Friday",
+          "answers": 1,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "answer lost before any byte: times the page asked": 1,
+        "answer lost before any byte: asks the edge passed to the home": 2,
+        "answer lost mid-answer: times the page asked": 1,
+        "answer lost mid-answer: asks the edge passed to the home": 1,
+        "connection down, ms": 4001,
+        "connection back to the page asking again, ms": 3145,
+        "connection back to the reply that finished while down on screen, ms": 3654,
+        "connection back to the reply to the message sent while down on screen, ms": 3670,
+        "the reply that finished while down came on screen in the same step as the next reply (1 yes, 0 no)": 1
+      }
+    },
+    {
+      "case": "d. the home never takes a held message",
+      "run": 3,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "Not sent (refused): no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "refused: the row says Not sent and keeps the words",
+          "ok": true
+        },
+        {
+          "name": "refused: nothing is left queued or shown as sent",
+          "ok": true
+        },
+        {
+          "name": "refused: a sentence says why",
+          "ok": true
+        },
+        {
+          "name": "refused: the home has not seen it",
+          "ok": true
+        },
+        {
+          "name": "refused: the box is empty, so the words are only in the Not sent row",
+          "ok": true
+        },
+        {
+          "name": "refused: Retry can be pressed",
+          "ok": true
+        },
+        {
+          "name": "sent again (refused): no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "refused: sent again it shows once with one reply and no Not sent row",
+          "ok": true
+        },
+        {
+          "name": "refused: the home took it once",
+          "ok": true
+        },
+        {
+          "name": "refused: the edge no longer calls it dropped",
+          "ok": true
+        },
+        {
+          "name": "refused: the sentence saying the words are kept below is gone once they were sent again and answered",
+          "ok": false,
+          "defect": true,
+          "saw": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ]
+        },
+        {
+          "name": "refused: the sentence goes away by itself",
+          "ok": true
+        },
+        {
+          "name": "Not sent (expired): no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "expired: the row says Not sent and keeps the words",
+          "ok": true
+        },
+        {
+          "name": "expired: nothing is left queued or shown as sent",
+          "ok": true
+        },
+        {
+          "name": "expired: a sentence says why",
+          "ok": true
+        },
+        {
+          "name": "expired: the home has not seen it",
+          "ok": true
+        },
+        {
+          "name": "expired: the box is empty, so the words are only in the Not sent row",
+          "ok": true
+        },
+        {
+          "name": "expired: Retry can be pressed",
+          "ok": true
+        },
+        {
+          "name": "sent again (expired): no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "expired: sent again it shows once with one reply and no Not sent row",
+          "ok": true
+        },
+        {
+          "name": "expired: the home took it once",
+          "ok": true
+        },
+        {
+          "name": "expired: the edge no longer calls it dropped",
+          "ok": true
+        },
+        {
+          "name": "expired: the sentence saying the words are kept below is gone once they were sent again and answered",
+          "ok": false,
+          "defect": true,
+          "saw": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ]
+        },
+        {
+          "name": "expired: the sentence goes away by itself",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "Not sent (refused)": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [
+            "Not sent: “Ship the build b4e241ba”"
+          ],
+          "lines": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "statuses": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "sent again (refused)": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "statuses": [
+            "Courier replied: Answer 0078.",
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        },
+        "Not sent (expired)": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [
+            "Not sent: “Draft the update note a30293dc”"
+          ],
+          "lines": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "statuses": [
+            "Courier replied: Answer 0078.",
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "sent again (expired)": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "statuses": [
+            "Courier replied: Answer 0079.",
+            "Your home never took this message, so it was not sent. It is kept below to send again."
+          ],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "refused: Enter to own words on screen, ms": 15,
+        "refused: Enter to the row showing as queued, ms": 37,
+        "refused: Enter to the edge's 202 in the page, ms": 28,
+        "refused: the edge gave up to Not sent on screen, ms": 524,
+        "refused: the sentence stayed on screen for, ms": 6000,
+        "refused: Retry to accepted by the home, ms": 35,
+        "refused: Retry to reply words on screen, ms": 119,
+        "refused: Retry, home accepted to engine start, ms": 7,
+        "expired: Enter to own words on screen, ms": 28,
+        "expired: Enter to the row showing as queued, ms": 50,
+        "expired: Enter to the edge's 202 in the page, ms": 40,
+        "expired: the edge gave up to Not sent on screen, ms": 3872,
+        "expired: the sentence stayed on screen for, ms": 5990,
+        "expired: Retry to accepted by the home, ms": 49,
+        "expired: Retry to reply words on screen, ms": 163,
+        "expired: Retry, home accepted to engine start, ms": 9
+      }
+    },
+    {
+      "case": "e. Send now and cancel on a held message",
+      "run": 3,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "held while the dog is working: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the held message is a queued row with Send now",
+          "ok": true
+        },
+        {
+          "name": "Send now can be pressed",
+          "ok": true
+        },
+        {
+          "name": "Send now answer: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "Send now answers in a sentence that says the message is waiting for the home",
+          "ok": true
+        },
+        {
+          "name": "the message is still held after Send now",
+          "ok": true
+        },
+        {
+          "name": "the edge answered Send now with 200",
+          "ok": true
+        },
+        {
+          "name": "two held: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the second held message is listed too",
+          "ok": true
+        },
+        {
+          "name": "cancel can be pressed",
+          "ok": true
+        },
+        {
+          "name": "cancelled: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the cancelled message is gone from the list and the edge",
+          "ok": true
+        },
+        {
+          "name": "the cancelled message is not called Not sent",
+          "ok": true
+        },
+        {
+          "name": "the other held message is still listed",
+          "ok": true
+        },
+        {
+          "name": "the cancel happened while the home was still waking",
+          "ok": true
+        },
+        {
+          "name": "delivered after Send now: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "after the wake the kept message shows once and nothing is queued",
+          "ok": true
+        },
+        {
+          "name": "the home took the kept message once",
+          "ok": true
+        },
+        {
+          "name": "the home never saw the cancelled message",
+          "ok": true
+        },
+        {
+          "name": "the cancelled message did not come back",
+          "ok": true
+        },
+        {
+          "name": "the long job and its whole reply are there once",
+          "ok": true
+        },
+        {
+          "name": "the kept message has one reply on screen",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "held while the dog is working": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "Also check the release notes 17a8acdf"
+          ],
+          "trayButtons": [
+            "Send now",
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Working…"
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "Send now answer": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "Also check the release notes 17a8acdf"
+          ],
+          "trayButtons": [
+            "Send now",
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "statuses": [
+            "Working…",
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "two held": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "And the pricing line 61ca4daf"
+          ],
+          "trayButtons": [
+            "Send all now",
+            "Edit queued message 1 of 2",
+            "Delete queued message 1 of 2",
+            "Edit queued message 2 of 2",
+            "Delete queued message 2 of 2"
+          ],
+          "notSent": [],
+          "lines": [
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "statuses": [
+            "Working…",
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "cancelled": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [
+            "Send now",
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "statuses": [
+            "Working…",
+            "Your home is starting. This message sends as soon as it is up.\nTry again"
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "delivered after Send now": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Builder replied: Answer 0081."
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "Enter to the held row showing as queued, ms": 55,
+        "Send now pressed to the edge's answer, ms": 7,
+        "Send now pressed to the sentence on screen, ms": 27,
+        "cancel pressed to the edge taking it out, ms": 4,
+        "cancel pressed to the row gone, ms": 16,
+        "held to accepted by the home, ms": 10885,
+        "home ready to accepted by the home, ms": 2028
+      }
+    },
+    {
+      "case": "f. the app reloads while a message is held",
+      "run": 3,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "held before the reload: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the reload happened while the home was still waking",
+          "ok": true
+        },
+        {
+          "name": "held after the reload: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "the held row is still there after the reload, once, with its words",
+          "ok": true
+        },
+        {
+          "name": "the held message is not called Not sent after the reload",
+          "ok": true
+        },
+        {
+          "name": "the edge still holds it",
+          "ok": true
+        },
+        {
+          "name": "delivered after the reload: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "after the wake: one bubble, nothing queued, one reply",
+          "ok": true
+        },
+        {
+          "name": "the home took the message once",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "held before the reload": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "Hold this until you are up a0e2d0b8"
+          ],
+          "trayButtons": [
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "held after the reload": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [
+            "Hold this until you are up a0e2d0b8"
+          ],
+          "trayButtons": [
+            "Edit queued message 1 of 1",
+            "Delete queued message 1 of 1"
+          ],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "delivered after the reload": {
+          "bubbles": 1,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "",
+          "answers": 1,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "reload to the chat open again while waking, ms": 1026,
+        "home ready to accepted by the home, ms": 1064
+      }
+    },
+    {
+      "case": "g. three dogs stream replies while the person types in a fourth chat",
+      "run": 3,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "all three dogs were still replying when the typing ended",
+          "ok": true
+        },
+        {
+          "name": "every key landed in the fourth chat's box",
+          "ok": true
+        },
+        {
+          "name": "the last word is selected in the box",
+          "ok": true
+        },
+        {
+          "name": "the selection is the same after the three replies finished",
+          "ok": true
+        },
+        {
+          "name": "the fourth chat is still the open one",
+          "ok": true
+        },
+        {
+          "name": "the draft is the same after the three replies finished",
+          "ok": true
+        },
+        {
+          "name": "typing over the selection replaces only the selected word",
+          "ok": true
+        },
+        {
+          "name": "after the three replies: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "nothing was sent from the fourth chat",
+          "ok": true
+        },
+        {
+          "name": "each of the three dogs shows its finished reply in the sidebar",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "after the three replies": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "Can you also check whether the release notes mention the bigger chat text and the new usage sheet, and fix them iagain?",
+          "answers": 0,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "key to frame with no dog working, ms": {
+          "count": 119,
+          "p50": 24.8,
+          "p95": 32.6,
+          "max": 32.8
+        },
+        "key to frame while three dogs reply, ms": {
+          "count": 119,
+          "p50": 23.8,
+          "p95": 32,
+          "max": 32.6
+        },
+        "long tasks while typing, no dog working": 0,
+        "long tasks while typing, three dogs replying": 0,
+        "long task time while typing, three dogs replying, ms": 0,
+        "worst frame while typing, no dog working, ms": 17,
+        "worst frame while typing, three dogs replying, ms": 17,
+        "frames over 25 ms while typing, three dogs replying": 0
+      }
+    },
+    {
+      "case": "h. typing, drafts and moving between chats while the home wakes",
+      "run": 3,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "every key landed in the box",
+          "ok": true
+        },
+        {
+          "name": "another chat opens while the home wakes",
+          "ok": true
+        },
+        {
+          "name": "the first chat opens again while the home wakes",
+          "ok": true
+        },
+        {
+          "name": "the draft is still in its chat after switching away and back",
+          "ok": true
+        },
+        {
+          "name": "the reload happened while the home was still waking",
+          "ok": true
+        },
+        {
+          "name": "the draft is still there after a reload",
+          "ok": true
+        },
+        {
+          "name": "the other chat's draft is still there after a reload",
+          "ok": true
+        },
+        {
+          "name": "while waking: no raw error text on screen",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "while waking": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [],
+          "composer": "Remind me to look at the pricing line on Friday",
+          "answers": 0,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "key to frame while the home is up, ms": {
+          "count": 119,
+          "p50": 24.4,
+          "p95": 32.5,
+          "max": 33.2
+        },
+        "key to frame while the home wakes, ms": {
+          "count": 119,
+          "p50": 24.5,
+          "p95": 32.7,
+          "max": 32.8
+        },
+        "open another chat while waking, ms": 47,
+        "come back to the first chat while waking, ms": 49,
+        "reload to message box while waking, ms": 468,
+        "status lines shown while waking": 0
+      }
+    },
+    {
+      "case": "i. the home stops soon after a reply",
+      "run": 3,
+      "theme": "light",
+      "checks": [
+        {
+          "name": "right after the reply: the exchange is on screen before the home stops",
+          "ok": true
+        },
+        {
+          "name": "home stopped right after the reply: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "home stopped right after the reply: the newest exchange stays on screen while the home wakes",
+          "ok": false,
+          "defect": true,
+          "saw": {
+            "bubbles": 0,
+            "answers": 0
+          }
+        },
+        {
+          "name": "right after the reply: the exchange is on screen again once the home is up",
+          "ok": true
+        },
+        {
+          "name": "8 s after the reply: the exchange is on screen before the home stops",
+          "ok": true
+        },
+        {
+          "name": "home stopped 8 s after the reply: no raw error text on screen",
+          "ok": true
+        },
+        {
+          "name": "home stopped 8 s after the reply: the newest exchange stays on screen while the home wakes",
+          "ok": false,
+          "defect": true,
+          "saw": {
+            "bubbles": 0,
+            "answers": 0
+          }
+        },
+        {
+          "name": "8 s after the reply: the exchange is on screen again once the home is up",
+          "ok": true
+        }
+      ],
+      "splits": [],
+      "looks": {
+        "home stopped right after the reply": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Archivist replied: Answer 0086."
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        },
+        "home stopped 8 s after the reply": {
+          "bubbles": 0,
+          "waitingBubbles": 0,
+          "sendingBubbles": 0,
+          "tray": [],
+          "trayButtons": [],
+          "notSent": [],
+          "lines": [],
+          "statuses": [
+            "Archivist replied: Answer 0087."
+          ],
+          "composer": "",
+          "answers": 0,
+          "raw": []
+        }
+      },
+      "numbers": {
+        "home stopped right after the reply: home up to the exchange back on screen, ms": 2552,
+        "home stopped right after the reply: messages of this exchange on screen while the home wakes": 0,
+        "home stopped 8 s after the reply: home up to the exchange back on screen, ms": 2313,
+        "home stopped 8 s after the reply: messages of this exchange on screen while the home wakes": 0
+      }
+    }
+  ]
+}

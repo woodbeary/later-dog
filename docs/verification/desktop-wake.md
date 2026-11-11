@@ -97,17 +97,27 @@ itself against a stand-in home.
 
 ## Numbers
 
-Pending: the run on the tree with main merged in is going. This section is
-filled in from its result file.
+A first complete run, `m1` at 845ea9a (main 89b1439 merged in, before pull
+request #173), 3 runs of every case: 363 checks passed, 0 failed, 13 sightings
+of 3 known defects. Its tables are in
+[`assets/desktop-wake/m1.json`](assets/desktop-wake/m1.json) under `table` and
+`otherNumbers`. A second run on the tree with #173 is going; this section is
+rewritten from it.
 
 ## Done and left
 
 Done:
 
-- Main (89b1439) is merged into the branch.
-- Case c's stall is fixed in the harness (see "Case c").
+- Main (8395635, with #173) is merged into the branch.
+- Case c stalled because the harness waited for a third reply when two had
+  arrived together; fixed in the harness, and case c passed 3 runs of 3 in
+  `m1`. It was not a product fault.
+- Pull request #174 is open.
 
 Left:
 
-- The numbers above, the result file under `assets/desktop-wake/`, the
-  pictures, the checks with counts.
+- The run on the tree with #173, its numbers here, the pictures for Atelier,
+  the checks with counts, and the write-up of the three known defects (the
+  newest exchange leaves the screen while the home wakes; the "kept below"
+  sentence stays after Send again; a streamed reply shows nothing until it is
+  whole).
