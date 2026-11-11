@@ -1,5 +1,5 @@
 import { statusFallback } from "@/lib/plain-client-error";
-import { HOME_WAKE_WORDS, WAKE_LIMIT_MS, WAKE_TOO_LONG, homeWake, retryAfterMs, wakeDelayMs, type HomeWake } from "../../shared/home-wake";
+import { HOME_WAKE_WORDS, WAKE_LIMIT_MS, WAKE_TOO_LONG, fromSavedCopy, homeWake, retryAfterMs, wakeDelayMs, type HomeWake } from "../../shared/home-wake";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -32,7 +32,16 @@ const sleepUnlessAborted = (ms: number, signal: AbortSignal | null | undefined) 
     signal?.addEventListener?.("abort", stop, { once: true });
   });
 
+export interface ApiAnswer<T> {
+  body: T;
+  savedCopy: boolean;
+}
+
 export async function api<T = any>(path: string, init?: ApiInit): Promise<T> {
+  return (await apiAnswer<T>(path, init)).body;
+}
+
+export async function apiAnswer<T = any>(path: string, init?: ApiInit): Promise<ApiAnswer<T>> {
   const { timeoutMs, signal, rideWake, ...rest } = init ?? {};
   const bounded = timeoutMs === undefined
     ? signal
@@ -47,7 +56,7 @@ export async function api<T = any>(path: string, init?: ApiInit): Promise<T> {
       signal: bounded,
     });
     const body = await res.json().catch(() => ({}));
-    if (res.ok) return body;
+    if (res.ok) return { body, savedCopy: fromSavedCopy(res.headers) };
     const wake = homeWake(res.status, res.headers);
     const waitMs = retryAfterMs(res.headers, body);
     if (wake && rideWake !== false && (rest.body == null || typeof rest.body === "string")) {

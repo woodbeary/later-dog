@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DESK_CHATS_MAX_BYTES, deskAnswerWithQueue, deskKey, saveAnswer, savedAnswer, type DeskBucket, type DeskObject, type QueuedSend,
 } from "../../deploy/laterdog/home/src/desk.ts";
-import { deskReplyId, deskUserId } from "../../deploy/laterdog/home/src/desk-stream.ts";
+import { deskReplyId, deskReplyLine, deskUserId, deskUserLine } from "../../deploy/laterdog/home/src/desk-stream.ts";
 import type { AppState, BotAnnouncement, Group, Message } from "./store";
 
 class FixtureEventSource {
@@ -179,6 +179,15 @@ describe("a refresh the edge answers from its older saved copy", () => {
     }];
     await reconnect();
     expect(seen.bots[0]!.messages.map((message) => message.id)).toEqual(["hello", "ask-1", "answer-1", "ask-2", "answer-2", deskUserId(heldId), deskReplyId(heldId)]);
+    expect(dogLines()).toEqual(["hello", "ask-1", "answer-1", "ask-2", "answer-2", deskUserId(heldId), deskReplyId(heldId)]);
+  });
+
+  it("shows a message the edge answers live after the newest exchange, when the edge knew only the chat before it", async () => {
+    const heldId = "older-copy-send-0004";
+    const edge: Edge = { homeChats: chats([hello, ask, answer], [roomOpening]), homeUp: true, held: [] };
+    await exchangeThenSleep(edge);
+    await frame({ kind: "message", threadId: "thread", message: deskUserLine({ sendId: heldId, text: "And the pricing line?", at: 20, parentId: "answer-1" }) });
+    await frame({ kind: "message", threadId: "thread", message: deskReplyLine({ sendId: heldId, text: "Still to confirm before Friday.", at: 21 }) });
     expect(dogLines()).toEqual(["hello", "ask-1", "answer-1", "ask-2", "answer-2", deskUserId(heldId), deskReplyId(heldId)]);
   });
 });

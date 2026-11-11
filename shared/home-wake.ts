@@ -1,6 +1,7 @@
 export type HomeWake = "waking" | "busy" | "asleep";
 
 export const WAKE_HEADER = "x-laterdog-home";
+export const SAVED_COPY_HEADER = "x-laterdog-saved-at";
 export const WAKE_LIMIT_MS = 120_000;
 export const WAKE_DELAY_CAP_MS = 15_000;
 
@@ -34,6 +35,10 @@ export function homeWake(status: number, headers: HeaderReader | null | undefine
   if (status !== 503) return null;
   const said = header(headers, WAKE_HEADER);
   return isHomeWake(said) ? said : null;
+}
+
+export function fromSavedCopy(headers: HeaderReader | null | undefined): boolean {
+  return header(headers, SAVED_COPY_HEADER) !== null;
 }
 
 export function retryAfterMs(headers: HeaderReader | null | undefined, body?: { retryAfter?: unknown } | null): number | null {

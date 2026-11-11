@@ -20,3 +20,12 @@ export function newestTip(messages: readonly Linked[], fromId: string | null): s
   for (let child = newestChild.get(tip); child; child = newestChild.get(tip)) tip = child.id;
   return tip;
 }
+
+export const EDGE_LINE_PREFIX = "desk-";
+
+export function afterShownLeaf<T extends Linked>(messages: readonly Linked[], leafId: string | null, line: T): T {
+  const parent = line.parentId ?? null;
+  if (!line.id.startsWith(EDGE_LINE_PREFIX) || parent?.startsWith(EDGE_LINE_PREFIX) || leafId === null || parent === leafId) return line;
+  const behindTheLeaf = parent === null || descendsFrom(messages, leafId, parent);
+  return behindTheLeaf ? { ...line, parentId: leafId } : line;
+}

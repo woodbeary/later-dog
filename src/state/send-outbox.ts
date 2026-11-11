@@ -21,6 +21,7 @@ import {
   type Outbox,
   type OutboxItem,
 } from "@/lib/outbox";
+import { EDGE_LINE_PREFIX } from "@/lib/leaf-follow";
 import type { Action, ApiInit, Bot, Group } from "./store";
 
 type Store = ReturnType<typeof browserStore>;
@@ -93,7 +94,7 @@ export function sendIdsQueuedAtHome(queues: unknown): string[] {
 }
 
 const OPTIMISTIC_LINE_ID = /^optimistic-/;
-const EDGE_LINE_ID = /^desk-/;
+const EDGE_LINE_ID = new RegExp(`^${EDGE_LINE_PREFIX}`);
 
 type Chats = readonly Pick<Bot | Group, "messages">[];
 

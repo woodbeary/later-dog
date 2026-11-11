@@ -12,6 +12,7 @@ import {
 import { flushSync } from "react-dom";
 import { StoreChannelContext, createStoreFeed, type StoreChannel, type StoreFeed } from "./store-channel";
 import { followsTaskView, followTaskView, reduceTaskView, type TaskView, type TaskViewAction } from "./task-view";
+import { withShownLines } from "./saved-copy";
 import type { BotVisibility, CardAnswerer, CloudBackend, ConnectorToolGrant, EffortLevel, InstalledPackageMetadata, LiveCallState, LiveSettings, ServerFrame, GroupThreadUsage, SteerQueueReason, WireWaitingOn } from "../../shared/wire";
 import type { TurnDigest } from "../../shared/digest";
 import type { DamagedData } from "../../shared/damaged-data";
@@ -43,7 +44,7 @@ import type { Routine, RoutineInput, RoutineRun, RoutineRunStatusFilter } from "
 import { botShowsUnread } from "@/lib/bot-unread";
 import { personIsLooking, readWhenBack } from "@/lib/viewing";
 import { jevRoomRoutingOn } from "@/lib/group-routing";
-import { descendsFrom, newestTip } from "@/lib/leaf-follow";
+import { afterShownLeaf, descendsFrom, newestTip } from "@/lib/leaf-follow";
 import type { ComputerStart } from "@/lib/computer-start";
 import { answerResponse, dismissResponse } from "@/lib/card-answer";
 import { currentCall } from "@/lib/call";
@@ -65,7 +66,7 @@ import {
   type PaneErrors,
   type PaneKey,
 } from "./pane-errors";
-import { ApiError, api, type ApiInit } from "@/lib/api";
+import { ApiError, api, apiAnswer, type ApiInit } from "@/lib/api";
 import { queuedSteerResult, StillWaitingError } from "@/lib/queued-steer";
 import type { OutboxItem, OutboxRecovery } from "@/lib/outbox";
 import { createSendOutbox, type SendOutbox } from "./send-outbox";
@@ -855,6 +856,7 @@ export type Action =
       sections?: string[];
       computerControl: Record<string, { held: boolean; helpReason: string | null }>;
       botQueuedMessages?: AppState["pendingQueued"];
+      savedCopy?: boolean;
     }
   | { type: "botQueues"; queues: AppState["pendingQueued"] }
   | { type: "sections"; sections: string[] }
@@ -1247,11 +1249,13 @@ function baseReducer(state: AppState, action: Action): AppState {
         hydrated: true,
         bots: action.bots.map((bot) => {
           const previous = state.bots.find((candidate) => candidate.id === bot.id);
-          return previous ? { ...bot, tasks: mergeTaskStamps(previous.tasks, bot.tasks) } : bot;
+          const kept = action.savedCopy ? withShownLines(previous, bot, Boolean(state.hydrated)) : bot;
+          return previous ? { ...kept, tasks: mergeTaskStamps(previous.tasks, bot.tasks) } : kept;
         }),
         groups: action.groups.map((group) => {
           const previous = state.groups.find((candidate) => candidate.id === group.id);
-          return previous ? { ...group, tasks: mergeTaskStamps(previous.tasks, group.tasks) } : group;
+          const kept = action.savedCopy ? withShownLines(previous, group, Boolean(state.hydrated)) : group;
+          return previous ? { ...kept, tasks: mergeTaskStamps(previous.tasks, group.tasks) } : kept;
         }),
         sections: action.sections ?? [],
         computerControl: action.computerControl,
@@ -1264,7 +1268,7 @@ function baseReducer(state: AppState, action: Action): AppState {
       };
       return reconcileSnapshotQueues(
         action.botQueuedMessages ? replaceBotQueues(hydrated, action.botQueuedMessages) : hydrated,
-        [...action.bots, ...action.groups],
+        [...hydrated.bots, ...hydrated.groups],
       );
     }
     case "loadOlderMessages":
@@ -1549,21 +1553,23 @@ function baseReducer(state: AppState, action: Action): AppState {
         ? bot.messages.findIndex((message) => message.id === optimisticId)
         : -1;
       if (optimisticIndex >= 0) {
+        const landed = afterShownLeaf(bot.messages, bot.messages[optimisticIndex]!.parentId ?? null, action.message);
         return updateBot(stamped, bot.id, (current) => ({
           ...current,
           messages: current.messages.map((message, index) =>
-            index === optimisticIndex ? action.message : message
+            index === optimisticIndex ? landed : message
           ),
           activeLeafId: current.activeLeafId === optimisticId
-            ? action.message.id
+            ? landed.id
             : current.activeLeafId,
         }));
       }
       const next = updateBot(stamped, bot.id, (b) => {
-        const parent = action.message.parentId ?? null;
         const leaf = b.activeLeafId ?? null;
+        const message = afterShownLeaf(b.messages, leaf, action.message);
+        const parent = message.parentId ?? null;
         const adoptsLeaf = parent === leaf || (leaf !== null && descendsFrom(b.messages, parent, leaf));
-        return { ...b, messages: [...b.messages, action.message], activeLeafId: adoptsLeaf ? action.message.id : b.activeLeafId };
+        return { ...b, messages: [...b.messages, message], activeLeafId: adoptsLeaf ? message.id : b.activeLeafId };
       });
       const motion =
         action.message.role === "user" && action.message.kind === "text" && Boolean(action.message.queueId)
@@ -3152,7 +3158,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         })
         .catch(() => {});
       const chat = () =>
-        api(`/api/bots?messages=${MESSAGE_PAGE_SIZE}`).then(({ bots, groups, sections, computerControl, botQueuedMessages }) => {
+        apiAnswer(`/api/bots?messages=${MESSAGE_PAGE_SIZE}`).then(({ body: { bots, groups, sections, computerControl, botQueuedMessages }, savedCopy }) => {
           if (!alive) return;
           rawDispatch({
             type: "hydrate",
@@ -3161,6 +3167,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             sections: sections ?? [],
             computerControl: computerControl ?? {},
             botQueuedMessages,
+            savedCopy,
           });
           const outbox = sendOutbox();
           const pending = outbox.pending(bots ?? [], groups ?? [], botQueuedMessages);
