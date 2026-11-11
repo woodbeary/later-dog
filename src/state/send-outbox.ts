@@ -107,6 +107,20 @@ function sendIdsAtHome(bots: Chats, groups: Chats, queues: unknown): Set<string>
   return new Set([...sendIdsQueuedAtHome(queues), ...sendIdsOnLines([...bots, ...groups], (id) => !OPTIMISTIC_LINE_ID.test(id) && !EDGE_LINE_ID.test(id))]);
 }
 
+function threadsOfSendsAtEdge(bots: Chats, groups: Chats, queues: unknown): Map<string, string> {
+  const atHome = sendIdsAtHome(bots, groups, queues);
+  const threads = new Map<string, string>();
+  for (const chat of [...bots, ...groups]) {
+    const threadId = (chat as { threadId?: unknown }).threadId;
+    for (const message of chat.messages ?? []) {
+      if (message.sendId && EDGE_LINE_ID.test(message.id)) threads.set(message.sendId, typeof threadId === "string" ? threadId : "");
+    }
+  }
+  for (const row of queueRowsWithSendIds(queues)) if (row.queueId === row.sendId) threads.set(row.sendId, row.threadId);
+  for (const sendId of atHome) threads.delete(sendId);
+  return threads;
+}
+
 interface Refresh {
   bots: Chats;
   groups: Chats;
@@ -222,6 +236,15 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
   const store = "store" in deps ? deps.store : browserStore();
   const hooks = new Map<string, SendHooks>();
   const now = deps.now ?? Date.now;
+  const heldCopy = (item: OutboxItem, threadId: string): HeldSend => ({
+    sendId: item.sendId,
+    threadId,
+    draftId: item.recovery?.draftId ?? composerDraftId(item.target.kind === "bot" ? { botId: item.target.botId } : { groupId: item.target.groupId }, threadId),
+    text: item.recovery?.text ?? item.text,
+    requestText: item.text,
+    replyToId: item.replyToId,
+    at: now(),
+  });
   const settle = (item: OutboxItem, body: any) => {
     if (body?.message && typeof body.threadId === "string") {
       deps.dispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
@@ -236,17 +259,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
         text: item.text,
         reason: item.target.kind === "bot" && QUEUE_REASONS.has(body.reason) ? body.reason : undefined,
       });
-      if (body.queueId === item.sendId) {
-        heldSends.keep({
-          sendId: item.sendId,
-          threadId: queuedIn,
-          draftId: item.recovery?.draftId ?? composerDraftId(item.target.kind === "bot" ? { botId: item.target.botId } : { groupId: item.target.groupId }, queuedIn),
-          text: item.recovery?.text ?? item.text,
-          requestText: item.text,
-          replyToId: item.replyToId,
-          at: now(),
-        });
-      }
+      if (body.queueId === item.sendId) heldSends.keep(heldCopy(item, queuedIn));
     }
   };
 
@@ -305,6 +318,11 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     },
   });
 
+  const keepIfAtEdge = (item: OutboxItem, atEdge: ReadonlyMap<string, string>) => {
+    const threadId = atEdge.get(item.sendId);
+    if (threadId !== undefined) heldSends.keep(heldCopy(item, threadId || item.threadId));
+  };
+
   const forget = (sendId: string) => {
     hooks.delete(sendId);
     outbox.acknowledge(sendId);
@@ -318,15 +336,22 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     },
     pending(bots, groups, queues) {
       const landed = landedSendIds(bots, groups, queues);
-      for (const item of outbox.items()) if (landed.has(item.sendId)) forget(item.sendId);
+      const atEdge = threadsOfSendsAtEdge(bots, groups, queues);
+      for (const item of outbox.items()) {
+        if (!landed.has(item.sendId)) continue;
+        keepIfAtEdge(item, atEdge);
+        forget(item.sendId);
+      }
       return outbox.items();
     },
     echoed: forget,
     queued(queues) {
       const waiting = new Set(sendIdsInQueues(queues));
+      const atEdge = threadsOfSendsAtEdge([], [], queues);
       for (const item of outbox.items()) {
         if (!waiting.has(item.sendId)) continue;
         deps.dispatch({ type: "optimisticMessageRemoved", threadId: item.threadId, sendId: item.sendId });
+        keepIfAtEdge(item, atEdge);
         forget(item.sendId);
       }
     },

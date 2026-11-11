@@ -26,6 +26,12 @@ half (`src/**`) in one pull request, and replaces pull requests #157 and #159.
   target) in local storage under `laterdog-held-sends`. Every such send gets a
   copy, with or without a composer behind it: quick replies, call transcripts,
   teach-a-trick, typed card replies, group messages.
+- A send whose receipt this device never read (the connection dropped, or the
+  app was quit in that moment) is still in the device's outbox. When a refresh
+  shows it waiting at the edge (the edge's own queue row, or a `desk-` line),
+  the device writes the same copy from the outbox item before it lets the
+  outbox item go, so a later drop still comes back as Not sent with the words.
+  A row or line that shows the home took the message writes no copy.
 - The copy is let go only on a definite answer: the home shows the message in
   the chat or in its own queue (a queue row whose id differs from the send id,
   or a line whose id does not start with `desk-`), the edge says it no longer

@@ -303,6 +303,103 @@ describe("a message the edge held for a sleeping home", () => {
     expect(showError).toHaveBeenCalledWith(expect.objectContaining({ message: HELD_NOT_SENT }), "thread");
   });
 
+  describe("when this device never read the edge's receipt", () => {
+    const waitingAtEdge = { id: sent.sendId, path: "/api/bots/bot/messages", headers: {}, body: JSON.stringify({ text: sent.text, sendId: sent.sendId, threadId: "thread" }), at: 1, threadId: "thread" };
+    const saved = { bots: [{ id: "bot", threadId: "thread", messages: [], activeLeafId: null }], botQueuedMessages: {} };
+    type Served = { bots: Array<Pick<Bot, "messages">>; botQueuedMessages: Record<string, unknown[]> };
+    const stillInOutbox = (answer: () => unknown) => {
+      const store = memoryStore({ [OUTBOX_KEY]: JSON.stringify({ version: 1, items: [sent] }) });
+      const showError = vi.fn();
+      const timers = manualTimers();
+      const request = vi.fn(async (path: string) => {
+        if (!path.startsWith("/api/held-sends")) throw new Error(`sent again: ${path}`);
+        return answer();
+      });
+      let state = chatState();
+      const outbox = createSendOutbox({ request, dispatch: (action) => { state = reducer(state, action); }, showError, store, after: timers.after, now: () => 1_000 });
+      const refresh = async (served: Served) => {
+        state = reducer(state, { type: "hydrate", bots: served.bots, groups: state.groups, sections: [], computerControl: {}, botQueuedMessages: served.botQueuedMessages } as unknown as Action);
+        const pending = outbox.pending(served.bots, [], served.botQueuedMessages);
+        await outbox.settleHeld(served.bots, [], served.botQueuedMessages);
+        outbox.resume();
+        await answered();
+        return pending;
+      };
+      const asks = () => request.mock.calls.filter(([path]) => String(path).startsWith("/api/held-sends")).length;
+      return { store, showError, request, timers, outbox, refresh, asks, state: () => state };
+    };
+
+    it("writes the copy from the outbox when a refresh the edge answers shows the waiting row, so a later drop gives one Not sent row with the words and one notice", async () => {
+      const before = failedBefore();
+      let answer: unknown = { held: [sent.sendId], dropped: [] };
+      const { store, showError, request, timers, refresh, asks, state } = stillInOutbox(() => answer);
+
+      const pending = await refresh(withDeskQueue(saved, [waitingAtEdge]) as Served);
+      expect(pending).toEqual([]);
+      expect(store.values.has(OUTBOX_KEY)).toBe(false);
+      expect(kept(store)).toEqual([expect.objectContaining({ sendId: sent.sendId, threadId: "thread", draftId: draft, text: sent.text, requestText: sent.text, at: 1_000 })]);
+      expect(state().pendingQueued.thread).toEqual([expect.objectContaining({ queueId: sent.sendId, text: sent.text })]);
+      expect(asks()).toBe(1);
+      expect(showError).not.toHaveBeenCalled();
+
+      answer = { held: [], dropped: [{ id: sent.sendId, why: "refused", at: 9 }] };
+      await timers.fire();
+      expect(kept(store)).toEqual([]);
+      expect(state().pendingQueued.thread).toBeUndefined();
+      expect(failedComposerSends(draft).slice(before)).toEqual([expect.objectContaining({ sendId: sent.sendId, text: sent.text, requestText: sent.text, threadId: "thread" })]);
+      expect(showError).toHaveBeenCalledTimes(1);
+      expect(showError).toHaveBeenCalledWith(expect.objectContaining({ message: HELD_NOT_SENT }), "thread");
+      expect(request.mock.calls.every(([path]) => String(path).startsWith("/api/held-sends"))).toBe(true);
+      expect(timers.waiting).toEqual([]);
+    });
+
+    it("does the same when the edge shows the message as its own line in the chat", async () => {
+      const before = failedBefore();
+      let answer: unknown = { held: [sent.sendId], dropped: [] };
+      const { store, showError, timers, refresh } = stillInOutbox(() => answer);
+      const served = withDeskQueue(saved, [{ ...waitingAtEdge, reply: { text: "On it.", model: "fixture" } }]) as Served;
+      expect(served.bots[0]!.messages[0]).toMatchObject({ id: `desk-${sent.sendId}`, sendId: sent.sendId });
+      expect(served.botQueuedMessages).toEqual({});
+
+      expect(await refresh(served)).toEqual([]);
+      expect(store.values.has(OUTBOX_KEY)).toBe(false);
+      expect(kept(store)).toEqual([expect.objectContaining({ sendId: sent.sendId, threadId: "thread", draftId: draft, text: sent.text })]);
+
+      answer = { held: [], dropped: [{ id: sent.sendId, why: "expired", at: 9 }] };
+      await timers.fire();
+      expect(kept(store)).toEqual([]);
+      expect(failedComposerSends(draft).slice(before)).toEqual([expect.objectContaining({ sendId: sent.sendId, text: sent.text })]);
+      expect(showError).toHaveBeenCalledTimes(1);
+    });
+
+    it("writes the copy when the waiting row arrives by itself, and none for a row or a line that shows the home took the message", async () => {
+      const before = failedBefore();
+      const atEdge = stillInOutbox(() => ({ held: [sent.sendId], dropped: [] }));
+      atEdge.outbox.queued({ thread: [{ queueId: sent.sendId, text: sent.text, sendId: sent.sendId }] });
+      expect(atEdge.store.values.has(OUTBOX_KEY)).toBe(false);
+      expect(kept(atEdge.store)).toEqual([expect.objectContaining({ sendId: sent.sendId, threadId: "thread", text: sent.text })]);
+
+      const homeRow = stillInOutbox(() => { throw new Error("not asked"); });
+      expect(await homeRow.refresh({ bots: saved.bots, botQueuedMessages: { thread: [{ queueId: "home-queue-1", text: sent.text, sendId: sent.sendId }] } })).toEqual([]);
+      expect(homeRow.store.values.has(OUTBOX_KEY)).toBe(false);
+      expect(kept(homeRow.store)).toEqual([]);
+      expect(homeRow.asks()).toBe(0);
+
+      const homeLine = stillInOutbox(() => { throw new Error("not asked"); });
+      expect(await homeLine.refresh({ bots: [{ ...saved.bots[0]!, messages: [{ id: "m1", role: "user", kind: "text", at: 9, sendId: sent.sendId }] } as never], botQueuedMessages: {} })).toEqual([]);
+      expect(kept(homeLine.store)).toEqual([]);
+      expect(homeLine.asks()).toBe(0);
+
+      const homeQueued = stillInOutbox(() => { throw new Error("not asked"); });
+      homeQueued.outbox.queued({ thread: [{ queueId: "home-queue-2", text: sent.text, sendId: sent.sendId }] });
+      expect(homeQueued.store.values.has(OUTBOX_KEY)).toBe(false);
+      expect(kept(homeQueued.store)).toEqual([]);
+
+      for (const run of [atEdge, homeRow, homeLine, homeQueued]) expect(run.showError).not.toHaveBeenCalled();
+      expect(failedComposerSends(draft).slice(before)).toEqual([]);
+    });
+  });
+
   it("puts the message in the Not sent row with its words when the edge says the home refused it or the hour ran out", async () => {
     const before = failedBefore();
     const { store, showError, request, outbox } = await holding(async () => ({ held: [], dropped: [{ id: sent.sendId, why: "refused", at: 5 }] }));
