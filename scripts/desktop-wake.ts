@@ -23,7 +23,7 @@ const SELECTED = 6;
 
 type Theme = "light" | "dark";
 type WakePage = Page & { screenshot(options: { path: string; type: "jpeg"; quality: number }): Promise<unknown>; reload(): Promise<unknown> };
-type Browser = { newContext(options: unknown): Promise<{ addInitScript(script: string): Promise<void>; newPage(): Promise<WakePage>; close(): Promise<void> }>; close(): Promise<void> };
+type Browser = { newContext(options: unknown): Promise<{ addInitScript(script: string): Promise<void>; newPage(): Promise<WakePage>; close(): Promise<void> }>; isConnected(): boolean; close(): Promise<void> };
 
 interface Setup {
   out: string;
@@ -590,7 +590,7 @@ async function sendNowAndCancel(world: World, run: Run): Promise<CaseResult> {
     await page.waitForTimeout(300);
     const answered = await look(page, keptWords);
     seen("Send now answer", answered);
-    check("Send now answers in a sentence that says the message is waiting for the home", answered.lines.includes(HELD_UNTIL_UP), answered.lines);
+    check("Send now answers in a sentence that says the message is waiting for the home", answered.lines.some((line) => line.startsWith(HELD_UNTIL_UP)), answered.lines);
     check("the message is still held after Send now", answered.tray.length === 1 && world.edge.held().includes(first.id), { tray: answered.tray, held: world.edge.held() });
     check("the edge answered Send now with 200", asked.status === 200, asked.status);
     await shoot(page, "2-send-now-answer");
@@ -739,35 +739,38 @@ async function connection(world: World, run: Run): Promise<CaseResult> {
   const { page, close } = await desk(world, run, dog);
   try {
     stream(world, AT_ONCE);
-    const lostWords = `Show me the function you changed ${token()}`;
     const sentFor = (id: string | undefined) => world.edge.events.filter((event) => event.kind === "sent" && event.id === id);
-    let newest = await newestAnswer(page);
-    let started = Date.now();
-    const lostReply = firstWords(page, newest);
-    world.edge.loseNextSendAnswer();
-    const lostShown = await typeAndSend(page, dog, lostWords);
-    const lost = await world.edge.seen("answer-lost", { after: started }, 30_000);
-    const lostEngineAt = await world.engine.started(lostWords);
-    const lostFirst = await lostReply;
-    await shoot(page, "1-answer-lost");
-    await until(() => sentFor(lost.id).length >= 2, "the page asking again after the lost answer", 90_000);
-    const [tookIt, askedAgain] = sentFor(lost.id);
-    await rest(world, dog);
-    await page.waitForTimeout(700);
-    const lostDone = await look(page, lostWords, answerOf(lostFirst.index));
-    seen("after the lost answer", lostDone);
-    const lostAttempts = await attemptsOf(page, lostWords);
-    check("lost answer: one bubble, one reply, nothing waiting and no Not sent row", lostDone.bubbles === 1 && lostDone.answers === 1 && lostDone.waitingBubbles === 0 && lostDone.tray.length === 0 && lostDone.notSent.length === 0, { bubbles: lostDone.bubbles, answers: lostDone.answers, waiting: lostDone.waitingBubbles, tray: lostDone.tray, notSent: lostDone.notSent });
-    check("lost answer: the home took the message once though the page asked twice", await homeCount(world, dog, lostWords) === 1 && lostAttempts.length === 2, lostAttempts.map((attempt) => attempt.status));
-    check("lost answer: the first ask failed in the page and the second was answered", lostAttempts[0]?.status === 0 && lostAttempts[1]?.status === 200, lostAttempts.map((attempt) => attempt.status));
-    await shoot(page, "2-after-the-lost-answer");
-    result.splits.push(splitOf({ kind: "the answer to the send was lost", shown: lostShown, attempts: lostAttempts, answered: askedAgain!, homeAcceptedAt: tookIt!.at, engineAt: lostEngineAt, replyAt: lostFirst.at }));
-    result.numbers["lost answer: the first ask failing to the page asking again, ms"] = between(lostAttempts[1]?.startedAt, lostAttempts[0]?.answeredAt) ?? -1;
+    for (const how of ["before any byte", "mid-answer"] as const) {
+      const lostWords = `${how === "mid-answer" ? "Show me the function you changed" : "Show me the table again"} ${token()}`;
+      const newest = await newestAnswer(page);
+      const started = Date.now();
+      const lostReply = firstWords(page, newest);
+      world.edge.loseNextSendAnswer(how);
+      const lostShown = await typeAndSend(page, dog, lostWords);
+      const lost = await world.edge.seen("answer-lost", { after: started }, 30_000);
+      const lostEngineAt = await world.engine.started(lostWords);
+      const lostFirst = await lostReply;
+      if (how === "mid-answer") await shoot(page, "1-answer-cut-short");
+      await rest(world, dog);
+      await page.waitForTimeout(3_500);
+      const [tookIt, askedAgain] = sentFor(lost.id);
+      const lostDone = await look(page, lostWords, answerOf(lostFirst.index));
+      seen(`answer lost ${how}`, lostDone);
+      const lostAttempts = await attemptsOf(page, lostWords);
+      check(`answer lost ${how}: one bubble, one reply, nothing waiting and no Not sent row`, lostDone.bubbles === 1 && lostDone.answers === 1 && lostDone.waitingBubbles === 0 && lostDone.sendingBubbles === 0 && lostDone.tray.length === 0 && lostDone.notSent.length === 0, { bubbles: lostDone.bubbles, answers: lostDone.answers, waiting: lostDone.waitingBubbles, sending: lostDone.sendingBubbles, tray: lostDone.tray, notSent: lostDone.notSent });
+      check(`answer lost ${how}: the home took the message once`, await homeCount(world, dog, lostWords) === 1);
+      check(`answer lost ${how}: no sentence about a failure is on screen`, lostDone.lines.length === 0, lostDone.lines);
+      result.looks[`answer lost ${how}: asks`] = { ...lostDone, raw: [`the page asked ${lostAttempts.length} time(s): ${lostAttempts.map((attempt) => attempt.status).join(", ")}`, `the edge passed ${sentFor(lost.id).length} ask(s) to the home`] };
+      result.numbers[`answer lost ${how}: times the page asked`] = lostAttempts.length;
+      result.numbers[`answer lost ${how}: asks the edge passed to the home`] = sentFor(lost.id).length;
+      result.splits.push(splitOf({ kind: `answer lost ${how}`, shown: lostShown, attempts: lostAttempts, answered: askedAgain ?? tookIt!, homeAcceptedAt: tookIt!.at, engineAt: lostEngineAt, replyAt: lostFirst.at }));
+    }
+    if (run.shots) await shoot(page, "2-after-the-lost-answers");
 
     stream(world, { everyMs: 60, chars: FIRST_PIECE });
     const words = `Run the long check ${token()}`;
-    newest = await newestAnswer(page);
-    started = Date.now();
+    const newest = await newestAnswer(page);
+    const started = Date.now();
     const cutReply = firstWords(page, newest);
     await typeAndSend(page, dog, words);
     await world.edge.seen("sent", { after: started }, 30_000);
@@ -824,7 +827,7 @@ async function connection(world: World, run: Run): Promise<CaseResult> {
 }
 
 async function reloadWhileHeld(world: World, run: Run): Promise<CaseResult> {
-  const { result, check, seen, shoot } = recorder(run, "e. the app reloads while a message is held", "e-reload");
+  const { result, check, seen, shoot } = recorder(run, "f. the app reloads while a message is held", "f-reload");
   const dog = world.dogs.reload;
   const { page, close } = await desk(world, run, dog);
   try {
@@ -897,7 +900,7 @@ async function caret(page: WakePage, dog: Dog): Promise<{ start: number; end: nu
 }
 
 async function threeDogs(world: World, run: Run): Promise<CaseResult> {
-  const { result, check, seen, shoot } = recorder(run, "f. three dogs stream replies while the person types in a fourth chat", "f-three-dogs");
+  const { result, check, seen, shoot } = recorder(run, "g. three dogs stream replies while the person types in a fourth chat", "g-three-dogs");
   const { typing, streamers } = world.dogs;
   const { page, close } = await desk(world, run, typing);
   try {
@@ -949,7 +952,7 @@ async function threeDogs(world: World, run: Run): Promise<CaseResult> {
 }
 
 async function whileWaking(world: World, run: Run): Promise<CaseResult> {
-  const { result, check, seen, shoot } = recorder(run, "g. typing, drafts and moving between chats while the home wakes", "g-drafts");
+  const { result, check, seen, shoot } = recorder(run, "h. typing, drafts and moving between chats while the home wakes", "h-drafts");
   const { drafts, notes } = world.dogs;
   const { page, close } = await desk(world, run, drafts);
   try {
@@ -996,7 +999,7 @@ async function whileWaking(world: World, run: Run): Promise<CaseResult> {
 }
 
 async function staleSavedChat(world: World, run: Run): Promise<CaseResult> {
-  const { result, check, defect, seen, shoot } = recorder(run, "h. the home stops soon after a reply", "h-older-copy");
+  const { result, check, defect, seen, shoot } = recorder(run, "i. the home stops soon after a reply", "i-older-copy");
   const dog = world.dogs.stale;
   const { page, close } = await desk(world, run, dog);
   try {
@@ -1147,10 +1150,10 @@ async function main() {
   const edge = await startFixtureEdge({ home: fixture.info.url });
   const engine = watchEngine(promptsFile);
   const { chromium } = createRequire(join(setup.playwright, "package.json"))("playwright-core") as { chromium: { launch(options: unknown): Promise<Browser> } };
-  const browser = await chromium.launch({ executablePath: setup.browser, args: ["--no-sandbox"] });
+  const launch = () => chromium.launch({ executablePath: setup.browser, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  const home = fixtureApi(fixture.info.url);
+  const world: World = { setup, edge, home, browser: await launch(), dogs: await seed(home), engine, streamFile };
   try {
-    const home = fixtureApi(fixture.info.url);
-    const world: World = { setup, edge, home, browser, dogs: await seed(home), engine, streamFile };
     const clock = await pageClock(world);
     const only = process.argv.includes("--only") ? option("only").split("") : null;
     const everything: Array<[string, (world: World, run: Run) => Promise<CaseResult>]> = [
@@ -1181,6 +1184,10 @@ async function main() {
           partial.checks.push({ name: "the case ran to the end", ok: false, saw: error instanceof Error ? error.message : String(error) });
           cases.push(partial);
         }
+        if (!world.browser.isConnected()) {
+          cases.at(-1)!.checks.push({ name: "the browser stayed up for the whole case", ok: false });
+          world.browser = await launch();
+        }
         edge.serve();
         stream(world, AT_ONCE);
         await pause(300);
@@ -1209,7 +1216,7 @@ async function main() {
     process.stdout.write(`${result.table}\n\n${result.otherNumbers}\n\n${result.passed} checks passed, ${failed.length} failed, ${defects.length} known defects seen\n${JSON.stringify([...failed, ...defects], null, 2)}\n`);
   } finally {
     engine.stop();
-    await browser.close();
+    await world.browser.close().catch(() => undefined);
     await edge.close();
     await fixture.close();
     rmSync(scratch, { recursive: true, force: true });

@@ -191,6 +191,17 @@ describe("the fixture edge", () => {
     expect(home.taken.map((taken) => taken.sendId)).toEqual([sendId("lost")]);
   });
 
+  it("cuts the answer to a send short after its first bytes, so the device has a status and no receipt", async () => {
+    await fetch(`${edge.url}/api/bots`);
+    edge.loseNextSendAnswer("mid-answer");
+    const cut = await send("cut");
+    expect(cut.status).toBe(202);
+    await expect(cut.text()).rejects.toThrow();
+    expect(edge.events.filter((event) => event.kind === "answer-lost")).toEqual([{ at: clock, kind: "answer-lost", id: sendId("cut") }]);
+    expect((await send("cut")).status).toBe(200);
+    expect(home.taken.map((taken) => taken.sendId)).toEqual([sendId("cut")]);
+  });
+
   it("refuses connections while the connection is dropped and answers again afterwards", async () => {
     await chats();
     edge.dropConnection(150);

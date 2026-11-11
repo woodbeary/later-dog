@@ -47,6 +47,7 @@ export const DELIVERY_RETRY_MS = 5_000;
 export const HELD_GIVE_UP_MS = 60 * 60 * 1000;
 
 export type HomeState = "stopped" | "starting" | "serving";
+export type AnswerLoss = "before any byte" | "mid-answer";
 
 export type EdgeEventKind =
   | "asleep"
@@ -94,7 +95,7 @@ export interface FixtureEdge {
   wakeIn(ms: number): void;
   serve(): void;
   refuseNextDelivery(status?: number): void;
-  loseNextSendAnswer(): void;
+  loseNextSendAnswer(how?: AnswerLoss): void;
   saveNextAnswers(): void;
   expireHeld(): Promise<void>;
   dropConnection(ms: number): void;
@@ -163,8 +164,23 @@ async function answer(res: ServerResponse, response: Response): Promise<void> {
       if (done) break;
       res.write(value);
     }
-  } catch {}
+  } catch {
+    res.destroy();
+    return;
+  }
   res.end();
+}
+
+function answerCutShort(): Response {
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"ok":'));
+    },
+    pull(controller) {
+      controller.error(new Error("the fixture edge cut this answer short"));
+    },
+  });
+  return new Response(body, { status: 202, headers: { "content-type": "application/json", "content-length": "64" } });
 }
 
 export async function startFixtureEdge(options: FixtureEdgeOptions): Promise<FixtureEdge> {
@@ -186,7 +202,7 @@ export async function startFixtureEdge(options: FixtureEdgeOptions): Promise<Fix
   let delivering: Promise<void> | null = null;
   let deviceKnown = false;
   let scriptedRefusal: number | null = null;
-  let losesNextAnswer = false;
+  let losesNextAnswer: AnswerLoss | null = null;
   let refusingConnections = false;
   let streamTicks = 0;
   let wakeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -415,15 +431,15 @@ export async function startFixtureEdge(options: FixtureEdgeOptions): Promise<Fix
       const kind = deskKind(request);
       const again = await sentAgain(request);
       const send = deskSend(request) ? sendIdOf(await request.clone().text().catch(() => "")) : null;
-      const loses = losesNextAnswer && deskSend(request);
-      if (loses) losesNextAnswer = false;
+      const loses = deskSend(request) ? losesNextAnswer : null;
+      if (loses) losesNextAnswer = null;
       const response = await forward(request);
       if (again && response.ok) forgetDropped(again);
       if (deskSend(request)) note("sent", { ...(send ? { id: send } : {}), status: response.status, gotAt });
       if (loses) {
         await response.arrayBuffer().catch(() => undefined);
         note("answer-lost", send ? { id: send } : {});
-        return null;
+        return loses === "mid-answer" ? answerCutShort() : null;
       }
       return kind ? keepAnswer(kind, request, response) : response;
     }
@@ -502,8 +518,8 @@ export async function startFixtureEdge(options: FixtureEdgeOptions): Promise<Fix
     refuseNextDelivery(status = 409) {
       scriptedRefusal = status;
     },
-    loseNextSendAnswer() {
-      losesNextAnswer = true;
+    loseNextSendAnswer(how = "before any byte") {
+      losesNextAnswer = how;
     },
     saveNextAnswers() {
       lastSaved.clear();
