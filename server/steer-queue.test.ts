@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { saveChatFollowup } from "./message-db.ts";
+import { cancelledChatFollowup, saveChatFollowup } from "./message-db.ts";
 import {
   cancelSteeredMessage,
   drainSteeredMessages,
@@ -96,6 +96,56 @@ describe("steer-queue module", () => {
     expect(cancelSteeredMessage(botId, "send-first", threadId)).toBe(true);
     expect(cancelSteeredMessage(botId, "send-first", threadId)).toBe(false);
     expect(holdSteeredQueue(botId, threadId, "send-second")!.items.map((item) => item.text)).toEqual(["second"]);
+  });
+
+  it("after a restart, still finds a queued message by the sender's id, so a send again adds nothing and cancel by that id works", () => {
+    const bot = fakeBot("bot-restart-send-id", "thread-restart-send-id", true);
+    const store = fakeStore([bot]);
+    const kept = queueSteeredMessage(bot.id, bot.threadId, "goes after the restart", { sendId: "send-kept-through-restart" });
+    const dropped = queueSteeredMessage(bot.id, bot.threadId, "cancelled after the restart", { sendId: "send-cancelled-after-restart" });
+    restoreSteeredMessages();
+    expect(queuedSteeredMessage(bot.id, bot.threadId, "send-kept-through-restart")?.id).toBe(kept.id);
+    expect(queuedSteeredMessage(bot.id, bot.threadId, "send-cancelled-after-restart")?.id).toBe(dropped.id);
+    expect(_queuedCount(bot.threadId)).toBe(2);
+    expect(queuedSteerSnapshot((botId) => botId === bot.id)[bot.threadId]).toEqual([
+      { queueId: kept.id, text: "goes after the restart", sendId: "send-kept-through-restart" },
+      { queueId: dropped.id, text: "cancelled after the restart", sendId: "send-cancelled-after-restart" },
+    ]);
+
+    expect(cancelSteeredMessage(bot.id, "send-cancelled-after-restart", bot.threadId)).toBe(true);
+    expect(cancelledChatFollowup("bot", bot.id, bot.threadId, "send-cancelled-after-restart")).toBe(true);
+    restoreSteeredMessages();
+    expect(queuedSteeredMessage(bot.id, bot.threadId, "send-cancelled-after-restart")).toBeNull();
+    expect(_queuedCount(bot.threadId)).toBe(1);
+
+    bot.busy = false;
+    const run = vi.fn();
+    drainSteeredMessages(store, run);
+    expect(store.messages.map((message) => [message.text, message.sendId, message.queueId])).toEqual([["goes after the restart", "send-kept-through-restart", kept.id]]);
+  });
+
+  it("gives a cancel and a delivery of the same message one winner: cancelled and never sent, or sent once and no longer waiting", () => {
+    const bot = fakeBot("bot-cancel-or-deliver", "thread-cancel-or-deliver", false);
+    const store = fakeStore([bot]);
+    const run = vi.fn();
+
+    queueSteeredMessage(bot.id, bot.threadId, "delivered first", { sendId: "send-delivered-first" });
+    drainSteeredMessages(store, run);
+    expect(cancelSteeredMessage(bot.id, "send-delivered-first", bot.threadId)).toBe(false);
+    expect(holdSteeredQueue(bot.id, bot.threadId, "send-delivered-first")).toBeNull();
+    expect(store.messages.filter((message) => message.sendId === "send-delivered-first")).toHaveLength(1);
+
+    queueSteeredMessage(bot.id, bot.threadId, "cancelled first", { sendId: "send-cancelled-first" });
+    expect(cancelSteeredMessage(bot.id, "send-cancelled-first", bot.threadId)).toBe(true);
+    drainSteeredMessages(store, run);
+    expect(store.messages.some((message) => message.sendId === "send-cancelled-first")).toBe(false);
+    expect(store.messages).toHaveLength(1);
+
+    const held = queueSteeredMessage(bot.id, bot.threadId, "being sent now", { sendId: "send-held-for-send-now" });
+    const lifted = holdSteeredQueue(bot.id, bot.threadId, "send-held-for-send-now")!;
+    expect(cancelSteeredMessage(bot.id, "send-held-for-send-now", bot.threadId)).toBe(false);
+    restoreHeldSteeredQueue(lifted);
+    expect(cancelSteeredMessage(bot.id, held.id, bot.threadId)).toBe(true);
   });
 
   it.each([undefined, "capacity", "group-turn"] as const)("detects an exact owner's queued correction with reason %s", (reason) => {

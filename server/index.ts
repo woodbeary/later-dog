@@ -323,6 +323,7 @@ import {
 } from "./steer-queue.ts";
 import {
   cancelChannelMessage,
+  channelQueueIdsNamed,
   drainChannelMessages,
   holdChannelQueue,
   headChannelGroup,
@@ -16719,14 +16720,23 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         (targetThreadId === current.threadId ? current.busyBotId : undefined);
       const speaker = speakerBotId ? store.bot(speakerBotId) : undefined;
       const instance = speaker ? runningTurnInstance(speaker, targetThreadId) : undefined;
-      const held = holdChannelQueue(current.id, targetThreadId, m[2]);
-      if (!held) return json(res, 404, { error: "no such queued message" });
+      const asked = m[2];
+      const held = holdChannelQueue(current.id, targetThreadId, asked);
+      if (!held) {
+        if (channelQueueIdsNamed(current.id, targetThreadId, asked).length > 0) {
+          return json(res, 409, { error: "only the first queued message can steer" });
+        }
+        const landed = store.messagesFor(targetThreadId).some((message) => message.role === "user" && (message.sendId === asked || message.queueId === asked));
+        if (landed) return json(res, 200, { ok: true, sent: true, threadId: targetThreadId, messages: [], queueIds: [asked] });
+        return json(res, 404, { error: "no such queued message" });
+      }
       const headGroup = headChannelGroup(held.items);
       const [head] = headGroup;
-      const sendNow = () => {
+      const namedByAsked = held.items.filter((item) => item.id === asked || item.sendId === asked).map((item) => item.id);
+      const sendNow = async () => {
         restoreHeldChannelQueue(held);
         const stoppedBy = fromLocalTools(auth) ? "api" : "person";
-        return sendQueuedAsNextTurn({
+        return withAskedQueueId(await sendQueuedAsNextTurn({
           threadId: targetThreadId,
           name: current.name,
           queueIds: headGroup.map((item) => item.id),
@@ -16743,12 +16753,12 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           },
           drain: drainQueuedChannelSends,
           messages: () => store.messagesFor(targetThreadId),
-        });
+        }), asked, namedByAsked);
       };
       const decision = admit("room-steer", {
         speakerPresent: Boolean(speaker),
         engineCanSteer: Boolean(instance?.adapter.capabilities.queueing && instance.adapter.steer),
-        isQueueHead: Boolean(head && head.id === m[2]),
+        isQueueHead: Boolean(head && (head.id === asked || head.sendId === asked)),
       });
       if (decision.action === "refuse") {
         restoreHeldChannelQueue(held);
@@ -16801,7 +16811,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           steered: true,
           threadId: targetThreadId,
           messages,
-          queueIds: headGroup.map((item) => item.id),
+          queueIds: askedToo(headGroup.map((item) => item.id), asked),
         });
       }
       if (steered === "indeterminate" && !after) {
@@ -18253,7 +18263,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         interrupt: () => stopThreadTurn(bot.id, bot.threadId, fromLocalTools(auth) ? "api" : "person"),
         drain: drainQueuedSends,
         messages: () => store.messagesFor(bot.threadId),
-      }), asked));
+      }), asked, held.items.filter((item) => item.messageId === asked || item.sendId === asked).map((item) => item.messageId)));
     }
 
     m = path.match(/^\/api\/bots\/([\w-]+)\/compact$/);
