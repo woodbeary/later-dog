@@ -133,10 +133,23 @@ def verdict(base, main, better):
     if min(base) == max(base) == min(main) == max(main):
         return "same"
     if max(main) < min(base):
-        return "lower in every run" if better == "lower" else "changed"
+        return "changed" if better == "same" else "lower in every run"
     if min(main) > max(base):
-        return "higher in every run"
-    return "ranges overlap"
+        return "changed" if better == "same" else "higher in every run"
+    return "no measurable change"
+
+
+def difference(base, main):
+    if not base or not main:
+        return "n/a"
+    before = statistics.median(base)
+    after = statistics.median(main)
+    change = after - before
+    if change == 0:
+        return "0"
+    sign = "+" if change > 0 else "-"
+    share = f" ({sign}{abs(change) / before * 100:.0f}%)" if before else ""
+    return f"{sign}{number(abs(change))}{share}"
 
 
 def table(kind, dogs, out):
@@ -144,15 +157,29 @@ def table(kind, dogs, out):
     base, base_failed = load("base", dogs, kind)
     main, main_failed = load("main", dogs, kind)
     out.append(f"\n{kind} at {dogs} dogs: base {len(base)} runs, main {len(main)} runs" + (f"; failed runs left out: {', '.join(base_failed + main_failed)}" if base_failed or main_failed else ""))
-    out.append(f"\n| Measure | base 651cf65, median (range), {len(base)} runs | main 89b1439, median (range), {len(main)} runs | Verdict |")
-    out.append("|---|---|---|---|")
+    out.append(f"\n| Measure | base 651cf65, median (range), {len(base)} runs | main 89b1439, median (range), {len(main)} runs | Difference of medians | Verdict |")
+    out.append("|---|---|---|---|---|")
     summary = {}
     for name, read, better in rows:
         base_values = [value for value in (read(data) for _, data in base) if value is not None]
         main_values = [value for value in (read(data) for _, data in main) if value is not None]
         result = verdict(base_values, main_values, better)
-        out.append(f"| {name} | {cell(base_values)} | {cell(main_values)} | {result} |")
-        summary[name] = {"base": base_values, "main": main_values, "verdict": result}
+        out.append(f"| {name} | {cell(base_values)} | {cell(main_values)} | {difference(base_values, main_values)} | {result} |")
+        summary[name] = {"base": base_values, "main": main_values, "difference": difference(base_values, main_values), "verdict": result}
+    return summary
+
+
+def layers(out):
+    summary = {}
+    out.append("\nlayers at 80 dogs")
+    out.append("\n| Build | Run | Layers | Layers that draw | Typing 48 keys in the message box as it is |")
+    out.append("|---|---|---|---|---|")
+    for build in ("base", "main"):
+        runs, _ = load(build, 80, "layers")
+        for meta, data in runs:
+            typing = next((line.split(": ", 1)[1] for line in data.get("typing", []) if line.startswith("message box as it is")), "n/a")
+            out.append(f"| {build} | {meta['label']} | {data['layers']} | {data['drawing']} | {typing} |")
+            summary[meta["label"]] = {"layers": data["layers"], "drawing": data["drawing"], "why": data.get("why", [])[:6]}
     return summary
 
 
@@ -173,6 +200,7 @@ def main():
     for kind in ("default", "ods", "sc"):
         for dogs in (7, 80):
             summary[f"{kind}-{dogs}"] = table(kind, dogs, out)
+    summary["layers-80"] = layers(out)
     waits(out)
     print("\n".join(out))
     json.dump(summary, open(os.path.join(FOLDER, "summary.json"), "w"), indent=1)

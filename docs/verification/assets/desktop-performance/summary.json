@@ -7,6 +7,7 @@
    "main": [
     266.9
    ],
+   "difference": "-35 (-12%)",
    "verdict": "lower in every run"
   },
   "Open the long chat, slowest of 8 (ms)": {
@@ -16,6 +17,7 @@
    "main": [
     280
    ],
+   "difference": "-59.8 (-18%)",
    "verdict": "lower in every run"
   },
   "Long chat: rows drawn when it is first shown": {
@@ -25,6 +27,7 @@
    "main": [
     30
    ],
+   "difference": "-90 (-75%)",
    "verdict": "changed"
   },
   "Long chat: all 120 rows in place, median of 8 (ms)": {
@@ -34,6 +37,7 @@
    "main": [
     375
    ],
+   "difference": "+83 (+28%)",
    "verdict": "higher in every run"
   },
   "Long chat: openings of 8 that never reached 120 rows": {
@@ -43,6 +47,7 @@
    "main": [
     0
    ],
+   "difference": "0",
    "verdict": "same"
   },
   "Open a short chat, median of 8 (ms)": {
@@ -52,6 +57,7 @@
    "main": [
     69.2
    ],
+   "difference": "+5.6 (+9%)",
    "verdict": "higher in every run"
   },
   "Long tasks across 16 switches (ms)": {
@@ -61,6 +67,7 @@
    "main": [
     2792
    ],
+   "difference": "+531 (+23%)",
    "verdict": "higher in every run"
   },
   "Key press to frame, median of 119 keys (ms)": {
@@ -70,6 +77,7 @@
    "main": [
     23.6
    ],
+   "difference": "0",
    "verdict": "same"
   },
   "Key press to frame, 95th of 119 keys (ms)": {
@@ -79,6 +87,7 @@
    "main": [
     31.9
    ],
+   "difference": "-0.3 (-1%)",
    "verdict": "lower in every run"
   },
   "Key press to frame, slowest of 119 keys (ms)": {
@@ -88,6 +97,7 @@
    "main": [
     32.9
    ],
+   "difference": "0",
    "verdict": "same"
   },
   "Typing: frames slower than 25 ms": {
@@ -97,6 +107,7 @@
    "main": [
     0
    ],
+   "difference": "0",
    "verdict": "same"
   },
   "Typing: main thread busy over 5.5 s (ms)": {
@@ -106,6 +117,7 @@
    "main": [
     2000
    ],
+   "difference": "-257 (-11%)",
    "verdict": "lower in every run"
   },
   "Typing: layouts for 119 keys": {
@@ -115,6 +127,7 @@
    "main": [
     569
    ],
+   "difference": "-199 (-26%)",
    "verdict": "lower in every run"
   },
   "Typing: components redrawn for 119 keys": {
@@ -124,6 +137,7 @@
    "main": [
     3223
    ],
+   "difference": "+2 (+0%)",
    "verdict": "higher in every run"
   },
   "Cold load: first paint, median of 5 (ms)": {
@@ -133,6 +147,7 @@
    "main": [
     452
    ],
+   "difference": "+80 (+22%)",
    "verdict": "higher in every run"
   },
   "Cold load: message box ready, median of 5 (ms)": {
@@ -142,6 +157,7 @@
    "main": [
     649.8
    ],
+   "difference": "+102.6 (+19%)",
    "verdict": "higher in every run"
   },
   "Cold load: message box ready, slowest of 5 (ms)": {
@@ -151,6 +167,7 @@
    "main": [
     668.2
    ],
+   "difference": "+75.1 (+13%)",
    "verdict": "higher in every run"
   },
   "Idle: main thread busy per 3 s (ms)": {
@@ -160,6 +177,7 @@
    "main": [
     77
    ],
+   "difference": "-53 (-41%)",
    "verdict": "lower in every run"
   },
   "Idle: style passes per 3 s": {
@@ -169,6 +187,7 @@
    "main": [
     0
    ],
+   "difference": "-181 (-100%)",
    "verdict": "lower in every run"
   },
   "A streamed reply: frames slower than 25 ms": {
@@ -178,6 +197,7 @@
    "main": [
     2
    ],
+   "difference": "-3 (-60%)",
    "verdict": "lower in every run"
   },
   "A streamed reply: components redrawn": {
@@ -187,6 +207,7 @@
    "main": [
     5487
    ],
+   "difference": "-3,141 (-36%)",
    "verdict": "lower in every run"
   },
   "Own bubble after Enter (ms)": {
@@ -196,6 +217,7 @@
    "main": [
     28.100000000558794
    ],
+   "difference": "-8.8 (-24%)",
    "verdict": "lower in every run"
   },
   "Four other dogs working: frames slower than 25 ms": {
@@ -205,6 +227,7 @@
    "main": [
     0
    ],
+   "difference": "0",
    "verdict": "same"
   },
   "Four other dogs working: main thread busy (ms)": {
@@ -214,6 +237,7 @@
    "main": [
     797
    ],
+   "difference": "-173 (-18%)",
    "verdict": "lower in every run"
   },
   "Four other dogs working: components redrawn": {
@@ -223,6 +247,7 @@
    "main": [
     636
    ],
+   "difference": "-686 (-52%)",
    "verdict": "lower in every run"
   },
   "Switching: components redrawn across 16 switches": {
@@ -232,6 +257,7 @@
    "main": [
     32933
    ],
+   "difference": "+1,842 (+6%)",
    "verdict": "higher in every run"
   },
   "JS heap at idle, after a collection (MB)": {
@@ -241,6 +267,7 @@
    "main": [
     12.7
    ],
+   "difference": "-0.1 (-1%)",
    "verdict": "lower in every run"
   },
   "JS heap after the run, after a collection (MB)": {
@@ -250,6 +277,7 @@
    "main": [
     26
    ],
+   "difference": "+0.2 (+1%)",
    "verdict": "higher in every run"
   },
   "Page process memory at idle (MB)": {
@@ -259,6 +287,7 @@
    "main": [
     59
    ],
+   "difference": "-2 (-3%)",
    "verdict": "lower in every run"
   },
   "Page process memory, highest of 6 samples (MB)": {
@@ -268,6 +297,7 @@
    "main": [
     344
    ],
+   "difference": "-29 (-8%)",
    "verdict": "lower in every run"
   },
   "Browser process tree at idle, resident (MB)": {
@@ -277,6 +307,7 @@
    "main": [
     1002
    ],
+   "difference": "+1 (+0%)",
    "verdict": "higher in every run"
   },
   "Browser process tree, highest in the run, resident (MB)": {
@@ -286,6 +317,7 @@
    "main": [
     1314
    ],
+   "difference": "-23 (-2%)",
    "verdict": "lower in every run"
   },
   "DOM nodes after the run": {
@@ -295,6 +327,7 @@
    "main": [
     10933
    ],
+   "difference": "0",
    "verdict": "same"
   },
   "Rows in the long chat 1.5 s after opening": {
@@ -304,6 +337,7 @@
    "main": [
     120
    ],
+   "difference": "0",
    "verdict": "same"
   }
  },
@@ -311,171 +345,205 @@
   "Open the long chat, median of 8 (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Open the long chat, slowest of 8 (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Long chat: rows drawn when it is first shown": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Long chat: all 120 rows in place, median of 8 (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Long chat: openings of 8 that never reached 120 rows": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Open a short chat, median of 8 (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Long tasks across 16 switches (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Key press to frame, median of 119 keys (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Key press to frame, 95th of 119 keys (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Key press to frame, slowest of 119 keys (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing: frames slower than 25 ms": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing: main thread busy over 5.5 s (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing: layouts for 119 keys": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing: components redrawn for 119 keys": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Cold load: first paint, median of 5 (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Cold load: message box ready, median of 5 (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Cold load: message box ready, slowest of 5 (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Idle: main thread busy per 3 s (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Idle: style passes per 3 s": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "A streamed reply: frames slower than 25 ms": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "A streamed reply: components redrawn": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Own bubble after Enter (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Four other dogs working: frames slower than 25 ms": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Four other dogs working: main thread busy (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Four other dogs working: components redrawn": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Switching: components redrawn across 16 switches": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "JS heap at idle, after a collection (MB)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "JS heap after the run, after a collection (MB)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Page process memory at idle (MB)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Page process memory, highest of 6 samples (MB)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Browser process tree at idle, resident (MB)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Browser process tree, highest in the run, resident (MB)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "DOM nodes after the run": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Rows in the long chat 1.5 s after opening": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   }
  },
@@ -483,116 +551,139 @@
   "Another dog streams: store changes": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Another dog streams: components redrawn, whole reply": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Another dog streams: components redrawn per store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Another dog streams: sidebar components redrawn per store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Another dog streams: sidebar rows redrawn per store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Another dog streams: most sidebar rows redrawn by one store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Another dog streams: open chat components redrawn per store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Open dog streams: components redrawn, whole reply": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Open dog streams: components redrawn per store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Open dog streams: sidebar components redrawn per store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Open dog streams: components redrawn each time the reply grew": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, no dog streaming: key to frame, median (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, no dog streaming: key to frame, 95th (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, no dog streaming: frames slower than 25 ms": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, no dog streaming: main thread busy (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, another dog streaming: key to frame, median (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, another dog streaming: key to frame, 95th (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, another dog streaming: frames slower than 25 ms": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, another dog streaming: main thread busy (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, open dog streaming: key to frame, median (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, open dog streaming: key to frame, 95th (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, open dog streaming: frames slower than 25 ms": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, open dog streaming: main thread busy (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   }
  },
@@ -600,116 +691,139 @@
   "Another dog streams: store changes": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Another dog streams: components redrawn, whole reply": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Another dog streams: components redrawn per store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Another dog streams: sidebar components redrawn per store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Another dog streams: sidebar rows redrawn per store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Another dog streams: most sidebar rows redrawn by one store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Another dog streams: open chat components redrawn per store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Open dog streams: components redrawn, whole reply": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Open dog streams: components redrawn per store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Open dog streams: sidebar components redrawn per store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Open dog streams: components redrawn each time the reply grew": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, no dog streaming: key to frame, median (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, no dog streaming: key to frame, 95th (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, no dog streaming: frames slower than 25 ms": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, no dog streaming: main thread busy (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, another dog streaming: key to frame, median (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, another dog streaming: key to frame, 95th (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, another dog streaming: frames slower than 25 ms": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, another dog streaming: main thread busy (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, open dog streaming: key to frame, median (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, open dog streaming: key to frame, 95th (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, open dog streaming: frames slower than 25 ms": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Typing, open dog streaming: main thread busy (ms)": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   }
  },
@@ -717,31 +831,37 @@
   "Four other dogs take a turn: store changes": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Four other dogs take a turn: commits": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Four other dogs take a turn: components redrawn": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Four other dogs take a turn: components redrawn per store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Idle for 3 s: store changes": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Idle for 3 s: components redrawn": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   }
  },
@@ -749,32 +869,39 @@
   "Four other dogs take a turn: store changes": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Four other dogs take a turn: commits": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Four other dogs take a turn: components redrawn": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Four other dogs take a turn: components redrawn per store change": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Idle for 3 s: store changes": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   },
   "Idle for 3 s: components redrawn": {
    "base": [],
    "main": [],
+   "difference": "n/a",
    "verdict": "not measured"
   }
- }
+ },
+ "layers-80": {}
 }
