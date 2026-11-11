@@ -105,6 +105,7 @@ Use only mapped, tested commands:
 - [Pinned account routing, November 10](pinned-account-routing-2026-11-10.md)
 - [Rust, measured seam by seam, November 10](rust-seams.md)
 - [Decision and extraction model evaluation, November 10](decision-eval.md)
+- [Messages held while the home wakes, November 11](queue-held-sends.md)
 
 `control-laterdog ui` ([Chat UI, driven headlessly](chat-ui.md)) drives the real
 renderer in a headless Chrome by accessible name, so composer sends, transcript
