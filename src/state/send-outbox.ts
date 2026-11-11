@@ -163,6 +163,28 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
   });
   outbox.restore(readOutbox(store));
 
+  type Refresh = { bots: Chats; groups: Chats; queues: unknown };
+  let settling: Promise<void> | null = null;
+  let followUp: Refresh | null = null;
+  const settleHeldOnce = async ({ bots, groups, queues }: Refresh) => {
+    const held = readHeldSends(store);
+    if (held.length === 0) return;
+    const atHome = sendIdsAtHome(bots, groups, queues);
+    const waiting = held.filter((send) => !atHome.has(send.sendId));
+    if (waiting.length !== held.length) writeHeldSends(store, waiting);
+    if (waiting.length === 0) return;
+    const answer = await deps
+      .request(`/api/held-sends?ids=${waiting.map((send) => send.sendId).join(",")}`, { timeoutMs: 10_000, rideWake: false })
+      .then(heldAnswer, () => null);
+    const asked = new Set(waiting.map((send) => send.sendId));
+    const { keep, lost } = sortHeldSends(waiting, answer, now());
+    writeHeldSends(store, [...readHeldSends(store).filter((send) => !asked.has(send.sendId)), ...keep]);
+    for (const send of lost) {
+      rememberFailedComposerSend(send.draftId, { sendId: send.sendId, text: send.text, requestText: send.requestText, replyToId: send.replyToId, threadId: send.threadId });
+      deps.showError(new SendRefusedError(HELD_NOT_SENT), send.threadId);
+    }
+  };
+
   const forget = (sendId: string) => {
     hooks.delete(sendId);
     outbox.acknowledge(sendId);
@@ -188,23 +210,23 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
         forget(item.sendId);
       }
     },
-    async settleHeld(bots, groups, queues) {
-      const held = readHeldSends(store);
-      if (held.length === 0) return;
-      const atHome = sendIdsAtHome(bots, groups, queues);
-      const waiting = held.filter((send) => !atHome.has(send.sendId));
-      if (waiting.length !== held.length) writeHeldSends(store, waiting);
-      if (waiting.length === 0) return;
-      const answer = await deps
-        .request(`/api/held-sends?ids=${waiting.map((send) => send.sendId).join(",")}`, { timeoutMs: 10_000, rideWake: false })
-        .then(heldAnswer, () => null);
-      const asked = new Set(waiting.map((send) => send.sendId));
-      const { keep, lost } = sortHeldSends(waiting, answer, now());
-      writeHeldSends(store, [...readHeldSends(store).filter((send) => !asked.has(send.sendId)), ...keep]);
-      for (const send of lost) {
-        rememberFailedComposerSend(send.draftId, { sendId: send.sendId, text: send.text, requestText: send.requestText, replyToId: send.replyToId, threadId: send.threadId });
-        deps.showError(new SendRefusedError(HELD_NOT_SENT), send.threadId);
+    settleHeld(bots, groups, queues) {
+      const refresh = { bots, groups, queues };
+      if (settling) {
+        followUp = refresh;
+        return settling;
       }
+      settling = (async () => {
+        try {
+          for (let current: Refresh | null = refresh; current; current = followUp) {
+            followUp = null;
+            await settleHeldOnce(current);
+          }
+        } finally {
+          settling = null;
+        }
+      })();
+      return settling;
     },
     resume: () => outbox.resume(),
     dispose: () => outbox.dispose(),

@@ -321,6 +321,35 @@ describe("a message the edge held for a sleeping home", () => {
     expect(failedComposerSends(draft).slice(before)).toHaveLength(1);
   });
 
+  it("settles one refresh at a time, so two refreshes that overlap give one Not sent row and one notice", async () => {
+    const before = failedBefore();
+    let answerEdge!: (body: unknown) => void;
+    const edge = new Promise((resolve) => { answerEdge = resolve; });
+    const { store, showError, request, outbox } = await holding(() => edge);
+    const refreshes = [outbox.settleHeld([], []), outbox.settleHeld([], []), outbox.settleHeld([], [])];
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(request.mock.calls.filter(([path]) => String(path).startsWith("/api/held-sends"))).toHaveLength(1);
+    answerEdge({ held: [], dropped: [{ id: sent.sendId, why: "expired", at: 5 }] });
+    await Promise.all(refreshes);
+    expect(kept(store)).toEqual([]);
+    expect(showError).toHaveBeenCalledTimes(1);
+    expect(failedComposerSends(draft).slice(before)).toHaveLength(1);
+    expect(request.mock.calls.filter(([path]) => String(path).startsWith("/api/held-sends"))).toHaveLength(1);
+  });
+
+  it("runs a refresh that arrived during a settle once more afterwards, with the newest chats", async () => {
+    let answerEdge!: (body: unknown) => void;
+    const edge = new Promise((resolve) => { answerEdge = resolve; });
+    const { store, request, outbox } = await holding(() => edge);
+    const first = outbox.settleHeld([], []);
+    const stale = outbox.settleHeld([], []);
+    const newest = outbox.settleHeld([{ messages: [{ id: "m1", sendId: sent.sendId }] } as never], []);
+    answerEdge({ held: [sent.sendId], dropped: [] });
+    await Promise.all([first, stale, newest]);
+    expect(kept(store)).toEqual([]);
+    expect(request.mock.calls.filter(([path]) => String(path).startsWith("/api/held-sends"))).toHaveLength(1);
+  });
+
   it("keeps waiting while the edge still holds it, and lets go quietly once the edge delivered it", async () => {
     const before = failedBefore();
     let answer: unknown = { held: [sent.sendId], dropped: [] };
