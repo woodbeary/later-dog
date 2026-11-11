@@ -3279,7 +3279,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           rawDispatch({ type: "messageAdded", threadId: frame.threadId, message: frame.message as Message });
           if (frame.message?.role === "user" && typeof frame.message.sendId === "string") {
             const landedSendId = frame.message.sendId;
-            sendOutbox().echoed(landedSendId);
+            sendOutbox().echoed(landedSendId, { messageId: frame.message.id, threadId: frame.threadId });
             if (stateRef.current.pendingQueued[frame.threadId]?.some((entry) => entry.queueId === landedSendId)) {
               rawDispatch({ type: "consumePendingQueued", threadId: frame.threadId, queueId: landedSendId });
             }
