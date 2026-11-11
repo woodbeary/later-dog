@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
@@ -15,12 +15,17 @@ function option(name, fallback) {
 
 const pause = (ms) => new Promise((done) => setTimeout(done, ms));
 
+function named(words) {
+  const script = words.slice(1).find((word) => !word.startsWith("-"));
+  return [basename(words[0] ?? "?"), script ? basename(script) : ""].join(" ").trim();
+}
+
 function descendants(rootPid) {
-  const rows = execFileSync("ps", ["-eo", "pid=,ppid=,comm="], { encoding: "utf8" }).trim().split("\n").map((line) => line.trim().split(/\s+/));
+  const rows = execFileSync("ps", ["-eo", "pid=,ppid=,args="], { encoding: "utf8" }).trim().split("\n").map((line) => line.trim().split(/\s+/));
   const children = new Map();
   const names = new Map();
-  for (const [pid, parent, name] of rows) {
-    names.set(Number(pid), name);
+  for (const [pid, parent, ...words] of rows) {
+    names.set(Number(pid), named(words));
     children.set(Number(parent), [...(children.get(Number(parent)) ?? []), Number(pid)]);
   }
   const found = [];
@@ -44,16 +49,16 @@ function megabytes(kilobytes) {
 function treeMemory(rootPid) {
   let pss = 0;
   let rss = 0;
-  let processes = 0;
-  for (const { pid } of descendants(rootPid)) {
+  const each = [];
+  for (const { pid, name } of descendants(rootPid)) {
     try {
       const rollup = readFileSync(`/proc/${pid}/smaps_rollup`, "utf8");
       pss += field(rollup, "Pss");
       rss += field(rollup, "Rss");
-      processes += 1;
+      each.push({ pid, name, pssMb: megabytes(field(rollup, "Pss")) });
     } catch {}
   }
-  return { processes, pssMb: megabytes(pss), rssMb: megabytes(rss) };
+  return { processes: each.length, pssMb: megabytes(pss), rssMb: megabytes(rss), each };
 }
 
 function serverPeakRssMb(pid) {
@@ -80,7 +85,7 @@ function held(dist, extra, onStart) {
 function busiestTree(holder) {
   let most = { pssMb: 0, rssMb: 0, processes: 0 };
   const timer = setInterval(() => {
-    const server = descendants(holder.pid).find(({ pid, name }) => pid !== holder.pid && name !== "ps");
+    const server = descendants(holder.pid).find(({ pid, name }) => pid !== holder.pid && !name.startsWith("ps"));
     if (!server) return;
     const now = treeMemory(server.pid);
     if (now.rssMb > most.rssMb) most = now;
@@ -91,7 +96,18 @@ function busiestTree(holder) {
   };
 }
 
+async function bareNodeIdle() {
+  const bare = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  await pause(2_000);
+  const idle = treeMemory(bare.pid);
+  bare.kill("SIGTERM");
+  return idle;
+}
+
+const alone = (tree, pid) => tree.each.find((process) => process.pid === pid)?.pssMb ?? 0;
+
 async function oneRun(dist, turns, dogs, dogTurns, opens) {
+  const bare = await bareNodeIdle();
   const fresh = held(dist, ["--long-turns", "0", "--other-dogs", "0"]);
   const empty = await fresh.ready;
   await pause(5_000);
@@ -111,7 +127,8 @@ async function oneRun(dist, turns, dogs, dogTurns, opens) {
   const usedPeakRssMb = serverPeakRssMb(filled.serverPid);
   const databaseBytes = statSync(join(filled.dataDir, "messages.db")).size;
   await used.close();
-  return { freshIdle, freshPeakRssMb, whileAnswering, usedIdle, usedPeakRssMb, fillMs, databaseBytes, opens: filled.opens };
+  const others = usedIdle.each.filter((process) => process.pid !== filled.serverPid).map(({ name, pssMb }) => ({ name, pssMb }));
+  return { bare, freshIdle, freshPeakRssMb, whileAnswering, usedIdle, usedServerPssMb: alone(usedIdle, filled.serverPid), others, usedPeakRssMb, fillMs, databaseBytes, opens: filled.opens };
 }
 
 function summary(values) {
@@ -135,9 +152,10 @@ const report = {
   node: process.version,
   runs,
   fixture: { longChatMessages: turns * 2, otherDogs: dogs, otherDogMessages: dogTurns * 2, engine: "the repository's fake engine" },
+  bareNodeIdle: { pssMb: each((result) => result.bare.pssMb), rssMb: each((result) => result.bare.rssMb) },
   freshServerIdle: { pssMb: each((result) => result.freshIdle.pssMb), rssMb: each((result) => result.freshIdle.rssMb), serverPeakRssMb: each((result) => result.freshPeakRssMb), processes: results[0].freshIdle.processes },
   whileDogsAnswer: { treeRssMb: each((result) => result.whileAnswering.rssMb), treePssMb: each((result) => result.whileAnswering.pssMb), mostProcesses: Math.max(...results.map((result) => result.whileAnswering.processes)) },
-  afterTheChatsIdle: { pssMb: each((result) => result.usedIdle.pssMb), rssMb: each((result) => result.usedIdle.rssMb), serverPeakRssMb: each((result) => result.usedPeakRssMb), processes: results[0].usedIdle.processes },
+  afterTheChatsIdle: { pssMb: each((result) => result.usedIdle.pssMb), rssMb: each((result) => result.usedIdle.rssMb), serverAlonePssMb: each((result) => result.usedServerPssMb), serverPeakRssMb: each((result) => result.usedPeakRssMb), processes: results[0].usedIdle.processes, otherProcessesInTheFirstRun: results[0].others },
   fillSeconds: each((result) => result.fillMs / 1000),
   databaseKb: Math.round(results[0].databaseBytes / 1024),
   openLongChatOverHttp: { opensEachRun: opens, newest50Ms: each((result) => median(result.opens.newest50Ms)), newest50FirstMs: each((result) => result.opens.newest50Ms[0]), wholeChatMs: each((result) => median(result.opens.wholeChatMs)) },
