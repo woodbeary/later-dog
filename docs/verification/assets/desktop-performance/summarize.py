@@ -58,6 +58,24 @@ DEFAULT = [
     ("Browser process tree, highest in the run, resident (MB)", lambda d: dig(d, "timed.rssMb.peak.browserTreeRssMb"), "lower"),
     ("DOM nodes after the run", lambda d: dig(d, "timed.domNodesAfter"), "lower"),
     ("Rows in the long chat 1.5 s after opening", lambda d: dig(d, "timed.longChatOpened.rows"), "same"),
+    ("Switching: frames slower than 25 ms", lambda d: dig(d, "timed.switching.slowFrames"), "lower"),
+    ("Switching: slowest frame (ms)", lambda d: dig(d, "timed.switching.worstFrameMs"), "lower"),
+    ("Switching: main thread busy across 16 switches (ms)", lambda d: dig(d, "timed.switching.mainThread.taskMs"), "lower"),
+    ("Long chat opened while its reply streams: on screen (ms)", lambda d: dig(d, "timed.fill.whileReplyStreams.following.shownMs"), "lower"),
+    ("Long chat opened while its reply streams: all 120 rows in place (ms)", lambda d: dig(d, "timed.fill.whileReplyStreams.following.filledMs"), "lower"),
+    ("Reader scrolled up in a chat that is filling: the row being read moved (px)", lambda d: dig(d, "timed.fill.whileReplyStreams.scrolledUp.readerRowMovedPx"), "lower"),
+    ("Scrolling: frames slower than 25 ms", lambda d: dig(d, "timed.scrolling.slowFrames"), "lower"),
+    ("Scrolling: slowest frame (ms)", lambda d: dig(d, "timed.scrolling.worstFrameMs"), "lower"),
+    ("Scrolling: main thread busy (ms)", lambda d: dig(d, "timed.scrolling.mainThread.taskMs"), "lower"),
+    ("Scrolling: components redrawn", lambda d: dig(d, "counted.scrolling.rendered"), "lower"),
+    ("Typing: slowest frame (ms)", lambda d: dig(d, "timed.typing.worstFrameMs"), "lower"),
+    ("A streamed reply: slowest frame (ms)", lambda d: dig(d, "timed.streaming.worstFrameMs"), "lower"),
+    ("A streamed reply: long tasks (ms)", lambda d: dig(d, "timed.streaming.longTaskMs"), "lower"),
+    ("A streamed reply: main thread busy (ms)", lambda d: dig(d, "timed.streaming.mainThread.taskMs"), "lower"),
+    ("First words of the reply after Enter (ms)", lambda d: dig(d, "timed.send.firstReplyMs"), "lower"),
+    ("Four other dogs working: slowest frame (ms)", lambda d: dig(d, "timed.otherDogsWorking.worstFrameMs"), "lower"),
+    ("Idle: animations running", lambda d: dig(d, "timed.idle.animations.running"), "lower"),
+    ("Browser process tree after the run, resident (MB)", lambda d: dig(d, "timed.rssMb.afterRun.browserTreeRssMb"), "lower"),
 ]
 
 ODS = [
@@ -172,8 +190,8 @@ def table(kind, dogs, out):
     out.append("|---|---|---|---|---|")
     summary = {}
     for name, read, better in rows:
-        base_values = [value for value in (read(data) for _, data in base) if value is not None]
-        main_values = [value for value in (read(data) for _, data in main) if value is not None]
+        base_values = [round(value, 1) for value in (read(data) for _, data in base) if value is not None]
+        main_values = [round(value, 1) for value in (read(data) for _, data in main) if value is not None]
         result = verdict(base_values, main_values, better)
         out.append(f"| {name} | {cell(base_values)} | {cell(main_values)} | {difference(base_values, main_values)} | {result} |")
         summary[name] = {"base": base_values, "main": main_values, "difference": difference(base_values, main_values), "verdict": result}

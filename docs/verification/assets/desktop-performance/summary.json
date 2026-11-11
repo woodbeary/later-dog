@@ -296,14 +296,14 @@
   },
   "Own bubble after Enter (ms)": {
    "base": [
-    36.90000000037253,
-    34.299999999813735,
-    33.59999999962747
+    36.9,
+    34.3,
+    33.6
    ],
    "main": [
-    28.100000000558794,
-    26.59999999962747,
-    29.299999999813735
+    28.1,
+    26.6,
+    29.3
    ],
    "difference": "-6.2 (-18%)",
    "verdict": "lower in every run"
@@ -475,6 +475,258 @@
    ],
    "difference": "0",
    "verdict": "same"
+  },
+  "Switching: frames slower than 25 ms": {
+   "base": [
+    20,
+    19,
+    17
+   ],
+   "main": [
+    32,
+    34,
+    32
+   ],
+   "difference": "+13 (+68%)",
+   "verdict": "higher in every run"
+  },
+  "Switching: slowest frame (ms)": {
+   "base": [
+    300.1,
+    299.9,
+    283.3
+   ],
+   "main": [
+    166.7,
+    166.7,
+    166.6
+   ],
+   "difference": "-133.2 (-44%)",
+   "verdict": "lower in every run"
+  },
+  "Switching: main thread busy across 16 switches (ms)": {
+   "base": [
+    2955,
+    2965,
+    2742
+   ],
+   "main": [
+    3234,
+    3071,
+    3055
+   ],
+   "difference": "+116 (+4%)",
+   "verdict": "higher in every run"
+  },
+  "Long chat opened while its reply streams: on screen (ms)": {
+   "base": [
+    274,
+    288,
+    300
+   ],
+   "main": [
+    89,
+    79,
+    85
+   ],
+   "difference": "-203 (-70%)",
+   "verdict": "lower in every run"
+  },
+  "Long chat opened while its reply streams: all 120 rows in place (ms)": {
+   "base": [
+    275,
+    289,
+    301
+   ],
+   "main": [
+    289,
+    351,
+    354
+   ],
+   "difference": "+62 (+21%)",
+   "verdict": "no measurable change"
+  },
+  "Reader scrolled up in a chat that is filling: the row being read moved (px)": {
+   "base": [
+    0,
+    0,
+    0
+   ],
+   "main": [
+    0,
+    0,
+    0
+   ],
+   "difference": "0",
+   "verdict": "same"
+  },
+  "Scrolling: frames slower than 25 ms": {
+   "base": [
+    4,
+    1,
+    0
+   ],
+   "main": [
+    0,
+    0,
+    0
+   ],
+   "difference": "-1 (-100%)",
+   "verdict": "no measurable change"
+  },
+  "Scrolling: slowest frame (ms)": {
+   "base": [
+    33.4,
+    33.4,
+    16.8
+   ],
+   "main": [
+    16.8,
+    16.8,
+    16.8
+   ],
+   "difference": "-16.6 (-50%)",
+   "verdict": "no measurable change"
+  },
+  "Scrolling: main thread busy (ms)": {
+   "base": [
+    2179,
+    2303,
+    1896
+   ],
+   "main": [
+    1883,
+    1880,
+    2032
+   ],
+   "difference": "-296 (-14%)",
+   "verdict": "no measurable change"
+  },
+  "Scrolling: components redrawn": {
+   "base": [
+    98,
+    98,
+    98
+   ],
+   "main": [
+    98,
+    98,
+    98
+   ],
+   "difference": "0",
+   "verdict": "same"
+  },
+  "Typing: slowest frame (ms)": {
+   "base": [
+    16.8,
+    16.8,
+    16.8
+   ],
+   "main": [
+    16.8,
+    16.8,
+    16.8
+   ],
+   "difference": "0",
+   "verdict": "same"
+  },
+  "A streamed reply: slowest frame (ms)": {
+   "base": [
+    50,
+    49.9,
+    66.7
+   ],
+   "main": [
+    50,
+    50.1,
+    50
+   ],
+   "difference": "0",
+   "verdict": "no measurable change"
+  },
+  "A streamed reply: long tasks (ms)": {
+   "base": [
+    0,
+    0,
+    0
+   ],
+   "main": [
+    0,
+    0,
+    0
+   ],
+   "difference": "0",
+   "verdict": "same"
+  },
+  "A streamed reply: main thread busy (ms)": {
+   "base": [
+    753,
+    725,
+    865
+   ],
+   "main": [
+    716,
+    664,
+    721
+   ],
+   "difference": "-37 (-5%)",
+   "verdict": "lower in every run"
+  },
+  "First words of the reply after Enter (ms)": {
+   "base": [
+    1052.2,
+    1049.1,
+    1118.9
+   ],
+   "main": [
+    1049.7,
+    1042.7,
+    1051.2
+   ],
+   "difference": "-2.5 (-0%)",
+   "verdict": "no measurable change"
+  },
+  "Four other dogs working: slowest frame (ms)": {
+   "base": [
+    16.8,
+    16.8,
+    16.8
+   ],
+   "main": [
+    16.8,
+    16.8,
+    16.8
+   ],
+   "difference": "0",
+   "verdict": "same"
+  },
+  "Idle: animations running": {
+   "base": [
+    6,
+    6,
+    6
+   ],
+   "main": [
+    6,
+    6,
+    6
+   ],
+   "difference": "0",
+   "verdict": "same"
+  },
+  "Browser process tree after the run, resident (MB)": {
+   "base": [
+    1298,
+    1307,
+    1314
+   ],
+   "main": [
+    1313,
+    1283,
+    1312
+   ],
+   "difference": "+5 (+0%)",
+   "verdict": "no measurable change"
   }
  },
  "default-80": {
@@ -774,13 +1026,13 @@
   },
   "Own bubble after Enter (ms)": {
    "base": [
-    41.799999999813735,
-    63.89999999944121,
-    46.89999999944121
+    41.8,
+    63.9,
+    46.9
    ],
    "main": [
-    32.19999999925494,
-    29.200000000186265,
+    32.2,
+    29.2,
     35.5
    ],
    "difference": "-14.7 (-31%)",
@@ -953,6 +1205,258 @@
    ],
    "difference": "0",
    "verdict": "same"
+  },
+  "Switching: frames slower than 25 ms": {
+   "base": [
+    23,
+    22,
+    25
+   ],
+   "main": [
+    33,
+    34,
+    33
+   ],
+   "difference": "+10 (+43%)",
+   "verdict": "higher in every run"
+  },
+  "Switching: slowest frame (ms)": {
+   "base": [
+    566.6,
+    550.1,
+    533.3
+   ],
+   "main": [
+    300,
+    266.7,
+    266.6
+   ],
+   "difference": "-283.4 (-52%)",
+   "verdict": "lower in every run"
+  },
+  "Switching: main thread busy across 16 switches (ms)": {
+   "base": [
+    5305,
+    4909,
+    4919
+   ],
+   "main": [
+    4789,
+    4703,
+    4351
+   ],
+   "difference": "-216 (-4%)",
+   "verdict": "lower in every run"
+  },
+  "Long chat opened while its reply streams: on screen (ms)": {
+   "base": [
+    421,
+    422,
+    426
+   ],
+   "main": [
+    110,
+    113,
+    113
+   ],
+   "difference": "-309 (-73%)",
+   "verdict": "lower in every run"
+  },
+  "Long chat opened while its reply streams: all 120 rows in place (ms)": {
+   "base": [
+    422,
+    423,
+    426
+   ],
+   "main": [
+    489,
+    499,
+    486
+   ],
+   "difference": "+66 (+16%)",
+   "verdict": "higher in every run"
+  },
+  "Reader scrolled up in a chat that is filling: the row being read moved (px)": {
+   "base": [
+    0,
+    0,
+    0
+   ],
+   "main": [
+    0,
+    0,
+    0
+   ],
+   "difference": "0",
+   "verdict": "same"
+  },
+  "Scrolling: frames slower than 25 ms": {
+   "base": [
+    100,
+    102,
+    100
+   ],
+   "main": [
+    5,
+    3,
+    4
+   ],
+   "difference": "-96 (-96%)",
+   "verdict": "lower in every run"
+  },
+  "Scrolling: slowest frame (ms)": {
+   "base": [
+    183.3,
+    133.3,
+    133.4
+   ],
+   "main": [
+    33.4,
+    33.4,
+    33.4
+   ],
+   "difference": "-100 (-75%)",
+   "verdict": "lower in every run"
+  },
+  "Scrolling: main thread busy (ms)": {
+   "base": [
+    11156,
+    10392,
+    10286
+   ],
+   "main": [
+    1671,
+    1661,
+    1697
+   ],
+   "difference": "-8,721 (-84%)",
+   "verdict": "lower in every run"
+  },
+  "Scrolling: components redrawn": {
+   "base": [
+    107,
+    107,
+    107
+   ],
+   "main": [
+    98,
+    98,
+    98
+   ],
+   "difference": "-9 (-8%)",
+   "verdict": "lower in every run"
+  },
+  "Typing: slowest frame (ms)": {
+   "base": [
+    100,
+    83.4,
+    99.9
+   ],
+   "main": [
+    16.8,
+    16.8,
+    16.8
+   ],
+   "difference": "-83.1 (-83%)",
+   "verdict": "lower in every run"
+  },
+  "A streamed reply: slowest frame (ms)": {
+   "base": [
+    133.3,
+    133.3,
+    150
+   ],
+   "main": [
+    66.7,
+    100.1,
+    100
+   ],
+   "difference": "-33.3 (-25%)",
+   "verdict": "lower in every run"
+  },
+  "A streamed reply: long tasks (ms)": {
+   "base": [
+    563,
+    2567,
+    579
+   ],
+   "main": [
+    115,
+    117,
+    127
+   ],
+   "difference": "-462 (-80%)",
+   "verdict": "lower in every run"
+  },
+  "A streamed reply: main thread busy (ms)": {
+   "base": [
+    2101,
+    2165,
+    2143
+   ],
+   "main": [
+    1093,
+    1134,
+    1139
+   ],
+   "difference": "-1,009 (-47%)",
+   "verdict": "lower in every run"
+  },
+  "First words of the reply after Enter (ms)": {
+   "base": [
+    1999.4,
+    2094.4,
+    1983.9
+   ],
+   "main": [
+    1967.2,
+    2056.6,
+    1974.2
+   ],
+   "difference": "-25.2 (-1%)",
+   "verdict": "no measurable change"
+  },
+  "Four other dogs working: slowest frame (ms)": {
+   "base": [
+    83.3,
+    66.7,
+    83.4
+   ],
+   "main": [
+    16.8,
+    16.8,
+    16.8
+   ],
+   "difference": "-66.5 (-80%)",
+   "verdict": "lower in every run"
+  },
+  "Idle: animations running": {
+   "base": [
+    80,
+    80,
+    80
+   ],
+   "main": [
+    16,
+    16,
+    16
+   ],
+   "difference": "-64 (-80%)",
+   "verdict": "lower in every run"
+  },
+  "Browser process tree after the run, resident (MB)": {
+   "base": [
+    1419,
+    1407,
+    1406
+   ],
+   "main": [
+    1385,
+    1443,
+    1388
+   ],
+   "difference": "-19 (-1%)",
+   "verdict": "no measurable change"
   }
  },
  "ods-7": {},

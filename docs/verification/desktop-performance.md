@@ -141,6 +141,24 @@ The default timed run: base 3 runs, main 3 runs.
 | Browser process tree, highest in the run, resident (MB) | 1,333 (1,314 to 1,337) | 1,322 (1,314 to 1,336) | -11 (-1%) | no measurable change |
 | DOM nodes after the run | 10,933 (10,933 to 10,933) | 10,933 (10,933 to 10,933) | 0 | same |
 | Rows in the long chat 1.5 s after opening | 120 (120 to 120) | 120 (120 to 120) | 0 | same |
+| Switching: frames slower than 25 ms | 19 (17 to 20) | 32 (32 to 34) | +13 (+68%) | higher in every run |
+| Switching: slowest frame (ms) | 299.9 (283.3 to 300.1) | 166.7 (166.6 to 166.7) | -133.2 (-44%) | lower in every run |
+| Switching: main thread busy across 16 switches (ms) | 2,955 (2,742 to 2,965) | 3,071 (3,055 to 3,234) | +116 (+4%) | higher in every run |
+| Long chat opened while its reply streams: on screen (ms) | 288 (274 to 300) | 85 (79 to 89) | -203 (-70%) | lower in every run |
+| Long chat opened while its reply streams: all 120 rows in place (ms) | 289 (275 to 301) | 351 (289 to 354) | +62 (+21%) | no measurable change |
+| Reader scrolled up in a chat that is filling: the row being read moved (px) | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
+| Scrolling: frames slower than 25 ms | 1 (0 to 4) | 0 (0 to 0) | -1 (-100%) | no measurable change |
+| Scrolling: slowest frame (ms) | 33.4 (16.8 to 33.4) | 16.8 (16.8 to 16.8) | -16.6 (-50%) | no measurable change |
+| Scrolling: main thread busy (ms) | 2,179 (1,896 to 2,303) | 1,883 (1,880 to 2,032) | -296 (-14%) | no measurable change |
+| Scrolling: components redrawn | 98 (98 to 98) | 98 (98 to 98) | 0 | same |
+| Typing: slowest frame (ms) | 16.8 (16.8 to 16.8) | 16.8 (16.8 to 16.8) | 0 | same |
+| A streamed reply: slowest frame (ms) | 50 (49.9 to 66.7) | 50 (50 to 50.1) | 0 | no measurable change |
+| A streamed reply: long tasks (ms) | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
+| A streamed reply: main thread busy (ms) | 753 (725 to 865) | 716 (664 to 721) | -37 (-5%) | lower in every run |
+| First words of the reply after Enter (ms) | 1,052 (1,049 to 1,119) | 1,050 (1,043 to 1,051) | -2.5 (-0%) | no measurable change |
+| Four other dogs working: slowest frame (ms) | 16.8 (16.8 to 16.8) | 16.8 (16.8 to 16.8) | 0 | same |
+| Idle: animations running | 6 (6 to 6) | 6 (6 to 6) | 0 | same |
+| Browser process tree after the run, resident (MB) | 1,307 (1,298 to 1,314) | 1,312 (1,283 to 1,313) | +5 (+0%) | no measurable change |
 
 ### Timed run at 80 dogs
 
@@ -182,6 +200,24 @@ The default timed run with `--other-dogs 79 --other-turns 2`: base 3 runs, main 
 | Browser process tree, highest in the run, resident (MB) | 1,437 (1,435 to 1,455) | 1,396 (1,389 to 1,457) | -41 (-3%) | no measurable change |
 | DOM nodes after the run | 15,748 (15,748 to 15,748) | 15,779 (15,779 to 15,779) | +31 (+0%) | higher in every run |
 | Rows in the long chat 1.5 s after opening | 120 (120 to 120) | 120 (120 to 120) | 0 | same |
+| Switching: frames slower than 25 ms | 23 (22 to 25) | 33 (33 to 34) | +10 (+43%) | higher in every run |
+| Switching: slowest frame (ms) | 550.1 (533.3 to 566.6) | 266.7 (266.6 to 300) | -283.4 (-52%) | lower in every run |
+| Switching: main thread busy across 16 switches (ms) | 4,919 (4,909 to 5,305) | 4,703 (4,351 to 4,789) | -216 (-4%) | lower in every run |
+| Long chat opened while its reply streams: on screen (ms) | 422 (421 to 426) | 113 (110 to 113) | -309 (-73%) | lower in every run |
+| Long chat opened while its reply streams: all 120 rows in place (ms) | 423 (422 to 426) | 489 (486 to 499) | +66 (+16%) | higher in every run |
+| Reader scrolled up in a chat that is filling: the row being read moved (px) | 0 (0 to 0) | 0 (0 to 0) | 0 | same |
+| Scrolling: frames slower than 25 ms | 100 (100 to 102) | 4 (3 to 5) | -96 (-96%) | lower in every run |
+| Scrolling: slowest frame (ms) | 133.4 (133.3 to 183.3) | 33.4 (33.4 to 33.4) | -100 (-75%) | lower in every run |
+| Scrolling: main thread busy (ms) | 10,392 (10,286 to 11,156) | 1,671 (1,661 to 1,697) | -8,721 (-84%) | lower in every run |
+| Scrolling: components redrawn | 107 (107 to 107) | 98 (98 to 98) | -9 (-8%) | lower in every run |
+| Typing: slowest frame (ms) | 99.9 (83.4 to 100) | 16.8 (16.8 to 16.8) | -83.1 (-83%) | lower in every run |
+| A streamed reply: slowest frame (ms) | 133.3 (133.3 to 150) | 100 (66.7 to 100.1) | -33.3 (-25%) | lower in every run |
+| A streamed reply: long tasks (ms) | 579 (563 to 2,567) | 117 (115 to 127) | -462 (-80%) | lower in every run |
+| A streamed reply: main thread busy (ms) | 2,143 (2,101 to 2,165) | 1,134 (1,093 to 1,139) | -1,009 (-47%) | lower in every run |
+| First words of the reply after Enter (ms) | 1,999 (1,984 to 2,094) | 1,974 (1,967 to 2,057) | -25.2 (-1%) | no measurable change |
+| Four other dogs working: slowest frame (ms) | 83.3 (66.7 to 83.4) | 16.8 (16.8 to 16.8) | -66.5 (-80%) | lower in every run |
+| Idle: animations running | 80 (80 to 80) | 16 (16 to 16) | -64 (-80%) | lower in every run |
+| Browser process tree after the run, resident (MB) | 1,407 (1,406 to 1,419) | 1,388 (1,385 to 1,443) | -19 (-1%) | no measurable change |
 
 ### One dog streams, at 7 dogs
 
