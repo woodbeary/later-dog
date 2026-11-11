@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useId, useImperativeHandle, useLayoutEffect, use
 import type { DogState } from "@/lib/mascot";
 import { BREEDS, DOG_BREEDS, type BreedLook, type DogBreed, type Shape } from "./dog-breeds";
 import { mouthGeometry, nosePath, round, tonguePath } from "./dog-geometry";
+import { watchBlinks } from "@/lib/dog-blinks";
 import "./dog-avatar.css";
 
 export { BREEDS, DOG_BREEDS, nosePath, type BreedLook, type DogBreed };
@@ -52,6 +53,7 @@ export function DogFace({ look, breed, color, mood = "rest", size = 44, title, g
       if (animation.effect?.getTiming().iterations === Infinity) animation.startTime = 0;
     }
   }, [mood, paused, blinking, spinMs]);
+  useEffect(() => (svg.current ? watchBlinks(svg.current) : undefined), []);
   const clamp = (value: number | undefined) => Math.max(-1, Math.min(1, value ?? 0));
   const style = {
     "--dog-ink": color,

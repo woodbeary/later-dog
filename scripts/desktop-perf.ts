@@ -274,7 +274,30 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
   await page.waitForTimeout(1_000);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("Performance.enable");
+  if (process.argv.includes("--css")) await (page as unknown as { addStyleTag(options: { content: string }): Promise<unknown> }).addStyleTag({ content: option("css") });
+  const named = process.argv.includes("--names");
+  const trim = ({ keys: _keys, value: _value, top, ...rest }: Activity & { keys: number[]; top: string[]; value: unknown }) => (named && counting ? { ...rest, top } : rest);
   const idle = await heap(page);
+  const idling = await measured(page, cdp, false, async () => {
+    await page.waitForTimeout(3_000);
+  });
+  const blinkSeenMs = await page.evaluate(async () => {
+    const started = performance.now();
+    while (performance.now() - started < 7_000) {
+      if (document.getAnimations().some((animation) => ((animation.effect as KeyframeEffect | null)?.target as Element | null)?.classList.contains("ld-dog-blink"))) return Math.round(performance.now() - started);
+      await new Promise((done) => setTimeout(done, 40));
+    }
+    return null;
+  });
+  const animations = await page.evaluate(() => {
+    const running = document.getAnimations().filter((animation) => animation.playState === "running");
+    const names = new Map<string, number>();
+    for (const animation of running) {
+      const name = (animation as CSSAnimation).animationName ?? (animation as CSSTransition).transitionProperty ?? "script";
+      names.set(name, (names.get(name) ?? 0) + 1);
+    }
+    return { running: running.length, byName: [...names.entries()].sort((left, right) => right[1] - left[1]).slice(0, 12).map(([name, count]) => `${name} ${count}`) };
+  });
   const short = dogs.others[0]!;
   await open(page, dogs.long);
   await page.waitForTimeout(1_500);
@@ -349,9 +372,8 @@ async function pass(browser: { newContext(options: unknown): Promise<{ addInitSc
 
   const after = await heap(page);
   await context.close();
-  const named = process.argv.includes("--names");
-  const trim = ({ keys: _keys, value: _value, top, ...rest }: Activity & { keys: number[]; top: string[]; value: unknown }) => (named && counting ? { ...rest, top } : rest);
   return {
+    idle: { ...trim(idling), animations, blinkSeenMs },
     longChatOpened,
     heapIdleMb: idle.heapMb,
     heapAfterMb: after.heapMb,
