@@ -459,6 +459,32 @@ posixOnly("mid-turn steering e2e", () => {
     await waitFor(async () => (await getBot(created.id)).busy === false, "the queued turn to settle");
   }, 30_000);
 
+  it("Send now on a later message from someone else reports only the message that went and leaves the asked one queued", async () => {
+    const created = (await api("POST", "/api/bots")).body.bot;
+    await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "acp", model: "fake-model" } });
+    expect((await api("POST", `/api/bots/${created.id}/messages`, { text: "first" })).status).toBe(202);
+    await waitFor(async () => (await getBot(created.id)).busy === true, "the hung turn to start");
+    const ahead = await api("POST", `/api/bots/${created.id}/messages`, { text: "queued ahead by the owner" });
+    expect(ahead.body).toMatchObject({ ok: true, queued: true });
+    const person = await asPairedPerson();
+    const askedSendId = randomUUID();
+    const asked = await person("POST", `/api/bots/${created.id}/messages`, { text: "queued behind by someone else", sendId: askedSendId });
+    expect(asked.body).toMatchObject({ ok: true, queued: true });
+
+    const sent = await api("POST", `/api/bots/${created.id}/queue/${askedSendId}/steer`, { threadId: created.threadId });
+    expect(sent.status).toBe(200);
+    expect(sent.body).toMatchObject({ ok: true, sent: true, interrupted: true, queueIds: [ahead.body.queueId] });
+    expect(sent.body.messages.map((m: any) => m.text)).toEqual(["queued ahead by the owner"]);
+    const queues = (await api("GET", "/api/bots")).body.botQueuedMessages;
+    expect(queues[created.threadId]).toEqual([expect.objectContaining({ queueId: asked.body.queueId, sendId: askedSendId, text: "queued behind by someone else" })]);
+    expect((await getBot(created.id)).messages.some((m: any) => m.text === "queued behind by someone else")).toBe(false);
+
+    expect(await api("DELETE", `/api/bots/${created.id}/queue/${askedSendId}`, { threadId: created.threadId })).toEqual({ status: 200, body: { ok: true } });
+    await api("POST", `/api/bots/${created.id}/interrupt`);
+    await waitFor(async () => (await getBot(created.id)).busy === false, "the drained turn to settle");
+    expect((await getBot(created.id)).messages.some((m: any) => m.text === "queued behind by someone else")).toBe(false);
+  }, 40_000);
+
   it("a message waiting for a free slot still names the paired person once it runs", async () => {
     const created = (await api("POST", "/api/bots")).body.bot;
     await api("PATCH", `/api/bots/${created.id}`, { modelSelection: { instanceId: "acp", model: "fake-model" } });
