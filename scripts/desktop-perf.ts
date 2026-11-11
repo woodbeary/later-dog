@@ -1135,6 +1135,107 @@ async function kept(browser: Browser, url: string, dogs: { long: Dog; others: Do
   };
 }
 
+async function messageBox(browser: Browser, url: string, dogs: { long: Dog; others: Dog[] }) {
+  const context = await browser.newContext({ viewport: VIEWPORT });
+  await context.addInitScript(PAGE_PROBE);
+  const page = await context.newPage() as Page & { setViewportSize(size: { width: number; height: number }): Promise<void> };
+  await page.goto(url);
+  await page.waitForSelector('textarea[aria-label^="Message "]', { timeout: 60_000 });
+  await page.waitForSelector("[data-sidebar-bot-row]", { timeout: 60_000 });
+  const short = dogs.others[0]!;
+  await open(page, dogs.long);
+  await page.waitForTimeout(1_500);
+  await page.click(composerOf(dogs.long));
+  const steps: Array<{ step: string; boxPx: number; wholeBoxPx: number; textPx: number; mirrorPx: number; expanded: boolean; scrolled: number; focused: boolean; characters: number }> = [];
+  const note = async (step: string, dog = dogs.long) => {
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    steps.push({ step, ...await page.evaluate((selector: string) => {
+      const input = document.querySelector(selector) as HTMLTextAreaElement;
+      const whole = input.closest("[data-composer-row]")?.parentElement ?? input;
+      const mirror = input.parentElement!.querySelector(".mention-editor-mirror") as HTMLElement | null;
+      return {
+        boxPx: input.getBoundingClientRect().height,
+        wholeBoxPx: whole.getBoundingClientRect().height,
+        textPx: input.scrollHeight,
+        mirrorPx: mirror?.getBoundingClientRect().width ?? 0,
+        expanded: Boolean(input.closest("[data-expanded]")),
+        scrolled: Math.round(input.scrollTop),
+        focused: document.activeElement === input,
+        characters: input.value.length,
+      };
+    }, composerOf(dog)) });
+  };
+  const type = (text: string) => page.keyboard.type(text, { delay: 3 });
+  const press = async (key: string, times = 1) => { for (let index = 0; index < times; index += 1) await page.keyboard.press(key); };
+  const wide = "wide ".repeat(70);
+
+  await note("empty");
+  await type("Short line");
+  await note("one short line");
+  await type(` ${wide}`);
+  await note("typed past the edge of the box");
+  await press("Backspace", wide.length - 40);
+  await note("deleted back towards one line");
+  await press("Backspace", 60);
+  await note("deleted to nothing");
+  for (let line = 1; line <= 8; line += 1) {
+    await type(`line ${line}`);
+    if (line < 8) await press("Shift+Enter");
+    await note(`${line} typed lines`);
+  }
+  await press("Backspace", 14);
+  await note("removed the last two lines");
+  await press("Control+Home");
+  await press("Delete", 7);
+  await note("removed the first line from the top");
+  await press("Control+a");
+  await type("x");
+  await note("replaced everything with one letter");
+  await press("Backspace");
+  await type(`aa ${"b".repeat(400)}`);
+  await note("one very long word after a short one");
+  await press("Control+Home");
+  await press("ArrowRight", 30);
+  await type(" ");
+  await note("a space typed into the long word");
+  await press("Control+a");
+  await press("Backspace");
+  await type("first");
+  await press("Shift+Enter");
+  await type("second");
+  await press("Shift+Enter");
+  await type("third");
+  await note("three lines before the window narrows");
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.waitForTimeout(400);
+  await note("three lines in a narrow window");
+  await press("Control+a");
+  await type(wide);
+  await note("a long line in a narrow window");
+  await page.setViewportSize(VIEWPORT);
+  await page.waitForTimeout(400);
+  await note("the same long line in the wide window again");
+  await open(page, short);
+  await note("another chat, empty box", short);
+  await open(page, dogs.long);
+  await page.waitForTimeout(400);
+  await note("back in the chat that holds the long draft");
+  await page.click(composerOf(dogs.long));
+  await press("Control+a");
+  await type("Two lines");
+  await press("Shift+Enter");
+  await type("to send");
+  await note("two lines ready to send");
+  await press("Enter");
+  await page.waitForTimeout(600);
+  await note("after sending");
+  await type("y");
+  await note("one letter after sending");
+  await press("Backspace");
+  await context.close();
+  return steps;
+}
+
 function redraws(activity: Activity & { top?: string[] }) {
   return { commits: activity.commits, rendered: activity.rendered, ...(activity.top ? { top: activity.top } : {}) };
 }
@@ -1250,6 +1351,13 @@ async function main() {
     const files = { stream: streamFile, replyIndex: replyIndexFile };
     if (process.argv.includes("--opening-shots")) {
       process.stdout.write(`${JSON.stringify(await openingShots(browser, fixture.info.url, dogs, resolve(option("opening-shots")), setup.label), null, 2)}\n`);
+      return;
+    }
+    if (process.argv.includes("--message-box")) {
+      const result = { label: setup.label, at: new Date().toISOString(), dogs: dogs.others.length + 1, messageBox: await messageBox(browser, fixture.info.url, dogs) };
+      mkdirSync(dirname(setup.out), { recursive: true });
+      writeFileSync(setup.out, `${JSON.stringify(result, null, 2)}\n`);
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
       return;
     }
     if (process.argv.includes("--sidebar-rows") || process.argv.includes("--kept")) {
