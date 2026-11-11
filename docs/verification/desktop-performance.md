@@ -154,13 +154,13 @@ The reviewer's list of missing tests is covered by the tests above plus
 clock) and `src/components/NativeWork.test.ts` (a work row redraws only when
 its run is replaced).
 
-### Sidebar rows, measured with `--sidebar-rows` at 80 dogs (one run each)
+### Sidebar rows, measured with `--sidebar-rows` at 80 dogs (two runs at 456e978, three now, all the same)
 
 | | At 456e978 | Now |
 |---|---|---|
-| Height held while not drawn, list | 52 px for every row | 53.5 px plain, 69.5 px titled |
+| Height held while not drawn, list | 52 px until a row has been drawn once | 53.5 px plain, 69.5 px titled |
 | Height when drawn, list | 53.5 px plain, 69.5 px titled | 53.5 px plain, 69.5 px titled |
-| Height held and drawn, icon rail | 56 px and 56 px | 56 px and 56 px |
+| Height held and drawn, icon rail | 52 px until drawn once, and 56 px | 56 px and 56 px |
 | One click on the unread pill, 34 rows not drawn above the target, 17 of them titled | In view, 250 px below the middle | In view, 16 px above the middle, pill gone |
 
 The landing was photographed (`--shots`); the photograph was not looked at by
@@ -168,7 +168,7 @@ a person.
 
 ### What `--kept` found, at 80 dogs (one run each)
 
-| Check | main c96ea63 | 456e978 to 8924500 | Now |
+| Check | main c96ea63 | 456e978 and 8924500 | Now |
 |---|---|---|---|
 | Draft kept per chat after switching, and after a reload | yes, yes | yes, yes | yes, yes |
 | Reload opens the chat that was open | yes | yes | yes |
