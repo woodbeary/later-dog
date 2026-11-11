@@ -116,6 +116,7 @@ def number(value):
         return "n/a"
     if abs(value) >= 1000:
         return f"{value:,.0f}"
+    value = round(value, 1)
     if float(value).is_integer():
         return f"{value:.0f}"
     return f"{value:.1f}"
@@ -146,7 +147,7 @@ def difference(base, main):
         return "n/a"
     before = statistics.median(base)
     after = statistics.median(main)
-    change = after - before
+    change = round(after - before, 1)
     if change == 0:
         return "0"
     sign = "+" if change > 0 else "-"

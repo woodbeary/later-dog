@@ -108,7 +108,7 @@ The default timed run: base 2 runs, main 2 runs.
 | Measure | base 651cf65, median (range), 2 runs | main 89b1439, median (range), 2 runs | Difference of medians | Verdict |
 |---|---|---|---|---|
 | Open the long chat, median of 8 (ms) | 306 (301.9 to 310.1) | 254.6 (242.4 to 266.9) | -51.4 (-17%) | too few runs to say |
-| Open the long chat, slowest of 8 (ms) | 342.0 (339.8 to 344.1) | 277.4 (274.7 to 280) | -64.6 (-19%) | too few runs to say |
+| Open the long chat, slowest of 8 (ms) | 342 (339.8 to 344.1) | 277.4 (274.7 to 280) | -64.6 (-19%) | too few runs to say |
 | Long chat: rows drawn when it is first shown | 120 (120 to 120) | 30 (30 to 30) | -90 (-75%) | too few runs to say |
 | Long chat: all 120 rows in place, median of 8 (ms) | 296.5 (292 to 301) | 369 (363 to 375) | +72.5 (+24%) | too few runs to say |
 | Long chat: openings of 8 that never reached 120 rows | 0 (0 to 0) | 0 (0 to 0) | 0 | too few runs to say |
@@ -116,14 +116,14 @@ The default timed run: base 2 runs, main 2 runs.
 | Long tasks across 16 switches (ms) | 2,253 (2,245 to 2,261) | 2,698 (2,604 to 2,792) | +445 (+20%) | too few runs to say |
 | Key press to frame, median of 119 keys (ms) | 23.9 (23.6 to 24.2) | 23.4 (23.2 to 23.6) | -0.5 (-2%) | too few runs to say |
 | Key press to frame, 95th of 119 keys (ms) | 32.4 (32.2 to 32.5) | 32 (31.9 to 32.1) | -0.4 (-1%) | too few runs to say |
-| Key press to frame, slowest of 119 keys (ms) | 33 (32.9 to 33.1) | 33.0 (32.9 to 33) | -0.0 (-0%) | too few runs to say |
+| Key press to frame, slowest of 119 keys (ms) | 33 (32.9 to 33.1) | 33 (32.9 to 33) | 0 | too few runs to say |
 | Typing: frames slower than 25 ms | 0 (0 to 0) | 0 (0 to 0) | 0 | too few runs to say |
 | Typing: main thread busy over 5.5 s (ms) | 2,257 (2,257 to 2,257) | 1,964 (1,927 to 2,000) | -293.5 (-13%) | too few runs to say |
 | Typing: layouts for 119 keys | 772 (768 to 776) | 566.5 (564 to 569) | -205.5 (-27%) | too few runs to say |
 | Typing: components redrawn for 119 keys | 3,221 (3,221 to 3,221) | 3,223 (3,223 to 3,223) | +2 (+0%) | too few runs to say |
 | Cold load: first paint, median of 5 (ms) | 366 (360 to 372) | 408 (364 to 452) | +42 (+11%) | too few runs to say |
-| Cold load: message box ready, median of 5 (ms) | 530 (512.8 to 547.2) | 585.0 (520.3 to 649.8) | +55.0 (+10%) | too few runs to say |
-| Cold load: message box ready, slowest of 5 (ms) | 560.8 (528.5 to 593.1) | 607.8 (547.3 to 668.2) | +47.0 (+8%) | too few runs to say |
+| Cold load: message box ready, median of 5 (ms) | 530 (512.8 to 547.2) | 585 (520.3 to 649.8) | +55 (+10%) | too few runs to say |
+| Cold load: message box ready, slowest of 5 (ms) | 560.8 (528.5 to 593.1) | 607.8 (547.3 to 668.2) | +47 (+8%) | too few runs to say |
 | Idle: main thread busy per 3 s (ms) | 123 (116 to 130) | 69.5 (62 to 77) | -53.5 (-43%) | too few runs to say |
 | Idle: style passes per 3 s | 181 (181 to 181) | 0 (0 to 0) | -181 (-100%) | too few runs to say |
 | A streamed reply: frames slower than 25 ms | 4.5 (4 to 5) | 2.5 (2 to 3) | -2 (-44%) | too few runs to say |
@@ -149,15 +149,15 @@ The default timed run with `--other-dogs 79 --other-turns 2`: base 2 runs, main 
 | Measure | base 651cf65, median (range), 2 runs | main 89b1439, median (range), 2 runs | Difference of medians | Verdict |
 |---|---|---|---|---|
 | Open the long chat, median of 8 (ms) | 546.6 (532.6 to 560.6) | 403.2 (402.5 to 403.9) | -143.4 (-26%) | too few runs to say |
-| Open the long chat, slowest of 8 (ms) | 624.1 (596.3 to 651.9) | 457.0 (428.6 to 485.3) | -167.1 (-27%) | too few runs to say |
+| Open the long chat, slowest of 8 (ms) | 624.1 (596.3 to 651.9) | 457 (428.6 to 485.3) | -167.1 (-27%) | too few runs to say |
 | Long chat: rows drawn when it is first shown | 120 (120 to 120) | 30 (30 to 30) | -90 (-75%) | too few runs to say |
 | Long chat: all 120 rows in place, median of 8 (ms) | 442 (431 to 453) | 511.5 (510 to 513) | +69.5 (+16%) | too few runs to say |
 | Long chat: openings of 8 that never reached 120 rows | 0 (0 to 0) | 0 (0 to 0) | 0 | too few runs to say |
 | Open a short chat, median of 8 (ms) | 81.8 (71.9 to 91.8) | 71.8 (70.8 to 72.7) | -10.1 (-12%) | too few runs to say |
 | Long tasks across 16 switches (ms) | 4,284 (4,139 to 4,428) | 4,188 (4,141 to 4,234) | -96 (-2%) | too few runs to say |
-| Key press to frame, median of 119 keys (ms) | 71.0 (67.2 to 74.7) | 24.5 (24.4 to 24.6) | -46.5 (-65%) | too few runs to say |
+| Key press to frame, median of 119 keys (ms) | 71 (67.2 to 74.7) | 24.5 (24.4 to 24.6) | -46.5 (-66%) | too few runs to say |
 | Key press to frame, 95th of 119 keys (ms) | 119.8 (116.7 to 122.9) | 32.1 (31.9 to 32.3) | -87.7 (-73%) | too few runs to say |
-| Key press to frame, slowest of 119 keys (ms) | 145.4 (145 to 145.8) | 33.0 (32.8 to 33.1) | -112.5 (-77%) | too few runs to say |
+| Key press to frame, slowest of 119 keys (ms) | 145.4 (145 to 145.8) | 33 (32.8 to 33.1) | -112.5 (-77%) | too few runs to say |
 | Typing: frames slower than 25 ms | 151.5 (144 to 159) | 0 (0 to 0) | -151.5 (-100%) | too few runs to say |
 | Typing: main thread busy over 5.5 s (ms) | 9,851 (9,732 to 9,970) | 1,706 (1,659 to 1,753) | -8,145 (-83%) | too few runs to say |
 | Typing: layouts for 119 keys | 724 (716 to 732) | 263 (263 to 263) | -461 (-64%) | too few runs to say |
@@ -174,7 +174,7 @@ The default timed run with `--other-dogs 79 --other-turns 2`: base 2 runs, main 
 | Four other dogs working: main thread busy (ms) | 2,250 (2,221 to 2,279) | 360.5 (350 to 371) | -1,890 (-84%) | too few runs to say |
 | Four other dogs working: components redrawn | 964 (964 to 964) | 683 (683 to 683) | -281 (-29%) | too few runs to say |
 | Switching: components redrawn across 16 switches | 29,834 (29,563 to 30,105) | 31,297 (31,145 to 31,449) | +1,463 (+5%) | too few runs to say |
-| JS heap at idle, after a collection (MB) | 15 (15 to 15) | 15.2 (15.2 to 15.3) | +0.2 (+2%) | too few runs to say |
+| JS heap at idle, after a collection (MB) | 15 (15 to 15) | 15.2 (15.2 to 15.3) | +0.2 (+1%) | too few runs to say |
 | JS heap after the run, after a collection (MB) | 28.2 (28.2 to 28.2) | 28.4 (28.3 to 28.4) | +0.2 (+1%) | too few runs to say |
 | Page process memory at idle (MB) | 92 (92 to 92) | 84.5 (83 to 86) | -7.5 (-8%) | too few runs to say |
 | Page process memory, highest of 6 samples (MB) | 489 (475 to 503) | 354 (348 to 360) | -135 (-28%) | too few runs to say |

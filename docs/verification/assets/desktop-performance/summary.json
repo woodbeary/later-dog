@@ -117,7 +117,7 @@
     32.9,
     33
    ],
-   "difference": "-0.0 (-0%)",
+   "difference": "0",
    "verdict": "too few runs to say"
   },
   "Typing: frames slower than 25 ms": {
@@ -189,7 +189,7 @@
     649.8,
     520.3
    ],
-   "difference": "+55.0 (+10%)",
+   "difference": "+55 (+10%)",
    "verdict": "too few runs to say"
   },
   "Cold load: message box ready, slowest of 5 (ms)": {
@@ -201,7 +201,7 @@
     668.2,
     547.3
    ],
-   "difference": "+47.0 (+8%)",
+   "difference": "+47 (+8%)",
    "verdict": "too few runs to say"
   },
   "Idle: main thread busy per 3 s (ms)": {
@@ -503,7 +503,7 @@
     24.6,
     24.4
    ],
-   "difference": "-46.5 (-65%)",
+   "difference": "-46.5 (-66%)",
    "verdict": "too few runs to say"
   },
   "Key press to frame, 95th of 119 keys (ms)": {
@@ -731,7 +731,7 @@
     15.2,
     15.3
    ],
-   "difference": "+0.2 (+2%)",
+   "difference": "+0.2 (+1%)",
    "verdict": "too few runs to say"
   },
   "JS heap after the run, after a collection (MB)": {
