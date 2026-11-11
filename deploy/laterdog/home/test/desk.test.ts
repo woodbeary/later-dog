@@ -178,6 +178,7 @@ describe("which devices the desk trusts", () => {
 
   it("serves a browser signed in by cookie once the home has answered it, never replaying its cookie", async () => {
     const h = await home();
+    world.sessions.add(COOKIE.slice(COOKIE.indexOf("=") + 1));
     world.answers.set("GET /api/bots", () => Response.json(DOGS, { headers: { "set-cookie": "laterdog_session_8799_abc123=renewed; HttpOnly" } }));
     await h.visit("/api/bots", asBrowser);
     now += 10_000;
@@ -186,6 +187,49 @@ describe("which devices the desk trusts", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(await response.json()).toEqual(DOGS);
+  });
+
+  const BRAND = { name: "later.dog" };
+  const send = (h: Awaited<ReturnType<typeof home>>, who: { headers: Record<string, string> }) =>
+    h.visit("/api/bots/rex/messages", { method: "POST", headers: { ...who.headers, "content-type": "application/json" }, body: JSON.stringify({ text: "hi", sendId: "send-0000000000009" }) });
+  const keptForDevices = (h: Awaited<ReturnType<typeof home>>) => [...h.STATE.objects.keys()].filter((key) => !key.includes("/desk/ui/"));
+
+  it("keeps a confirmed device's first answer, without waiting for a second visit", async () => {
+    const h = await home();
+    await h.visit("/api/bots", asOwner());
+    await h.sleep();
+    const response = await h.visit("/api/bots", asOwner());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(DOGS);
+  });
+
+  it("does not come to trust someone the home never confirmed, though the home tells anyone its name", async () => {
+    const h = await home();
+    world.answers.set("GET /api/brand", () => Response.json(BRAND));
+    expect((await h.visit("/api/brand", asStranger)).status).toBe(200);
+    now += 10_000;
+    expect((await h.visit("/api/brand?again=1", asStranger)).status).toBe(200);
+    expect(keptForDevices(h)).toEqual([]);
+    await knownOwner(h);
+    await h.sleep();
+    expect((await send(h, asStranger)).status).toBe(503);
+  });
+
+  it("does not trust a signed-out session again because the home still tells it its name", async () => {
+    const h = await home();
+    world.answers.set("GET /api/brand", () => Response.json(BRAND));
+    await knownOwner(h);
+    world.sessions.delete(OWNER_TOKEN);
+    world.answers.set("GET /api/bots", () => Response.json({ error: "unauthorized" }, { status: 401 }));
+    now += 10_000;
+    expect((await h.visit("/api/bots", asOwner())).status).toBe(401);
+    now += 10_000;
+    expect((await h.visit("/api/brand", asOwner())).status).toBe(200);
+    now += 10_000;
+    expect((await h.visit("/api/brand", asOwner())).status).toBe(200);
+    expect(keptForDevices(h)).toEqual([]);
+    await h.sleep();
+    expect((await send(h, asOwner())).status).toBe(503);
   });
 
   it("forgets a device the home stops accepting, and what it kept for it", async () => {

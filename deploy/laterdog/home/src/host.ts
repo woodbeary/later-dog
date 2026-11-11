@@ -115,7 +115,7 @@ export class CloudHomeHost extends Container<Env> {
   private streamTimer: ReturnType<typeof setInterval> | null = null;
   private readonly lastSaved = new Map<string, { digest: string; at: number }>();
   private pairingOpenUntil = 0;
-  private readonly checking = new Set<string>();
+  private readonly checking = new Map<string, Promise<void>>();
   private readonly refused = new Set<string>();
   private readonly handover = new Handover({
     standing: () => this.storedStanding ?? (this.size === "standard" ? "holding" : "released"),
@@ -429,6 +429,7 @@ export class CloudHomeHost extends Container<Env> {
       if (credential && key) this.learn(record, credential, key, response);
       if (key && credential?.kind === "session" && (response.status === 401 || response.status === 403)) {
         this.ctx.waitUntil(this.forgetDevice(record, key));
+        if (response.status === 401) this.ctx.waitUntil(this.forgetWaker(key));
       }
       return kind ? this.keepAnswer(record, kind, key, request, response) : response;
     }
@@ -451,7 +452,8 @@ export class CloudHomeHost extends Container<Env> {
 
   private knownDevice(key: string): boolean {
     const seen = this.deskDevices[key];
-    return seen !== undefined && Date.now() - seen < DESK_KEPT_MS;
+    const now = Date.now();
+    return seen !== undefined && now - seen < DESK_KEPT_MS && remembered(this.wakers, key, now);
   }
 
   private async noteDevice(key: string): Promise<void> {
@@ -473,15 +475,21 @@ export class CloudHomeHost extends Container<Env> {
 
   private keepAnswer(record: HomeRecord, kind: Exclude<DeskKind, null>, key: string | null, request: Request, response: Response): Response {
     if (!savable(kind, response)) return response;
-    if (kind === "read" && key) this.ctx.waitUntil(this.noteDevice(key));
-    if (kind === "read" && Date.now() - this.brainLearnedAt > BRAIN_REFRESH_MS) {
-      this.brainLearnedAt = Date.now();
-      this.ctx.waitUntil(this.learnBrain(record));
-    }
-    const scope = kind === "shell" ? "ui" : key;
-    if (!scope) return response;
+    if (kind === "read" && !key) return response;
     const copy = response.clone();
     this.ctx.waitUntil((async () => {
+      const scope = kind === "shell" ? "ui" : (await this.confirmed(key)) ? key : null;
+      if (!scope) {
+        copy.body?.cancel().catch(() => undefined);
+        return;
+      }
+      if (kind === "read") {
+        await this.noteDevice(scope);
+        if (Date.now() - this.brainLearnedAt > BRAIN_REFRESH_MS) {
+          this.brainLearnedAt = Date.now();
+          this.ctx.waitUntil(this.learnBrain(record));
+        }
+      }
       const where = await deskKey(this.stateHome(record.machineId), scope, request.url);
       const now = Date.now();
       const last = this.lastSaved.get(where);
@@ -719,17 +727,29 @@ export class CloudHomeHost extends Container<Env> {
       return;
     }
     if (this.checking.has(key) || this.refused.has(key) || this.checking.size >= CHECKS_AT_ONCE) return;
-    this.checking.add(key);
-    this.ctx.waitUntil(
-      this.quietly(sessionCheck(record.origin, credential))
-        .then(sessionCheckOutcome)
-        .then(async (outcome) => {
-          if (outcome === "owner") await this.remember(key);
-          if (outcome === "refused") this.refuse(key);
-        })
-        .catch(() => undefined)
-        .finally(() => this.checking.delete(key)),
-    );
+    const check = this.quietly(sessionCheck(record.origin, credential))
+      .then(sessionCheckOutcome)
+      .then(async (outcome) => {
+        if (outcome === "owner") await this.remember(key);
+        if (outcome === "refused") this.refuse(key);
+      })
+      .catch(() => undefined)
+      .finally(() => this.checking.delete(key));
+    this.checking.set(key, check);
+    this.ctx.waitUntil(check);
+  }
+
+  private async confirmed(key: string | null): Promise<boolean> {
+    if (!key) return false;
+    await this.checking.get(key);
+    return remembered(this.wakers, key, Date.now());
+  }
+
+  private async forgetWaker(key: string): Promise<void> {
+    if (!(key in this.wakers)) return;
+    const { [key]: _, ...rest } = this.wakers;
+    this.wakers = rest;
+    await this.ctx.storage.put(WAKERS_KEY, this.wakers);
   }
 
   private async remember(key: string): Promise<void> {
