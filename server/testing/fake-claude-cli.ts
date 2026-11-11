@@ -61,7 +61,6 @@ const scriptedToolCalls: ScriptedToolCall[] | null = (() => {
     return null;
   }
 })();
-const STREAM_PAUSE = new Int32Array(new SharedArrayBuffer(4));
 const streamPlan = (): { everyMs: number; chars: number } | null => {
   const file = process.env.FAKE_CLAUDE_STREAM_FILE;
   if (!file || !existsSync(file)) return null;
@@ -72,6 +71,12 @@ const streamPlan = (): { everyMs: number; chars: number } | null => {
     return Number.isFinite(everyMs) && everyMs >= 0 && Number.isInteger(chars) && chars > 0 ? { everyMs, chars } : null;
   } catch {
     return null;
+  }
+};
+const streamInPieces = async (text: string, plan: { everyMs: number; chars: number }) => {
+  for (let at = 0; at < text.length; at += plan.chars) {
+    out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: text.slice(at, at + plan.chars) } } });
+    if (plan.everyMs > 0) await new Promise((resolve) => setTimeout(resolve, plan.everyMs));
   }
 };
 let toolUseCount = 0;
@@ -643,6 +648,7 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     if (context.trim()) replyParts = [`${context.trim()}\n\n${replyParts[0] ?? ""}`, ...replyParts.slice(1)];
   }
   const usage = { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 };
+  const stream = streamPlan();
   if (scriptedToolCalls) {
     for (const call of scriptedToolCalls) {
       const id = call.id ?? `tu-${process.pid}-${++toolUseCount}`;
@@ -651,22 +657,19 @@ const playTurn = async (prompt: JsonValue, late = false) => {
       out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, is_error: !call.ok, content: call.output }] } });
       runHooks("PostToolUse", { tool_name: call.name, tool_input: call.input, tool_response: call.output, tool_use_id: id });
     }
-    const stream = streamPlan();
     if (!scriptedToolCalls.some((call) => call.pending)) for (const text of replyParts) {
-      if (stream) for (let at = 0; at < text.length; at += stream.chars) {
-        out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: text.slice(at, at + stream.chars) } } });
-        if (stream.everyMs > 0) Atomics.wait(STREAM_PAUSE, 0, 0, stream.everyMs);
-      }
+      if (stream) await streamInPieces(text, stream);
       out({ type: "assistant", message: { content: [{ type: "text", text }], usage } });
     }
   } else {
-    replyParts.forEach((text, index) => {
+    for (const [index, text] of replyParts.entries()) {
+      if (stream) await streamInPieces(text, stream);
       const content: Array<
         { type: "text"; text: string } | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
       > = [{ type: "text", text }];
       if (index === replyParts.length - 1) content.push({ type: "tool_use", id: defaultToolId, name: "Bash", input: { command: "echo hi" } });
       out({ type: "assistant", message: { content, usage } });
-    });
+    }
     out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: defaultToolId, is_error: false, content: [{ type: "text", text: "hi" }] }] } });
     runHooks("PostToolUse", { tool_name: "Bash", tool_input: { command: "echo hi" }, tool_response: "hi", tool_use_id: defaultToolId });
   }
