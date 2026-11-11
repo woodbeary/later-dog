@@ -1,7 +1,8 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -263,6 +264,183 @@ async function heap(page: Page): Promise<{ heapMb: number; nodes: number }> {
   const { metrics = [] } = await session.send("Performance.getMetrics");
   const value = (name: string) => metrics.find((metric) => metric.name === name)?.value ?? 0;
   return { heapMb: Math.round(value("JSHeapUsedSize") / 1024 / 1024 * 10) / 10, nodes: value("Nodes") };
+}
+
+function rendererMemoryMb(rootPid: number): number {
+  const rows = execFileSync("ps", ["-eo", "pid=,ppid=,rss=,args="], { encoding: "utf8" }).trim().split("\n").map((line) => {
+    const [pid, parent, rss, ...command] = line.trim().split(/\s+/);
+    return { pid: Number(pid), parent: Number(parent), rss: Number(rss), command: command.join(" ") };
+  });
+  const inTree = new Set<number>([rootPid]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const row of rows) if (inTree.has(row.parent) && !inTree.has(row.pid)) { inTree.add(row.pid); grew = true; }
+  }
+  const anonymous = (pid: number, fallbackKb: number) => {
+    try {
+      const status = readFileSync(`/proc/${pid}/status`, "utf8");
+      const field = (name: string) => Number(new RegExp(`^${name}:\\s+(\\d+)`, "m").exec(status)?.[1] ?? 0);
+      return field("RssAnon") + field("VmSwap");
+    } catch {
+      return fallbackKb;
+    }
+  };
+  const renderers = rows.filter((row) => inTree.has(row.pid) && row.command.includes("--type=renderer")).map((row) => anonymous(row.pid, row.rss));
+  return Math.round(Math.max(0, ...renderers) / 1024);
+}
+
+interface SoakSample {
+  cycle: number;
+  heapMb: number;
+  rendererMb: number;
+  counters: Record<string, number>;
+}
+
+const SOAK_COUNTERS = ["Nodes", "JSEventListeners", "Documents", "Frames", "LayoutObjects", "Resources", "ArrayBufferContents", "DetachedScriptStates", "UACSSResources", "V8PerContextDatas", "ContextLifecycleStateObservers"];
+
+function growthPerCycle(samples: readonly SoakSample[], read: (sample: SoakSample) => number): number {
+  const tail = samples.slice(Math.floor(samples.length / 2));
+  if (tail.length < 2) return 0;
+  const meanCycle = tail.reduce((sum, sample) => sum + sample.cycle, 0) / tail.length;
+  const meanValue = tail.reduce((sum, sample) => sum + read(sample), 0) / tail.length;
+  const spread = tail.reduce((sum, sample) => sum + (sample.cycle - meanCycle) ** 2, 0);
+  const slope = tail.reduce((sum, sample) => sum + (sample.cycle - meanCycle) * (read(sample) - meanValue), 0) / spread;
+  return Math.round(slope * 1000) / 1000;
+}
+
+async function soak(browser: { newContext(options: unknown): Promise<{ addInitScript(script: string): Promise<void>; newPage(): Promise<Page>; close(): Promise<void> }> }, pageUrl: string, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, streamFile: string, cycles: number, every: number) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await context.addInitScript(PAGE_PROBE);
+  const page = await context.newPage();
+  await page.goto(pageUrl);
+  await page.waitForSelector('textarea[aria-label^="Message "]', { timeout: 120_000 });
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Performance.enable");
+  const sample = async (cycle: number): Promise<SoakSample> => {
+    await cdp.send("HeapProfiler.collectGarbage");
+    await page.waitForTimeout(250);
+    await cdp.send("HeapProfiler.collectGarbage");
+    const { metrics = [] } = await cdp.send("Performance.getMetrics");
+    const value = (name: string) => metrics.find((metric) => metric.name === name)?.value ?? 0;
+    const timeline = await page.evaluate(() => ({ PerformanceMeasures: performance.getEntriesByType("measure").length, PerformanceMarks: performance.getEntriesByType("mark").length }));
+    return {
+      cycle,
+      heapMb: Math.round(value("JSHeapUsedSize") / 1024 / 1024 * 10) / 10,
+      rendererMb: rendererMemoryMb(process.pid),
+      counters: { ...Object.fromEntries(SOAK_COUNTERS.map((name) => [name, value(name)])), ...timeline },
+    };
+  };
+  const short = dogs.others[0]!;
+  const send = (dog: Dog, text: string) => api("POST", `/api/bots/${dog.id}/messages`, { text, threadId: dog.threadId, sendId: randomUUID().replaceAll("-", "") });
+  writeFileSync(streamFile, JSON.stringify({ everyMs: 20, chars: 24 }));
+  await open(page, dogs.long);
+  await open(page, short);
+  await page.waitForTimeout(2_000);
+  const samples = [await sample(0)];
+  const started = Date.now();
+  for (let cycle = 1; cycle <= cycles; cycle += 1) {
+    await open(page, dogs.long);
+    await Promise.all([send(dogs.long, `Soak pass ${cycle}: show me the table and the function again.`), ...dogs.others.slice(0, 4).map((dog) => send(dog, `Soak pass ${cycle}: where does it stand?`))]);
+    await new Promise((done) => setTimeout(done, 150));
+    await open(page, short);
+    await open(page, dogs.long);
+    await settled(api, [dogs.long.id, ...dogs.others.map((dog) => dog.id)]);
+    await open(page, short);
+    if (cycle % every === 0 || cycle === cycles) {
+      const taken = await sample(cycle);
+      samples.push(taken);
+      process.stderr.write(`soak ${cycle}/${cycles}: heap ${taken.heapMb} MB, renderer ${taken.rendererMb} MB, nodes ${taken.counters.Nodes}, listeners ${taken.counters.JSEventListeners}\n`);
+    }
+  }
+  rmSync(streamFile, { force: true });
+  await context.close();
+  return {
+    cycles,
+    seconds: Math.round((Date.now() - started) / 1000),
+    eachCycle: "open the long chat, one streamed reply there and four other dogs take a turn, switch to a short chat and back twice",
+    first: samples[0],
+    last: samples.at(-1),
+    growthPerCycle: {
+      heapMb: growthPerCycle(samples, (taken) => taken.heapMb),
+      rendererMb: growthPerCycle(samples, (taken) => taken.rendererMb),
+      ...Object.fromEntries(Object.keys(samples[0]!.counters).map((name) => [name, growthPerCycle(samples, (taken) => taken.counters[name] ?? 0)])),
+    },
+    samples,
+  };
+}
+
+async function hotReloadStorm(browser: { newContext(options: unknown): Promise<{ addInitScript(script: string): Promise<void>; newPage(): Promise<Page>; close(): Promise<void> }> }, hot: { url: string; lines: string[] }, saved: readonly string[], watchSeconds: number) {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await context.addInitScript(PAGE_PROBE);
+  const page = await context.newPage();
+  await page.goto(hot.url);
+  await page.waitForSelector('textarea[aria-label^="Message "]', { timeout: 120_000 });
+  await page.waitForTimeout(3_000);
+  const results = [];
+  for (const file of saved) {
+    const path = join(ROOT, file);
+    const before = hot.lines.length;
+    await page.evaluate(() => { (window as unknown as { __perf: { begin(): void } }).__perf.begin(); (window as unknown as { __loads: number }).__loads = ((window as unknown as { __loads?: number }).__loads ?? 0); });
+    const marker = await page.evaluate(() => { const token = String(Math.random()); (window as unknown as { __alive: string }).__alive = token; return token; });
+    writeFileSync(path, readFileSync(path, "utf8"));
+    await page.waitForTimeout(watchSeconds * 1000);
+    const said = hot.lines.slice(before);
+    const reloaded = await page.evaluate((token: string) => (window as unknown as { __alive?: string }).__alive !== token, marker).catch(() => true);
+    const commits = reloaded ? null : await page.evaluate(() => (window as unknown as { __perf: { end(): Activity } }).__perf.end().commits);
+    results.push({
+      saved: file,
+      watchedSeconds: watchSeconds,
+      updates: said.filter((line) => line.includes("hmr update")).length,
+      invalidations: said.filter((line) => line.includes("hmr invalidate")).length,
+      pageReloads: said.filter((line) => line.includes("page reload")).length,
+      windowReloaded: reloaded,
+      reactCommits: commits,
+      lastLines: said.slice(-3).map((line) => line.slice(0, 160)),
+    });
+    if (reloaded) await page.waitForSelector('textarea[aria-label^="Message "]', { timeout: 120_000 });
+    await page.waitForTimeout(1_500);
+  }
+  await context.close();
+  return results;
+}
+
+async function freePort(): Promise<number> {
+  return new Promise((done, fail) => {
+    const probe = createServer();
+    probe.once("error", fail);
+    probe.listen(0, "127.0.0.1", () => {
+      const { port } = probe.address() as { port: number };
+      probe.close(() => done(port));
+    });
+  });
+}
+
+async function devServer(apiUrl: string, scratch: string): Promise<{ url: string; child: ChildProcess; lines: string[] }> {
+  const port = await freePort();
+  const url = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [join(ROOT, "node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
+    cwd: ROOT,
+    env: { ...process.env, LATERDOG_DEV_API_URL: apiUrl, LATERDOG_HOME: join(scratch, "dev-home"), LATERDOG_UI_PORT: String(port), LATERDOG_VARIANT: "dev", FORCE_COLOR: "0", NO_COLOR: "1" },
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  const lines: string[] = [];
+  let partial = "";
+  child.stdout!.setEncoding("utf8");
+  child.stdout!.on("data", (chunk: string) => {
+    const parts = (partial + chunk).split("\n");
+    partial = parts.pop() ?? "";
+    lines.push(...parts);
+  });
+  const deadline = Date.now() + 60_000;
+  for (;;) {
+    if (child.exitCode !== null) throw new Error(`the dev server stopped with code ${child.exitCode}`);
+    try {
+      if ((await fetch(url)).ok) return { url, child, lines };
+    } catch {
+      if (Date.now() > deadline) throw new Error("the dev server did not answer within 60 s");
+    }
+    await new Promise((done) => setTimeout(done, 200));
+  }
 }
 
 async function pass(browser: { newContext(options: unknown): Promise<{ addInitScript(script: string): Promise<void>; newPage(): Promise<Page>; close(): Promise<void> }> }, fixture: VerificationServer, api: ReturnType<typeof fixtureApi>, dogs: { long: Dog; others: Dog[] }, setup: Options, streamFile: string, counting: boolean) {
@@ -558,6 +736,35 @@ async function main() {
       };
       process.stdout.write(`${JSON.stringify({ asIs: await rounds(false), blurFirst: await rounds(true), asIsAgain: await rounds(false) })}\n`);
       await context.close();
+      return;
+    }
+    if (process.argv.includes("--hot-reload-storm")) {
+      const hot = await devServer(fixture.info.url, scratch);
+      try {
+        const result = { label: setup.label, at: new Date().toISOString(), storms: await hotReloadStorm(browser, hot, option("hot-reload-storm").split(","), Number(option("storm-seconds", "12"))) };
+        mkdirSync(dirname(setup.out), { recursive: true });
+        writeFileSync(setup.out, `${JSON.stringify(result, null, 2)}\n`);
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } finally {
+        hot.child.kill();
+      }
+      return;
+    }
+    if (process.argv.includes("--soak")) {
+      const hot = process.argv.includes("--dev-server") ? await devServer(fixture.info.url, scratch) : null;
+      try {
+        const result = {
+          label: setup.label,
+          at: new Date().toISOString(),
+          setup: { ...setup, seedSeconds, renderer: hot ? "this checkout through the hot-reload dev server" : "production build served by the fixture server", platform: `${process.platform} ${process.arch}`, messagesInLongChat: setup.longTurns * 2 },
+          soak: await soak(browser, hot?.url ?? fixture.info.url, api, dogs, streamFile, Number(option("soak")), Number(option("soak-every", "5"))),
+        };
+        mkdirSync(dirname(setup.out), { recursive: true });
+        writeFileSync(setup.out, `${JSON.stringify(result, null, 2)}\n`);
+        process.stdout.write(`${JSON.stringify({ ...result, soak: { ...result.soak, samples: undefined } }, null, 2)}\n`);
+      } finally {
+        hot?.child.kill();
+      }
       return;
     }
     if (process.argv.includes("--profile-switch") || process.argv.includes("--profile-typing")) {
