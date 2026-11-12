@@ -33,13 +33,39 @@ memory it measured was the renderer's and the server's.
   cannot be reached, five tries for a server fault, Not sent with the words kept on a refusal,
   Send again with the same id. Unsent messages are saved and delivered after a relaunch.
 - Tells the home a chat was read.
+- Shows a dog's option card with its title, subtitle, lettered choices, its own-answer box and
+  Dismiss question. An answer goes through the outbox with the card's reference: in a dog's chat
+  the answer shows as your message with its sending state, in a room the card reads Sending… and
+  the answer. When the home takes it the card is saved as answered at the home, also after a
+  relaunch; a refusal makes the card answerable again and keeps the answer under Not sent with
+  Send again.
+- Shows a question card with one or several questions, Other with its own answer, Choose all
+  that apply, the steps, Back, Next and Submit, and Close question. Answers go to the home's
+  respond route, the card folds to the answer at once, and a failed answer reopens the card with
+  a plain sentence.
+- Asks for approvals from a panel above the message box with the desktop's label, the command,
+  the held note, the buttons in the desktop's order and rules (Allow once, Don't allow, Always
+  allow, Allow for this chat, Never, Send, Confirm and Cancel) and What this covers. The chat
+  shows a quiet waiting line, then the outcome folded to one line. Always allow saves the grant
+  first and falls back to once when it cannot. While the answer is sent the buttons rest and the
+  panel says Sending…; a failure says why in a plain sentence.
+- Lists group chats where the desktop does: before the dogs of their section, with two faces and
+  a count, who spoke last and the unread dot. A room's chat names each dog above its run of
+  replies, puts your messages on the right, shows the room's work line beside its name and the
+  desktop's hint in the message box. Sending, holding, Not sent, Send again, reading, older
+  history and live frames work as in a dog's chat. A room's option card is saved as answered with
+  the room card route; a home without that route is not mentioned.
+- A dog's reply that carries what ran it or what it changed has Show what ran this or Show what
+  ran and what changed in its menu, which opens the quiet lines under the reply: account, model
+  and effort, the changed files, the pull request and other links, and the commands run.
+- `--press` runs one of these actions before `--snapshot`, so each can be checked on a fixture.
 - `--snapshot <png>` draws its own window to a file and `--tree` prints its structure, so it can be
   checked without capturing the screen; `--expand` opens every row between dogs; `--dump` prints
   what it would show as JSON.
 
 ## What it does not do
 
-Sign-in to a real home, group chats, cards and approvals, attachments, dictation and voice,
+Sign-in to a real home, attachments, dictation and voice,
 settings, accounts and usage, search, the model menu, notifications, updates, signing and
 notarising. Search, +, More, the microphone, voice and the model control are drawn and inert.
 
@@ -54,6 +80,19 @@ Against the desktop, these are drawn differently or not at all:
   count, failed requests have no warning pill, the row opens its details instead of the exchange
   chat, the results of a finished request are not listed, and a request text the dog received is
   hidden only when its record was folded into the row.
+- Cards: the open cards have a hairline ring and no drop shadow; an answered card's folded line
+  does not open the card again; the approval panel has no Stop button and never offers Always
+  allow for one exact command (the native app does not know whether you own the home); proposal
+  cards (routines, tricks, profile and model changes) show only their waiting line and panel, with
+  no preview of the change, no undo and no applied-change line; takeover, secret and connector
+  cards are not drawn. Tool names from connected apps read take an action rather than the app's
+  own words. A failed question or approval says why under the card or panel, not in a banner.
+  Clicking was checked through `--press`, which calls the same handlers the buttons call.
+- Rooms: the header has no member faces, members panel, Find or export; mentions, replies and
+  reactions are not drawn; the list's room preview changes when the home sends the room, not on
+  each message; dog-to-dog rooms are not listed.
+- What ran: the model shows as the home reports it (for example claude-opus-5-5) because the
+  native app does not read the engines' model names; effort names assume the engine from its id.
 - Work state: the line says nothing when the home sends no work state, even if the dog waits for
   teammates; the reset time is formatted when the list is drawn and does not tick.
 - List: section headers cannot be collapsed, reordered or renamed, and pinned dogs are not set
@@ -67,9 +106,20 @@ Against the desktop, these are drawn differently or not at all:
 
 On this Mac (Apple silicon, 8 GB, macOS 26.3), commit named in the pull request:
 
-- `cargo test`: 111 pass (108 in the core, among them the Markdown parser, work-state wording,
-  exchange rows, section headers and unread counts; 3 drive the app's network code against a fake
-  home that refuses, answers 503, cuts the stream mid-frame and resumes).
+- `cargo test`: 140 pass (137 in the core, among them the Markdown parser, work-state wording,
+  exchange rows, section headers, unread counts, every card and approval transition including a
+  card answer restored after a relaunch, rooms and the what-ran lines; 3 drive the app's network
+  code against a fake home that refuses, answers 503, cuts the stream mid-frame and resumes).
+- Against an isolated fake-engine fixture that asks: the app allowed a command once and the home
+  recorded scope once; it answered the question with Other and the dog's reply quoted the answer;
+  a group chat was made, a message sent from the app reached it on the room route, the room's
+  approval was answered with Allow for this chat and recorded as such; the reply's what-ran lines
+  opened from the reply's menu item.
+- Against a small stand-in home replaying captured shapes (no option card or file results come
+  from the fake engine): an option card answered in a dog's chat was sent on the dog route and
+  saved with `PATCH /api/bots/:id/cards/:messageId`; in a room it read Sending… while the home
+  was waking, and after a relaunch onto an awake home the saved answer was delivered once and
+  saved with the room card route; a 404 from that route showed nothing.
 - Against an isolated fake-engine fixture: the dog list and a chat load; a message sent through the
   app is answered and the reply arrives by the event stream; a message sent to a dead address is
   saved, and the next launch delivers it once with the same id; older history loads to 480
@@ -143,6 +193,23 @@ The load average was 12 to 19 during these runs (other programs on the Mac), so 
 are high. This fixture is not the one in the tables above (33 dogs and 151 messages there against
 80 and 240), so the rows are not a before-and-after comparison.
 
+## After cards, approvals, group chats and what ran
+
+Release build of `native/mac`, native only, on the isolated fake-engine fixture above: 3 dogs, one
+group chat, the selected chat holding about 20 messages with an approval, a question and a reply
+with what ran it. Five runs after one discarded warm-up (`native.sh`, raw rows in
+`native-2026-11-12-step9.tsv`), measured the same way as the table above.
+
+| | Median (lowest to highest) |
+| --- | ---: |
+| Launch to the chat drawn | 329 ms (292 to 343) |
+| Of that, inside the app after its own code starts | 270 ms (224 to 278) |
+| Idle memory | 36 MB (35 to 36) |
+| Idle work over 10 s | 0.0 % of a core (0.0 to 0.0) |
+
+The load average was 4 to 5 during these runs. The fixture is smaller than the one above, so the
+rows are not a before-and-after comparison; the binary grew from 2.2 MB to 3.0 MB.
+
 ## Why AppKit from Rust
 
 The Mac view was first planned on a cross-platform native kit whose Mac host is Swift. Its Rust
@@ -151,6 +218,6 @@ and full Xcode was ruled out. Drawing with AppKit from Rust needs only `cargo`.
 
 ## Next
 
-Sign-in to a real home, then the pieces a person uses daily in order: cards and approvals,
-group chats, settings and accounts. Then the
+Sign-in to a real home, then the pieces a person uses daily in order: proposal cards and the
+other card kinds, the room header and members, settings and accounts. Then the
 measurements above on a quiet machine, and signing.
