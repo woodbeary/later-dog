@@ -121,6 +121,15 @@ pub const QUIET: Tone = tone(0x575757, 0x9a9a9a);
 pub const QUIET_TERTIARY: Tone = tone(0x5c5c5c, 0x919191);
 pub const INSET: Tone = tone(0xe6e6e6, 0x191919);
 pub const SUCCESS: Tone = tone(0x1f7a4d, 0x38d591);
+pub const CONTROL: Tone = tone(0xdedede, 0x2f2f2f);
+pub const RAISED_HOVER: Tone = tone(0xd7d7d7, 0x3d3d3d);
+pub const BUBBLE_USER: Tone = tone(0x070707, 0x5a5a5a);
+pub const BUBBLE_USER_INK: Tone = tone(0xfcfcfc, 0xfcfcfc);
+pub const WARNING: Tone = tone(0x8a5a00, 0xff9800);
+pub const CARD_MAX: f64 = 420.0;
+pub const QUESTION_RADIUS: f64 = 24.0;
+pub const CARD_RADIUS: f64 = 16.0;
+pub const CLUSTER_LABEL: f64 = 22.0;
 
 pub fn dynamic(tone: &Tone) -> Retained<NSColor> {
     let light = srgb(tone.light, tone.light_alpha);
@@ -163,6 +172,13 @@ pub struct Theme {
     pub app_55: Retained<NSColor>,
     pub quiet: Retained<NSColor>,
     pub quiet_tertiary: Retained<NSColor>,
+    pub control: Retained<NSColor>,
+    pub raised_hover: Retained<NSColor>,
+    pub bubble_user: Retained<NSColor>,
+    pub bubble_user_ink: Retained<NSColor>,
+    pub warning: Retained<NSColor>,
+    pub ring_10: Retained<NSColor>,
+    pub ring_15: Retained<NSColor>,
 }
 
 impl Theme {
@@ -198,6 +214,13 @@ impl Theme {
             app_55: dynamic(&faded(APP, 0.55)),
             quiet: dynamic(&QUIET),
             quiet_tertiary: dynamic(&QUIET_TERTIARY),
+            control: dynamic(&CONTROL),
+            raised_hover: dynamic(&RAISED_HOVER),
+            bubble_user: dynamic(&BUBBLE_USER),
+            bubble_user_ink: dynamic(&BUBBLE_USER_INK),
+            warning: dynamic(&WARNING),
+            ring_10: dynamic(&faded(INK, 0.1)),
+            ring_15: dynamic(&faded(INK, 0.15)),
         }
     }
 

@@ -15,7 +15,7 @@ use objc2_app_kit::{
     NSAccessibility, NSAppearance, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSApplication, NSBackingStoreType,
     NSBitmapImageFileType, NSButton, NSEventModifierFlags, NSFontWeightRegular, NSFontWeightMedium, NSImageView,
     NSMenu, NSMenuItem, NSScrollView, NSTableColumn, NSTableView, NSTableViewDataSource, NSTableViewDelegate, NSControlTextEditingDelegate, NSAttributedStringNSStringDrawing,
-    NSTableViewSelectionHighlightStyle, NSTableViewStyle, NSTextDelegate, NSTextField, NSTextView,
+    NSTableViewSelectionHighlightStyle, NSTableViewStyle, NSTextDelegate, NSTextField, NSTextFieldDelegate, NSTextView,
     NSTextViewDelegate, NSUserInterfaceItemIdentification, NSView, NSWindow, NSWindowButton, NSWindowDelegate,
     NSWindowStyleMask, NSWindowTitleVisibility, NSTextAlignment, NSScrollElasticity, NSTableViewAnimationOptions,
 };
@@ -26,6 +26,7 @@ use objc2_foundation::{
 
 use laterdog_mac::net::{Home, Inbound, Post};
 use laterdog_mac::session::Session;
+use crate::cards as card_views;
 use crate::rich;
 use crate::theme::{self, font, model_name, Theme, Weight};
 use crate::widgets::{attributed, icon, icon_button, label, rect, Avatar, Fade, Fill, Flipped, ROUND};
@@ -59,6 +60,7 @@ pub struct Options {
     pub select: Option<String>,
     pub size: Option<(f64, f64)>,
     pub expand: bool,
+    pub press: Vec<String>,
     pub started: std::time::Instant,
 }
 
@@ -74,6 +76,7 @@ enum Line {
     Bubble(TranscriptRow),
     Work(TranscriptRow),
     Exchange(TranscriptRow),
+    Card(TranscriptRow),
 }
 
 #[derive(Clone, Default)]
@@ -81,6 +84,7 @@ struct Shape {
     height: f64,
     layout: Option<Rc<rich::Layout>>,
     details: Option<(Retained<objc2_foundation::NSAttributedString>, f64, f64)>,
+    card: Option<Retained<NSView>>,
 }
 
 struct Ui {
@@ -113,6 +117,7 @@ struct Ui {
     chat_scroll: Retained<NSScrollView>,
     chat_table: Retained<NSTableView>,
     composer: Retained<Fill>,
+    approval: Retained<Flipped>,
     plus: Retained<NSButton>,
     input_scroll: Retained<NSScrollView>,
     input: Retained<NSTextView>,
@@ -157,6 +162,8 @@ pub struct Ivars {
     dump: RefCell<Dump>,
     older_pages: Cell<u32>,
     input_height: Cell<f64>,
+    approval_height: Cell<f64>,
+    approval_open: RefCell<HashSet<String>>,
 }
 
 thread_local! {
@@ -221,6 +228,7 @@ pub struct QuietParts {
 }
 
 pub struct ChatParts {
+    card: RefCell<Option<Retained<NSView>>>,
     quiet: QuietParts,
     again: Retained<NSButton>,
     day: Retained<NSTextField>,
@@ -262,7 +270,14 @@ define_class!(
         }
     }
 
-    unsafe impl NSControlTextEditingDelegate for Controller {}
+    unsafe impl NSControlTextEditingDelegate for Controller {
+        #[unsafe(method(controlTextDidChange:))]
+        fn control_text_did_change(&self, notification: &NSNotification) {
+            self.question_typed(notification);
+        }
+    }
+
+    unsafe impl NSTextFieldDelegate for Controller {}
 
     unsafe impl NSTableViewDelegate for Controller {
         #[unsafe(method_id(tableView:viewForTableColumn:row:))]
@@ -338,6 +353,59 @@ define_class!(
             }
         }
 
+        #[unsafe(method(cardChoice:))]
+        fn card_choice_pressed(&self, sender: Option<&NSButton>) {
+            if let Some(id) = sender.and_then(|button| button.identifier()) {
+                self.card_choice(&id.to_string());
+            }
+        }
+
+        #[unsafe(method(cardDismiss:))]
+        fn card_dismiss_pressed(&self, sender: Option<&NSButton>) {
+            if let Some(id) = sender.and_then(|button| button.identifier()) {
+                self.card_dismiss(&id.to_string());
+            }
+        }
+
+        #[unsafe(method(cardCustom:))]
+        fn card_custom_entered(&self, sender: Option<&NSTextField>) {
+            if let Some(field) = sender {
+                if let Some(id) = field.identifier() {
+                    self.card_custom(&id.to_string(), &field.stringValue().to_string());
+                }
+            }
+        }
+
+        #[unsafe(method(questionStep:))]
+        fn question_step_pressed(&self, sender: Option<&NSButton>) {
+            if let Some(id) = sender.and_then(|button| button.identifier()) {
+                self.question_step(&id.to_string());
+            }
+        }
+
+        #[unsafe(method(questionEnter:))]
+        fn question_enter(&self, sender: Option<&NSTextField>) {
+            if let Some(field) = sender {
+                if let Some(id) = field.identifier() {
+                    self.question_entered(&id.to_string(), &field.stringValue().to_string());
+                }
+            }
+        }
+
+        #[unsafe(method(decide:))]
+        fn decide_pressed(&self, sender: Option<&NSButton>) {
+            if let Some(id) = sender.and_then(|button| button.identifier()) {
+                self.decide(&id.to_string());
+            }
+        }
+
+        #[unsafe(method(approvalToggle:))]
+        fn approval_toggle_pressed(&self, sender: Option<&NSButton>) {
+            if let Some(id) = sender.and_then(|button| button.identifier()) {
+                self.approval_toggle(&id.to_string());
+            }
+        }
+
         #[unsafe(method(sendAgain:))]
         fn send_again_pressed(&self, sender: Option<&NSButton>) {
             if let Some(send_id) = sender.and_then(|button| button.identifier()) {
@@ -382,6 +450,8 @@ impl Controller {
             dump: RefCell::new(Dump::default()),
             older_pages: Cell::new(0),
             input_height: Cell::new(theme::COMPOSER_LINE),
+            approval_height: Cell::new(0.0),
+            approval_open: RefCell::new(HashSet::new()),
         });
         let this: Retained<Self> = unsafe { msg_send![super(this), init] };
         CONTROLLER.with(|cell| cell.set(this.clone()).ok());
@@ -560,6 +630,9 @@ impl Controller {
             composer.addSubview(view);
         }
         chat.addSubview(&composer);
+        let approval = Flipped::new(mtm);
+        approval.setHidden(true);
+        chat.addSubview(&approval);
         let enabled = self.ivars().connected_home;
         input.setEditable(enabled);
         send.setEnabled(enabled);
@@ -577,7 +650,7 @@ impl Controller {
         window.setContentView(Some(&root));
         let ui = Ui {
             window, root, sidebar, side_line, side_top, side_bottom, chat, side_search, side_new, dog_scroll, dog_table, profile, profile_mark, connect,
-            connect_label, head_pill, head_avatar, head_name, head_search, head_more, head_status, head_work, head_glass, head_tint, unread_above, unread_below, chat_scroll, chat_table, composer,
+            connect_label, head_pill, head_avatar, head_name, head_search, head_more, head_status, head_work, head_glass, head_tint, unread_above, unread_below, chat_scroll, chat_table, composer, approval,
             plus, input_scroll, input, placeholder, model_ring, model_mark, model_label, model_chevrons, mic, voice, send_fill, send,
             days, times, weekday_times, theme,
         };
@@ -618,7 +691,7 @@ impl Controller {
         let index = usize::try_from(row).ok()?;
         match self.ivars().view.borrow().sidebar.get(index)? {
             SidebarEntry::Dog { index } => Some(*index),
-            SidebarEntry::Header { .. } => None,
+            SidebarEntry::Header { .. } | SidebarEntry::Room { .. } => None,
         }
     }
 
@@ -653,6 +726,7 @@ impl Controller {
             let index = match entry {
                 SidebarEntry::Dog { index } => index,
                 SidebarEntry::Header { name, count, first } => return Some(section_cell(table, &name, count, first, ui)),
+                SidebarEntry::Room { .. } => return None,
             };
             let reused = unsafe { table.makeViewWithIdentifier_owner(&NSString::from_str(DOG_CELL), None) };
             let cell = match reused.and_then(|view| view.downcast::<DogCell>().ok()) {
@@ -783,7 +857,11 @@ impl Controller {
         ui.head_tint.setFrame(rect(0.0, 0.0, chat_width, head_bottom));
         ui.chat_scroll.setContentInsets(objc2_foundation::NSEdgeInsets { top: head_bottom, left: 0.0, bottom: 0.0, right: 0.0 });
         ui.chat_scroll.setScrollerInsets(objc2_foundation::NSEdgeInsets { top: head_bottom, left: 0.0, bottom: 0.0, right: 0.0 });
-        let transcript_bottom = shell_top - 8.0;
+        let approval_height = self.ivars().approval_height.get();
+        if approval_height > 0.0 {
+            ui.approval.setFrame(rect(theme::COMPOSER_PAD_X, shell_top - 8.0 - approval_height, shell_width, approval_height));
+        }
+        let transcript_bottom = shell_top - 8.0 - if approval_height > 0.0 { approval_height + 8.0 } else { 0.0 };
         let before = ui.chat_scroll.frame().size.width;
         let scroller_room = if ui.chat_scroll.scrollerStyle() == objc2_app_kit::NSScrollerStyle::Legacy {
             objc2_app_kit::NSScroller::scrollerWidthForControlSize_scrollerStyle(objc2_app_kit::NSControlSize::Regular, objc2_app_kit::NSScrollerStyle::Legacy, self.mtm())
@@ -815,6 +893,21 @@ impl Controller {
         match line {
             Line::Day(_) => Shape { height: theme::DAY_PAD_Y * 2.0 + theme::DAY_LINE, ..Shape::default() },
             Line::Work(_) => Shape { height: theme::WORK_HEIGHT, ..Shape::default() },
+            Line::Card(row) => {
+                let Some(card) = row.card.as_ref() else { return Shape::default() };
+                let full = ui.chat_scroll.contentSize().width;
+                let key = (format!("card\u{1f}{}\u{1f}{:?}", row.id, card), full.to_bits());
+                if let Some(shape) = kept.get(&key).or_else(|| old.get(&key)) {
+                    let shape = shape.clone();
+                    kept.insert(key, shape.clone());
+                    return shape;
+                }
+                let face = if row.face.is_some() { theme::CLUSTER_LABEL } else { 0.0 };
+                let built = card_views::card(self.mtm(), card, full, &ui.theme, self.as_ref(), Some(ProtocolObject::from_ref(self)));
+                let shape = Shape { height: built.height + face, card: Some(built.view), ..Shape::default() };
+                kept.insert(key, shape.clone());
+                shape
+            }
             Line::Exchange(row) => {
                 let Some(exchange) = row.exchange.as_ref().filter(|_| self.ivars().options.expand != self.ivars().open_exchanges.borrow().contains(&row.id)) else {
                     return Shape { height: theme::QUIET_LINE, ..Shape::default() };
@@ -837,7 +930,7 @@ impl Controller {
                 let box_width = theme::EXCHANGE_DETAILS_MAX.min(full);
                 let size = rich::measure_at(&string, box_width - 18.0);
                 let box_height = size.height + 18.0;
-                Shape { height: theme::QUIET_LINE + 6.0 + box_height, layout: None, details: Some((string, box_width, box_height)) }
+                Shape { height: theme::QUIET_LINE + 6.0 + box_height, layout: None, details: Some((string, box_width, box_height)), card: None }
             }
             Line::Bubble(row) => {
                 let wraps = self.wraps_for(&row.id);
@@ -850,7 +943,7 @@ impl Controller {
                 let inks = if row.mine { rich::Inks::mine(&ui.theme) } else { rich::Inks::reply(&ui.theme) };
                 let layout = rich::layout(&row.text, !row.mine, max_text, &wraps, &inks, &ui.theme);
                 let status = if matches!(row.status, Some(words) if words != SendState::Sent.words()) { 18.0 } else { 0.0 };
-                let shape = Shape { height: layout.height + theme::BUBBLE_PAD_Y * 2.0 + status, layout: Some(Rc::new(layout)), details: None };
+                let shape = Shape { height: layout.height + theme::BUBBLE_PAD_Y * 2.0 + status, layout: Some(Rc::new(layout)), details: None, card: None };
                 kept.insert(key, shape.clone());
                 shape
             }
@@ -916,6 +1009,7 @@ impl Controller {
                 RowKind::Work => Line::Work(row.clone()),
                 RowKind::Exchange => Line::Exchange(row.clone()),
                 RowKind::Text => Line::Bubble(row.clone()),
+                RowKind::Card => Line::Card(row.clone()),
             });
         }
         let _ = ui;
@@ -991,6 +1085,151 @@ impl Controller {
                 controller.ivars().session.borrow_mut().woke();
                 controller.pump();
             });
+        }
+    }
+
+    fn after_card(&self, done: bool) {
+        if done {
+            self.refresh(Changes { sidebar: false, transcript: true });
+            self.pump();
+        }
+    }
+
+    fn card_choice(&self, id: &str) {
+        let (message_id, rest) = card_views::split(id);
+        let Some(index) = rest.first().and_then(|index| index.parse::<usize>().ok()) else { return };
+        let answer = self.ivars().lines.borrow().iter().find_map(|line| match line {
+            Line::Card(row) if row.id == message_id => match &row.card {
+                Some(laterdog_core::store::CardLine::Options { choices, .. }) => choices.get(index).cloned(),
+                _ => None,
+            },
+            _ => None,
+        });
+        let Some(answer) = answer else { return };
+        let done = self.ivars().session.borrow_mut().answer_card(&message_id, &answer, now_ms());
+        self.after_card(done);
+    }
+
+    fn card_custom(&self, message_id: &str, text: &str) {
+        if text.trim().is_empty() {
+            return;
+        }
+        let done = self.ivars().session.borrow_mut().answer_card(message_id, text, now_ms());
+        self.after_card(done);
+    }
+
+    fn card_dismiss(&self, message_id: &str) {
+        let done = self.ivars().session.borrow_mut().dismiss_card(message_id);
+        self.after_card(done);
+    }
+
+    fn question_step(&self, id: &str) {
+        use laterdog_core::store::QuestionStep;
+        let (message_id, rest) = card_views::split(id);
+        let step = match rest.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
+            ["choose", index] => index.parse().ok().map(QuestionStep::Choose),
+            ["go", index] => index.parse().ok().map(QuestionStep::Go),
+            ["other"] => Some(QuestionStep::Other),
+            ["back"] => Some(QuestionStep::Back),
+            ["next"] => Some(QuestionStep::Next),
+            ["submit"] => Some(QuestionStep::Submit),
+            _ => None,
+        };
+        let Some(step) = step else { return };
+        self.ivars().session.borrow_mut().question(&message_id, step, now_ms());
+        self.refresh(Changes { sidebar: false, transcript: true });
+    }
+
+    fn question_entered(&self, message_id: &str, text: &str) {
+        use laterdog_core::store::QuestionStep;
+        let mut session = self.ivars().session.borrow_mut();
+        session.question(message_id, QuestionStep::Type(text.to_owned()), now_ms());
+        session.question(message_id, QuestionStep::Enter, now_ms());
+        drop(session);
+        self.refresh(Changes { sidebar: false, transcript: true });
+    }
+
+    fn question_typed(&self, notification: &NSNotification) {
+        use laterdog_core::store::QuestionStep;
+        let Some(field) = notification.object().and_then(|object| object.downcast::<NSTextField>().ok()) else { return };
+        let Some(id) = field.identifier().map(|id| id.to_string()) else { return };
+        let is_question = self.ivars().lines.borrow().iter().any(|line| matches!(line, Line::Card(row) if row.id == id && matches!(row.card, Some(laterdog_core::store::CardLine::Question { .. }))));
+        if !is_question {
+            return;
+        }
+        self.ivars().session.borrow_mut().question(&id, QuestionStep::Type(field.stringValue().to_string()), now_ms());
+        let enabled = self.ivars().session.borrow().store.view().transcript.iter().find(|row| row.id == id).and_then(|row| match &row.card {
+            Some(laterdog_core::store::CardLine::Question { footer, .. }) => Some(match footer {
+                laterdog_core::store::QuestionFooter::Submit { enabled } => *enabled,
+                laterdog_core::store::QuestionFooter::Steps { next_enabled, .. } => *next_enabled,
+                laterdog_core::store::QuestionFooter::None => false,
+            }),
+            _ => None,
+        });
+        let Some(enabled) = enabled else { return };
+        let Some(card) = unsafe { field.superview() }.and_then(|shell| unsafe { shell.superview() }) else { return };
+        for child in card.subviews().iter() {
+            let Ok(button) = child.downcast::<NSButton>() else { continue };
+            let Some(button_id) = button.identifier().map(|id| id.to_string()) else { continue };
+            let (owner, rest) = card_views::split(&button_id);
+            if owner == id && matches!(rest.first().map(String::as_str), Some("submit" | "next")) {
+                button.setEnabled(enabled);
+                let index = card.subviews().iter().position(|view| std::ptr::eq(&*view, &**button as &NSView));
+                if let Some(pill) = index.and_then(|index| index.checked_sub(1)).map(|index| card.subviews().objectAtIndex(index)) {
+                    pill.setAlphaValue(if enabled { 1.0 } else { 0.4 });
+                }
+            }
+        }
+    }
+
+    fn decide(&self, id: &str) {
+        let (message_id, rest) = card_views::split(id);
+        let Some(index) = rest.first().and_then(|index| index.parse::<usize>().ok()) else { return };
+        let done = self.ivars().session.borrow_mut().decide(&message_id, index);
+        if done {
+            self.refresh(Changes { sidebar: false, transcript: true });
+        }
+    }
+
+    fn approval_toggle(&self, id: &str) {
+        {
+            let mut open = self.ivars().approval_open.borrow_mut();
+            if !open.remove(id) {
+                open.insert(id.to_owned());
+            }
+        }
+        let Some(ui) = self.ivars().ui.get() else { return };
+        let view = self.ivars().view.borrow().clone();
+        self.refresh_approval(ui, &view);
+    }
+
+    fn refresh_approval(&self, ui: &Ui, view: &View) {
+        for child in ui.approval.subviews().iter() {
+            child.removeFromSuperview();
+        }
+        let before = self.ivars().approval_height.get();
+        let height = match (&view.approval, self.ivars().connected_home) {
+            (Some(panel), true) => {
+                let width = ui.composer.frame().size.width.max(200.0);
+                let open = self.ivars().approval_open.borrow();
+                let sep = card_views::SEP;
+                let opened = (open.contains(&format!("{}{sep}details", panel.message_id)), open.contains(&format!("{}{sep}reach", panel.message_id)));
+                let built = card_views::approval(self.mtm(), panel, width, &ui.theme, self.as_ref(), opened);
+                ui.approval.addSubview(&built.view);
+                built.height
+            }
+            _ => 0.0,
+        };
+        ui.approval.setHidden(height <= 0.0);
+        self.ivars().approval_height.set(height);
+        if (before - height).abs() > 0.5 {
+            let follow = self.at_bottom(ui);
+            self.layout();
+            if follow {
+                self.follow_to_end();
+            }
+        } else if height > 0.0 {
+            self.layout();
         }
     }
 
@@ -1133,6 +1372,7 @@ impl Controller {
             }
         }
         self.refresh_header(ui, &view);
+        self.refresh_approval(ui, &view);
         if changes.sidebar || moved {
             self.update_unread_pills();
         }
@@ -1250,7 +1490,49 @@ impl Controller {
     }
 
     fn capture_soon(&self) {
-        DispatchQueue::main().exec_async(|| with_controller(|controller| controller.capture()));
+        let presses = self.ivars().options.press.clone();
+        if presses.is_empty() {
+            DispatchQueue::main().exec_async(|| with_controller(|controller| controller.capture()));
+            return;
+        }
+        for (step, press) in presses.into_iter().enumerate() {
+            on_main_after(Duration::from_millis(400 + step as u64 * 1500), move |controller| controller.press(&press));
+        }
+        let wait = 400 + self.ivars().options.press.len() as u64 * 1500 + 1500;
+        on_main_after(Duration::from_millis(wait), |controller| controller.capture());
+    }
+
+    fn toggle_ran(&self, _id: &str) {}
+
+    fn press(&self, press: &str) {
+        let press = press.replace('|', &card_views::SEP.to_string());
+        let (action, id) = press.split_once(':').unwrap_or((press.as_str(), ""));
+        match action {
+            "choice" => self.card_choice(id),
+            "custom" => {
+                let (message_id, text) = id.split_once(card_views::SEP).unwrap_or((id, ""));
+                self.card_custom(message_id, text);
+            }
+            "dismiss" => self.card_dismiss(id),
+            "question" => self.question_step(id),
+            "type" => {
+                let (message_id, text) = id.split_once(card_views::SEP).unwrap_or((id, ""));
+                self.question_entered(message_id, text);
+            }
+            "decide" => self.decide(id),
+            "toggle" => self.approval_toggle(id),
+            "menu" => self.toggle_ran(id),
+            "select" => {
+                if self.ivars().session.borrow_mut().store.select(id) {
+                    self.refresh(Changes { sidebar: true, transcript: true });
+                }
+            }
+            "send" => {
+                self.compose(id);
+            }
+            _ => {}
+        }
+        eprintln!("pressed {action} {id}");
     }
 
     fn scroll_step(&self, steps: u32) {
@@ -1638,7 +1920,7 @@ fn new_chat_cell(mtm: MainThreadMarker, theme: &Theme, controller: Option<&AnyOb
         cell.addSubview(view);
     }
     cell.setIdentifier(Some(&NSString::from_str(CHAT_CELL)));
-    cell.ivars().set(ChatParts { quiet, again, day, bubble, texts: RefCell::new(Vec::new()), codes: RefCell::new(Vec::new()), rules: RefCell::new(Vec::new()), status, work, chevron }).ok();
+    cell.ivars().set(ChatParts { card: RefCell::new(None), quiet, again, day, bubble, texts: RefCell::new(Vec::new()), codes: RefCell::new(Vec::new()), rules: RefCell::new(Vec::new()), status, work, chevron }).ok();
     cell
 }
 
@@ -1649,6 +1931,11 @@ fn configure_line(cell: &ChatCell, line: &Line, shape: &Shape, gap: f64, width: 
     let (day, bubble, work) = (matches!(line, Line::Day(_)), matches!(line, Line::Bubble(_)), matches!(line, Line::Work(_)));
     let quiet = &parts.quiet;
     let exchange = matches!(line, Line::Exchange(_));
+    if let Some(old) = parts.card.borrow_mut().take() {
+        if !matches!(line, Line::Card(_)) || shape.card.as_ref().is_none_or(|new| !std::ptr::eq(&**new, &*old)) {
+            old.removeFromSuperview();
+        }
+    }
     for view in [&*quiet.label as &NSView, &quiet.face, &quiet.name, &quiet.gist, &quiet.state, &quiet.chevron, &quiet.open, &quiet.toggle] {
         view.setHidden(!exchange);
     }
@@ -1669,6 +1956,15 @@ fn configure_line(cell: &ChatCell, line: &Line, shape: &Shape, gap: f64, width: 
         Line::Exchange(row) => {
             if let Some(line) = &row.exchange {
                 place_exchange(cell, quiet, row, line, shape, gap, width, theme);
+            }
+        }
+        Line::Card(row) => {
+            if let Some(view) = &shape.card {
+                let face = if row.face.is_some() { theme::CLUSTER_LABEL } else { 0.0 };
+                let frame = view.frame();
+                view.setFrame(rect(0.0, gap + face, frame.size.width, frame.size.height));
+                cell.addSubview(view);
+                *parts.card.borrow_mut() = Some(view.clone());
             }
         }
         Line::Work(_) => {

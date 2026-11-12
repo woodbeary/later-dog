@@ -1,3 +1,4 @@
+mod cards;
 mod rich;
 mod theme;
 mod ui;
@@ -31,6 +32,7 @@ fn options(started: std::time::Instant) -> (Options, Option<String>) {
     let mut history = 0;
     let mut scroll_through = false;
     let mut expand = false;
+    let mut press = Vec::new();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--dump" => dump = true,
@@ -45,10 +47,11 @@ fn options(started: std::time::Instant) -> (Options, Option<String>) {
             "--history" => history = args.next().and_then(|value| value.parse().ok()).unwrap_or(1),
             "--scroll-through" => scroll_through = true,
             "--expand" => expand = true,
+            "--press" => press.extend(args.next()),
             _ => {}
         }
     }
-    let options = Options { dump, send: text.map(|text| SendRequest { text, to }), thread, history, scroll_through, snapshot, tree, select, size, expand, started };
+    let options = Options { dump, send: text.map(|text| SendRequest { text, to }), thread, history, scroll_through, snapshot, tree, select, size, expand, press, started };
     (options, appearance)
 }
 

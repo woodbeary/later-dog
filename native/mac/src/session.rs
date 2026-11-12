@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use laterdog_core::events::Frame;
 use laterdog_core::outbox::Item;
-use laterdog_core::store::{Changes, Connection, Store};
+use laterdog_core::store::{CardAction, Changes, Connection, QuestionStep, Store};
 
 use crate::net::{Inbound, Lines, Request};
 
@@ -67,9 +67,69 @@ impl Session {
                     Changes::default()
                 }
             },
+            Inbound::RoomRead { group_id, group } => match group {
+                Some(group) => self.store.apply_frame(&Frame::Group { group }),
+                None => {
+                    self.store.read_answered(&group_id);
+                    Changes::default()
+                }
+            },
+            Inbound::Responded { key, result } => self.store.responded(&key, result),
         };
+        self.send_patches();
         self.persist();
         changes
+    }
+
+    fn send_patches(&mut self) {
+        let patches = self.store.take_patches();
+        if let Some(home) = &self.home {
+            for patch in patches {
+                home.requests.send(Request::Patch(patch)).ok();
+            }
+        }
+    }
+
+    fn run(&mut self, action: CardAction) -> bool {
+        let done = match action {
+            CardAction::Nothing => false,
+            CardAction::Send(_) => true,
+            CardAction::Respond(respond) => self.home.as_ref().is_some_and(|home| home.requests.send(Request::Respond(respond)).is_ok()),
+            CardAction::Patch(patch) => {
+                if let Some(home) = &self.home {
+                    home.requests.send(Request::Patch(patch)).ok();
+                }
+                true
+            }
+        };
+        self.persist();
+        done
+    }
+
+    pub fn answer_card(&mut self, message_id: &str, answer: &str, now_ms: u64) -> bool {
+        if self.home.is_none() {
+            return false;
+        }
+        let action = self.store.answer_card(message_id, answer, now_ms);
+        self.run(action)
+    }
+
+    pub fn dismiss_card(&mut self, message_id: &str) -> bool {
+        let action = self.store.dismiss_card(message_id);
+        self.run(action)
+    }
+
+    pub fn question(&mut self, message_id: &str, step: QuestionStep, now_ms: u64) -> bool {
+        let action = self.store.question(message_id, step, now_ms);
+        self.run(action)
+    }
+
+    pub fn decide(&mut self, message_id: &str, index: usize) -> bool {
+        if self.home.is_none() {
+            return false;
+        }
+        let action = self.store.decide(message_id, index);
+        self.run(action)
     }
 
     pub fn compose(&mut self, text: &str, now_ms: u64) -> Option<Item> {
@@ -118,8 +178,9 @@ impl Session {
         if !looking || self.home.is_none() {
             return false;
         }
-        let Some((bot_id, thread_id)) = self.store.read_request() else { return false };
-        self.home.as_ref().is_some_and(|home| home.requests.send(Request::Read { bot_id, thread_id }).is_ok())
+        let Some((id, thread_id, room)) = self.store.read_request() else { return false };
+        let request = if room { Request::RoomRead { group_id: id } } else { Request::Read { bot_id: id, thread_id } };
+        self.home.as_ref().is_some_and(|home| home.requests.send(request).is_ok())
     }
 
     fn persist(&mut self) {

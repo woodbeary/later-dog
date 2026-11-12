@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::wire::{WireBot, WireMessage};
+use crate::wire::{WireBot, WireGroup, WireMessage};
 
 pub const RETRY_MIN_MS: u64 = 500;
 pub const RETRY_MAX_MS: u64 = 10_000;
@@ -19,6 +19,8 @@ pub enum Frame {
     MessagePatch { thread_id: String, message: WireMessage },
     Bot { bot: WireBot },
     BotDeleted { bot_id: String },
+    Group { group: WireGroup },
+    GroupDeleted { group_id: String },
     Other { kind: String },
 }
 
@@ -41,6 +43,17 @@ struct MessageBody {
 #[derive(Deserialize)]
 struct BotBody {
     bot: WireBot,
+}
+
+#[derive(Deserialize)]
+struct GroupBody {
+    group: WireGroup,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GroupDeletedBody {
+    group_id: String,
 }
 
 #[derive(Deserialize)]
@@ -75,6 +88,14 @@ impl Frame {
             },
             "bot.deleted" => match BotDeletedBody::deserialize(&value) {
                 Ok(body) if !body.bot_id.is_empty() => Frame::BotDeleted { bot_id: body.bot_id },
+                _ => other(),
+            },
+            "group" => match GroupBody::deserialize(&value) {
+                Ok(body) if !body.group.id.is_empty() => Frame::Group { group: body.group },
+                _ => other(),
+            },
+            "group.deleted" => match GroupDeletedBody::deserialize(&value) {
+                Ok(body) if !body.group_id.is_empty() => Frame::GroupDeleted { group_id: body.group_id },
                 _ => other(),
             },
             _ => other(),

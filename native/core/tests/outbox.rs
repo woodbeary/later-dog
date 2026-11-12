@@ -10,6 +10,7 @@ fn to_dog(send_id: &str, thread_id: &str, queued_at: u64) -> Item {
         text: format!("words of {send_id}"),
         reply_to_id: None,
         queued_at,
+        card: None,
     }
 }
 

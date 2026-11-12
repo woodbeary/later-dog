@@ -5,7 +5,9 @@ use std::time::Duration;
 
 use laterdog_core::events::{retry_delay, Decoder, Frame, STALE_MS};
 use laterdog_core::outbox::{Failure, Item};
-use laterdog_core::wire::{parse, send_path, BotsPage, SendBody, SendReceipt, ThreadPage, WireBot};
+use laterdog_core::cards::RespondFailure;
+use laterdog_core::store::{CardPatch, Respond};
+use laterdog_core::wire::{parse, send_path, BotsPage, SendBody, SendReceipt, ThreadPage, WireBot, WireGroup};
 use ureq::http::Response;
 use ureq::{Agent, Body};
 
@@ -23,12 +25,17 @@ pub enum Inbound {
     SendDone { send_id: String, result: Result<SendReceipt, Failure> },
     Older { thread_id: String, page: Option<ThreadPage> },
     Read { bot_id: String, bot: Option<WireBot> },
+    RoomRead { group_id: String, group: Option<WireGroup> },
+    Responded { key: String, result: Result<(), RespondFailure> },
 }
 
 pub enum Request {
     Page,
     Older { thread_id: String, before: String },
     Read { bot_id: String, thread_id: String },
+    RoomRead { group_id: String },
+    Respond(Respond),
+    Patch(CardPatch),
 }
 
 pub type Post = std::sync::Arc<dyn Fn(Inbound) + Send + Sync>;
@@ -118,6 +125,58 @@ impl Home {
         parse::<Answer>(&response.body_mut().read_to_string().ok()?).map(|answer| answer.bot)
     }
 
+    fn mark_room_read(&self, group_id: &str) -> Option<WireGroup> {
+        #[derive(serde::Deserialize)]
+        struct Answer {
+            group: WireGroup,
+        }
+        let mut request = self.requests.post(self.url(&format!("/api/groups/{}/read", query_escape(group_id)))).header("content-type", "application/json");
+        if let Some(bearer) = self.bearer() {
+            request = request.header("authorization", bearer);
+        }
+        let mut response = request.send("{}").ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        parse::<Answer>(&response.body_mut().read_to_string().ok()?).map(|answer| answer.group)
+    }
+
+    fn call(&self, method: &str, path: &str, body: &serde_json::Value) -> Result<(), RespondFailure> {
+        let url = self.url(path);
+        let mut request = match method {
+            "PATCH" => self.requests.patch(&url),
+            _ => self.requests.post(&url),
+        }
+        .header("content-type", "application/json");
+        if let Some(bearer) = self.bearer() {
+            request = request.header("authorization", bearer);
+        }
+        let mut response = request.send(body.to_string()).map_err(|error| match error {
+            ureq::Error::Timeout(_) => RespondFailure::Timeout,
+            ureq::Error::StatusCode(code) => RespondFailure::Status { code, said: None },
+            _ => RespondFailure::Network,
+        })?;
+        let status = response.status().as_u16();
+        if (200..300).contains(&status) {
+            return Ok(());
+        }
+        let text = response.body_mut().read_to_string().unwrap_or_default();
+        let said = serde_json::from_str::<serde_json::Value>(&text).ok().and_then(|value| {
+            value.get("message").and_then(serde_json::Value::as_str).or_else(|| value.get("error").and_then(serde_json::Value::as_str)).map(str::to_owned)
+        });
+        Err(RespondFailure::Status { code: status, said })
+    }
+
+    pub fn respond(&self, respond: &Respond) -> Result<(), RespondFailure> {
+        let mut body = &respond.body;
+        if let Some(grant) = &respond.grant {
+            if self.call(grant.method, &grant.path, &grant.body).is_err() {
+                body = respond.body_without_grant.as_ref().unwrap_or(&respond.body);
+            }
+        }
+        self.call("POST", &format!("/api/threads/{}/respond", query_escape(&respond.thread_id)), body)
+    }
+
     pub fn deliver(&self, item: &Item) -> Result<SendReceipt, Failure> {
         let mut request = self.requests.post(self.url(&send_path(item))).header("content-type", "application/json");
         if let Some(bearer) = self.bearer() {
@@ -170,6 +229,17 @@ impl Home {
                     Request::Read { bot_id, thread_id } => {
                         let bot = self.mark_read(&bot_id, &thread_id);
                         post(Inbound::Read { bot_id, bot });
+                    }
+                    Request::RoomRead { group_id } => {
+                        let group = self.mark_room_read(&group_id);
+                        post(Inbound::RoomRead { group_id, group });
+                    }
+                    Request::Respond(respond) => {
+                        let result = self.respond(&respond);
+                        post(Inbound::Responded { key: respond.key, result });
+                    }
+                    Request::Patch(patch) => {
+                        self.call("PATCH", &patch.path, &patch.body).ok();
                     }
                 }
             }

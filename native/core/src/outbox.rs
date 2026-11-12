@@ -23,6 +23,15 @@ pub enum Target {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CardRef {
+    pub bot_id: String,
+    pub message_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Item {
     pub send_id: String,
     pub thread_id: String,
@@ -31,6 +40,8 @@ pub struct Item {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to_id: Option<String>,
     pub queued_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<CardRef>,
 }
 
 impl Item {

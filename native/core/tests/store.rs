@@ -353,13 +353,13 @@ fn a_failed_history_page_can_be_asked_again() {
 #[test]
 fn the_selected_unread_dog_is_marked_read_once_until_the_home_answers() {
     let mut store = loaded();
-    assert_eq!(store.read_request(), Some(("j".to_owned(), "tj".to_owned())));
+    assert_eq!(store.read_request(), Some(("j".to_owned(), "tj".to_owned(), false)));
     assert_eq!(store.read_request(), None);
     store.apply_frame(&frame(r#"{"kind":"bot","bot":{"id":"j","unread":false}}"#));
     assert!(!store.view().dogs[0].unread);
     assert_eq!(store.read_request(), None);
     store.apply_frame(&frame(r#"{"kind":"bot","bot":{"id":"j","unread":true}}"#));
-    assert_eq!(store.read_request(), Some(("j".to_owned(), "tj".to_owned())));
+    assert_eq!(store.read_request(), Some(("j".to_owned(), "tj".to_owned(), false)));
     store.select("b");
     assert_eq!(store.read_request(), None);
 }

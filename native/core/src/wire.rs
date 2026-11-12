@@ -98,6 +98,166 @@ pub struct WireMessage {
     pub room_request: Option<crate::exchange::RoomRequest>,
     #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub exchange: Option<crate::exchange::WireExchange>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub card: Option<WireCard>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub from: Option<WireFrom>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub ran: Option<crate::receipt::TurnReceipt>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub results: Option<crate::receipt::TurnResults>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WireFrom {
+    #[serde(deserialize_with = "lenient")]
+    pub bot_id: String,
+    #[serde(deserialize_with = "lenient")]
+    pub name: String,
+    #[serde(deserialize_with = "lenient")]
+    pub color: String,
+}
+
+fn choices<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
+    let value = Value::deserialize(deserializer)?;
+    let Value::Array(items) = value else {
+        return Ok(Vec::new());
+    };
+    let mut out: Vec<String> = Vec::new();
+    for item in items {
+        let label = match &item {
+            Value::String(text) => Some(text.trim().to_owned()),
+            Value::Object(fields) => fields.get("label").and_then(Value::as_str).map(|text| text.trim().to_owned()),
+            _ => None,
+        };
+        if let Some(label) = label.filter(|label| !label.is_empty()) {
+            let label: String = label.chars().take(120).collect();
+            if !out.contains(&label) {
+                out.push(label);
+            }
+        }
+    }
+    Ok(out)
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WireQuestionOption {
+    #[serde(deserialize_with = "lenient")]
+    pub label: String,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WireQuestion {
+    #[serde(deserialize_with = "lenient")]
+    pub question: String,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+    #[serde(deserialize_with = "lenient")]
+    pub multi_select: bool,
+    #[serde(deserialize_with = "lenient_list")]
+    pub options: Vec<WireQuestionOption>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WireQuestionRequest {
+    #[serde(deserialize_with = "lenient_list")]
+    pub questions: Vec<WireQuestion>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WireCard {
+    #[serde(deserialize_with = "lenient")]
+    pub title: String,
+    #[serde(deserialize_with = "lenient")]
+    pub subtitle: String,
+    #[serde(deserialize_with = "choices")]
+    pub options: Vec<String>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub request_type: Option<String>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub answered: Option<String>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub answered_text: Option<String>,
+    #[serde(deserialize_with = "lenient")]
+    pub dismissed: bool,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub held: Option<String>,
+    #[serde(deserialize_with = "lenient")]
+    pub expired: bool,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub allow_key: Option<String>,
+    #[serde(deserialize_with = "lenient")]
+    pub allow_session: bool,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub answer_scope: Option<String>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub approval_scope: Option<String>,
+    #[serde(deserialize_with = "lenient")]
+    pub auto_applied: bool,
+    #[serde(deserialize_with = "lenient")]
+    pub undone: bool,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub native_actor_label: Option<String>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub question_request: Option<WireQuestionRequest>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub answered_by: Option<Value>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub routine_request: Option<Value>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub skill_request: Option<Value>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub profile_request: Option<Value>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub model_request: Option<Value>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub outbound_request: Option<Value>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub takeover_request: Option<Value>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub command_allowlist: Option<Value>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WireGroup {
+    #[serde(deserialize_with = "lenient")]
+    pub id: String,
+    #[serde(deserialize_with = "lenient")]
+    pub thread_id: Option<String>,
+    #[serde(deserialize_with = "lenient")]
+    pub name: Option<String>,
+    #[serde(deserialize_with = "lenient_optional_list")]
+    pub member_ids: Option<Vec<String>>,
+    #[serde(deserialize_with = "flag")]
+    pub unread: Option<bool>,
+    #[serde(deserialize_with = "lenient")]
+    pub section: Option<String>,
+    #[serde(deserialize_with = "lenient")]
+    pub busy_bot_id: Option<String>,
+    #[serde(deserialize_with = "flag")]
+    pub working: Option<bool>,
+    #[serde(deserialize_with = "flag")]
+    pub dm: Option<bool>,
+    #[serde(deserialize_with = "work")]
+    pub work: Option<Option<crate::work::Work>>,
+    #[serde(deserialize_with = "flag")]
+    pub has_more: Option<bool>,
+    #[serde(deserialize_with = "lenient_optional_list")]
+    pub messages: Option<Vec<WireMessage>>,
 }
 
 impl WireMessage {
@@ -152,6 +312,8 @@ pub struct WireBot {
     pub work: Option<Option<crate::work::Work>>,
     #[serde(deserialize_with = "lenient_optional_list")]
     pub messages: Option<Vec<WireMessage>>,
+    #[serde(deserialize_with = "lenient_optional_list")]
+    pub always_allow: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -161,6 +323,8 @@ pub struct BotsPage {
     pub bots: Vec<WireBot>,
     #[serde(deserialize_with = "lenient_list")]
     pub sections: Vec<String>,
+    #[serde(deserialize_with = "lenient_list")]
+    pub groups: Vec<WireGroup>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
