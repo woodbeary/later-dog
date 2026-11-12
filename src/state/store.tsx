@@ -166,6 +166,7 @@ export interface Message {
   roomRequest?: import("../../shared/wire").WireMessage["roomRequest"];
   handoffId?: string;
   exchange?: import("../../shared/room-exchange").WireExchange;
+  exchanges?: import("../../shared/room-exchange").WireExchange[];
   ran?: import("../../shared/turn-receipt").TurnReceipt;
   needsYou?: {
     botId: string;
@@ -228,6 +229,7 @@ export interface Group {
   busyBotId?: string | null;
   turnStartedAt?: number | null;
   working?: boolean;
+  work?: import("../../shared/work-state").WorkState;
   cwd?: string;
   pinnedCwd?: string | null;
   pinnedMessageId?: string;

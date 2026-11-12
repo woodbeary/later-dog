@@ -11,6 +11,9 @@ const root = node({ id: "root", rootId: "root", parentId: undefined, threadId: "
 
 const lookupOf = (nodes: RoomHandoff[]): ExchangeLookup => ({
   node: (id) => nodes.find((candidate) => candidate.id === id),
+  batch: (of) => (of.requestBatchKey && of.parentId
+    ? nodes.filter((candidate) => candidate.parentId === of.parentId && candidate.requestBatchKey === of.requestBatchKey)
+    : [of]),
   children: (id) => nodes.filter((candidate) => candidate.parentId === id),
   name: (botId) => ({ clover: "Clover", scout: "Scout", patch: "Patch" } as Record<string, string>)[botId],
   redact: (text) => text.replace(/sk-[a-z0-9]+/g, "[redacted]"),
@@ -70,5 +73,38 @@ describe("a dog-to-dog exchange on the wire", () => {
     const child = node({});
     const touched = exchangeThreads([root, child], new Set(), new Set(["scout-thread"]), (id) => [root, child].find((n) => n.id === id));
     expect([...touched.keys()].sort()).toEqual(["clover-thread", "scout-thread"]);
+  });
+});
+
+describe("a request sent to several dogs at once", () => {
+  const first = node({ id: "first", botId: "scout", requestBatchKey: "batch", groupId: "room", status: "completed", result: "Done" });
+  const second = node({ id: "second", botId: "patch", threadId: "scout-thread", requestBatchKey: "batch", groupId: "room", status: "running" });
+  const lookup = lookupOf([root, first, second]);
+  const request = { id: "m", role: "bot" as const, kind: "text" as const, at: 1, roomRequest: { id: "first", phase: "request" as const } };
+
+  it("gives the shared request line one record per recipient, each from its own handoff", () => {
+    const wired = withExchange(request, lookup);
+    expect(wired.exchange).toBeUndefined();
+    expect(wired.exchanges?.map((record) => [record.id, record.to, record.status])).toEqual([
+      ["first", "Scout", "completed"], ["second", "Patch", "running"],
+    ]);
+  });
+
+  it("keeps following each sibling when only the second one changes", () => {
+    const later = { ...second, status: "completed" as const, result: "Ok" };
+    const wired = withExchange(request, lookupOf([root, first, later]));
+    expect(wired.exchanges?.map((record) => record.status)).toEqual(["completed", "completed"]);
+  });
+
+  it("still gives a lone request one record, and a sibling's own result line its own", () => {
+    const alone = node({ id: "alone", requestBatchKey: undefined });
+    expect(withExchange({ ...request, roomRequest: { id: "alone", phase: "request" as const } }, lookupOf([root, alone])).exchange?.id).toBe("alone");
+    const result = { ...request, roomRequest: { id: "second", phase: "result" as const } };
+    expect(withExchange(result, lookup).exchange?.id).toBe("second");
+  });
+
+  it("resends the shared request line when a later sibling changes", () => {
+    const touched = exchangeThreads([root, second], new Set(["room"]), new Set(), (id) => [root, first, second].find((n) => n.id === id), () => "first");
+    expect(touched.get("scout-thread")).toEqual(new Set(["second", "first"]));
   });
 });

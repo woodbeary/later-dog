@@ -95,6 +95,7 @@ import { GlassBar, GlassScrollFrame, GlassScroller } from "./GlassScrollFrame";
 import { SidebarProfileMenu } from "./SidebarProfileMenu";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { dogRowFacts } from "@/lib/dog-row";
+import { roomRowLine } from "@/lib/work-state";
 import { botShowsUnread } from "@/lib/bot-unread";
 import { useLiveMedia } from "@/lib/live-call-media";
 import { LiveCallPill, liveBadgeFor } from "./LiveCallPill";
@@ -151,6 +152,8 @@ function openBotContextMenu(onMenu: (menu: MenuState) => void, botId: string, ev
 }
 
 function groupPreview(group: Group, bots: Bot[], instances: InstanceInfo[], showToolCalls: boolean): string {
+  const work = roomRowLine(group.work);
+  if (work) return work;
   if (group.busyBotId) {
     return t("sidebar.preview.botWorking", {
       name: bots.find((b) => b.id === group.busyBotId)?.name ?? t("sidebar.preview.aBot"),

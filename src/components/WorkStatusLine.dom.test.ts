@@ -32,3 +32,12 @@ it("falls back to the teammate wait line from a home that sends no work state", 
   draw({ busy: false, waitingForTeammates: true, waitingOn: [{ botId: "scout", name: "Scout" }] });
   expect(host.textContent).toBe("Waiting on Scout");
 });
+
+it("says who is working in a room's header, and nothing from a home that sends no work for the room", () => {
+  draw({ busy: true, work: { kind: "running", dogs: [{ id: "scout", name: "Scout" }, { id: "biscuit", name: "Biscuit" }] } });
+  expect(host.querySelector("[data-work-state=running]")?.textContent).toBe("Scout and Biscuit are working");
+  draw({ busy: true, work: { kind: "needs-you", what: "Allow the deploy?" } });
+  expect(host.querySelector("[role=status]")?.textContent).toBe("Needs you: Allow the deploy?");
+  draw({ busy: true, work: undefined });
+  expect(host.textContent).toBe("");
+});

@@ -1851,6 +1851,25 @@ describe("scrollback pages", () => {
   });
 });
 
+describe("a room's work state frames", () => {
+  const room = { id: "room", threadId: "room-thread", name: "Room", memberIds: [], defaultResponder: { kind: "mentions" }, createdAt: 1, bulletin: "", unread: false, messages: [] } as never as Group;
+  const running = { kind: "running" as const, dogs: [{ id: "scout", name: "Scout" }] };
+
+  it("keeps the room's work from a frame and updates it with the next one, and leaves it alone when a frame has none", () => {
+    const first = reducer({ ...initialState, groups: [room] }, { type: "groupPatched", group: { id: "room", work: running } });
+    expect(first.groups[0]!.work).toEqual(running);
+    const asking = reducer(first, { type: "groupPatched", group: { id: "room", work: { kind: "needs-you", what: "Allow?" } } });
+    expect(asking.groups[0]!.work).toEqual({ kind: "needs-you", what: "Allow?" });
+    expect(reducer(asking, { type: "groupPatched", group: { id: "room", unread: true } }).groups[0]!.work).toEqual({ kind: "needs-you", what: "Allow?" });
+    expect(reducer({ ...initialState, groups: [room] }, { type: "groupPatched", group: { id: "room", name: "Renamed" } }).groups[0]!.work).toBeUndefined();
+  });
+
+  it("keeps the work of a room it first hears of", () => {
+    const next = reducer(initialState, { type: "groupPatched", group: { id: "new", threadId: "t", name: "New", work: running } as never as Group });
+    expect(next.groups[0]!.work).toEqual(running);
+  });
+});
+
 describe("messageAdded leaf adoption", () => {
   const baseBot = {
     id: "bot-1",

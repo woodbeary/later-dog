@@ -6,6 +6,7 @@ export const EXCHANGE_TEXT_MAX = 4_000;
 
 export interface ExchangeLookup {
   node(id: string): RoomHandoff | undefined;
+  batch(node: RoomHandoff): RoomHandoff[];
   children(id: string): RoomHandoff[];
   name(botId: string): string | undefined;
   redact(text: string): string;
@@ -51,15 +52,21 @@ export function exchangeIdOf(message: Pick<WireMessage, "roomRequest" | "handoff
   return message.roomRequest?.id ?? message.handoffId;
 }
 
-export function withExchange<T extends WireMessage>(message: T, lookup: ExchangeLookup): T & { exchange?: WireExchange } {
+export function withExchange<T extends WireMessage>(message: T, lookup: ExchangeLookup): T & { exchange?: WireExchange; exchanges?: WireExchange[] } {
   const id = exchangeIdOf(message);
   const node = id ? lookup.node(id) : undefined;
-  const exchange = node ? roomExchange(node, lookup) : undefined;
+  if (!node) return message;
+  const batch = message.roomRequest?.phase === "request" ? lookup.batch(node) : [node];
+  if (batch.length > 1) {
+    const exchanges = batch.flatMap((sibling) => roomExchange(sibling, lookup) ?? []);
+    return exchanges.length ? { ...message, exchanges } : message;
+  }
+  const exchange = roomExchange(node, lookup);
   return exchange ? { ...message, exchange } : message;
 }
 
 export function exchangeThreads(nodes: Iterable<RoomHandoff>, groupIds: ReadonlySet<string>, threadIds: ReadonlySet<string>,
-  node: (id: string) => RoomHandoff | undefined): Map<string, Set<string>> {
+  node: (id: string) => RoomHandoff | undefined, requestIdOf: (changed: RoomHandoff) => string = (changed) => changed.id): Map<string, Set<string>> {
   const touched = new Map<string, Set<string>>();
   const note = (threadId: string, id: string) => {
     const ids = touched.get(threadId) ?? new Set<string>();
@@ -69,6 +76,8 @@ export function exchangeThreads(nodes: Iterable<RoomHandoff>, groupIds: Readonly
   for (const changed of nodes) {
     if (!(changed.groupId ? groupIds.has(changed.groupId) : threadIds.has(changed.threadId)) || !changed.parentId) continue;
     note(changed.threadId, changed.id);
+    const shared = requestIdOf(changed);
+    if (shared !== changed.id) note(changed.threadId, shared);
     const parent = node(changed.parentId);
     if (parent) note(parent.threadId, changed.id);
   }

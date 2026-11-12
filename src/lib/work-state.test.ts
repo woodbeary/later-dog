@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { RuntimeEvent } from "../../shared/runtime-events";
 import type { WorkState } from "../../shared/work-state";
-import { sidebarWorkLine, workAfterEvent, workLine } from "./work-state";
+import { roomRowLine, sidebarWorkLine, workAfterEvent, workLine } from "./work-state";
 
 const NOW = new Date(2026, 10, 11, 2, 0).getTime();
 const SIX = new Date(2026, 10, 11, 6, 0).getTime();
@@ -13,6 +13,9 @@ describe("the work line", () => {
     [undefined, null],
     [{ kind: "idle" }, null],
     [{ kind: "running" }, null],
+    [{ kind: "running", dogs: [] }, null],
+    [{ kind: "running", dogs: [{ id: "s", name: "Scout" }] }, "Scout is working"],
+    [{ kind: "running", dogs: [{ id: "s", name: "Scout" }, { id: "b", name: "Biscuit" }] }, "Scout and Biscuit are working"],
     [{ kind: "waiting-on-dog", dogs: [{ id: "s", name: "Scout" }] }, "Waiting on Scout"],
     [{ kind: "waiting-on-dog", dogs: [{ id: "s", name: "Scout" }, { id: "p", name: "Patch" }] }, "Waiting on Scout and Patch"],
     [{ kind: "waiting-for-usage", until: SIX }, "Waiting for usage until 6:00 AM"],
@@ -57,5 +60,18 @@ describe("runtime frames between home updates", () => {
 
   it("an engine that exits mid-turn reads as stopped", () => {
     expect(workAfterEvent({ kind: "running" }, event({ type: "session.exited" }))).toEqual({ kind: "stopped", cause: "engine", detail: "closed" });
+  });
+});
+
+describe("a room's row", () => {
+  it("says who is working or who is waited on, and asks for the person first", () => {
+    expect(roomRowLine({ kind: "running", dogs: [{ id: "s", name: "Scout" }] }, NOW)).toBe("Scout is working");
+    expect(roomRowLine({ kind: "waiting-on-dog", dogs: [{ id: "b", name: "Biscuit" }] }, NOW)).toBe("Waiting on Biscuit");
+    expect(roomRowLine({ kind: "needs-you", what: "Allow the deploy?" }, NOW)).toBe("Needs you: Allow the deploy?");
+  });
+
+  it("says nothing for an old home that sends no state, or an idle room", () => {
+    expect(roomRowLine(undefined, NOW)).toBeNull();
+    expect(roomRowLine({ kind: "idle" }, NOW)).toBeNull();
   });
 });

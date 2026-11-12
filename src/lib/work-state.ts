@@ -37,6 +37,11 @@ export function workLine(work: WorkState | undefined, now: number = Date.now()):
       if (time) return t("work.usageUntil", { time });
       return work.account ? t("work.usageOn", { account: work.account }) : t("work.usage");
     }
+    case "running": {
+      const names = teammateNames((work.dogs ?? []).map((dog) => ({ botId: dog.id, name: dog.name })));
+      if (!names) return null;
+      return t(work.dogs!.length > 1 ? "work.roomWorkingMany" : "work.roomWorkingOne", { names });
+    }
     case "waiting-on-dog": {
       const names = teammateNames(work.dogs.map((dog) => ({ botId: dog.id, name: dog.name })));
       return names ? t("chat.waitingOn", { names }) : null;
@@ -58,4 +63,8 @@ export function workLine(work: WorkState | undefined, now: number = Date.now()):
 export function sidebarWorkLine(work: WorkState | undefined, now: number = Date.now()): string | null {
   if (!work || work.kind === "needs-you" || (work.kind === "stopped" && work.cause === "you")) return null;
   return workLine(work, now);
+}
+
+export function roomRowLine(work: WorkState | undefined, now: number = Date.now()): string | null {
+  return work?.kind === "needs-you" ? workLine(work, now) : sidebarWorkLine(work, now);
 }

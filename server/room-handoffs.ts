@@ -314,11 +314,15 @@ export class RoomHandoffs {
     return node;
   }
 
-  sharedRequest(node: RoomHandoff): { id: string; botIds: string[] } {
-    const batch = node.groupId && node.requestBatchKey && node.parentId
+  requestBatch(node: RoomHandoff): RoomHandoff[] {
+    return node.groupId && node.requestBatchKey && node.parentId
       ? this.children(node.parentId).filter(n => n.requestBatchKey === node.requestBatchKey &&
         n.groupId === node.groupId && n.threadId === node.threadId && n.text === node.text)
       : [node];
+  }
+
+  sharedRequest(node: RoomHandoff): { id: string; botIds: string[] } {
+    const batch = this.requestBatch(node);
     return { id: batch[0]?.id ?? node.id, botIds: batch.map(n => n.botId) };
   }
 

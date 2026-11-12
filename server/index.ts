@@ -733,6 +733,7 @@ import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold, withWaitingRuns } from "./laterdog/limit-hold.ts";
 import { openAsk, workState } from "./laterdog/work-state.ts";
 import { exchangeIdOf, exchangeThreads, withExchange, type ExchangeLookup } from "./laterdog/room-exchange.ts";
+import { roomWorkFor } from "./laterdog/room-work.ts";
 import { WorkSignals } from "./laterdog/work-signals.ts";
 import { turnReceipt } from "./laterdog/turn-receipt.ts";
 import { carryOnAfterRestart } from "./laterdog/carry-on-restart.ts";
@@ -4413,7 +4414,7 @@ function roomHandoffProblem(node: Pick<RoomHandoff, "groupId" | "threadId" | "bo
 
 const sentExchanges = new Map<string, string>();
 function resendExchanges(groupIds: ReadonlySet<string>, directThreadIds: ReadonlySet<string>): void {
-  const touched = exchangeThreads(roomHandoffs.nodes.values(), groupIds, directThreadIds, id => roomHandoffs.nodes.get(id));
+  const touched = exchangeThreads(roomHandoffs.nodes.values(), groupIds, directThreadIds, id => roomHandoffs.nodes.get(id), changed => roomHandoffs.sharedRequest(changed).id);
   for (const [threadId, ids] of touched) {
     for (const message of store.messagesTail(threadId, 200).messages) {
       const id = exchangeIdOf(message);
@@ -4693,6 +4694,7 @@ teammatesAwaited = threadId => waitingOn(roomHandoffs.outstandingDirect(threadId
 });
 exchangeLookup = {
   node: id => roomHandoffs.nodes.get(id),
+  batch: node => roomHandoffs.requestBatch(node),
   children: id => roomHandoffs.children(id),
   name: botId => store.bot(botId)?.name,
   redact: redactSecretsInText,
@@ -4709,7 +4711,26 @@ function publicGroupState(record: GroupRecord): WireGroup {
     turnTimeoutMinutes: record.turnTimeoutMinutes ?? null,
     usage: usage ?? null,
     working: groupIsWorking(group) || [...roomHandoffs.nodes.values()].some(n => n.groupId === group.id && !["completed", "failed", "cancelled"].includes(n.status)),
+    work: roomWork(group),
   };
+}
+
+function roomWork(group: GroupRecord): WorkState {
+  return roomWorkFor(group, {
+    nodes: () => roomHandoffs.nodes.values(),
+    awaited: id => roomHandoffs.awaited(id),
+    name: botId => store.bot(botId)?.name,
+    turnBotIds: id => new Set([...(groupTurnOperations.get(id) ?? [])].filter(op => !op.cancelled).flatMap(op => [...op.botIds]).concat(store.group(id)?.busyBotId ?? [])),
+    threadIds: id => [...new Set([store.group(id)?.threadId ?? "", ...store.groupTasks(id).map(task => task.threadId)].filter(Boolean))],
+    tail: threadId => store.messagesTail(threadId, 60).messages,
+    heldUntil: threadId => limitHold.heldUntil(threadId),
+    holdAccount: id => {
+      const room = store.group(id);
+      const botId = room?.busyBotId ?? (room?.defaultResponder.kind === "member" ? room.defaultResponder.botId : undefined);
+      const bot = botId ? store.bot(botId) : undefined;
+      return bot ? registry.get(bot.modelSelection.instanceId)?.displayName : undefined;
+    },
+  });
 }
 
 function beginGroupTurnOperation(
@@ -5431,7 +5452,11 @@ helpersWorkingIn = threadId => Math.max(helperBoard.runningCount(threadId), nati
 
 function announceHelpersChanged(threadId: string): void {
   const owner = store.botByThread(threadId);
-  if (!owner) return;
+  if (!owner) {
+    const room = store.groupByThread(threadId);
+    if (room) broadcast({ kind: "group", group: publicGroupState(room) });
+    return;
+  }
   const current = store.bot(owner.id);
   if (current) broadcast({ kind: "bot", bot: wireBot(current) });
 }

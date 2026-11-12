@@ -243,6 +243,7 @@ export interface WireMessage {
   roomRequest?: { id: string; phase: "request" | "result" | "reply" };
   handoffId?: string;
   exchange?: WireExchange;
+  exchanges?: WireExchange[];
   id: string;
   role: "bot" | "user";
   kind: "text" | "options" | "activity" | "screen" | "connector" | "secret" | "routine.run" | "goal.run" | "digest" | "compaction";
@@ -452,6 +453,7 @@ export interface WireGroup {
   setupSkippedAt?: number | null;
   audienceFloor?: BotVisibility;
   working: boolean;
+  work?: WorkState;
   turnTimeoutMinutes?: number | null;
 }
 
