@@ -2142,6 +2142,7 @@ fn configure_dog(cell: &DogCell, dog: &SidebarRow, width: f64, ui: &Ui) {
         None => dog.preview.clone(),
     };
     parts.preview.setStringValue(&NSString::from_str(&preview_words));
+    parts.preview.setTextColor(Some(if dog.waiting && work.is_none() { &theme.waiting_text } else { &theme.ink_secondary }));
     let preview_right = if dot_shown { text_right - theme::DOT - 8.0 } else { text_right };
     parts.preview.setFrame(rect(text_x - 2.0, preview_top + 1.0, (preview_right - text_x).max(10.0), 15.0));
     let mut spoken = dog.name.clone();

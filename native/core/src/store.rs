@@ -502,7 +502,27 @@ pub struct View {
     pub approval: Option<ApprovalPanel>,
 }
 
+pub const PREVIEW_WAITING: &str = "Waiting for you\u{2026}";
+pub const PREVIEW_WAITING_FOR: &str = "Waiting for you: {action}";
+
+pub fn machine_data(text: &str) -> bool {
+    let trimmed = text.trim();
+    (trimmed.starts_with('{') || trimmed.starts_with('[')) && serde_json::from_str::<serde_json::Value>(trimmed).is_ok()
+}
+
+fn card_preview(card: &WireCard) -> String {
+    if cards::kind(card) == CardKind::Approval && card.question_request.is_none() {
+        if let Some(outcome) = cards::approval_outcome(card) {
+            return outcome;
+        }
+    }
+    card.title.clone()
+}
+
 fn preview_of(message: &WireMessage) -> String {
+    if message.kind == "options" {
+        return message.card.as_ref().map(card_preview).unwrap_or_default();
+    }
     let text = message.text.as_deref().unwrap_or_default();
     if message.is_from_person() {
         first_line(text)
@@ -1155,6 +1175,15 @@ impl Store {
                 .into_iter()
                 .map(|dog| {
                     let last = self.last_words(&dog.thread_id);
+                    let preview = if dog.waiting() {
+                        let open = self.thread(&dog.thread_id).iter().rev().filter_map(|message| message.card.as_ref()).find(|card| message_is_pending(card));
+                        match open {
+                            Some(card) => crate::words::fill(PREVIEW_WAITING_FOR, &[("action", &cards::approval_action(card))]),
+                            None => PREVIEW_WAITING.to_owned(),
+                        }
+                    } else {
+                        last.map(preview_of).unwrap_or_default()
+                    };
                     SidebarRow {
                         id: dog.id.clone(),
                         name: dog.name.clone(),
@@ -1163,7 +1192,7 @@ impl Store {
                         selected: Some(&dog.id) == self.selected.as_ref(),
                         color: dog.color(),
                         body: crate::mascot::body(dog.body.as_deref()).to_owned(),
-                        preview: last.map(preview_of).unwrap_or_default(),
+                        preview,
                         last_at: last.map(|message| message.at),
                         working: dog.working(),
                         waiting: dog.waiting(),
@@ -1319,10 +1348,11 @@ impl Store {
     }
 
     fn last_words(&self, thread_id: &str) -> Option<&WireMessage> {
-        self.thread(thread_id)
-            .iter()
-            .rev()
-            .find(|message| !matches!(message.kind.as_str(), "activity" | "digest" | "compaction" | "options") && message.text.as_deref().is_some_and(|text| !text.trim().is_empty()))
+        self.thread(thread_id).iter().rev().find(|message| match message.kind.as_str() {
+            "activity" | "digest" | "compaction" => false,
+            "options" => message.card.as_ref().is_some_and(|card| !card_preview(card).trim().is_empty()),
+            _ => message.text.as_deref().is_some_and(|text| !text.trim().is_empty() && !machine_data(text)),
+        })
     }
 
     fn approval_panel(&self, chat: Chat<'_>) -> Option<ApprovalPanel> {
@@ -1726,6 +1756,10 @@ impl Store {
             self.selected = self.sidebar_order().first().map(|dog| dog.id.clone());
         }
     }
+}
+
+fn message_is_pending(card: &WireCard) -> bool {
+    cards::pending_approval(card)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

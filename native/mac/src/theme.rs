@@ -124,6 +124,7 @@ pub const SUCCESS: Tone = tone(0x1f7a4d, 0x38d591);
 pub const CONTROL: Tone = tone(0xdedede, 0x2f2f2f);
 pub const RAISED_HOVER: Tone = tone(0xd7d7d7, 0x3d3d3d);
 pub const BUBBLE_USER: Tone = tone(0x070707, 0x5a5a5a);
+pub const WAITING_TEXT: Tone = tone(0xb23c0a, 0xff9f0a);
 pub const WARNING: Tone = tone(0x8a5a00, 0xff9800);
 pub const CARD_MAX: f64 = 420.0;
 pub const QUESTION_RADIUS: f64 = 24.0;
@@ -175,6 +176,7 @@ pub struct Theme {
     pub raised_hover: Retained<NSColor>,
     pub bubble_user: Retained<NSColor>,
     pub warning: Retained<NSColor>,
+    pub waiting_text: Retained<NSColor>,
     pub ring_10: Retained<NSColor>,
     pub ring_15: Retained<NSColor>,
 }
@@ -216,6 +218,7 @@ impl Theme {
             raised_hover: dynamic(&RAISED_HOVER),
             bubble_user: dynamic(&BUBBLE_USER),
             warning: dynamic(&WARNING),
+            waiting_text: dynamic(&WAITING_TEXT),
             ring_10: dynamic(&faded(INK, 0.1)),
             ring_15: dynamic(&faded(INK, 0.15)),
         }

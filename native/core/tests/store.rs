@@ -86,7 +86,7 @@ fn each_sidebar_row_carries_its_color_last_words_and_time() {
     let view = loaded().view();
     let juniper = &view.dogs[0];
     assert_eq!((juniper.color.as_str(), juniper.preview.as_str(), juniper.last_at), ("red", "hello from fake claude", Some(3)));
-    assert_eq!((view.dogs[2].color.as_str(), view.dogs[2].preview.as_str(), view.dogs[2].last_at), ("yellow", "", None));
+    assert_eq!((view.dogs[2].color.as_str(), view.dogs[2].preview.as_str(), view.dogs[2].last_at), ("yellow", "Waiting for you\u{2026}", None));
     assert!(view.dogs[2].waiting && !view.dogs[2].working);
     assert_eq!((view.color.as_str(), view.model.as_deref()), ("red", Some("claude-opus-5-5")));
 }
