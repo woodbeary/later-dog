@@ -36,6 +36,7 @@ export interface SendOutboxDeps {
   cardAnswered?: (card: OutboxCard, answer: string) => void;
   cardAnswerFailed?: (card: OutboxCard) => void;
   lineOnThread?: (threadId: string, sendId: string) => boolean;
+  confirmAtHome?: () => void;
 }
 
 export interface SendHooks {
@@ -147,6 +148,8 @@ function createHeldSendKeeper(deps: {
   now: () => number;
   onLost: (send: HeldSend) => void;
   onGone: (send: HeldSend) => void;
+  onThread: (send: HeldSend) => boolean;
+  confirmAtHome: () => void;
   onReleased: (send: HeldSend) => void;
   onCancelled: (send: HeldSend) => void;
 }): HeldSendKeeper {
@@ -182,6 +185,7 @@ function createHeldSendKeeper(deps: {
       const waitingIds = new Set(waiting.map((send) => send.sendId));
       for (const send of held) if (!waitingIds.has(send.sendId)) deps.onReleased(send);
     }
+    let undecided = false;
     for (const group of heldAskGroups(waiting)) {
       const ids = group.map((send) => send.sendId);
       const reply = await deps
@@ -191,10 +195,17 @@ function createHeldSendKeeper(deps: {
       const asked = new Set(ids);
       const stillWanted = group.filter((send) => !forgottenWhileAsking.has(send.sendId));
       const { keep, lost, gone } = sortHeldSends(stillWanted, reply, deps.now());
-      writeHeldSends(store, [...readHeldSends(store).filter((send) => !asked.has(send.sendId)), ...keep]);
+      const delivered = gone.filter((send) => deps.onThread(send));
+      const unconfirmed = gone.filter((send) => !delivered.includes(send));
+      const notSent = refresh ? unconfirmed : [];
+      const wait = refresh ? [] : unconfirmed;
+      if (wait.length > 0) undecided = true;
+      writeHeldSends(store, [...readHeldSends(store).filter((send) => !asked.has(send.sendId)), ...keep, ...wait]);
       for (const send of lost) deps.onLost(send);
-      for (const send of gone) deps.onGone(send);
+      for (const send of delivered) deps.onGone(send);
+      for (const send of notSent) deps.onLost(send);
     }
+    if (undecided) deps.confirmAtHome();
     return { signedIn: true };
   };
 
@@ -346,12 +357,12 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     after: deps.after ?? defaultAfter,
     now,
     onLost: (send) => notSent(send),
+    onThread: (send) => Boolean(deps.lineOnThread?.(send.threadId, send.sendId)),
     onGone: (send) => {
-      if (deps.lineOnThread?.(send.threadId, send.sendId)) {
-        deps.dispatch({ type: "consumePendingQueued", threadId: send.threadId, queueId: send.sendId });
-        delivered(send);
-      } else notSent(send);
+      deps.dispatch({ type: "consumePendingQueued", threadId: send.threadId, queueId: send.sendId });
+      delivered(send);
     },
+    confirmAtHome: () => deps.confirmAtHome?.(),
     onReleased: delivered,
     onCancelled: undelivered,
   });

@@ -292,13 +292,13 @@ describe("a message the edge held for a sleeping home", () => {
   const sent: OutboxItem = { sendId: "edge-held-send-0001", threadId: "thread", target: { kind: "bot", botId: "bot" }, text: "wake up and ship it", queuedAt: 1, recovery: { draftId: draft, text: "wake up and ship it" } };
   const heldReceipt = { ok: true, queued: true, queueId: sent.sendId, threadId: "thread" };
   const kept = (store: ReturnType<typeof memoryStore>) => JSON.parse(store.values.get(HELD_SENDS_KEY) ?? "[]") as Array<{ sendId: string; text: string }>;
-  const holding = async (answer: (path: string) => Promise<unknown>, clock = { now: 1_000 }, extra: Partial<Parameters<typeof createSendOutbox>[0]> = {}) => {
+  const holding = async (answer: (path: string) => Promise<unknown>, clock = { now: 1_000 }, extra: Partial<Parameters<typeof createSendOutbox>[0]> = {}, item: OutboxItem = sent) => {
     const store = memoryStore();
     const showError = vi.fn();
     const timers = manualTimers();
     const request = vi.fn(async (path: string) => (path === "/api/bots/bot/messages" ? heldReceipt : answer(path)));
     const outbox = createSendOutbox({ request, dispatch: vi.fn(), showError, store, now: () => clock.now, after: timers.after, ...extra });
-    outbox.send(sent);
+    outbox.send(item);
     for (let i = 0; i < 10; i++) await Promise.resolve();
     const asks = () => request.mock.calls.filter(([path]) => String(path).startsWith("/api/held-sends")).map(([path]) => String(path));
     return { store, showError, request, outbox, clock, timers, asks };
@@ -605,16 +605,65 @@ describe("a message the edge held for a sleeping home", () => {
       expect(failedBefore()).toBe(before);
     });
 
-    it("turns the row into Not sent with its words when the message is not in the thread, so nothing disappears unexplained", async () => {
-      const before = failedBefore();
-      let dispatched: Action[] = [];
-      const { store, showError, outbox } = await holding(goneAnswer, undefined, { lineOnThread: () => false, dispatch: (action) => dispatched.push(action) });
-      dispatched = [];
-      await outbox.settleHeld([], []);
-      expect(kept(store)).toEqual([]);
-      expect(dispatched).toEqual([{ type: "consumePendingQueued", threadId: "thread", queueId: sent.sendId }]);
-      expect(failedComposerSends(draft).slice(before)).toEqual([expect.objectContaining({ sendId: sent.sendId, text: "wake up and ship it", requestText: "wake up and ship it", threadId: "thread" })]);
-      expect(showError).toHaveBeenCalledWith(expect.objectContaining({ message: HELD_NOT_SENT }), "thread");
+    describe("and the chat does not show the message", () => {
+      const cardSend: OutboxItem = { ...sent, card: { botId: "bot", messageId: "card-1" } };
+      const waiting = async (answer: () => Promise<unknown> = goneAnswer) => {
+        const dispatched: Action[] = [];
+        const confirmAtHome = vi.fn();
+        const cardAnswered = vi.fn();
+        const cardAnswerFailed = vi.fn();
+        const made = await holding(answer, undefined, { lineOnThread: () => false, confirmAtHome, cardAnswered, cardAnswerFailed, dispatch: (action) => dispatched.push(action) }, cardSend);
+        dispatched.length = 0;
+        return { ...made, dispatched, confirmAtHome, cardAnswered, cardAnswerFailed };
+      };
+
+      it("keeps the copy and asks the home once, with no Not sent and no error, when the edge asked by itself", async () => {
+        const before = failedBefore();
+        const { store, showError, timers, confirmAtHome, dispatched } = await waiting();
+        await timers.fire();
+        expect(kept(store)).toEqual([expect.objectContaining({ sendId: sent.sendId })]);
+        expect(confirmAtHome).toHaveBeenCalledTimes(1);
+        expect(showError).not.toHaveBeenCalled();
+        expect(dispatched).toEqual([]);
+        expect(failedBefore()).toBe(before);
+      });
+
+      it("lets it go as delivered, and marks its card, when the home's refresh shows it", async () => {
+        const before = failedBefore();
+        const { store, showError, timers, outbox, cardAnswered, cardAnswerFailed } = await waiting();
+        await timers.fire();
+        await outbox.settleHeld([{ messages: [{ id: "home-line-1", sendId: sent.sendId }] } as never], [], {});
+        expect(kept(store)).toEqual([]);
+        expect(cardAnswered).toHaveBeenCalledWith({ botId: "bot", messageId: "card-1" }, "wake up and ship it");
+        expect(cardAnswerFailed).not.toHaveBeenCalled();
+        expect(showError).not.toHaveBeenCalled();
+        expect(failedBefore()).toBe(before);
+      });
+
+      it("turns it into Not sent with its words only when the home's refresh does not have it either", async () => {
+        const before = failedBefore();
+        const { store, showError, timers, outbox, dispatched, cardAnswered, cardAnswerFailed } = await waiting();
+        await timers.fire();
+        await outbox.settleHeld([{ messages: [] }], [], {});
+        expect(kept(store)).toEqual([]);
+        expect(dispatched).toEqual([{ type: "consumePendingQueued", threadId: "thread", queueId: sent.sendId }]);
+        expect(failedComposerSends(draft).slice(before)).toEqual([expect.objectContaining({ sendId: sent.sendId, text: "wake up and ship it", requestText: "wake up and ship it", threadId: "thread" })]);
+        expect(showError).toHaveBeenCalledWith(expect.objectContaining({ message: HELD_NOT_SENT }), "thread");
+        expect(cardAnswerFailed).toHaveBeenCalledOnce();
+        expect(cardAnswered).not.toHaveBeenCalled();
+      });
+
+      it("keeps the copy and asks again on the next round when the home read fails, once per round", async () => {
+        const before = failedBefore();
+        const { store, showError, timers, confirmAtHome } = await waiting();
+        await timers.fire();
+        expect(confirmAtHome).toHaveBeenCalledTimes(1);
+        await timers.fire();
+        expect(confirmAtHome).toHaveBeenCalledTimes(2);
+        expect(kept(store)).toHaveLength(1);
+        expect(showError).not.toHaveBeenCalled();
+        expect(failedBefore()).toBe(before);
+      });
     });
   });
 

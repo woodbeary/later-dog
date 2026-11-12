@@ -2388,6 +2388,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => botPatchQueue.dispose();
   }, [botPatchQueue]);
 
+  const confirmAtHomeRef = useRef<() => void>(() => {});
   const sendOutboxRef = useRef<SendOutbox | null>(null);
   const sendOutbox = useCallback(() => {
     sendOutboxRef.current ??= createSendOutbox({
@@ -2398,6 +2399,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         rawDispatch({ type: "cardAnswered", botId: card.botId, messageId: card.messageId, answer });
         persistCard(card.botId, card.messageId, { answered: answer, dismissed: true });
       },
+      confirmAtHome: () => confirmAtHomeRef.current(),
       cardAnswerFailed: (card) => rawDispatch({ type: "cardAnswerFailed", botId: card.botId, messageId: card.messageId }),
       lineOnThread: (threadId, sendId) => {
         const current = stateRef.current;
@@ -3238,6 +3240,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return hydrationPromise;
     };
     const hydrationFallback = setTimeout(hydrate, 1_000);
+    confirmAtHomeRef.current = () => { void hydrate(); };
 
     handleFrame = (frame) => {
       if (frame.kind === "config") bumpPeripheralVersion("config", "instances");
@@ -3409,6 +3412,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       forgetHelpers();
       forgetNativeRuns();
       forgetReasoning();
+      confirmAtHomeRef.current = () => {};
       clearTimeout(hydrationFallback);
       for (const refresh of peripheralRefresh.values()) {
         if (refresh.timer) clearTimeout(refresh.timer);

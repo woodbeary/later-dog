@@ -46,12 +46,19 @@ the third review's three Should fix items; this note describes that head.
   message the home took while the app was closed can show as queued until the
   edge's answer arrives; when the edge says it neither holds nor dropped a
   message, its queued row goes together with its copy if the chat shows the
-  message, and otherwise becomes Not sent with its words.
+  message. Otherwise the copy is kept (see the next point).
 - The copy is let go only on a definite answer: the home shows the message in
   the chat or in its own queue (a queue row whose id differs from the send id,
   or a line whose id does not start with `desk-`), the edge says it no longer
-  holds it and did not drop it and the chat shows the message (when it does not,
-  the message comes back as Not sent), or the person cancels it.
+  holds it and did not drop it and the chat shows the message, or the person
+  cancels it.
+- "Neither held nor dropped" means the edge handed the message to the home, so
+  an absent chat line is not proof it was lost (the event stream may lag). When
+  the edge says so on its own timer and the chat lacks the message, the device
+  keeps the copy and asks the home once for its chats (the same read as a
+  refresh); if that read fails it asks again on the next round. Only a settle
+  that carries a real refresh may turn such a message into Not sent, and only if
+  the refresh lacks it too. A refresh that has it releases the copy as delivered.
 - A card answer travels the same way (`card` on the outbox item and the copy).
   The card shows the answer as waiting until the home's receipt, or until a held
   answer is delivered, and only then is marked answered; a refused, dropped or
