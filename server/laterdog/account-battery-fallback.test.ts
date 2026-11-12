@@ -20,30 +20,35 @@ function ranOut(battery: AccountBattery, accounts = ACCOUNTS, ranOn = "claude") 
   return battery.nextAccount({ threadId: "dog", generation: "g", stopReason: "usage_limit", ranOn, selection: DOG, accounts });
 }
 
-describe("a turn that runs out of usage always moves on", () => {
+describe("a turn that runs out of usage moves on within its engine, or waits", () => {
   const fresh = () => new AccountBattery({ config: () => CONFIG, accounts: () => ACCOUNTS, now: () => NOW });
 
-  it("moves to Codex when every Claude account is out, even when the limit that stopped it names another model family", () => {
+  it("moves to another Claude account that can run, even when the limit that stopped it names another model family", () => {
     const battery = fresh();
-    battery.markExhausted("claude-2", { resetsAt: at(HOUR) });
     battery.markExhausted("claude", { resetsAt: at(2 * HOUR), kind: "sonnet" });
     expect(battery.route(DOG, ACCOUNTS, "dog")).toBe(DOG);
-    expect(ranOut(battery)).toMatchObject({ from: { instanceId: "claude" }, to: { instanceId: "chatgpt" } });
-    expect(battery.route(DOG, ACCOUNTS, "dog")).toEqual({ instanceId: "chatgpt", model: "gpt-5.5" });
+    expect(ranOut(battery)).toMatchObject({ from: { instanceId: "claude" }, to: { instanceId: "claude-2" } });
+    expect(battery.route(DOG, ACCOUNTS, "dog")).toEqual({ ...DOG, instanceId: "claude-2" });
   });
 
-  it("moves to Codex when the account it ran out on had no limit on record", () => {
-    const battery = fresh();
-    battery.markExhausted("claude-2", { resetsAt: at(HOUR) });
-    expect(ranOut(battery)).toMatchObject({ from: { instanceId: "claude" }, to: { instanceId: "chatgpt" }, rest: { estimated: true } });
+  it("waits instead of moving to Codex when every Claude account is out, with or without a limit on record", () => {
+    for (const limit of [true, false]) {
+      const battery = fresh();
+      battery.markExhausted("claude-2", { resetsAt: at(HOUR) });
+      if (limit) battery.markExhausted("claude", { resetsAt: at(2 * HOUR), kind: "sonnet" });
+      expect(ranOut(battery)).toBeNull();
+      expect(battery.route(DOG, ACCOUNTS, "dog")).toBe(DOG);
+      expect(battery.readyAt(DOG, ACCOUNTS, "dog")).toBe(at(HOUR));
+    }
   });
 
-  it("moves to Codex after the account's rest was cleared by a turn that finished on another model", () => {
+  it("records the rest of an account that ran out after its earlier rest was cleared", () => {
     const battery = fresh();
     battery.markExhausted("claude-2", { resetsAt: at(HOUR) });
     battery.markExhausted("claude", { resetsAt: at(HOUR) });
     expect(battery.recovered("claude", NOW + 1)).toBe(true);
-    expect(ranOut(battery)).toMatchObject({ to: { instanceId: "chatgpt" } });
+    expect(ranOut(battery)).toBeNull();
+    expect(battery.restOf(ACCOUNTS[0]!, ACCOUNTS)).toMatchObject({ estimated: true });
   });
 
   it("waits for a reset it knows when every account is out, instead of stopping with nothing to wake it", () => {
@@ -62,8 +67,8 @@ describe("a turn that runs out of usage always moves on", () => {
     expect(battery.readyAt(DOG, ACCOUNTS, "untracked")).toBe(at(HOUR));
   });
 
-  it("still skips a Codex account that is signed out or turned off", () => {
-    for (const chatgpt of [codex("chatgpt", { signedIn: false }), codex("chatgpt", { enabled: false })]) {
+  it("never takes a Codex account, signed in or not", () => {
+    for (const chatgpt of [codex("chatgpt"), codex("chatgpt", { signedIn: false }), codex("chatgpt", { enabled: false })]) {
       const accounts = [claude("claude"), claude("claude-2"), chatgpt];
       const battery = new AccountBattery({ config: () => CONFIG, accounts: () => accounts, now: () => NOW });
       battery.markExhausted("claude-2", { resetsAt: at(HOUR) });

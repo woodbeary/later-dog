@@ -54,8 +54,8 @@ describe("the limit a conversation hit", () => {
 });
 
 describe("checking a pick", () => {
-  const check = (to: unknown, extra: { from?: string; accounts?: BatteryAccount[]; resting?: string[] } = {}) => checkContinueOn({
-    accounts: extra.accounts ?? ACCOUNTS, selection: SELECTION, from: extra.from ?? "claude", to,
+  const check = (to: unknown, extra: { from?: string; accounts?: BatteryAccount[]; resting?: string[]; byHand?: boolean } = {}) => checkContinueOn({
+    accounts: extra.accounts ?? ACCOUNTS, selection: SELECTION, from: extra.from ?? "claude", to, byHand: extra.byHand === true,
     resting: (candidate) => (extra.resting ?? []).includes(candidate.instanceId),
   });
   const refusal = (result: ReturnType<typeof check>) => (result.ok ? null : [result.status, result.error]);
@@ -71,6 +71,8 @@ describe("checking a pick", () => {
       .toEqual([404, "That account isn't available any more."]);
     expect(refusal(check("claude"))).toEqual([409, "That's the account that ran out."]);
     expect(refusal(check("chatgpt", { accounts: [...ACCOUNTS, account("chatgpt", "ChatGPT", { driverKind: "codex" })] })))
+      .toEqual([409, "This dog stays on Claude."]);
+    expect(refusal(check("chatgpt", { accounts: [...ACCOUNTS, account("chatgpt", "ChatGPT", { driverKind: "codex" })], byHand: true })))
       .toBeNull();
     expect(refusal(check("claude-b", { accounts: [ACCOUNTS[0]!, account("claude-b", "Work", { signedIn: false })] })))
       .toEqual([409, "Work isn't signed in."]);
@@ -121,12 +123,12 @@ describe("continuing on another account", () => {
     }
   });
 
-  it("takes the account that ran out from the limit row, not the dog's own", () => {
+  it("takes the account that ran out from the limit row, not the dog's own, and the chosen account still wins while it can run", () => {
     const config = { enabled: true, order: { claudeAgent: ["claude-b", "claude", "claude-c"] } };
     const { battery, writes, result } = setup({ config, exhausted: ["claude-b"], path: [asked("q1"), limit("l1", "claude-b")], instanceId: "claude-c" });
     expect(result.status).toBe(200);
     expect(writes[0]?.name).toMatch(/^recovery: Switched to Side — Work hit its 5-hour limit/);
-    expect(battery.route(SELECTION, ACCOUNTS, "thread-1").instanceId).toBe("claude-c");
+    expect(battery.route(SELECTION, ACCOUNTS, "thread-1").instanceId).toBe("claude");
     expect(setup({ config, exhausted: ["claude-b"], path: [asked("q1"), limit("l1", "claude-b")], instanceId: "claude-b" }).result)
       .toEqual({ status: 409, body: { error: "That's the account that ran out." } });
   });
@@ -154,7 +156,7 @@ it("manually continues to another provider with that account's default model and
   battery.trackTurn("cross", { generation: "g", instanceId: "claude", requestMessageId: "q", rerun });
   const write = vi.fn();
   expect(continueOnAccount({ battery, accounts, threadId: "cross", selection: { ...SELECTION, effort: "high" }, busy: false,
-    generation: "g", path: [asked("q"), limit("l")], instanceId: "codex", write, now: NOW }))
+    generation: "g", path: [asked("q"), limit("l")], instanceId: "codex", byHand: true, write, now: NOW }))
     .toEqual({ status: 200, body: { continued: true } });
   expect(battery.route({ ...SELECTION, effort: "high" }, accounts, "cross"))
     .toEqual({ instanceId: "codex", model: "gpt-default" });

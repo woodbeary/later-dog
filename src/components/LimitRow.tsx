@@ -74,8 +74,7 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
   };
   const others = limited ? accounts.filter((account) => account !== limited) : [];
   const free = others.filter((account) => signedIn(account) && (account.driverKind !== limited?.driverKind || offers(account)) && !resting(account));
-  const keepsEngine = bot?.accountPinned === true;
-  const suggested = keepsEngine ? free.find((account) => account.driverKind === limited?.driverKind) : free[0];
+  const suggested = free.find((account) => account.driverKind === limited?.driverKind);
   const chosen = free.find((account) => account.instanceId === pick) ?? suggested;
   const waiting = state.waiting;
   const picksUpAt = threadId ? battery?.waiting?.[threadId] : undefined;
@@ -88,7 +87,7 @@ export function LimitRow({ tool, onRetry, botId, threadId }: {
     try {
       const { continued } = await api<{ continued: boolean }>(`/api/bots/${botId}/continue-on`, {
         method: "POST",
-        body: JSON.stringify({ threadId, instanceId: account.instanceId, ...(account.instanceId === pick ? { byHand: true } : {}) }),
+        body: JSON.stringify({ threadId, instanceId: account.instanceId, byHand: true }),
       });
       if (!continued) onRetry?.();
     } catch (cause) {

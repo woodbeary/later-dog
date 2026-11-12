@@ -491,7 +491,8 @@ export function ModelPicker({
   const active = instances.find((instance) => instance.instanceId === selection.instanceId);
   const pickerInstances = signedInModelInstances(instances, selection.instanceId);
   const battery = config?.accountBattery;
-  const routed = battery?.routed?.[threadId ?? bot.threadId];
+  const shownRoute = battery?.routed?.[threadId ?? bot.threadId];
+  const routed = shownRoute && shownRoute.on !== selection.instanceId ? shownRoute : undefined;
   const inUse = instances.find((instance) => instance.instanceId === routed?.on) ?? active;
   const switcherAccounts = subscriptionAccounts(instances, battery)
     .filter((account) => pickerInstances.some((instance) => instance.instanceId === account.instanceId));
@@ -777,7 +778,7 @@ export function ModelPicker({
     />
   );
 
-  const shownModel = selection.instanceId ? modelLabel(active, selection.model) : t("model.choose");
+  const shownModel = !selection.instanceId ? t("model.choose") : routed?.model ? modelLabel(inUse, routed.model) : modelLabel(active, selection.model);
   const summary = active
     ? `${active.displayName} · ${modelLabel(active, selection.model)}${
         modelProvider(active, selection.model) ? ` · ${modelProvider(active, selection.model)}` : ""
@@ -794,7 +795,7 @@ export function ModelPicker({
     ? chatContextReading(chatTask?.usage?.context, active?.models.options.find((option) => option.id === selection.model)?.contextWindow)
     : null;
   const otherEngine = crossEngine(active, inUse);
-  const routedWords = routed ? routedLine(active, inUse, Boolean(active && activeRest(battery?.resting, active.instanceId, usage.now))) : null;
+  const routedWords = routed ? routedLine(active, inUse, routed.next === true || routed.from !== selection.instanceId) : null;
   const chatAccountName = inUse && otherEngine ? withEngine(inUse) : inUse && (accountRows.length > 1 || routed)
     && !shownModel.toLowerCase().startsWith(inUse.displayName.trim().toLowerCase()) ? inUse.displayName : null;
   const chatEffortName = selectedVariantLabel
@@ -891,13 +892,13 @@ export function ModelPicker({
     >
       {triggerMark}
       {!contained && active && showActiveAccount && (
-        <span data-model-account-compact className="hidden max-w-20 truncate @max-4xl/chathead:inline">{active.displayName}</span>
+        <span data-model-account-compact className="hidden max-w-20 truncate @max-4xl/chathead:inline">{(inUse ?? active).displayName}</span>
       )}
       <span className={cn("flex min-w-0 items-center gap-1", !contained && active && "@max-4xl/chathead:hidden")}>
         <span className="flex min-w-0 max-w-[240px] items-baseline">
           {active && showActiveAccount && (
             <>
-              <span data-model-account className="min-w-[2ch] max-w-[120px] shrink-[4] truncate text-ink-secondary">{active.displayName}</span>
+              <span data-model-account className="min-w-[2ch] max-w-[120px] shrink-[4] truncate text-ink-secondary">{(inUse ?? active).displayName}</span>
               <span aria-hidden="true" className="shrink-0 whitespace-pre text-ink-secondary"> · </span>
             </>
           )}
