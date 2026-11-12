@@ -1,0 +1,21 @@
+[package]
+name = "laterdog-mac"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "laterdog"
+path = "src/main.rs"
+
+[dependencies]
+laterdog-core = { path = "../core" }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSGeometry", "NSThread", "NSAttributedString", "NSRange"] }
+objc2-app-kit = { version = "0.3", features = [
+  "NSApplication", "NSRunningApplication", "NSResponder", "NSWindow", "NSView", "NSGraphics",
+  "NSScrollView", "NSClipView", "NSTextView", "NSText", "NSTextField", "NSControl", "NSStackView",
+  "NSSplitView", "NSFont", "NSColor", "NSTextStorage", "NSLayoutConstraint", "NSUserInterfaceLayout",
+  "NSTextContainer", "NSMenu", "NSMenuItem",
+] }
