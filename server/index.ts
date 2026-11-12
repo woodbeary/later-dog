@@ -759,7 +759,7 @@ import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
 import { createCompactionLive, fileCompactionLedger } from "./laterdog/compaction-live.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
-import { createStallWatch, STALL_LOOKBACK_MS, stallWatchMode, type StallFacts } from "./laterdog/stall-watch.ts";
+import { createStallWatch, handoffWorking, STALL_LOOKBACK_MS, stallWatchMode, type StallFacts } from "./laterdog/stall-watch.ts";
 import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
 import { createPickupStops, keepsNewerTurn } from "./laterdog/pickup-stops.ts";
 import type { TakeoverRequestCardData } from "../shared/takeover.ts";
@@ -5672,6 +5672,8 @@ bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "turn.completed") pickupStops.settled(event.threadId);
 });
+let finishRestartPickup = () => {};
+const restartPickupDone = new Promise<void>((resolve) => { finishRestartPickup = resolve; });
 function teammateCanRun(botId: string, threadId: string): boolean {
   const bot = store.bot(botId);
   if (!bot) return true;
@@ -5696,11 +5698,13 @@ const stallWatch = createStallWatch({
       usageWait: threadId in limitHold.waiting() || batteryContinuationPending(threadId),
       queued: hasQueuedSteeredMessages(botId, threadId) || pendingComputerResumes.has(threadId),
       stoppedByPerson: pickupStops.stopped(threadId),
-      mayContinue: restartPickupHost.dog(threadId) !== null && restartPickupHost.owner(threadId) && !routineRunForTurn(threadId) && !routines?.runDuring(threadId, now),
+      mayContinue: restartPickupHost.dog(threadId) !== null && restartPickupHost.owner(threadId) && !routineRunForTurn(threadId),
+      routine: (at) => Boolean(routines?.runDuring(threadId, at)),
       teammates: roomHandoffs.outstandingDirect(threadId).map((node) => {
         const mate = store.bot(node.botId);
-        const working = node.status === "running" || Boolean(mate && store.tasks(mate.id).some((task) => threadBusy(mate.id, task.threadId)));
-        return { id: node.botId, name: mate?.name ?? "A teammate", working, canRun: teammateCanRun(node.botId, node.threadId) };
+        const canRun = teammateCanRun(node.botId, node.threadId);
+        const busy = Boolean(mate && store.tasks(mate.id).some((task) => threadBusy(mate.id, task.threadId)));
+        return { id: node.botId, name: mate?.name ?? "A teammate", working: handoffWorking(node.status, canRun, busy), canRun };
       }),
     };
   },
@@ -5708,7 +5712,7 @@ const stallWatch = createStallWatch({
   start: startContinuation,
   changed: announceHelpersChanged,
 }, { everyMs: Math.max(1_000, Number(process.env.LATERDOG_STALL_WATCH_MS) || 60_000), quietMs: Math.max(1_000, Number(process.env.LATERDOG_STALL_QUIET_MS) || 3 * 60_000),
-  mode: stallWatchMode(process.env.LATERDOG_STALL_WATCH) });
+  mode: stallWatchMode(process.env.LATERDOG_STALL_WATCH), ready: restartPickupDone });
 stallFacts = (threadId) => stallWatch.facts(threadId);
 stallWatch.start();
 bus.subscribe((event: RuntimeEvent) => {
@@ -21234,6 +21238,7 @@ server.listen(PORT, "127.0.0.1", async () => {
     if (outcomes.length) console.log(`restart pickup: ${outcomes.map((outcome) => `${outcome.threadId} ${outcome.kind}`).join(", ")}`);
   }).finally(() => {
     pickingUpAfterRestart = false;
+    finishRestartPickup();
   });
 });
 
