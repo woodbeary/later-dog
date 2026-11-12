@@ -1,4 +1,3 @@
-mod net;
 mod theme;
 mod ui;
 mod widgets;
@@ -9,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use objc2::MainThreadMarker;
 use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
 
-use crate::net::Home;
+use laterdog_mac::net::Home;
 use crate::ui::{Controller, Options, SendRequest};
 
 fn parse_size(value: &str) -> Option<(f64, f64)> {
@@ -27,6 +26,9 @@ fn options(started: std::time::Instant) -> (Options, Option<String>) {
     let mut select = None;
     let mut size = None;
     let mut appearance = None;
+    let mut thread = None;
+    let mut history = 0;
+    let mut scroll_through = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--dump" => dump = true,
@@ -37,10 +39,13 @@ fn options(started: std::time::Instant) -> (Options, Option<String>) {
             "--select" => select = args.next(),
             "--appearance" => appearance = args.next(),
             "--size" => size = args.next().and_then(|value| parse_size(&value)),
+            "--thread" => thread = args.next(),
+            "--history" => history = args.next().and_then(|value| value.parse().ok()).unwrap_or(1),
+            "--scroll-through" => scroll_through = true,
             _ => {}
         }
     }
-    let options = Options { dump, send: text.map(|text| SendRequest { text, to }), snapshot, tree, select, size, started };
+    let options = Options { dump, send: text.map(|text| SendRequest { text, to }), thread, history, scroll_through, snapshot, tree, select, size, started };
     (options, appearance)
 }
 

@@ -5,7 +5,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dispatch2::{DispatchQueue, DispatchTime};
 use laterdog_core::events::Frame;
-use laterdog_core::store::{Changes, Connection, RowKind, SendState, SidebarRow, Store, TranscriptRow, View};
+use laterdog_core::splice::{splice, Splice};
+use laterdog_core::store::{Changes, Connection, RowKind, SendState, SidebarRow, TranscriptRow, View};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject, Sel};
 use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly};
@@ -15,14 +16,15 @@ use objc2_app_kit::{
     NSMenu, NSMenuItem, NSScrollView, NSTableColumn, NSTableView, NSTableViewDataSource, NSTableViewDelegate, NSControlTextEditingDelegate, NSAttributedStringNSStringDrawing,
     NSTableViewSelectionHighlightStyle, NSTableViewStyle, NSTextDelegate, NSTextField, NSTextView,
     NSTextViewDelegate, NSUserInterfaceItemIdentification, NSView, NSWindow, NSWindowButton, NSWindowDelegate,
-    NSWindowStyleMask, NSWindowTitleVisibility, NSTextAlignment, NSScrollElasticity,
+    NSWindowStyleMask, NSWindowTitleVisibility, NSTextAlignment, NSScrollElasticity, NSTableViewAnimationOptions,
 };
 use objc2_foundation::{
     NSCalendar, NSDate, NSDateFormatter, NSDateFormatterStyle, NSDictionary, NSIndexSet, NSInteger, NSNotification,
-    NSObject, NSObjectProtocol, NSSize, NSString,
+    NSMutableIndexSet, NSObject, NSObjectProtocol, NSPoint, NSSize, NSString,
 };
 
-use crate::net::{Home, Inbound, Lines, Post};
+use laterdog_mac::net::{Home, Inbound, Post};
+use laterdog_mac::session::Session;
 use crate::theme::{self, font, model_name, Theme, Weight};
 use crate::widgets::{attributed, icon, icon_button, label, rect, Avatar, Fill, Flipped, ROUND};
 
@@ -39,6 +41,9 @@ pub struct SendRequest {
 pub struct Options {
     pub dump: bool,
     pub send: Option<SendRequest>,
+    pub thread: Option<String>,
+    pub history: u32,
+    pub scroll_through: bool,
     pub snapshot: Option<String>,
     pub tree: bool,
     pub select: Option<String>,
@@ -48,7 +53,7 @@ pub struct Options {
 
 impl Options {
     fn captures(&self) -> bool {
-        self.snapshot.is_some() || self.tree
+        self.snapshot.is_some() || self.tree || self.scroll_through
     }
 }
 
@@ -116,21 +121,21 @@ struct Dump {
     composed: Option<String>,
     reply_by_stream: bool,
     finished: bool,
+    older_asked: u32,
 }
 
 pub struct Ivars {
-    store: RefCell<Store>,
+    session: RefCell<Session>,
     view: RefCell<View>,
     shown: RefCell<Option<String>>,
     lines: RefCell<Vec<Line>>,
     shapes: RefCell<Vec<Shape>>,
     shape_cache: RefCell<HashMap<(String, u64), Shape>>,
     ui: OnceCell<Ui>,
-    home: OnceCell<Lines>,
     options: Options,
     connected_home: bool,
     dump: RefCell<Dump>,
-    wake_at: Cell<Option<u64>>,
+    older_pages: Cell<u32>,
     input_height: Cell<f64>,
 }
 
@@ -183,6 +188,7 @@ define_class!(
 );
 
 pub struct ChatParts {
+    again: Retained<NSButton>,
     day: Retained<NSTextField>,
     bubble: Retained<Fill>,
     text: Retained<NSTextField>,
@@ -263,6 +269,11 @@ define_class!(
         fn window_did_resize(&self, _notification: &NSNotification) {
             self.layout();
         }
+
+        #[unsafe(method(windowDidBecomeKey:))]
+        fn window_did_become_key(&self, _notification: &NSNotification) {
+            self.ask_read();
+        }
     }
 
     impl Controller {
@@ -270,26 +281,37 @@ define_class!(
         fn send_pressed(&self, _sender: Option<&AnyObject>) {
             self.send_composer();
         }
+
+        #[unsafe(method(sendAgain:))]
+        fn send_again_pressed(&self, sender: Option<&NSButton>) {
+            if let Some(send_id) = sender.and_then(|button| button.identifier()) {
+                self.send_again(&send_id.to_string());
+            }
+        }
+
+        #[unsafe(method(clipScrolled:))]
+        fn clip_scrolled(&self, _notification: &NSNotification) {
+            self.ask_older_if_near_top();
+        }
     }
 );
 
 impl Controller {
     pub fn new(mtm: MainThreadMarker, options: Options, seed: [u8; 16], connected_home: bool) -> Retained<Self> {
-        let store = Store::new(seed);
-        let view = store.view();
+        let session = Session::new(seed, laterdog_mac::session::data_dir());
+        let view = session.store.view();
         let this = Self::alloc(mtm).set_ivars(Ivars {
-            store: RefCell::new(store),
+            session: RefCell::new(session),
             view: RefCell::new(view),
             shown: RefCell::new(None),
             lines: RefCell::new(Vec::new()),
             shapes: RefCell::new(Vec::new()),
             shape_cache: RefCell::new(HashMap::new()),
             ui: OnceCell::new(),
-            home: OnceCell::new(),
             options,
             connected_home,
             dump: RefCell::new(Dump::default()),
-            wake_at: Cell::new(None),
+            older_pages: Cell::new(0),
             input_height: Cell::new(theme::COMPOSER_LINE),
         });
         let this: Retained<Self> = unsafe { msg_send![super(this), init] };
@@ -302,11 +324,21 @@ impl Controller {
             DispatchQueue::main().exec_async(move || with_controller(|controller| controller.handle(inbound)));
         });
         let lines = home.start(post);
-        lines.reload.send(()).ok();
-        self.ivars().home.set(lines).ok();
+        self.ivars().session.borrow_mut().attach(lines);
         if self.ivars().options.dump {
             on_main_after(DUMP_DEADLINE, |controller| controller.finish_dump(1));
         }
+        let direct = match (&self.ivars().options.send, &self.ivars().options.thread) {
+            (Some(SendRequest { text, to: Some(bot_id) }), Some(thread_id)) => Some((text.clone(), bot_id.clone(), thread_id.clone())),
+            _ => None,
+        };
+        if let Some((text, bot_id, thread_id)) = direct {
+            let item = self.ivars().session.borrow_mut().compose_to(&bot_id, &thread_id, &text, now_ms());
+            if let Some(item) = item {
+                self.ivars().dump.borrow_mut().composed = Some(item.send_id);
+            }
+        }
+        self.pump();
     }
 
     pub fn show(&self) {
@@ -369,6 +401,16 @@ impl Controller {
         let chat_table = self.table(mtm, "Conversation");
         let chat_scroll = scroller(mtm, &chat_table);
         chat.addSubview(&chat_scroll);
+        let clip = chat_scroll.contentView();
+        clip.setPostsBoundsChangedNotifications(true);
+        unsafe {
+            objc2_foundation::NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
+                self,
+                sel!(clipScrolled:),
+                Some(objc2_app_kit::NSViewBoundsDidChangeNotification),
+                Some(&clip),
+            );
+        }
 
         let head_pill = Fill::new(mtm, Some(&theme.composer), ROUND);
         head_pill.set_stroke(Some(&theme.head_ring), theme::HAIRLINE);
@@ -513,7 +555,7 @@ impl Controller {
         let reused = unsafe { table.makeViewWithIdentifier_owner(&NSString::from_str(CHAT_CELL), None) };
         let cell = match reused.and_then(|view| view.downcast::<ChatCell>().ok()) {
             Some(cell) => cell,
-            None => new_chat_cell(mtm, &ui.theme),
+            None => new_chat_cell(mtm, &ui.theme, Some(self.as_ref())),
         };
         let lines = self.ivars().lines.borrow();
         let line = lines.get(index)?;
@@ -533,7 +575,7 @@ impl Controller {
         let row = ui.dog_table.selectedRow();
         let picked = usize::try_from(row).ok().and_then(|row| self.ivars().view.borrow().dogs.get(row).map(|dog| dog.id.clone()));
         let Some(id) = picked else { return };
-        let moved = self.ivars().store.borrow_mut().select(&id);
+        let moved = self.ivars().session.borrow_mut().store.select(&id);
         if moved {
             self.refresh(Changes { sidebar: true, transcript: true });
         }
@@ -726,10 +768,10 @@ impl Controller {
     }
 
     fn compose(&self, text: &str) -> bool {
-        if self.ivars().home.get().is_none() {
+        if !self.ivars().session.borrow().connected() {
             return false;
         }
-        let composed = self.ivars().store.borrow_mut().compose(text, now_ms());
+        let composed = self.ivars().session.borrow_mut().compose(text, now_ms());
         let Some(item) = composed else { return false };
         self.ivars().dump.borrow_mut().composed.get_or_insert(item.send_id);
         self.refresh(Changes { sidebar: true, transcript: true });
@@ -740,21 +782,35 @@ impl Controller {
 
     fn pump(&self) {
         let now = now_ms();
-        let due = self.ivars().store.borrow_mut().due(now);
-        if let Some(home) = self.ivars().home.get() {
-            for item in due {
-                home.send.send(item).ok();
-            }
+        let wake = self.ivars().session.borrow_mut().pump(now);
+        if let Some(at) = wake {
+            on_main_after(Duration::from_millis(at.saturating_sub(now)), |controller| {
+                controller.ivars().session.borrow_mut().woke();
+                controller.pump();
+            });
         }
-        let Some(at) = self.ivars().store.borrow().next_wake_ms() else { return };
-        if self.ivars().wake_at.get().is_some_and(|scheduled| scheduled <= at) {
-            return;
+    }
+
+    fn send_again(&self, send_id: &str) {
+        if self.ivars().session.borrow_mut().send_again(send_id) {
+            self.refresh(Changes { sidebar: false, transcript: true });
+            self.pump();
         }
-        self.ivars().wake_at.set(Some(at));
-        on_main_after(Duration::from_millis(at.saturating_sub(now)), |controller| {
-            controller.ivars().wake_at.set(None);
-            controller.pump();
-        });
+    }
+
+    fn ask_read(&self) {
+        let looking = self.ivars().ui.get().is_some_and(|ui| ui.window.isKeyWindow());
+        self.ivars().session.borrow_mut().ask_read(looking);
+    }
+
+    fn ask_older_if_near_top(&self) {
+        let Some(ui) = self.ivars().ui.get() else { return };
+        let visible = ui.chat_scroll.contentView().documentVisibleRect();
+        let content = ui.chat_table.frame().size.height;
+        let near_top = visible.origin.y <= 80.0 || content <= visible.size.height;
+        if near_top {
+            self.ivars().session.borrow_mut().ask_older();
+        }
     }
 
     fn list_to_top(&self) {
@@ -765,40 +821,31 @@ impl Controller {
     }
 
     fn handle(&self, inbound: Inbound) {
-        let changes = match inbound {
-            Inbound::Page(page) => {
-                let first = !std::mem::replace(&mut self.ivars().dump.borrow_mut().page, true);
-                let changes = self.ivars().store.borrow_mut().apply_page(page);
-                if first {
-                    self.refresh(changes);
-                    self.list_to_top();
-                }
-                if first && self.ivars().options.captures() {
-                    self.refresh(changes);
-                    self.capture_soon();
-                    return;
-                }
-                changes
-            }
-            Inbound::PageFailed => Changes::default(),
-            Inbound::Frame(frame) => {
-                let changes = self.ivars().store.borrow_mut().apply_frame(&frame);
-                self.heard(&frame);
-                changes
-            }
-            Inbound::StreamLost => self.ivars().store.borrow_mut().set_connection(Connection::Reconnecting),
-            Inbound::SendDone { send_id, result } => {
-                let changes = match result {
-                    Ok(receipt) => self.ivars().store.borrow_mut().send_succeeded(&send_id, receipt),
-                    Err(failure) => self.ivars().store.borrow_mut().send_failed(&send_id, &failure, now_ms()),
-                };
-                self.pump();
-                changes
-            }
+        let first_page = matches!(inbound, Inbound::Page(_)) && !std::mem::replace(&mut self.ivars().dump.borrow_mut().page, true);
+        let heard = match &inbound {
+            Inbound::Frame(frame) => Some(frame.clone()),
+            _ => None,
         };
-        if changes.any() {
+        if matches!(inbound, Inbound::Older { .. }) {
+            self.ivars().older_pages.set(self.ivars().older_pages.get() + 1);
+        }
+        let changes = self.ivars().session.borrow_mut().handle(inbound, now_ms());
+        if let Some(frame) = heard {
+            self.heard(&frame);
+        }
+        if first_page {
+            self.refresh(changes);
+            self.list_to_top();
+            self.select_wanted();
+            if self.ivars().options.captures() {
+                self.capture_soon();
+                return;
+            }
+        } else if changes.any() {
             self.refresh(changes);
         }
+        self.pump();
+        self.ask_read();
         self.check_dump();
     }
 
@@ -811,8 +858,8 @@ impl Controller {
         if message.role != "bot" || message.kind != "text" || message.text.as_deref().is_none_or(str::is_empty) {
             return;
         }
-        let store = self.ivars().store.borrow();
-        let asked = store.thread(thread_id).iter().find(|line| line.send_id.as_deref() == Some(send_id.as_str())).map(|line| line.id.clone());
+        let session = self.ivars().session.borrow();
+        let asked = session.store.thread(thread_id).iter().find(|line| line.send_id.as_deref() == Some(send_id.as_str())).map(|line| line.id.clone());
         if asked.is_some() && asked == message.parent_id {
             dump.reply_by_stream = true;
         }
@@ -820,7 +867,7 @@ impl Controller {
 
     fn refresh(&self, changes: Changes) {
         let Some(ui) = self.ivars().ui.get() else { return };
-        let view = self.ivars().store.borrow().view();
+        let view = self.ivars().session.borrow().store.view();
         *self.ivars().view.borrow_mut() = view.clone();
         let moved = *self.ivars().shown.borrow() != view.selected;
         if changes.sidebar || moved {
@@ -836,23 +883,59 @@ impl Controller {
             let follow = moved || self.at_bottom(ui);
             let lines = if self.ivars().connected_home { self.lines_for(&view, ui) } else { Vec::new() };
             let old = std::mem::replace(&mut *self.ivars().lines.borrow_mut(), lines.clone());
-            if moved || old.len() != lines.len() {
-                self.reshape(true);
-            } else {
-                let changed: Vec<usize> = old.iter().zip(&lines).enumerate().filter(|(_, (before, after))| before != after).map(|(index, _)| index).collect();
-                if !changed.is_empty() {
+            let plan = if moved { Splice::Reload } else { splice(&old, &lines) };
+            let rows = |indexes: &mut dyn Iterator<Item = usize>| {
+                let set = NSMutableIndexSet::new();
+                for index in indexes {
+                    set.addIndex(index);
+                }
+                set
+            };
+            let total = |shapes: &[Shape]| shapes.iter().enumerate().map(|(index, shape)| shape.height + if index > 0 { theme::TRANSCRIPT_GAP } else { 0.0 }).sum::<f64>();
+            match plan {
+                Splice::Nothing => {}
+                Splice::Reload => self.reshape(true),
+                Splice::Rows(changed) => {
                     self.reshape(false);
-                    let mutable = objc2_foundation::NSMutableIndexSet::new();
-                    for index in &changed {
-                        mutable.addIndex(*index);
+                    let set = rows(&mut changed.into_iter());
+                    ui.chat_table.noteHeightOfRowsWithIndexesChanged(&set);
+                    ui.chat_table.reloadDataForRowIndexes_columnIndexes(&set, &NSIndexSet::indexSetWithIndex(0));
+                }
+                Splice::Append { from, changed } => {
+                    self.reshape(false);
+                    ui.chat_table.beginUpdates();
+                    if !changed.is_empty() {
+                        let set = rows(&mut changed.into_iter());
+                        ui.chat_table.noteHeightOfRowsWithIndexesChanged(&set);
+                        ui.chat_table.reloadDataForRowIndexes_columnIndexes(&set, &NSIndexSet::indexSetWithIndex(0));
                     }
-                    ui.chat_table.noteHeightOfRowsWithIndexesChanged(&mutable);
-                    ui.chat_table.reloadDataForRowIndexes_columnIndexes(&mutable, &NSIndexSet::indexSetWithIndex(0));
+                    ui.chat_table.insertRowsAtIndexes_withAnimation(&rows(&mut (from..lines.len())), NSTableViewAnimationOptions::empty());
+                    ui.chat_table.endUpdates();
+                }
+                Splice::Prepend { removed, added } => {
+                    let before = total(&self.ivars().shapes.borrow());
+                    let clip = ui.chat_scroll.contentView();
+                    let at = clip.bounds().origin;
+                    self.reshape(false);
+                    let after = total(&self.ivars().shapes.borrow());
+                    ui.chat_table.beginUpdates();
+                    if removed > 0 {
+                        ui.chat_table.removeRowsAtIndexes_withAnimation(&rows(&mut (0..removed)), NSTableViewAnimationOptions::empty());
+                    }
+                    ui.chat_table.insertRowsAtIndexes_withAnimation(&rows(&mut (0..added)), NSTableViewAnimationOptions::empty());
+                    ui.chat_table.noteHeightOfRowsWithIndexesChanged(&rows(&mut (0..lines.len())));
+                    ui.chat_table.endUpdates();
+                    clip.scrollToPoint(NSPoint::new(at.x, at.y + (after - before)));
+                    ui.chat_scroll.reflectScrolledClipView(&clip);
                 }
             }
             if follow {
                 self.follow_to_end();
             }
+            if moved {
+                self.ask_read();
+            }
+            self.ask_older_if_near_top();
         }
         *self.ivars().shown.borrow_mut() = view.selected;
     }
@@ -895,18 +978,57 @@ impl Controller {
         }
     }
 
-    fn capture_soon(&self) {
+    fn select_wanted(&self) {
         let wanted = self.ivars().options.select.clone();
-        if let Some(target) = wanted.and_then(|wanted| self.ivars().store.borrow().find_dog(&wanted)) {
-            if self.ivars().store.borrow_mut().select(&target) {
+        let target = wanted.and_then(|wanted| self.ivars().session.borrow().store.find_dog(&wanted));
+        if let Some(target) = target {
+            if self.ivars().session.borrow_mut().store.select(&target) {
                 self.refresh(Changes { sidebar: true, transcript: true });
             }
         }
+    }
+
+    fn capture_soon(&self) {
         DispatchQueue::main().exec_async(|| with_controller(|controller| controller.capture()));
+    }
+
+    fn scroll_step(&self, steps: u32) {
+        let Some(ui) = self.ivars().ui.get() else { return };
+        let clip = ui.chat_scroll.contentView();
+        let at = clip.bounds().origin;
+        let more = {
+            let session = self.ivars().session.borrow();
+            session.store.selected_thread().is_some_and(|thread| session.store.has_older(thread))
+        };
+        if at.y > 1.0 || more {
+            clip.scrollToPoint(NSPoint::new(at.x, (at.y - 400.0).max(0.0)));
+            ui.chat_scroll.reflectScrolledClipView(&clip);
+            ui.root.displayIfNeeded();
+            on_main_after(Duration::from_millis(16), move |controller| controller.scroll_step(steps + 1));
+            return;
+        }
+        let rows = ui.chat_table.numberOfRows();
+        let messages = {
+            let session = self.ivars().session.borrow();
+            session.store.selected_thread().map_or(0, |thread| session.store.thread(thread).len())
+        };
+        for row in 0..rows {
+            ui.chat_table.scrollRowToVisible(row);
+            ui.root.displayIfNeeded();
+        }
+        let report = serde_json::json!({ "scrolled": true, "steps": steps, "rows": rows, "messages": messages, "olderPages": self.ivars().older_pages.get(), "pid": std::process::id() });
+        let mut out = std::io::stdout().lock();
+        writeln!(out, "{report}").ok();
+        out.flush().ok();
     }
 
     fn capture(&self) {
         let Some(ui) = self.ivars().ui.get() else { return };
+        if self.ivars().options.scroll_through {
+            ui.window.orderFrontRegardless();
+            self.scroll_step(0);
+            return;
+        }
         let frame = unsafe { ui.root.superview() }.unwrap_or_else(|| Retained::into_super(ui.root.clone()));
         self.follow_to_end();
         for scroll in [&ui.dog_scroll, &ui.chat_scroll] {
@@ -940,25 +1062,45 @@ impl Controller {
             let dump = self.ivars().dump.borrow();
             (dump.page && dump.framed, dump.composed.clone(), dump.reply_by_stream)
         };
+        if let Some(send_id) = &composed {
+            let held = self.ivars().session.borrow().store.send_state(send_id) == Some(SendState::Held);
+            if held && self.ivars().options.thread.is_some() {
+                self.finish_dump(0);
+                return;
+            }
+        }
         if !ready {
             return;
         }
+        let wanted = self.ivars().options.history;
+        if wanted > 0 && self.ivars().older_pages.get() < wanted {
+            let thread = self.ivars().session.borrow().store.selected_thread().map(str::to_owned);
+            let more = thread.as_deref().is_some_and(|thread| self.ivars().session.borrow().store.has_older(thread));
+            if more {
+                if self.ivars().session.borrow_mut().ask_older() {
+                    self.ivars().dump.borrow_mut().older_asked += 1;
+                }
+                return;
+            }
+        }
         let Some(request) = &self.ivars().options.send else {
-            self.finish_dump(0);
+            if self.ivars().session.borrow().store.unsettled_sends() == 0 {
+                self.finish_dump(0);
+            }
             return;
         };
         match composed {
             None => {
                 let target = match &request.to {
-                    Some(wanted) => self.ivars().store.borrow().find_dog(wanted),
-                    None => self.ivars().store.borrow().selected().map(str::to_owned),
+                    Some(wanted) => self.ivars().session.borrow().store.find_dog(wanted),
+                    None => self.ivars().session.borrow().store.selected().map(str::to_owned),
                 };
                 let Some(target) = target else {
                     eprintln!("No dog matches {:?} on this home.", request.to.as_deref().unwrap_or_default());
                     self.finish_dump(2);
                     return;
                 };
-                if self.ivars().store.borrow_mut().select(&target) {
+                if self.ivars().session.borrow_mut().store.select(&target) {
                     self.refresh(Changes { sidebar: true, transcript: true });
                 }
                 if !self.compose(&request.text) {
@@ -967,7 +1109,7 @@ impl Controller {
                 }
             }
             Some(send_id) => {
-                let sent = self.ivars().store.borrow().send_state(&send_id) == Some(SendState::Sent);
+                let sent = self.ivars().session.borrow().store.send_state(&send_id) == Some(SendState::Sent);
                 if reply && sent {
                     self.finish_dump(0);
                 }
@@ -979,11 +1121,14 @@ impl Controller {
         if std::mem::replace(&mut self.ivars().dump.borrow_mut().finished, true) {
             return;
         }
-        let store = self.ivars().store.borrow();
+        let session = self.ivars().session.borrow();
+        let store = &session.store;
         let dump = self.ivars().dump.borrow();
         let mut value = serde_json::to_value(store.view()).unwrap_or_default();
         if let Some(object) = value.as_object_mut() {
             object.insert("stream".into(), serde_json::json!({ "frames": dump.frames, "replyByStream": dump.reply_by_stream }));
+            let thread = store.selected_thread().unwrap_or_default();
+            object.insert("history".into(), serde_json::json!({ "pagesLoaded": self.ivars().older_pages.get(), "hasOlder": store.has_older(thread), "messages": store.thread(thread).len() }));
             if let Some(send_id) = &dump.composed {
                 let state = store.send_state(send_id).map(SendState::words);
                 object.insert("sent".into(), serde_json::json!({ "sendId": send_id, "state": state }));
@@ -1095,7 +1240,7 @@ fn configure_dog(cell: &DogCell, dog: &SidebarRow, width: f64, ui: &Ui) {
     cell.setAccessibilityLabel(Some(&NSString::from_str(&spoken)));
 }
 
-fn new_chat_cell(mtm: MainThreadMarker, theme: &Theme) -> Retained<ChatCell> {
+fn new_chat_cell(mtm: MainThreadMarker, theme: &Theme, controller: Option<&AnyObject>) -> Retained<ChatCell> {
     let day = label(mtm, "", &font(13.0, Weight::Regular), &theme.ink_secondary);
     day.setAlignment(NSTextAlignment::Center);
     let bubble = Fill::new(mtm, Some(&theme.card), theme::BUBBLE_RADIUS);
@@ -1107,13 +1252,17 @@ fn new_chat_cell(mtm: MainThreadMarker, theme: &Theme) -> Retained<ChatCell> {
     status.setAlignment(NSTextAlignment::Right);
     let work = label(mtm, "View work", &font(12.0, Weight::Regular), &theme.ink_secondary);
     let chevron = icon(mtm, "chevron.right", 9.0, unsafe { NSFontWeightMedium }, &theme.ink_secondary);
+    let again = unsafe { NSButton::buttonWithTitle_target_action(&NSString::from_str("Send again"), controller, Some(sel!(sendAgain:)), mtm) };
+    again.setBordered(false);
+    again.setFont(Some(&font(11.0, Weight::Medium)));
+    again.setContentTintColor(Some(&theme.ink));
     let this = ChatCell::alloc(mtm).set_ivars(OnceCell::new());
     let cell: Retained<ChatCell> = unsafe { msg_send![super(this), initWithFrame: rect(0.0, 0.0, 600.0, 40.0)] };
-    for view in [&*day as &NSView, &bubble, &status, &work, &chevron] {
+    for view in [&*day as &NSView, &bubble, &status, &work, &chevron, &again] {
         cell.addSubview(view);
     }
     cell.setIdentifier(Some(&NSString::from_str(CHAT_CELL)));
-    cell.ivars().set(ChatParts { day, bubble, text, status, work, chevron }).ok();
+    cell.ivars().set(ChatParts { again, day, bubble, text, status, work, chevron }).ok();
     cell
 }
 
@@ -1124,6 +1273,7 @@ fn configure_line(cell: &ChatCell, line: &Line, shape: Shape, gap: f64, width: f
     parts.day.setHidden(!day);
     parts.bubble.setHidden(!bubble);
     parts.status.setHidden(true);
+    parts.again.setHidden(true);
     parts.work.setHidden(!work);
     parts.chevron.setHidden(!work);
     match line {
@@ -1150,7 +1300,14 @@ fn configure_line(cell: &ChatCell, line: &Line, shape: Shape, gap: f64, width: f
             if let Some(words) = row.status.filter(|words| *words != SendState::Sent.words()) {
                 parts.status.setHidden(false);
                 parts.status.setStringValue(&NSString::from_str(words));
-                parts.status.setFrame(rect(0.0, gap + bubble_height + 2.0, width, 14.0));
+                let refused = words == SendState::NotSent.words();
+                let again_width = if refused { 74.0 } else { 0.0 };
+                parts.status.setFrame(rect(0.0, gap + bubble_height + 2.0, width - again_width, 14.0));
+                if let (true, Some(send_id)) = (refused, row.send_id.as_deref()) {
+                    parts.again.setHidden(false);
+                    parts.again.setIdentifier(Some(&NSString::from_str(send_id)));
+                    parts.again.setFrame(rect(width - again_width + 4.0, gap + bubble_height, again_width - 4.0, 18.0));
+                }
             }
             let speaker = if row.mine { "You" } else { row.who.as_str() };
             cell.setAccessibilityLabel(Some(&NSString::from_str(&format!("{speaker}: {}", row.text))));
