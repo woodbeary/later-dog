@@ -84,7 +84,17 @@ impl Home {
     }
 
     fn page(&self) -> Option<BotsPage> {
-        self.json(PAGE_PATH)
+        crate::timing::mark("page asked");
+        let mut response = self.get(&self.requests, PAGE_PATH).ok()?;
+        crate::timing::mark("page answered");
+        if !response.status().is_success() {
+            return None;
+        }
+        let body = response.body_mut().read_to_string().ok()?;
+        crate::timing::mark("page received");
+        let page = parse(&body);
+        crate::timing::mark("page read");
+        page
     }
 
     fn older(&self, thread_id: &str, before: &str) -> Option<ThreadPage> {
@@ -191,7 +201,9 @@ impl Home {
                 Some(cursor) => format!("{EVENTS_PATH}?since={}", query_escape(cursor)),
                 None => EVENTS_PATH.to_owned(),
             };
+            crate::timing::mark("events asked");
             if let Ok(response) = self.get(&self.stream, &path) {
+                crate::timing::mark("events answered");
                 if response.status().is_success() {
                     decoder.reset_connection();
                     let mut reader = response.into_body().into_reader();

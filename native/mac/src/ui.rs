@@ -658,7 +658,12 @@ impl Controller {
         let transcript_top = head_bottom;
         let transcript_bottom = shell_top - 8.0;
         let before = ui.chat_scroll.frame().size.width;
-        ui.chat_scroll.setFrame(rect(theme::TRANSCRIPT_PAD_X, transcript_top, chat_width - theme::TRANSCRIPT_PAD_X * 2.0, (transcript_bottom - transcript_top).max(40.0)));
+        let scroller_room = if ui.chat_scroll.scrollerStyle() == objc2_app_kit::NSScrollerStyle::Legacy {
+            objc2_app_kit::NSScroller::scrollerWidthForControlSize_scrollerStyle(objc2_app_kit::NSControlSize::Regular, objc2_app_kit::NSScrollerStyle::Legacy, self.mtm())
+        } else {
+            0.0
+        };
+        ui.chat_scroll.setFrame(rect(theme::TRANSCRIPT_PAD_X, transcript_top, chat_width - theme::TRANSCRIPT_PAD_X * 2.0 + scroller_room.min(theme::TRANSCRIPT_PAD_X), (transcript_bottom - transcript_top).max(40.0)));
         if (before - ui.chat_scroll.frame().size.width).abs() > 0.5 {
             self.reshape(true);
         }
@@ -834,6 +839,7 @@ impl Controller {
             self.heard(&frame);
         }
         if first_page {
+            laterdog_mac::timing::mark("first page applied");
             self.refresh(changes);
             self.list_to_top();
             self.select_wanted();
@@ -1039,6 +1045,7 @@ impl Controller {
         frame.layoutSubtreeIfNeeded();
         frame.displayIfNeeded();
         let first_page_ms = self.ivars().options.started.elapsed().as_millis() as u64;
+        laterdog_mac::timing::mark("first page drawn");
         let mut report = serde_json::json!({ "firstPageMs": first_page_ms });
         if let Some(path) = &self.ivars().options.snapshot {
             let written = snapshot(&frame, path);

@@ -60,6 +60,7 @@ fn seed() -> [u8; 16] {
 }
 
 fn main() {
+    laterdog_mac::timing::start();
     let (options, appearance) = options(std::time::Instant::now());
     let home_url = std::env::var("LATERDOG_HOME_URL").ok().filter(|url| !url.trim().is_empty());
     let token = std::env::var("LATERDOG_HOME_TOKEN").ok();
@@ -76,8 +77,10 @@ fn main() {
         ui::set_appearance(&app, &appearance);
     }
 
+    laterdog_mac::timing::mark("app ready");
     let controller = Controller::new(mtm, options, seed(), home_url.is_some());
     controller.show();
+    laterdog_mac::timing::mark("window built");
     if let Some(url) = home_url {
         controller.connect(Home::new(url.trim(), token));
     }
