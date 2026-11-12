@@ -66,6 +66,9 @@ import {
 import { readEngineModels } from "../laterdog/wait-at-most.ts";
 import { readCliVersion as readCliVersionOf, unreadCli } from "../laterdog/cli-version.ts";
 import { claudeToolTouch } from "../laterdog/tool-touches.ts";
+import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sections.ts";
+import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
+import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
 
 export function claudeAuthStatus(
   cli: string,
@@ -866,14 +869,6 @@ type ClaudeUserMessage = {
   message: { role: "user"; content: string | ClaudeUserContent[] };
 };
 
-export function claudeVolatileNote(volatile: string, seen: string | null, redeliver = false): string {
-  if (seen === volatile && !redeliver) return "";
-  const body = volatile.trim()
-    ? `This part of your instructions lives here rather than in the system prompt, so it can change without rewriting the conversation. It replaces any earlier copy:\n\n${volatile.trim()}`
-    : seen?.trim() ? "The notes that were in your instructions earlier in this session have been cleared." : "";
-  return body ? `<system-reminder>\n${body}\n</system-reminder>` : "";
-}
-
 function withVolatileNote(text: string, note: string): string {
   if (!note) return text;
   return text ? `${note}\n\n${text}` : note;
@@ -1226,7 +1221,6 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (turn.effort) args.push("--effort", claudeEffortArg(turn.effort));
 
       let systemPromptPath: string | null = null;
-      const launchVolatile = turn.systemVolatile ?? "";
 
       const mcpServers: Record<string, unknown> = {};
       const allowed: string[] = [];
@@ -1244,7 +1238,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (!controlsHost) allowed.push("mcp__computer");
       }
       if (turn.integrations?.agents) {
-        mcpServers.agents = { ...turn.integrations.agents, alwaysLoad: true };
+        mcpServers.agents = agentsServerLaunch(turn.integrations.agents, deferRareToolsEnabled());
         allowed.push("mcp__agents");
       }
       if (turn.integrations?.browser) {
@@ -1313,6 +1307,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (authSettingsPath) args.push("--settings", authSettingsPath);
       if (env.ENABLE_PROMPT_CACHING_1H === undefined && env.FORCE_PROMPT_CACHING_5M === undefined) env.CLAUDE_CODE_PROMPT_CACHE_TTL ??= "1h";
       Object.assign(env, quietWorkEnvironment(turn.quietWork));
+      Object.assign(env, claudeHelperEnvironment(turnModel, turn.helperModel, { custom: Boolean(config.managed) || injected.injected }));
       const cwd = turn.cwd ?? homedir();
       const commandCwd = permissionLaunchCwd(cwd);
       const unkeyedFlags = new Set<string>(["--mcp-config", "--settings", ...FLAGS_LEARNED_AFTER_LAUNCH]);
@@ -1329,6 +1324,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         hooks: Boolean(hooks),
         fast: Boolean(turn.fast),
         quiet: Boolean(turn.quietWork),
+        helpers: env.CLAUDE_CODE_SUBAGENT_MODEL ?? null,
         reviewerGrant: permissionMode === "auto" ? turn.reviewerGrant ?? null : null,
         placement: chosenRemote ? "computer" : "home",
         auth: createHash("sha256").update(JSON.stringify({
@@ -1372,10 +1368,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           }, turnId, broker: live.broker });
           emit({ ...base(threadId, turnId), type: "turn.started" });
           live.nativeActivity.beginTurn();
-          const volatile = turn.systemVolatile ?? "";
-          const note = claudeVolatileNote(volatile, live.volatile, turn.mentionTurn);
+          const { note, seen } = claudeContextNote(turn, live.volatile);
           const message = note ? claudeUserMessage(withVolatileNote(turn.text, note), turn.images) : promptMsg;
-          live.volatile = volatile;
+          live.volatile = seen;
           rememberVolatile(threadId, live);
           const running = live.turn;
           if (!(await writeUser(live, threadId, message)) && !running?.stopRequested) closeSession(threadId, "stdin write failed");
@@ -1514,7 +1509,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         systemPromptPath,
         argsKey,
         argsParts,
-        volatile: launchVolatile,
+        volatile: claudeSeenVolatile(turn),
         sessionId: sessionId ?? newSessionId,
         sawInit: false,
         nativePermissionMode: null,
@@ -2132,7 +2127,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       session.nativeActivity.beginTurn();
 
       const remembered = sessionId ? deliveredVolatile.get(threadId) : undefined;
-      const launchNote = turn.systemStable === undefined ? "" : claudeVolatileNote(launchVolatile, remembered?.sessionId === sessionId ? remembered.volatile : null, turn.mentionTurn);
+      const launchNote = turn.systemStable === undefined ? "" : claudeContextNote(turn, remembered?.sessionId === sessionId ? remembered.volatile : null).note;
       const launchMsg = launchNote ? claudeUserMessage(withVolatileNote(turn.text, launchNote), turn.images) : promptMsg;
       if (!(await writeUser(session, threadId, launchMsg))) {
         if (!session.turn?.stopRequested) settle(false, "stdin_write_failed");

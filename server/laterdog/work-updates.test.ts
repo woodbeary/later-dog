@@ -3,24 +3,22 @@ import { describe, expect, it } from "vitest";
 import { BACKGROUND_WORK_PROMPT, KEEP_GOING_PROMPT, KEEP_GOING_WITH_BACKGROUND_PROMPT, MILESTONE_PROMPT, ON_IT_NOTE, QUIET_WORK_PROMPT, quietWorkEnvironment, STEER_NOTE, withOnItNote, withSteerNote, workUpdatesPrompt } from "./work-updates.ts";
 
 describe("how a dog keeps the person posted", () => {
-  it("always works quietly", () => {
+  it("asks for updates instead of silence, without step-by-step narration", () => {
     expect(workUpdatesPrompt()).toBe(QUIET_WORK_PROMPT + MILESTONE_PROMPT + KEEP_GOING_PROMPT);
-    expect(QUIET_WORK_PROMPT).toMatch(/do not narrate your steps/);
-    expect(QUIET_WORK_PROMPT).toMatch(/Finish with one clear answer/);
-    expect(QUIET_WORK_PROMPT).toMatch(/Unless you can answer straight away without a tool, start with one short line saying you are on it and what you are about to do, and send it before your first tool call/);
-    expect(QUIET_WORK_PROMPT).toMatch(/Quick jobs get that line too, a single command included/);
+    expect(QUIET_WORK_PROMPT).toMatch(/between your one-line updates do not narrate each step/);
     expect(QUIET_WORK_PROMPT).toMatch(/Screenshots you take are for you/);
+    expect(workUpdatesPrompt()).not.toMatch(/Work quietly|do not post progress notes|without commentary between tool calls/);
     expect(workUpdatesPrompt()).not.toMatch(/step-by-step updates/);
   });
 
-  it("tells every dog to post a line at each milestone of a long task and never to guess how long it will take", () => {
-    expect(workUpdatesPrompt()).toMatch(/post one short plain line each time you pass a milestone/);
-    expect(workUpdatesPrompt()).toMatch(/Never give time estimates or say how long something will take unless the person asks/);
+  it("never has a dog guess how long something will take", () => {
+    expect(workUpdatesPrompt()).toMatch(/Leave out time estimates unless the person asks how long something will take/);
   });
 
   it("tells every dog never to end a turn on what it is about to do", () => {
-    expect(workUpdatesPrompt()).toMatch(/Never end your turn on a line about what you will do next/);
-    expect(workUpdatesPrompt()).toMatch(/nothing happens after your turn ends/);
+    expect(workUpdatesPrompt()).toMatch(/do not end it on a line about what you will do next/);
+    expect(workUpdatesPrompt()).toMatch(/Nothing happens after your turn ends/);
+    expect(workUpdatesPrompt()).toMatch(/or say in one line what is stopping you/);
     expect(workUpdatesPrompt()).not.toMatch(/in the background/);
   });
 
@@ -29,7 +27,7 @@ describe("how a dog keeps the person posted", () => {
     expect(prompt).toBe(QUIET_WORK_PROMPT + MILESTONE_PROMPT + BACKGROUND_WORK_PROMPT + KEEP_GOING_WITH_BACKGROUND_PROMPT);
     expect(prompt).toMatch(/in the background, so you stay free to answer the person while it runs/);
     expect(prompt).toMatch(/You may end your turn while background work runs: you are told when it finishes/);
-    expect(prompt).toMatch(/Apart from background work, never end your turn on a line about what you will do next/);
+    expect(prompt).toMatch(/Apart from background work, nothing happens after your turn ends, so do not end it on a line about what you will do next/);
     expect(prompt).not.toContain(KEEP_GOING_PROMPT);
   });
 

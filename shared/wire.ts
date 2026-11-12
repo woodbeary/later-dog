@@ -198,6 +198,7 @@ export interface WireBot {
   voice?: string;
   voiceNotes?: boolean;
   memoryEnabled?: boolean;
+  helperModel?: string;
   parkDirectMessages?: boolean;
   accountPinned?: boolean;
   rewound?: boolean;

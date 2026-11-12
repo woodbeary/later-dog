@@ -1,0 +1,68 @@
+{
+ "main/claude": {
+  "stableBytes": 20051,
+  "volatileBytes": 7255,
+  "firstNoteBytes": 7615,
+  "stableTokens": 5013,
+  "volatileTokens": 1904,
+  "totalTokens": 6917,
+  "resentNoteBytes": 27983
+ },
+ "helpers/claude": {
+  "stableBytes": 19899,
+  "volatileBytes": 7068,
+  "firstNoteBytes": 7402,
+  "stableTokens": 4975,
+  "volatileTokens": 1851,
+  "totalTokens": 6826
+ },
+ "group/claude": {
+  "stableBytes": 18595,
+  "volatileBytes": 7068,
+  "firstNoteBytes": 7402,
+  "stableTokens": 4649,
+  "volatileTokens": 1851,
+  "totalTokens": 6500
+ },
+ "started/claude": {
+  "stableBytes": 19153,
+  "volatileBytes": 7068,
+  "firstNoteBytes": 7402,
+  "stableTokens": 4789,
+  "volatileTokens": 1851,
+  "totalTokens": 6639
+ },
+ "main/codex": {
+  "stableBytes": 20051,
+  "volatileBytes": 7255,
+  "firstNoteBytes": 7578,
+  "stableTokens": 5013,
+  "volatileTokens": 1895,
+  "totalTokens": 6908,
+  "resentNoteBytes": 26503
+ },
+ "helpers/codex": {
+  "stableBytes": 19899,
+  "volatileBytes": 7068,
+  "firstNoteBytes": 7365,
+  "stableTokens": 4975,
+  "volatileTokens": 1842,
+  "totalTokens": 6816
+ },
+ "group/codex": {
+  "stableBytes": 18595,
+  "volatileBytes": 7068,
+  "firstNoteBytes": 7365,
+  "stableTokens": 4649,
+  "volatileTokens": 1842,
+  "totalTokens": 6490
+ },
+ "started/codex": {
+  "stableBytes": 19153,
+  "volatileBytes": 7068,
+  "firstNoteBytes": 7365,
+  "stableTokens": 4789,
+  "volatileTokens": 1842,
+  "totalTokens": 6630
+ }
+}

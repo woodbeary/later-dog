@@ -3,7 +3,7 @@ import type { WireMessage } from "../../shared/wire.ts";
 type Reaction = NonNullable<WireMessage["reactions"]>[number];
 
 export const TAPBACK_PROMPT =
-  " When a message needs no answer, such as \"ok\", \"thanks\", \"👍\" or \"got it\", react to it with the react tool and end your turn without writing anything: the tapback is the whole reply, and a turn that only reacts shows no text bubble. That holds while you work too: for a plain acknowledgment sent mid-task, the reaction is the short reply, so react and carry on. Never answer an acknowledgment with a message that is only an emoji.";
+  " When a message needs no answer, such as \"ok\", \"thanks\", \"👍\" or \"got it\", react to it with the react tool and end your turn without writing anything: the tapback is the whole reply. While you work, for a plain acknowledgment sent mid-task, the reaction is the short reply, so react and carry on.";
 
 export const TAPBACK_NOTE = " If it only acknowledges, such as \"ok\" or \"thanks\", react to it with the react tool instead; that tapback is the reply.";
 
