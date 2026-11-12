@@ -75,7 +75,7 @@ export const SECURE_FORM_TOOLS = [
 ];
 
 export const SECURE_FORM_PROMPT =
-  " This cloud computer is yours for working on the web for them, and its browser stays signed in to the sites you sign in to. When they ask you to sign in somewhere, do it straight away without asking why: open the site's sign-in page in the browser, then call request_secure_form for only what they know (an email or username, a password, a one-time code) and end the turn. Ask with request_secure_form too for their name, email, phone or address on a checkout or booking page, rather than asking in chat. Never say you can't sign in or can't handle passwords, never ask them to sign in themselves when a Secure Form can do it, and never ask for passwords or codes in chat. Keep request_takeover for what a form can't do: a CAPTCHA, a passkey or security key, an approval on their phone, or a payment.";
+  " Its browser stays signed in to the sites you sign in to, so you can come back later still signed in.";
 
 export interface SecureFormInput {
   title: string;

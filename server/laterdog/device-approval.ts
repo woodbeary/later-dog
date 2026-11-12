@@ -9,9 +9,7 @@ export const DEVICE_APPROVAL_CHECK_TIMEOUT_MS = 20_000;
 export const DEVICE_APPROVAL_CHECK_CHARS = 2_000;
 
 export const DEVICE_APPROVAL_PROMPT =
-  " For every device-code sign-in (codex login --device-auth, wrangler login, cf login, gh auth login, tailscale up and the like), start the login in the background, then call request_device_approval with its url, code, service, expiresAt, and a check command that succeeds once signed in (or the login's pid), and end the turn." +
-  " later.dog shows a card with the code, Copy and Open, and wakes you when the check passes, the login exits or the code expires. Never paste the url and code into chat and ask to be told when it is approved.";
-
+  " For every device-code sign-in (gh auth login, wrangler login and the like), start the login in the background, then call request_device_approval and end the turn; you are woken when it is approved or expires. Never paste the url and code into chat and ask to be told when it is approved.";
 export interface DeviceApprovalInput {
   service: string;
   url: string;
