@@ -48,8 +48,8 @@ export function roomHandoffResult(
   };
 }
 
-const RETRY_NOTE = "[Your last turn on this ran out of time. Check what is already done, then carry on from where it stopped.]";
-const RESTART_NOTE = "[later.dog restarted while you were working on this. Check what is already done, then carry on from where it stopped.]";
+const RETRY_NOTE = "[later.dog note, not typed by the person: your last turn on this ran out of time. First check what is already done, then carry on from where it stopped.]";
+const RESTART_NOTE = "[later.dog restarted while you were working on this; this note is not typed by the person. First check what is already done, then carry on from where it stopped.]";
 
 export function handoffRunNote(node: { retried?: boolean; restarted?: boolean }): string {
   if (node.restarted) return `\n\n${RESTART_NOTE}`;
