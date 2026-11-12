@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Code,
   Copy,
+  Cpu,
   Download,
   Hand,
   ListPlus,
@@ -107,6 +108,7 @@ import { chatPane } from "@/state/pane-errors";
 import { PaneErrorLine } from "./PaneErrorLine";
 import { activeLocale, t } from "@/lib/i18n";
 import { WorkStatusLine } from "./WorkStatusLine";
+import { TurnReceiptLine } from "./TurnReceiptLine";
 import { groupTranscript, isStatusActivity, planTranscript, type TranscriptPlan } from "@/lib/activity-runs";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
 import { UnreadDivider } from "./UnreadDivider";
@@ -311,6 +313,7 @@ const Bubble = memo(function Bubble({
   const reactionName = (by: string) => (by === botId ? botName : bots.find((candidate) => candidate.id === by)?.name ?? by);
   const focusedSearch = focus?.messageId === message.id && Boolean(focus.matchText);
   const [viewRaw, setViewRaw] = useState(false);
+  const [showRan, setShowRan] = useState(false);
   const speech = useSpeech();
   const speaking = speech.messageId === message.id && speech.status !== "idle";
   const text = peer ? peer.body : (message.text ?? "");
@@ -373,15 +376,18 @@ const Bubble = memo(function Bubble({
     if (v && !busy && !v.id.startsWith(OPTIMISTIC_PREFIX)) dispatch({ type: "switchBranch", botId, threadId, messageId: v.id });
   };
   const draftForTask = text && !viewRaw ? taskDraft(t("chat.action.taskLead"), text) : "";
-  const botMore: SidebarMenuItem[] = text && !viewRaw
-    ? [
-        { key: "source", label: t("chat.action.viewSource"), icon: <Code size={16} />, onSelect: () => setViewRaw(true) },
-        ...(draftForTask && canWrite !== false ? [{ key: "task", label: t("chat.action.startTask"), icon: <ListPlus size={16} />, onSelect: () => {
-          appendComposerDraft(`bot:${botId}:${threadId}`, draftForTask);
-          requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-tour="composer"] textarea')?.focus());
-        } }] : []),
-      ]
-    : [];
+  const botMore: SidebarMenuItem[] = [
+    ...(text && !viewRaw
+      ? [
+          { key: "source", label: t("chat.action.viewSource"), icon: <Code size={16} />, onSelect: () => setViewRaw(true) },
+          ...(draftForTask && canWrite !== false ? [{ key: "task", label: t("chat.action.startTask"), icon: <ListPlus size={16} />, onSelect: () => {
+            appendComposerDraft(`bot:${botId}:${threadId}`, draftForTask);
+            requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-tour="composer"] textarea')?.focus());
+          } }] : []),
+        ]
+      : []),
+    ...(!user && message.ran ? [{ key: "ran", label: t("chat.action.howItRan"), icon: <Cpu size={16} />, onSelect: () => setShowRan((value) => !value) }] : []),
+  ];
 
   return (
     <div data-from={user ? "user" : "agent"} className={cn("group flex w-full flex-col", user ? "items-end" : "items-start", hasTapback(message.reactions) && "pt-3")}>
@@ -552,6 +558,7 @@ const Bubble = memo(function Bubble({
           {formatTime(message.at)}
         </span>
       </div>
+      {!user && showRan && <TurnReceiptLine receipt={message.ran} />}
       {user && message.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={message.at} held={message.held} />}
       {user && receipt && message.steered && <ReadReceipt readAt={message.readAt} working={busy} name={botName} />}
       {forks.length > 1 && (

@@ -734,6 +734,7 @@ import { LimitHold, withWaitingRuns } from "./laterdog/limit-hold.ts";
 import { openAsk, workState } from "./laterdog/work-state.ts";
 import { exchangeIdOf, exchangeThreads, withExchange, type ExchangeLookup } from "./laterdog/room-exchange.ts";
 import { WorkSignals } from "./laterdog/work-signals.ts";
+import { turnReceipt } from "./laterdog/turn-receipt.ts";
 import { carryOnAfterRestart } from "./laterdog/carry-on-restart.ts";
 import { runningByAccount } from "./laterdog/account-spread.ts";
 import { latestTurnAnswer, lookedAtImage, postTurnImage } from "./laterdog/turn-images.ts";
@@ -7315,7 +7316,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       }
       if (completedTurnId) {
         const terminal = store.markTerminalAssistantMessage(event.threadId, completedTurnId);
-        if (terminal) store.patchMessage(event.threadId, terminal.id, { turnSucceeded: event.ok });
+        const ran = execution ? turnReceipt(execution, (instanceId) => registry.get(instanceId)?.displayName) : undefined;
+        if (terminal) store.patchMessage(event.threadId, terminal.id, { turnSucceeded: event.ok, ...(ran ? { ran } : {}) });
       }
       const reply = lastReply.get(event.threadId) ?? "";
       lastReply.delete(event.threadId);

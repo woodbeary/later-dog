@@ -166,6 +166,7 @@ export interface Message {
   roomRequest?: import("../../shared/wire").WireMessage["roomRequest"];
   handoffId?: string;
   exchange?: import("../../shared/room-exchange").WireExchange;
+  ran?: import("../../shared/turn-receipt").TurnReceipt;
   needsYou?: {
     botId: string;
     botName: string;
