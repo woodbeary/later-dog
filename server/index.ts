@@ -735,6 +735,7 @@ import {
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold, withWaitingRuns } from "./laterdog/limit-hold.ts";
+import { createUsageWatch } from "./laterdog/usage-watch.ts";
 import { openAsk, workState } from "./laterdog/work-state.ts";
 import { exchangeIdOf, exchangeThreads, withExchange, type ExchangeLookup } from "./laterdog/room-exchange.ts";
 import { roomWorkFor } from "./laterdog/room-work.ts";
@@ -762,6 +763,7 @@ import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
 import { createCompactionLive, fileCompactionLedger } from "./laterdog/compaction-live.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
+import { createStallWatch, STALL_LOOKBACK_MS, stallWatchMode, type StallFacts } from "./laterdog/stall-watch.ts";
 import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
 import { createPickupStops, keepsNewerTurn } from "./laterdog/pickup-stops.ts";
 import type { TakeoverRequestCardData } from "../shared/takeover.ts";
@@ -3565,13 +3567,16 @@ function delegatedNeedsYou(threadId: string): boolean {
 const workSignals = new WorkSignals();
 let exchangeLookup: ExchangeLookup | undefined;
 let waitingOnPerson = (_threadId: string): boolean => false;
+let stallFacts = (_threadId: string): StallFacts => ({});
 function chatWork(threadId: string, busy: boolean, activity: BotActivity | undefined, waitingOn: WireWaitingOn[] | undefined, selection: ModelSelection): WorkState {
   const asking = activity === "waiting-on-you" || delegatedNeedsYou(threadId) || waitingOnPerson(threadId);
   const until = limitHold.heldUntil(threadId);
+  const usageWait = until !== undefined || (!busy && usageStranded(threadId));
+  const stall = stallFacts(threadId);
   return workState({
-    busy, waitingOn, ...workSignals.facts(threadId),
-    ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : {}),
-    ...(until !== undefined ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, until } } : {}),
+    busy, helpers: busy ? 0 : helpersWorkingIn(threadId), waitingOn, ...workSignals.facts(threadId), ...(stall.stopped ? { stopped: stall.stopped } : {}),
+    ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : {}),
+    ...(usageWait ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, ...(until !== undefined ? { until } : {}) } } : {}),
   });
 }
 const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
@@ -5675,6 +5680,45 @@ bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "turn.completed") pickupStops.settled(event.threadId);
 });
+function teammateCanRun(botId: string, threadId: string): boolean {
+  const bot = store.bot(botId);
+  if (!bot) return true;
+  if (store.taskByThread(botId, threadId)?.activity === "dead") return false;
+  const on = onBatteryAccount(store.projectBotForTask(botId, threadId) ?? bot, threadId).modelSelection.instanceId;
+  const account = batteryAccounts().find((candidate) => candidate.instanceId === on);
+  return !account || (account.enabled && account.signedIn !== false);
+}
+const stallWatch = createStallWatch({
+  chats: () => store.bots.flatMap((bot) => store.tasks(bot.id)
+    .filter((task) => !task.archivedAt && !store.groupByThread(task.threadId) && (task.updatedAt ?? task.createdAt) > Date.now() - STALL_LOOKBACK_MS)
+    .map((task) => ({ botId: bot.id, threadId: task.threadId }))),
+  look: (botId, threadId) => {
+    const bot = store.bot(botId);
+    if (!bot) return null;
+    const now = Date.now();
+    return {
+      name: bot.name, path: store.messagesTail(threadId, 160).messages, now,
+      busy: threadBusy(botId, threadId) || watchdog.watching(threadId) || directTurnDispatchClaims.has(threadId),
+      requestOpen: watchdog.snapshot(threadId)?.waitingOnHuman === true || delegatedNeedsYou(threadId),
+      helpers: helpersWorkingIn(threadId),
+      usageWait: threadId in limitHold.waiting() || batteryContinuationPending(threadId),
+      queued: hasQueuedSteeredMessages(botId, threadId) || pendingComputerResumes.has(threadId),
+      stoppedByPerson: pickupStops.stopped(threadId),
+      mayContinue: restartPickupHost.dog(threadId) !== null && restartPickupHost.owner(threadId) && !routineRunForTurn(threadId) && !routines?.runDuring(threadId, now),
+      teammates: roomHandoffs.outstandingDirect(threadId).map((node) => {
+        const mate = store.bot(node.botId);
+        const working = node.status === "running" || Boolean(mate && store.tasks(mate.id).some((task) => threadBusy(mate.id, task.threadId)));
+        return { id: node.botId, name: mate?.name ?? "A teammate", working, canRun: teammateCanRun(node.botId, node.threadId) };
+      }),
+    };
+  },
+  append: (threadId, message) => store.appendMessage(threadId, message),
+  start: startContinuation,
+  changed: announceHelpersChanged,
+}, { everyMs: Math.max(1_000, Number(process.env.LATERDOG_STALL_WATCH_MS) || 60_000), quietMs: Math.max(1_000, Number(process.env.LATERDOG_STALL_QUIET_MS) || 3 * 60_000),
+  mode: stallWatchMode(process.env.LATERDOG_STALL_WATCH) });
+stallFacts = (threadId) => stallWatch.facts(threadId);
+stallWatch.start();
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "turn.started") statusLines.begin(event.threadId);
@@ -6535,6 +6579,26 @@ if (CLOUD_HOME || process.env.LATERDOG_REVIVE_DOGS === "1") {
   setTimeout(() => reviveRunnableDogs(), 30_000).unref();
   setInterval(() => reviveRunnableDogs(), 60_000).unref();
 }
+
+function usageStranded(threadId: string): boolean {
+  const owner = store.botByThread(threadId);
+  return Boolean(owner) && batteryContinuationPending(threadId) && !(threadId in limitHold.waiting()) && !threadBusy(owner!.id, threadId);
+}
+const usageWatch = createUsageWatch({
+  held: () => Object.keys(limitHold.waiting()),
+  stranded: () => accountBattery.pendingThreads().filter(usageStranded),
+  refresh: async () => {
+    if (hostedModels) return;
+    await loadPlanUsage({ accounts: planAccountsFromInstances(instanceConfigs(cfg)).filter((account) => account.driver !== "grok"), refresh: true });
+    accountBattery.noteReadings(batteryAccounts());
+  },
+  recheck: () => limitHold.recheck(),
+  wake: (threadId) => {
+    limitHold.hold(threadId);
+    if (!limitHold.holds(threadId)) pickUpAfterReset(threadId);
+  },
+}, { everyMs: Math.max(1_000, Number(process.env.LATERDOG_USAGE_WATCH_MS) || 2 * 60_000) });
+usageWatch.start();
 
 function automaticallyCarriesOn(event: RuntimeEvent): boolean {
   if (event.type !== "turn.completed" || !accountBattery.enabled || directRequestOwners.get(event.threadId)?.stopped) return false;

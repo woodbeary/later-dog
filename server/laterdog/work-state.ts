@@ -3,6 +3,7 @@ import type { WorkStopCause, WorkStopDetail, WorkState } from "../../shared/work
 
 export interface WorkFacts {
   busy: boolean;
+  helpers?: number;
   needsYou?: { what?: string };
   usageHold?: { account?: string; until?: number };
   waitingOn?: readonly WireWaitingOn[];
@@ -45,7 +46,7 @@ export function workState(facts: WorkFacts): WorkState {
     const attempt = facts.retry.attempt;
     return { kind: "retrying", ...(attempt !== undefined && Number.isInteger(attempt) && attempt > 0 ? { attempt } : {}) };
   }
-  if (facts.busy) return { kind: "running" };
+  if (facts.busy || (facts.helpers ?? 0) > 0) return { kind: "running" };
   if (facts.stopped) return { kind: "stopped", cause: facts.stopped.cause, ...(facts.stopped.detail ? { detail: facts.stopped.detail } : {}) };
   return { kind: "idle" };
 }

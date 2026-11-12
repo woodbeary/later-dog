@@ -109,6 +109,7 @@ Use only mapped, tested commands:
 - [Decision and extraction model evaluation, November 10](decision-eval.md)
 - [Messages held while the home wakes, November 11](queue-held-sends.md)
 - [Which devices the edge trusts for a sleeping home, November 11](edge-trust.md)
+- [Stall watch: no dog goes quiet without a reason, November 12](stall-watch.md)
 
 `control-laterdog ui` ([Chat UI, driven headlessly](chat-ui.md)) drives the real
 renderer in a headless Chrome by accessible name, so composer sends, transcript

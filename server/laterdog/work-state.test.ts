@@ -8,6 +8,7 @@ import { openAsk, workState, type WorkFacts } from "./work-state.ts";
 const scout = { botId: "scout", name: "Scout", ask: "Check the invoice totals" };
 const every: Required<WorkFacts> = {
   busy: true,
+  helpers: 0,
   needsYou: { what: "Allow sending the email?" },
   usageHold: { account: "Work account", until: 1_800_000_000_000 },
   waitingOn: [scout],
@@ -23,6 +24,8 @@ describe("one work state per chat", () => {
   it.each<[string, WorkFacts, ReturnType<typeof workState>]>([
     ["nothing happening", { busy: false }, { kind: "idle" }],
     ["a running turn", { busy: true }, { kind: "running" }],
+    ["helpers still working after the dog's own turn", { busy: false, helpers: 2 }, { kind: "running" }],
+    ["helpers working outrank an earlier stop", { busy: false, helpers: 1, stopped: { cause: "engine" } }, { kind: "running" }],
     ["a question for the person", { busy: true, needsYou: { what: " Allow sending? " } }, { kind: "needs-you", what: "Allow sending?" }],
     ["a question with no label", { busy: false, needsYou: {} }, { kind: "needs-you" }],
     ["a usage hold", { busy: false, usageHold: { account: "Work", until: 5 } }, { kind: "waiting-for-usage", account: "Work", until: 5 }],
