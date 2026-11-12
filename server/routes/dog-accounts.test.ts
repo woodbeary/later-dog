@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { json, readBody } from "../harness/http.ts";
 import type { BatteryAccount } from "../laterdog/account-battery.ts";
-import { accountTurnPrompt, USAGE_HANDLED_LINE, type AccountUsageInput } from "../laterdog/account-usage.ts";
+import { type AccountUsageInput } from "../laterdog/account-usage.ts";
 import type { BotRecord } from "../store.ts";
 import { createDogAccountsRoute, DOG_ACCOUNTS_PATH, matchDogs } from "./dog-accounts.ts";
 import { dispatchInternalRoutes } from "./internal.ts";
@@ -113,31 +113,18 @@ describe("the main dog sees and assigns every dog's account", () => {
   });
 });
 
-describe("usage never stops a dog", () => {
-  it("tells every dog that limits are handled and never shows a normal dog its own usage", () => {
-    const text = accountTurnPrompt(USAGE[1], NOW, "America/Los_Angeles");
-    expect(text).toBe(USAGE_HANDLED_LINE);
-    expect(text).toContain("when an account runs out, the turn continues on another. Never stop, defer, shrink or ask about work because of usage.");
-    expect(text).not.toMatch(/% left|plan account|session \(5-hour\)/);
-    expect(accountTurnPrompt(undefined, NOW)).toBe(USAGE_HANDLED_LINE);
-  });
-
-  it("still names the account and its room for the main dog, which manages accounts", () => {
-    const text = accountTurnPrompt(USAGE[1], NOW, "America/Los_Angeles", true);
-    expect(text.startsWith(USAGE_HANDLED_LINE)).toBe(true);
-    expect(text).toContain("This turn runs on the Claude plan account daniel (daniel@txtclaw.com): session (5-hour) 70% left, weekly 60% left.");
-  });
-
-  it("passes the dog to the account prompt so only the main dog gets the usage line", () => {
+describe("dogs know nothing about usage", () => {
+  it("builds no account or usage section into any dog's instructions", () => {
     const index = readFileSync(new URL("../index.ts", import.meta.url), "utf8");
-    expect(index).toContain("const managesAccounts = botId === store.mainBotId();");
-    expect(index.match(/accountPromptFor\(instanceId, bot\.id\)|accountPromptFor\(instance\.instanceId, bot\.id\)/g)).toHaveLength(2);
-    expect(index).not.toMatch(/accountPromptFor\([a-zA-Z.]+\) \}/);
+    expect(index).not.toMatch(/id: "account"/);
+    expect(index).not.toContain("accountPromptFor");
+    expect(index).not.toContain("accountTurnPrompt");
   });
 
-  it("never tells a dog to check usage before working", () => {
+  it("offers usage only through the tool, for when the person asks", () => {
     const catalog = readFileSync(new URL("../drivers/agents-catalog.ts", import.meta.url), "utf8");
     expect(catalog).not.toContain("Check before heavy runs or near a limit");
-    expect(catalog).toContain("Usage never decides whether to start or continue work");
+    expect(catalog).toContain("Use it only when the person asks about usage or accounts");
+    expect(catalog).not.toMatch(/runs your own CLI work \(tests, scripts\) on the roomiest/);
   });
 });

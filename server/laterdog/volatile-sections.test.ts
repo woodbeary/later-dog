@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import { buildSystemPrompt, todayPrompt } from "../system-prompt.ts";
 import { recentWorkPrompt } from "../recent-work.ts";
 import { memorySystemPrompt, writeMemoryFile, writeMemoryTopic } from "../workspace.ts";
-import { USAGE_HANDLED_LINE } from "./account-usage.ts";
 import { syncCodexInstructions } from "../drivers/codex-instructions.ts";
 import {
   ALL_SECTIONS_CLEARED,
@@ -23,12 +22,11 @@ writeMemoryTopic(BOT, "deploys.md", "---\ntitle: deploys\ndescription: notes abo
 
 const recentLine = (said: string, at: number) => ({ threadId: "t1", at, where: "your chat", title: "Deploy", said, private: false });
 
-function prompt(input: { day?: string; usage?: number; said?: string; memoryReadOnly?: boolean; mention?: boolean }) {
+function prompt(input: { day?: string; said?: string; memoryReadOnly?: boolean; mention?: boolean }) {
   const now = new Date(input.day ?? "2026-11-12T10:00:00Z");
   return buildSystemPrompt("You are Scout.", "Be brief.", [
     { id: "routine", label: "Routines", text: " Use list_routines." },
     { id: "today", label: "Today", text: todayPrompt("America/Los_Angeles", now) },
-    { id: "account", label: "Account", text: `${USAGE_HANDLED_LINE} This turn runs on the claude plan account Claude: session (5-hour) ${input.usage ?? 80}% left, weekly 60% left.` },
     { id: "recent", label: "Recent work", text: recentWorkPrompt([recentLine(input.said ?? "Finished the deploy check.", now.getTime() - 60_000)], now.getTime()) },
     { id: "memory", label: "Memory", text: memorySystemPrompt(BOT, { managedWrites: true, fileTools: true, readOnly: input.memoryReadOnly }) },
     { id: "mentions", label: "Mentions", text: input.mention ? " The user tagged @Fig (bot_id b2) in their message." : "" },
@@ -48,22 +46,21 @@ describe("volatile sections", () => {
     const built = prompt({});
     expect(built.volatileSections.map((section) => section.text).join("")).toBe(built.volatile);
     expect(built.volatileSections.map((section) => section.id)).toEqual([
-      "today", "account:standing", "account", "recent:standing", "recent", "memory:standing", "memory",
+      "today", "recent:standing", "recent", "memory:standing", "memory",
     ]);
-    expect(built.volatileSections.find((section) => section.id === "account:standing")?.text).toBe(USAGE_HANDLED_LINE);
     expect(built.volatileSections.find((section) => section.id === "memory:standing")?.text).not.toContain("Prefers pnpm");
     expect(built.volatileSections.find((section) => section.id === "memory")?.text).toContain("Prefers pnpm");
     expect(built.volatileSections.find((section) => section.id === "memory")?.text).toContain("deploys");
     expect(built.volatileSections.find((section) => section.id === "recent")?.text).toContain("Finished the deploy check.");
   });
 
-  it("keeps the stable half byte-identical across turns, usage ticks, new work, memory mode and days", () => {
+  it("keeps the stable half byte-identical across turns, new work, memory mode and days", () => {
     const first = prompt({});
     for (const later of [
-      prompt({ usage: 41 }),
+      prompt({}),
       prompt({ said: "Posted the summary." }),
       prompt({ day: "2026-11-13T10:00:00Z" }),
-      prompt({ day: "2026-12-01T23:00:00Z", usage: 3, said: "Other." }),
+      prompt({ day: "2026-12-01T23:00:00Z", said: "Other." }),
       prompt({ memoryReadOnly: true }),
       prompt({ mention: true }),
     ]) {
@@ -80,13 +77,13 @@ describe("volatile sections", () => {
 
   it("sends only the section that changed, labelled as replacing its earlier copy", () => {
     const first = claudeContextNote(turnOf(prompt({})), null);
-    const next = claudeContextNote(turnOf(prompt({ usage: 41 })), first.seen);
+    const next = claudeContextNote(turnOf(prompt({ said: "Posted the summary." })), first.seen);
     const body = reminderBody(next.note);
     expect(body.startsWith(CHANGED_SECTIONS_HEADING)).toBe(true);
-    expect(body).toContain("[Account]\nThis turn runs on the claude plan account Claude: session (5-hour) 41% left");
-    expect(body).not.toContain(USAGE_HANDLED_LINE.trim());
+    expect(body).toContain("[Recent work]\n");
+    expect(body).toContain("Posted the summary.");
+    expect(body).not.toContain("Recent work, standing part");
     expect(body).not.toContain("Prefers pnpm");
-    expect(body).not.toContain("Recent work");
     expect(body).not.toContain("Today");
   });
 
@@ -138,9 +135,6 @@ describe("volatile sections", () => {
   });
 
   it("leaves a section whole when it has no standing part", () => {
-    expect(volatileSectionsOf([{ id: "account", label: "Account", text: USAGE_HANDLED_LINE }])).toEqual([
-      { id: "account", label: "Account", text: USAGE_HANDLED_LINE },
-    ]);
     expect(volatileSectionsOf([{ id: "today", label: "Today", text: " Today is Thursday." }])).toEqual([
       { id: "today", label: "Today", text: " Today is Thursday." },
     ]);
@@ -161,13 +155,13 @@ describe("Codex volatile sections", () => {
     expect(first.deliverVolatile).toBe(true);
     const same = await send(prompt({}), true);
     expect(same).toMatchObject({ note: "", deliverVolatile: false, commitVolatile: null });
-    const tick = await send(prompt({ usage: 12 }), true);
+    const tick = await send(prompt({ said: "Twelve files moved." }), true);
     expect(tick.note.startsWith(CHANGED_SECTIONS_HEADING)).toBe(true);
-    expect(tick.note).toContain("12% left");
+    expect(tick.note).toContain("Twelve files moved.");
     expect(tick.note).not.toContain("Prefers pnpm");
-    const mention = await send(prompt({ usage: 12 }), true, true);
+    const mention = await send(prompt({ said: "Twelve files moved." }), true, true);
     expect(mention.note.startsWith(FULL_SECTIONS_HEADING)).toBe(true);
-    const legacy = await syncCodexInstructions(key, "native", "rules", prompt({ usage: 12 }).volatile, true, request);
+    const legacy = await syncCodexInstructions(key, "native", "rules", prompt({ said: "Twelve files moved." }).volatile, true, request);
     expect(legacy.note).toBe("");
     expect(request).not.toHaveBeenCalled();
   });
@@ -182,8 +176,8 @@ describe("Codex volatile sections", () => {
     expect(upgraded.note).toBe("");
     expect(upgraded.commitVolatile).not.toBeNull();
     upgraded.commitVolatile?.();
-    const tick = await syncCodexInstructions(key, "native", "rules", prompt({ usage: 5 }).volatile, true, request, false, prompt({ usage: 5 }).volatileSections);
-    expect(tick.note).toContain("5% left");
+    const tick = await syncCodexInstructions(key, "native", "rules", prompt({ said: "Five tests fixed." }).volatile, true, request, false, prompt({ said: "Five tests fixed." }).volatileSections);
+    expect(tick.note).toContain("Five tests fixed.");
     expect(tick.note).not.toContain("Prefers pnpm");
   });
 });

@@ -11,7 +11,6 @@ export type VolatileTurn = {
 };
 
 const STANDING_MARKERS: Readonly<Record<string, readonly string[]>> = {
-  account: [" This turn runs on the "],
   recent: ["\n- "],
   memory: ["\n\nYour memory (MEMORY.md):\n", "\n\nYour topic notes ("],
 };
