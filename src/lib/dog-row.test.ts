@@ -49,6 +49,6 @@ describe("the home's work state on the row", () => {
     const base = bot(proxy("answered"));
     const tasked = { ...base, threadId: "task", work: { kind: "idle" as const },
       tasks: [{ threadId: "task", title: "Task", createdAt: 1, work: { kind: "waiting-on-dog" as const, dogs: [{ id: "s", name: "Scout" }] } }] };
-    expect(dogRowFacts(tasked, {}).work).toBe("Waiting for Scout");
+    expect(dogRowFacts(tasked, {}).work).toBe("Waiting on Scout");
   });
 });

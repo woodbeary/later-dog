@@ -16,7 +16,7 @@ const draw = (bot: Parameters<typeof WorkStatusLine>[0]["bot"]) => act(() => roo
 
 it("says what the chat is waiting for in the header", () => {
   draw({ busy: false, work: { kind: "waiting-on-dog", dogs: [{ id: "scout", name: "Scout" }] } });
-  expect(host.querySelector("[role=status]")?.textContent).toBe("Waiting for Scout");
+  expect(host.querySelector("[role=status]")?.textContent).toBe("Waiting on Scout");
   draw({ busy: true, work: { kind: "retrying", attempt: 2 } });
   expect(host.querySelector("[data-work-state=retrying]")?.textContent).toBe("Reconnecting to the engine, try 2");
 });

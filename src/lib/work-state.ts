@@ -39,7 +39,7 @@ export function workLine(work: WorkState | undefined, now: number = Date.now()):
     }
     case "waiting-on-dog": {
       const names = teammateNames(work.dogs.map((dog) => ({ botId: dog.id, name: dog.name })));
-      return names ? t("work.waitingFor", { names }) : null;
+      return names ? t("chat.waitingOn", { names }) : null;
     }
     case "waiting-for-computer":
       return work.holder ? t("work.computerHeld", { name: work.holder }) : t("work.computer");

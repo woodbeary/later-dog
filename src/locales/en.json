@@ -841,7 +841,6 @@
   "work.usageOn": "Waiting for usage on {account} to reset",
   "work.usageUntil": "Waiting for usage until {time}",
   "work.usageOnUntil": "Waiting for usage on {account} until {time}",
-  "work.waitingFor": "Waiting for {names}",
   "work.computer": "Waiting for the computer",
   "work.computerHeld": "Waiting for the computer while {name} uses it",
   "work.retrying": "Reconnecting to the engine",
