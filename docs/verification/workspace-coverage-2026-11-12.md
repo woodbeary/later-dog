@@ -34,7 +34,7 @@ waiting for the owner.
 - **A send while the home sleeps, test home and its edge.** At 11:34 UTC the home answered
   "waking". A marked message sent then came back in 142 ms as queued, with the queue id equal to
   its send id; the same send repeated got the same receipt. Seven seconds later the home was up
-  with one copy of the message and one reply. Found on the way: `GET /api/held-sends` answered
+  with one copy of the message and one reply. Found on the way: asking the edge for its list of held messages got
   "waking" and then, once the home was up, "no route", so the edge in front of the test home does
   not have the held-message list that is on `main`. The held-message work merged on 2026-11-11
   (the list, Not sent after a drop, cancel and Send now while waking) is therefore not running on
