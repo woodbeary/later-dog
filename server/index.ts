@@ -482,7 +482,6 @@ import {
   computerPrompt,
   composioSystemPrompt,
   customMcpPrompt,
-  CREDENTIAL_PROMPT,
   mentionPrompt,
   LEARN_PROMPT,
   PROFILE_PROMPT,
@@ -508,7 +507,8 @@ import { redactSecretsInText } from "./redact.ts";
 import * as vps from "./vps-computer.ts";
 import { RoutineManager, type Routine, type RoutineGoalStatus, type RoutineRun, type RoutineRunOn, type RoutineRunTrigger } from "./routines.ts";
 import { CalendarCallManager, type CalendarCall } from "./calendar-calls.ts";
-import { BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
+import { BROWSER_PAGE_PROMPT, BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
+import { signInPassage } from "./laterdog/sign-in-passage.ts";
 import { BrowserRuntime, browserRuntimeEnv } from "./browser-runtime.ts";
 import { BrowserLive } from "./browser-live.ts";
 import {
@@ -3610,9 +3610,9 @@ function previewSystemPrompt(bot: BotRecord) {
     { id: "today", label: "Today", text: CLOUD_HOME ? todayPrompt() : "" },
     { id: "composio", label: "Connected apps", text: caps?.composioMcp && bot.composio !== false && composio.configured(cfg) ? composioSystemPrompt(bot.connectorTools) : "" },
     { id: "mcp", label: "MCP servers", text: caps?.customMcp ? customMcpPrompt(Object.keys(engineMcpServers(bot, connectedRepositories.known()))) : "" },
-    { id: "browser", label: "Browser", text: previewPlan.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
+    { id: "browser", label: "Browser", text: previewPlan.browser ? (agentsMounted ? BROWSER_PAGE_PROMPT : BUILT_IN_BROWSER_SYSTEM_PROMPT) : "" },
     { id: "coordination", label: "Team", text: agentsMounted && coordination ? ` ${coordination}` : "" },
-    { id: "credential", label: "Credentials", text: agentsMounted ? CREDENTIAL_PROMPT : "" },
+    { id: "credential", label: "Credentials", text: agentsMounted ? signInPassage({ secureForm: computerPromptKind === "box" }) : "" },
     { id: "routine", label: "Routines", text: agentsMounted ? ROUTINE_PROMPT : "" },
     { id: "profile", label: "Profile changes", text: agentsMounted ? PROFILE_PROMPT : "" },
     { id: "updates", label: "Progress updates", text: workUpdatesPrompt({ background: instance?.adapter.capabilities.backgroundWork === true, react: agentsMounted }) },
@@ -8841,7 +8841,7 @@ async function startTurn(
         bot.id === store.mainBotId(),
         integrations.agents && sectionPeers.length > 0 ? PEERS_PROMPT : "",
       );
-      const credentialPrompt = integrations.agents ? CREDENTIAL_PROMPT + (CLOUD_HOME && vaultStore.available && ownerWorkThread(threadId) ? GOOGLE_PROMPT : "") : "";
+      const credentialPrompt = integrations.agents ? signInPassage({ secureForm: computerKind === "box" }) + (CLOUD_HOME && vaultStore.available && ownerWorkThread(threadId) ? GOOGLE_PROMPT : "") : "";
       const routinePrompt = integrations.agents ? ROUTINE_PROMPT : "";
       const profilePrompt = integrations.agents ? PROFILE_PROMPT : "";
       const recallPrompt = integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "";
@@ -8917,7 +8917,7 @@ async function startTurn(
         { id: "today", label: "Today", text: CLOUD_HOME ? todayPrompt() : "" },
         { id: "composio", label: "Connected apps", text: integrations.composio ? composioSystemPrompt(liveBot?.connectorTools ?? bot.connectorTools) : "" },
         { id: "mcp", label: "MCP servers", text: customMcpPrompt(Object.keys(integrations.custom ?? {})) },
-        { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
+        { id: "browser", label: "Browser", text: integrations.browser ? (integrations.agents ? BROWSER_PAGE_PROMPT : BUILT_IN_BROWSER_SYSTEM_PROMPT) : "" },
         { id: "coordination", label: "Team", text: coordinationPrompt ? ` ${coordinationPrompt}` : "" },
         { id: "assignment", label: "Teammate task", text: coordinationNode ? `\n${coordinationSystemInstructions(ownerAuthorityFor(coordinationNode.threadId))}` : "" },
         { id: "credential", label: "Credentials", text: credentialPrompt },
@@ -10674,7 +10674,7 @@ async function runGroupMemberTurn(
     { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
     { id: "owner-grant", label: "Owner's standing grant", text: roomOwnerGrant ? ownerGrantPrompt(cfg.profile?.name) : "" },
     { id: "coordination", label: "Team", text: roomCoordination },
-    { id: "credential", label: "Credentials", text: integrations.agents ? `\n${CREDENTIAL_PROMPT.trim()}` : "" },
+    { id: "credential", label: "Credentials", text: integrations.agents ? `\n${signInPassage({ secureForm: roomComputerKind === "box" }).trim()}` : "" },
     { id: "routine", label: "Routines", text: integrations.agents ? `\n${ROUTINE_PROMPT.trim()}` : "" },
     { id: "profile", label: "Profile changes", text: integrations.agents ? `\n${PROFILE_PROMPT.trim()}` : "" },
     { id: "learn", label: "Learning", text: skillAuthoring ? `\n${LEARN_PROMPT.trim()}` : "" },
@@ -10684,7 +10684,7 @@ async function runGroupMemberTurn(
     { id: "plan", label: "Surface", text: surfacePrompt({ computer: roomVmTarget ? "vm" : surfaceOfComputerKind(roomComputerKind), browser: Boolean(integrations.browser) }, { note: roomPlan.note, cloudHome: Boolean(CLOUD_HOME) }) },
     { id: "cloud-home", label: "My Cloud", text: CLOUD_HOME ? cloudHomePrompt(Boolean(integrations.agents) && lendingEnabled()) : "" },
     { id: "today", label: "Today", text: CLOUD_HOME ? todayPrompt() : "" },
-    { id: "browser", label: "Browser", text: integrations.browser ? BUILT_IN_BROWSER_SYSTEM_PROMPT : "" },
+    { id: "browser", label: "Browser", text: integrations.browser ? (integrations.agents ? BROWSER_PAGE_PROMPT : BUILT_IN_BROWSER_SYSTEM_PROMPT) : "" },
     { id: "recall", label: "Recall", text: integrations.agents && bot.memoryEnabled !== false ? SESSION_SEARCH_SYSTEM_PROMPT : "" },
     { id: "cross-recall", label: "Other dogs' chats", text: integrations.agents && crossDogRecallAllowed(bot, threadId) ? CROSS_DOG_RECALL_PROMPT : "" },
     { id: "recent", label: "Recent work", text: recentWorkPrompt(recentLines) },
