@@ -2811,7 +2811,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         }
         case "answerCard": {
-          const { host, card, inRoom } = cardTarget(action);
+          const { host, card } = cardTarget(action);
           if (!(card?.requestId && host)) {
             const threadId = action.threadId ?? host?.threadId;
             sendOutbox().send({
