@@ -736,6 +736,8 @@ import { exchangeIdOf, exchangeThreads, withExchange, type ExchangeLookup } from
 import { roomWorkFor } from "./laterdog/room-work.ts";
 import { WorkSignals } from "./laterdog/work-signals.ts";
 import { turnReceipt } from "./laterdog/turn-receipt.ts";
+import { terminalTurnPatch, turnResults } from "./laterdog/turn-results.ts";
+import { TurnTouches } from "./laterdog/turn-touches.ts";
 import { carryOnAfterRestart } from "./laterdog/carry-on-restart.ts";
 import { runningByAccount } from "./laterdog/account-spread.ts";
 import { latestTurnAnswer, lookedAtImage, postTurnImage } from "./laterdog/turn-images.ts";
@@ -5558,7 +5560,8 @@ bus.subscribe((event: RuntimeEvent) => {
     if (event.turnId && store.botByThread(event.threadId) && !automaticallyCarriesOn(event)) {
       const reply = store.messagesFor(event.threadId).findLast(message =>
         message.role === "bot" && message.kind === "text" && message.turnId === event.turnId);
-      const outcome = { ok: event.ok, text: (reply?.text || event.stopReason || "The bot finished without a text reply").slice(0, 12_000) };
+      const results = observedTurnResults(event.threadId);
+      const outcome = { ok: event.ok, text: (reply?.text || event.stopReason || "The bot finished without a text reply").slice(0, 12_000), ...(results ? { results } : {}) };
       const owner = directFollowupTurns.complete(event.threadId, event.turnId, outcome);
       if (owner) {
         settleDirectCoordination(owner.generation, outcome);
@@ -5815,6 +5818,12 @@ bus.subscribe((event: RuntimeEvent) => {
   } catch {}
 });
 const turnStartedAt = new Map<string, number>();
+const turnTouches = new TurnTouches();
+function observedTurnResults(threadId: string) {
+  const observed = turnTouches.observed(threadId);
+  const owner = observed ? store.botByThread(threadId) : undefined;
+  return observed ? turnResults({ ...observed, cwd: owner ? store.taskByThread(owner.id, threadId)?.cwd ?? owner.cwd : undefined, home: homedir() }) : undefined;
+}
 const turnCheckpoints = new Map<string, { botId: string; cwd: string; hash: string; pin: string }>();
 const liveTurnByThread = new Map<string, string>();
 
@@ -6988,6 +6997,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   switch (event.type) {
     case "turn.started":
       turnStartedAt.set(event.threadId, Date.now());
+      turnTouches.begin(event.threadId);
       break;
     case "session.started":
       if (bot && event.sessionId && event.providerInstanceId) {
@@ -7027,6 +7037,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           });
           toolMessageByItem.delete(itemKey);
         }
+        turnTouches.finish(event.threadId, event.itemId, { ok: event.ok, output: event.output, toolName });
         const cloudTask = event.ok ? cloudTaskRefFromToolOutput(toolName, event.output) : null;
         if (cloudTask && !store.messagesFor(event.threadId).some((m) => m.cloudTask?.jobId === cloudTask.jobId)) {
           pushMessage({ role: "bot", kind: "activity", tool: { name: `Cloud task: ${cloudTask.title}`, ok: true, spoken: "started a cloud task" }, cloudTask, turnId: liveTurnId });
@@ -7050,6 +7061,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           turnId: liveTurnId,
         });
         if (event.itemId) toolMessageByItem.set(`${event.threadId}:${event.itemId}`, message.id);
+        turnTouches.start(event.threadId, event.itemId, event.touches);
       }
       break;
     case "request.opened": {
@@ -7343,7 +7355,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       if (completedTurnId) {
         const terminal = store.markTerminalAssistantMessage(event.threadId, completedTurnId);
         const ran = execution ? turnReceipt(execution, (instanceId) => registry.get(instanceId)?.displayName) : undefined;
-        if (terminal) store.patchMessage(event.threadId, terminal.id, { turnSucceeded: event.ok, ...(ran ? { ran } : {}) });
+        if (terminal) store.patchMessage(event.threadId, terminal.id, terminalTurnPatch(event.ok, ran, observedTurnResults(event.threadId)));
       }
       const reply = lastReply.get(event.threadId) ?? "";
       lastReply.delete(event.threadId);

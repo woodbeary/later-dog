@@ -1,4 +1,5 @@
 import type { ApprovalMode } from "../../shared/approval-mode.ts";
+import type { TurnResults } from "../../shared/turn-results.ts";
 import { effectiveRoomTurnTimeoutMinutes } from "../room-turn-timeout.ts";
 import { toolRunningSince, type WatchedTurn } from "../turn-watchdog.ts";
 import { plainDuration, type HandoffEnd } from "./handoff-budget.ts";
@@ -14,6 +15,7 @@ export interface HandoffRunResult {
   ok: boolean;
   text: string;
   timedOut?: boolean;
+  results?: TurnResults;
 }
 
 export function ownersWork(owner: WorkOwner): boolean {

@@ -45,6 +45,7 @@ export function roomExchange(node: RoomHandoff, lookup: ExchangeLookup): WireExc
     ...(reply ? { reply } : {}),
     ...(node.endedBy ? { endedBy: node.endedBy } : {}),
     ...(waitingOn.length ? { waitingOn } : {}),
+    ...(status === "completed" && node.results ? { results: node.results } : {}),
   };
 }
 

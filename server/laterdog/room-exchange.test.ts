@@ -33,6 +33,16 @@ describe("a dog-to-dog exchange on the wire", () => {
     expect(roomExchange(child, lookupOf([root, child]))).toMatchObject({ status: "completed", reply: "Totals match: $4,210" });
   });
 
+  it("carries the replying dog's results only once the exchange completed", () => {
+    const results = { files: [{ path: "totals.csv", change: "edited" as const }], commands: 1 };
+    const done = node({ status: "completed", result: "Totals match", results });
+    expect(roomExchange(done, lookupOf([root, done]))?.results).toEqual(results);
+    const running = node({ status: "running", results });
+    expect(roomExchange(running, lookupOf([root, running]))).not.toHaveProperty("results");
+    const legacy = node({ status: "completed", result: "Totals match" });
+    expect(roomExchange(legacy, lookupOf([root, legacy]))).not.toHaveProperty("results");
+  });
+
   it("does not call an acknowledgment without a result done", () => {
     const child = node({ status: "completed", result: "  " });
     const exchange = roomExchange(child, lookupOf([root, child]));

@@ -168,6 +168,7 @@ export interface Message {
   exchange?: import("../../shared/room-exchange").WireExchange;
   exchanges?: import("../../shared/room-exchange").WireExchange[];
   ran?: import("../../shared/turn-receipt").TurnReceipt;
+  results?: import("../../shared/turn-results").TurnResults;
   needsYou?: {
     botId: string;
     botName: string;

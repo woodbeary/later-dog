@@ -22,6 +22,7 @@ import type { Routine, RoutineRun } from "./routines.ts";
 import type { WorkState } from "./work-state.ts";
 import type { WireExchange } from "./room-exchange.ts";
 import type { TurnReceipt } from "./turn-receipt.ts";
+import type { TurnResults } from "./turn-results.ts";
 import type { WebhookAttempt, WebhookTrigger } from "./webhooks.ts";
 
 export const EFFORT_LEVELS = ["none", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
@@ -302,6 +303,7 @@ export interface WireMessage {
   requestPending?: boolean;
   turnTerminal?: boolean;
   ran?: TurnReceipt;
+  results?: TurnResults;
   png?: string;
   mime?: string;
   at: number;
