@@ -1,0 +1,15 @@
+app	run	load1	launch_to_chat_ms	inside_app_ms
+electron	1	12.59	812	596
+native	1	12.06	251	180.6
+electron	2	11.74	752	560
+native	2	11.74	257	185.6
+electron	3	11.60	805	584
+native	3	10.91	250	178.3
+electron	4	10.91	745	552
+native	4	10.36	254	182.5
+electron	5	9.69	761	550
+native	5	8.99	253	181.3
+electron	6	8.99	903	708
+native	6	9.63	307	235.5
+electron	7	10.62	805	590
+native	7	11.13	262	190.8

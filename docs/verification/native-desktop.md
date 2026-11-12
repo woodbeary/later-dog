@@ -67,13 +67,28 @@ What these numbers are not:
   and the load average was 4 to 13 during the runs. Memory is not sensitive to that; the idle work
   figure is one reading per run on a busy machine and has not been explained (the renderer may
   still have been settling), so treat it as a lead, not a result.
-- **Not a launch time.** Time from launch to a usable chat is not reported: the two apps were
-  timed at different loads (web renderer 2.8 to 3.8 s at load 4; native 3.4 to 6.8 s at load 20 or
-  more, against 0.7 to 2.0 s on an earlier, also loaded, run). It needs a quiet machine.
 - **Not feature parity.** The native app draws far less than the renderer does (see above), and
   each missing feature will add memory.
-- Not measured: typing latency, chat switching, scrolling, streaming, peak memory under work, and
+- Not measured: the first launch of a new unsigned binary (the system checks it for about a second before it runs), typing latency, chat switching, scrolling, streaming, peak memory under work, and
   the released app's whole process tree with its local server.
+
+## Launch to a usable chat
+
+Same fixture and the same two builds. Seven runs each, alternating, after one discarded warm-up,
+timed by wall clock from the moment the process is started (`launch.sh`, raw rows in
+`launch-2026-11-12.tsv`). The web renderer's time ends when the selected chat's message box is
+ready; the native app's ends when the selected chat has been drawn and written to a PNG, which is
+a little more than the web renderer is charged for.
+
+| | Web renderer in Electron | Native |
+| --- | ---: | ---: |
+| Launch to a usable chat, median (lowest to highest) | 805 ms (745 to 903) | 254 ms (250 to 307) |
+| Of that, inside the app after its own code starts | 584 ms | 182 ms |
+
+The load average was 9 to 12 during these runs (file indexing by the system). The runs alternate
+and each app's spread is small, so the comparison holds; the absolute times would be lower on an
+idle machine. As above, the web renderer here has none of the released app's main-process code or
+local server, and the native app draws far less than the renderer.
 
 ## Why AppKit from Rust
 
