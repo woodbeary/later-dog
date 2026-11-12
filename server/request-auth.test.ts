@@ -97,7 +97,7 @@ describe("scopes", () => {
     for (const [method, path] of [
       ["POST", "/api/bots/x/messages"], ["POST", "/api/bots/x/respond"], ["POST", "/api/threads/t/respond"],
       ["POST", "/api/threads/t/undo"], ["POST", "/api/bots/x/compact"], ["POST", "/api/bots/x/tasks/t/title"],
-      ["PATCH", "/api/bots/x/cards/m"], ["POST", "/api/groups/g/messages"], ["PATCH", "/api/groups/g"],
+      ["PATCH", "/api/bots/x/cards/m"], ["PATCH", "/api/groups/g/cards/m"], ["POST", "/api/groups/g/messages"], ["PATCH", "/api/groups/g"],
       ["PATCH", "/api/bots/x"], ["PATCH", "/api/bots/x/profile"], ["POST", "/api/attachments"],
       ["GET", "/api/attachments/a.png"], ["POST", "/api/routines"], ["POST", "/api/routines/r/run"],
       ["POST", "/api/routine-runs/seen-all"],
@@ -582,7 +582,7 @@ describe("local tools token: local tools work on a packaged desktop, but a dog c
     ["POST", "/api/groups"], ["PATCH", "/api/groups/room-1"], ["POST", "/api/groups/room-1/tasks"], ["PATCH", "/api/groups/room-1/tasks/thread-1"],
   ];
   const REFUSED: Array<[string, string]> = [
-    ["POST", "/api/bots/bot-1/respond"], ["POST", "/api/threads/thread-1/respond"], ["PATCH", "/api/bots/bot-1/cards/card-1"],
+    ["POST", "/api/bots/bot-1/respond"], ["POST", "/api/threads/thread-1/respond"], ["PATCH", "/api/bots/bot-1/cards/card-1"], ["PATCH", "/api/groups/room-1/cards/card-1"],
     ["POST", "/api/bots/bot-1/always-allow"], ["POST", "/api/bots/bot-1/command-allowlist"], ["PUT", "/api/bots/bot-1/command-allowlist/rule-1"],
     ["POST", "/api/bots/bot-1/secret-cards/card-1/provide"], ["POST", "/api/bots/bot-1/connector-cards/card-1/authorize"],
     ["GET", "/api/bots/bot-1/connector-cards/card-1/status"], ["POST", "/api/connectors/github/authorize"],
@@ -683,7 +683,7 @@ describe("an apps session (\"Apps on this Mac\" on a Cloud home) is held to the 
     ["POST", "/api/auth/logout"],
   ];
   const REFUSED: Array<[string, string]> = [
-    ["POST", "/api/bots/bot-1/respond"], ["POST", "/api/threads/thread-1/respond"], ["PATCH", "/api/bots/bot-1/cards/card-1"],
+    ["POST", "/api/bots/bot-1/respond"], ["POST", "/api/threads/thread-1/respond"], ["PATCH", "/api/bots/bot-1/cards/card-1"], ["PATCH", "/api/groups/room-1/cards/card-1"],
     ["POST", "/api/bots/bot-1/always-allow"], ["POST", "/api/bots/bot-1/command-allowlist"],
     ["POST", "/api/bots/bot-1/secret-cards/card-1/resume"], ["POST", "/api/bots/bot-1/connector-cards/card-1/resume"],
     ["GET", "/api/bots/bot-1/connector-cards/card-1/status"], ["POST", "/api/handoffs/root-1/continue"],

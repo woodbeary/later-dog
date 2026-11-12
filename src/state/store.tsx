@@ -1111,6 +1111,14 @@ function persistCard(botId: string, messageId: string, patch: Partial<OptionCard
   }).catch(() => {});
 }
 
+function persistRoomCard(groupId: string, threadId: string, messageId: string, patch: Partial<OptionCardData>) {
+  fetch(`/api/groups/${groupId}/cards/${messageId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...patch, ...(threadId ? { threadId } : {}) }),
+  }).catch(() => {});
+}
+
 function withPatchedCard(messages: Message[], messageId: string, patch: Partial<OptionCardData>): Message[] {
   return messages.map((m) => (m.id === messageId && m.card ? { ...m, card: { ...m.card, ...patch } } : m));
 }
@@ -2426,9 +2434,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       request: api,
       dispatch: rawDispatch,
       showError: (error, threadId) => paneErrors.report(error, threadId ? chatPane(threadId) : undefined),
-      cardAnswered: (card, answer) => {
+      cardAnswered: (card, answer, threadId) => {
         rawDispatch({ type: "cardAnswered", botId: card.botId, messageId: card.messageId, answer, ...(card.groupId ? { groupId: card.groupId } : {}) });
-        if (!card.groupId) persistCard(card.botId, card.messageId, { answered: answer, dismissed: true });
+        if (card.groupId) persistRoomCard(card.groupId, threadId, card.messageId, { answered: answer, dismissed: true });
+        else persistCard(card.botId, card.messageId, { answered: answer, dismissed: true });
       },
       confirmAtHome: () => confirmAtHomeRef.current(),
       cardAnswerFailed: (card) => rawDispatch({ type: "cardAnswerFailed", botId: card.botId, messageId: card.messageId, ...(card.groupId ? { groupId: card.groupId } : {}) }),

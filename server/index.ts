@@ -762,6 +762,7 @@ import { firstEngine, hasNoModel } from "./laterdog/first-engine.ts";
 import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
+import { createRoomCardRoutes } from "./routes/room-card.ts";
 import { createSidebarSectionOrderRoutes } from "./routes/sidebar-section-order.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
 import { createDeciderRoutes } from "./routes/decider.ts";
@@ -12988,6 +12989,14 @@ ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: (
 const orgInstallStatuses = () => orgLibrary?.installStatuses() ?? new Map();
 ROUTES.push(createBotPresetRoutes({ presets: presetStore, orgStatuses: orgInstallStatuses }));
 ROUTES.push(createSidebarSectionOrderRoutes({ order: (sections) => store.orderSections(sections) }));
+ROUTES.push(createRoomCardRoutes({
+  room: (id) => store.group(id),
+  threadBelongsToRoom: (id, threadId) => { const room = store.group(id); return Boolean(room && (room.dm ? room.threadId === threadId : store.groupTaskByThread(id, threadId))); },
+  messages: (threadId) => store.messagesFor(threadId),
+  refusal: (auth) => (CLOUD_HOME && auth.kind === "session" ? cloudCardRefusal(auth) : null),
+  answeredBy: (auth) => (CLOUD_HOME ? cardAnswererFor(auth) : undefined),
+  save: (threadId, messageId, card) => store.patchMessage(threadId, messageId, { card }),
+}));
 ROUTES.push(createEnginePlacementRoutes({
   botExists: (id) => Boolean(store.bot(id)),
   read: (id) => remoteEngineChoice(DATA_DIR, id),

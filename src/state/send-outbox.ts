@@ -33,7 +33,7 @@ export interface SendOutboxDeps {
   store?: Store;
   after?: (ms: number, run: () => void) => () => void;
   now?: () => number;
-  cardAnswered?: (card: OutboxCard, answer: string) => void;
+  cardAnswered?: (card: OutboxCard, answer: string, threadId: string) => void;
   cardAnswerFailed?: (card: OutboxCard) => void;
   lineOnThread?: (threadId: string, sendId: string) => boolean;
   confirmAtHome?: () => void;
@@ -277,8 +277,8 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     ...(item.card ? { card: item.card } : {}),
     at: now(),
   });
-  const delivered = (item: { card?: OutboxCard; text?: string; requestText?: string }) => {
-    if (item.card) deps.cardAnswered?.(item.card, item.requestText ?? item.text ?? "");
+  const delivered = (item: { card?: OutboxCard; text?: string; requestText?: string; threadId: string }) => {
+    if (item.card) deps.cardAnswered?.(item.card, item.requestText ?? item.text ?? "", item.threadId);
   };
   const undelivered = (item: { card?: OutboxCard }) => {
     if (item.card) deps.cardAnswerFailed?.(item.card);

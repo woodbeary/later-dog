@@ -81,7 +81,8 @@ async function mount(home: Home) {
     .filter(([path, init]) => (path === "/api/bots/bot/messages" || path === "/api/groups/room/messages") && init?.method === "POST")
     .map(([, init]) => JSON.parse(String(init?.body)) as { text: string; sendId?: string; threadId?: string });
   const saved = () => requests.mock.calls.filter(([path]) => String(path).includes("/cards/")).map(([, init]) => JSON.parse(String(init?.body)));
-  return { requests, posts, saved };
+  const savedPaths = () => requests.mock.calls.map(([path]) => String(path)).filter((path) => path.includes("/cards/"));
+  return { requests, posts, saved, savedPaths };
 }
 
 const card = () => seen.bots[0]!.messages.find((message) => message.id === "card-1")!.card!;
@@ -192,7 +193,7 @@ describe("answering a card goes through the device outbox", () => {
     it("posts the answer to the room with a send id, shows the card as waiting, and marks it answered when the home's receipt arrives", async () => {
       let receipt!: (response: Response) => void;
       const home: Home = { chats: roomChats([roomQuestion]), held: { held: [], dropped: [] }, receipt: () => new Promise<Response>((resolve) => { receipt = resolve; }) };
-      const { posts, saved } = await mount(home);
+      const { posts, saved, savedPaths } = await mount(home);
       await answerInRoom();
       expect(posts()).toEqual([expect.objectContaining({ text: "Red", threadId: "room-thread", sendId: expect.stringMatching(/^[\w-]{16,80}$/) })]);
       expect(roomCard().answered).toBeUndefined();
@@ -202,15 +203,17 @@ describe("answering a card goes through the device outbox", () => {
       await settle();
       expect(roomCard()).toMatchObject({ answered: "Red" });
       expect(roomCard().pendingAnswer).toBeUndefined();
-      expect(saved()).toEqual([]);
+      expect(saved()).toEqual([{ answered: "Red", dismissed: true, threadId: "room-thread" }]);
+      expect(savedPaths()).toEqual(["/api/groups/room/cards/card-1"]);
     });
 
     it("makes the card answerable again and shows Not sent with the answer in the room when the home refuses it", async () => {
       const draft = "group:room:room-thread";
       const before = failedComposerSends(draft).length;
       const home: Home = { chats: roomChats([roomQuestion]), held: { held: [], dropped: [] }, receipt: () => new Response(JSON.stringify({ error: "That room is not here." }), { status: 404 }) };
-      const { posts } = await mount(home);
+      const { posts, saved } = await mount(home);
       await answerInRoom("Blue");
+      expect(saved()).toEqual([]);
       expect(roomCard().answered).toBeUndefined();
       expect(roomCard().pendingAnswer).toBeUndefined();
       expect(failedComposerSends(draft).slice(before)).toEqual([expect.objectContaining({ sendId: posts()[0]!.sendId, text: "Blue", threadId: "room-thread" })]);

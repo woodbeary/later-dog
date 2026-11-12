@@ -634,7 +634,7 @@ describe("a message the edge held for a sleeping home", () => {
         await timers.fire();
         await outbox.settleHeld([{ messages: [{ id: "home-line-1", sendId: sent.sendId }] } as never], [], {});
         expect(kept(store)).toEqual([]);
-        expect(cardAnswered).toHaveBeenCalledWith({ botId: "bot", messageId: "card-1" }, "wake up and ship it");
+        expect(cardAnswered).toHaveBeenCalledWith({ botId: "bot", messageId: "card-1" }, "wake up and ship it", "thread");
         expect(cardAnswerFailed).not.toHaveBeenCalled();
         expect(showError).not.toHaveBeenCalled();
         expect(failedBefore()).toBe(before);
