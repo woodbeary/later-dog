@@ -109,6 +109,7 @@ import { PaneErrorLine } from "./PaneErrorLine";
 import { activeLocale, t } from "@/lib/i18n";
 import { WorkStatusLine } from "./WorkStatusLine";
 import { TurnReceiptLine } from "./TurnReceiptLine";
+import { TurnResultsBlock, hasTurnResults } from "./TurnResultsBlock";
 import { groupTranscript, isStatusActivity, planTranscript, type TranscriptPlan } from "@/lib/activity-runs";
 import { isUnread, useUnreadBoundary } from "@/lib/unread-boundary";
 import { UnreadDivider } from "./UnreadDivider";
@@ -386,7 +387,7 @@ const Bubble = memo(function Bubble({
           } }] : []),
         ]
       : []),
-    ...(!user && message.ran ? [{ key: "ran", label: t("chat.action.howItRan"), icon: <Cpu size={16} />, onSelect: () => setShowRan((value) => !value) }] : []),
+    ...(!user && (message.ran || hasTurnResults(message.results)) ? [{ key: "ran", label: t(hasTurnResults(message.results) ? "chat.action.ranAndChanged" : "chat.action.howItRan"), icon: <Cpu size={16} />, onSelect: () => setShowRan((value) => !value) }] : []),
   ];
 
   return (
@@ -559,6 +560,7 @@ const Bubble = memo(function Bubble({
         </span>
       </div>
       {!user && showRan && <TurnReceiptLine receipt={message.ran} />}
+      {!user && showRan && <TurnResultsBlock results={message.results} />}
       {user && message.id.startsWith(OPTIMISTIC_PREFIX) && <SendingTrack at={message.at} held={message.held} />}
       {user && receipt && message.steered && <ReadReceipt readAt={message.readAt} working={busy} name={botName} />}
       {forks.length > 1 && (

@@ -8,6 +8,7 @@ import { currentDogName, freshenDogName } from "@/lib/dog-refs";
 import { openExchange } from "@/lib/exchange-view";
 import { exchangeSummary, exchangeWording, failedExchange, foldedPreview, sentExchange, singleExchange, type ExchangeItem, type ExchangeRow, type ExchangeState } from "@/lib/quiet-lines";
 import { BotAvatar } from "./Avatar";
+import { TurnResultsBlock } from "./TurnResultsBlock";
 import type { WireExchange } from "../../shared/room-exchange";
 
 export const ExchangeThreadContext = createContext<{ thread: readonly Message[]; working: boolean } | null>(null);
@@ -52,6 +53,7 @@ export function ExchangeDetails({ record, id }: { record: WireExchange; id: stri
       </div>
       {record.waitingOn?.length ? <div data-exchange-waiting="">{t("chat.exchange.waitingOn", { names: record.waitingOn.join(", ") })}</div> : null}
       {ended && <div data-exchange-ended="">{t(ended)}</div>}
+      {record.status === "completed" && <TurnResultsBlock results={record.results} />}
     </div>
   );
 }
