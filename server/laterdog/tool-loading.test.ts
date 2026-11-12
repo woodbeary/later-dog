@@ -26,10 +26,10 @@ describe("tool loading", () => {
     expect([...names].sort()).toEqual([...grouped].sort());
   });
 
-  it("changes nothing while the setting is off", () => {
+  it("is on unless the setting turns it off, and changes nothing when off", () => {
     const tools = availableTools(everything);
     expect(withToolLoading(tools, {})).toEqual(tools);
-    expect(deferRareToolsEnabled({})).toBe(false);
+    expect(deferRareToolsEnabled({})).toBe(true);
     expect(deferRareToolsEnabled({ LATERDOG_DEFER_RARE_TOOLS: "0" })).toBe(false);
     const server = { command: "node", args: ["proxy.js"], env: { LATERDOG_BOT_ID: "b" } };
     expect(agentsServerLaunch(server, false)).toEqual({ ...server, alwaysLoad: true });

@@ -1160,7 +1160,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.mcpConfig.mcpServers.dog.alwaysLoad).toBe(true);
   });
 
-  it("asks the agents server to mark rare tools for loading on demand only when the server setting is on", async () => {
+  it("asks the agents server to mark rare tools for loading on demand unless the server setting turns it off", async () => {
     const previous = process.env.LATERDOG_DEFER_RARE_TOOLS;
     await create();
     const dump = join(scratch, "rare-tools.json");
@@ -1178,10 +1178,10 @@ describe("ClaudeDriver turns (fake CLI)", () => {
       return JSON.parse(readFileSync(dump, "utf8")).mcpConfig.mcpServers.agents;
     };
     try {
-      delete process.env.LATERDOG_DEFER_RARE_TOOLS;
+      process.env.LATERDOG_DEFER_RARE_TOOLS = "0";
       const off = await launch("t-rare-off");
       expect(off).toEqual({ command: process.execPath, args: ["/fake/agents-proxy.js"], env: { LATERDOG_BOT_ID: "b1" }, alwaysLoad: true });
-      process.env.LATERDOG_DEFER_RARE_TOOLS = "1";
+      delete process.env.LATERDOG_DEFER_RARE_TOOLS;
       const on = await launch("t-rare-on");
       expect(on).toEqual({ ...off, env: { LATERDOG_BOT_ID: "b1", LATERDOG_AGENTS_DEFER_RARE: "1" } });
     } finally {
