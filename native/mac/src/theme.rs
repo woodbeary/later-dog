@@ -43,6 +43,10 @@ pub const DAY_PAD_Y: f64 = 12.0;
 pub const DAY_LINE: f64 = 16.0;
 pub const WORK_HEIGHT: f64 = 40.0;
 pub const QUIET_LINE: f64 = 22.0;
+pub const SECTION_HEADER: f64 = 26.0;
+pub const SECTION_GAP: f64 = 12.0;
+pub const GLASS_EDGE: f64 = 20.0;
+pub const UNREAD_PILL: f64 = 26.0;
 pub const EXCHANGE_DETAILS_MAX: f64 = 560.0;
 
 pub const COMPOSER_PAD_X: f64 = 20.0;
@@ -154,6 +158,7 @@ pub struct Theme {
     pub success: Retained<NSColor>,
     pub panel_50: Retained<NSColor>,
     pub hairline_50: Retained<NSColor>,
+    pub app_55: Retained<NSColor>,
 }
 
 impl Theme {
@@ -186,6 +191,7 @@ impl Theme {
             success: dynamic(&SUCCESS),
             panel_50: dynamic(&faded(PANEL, 0.5)),
             hairline_50: dynamic(&faded(HAIRLINE_TONE, 0.5)),
+            app_55: dynamic(&faded(APP, 0.55)),
         }
     }
 

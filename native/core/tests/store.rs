@@ -395,3 +395,50 @@ fn send_again_after_a_refusal_reuses_the_send_id_and_words() {
     assert!(store.send_again(&item.send_id).is_none());
     assert_eq!(texts(&store).last().map(|row| row.1.as_str()), Some("try me"));
 }
+
+#[test]
+fn sections_get_headers_with_counts_and_the_rest_reads_unassigned() {
+    use laterdog_core::store::SidebarEntry;
+    let raw = r#"{"sections":["Build","Empty"],"bots":[
+      {"id":"p","threadId":"tp","name":"Pin","pinned":true,"section":"Build"},
+      {"id":"a","threadId":"ta","name":"Ann","section":"Build"},
+      {"id":"b","threadId":"tb","name":"Bo"},
+      {"id":"c","threadId":"tc","name":"Cy","section":"Later"},
+      {"id":"h","threadId":"th","name":"Hid","section":"Build","hidden":true}
+    ]}"#;
+    let mut store = Store::new(seed());
+    store.apply_page(parse::<BotsPage>(raw).expect("page"));
+    let view = store.view();
+    let names: Vec<&str> = view.dogs.iter().map(|dog| dog.name.as_str()).collect();
+    assert_eq!(names, ["Pin", "Ann", "Cy", "Bo"]);
+    let header = |name: &str, count: usize, first: bool| SidebarEntry::Header { name: name.to_owned(), count, first };
+    assert_eq!(
+        view.sidebar,
+        [
+            SidebarEntry::Dog { index: 0 },
+            header("Build", 1, true),
+            SidebarEntry::Dog { index: 1 },
+            header("Empty", 0, false),
+            header("Later", 1, false),
+            SidebarEntry::Dog { index: 2 },
+            header("Unassigned", 1, false),
+            SidebarEntry::Dog { index: 3 },
+        ]
+    );
+}
+
+#[test]
+fn without_sections_the_list_has_no_headers() {
+    let view = loaded().view();
+    assert_eq!(view.sidebar.len(), view.dogs.len());
+    assert!(view.sidebar.iter().all(|entry| matches!(entry, laterdog_core::store::SidebarEntry::Dog { .. })));
+}
+
+#[test]
+fn unread_rows_out_of_view_are_counted_above_and_below() {
+    use laterdog_core::store::unreads_out_of_view;
+    let rows = [(0.0, 56.0), (100.0, 156.0), (400.0, 456.0), (500.0, 556.0)];
+    assert_eq!(unreads_out_of_view(&rows, 60.0, 400.5), (1, 2));
+    assert_eq!(unreads_out_of_view(&rows, 0.0, 1000.0), (0, 0));
+    assert_eq!(unreads_out_of_view(&[], 0.0, 10.0), (0, 0));
+}

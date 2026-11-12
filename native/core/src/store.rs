@@ -190,6 +190,13 @@ pub struct SidebarRow {
     pub work: Option<Work>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum SidebarEntry {
+    Header { name: String, count: usize, first: bool },
+    Dog { index: usize },
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RowKind {
@@ -230,6 +237,7 @@ pub struct View {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work: Option<Work>,
     pub dogs: Vec<SidebarRow>,
+    pub sidebar: Vec<SidebarEntry>,
     pub transcript: Vec<TranscriptRow>,
 }
 
@@ -244,6 +252,12 @@ fn preview_of(message: &WireMessage) -> String {
 
 fn first_line(text: &str) -> String {
     text.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default().to_owned()
+}
+
+pub fn unreads_out_of_view(rows: &[(f64, f64)], top: f64, bottom: f64) -> (usize, usize) {
+    let above = rows.iter().filter(|(_, row_bottom)| *row_bottom <= top + 1.0).count();
+    let below = rows.iter().filter(|(row_top, row_bottom)| *row_bottom > top + 1.0 && *row_top >= bottom - 1.0).count();
+    (above, below)
 }
 
 pub fn send_id(seed: &[u8; 16], now_ms: u64, counter: u64) -> String {
@@ -561,8 +575,52 @@ impl Store {
                     }
                 })
                 .collect(),
+            sidebar: self.sidebar_entries(),
             transcript: selected.map(|dog| self.transcript(dog)).unwrap_or_default(),
         }
+    }
+
+    fn section_names(&self) -> Vec<&str> {
+        let mut names: Vec<&str> = Vec::new();
+        for name in self.sections.iter().map(String::as_str) {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        for dog in self.dogs.iter().filter(|dog| !dog.hidden && !dog.pinned) {
+            if let Some(section) = dog.section.as_deref() {
+                if !names.contains(&section) {
+                    names.push(section);
+                }
+            }
+        }
+        names
+    }
+
+    fn sidebar_entries(&self) -> Vec<SidebarEntry> {
+        let order = self.sidebar_order();
+        let names = self.section_names();
+        let mut entries = Vec::with_capacity(order.len() + names.len() + 1);
+        let pinned = order.iter().take_while(|dog| dog.pinned).count();
+        entries.extend((0..pinned).map(|index| SidebarEntry::Dog { index }));
+        if names.is_empty() {
+            entries.extend((pinned..order.len()).map(|index| SidebarEntry::Dog { index }));
+            return entries;
+        }
+        let mut groups: Vec<(String, Vec<usize>)> = names.iter().map(|name| ((*name).to_owned(), Vec::new())).collect();
+        let mut rest = Vec::new();
+        for (index, dog) in order.iter().enumerate().skip(pinned) {
+            match dog.section.as_deref().and_then(|section| groups.iter().position(|(name, _)| name == section)) {
+                Some(group) => groups[group].1.push(index),
+                None => rest.push(index),
+            }
+        }
+        groups.push((crate::words::SECTION_UNASSIGNED.to_owned(), rest));
+        for (position, (name, members)) in groups.into_iter().enumerate() {
+            entries.push(SidebarEntry::Header { name, count: members.len(), first: position == 0 });
+            entries.extend(members.into_iter().map(|index| SidebarEntry::Dog { index }));
+        }
+        entries
     }
 
     fn sidebar_order(&self) -> Vec<&Dog> {

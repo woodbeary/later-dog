@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Sel};
-use objc2::{define_class, msg_send, DefinedClass, MainThreadMarker, MainThreadOnly};
+use objc2::{define_class, msg_send, AllocAnyThread, DefinedClass, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSBezierPath, NSButton, NSColor, NSFont, NSFontAttributeName, NSForegroundColorAttributeName, NSImage,
     NSImageScaling, NSImageSymbolConfiguration, NSImageView, NSLineBreakMode, NSParagraphStyleAttributeName,
@@ -375,4 +375,54 @@ pub fn icon_button(mtm: MainThreadMarker, name: &str, size: f64, weight: NSFontW
     button.setImageScaling(NSImageScaling::ScaleNone);
     objc2_app_kit::NSAccessibility::setAccessibilityLabel(&*button, Some(&NSString::from_str(label)));
     button
+}
+
+pub struct FadeIvars {
+    color: Retained<NSColor>,
+    edge: f64,
+}
+
+define_class!(
+    #[unsafe(super(NSView))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = FadeIvars]
+    pub struct Fade;
+
+    impl Fade {
+        #[unsafe(method(isFlipped))]
+        fn is_flipped(&self) -> bool {
+            true
+        }
+
+        #[unsafe(method(drawRect:))]
+        fn draw_rect(&self, _dirty: NSRect) {
+            self.paint();
+        }
+
+        #[unsafe(method(hitTest:))]
+        fn hit_test(&self, _point: NSPoint) -> *mut NSView {
+            std::ptr::null_mut()
+        }
+    }
+);
+
+impl Fade {
+    pub fn new(mtm: MainThreadMarker, color: &NSColor, edge: f64) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(FadeIvars { color: Retained::from(color), edge });
+        unsafe { msg_send![super(this), initWithFrame: rect(0.0, 0.0, 10.0, 10.0)] }
+    }
+
+    fn paint(&self) {
+        let bounds = self.bounds();
+        let edge = self.ivars().edge.min(bounds.size.height);
+        let solid = bounds.size.height - edge;
+        let color = &self.ivars().color;
+        color.setFill();
+        NSBezierPath::fillRect(rect(0.0, 0.0, bounds.size.width, solid));
+        let clear = color.colorWithAlphaComponent(0.0);
+        let colors = objc2_foundation::NSArray::from_retained_slice(&[Retained::from(&**color), clear]);
+        if let Some(gradient) = objc2_app_kit::NSGradient::initWithColors(objc2_app_kit::NSGradient::alloc(), &colors) {
+            gradient.drawInRect_angle(rect(0.0, solid, bounds.size.width, edge), 90.0);
+        }
+    }
 }

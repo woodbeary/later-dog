@@ -16,6 +16,11 @@ pub const WORK_STOPPED_ENGINE: &str = "Stopped: the engine reported an error";
 pub const WORK_ROOM_WORKING_ONE: &str = "{names} is working";
 pub const WORK_ROOM_WORKING_MANY: &str = "{names} are working";
 
+pub const SECTION_UNASSIGNED: &str = "Unassigned";
+pub const UNREADS_COUNT: &str = "{count} unread";
+pub const UNREADS_ABOVE: &str = "Jump to {count} unread chats above";
+pub const UNREADS_BELOW: &str = "Jump to {count} unread chats below";
+
 pub const EXCHANGE_MESSAGED: &str = "Messaged";
 pub const EXCHANGE_MESSAGE_FROM: &str = "Message from";
 pub const EXCHANGE_STATE_QUEUED: &str = "Queued";

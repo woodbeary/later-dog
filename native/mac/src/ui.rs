@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use dispatch2::{DispatchQueue, DispatchTime};
 use laterdog_core::events::Frame;
 use laterdog_core::splice::{splice, Splice};
-use laterdog_core::store::{Changes, Connection, RowKind, SendState, SidebarRow, TranscriptRow, View};
+use laterdog_core::store::{Changes, Connection, RowKind, SendState, SidebarEntry, SidebarRow, TranscriptRow, View};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject, Sel};
 use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly};
@@ -28,12 +28,20 @@ use laterdog_mac::net::{Home, Inbound, Post};
 use laterdog_mac::session::Session;
 use crate::rich;
 use crate::theme::{self, font, model_name, Theme, Weight};
-use crate::widgets::{attributed, icon, icon_button, label, rect, Avatar, Fill, Flipped, ROUND};
+use crate::widgets::{attributed, icon, icon_button, label, rect, Avatar, Fade, Fill, Flipped, ROUND};
 
 const DUMP_DEADLINE: Duration = Duration::from_secs(25);
 const NO_HOME_WORDS: &str = "Set LATERDOG_HOME_URL to your home's address, then open later.dog again.";
 const DOG_CELL: &str = "dog";
 const CHAT_CELL: &str = "line";
+const SECTION_CELL: &str = "section";
+
+struct UnreadPill {
+    fill: Retained<Fill>,
+    chevron: Retained<NSImageView>,
+    words: Retained<NSTextField>,
+    button: Retained<NSButton>,
+}
 
 pub struct SendRequest {
     pub text: String,
@@ -98,6 +106,10 @@ struct Ui {
     head_more: Retained<NSButton>,
     head_status: Retained<NSTextField>,
     head_work: Retained<NSTextField>,
+    head_glass: Retained<objc2_app_kit::NSVisualEffectView>,
+    head_tint: Retained<Fade>,
+    unread_above: UnreadPill,
+    unread_below: UnreadPill,
     chat_scroll: Retained<NSScrollView>,
     chat_table: Retained<NSTableView>,
     composer: Retained<Fill>,
@@ -263,6 +275,11 @@ define_class!(
             self.row_height(table, row)
         }
 
+        #[unsafe(method(tableView:shouldSelectRow:))]
+        fn should_select(&self, table: &NSTableView, row: NSInteger) -> bool {
+            !self.is_dogs(table) || self.dog_at(row).is_some()
+        }
+
         #[unsafe(method(tableViewSelectionDidChange:))]
         fn selection_changed(&self, notification: &NSNotification) {
             self.picked_row(notification);
@@ -326,6 +343,17 @@ define_class!(
             if let Some(send_id) = sender.and_then(|button| button.identifier()) {
                 self.send_again(&send_id.to_string());
             }
+        }
+
+        #[unsafe(method(dogsScrolled:))]
+        fn dogs_scrolled(&self, _notification: &NSNotification) {
+            self.update_unread_pills();
+        }
+
+        #[unsafe(method(jumpUnread:))]
+        fn jump_unread_pressed(&self, sender: Option<&NSButton>) {
+            let below = sender.and_then(|button| button.identifier()).is_some_and(|id| id.to_string() == "below");
+            self.jump_unread(below);
         }
 
         #[unsafe(method(clipScrolled:))]
@@ -416,6 +444,15 @@ impl Controller {
 
         let dog_table = self.table(mtm, "Dogs");
         let dog_scroll = scroller(mtm, &dog_table);
+        dog_scroll.contentView().setPostsBoundsChangedNotifications(true);
+        unsafe {
+            objc2_foundation::NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
+                self,
+                sel!(dogsScrolled:),
+                Some(objc2_app_kit::NSViewBoundsDidChangeNotification),
+                Some(&dog_scroll.contentView()),
+            );
+        }
         dog_scroll.setAutomaticallyAdjustsContentInsets(false);
         dog_scroll.setContentInsets(objc2_foundation::NSEdgeInsets { top: theme::TOP_BAR_HEIGHT, left: 0.0, bottom: 0.0, right: 0.0 });
         sidebar.addSubview(&dog_scroll);
@@ -438,10 +475,23 @@ impl Controller {
         sidebar.addSubview(&connect);
         sidebar.addSubview(&side_search);
         sidebar.addSubview(&side_new);
+        let unread_above = unread_pill(mtm, &theme, self, "above");
+        let unread_below = unread_pill(mtm, &theme, self, "below");
+        for pill in [&unread_above, &unread_below] {
+            sidebar.addSubview(&pill.fill);
+        }
 
         let chat_table = self.table(mtm, "Conversation");
         let chat_scroll = scroller(mtm, &chat_table);
+        chat_scroll.setAutomaticallyAdjustsContentInsets(false);
         chat.addSubview(&chat_scroll);
+        let head_glass = objc2_app_kit::NSVisualEffectView::new(mtm);
+        head_glass.setMaterial(objc2_app_kit::NSVisualEffectMaterial::HeaderView);
+        head_glass.setBlendingMode(objc2_app_kit::NSVisualEffectBlendingMode::WithinWindow);
+        head_glass.setState(objc2_app_kit::NSVisualEffectState::Active);
+        chat.addSubview(&head_glass);
+        let head_tint = Fade::new(mtm, &theme.app_55, theme::GLASS_EDGE);
+        chat.addSubview(&head_tint);
         let clip = chat_scroll.contentView();
         clip.setPostsBoundsChangedNotifications(true);
         unsafe {
@@ -527,7 +577,7 @@ impl Controller {
         window.setContentView(Some(&root));
         let ui = Ui {
             window, root, sidebar, side_line, side_top, side_bottom, chat, side_search, side_new, dog_scroll, dog_table, profile, profile_mark, connect,
-            connect_label, head_pill, head_avatar, head_name, head_search, head_more, head_status, head_work, chat_scroll, chat_table, composer,
+            connect_label, head_pill, head_avatar, head_name, head_search, head_more, head_status, head_work, head_glass, head_tint, unread_above, unread_below, chat_scroll, chat_table, composer,
             plus, input_scroll, input, placeholder, model_ring, model_mark, model_label, model_chevrons, mic, voice, send_fill, send,
             days, times, weekday_times, theme,
         };
@@ -564,9 +614,17 @@ impl Controller {
         self.ivars().ui.get().is_some_and(|ui| std::ptr::eq(table, &*ui.dog_table))
     }
 
+    fn dog_at(&self, row: NSInteger) -> Option<usize> {
+        let index = usize::try_from(row).ok()?;
+        match self.ivars().view.borrow().sidebar.get(index)? {
+            SidebarEntry::Dog { index } => Some(*index),
+            SidebarEntry::Header { .. } => None,
+        }
+    }
+
     fn row_count(&self, table: &NSTableView) -> NSInteger {
         if self.is_dogs(table) {
-            self.ivars().view.borrow().dogs.len() as NSInteger
+            self.ivars().view.borrow().sidebar.len() as NSInteger
         } else {
             self.ivars().lines.borrow().len() as NSInteger
         }
@@ -574,7 +632,11 @@ impl Controller {
 
     fn row_height(&self, table: &NSTableView, row: NSInteger) -> f64 {
         if self.is_dogs(table) {
-            return theme::ROW_HEIGHT + theme::ROW_GAP;
+            let view = self.ivars().view.borrow();
+            return match usize::try_from(row).ok().and_then(|row| view.sidebar.get(row)) {
+                Some(SidebarEntry::Header { first, .. }) => theme::SECTION_HEADER + if *first { 0.0 } else { theme::SECTION_GAP },
+                _ => theme::ROW_HEIGHT + theme::ROW_GAP,
+            };
         }
         let gap = if row > 0 { theme::TRANSCRIPT_GAP } else { 0.0 };
         let height = usize::try_from(row).ok().and_then(|row| self.ivars().shapes.borrow().get(row).map(|shape| shape.height)).unwrap_or_default();
@@ -587,6 +649,11 @@ impl Controller {
         let mtm = self.mtm();
         let width = table.bounds().size.width;
         if self.is_dogs(table) {
+            let entry = self.ivars().view.borrow().sidebar.get(index)?.clone();
+            let index = match entry {
+                SidebarEntry::Dog { index } => index,
+                SidebarEntry::Header { name, count, first } => return Some(section_cell(table, &name, count, first, ui)),
+            };
             let reused = unsafe { table.makeViewWithIdentifier_owner(&NSString::from_str(DOG_CELL), None) };
             let cell = match reused.and_then(|view| view.downcast::<DogCell>().ok()) {
                 Some(cell) => cell,
@@ -618,7 +685,7 @@ impl Controller {
             return;
         }
         let row = ui.dog_table.selectedRow();
-        let picked = usize::try_from(row).ok().and_then(|row| self.ivars().view.borrow().dogs.get(row).map(|dog| dog.id.clone()));
+        let picked = self.dog_at(row).and_then(|index| self.ivars().view.borrow().dogs.get(index).map(|dog| dog.id.clone()));
         let Some(id) = picked else { return };
         let moved = self.ivars().session.borrow_mut().store.select(&id);
         if moved {
@@ -648,6 +715,8 @@ impl Controller {
         ui.connect.setFrame(rect(connect_x, footer_top, connect_width, theme::FOOTER_HEIGHT));
         ui.connect_label.setFrame(rect(8.0, 9.0, connect_width - 16.0, 18.0));
         let list_bottom = footer_top - theme::FOOTER_PAD_TOP;
+        place_pill(&ui.unread_above, side - 1.0, theme::TOP_BAR_HEIGHT + 6.0);
+        place_pill(&ui.unread_below, side - 1.0, list_bottom - 6.0 - theme::UNREAD_PILL);
         ui.dog_scroll.setFrame(rect(0.0, 0.0, side - 1.0, list_bottom));
         ui.side_top.setFrame(rect(0.0, 0.0, side - 1.0, theme::TOP_BAR_HEIGHT));
         ui.side_bottom.setFrame(rect(0.0, list_bottom, side - 1.0, height - list_bottom));
@@ -706,7 +775,14 @@ impl Controller {
         ui.input_scroll.setFrame(rect(input_x, input_y, input_width, text_height));
         ui.placeholder.setFrame(rect(input_x - 2.0, input_y + 1.0, input_width, 18.0));
 
-        let transcript_top = head_bottom;
+        let transcript_top = 0.0;
+        if (ui.head_glass.frame().size.width - chat_width).abs() > 0.5 || (ui.head_glass.frame().size.height - head_bottom).abs() > 0.5 {
+            ui.head_glass.setFrame(rect(0.0, 0.0, chat_width, head_bottom));
+            ui.head_glass.setMaskImage(Some(&fade_mask(chat_width, head_bottom)));
+        }
+        ui.head_tint.setFrame(rect(0.0, 0.0, chat_width, head_bottom));
+        ui.chat_scroll.setContentInsets(objc2_foundation::NSEdgeInsets { top: head_bottom, left: 0.0, bottom: 0.0, right: 0.0 });
+        ui.chat_scroll.setScrollerInsets(objc2_foundation::NSEdgeInsets { top: head_bottom, left: 0.0, bottom: 0.0, right: 0.0 });
         let transcript_bottom = shell_top - 8.0;
         let before = ui.chat_scroll.frame().size.width;
         let scroller_room = if ui.chat_scroll.scrollerStyle() == objc2_app_kit::NSScrollerStyle::Legacy {
@@ -940,6 +1016,54 @@ impl Controller {
         }
     }
 
+    fn unread_spans(&self) -> (Vec<(f64, f64)>, f64, f64) {
+        let Some(ui) = self.ivars().ui.get() else { return (Vec::new(), 0.0, 0.0) };
+        let view = self.ivars().view.borrow();
+        let rows: Vec<(f64, f64)> = view
+            .sidebar
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| matches!(entry, SidebarEntry::Dog { index } if view.dogs.get(*index).is_some_and(|dog| dog.unread)))
+            .map(|(row, _)| {
+                let frame = ui.dog_table.rectOfRow(row as NSInteger);
+                (frame.origin.y, frame.origin.y + frame.size.height)
+            })
+            .collect();
+        let bounds = ui.dog_scroll.contentView().bounds();
+        (rows, bounds.origin.y + theme::TOP_BAR_HEIGHT, bounds.origin.y + bounds.size.height)
+    }
+
+    fn update_unread_pills(&self) {
+        let Some(ui) = self.ivars().ui.get() else { return };
+        let (rows, top, bottom) = self.unread_spans();
+        let (above, below) = laterdog_core::store::unreads_out_of_view(&rows, top, bottom);
+        let side = ui.dog_scroll.frame().size.width;
+        for (pill, count, words, at) in [(&ui.unread_above, above, laterdog_core::words::UNREADS_ABOVE, theme::TOP_BAR_HEIGHT + 6.0), (&ui.unread_below, below, laterdog_core::words::UNREADS_BELOW, ui.dog_scroll.frame().size.height - 6.0 - theme::UNREAD_PILL)] {
+            pill.fill.setHidden(count == 0);
+            if count > 0 {
+                let number = count.to_string();
+                pill.words.setStringValue(&NSString::from_str(&laterdog_core::words::fill(laterdog_core::words::UNREADS_COUNT, &[("count", &number)])));
+                pill.button.setAccessibilityLabel(Some(&NSString::from_str(&laterdog_core::words::fill(words, &[("count", &number)]))));
+                place_pill(pill, side, at);
+            }
+        }
+    }
+
+    fn jump_unread(&self, below: bool) {
+        let Some(ui) = self.ivars().ui.get() else { return };
+        let (rows, top, bottom) = self.unread_spans();
+        let target = if below { rows.iter().find(|row| row.0 >= bottom - 1.0) } else { rows.iter().rev().find(|row| row.1 <= top + 1.0) };
+        let Some((row_top, row_bottom)) = target else { return };
+        let clip = ui.dog_scroll.contentView();
+        let height = clip.bounds().size.height;
+        let visible = height - theme::TOP_BAR_HEIGHT;
+        let most = (ui.dog_table.frame().size.height - height).max(-theme::TOP_BAR_HEIGHT);
+        let y = ((row_top + row_bottom) / 2.0 - theme::TOP_BAR_HEIGHT - visible / 2.0).clamp(-theme::TOP_BAR_HEIGHT, most);
+        clip.scrollToPoint(NSPoint::new(0.0, y));
+        ui.dog_scroll.reflectScrolledClipView(&clip);
+        self.update_unread_pills();
+    }
+
     fn list_to_top(&self) {
         let Some(ui) = self.ivars().ui.get() else { return };
         let clip = ui.dog_scroll.contentView();
@@ -1000,13 +1124,18 @@ impl Controller {
         let moved = *self.ivars().shown.borrow() != view.selected;
         if changes.sidebar || moved {
             ui.dog_table.reloadData();
-            if let Some(index) = view.dogs.iter().position(|dog| dog.selected) {
+            let selected = view.dogs.iter().position(|dog| dog.selected);
+            let entry = selected.and_then(|selected| view.sidebar.iter().position(|entry| matches!(entry, SidebarEntry::Dog { index } if *index == selected)));
+            if let Some(index) = entry {
                 if ui.dog_table.selectedRow() != index as NSInteger {
                     ui.dog_table.selectRowIndexes_byExtendingSelection(&NSIndexSet::indexSetWithIndex(index), false);
                 }
             }
         }
         self.refresh_header(ui, &view);
+        if changes.sidebar || moved {
+            self.update_unread_pills();
+        }
         if changes.transcript || moved {
             let follow = moved || self.at_bottom(ui);
             let lines = if self.ivars().connected_home { self.lines_for(&view, ui) } else { Vec::new() };
@@ -1308,6 +1437,88 @@ fn reset_time(ui: &Ui, until: u64, now: u64) -> String {
     let same_day = NSCalendar::currentCalendar().isDate_inSameDayAsDate(&date(until), &date(now));
     let formatter = if same_day { &ui.times } else { &ui.weekday_times };
     formatter.stringFromDate(&date(until)).to_string()
+}
+
+fn fade_mask(width: f64, height: f64) -> Retained<objc2_app_kit::NSImage> {
+    let draw = block2::RcBlock::new(move |bounds: objc2_foundation::NSRect| -> objc2::runtime::Bool {
+        let edge = theme::GLASS_EDGE.min(bounds.size.height);
+        let solid = bounds.size.height - edge;
+        let black = theme::srgb(0x000000, 1.0);
+        black.setFill();
+        objc2_app_kit::NSBezierPath::fillRect(rect(0.0, 0.0, bounds.size.width, solid));
+        let colors = objc2_foundation::NSArray::from_retained_slice(&[black.clone(), theme::srgb(0x000000, 0.0)]);
+        if let Some(gradient) = objc2_app_kit::NSGradient::initWithColors(<objc2_app_kit::NSGradient as objc2::AllocAnyThread>::alloc(), &colors) {
+            gradient.drawInRect_angle(rect(0.0, solid, bounds.size.width, edge), 90.0);
+        }
+        objc2::runtime::Bool::YES
+    });
+    objc2_app_kit::NSImage::imageWithSize_flipped_drawingHandler(NSSize::new(width, height), true, &draw)
+}
+
+fn unread_pill(mtm: MainThreadMarker, theme: &Theme, controller: &Controller, direction: &str) -> UnreadPill {
+    let fill = Fill::new(mtm, Some(&theme.card), ROUND);
+    fill.set_stroke(Some(&theme.hairline_50), 1.0);
+    let shadow = objc2_app_kit::NSShadow::new();
+    shadow.setShadowColor(Some(&theme::srgb(0x000000, 0.18)));
+    shadow.setShadowBlurRadius(15.0);
+    shadow.setShadowOffset(NSSize::new(0.0, -8.0));
+    fill.setWantsLayer(true);
+    fill.setShadow(Some(&shadow));
+    let symbol = if direction == "below" { "chevron.down" } else { "chevron.up" };
+    let chevron = icon(mtm, symbol, 10.0, unsafe { NSFontWeightMedium }, &theme.ink);
+    let words = label(mtm, "", &font(12.0, Weight::Medium), &theme.ink);
+    let button = unsafe { NSButton::buttonWithTitle_target_action(&NSString::from_str(""), Some(controller.as_ref()), Some(sel!(jumpUnread:)), mtm) };
+    button.setBordered(false);
+    button.setTransparent(true);
+    button.setIdentifier(Some(&NSString::from_str(direction)));
+    for view in [&*chevron as &NSView, &words, &button] {
+        fill.addSubview(view);
+    }
+    fill.setHidden(true);
+    UnreadPill { fill, chevron, words, button }
+}
+
+fn place_pill(pill: &UnreadPill, side: f64, top: f64) {
+    let words = pill.words.attributedStringValue().size().width.ceil() + 4.0;
+    let width = 12.0 + 13.0 + 4.0 + words - 4.0 + 12.0;
+    pill.fill.setFrame(rect(((side - width) / 2.0).round(), top, width, theme::UNREAD_PILL));
+    pill.chevron.setFrame(rect(12.0, (theme::UNREAD_PILL - 13.0) / 2.0, 13.0, 13.0));
+    pill.words.setFrame(rect(12.0 + 13.0 + 4.0 - 2.0, (theme::UNREAD_PILL - 16.0) / 2.0, words, 16.0));
+    pill.button.setFrame(rect(0.0, 0.0, width, theme::UNREAD_PILL));
+}
+
+fn section_cell(table: &NSTableView, name: &str, count: usize, first: bool, ui: &Ui) -> Retained<NSView> {
+    let mtm = MainThreadMarker::from(table);
+    let reused = unsafe { table.makeViewWithIdentifier_owner(&NSString::from_str(SECTION_CELL), None) };
+    let cell = match reused {
+        Some(cell) => cell,
+        None => {
+            let cell: Retained<NSView> = Retained::into_super(Flipped::new(mtm));
+            cell.addSubview(&label(mtm, "", &font(12.0, Weight::Semibold), &ui.theme.ink_secondary));
+            cell.addSubview(&label(mtm, "", &font(11.0, Weight::Regular), &ui.theme.ink_tertiary));
+            cell.addSubview(&icon(mtm, "chevron.down", 10.0, unsafe { NSFontWeightMedium }, &ui.theme.ink_secondary));
+            cell.setIdentifier(Some(&NSString::from_str(SECTION_CELL)));
+            cell
+        }
+    };
+    let parts = cell.subviews();
+    let top = if first { 0.0 } else { theme::SECTION_GAP } + 2.0 + 2.0;
+    let x = theme::SIDEBAR_LIST_INSET + 8.0 + 4.0;
+    let mut name_width = 0.0;
+    if let Some(field) = parts.objectAtIndex(0).downcast::<NSTextField>().ok() {
+        field.setStringValue(&NSString::from_str(name));
+        name_width = (field.attributedStringValue().size().width.ceil()).min(table.bounds().size.width - x - 60.0);
+        field.setFrame(rect(x - 2.0, top, name_width + 4.0, 16.0));
+    }
+    let mut count_width = 0.0;
+    if let Some(field) = parts.objectAtIndex(1).downcast::<NSTextField>().ok() {
+        field.setStringValue(&NSString::from_str(&count.to_string()));
+        count_width = field.attributedStringValue().size().width.ceil();
+        field.setFrame(rect(x + name_width + 6.0 - 2.0, top + 1.0, count_width + 4.0, 15.0));
+    }
+    parts.objectAtIndex(2).setFrame(rect(x + name_width + 6.0 + count_width + 6.0, top + 1.5, 13.0, 13.0));
+    cell.setAccessibilityLabel(Some(&NSString::from_str(&format!("{name} {count}"))));
+    cell
 }
 
 pub fn toggle_wrap(key: &str) {
