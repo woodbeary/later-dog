@@ -28,7 +28,6 @@ const lines = (generation: number, now: number) => Array.from({ length: 6 }, (_,
 }));
 
 function build(turn: number, usageEvery: number) {
-  const now = start + turn * 60_000;
   const recentGeneration = Math.floor(turn / 10);
   writeMemory(30 + Math.floor(turn / 25));
   const left = 80 - Math.floor(turn / usageEvery);
