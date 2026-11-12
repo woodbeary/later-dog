@@ -732,6 +732,7 @@ import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carr
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold, withWaitingRuns } from "./laterdog/limit-hold.ts";
 import { openAsk, workState } from "./laterdog/work-state.ts";
+import { exchangeIdOf, exchangeThreads, withExchange, type ExchangeLookup } from "./laterdog/room-exchange.ts";
 import { WorkSignals } from "./laterdog/work-signals.ts";
 import { carryOnAfterRestart } from "./laterdog/carry-on-restart.ts";
 import { runningByAccount } from "./laterdog/account-spread.ts";
@@ -3553,6 +3554,7 @@ function delegatedNeedsYou(threadId: string): boolean {
   return delegatedWaiting.get(threadId)!;
 }
 const workSignals = new WorkSignals();
+let exchangeLookup: ExchangeLookup | undefined;
 let waitingOnPerson = (_threadId: string): boolean => false;
 function chatWork(threadId: string, busy: boolean, activity: BotActivity | undefined, waitingOn: WireWaitingOn[] | undefined, selection: ModelSelection): WorkState {
   const asking = activity === "waiting-on-you" || delegatedNeedsYou(threadId) || waitingOnPerson(threadId);
@@ -4407,6 +4409,23 @@ function roomHandoffProblem(node: Pick<RoomHandoff, "groupId" | "threadId" | "bo
   }
 }
 
+const sentExchanges = new Map<string, string>();
+function resendExchanges(groupIds: ReadonlySet<string>, directThreadIds: ReadonlySet<string>): void {
+  const touched = exchangeThreads(roomHandoffs.nodes.values(), groupIds, directThreadIds, id => roomHandoffs.nodes.get(id));
+  for (const [threadId, ids] of touched) {
+    for (const message of store.messagesTail(threadId, 200).messages) {
+      const id = exchangeIdOf(message);
+      if (!id || !ids.has(id)) continue;
+      const wire = slimMessage(message);
+      const said = JSON.stringify((wire as Message).exchange ?? null);
+      if (sentExchanges.get(message.id) === said) continue;
+      sentExchanges.set(message.id, said);
+      if (sentExchanges.size > 5_000) sentExchanges.delete(sentExchanges.keys().next().value!);
+      broadcast({ kind: "message.patch", threadId, message: wire as Message });
+    }
+  }
+}
+
 function peerRequestRunning(botId: string, threadId: string): string | undefined {
   for (const node of roomHandoffs.nodes.values()) {
     if (node.parentId && !node.groupId && node.botId === botId && node.threadId === threadId && node.status === "running") return roomHandoffs.sharedRequest(node).id;
@@ -4500,6 +4519,7 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
     return n.status === "resume" ? slot : slot || recipientAwaitingPerson(n.botId, n.threadId);
   },
   changed: (groupIds, directThreadIds) => {
+    resendExchanges(groupIds, directThreadIds);
     for (const id of groupIds) {
       const group = store.group(id);
       if (group) broadcast({ kind: "group", group: publicGroupState(group) });
@@ -4669,6 +4689,12 @@ teammatesAwaited = threadId => waitingOn(roomHandoffs.outstandingDirect(threadId
   if (task?.activity === "waiting-on-you") return `${store.bot(node.botId)?.name ?? "A teammate"} has a question for you`;
   return personAsk((node as { result?: string }).result, cfg.profile?.name);
 });
+exchangeLookup = {
+  node: id => roomHandoffs.nodes.get(id),
+  children: id => roomHandoffs.children(id),
+  name: botId => store.bot(botId)?.name,
+  redact: redactSecretsInText,
+};
 
 const groupUsageReader = new GroupUsageReader(DATA_DIR);
 try { groupUsageReader.refresh(); } catch {}
@@ -4993,7 +5019,8 @@ function pageSize(raw: string | null): number | null | undefined {
   return Math.min(size, MESSAGE_PAGE_MAX);
 }
 
-function slimMessage(message: Message): Message | Record<string, unknown> {
+function slimMessage(stored: Message): Message | Record<string, unknown> {
+  const message = exchangeLookup && exchangeIdOf(stored) ? withExchange(stored, exchangeLookup) : stored;
   if (message.kind !== "screen" || !message.png) return message;
   const { png: _png, ...rest } = message;
   return { ...rest, hasImage: true };
@@ -14857,7 +14884,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               if (!duplicate) {
                 const recipient = store.bot(target.botId)!;
                 const exchange = destination ? undefined : openPeerExchange(internalSender, recipient, parsed.data.message);
-                store.appendMessage(address.threadId, { role: "bot", kind: "activity",
+                store.appendMessage(address.threadId, { role: "bot", kind: "activity", handoffId: node.id,
                   from: { botId: internalSender.id, name: internalSender.name, color: internalSender.color },
                   tool: { name: "Sent to " + recipient.name + (destination && destination.id !== source?.id ? " · " + destination.name : ""), ok: true },
                   comm: exchange

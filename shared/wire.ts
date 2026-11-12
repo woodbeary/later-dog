@@ -20,6 +20,7 @@ import type { RuntimeEvent } from "./runtime-events.ts";
 import type { Notification } from "./notification.ts";
 import type { Routine, RoutineRun } from "./routines.ts";
 import type { WorkState } from "./work-state.ts";
+import type { WireExchange } from "./room-exchange.ts";
 import type { WebhookAttempt, WebhookTrigger } from "./webhooks.ts";
 
 export const EFFORT_LEVELS = ["none", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
@@ -239,6 +240,8 @@ export type CardAnswerer = (
 
 export interface WireMessage {
   roomRequest?: { id: string; phase: "request" | "result" | "reply" };
+  handoffId?: string;
+  exchange?: WireExchange;
   id: string;
   role: "bot" | "user";
   kind: "text" | "options" | "activity" | "screen" | "connector" | "secret" | "routine.run" | "goal.run" | "digest" | "compaction";
