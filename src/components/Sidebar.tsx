@@ -778,7 +778,7 @@ function useVisibleMessages(bot: Bot): Message[] {
 
 export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, mascotMotion, pendingQueued, dispatch, onMenu, onPinDrop }: BotRowProps & { onPinDrop?: (draggedId: string, targetId: string) => void }) {
   const visible = useVisibleMessages(bot);
-  const { waiting, working, unread } = dogRowFacts(bot, pendingQueued);
+  const { waiting, working, unread, work } = dogRowFacts(bot, pendingQueued);
   const radius = avatarCropRadius(botAvatarProfile(bot).avatarCrop);
   return (
     <button
