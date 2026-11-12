@@ -100,6 +100,7 @@ Use only mapped, tested commands:
 - [Home reliability release, November 10](home-reliability-release-2026-11-10.md)
 - [Dog tapbacks, November 10](tapbacks-2026-11-10.md)
 - [Phone chat performance, November 10](phone-chat-performance-2026-11-10.md)
+- [Workspace coverage, November 12](workspace-coverage-2026-11-12.md)
 - [Shared dictation language, November 10](dictation-language-2026-11-10.md)
 - [Google connector](google-connector.md)
 - [Pinned account routing, November 10](pinned-account-routing-2026-11-10.md)
