@@ -2398,6 +2398,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         persistCard(card.botId, card.messageId, { answered: answer, dismissed: true });
       },
       cardAnswerFailed: (card) => rawDispatch({ type: "cardAnswerFailed", botId: card.botId, messageId: card.messageId }),
+      lineOnThread: (threadId, sendId) => {
+        const current = stateRef.current;
+        const chat = [...current.bots, ...current.groups, ...(current.taskView ? [current.taskView] : [])].find((candidate) => candidate.threadId === threadId);
+        return (chat?.messages ?? []).some((message) => message.sendId === sendId && !message.id.startsWith("optimistic-") && !message.id.startsWith("desk-"));
+      },
     });
     return sendOutboxRef.current;
   }, [paneErrors]);

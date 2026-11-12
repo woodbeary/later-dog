@@ -35,6 +35,7 @@ export interface SendOutboxDeps {
   now?: () => number;
   cardAnswered?: (card: OutboxCard, answer: string) => void;
   cardAnswerFailed?: (card: OutboxCard) => void;
+  lineOnThread?: (threadId: string, sendId: string) => boolean;
 }
 
 export interface SendHooks {
@@ -332,18 +333,25 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
   });
   outbox.restore(readOutbox(store));
 
+  const notSent = (send: HeldSend) => {
+    deps.dispatch({ type: "consumePendingQueued", threadId: send.threadId, queueId: send.sendId });
+    undelivered(send);
+    rememberFailedComposerSend(send.draftId, { sendId: send.sendId, text: send.text, requestText: send.requestText, replyToId: send.replyToId, threadId: send.threadId });
+    deps.showError(new SendRefusedError(HELD_NOT_SENT), send.threadId);
+  };
+
   const heldSends = createHeldSendKeeper({
     request: deps.request,
     store,
     after: deps.after ?? defaultAfter,
     now,
-    onLost: (send) => {
-      deps.dispatch({ type: "consumePendingQueued", threadId: send.threadId, queueId: send.sendId });
-      undelivered(send);
-      rememberFailedComposerSend(send.draftId, { sendId: send.sendId, text: send.text, requestText: send.requestText, replyToId: send.replyToId, threadId: send.threadId });
-      deps.showError(new SendRefusedError(HELD_NOT_SENT), send.threadId);
+    onLost: (send) => notSent(send),
+    onGone: (send) => {
+      if (deps.lineOnThread?.(send.threadId, send.sendId)) {
+        deps.dispatch({ type: "consumePendingQueued", threadId: send.threadId, queueId: send.sendId });
+        delivered(send);
+      } else notSent(send);
     },
-    onGone: (send) => deps.dispatch({ type: "consumePendingQueued", threadId: send.threadId, queueId: send.sendId }),
     onReleased: delivered,
     onCancelled: undelivered,
   });

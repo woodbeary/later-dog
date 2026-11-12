@@ -45,11 +45,18 @@ the third review's three Should fix items; this note describes that head.
   this once per start. The row is put back before the edge is asked, so a
   message the home took while the app was closed can show as queued until the
   edge's answer arrives; when the edge says it neither holds nor dropped a
-  message, its queued row goes together with its copy, without a Not sent row.
+  message, its queued row goes together with its copy if the chat shows the
+  message, and otherwise becomes Not sent with its words.
 - The copy is let go only on a definite answer: the home shows the message in
   the chat or in its own queue (a queue row whose id differs from the send id,
   or a line whose id does not start with `desk-`), the edge says it no longer
-  holds it and did not drop it, or the person cancels it.
+  holds it and did not drop it and the chat shows the message (when it does not,
+  the message comes back as Not sent), or the person cancels it.
+- A card answer travels the same way (`card` on the outbox item and the copy).
+  The card shows the answer as waiting until the home's receipt, or until a held
+  answer is delivered, and only then is marked answered; a refused, dropped or
+  cancelled answer makes the card answerable again. Any send that ends in a
+  final failure without a composer to recover it records the Not sent row itself.
 - The edge's own rows and lines in a refresh do not count as landed, so a
   refresh answered by the edge keeps the copy.
 - While a copy exists the device asks the edge's held list (`GET` on `HELD_SENDS_PATH` from
@@ -157,7 +164,7 @@ No blocker, verdict merge. Changed after it, on `atelier/queue-followup`:
 | --- | --- | --- |
 | S1 the edge's own line arriving on the event stream let the outbox item go with no copy, so a lost receipt and a later refusal lost the words | fixed: the `message` frame handler hands the line's id and chat to the outbox, which writes the copy for a `desk-` line before it lets the item go | `src/state/send-outbox.test.ts` "writes the copy when the edge's own line arrives on the event stream before any receipt, so a later drop gives one Not sent row with the words and one notice, and none for the home's line"; `src/state/held-sends-wiring.test.ts` "keeps the words when the edge's own line arrives on the event stream and the receipt never does, and gives them back as Not sent once when the home refuses, with one request sent". Both fail without the fix. |
 | S2 no test failed when the list route stopped asking for a confirmed session | fixed, test only | edge `deploy/laterdog/home/test/desk.test.ts` "says which messages it holds to a session the home confirmed, and nothing to a stranger or to a caller with no credential". With `knownDevice` taken off the list route it fails (`expected 200 to be 503`), 1 failed of 312. |
-| S3 a held group message the home took while the app was closed stayed on screen as queued after its copy was gone | fixed: an answer of neither held nor dropped takes the queued row away where the copy is removed | `src/state/send-outbox.test.ts` "after a restart, takes a held group message's queued row away with its copy when the edge says it neither holds nor dropped it, and leaves the one it still holds"; wiring test "after a restart, takes a group message's queued row away with its copy once the edge says it neither holds nor dropped it, without calling it Not sent"; `src/lib/held-sends.test.ts` "reads what the edge really answers". The first two fail without the fix. |
+| S3 a held group message the home took while the app was closed stayed on screen as queued after its copy was gone | fixed: an answer of neither held nor dropped takes the queued row away where the copy is removed | `src/state/send-outbox.test.ts` "after a restart, takes a held group message's queued row away with its copy when the edge says it neither holds nor dropped it, and leaves the one it still holds"; wiring test "after a restart, turns a group message's queued row into Not sent with its words once the edge says it neither holds nor dropped it and the chat does not show it"; `src/lib/held-sends.test.ts` "reads what the edge really answers". The first two fail without the fix. |
 | N5 one line of the copy-from-outbox change was pinned by no test | kept and tested; it is not dead: on a queue frame that shows one send both at the edge and at the home it is the only thing that stops a copy being written | `src/state/send-outbox.test.ts` "writes no copy for a message the same refresh or the same queue frame also shows waiting at the home"; fails without the line |
 | N6 this note described `646d219` | fixed | this section and the next |
 | Not in the review: the docs check failed on this note at `e8d89aa`, 3 failed of 6 (test files named without their folders, the edge's held list cited as a route of the home, and the note not linked from the index) | fixed, this note and the index only | `scripts/testing/verification-docs.test.ts`, 6 passed |

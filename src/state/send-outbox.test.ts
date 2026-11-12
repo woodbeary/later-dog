@@ -292,12 +292,12 @@ describe("a message the edge held for a sleeping home", () => {
   const sent: OutboxItem = { sendId: "edge-held-send-0001", threadId: "thread", target: { kind: "bot", botId: "bot" }, text: "wake up and ship it", queuedAt: 1, recovery: { draftId: draft, text: "wake up and ship it" } };
   const heldReceipt = { ok: true, queued: true, queueId: sent.sendId, threadId: "thread" };
   const kept = (store: ReturnType<typeof memoryStore>) => JSON.parse(store.values.get(HELD_SENDS_KEY) ?? "[]") as Array<{ sendId: string; text: string }>;
-  const holding = async (answer: (path: string) => Promise<unknown>, clock = { now: 1_000 }) => {
+  const holding = async (answer: (path: string) => Promise<unknown>, clock = { now: 1_000 }, extra: Partial<Parameters<typeof createSendOutbox>[0]> = {}) => {
     const store = memoryStore();
     const showError = vi.fn();
     const timers = manualTimers();
     const request = vi.fn(async (path: string) => (path === "/api/bots/bot/messages" ? heldReceipt : answer(path)));
-    const outbox = createSendOutbox({ request, dispatch: vi.fn(), showError, store, now: () => clock.now, after: timers.after });
+    const outbox = createSendOutbox({ request, dispatch: vi.fn(), showError, store, now: () => clock.now, after: timers.after, ...extra });
     outbox.send(sent);
     for (let i = 0; i < 10; i++) await Promise.resolve();
     const asks = () => request.mock.calls.filter(([path]) => String(path).startsWith("/api/held-sends")).map(([path]) => String(path));
@@ -574,10 +574,10 @@ describe("a message the edge held for a sleeping home", () => {
     expect(request.mock.calls.filter(([path]) => String(path).startsWith("/api/held-sends"))).toHaveLength(1);
   });
 
-  it("keeps waiting while the edge still holds it, and lets go quietly once the edge delivered it", async () => {
+  it("keeps waiting while the edge still holds it, and lets go quietly once the edge delivered it and the message is in the chat", async () => {
     const before = failedBefore();
     let answer: unknown = { held: [sent.sendId], dropped: [] };
-    const { store, showError, outbox } = await holding(async () => answer);
+    const { store, showError, outbox } = await holding(async () => answer, undefined, { lineOnThread: (threadId, sendId) => threadId === "thread" && sendId === sent.sendId });
     await outbox.settleHeld([], []);
     expect(kept(store)).toHaveLength(1);
     answer = { held: [], dropped: [] };
@@ -585,6 +585,37 @@ describe("a message the edge held for a sleeping home", () => {
     expect(kept(store)).toEqual([]);
     expect(showError).not.toHaveBeenCalled();
     expect(failedBefore()).toBe(before);
+  });
+
+  describe("when the edge no longer holds a message and did not drop it", () => {
+    const goneAnswer = async () => ({ held: [], dropped: [] });
+
+    it("takes the row away quietly when the message is in the thread, because the home has it", async () => {
+      const before = failedBefore();
+      let dispatched: Action[] = [];
+      const { store, showError, outbox } = await holding(goneAnswer, undefined, {
+        lineOnThread: (threadId, sendId) => threadId === "thread" && sendId === sent.sendId,
+        dispatch: (action) => dispatched.push(action),
+      });
+      dispatched = [];
+      await outbox.settleHeld([], []);
+      expect(kept(store)).toEqual([]);
+      expect(dispatched).toEqual([{ type: "consumePendingQueued", threadId: "thread", queueId: sent.sendId }]);
+      expect(showError).not.toHaveBeenCalled();
+      expect(failedBefore()).toBe(before);
+    });
+
+    it("turns the row into Not sent with its words when the message is not in the thread, so nothing disappears unexplained", async () => {
+      const before = failedBefore();
+      let dispatched: Action[] = [];
+      const { store, showError, outbox } = await holding(goneAnswer, undefined, { lineOnThread: () => false, dispatch: (action) => dispatched.push(action) });
+      dispatched = [];
+      await outbox.settleHeld([], []);
+      expect(kept(store)).toEqual([]);
+      expect(dispatched).toEqual([{ type: "consumePendingQueued", threadId: "thread", queueId: sent.sendId }]);
+      expect(failedComposerSends(draft).slice(before)).toEqual([expect.objectContaining({ sendId: sent.sendId, text: "wake up and ship it", requestText: "wake up and ship it", threadId: "thread" })]);
+      expect(showError).toHaveBeenCalledWith(expect.objectContaining({ message: HELD_NOT_SENT }), "thread");
+    });
   });
 
   it("with no edge to ask, waits out the hour the edge would hold it and then gives the words back", async () => {
@@ -634,7 +665,7 @@ describe("a message the edge held for a sleeping home", () => {
       return { held: [], dropped: asks.length === 3 ? asked.map((id) => ({ id, why: "refused", at: 2 })) : [] };
     });
     const showError = vi.fn();
-    const outbox = createSendOutbox({ request, dispatch: vi.fn(), showError, store, now: () => 2_000 });
+    const outbox = createSendOutbox({ request, dispatch: vi.fn(), showError, store, now: () => 2_000, lineOnThread: () => true });
     await outbox.settleHeld([], []);
     expect(asks.map((asked) => asked.length)).toEqual([50, 50, 20]);
     expect(asks.flat()).toEqual(ids);
@@ -897,7 +928,7 @@ describe("a message the edge held for a sleeping home", () => {
     const apply = (action: Action) => { state = reducer(state, action); };
     const showError = vi.fn();
     const request = vi.fn(async () => ({ held: ["room-taken-send-0002"], dropped: [] }));
-    const outbox = createSendOutbox({ request, dispatch: apply, showError, store, after: manualTimers().after });
+    const outbox = createSendOutbox({ request, dispatch: apply, showError, store, after: manualTimers().after, lineOnThread: (_threadId, sendId) => sendId === "room-taken-send-0001" });
 
     expect(outbox.pending(state.bots, state.groups, {})).toEqual([]);
     expect(state.pendingQueued["room-thread"]).toEqual([{ queueId: "room-taken-send-0001", text: "Room, wake up" }, { queueId: "room-taken-send-0002", text: "Still held" }]);
