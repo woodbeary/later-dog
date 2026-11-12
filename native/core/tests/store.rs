@@ -313,3 +313,85 @@ fn the_sidebar_lists_pins_then_sections_then_the_rest_in_the_homes_order() {
     assert_eq!(view.dogs.last().map(|row| row.body.as_str()), Some("husky"));
     assert_eq!(view.dogs[0].body, "dog");
 }
+
+fn long_thread() -> Store {
+    let mut store = Store::new(seed());
+    let page: BotsPage = parse(r#"{"bots":[{"id":"m","threadId":"tm","name":"Marathon","hasMore":true,"messages":[
+        {"id":"m3","at":30,"role":"bot","kind":"text","text":"three"},
+        {"id":"m4","at":40,"role":"user","kind":"text","text":"four"}
+    ]}]}"#).expect("page");
+    store.apply_page(page);
+    store
+}
+
+#[test]
+fn older_history_is_asked_once_from_the_oldest_message_and_prepended_in_order() {
+    let mut store = long_thread();
+    assert!(store.has_older("tm"));
+    assert_eq!(store.older_request(), Some(("tm".to_owned(), "m3".to_owned())));
+    assert_eq!(store.older_request(), None);
+    let older: ThreadPage = parse(r#"{"messages":[
+        {"id":"m1","at":10,"role":"user","kind":"text","text":"one"},
+        {"id":"m2","at":20,"role":"bot","kind":"text","text":"two"},
+        {"id":"m3","at":30,"role":"bot","kind":"text","text":"three"}
+    ],"hasMore":false}"#).expect("thread page");
+    assert!(store.apply_older("tm", older).transcript);
+    let words: Vec<String> = store.view().transcript.into_iter().map(|row| row.text).collect();
+    assert_eq!(words, ["one", "two", "three", "four"]);
+    assert!(!store.has_older("tm"));
+    assert_eq!(store.older_request(), None);
+}
+
+#[test]
+fn a_failed_history_page_can_be_asked_again() {
+    let mut store = long_thread();
+    let (thread, _) = store.older_request().expect("asks");
+    store.older_failed(&thread);
+    assert!(store.older_request().is_some());
+}
+
+#[test]
+fn the_selected_unread_dog_is_marked_read_once_until_the_home_answers() {
+    let mut store = loaded();
+    assert_eq!(store.read_request(), Some(("j".to_owned(), "tj".to_owned())));
+    assert_eq!(store.read_request(), None);
+    store.apply_frame(&frame(r#"{"kind":"bot","bot":{"id":"j","unread":false}}"#));
+    assert!(!store.view().dogs[0].unread);
+    assert_eq!(store.read_request(), None);
+    store.apply_frame(&frame(r#"{"kind":"bot","bot":{"id":"j","unread":true}}"#));
+    assert_eq!(store.read_request(), Some(("j".to_owned(), "tj".to_owned())));
+    store.select("b");
+    assert_eq!(store.read_request(), None);
+}
+
+#[test]
+fn a_saved_outbox_comes_back_on_the_next_launch_and_sends_the_same_id() {
+    let mut first = loaded();
+    let item = first.compose_to("j", "tj", "after the restart", 100).expect("composed");
+    first.due(100);
+    first.send_failed(&item.send_id, &Failure::Network, 100);
+    let saved = first.saved_outbox().expect("something to save");
+    let mut second = Store::new([9; 16]);
+    assert_eq!(second.restore_outbox(&saved), 1);
+    assert_eq!(second.unsettled_sends(), 1);
+    assert_eq!(second.due(200), [item.clone()]);
+    second.send_succeeded(&item.send_id, SendReceipt::default());
+    assert_eq!(second.unsettled_sends(), 0);
+    assert!(second.saved_outbox().is_none());
+    assert_eq!(Store::new(seed()).restore_outbox("not json"), 0);
+}
+
+#[test]
+fn send_again_after_a_refusal_reuses_the_send_id_and_words() {
+    let mut store = loaded();
+    let item = store.compose("try me", 100).expect("composed");
+    store.due(100);
+    store.send_failed(&item.send_id, &Failure::Status { code: 403, retry_after_ms: None }, 100);
+    assert_eq!(store.send_state(&item.send_id), Some(SendState::NotSent));
+    let again = store.send_again(&item.send_id).expect("sent again");
+    assert_eq!(again, item);
+    assert_eq!(store.send_state(&item.send_id), Some(SendState::Sending));
+    assert_eq!(store.due(200), [item.clone()]);
+    assert!(store.send_again(&item.send_id).is_none());
+    assert_eq!(texts(&store).last().map(|row| row.1.as_str()), Some("try me"));
+}

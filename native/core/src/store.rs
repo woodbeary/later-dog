@@ -249,6 +249,9 @@ pub fn send_id(seed: &[u8; 16], now_ms: u64, counter: u64) -> String {
 pub struct Store {
     dogs: Vec<Dog>,
     sections: Vec<String>,
+    more: HashMap<String, bool>,
+    loading_older: Vec<String>,
+    asked_read: Vec<String>,
     threads: HashMap<String, Vec<WireMessage>>,
     sends: Vec<LocalSend>,
     outbox: Outbox,
@@ -263,6 +266,9 @@ impl Store {
         Store {
             dogs: Vec::new(),
             sections: Vec::new(),
+            more: HashMap::new(),
+            loading_older: Vec::new(),
+            asked_read: Vec::new(),
             threads: HashMap::new(),
             sends: Vec::new(),
             outbox: Outbox::new(),
@@ -323,6 +329,11 @@ impl Store {
         self.dogs = page.bots.iter().filter(|bot| !bot.id.is_empty()).map(Dog::from_wire).collect();
         self.sections = page.sections.clone();
         for bot in &page.bots {
+            if let (Some(thread_id), Some(more)) = (&bot.thread_id, bot.has_more) {
+                self.more.entry(thread_id.clone()).or_insert(more);
+            }
+        }
+        for bot in &page.bots {
             if let (Some(thread_id), Some(messages)) = (&bot.thread_id, &bot.messages) {
                 for message in messages {
                     self.upsert(thread_id, message.clone());
@@ -331,6 +342,93 @@ impl Store {
         }
         self.keep_selection();
         Changes::both()
+    }
+
+    pub fn has_older(&self, thread_id: &str) -> bool {
+        self.more.get(thread_id).copied().unwrap_or(false)
+    }
+
+    pub fn older_request(&mut self) -> Option<(String, String)> {
+        let thread_id = self.selected_thread()?.to_owned();
+        if !self.has_older(&thread_id) || self.loading_older.contains(&thread_id) {
+            return None;
+        }
+        let oldest = self.thread(&thread_id).first()?.id.clone();
+        self.loading_older.push(thread_id.clone());
+        Some((thread_id, oldest))
+    }
+
+    pub fn apply_older(&mut self, thread_id: &str, page: ThreadPage) -> Changes {
+        self.loading_older.retain(|loading| loading != thread_id);
+        self.more.insert(thread_id.to_owned(), page.has_more.unwrap_or(false));
+        self.apply_thread(thread_id, page)
+    }
+
+    pub fn older_failed(&mut self, thread_id: &str) {
+        self.loading_older.retain(|loading| loading != thread_id);
+    }
+
+    pub fn read_request(&mut self) -> Option<(String, String)> {
+        let dog = self.dogs.iter().find(|dog| Some(&dog.id) == self.selected.as_ref() && dog.unread)?;
+        if self.asked_read.contains(&dog.id) {
+            return None;
+        }
+        let ask = (dog.id.clone(), dog.thread_id.clone());
+        self.asked_read.push(ask.0.clone());
+        Some(ask)
+    }
+
+    pub fn read_answered(&mut self, bot_id: &str) {
+        self.asked_read.retain(|asked| asked != bot_id);
+    }
+
+    pub fn saved_outbox(&self) -> Option<String> {
+        self.outbox.saved()
+    }
+
+    pub fn restore_outbox(&mut self, raw: &str) -> usize {
+        let items = crate::outbox::parse_saved(raw);
+        let count = items.len();
+        for item in &items {
+            if !self.sends.iter().any(|send| send.item.send_id == item.send_id) {
+                self.sends.push(LocalSend { item: item.clone(), state: SendState::Sending });
+            }
+        }
+        self.outbox.restore(items);
+        count
+    }
+
+    pub fn compose_to(&mut self, bot_id: &str, thread_id: &str, text: &str, now_ms: u64) -> Option<Item> {
+        if text.trim().is_empty() || bot_id.is_empty() || thread_id.is_empty() {
+            return None;
+        }
+        self.counter += 1;
+        let item = Item {
+            send_id: send_id(&self.seed, now_ms, self.counter),
+            thread_id: thread_id.to_owned(),
+            target: Target::Bot { bot_id: bot_id.to_owned(), deliver: None },
+            text: text.to_owned(),
+            reply_to_id: None,
+            queued_at: now_ms,
+        };
+        if !self.outbox.enqueue(item.clone()) {
+            return None;
+        }
+        self.sends.push(LocalSend { item: item.clone(), state: SendState::Sending });
+        Some(item)
+    }
+
+    pub fn send_again(&mut self, send_id: &str) -> Option<Item> {
+        let send = self.sends.iter_mut().find(|send| send.item.send_id == send_id && send.state == SendState::NotSent)?;
+        if !self.outbox.enqueue(send.item.clone()) {
+            return None;
+        }
+        send.state = SendState::Sending;
+        Some(send.item.clone())
+    }
+
+    pub fn unsettled_sends(&self) -> usize {
+        self.sends.iter().filter(|send| matches!(send.state, SendState::Sending | SendState::Held)).count()
     }
 
     pub fn apply_thread(&mut self, thread_id: &str, page: ThreadPage) -> Changes {
@@ -348,6 +446,9 @@ impl Store {
                 Changes { sidebar: false, transcript: self.selected_thread() == Some(thread_id.as_str()) }
             }
             Frame::Bot { bot } => {
+                if bot.unread == Some(false) {
+                    self.read_answered(&bot.id);
+                }
                 match self.dogs.iter_mut().find(|dog| dog.id == bot.id) {
                     Some(dog) => dog.merge(bot),
                     None => self.dogs.insert(0, Dog::from_wire(bot)),
@@ -372,24 +473,9 @@ impl Store {
     }
 
     pub fn compose(&mut self, text: &str, now_ms: u64) -> Option<Item> {
-        if text.trim().is_empty() {
-            return None;
-        }
         let dog = self.dogs.iter().find(|dog| Some(&dog.id) == self.selected.as_ref())?;
-        self.counter += 1;
-        let item = Item {
-            send_id: send_id(&self.seed, now_ms, self.counter),
-            thread_id: dog.thread_id.clone(),
-            target: Target::Bot { bot_id: dog.id.clone(), deliver: None },
-            text: text.to_owned(),
-            reply_to_id: None,
-            queued_at: now_ms,
-        };
-        if !self.outbox.enqueue(item.clone()) {
-            return None;
-        }
-        self.sends.push(LocalSend { item: item.clone(), state: SendState::Sending });
-        Some(item)
+        let (bot_id, thread_id) = (dog.id.clone(), dog.thread_id.clone());
+        self.compose_to(&bot_id, &thread_id, text, now_ms)
     }
 
     pub fn due(&mut self, now_ms: u64) -> Vec<Item> {
