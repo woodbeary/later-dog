@@ -52,6 +52,11 @@ struct Dog {
     name: String,
     activity: Option<String>,
     color: Option<String>,
+    body: Option<String>,
+    section: Option<String>,
+    pinned: bool,
+    hidden: bool,
+    chief: bool,
     model: Option<String>,
     busy: bool,
     unread: bool,
@@ -77,6 +82,21 @@ impl Dog {
         }
         if let Some(color) = &bot.color {
             self.color = Some(color.clone());
+        }
+        if let Some(body) = &bot.mascot_body {
+            self.body = Some(body.clone());
+        }
+        if bot.section.is_some() || bot.pinned.is_some() {
+            self.section = bot.section.clone().filter(|section| !section.is_empty());
+        }
+        if let Some(pinned) = bot.pinned {
+            self.pinned = pinned;
+        }
+        if let Some(hidden) = bot.hidden {
+            self.hidden = hidden;
+        }
+        if let Some(chief) = bot.chief_of_staff {
+            self.chief = chief;
         }
         if let Some(model) = bot.model_selection.as_ref().and_then(|selection| selection.model.clone()) {
             self.model = Some(model);
@@ -154,6 +174,7 @@ pub struct SidebarRow {
     pub unread: bool,
     pub selected: bool,
     pub color: String,
+    pub body: String,
     pub preview: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_at: Option<u64>,
@@ -192,6 +213,7 @@ pub struct View {
     pub selected: Option<String>,
     pub title: String,
     pub color: String,
+    pub body: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     pub dogs: Vec<SidebarRow>,
@@ -226,6 +248,7 @@ pub fn send_id(seed: &[u8; 16], now_ms: u64, counter: u64) -> String {
 
 pub struct Store {
     dogs: Vec<Dog>,
+    sections: Vec<String>,
     threads: HashMap<String, Vec<WireMessage>>,
     sends: Vec<LocalSend>,
     outbox: Outbox,
@@ -239,6 +262,7 @@ impl Store {
     pub fn new(seed: [u8; 16]) -> Self {
         Store {
             dogs: Vec::new(),
+            sections: Vec::new(),
             threads: HashMap::new(),
             sends: Vec::new(),
             outbox: Outbox::new(),
@@ -297,6 +321,7 @@ impl Store {
 
     pub fn apply_page(&mut self, page: BotsPage) -> Changes {
         self.dogs = page.bots.iter().filter(|bot| !bot.id.is_empty()).map(Dog::from_wire).collect();
+        self.sections = page.sections.clone();
         for bot in &page.bots {
             if let (Some(thread_id), Some(messages)) = (&bot.thread_id, &bot.messages) {
                 for message in messages {
@@ -404,10 +429,11 @@ impl Store {
             selected: selected.map(|dog| dog.id.clone()),
             title: selected.map(|dog| dog.name.clone()).unwrap_or_default(),
             color: selected.map(Dog::color).unwrap_or_else(|| DEFAULT_COLOR.to_owned()),
+            body: crate::mascot::body(selected.and_then(|dog| dog.body.as_deref())).to_owned(),
             model: selected.and_then(|dog| dog.model.clone()),
             dogs: self
-                .dogs
-                .iter()
+                .sidebar_order()
+                .into_iter()
                 .map(|dog| {
                     let last = self.last_words(dog);
                     SidebarRow {
@@ -417,6 +443,7 @@ impl Store {
                         unread: dog.unread,
                         selected: Some(&dog.id) == self.selected.as_ref(),
                         color: dog.color(),
+                        body: crate::mascot::body(dog.body.as_deref()).to_owned(),
                         preview: last.map(|message| first_line(message.text.as_deref().unwrap_or_default())).unwrap_or_default(),
                         last_at: last.map(|message| message.at),
                         working: dog.working(),
@@ -426,6 +453,23 @@ impl Store {
                 .collect(),
             transcript: selected.map(|dog| self.transcript(dog)).unwrap_or_default(),
         }
+    }
+
+    fn sidebar_order(&self) -> Vec<&Dog> {
+        let shown: Vec<&Dog> = self.dogs.iter().filter(|dog| !dog.hidden).collect();
+        let mut pinned: Vec<&Dog> = shown.iter().copied().filter(|dog| dog.pinned).collect();
+        pinned.sort_by_key(|dog| !dog.chief);
+        let mut names: Vec<&str> = self.sections.iter().map(String::as_str).collect();
+        for dog in &shown {
+            if let Some(section) = dog.section.as_deref().filter(|_| !dog.pinned) {
+                if !names.contains(&section) {
+                    names.push(section);
+                }
+            }
+        }
+        let sectioned = names.into_iter().flat_map(|name| shown.iter().copied().filter(move |dog| !dog.pinned && dog.section.as_deref() == Some(name)));
+        let rest = shown.iter().copied().filter(|dog| !dog.pinned && dog.section.is_none());
+        pinned.into_iter().chain(sectioned).chain(rest).collect()
     }
 
     fn last_words<'a>(&'a self, dog: &Dog) -> Option<&'a WireMessage> {
@@ -525,9 +569,9 @@ impl Store {
     }
 
     fn keep_selection(&mut self) {
-        let present = self.selected.as_ref().is_some_and(|selected| self.dogs.iter().any(|dog| &dog.id == selected));
+        let present = self.selected.as_ref().is_some_and(|selected| self.dogs.iter().any(|dog| &dog.id == selected && !dog.hidden));
         if !present {
-            self.selected = self.dogs.first().map(|dog| dog.id.clone());
+            self.selected = self.sidebar_order().first().map(|dog| dog.id.clone());
         }
     }
 }

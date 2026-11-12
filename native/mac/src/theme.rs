@@ -53,19 +53,6 @@ pub const COMPOSER_LINE: f64 = 20.0;
 pub const COMPOSER_MAX_TEXT: f64 = 144.0;
 pub const HAIRLINE: f64 = 0.5;
 
-pub const DOG_COLORS: [(&str, u32); 10] = [
-    ("green", 0x009957),
-    ("blue", 0x377FE6),
-    ("red", 0xD94B52),
-    ("orange", 0xE78531),
-    ("purple", 0x8057C8),
-    ("cyan", 0x0EA5C6),
-    ("pink", 0xD84F8B),
-    ("yellow", 0xD8A729),
-    ("teal", 0x01A492),
-    ("coral", 0xE5634E),
-];
-
 pub const BUBBLE_TINTS: [(&str, u32); 10] = [
     ("green", 0x004e2a),
     ("blue", 0x184078),
@@ -178,10 +165,6 @@ impl Theme {
             waiting: dynamic(&WAITING),
             white: srgb(0xffffff, 1.0),
         }
-    }
-
-    pub fn dog(&self, color: &str) -> Retained<NSColor> {
-        srgb(pick(&DOG_COLORS, color), 1.0)
     }
 
     pub fn tint(&self, color: &str) -> Retained<NSColor> {

@@ -70,6 +70,8 @@ struct Ui {
     root: Retained<Flipped>,
     sidebar: Retained<Fill>,
     side_line: Retained<Fill>,
+    side_top: Retained<Fill>,
+    side_bottom: Retained<Fill>,
     chat: Retained<Fill>,
     side_search: Retained<NSButton>,
     side_new: Retained<NSButton>,
@@ -338,13 +340,16 @@ impl Controller {
         let weight = unsafe { NSFontWeightRegular };
         let side_search = icon_button(mtm, "magnifyingglass", 14.0, weight, &theme.ink_secondary, "Search", None, None);
         let side_new = icon_button(mtm, "plus", 15.0, weight, &theme.ink_secondary, "New dog", None, None);
-        sidebar.addSubview(&side_search);
-        sidebar.addSubview(&side_new);
 
         let dog_table = self.table(mtm, "Dogs");
         let dog_scroll = scroller(mtm, &dog_table);
-        dog_scroll.setHasVerticalScroller(false);
+        dog_scroll.setAutomaticallyAdjustsContentInsets(false);
+        dog_scroll.setContentInsets(objc2_foundation::NSEdgeInsets { top: theme::TOP_BAR_HEIGHT, left: 0.0, bottom: 0.0, right: 0.0 });
         sidebar.addSubview(&dog_scroll);
+        let side_top = Fill::new(mtm, Some(&theme.panel), 0.0);
+        let side_bottom = Fill::new(mtm, Some(&theme.panel), 0.0);
+        sidebar.addSubview(&side_top);
+        sidebar.addSubview(&side_bottom);
 
         let profile = Fill::new(mtm, Some(&theme.raised), ROUND);
         let profile_mark = label(mtm, "?", &font(12.16, Weight::Medium), &theme.ink_secondary);
@@ -358,6 +363,8 @@ impl Controller {
         connect.addSubview(&connect_label);
         sidebar.addSubview(&profile);
         sidebar.addSubview(&connect);
+        sidebar.addSubview(&side_search);
+        sidebar.addSubview(&side_new);
 
         let chat_table = self.table(mtm, "Conversation");
         let chat_scroll = scroller(mtm, &chat_table);
@@ -432,7 +439,7 @@ impl Controller {
 
         window.setContentView(Some(&root));
         let ui = Ui {
-            window, root, sidebar, side_line, chat, side_search, side_new, dog_scroll, dog_table, profile, profile_mark, connect,
+            window, root, sidebar, side_line, side_top, side_bottom, chat, side_search, side_new, dog_scroll, dog_table, profile, profile_mark, connect,
             connect_label, head_pill, head_avatar, head_name, head_search, head_more, head_status, chat_scroll, chat_table, composer,
             plus, input_scroll, input, placeholder, model_ring, model_mark, model_label, model_chevrons, mic, voice, send_fill, send,
             measure, days, times, theme,
@@ -554,7 +561,12 @@ impl Controller {
         ui.connect.setFrame(rect(connect_x, footer_top, connect_width, theme::FOOTER_HEIGHT));
         ui.connect_label.setFrame(rect(8.0, 9.0, connect_width - 16.0, 18.0));
         let list_bottom = footer_top - theme::FOOTER_PAD_TOP;
-        ui.dog_scroll.setFrame(rect(0.0, theme::TOP_BAR_HEIGHT, side - 1.0, list_bottom - theme::TOP_BAR_HEIGHT));
+        ui.dog_scroll.setFrame(rect(0.0, 0.0, side - 1.0, list_bottom));
+        ui.side_top.setFrame(rect(0.0, 0.0, side - 1.0, theme::TOP_BAR_HEIGHT));
+        ui.side_bottom.setFrame(rect(0.0, list_bottom, side - 1.0, height - list_bottom));
+        for scroll in [&ui.dog_scroll, &ui.chat_scroll] {
+            scroll.setScrollerStyle(objc2_app_kit::NSScrollerStyle::Overlay);
+        }
 
         let chat_width = width - side;
         let icon = theme::HEADER_ICON_BUTTON;
@@ -745,11 +757,22 @@ impl Controller {
         });
     }
 
+    fn list_to_top(&self) {
+        let Some(ui) = self.ivars().ui.get() else { return };
+        let clip = ui.dog_scroll.contentView();
+        clip.scrollToPoint(objc2_foundation::NSPoint::new(0.0, -theme::TOP_BAR_HEIGHT));
+        ui.dog_scroll.reflectScrolledClipView(&clip);
+    }
+
     fn handle(&self, inbound: Inbound) {
         let changes = match inbound {
             Inbound::Page(page) => {
                 let first = !std::mem::replace(&mut self.ivars().dump.borrow_mut().page, true);
                 let changes = self.ivars().store.borrow_mut().apply_page(page);
+                if first {
+                    self.refresh(changes);
+                    self.list_to_top();
+                }
                 if first && self.ivars().options.captures() {
                     self.refresh(changes);
                     self.capture_soon();
@@ -806,9 +829,6 @@ impl Controller {
                 if ui.dog_table.selectedRow() != index as NSInteger {
                     ui.dog_table.selectRowIndexes_byExtendingSelection(&NSIndexSet::indexSetWithIndex(index), false);
                 }
-                if moved {
-                    ui.dog_table.scrollRowToVisible(index as NSInteger);
-                }
             }
         }
         self.refresh_header(ui, &view);
@@ -839,7 +859,7 @@ impl Controller {
 
     fn refresh_header(&self, ui: &Ui, view: &View) {
         ui.head_name.setStringValue(&NSString::from_str(&view.title));
-        ui.head_avatar.set(ui.theme.dog(&view.color), &view.title);
+        ui.head_avatar.set(&view.color, &view.body, &view.title);
         ui.head_pill.setHidden(view.title.is_empty());
         let status = if !self.ivars().connected_home {
             NO_HOME_WORDS
@@ -1040,7 +1060,7 @@ fn configure_dog(cell: &DogCell, dog: &SidebarRow, width: f64, ui: &Ui) {
     parts.selection.set_fill(dog.selected.then_some(&*theme.selected_row));
     let avatar_x = inset + theme::ROW_PAD_LEFT;
     parts.avatar.setFrame(rect(avatar_x, row_top + (theme::ROW_HEIGHT - theme::ROW_AVATAR) / 2.0, theme::ROW_AVATAR, theme::ROW_AVATAR));
-    parts.avatar.set(theme.dog(&dog.color), &dog.name);
+    parts.avatar.set(&dog.color, &dog.body, &dog.name);
     let text_x = avatar_x + theme::ROW_AVATAR + theme::ROW_GAP_X;
     let text_right = inset + row_width - theme::ROW_PAD_RIGHT;
     let time_words = match (dog.selected, dog.last_at) {

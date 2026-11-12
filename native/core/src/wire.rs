@@ -116,6 +116,16 @@ pub struct WireBot {
     #[serde(deserialize_with = "lenient")]
     pub color: Option<String>,
     #[serde(deserialize_with = "lenient")]
+    pub mascot_body: Option<String>,
+    #[serde(deserialize_with = "lenient")]
+    pub section: Option<String>,
+    #[serde(deserialize_with = "flag")]
+    pub pinned: Option<bool>,
+    #[serde(deserialize_with = "flag")]
+    pub hidden: Option<bool>,
+    #[serde(deserialize_with = "flag")]
+    pub chief_of_staff: Option<bool>,
+    #[serde(deserialize_with = "lenient")]
     pub model_selection: Option<ModelSelection>,
     #[serde(deserialize_with = "flag")]
     pub busy: Option<bool>,
@@ -134,6 +144,8 @@ pub struct WireBot {
 pub struct BotsPage {
     #[serde(deserialize_with = "lenient_list")]
     pub bots: Vec<WireBot>,
+    #[serde(deserialize_with = "lenient_list")]
+    pub sections: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]

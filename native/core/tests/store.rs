@@ -289,3 +289,27 @@ fn a_page_without_bots_or_with_junk_is_empty_not_an_error() {
     assert_eq!(parse::<BotsPage>(r#"{"bots":[{"id":"x","unread":"yes","busy":null,"messages":7}]}"#).map(|page| page.bots.len()), Some(1));
     assert!(parse::<BotsPage>("<html>").is_none());
 }
+
+#[test]
+fn the_sidebar_lists_pins_then_sections_then_the_rest_in_the_homes_order() {
+    let page: BotsPage = parse(r#"{
+      "sections": ["Work"],
+      "bots": [
+        {"id":"new","threadId":"t1","name":"Newest"},
+        {"id":"chief","threadId":"t2","name":"Chief","pinned":true,"chiefOfStaff":true},
+        {"id":"gone","threadId":"t3","name":"Hidden","hidden":true},
+        {"id":"work","threadId":"t4","name":"Worker","section":"Work"},
+        {"id":"pin","threadId":"t5","name":"Pinned","pinned":true},
+        {"id":"play","threadId":"t6","name":"Player","section":"Play"},
+        {"id":"old","threadId":"t7","name":"Oldest","mascotBody":"husky"}
+      ]
+    }"#).expect("page");
+    let mut store = Store::new(seed());
+    store.apply_page(page);
+    let view = store.view();
+    let order: Vec<&str> = view.dogs.iter().map(|row| row.id.as_str()).collect();
+    assert_eq!(order, ["chief", "pin", "work", "play", "new", "old"]);
+    assert_eq!(view.selected.as_deref(), Some("chief"));
+    assert_eq!(view.dogs.last().map(|row| row.body.as_str()), Some("husky"));
+    assert_eq!(view.dogs[0].body, "dog");
+}

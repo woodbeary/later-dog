@@ -9,6 +9,7 @@ use objc2_app_kit::{
     NSMutableParagraphStyle, NSTextAlignment, NSTextField, NSView, NSFontWeight, NSAttributedStringNSStringDrawing,
     NSBaselineOffsetAttributeName,
 };
+use laterdog_core::mascot;
 use objc2_foundation::{NSAttributedString, NSDictionary, NSNumber, NSPoint, NSRect, NSSize, NSString};
 
 pub fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect {
@@ -112,7 +113,8 @@ impl Fill {
 }
 
 pub struct AvatarIvars {
-    color: RefCell<Retained<NSColor>>,
+    color: Cell<u32>,
+    body: RefCell<String>,
     letter: RefCell<String>,
 }
 
@@ -137,20 +139,38 @@ define_class!(
 
 impl Avatar {
     pub fn new(mtm: MainThreadMarker) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(AvatarIvars { color: RefCell::new(NSColor::grayColor()), letter: RefCell::new(String::new()) });
+        let this = Self::alloc(mtm).set_ivars(AvatarIvars {
+            color: Cell::new(mascot::dog_color(mascot::DEFAULT_COLOR)),
+            body: RefCell::new(mascot::DEFAULT_BODY.to_owned()),
+            letter: RefCell::new(String::new()),
+        });
         unsafe { msg_send![super(this), initWithFrame: rect(0.0, 0.0, 32.0, 32.0)] }
     }
 
-    pub fn set(&self, color: Retained<NSColor>, name: &str) {
+    pub fn set(&self, color: &str, body: &str, name: &str) {
         let letter: String = name.chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().collect()).unwrap_or_default();
-        *self.ivars().color.borrow_mut() = color;
-        *self.ivars().letter.borrow_mut() = letter;
-        self.setNeedsDisplay(true);
+        let hex = mascot::dog_color(color);
+        let changed = self.ivars().color.get() != hex || *self.ivars().body.borrow() != body || *self.ivars().letter.borrow() != letter;
+        if changed {
+            self.ivars().color.set(hex);
+            *self.ivars().body.borrow_mut() = body.to_owned();
+            *self.ivars().letter.borrow_mut() = letter;
+            self.setNeedsDisplay(true);
+        }
     }
 
     fn paint(&self) {
         let bounds = self.bounds();
-        self.ivars().color.borrow().setFill();
+        let color = self.ivars().color.get();
+        let body = self.ivars().body.borrow().clone();
+        match mascot::breed(Some(&body)) {
+            Some(breed) => face::draw(breed, color, bounds),
+            None => self.letter_circle(bounds, color),
+        }
+    }
+
+    fn letter_circle(&self, bounds: NSRect, color: u32) {
+        crate::theme::srgb(color, 1.0).setFill();
         NSBezierPath::bezierPathWithOvalInRect(bounds).fill();
         let letter = self.ivars().letter.borrow();
         if letter.is_empty() {
@@ -161,6 +181,144 @@ impl Avatar {
         let measured = text.size();
         let at = NSPoint::new(bounds.origin.x + (bounds.size.width - measured.width) / 2.0, bounds.origin.y + (bounds.size.height - measured.height) / 2.0);
         text.drawAtPoint(at);
+    }
+}
+
+mod face {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    use laterdog_core::mascot::{self, Breed, Shape, Tone};
+    use laterdog_core::path::{parse, Segment};
+    use objc2::rc::Retained;
+    use objc2::AllocAnyThread;
+    use objc2_app_kit::{NSBezierPath, NSColor, NSGradient, NSGradientDrawingOptions, NSGraphicsContext, NSLineCapStyle, NSLineJoinStyle};
+    use objc2_foundation::{NSArray, NSPoint, NSRect};
+
+    use crate::theme::srgb;
+
+    thread_local! {
+        static PARSED: RefCell<HashMap<String, Vec<Segment>>> = RefCell::new(HashMap::new());
+    }
+
+    struct Frame {
+        origin: NSPoint,
+        scale: f64,
+    }
+
+    impl Frame {
+        fn at(&self, x: f64, y: f64, mirror: bool) -> NSPoint {
+            let x = if mirror { 100.0 - x } else { x };
+            NSPoint::new(self.origin.x + x * self.scale, self.origin.y + y * self.scale)
+        }
+    }
+
+    fn path(frame: &Frame, data: &str, mirror: bool) -> Retained<NSBezierPath> {
+        let bezier = NSBezierPath::new();
+        PARSED.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            let segments = cache.entry(data.to_owned()).or_insert_with(|| parse(data).unwrap_or_default());
+            for segment in segments.iter() {
+                match *segment {
+                    Segment::Move(point) => bezier.moveToPoint(frame.at(point.x, point.y, mirror)),
+                    Segment::Line(point) => bezier.lineToPoint(frame.at(point.x, point.y, mirror)),
+                    Segment::Cubic(first, second, end) => bezier.curveToPoint_controlPoint1_controlPoint2(
+                        frame.at(end.x, end.y, mirror),
+                        frame.at(first.x, first.y, mirror),
+                        frame.at(second.x, second.y, mirror),
+                    ),
+                    Segment::Close => bezier.closePath(),
+                }
+            }
+        });
+        bezier
+    }
+
+    fn fill(frame: &Frame, shapes: &[Shape], color: u32, mirror: bool) {
+        for shape in shapes {
+            srgb(mascot::tone(color, shape.tone), 1.0).setFill();
+            path(frame, shape.d, mirror).fill();
+        }
+    }
+
+    fn oval(frame: &Frame, cx: f64, cy: f64, rx: f64, ry: f64) -> Retained<NSBezierPath> {
+        let low = frame.at(cx - rx, cy - ry, false);
+        NSBezierPath::bezierPathWithOvalInRect(NSRect::new(low, objc2_foundation::NSSize::new(rx * 2.0 * frame.scale, ry * 2.0 * frame.scale)))
+    }
+
+    fn sheen(frame: &Frame, head: &NSBezierPath) {
+        let bounds = head.bounds();
+        let colors: Vec<Retained<NSColor>> = mascot::SHEEN.iter().map(|(_, hex, alpha)| srgb(*hex, *alpha)).collect();
+        let array = NSArray::from_retained_slice(&colors);
+        let Some(gradient) = NSGradient::initWithColors(NSGradient::alloc(), &array) else { return };
+        let center = NSPoint::new(bounds.origin.x + bounds.size.width * mascot::SHEEN_CENTER.0, bounds.origin.y + bounds.size.height * mascot::SHEEN_CENTER.1);
+        let radius = mascot::SHEEN_RADIUS * (bounds.size.width + bounds.size.height) / 2.0;
+        NSGraphicsContext::saveGraphicsState_class();
+        head.addClip();
+        gradient.drawFromCenter_radius_toCenter_radius_options(center, 0.0, center, radius, NSGradientDrawingOptions::DrawsAfterEndingLocation);
+        NSGraphicsContext::restoreGraphicsState_class();
+        let _ = frame;
+    }
+
+    pub fn draw(breed: &Breed, color: u32, bounds: NSRect) {
+        let size = bounds.size.width.min(bounds.size.height);
+        let frame = Frame { origin: bounds.origin, scale: size / 100.0 };
+        fill(&frame, breed.back, color, false);
+        let ears = |frame: &Frame| {
+            fill(frame, breed.ears, color, false);
+            fill(frame, breed.ears, color, true);
+        };
+        if !breed.ears_front {
+            ears(&frame);
+        }
+        let head = path(&frame, breed.head, false);
+        srgb(mascot::tone(color, Tone::Fur), 1.0).setFill();
+        head.fill();
+        if !breed.markings.is_empty() {
+            NSGraphicsContext::saveGraphicsState_class();
+            head.addClip();
+            fill(&frame, breed.markings, color, false);
+            NSGraphicsContext::restoreGraphicsState_class();
+        }
+        sheen(&frame, &head);
+        fill(&frame, breed.muzzle, color, false);
+        fill(&frame, breed.front, color, false);
+        if breed.ears_front {
+            ears(&frame);
+        }
+        for stroke in breed.details {
+            let line = path(&frame, stroke.d, false);
+            line.setLineWidth(stroke.width * frame.scale);
+            line.setLineCapStyle(NSLineCapStyle::Round);
+            line.setLineJoinStyle(NSLineJoinStyle::Round);
+            srgb(mascot::tone(color, stroke.tone), 1.0).setStroke();
+            line.stroke();
+        }
+        let eyes = breed.eyes;
+        for cx in [eyes.x, 100.0 - eyes.x] {
+            srgb(mascot::INK, 1.0).setFill();
+            oval(&frame, cx, eyes.y, eyes.rx, eyes.ry).fill();
+            if let Some(iris) = eyes.iris.and_then(mascot::iris) {
+                srgb(iris, 1.0).setFill();
+                oval(&frame, cx, eyes.y, eyes.rx * 0.74, eyes.ry * 0.74).fill();
+                srgb(mascot::INK, 1.0).setFill();
+                oval(&frame, cx, eyes.y, eyes.rx * 0.4, eyes.ry * 0.42).fill();
+            }
+            let glint = eyes.rx.min(eyes.ry) * 0.36;
+            srgb(0xffffff, 1.0).setFill();
+            oval(&frame, cx - eyes.rx * 0.3, eyes.y - eyes.ry * 0.36, glint, glint).fill();
+        }
+        let mouth = path(&frame, &mascot::mouth_path(breed.nose, breed.mouth), false);
+        mouth.setLineWidth(mascot::MOUTH_WIDTH * frame.scale);
+        mouth.setLineCapStyle(NSLineCapStyle::Round);
+        mouth.setLineJoinStyle(NSLineJoinStyle::Round);
+        srgb(mascot::INK, 1.0).setStroke();
+        mouth.stroke();
+        srgb(mascot::INK, 1.0).setFill();
+        path(&frame, &mascot::nose_path(breed.nose), false).fill();
+        let nose = breed.nose;
+        srgb(0xffffff, 0.7).setFill();
+        oval(&frame, 50.0 - nose.w * 0.17, nose.y - nose.h * 0.22, nose.w * 0.15, nose.h * 0.12).fill();
     }
 }
 
