@@ -68,7 +68,6 @@ import {
 import { ApiError, api, type ApiInit } from "@/lib/api";
 import { queuedSteerResult, StillWaitingError } from "@/lib/queued-steer";
 import type { OutboxItem, OutboxRecovery } from "@/lib/outbox";
-import { composerDraftId } from "@/lib/drafts";
 import { createSendOutbox, type SendOutbox } from "./send-outbox";
 import { receiveHelperEvent, receiveHelpersSnapshot, forgetHelpers } from "@/lib/helpers-state";
 import { receiveNativeRun, forgetNativeRuns, refreshNativeRuns } from "@/lib/native-runs-state";
@@ -2808,7 +2807,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               text: action.answer,
               queuedAt: Date.now(),
               card: { botId: action.botId, messageId: action.messageId },
-              recovery: { draftId: composerDraftId({ botId: action.botId }, threadId ?? ""), text: action.answer },
             }, {
               ready: waitForExecutionSettings(executionBotsBeforeAction, threadId),
             });

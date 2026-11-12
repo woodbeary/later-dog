@@ -252,11 +252,14 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
   const store = "store" in deps ? deps.store : browserStore();
   const hooks = new Map<string, SendHooks>();
   const now = deps.now ?? Date.now;
+  const recoveryOf = (item: OutboxItem, threadId: string) => ({
+    draftId: item.recovery?.draftId ?? composerDraftId(item.target.kind === "bot" ? { botId: item.target.botId } : { groupId: item.target.groupId }, threadId),
+    text: item.recovery?.text ?? item.text,
+  });
   const heldCopy = (item: OutboxItem, threadId: string): HeldSend => ({
     sendId: item.sendId,
     threadId,
-    draftId: item.recovery?.draftId ?? composerDraftId(item.target.kind === "bot" ? { botId: item.target.botId } : { groupId: item.target.groupId }, threadId),
-    text: item.recovery?.text ?? item.text,
+    ...recoveryOf(item, threadId),
     requestText: item.text,
     replyToId: item.replyToId,
     ...(item.card ? { card: item.card } : {}),
@@ -321,14 +324,9 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
       undelivered(item);
       deps.showError(error, item.threadId);
       if (onError) onError();
-      else if (item.recovery) {
-        rememberFailedComposerSend(item.recovery.draftId, {
-          sendId: item.sendId,
-          text: item.recovery.text,
-          requestText: item.text,
-          replyToId: item.replyToId,
-          threadId: item.threadId,
-        });
+      else {
+        const { draftId, text } = recoveryOf(item, item.threadId);
+        rememberFailedComposerSend(draftId, { sendId: item.sendId, text, requestText: item.text, replyToId: item.replyToId, threadId: item.threadId });
       }
     },
   });

@@ -159,6 +159,44 @@ describe("a send over a flaky network", () => {
   });
 });
 
+describe("a send from anywhere in the app that the home refuses", () => {
+  const refused = () => new Response(JSON.stringify({ error: "That dog is not here." }), { status: 404 });
+
+  it("gives the words back as Not sent in that chat, with no composer behind it: reply from a notification, a call, teach a trick, a draft", async () => {
+    const requests = vi.fn<typeof fetch>(async () => refused());
+    const store = mount(requests);
+    const before = failedComposerSends("bot:bot:refused-thread").length;
+    for (const text of ["Reply from the banner", "Spoken in a call", "Teach this trick", "Draft sent from the chat"]) {
+      store.dispatch({ type: "send", botId: "bot", threadId: "refused-thread", text });
+    }
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(failedComposerSends("bot:bot:refused-thread").slice(before)).toEqual([
+      expect.objectContaining({ text: "Reply from the banner", requestText: "Reply from the banner", threadId: "refused-thread" }),
+      expect.objectContaining({ text: "Spoken in a call" }),
+      expect.objectContaining({ text: "Teach this trick" }),
+      expect.objectContaining({ text: "Draft sent from the chat" }),
+    ]);
+  });
+
+  it("does the same for a message to a group chat", async () => {
+    const requests = vi.fn<typeof fetch>(async () => refused());
+    const store = mount(requests);
+    store.dispatch({ type: "sendGroup", groupId: "room", threadId: "refused-room", text: "Hello room" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(failedComposerSends("group:room:refused-room")).toEqual([expect.objectContaining({ text: "Hello room", threadId: "refused-room" })]);
+  });
+
+  it("leaves a composer send to its own recovery and does not add a second Not sent entry", async () => {
+    const requests = vi.fn<typeof fetch>(async () => refused());
+    const store = mount(requests);
+    const onError = vi.fn();
+    store.dispatch({ type: "send", botId: "bot", threadId: "own-thread", text: "From the composer", onError, recovery: { draftId: "bot:bot:own-thread", text: "From the composer" } });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(failedComposerSends("bot:bot:own-thread")).toEqual([]);
+  });
+});
+
 describe("the saved desktop outbox", () => {
   const held: OutboxItem = {
     sendId: "held-send",
