@@ -23,6 +23,7 @@ import {
   CHECKLIST_IN_REPLY,
   HELPER_BRIEF,
   NEEDS_PERSON,
+  needsPerson,
   PRECEDENCE,
   ROUTINE_OFFER,
   SENDING,
@@ -70,6 +71,7 @@ describe("the guidance every dog gets", () => {
     expect(TASK_LIST).toMatch(/Add each thing they ask for before you start it, mark it in progress when work begins, and done only after it was checked and they were told/);
     expect(TASK_LIST).toMatch(/on every new message and whenever a helper or a background command finishes; make checking the last item/);
     expect(TASK_LIST).toMatch(/"not live yet"/);
+    expect(TASK_LIST).toMatch(/When they ask where things stand \(a status, a checkpoint, "where are we"\), answer from the list: done, in progress, not started/);
     expect(CHECKLIST_IN_REPLY).toMatch(/running checklist of everything the person asked for in this chat/);
     expect(DECIDE_DONT_ASK).toMatch(/Make engineering choices yourself with current best practice/);
     expect(DECIDE_DONT_ASK).toMatch(/a secret, a tap on their device, money, or a preference/);
@@ -79,7 +81,7 @@ describe("the guidance every dog gets", () => {
     expect(CHECK_WORK).toMatch(/say plainly what you verified and what you assumed/);
     expect(CHECK_WORK).toMatch(/^Check your work before calling it done/);
     expect(FINISH_WORK).toMatch(/ordinary obstacles/);
-    for (const line of [ANSWER_FIRST, FINISH_WORK, TASK_LIST, CHECK_WORK, DECIDE_DONT_ASK, EVIDENCE_FIRST, ACTING, NEEDS_PERSON, SENDING, STAY_FREE, HELPER_BRIEF, STOP_MEANS_STOP, BETWEEN_DOGS, ROUTINE_OFFER, PRECEDENCE]) expect(text).toContain(line);
+    for (const line of [ANSWER_FIRST, FINISH_WORK, TASK_LIST, CHECK_WORK, DECIDE_DONT_ASK, EVIDENCE_FIRST, ACTING, needsPerson("claude"), SENDING, STAY_FREE, HELPER_BRIEF, STOP_MEANS_STOP, BETWEEN_DOGS, ROUTINE_OFFER, PRECEDENCE]) expect(text).toContain(line);
     expect(text).not.toContain(CHECKLIST_IN_REPLY);
     expect(dogGuidance({ engine: "codex", model: "gpt-5.6" })).toContain(TASK_LIST);
     expect(dogGuidance({ engine: "other", model: "kimi-k2.6" })).toContain(CHECKLIST_IN_REPLY);
@@ -101,6 +103,13 @@ describe("the guidance every dog gets", () => {
     expect(NEEDS_PERSON).toMatch(/raise it with a card tool that fits .*, so the app shows that you are waiting/);
     expect(NEEDS_PERSON).toMatch(/one question at a time, with real options/);
     expect(NEEDS_PERSON).toMatch(/A dismissed or declined card is a no: do not ask again or reach the same end another way/);
+    expect(needsPerson("claude")).toMatch(/questions and choices go through AskUserQuestion, one at a time with real options; a secure form, take-over, device approval, credential request or proposal covers its own case/);
+    expect(needsPerson("codex")).toMatch(/questions and choices go through request_user_input/);
+    expect(needsPerson("other")).toBe(NEEDS_PERSON);
+    for (const engine of ["claude", "codex"] as const) {
+      expect(needsPerson(engine)).toMatch(/A dismissed or declined card is a no/);
+      expect(dogGuidance({ engine, model: engine === "claude" ? "claude-opus-5-5" : "gpt-5.6" })).toContain(needsPerson(engine));
+    }
     expect(SENDING).toMatch(/covers exactly that message to the people it names, once/);
     expect(ROUTINE_OFFER).toMatch(/Offer a routine in one sentence when a request recurs/);
     expect(ROUTINE_OFFER).toMatch(/with nothing new for the person, end without a message/);
@@ -174,7 +183,7 @@ describe("the guidance every dog gets", () => {
 
   it("adds model lines only where the model's own guidance calls for them", () => {
     const fable = dogGuidance({ engine: "claude", model: "claude-fable-5-2" });
-    expect(fable).toMatch(/offering to wait or inviting the person to redirect you, do the next part/);
+    expect(fable).toMatch(/offering to wait or asking whether to go on, do the next part instead/);
     expect(fable).not.toMatch(/You are the owner and long-term maintainer/);
     expect(modelNotes("opus-5-5")).toEqual([]);
     expect(dogGuidance({ engine: "claude", model: "claude-opus-5-5" })).not.toContain("<model_notes>");
