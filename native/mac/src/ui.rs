@@ -165,6 +165,7 @@ pub struct Ivars {
     input_height: Cell<f64>,
     approval_height: Cell<f64>,
     approval_open: RefCell<HashSet<String>>,
+    open_ran: RefCell<HashSet<String>>,
 }
 
 thread_local! {
@@ -229,6 +230,8 @@ pub struct QuietParts {
 }
 
 pub struct ChatParts {
+    row_id: RefCell<String>,
+    ran: Retained<Flipped>,
     card: RefCell<Option<Retained<NSView>>>,
     cluster_face: Retained<Avatar>,
     cluster_name: Retained<NSTextField>,
@@ -254,6 +257,12 @@ define_class!(
         #[unsafe(method(isFlipped))]
         fn is_flipped(&self) -> bool {
             true
+        }
+
+        #[unsafe(method_id(menuForEvent:))]
+        fn menu_for_event(&self, _event: &objc2_app_kit::NSEvent) -> Option<Retained<NSMenu>> {
+            let id = self.ivars().get().map(|parts| parts.row_id.borrow().clone()).unwrap_or_default();
+            reply_menu(self.mtm(), &id)
         }
     }
 );
@@ -409,6 +418,23 @@ define_class!(
             }
         }
 
+        #[unsafe(method(toggleRan:))]
+        fn toggle_ran_chosen(&self, sender: Option<&NSMenuItem>) {
+            if let Some(id) = sender.and_then(|item| item.identifier()) {
+                self.toggle_ran(&id.to_string());
+            }
+        }
+
+        #[unsafe(method(openLink:))]
+        fn open_link_pressed(&self, sender: Option<&NSButton>) {
+            let Some(url) = sender.and_then(|button| button.identifier()).map(|id| id.to_string()) else { return };
+            if url.starts_with("https://") || url.starts_with("http://") {
+                if let Some(url) = objc2_foundation::NSURL::URLWithString(&NSString::from_str(&url)) {
+                    objc2_app_kit::NSWorkspace::sharedWorkspace().openURL(&url);
+                }
+            }
+        }
+
         #[unsafe(method(sendAgain:))]
         fn send_again_pressed(&self, sender: Option<&NSButton>) {
             if let Some(send_id) = sender.and_then(|button| button.identifier()) {
@@ -455,6 +481,7 @@ impl Controller {
             input_height: Cell::new(theme::COMPOSER_LINE),
             approval_height: Cell::new(0.0),
             approval_open: RefCell::new(HashSet::new()),
+            open_ran: RefCell::new(HashSet::new()),
         });
         let this: Retained<Self> = unsafe { msg_send![super(this), init] };
         CONTROLLER.with(|cell| cell.set(this.clone()).ok());
@@ -729,7 +756,7 @@ impl Controller {
         }
         let gap = if row > 0 { theme::TRANSCRIPT_GAP } else { 0.0 };
         let height = usize::try_from(row).ok().and_then(|row| self.ivars().shapes.borrow().get(row).map(|shape| shape.height)).unwrap_or_default();
-        let face = usize::try_from(row).map_or(0.0, |row| self.face_extra(row));
+        let face = usize::try_from(row).map_or(0.0, |row| self.face_extra(row) + self.ran_extra(row));
         (height + gap + face).max(1.0)
     }
 
@@ -773,6 +800,16 @@ impl Controller {
             _ => None,
         };
         configure_line(&cell, line, &shape, gap + if face.is_some() { theme::CLUSTER_LABEL } else { 0.0 }, width, &color, ui, self);
+        let top = gap + if face.is_some() { theme::CLUSTER_LABEL } else { 0.0 };
+        *cell.ivars().get()?.row_id.borrow_mut() = match line {
+            Line::Bubble(row) => row.id.clone(),
+            _ => String::new(),
+        };
+        let open_ran = match line {
+            Line::Bubble(row) if self.ivars().open_ran.borrow().contains(&row.id) => row.ran.clone(),
+            _ => None,
+        };
+        place_ran(&cell, open_ran.as_ref(), top + shape.height + 4.0, width, ui, self);
         place_cluster(&cell, face.as_ref().or(match line {
             Line::Card(row) => row.face.as_ref(),
             _ => None,
@@ -1544,7 +1581,45 @@ impl Controller {
         on_main_after(Duration::from_millis(wait), |controller| controller.capture());
     }
 
-    fn toggle_ran(&self, _id: &str) {}
+    fn ran_extra(&self, row: usize) -> f64 {
+        let lines = self.ivars().lines.borrow();
+        match lines.get(row) {
+            Some(Line::Bubble(row)) => match &row.ran {
+                Some(block) if self.ivars().open_ran.borrow().contains(&row.id) => 4.0 + ran_height(block),
+                _ => 0.0,
+            },
+            _ => 0.0,
+        }
+    }
+
+    fn toggle_ran(&self, id: &str) {
+        {
+            let mut open = self.ivars().open_ran.borrow_mut();
+            if !open.remove(id) {
+                open.insert(id.to_owned());
+            }
+        }
+        let Some(ui) = self.ivars().ui.get() else { return };
+        let index = self.ivars().lines.borrow().iter().position(|line| matches!(line, Line::Bubble(row) if row.id == id));
+        if let Some(index) = index {
+            let set = NSIndexSet::indexSetWithIndex(index);
+            ui.chat_table.noteHeightOfRowsWithIndexesChanged(&set);
+            ui.chat_table.reloadDataForRowIndexes_columnIndexes(&set, &NSIndexSet::indexSetWithIndex(0));
+        }
+    }
+
+    fn menu_for(&self, mtm: MainThreadMarker, id: &str) -> Option<Retained<NSMenu>> {
+        let action = self.ivars().lines.borrow().iter().find_map(|line| match line {
+            Line::Bubble(row) if row.id == id && !row.mine => row.ran.as_ref().map(|block| block.action),
+            _ => None,
+        })?;
+        let menu = NSMenu::new(mtm);
+        let item = unsafe { NSMenuItem::initWithTitle_action_keyEquivalent(NSMenuItem::alloc(mtm), &NSString::from_str(action), Some(sel!(toggleRan:)), &NSString::from_str("")) };
+        unsafe { item.setTarget(Some(self.as_ref())) };
+        item.setIdentifier(Some(&NSString::from_str(id)));
+        menu.addItem(&item);
+        Some(menu)
+    }
 
     fn press(&self, press: &str) {
         let press = press.replace('|', &card_views::SEP.to_string());
@@ -1915,6 +1990,92 @@ fn room_cell(table: &NSTableView, room: &laterdog_core::store::RoomRow, width: f
     cell
 }
 
+const RAN_LINE: f64 = 15.0;
+
+fn ran_height(block: &laterdog_core::receipt::RanBlock) -> f64 {
+    use laterdog_core::receipt::RanLine;
+    let mut height = 0.0;
+    let mut previous: Option<&RanLine> = None;
+    for line in &block.lines {
+        let gap = match (previous, line) {
+            (None, _) => 0.0,
+            (Some(RanLine::Files { .. } | RanLine::File { .. }), RanLine::File { .. } | RanLine::More { .. }) => 2.0,
+            _ => 4.0,
+        };
+        height += gap + RAN_LINE;
+        previous = Some(line);
+    }
+    height
+}
+
+fn place_ran(cell: &ChatCell, block: Option<&laterdog_core::receipt::RanBlock>, top: f64, width: f64, ui: &Ui, controller: &Controller) {
+    use laterdog_core::receipt::RanLine;
+    let Some(parts) = cell.ivars().get() else { return };
+    for child in parts.ran.subviews().iter() {
+        child.removeFromSuperview();
+    }
+    let Some(block) = block else {
+        parts.ran.setHidden(true);
+        return;
+    };
+    let mtm = controller.mtm();
+    let theme = &ui.theme;
+    let box_width = 560.0f64.min(width - 4.0);
+    let small = font(11.0, Weight::Regular);
+    let mono = objc2_app_kit::NSFont::monospacedSystemFontOfSize_weight(11.0, unsafe { NSFontWeightRegular });
+    let mut y = 0.0;
+    let mut previous: Option<&RanLine> = None;
+    for line in &block.lines {
+        y += match (previous, line) {
+            (None, _) => 0.0,
+            (Some(RanLine::Files { .. } | RanLine::File { .. }), RanLine::File { .. } | RanLine::More { .. }) => 2.0,
+            _ => 4.0,
+        };
+        let put = |text: &str, font: &objc2_app_kit::NSFont, color: &objc2_app_kit::NSColor, x: f64, max: f64| -> f64 {
+            let field = label(mtm, text, font, color);
+            let used = (field.attributedStringValue().size().width.ceil() + 4.0).min(max.max(0.0));
+            field.setFrame(rect(x - 2.0, y, used, RAN_LINE));
+            field.setToolTip(Some(&NSString::from_str(text)));
+            parts.ran.addSubview(&field);
+            used - 4.0
+        };
+        match line {
+            RanLine::Receipt { text } | RanLine::Files { text } | RanLine::More { text } | RanLine::Commands { text } => {
+                put(text, &small, &theme.ink_tertiary, 0.0, box_width);
+            }
+            RanLine::File { path, change } => {
+                let change_width = objc2_foundation::NSString::from_str(change).len() as f64 * 6.0 + 8.0;
+                let used = put(path, &mono, &theme.ink_secondary, 0.0, box_width - change_width - 8.0);
+                put(change, &small, &theme.ink_tertiary, used + 8.0, change_width + 4.0);
+            }
+            RanLine::Link { lead, label: words, url } => {
+                let mut x = 0.0;
+                if let Some(lead) = lead {
+                    x += put(lead, &small, &theme.ink_tertiary, 0.0, box_width) + 4.0;
+                }
+                let used = put(words, &small, &theme.accent, x, box_width - x);
+                let button = unsafe { NSButton::buttonWithTitle_target_action(&NSString::from_str(""), Some(controller.as_ref()), Some(sel!(openLink:)), mtm) };
+                button.setBordered(false);
+                button.setTransparent(true);
+                button.setIdentifier(Some(&NSString::from_str(url)));
+                button.setFrame(rect(x, y, used, RAN_LINE));
+                button.setAccessibilityLabel(Some(&NSString::from_str(words)));
+                parts.ran.addSubview(&button);
+            }
+        }
+        y += RAN_LINE;
+        previous = Some(line);
+    }
+    parts.ran.setFrame(rect(4.0, top, box_width, y));
+    parts.ran.setHidden(false);
+}
+
+fn reply_menu(mtm: MainThreadMarker, id: &str) -> Option<Retained<NSMenu>> {
+    let mut menu = None;
+    with_controller(|controller| menu = controller.menu_for(mtm, id));
+    menu
+}
+
 fn place_cluster(cell: &ChatCell, face: Option<&laterdog_core::store::Face>, gap: f64, ui: &Ui) {
     let Some(parts) = cell.ivars().get() else { return };
     parts.cluster_face.setHidden(face.is_none());
@@ -2047,7 +2208,10 @@ fn new_chat_cell(mtm: MainThreadMarker, theme: &Theme, controller: Option<&AnyOb
         view.setHidden(true);
         cell.addSubview(view);
     }
-    cell.ivars().set(ChatParts { card: RefCell::new(None), cluster_face, cluster_name, quiet, again, day, bubble, texts: RefCell::new(Vec::new()), codes: RefCell::new(Vec::new()), rules: RefCell::new(Vec::new()), status, work, chevron }).ok();
+    let ran = Flipped::new(mtm);
+    ran.setHidden(true);
+    cell.addSubview(&ran);
+    cell.ivars().set(ChatParts { row_id: RefCell::new(String::new()), ran, card: RefCell::new(None), cluster_face, cluster_name, quiet, again, day, bubble, texts: RefCell::new(Vec::new()), codes: RefCell::new(Vec::new()), rules: RefCell::new(Vec::new()), status, work, chevron }).ok();
     cell
 }
 
