@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.47 — 2026-11-11
+
+- **Chats open in stages and redraw less** while you switch dogs, type or receive a reply.
+- **Messages stay visible while My Cloud wakes.** Send a waiting message now or cancel it; a message the home never accepts keeps its words with Not sent and Send again.
+- **Sidebar rows follow your language**, and a Needs you row opens the task that needs your answer.
+
 ## 0.3.46 — 2026-11-09
 
 - **Plan accounts take care of themselves.** A chat whose account runs out moves to the one with the most left, accounts come back into use after a limit resets, and an idle Claude account is no longer called signed out. You can switch a chat's account from the desktop, and a chat says when it runs on another engine's account.

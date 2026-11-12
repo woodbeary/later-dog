@@ -4,6 +4,17 @@
 
 Started 2026-10-13. This file is the single place that says what is in progress, what is done, and how to pick up any piece of it. Every gate updates it in the same commit as the work.
 
+## Desktop 0.3.47 candidate, November 11
+
+The candidate carries main 8395635, including staged chat rendering, fewer store
+redraws, held-message controls and the Send again label. Only release metadata
+is added for 0.3.47. On Jacob's Mac, lint and locale checks passed, along with
+13 Vitest release/package checks and 12 native release-check tests. Atelier's
+4,036 src/shared checks remain the feature evidence. Signed packaging,
+notarization and publication are pending. Native window rendering and Mac
+timing remain unverified. The older-copy issue after a home stops remains open.
+No home image or edge release is part of this desktop release.
+
 ## Pinned account routing, November 10
 
 The account routing repair removes early moves at five percent remaining and
