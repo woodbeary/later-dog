@@ -386,6 +386,35 @@ describe("a home that boots only for its owner", () => {
     expect(HOMES_LARGE.machine(machineId).running).toBe(true);
     expect(world.overlaps).toEqual([]);
   });
+
+  it("does not boot a home that changed size for a session it stopped trusting, though its other size once learned it", async () => {
+    const { env, HOMES, HOMES_LARGE, visit, machineId, home: standardHome } = await awakeHome("owners");
+    const key = await guard.wakerKey({ kind: "session", token: OWNER_TOKEN, via: "bearer" });
+    world.sessions.add(OWNER_TOKEN);
+    await visit("/api/bots", asOwner());
+    const standard = HOMES.machine(machineId);
+    env.LARGE_HOME_ACCOUNTS = OWNER;
+    await visit("/api/bots", asOwner());
+    standard.exit?.();
+    await visit("/api/bots", asOwner());
+    const large = HOMES_LARGE.machine(machineId);
+    const largeHome = HOMES_LARGE.get(HOMES_LARGE.idFromName(machineId));
+    expect(large.running).toBe(true);
+    expect(await largeHome.knowsWaker(key)).toBe(true);
+
+    world.sessions.delete(OWNER_TOKEN);
+    world.answers.set("GET /api/bots", () => Response.json({ error: "unauthorized" }, { status: 401 }));
+    expect((await visit("/api/bots", asOwner())).status).toBe(401);
+    expect(await largeHome.knowsWaker(key)).toBe(false);
+
+    await (largeHome as unknown as { stop(): Promise<void> }).stop();
+    large.exit?.();
+    const starts = large.starts;
+    expect((await visit("/api/bots", asOwner())).headers.get(WAKE_HEADER)).toBe("asleep");
+    expect(large.starts).toBe(starts);
+    expect(await largeHome.knowsWaker(key)).toBe(false);
+    expect(await standardHome.knowsWaker(key)).toBe(false);
+  });
 });
 
 describe("a message the edge holds while the home cannot take it", () => {
