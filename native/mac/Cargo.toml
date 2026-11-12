@@ -11,11 +11,18 @@ path = "src/main.rs"
 
 [dependencies]
 laterdog-core = { path = "../core" }
+dispatch2 = "0.3"
+serde_json = "1"
+ureq = { version = "3.4", default-features = false, features = ["rustls"] }
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSGeometry", "NSThread", "NSAttributedString", "NSRange"] }
+objc2-foundation = { version = "0.3", features = [
+  "NSString", "NSGeometry", "NSThread", "NSAttributedString", "NSRange", "NSDictionary", "NSIndexSet", "NSNotification",
+  "NSObject", "NSObjCRuntime",
+] }
 objc2-app-kit = { version = "0.3", features = [
   "NSApplication", "NSRunningApplication", "NSResponder", "NSWindow", "NSView", "NSGraphics",
   "NSScrollView", "NSClipView", "NSTextView", "NSText", "NSTextField", "NSControl", "NSStackView",
   "NSSplitView", "NSFont", "NSColor", "NSTextStorage", "NSLayoutConstraint", "NSUserInterfaceLayout",
-  "NSTextContainer", "NSMenu", "NSMenuItem",
+  "NSTextContainer", "NSMenu", "NSMenuItem", "NSTableView", "NSTableColumn", "NSButton", "NSEvent", "NSCell",
+  "NSAttributedString", "NSAccessibilityProtocols",
 ] }
