@@ -159,6 +159,15 @@ pub const ROOM_A_BOT: &str = "A dog";
 pub const ROOM_TEAM_WORKING: &str = "The dogs are working\u{2026}";
 pub const ROOM_NO_MESSAGES: &str = "No messages yet";
 pub const ROOM_YOU: &str = "You: {text}";
+pub const PLACEHOLDER_BOT: &str = "Message {name}";
+pub const PLACEHOLDER_GROUP: &str = "Message {name} \u{2014} {hint}";
+pub const PLACEHOLDER_APPROVAL: &str = "Answer the approval above to continue";
+pub const ROOM_HINT_DM: &str = "Reply here to continue the dog-to-dog conversation.";
+pub const ROOM_HINT_EVERYONE: &str = "Everyone responds unless you @mention specific dogs.";
+pub const ROOM_HINT_MENTIONS: &str = "Mention a dog with @ to bring them in.";
+pub const ROOM_HINT_LEAD: &str = "{name} responds by default \u{2014} @mention someone else to choose them instead.";
+pub const ROOM_HINT_LEAD_FALLBACK: &str = "The lead dog";
+pub const ROOM_HINT_AUTO: &str = "The best-fit dog answers each message. @mention someone to choose them yourself.";
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Room {
@@ -172,6 +181,7 @@ struct Room {
     working: bool,
     dm: bool,
     work: Option<Work>,
+    responder: Option<serde_json::Value>,
 }
 
 impl Room {
@@ -204,6 +214,9 @@ impl Room {
         }
         if let Some(work) = &group.work {
             self.work = work.clone();
+        }
+        if group.default_responder.is_some() {
+            self.responder = group.default_responder.clone();
         }
     }
 }
@@ -480,6 +493,7 @@ pub struct View {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work: Option<Work>,
     pub room: bool,
+    pub placeholder: String,
     pub dogs: Vec<SidebarRow>,
     pub rooms: Vec<RoomRow>,
     pub sidebar: Vec<SidebarEntry>,
@@ -1118,7 +1132,15 @@ impl Store {
             Some(chat) => self.transcript(chat),
             None => Vec::new(),
         };
+        let approval = chat.and_then(|chat| self.approval_panel(chat));
+        let placeholder = match (dog, room) {
+            _ if approval.is_some() => PLACEHOLDER_APPROVAL.to_owned(),
+            (Some(dog), _) => crate::words::fill(PLACEHOLDER_BOT, &[("name", &dog.name)]),
+            (_, Some(room)) => crate::words::fill(PLACEHOLDER_GROUP, &[("name", &room.name), ("hint", &self.room_hint(room))]),
+            _ => "Message".to_owned(),
+        };
         View {
+            placeholder,
             connection: self.connection,
             status: self.connection.words(),
             selected: self.selected.clone().filter(|_| chat.is_some()),
@@ -1151,9 +1173,34 @@ impl Store {
                 .collect(),
             rooms: self.room_order().into_iter().map(|room| self.room_row(room)).collect(),
             sidebar: self.sidebar_entries(),
-            approval: chat.and_then(|chat| self.approval_panel(chat)),
+            approval,
             transcript,
         }
+    }
+
+    pub fn room_hint_for(&self, id: &str) -> Option<String> {
+        self.rooms.iter().find(|room| room.id == id).map(|room| self.room_hint(room))
+    }
+
+    fn room_hint(&self, room: &Room) -> String {
+        if room.dm {
+            return ROOM_HINT_DM.to_owned();
+        }
+        let members: Vec<&Dog> = room.member_ids.iter().filter_map(|id| self.dogs.iter().find(|dog| &dog.id == id)).collect();
+        let value = room.responder.as_ref();
+        let kind = value.and_then(|value| value.get("kind")).and_then(|kind| kind.as_str());
+        let pick = |key: &str| value.and_then(|value| value.get(key)).and_then(|id| id.as_str()).and_then(|id| members.iter().find(|dog| dog.id == id)).map(|dog| dog.name.clone());
+        let lead = match kind {
+            Some("everyone") => return ROOM_HINT_EVERYONE.to_owned(),
+            Some("mentions") => return ROOM_HINT_MENTIONS.to_owned(),
+            Some("auto") => return ROOM_HINT_AUTO.to_owned(),
+            Some("member") => pick("botId").or_else(|| members.first().map(|dog| dog.name.clone())),
+            _ => match members.first() {
+                Some(dog) => Some(dog.name.clone()),
+                None => return ROOM_HINT_MENTIONS.to_owned(),
+            },
+        };
+        crate::words::fill(ROOM_HINT_LEAD, &[("name", &lead.unwrap_or_else(|| ROOM_HINT_LEAD_FALLBACK.to_owned()))])
     }
 
     fn face_of(&self, bot_id: &str, fallback_name: &str, fallback_color: &str) -> Face {

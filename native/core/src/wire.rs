@@ -252,6 +252,8 @@ pub struct WireGroup {
     pub working: Option<bool>,
     #[serde(deserialize_with = "flag")]
     pub dm: Option<bool>,
+    #[serde(deserialize_with = "lenient")]
+    pub default_responder: Option<Value>,
     #[serde(deserialize_with = "work")]
     pub work: Option<Option<crate::work::Work>>,
     #[serde(deserialize_with = "flag")]

@@ -110,6 +110,7 @@ struct Ui {
     head_more: Retained<NSButton>,
     head_status: Retained<NSTextField>,
     head_work: Retained<NSTextField>,
+    room_name: Retained<NSTextField>,
     head_glass: Retained<objc2_app_kit::NSVisualEffectView>,
     head_tint: Retained<Fade>,
     unread_above: UnreadPill,
@@ -229,6 +230,8 @@ pub struct QuietParts {
 
 pub struct ChatParts {
     card: RefCell<Option<Retained<NSView>>>,
+    cluster_face: Retained<Avatar>,
+    cluster_name: Retained<NSTextField>,
     quiet: QuietParts,
     again: Retained<NSButton>,
     day: Retained<NSTextField>,
@@ -292,7 +295,7 @@ define_class!(
 
         #[unsafe(method(tableView:shouldSelectRow:))]
         fn should_select(&self, table: &NSTableView, row: NSInteger) -> bool {
-            !self.is_dogs(table) || self.dog_at(row).is_some()
+            !self.is_dogs(table) || self.entry_id(row).is_some()
         }
 
         #[unsafe(method(tableViewSelectionDidChange:))]
@@ -590,6 +593,9 @@ impl Controller {
         let head_work = label(mtm, "", &font(12.0, Weight::Regular), &theme.ink_secondary);
         head_work.setHidden(true);
         chat.addSubview(&head_work);
+        let room_name = label(mtm, "", &font(15.0, Weight::Semibold), &theme.ink);
+        room_name.setHidden(true);
+        chat.addSubview(&room_name);
 
         let composer = Fill::new(mtm, Some(&theme.composer), theme::COMPOSER_RADIUS);
         composer.set_stroke(Some(&theme.composer_ring), theme::HAIRLINE);
@@ -650,7 +656,7 @@ impl Controller {
         window.setContentView(Some(&root));
         let ui = Ui {
             window, root, sidebar, side_line, side_top, side_bottom, chat, side_search, side_new, dog_scroll, dog_table, profile, profile_mark, connect,
-            connect_label, head_pill, head_avatar, head_name, head_search, head_more, head_status, head_work, head_glass, head_tint, unread_above, unread_below, chat_scroll, chat_table, composer, approval,
+            connect_label, head_pill, head_avatar, head_name, head_search, head_more, head_status, head_work, room_name, head_glass, head_tint, unread_above, unread_below, chat_scroll, chat_table, composer, approval,
             plus, input_scroll, input, placeholder, model_ring, model_mark, model_label, model_chevrons, mic, voice, send_fill, send,
             days, times, weekday_times, theme,
         };
@@ -687,11 +693,21 @@ impl Controller {
         self.ivars().ui.get().is_some_and(|ui| std::ptr::eq(table, &*ui.dog_table))
     }
 
-    fn dog_at(&self, row: NSInteger) -> Option<usize> {
+    fn entry_id(&self, row: NSInteger) -> Option<String> {
         let index = usize::try_from(row).ok()?;
-        match self.ivars().view.borrow().sidebar.get(index)? {
-            SidebarEntry::Dog { index } => Some(*index),
-            SidebarEntry::Header { .. } | SidebarEntry::Room { .. } => None,
+        let view = self.ivars().view.borrow();
+        match view.sidebar.get(index)? {
+            SidebarEntry::Dog { index } => view.dogs.get(*index).map(|dog| dog.id.clone()),
+            SidebarEntry::Room { index } => view.rooms.get(*index).map(|room| room.id.clone()),
+            SidebarEntry::Header { .. } => None,
+        }
+    }
+
+    fn face_extra(&self, row: usize) -> f64 {
+        let lines = self.ivars().lines.borrow();
+        match lines.get(row) {
+            Some(Line::Bubble(row) | Line::Work(row) | Line::Exchange(row)) if row.face.is_some() => theme::CLUSTER_LABEL,
+            _ => 0.0,
         }
     }
 
@@ -713,7 +729,8 @@ impl Controller {
         }
         let gap = if row > 0 { theme::TRANSCRIPT_GAP } else { 0.0 };
         let height = usize::try_from(row).ok().and_then(|row| self.ivars().shapes.borrow().get(row).map(|shape| shape.height)).unwrap_or_default();
-        (height + gap).max(1.0)
+        let face = usize::try_from(row).map_or(0.0, |row| self.face_extra(row));
+        (height + gap + face).max(1.0)
     }
 
     fn cell_for(&self, table: &NSTableView, row: NSInteger) -> Option<Retained<NSView>> {
@@ -726,7 +743,10 @@ impl Controller {
             let index = match entry {
                 SidebarEntry::Dog { index } => index,
                 SidebarEntry::Header { name, count, first } => return Some(section_cell(table, &name, count, first, ui)),
-                SidebarEntry::Room { .. } => return None,
+                SidebarEntry::Room { index } => {
+                    let room = self.ivars().view.borrow().rooms.get(index)?.clone();
+                    return Some(room_cell(table, &room, width, ui));
+                }
             };
             let reused = unsafe { table.makeViewWithIdentifier_owner(&NSString::from_str(DOG_CELL), None) };
             let cell = match reused.and_then(|view| view.downcast::<DogCell>().ok()) {
@@ -748,7 +768,15 @@ impl Controller {
         let shape = self.ivars().shapes.borrow().get(index).cloned().unwrap_or_default();
         let gap = if index > 0 { theme::TRANSCRIPT_GAP } else { 0.0 };
         let color = self.ivars().view.borrow().color.clone();
-        configure_line(&cell, line, &shape, gap, width, &color, ui, self);
+        let face = match line {
+            Line::Bubble(row) | Line::Work(row) | Line::Exchange(row) => row.face.clone(),
+            _ => None,
+        };
+        configure_line(&cell, line, &shape, gap + if face.is_some() { theme::CLUSTER_LABEL } else { 0.0 }, width, &color, ui, self);
+        place_cluster(&cell, face.as_ref().or(match line {
+            Line::Card(row) => row.face.as_ref(),
+            _ => None,
+        }), gap, ui);
         Some(Retained::into_super(cell))
     }
 
@@ -759,7 +787,7 @@ impl Controller {
             return;
         }
         let row = ui.dog_table.selectedRow();
-        let picked = self.dog_at(row).and_then(|index| self.ivars().view.borrow().dogs.get(index).map(|dog| dog.id.clone()));
+        let picked = self.entry_id(row);
         let Some(id) = picked else { return };
         let moved = self.ivars().session.borrow_mut().store.select(&id);
         if moved {
@@ -813,6 +841,12 @@ impl Controller {
         let pill_x = ((chat_width - group) / 2.0).round();
         ui.head_pill.setFrame(rect(pill_x, theme::HEADER_PAD_Y, pill_width, pill_height));
         ui.head_work.setFrame(rect(pill_x + pill_width + 8.0 - 2.0, theme::HEADER_PAD_Y + (pill_height - 16.0) / 2.0, work_width, 16.0));
+        if !ui.room_name.isHidden() {
+            let room_width = (ui.room_name.attributedStringValue().size().width.ceil() + 4.0).min(chat_width - controls - theme::HEADER_PAD_X);
+            ui.room_name.setFrame(rect(theme::HEADER_PAD_X - 2.0, theme::HEADER_PAD_Y + (pill_height - 20.0) / 2.0, room_width, 20.0));
+            let room_work = if ui.head_work.isHidden() { 0.0 } else { (ui.head_work.attributedStringValue().size().width.ceil() + 4.0).min((chat_width - controls - theme::HEADER_PAD_X - room_width - 8.0).max(0.0)) };
+            ui.head_work.setFrame(rect(theme::HEADER_PAD_X + room_width + 8.0 - 4.0, theme::HEADER_PAD_Y + (pill_height - 16.0) / 2.0, room_work, 16.0));
+        }
         ui.head_avatar.setFrame(rect(theme::HEADER_PILL_PAD, theme::HEADER_PILL_PAD, theme::HEADER_AVATAR, theme::HEADER_AVATAR));
         ui.head_name.setFrame(rect(theme::HEADER_PILL_PAD + theme::HEADER_AVATAR + 8.0, (pill_height - 18.0) / 2.0, name_width, 18.0));
         let head_bottom = theme::HEADER_PAD_Y * 2.0 + pill_height;
@@ -1364,7 +1398,12 @@ impl Controller {
         if changes.sidebar || moved {
             ui.dog_table.reloadData();
             let selected = view.dogs.iter().position(|dog| dog.selected);
-            let entry = selected.and_then(|selected| view.sidebar.iter().position(|entry| matches!(entry, SidebarEntry::Dog { index } if *index == selected)));
+            let room = view.rooms.iter().position(|room| room.selected);
+            let entry = view.sidebar.iter().position(|entry| match entry {
+                SidebarEntry::Dog { index } => Some(*index) == selected,
+                SidebarEntry::Room { index } => Some(*index) == room,
+                SidebarEntry::Header { .. } => false,
+            });
             if let Some(index) = entry {
                 if ui.dog_table.selectedRow() != index as NSInteger {
                     ui.dog_table.selectRowIndexes_byExtendingSelection(&NSIndexSet::indexSetWithIndex(index), false);
@@ -1440,7 +1479,9 @@ impl Controller {
     fn refresh_header(&self, ui: &Ui, view: &View) {
         ui.head_name.setStringValue(&NSString::from_str(&view.title));
         ui.head_avatar.set(&view.color, &view.body, &view.title);
-        ui.head_pill.setHidden(view.title.is_empty());
+        ui.head_pill.setHidden(view.title.is_empty() || view.room);
+        ui.room_name.setStringValue(&NSString::from_str(if view.room { &view.title } else { "" }));
+        ui.room_name.setHidden(!view.room);
         let status = if !self.ivars().connected_home {
             NO_HOME_WORDS
         } else if view.connection == Connection::Connected {
@@ -1453,8 +1494,9 @@ impl Controller {
         let work = laterdog_core::work::line(view.work.as_ref(), now_ms(), &|until, now| reset_time(ui, until, now));
         ui.head_work.setStringValue(&NSString::from_str(work.as_deref().unwrap_or_default()));
         ui.head_work.setHidden(work.is_none() || view.title.is_empty());
+        ui.head_work.setTextColor(Some(&ui.theme.ink_secondary));
         ui.head_work.setAccessibilityRole(Some(unsafe { objc2_app_kit::NSAccessibilityStaticTextRole }));
-        let placeholder = if view.title.is_empty() { "Message".to_owned() } else { format!("Message {}", view.title) };
+        let placeholder = view.placeholder.clone();
         ui.placeholder.setStringValue(&NSString::from_str(&placeholder));
         ui.input.setAccessibilityLabel(Some(&NSString::from_str(&placeholder)));
         let model = view.model.as_deref().map(model_name).unwrap_or_default();
@@ -1807,6 +1849,85 @@ pub fn toggle_wrap(key: &str) {
     with_controller(|controller| controller.toggle_wrap(key));
 }
 
+fn room_cell(table: &NSTableView, room: &laterdog_core::store::RoomRow, width: f64, ui: &Ui) -> Retained<NSView> {
+    let mtm = MainThreadMarker::from(table);
+    let theme = &ui.theme;
+    let cell: Retained<NSView> = Retained::into_super(Flipped::new(mtm));
+    let inset = theme::SIDEBAR_LIST_INSET;
+    let row_top = theme::ROW_GAP / 2.0;
+    let row_width = width - inset * 2.0;
+    let selection = Fill::new(mtm, room.selected.then_some(&*theme.selected_row), theme::ROW_RADIUS);
+    selection.setFrame(rect(inset, row_top, row_width, theme::ROW_HEIGHT));
+    cell.addSubview(&selection);
+    let slot_x = inset + theme::ROW_PAD_LEFT;
+    let slot_y = row_top + (theme::ROW_HEIGHT - theme::ROW_AVATAR) / 2.0;
+    if room.faces.len() <= 1 {
+        if let Some(face) = room.faces.first() {
+            let avatar = Avatar::new(mtm);
+            avatar.setFrame(rect(slot_x, slot_y, theme::ROW_AVATAR, theme::ROW_AVATAR));
+            avatar.set(&face.color, &face.body, &face.name);
+            cell.addSubview(&avatar);
+        } else {
+            let people = icon(mtm, "person.2", 15.0, unsafe { NSFontWeightRegular }, &theme.ink_secondary);
+            people.setFrame(rect(slot_x, slot_y, theme::ROW_AVATAR, theme::ROW_AVATAR));
+            cell.addSubview(&people);
+        }
+    } else {
+        let extra = if room.extra > 0 { 16.0 - 10.0 } else { 0.0 };
+        let total = 20.0 + 10.0 + extra;
+        let mut x = slot_x + (theme::ROW_AVATAR - total) / 2.0;
+        for face in &room.faces {
+            let avatar = Avatar::new(mtm);
+            avatar.setFrame(rect(x, slot_y + 6.0, 20.0, 20.0));
+            avatar.set(&face.color, &face.body, &face.name);
+            cell.addSubview(&avatar);
+            x += 10.0;
+        }
+        if room.extra > 0 {
+            let chip = Fill::new(mtm, Some(&theme.raised), ROUND);
+            chip.set_stroke(Some(&theme.hairline_40), 1.0);
+            chip.setFrame(rect(x + 10.0 - 6.0 + 2.0, slot_y + 8.0, 16.0, 16.0));
+            let count = label(mtm, &format!("+{}", room.extra), &font(9.0, Weight::Medium), &theme.ink_secondary);
+            count.setAlignment(NSTextAlignment::Center);
+            count.setFrame(rect(0.0, 2.5, 16.0, 12.0));
+            chip.addSubview(&count);
+            cell.addSubview(&chip);
+        }
+    }
+    let text_x = slot_x + theme::ROW_AVATAR + theme::ROW_GAP_X;
+    let text_right = inset + row_width - theme::ROW_PAD_RIGHT;
+    let name_top = row_top + 8.0;
+    let name = label(mtm, &room.name, &font(14.0, Weight::Semibold), &theme.ink);
+    name.setFrame(rect(text_x - 2.0, name_top + 1.0, (text_right - text_x).max(10.0), 19.0));
+    cell.addSubview(&name);
+    let preview_top = name_top + 21.0;
+    let preview_right = if room.unread { text_right - theme::DOT - 8.0 } else { text_right };
+    let preview = label(mtm, &room.preview, &font(11.0, Weight::Regular), &theme.ink_secondary);
+    preview.setFrame(rect(text_x - 2.0, preview_top + 1.0, (preview_right - text_x).max(10.0), 15.0));
+    cell.addSubview(&preview);
+    if room.unread {
+        let dot = Fill::new(mtm, Some(&theme.unread), ROUND);
+        dot.setFrame(rect(text_right - theme::DOT, preview_top + (16.5 - theme::DOT) / 2.0, theme::DOT, theme::DOT));
+        cell.addSubview(&dot);
+    }
+    let spoken = if room.unread { format!("{} \u{b7} Unread", room.name) } else { room.name.clone() };
+    cell.setAccessibilityLabel(Some(&NSString::from_str(&spoken)));
+    cell
+}
+
+fn place_cluster(cell: &ChatCell, face: Option<&laterdog_core::store::Face>, gap: f64, ui: &Ui) {
+    let Some(parts) = cell.ivars().get() else { return };
+    parts.cluster_face.setHidden(face.is_none());
+    parts.cluster_name.setHidden(face.is_none());
+    let Some(face) = face else { return };
+    parts.cluster_face.set(&face.color, &face.body, &face.name);
+    parts.cluster_face.setFrame(rect(2.0, gap + 2.0, 16.0, 16.0));
+    parts.cluster_name.setStringValue(&NSString::from_str(&face.name));
+    let width = parts.cluster_name.attributedStringValue().size().width.ceil() + 4.0;
+    parts.cluster_name.setFrame(rect(2.0 + 16.0 + 6.0 - 2.0, gap + 3.0, width, 15.0));
+    let _ = ui;
+}
+
 fn new_dog_cell(mtm: MainThreadMarker, theme: &Theme) -> Retained<DogCell> {
     let selection = Fill::new(mtm, None, theme::ROW_RADIUS);
     let avatar = Avatar::new(mtm);
@@ -1920,7 +2041,13 @@ fn new_chat_cell(mtm: MainThreadMarker, theme: &Theme, controller: Option<&AnyOb
         cell.addSubview(view);
     }
     cell.setIdentifier(Some(&NSString::from_str(CHAT_CELL)));
-    cell.ivars().set(ChatParts { card: RefCell::new(None), quiet, again, day, bubble, texts: RefCell::new(Vec::new()), codes: RefCell::new(Vec::new()), rules: RefCell::new(Vec::new()), status, work, chevron }).ok();
+    let cluster_face = Avatar::new(mtm);
+    let cluster_name = label(mtm, "", &font(11.0, Weight::Medium), &theme.ink_secondary);
+    for view in [&*cluster_face as &NSView, &cluster_name] {
+        view.setHidden(true);
+        cell.addSubview(view);
+    }
+    cell.ivars().set(ChatParts { card: RefCell::new(None), cluster_face, cluster_name, quiet, again, day, bubble, texts: RefCell::new(Vec::new()), codes: RefCell::new(Vec::new()), rules: RefCell::new(Vec::new()), status, work, chevron }).ok();
     cell
 }
 
@@ -1979,7 +2106,7 @@ fn configure_line(cell: &ChatCell, line: &Line, shape: &Shape, gap: f64, width: 
             let bubble_height = layout.height + theme::BUBBLE_PAD_Y * 2.0;
             let x = if row.mine { width - bubble_width } else { 0.0 };
             parts.bubble.setFrame(rect(x, gap, bubble_width, bubble_height));
-            parts.bubble.set_fill(Some(&*if row.mine { theme.tint(color) } else { theme.card.clone() }));
+            parts.bubble.set_fill(Some(&*if row.mine && row.room { theme.bubble_user.clone() } else if row.mine { theme.tint(color) } else { theme.card.clone() }));
             place_pieces(parts, layout, row, theme, controller);
             if let Some(words) = row.status.filter(|words| *words != SendState::Sent.words()) {
                 parts.status.setHidden(false);
