@@ -34,3 +34,21 @@ describe("delegated Needs you attention", () => {
     expect(dogRowFacts(bot(proxy(status)), {}).waiting).toBe(false);
   });
 });
+
+describe("the home's work state on the row", () => {
+  it("names who a busy dog is waiting for instead of plain working dots", () => {
+    const facts = dogRowFacts({ ...bot(proxy("answered")), busy: true, work: { kind: "waiting-for-computer", holder: "Patch" } }, {});
+    expect(facts.work).toBe("Waiting for the computer while Patch uses it");
+  });
+
+  it("shows nothing extra when the home sends no work state", () => {
+    expect(dogRowFacts({ ...bot(proxy("answered")), busy: true }, {}).work).toBeNull();
+  });
+
+  it("follows the open task's work, not the dog's main chat", () => {
+    const base = bot(proxy("answered"));
+    const tasked = { ...base, threadId: "task", work: { kind: "idle" as const },
+      tasks: [{ threadId: "task", title: "Task", createdAt: 1, work: { kind: "waiting-on-dog" as const, dogs: [{ id: "s", name: "Scout" }] } }] };
+    expect(dogRowFacts(tasked, {}).work).toBe("Waiting for Scout");
+  });
+});

@@ -786,7 +786,7 @@ export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, ma
       data-sidebar-bot-row={bot.id}
       data-sidebar-unread={unread ? "" : undefined}
       aria-current={selected ? "page" : undefined}
-      aria-label={`${bot.name}${bot.chiefOfStaff ? ` · ${t("mainDog.badge")}` : ""}${waiting ? ` · ${waitingLine(visible)}` : working ? ` · ${t("chat.activity.working")}` : ""}${unread ? ` · ${t("task.unread")}` : ""}`}
+      aria-label={`${bot.name}${bot.chiefOfStaff ? ` · ${t("mainDog.badge")}` : ""}${waiting ? ` · ${waitingLine(visible)}` : work ? ` · ${work}` : working ? ` · ${t("chat.activity.working")}` : ""}${unread ? ` · ${t("task.unread")}` : ""}`}
       title={bot.name}
       draggable={Boolean(onPinDrop)}
       onDragStart={(event) => {
@@ -901,7 +901,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
       : "gap-3 py-2 pl-2 pr-9",
     selected ? "bg-raised/70" : "hover:bg-raised/40",
   );
-  const { waiting, working, teammates: teammateWait, queued, unread } = dogRowFacts(bot, pendingQueued);
+  const { waiting, working, teammates: teammateWait, queued, unread, work } = dogRowFacts(bot, pendingQueued);
   const onLiveCall = liveBadgeFor(bot.id, liveMedia, liveCall);
   const body = (
     <>
@@ -962,13 +962,13 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
             </span>
           ) : (
             <span className="flex min-w-0 items-center gap-1.5 truncate text-[11px] text-ink-secondary">
-              {working ? (
+              {working && !work ? (
                 <span className="flex h-[1.5em] items-center" role="status">
                   <WorkingDots size={3.5} />
                   <span className="sr-only">{t("sidebar.preview.working")}</span>
                 </span>
               ) : (
-                <span className={cn("truncate", waiting && "text-waiting-text")}>{waiting ? waitingLine(visible) : teammateWait ? t("sidebar.preview.waitingOnTeammate") : queued ? t("task.queued") : preview(bot, visible, instances, showToolCalls)}</span>
+                <span className={cn("truncate", waiting && "text-waiting-text")}>{waiting ? waitingLine(visible) : work ? work : teammateWait ? t("sidebar.preview.waitingOnTeammate") : queued ? t("task.queued") : preview(bot, visible, instances, showToolCalls)}</span>
               )}
             </span>
           )}
@@ -997,7 +997,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
           !renaming
             ? deleting
               ? t("sidebar.bot.deletingAria", { name: bot.name })
-              : `${bot.name}${bot.chiefOfStaff ? ` · ${t("mainDog.badge")}` : ""}${onLiveCall ? ` · ${t("call.live.badge")}` : ""}${waiting ? ` · ${waitingLine(visible)}` : working ? ` · ${t("chat.activity.working")}` : teammateWait ? ` · ${t("sidebar.preview.waitingOnTeammate")}` : queued ? ` · ${t("task.queued")}` : ""}${unread ? ` · ${t("task.unread")}` : ""}`
+              : `${bot.name}${bot.chiefOfStaff ? ` · ${t("mainDog.badge")}` : ""}${onLiveCall ? ` · ${t("call.live.badge")}` : ""}${waiting ? ` · ${waitingLine(visible)}` : work ? ` · ${work}` : working ? ` · ${t("chat.activity.working")}` : teammateWait ? ` · ${t("sidebar.preview.waitingOnTeammate")}` : queued ? ` · ${t("task.queued")}` : ""}${unread ? ` · ${t("task.unread")}` : ""}`
             : undefined
         }
         aria-busy={deleting || undefined}

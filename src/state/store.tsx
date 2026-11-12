@@ -78,6 +78,7 @@ import {
   type FirstPaintSnapshot,
 } from "@/lib/first-paint";
 import { plainClientError } from "@/lib/plain-client-error";
+import { workAfterEvent } from "@/lib/work-state";
 
 const MAX_ROUTINE_RUNS = 2_000;
 const ACTIVE_ROUTINE_RUN_STATUSES = new Set<RoutineRun["status"]>(["queued", "running", "waiting"]);
@@ -258,6 +259,7 @@ export interface ModelSelection {
 export interface Task {
   waitingForTeammates?: boolean;
   waitingOn?: WireWaitingOn[];
+  work?: import("../../shared/work-state").WorkState;
   threadId: string;
   routineRunId?: string;
   projectId?: string;
@@ -313,6 +315,7 @@ export interface Bot {
   toolScope?: ToolScope;
   waitingForTeammates?: boolean;
   waitingOn?: WireWaitingOn[];
+  work?: import("../../shared/work-state").WorkState;
   id: string;
   threadId: string;
   tasks?: Task[];
@@ -397,6 +400,7 @@ export function currentTaskBot(bot: Bot, threadId = bot.threadId): Bot {
     workingStartedAt: task.workingStartedAt ?? null,
     waitingForTeammates: task.waitingForTeammates ?? false,
     waitingOn: task.waitingOn ?? [],
+    work: task.work,
   };
 }
 
@@ -964,6 +968,7 @@ export type Action =
   | { type: "computerControl"; botId: string; held: boolean; helpReason: string | null }
   | { type: "takeoverIntent"; intent: { botId: string; at: number } | null }
   | { type: "modelVariantRuntime"; event: RuntimeEvent }
+  | { type: "workRuntime"; event: RuntimeEvent }
   | { type: "setModel"; botId: string; selection: ModelSelection; threadId?: string; updateBotDefault?: boolean; resetApprovalToAsk?: boolean }
   | { type: "interrupt"; botId: string; threadId?: string; onError?: () => void }
   | { type: "connected"; value: boolean }
@@ -1696,7 +1701,20 @@ function baseReducer(state: AppState, action: Action): AppState {
       };
     case "takeoverIntent":
       return state.takeoverIntent === action.intent ? state : { ...state, takeoverIntent: action.intent };
-    case "modelVariantRuntime": {
+    case "workRuntime": {
+      const event = action.event;
+      const owner = state.bots.find((bot) => bot.threadId === event.threadId || bot.tasks?.some((task) => task.threadId === event.threadId));
+      if (!owner) return state;
+      const task = owner.tasks?.find((candidate) => candidate.threadId === event.threadId);
+      const before = task ? task.work : owner.work;
+      const after = workAfterEvent(before, event);
+      if (after === before) return state;
+      return updateBot(state, owner.id, (bot) => task
+        ? { ...bot, tasks: bot.tasks?.map((candidate) => candidate.threadId === event.threadId ? { ...candidate, work: after } : candidate),
+          ...(bot.threadId === event.threadId ? { work: after } : {}) }
+        : { ...bot, work: after });
+    }
+        case "modelVariantRuntime": {
       const event = action.event;
       if (!event.turnId) return state;
       const owner = state.bots.find((bot) => bot.threadId === event.threadId || bot.tasks?.some((task) => task.threadId === event.threadId));
@@ -2338,7 +2356,10 @@ export async function loadSnapshotBoundary<Key extends string>(
   return chat.status === "fulfilled";
 }
 
+const WORK_EVENTS = new Set<RuntimeEvent["type"]>(["turn.wait_started", "turn.wait_ended", "turn.retrying", "session.exited"]);
+
 export function runtimeFrameAction(event: RuntimeEvent): Action | null {
+  if (WORK_EVENTS.has(event.type)) return { type: "workRuntime", event };
   return event.type === "turn.started" || event.type === "session.model-variants" || event.type === "turn.completed"
     ? { type: "modelVariantRuntime", event }
     : null;
