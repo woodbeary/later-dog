@@ -90,6 +90,14 @@ pub struct WireMessage {
     pub send_id: Option<String>,
     #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub tool: Option<WireTool>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub handoff_id: Option<String>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub comm: Option<crate::exchange::WireComm>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub room_request: Option<crate::exchange::RoomRequest>,
+    #[serde(deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub exchange: Option<crate::exchange::WireExchange>,
 }
 
 impl WireMessage {

@@ -352,6 +352,30 @@ impl Frame {
     }
 }
 
+pub fn lines_text(lines: &[(String, Retained<NSColor>, bool, f64)]) -> Retained<NSAttributedString> {
+    let out = NSMutableAttributedString::new();
+    for (index, (words, color, medium, spacing)) in lines.iter().enumerate() {
+        let paragraph = NSMutableParagraphStyle::new();
+        paragraph.setMinimumLineHeight(18.0);
+        paragraph.setMaximumLineHeight(18.0);
+        paragraph.setLineBreakMode(NSLineBreakMode::ByWordWrapping);
+        paragraph.setParagraphSpacingBefore(if index == 0 { 0.0 } else { *spacing });
+        let font = if *medium { crate::theme::font(12.0, crate::theme::Weight::Medium) } else { system(12.0, Weight::Regular, false, false) };
+        let style = Style { size: 12.0, weight: Weight::Regular, italic: false, color: color.clone(), link: None, paragraph, lift: lift(&font, 18.0), quote: None };
+        let shown = if index + 1 < lines.len() { format!("{words}\n") } else { words.clone() };
+        let piece = run(&shown, &style, &[]);
+        let mutable = NSMutableAttributedString::new();
+        mutable.appendAttributedString(&piece);
+        unsafe { mutable.addAttribute_value_range(NSFontAttributeName, font.as_ref(), NSRange::new(0, mutable.length())) };
+        out.appendAttributedString(&mutable);
+    }
+    Retained::into_super(out)
+}
+
+pub fn measure_at(string: &NSAttributedString, width: f64) -> NSSize {
+    measure(string, width)
+}
+
 pub fn plain_text(words: &str, inks: &Inks) -> Retained<NSAttributedString> {
     let paragraph = NSMutableParagraphStyle::new();
     paragraph.setMinimumLineHeight(LINE);

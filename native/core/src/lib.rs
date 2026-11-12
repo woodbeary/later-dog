@@ -1,4 +1,5 @@
 pub mod events;
+pub mod exchange;
 pub mod markdown;
 pub mod mascot;
 pub mod outbox;

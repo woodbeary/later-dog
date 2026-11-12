@@ -50,6 +50,7 @@ pub struct Options {
     pub tree: bool,
     pub select: Option<String>,
     pub size: Option<(f64, f64)>,
+    pub expand: bool,
     pub started: std::time::Instant,
 }
 
@@ -64,12 +65,14 @@ enum Line {
     Day(u64),
     Bubble(TranscriptRow),
     Work(TranscriptRow),
+    Exchange(TranscriptRow),
 }
 
 #[derive(Clone, Default)]
 struct Shape {
     height: f64,
     layout: Option<Rc<rich::Layout>>,
+    details: Option<(Retained<objc2_foundation::NSAttributedString>, f64, f64)>,
 }
 
 struct Ui {
@@ -135,6 +138,7 @@ pub struct Ivars {
     shapes: RefCell<Vec<Shape>>,
     shape_cache: RefCell<HashMap<(String, u64), Shape>>,
     wraps: RefCell<HashSet<String>>,
+    open_exchanges: RefCell<HashSet<String>>,
     ui: OnceCell<Ui>,
     options: Options,
     connected_home: bool,
@@ -191,7 +195,21 @@ define_class!(
     }
 );
 
+pub struct QuietParts {
+    label: Retained<NSTextField>,
+    face: Retained<Avatar>,
+    name: Retained<NSTextField>,
+    gist: Retained<NSTextField>,
+    state: Retained<NSTextField>,
+    chevron: Retained<NSImageView>,
+    open: Retained<NSButton>,
+    toggle: Retained<NSButton>,
+    details: Retained<Fill>,
+    text: rich::TextPart,
+}
+
 pub struct ChatParts {
+    quiet: QuietParts,
     again: Retained<NSButton>,
     day: Retained<NSTextField>,
     bubble: Retained<Fill>,
@@ -296,6 +314,13 @@ define_class!(
             self.send_composer();
         }
 
+        #[unsafe(method(toggleExchange:))]
+        fn toggle_exchange_pressed(&self, sender: Option<&NSButton>) {
+            if let Some(id) = sender.and_then(|button| button.identifier()) {
+                self.toggle_exchange(&id.to_string());
+            }
+        }
+
         #[unsafe(method(sendAgain:))]
         fn send_again_pressed(&self, sender: Option<&NSButton>) {
             if let Some(send_id) = sender.and_then(|button| button.identifier()) {
@@ -322,6 +347,7 @@ impl Controller {
             shapes: RefCell::new(Vec::new()),
             shape_cache: RefCell::new(HashMap::new()),
             wraps: RefCell::new(HashSet::new()),
+            open_exchanges: RefCell::new(HashSet::new()),
             ui: OnceCell::new(),
             options,
             connected_home,
@@ -711,8 +737,32 @@ impl Controller {
 
     fn shape(&self, line: &Line, max_text: f64, ui: &Ui, old: &HashMap<(String, u64), Shape>, kept: &mut HashMap<(String, u64), Shape>) -> Shape {
         match line {
-            Line::Day(_) => Shape { height: theme::DAY_PAD_Y * 2.0 + theme::DAY_LINE, layout: None },
-            Line::Work(_) => Shape { height: theme::WORK_HEIGHT, layout: None },
+            Line::Day(_) => Shape { height: theme::DAY_PAD_Y * 2.0 + theme::DAY_LINE, ..Shape::default() },
+            Line::Work(_) => Shape { height: theme::WORK_HEIGHT, ..Shape::default() },
+            Line::Exchange(row) => {
+                let Some(exchange) = row.exchange.as_ref().filter(|_| self.ivars().options.expand != self.ivars().open_exchanges.borrow().contains(&row.id)) else {
+                    return Shape { height: theme::QUIET_LINE, ..Shape::default() };
+                };
+                let theme = &ui.theme;
+                let details = &exchange.details;
+                let mut lines = vec![(details.heading.clone(), theme.ink_tertiary.clone(), false, 0.0)];
+                lines.push((laterdog_core::words::EXCHANGE_REQUEST.to_owned(), theme.ink.clone(), true, 6.0));
+                lines.push((details.request.clone(), theme.ink_secondary.clone(), false, 0.0));
+                lines.push((laterdog_core::words::EXCHANGE_REPLY.to_owned(), theme.ink.clone(), true, 6.0));
+                match &details.reply {
+                    Some(reply) => lines.push((reply.clone(), theme.ink_secondary.clone(), false, 0.0)),
+                    None => lines.push((laterdog_core::words::EXCHANGE_NO_REPLY.to_owned(), theme.ink_tertiary.clone(), false, 0.0)),
+                }
+                for extra in [&details.waiting, &details.ended].into_iter().flatten() {
+                    lines.push((extra.clone(), theme.ink_secondary.clone(), false, 6.0));
+                }
+                let string = rich::lines_text(&lines);
+                let full = ui.chat_scroll.contentSize().width;
+                let box_width = theme::EXCHANGE_DETAILS_MAX.min(full);
+                let size = rich::measure_at(&string, box_width - 18.0);
+                let box_height = size.height + 18.0;
+                Shape { height: theme::QUIET_LINE + 6.0 + box_height, layout: None, details: Some((string, box_width, box_height)) }
+            }
             Line::Bubble(row) => {
                 let wraps = self.wraps_for(&row.id);
                 let key = (format!("{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{:?}", row.id, row.text, row.status.unwrap_or_default(), row.mine, wraps), max_text.to_bits());
@@ -724,7 +774,7 @@ impl Controller {
                 let inks = if row.mine { rich::Inks::mine(&ui.theme) } else { rich::Inks::reply(&ui.theme) };
                 let layout = rich::layout(&row.text, !row.mine, max_text, &wraps, &inks, &ui.theme);
                 let status = if matches!(row.status, Some(words) if words != SendState::Sent.words()) { 18.0 } else { 0.0 };
-                let shape = Shape { height: layout.height + theme::BUBBLE_PAD_Y * 2.0 + status, layout: Some(Rc::new(layout)) };
+                let shape = Shape { height: layout.height + theme::BUBBLE_PAD_Y * 2.0 + status, layout: Some(Rc::new(layout)), details: None };
                 kept.insert(key, shape.clone());
                 shape
             }
@@ -736,6 +786,23 @@ impl Controller {
         let mut found: Vec<usize> = self.ivars().wraps.borrow().iter().filter_map(|key| key.strip_prefix(&prefix)?.parse().ok()).collect();
         found.sort_unstable();
         found
+    }
+
+    fn toggle_exchange(&self, id: &str) {
+        {
+            let mut open = self.ivars().open_exchanges.borrow_mut();
+            if !open.remove(id) {
+                open.insert(id.to_owned());
+            }
+        }
+        let Some(ui) = self.ivars().ui.get() else { return };
+        let index = self.ivars().lines.borrow().iter().position(|line| matches!(line, Line::Exchange(row) if row.id == id));
+        self.reshape(false);
+        if let Some(index) = index {
+            let set = NSIndexSet::indexSetWithIndex(index);
+            ui.chat_table.noteHeightOfRowsWithIndexesChanged(&set);
+            ui.chat_table.reloadDataForRowIndexes_columnIndexes(&set, &NSIndexSet::indexSetWithIndex(0));
+        }
     }
 
     fn toggle_wrap(&self, key: &str) {
@@ -771,6 +838,7 @@ impl Controller {
             previous = Some(row.at);
             lines.push(match row.kind {
                 RowKind::Work => Line::Work(row.clone()),
+                RowKind::Exchange => Line::Exchange(row.clone()),
                 RowKind::Text => Line::Bubble(row.clone()),
             });
         }
@@ -1333,8 +1401,33 @@ fn new_chat_cell(mtm: MainThreadMarker, theme: &Theme, controller: Option<&AnyOb
     for view in [&*day as &NSView, &bubble, &status, &work, &chevron, &again] {
         cell.addSubview(view);
     }
+    let quiet_font = font(13.0, Weight::Regular);
+    let quiet = QuietParts {
+        label: label(mtm, "", &quiet_font, &theme.ink_secondary),
+        face: Avatar::new(mtm),
+        name: label(mtm, "", &quiet_font, &theme.ink_secondary),
+        gist: label(mtm, "", &quiet_font, &theme.ink_tertiary),
+        state: label(mtm, "", &quiet_font, &theme.ink_tertiary),
+        chevron: icon(mtm, "chevron.right", 9.0, unsafe { NSFontWeightMedium }, &theme.ink_tertiary),
+        open: unsafe { NSButton::buttonWithTitle_target_action(&NSString::from_str(""), controller, Some(sel!(toggleExchange:)), mtm) },
+        toggle: unsafe { NSButton::buttonWithTitle_target_action(&NSString::from_str(""), controller, Some(sel!(toggleExchange:)), mtm) },
+        details: Fill::new(mtm, Some(&theme.panel_50), 18.0),
+        text: rich::text_part(mtm, theme, None),
+    };
+    quiet.details.set_stroke(Some(&theme.hairline_50), 1.0);
+    quiet.details.addSubview(&quiet.text.view);
+    for button in [&quiet.open, &quiet.toggle] {
+        button.setBordered(false);
+        button.setTransparent(true);
+    }
+    quiet.toggle.setAccessibilityLabel(Some(&NSString::from_str(laterdog_core::words::EXCHANGE_DETAILS)));
+    quiet.toggle.setToolTip(Some(&NSString::from_str(laterdog_core::words::EXCHANGE_DETAILS)));
+    for view in [&*quiet.label as &NSView, &quiet.face, &quiet.name, &quiet.gist, &quiet.state, &quiet.chevron, &quiet.open, &quiet.toggle, &quiet.details] {
+        view.setHidden(true);
+        cell.addSubview(view);
+    }
     cell.setIdentifier(Some(&NSString::from_str(CHAT_CELL)));
-    cell.ivars().set(ChatParts { again, day, bubble, texts: RefCell::new(Vec::new()), codes: RefCell::new(Vec::new()), rules: RefCell::new(Vec::new()), status, work, chevron }).ok();
+    cell.ivars().set(ChatParts { quiet, again, day, bubble, texts: RefCell::new(Vec::new()), codes: RefCell::new(Vec::new()), rules: RefCell::new(Vec::new()), status, work, chevron }).ok();
     cell
 }
 
@@ -1343,6 +1436,12 @@ fn configure_line(cell: &ChatCell, line: &Line, shape: &Shape, gap: f64, width: 
     let Some(parts) = cell.ivars().get() else { return };
     let theme = &ui.theme;
     let (day, bubble, work) = (matches!(line, Line::Day(_)), matches!(line, Line::Bubble(_)), matches!(line, Line::Work(_)));
+    let quiet = &parts.quiet;
+    let exchange = matches!(line, Line::Exchange(_));
+    for view in [&*quiet.label as &NSView, &quiet.face, &quiet.name, &quiet.gist, &quiet.state, &quiet.chevron, &quiet.open, &quiet.toggle] {
+        view.setHidden(!exchange);
+    }
+    quiet.details.setHidden(true);
     parts.day.setHidden(!day);
     parts.bubble.setHidden(!bubble);
     parts.status.setHidden(true);
@@ -1355,6 +1454,11 @@ fn configure_line(cell: &ChatCell, line: &Line, shape: &Shape, gap: f64, width: 
             let words = format!("{} {}", ui.days.stringFromDate(&when), ui.times.stringFromDate(&when));
             parts.day.setStringValue(&NSString::from_str(&words));
             parts.day.setFrame(rect(0.0, gap + theme::DAY_PAD_Y, width, theme::DAY_LINE));
+        }
+        Line::Exchange(row) => {
+            if let Some(line) = &row.exchange {
+                place_exchange(cell, quiet, row, line, shape, gap, width, theme);
+            }
         }
         Line::Work(_) => {
             parts.work.setFrame(rect(-2.0, gap + 12.0, 70.0, 16.0));
@@ -1386,6 +1490,68 @@ fn configure_line(cell: &ChatCell, line: &Line, shape: &Shape, gap: f64, width: 
             cell.setAccessibilityLabel(Some(&NSString::from_str(&format!("{speaker}: {}", row.text))));
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn place_exchange(cell: &ChatCell, quiet: &QuietParts, row: &TranscriptRow, line: &laterdog_core::exchange::ExchangeLine, shape: &Shape, gap: f64, width: f64, theme: &Theme) {
+    let measure = |field: &NSTextField, words: &str| -> f64 {
+        field.setStringValue(&NSString::from_str(words));
+        if words.is_empty() { 0.0 } else { field.attributedStringValue().size().width.ceil() }
+    };
+    let label_width = measure(&quiet.label, line.label);
+    let mut name_width = measure(&quiet.name, &line.name);
+    let mut gist_width = measure(&quiet.gist, &line.gist.as_ref().map(|gist| format!("\u{b7} {gist}")).unwrap_or_default()).min(320.0);
+    let state_width = measure(&quiet.state, &format!("\u{b7} {}", line.state));
+    quiet.state.setTextColor(Some(if line.needs_you() { &theme.ink } else { &theme.ink_tertiary }));
+    let face = 14.0;
+    let gaps = |gist: f64| 6.0 * if gist > 0.0 { 4.0 } else { 3.0 };
+    let toggle = 4.0 + 16.0;
+    let fixed = 6.0 + label_width + face + state_width + 6.0 + toggle;
+    let room = (width - fixed - gaps(gist_width)).max(0.0);
+    if name_width + gist_width > room {
+        gist_width = (room - name_width.min(room * 0.5)).max(0.0);
+        name_width = name_width.min(room - gist_width);
+    }
+    let total = fixed + gaps(gist_width) + name_width + gist_width;
+    let left = ((width - total) / 2.0).max(0.0).round();
+    let top = gap + 2.0;
+    let mut x = left + 6.0;
+    let text_top = top + (18.0 - 16.0) / 2.0;
+    quiet.label.setFrame(rect(x - 2.0, text_top, label_width + 4.0, 16.0));
+    x += label_width + 6.0;
+    quiet.face.setFrame(rect(x, top + 2.0, face, face));
+    quiet.face.set(&line.color, &line.body, &line.name);
+    x += face + 6.0;
+    quiet.name.setFrame(rect(x - 2.0, text_top, name_width + 4.0, 16.0));
+    x += name_width + 6.0;
+    quiet.gist.setHidden(gist_width <= 0.0);
+    if gist_width > 0.0 {
+        quiet.gist.setFrame(rect(x - 2.0, text_top, gist_width + 4.0, 16.0));
+        x += gist_width + 6.0;
+    }
+    quiet.state.setFrame(rect(x - 2.0, text_top, state_width + 4.0, 16.0));
+    x += state_width + 6.0;
+    quiet.open.setFrame(rect(left, gap, x - left, theme::QUIET_LINE));
+    quiet.toggle.setFrame(rect(x + 4.0 - 6.0, gap + 3.0, 16.0, 16.0));
+    quiet.chevron.setFrame(rect(x + 4.0 - 6.0, gap + 3.0, 16.0, 16.0));
+    let open = shape.details.is_some();
+    let symbol = if open { "chevron.down" } else { "chevron.right" };
+    if let Some(image) = crate::widgets::symbol(symbol, 9.0, unsafe { NSFontWeightMedium }) {
+        quiet.chevron.setImage(Some(&image));
+    }
+    for button in [&quiet.open, &quiet.toggle] {
+        button.setIdentifier(Some(&NSString::from_str(&row.id)));
+    }
+    let spoken = if open { format!("{} \u{b7} {}", line.spoken(), laterdog_core::words::EXCHANGE_DETAILS) } else { line.spoken() };
+    quiet.open.setAccessibilityLabel(Some(&NSString::from_str(&spoken)));
+    quiet.open.setToolTip(Some(&NSString::from_str(&line.spoken())));
+    if let Some((string, box_width, box_height)) = &shape.details {
+        let box_x = ((width - box_width) / 2.0).round();
+        quiet.details.setFrame(rect(box_x, gap + theme::QUIET_LINE + 6.0, *box_width, *box_height));
+        quiet.details.setHidden(false);
+        quiet.text.show(string, rect(9.0, 9.0, box_width - 18.0, box_height - 18.0), false, theme);
+    }
+    cell.setAccessibilityLabel(Some(&NSString::from_str(&line.spoken())));
 }
 
 fn place_pieces(parts: &ChatParts, layout: &rich::Layout, row: &TranscriptRow, theme: &Theme, controller: &Controller) {

@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use crate::events::Frame;
 use crate::outbox::{Failure, Item, Outbox, Settled, Target};
+use crate::exchange::ExchangeLine;
 use crate::work::Work;
 use crate::wire::{BotsPage, SendReceipt, ThreadPage, WireBot, WireMessage};
 
@@ -194,6 +195,7 @@ pub struct SidebarRow {
 pub enum RowKind {
     Text,
     Work,
+    Exchange,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -210,6 +212,8 @@ pub struct TranscriptRow {
     pub status: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub send_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exchange: Option<ExchangeLine>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -588,11 +592,33 @@ impl Store {
     fn transcript(&self, dog: &Dog) -> Vec<TranscriptRow> {
         let messages = self.thread(&dog.thread_id);
         let mut rows: Vec<TranscriptRow> = Vec::new();
-        for message in messages {
+        let mut folded: Vec<&str> = Vec::new();
+        for (index, message) in messages.iter().enumerate() {
+            if folded.contains(&message.id.as_str()) {
+                continue;
+            }
             match message.kind.as_str() {
                 "digest" | "compaction" => {}
                 "activity" => {
                     let Some(tool) = message.tool.as_ref() else { continue };
+                    if let Some((line, used)) = self.exchange_line(message, messages.get(index + 1)) {
+                        if let Some(used) = used {
+                            folded.push(used);
+                        }
+                        rows.push(TranscriptRow {
+                            id: message.id.clone(),
+                            kind: RowKind::Exchange,
+                            who: dog.name.clone(),
+                            mine: false,
+                            text: line.spoken(),
+                            quiet: true,
+                            at: message.at,
+                            status: None,
+                            send_id: None,
+                            exchange: Some(line),
+                        });
+                        continue;
+                    }
                     let line = tool.spoken.clone().or_else(|| tool.summary.clone()).unwrap_or_else(|| tool.name.clone());
                     match rows.last_mut() {
                         Some(row) if row.kind == RowKind::Work => {
@@ -609,6 +635,7 @@ impl Store {
                             at: message.at,
                             status: None,
                             send_id: None,
+                            exchange: None,
                         }),
                     }
                 }
@@ -628,6 +655,7 @@ impl Store {
                     at: send.item.queued_at,
                     status: Some(send.state.words()),
                     send_id: Some(send.item.send_id.clone()),
+                    exchange: None,
                 });
             }
         }
@@ -651,7 +679,36 @@ impl Store {
             at: message.at,
             status,
             send_id: message.send_id.clone(),
+            exchange: None,
         })
+    }
+
+    fn exchange_line<'a>(&self, message: &WireMessage, next: Option<&'a WireMessage>) -> Option<(ExchangeLine, Option<&'a str>)> {
+        let tool = message.tool.as_ref()?;
+        let comm = message.comm.as_ref()?;
+        let label = crate::exchange::label(comm.direction.as_deref(), &tool.name)?;
+        let request = next.filter(|next| {
+            next.role == "bot"
+                && next.kind == "text"
+                && next.room_request.as_ref().is_some_and(|request| request.phase == "request")
+                && next.exchange.is_some()
+                && message.exchange.is_none()
+        });
+        let record = message.exchange.as_ref().or_else(|| request.and_then(|next| next.exchange.as_ref()))?;
+        let peer = self.dogs.iter().find(|candidate| candidate.id == comm.with_bot_id);
+        let name = peer.map(|peer| peer.name.clone()).filter(|name| !name.is_empty()).unwrap_or_else(|| comm.with_name.clone());
+        let color = peer.map(Dog::color).unwrap_or_else(|| if comm.with_color.is_empty() { "blue".to_owned() } else { comm.with_color.clone() });
+        let line = ExchangeLine {
+            label,
+            dog_id: comm.with_bot_id.clone(),
+            name,
+            color,
+            body: crate::mascot::body(peer.and_then(|peer| peer.body.as_deref())).to_owned(),
+            gist: crate::exchange::gist(&record.request),
+            state: crate::exchange::state(record),
+            details: crate::exchange::details(record),
+        };
+        Some((line, request.map(|next| next.id.as_str())))
     }
 
     fn set_send_state(&mut self, send_id: &str, state: SendState) -> Option<String> {

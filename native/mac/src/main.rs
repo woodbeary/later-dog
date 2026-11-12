@@ -30,6 +30,7 @@ fn options(started: std::time::Instant) -> (Options, Option<String>) {
     let mut thread = None;
     let mut history = 0;
     let mut scroll_through = false;
+    let mut expand = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--dump" => dump = true,
@@ -43,10 +44,11 @@ fn options(started: std::time::Instant) -> (Options, Option<String>) {
             "--thread" => thread = args.next(),
             "--history" => history = args.next().and_then(|value| value.parse().ok()).unwrap_or(1),
             "--scroll-through" => scroll_through = true,
+            "--expand" => expand = true,
             _ => {}
         }
     }
-    let options = Options { dump, send: text.map(|text| SendRequest { text, to }), thread, history, scroll_through, snapshot, tree, select, size, started };
+    let options = Options { dump, send: text.map(|text| SendRequest { text, to }), thread, history, scroll_through, snapshot, tree, select, size, expand, started };
     (options, appearance)
 }
 
