@@ -95,6 +95,15 @@ impl WireMessage {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+pub struct ModelSelection {
+    #[serde(deserialize_with = "lenient")]
+    pub instance_id: Option<String>,
+    #[serde(deserialize_with = "lenient")]
+    pub model: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct WireBot {
     #[serde(deserialize_with = "lenient")]
     pub id: String,
@@ -104,6 +113,10 @@ pub struct WireBot {
     pub name: Option<String>,
     #[serde(deserialize_with = "lenient")]
     pub activity: Option<String>,
+    #[serde(deserialize_with = "lenient")]
+    pub color: Option<String>,
+    #[serde(deserialize_with = "lenient")]
+    pub model_selection: Option<ModelSelection>,
     #[serde(deserialize_with = "flag")]
     pub busy: Option<bool>,
     #[serde(deserialize_with = "flag")]

@@ -51,6 +51,8 @@ struct Dog {
     thread_id: String,
     name: String,
     activity: Option<String>,
+    color: Option<String>,
+    model: Option<String>,
     busy: bool,
     unread: bool,
     waiting_for_teammates: bool,
@@ -73,6 +75,12 @@ impl Dog {
         if let Some(activity) = &bot.activity {
             self.activity = Some(activity.clone());
         }
+        if let Some(color) = &bot.color {
+            self.color = Some(color.clone());
+        }
+        if let Some(model) = bot.model_selection.as_ref().and_then(|selection| selection.model.clone()) {
+            self.model = Some(model);
+        }
         if let Some(busy) = bot.busy {
             self.busy = busy;
         }
@@ -82,6 +90,21 @@ impl Dog {
         if let Some(waiting) = bot.waiting_for_teammates {
             self.waiting_for_teammates = waiting;
         }
+    }
+
+    fn working(&self) -> bool {
+        match self.activity.as_deref() {
+            Some(activity) => activity == "working",
+            None => self.busy,
+        }
+    }
+
+    fn waiting(&self) -> bool {
+        self.activity.as_deref() == Some("waiting-on-you")
+    }
+
+    fn color(&self) -> String {
+        self.color.clone().filter(|color| !color.is_empty()).unwrap_or_else(|| DEFAULT_COLOR.to_owned())
     }
 
     fn state_word(&self) -> &'static str {
@@ -97,6 +120,8 @@ impl Dog {
         }
     }
 }
+
+pub const DEFAULT_COLOR: &str = "yellow";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct LocalSend {
@@ -128,17 +153,35 @@ pub struct SidebarRow {
     pub state: &'static str,
     pub unread: bool,
     pub selected: bool,
+    pub color: String,
+    pub preview: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_at: Option<u64>,
+    pub working: bool,
+    pub waiting: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RowKind {
+    Text,
+    Work,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscriptRow {
     pub id: String,
+    pub kind: RowKind,
     pub who: String,
+    pub mine: bool,
     pub text: String,
     pub quiet: bool,
+    pub at: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub send_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -148,8 +191,15 @@ pub struct View {
     pub status: &'static str,
     pub selected: Option<String>,
     pub title: String,
+    pub color: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     pub dogs: Vec<SidebarRow>,
     pub transcript: Vec<TranscriptRow>,
+}
+
+fn first_line(text: &str) -> String {
+    text.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default().to_owned()
 }
 
 pub fn send_id(seed: &[u8; 16], now_ms: u64, counter: u64) -> String {
@@ -353,33 +403,81 @@ impl Store {
             status: self.connection.words(),
             selected: selected.map(|dog| dog.id.clone()),
             title: selected.map(|dog| dog.name.clone()).unwrap_or_default(),
+            color: selected.map(Dog::color).unwrap_or_else(|| DEFAULT_COLOR.to_owned()),
+            model: selected.and_then(|dog| dog.model.clone()),
             dogs: self
                 .dogs
                 .iter()
-                .map(|dog| SidebarRow {
-                    id: dog.id.clone(),
-                    name: dog.name.clone(),
-                    state: dog.state_word(),
-                    unread: dog.unread,
-                    selected: Some(&dog.id) == self.selected.as_ref(),
+                .map(|dog| {
+                    let last = self.last_words(dog);
+                    SidebarRow {
+                        id: dog.id.clone(),
+                        name: dog.name.clone(),
+                        state: dog.state_word(),
+                        unread: dog.unread,
+                        selected: Some(&dog.id) == self.selected.as_ref(),
+                        color: dog.color(),
+                        preview: last.map(|message| first_line(message.text.as_deref().unwrap_or_default())).unwrap_or_default(),
+                        last_at: last.map(|message| message.at),
+                        working: dog.working(),
+                        waiting: dog.waiting(),
+                    }
                 })
                 .collect(),
             transcript: selected.map(|dog| self.transcript(dog)).unwrap_or_default(),
         }
     }
 
+    fn last_words<'a>(&'a self, dog: &Dog) -> Option<&'a WireMessage> {
+        self.thread(&dog.thread_id)
+            .iter()
+            .rev()
+            .find(|message| !matches!(message.kind.as_str(), "activity" | "digest" | "compaction") && message.text.as_deref().is_some_and(|text| !text.trim().is_empty()))
+    }
+
     fn transcript(&self, dog: &Dog) -> Vec<TranscriptRow> {
         let messages = self.thread(&dog.thread_id);
-        let mut rows: Vec<TranscriptRow> = messages.iter().filter_map(|message| self.row(dog, message)).collect();
+        let mut rows: Vec<TranscriptRow> = Vec::new();
+        for message in messages {
+            match message.kind.as_str() {
+                "digest" | "compaction" => {}
+                "activity" => {
+                    let Some(tool) = message.tool.as_ref() else { continue };
+                    let line = tool.spoken.clone().or_else(|| tool.summary.clone()).unwrap_or_else(|| tool.name.clone());
+                    match rows.last_mut() {
+                        Some(row) if row.kind == RowKind::Work => {
+                            row.text = line;
+                            row.at = message.at;
+                        }
+                        _ => rows.push(TranscriptRow {
+                            id: message.id.clone(),
+                            kind: RowKind::Work,
+                            who: dog.name.clone(),
+                            mine: false,
+                            text: line,
+                            quiet: true,
+                            at: message.at,
+                            status: None,
+                            send_id: None,
+                        }),
+                    }
+                }
+                _ => rows.extend(self.row(dog, message)),
+            }
+        }
         for send in &self.sends {
             let landed = messages.iter().any(|message| message.send_id.as_deref() == Some(send.item.send_id.as_str()));
             if send.item.thread_id == dog.thread_id && !landed {
                 rows.push(TranscriptRow {
                     id: format!("send:{}", send.item.send_id),
+                    kind: RowKind::Text,
                     who: "You".to_owned(),
+                    mine: true,
                     text: send.item.text.clone(),
                     quiet: false,
+                    at: send.item.queued_at,
                     status: Some(send.state.words()),
+                    send_id: Some(send.item.send_id.clone()),
                 });
             }
         }
@@ -387,21 +485,23 @@ impl Store {
     }
 
     fn row(&self, dog: &Dog, message: &WireMessage) -> Option<TranscriptRow> {
-        let who = if message.is_from_person() { "You".to_owned() } else { dog.name.clone() };
-        let (text, quiet) = match message.kind.as_str() {
-            "digest" | "compaction" => return None,
-            "activity" => {
-                let tool = message.tool.as_ref()?;
-                let line = tool.spoken.clone().or_else(|| tool.summary.clone()).unwrap_or_else(|| tool.name.clone());
-                (line, true)
-            }
-            _ => (message.text.clone().unwrap_or_default(), false),
-        };
+        let mine = message.is_from_person();
+        let text = message.text.clone().unwrap_or_default();
         if text.trim().is_empty() {
             return None;
         }
         let status = message.send_id.as_deref().and_then(|send_id| self.send_state(send_id)).map(SendState::words);
-        Some(TranscriptRow { id: message.id.clone(), who, text, quiet, status })
+        Some(TranscriptRow {
+            id: message.id.clone(),
+            kind: RowKind::Text,
+            who: if mine { "You".to_owned() } else { dog.name.clone() },
+            mine,
+            text,
+            quiet: false,
+            at: message.at,
+            status,
+            send_id: message.send_id.clone(),
+        })
     }
 
     fn set_send_state(&mut self, send_id: &str, state: SendState) -> Option<String> {

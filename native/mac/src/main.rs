@@ -1,5 +1,7 @@
 mod net;
+mod theme;
 mod ui;
+mod widgets;
 
 use std::io::Read;
 use std::time::{SystemTime, UNIX_EPOCH};

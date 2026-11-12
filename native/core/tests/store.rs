@@ -1,11 +1,11 @@
 use laterdog_core::events::Frame;
 use laterdog_core::outbox::{Failure, Target};
-use laterdog_core::store::{send_id, Connection, SendState, Store};
+use laterdog_core::store::{send_id, Connection, RowKind, SendState, Store};
 use laterdog_core::wire::{parse, BotsPage, SendBody, SendReceipt, ThreadPage};
 
 const PAGE: &str = r#"{
   "bots": [
-    {"id":"j","threadId":"tj","name":"Juniper","activity":"idle","busy":false,"unread":true,"hasMore":false,"soul":"x",
+    {"id":"j","threadId":"tj","name":"Juniper","activity":"idle","color":"red","modelSelection":{"instanceId":"claude","model":"claude-opus-5-5"},"busy":false,"unread":true,"hasMore":false,"soul":"x",
      "messages":[
        {"id":"j1","at":1,"parentId":null,"role":"bot","kind":"text","text":"Hi, I'm Juniper."},
        {"id":"j2","at":2,"parentId":"j1","role":"user","kind":"text","text":"hello from the fixture","requestPending":false},
@@ -67,11 +67,28 @@ fn the_transcript_reads_as_lines_with_quiet_activity_and_no_digests() {
             line("Juniper", "Hi, I'm Juniper."),
             line("You", "hello from the fixture"),
             line("Juniper", "hello from fake claude"),
-            quiet("running a few commands"),
-            quiet("notes.md"),
             quiet("Grep"),
         ]
     );
+}
+
+#[test]
+fn a_run_of_tool_steps_folds_into_one_work_row_after_the_reply() {
+    let rows = loaded().view().transcript;
+    let work: Vec<_> = rows.iter().filter(|row| row.kind == RowKind::Work).collect();
+    assert_eq!(work.len(), 1);
+    assert_eq!((work[0].id.as_str(), work[0].at), ("j4", 7));
+    assert!(rows.iter().filter(|row| row.kind == RowKind::Text).all(|row| row.mine == (row.who == "You")));
+}
+
+#[test]
+fn each_sidebar_row_carries_its_color_last_words_and_time() {
+    let view = loaded().view();
+    let juniper = &view.dogs[0];
+    assert_eq!((juniper.color.as_str(), juniper.preview.as_str(), juniper.last_at), ("red", "hello from fake claude", Some(3)));
+    assert_eq!((view.dogs[2].color.as_str(), view.dogs[2].preview.as_str(), view.dogs[2].last_at), ("yellow", "", None));
+    assert!(view.dogs[2].waiting && !view.dogs[2].working);
+    assert_eq!((view.color.as_str(), view.model.as_deref()), ("red", Some("claude-opus-5-5")));
 }
 
 #[test]
@@ -92,7 +109,7 @@ fn a_new_message_frame_adds_a_row_and_a_repeat_does_not_double_it() {
     assert!(changes.transcript);
     store.apply_frame(&frame(raw));
     let rows = texts(&store);
-    assert_eq!(rows.len(), 7);
+    assert_eq!(rows.len(), 5);
     assert_eq!(rows.last(), Some(&line("Juniper", "more")));
 }
 
@@ -105,7 +122,7 @@ fn a_patch_replaces_the_text_of_the_same_message() {
         )));
     }
     let rows = texts(&store);
-    assert_eq!(rows.len(), 7);
+    assert_eq!(rows.len(), 5);
     assert_eq!(rows.last(), Some(&line("Juniper", "hello there")));
 }
 
@@ -114,7 +131,7 @@ fn a_message_for_another_dog_does_not_touch_the_open_transcript() {
     let mut store = loaded();
     let changes = store.apply_frame(&frame(r#"{"kind":"message","threadId":"tb","message":{"id":"b2","at":2,"role":"bot","kind":"text","text":"elsewhere"}}"#));
     assert!(!changes.transcript);
-    assert_eq!(texts(&store).len(), 6);
+    assert_eq!(texts(&store).len(), 4);
     store.select("b");
     assert_eq!(texts(&store).last(), Some(&line("Biscuit", "elsewhere")));
 }

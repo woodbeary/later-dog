@@ -108,6 +108,7 @@ dependencies = [
 name = "laterdog-mac"
 version = "0.1.0"
 dependencies = [
+ "block2",
  "dispatch2",
  "laterdog-core",
  "objc2",

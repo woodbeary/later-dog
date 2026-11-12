@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 laterdog-core = { path = "../core" }
+block2 = "0.6"
 dispatch2 = "0.3"
 serde_json = "1"
 ureq = { version = "3.4", default-features = false, features = ["rustls"] }
