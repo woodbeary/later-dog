@@ -665,7 +665,9 @@ import {
 } from "./bot-visibility.ts";
 import { brandForAnyone, describeBrand, loadBrand } from "./brand.ts";
 import { deliverSseFrame, keepSseAlive } from "./sse-fanout.ts";
-import { openStreamWatch, streamWatchSkips, updateStreamWatch } from "./stream-watch.ts";
+import { openStreamWatch, streamWatchSkips } from "./stream-watch.ts";
+import { createStreamWatchRoutes } from "./routes/stream-watch.ts";
+import { createReactRoute } from "./routes/react.ts";
 import {
   PHONE_SECRET_PROTOCOL_VERSION,
   PhoneSecretBridge,
@@ -744,7 +746,7 @@ import { cloudVaultKey, testVaultKey, VaultStore } from "./laterdog/vault.ts";
 import { transcribeRoute } from "./laterdog/transcribe.ts";
 import { pickTranscriber, xaiVoice } from "./laterdog/transcribe-xai.ts";
 import { withOnItNote, withSteerNote, workUpdatesPrompt } from "./laterdog/work-updates.ts";
-import { onlyTapbackText, reactedText, tapbackEmoji, tapbackTarget, tapbackStreamChunk, tapbackTurnKey, withTapback } from "./laterdog/tapback.ts";
+import { onlyTapbackText, tapbackStreamChunk, tapbackTurnKey } from "./laterdog/tapback.ts";
 import { createMacWaits } from "./laterdog/mac-waits.ts";
 import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac-prompt.ts";
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
@@ -12929,6 +12931,7 @@ ROUTES.push(createEnginePlacementRoutes({
   read: (id) => remoteEngineChoice(DATA_DIR, id),
   save: (id, computer) => setRemoteEngineBot(DATA_DIR, id, computer),
 }));
+ROUTES.push(createStreamWatchRoutes({ clients: () => sseClients }));
 ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk") }));
 ROUTES.push(createLinkPreviewRoutes());
 ROUTES.push(createBotMemoryRoutes({
@@ -13332,6 +13335,14 @@ INTERNAL_ROUTES.push(createComputerRunRoute({
   folders: (botId, threadId) => messageFileRootsForThread(botId, threadId).filter((root) => root !== ATTACHMENTS_DIR),
   runs: computerRuns,
   computer: boat.heavyRunBox,
+  active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+}));
+INTERNAL_ROUTES.push(createReactRoute({
+  activePath: (threadId) => store.activePath(threadId),
+  patchMessage: (threadId, messageId, patch) => store.patchMessage(threadId, messageId, patch),
+  liveTurn: (threadId) => liveTurnByThread.get(threadId),
+  reactedTurns,
+  pendingTapbackText,
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
 }));
 INTERNAL_ROUTES.push(createEmailMeRoute({
@@ -15061,25 +15072,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         }
         return json(res, 201, { messageId: message.id, label: target.label });
       }
-      if (method === "POST" && path === "/api/internal/react") {
-        const body = await readInternalBody();
-        const emoji = tapbackEmoji(body.emoji);
-        if (!emoji) return json(res, 400, { error: "react needs one emoji, for example 👍." });
-        const threadId = internalCapability.threadId;
-        const messageId = typeof body.messageId === "string" && body.messageId.trim() ? body.messageId.trim() : undefined;
-        const target = tapbackTarget(store.activePath(threadId), messageId);
-        if (!target) return json(res, 404, { error: messageId ? "No message with that id in this chat." : "There is no message from the person in this chat to react to." });
-        requireActiveInternalCapability();
-        const patched = store.patchMessage(threadId, target.id, { reactions: withTapback(target.reactions, emoji, internalSender.id) });
-        if (!patched) return json(res, 404, { error: "That message is no longer in this chat." });
-        const turnId = liveTurnByThread.get(threadId);
-        if (turnId) {
-          const key = tapbackTurnKey(threadId, turnId);
-          reactedTurns.add(key);
-          if (!pendingTapbackText.has(key)) pendingTapbackText.set(key, "");
-        }
-        return json(res, 200, { messageId: target.id, emoji, text: reactedText(emoji, target) });
-      }
       if (method === "POST" && path === "/api/internal/voice-note") {
         const body = await readInternalBody();
         const text = typeof body.text === "string" ? body.text.trim() : "";
@@ -15687,11 +15679,6 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         onClose: () => sseClients.delete(client),
       });
       return;
-    }
-
-    if (method === "POST" && path === "/api/events/watch") {
-      const result = updateStreamWatch(sseClients, await readBody(req), auth.kind === "session" ? auth.session.id : undefined);
-      return result.ok ? json(res, 200, { threads: result.threads }) : json(res, result.status, { error: result.error });
     }
 
     const requirePinnedClientThread = (botId: string, threadId: unknown): void => {
