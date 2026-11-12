@@ -4,6 +4,7 @@ import { t } from "@/lib/i18n";
 import { effortName } from "@/lib/model-friendly";
 import { api } from "@/state/store";
 import type { CloudTaskActivityPage, CloudTaskStep, CloudTaskSummary } from "../../shared/cloud-task";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export type CloudTaskEntry = { summary?: CloudTaskSummary; missing?: boolean; error?: string };
 
@@ -92,7 +93,7 @@ async function refresh(force: readonly string[] = []): Promise<void> {
     }
     if (changed) emit();
   } catch (error) {
-    const said = error instanceof Error ? error.message : String(error);
+    const said = plainClientError(error);
     let changed = false;
     for (const id of due) {
       fetchedAt.set(id, Date.now());
@@ -165,7 +166,7 @@ export function useCloudTaskActivity(jobId: string, active: boolean): CloudTaskA
         else if (!page.available) delay = 3_000;
       } catch (failure) {
         if (stopped) return;
-        setState((previous) => ({ ...previous, loading: false, error: failure instanceof Error ? failure.message : String(failure) }));
+        setState((previous) => ({ ...previous, loading: false, error: plainClientError(failure) }));
         delay = active ? 5_000 : null;
       }
       if (!stopped && delay !== null) next = setTimeout(() => void load(), delay);

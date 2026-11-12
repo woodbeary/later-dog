@@ -6,6 +6,7 @@ import { t } from "@/lib/i18n";
 import { formatMoney } from "@/lib/included-usage";
 import { formatTokens, formatUsd, hasFiniteCost, headlineTokens, tokensColumnLabel } from "@/lib/usage";
 import { BarList, ChartEmpty, ColumnChart, ViewToggle, type ChartView } from "./UsageCharts";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export type UsageGroupBy = "bot" | "model" | "day";
 export const USAGE_GROUPINGS: readonly UsageGroupBy[] = ["bot", "model", "day"];
@@ -227,7 +228,7 @@ export function UsageHistory({ load = fetchUsage }: { load?: typeof fetchUsage }
     setError(null);
     load(asked, groupBy)
       .then((summary) => { if (current) setLoaded({ summary, range: asked }); })
-      .catch((cause) => { if (current) setError(cause instanceof Error ? cause.message : String(cause)); })
+      .catch((cause) => { if (current) setError(plainClientError(cause)); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
   }, [period, groupBy, load]);

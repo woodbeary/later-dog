@@ -4,6 +4,7 @@ import type { CloudAccountBridge, CloudAccountState } from "../../electron/cloud
 import { useStoreDispatch } from "@/state/store-selectors";
 import { t } from "@/lib/i18n";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export interface SignOutTargets {
   cloud: CloudAccountBridge | null;
@@ -35,7 +36,7 @@ export async function signOutAll(targets: SignOutTargets): Promise<string[]> {
   if (!targets.cloud) return [];
   const reason = await targets.cloud.signOut().then(
     (next) => (next.status === "signed-out" ? null : t("signOut.tryAgain")),
-    (cause: unknown) => (cause instanceof Error ? cause.message : String(cause)),
+    (cause: unknown) => plainClientError(cause),
   );
   return reason ? [t("signOut.failed", { name: t("settings.section.cloudAccount"), reason })] : [];
 }

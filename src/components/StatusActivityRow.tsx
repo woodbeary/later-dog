@@ -7,6 +7,7 @@ import { t } from "@/lib/i18n";
 
 import { RechargeLine, SleepingDog, rechargeProgress } from "./AccountCharge";
 import { InstanceProviderMark } from "./ProviderIcons";
+import { plainClientError } from "@/lib/plain-client-error";
 
 function CarriedAccount({ from, to, text }: { from: string; to: string; text: string }) {
   const rest = useStoreSelector((state) => state.config?.accountBattery?.resting?.[from]);
@@ -25,7 +26,7 @@ function ContinueWork({ handoffId, text }: { handoffId: string; text: string }) 
   const send = () => {
     setState({ phase: "sending" });
     api(`/api/handoffs/${handoffId}/continue`, { method: "POST" })
-      .catch((cause: unknown) => setState({ phase: "failed", error: cause instanceof Error ? cause.message : String(cause) }));
+      .catch((cause: unknown) => setState({ phase: "failed", error: plainClientError(cause) }));
   };
   return (
     <div role="status" data-continue-work className="flex w-fit max-w-full flex-wrap items-center gap-2 rounded-xl border border-hairline/40 bg-panel px-3 py-2 text-[13px] text-ink-secondary">

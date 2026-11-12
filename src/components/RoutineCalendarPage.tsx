@@ -95,6 +95,7 @@ import {
 } from "@/lib/routines";
 import { api, useStore, type Bot, type Group } from "@/state/store";
 import { useStoreDispatch } from "@/state/store-selectors";
+import { plainClientError } from "@/lib/plain-client-error";
 
 const HOUR_HEIGHT = 64;
 const DAY_CHIP_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
@@ -567,7 +568,7 @@ export function EventEditor({
       }
       onClose();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setSaving(false);
     }
@@ -1110,7 +1111,7 @@ function QuickComposer({
       }
       onClose();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setWorking(false);
     }
@@ -1454,7 +1455,7 @@ export function EventDetails({
       if (response.routine) dispatch({ type: "routinePatched", routine: response.routine });
       if (response.run) dispatch({ type: "routineRunPatched", run: response.run });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setWorking(false);
     }
@@ -1471,7 +1472,7 @@ export function EventDetails({
       type: "runRoutine",
       routineId: routine.id,
       onStarted: setSubmittedRun,
-      onError: (cause) => setError(cause instanceof Error ? cause.message : String(cause)),
+      onError: (cause) => setError(plainClientError(cause)),
       onSettled: () => {
         runNowPending.current = false;
         setStarting(false);
@@ -1489,7 +1490,7 @@ export function EventDetails({
       dispatch({ type: "groupPatched", group: created });
       onOpenRoom(created.id);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setWorking(false);
     }
@@ -1747,7 +1748,7 @@ export function RoutinesPage({ onBack, onOpenRoom }: { onBack: () => void; onOpe
       const response = await api("/api/calendar-calls");
       setCalls(response.calls ?? []);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     }
   }, []);
   useEffect(() => {
@@ -1862,7 +1863,7 @@ export function RoutinesPage({ onBack, onOpenRoom }: { onBack: () => void; onOpe
         upsertCall(response.call);
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     }
   };
   const resizeEvent = async (item: CalendarEventItem, durationMinutes: number) => {
@@ -1875,7 +1876,7 @@ export function RoutinesPage({ onBack, onOpenRoom }: { onBack: () => void; onOpe
         upsertCall(response.call);
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     }
   };
   const editSelected = () => {

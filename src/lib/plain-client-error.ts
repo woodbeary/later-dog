@@ -32,11 +32,19 @@ export function isBareCode(message: string): boolean {
   return CODE_TOKEN.test(trimmed) || STATUS_LINE.test(trimmed);
 }
 
+function wordsInBody(value: unknown): string {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return "";
+  const { message, error } = value as { message?: unknown; error?: unknown };
+  if (typeof message === "string") return message;
+  if (typeof error === "string") return error;
+  return wordsInBody(error);
+}
+
 export function plainClientError(error: unknown): string {
   const name = (error as { name?: unknown } | null)?.name;
   if (name === "TimeoutError") return TOO_SLOW_MESSAGE;
   if (name === "AbortError") return TOO_SLOW_MESSAGE;
-  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : wordsInBody(error);
   if ((error instanceof TypeError && (!message || NETWORK_WORDS.test(message))) || NETWORK_WORDS.test(message)) return UNREACHABLE_MESSAGE;
   const said = message.trim();
   const inWords = ANSWERS_IN_WORDS[said.toLowerCase()];

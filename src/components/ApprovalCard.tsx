@@ -12,6 +12,7 @@ import { niceDate, niceTime, scheduleLabel } from "@/lib/schedule-label";
 import { cronScheduleLabel } from "../../shared/cron-label";
 import { PROFILE_REQUEST_FIELDS, type ProfileRequestField } from "../../shared/profile-request";
 import type { RoutineRequestSchedule } from "../../shared/routine-request";
+import { plainClientError } from "@/lib/plain-client-error";
 
 interface ToolLabels {
   [tool: string]: LocaleKey;
@@ -220,7 +221,7 @@ function useCardUndo(card: OptionCardData, threadId?: string) {
       .catch((failure: unknown) => {
         setError(failure instanceof ApiError && failure.body?.code === "changed-since"
           ? t("approval.applied.changedSince")
-          : t("approval.applied.undoFailed", { error: failure instanceof Error ? failure.message : String(failure) }));
+          : t("approval.applied.undoFailed", { error: plainClientError(failure) }));
       })
       .finally(() => setUndoing(false));
   };

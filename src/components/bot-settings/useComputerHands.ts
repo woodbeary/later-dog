@@ -4,6 +4,7 @@ import { z } from "zod";
 import { api, useStore, type Bot } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { transitionComputerControlLease, type ComputerControlAction } from "@/lib/computer-control";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export const TAKEOVER_INTENT_MS = 60_000;
 
@@ -109,7 +110,7 @@ export function useComputerHands(bot: Pick<Bot, "id" | "name" | "threadId">, awa
     } catch (error) {
       fallbackTab?.close();
       if (tookHere) await transition("release").catch(() => {});
-      if (alive.current) setProblem(error instanceof Error ? error.message : String(error));
+      if (alive.current) setProblem(plainClientError(error));
     } finally {
       if (alive.current) setOpening(false);
     }
@@ -121,7 +122,7 @@ export function useComputerHands(bot: Pick<Bot, "id" | "name" | "threadId">, awa
     try {
       await transition("release");
     } catch (error) {
-      if (alive.current) setProblem(error instanceof Error ? error.message : String(error));
+      if (alive.current) setProblem(plainClientError(error));
     }
   }, [id, transition]);
 
@@ -130,7 +131,7 @@ export function useComputerHands(bot: Pick<Bot, "id" | "name" | "threadId">, awa
     try {
       await request("dismiss-help");
     } catch (error) {
-      if (alive.current) setProblem(error instanceof Error ? error.message : String(error));
+      if (alive.current) setProblem(plainClientError(error));
     }
   }, [request]);
 

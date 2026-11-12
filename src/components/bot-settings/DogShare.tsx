@@ -9,6 +9,7 @@ import { navigateMenu } from "@/lib/menu-keys";
 import { usePopoverDismiss } from "@/hooks/use-popover-dismiss";
 import { useModalDialog } from "@/hooks/use-modal-dialog";
 import { describePart, describeSkip, dogShareBody, notesLine, preparePictures, saveShareFile, type ShareResponse } from "@/lib/dog-share";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export function DogShareButton({ bot }: { bot: Bot }) {
   const dispatch = useStoreDispatch();
@@ -85,7 +86,7 @@ export function DogShareFileDialog({ bot, onClose }: { bot: Bot; onClose: () => 
     setPreview(null);
     api<ShareResponse>("/api/teams/export", { method: "POST", body: JSON.stringify(dogShareBody({ botId, includeMemory, avatars, dryRun: true })) })
       .then((result) => { if (ask === request.current) { setPreview(result); setError(""); } })
-      .catch((cause) => { if (ask === request.current) setError(cause instanceof Error ? cause.message : String(cause)); });
+      .catch((cause) => { if (ask === request.current) setError(plainClientError(cause)); });
   }, [botId, picture, includeMemory, avatars]);
 
   const save = async () => {
@@ -97,7 +98,7 @@ export function DogShareFileDialog({ bot, onClose }: { bot: Bot; onClose: () => 
       saveShareFile(result.filename, result.document);
       setSaved(result.filename);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setSaving(false);
     }

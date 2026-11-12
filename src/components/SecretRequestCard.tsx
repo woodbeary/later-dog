@@ -7,6 +7,7 @@ import { t } from "@/lib/i18n";
 import { api, type ConfigStatus, type Message } from "@/state/store";
 import { useStoreDispatch } from "@/state/store-selectors";
 import { REQUEST_PRIMARY, REQUEST_QUIET, RequestCard, RequestStatus } from "./RequestCard";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export function SecretRequestCard({
   botId,
@@ -79,7 +80,7 @@ export function SecretRequestCard({
         body: JSON.stringify({ threadId }),
       });
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : String(error));
+      setLocalError(plainClientError(error));
     } finally {
       setSaving(false);
     }
@@ -107,7 +108,7 @@ export function SecretRequestCard({
       }
       await notifyProvided();
     } catch (error) {
-      setLocalError(saved ? error instanceof Error ? error.message : String(error) : t("credentialStore.saveFailed"));
+      setLocalError(saved ? plainClientError(error) : t("credentialStore.saveFailed"));
     } finally {
       setSaving(false);
     }

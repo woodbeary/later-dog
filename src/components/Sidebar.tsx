@@ -104,6 +104,7 @@ import { StatusDot } from "./StatusDot";
 import { Collapsible } from "./Collapsible";
 import { copyConversationId } from "@/lib/copy-conversation-id";
 import { attentionKind } from "@/lib/dog-status";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export const MAC_TRAFFIC_LIGHT_CENTER_Y = 23;
 
@@ -1165,7 +1166,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
       });
       dispatch({ type: "botPatched", bot: response.bot });
     } catch (cause) {
-      setFeedback({ error: true, text: cause instanceof Error ? cause.message : String(cause) });
+      setFeedback({ error: true, text: plainClientError(cause) });
     }
   };
 
@@ -1645,7 +1646,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
           setSectionDeletePending(true);
           void api(`/api/sidebar-sections?section=${encodeURIComponent(name)}`, { method: "DELETE" })
             .then(({ sections }) => { dispatch({ type: "sectionDeleted", section: name, sections }); setDeletingSection(null); })
-            .catch(cause => setFeedback({ error: true, text: cause instanceof Error ? cause.message : String(cause) }))
+            .catch(cause => setFeedback({ error: true, text: plainClientError(cause) }))
             .finally(() => { sectionDeleteRunning.current = false; setSectionDeletePending(false); });
         }} />
       <SectionPicker

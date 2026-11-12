@@ -77,6 +77,7 @@ import {
   FIRST_PAINT_SAVE_DELAY_MS, accountOf, firstPaintSnapshot, forgetFirstPaint, ownsFirstPaint, pageOrigin, readFirstPaint, saveFirstPaint, withFirstPaint,
   type FirstPaintSnapshot,
 } from "@/lib/first-paint";
+import { plainClientError } from "@/lib/plain-client-error";
 
 const MAX_ROUTINE_RUNS = 2_000;
 const ACTIVE_ROUTINE_RUN_STATUSES = new Set<RoutineRun["status"]>(["queued", "running", "waiting"]);
@@ -2250,7 +2251,7 @@ export async function persistBotUpdate(
       } catch (error) {
         throw new Error(
           `The cancelled ${approvalMode === "full" ? "Full access" : "Custom approval"} grant could not be revoked: ${
-            error instanceof Error ? error.message : String(error)
+            plainClientError(error)
           }`,
         );
       }
@@ -2310,7 +2311,7 @@ export interface PeripheralSnapshotLoad<Key extends string = string> {
 }
 
 function normalizeSnapshotFailure(cause: unknown): Error {
-  return cause instanceof Error ? cause : new Error(String(cause));
+  return cause instanceof Error ? cause : new Error(plainClientError(cause));
 }
 
 export async function loadSnapshotBoundary<Key extends string>(
@@ -2793,7 +2794,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             .catch((error) => {
               if (action.onError) {
                 reportError(error, chatPane(action.threadId));
-                action.onError(error instanceof Error ? error.message : String(error));
+                action.onError(plainClientError(error));
               } else {
                 failIn(chatPane(action.threadId))(error);
               }
@@ -2861,7 +2862,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               action.onCreated?.(bot);
             })
             .catch((error) => {
-              if (action.onError) action.onError(error instanceof Error ? error.message : String(error));
+              if (action.onError) action.onError(plainClientError(error));
               else failIn("sidebar")(error);
             })
             .finally(() => {

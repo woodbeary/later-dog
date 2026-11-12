@@ -33,8 +33,8 @@ describe("signing out", () => {
   it("reports later.dog Cloud when it is still signed in afterwards or refuses", async () => {
     const still = await signOutAll({ cloud: cloud(async () => ({ status: "unavailable", message: "signout-storage-failed" })) });
     expect(still).toEqual(["later.dog Cloud did not sign out: try again in a moment."]);
-    const refused = await signOutAll({ cloud: cloud(async () => { throw new Error("offline"); }) });
-    expect(refused).toEqual(["later.dog Cloud did not sign out: offline"]);
+    const refused = await signOutAll({ cloud: cloud(async () => { throw new Error("The connection dropped."); }) });
+    expect(refused).toEqual(["later.dog Cloud did not sign out: The connection dropped."]);
     expect(store.api).not.toHaveBeenCalled();
   });
 });
@@ -82,10 +82,10 @@ describe("the Sign out question", () => {
 
   it("says what did not sign out", async () => {
     const onClose = vi.fn();
-    await act(async () => root.render(createElement(SignOutDialog, { targets: { cloud: cloud(async () => { throw new Error("offline"); }) }, onClose })));
+    await act(async () => root.render(createElement(SignOutDialog, { targets: { cloud: cloud(async () => { throw new Error("The connection dropped."); }) }, onClose })));
     await act(async () => button("Sign out").click());
     expect(onClose).toHaveBeenCalledTimes(1);
-    expect(store.dispatch).toHaveBeenCalledWith({ type: "reportError", error: null, pane: "sidebar", line: "later.dog Cloud did not sign out: offline" });
+    expect(store.dispatch).toHaveBeenCalledWith({ type: "reportError", error: null, pane: "sidebar", line: "later.dog Cloud did not sign out: The connection dropped." });
   });
 
   it("lets the person back out", async () => {

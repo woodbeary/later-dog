@@ -18,6 +18,7 @@ import { backAt, restSummary, SleepingDog, usageLeft } from "./AccountCharge";
 import { AccountCharge } from "./AccountBattery";
 import { useAccountDrag, type AccountDrag } from "./account-drag";
 import { pill } from "./account-pill";
+import { plainClientError } from "@/lib/plain-client-error";
 
 type Battery = NonNullable<ConfigStatus["accountBattery"]>;
 type Rest = NonNullable<Battery["resting"]>[string];
@@ -223,7 +224,7 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
       const { instances } = await api<{ instances: InstanceInfo[] }>(`/api/instances/${id}`, { method: "PATCH", body: JSON.stringify({ displayName: next }) });
       dispatch({ type: "instances", instances });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setBusy(null);
     }
@@ -240,7 +241,7 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
       if (removable(instance)) instances = (await api<{ instances: InstanceInfo[] }>(`/api/instances/${id}`, { method: "DELETE" })).instances;
       onGone();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       if (instances) dispatch({ type: "instances", instances });
       setBusy(null);
@@ -260,7 +261,7 @@ function AccountRow({ instance, provider, rest, now, only, drag, onSignIn, onGon
       const { instances } = await api<{ instances: InstanceInfo[] }>(`/api/instances/${id}`, { method: "PATCH", body: JSON.stringify({ enabled: instance.enabled === false }) });
       dispatch({ type: "instances", instances });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setBusy(null);
     }
@@ -427,7 +428,7 @@ export function AddAccountSheet({ sheet, instances, onStep, onClose, onSignedIn 
       dispatch({ type: "instances", instances: next });
       onStep({ step: "signIn", instanceId });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setCreating(false);
     }
