@@ -108,6 +108,11 @@ export class LimitHold {
     return this.held.has(threadId) && this.until(threadId) !== undefined;
   }
 
+  heldUntil(threadId: string): number | undefined {
+    const until = this.held.get(threadId)?.until;
+    return until !== undefined && until > this.now() ? until : undefined;
+  }
+
   waiting(): Record<string, string> {
     return Object.fromEntries([
       ...[...this.held].map(([threadId, { until }]) => [threadId, new Date(until).toISOString()]),

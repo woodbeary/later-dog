@@ -7,6 +7,7 @@ import { copyText } from "@/lib/copy-text";
 import { appVersion, openExternalLink } from "@/lib/app-links";
 import { BUG_REPORT_TEXT_LIMIT, bugReportIssue, bugReportOs } from "@/lib/bug-report";
 import { useModalDialog } from "@/hooks/use-modal-dialog";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export function BugReportDialog({ onClose }: { onClose: () => void }) {
   const { state } = useStore();
@@ -43,7 +44,7 @@ export function BugReportDialog({ onClose }: { onClose: () => void }) {
       await openExternalLink(issue.url);
       setOpened(true);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally { setPending(false); }
   };
   return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => {

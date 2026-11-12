@@ -1,3 +1,4 @@
+import { plainClientError } from "@/lib/plain-client-error";
 
 export type SpeechStatus = "idle" | "preparing" | "speaking";
 
@@ -98,7 +99,7 @@ export class Speaker {
     try {
       utterances = await this.prepare(text, opts.voiceId, controller.signal);
     } catch (e) {
-      if (live()) this.set({ ...IDLE, error: e instanceof Error ? e.message : String(e) });
+      if (live()) this.set({ ...IDLE, error: plainClientError(e) });
       if (this.request === controller) this.request = null;
       return;
     }

@@ -6,6 +6,7 @@ import { liveDisclosure } from "@/lib/live-disclosure";
 import { api, useStore, type ConfigStatus } from "@/state/store";
 import type { LiveSettings } from "../../shared/wire";
 import { LiveKeySetup } from "./LiveKeySetup";
+import { plainClientError } from "@/lib/plain-client-error";
 
 const IDLE_CHOICES = [1, 2, 3, 5, 10, 15, 30, 60];
 
@@ -29,7 +30,7 @@ export function LiveCallSettings({ onClose }: { onClose: () => void }) {
       const body = await api<{ live: LiveSettings }>("/api/live/settings", { method: "PATCH", body: JSON.stringify(patch) });
       if (state.config) dispatch({ type: "configStatus", config: { ...state.config, live: body.live } });
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : String(saveError));
+      setError(plainClientError(saveError));
     } finally {
       setSaving(false);
     }
@@ -44,7 +45,7 @@ export function LiveCallSettings({ onClose }: { onClose: () => void }) {
         : await api("/api/config", { method: "PUT", body: JSON.stringify({ live: { key: "" } }) });
       dispatch({ type: "configStatus", config: status });
     } catch (removeError) {
-      setError(removeError instanceof Error ? removeError.message : String(removeError));
+      setError(plainClientError(removeError));
     } finally {
       setSaving(false);
     }

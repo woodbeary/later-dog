@@ -65,4 +65,19 @@ describe("errors the person reads", () => {
       expect(plainClientError(thrown)).not.toContain("[object");
     }
   });
+
+  it.each([
+    ["a plain object", { code: 5 }, GENERIC_MESSAGE],
+    ["a body with the words in error.message", { error: { message: "Your key is not valid." } }, "Your key is not valid."],
+    ["a body with the words in error", { error: "That dog is not here." }, "That dog is not here."],
+    ["a body with the words in message", { message: "The home is full." }, "The home is full."],
+    ["a string", "The home is full.", "The home is full."],
+    ["undefined", undefined, GENERIC_MESSAGE],
+    ["an Error", new Error("The home is full."), "The home is full."],
+  ])("turns %s into a sentence and never prints it as an object", (_name, thrown, said) => {
+    const plain = plainClientError(thrown);
+    expect(plain).toBe(said);
+    expect(plain).not.toContain("[object");
+    expect(plain).not.toBe("");
+  });
 });

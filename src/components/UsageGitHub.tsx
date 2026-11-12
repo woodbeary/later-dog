@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { ColumnChart, type ChartColor } from "./UsageCharts";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export interface GitHubDay { day: string; commits: number; prs: number }
 export type GitHubActivity =
@@ -66,7 +67,7 @@ export function UsageGitHub({ load = fetchGitHubActivity }: { load?: typeof fetc
     let current = true;
     load()
       .then((next) => { if (current) setActivity(next); })
-      .catch((error) => { if (current) setActivity({ state: "unavailable", message: error instanceof Error ? error.message : String(error) }); });
+      .catch((error) => { if (current) setActivity({ state: "unavailable", message: plainClientError(error) }); });
     return () => { current = false; };
   }, [load]);
   if (activity && !["ready", "signedOut", "unavailable"].includes(activity.state)) return null;

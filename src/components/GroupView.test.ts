@@ -156,6 +156,22 @@ describe("a group chat without the extras", () => {
     expect(markup).toContain(`aria-label="Find in conversation"`);
   });
 
+  it("says in the header who is working, and shows nothing extra from a home that sends no work", () => {
+    const draw = (group: Group) => {
+      vi.stubGlobal("window", { laterdog: undefined });
+      try {
+        return renderToStaticMarkup(createElement(StoreProvider, null, createElement(GroupView, { group })));
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    };
+    const working = draw({ ...room, working: true, work: { kind: "running", dogs: [{ id: "scout", name: "Scout" }, { id: "biscuit", name: "Biscuit" }] } });
+    expect(working).toContain("Scout and Biscuit are working");
+    expect(working).toContain('data-work-state="running"');
+    expect(draw({ ...room, working: true })).not.toContain("data-work-state");
+    expect(draw({ ...room, work: { kind: "needs-you", what: "Allow the deploy?" } })).toContain("Needs you: Allow the deploy?");
+  });
+
   it("shows an old fetch card as one plain line of its saved text", () => {
     const messages: Message[] = [{
       id: "goal", role: "bot", kind: "goal.run", at: 1, text: "Completed: Write the launch post",

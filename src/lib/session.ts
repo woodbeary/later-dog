@@ -1,3 +1,4 @@
+import { plainClientError } from "@/lib/plain-client-error";
 
 export interface EnvironmentDescriptor {
   environmentId: string;
@@ -18,7 +19,7 @@ export async function readSessionState(fetchImpl: typeof fetch = fetch): Promise
   try {
     res = await fetchImpl("/api/auth/session", { credentials: "same-origin" });
   } catch (error) {
-    return { kind: "unreachable", error: error instanceof Error ? error.message : String(error) };
+    return { kind: "unreachable", error: plainClientError(error) };
   }
   const body: unknown = await res.json().catch(() => ({}));
   const record = Object(body) as Record<string, unknown>;
@@ -105,7 +106,7 @@ export async function pairWithCode(
       body: JSON.stringify({ code: input.code, label: input.label, cookie: true, attemptId: input.attemptId ?? newAttemptId(), ...(input.browser ? { browser: true } : {}) }),
     });
   } catch (error) {
-    return { ok: false, error: `could not reach the server (${error instanceof Error ? error.message : String(error)})` };
+    return { ok: false, error: `could not reach the server (${plainClientError(error)})` };
   }
   const body: unknown = await res.json().catch(() => ({}));
   if (res.ok) return { ok: true };
@@ -142,7 +143,7 @@ async function postAuth(path: string, body: Record<string, unknown>, fetchImpl: 
   try {
     res = await fetchImpl(path, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   } catch (error) {
-    return { ok: false, error: `could not reach the server (${error instanceof Error ? error.message : String(error)})` };
+    return { ok: false, error: `could not reach the server (${plainClientError(error)})` };
   }
   const parsed: unknown = await res.json().catch(() => ({}));
   if (res.ok) return { ok: true };

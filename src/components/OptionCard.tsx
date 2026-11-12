@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, X } from "lucide-react";
+import { Check, Loader2, X } from "lucide-react";
 import { visibleMessages, type Message } from "@/state/store";
 import { dogIn, useStoreDispatch, useStoreSelector } from "@/state/store-selectors";
 import { cn } from "@/lib/cn";
@@ -32,7 +32,7 @@ export function canDismissOptionCard(card: NonNullable<Message["card"]>): boolea
 function chosenAnswer(card: NonNullable<Message["card"]>, picked?: string): string | undefined {
   if (card.answeredText) return card.answeredText;
   if (card.answered && !DECISIONS.has(card.answered)) return card.answered;
-  return picked;
+  return card.pendingAnswer ?? picked;
 }
 
 export function OptionCard({
@@ -58,7 +58,7 @@ export function OptionCard({
   const title = optionCardTitle(card, bot?.name);
   const subtitle = card.subtitle;
   const options = parseChoices(card.options, LETTERS.length) ?? [];
-  const answered = Boolean(card.answered) || picked !== undefined;
+  const answered = Boolean(card.answered) || Boolean(card.pendingAnswer) || picked !== undefined;
   const chosen = answered ? chosenAnswer(card, picked) : undefined;
 
   const answer = (text: string) => {
@@ -150,12 +150,13 @@ export function OptionCard({
 
   if (!answered) return body;
   const line = chosen ?? t("question.status.answered");
+  const sending = Boolean(card.pendingAnswer) && !card.answered;
   return (
     <FoldedCard
-      icon={<Check size={14} className="shrink-0 text-success" />}
-      summary={<span className="min-w-0 truncate">{line}</span>}
+      icon={sending ? <Loader2 size={14} className="shrink-0 animate-spin text-ink-secondary" /> : <Check size={14} className="shrink-0 text-success" />}
+      summary={<span className="min-w-0 truncate">{sending ? `${t("chat.sending")} ${line}` : line}</span>}
       title={line}
-      label={t("question.answered.label", { answer: line })}
+      label={sending ? `${t("chat.sending")} ${line}` : t("question.answered.label", { answer: line })}
       arriving={!answeredAtMount}
       takeFocus={picked !== undefined}
     >

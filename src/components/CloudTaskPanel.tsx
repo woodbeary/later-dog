@@ -14,6 +14,7 @@ import { useCaptionChrome } from "@/components/DesktopCapabilities";
 import type { Bot } from "@/state/store";
 import { useStoreDispatch } from "@/state/store-selectors";
 import { patchFiles, type CloudTaskFileChange, type CloudTaskStep, type CloudTaskTodo } from "../../shared/cloud-task";
+import { plainClientError } from "@/lib/plain-client-error";
 
 const PANEL_WIDTH_KEY = "laterdog-computer-panel-width";
 
@@ -116,7 +117,7 @@ function Changes({ jobId, files: fileCount }: { jobId: string; files: number }) 
     let stopped = false;
     cloudTaskPatch(jobId)
       .then(({ patch }) => { if (!stopped) setFiles(patchFiles(patch)); })
-      .catch((failure: unknown) => { if (!stopped) setError(failure instanceof Error ? failure.message : String(failure)); });
+      .catch((failure: unknown) => { if (!stopped) setError(plainClientError(failure)); });
     return () => { stopped = true; };
   }, [jobId, open, files]);
   return (
@@ -196,7 +197,7 @@ export function CloudTaskPanel({ jobId, bot }: { jobId: string; bot?: Bot }) {
         }
       }
     } catch (failure) {
-      setActionError(failure instanceof Error ? failure.message : String(failure));
+      setActionError(plainClientError(failure));
     } finally {
       setPending(null);
     }

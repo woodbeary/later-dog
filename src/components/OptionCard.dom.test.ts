@@ -79,3 +79,20 @@ describe("answered option cards", () => {
     expect(host.textContent).toBe("");
   });
 });
+
+describe("an answer still on its way", () => {
+  const plain = (card: Partial<NonNullable<Message["card"]>>) => question({ requestId: undefined, requestType: undefined, ...card });
+
+  it("reads as sending, not as answered, until the home has it", () => {
+    mount(plain({ pendingAnswer: "Ship it" }));
+    expect(line()?.textContent).toContain("Sending…");
+    expect(line()?.textContent).toContain("Ship it");
+    expect(line()?.getAttribute("aria-label")).toBe("Sending… Ship it");
+    expect(line()?.getAttribute("aria-label")).not.toContain("You answered");
+  });
+
+  it("is put away once the home has it", () => {
+    mount(plain({ answered: "Ship it", dismissed: true }));
+    expect(host.textContent).toBe("");
+  });
+});

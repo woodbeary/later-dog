@@ -7,6 +7,7 @@ import {
   type HandoffActivity, type HandoffEnd,
 } from "./laterdog/handoff-budget.ts";
 import { timedOutAgain, type HandoffRunResult } from "./laterdog/long-work.ts";
+import { turnResultsSchema } from "./laterdog/turn-results.ts";
 
 const nodeSchema = z.object({
   id: z.string(), rootId: z.string(), parentId: z.string().optional(),
@@ -32,6 +33,7 @@ const nodeSchema = z.object({
   urgent: z.boolean().optional(),
   reply: z.enum(["none", "result"]).optional(),
   replacedBy: z.string().optional(),
+  results: turnResultsSchema.optional(),
 });
 export type RoomHandoff = z.infer<typeof nodeSchema>;
 export type RoomAddress = Pick<RoomHandoff, "groupId" | "threadId" | "botId">;
@@ -314,11 +316,15 @@ export class RoomHandoffs {
     return node;
   }
 
-  sharedRequest(node: RoomHandoff): { id: string; botIds: string[] } {
-    const batch = node.groupId && node.requestBatchKey && node.parentId
+  requestBatch(node: RoomHandoff): RoomHandoff[] {
+    return node.groupId && node.requestBatchKey && node.parentId
       ? this.children(node.parentId).filter(n => n.requestBatchKey === node.requestBatchKey &&
         n.groupId === node.groupId && n.threadId === node.threadId && n.text === node.text)
       : [node];
+  }
+
+  sharedRequest(node: RoomHandoff): { id: string; botIds: string[] } {
+    const batch = this.requestBatch(node);
     return { id: batch[0]?.id ?? node.id, botIds: batch.map(n => n.botId) };
   }
 
@@ -505,6 +511,7 @@ export class RoomHandoffs {
         if (terminal(n)) return;
         n.restarted = undefined;
         n.result = result.text.slice(0, 12_000);
+        n.results = result.results;
         if (this.hooks.needsYou?.(n)) {
           n.status = "needs-you";
           const parent = n.parentId ? this.nodes.get(n.parentId) : undefined;

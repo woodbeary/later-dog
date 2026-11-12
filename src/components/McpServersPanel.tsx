@@ -29,6 +29,7 @@ import { BrandIcon } from "./BrandIcon";
 import { Switch } from "./SettingsPrimitives";
 import { WhopIcon } from "./WhopIcon";
 import { isWhopServer } from "@/lib/whop-integration";
+import { plainClientError } from "@/lib/plain-client-error";
 
 interface StdioMcpListing {
   name: string;
@@ -93,7 +94,7 @@ export async function signedInToolsCheck(
     tested = await request(`/api/mcp/servers/${name}/test`, { method: "POST", signal });
   } catch (cause) {
     if (signal.aborted) throw cause;
-    tested = { ok: false, error: cause instanceof Error ? cause.message : String(cause) };
+    tested = { ok: false, error: plainClientError(cause) };
   }
   if (tested.ok) return tested;
   const reason = (tested.error ?? "").trim();
@@ -246,7 +247,7 @@ export function McpServersPanel({ embedded = false, refreshKey = 0 }: {
       setImportText("");
       setImportOpen(false);
     } catch (cause) {
-      if (generation === loadGeneration.current) setError(cause instanceof Error ? cause.message : String(cause));
+      if (generation === loadGeneration.current) setError(plainClientError(cause));
     } finally {
       if (generation === loadGeneration.current) setBusy(null);
     }
@@ -264,7 +265,7 @@ export function McpServersPanel({ embedded = false, refreshKey = 0 }: {
         }
       })
       .catch((cause) => {
-        if (generation === loadGeneration.current) setError(cause instanceof Error ? cause.message : String(cause));
+        if (generation === loadGeneration.current) setError(plainClientError(cause));
       })
       .finally(() => {
         if (generation === loadGeneration.current) setBusy(null);
@@ -333,7 +334,7 @@ export function McpServersPanel({ embedded = false, refreshKey = 0 }: {
       setNotice({ key: editing === "new" ? "mcp.saved" : "mcp.updated", params: { name } });
       closeEditor();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setBusy(null);
     }
@@ -356,7 +357,7 @@ export function McpServersPanel({ embedded = false, refreshKey = 0 }: {
         stateKey: server.enabled ? "mcp.state.off" : "mcp.state.on",
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setBusy(null);
     }
@@ -377,7 +378,7 @@ export function McpServersPanel({ embedded = false, refreshKey = 0 }: {
     } catch (cause) {
       setProbe((current) => ({
         ...current,
-        [server.name]: { ok: false, error: cause instanceof Error ? cause.message : String(cause) },
+        [server.name]: { ok: false, error: plainClientError(cause) },
       }));
     } finally {
       setBusy(null);
@@ -421,7 +422,7 @@ export function McpServersPanel({ embedded = false, refreshKey = 0 }: {
         setProbe((current) => ({ ...current, [server.name]: { ok: false, error: result.message || t("mcp.auth.failed") } }));
       }
     } catch (cause) {
-      if (mounted.current && !controller.signal.aborted) setProbe((current) => ({ ...current, [server.name]: { ok: false, error: cause instanceof Error ? cause.message : String(cause) } }));
+      if (mounted.current && !controller.signal.aborted) setProbe((current) => ({ ...current, [server.name]: { ok: false, error: plainClientError(cause) } }));
     } finally {
       if (signInAbort.current === controller) {
         signInAbort.current = null;
@@ -445,7 +446,7 @@ export function McpServersPanel({ embedded = false, refreshKey = 0 }: {
       const result = await completeMcpSignIn(signingIn, signInFlow.flowId, callbackUrl, api);
       if (signInAbort.current === controller) signInComplete.current?.(result);
     } catch (cause) {
-      if (signInAbort.current === controller) setCallbackError(cause instanceof Error ? cause.message : String(cause));
+      if (signInAbort.current === controller) setCallbackError(plainClientError(cause));
     } finally {
       if (signInAbort.current === controller) setCompletingSignIn(false);
     }
@@ -471,7 +472,7 @@ export function McpServersPanel({ embedded = false, refreshKey = 0 }: {
       setServers(result.servers ?? []);
       updateMcpServers(result.servers ?? []);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setBusy(null);
     }
@@ -495,7 +496,7 @@ export function McpServersPanel({ embedded = false, refreshKey = 0 }: {
       });
       if (editing === server.name) closeEditor();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
     } finally {
       setBusy(null);
     }

@@ -565,7 +565,8 @@ import {
   selectBundledSkills,
   setLibrarySkillReviewState,
 } from "./skill-library.ts";
-import type { SkillsLibrarySkillWire } from "../shared/wire.ts";
+import type { BotActivity, SkillsLibrarySkillWire } from "../shared/wire.ts";
+import type { WorkState } from "../shared/work-state.ts";
 import { runSkillsLibraryBootSweep } from "./skills-library-migration.ts";
 import { createBotPackageExport, createLibraryPackageExport, createTeamPackageExport, picture as sharedPicture, TeamExportError, type ExportablePackageSkill, type TeamExportSkip } from "./package-export.ts";
 import { importPackageDocument, importTeamManifest, PackageImportError, type PackageImportDeps, type PackageImportResult } from "./package-import.ts";
@@ -732,6 +733,13 @@ import {
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold, withWaitingRuns } from "./laterdog/limit-hold.ts";
+import { openAsk, workState } from "./laterdog/work-state.ts";
+import { exchangeIdOf, exchangeThreads, withExchange, type ExchangeLookup } from "./laterdog/room-exchange.ts";
+import { roomWorkFor } from "./laterdog/room-work.ts";
+import { WorkSignals } from "./laterdog/work-signals.ts";
+import { turnReceipt } from "./laterdog/turn-receipt.ts";
+import { terminalTurnPatch, turnResults } from "./laterdog/turn-results.ts";
+import { TurnTouches } from "./laterdog/turn-touches.ts";
 import { carryOnAfterRestart } from "./laterdog/carry-on-restart.ts";
 import { runningByAccount } from "./laterdog/account-spread.ts";
 import { latestTurnAnswer, lookedAtImage, postTurnImage } from "./laterdog/turn-images.ts";
@@ -759,6 +767,7 @@ import { firstEngine, hasNoModel } from "./laterdog/first-engine.ts";
 import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
+import { createRoomCardRoutes } from "./routes/room-card.ts";
 import { createSidebarSectionOrderRoutes } from "./routes/sidebar-section-order.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
 import { createDeciderRoutes } from "./routes/decider.ts";
@@ -1064,9 +1073,19 @@ const limitHold = new LimitHold({
     else pickUpAfterReset(threadId);
     drainQueuedSends();
   },
-  onChange: () => broadcast({ kind: "config", ...configStatus() }),
+  onChange: () => {
+    broadcast({ kind: "config", ...configStatus() });
+    announceHeldThreads();
+  },
   file: join(DATA_DIR, "limit-hold.json"),
 });
+
+let announcedHeld = new Set<string>();
+function announceHeldThreads(): void {
+  const held = new Set(Object.keys(limitHold.waiting()));
+  for (const threadId of new Set([...announcedHeld, ...held])) announceHelpersChanged(threadId);
+  announcedHeld = held;
+}
 
 const turnTriggers = new Map<string, UsageTrigger>();
 function messageSender(auth: RequestAuth): ResolvedSender | undefined {
@@ -2772,6 +2791,7 @@ async function stopThreadTurn(botId: string, threadId: string, by: "person" | "a
     return;
   }
   if (by === "person") handoffs.stoppedByPerson(threadId);
+  if (by === "person") workSignals.stopRequested(threadId);
   await interruptDirectThread(botId, threadId, { by });
 }
 
@@ -3540,12 +3560,25 @@ function delegatedNeedsYou(threadId: string): boolean {
   if (!delegatedWaiting.has(threadId)) delegatedWaiting.set(threadId, store.messagesFor(threadId).some(message => message.needsYou?.status === "waiting"));
   return delegatedWaiting.get(threadId)!;
 }
+const workSignals = new WorkSignals();
+let exchangeLookup: ExchangeLookup | undefined;
+let waitingOnPerson = (_threadId: string): boolean => false;
+function chatWork(threadId: string, busy: boolean, activity: BotActivity | undefined, waitingOn: WireWaitingOn[] | undefined, selection: ModelSelection): WorkState {
+  const asking = activity === "waiting-on-you" || delegatedNeedsYou(threadId) || waitingOnPerson(threadId);
+  const until = limitHold.heldUntil(threadId);
+  return workState({
+    busy, waitingOn, ...workSignals.facts(threadId),
+    ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : {}),
+    ...(until !== undefined ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, until } } : {}),
+  });
+}
 const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
   const { snoozedUntil, ...base } = toWireTask(task, botModel, store.bots);
   const statusLine = liveStatusLine(task.threadId);
   const waiting = activeCoordinationForThread(task.threadId) && !task.busy;
   const helpers = task.busy ? 0 : helpersWorkingIn(task.threadId);
   const coordinated = { ...base, ...(delegatedNeedsYou(task.threadId) ? { activity: "waiting-on-you" as const } : {}), waitingForTeammates: waiting, ...(waiting ? { waitingOn: teammatesAwaited(task.threadId) } : {}), ...(helpers ? { helpersWorking: helpers } : {}), ...(statusLine ? { statusLine } : {}) };
+  coordinated.work = chatWork(task.threadId, Boolean(task.busy), coordinated.activity, coordinated.waitingOn, base.modelSelection ?? botModel);
   const asleep = snoozedUntil === 0 || (snoozedUntil !== undefined && snoozedUntil > Date.now());
   return asleep ? { ...coordinated, snoozedUntil } : coordinated;
 };
@@ -3556,8 +3589,12 @@ const wireBot = (bot: BotRecord): WireBot => {
     ? { ...rest, approvalMode: "ask" as const, autoApprove: false }
     : rest;
   const waiting = activeCoordinationForThread(bot.threadId) && !threadBusy(bot.id, bot.threadId);
-  const helpers = threadBusy(bot.id, bot.threadId) ? 0 : helpersWorkingIn(bot.threadId);
-  return { ...visible, ...(delegatedNeedsYou(bot.threadId) ? { activity: "waiting-on-you" as const } : {}), waitingForTeammates: waiting, ...(waiting ? { waitingOn: teammatesAwaited(bot.threadId) } : {}), ...(helpers ? { helpersWorking: helpers } : {}),
+  const busy = threadBusy(bot.id, bot.threadId);
+  const helpers = busy ? 0 : helpersWorkingIn(bot.threadId);
+  const activity = delegatedNeedsYou(bot.threadId) ? "waiting-on-you" as const : visible.activity;
+  const waitingOn = waiting ? teammatesAwaited(bot.threadId) : undefined;
+  return { ...visible, ...(activity ? { activity } : {}), waitingForTeammates: waiting, ...(waitingOn ? { waitingOn } : {}), ...(helpers ? { helpersWorking: helpers } : {}),
+    work: chatWork(bot.threadId, busy, activity, waitingOn, bot.modelSelection),
     avatarUrl: visible.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
 
@@ -4379,6 +4416,23 @@ function roomHandoffProblem(node: Pick<RoomHandoff, "groupId" | "threadId" | "bo
   }
 }
 
+const sentExchanges = new Map<string, string>();
+function resendExchanges(groupIds: ReadonlySet<string>, directThreadIds: ReadonlySet<string>): void {
+  const touched = exchangeThreads(roomHandoffs.nodes.values(), groupIds, directThreadIds, id => roomHandoffs.nodes.get(id), changed => roomHandoffs.sharedRequest(changed).id);
+  for (const [threadId, ids] of touched) {
+    for (const message of store.messagesTail(threadId, 200).messages) {
+      const id = exchangeIdOf(message);
+      if (!id || !ids.has(id)) continue;
+      const wire = slimMessage(message);
+      const said = JSON.stringify((wire as Message).exchange ?? null);
+      if (sentExchanges.get(message.id) === said) continue;
+      sentExchanges.set(message.id, said);
+      if (sentExchanges.size > 5_000) sentExchanges.delete(sentExchanges.keys().next().value!);
+      broadcast({ kind: "message.patch", threadId, message: wire as Message });
+    }
+  }
+}
+
 function peerRequestRunning(botId: string, threadId: string): string | undefined {
   for (const node of roomHandoffs.nodes.values()) {
     if (node.parentId && !node.groupId && node.botId === botId && node.threadId === threadId && node.status === "running") return roomHandoffs.sharedRequest(node).id;
@@ -4472,6 +4526,7 @@ const roomHandoffs = new RoomHandoffs(join(DATA_DIR, "room-handoffs.json"), {
     return n.status === "resume" ? slot : slot || recipientAwaitingPerson(n.botId, n.threadId);
   },
   changed: (groupIds, directThreadIds) => {
+    resendExchanges(groupIds, directThreadIds);
     for (const id of groupIds) {
       const group = store.group(id);
       if (group) broadcast({ kind: "group", group: publicGroupState(group) });
@@ -4641,6 +4696,14 @@ teammatesAwaited = threadId => waitingOn(roomHandoffs.outstandingDirect(threadId
   if (task?.activity === "waiting-on-you") return `${store.bot(node.botId)?.name ?? "A teammate"} has a question for you`;
   return personAsk((node as { result?: string }).result, cfg.profile?.name);
 });
+exchangeLookup = {
+  node: id => roomHandoffs.nodes.get(id),
+  batch: node => roomHandoffs.requestBatch(node),
+  children: id => roomHandoffs.children(id),
+  name: botId => store.bot(botId)?.name,
+  redact: redactSecretsInText,
+};
+
 const groupUsageReader = new GroupUsageReader(DATA_DIR);
 try { groupUsageReader.refresh(); } catch {}
 function publicGroupState(record: GroupRecord): WireGroup {
@@ -4652,7 +4715,26 @@ function publicGroupState(record: GroupRecord): WireGroup {
     turnTimeoutMinutes: record.turnTimeoutMinutes ?? null,
     usage: usage ?? null,
     working: groupIsWorking(group) || [...roomHandoffs.nodes.values()].some(n => n.groupId === group.id && !["completed", "failed", "cancelled"].includes(n.status)),
+    work: roomWork(group),
   };
+}
+
+function roomWork(group: GroupRecord): WorkState {
+  return roomWorkFor(group, {
+    nodes: () => roomHandoffs.nodes.values(),
+    awaited: id => roomHandoffs.awaited(id),
+    name: botId => store.bot(botId)?.name,
+    turnBotIds: id => new Set([...(groupTurnOperations.get(id) ?? [])].filter(op => !op.cancelled).flatMap(op => [...op.botIds]).concat(store.group(id)?.busyBotId ?? [])),
+    threadIds: id => [...new Set([store.group(id)?.threadId ?? "", ...store.groupTasks(id).map(task => task.threadId)].filter(Boolean))],
+    tail: threadId => store.messagesTail(threadId, 60).messages,
+    heldUntil: threadId => limitHold.heldUntil(threadId),
+    holdAccount: id => {
+      const room = store.group(id);
+      const botId = room?.busyBotId ?? (room?.defaultResponder.kind === "member" ? room.defaultResponder.botId : undefined);
+      const bot = botId ? store.bot(botId) : undefined;
+      return bot ? registry.get(bot.modelSelection.instanceId)?.displayName : undefined;
+    },
+  });
 }
 
 function beginGroupTurnOperation(
@@ -4964,7 +5046,8 @@ function pageSize(raw: string | null): number | null | undefined {
   return Math.min(size, MESSAGE_PAGE_MAX);
 }
 
-function slimMessage(message: Message): Message | Record<string, unknown> {
+function slimMessage(stored: Message): Message | Record<string, unknown> {
+  const message = exchangeLookup && exchangeIdOf(stored) ? withExchange(stored, exchangeLookup) : stored;
   if (message.kind !== "screen" || !message.png) return message;
   const { png: _png, ...rest } = message;
   return { ...rest, hasImage: true };
@@ -5373,7 +5456,11 @@ helpersWorkingIn = threadId => Math.max(helperBoard.runningCount(threadId), nati
 
 function announceHelpersChanged(threadId: string): void {
   const owner = store.botByThread(threadId);
-  if (!owner) return;
+  if (!owner) {
+    const room = store.groupByThread(threadId);
+    if (room) broadcast({ kind: "group", group: publicGroupState(room) });
+    return;
+  }
   const current = store.bot(owner.id);
   if (current) broadcast({ kind: "bot", bot: wireBot(current) });
 }
@@ -5393,6 +5480,7 @@ const watchdog = new TurnWatchdog({
     const routineRun = routineRunForTurn(turn.threadId);
     void runningTurnInstance(bot, turn.threadId)?.adapter.interruptTurn(turn.threadId).catch(() => {});
     const detail = turnStallDetail(turn, TURN_STALL_MS, watchdog.toolOverran(turn));
+    if (workSignals.stalled(turn.threadId)) announceHelpersChanged(turn.threadId);
     if (routineRun?.target === "bot") {
       routines?.failThread(turn.threadId, detail);
     }
@@ -5443,6 +5531,8 @@ const watchdog = new TurnWatchdog({
     release.unref?.();
   },
 });
+waitingOnPerson = threadId => watchdog.snapshot(threadId)?.waitingOnHuman === true;
+
 watchdog.start();
 
 bus.subscribe((event: RuntimeEvent) => {
@@ -5462,8 +5552,8 @@ bus.subscribe((event: RuntimeEvent) => {
   }
   if (event.type === "turn.completed") helperBoard.settle(event.threadId);
   watchdog.observeTool(event);
-  if (event.type === "request.opened") watchdog.setWaitingOnHuman(event.threadId, true);
-  else if (event.type === "request.resolved") watchdog.setWaitingOnHuman(event.threadId, false);
+  if (event.type === "request.opened") { watchdog.setWaitingOnHuman(event.threadId, true); announceHelpersChanged(event.threadId); }
+  else if (event.type === "request.resolved") { watchdog.setWaitingOnHuman(event.threadId, false); announceHelpersChanged(event.threadId); }
   else if (event.type === "turn.wait_started") watchdog.setWaitingOnComputer(event.threadId, true);
   else if (event.type === "turn.wait_ended") watchdog.setWaitingOnComputer(event.threadId, false);
   else if (event.type === "turn.completed") {
@@ -5472,7 +5562,8 @@ bus.subscribe((event: RuntimeEvent) => {
     if (event.turnId && store.botByThread(event.threadId) && !automaticallyCarriesOn(event)) {
       const reply = store.messagesFor(event.threadId).findLast(message =>
         message.role === "bot" && message.kind === "text" && message.turnId === event.turnId);
-      const outcome = { ok: event.ok, text: (reply?.text || event.stopReason || "The bot finished without a text reply").slice(0, 12_000) };
+      const results = observedTurnResults(event.threadId);
+      const outcome = { ok: event.ok, text: (reply?.text || event.stopReason || "The bot finished without a text reply").slice(0, 12_000), ...(results ? { results } : {}) };
       const owner = directFollowupTurns.complete(event.threadId, event.turnId, outcome);
       if (owner) {
         settleDirectCoordination(owner.generation, outcome);
@@ -5729,6 +5820,12 @@ bus.subscribe((event: RuntimeEvent) => {
   } catch {}
 });
 const turnStartedAt = new Map<string, number>();
+const turnTouches = new TurnTouches();
+function observedTurnResults(threadId: string) {
+  const observed = turnTouches.observed(threadId);
+  const owner = observed ? store.botByThread(threadId) : undefined;
+  return observed ? turnResults({ ...observed, cwd: owner ? store.taskByThread(owner.id, threadId)?.cwd ?? owner.cwd : undefined, home: homedir() }) : undefined;
+}
 const turnCheckpoints = new Map<string, { botId: string; cwd: string; hash: string; pin: string }>();
 const liveTurnByThread = new Map<string, string>();
 
@@ -6869,6 +6966,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   }
   if (!privateImageEvent && !privateTapbackText) broadcast({ kind: "runtime", event: publicEvent });
   executionEvidence.observe(event);
+  if (workSignals.observe(event)) announceHelpersChanged(event.threadId);
   const movingOn = movingToPick(event);
   const carryingOn = automaticallyCarriesOn(event) || movingOn;
   const routineRun = privateImageEvent ? null : carryingOn ? routineRunForTurn(event.threadId) : (routines?.handleRuntimeEvent(event) ?? null);
@@ -6901,6 +6999,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   switch (event.type) {
     case "turn.started":
       turnStartedAt.set(event.threadId, Date.now());
+      turnTouches.begin(event.threadId);
       break;
     case "session.started":
       if (bot && event.sessionId && event.providerInstanceId) {
@@ -6940,6 +7039,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           });
           toolMessageByItem.delete(itemKey);
         }
+        turnTouches.finish(event.threadId, event.itemId, { ok: event.ok, output: event.output, toolName });
         const cloudTask = event.ok ? cloudTaskRefFromToolOutput(toolName, event.output) : null;
         if (cloudTask && !store.messagesFor(event.threadId).some((m) => m.cloudTask?.jobId === cloudTask.jobId)) {
           pushMessage({ role: "bot", kind: "activity", tool: { name: `Cloud task: ${cloudTask.title}`, ok: true, spoken: "started a cloud task" }, cloudTask, turnId: liveTurnId });
@@ -6963,6 +7063,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           turnId: liveTurnId,
         });
         if (event.itemId) toolMessageByItem.set(`${event.threadId}:${event.itemId}`, message.id);
+        turnTouches.start(event.threadId, event.itemId, event.touches);
       }
       break;
     case "request.opened": {
@@ -7255,7 +7356,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       }
       if (completedTurnId) {
         const terminal = store.markTerminalAssistantMessage(event.threadId, completedTurnId);
-        if (terminal) store.patchMessage(event.threadId, terminal.id, { turnSucceeded: event.ok });
+        const ran = execution ? turnReceipt(execution, (instanceId) => registry.get(instanceId)?.displayName) : undefined;
+        if (terminal) store.patchMessage(event.threadId, terminal.id, terminalTurnPatch(event.ok, ran, observedTurnResults(event.threadId)));
       }
       const reply = lastReply.get(event.threadId) ?? "";
       lastReply.delete(event.threadId);
@@ -12926,6 +13028,14 @@ ROUTES.push(createHostedSlackRoutes({ bot: (id) => store.bot(id), hostedReady: (
 const orgInstallStatuses = () => orgLibrary?.installStatuses() ?? new Map();
 ROUTES.push(createBotPresetRoutes({ presets: presetStore, orgStatuses: orgInstallStatuses }));
 ROUTES.push(createSidebarSectionOrderRoutes({ order: (sections) => store.orderSections(sections) }));
+ROUTES.push(createRoomCardRoutes({
+  room: (id) => store.group(id),
+  threadBelongsToRoom: (id, threadId) => { const room = store.group(id); return Boolean(room && (room.dm ? room.threadId === threadId : store.groupTaskByThread(id, threadId))); },
+  messages: (threadId) => store.messagesFor(threadId),
+  refusal: (auth) => (CLOUD_HOME && auth.kind === "session" ? cloudCardRefusal(auth) : null),
+  answeredBy: (auth) => (CLOUD_HOME ? cardAnswererFor(auth) : undefined),
+  save: (threadId, messageId, card) => store.patchMessage(threadId, messageId, { card }),
+}));
 ROUTES.push(createEnginePlacementRoutes({
   botExists: (id) => Boolean(store.bot(id)),
   read: (id) => remoteEngineChoice(DATA_DIR, id),
@@ -14833,7 +14943,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
               if (!duplicate) {
                 const recipient = store.bot(target.botId)!;
                 const exchange = destination ? undefined : openPeerExchange(internalSender, recipient, parsed.data.message);
-                store.appendMessage(address.threadId, { role: "bot", kind: "activity",
+                store.appendMessage(address.threadId, { role: "bot", kind: "activity", handoffId: node.id,
                   from: { botId: internalSender.id, name: internalSender.name, color: internalSender.color },
                   tool: { name: "Sent to " + recipient.name + (destination && destination.id !== source?.id ? " · " + destination.name : ""), ok: true },
                   comm: exchange

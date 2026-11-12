@@ -4,6 +4,7 @@ import { useDesktopCapabilities } from "./DesktopCapabilities";
 import { macCuaPermissionMessage, missingMacCuaPermissions } from "@/lib/mac-cua-permissions";
 import { MacCuaRecoveryActions } from "./MacCuaRecoveryActions";
 import { t } from "@/lib/i18n";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export function MacLocalControl() {
   const { capabilities } = useDesktopCapabilities();
@@ -19,7 +20,7 @@ export function MacLocalControl() {
     try {
       await window.laterdog?.localControl?.retry();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(plainClientError(reason));
     } finally {
       setPending(false);
     }
@@ -33,7 +34,7 @@ export function MacLocalControl() {
       await window.laterdog?.permOpenSettings?.("screen");
     } catch (reason) {
       setAwaitingGrant(false);
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(plainClientError(reason));
     }
   };
 

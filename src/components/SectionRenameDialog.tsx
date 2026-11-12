@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { api, useStore, type Bot } from "@/state/store";
 import { t } from "@/lib/i18n";
 import { useModalDialog } from "@/hooks/use-modal-dialog";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export const SECTION_NAME_LIMIT = 60;
 
@@ -45,7 +46,7 @@ export function SectionRenameDialog({ section, onClose, onRenamed }: {
       onRenamed(section, trimmed);
       onClose();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(plainClientError(cause));
       setSaving(false);
     }
   };

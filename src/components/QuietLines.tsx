@@ -6,8 +6,10 @@ import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { currentDogName, freshenDogName } from "@/lib/dog-refs";
 import { openExchange } from "@/lib/exchange-view";
-import { exchangeGist, exchangeWording, failedExchange, foldedPreview, sentExchange, singleExchange, type ExchangeItem, type ExchangeRow, type ExchangeState } from "@/lib/quiet-lines";
+import { exchangeSummary, exchangeWording, failedExchange, foldedPreview, sentExchange, singleExchange, type ExchangeItem, type ExchangeRow, type ExchangeState } from "@/lib/quiet-lines";
 import { BotAvatar } from "./Avatar";
+import { TurnResultsBlock } from "./TurnResultsBlock";
+import type { WireExchange } from "../../shared/room-exchange";
 
 export const ExchangeThreadContext = createContext<{ thread: readonly Message[]; working: boolean } | null>(null);
 
@@ -16,7 +18,45 @@ const stateWords = {
   Working: "chat.exchange.state.working",
   Done: "chat.exchange.state.done",
   "Needs you": "chat.exchange.state.needsYou",
+  Failed: "chat.exchange.state.failed",
+  Stopped: "chat.exchange.state.stopped",
 } as const satisfies Record<ExchangeState, string>;
+
+const endWords: Partial<Record<NonNullable<WireExchange["endedBy"]>, "chat.exchange.ended.person" | "chat.exchange.ended.restart" | "chat.exchange.ended.time" | "chat.exchange.ended.limit">> = {
+  person: "chat.exchange.ended.person",
+  restart: "chat.exchange.ended.restart",
+  idle: "chat.exchange.ended.time",
+  timeout: "chat.exchange.ended.time",
+  ceiling: "chat.exchange.ended.time",
+  capped: "chat.exchange.ended.time",
+  limit: "chat.exchange.ended.limit",
+};
+
+export function ExchangeDetails({ record, id }: { record: WireExchange; id: string }) {
+  const ended = record.endedBy ? endWords[record.endedBy] : undefined;
+  return (
+    <div id={id} data-exchange-details="" className="w-full min-w-0 max-w-[560px] space-y-1.5 rounded-xl border border-hairline/50 bg-panel/50 p-2 text-[12px] text-ink-secondary">
+      <div className="text-ink-tertiary">
+        {record.from ? t("chat.exchange.asked", { from: record.from, to: record.to }) : record.to}
+        {" · "}
+        {record.owner.person ? t("chat.exchange.ownerPerson", { dog: record.owner.dog }) : t("chat.exchange.ownerDog", { dog: record.owner.dog })}
+      </div>
+      <div>
+        <div className="font-medium text-ink">{t("chat.exchange.request")}</div>
+        <p data-exchange-request="" className="whitespace-pre-wrap break-words">{record.request}</p>
+      </div>
+      <div>
+        <div className="font-medium text-ink">{t("chat.exchange.reply")}</div>
+        {record.reply
+          ? <p data-exchange-reply="" className="whitespace-pre-wrap break-words">{record.reply}</p>
+          : <p className="text-ink-tertiary">{t("chat.exchange.noReply")}</p>}
+      </div>
+      {record.waitingOn?.length ? <div data-exchange-waiting="">{t("chat.exchange.waitingOn", { names: record.waitingOn.join(", ") })}</div> : null}
+      {ended && <div data-exchange-ended="">{t(ended)}</div>}
+      {record.status === "completed" && <TurnResultsBlock results={record.results} />}
+    </div>
+  );
+}
 
 export const QUIET_FACE_SIZE = 14;
 
@@ -165,6 +205,8 @@ export const ExchangeLine = memo(function ExchangeLine({ item, forceOpen = false
   const dispatch = useStoreDispatch();
   const state = useNamedOwners();
   const exchangeThread = useContext(ExchangeThreadContext);
+  const [showDetails, setShowDetails] = useState(false);
+  const detailsId = useId();
   if (failedExchange(item)) return <FailedResultsLine item={item} forceOpen={forceOpen} />;
   if (sentExchange(item) && item.rows.length > 1) return <SentMessagesLine item={item} forceOpen={forceOpen} />;
   const first = item.rows[0]!;
@@ -177,7 +219,8 @@ export const ExchangeLine = memo(function ExchangeLine({ item, forceOpen = false
   const members = group?.memberIds.map((id) => currentDogName(state.bots, id, "")) ?? [];
   const [one, two] = members.length === 2 ? members : [name, name];
   const label = readOnly ? t("chat.exchange.open", { first: one, second: two }) : t("chat.openConversationWith", { name });
-  const summary = exchangeThread ? exchangeGist(item, exchangeThread.thread, exchangeThread.working) : null;
+  const summary = exchangeSummary(item, exchangeThread?.thread ?? null, exchangeThread?.working ?? false);
+  const record = summary?.record;
   const preview = summary?.gist ?? foldedPreview(item);
   const status = summary ? t(stateWords[summary.state]) : null;
   const said = preview ? `${label}: ${preview}` : label;
@@ -187,8 +230,22 @@ export const ExchangeLine = memo(function ExchangeLine({ item, forceOpen = false
     else if (readOnly) openExchange(target.groupId);
     else dispatch({ type: "select", id: target.groupId });
   };
-  return (
-    <QuietLine onClick={open} label={described} title={described}>
+  const toggle = record ? (
+    <button
+      type="button"
+      data-exchange-toggle=""
+      aria-expanded={showDetails}
+      aria-controls={detailsId}
+      aria-label={t("chat.exchange.details")}
+      title={t("chat.exchange.details")}
+      onClick={() => setShowDetails((value) => !value)}
+      className="rounded-md p-0.5 text-ink-tertiary transition-colors hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+    >
+      <ChevronRight size={12} aria-hidden="true" className={cn("transition-transform motion-reduce:transition-none", showDetails && "rotate-90")} />
+    </button>
+  ) : undefined;
+  const line = (
+    <QuietLine onClick={open} label={described} title={described} after={toggle}>
       <span data-exchange-label>{t(wording.key, { count: wording.count })}</span>
       <BotAvatar
         bot={withBot ?? { name, color: first.withColor }}
@@ -202,6 +259,13 @@ export const ExchangeLine = memo(function ExchangeLine({ item, forceOpen = false
       {preview && <span data-exchange-preview className="min-w-0 max-w-[20rem] truncate text-ink-tertiary">· {preview}</span>}
       {status && <span data-exchange-state={summary!.state} className={cn("shrink-0", summary!.state === "Needs you" ? "text-ink" : "text-ink-tertiary")}>· {status}</span>}
     </QuietLine>
+  );
+  if (!record) return line;
+  return (
+    <div data-exchange-record={record.status} className="flex w-full min-w-0 flex-col items-center gap-1.5">
+      {line}
+      {showDetails && <ExchangeDetails record={record} id={detailsId} />}
+    </div>
   );
 });
 

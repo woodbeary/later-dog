@@ -7,6 +7,7 @@ import type {
 } from "@/state/store";
 import { dogIn, sameItems, useStoreSelector } from "@/state/store-selectors";
 import { BotAvatar } from "./Avatar";
+import { WorkStatusLine } from "./WorkStatusLine";
 import { PlaceIcon } from "./PlaceIcon";
 import { effectivePlace, placeLabelKey } from "@/lib/place";
 import { ExchangeViewHost } from "./ExchangeViewHost";
@@ -204,6 +205,7 @@ export function GroupView({ group }: { group: Group }) {
         <div data-roomhead-row className="flex items-center justify-between @max-3xl/roomhead:flex-wrap @max-3xl/roomhead:gap-y-1">
         <div data-roomhead-identity className="flex min-w-0 items-center gap-2 @max-3xl/roomhead:basis-full" style={headerNoDragStyle}>
           <span className="truncate text-[15px] font-semibold text-ink">{group.name}</span>
+          <WorkStatusLine bot={{ busy: Boolean(group.working), work: group.work }} />
         </div>
         <div
           data-roomhead-controls

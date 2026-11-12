@@ -160,3 +160,46 @@ it("opens the group chat for each send and failure, never a group task switch", 
   await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
   expect(dispatch.mock.calls.map(([action]) => action)).toEqual([{ type: "select", id: "g1" }]);
 });
+
+const sentTo = (exchange: Message["exchange"]): Message => ({
+  id: "sent", role: "bot", kind: "activity", at: 5, turnId: "turn-b", handoffId: "child",
+  from: { botId: "writer", name: "Writer", color: "blue" },
+  tool: { name: "Sent to Scout", ok: true },
+  comm: { groupId: "dm", threadId: "dm-thread", withBotId: "scout", withName: "Scout", withColor: "green", direction: "to" },
+  ...(exchange ? { exchange } : {}),
+});
+const record = (over: Partial<NonNullable<Message["exchange"]>> = {}): NonNullable<Message["exchange"]> => ({
+  id: "child", status: "running", to: "Scout", from: "Writer", owner: { dog: "Writer", person: true },
+  request: "Check the invoice totals", ...over,
+});
+
+it("reads the exchange state from the home's record and shows the request and reply on demand", async () => {
+  await draw([sentTo(record({ status: "completed", reply: "Totals match" }))]);
+  expect(host.querySelector("[data-exchange-state]")?.getAttribute("data-exchange-state")).toBe("Done");
+  expect(host.querySelector("[data-exchange-preview]")?.textContent).toBe("· Check the invoice totals");
+  expect(host.querySelector("[data-exchange-details]")).toBeNull();
+  await act(async () => (host.querySelector("[data-exchange-toggle]") as HTMLButtonElement).click());
+  expect(host.querySelector("[data-exchange-request]")?.textContent).toBe("Check the invoice totals");
+  expect(host.querySelector("[data-exchange-reply]")?.textContent).toBe("Totals match");
+  expect(host.querySelector("[data-exchange-details]")?.textContent).toContain("Writer asked Scout");
+});
+
+it("an acknowledgment with no result reads as still working", async () => {
+  await draw([sentTo(record({ status: "completed" }))]);
+  expect(host.querySelector("[data-exchange-state]")?.getAttribute("data-exchange-state")).toBe("Working");
+  await act(async () => (host.querySelector("[data-exchange-toggle]") as HTMLButtonElement).click());
+  expect(host.querySelector("[data-exchange-reply]")).toBeNull();
+  expect(host.querySelector("[data-exchange-details]")?.textContent).toContain("No reply yet");
+});
+
+it("says what a waiting exchange is waiting on", async () => {
+  await draw([sentTo(record({ status: "waiting", waitingOn: ["Patch"] }))]);
+  await act(async () => (host.querySelector("[data-exchange-toggle]") as HTMLButtonElement).click());
+  expect(host.querySelector("[data-exchange-waiting]")?.textContent).toBe("Waiting for Patch");
+});
+
+it("an old record with no handoff on the wire keeps the plain line with no details toggle", async () => {
+  await draw([sentTo(undefined)]);
+  expect(host.querySelector("[data-exchange-toggle]")).toBeNull();
+  expect(host.querySelector("[data-exchange-name]")?.textContent).toBe("Scout");
+});

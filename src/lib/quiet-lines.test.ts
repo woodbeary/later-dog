@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Message } from "@/state/store";
 import { groupTranscript } from "./activity-runs";
-import { exchangeRow, exchangeWording, foldedPreview, foldExchanges, quietTranscriptItemShown } from "./quiet-lines";
+import { exchangeRow, exchangeSummary, exchangeWording, foldedPreview, foldExchanges, quietTranscriptItemShown, singleExchange } from "./quiet-lines";
 
 let n = 0;
 const comm = (direction: "to" | "from" | undefined, withBotId = "d2", name = "Study Helper", groupId = "g1"): Message => ({
@@ -251,4 +251,31 @@ it("keeps an incoming notice separate from sends to different tasks in the same 
   expect(items).toHaveLength(2);
   expect(items[0]!.kind === "exchange" && items[0].rows).toHaveLength(2);
   expect(items[1]!.kind === "exchange" && items[1].rows).toHaveLength(1);
+});
+
+describe("exchange state from the home's record", () => {
+  const sent = (exchange?: Message["exchange"]): Message => ({
+    id: "sent", role: "bot", kind: "activity", at: 1, tool: { name: "Sent to Scout", ok: true },
+    comm: { groupId: "dm", withBotId: "scout", withName: "Scout", withColor: "green", direction: "to" },
+    ...(exchange ? { exchange } : {}),
+  });
+  const record = (status: NonNullable<Message["exchange"]>["status"], reply?: string): NonNullable<Message["exchange"]> => ({
+    id: "c", status, to: "Scout", owner: { dog: "Clover", person: true }, request: "@Scout   check totals", ...(reply ? { reply } : {}),
+  });
+  const itemOf = (message: Message) => singleExchange(message)!;
+
+  it.each([
+    ["queued", undefined, "Queued"], ["running", undefined, "Working"], ["waiting", undefined, "Working"],
+    ["needs-you", undefined, "Needs you"], ["completed", "done", "Done"], ["completed", undefined, "Working"],
+    ["failed", undefined, "Failed"], ["cancelled", undefined, "Stopped"],
+  ] as const)("%s with reply %s reads %s", (status, reply, state) => {
+    expect(exchangeSummary(itemOf(sent(record(status, reply))), null, false)).toMatchObject({ state, gist: "check totals" });
+  });
+
+  it("falls back to the transcript for an old record with no handoff on the wire", () => {
+    const message = sent();
+    const reply: Message = { id: "r", role: "bot", kind: "activity", at: 2, roomRequest: { id: "x", phase: "result" }, tool: { name: "Scout replied", ok: true } };
+    expect(exchangeSummary(itemOf(message), [message, reply], false)).toMatchObject({ state: "Done" });
+    expect(exchangeSummary(itemOf(message), null, false)).toBeNull();
+  });
 });

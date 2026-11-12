@@ -95,6 +95,7 @@ import { GlassBar, GlassScrollFrame, GlassScroller } from "./GlassScrollFrame";
 import { SidebarProfileMenu } from "./SidebarProfileMenu";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { dogRowFacts } from "@/lib/dog-row";
+import { roomRowLine } from "@/lib/work-state";
 import { botShowsUnread } from "@/lib/bot-unread";
 import { useLiveMedia } from "@/lib/live-call-media";
 import { LiveCallPill, liveBadgeFor } from "./LiveCallPill";
@@ -104,6 +105,7 @@ import { StatusDot } from "./StatusDot";
 import { Collapsible } from "./Collapsible";
 import { copyConversationId } from "@/lib/copy-conversation-id";
 import { attentionKind } from "@/lib/dog-status";
+import { plainClientError } from "@/lib/plain-client-error";
 
 export const MAC_TRAFFIC_LIGHT_CENTER_Y = 23;
 
@@ -150,6 +152,8 @@ function openBotContextMenu(onMenu: (menu: MenuState) => void, botId: string, ev
 }
 
 function groupPreview(group: Group, bots: Bot[], instances: InstanceInfo[], showToolCalls: boolean): string {
+  const work = roomRowLine(group.work);
+  if (work) return work;
   if (group.busyBotId) {
     return t("sidebar.preview.botWorking", {
       name: bots.find((b) => b.id === group.busyBotId)?.name ?? t("sidebar.preview.aBot"),
@@ -777,7 +781,7 @@ function useVisibleMessages(bot: Bot): Message[] {
 
 export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, mascotMotion, pendingQueued, dispatch, onMenu, onPinDrop }: BotRowProps & { onPinDrop?: (draggedId: string, targetId: string) => void }) {
   const visible = useVisibleMessages(bot);
-  const { waiting, working, unread } = dogRowFacts(bot, pendingQueued);
+  const { waiting, working, unread, work } = dogRowFacts(bot, pendingQueued);
   const radius = avatarCropRadius(botAvatarProfile(bot).avatarCrop);
   return (
     <button
@@ -785,7 +789,7 @@ export const PinnedBotCircle = memo(function PinnedBotCircle({ bot, selected, ma
       data-sidebar-bot-row={bot.id}
       data-sidebar-unread={unread ? "" : undefined}
       aria-current={selected ? "page" : undefined}
-      aria-label={`${bot.name}${bot.chiefOfStaff ? ` · ${t("mainDog.badge")}` : ""}${waiting ? ` · ${waitingLine(visible)}` : working ? ` · ${t("chat.activity.working")}` : ""}${unread ? ` · ${t("task.unread")}` : ""}`}
+      aria-label={`${bot.name}${bot.chiefOfStaff ? ` · ${t("mainDog.badge")}` : ""}${waiting ? ` · ${waitingLine(visible)}` : work ? ` · ${work}` : working ? ` · ${t("chat.activity.working")}` : ""}${unread ? ` · ${t("task.unread")}` : ""}`}
       title={bot.name}
       draggable={Boolean(onPinDrop)}
       onDragStart={(event) => {
@@ -900,7 +904,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
       : "gap-3 py-2 pl-2 pr-9",
     selected ? "bg-raised/70" : "hover:bg-raised/40",
   );
-  const { waiting, working, teammates: teammateWait, queued, unread } = dogRowFacts(bot, pendingQueued);
+  const { waiting, working, teammates: teammateWait, queued, unread, work } = dogRowFacts(bot, pendingQueued);
   const onLiveCall = liveBadgeFor(bot.id, liveMedia, liveCall);
   const body = (
     <>
@@ -961,13 +965,13 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
             </span>
           ) : (
             <span className="flex min-w-0 items-center gap-1.5 truncate text-[11px] text-ink-secondary">
-              {working ? (
+              {working && !work ? (
                 <span className="flex h-[1.5em] items-center" role="status">
                   <WorkingDots size={3.5} />
                   <span className="sr-only">{t("sidebar.preview.working")}</span>
                 </span>
               ) : (
-                <span className={cn("truncate", waiting && "text-waiting-text")}>{waiting ? waitingLine(visible) : teammateWait ? t("sidebar.preview.waitingOnTeammate") : queued ? t("task.queued") : preview(bot, visible, instances, showToolCalls)}</span>
+                <span className={cn("truncate", waiting && "text-waiting-text")}>{waiting ? waitingLine(visible) : work ? work : teammateWait ? t("sidebar.preview.waitingOnTeammate") : queued ? t("task.queued") : preview(bot, visible, instances, showToolCalls)}</span>
               )}
             </span>
           )}
@@ -996,7 +1000,7 @@ export const BotListItem = memo(function BotListItem(props: BotRowProps) {
           !renaming
             ? deleting
               ? t("sidebar.bot.deletingAria", { name: bot.name })
-              : `${bot.name}${bot.chiefOfStaff ? ` · ${t("mainDog.badge")}` : ""}${onLiveCall ? ` · ${t("call.live.badge")}` : ""}${waiting ? ` · ${waitingLine(visible)}` : working ? ` · ${t("chat.activity.working")}` : teammateWait ? ` · ${t("sidebar.preview.waitingOnTeammate")}` : queued ? ` · ${t("task.queued")}` : ""}${unread ? ` · ${t("task.unread")}` : ""}`
+              : `${bot.name}${bot.chiefOfStaff ? ` · ${t("mainDog.badge")}` : ""}${onLiveCall ? ` · ${t("call.live.badge")}` : ""}${waiting ? ` · ${waitingLine(visible)}` : work ? ` · ${work}` : working ? ` · ${t("chat.activity.working")}` : teammateWait ? ` · ${t("sidebar.preview.waitingOnTeammate")}` : queued ? ` · ${t("task.queued")}` : ""}${unread ? ` · ${t("task.unread")}` : ""}`
             : undefined
         }
         aria-busy={deleting || undefined}
@@ -1165,7 +1169,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
       });
       dispatch({ type: "botPatched", bot: response.bot });
     } catch (cause) {
-      setFeedback({ error: true, text: cause instanceof Error ? cause.message : String(cause) });
+      setFeedback({ error: true, text: plainClientError(cause) });
     }
   };
 
@@ -1645,7 +1649,7 @@ export function Sidebar({ open, onClose, collapseToIcons = false }: {
           setSectionDeletePending(true);
           void api(`/api/sidebar-sections?section=${encodeURIComponent(name)}`, { method: "DELETE" })
             .then(({ sections }) => { dispatch({ type: "sectionDeleted", section: name, sections }); setDeletingSection(null); })
-            .catch(cause => setFeedback({ error: true, text: cause instanceof Error ? cause.message : String(cause) }))
+            .catch(cause => setFeedback({ error: true, text: plainClientError(cause) }))
             .finally(() => { sectionDeleteRunning.current = false; setSectionDeletePending(false); });
         }} />
       <SectionPicker

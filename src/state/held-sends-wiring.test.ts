@@ -315,7 +315,7 @@ describe("held messages through the app's own store", () => {
     expect(posts()).toHaveLength(1);
   });
 
-  it("after a restart, takes a group message's queued row away with its copy once the edge says it neither holds nor dropped it, without calling it Not sent", async () => {
+  it("after a restart, turns a group message's queued row into Not sent with its words once the edge says it neither holds nor dropped it and the chat does not show it", async () => {
     const roomSend = "wiring-room-send-0009";
     const roomDraft = "group:room:room-thread";
     const before = failedComposerSends(roomDraft).length;
@@ -330,10 +330,11 @@ describe("held messages through the app's own store", () => {
     expect(new Set(asks())).toEqual(new Set([`/api/held-sends?ids=${roomSend}`]));
     expect(keptOnDevice()).toEqual([]);
     expect(seen.pendingQueued["room-thread"]).toBeUndefined();
-    expect(seen.paneErrors["chat:room-thread"]).toBeUndefined();
-    expect(failedComposerSends(roomDraft).length).toBe(before);
+    expect(seen.paneErrors["chat:room-thread"]?.line).toBe(HELD_NOT_SENT);
+    expect(failedComposerSends(roomDraft).slice(before)).toEqual([expect.objectContaining({ sendId: roomSend, text: "Room, wake up", threadId: "room-thread" })]);
 
     await reconnect();
     expect(seen.pendingQueued["room-thread"]).toBeUndefined();
+    expect(failedComposerSends(roomDraft).slice(before)).toHaveLength(1);
   });
 });

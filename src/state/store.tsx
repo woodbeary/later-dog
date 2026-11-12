@@ -77,6 +77,8 @@ import {
   FIRST_PAINT_SAVE_DELAY_MS, accountOf, firstPaintSnapshot, forgetFirstPaint, ownsFirstPaint, pageOrigin, readFirstPaint, saveFirstPaint, withFirstPaint,
   type FirstPaintSnapshot,
 } from "@/lib/first-paint";
+import { plainClientError } from "@/lib/plain-client-error";
+import { workAfterEvent } from "@/lib/work-state";
 
 const MAX_ROUTINE_RUNS = 2_000;
 const ACTIVE_ROUTINE_RUN_STATUSES = new Set<RoutineRun["status"]>(["queued", "running", "waiting"]);
@@ -108,6 +110,7 @@ export interface OptionCardData extends Pick<import("../../shared/wire").OptionC
   optionHints?: Record<string, string>;
   multiSelect?: boolean;
   answered?: string;
+  pendingAnswer?: string;
   answeredText?: string;
   answeredBy?: CardAnswerer;
   dismissed?: boolean;
@@ -161,6 +164,11 @@ export interface SecretRequestCardData {
 
 export interface Message {
   roomRequest?: import("../../shared/wire").WireMessage["roomRequest"];
+  handoffId?: string;
+  exchange?: import("../../shared/room-exchange").WireExchange;
+  exchanges?: import("../../shared/room-exchange").WireExchange[];
+  ran?: import("../../shared/turn-receipt").TurnReceipt;
+  results?: import("../../shared/turn-results").TurnResults;
   needsYou?: {
     botId: string;
     botName: string;
@@ -222,6 +230,7 @@ export interface Group {
   busyBotId?: string | null;
   turnStartedAt?: number | null;
   working?: boolean;
+  work?: import("../../shared/work-state").WorkState;
   cwd?: string;
   pinnedCwd?: string | null;
   pinnedMessageId?: string;
@@ -256,6 +265,7 @@ export interface ModelSelection {
 export interface Task {
   waitingForTeammates?: boolean;
   waitingOn?: WireWaitingOn[];
+  work?: import("../../shared/work-state").WorkState;
   threadId: string;
   routineRunId?: string;
   projectId?: string;
@@ -311,6 +321,7 @@ export interface Bot {
   toolScope?: ToolScope;
   waitingForTeammates?: boolean;
   waitingOn?: WireWaitingOn[];
+  work?: import("../../shared/work-state").WorkState;
   id: string;
   threadId: string;
   tasks?: Task[];
@@ -395,6 +406,7 @@ export function currentTaskBot(bot: Bot, threadId = bot.threadId): Bot {
     workingStartedAt: task.workingStartedAt ?? null,
     waitingForTeammates: task.waitingForTeammates ?? false,
     waitingOn: task.waitingOn ?? [],
+    work: task.work,
   };
 }
 
@@ -923,7 +935,9 @@ export type Action =
   | { type: "threadActive"; threadId: string; activeLeafId: string }
   | { type: "loadOlderMessages"; threadId: string }
   | { type: "olderMessages"; threadId: string; generation: number; messages: Message[]; hasMore: boolean }
-  | { type: "answerCard"; botId: string; messageId: string; answer: string; threadId?: string; groupId?: string }
+  | { type: "answerCard"; botId: string; messageId: string; answer: string; threadId?: string; groupId?: string; sendId?: string }
+  | { type: "cardAnswered"; botId: string; messageId: string; answer: string; groupId?: string }
+  | { type: "cardAnswerFailed"; botId: string; messageId: string; groupId?: string }
   | { type: "dismissCard"; botId: string; messageId: string; threadId?: string; groupId?: string }
   | {
       type: "decideRequest";
@@ -960,6 +974,7 @@ export type Action =
   | { type: "computerControl"; botId: string; held: boolean; helpReason: string | null }
   | { type: "takeoverIntent"; intent: { botId: string; at: number } | null }
   | { type: "modelVariantRuntime"; event: RuntimeEvent }
+  | { type: "workRuntime"; event: RuntimeEvent }
   | { type: "setModel"; botId: string; selection: ModelSelection; threadId?: string; updateBotDefault?: boolean; resetApprovalToAsk?: boolean }
   | { type: "interrupt"; botId: string; threadId?: string; onError?: () => void }
   | { type: "connected"; value: boolean }
@@ -1089,6 +1104,22 @@ function withMascotMotion(
       kind,
     },
   };
+}
+
+function persistCard(botId: string, messageId: string, patch: Partial<OptionCardData>) {
+  fetch(`/api/bots/${botId}/cards/${messageId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(patch),
+  }).catch(() => {});
+}
+
+function persistRoomCard(groupId: string, threadId: string, messageId: string, patch: Partial<OptionCardData>) {
+  fetch(`/api/groups/${groupId}/cards/${messageId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...patch, ...(threadId ? { threadId } : {}) }),
+  }).catch(() => {});
 }
 
 function withPatchedCard(messages: Message[], messageId: string, patch: Partial<OptionCardData>): Message[] {
@@ -1410,18 +1441,33 @@ function baseReducer(state: AppState, action: Action): AppState {
       );
     }
     case "answerCard": {
-      if (action.groupId) return patchGroupCard(state, action.groupId, action.messageId, { answered: action.answer });
+      if (action.groupId) {
+        const roomCard = state.groups.find((group) => group.id === action.groupId)?.messages.find((message) => message.id === action.messageId)?.card;
+        if (roomCard?.requestId) return patchGroupCard(state, action.groupId, action.messageId, { answered: action.answer });
+        const waiting = patchGroupCard(state, action.groupId, action.messageId, { pendingAnswer: action.answer });
+        return action.sendId ? reducer(waiting, { type: "sendGroup", groupId: action.groupId, threadId: action.threadId, text: action.answer, sendId: action.sendId }) : waiting;
+      }
       const bot = state.bots.find((candidate) => candidate.id === action.botId);
       const card = bot?.messages.find((message) => message.id === action.messageId)?.card;
-      return withMascotMotion(
-        patchCard(state, action.botId, action.messageId, {
-          answered: action.answer,
-          ...(card?.requestId ? {} : { dismissed: true }),
-        }),
+      if (card?.requestId) {
+        return withMascotMotion(patchCard(state, action.botId, action.messageId, { answered: action.answer }), action.botId, "working");
+      }
+      const waiting = withMascotMotion(
+        patchCard(state, action.botId, action.messageId, { pendingAnswer: action.answer }),
         action.botId,
         "working",
       );
+      if (!action.sendId || !bot || (action.threadId ?? bot.threadId) !== bot.threadId) return waiting;
+      if (bot.messages.some((message) => message.sendId === action.sendId)) return waiting;
+      const line = optimisticUserMessage(action.answer, action.sendId, undefined, bot.activeLeafId);
+      return updateBot(waiting, bot.id, (current) => ({ ...current, messages: [...current.messages, line], activeLeafId: line.id }));
     }
+    case "cardAnswered":
+      if (action.groupId) return patchGroupCard(state, action.groupId, action.messageId, { answered: action.answer, pendingAnswer: undefined });
+      return patchCard(state, action.botId, action.messageId, { answered: action.answer, dismissed: true, pendingAnswer: undefined });
+    case "cardAnswerFailed":
+      if (action.groupId) return patchGroupCard(state, action.groupId, action.messageId, { pendingAnswer: undefined });
+      return patchCard(state, action.botId, action.messageId, { pendingAnswer: undefined });
     case "dismissCard":
       if (action.groupId) return patchGroupCard(state, action.groupId, action.messageId, { dismissed: true });
       return patchCard(state, action.botId, action.messageId, { dismissed: true });
@@ -1669,7 +1715,20 @@ function baseReducer(state: AppState, action: Action): AppState {
       };
     case "takeoverIntent":
       return state.takeoverIntent === action.intent ? state : { ...state, takeoverIntent: action.intent };
-    case "modelVariantRuntime": {
+    case "workRuntime": {
+      const event = action.event;
+      const owner = state.bots.find((bot) => bot.threadId === event.threadId || bot.tasks?.some((task) => task.threadId === event.threadId));
+      if (!owner) return state;
+      const task = owner.tasks?.find((candidate) => candidate.threadId === event.threadId);
+      const before = task ? task.work : owner.work;
+      const after = workAfterEvent(before, event);
+      if (after === before) return state;
+      return updateBot(state, owner.id, (bot) => task
+        ? { ...bot, tasks: bot.tasks?.map((candidate) => candidate.threadId === event.threadId ? { ...candidate, work: after } : candidate),
+          ...(bot.threadId === event.threadId ? { work: after } : {}) }
+        : { ...bot, work: after });
+    }
+        case "modelVariantRuntime": {
       const event = action.event;
       if (!event.turnId) return state;
       const owner = state.bots.find((bot) => bot.threadId === event.threadId || bot.tasks?.some((task) => task.threadId === event.threadId));
@@ -2231,7 +2290,7 @@ export async function persistBotUpdate(
       } catch (error) {
         throw new Error(
           `The cancelled ${approvalMode === "full" ? "Full access" : "Custom approval"} grant could not be revoked: ${
-            error instanceof Error ? error.message : String(error)
+            plainClientError(error)
           }`,
         );
       }
@@ -2291,7 +2350,7 @@ export interface PeripheralSnapshotLoad<Key extends string = string> {
 }
 
 function normalizeSnapshotFailure(cause: unknown): Error {
-  return cause instanceof Error ? cause : new Error(String(cause));
+  return cause instanceof Error ? cause : new Error(plainClientError(cause));
 }
 
 export async function loadSnapshotBoundary<Key extends string>(
@@ -2311,7 +2370,10 @@ export async function loadSnapshotBoundary<Key extends string>(
   return chat.status === "fulfilled";
 }
 
+const WORK_EVENTS = new Set<RuntimeEvent["type"]>(["turn.wait_started", "turn.wait_ended", "turn.retrying", "session.exited"]);
+
 export function runtimeFrameAction(event: RuntimeEvent): Action | null {
+  if (WORK_EVENTS.has(event.type)) return { type: "workRuntime", event };
   return event.type === "turn.started" || event.type === "session.model-variants" || event.type === "turn.completed"
     ? { type: "modelVariantRuntime", event }
     : null;
@@ -2368,12 +2430,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => botPatchQueue.dispose();
   }, [botPatchQueue]);
 
+  const confirmAtHomeRef = useRef<() => void>(() => {});
   const sendOutboxRef = useRef<SendOutbox | null>(null);
   const sendOutbox = useCallback(() => {
     sendOutboxRef.current ??= createSendOutbox({
       request: api,
       dispatch: rawDispatch,
       showError: (error, threadId) => paneErrors.report(error, threadId ? chatPane(threadId) : undefined),
+      cardAnswered: (card, answer, threadId) => {
+        rawDispatch({ type: "cardAnswered", botId: card.botId, messageId: card.messageId, answer, ...(card.groupId ? { groupId: card.groupId } : {}) });
+        if (card.groupId) persistRoomCard(card.groupId, threadId, card.messageId, { answered: answer, dismissed: true });
+        else persistCard(card.botId, card.messageId, { answered: answer, dismissed: true });
+      },
+      confirmAtHome: () => confirmAtHomeRef.current(),
+      cardAnswerFailed: (card) => rawDispatch({ type: "cardAnswerFailed", botId: card.botId, messageId: card.messageId, ...(card.groupId ? { groupId: card.groupId } : {}) }),
+      lineOnThread: (threadId, sendId) => {
+        const current = stateRef.current;
+        const chat = [...current.bots, ...current.groups, ...(current.taskView ? [current.taskView] : [])].find((candidate) => candidate.threadId === threadId);
+        return (chat?.messages ?? []).some((message) => message.sendId === sendId && !message.id.startsWith("optimistic-") && !message.id.startsWith("desk-"));
+      },
     });
     return sendOutboxRef.current;
   }, [paneErrors]);
@@ -2416,13 +2491,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ? stateRef.current.groups.find((g) => g.id === action.groupId)
         : stateRef.current.bots.find((b) => b.id === action.botId);
       return { host, card: host?.messages.find((m) => m.id === action.messageId)?.card, inRoom: !!action.groupId };
-    };
-    const persistCard = (botId: string, messageId: string, patch: Partial<OptionCardData>) => {
-      fetch(`/api/bots/${botId}/cards/${messageId}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(patch),
-      }).catch(() => {});
     };
 
     const waitForExecutionSettings = async (expectedBots: Bot[], threadId?: string) => {
@@ -2513,7 +2581,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const failIn = (pane: PaneKey | undefined) => (error: unknown) => reportError(error, pane, { retry: again });
       if (action.type === "taskSwitched") action = { ...action, bot: withTaskWrites(action.bot) as Bot };
       if (action.type === "botPatched") action = { ...action, bot: withTaskWrites(action.bot) };
-      if ((action.type === "send" || action.type === "sendGroup" || action.type === "editMessage") && !action.sendId) {
+      if ((action.type === "send" || action.type === "sendGroup" || action.type === "editMessage" || action.type === "answerCard") && !action.sendId) {
         action = { ...action, sendId: crypto.randomUUID() };
       }
       const botBeforeUpdate =
@@ -2771,7 +2839,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             .catch((error) => {
               if (action.onError) {
                 reportError(error, chatPane(action.threadId));
-                action.onError(error instanceof Error ? error.message : String(error));
+                action.onError(plainClientError(error));
               } else {
                 failIn(chatPane(action.threadId))(error);
               }
@@ -2779,35 +2847,40 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           break;
         }
         case "answerCard": {
-          const { host, card, inRoom } = cardTarget(action);
+          const { host, card } = cardTarget(action);
+          if (!(card?.requestId && host)) {
+            const threadId = action.threadId ?? host?.threadId;
+            sendOutbox().send({
+              sendId: action.sendId ?? crypto.randomUUID(),
+              threadId: threadId ?? "",
+              target: action.groupId ? { kind: "group", groupId: action.groupId } : { kind: "bot", botId: action.botId },
+              text: action.answer,
+              queuedAt: Date.now(),
+              card: { botId: action.botId, messageId: action.messageId, ...(action.groupId ? { groupId: action.groupId } : {}) },
+            }, {
+              ready: waitForExecutionSettings(executionBotsBeforeAction, threadId),
+            });
+            break;
+          }
           void waitForExecutionSettings(executionBotsBeforeAction, action.threadId)
             .then(() => {
-              if (card?.requestId && host) {
-                const response = card.skillRequest
-                  ? { behavior: skillRequestBehavior(action.answer) }
-                  : answerResponse(card, action.answer);
-                return api(`/api/threads/${action.threadId ?? host.threadId}/respond`, {
-                  method: "POST",
-                  body: JSON.stringify({
-                    requestId: card.requestId,
-                    ...response,
-                    reviewedSha256: response.behavior === "allow" && card.skillRequest
-                      ? reviewedSkillSha256(card.skillRequest)
-                      : undefined,
-                  }),
-                });
-              }
-              if (inRoom) return;
-              persistCard(action.botId, action.messageId, { answered: action.answer, dismissed: true });
-              return api(`/api/bots/${action.botId}/messages`, {
+              const response = card.skillRequest
+                ? { behavior: skillRequestBehavior(action.answer) }
+                : answerResponse(card, action.answer);
+              return api(`/api/threads/${action.threadId ?? host.threadId}/respond`, {
                 method: "POST",
-                body: JSON.stringify({ text: action.answer, threadId: action.threadId }),
+                body: JSON.stringify({
+                  requestId: card.requestId,
+                  ...response,
+                  reviewedSha256: response.behavior === "allow" && card.skillRequest
+                    ? reviewedSkillSha256(card.skillRequest)
+                    : undefined,
+                }),
               });
             })
             .catch((error) => {
-              const pane = action.groupId ? groupChat(action.groupId, action.threadId) : botChat(action.botId, action.threadId ?? host?.threadId);
-              if (card?.requestId) failIn(pane)(error);
-              else reportError(error, pane);
+              const pane = action.groupId ? groupChat(action.groupId, action.threadId) : botChat(action.botId, action.threadId ?? host.threadId);
+              failIn(pane)(error);
             });
           break;
         }
@@ -2833,7 +2906,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               action.onCreated?.(bot);
             })
             .catch((error) => {
-              if (action.onError) action.onError(error instanceof Error ? error.message : String(error));
+              if (action.onError) action.onError(plainClientError(error));
               else failIn("sidebar")(error);
             })
             .finally(() => {
@@ -3209,6 +3282,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return hydrationPromise;
     };
     const hydrationFallback = setTimeout(hydrate, 1_000);
+    confirmAtHomeRef.current = () => { void hydrate(); };
 
     handleFrame = (frame) => {
       if (frame.kind === "config") bumpPeripheralVersion("config", "instances");
@@ -3380,6 +3454,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       forgetHelpers();
       forgetNativeRuns();
       forgetReasoning();
+      confirmAtHomeRef.current = () => {};
       clearTimeout(hydrationFallback);
       for (const refresh of peripheralRefresh.values()) {
         if (refresh.timer) clearTimeout(refresh.timer);
