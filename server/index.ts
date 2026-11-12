@@ -132,6 +132,7 @@ import { configuredSpeechKey, SpeechCache } from "./laterdog/speech-cache.ts";
 import { mp3DurationMs } from "./laterdog/mp3-duration.ts";
 import { HOME_HEALTH_FILE, startHomeHealthLog } from "./laterdog/home-health-log.ts";
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
+import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
 import { ComputerRuns } from "./laterdog/computer-runs.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
@@ -8952,6 +8953,7 @@ async function startTurn(
         ...(guestConfined ? { guestConfined: true, confinedWhy: confinedWhy(threadId) } : {}),
         model,
         effort,
+        ...((liveBot ?? bot).helperModel ? { helperModel: (liveBot ?? bot).helperModel } : {}),
         variant,
         ...(fast ? { fast: true } : {}),
         quietWork: true,
@@ -10787,6 +10789,7 @@ async function runGroupMemberTurn(
         ...(roomOwnerAnswers ? { ownerAnswers: true } : {}),
         toolScope: toolScopeForTurn(readyBot.id),
         ...(roomGuestConfined ? { guestConfined: true, confinedWhy: confinedWhy(threadId) } : {}),
+        ...(readyBot.helperModel ? { helperModel: readyBot.helperModel } : {}),
         quietWork: true,
         system: roomSystem.text,
         systemStable: roomSystem.stable,
@@ -17393,6 +17396,11 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
           return json(res, 409, { error: "stop this dog's turn before changing its memory setting" });
         }
         patch.memoryEnabled = body.memoryEnabled;
+      }
+      if (body.helperModel !== undefined) {
+        const helperModel = parseHelperModelChoice(body.helperModel);
+        if (!helperModel.ok) return json(res, 400, { error: helperModel.error });
+        patch.helperModel = helperModel.value === "same" ? undefined : helperModel.value;
       }
       if (body.connectorTools !== undefined) {
         if (body.connectorTools === null) {

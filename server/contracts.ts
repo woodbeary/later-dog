@@ -7,6 +7,7 @@ import type {
 } from "../shared/runtime-events.ts";
 import type { ProviderIcon } from "../shared/provider-icon.ts";
 import type { VolatileSection } from "./laterdog/volatile-sections.ts";
+import type { HelperModelChoice } from "./laterdog/helper-model.ts";
 
 export type { CloudBackend, EffortLevel, ModelSelection } from "../shared/wire.ts";
 export type {
@@ -85,6 +86,7 @@ export interface SendTurnInput {
   images?: TurnImageInput[];
   model?: string;
   effort?: EffortLevel;
+  helperModel?: HelperModelChoice;
   variant?: string;
   fast?: boolean;
   quietWork?: boolean;

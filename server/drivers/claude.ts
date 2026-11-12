@@ -66,6 +66,7 @@ import {
 import { readEngineModels } from "../laterdog/wait-at-most.ts";
 import { readCliVersion as readCliVersionOf, unreadCli } from "../laterdog/cli-version.ts";
 import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sections.ts";
+import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
 
 export function claudeAuthStatus(
   cli: string,
@@ -1293,6 +1294,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       if (authSettingsPath) args.push("--settings", authSettingsPath);
       if (env.ENABLE_PROMPT_CACHING_1H === undefined && env.FORCE_PROMPT_CACHING_5M === undefined) env.CLAUDE_CODE_PROMPT_CACHE_TTL ??= "1h";
       Object.assign(env, quietWorkEnvironment(turn.quietWork));
+      Object.assign(env, claudeHelperEnvironment(turnModel, turn.helperModel, { custom: Boolean(config.managed) || injected.injected }));
       const cwd = turn.cwd ?? homedir();
       const commandCwd = permissionLaunchCwd(cwd);
       const unkeyedFlags = new Set<string>(["--mcp-config", "--settings", ...FLAGS_LEARNED_AFTER_LAUNCH]);
@@ -1309,6 +1311,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         hooks: Boolean(hooks),
         fast: Boolean(turn.fast),
         quiet: Boolean(turn.quietWork),
+        helpers: env.CLAUDE_CODE_SUBAGENT_MODEL ?? null,
         reviewerGrant: permissionMode === "auto" ? turn.reviewerGrant ?? null : null,
         placement: chosenRemote ? "computer" : "home",
         auth: createHash("sha256").update(JSON.stringify({

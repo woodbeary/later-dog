@@ -1302,6 +1302,32 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(sent[2].endsWith("three")).toBe(true);
   });
 
+  it("launches helpers on the dog's own model by default and on the chosen one when set", async () => {
+    await create();
+    const dump = join(scratch, "helper-model.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const send = async (helperModel?: string) => {
+      const { turnId } = await instance.adapter.sendTurn({
+        threadId: "t-helper-model",
+        text: "go",
+        model: "claude-opus-5-5",
+        ...(helperModel ? { helperModel } : {}),
+      });
+      await recorder.until((e) => e.type === "turn.completed" && e.turnId === turnId);
+      recorder.events.length = 0;
+      return JSON.parse(readFileSync(dump, "utf8"));
+    };
+    const plain = await send();
+    expect(plain.env.CLAUDE_CODE_SUBAGENT_MODEL).toBeUndefined();
+    const same = await send("same");
+    expect(same.pid).toBe(plain.pid);
+    const lighter = await send("lighter");
+    expect(lighter.env.CLAUDE_CODE_SUBAGENT_MODEL).toBe("sonnet");
+    expect(lighter.pid).not.toBe(plain.pid);
+    const explicit = await send("claude-haiku-5-5");
+    expect(explicit.env.CLAUDE_CODE_SUBAGENT_MODEL).toBe("claude-haiku-5-5");
+  });
+
   it("redelivers unchanged mention context on every tagged turn", async () => {
     await create();
     const dump = join(scratch, "mention.json");
