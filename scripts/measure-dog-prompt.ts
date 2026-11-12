@@ -36,6 +36,9 @@ async function measure(dumpDir?: string): Promise<Measurement> {
     const room = await import("../server/laterdog/room-prompt.ts");
     const sections = await import("../server/laterdog/volatile-sections.ts");
     const guide = await import("../server/laterdog/dog-guidance.ts").catch(() => null);
+    const passage = await import("../server/laterdog/sign-in-passage.ts").catch(() => null);
+    const browserText = (browser as Record<string, unknown>).BROWSER_PAGE_PROMPT && passage ? String((browser as Record<string, unknown>).BROWSER_PAGE_PROMPT) : browser.BUILT_IN_BROWSER_SYSTEM_PROMPT;
+    const credentialFor = (box: boolean) => passage ? passage.signInPassage({ secureForm: box }) : sp.CREDENTIAL_PROMPT;
 
     const dogId = "dog-scout";
     const dir = ws.workspaceDir(dogId);
@@ -67,7 +70,6 @@ async function measure(dumpDir?: string): Promise<Measurement> {
     const memory = (readOnly: boolean) => ws.memorySystemPrompt(dogId, { managedWrites: true, fileTools: true, readOnly });
     const timeZone = "America/Los_Angeles";
     const today = sp.todayPrompt(timeZone, new Date(now));
-    const credential = sp.CREDENTIAL_PROMPT + google.GOOGLE_PROMPT;
     const guideParts = (engine: Engine, main: boolean) => guide
       ? [guide.guidancePart({ engine, model: ENGINE_MODELS[engine], kit: { cloudHome: true, ownComputer: true, vault: true, github: true, google: main, mac: true } })]
       : [];
@@ -89,10 +91,10 @@ async function measure(dumpDir?: string): Promise<Measurement> {
         { id: "today", label: "Today", text: today },
         { id: "account", label: "Account", text: legacyAccount(main, left) },
         { id: "composio", label: "Connected apps", text: sp.composioSystemPrompt(undefined) },
-        { id: "browser", label: "Browser", text: browser.BUILT_IN_BROWSER_SYSTEM_PROMPT },
+        { id: "browser", label: "Browser", text: browserText },
         { id: "coordination", label: "Team", text: ` ${mainDog.withMainDogRouting(main, peers.PEERS_PROMPT)}` },
         { id: "assignment", label: "Teammate task", text: started ? teammateText : "" },
-        { id: "credential", label: "Credentials", text: credential },
+        { id: "credential", label: "Credentials", text: credentialFor(computer === "box") + google.GOOGLE_PROMPT },
         { id: "recall", label: "Recall", text: ws.SESSION_SEARCH_SYSTEM_PROMPT },
         { id: "cross-recall", label: "Other dogs' chats", text: crossRecall.CROSS_DOG_RECALL_PROMPT },
         { id: "routine", label: "Routines", text: sp.ROUTINE_PROMPT },
@@ -131,7 +133,7 @@ async function measure(dumpDir?: string): Promise<Measurement> {
         { id: "user-profile", label: "About the user", text: sp.userProfileSystemPrompt({ aboutMe: "Sam runs a small online shop and is not a programmer.", askFirst: ["spending money"] }) },
         { id: "owner-grant", label: "Owner's standing grant", text: owner.ownerGrantPrompt(owned) },
         { id: "coordination", label: "Team", text: guide?.ROOM_TEAM_PROMPT ? `\n${guide.ROOM_TEAM_PROMPT}` : roomTeam },
-        { id: "credential", label: "Credentials", text: `\n${sp.CREDENTIAL_PROMPT.trim()}` },
+        { id: "credential", label: "Credentials", text: `\n${credentialFor(true).trim()}` },
         { id: "routine", label: "Routines", text: `\n${sp.ROUTINE_PROMPT.trim()}` },
         { id: "profile", label: "Profile changes", text: `\n${sp.PROFILE_PROMPT.trim()}` },
         { id: "files", label: "File locations", text: ws.workspaceLocationsPrompt(dogId, join(dir, "chat"), undefined) },
@@ -140,7 +142,7 @@ async function measure(dumpDir?: string): Promise<Measurement> {
         { id: "cloud-home", label: "My Cloud", text: sp.cloudHomePrompt(true) },
         { id: "today", label: "Today", text: today },
         { id: "account", label: "Account", text: legacyAccount(false) },
-        { id: "browser", label: "Browser", text: browser.BUILT_IN_BROWSER_SYSTEM_PROMPT },
+        { id: "browser", label: "Browser", text: browserText },
         { id: "recall", label: "Recall", text: ws.SESSION_SEARCH_SYSTEM_PROMPT },
         { id: "cross-recall", label: "Other dogs' chats", text: crossRecall.CROSS_DOG_RECALL_PROMPT },
         { id: "recent", label: "Recent work", text: recent.recentWorkPrompt(recentLines, now) },

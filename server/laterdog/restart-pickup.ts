@@ -39,7 +39,7 @@ const STOPPED_BY: Record<PickupCause, string> = {
 
 export function restartPickupPrompt(text: string, cause: PickupCause = "restart"): string {
   return `[${STOPPED_BY[cause]} while you were working on the person's message below, so your turn stopped partway. ` +
-    "Anything it already did (files written, commands run) is still in place, but its tool results may not be in this session. " +
+    "This note is from later.dog, not typed by the person. Anything it already did (files written, commands run) is still in place, but its tool results may not be in this session. " +
     "Check the current state before you repeat anything, then carry on and finish with one clear answer.]\n\n" + text;
 }
 

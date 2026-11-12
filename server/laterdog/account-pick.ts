@@ -2,10 +2,9 @@ import type { ModelSelection } from "../../shared/wire.ts";
 import { sameModelSelection } from "../../shared/thread-model.ts";
 
 export const CONTINUE_AFTER_PICK =
-  "[later.dog: the person moved this conversation to another account partway through your last turn, " +
-  "so it continues there. Anything that turn already did (files written, commands run) is still in place, " +
-  "but its tool results are not in this session. Check the current state, then continue the person's last request from " +
-  "where it stopped. Do not redo what was already done.]";
+  "[later.dog note, not typed by the person: the person moved this conversation to another account partway through your last turn. " +
+  "Anything that turn already did (files written, commands run) is still in place, but its tool results are not in this session. " +
+  "First check the current state, then continue the person's last request from where it stopped without redoing finished work.]";
 
 export function pickMovesTurn(input: {
   before: ModelSelection | undefined;

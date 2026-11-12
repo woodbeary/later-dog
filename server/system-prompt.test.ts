@@ -4,6 +4,7 @@ import { soulSystemPrompt } from "./bot-folder.ts";
 import { BUILT_IN_BROWSER_SYSTEM_PROMPT } from "./browser-engine.ts";
 import { RICH_REPLIES_PROMPT } from "./laterdog/rich-replies.ts";
 import { SECURE_FORM_PROMPT } from "./laterdog/secure-form.ts";
+import { signInPassage } from "./laterdog/sign-in-passage.ts";
 import {
   buildSystemPrompt,
   CLOUD_HOME_PLACE,
@@ -55,18 +56,15 @@ describe("computerPrompt", () => {
   });
 
   it("offers the Secure Form only where its tools exist, the cloud computer", () => {
-    expect(computerPrompt("box")).toContain("request_secure_form");
+    expect(signInPassage({ secureForm: true })).toContain("request_secure_form");
+    expect(signInPassage({ secureForm: false })).not.toContain("request_secure_form");
     expect(computerPrompt("local")).not.toContain("request_secure_form");
   });
 
-  it("has a dog on its cloud computer sign in when asked, with a Secure Form for what only the person knows, instead of handing the sign-in back", () => {
+  it("keeps the cloud computer section to the computer, with the sign-in flow in the one sign-in passage", () => {
     const box = computerPrompt("box");
-    expect(box).toContain("When they ask you to sign in somewhere, do it straight away without asking why");
-    expect(box).toContain("call request_secure_form for only what they know (an email or username, a password, a one-time code)");
-    expect(box).toContain("Never say you can't sign in or can't handle passwords, never ask them to sign in themselves when a Secure Form can do it, and never ask for passwords or codes in chat.");
-    expect(box).toContain("Keep request_takeover for what a form can't do: a CAPTCHA, a passkey or security key, an approval on their phone, or a payment.");
     expect(box).toContain("stays signed in");
-    expect(box).not.toMatch(/explicitly authorized|hand just that step/);
+    expect(box).not.toMatch(/explicitly authorized|hand just that step|request_takeover/);
   });
 
   it("no longer describes a Local VM sandbox or a self-hosted VPS", () => {
@@ -155,9 +153,9 @@ describe("buildSystemPrompt", () => {
   it("always tells the dog to talk to the person as you, not about the user, and not to itself", () => {
     expect(VOICE_PROMPT).toContain('Talk to them as "you";');
     expect(voicePrompt("Sam").match(/use (?:their name|it) when it helps/g)).toHaveLength(1);
-    expect(VOICE_PROMPT).toContain('call them "the person" only because they are written to you');
+    expect(VOICE_PROMPT).toContain('say "the person" only because they are written to you');
     expect(VOICE_PROMPT).toContain("rather than narrating your reasoning");
-    expect(VOICE_PROMPT).toMatch(/Lead with the answer or the result, and stop when it is said: no preamble, and no closing recap/);
+    expect(VOICE_PROMPT).toMatch(/Lead with the answer and stop when it is said, with no preamble or closing recap/);
     expect(VOICE_PROMPT).toMatch(/only when the content has that shape/);
     expect(VOICE_PROMPT).not.toMatch(/\bthe user\b|NEVER|MUST|CRITICAL/);
     for (const soul of ["", "Be brief."]) {

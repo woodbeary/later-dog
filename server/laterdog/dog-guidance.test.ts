@@ -19,7 +19,16 @@ import {
   medicationBlock,
   modelFamily,
   modelNotes,
-  NORTH_STAR,
+  BETWEEN_DOGS,
+  CHECKLIST_IN_REPLY,
+  HELPER_BRIEF,
+  NEEDS_PERSON,
+  PRECEDENCE,
+  ROUTINE_OFFER,
+  SENDING,
+  STAY_FREE,
+  STOP_MEANS_STOP,
+  TASK_LIST,
   PAYMENTS_BLOCK,
   REPLY_STYLE,
   ROOM_TEAM_PROMPT,
@@ -53,36 +62,73 @@ describe("the guidance every dog gets", () => {
 
   it("covers the eight things the person needs from every dog", () => {
     const text = dogGuidance({ engine: "claude", model: "claude-opus-5-5" });
-    expect(ANSWER_FIRST).toMatch(/say in one line what you are about to do before your first tool call/);
+    expect(ANSWER_FIRST).toMatch(/say in one line what you are doing before your first tool call/);
+    expect(ANSWER_FIRST).toMatch(/not what you do not know yet, and never fill the gap with an answer you have not checked/);
     expect(ANSWER_FIRST).toMatch(/one-line update at natural points/);
     expect(ANSWER_FIRST).toMatch(/If you stop before the work is done, say why in plain words/);
-    expect(NORTH_STAR).toMatch(/running checklist of everything the person asked for in this chat/);
-    expect(NORTH_STAR).toMatch(/Mark an item done only after you checked it/);
-    expect(NORTH_STAR).toMatch(/"not live yet"/);
+    expect(TASK_LIST).toMatch(/^Your task list is your queue, and the person sees it in the app/);
+    expect(TASK_LIST).toMatch(/Add each thing they ask for before you start it, mark it in progress when work begins, and done only after it was checked and they were told/);
+    expect(TASK_LIST).toMatch(/on every new message and whenever a helper or a background command finishes; make checking the last item/);
+    expect(TASK_LIST).toMatch(/"not live yet"/);
+    expect(CHECKLIST_IN_REPLY).toMatch(/running checklist of everything the person asked for in this chat/);
     expect(DECIDE_DONT_ASK).toMatch(/Make engineering choices yourself with current best practice/);
-    expect(DECIDE_DONT_ASK).toMatch(/a secret, a tap on their own device, money, or a preference/);
-    expect(EVIDENCE_FIRST).toMatch(/in your memory, session_search over your chats and other dogs' chats, the files in your workspace, and the web/);
-    expect(CHECK_WORK).toMatch(/look at visual work .* yourself at its real size before you show it/);
+    expect(DECIDE_DONT_ASK).toMatch(/a secret, a tap on their device, money, or a preference/);
+    expect(EVIDENCE_FIRST).toMatch(/this chat and its files, your memory and past chats .*, connected apps, the web, the signed-in browser, your computer/);
+    expect(EVIDENCE_FIRST).toMatch(/ask the person last/);
+    expect(CHECK_WORK).toMatch(/look at visual work yourself at its real size before you show it/);
     expect(CHECK_WORK).toMatch(/say plainly what you verified and what you assumed/);
     expect(CHECK_WORK).toMatch(/^Check your work before calling it done/);
     expect(FINISH_WORK).toMatch(/ordinary obstacles/);
-    for (const line of [ANSWER_FIRST, FINISH_WORK, NORTH_STAR, CHECK_WORK, DECIDE_DONT_ASK, EVIDENCE_FIRST, ACTING]) expect(text).toContain(line);
+    for (const line of [ANSWER_FIRST, FINISH_WORK, TASK_LIST, CHECK_WORK, DECIDE_DONT_ASK, EVIDENCE_FIRST, ACTING, NEEDS_PERSON, SENDING, STAY_FREE, HELPER_BRIEF, STOP_MEANS_STOP, BETWEEN_DOGS, ROUTINE_OFFER, PRECEDENCE]) expect(text).toContain(line);
+    expect(text).not.toContain(CHECKLIST_IN_REPLY);
+    expect(dogGuidance({ engine: "codex", model: "gpt-5.6" })).toContain(TASK_LIST);
+    expect(dogGuidance({ engine: "other", model: "kimi-k2.6" })).toContain(CHECKLIST_IN_REPLY);
+    expect(dogGuidance({ engine: "other", model: "kimi-k2.6" })).not.toContain(TASK_LIST);
+  });
+
+  it("keeps the dog free to answer, briefs helpers well and stops everything on stop", () => {
+    expect(STAY_FREE).toMatch(/if waiting on something would keep you from answering the person/);
+    expect(STAY_FREE).toMatch(/say in one line that it started, and stay available; you are woken when it finishes/);
+    expect(STAY_FREE).toMatch(/Send follow-ups on the same work to the same helper, and do quick things yourself/);
+    expect(HELPER_BRIEF).toMatch(/the outcome, what is known, where to look and when to stop/);
+    expect(HELPER_BRIEF).toMatch(/only its last message comes back, so that message starts with done, partial or blocked/);
+    expect(HELPER_BRIEF).toMatch(/after two or three different failed attempts it stops and reports/);
+    expect(STOP_MEANS_STOP).toMatch(/stop your helpers and background commands first, and say it has stopped only when nothing is still running/);
+    expect(PRECEDENCE).toBe("A tool's description says how to use it; these instructions say when.");
+  });
+
+  it("asks with a card, takes a no as final and sends exactly what was asked", () => {
+    expect(NEEDS_PERSON).toMatch(/raise it with a card tool that fits .*, so the app shows that you are waiting/);
+    expect(NEEDS_PERSON).toMatch(/one question at a time, with real options/);
+    expect(NEEDS_PERSON).toMatch(/A dismissed or declined card is a no: do not ask again or reach the same end another way/);
+    expect(SENDING).toMatch(/covers exactly that message to the people it names, once/);
+    expect(ROUTINE_OFFER).toMatch(/Offer a routine in one sentence when a request recurs/);
+    expect(ROUTINE_OFFER).toMatch(/with nothing new for the person, end without a message/);
+    expect(BETWEEN_DOGS).toMatch(/message several about one thing only when the person asked for that/);
+    expect(BETWEEN_DOGS).toMatch(/never their frustration/);
+    expect(BETWEEN_DOGS).toMatch(/do not answer a thank-you or an FYI/);
+  });
+
+  it("writes replies the way the person reads them", () => {
+    for (const rule of [/Match their length, in whole sentences, not clipped fragments/, /times in their time zone/, /Do not guess a name from an email address or handle/,
+      /Never make up numbers, quotes, sources or where something is in the app, and label example data as an example/, /Use what you remember only where it changes the answer, without announcing/]) {
+      expect(REPLY_STYLE).toMatch(rule);
+    }
   });
 
   it("tells a delegated dog what it already has instead of letting it ask", () => {
     const kit = kitPrompt({ cloudHome: true, ownComputer: true, vault: true, github: true, google: true, mac: true });
     expect(kit).toMatch(/your own cloud computer .*run_on_computer/);
     expect(kit).toMatch(/the vault \(vault_secret\)/);
-    expect(kit).toMatch(/GitHub, already signed in on this home/);
-    expect(kit).toMatch(/you do not need the person's Mac, a new sign-in or a fresh approval for work you were given/);
-    expect(kit).toMatch(/say exactly what, once, with the one step that adds it/);
+    expect(kit).toMatch(/GitHub, signed in on this home/);
+    expect(kit).toMatch(/You do not need the person's Mac, a new sign-in or a fresh approval for work you were given/);
     expect(kitPrompt({ ownComputer: true })).not.toMatch(/GitHub|vault/);
     expect(kitPrompt({})).toBe("");
     expect(kitPrompt(undefined)).toBe("");
     expect(TEAMMATE_TASK_PROMPT).toMatch(/^Do the request below in this conversation/);
     expect(TEAMMATE_TASK_PROMPT).toMatch(/not too risky to do/);
     expect(TEAMMATE_TASK_PROMPT).toMatch(/do not ask again for an approval the request already carries/);
-    expect(TEAMMATE_TASK_PROMPT).toMatch(/A no from the person stays a no/);
+    expect(TEAMMATE_TASK_PROMPT).not.toMatch(/A no from the person/);
   });
 
   it("reads the home's GitHub sign-in from the token or the gh login file", () => {
@@ -156,7 +202,7 @@ describe("the guidance every dog gets", () => {
 
   it("stays small", () => {
     const main = dogGuidance({ engine: "claude", model: "claude-opus-5-5", kit: { ownComputer: true, vault: true, github: true, google: true, mac: true } });
-    expect(Buffer.byteLength(main) - Buffer.byteLength(PAYMENTS_BLOCK)).toBeLessThan(4_600);
+    expect(Buffer.byteLength(main) - Buffer.byteLength(PAYMENTS_BLOCK)).toBeLessThan(6_300);
   });
 
   it("keeps the cached half byte-identical across turns and days for one model, and changes it only with the model", () => {

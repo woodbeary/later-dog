@@ -20,15 +20,16 @@ const MAX_TURNS = 2_000;
 const MAX_PLACED = 2_000;
 
 export const CONTINUE_AFTER_SWITCH =
-  "[later.dog: this conversation moved to another account partway through your last turn, " +
-  "so it continues there. Anything that turn already did (files written, commands run) is still in place, " +
-  "but its tool results are not in this session. Check the current state, then continue the person's last request from " +
-  "where it stopped. Do not redo what was already done.]";
+  "[later.dog note, not typed by the person: this conversation moved to another account partway through your last turn. " +
+  "Anything that turn already did (files written, commands run) is still in place, but its tool results are not in this session. " +
+  "First check the current state, then continue the person's last request from where it stopped without redoing finished work. " +
+  "There is no need to mention the move.]";
 
 export const CONTINUE_AFTER_RESET =
-  "[later.dog: your last turn was paused partway and carries on now. Anything that turn already did (files written, commands run) is still in place, " +
-  "though its tool results may not be in this session. Check the current state, then continue the person's last request from " +
-  "where it stopped. Do not redo what was already done.]";
+  "[later.dog note, not typed by the person: your last turn was paused partway and carries on now. " +
+  "Anything that turn already did (files written, commands run) is still in place, though its tool results may not be in this session. " +
+  "First check the current state, then continue the person's last request from where it stopped without redoing finished work. " +
+  "There is no need to mention the pause.]";
 
 export interface AccountBatteryConfig {
   enabled: boolean;

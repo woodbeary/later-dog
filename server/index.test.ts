@@ -7973,7 +7973,7 @@ describe("harness HTTP API", () => {
       })).status).toBe(200);
       expect(await updates()).toContain("between your one-line updates do not narrate each step");
       const quiet = await turn("plan my week");
-      expect(quiet.systemPrompt).toContain("say in one line what you are about to do before your first tool call");
+      expect(quiet.systemPrompt).toContain("say in one line what you are doing before your first tool call");
       expect(quiet.systemPrompt).toContain("Leave out time estimates");
       expect(quiet.env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBe("0");
 
@@ -7984,7 +7984,7 @@ describe("harness HTTP API", () => {
       const still = await turn("and next week");
       expect(still.systemPrompt).toContain("do not narrate each step");
       expect(still.systemPrompt).not.toContain("before each meaningful step");
-      expect(still.systemPrompt).toContain("give a one-line update at natural points");
+      expect(still.systemPrompt).toContain("one-line update at natural points");
       expect(still.env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBe("0");
     } finally {
       await api("PATCH", "/api/config", { features: { stepUpdates: false } });
