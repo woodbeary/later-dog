@@ -64,7 +64,7 @@ async function mount(home: Home) {
   FixtureEventSource.opened = [];
   vi.stubGlobal("EventSource", FixtureEventSource);
   const requests = vi.fn(async (path: string, init?: RequestInit) => {
-    if (path === "/api/bots/bot/messages" && init?.method === "POST") return home.receipt();
+    if ((path === "/api/bots/bot/messages" || path === "/api/groups/room/messages") && init?.method === "POST") return home.receipt();
     if (path.startsWith("/api/bots?")) return new Response(JSON.stringify(home.chats));
     if (path.startsWith("/api/held-sends")) return new Response(JSON.stringify(home.held));
     if (path.startsWith("/api/bots/bot/cards/")) return new Response("{}");
@@ -78,13 +78,21 @@ async function mount(home: Home) {
   await settle();
   await reconnect();
   const posts = () => requests.mock.calls
-    .filter(([path, init]) => path === "/api/bots/bot/messages" && init?.method === "POST")
+    .filter(([path, init]) => (path === "/api/bots/bot/messages" || path === "/api/groups/room/messages") && init?.method === "POST")
     .map(([, init]) => JSON.parse(String(init?.body)) as { text: string; sendId?: string; threadId?: string });
-  const saved = () => requests.mock.calls.filter(([path]) => String(path).startsWith("/api/bots/bot/cards/card-1")).map(([, init]) => JSON.parse(String(init?.body)));
+  const saved = () => requests.mock.calls.filter(([path]) => String(path).includes("/cards/")).map(([, init]) => JSON.parse(String(init?.body)));
   return { requests, posts, saved };
 }
 
 const card = () => seen.bots[0]!.messages.find((message) => message.id === "card-1")!.card!;
+const room = { id: "room", threadId: "room-thread", name: "Room", memberIds: ["bot"], defaultResponder: { kind: "member", botId: "bot" }, bulletin: "", unread: false, createdAt: 1 };
+const roomChats = (messages: unknown[]) => ({ bots: [{ ...bot, messages: [], activeLeafId: null }], groups: [{ ...room, messages }], botQueuedMessages: {} });
+const roomQuestion = { ...question, from: { botId: "bot" } };
+const roomCard = () => seen.groups[0]!.messages.find((message) => message.id === "card-1")!.card!;
+const answerInRoom = async (answer = "Red") => {
+  flushSync(() => dispatch({ type: "answerCard", botId: "bot", groupId: "room", threadId: "room-thread", messageId: "card-1", answer }));
+  await settle();
+};
 const chats = (messages: unknown[]) => ({ bots: [{ ...bot, messages, activeLeafId: null }], groups: [], botQueuedMessages: {} });
 const answerRed = async () => {
   flushSync(() => dispatch({ type: "answerCard", botId: "bot", threadId: "thread", messageId: "card-1", answer: "Red" }));
@@ -178,5 +186,34 @@ describe("answering a card goes through the device outbox", () => {
     expect(failedComposerSends(DRAFT).slice(before)).toEqual([expect.objectContaining({ sendId: posts()[0]!.sendId, text: "Red", requestText: "Red", threadId: "thread" })]);
     expect(seen.paneErrors["chat:thread"]).toBeDefined();
     expect(saved()).toEqual([]);
+  });
+
+  describe("in a group room", () => {
+    it("posts the answer to the room with a send id, shows the card as waiting, and marks it answered when the home's receipt arrives", async () => {
+      let receipt!: (response: Response) => void;
+      const home: Home = { chats: roomChats([roomQuestion]), held: { held: [], dropped: [] }, receipt: () => new Promise<Response>((resolve) => { receipt = resolve; }) };
+      const { posts, saved } = await mount(home);
+      await answerInRoom();
+      expect(posts()).toEqual([expect.objectContaining({ text: "Red", threadId: "room-thread", sendId: expect.stringMatching(/^[\w-]{16,80}$/) })]);
+      expect(roomCard().answered).toBeUndefined();
+      expect(roomCard().pendingAnswer).toBe("Red");
+
+      receipt(new Response(JSON.stringify({ ok: true, threadId: "room-thread", message: { id: "room-line-1", role: "user", kind: "text", text: "Red", at: 5, sendId: posts()[0]!.sendId } }), { status: 202 }));
+      await settle();
+      expect(roomCard()).toMatchObject({ answered: "Red" });
+      expect(roomCard().pendingAnswer).toBeUndefined();
+      expect(saved()).toEqual([]);
+    });
+
+    it("makes the card answerable again and shows Not sent with the answer in the room when the home refuses it", async () => {
+      const draft = "group:room:room-thread";
+      const before = failedComposerSends(draft).length;
+      const home: Home = { chats: roomChats([roomQuestion]), held: { held: [], dropped: [] }, receipt: () => new Response(JSON.stringify({ error: "That room is not here." }), { status: 404 }) };
+      const { posts } = await mount(home);
+      await answerInRoom("Blue");
+      expect(roomCard().answered).toBeUndefined();
+      expect(roomCard().pendingAnswer).toBeUndefined();
+      expect(failedComposerSends(draft).slice(before)).toEqual([expect.objectContaining({ sendId: posts()[0]!.sendId, text: "Blue", threadId: "room-thread" })]);
+    });
   });
 });

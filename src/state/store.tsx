@@ -926,8 +926,8 @@ export type Action =
   | { type: "loadOlderMessages"; threadId: string }
   | { type: "olderMessages"; threadId: string; generation: number; messages: Message[]; hasMore: boolean }
   | { type: "answerCard"; botId: string; messageId: string; answer: string; threadId?: string; groupId?: string; sendId?: string }
-  | { type: "cardAnswered"; botId: string; messageId: string; answer: string }
-  | { type: "cardAnswerFailed"; botId: string; messageId: string }
+  | { type: "cardAnswered"; botId: string; messageId: string; answer: string; groupId?: string }
+  | { type: "cardAnswerFailed"; botId: string; messageId: string; groupId?: string }
   | { type: "dismissCard"; botId: string; messageId: string; threadId?: string; groupId?: string }
   | {
       type: "decideRequest";
@@ -1422,7 +1422,12 @@ function baseReducer(state: AppState, action: Action): AppState {
       );
     }
     case "answerCard": {
-      if (action.groupId) return patchGroupCard(state, action.groupId, action.messageId, { answered: action.answer });
+      if (action.groupId) {
+        const roomCard = state.groups.find((group) => group.id === action.groupId)?.messages.find((message) => message.id === action.messageId)?.card;
+        if (roomCard?.requestId) return patchGroupCard(state, action.groupId, action.messageId, { answered: action.answer });
+        const waiting = patchGroupCard(state, action.groupId, action.messageId, { pendingAnswer: action.answer });
+        return action.sendId ? reducer(waiting, { type: "sendGroup", groupId: action.groupId, threadId: action.threadId, text: action.answer, sendId: action.sendId }) : waiting;
+      }
       const bot = state.bots.find((candidate) => candidate.id === action.botId);
       const card = bot?.messages.find((message) => message.id === action.messageId)?.card;
       if (card?.requestId) {
@@ -1439,8 +1444,10 @@ function baseReducer(state: AppState, action: Action): AppState {
       return updateBot(waiting, bot.id, (current) => ({ ...current, messages: [...current.messages, line], activeLeafId: line.id }));
     }
     case "cardAnswered":
+      if (action.groupId) return patchGroupCard(state, action.groupId, action.messageId, { answered: action.answer, pendingAnswer: undefined });
       return patchCard(state, action.botId, action.messageId, { answered: action.answer, dismissed: true, pendingAnswer: undefined });
     case "cardAnswerFailed":
+      if (action.groupId) return patchGroupCard(state, action.groupId, action.messageId, { pendingAnswer: undefined });
       return patchCard(state, action.botId, action.messageId, { pendingAnswer: undefined });
     case "dismissCard":
       if (action.groupId) return patchGroupCard(state, action.groupId, action.messageId, { dismissed: true });
@@ -2396,11 +2403,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       dispatch: rawDispatch,
       showError: (error, threadId) => paneErrors.report(error, threadId ? chatPane(threadId) : undefined),
       cardAnswered: (card, answer) => {
-        rawDispatch({ type: "cardAnswered", botId: card.botId, messageId: card.messageId, answer });
-        persistCard(card.botId, card.messageId, { answered: answer, dismissed: true });
+        rawDispatch({ type: "cardAnswered", botId: card.botId, messageId: card.messageId, answer, ...(card.groupId ? { groupId: card.groupId } : {}) });
+        if (!card.groupId) persistCard(card.botId, card.messageId, { answered: answer, dismissed: true });
       },
       confirmAtHome: () => confirmAtHomeRef.current(),
-      cardAnswerFailed: (card) => rawDispatch({ type: "cardAnswerFailed", botId: card.botId, messageId: card.messageId }),
+      cardAnswerFailed: (card) => rawDispatch({ type: "cardAnswerFailed", botId: card.botId, messageId: card.messageId, ...(card.groupId ? { groupId: card.groupId } : {}) }),
       lineOnThread: (threadId, sendId) => {
         const current = stateRef.current;
         const chat = [...current.bots, ...current.groups, ...(current.taskView ? [current.taskView] : [])].find((candidate) => candidate.threadId === threadId);
@@ -2806,15 +2813,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         case "answerCard": {
           const { host, card, inRoom } = cardTarget(action);
           if (!(card?.requestId && host)) {
-            if (inRoom) break;
             const threadId = action.threadId ?? host?.threadId;
             sendOutbox().send({
               sendId: action.sendId ?? crypto.randomUUID(),
               threadId: threadId ?? "",
-              target: { kind: "bot", botId: action.botId },
+              target: action.groupId ? { kind: "group", groupId: action.groupId } : { kind: "bot", botId: action.botId },
               text: action.answer,
               queuedAt: Date.now(),
-              card: { botId: action.botId, messageId: action.messageId },
+              card: { botId: action.botId, messageId: action.messageId, ...(action.groupId ? { groupId: action.groupId } : {}) },
             }, {
               ready: waitForExecutionSettings(executionBotsBeforeAction, threadId),
             });

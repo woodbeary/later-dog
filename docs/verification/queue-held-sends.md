@@ -64,6 +64,10 @@ the third review's three Should fix items; this note describes that head.
   answer is delivered, and only then is marked answered; a refused, dropped or
   cancelled answer makes the card answerable again. Any send that ends in a
   final failure without a composer to recover it records the Not sent row itself.
+  In a group room the answer is posted to the room's own messages route the same
+  way. The server has no route that saves a room card as answered (the card
+  route only knows a dog's own chats), so a room card shows answered on this
+  device only; after a refresh it can show answerable again.
 - The edge's own rows and lines in a refresh do not count as landed, so a
   refresh answered by the edge keeps the copy.
 - While a copy exists the device asks the edge's held list (`GET` on `HELD_SENDS_PATH` from

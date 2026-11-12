@@ -14,6 +14,7 @@ export interface OutboxRecovery {
 export interface OutboxCard {
   botId: string;
   messageId: string;
+  groupId?: string;
 }
 
 export interface OutboxItem {
@@ -229,7 +230,7 @@ function readRecovery(value: unknown): OutboxRecovery | undefined {
 
 export function readOutboxCard(value: unknown): OutboxCard | undefined {
   if (!isRecord(value) || !isText(value.botId) || !isText(value.messageId)) return undefined;
-  return { botId: value.botId, messageId: value.messageId };
+  return { botId: value.botId, messageId: value.messageId, ...(isText(value.groupId) ? { groupId: value.groupId } : {}) };
 }
 
 function readItem(value: unknown): OutboxItem | null {
