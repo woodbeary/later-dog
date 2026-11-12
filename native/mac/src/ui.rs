@@ -9,12 +9,12 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject, Sel};
 use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSAccessibility, NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSButton, NSColor,
+    NSAccessibility, NSAppearance, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSApplication, NSAutoresizingMaskOptions, NSBackingStoreType, NSButton, NSColor,
     NSControl, NSControlTextEditingDelegate, NSEventModifierFlags, NSFont, NSFontAttributeName,
     NSForegroundColorAttributeName, NSMenu, NSMenuItem, NSScrollView, NSSplitView, NSStandardKeyBindingResponding,
     NSTableColumn, NSTableColumnResizingOptions, NSTableView, NSTableViewColumnAutoresizingStyle,
     NSTableViewDataSource, NSTableViewDelegate, NSTableViewStyle, NSTextField, NSTextFieldDelegate, NSTextView,
-    NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSBitmapImageFileType, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
     NSAttributedString, NSDictionary, NSIndexSet, NSInteger, NSMutableAttributedString, NSNotification, NSObject,
@@ -39,6 +39,17 @@ pub struct SendRequest {
 pub struct Options {
     pub dump: bool,
     pub send: Option<SendRequest>,
+    pub snapshot: Option<String>,
+    pub tree: bool,
+    pub select: Option<String>,
+    pub size: Option<(f64, f64)>,
+    pub started: std::time::Instant,
+}
+
+impl Options {
+    fn captures(&self) -> bool {
+        self.snapshot.is_some() || self.tree
+    }
 }
 
 type Style = NSDictionary<NSString, AnyObject>;
@@ -295,8 +306,13 @@ impl Controller {
         split.setHoldingPriority_forSubviewAtIndex(260.0, 0);
         window.setContentView(Some(&split));
         split.setPosition_ofDividerAtIndex(SIDEBAR_WIDTH, 0);
+        if let Some((width, height)) = self.ivars().options.size {
+            window.setContentSize(NSSize::new(width, height));
+        }
         window.center();
-        window.makeKeyAndOrderFront(None);
+        if !self.ivars().options.captures() {
+            window.makeKeyAndOrderFront(None);
+        }
         window.makeFirstResponder(Some(&composer));
 
         let ui = Ui { window, table, transcript, transcript_scroll, title, status, composer, styles };
@@ -418,8 +434,14 @@ impl Controller {
     fn handle(&self, inbound: Inbound) {
         let changes = match inbound {
             Inbound::Page(page) => {
-                self.ivars().dump.borrow_mut().page = true;
-                self.ivars().store.borrow_mut().apply_page(page)
+                let first = !std::mem::replace(&mut self.ivars().dump.borrow_mut().page, true);
+                let changes = self.ivars().store.borrow_mut().apply_page(page);
+                if first && self.ivars().options.captures() {
+                    self.refresh(changes);
+                    self.capture_soon();
+                    return;
+                }
+                changes
             }
             Inbound::PageFailed => Changes::default(),
             Inbound::Frame(frame) => {
@@ -528,6 +550,37 @@ impl Controller {
         ui.transcript.scrollRangeToVisible(NSRange::new(length, 0));
     }
 
+    fn capture_soon(&self) {
+        let wanted = self.ivars().options.select.clone();
+        if let Some(target) = wanted.and_then(|wanted| self.ivars().store.borrow().find_dog(&wanted)) {
+            if self.ivars().store.borrow_mut().select(&target) {
+                self.refresh(Changes { sidebar: true, transcript: true });
+            }
+        }
+        DispatchQueue::main().exec_async(|| with_controller(|controller| controller.capture()));
+    }
+
+    fn capture(&self) {
+        let Some(ui) = self.ivars().ui.get() else { return };
+        let Some(content) = ui.window.contentView() else { return };
+        content.layoutSubtreeIfNeeded();
+        content.displayIfNeeded();
+        let first_page_ms = self.ivars().options.started.elapsed().as_millis() as u64;
+        let mut report = serde_json::json!({ "firstPageMs": first_page_ms });
+        if let Some(path) = &self.ivars().options.snapshot {
+            let written = snapshot(&content, path);
+            let bounds = content.bounds();
+            report["snapshot"] = serde_json::json!({ "path": path, "written": written, "width": bounds.size.width, "height": bounds.size.height });
+        }
+        if self.ivars().options.tree {
+            report["tree"] = describe(&content, &content);
+        }
+        let mut out = std::io::stdout().lock();
+        writeln!(out, "{}", serde_json::to_string_pretty(&report).unwrap_or_default()).ok();
+        out.flush().ok();
+        std::process::exit(0);
+    }
+
     fn check_dump(&self) {
         if !self.ivars().options.dump {
             return;
@@ -593,6 +646,58 @@ impl Controller {
     }
 }
 
+fn snapshot(view: &NSView, path: &str) -> bool {
+    let bounds = view.bounds();
+    let Some(bitmap) = view.bitmapImageRepForCachingDisplayInRect(bounds) else { return false };
+    view.cacheDisplayInRect_toBitmapImageRep(bounds, &bitmap);
+    let Some(png) = (unsafe { bitmap.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new()) }) else {
+        return false;
+    };
+    png.writeToFile_atomically(&NSString::from_str(path), true)
+}
+
+fn described(object: &AnyObject) -> String {
+    if let Some(text) = object.downcast_ref::<NSString>() {
+        return text.to_string();
+    }
+    let description: Retained<NSString> = unsafe { msg_send![object, description] };
+    description.to_string()
+}
+
+fn clipped(text: String) -> String {
+    if text.chars().count() <= 240 {
+        return text;
+    }
+    let mut short: String = text.chars().take(240).collect();
+    short.push('\u{2026}');
+    short
+}
+
+fn describe(view: &NSView, root: &NSView) -> serde_json::Value {
+    let frame = view.convertRect_toView(view.bounds(), Some(root));
+    let mut node = serde_json::json!({
+        "class": view.class().name().to_string_lossy(),
+        "frame": [frame.origin.x, frame.origin.y, frame.size.width, frame.size.height],
+    });
+    if let Some(role) = view.accessibilityRole() {
+        node["role"] = serde_json::Value::String(role.to_string());
+    }
+    if let Some(label) = view.accessibilityLabel().filter(|label| label.length() > 0) {
+        node["label"] = serde_json::Value::String(label.to_string());
+    }
+    if let Some(value) = view.accessibilityValue() {
+        node["value"] = serde_json::Value::String(clipped(described(&value)));
+    }
+    if view.isHidden() {
+        node["hidden"] = serde_json::Value::Bool(true);
+    }
+    let children: Vec<serde_json::Value> = view.subviews().iter().map(|child| describe(&child, root)).collect();
+    if !children.is_empty() {
+        node["children"] = serde_json::Value::Array(children);
+    }
+    node
+}
+
 fn rect(x: f64, y: f64, width: f64, height: f64) -> NSRect {
     NSRect::new(NSPoint::new(x, y), NSSize::new(width, height))
 }
@@ -602,6 +707,14 @@ fn label(mtm: MainThreadMarker, text: &str, font: &NSFont, color: &NSColor) -> R
     field.setFont(Some(font));
     field.setTextColor(Some(color));
     field
+}
+
+pub fn set_appearance(app: &NSApplication, name: &str) {
+    let named = match name {
+        "dark" => unsafe { NSAppearanceNameDarkAqua },
+        _ => unsafe { NSAppearanceNameAqua },
+    };
+    app.setAppearance(NSAppearance::appearanceNamed(named).as_deref());
 }
 
 pub fn menu(mtm: MainThreadMarker) -> Retained<NSMenu> {
