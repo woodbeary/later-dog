@@ -65,6 +65,7 @@ import {
 } from "../../shared/ask-question.ts";
 import { readEngineModels } from "../laterdog/wait-at-most.ts";
 import { readCliVersion as readCliVersionOf, unreadCli } from "../laterdog/cli-version.ts";
+import { claudeToolTouch } from "../laterdog/tool-touches.ts";
 
 export function claudeAuthStatus(
   cli: string,
@@ -1767,6 +1768,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
                   title: b.name,
                   summary: commandSummary(b.input),
                   input: toolDetailPreview(b.input),
+                  touches: claudeToolTouch(b.name, b.input),
                 });
               }
             }

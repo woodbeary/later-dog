@@ -58,6 +58,7 @@ import { CALL_TOOL, DESCRIBE_TOOL, SEARCH_TOOL, directoryCallTarget } from "../m
 import { readEngineModels } from "../laterdog/wait-at-most.ts";
 import { SteerReads } from "./steer-reads.ts";
 import { prepareCodexShellGuard } from "../laterdog/codex-shell-guard.ts";
+import { codexToolTouch } from "../laterdog/tool-touches.ts";
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 
@@ -1283,6 +1284,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
                 title,
                 summary: item.type === "commandExecution" ? commandSummary({ command: item.command }) : undefined,
                 input: toolDetailPreview(item.type === "commandExecution" ? { command: item.command, cwd: item.cwd } : item.type === "mcpToolCall" ? (runs ? item.arguments?.arguments ?? {} : item.arguments) : item.type === "fileChange" ? item.changes : item.query),
+                touches: codexToolTouch(item),
               });
             }
             break;
