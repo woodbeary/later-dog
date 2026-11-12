@@ -821,16 +821,16 @@ impl Controller {
                 };
                 let theme = &ui.theme;
                 let details = &exchange.details;
-                let mut lines = vec![(details.heading.clone(), theme.ink_tertiary.clone(), false, 0.0)];
+                let mut lines = vec![(details.heading.clone(), theme.quiet_tertiary.clone(), false, 0.0)];
                 lines.push((laterdog_core::words::EXCHANGE_REQUEST.to_owned(), theme.ink.clone(), true, 6.0));
-                lines.push((details.request.clone(), theme.ink_secondary.clone(), false, 0.0));
+                lines.push((details.request.clone(), theme.quiet.clone(), false, 0.0));
                 lines.push((laterdog_core::words::EXCHANGE_REPLY.to_owned(), theme.ink.clone(), true, 6.0));
                 match &details.reply {
-                    Some(reply) => lines.push((reply.clone(), theme.ink_secondary.clone(), false, 0.0)),
-                    None => lines.push((laterdog_core::words::EXCHANGE_NO_REPLY.to_owned(), theme.ink_tertiary.clone(), false, 0.0)),
+                    Some(reply) => lines.push((reply.clone(), theme.quiet.clone(), false, 0.0)),
+                    None => lines.push((laterdog_core::words::EXCHANGE_NO_REPLY.to_owned(), theme.quiet_tertiary.clone(), false, 0.0)),
                 }
                 for extra in [&details.waiting, &details.ended].into_iter().flatten() {
-                    lines.push((extra.clone(), theme.ink_secondary.clone(), false, 6.0));
+                    lines.push((extra.clone(), theme.quiet.clone(), false, 6.0));
                 }
                 let string = rich::lines_text(&lines);
                 let full = ui.chat_scroll.contentSize().width;
@@ -1601,8 +1601,8 @@ fn new_chat_cell(mtm: MainThreadMarker, theme: &Theme, controller: Option<&AnyOb
     let bubble = Fill::new(mtm, Some(&theme.card), theme::BUBBLE_RADIUS);
     let status = label(mtm, "", &font(11.0, Weight::Regular), &theme.ink_tertiary);
     status.setAlignment(NSTextAlignment::Right);
-    let work = label(mtm, "View work", &font(12.0, Weight::Regular), &theme.ink_secondary);
-    let chevron = icon(mtm, "chevron.right", 9.0, unsafe { NSFontWeightMedium }, &theme.ink_secondary);
+    let work = label(mtm, "View work", &font(12.0, Weight::Regular), &theme.quiet);
+    let chevron = icon(mtm, "chevron.right", 9.0, unsafe { NSFontWeightMedium }, &theme.quiet);
     let again = unsafe { NSButton::buttonWithTitle_target_action(&NSString::from_str("Send again"), controller, Some(sel!(sendAgain:)), mtm) };
     again.setBordered(false);
     again.setFont(Some(&font(11.0, Weight::Medium)));
@@ -1614,12 +1614,12 @@ fn new_chat_cell(mtm: MainThreadMarker, theme: &Theme, controller: Option<&AnyOb
     }
     let quiet_font = font(13.0, Weight::Regular);
     let quiet = QuietParts {
-        label: label(mtm, "", &quiet_font, &theme.ink_secondary),
+        label: label(mtm, "", &quiet_font, &theme.quiet),
         face: Avatar::new(mtm),
-        name: label(mtm, "", &quiet_font, &theme.ink_secondary),
-        gist: label(mtm, "", &quiet_font, &theme.ink_tertiary),
-        state: label(mtm, "", &quiet_font, &theme.ink_tertiary),
-        chevron: icon(mtm, "chevron.right", 9.0, unsafe { NSFontWeightMedium }, &theme.ink_tertiary),
+        name: label(mtm, "", &quiet_font, &theme.quiet),
+        gist: label(mtm, "", &quiet_font, &theme.quiet_tertiary),
+        state: label(mtm, "", &quiet_font, &theme.quiet_tertiary),
+        chevron: icon(mtm, "chevron.right", 9.0, unsafe { NSFontWeightMedium }, &theme.quiet_tertiary),
         open: unsafe { NSButton::buttonWithTitle_target_action(&NSString::from_str(""), controller, Some(sel!(toggleExchange:)), mtm) },
         toggle: unsafe { NSButton::buttonWithTitle_target_action(&NSString::from_str(""), controller, Some(sel!(toggleExchange:)), mtm) },
         details: Fill::new(mtm, Some(&theme.panel_50), 18.0),
@@ -1713,7 +1713,7 @@ fn place_exchange(cell: &ChatCell, quiet: &QuietParts, row: &TranscriptRow, line
     let mut name_width = measure(&quiet.name, &line.name);
     let mut gist_width = measure(&quiet.gist, &line.gist.as_ref().map(|gist| format!("\u{b7} {gist}")).unwrap_or_default()).min(320.0);
     let state_width = measure(&quiet.state, &format!("\u{b7} {}", line.state));
-    quiet.state.setTextColor(Some(if line.needs_you() { &theme.ink } else { &theme.ink_tertiary }));
+    quiet.state.setTextColor(Some(if line.needs_you() { &theme.ink } else { &theme.quiet_tertiary }));
     let face = 14.0;
     let gaps = |gist: f64| 6.0 * if gist > 0.0 { 4.0 } else { 3.0 };
     let toggle = 4.0 + 16.0;

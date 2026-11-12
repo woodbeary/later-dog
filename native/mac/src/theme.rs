@@ -117,6 +117,8 @@ pub const ACCENT: Tone = tone(0x111111, 0xededed);
 pub const ACCENT_INK: Tone = tone(0xffffff, 0x0d0d0d);
 pub const UNREAD: Tone = tone(0x007aff, 0x0a84ff);
 pub const WAITING: Tone = tone(0xe0530a, 0xff9f0a);
+pub const QUIET: Tone = tone(0x575757, 0x9a9a9a);
+pub const QUIET_TERTIARY: Tone = tone(0x5c5c5c, 0x919191);
 pub const INSET: Tone = tone(0xe6e6e6, 0x191919);
 pub const SUCCESS: Tone = tone(0x1f7a4d, 0x38d591);
 
@@ -159,6 +161,8 @@ pub struct Theme {
     pub panel_50: Retained<NSColor>,
     pub hairline_50: Retained<NSColor>,
     pub app_55: Retained<NSColor>,
+    pub quiet: Retained<NSColor>,
+    pub quiet_tertiary: Retained<NSColor>,
 }
 
 impl Theme {
@@ -192,6 +196,8 @@ impl Theme {
             panel_50: dynamic(&faded(PANEL, 0.5)),
             hairline_50: dynamic(&faded(HAIRLINE_TONE, 0.5)),
             app_55: dynamic(&faded(APP, 0.55)),
+            quiet: dynamic(&QUIET),
+            quiet_tertiary: dynamic(&QUIET_TERTIARY),
         }
     }
 

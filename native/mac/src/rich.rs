@@ -245,11 +245,11 @@ impl<'a> Builder<'a> {
     }
 
     fn styled(&self, words: &str, style: &Style) -> Retained<NSAttributedString> {
-        let Some(href) = &style.link else { return run(words, style, &[]) };
+        let Some(Some(href)) = &style.link else { return run(words, style, &[]) };
         let mut linked = style.clone();
         linked.color = self.inks.link.clone();
         let underline = NSNumber::new_isize(1);
-        let url = href.as_deref().and_then(|href| NSURL::URLWithString(&NSString::from_str(href)));
+        let url = NSURL::URLWithString(&NSString::from_str(href));
         let hand = NSCursor::pointingHandCursor();
         let mut extra: Vec<(&NSString, &AnyObject)> = unsafe { vec![(NSUnderlineStyleAttributeName, underline.as_ref()), (NSUnderlineColorAttributeName, self.inks.link_line.as_ref())] };
         if let Some(url) = &url {

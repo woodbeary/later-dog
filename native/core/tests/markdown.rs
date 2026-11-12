@@ -246,3 +246,14 @@ fn previews_read_as_one_plain_line() {
     assert_eq!(laterdog_core::markdown::preview("text\n\n```\ncode\n```"), "text");
     assert_eq!(laterdog_core::markdown::preview("---\n> quoted [link](https://a.b)"), "quoted link");
 }
+
+#[test]
+fn a_link_the_app_will_not_open_carries_no_target_and_reads_as_its_words() {
+    for source in ["[bad](javascript:alert(1))", "[file](file:///etc/passwd)", "[rel](notes.md)", "[data](data:text/html,x)", "[empty]()", "![pic](/tmp/a.png)"] {
+        let parsed = inlines(source);
+        let [Inline::Link { href, children }] = parsed.as_slice() else { panic!("{source} is one link") };
+        assert_eq!(href, &None, "{source}");
+        assert!(!plain(children).is_empty(), "{source}");
+    }
+    assert_eq!(inlines("[ok](https://later.dog)"), [link(Some("https://later.dog"), vec![text("ok")])]);
+}
