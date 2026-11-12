@@ -11,6 +11,11 @@ export interface OutboxRecovery {
   text: string;
 }
 
+export interface OutboxCard {
+  botId: string;
+  messageId: string;
+}
+
 export interface OutboxItem {
   sendId: string;
   threadId: string;
@@ -19,6 +24,7 @@ export interface OutboxItem {
   replyToId?: string;
   queuedAt: number;
   recovery?: OutboxRecovery;
+  card?: OutboxCard;
 }
 
 export type SendOutcome = { kind: "hold"; afterMs?: number } | { kind: "retry" } | { kind: "final" };
@@ -221,11 +227,17 @@ function readRecovery(value: unknown): OutboxRecovery | undefined {
   return { draftId: value.draftId, text: value.text };
 }
 
+export function readOutboxCard(value: unknown): OutboxCard | undefined {
+  if (!isRecord(value) || !isText(value.botId) || !isText(value.messageId)) return undefined;
+  return { botId: value.botId, messageId: value.messageId };
+}
+
 function readItem(value: unknown): OutboxItem | null {
   if (!isRecord(value) || !isText(value.sendId) || !isText(value.threadId) || typeof value.text !== "string") return null;
   const target = readTarget(value.target);
   if (!target) return null;
   const recovery = readRecovery(value.recovery);
+  const card = readOutboxCard(value.card);
   return {
     sendId: value.sendId,
     threadId: value.threadId,
@@ -234,6 +246,7 @@ function readItem(value: unknown): OutboxItem | null {
     ...(isText(value.replyToId) ? { replyToId: value.replyToId } : {}),
     queuedAt: typeof value.queuedAt === "number" && Number.isFinite(value.queuedAt) ? value.queuedAt : Date.now(),
     ...(recovery ? { recovery } : {}),
+    ...(card ? { card } : {}),
   };
 }
 

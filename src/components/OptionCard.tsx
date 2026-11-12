@@ -32,7 +32,7 @@ export function canDismissOptionCard(card: NonNullable<Message["card"]>): boolea
 function chosenAnswer(card: NonNullable<Message["card"]>, picked?: string): string | undefined {
   if (card.answeredText) return card.answeredText;
   if (card.answered && !DECISIONS.has(card.answered)) return card.answered;
-  return picked;
+  return card.pendingAnswer ?? picked;
 }
 
 export function OptionCard({
@@ -58,7 +58,7 @@ export function OptionCard({
   const title = optionCardTitle(card, bot?.name);
   const subtitle = card.subtitle;
   const options = parseChoices(card.options, LETTERS.length) ?? [];
-  const answered = Boolean(card.answered) || picked !== undefined;
+  const answered = Boolean(card.answered) || Boolean(card.pendingAnswer) || picked !== undefined;
   const chosen = answered ? chosenAnswer(card, picked) : undefined;
 
   const answer = (text: string) => {

@@ -877,7 +877,11 @@ describe("onboarding quiz", () => {
   it("hides the quiz when they pick an option", () => {
     const state = { ...initialState, bots: [bot], selectedId: bot.id };
     const next = reducer(state, { type: "answerCard", botId: bot.id, messageId: "q", answer: "Work & projects" });
-    expect(next.bots[0]?.messages.find((message) => message.id === "q")?.card).toMatchObject({
+    const card = next.bots[0]?.messages.find((message) => message.id === "q")?.card;
+    expect(card).toMatchObject({ pendingAnswer: "Work & projects" });
+    expect(card?.answered).toBeUndefined();
+    const received = reducer(next, { type: "cardAnswered", botId: bot.id, messageId: "q", answer: "Work & projects" });
+    expect(received.bots[0]?.messages.find((message) => message.id === "q")?.card).toMatchObject({
       answered: "Work & projects",
       dismissed: true,
     });

@@ -19,6 +19,7 @@ import {
   readOutbox,
   writeOutbox,
   type Outbox,
+  type OutboxCard,
   type OutboxItem,
 } from "@/lib/outbox";
 import type { Action, ApiInit, Bot, Group } from "./store";
@@ -32,6 +33,8 @@ export interface SendOutboxDeps {
   store?: Store;
   after?: (ms: number, run: () => void) => () => void;
   now?: () => number;
+  cardAnswered?: (card: OutboxCard, answer: string) => void;
+  cardAnswerFailed?: (card: OutboxCard) => void;
 }
 
 export interface SendHooks {
@@ -143,6 +146,8 @@ function createHeldSendKeeper(deps: {
   now: () => number;
   onLost: (send: HeldSend) => void;
   onGone: (send: HeldSend) => void;
+  onReleased: (send: HeldSend) => void;
+  onCancelled: (send: HeldSend) => void;
 }): HeldSendKeeper {
   const { store } = deps;
   let settling: Promise<void> | null = null;
@@ -171,7 +176,11 @@ function createHeldSendKeeper(deps: {
     const held = readHeldSends(store);
     const atHome = refresh ? sendIdsAtHome(refresh.bots, refresh.groups, refresh.queues) : new Set<string>();
     const waiting = held.filter((send) => !atHome.has(send.sendId));
-    if (waiting.length !== held.length) writeHeldSends(store, waiting);
+    if (waiting.length !== held.length) {
+      writeHeldSends(store, waiting);
+      const waitingIds = new Set(waiting.map((send) => send.sendId));
+      for (const send of held) if (!waitingIds.has(send.sendId)) deps.onReleased(send);
+    }
     for (const group of heldAskGroups(waiting)) {
       const ids = group.map((send) => send.sendId);
       const reply = await deps
@@ -224,7 +233,10 @@ function createHeldSendKeeper(deps: {
     forget(sendId) {
       const held = readHeldSends(store);
       const rest = held.filter((send) => send.sendId !== sendId);
-      if (rest.length !== held.length) writeHeldSends(store, rest);
+      if (rest.length !== held.length) {
+        writeHeldSends(store, rest);
+        for (const send of held) if (send.sendId === sendId) deps.onCancelled(send);
+      }
       if (settling) forgottenWhileAsking.add(sendId);
       else if (rest.length === 0) stopAsking();
     },
@@ -247,9 +259,16 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     text: item.recovery?.text ?? item.text,
     requestText: item.text,
     replyToId: item.replyToId,
+    ...(item.card ? { card: item.card } : {}),
     at: now(),
   });
-  const settle = (item: OutboxItem, body: any) => {
+  const delivered = (item: { card?: OutboxCard; text?: string; requestText?: string }) => {
+    if (item.card) deps.cardAnswered?.(item.card, item.requestText ?? item.text ?? "");
+  };
+  const undelivered = (item: { card?: OutboxCard }) => {
+    if (item.card) deps.cardAnswerFailed?.(item.card);
+  };
+  const settle = (item: OutboxItem, body: any): boolean => {
     if (body?.message && typeof body.threadId === "string") {
       deps.dispatch({ type: "messageAdded", threadId: body.threadId, message: body.message });
     }
@@ -263,8 +282,12 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
         text: item.text,
         reason: item.target.kind === "bot" && QUEUE_REASONS.has(body.reason) ? body.reason : undefined,
       });
-      if (body.queueId === item.sendId) heldSends.keep(heldCopy(item, queuedIn));
+      if (body.queueId === item.sendId) {
+        heldSends.keep(heldCopy(item, queuedIn));
+        return true;
+      }
     }
+    return false;
   };
 
   const outbox: Outbox = createOutbox({
@@ -288,13 +311,14 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
         rideWake: false,
       });
       hooks.delete(item.sendId);
-      settle(item, body);
+      if (!settle(item, body)) delivered(item);
     },
     onHeld: (item) => deps.dispatch({ type: "sendHeld", threadId: item.threadId, sendId: item.sendId }),
     onFinal: (item, error) => {
       const onError = hooks.get(item.sendId)?.onError;
       hooks.delete(item.sendId);
       deps.dispatch({ type: "optimisticMessageRemoved", threadId: item.threadId, sendId: item.sendId });
+      undelivered(item);
       deps.showError(error, item.threadId);
       if (onError) onError();
       else if (item.recovery) {
@@ -317,15 +341,22 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     now,
     onLost: (send) => {
       deps.dispatch({ type: "consumePendingQueued", threadId: send.threadId, queueId: send.sendId });
+      undelivered(send);
       rememberFailedComposerSend(send.draftId, { sendId: send.sendId, text: send.text, requestText: send.requestText, replyToId: send.replyToId, threadId: send.threadId });
       deps.showError(new SendRefusedError(HELD_NOT_SENT), send.threadId);
     },
     onGone: (send) => deps.dispatch({ type: "consumePendingQueued", threadId: send.threadId, queueId: send.sendId }),
+    onReleased: delivered,
+    onCancelled: undelivered,
   });
 
   const keepIfAtEdge = (item: OutboxItem, atEdge: ReadonlyMap<string, string>) => {
     const threadId = atEdge.get(item.sendId);
-    if (threadId !== undefined) heldSends.keep(heldCopy(item, threadId || item.threadId));
+    if (threadId === undefined) {
+      delivered(item);
+      return;
+    }
+    heldSends.keep(heldCopy(item, threadId || item.threadId));
   };
 
   let heldGroupRowsShown = false;
@@ -366,6 +397,9 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
       if (line && EDGE_LINE_ID.test(line.messageId)) {
         const item = outbox.items().find((waiting) => waiting.sendId === sendId);
         if (item) heldSends.keep(heldCopy(item, line.threadId || item.threadId));
+      } else {
+        const item = outbox.items().find((waiting) => waiting.sendId === sendId);
+        if (item) delivered(item);
       }
       forget(sendId);
     },

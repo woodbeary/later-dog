@@ -80,6 +80,20 @@ describe("a send over a flaky network", () => {
     expect(onError).not.toHaveBeenCalled();
   });
 
+  it("keeps one send id through the retries of a card answer", async () => {
+    const requests = vi.fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockImplementation(async () => accepted());
+    const store = mount(requests);
+    store.dispatch({ type: "answerCard", botId: "bot", threadId: "thread", messageId: "card", answer: "Red" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    const bodies = sentBodies(requests);
+    expect(bodies).toHaveLength(3);
+    expect(new Set(bodies.map((body) => body.sendId)).size).toBe(1);
+    expect(bodies[0]).toMatchObject({ text: "Red", threadId: "thread" });
+  });
+
   it("holds the message while the connection stays down instead of giving the words back", async () => {
     const requests = vi.fn<typeof fetch>().mockRejectedValue(new TypeError("Failed to fetch"));
     const store = mount(requests);

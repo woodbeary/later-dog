@@ -68,6 +68,7 @@ import {
 import { ApiError, api, type ApiInit } from "@/lib/api";
 import { queuedSteerResult, StillWaitingError } from "@/lib/queued-steer";
 import type { OutboxItem, OutboxRecovery } from "@/lib/outbox";
+import { composerDraftId } from "@/lib/drafts";
 import { createSendOutbox, type SendOutbox } from "./send-outbox";
 import { receiveHelperEvent, receiveHelpersSnapshot, forgetHelpers } from "@/lib/helpers-state";
 import { receiveNativeRun, forgetNativeRuns, refreshNativeRuns } from "@/lib/native-runs-state";
@@ -108,6 +109,7 @@ export interface OptionCardData extends Pick<import("../../shared/wire").OptionC
   optionHints?: Record<string, string>;
   multiSelect?: boolean;
   answered?: string;
+  pendingAnswer?: string;
   answeredText?: string;
   answeredBy?: CardAnswerer;
   dismissed?: boolean;
@@ -923,7 +925,9 @@ export type Action =
   | { type: "threadActive"; threadId: string; activeLeafId: string }
   | { type: "loadOlderMessages"; threadId: string }
   | { type: "olderMessages"; threadId: string; generation: number; messages: Message[]; hasMore: boolean }
-  | { type: "answerCard"; botId: string; messageId: string; answer: string; threadId?: string; groupId?: string }
+  | { type: "answerCard"; botId: string; messageId: string; answer: string; threadId?: string; groupId?: string; sendId?: string }
+  | { type: "cardAnswered"; botId: string; messageId: string; answer: string }
+  | { type: "cardAnswerFailed"; botId: string; messageId: string }
   | { type: "dismissCard"; botId: string; messageId: string; threadId?: string; groupId?: string }
   | {
       type: "decideRequest";
@@ -1089,6 +1093,14 @@ function withMascotMotion(
       kind,
     },
   };
+}
+
+function persistCard(botId: string, messageId: string, patch: Partial<OptionCardData>) {
+  fetch(`/api/bots/${botId}/cards/${messageId}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(patch),
+  }).catch(() => {});
 }
 
 function withPatchedCard(messages: Message[], messageId: string, patch: Partial<OptionCardData>): Message[] {
@@ -1413,15 +1425,23 @@ function baseReducer(state: AppState, action: Action): AppState {
       if (action.groupId) return patchGroupCard(state, action.groupId, action.messageId, { answered: action.answer });
       const bot = state.bots.find((candidate) => candidate.id === action.botId);
       const card = bot?.messages.find((message) => message.id === action.messageId)?.card;
-      return withMascotMotion(
-        patchCard(state, action.botId, action.messageId, {
-          answered: action.answer,
-          ...(card?.requestId ? {} : { dismissed: true }),
-        }),
+      if (card?.requestId) {
+        return withMascotMotion(patchCard(state, action.botId, action.messageId, { answered: action.answer }), action.botId, "working");
+      }
+      const waiting = withMascotMotion(
+        patchCard(state, action.botId, action.messageId, { pendingAnswer: action.answer }),
         action.botId,
         "working",
       );
+      if (!action.sendId || !bot || (action.threadId ?? bot.threadId) !== bot.threadId) return waiting;
+      if (bot.messages.some((message) => message.sendId === action.sendId)) return waiting;
+      const line = optimisticUserMessage(action.answer, action.sendId, undefined, bot.activeLeafId);
+      return updateBot(waiting, bot.id, (current) => ({ ...current, messages: [...current.messages, line], activeLeafId: line.id }));
     }
+    case "cardAnswered":
+      return patchCard(state, action.botId, action.messageId, { answered: action.answer, dismissed: true, pendingAnswer: undefined });
+    case "cardAnswerFailed":
+      return patchCard(state, action.botId, action.messageId, { pendingAnswer: undefined });
     case "dismissCard":
       if (action.groupId) return patchGroupCard(state, action.groupId, action.messageId, { dismissed: true });
       return patchCard(state, action.botId, action.messageId, { dismissed: true });
@@ -2374,6 +2394,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       request: api,
       dispatch: rawDispatch,
       showError: (error, threadId) => paneErrors.report(error, threadId ? chatPane(threadId) : undefined),
+      cardAnswered: (card, answer) => {
+        rawDispatch({ type: "cardAnswered", botId: card.botId, messageId: card.messageId, answer });
+        persistCard(card.botId, card.messageId, { answered: answer, dismissed: true });
+      },
+      cardAnswerFailed: (card) => rawDispatch({ type: "cardAnswerFailed", botId: card.botId, messageId: card.messageId }),
     });
     return sendOutboxRef.current;
   }, [paneErrors]);
@@ -2416,13 +2441,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ? stateRef.current.groups.find((g) => g.id === action.groupId)
         : stateRef.current.bots.find((b) => b.id === action.botId);
       return { host, card: host?.messages.find((m) => m.id === action.messageId)?.card, inRoom: !!action.groupId };
-    };
-    const persistCard = (botId: string, messageId: string, patch: Partial<OptionCardData>) => {
-      fetch(`/api/bots/${botId}/cards/${messageId}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(patch),
-      }).catch(() => {});
     };
 
     const waitForExecutionSettings = async (expectedBots: Bot[], threadId?: string) => {
@@ -2513,7 +2531,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const failIn = (pane: PaneKey | undefined) => (error: unknown) => reportError(error, pane, { retry: again });
       if (action.type === "taskSwitched") action = { ...action, bot: withTaskWrites(action.bot) as Bot };
       if (action.type === "botPatched") action = { ...action, bot: withTaskWrites(action.bot) };
-      if ((action.type === "send" || action.type === "sendGroup" || action.type === "editMessage") && !action.sendId) {
+      if ((action.type === "send" || action.type === "sendGroup" || action.type === "editMessage" || action.type === "answerCard") && !action.sendId) {
         action = { ...action, sendId: crypto.randomUUID() };
       }
       const botBeforeUpdate =
@@ -2780,34 +2798,41 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
         case "answerCard": {
           const { host, card, inRoom } = cardTarget(action);
+          if (!(card?.requestId && host)) {
+            if (inRoom) break;
+            const threadId = action.threadId ?? host?.threadId;
+            sendOutbox().send({
+              sendId: action.sendId ?? crypto.randomUUID(),
+              threadId: threadId ?? "",
+              target: { kind: "bot", botId: action.botId },
+              text: action.answer,
+              queuedAt: Date.now(),
+              card: { botId: action.botId, messageId: action.messageId },
+              recovery: { draftId: composerDraftId({ botId: action.botId }, threadId ?? ""), text: action.answer },
+            }, {
+              ready: waitForExecutionSettings(executionBotsBeforeAction, threadId),
+            });
+            break;
+          }
           void waitForExecutionSettings(executionBotsBeforeAction, action.threadId)
             .then(() => {
-              if (card?.requestId && host) {
-                const response = card.skillRequest
-                  ? { behavior: skillRequestBehavior(action.answer) }
-                  : answerResponse(card, action.answer);
-                return api(`/api/threads/${action.threadId ?? host.threadId}/respond`, {
-                  method: "POST",
-                  body: JSON.stringify({
-                    requestId: card.requestId,
-                    ...response,
-                    reviewedSha256: response.behavior === "allow" && card.skillRequest
-                      ? reviewedSkillSha256(card.skillRequest)
-                      : undefined,
-                  }),
-                });
-              }
-              if (inRoom) return;
-              persistCard(action.botId, action.messageId, { answered: action.answer, dismissed: true });
-              return api(`/api/bots/${action.botId}/messages`, {
+              const response = card.skillRequest
+                ? { behavior: skillRequestBehavior(action.answer) }
+                : answerResponse(card, action.answer);
+              return api(`/api/threads/${action.threadId ?? host.threadId}/respond`, {
                 method: "POST",
-                body: JSON.stringify({ text: action.answer, threadId: action.threadId }),
+                body: JSON.stringify({
+                  requestId: card.requestId,
+                  ...response,
+                  reviewedSha256: response.behavior === "allow" && card.skillRequest
+                    ? reviewedSkillSha256(card.skillRequest)
+                    : undefined,
+                }),
               });
             })
             .catch((error) => {
-              const pane = action.groupId ? groupChat(action.groupId, action.threadId) : botChat(action.botId, action.threadId ?? host?.threadId);
-              if (card?.requestId) failIn(pane)(error);
-              else reportError(error, pane);
+              const pane = action.groupId ? groupChat(action.groupId, action.threadId) : botChat(action.botId, action.threadId ?? host.threadId);
+              failIn(pane)(error);
             });
           break;
         }
