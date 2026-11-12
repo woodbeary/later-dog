@@ -759,6 +759,7 @@ import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
 import { createCompactionLive, fileCompactionLedger } from "./laterdog/compaction-live.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
+import { createStallWatch, STALL_LOOKBACK_MS, type StallFacts } from "./laterdog/stall-watch.ts";
 import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
 import { createPickupStops, keepsNewerTurn } from "./laterdog/pickup-stops.ts";
 import type { TakeoverRequestCardData } from "../shared/takeover.ts";
@@ -3562,13 +3563,15 @@ function delegatedNeedsYou(threadId: string): boolean {
 const workSignals = new WorkSignals();
 let exchangeLookup: ExchangeLookup | undefined;
 let waitingOnPerson = (_threadId: string): boolean => false;
+let stallFacts = (_threadId: string): StallFacts => ({});
 function chatWork(threadId: string, busy: boolean, activity: BotActivity | undefined, waitingOn: WireWaitingOn[] | undefined, selection: ModelSelection): WorkState {
   const asking = activity === "waiting-on-you" || delegatedNeedsYou(threadId) || waitingOnPerson(threadId);
   const until = limitHold.heldUntil(threadId);
   const usageWait = until !== undefined || (!busy && usageStranded(threadId));
+  const stall = stallFacts(threadId);
   return workState({
-    busy, waitingOn, ...workSignals.facts(threadId),
-    ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : {}),
+    busy, waitingOn, ...workSignals.facts(threadId), ...(stall.stopped ? { stopped: stall.stopped } : {}),
+    ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : {}),
     ...(usageWait ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, ...(until !== undefined ? { until } : {}) } } : {}),
   });
 }
@@ -5669,6 +5672,44 @@ bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "turn.completed") pickupStops.settled(event.threadId);
 });
+function teammateCanRun(botId: string, threadId: string): boolean {
+  const bot = store.bot(botId);
+  if (!bot) return true;
+  if (store.taskByThread(botId, threadId)?.activity === "dead") return false;
+  const on = onBatteryAccount(store.projectBotForTask(botId, threadId) ?? bot, threadId).modelSelection.instanceId;
+  const account = batteryAccounts().find((candidate) => candidate.instanceId === on);
+  return !account || (account.enabled && account.signedIn !== false);
+}
+const stallWatch = createStallWatch({
+  chats: () => store.bots.flatMap((bot) => store.tasks(bot.id)
+    .filter((task) => !task.archivedAt && !store.groupByThread(task.threadId) && (task.updatedAt ?? task.createdAt) > Date.now() - STALL_LOOKBACK_MS)
+    .map((task) => ({ botId: bot.id, threadId: task.threadId }))),
+  look: (botId, threadId) => {
+    const bot = store.bot(botId);
+    if (!bot) return null;
+    const now = Date.now();
+    return {
+      name: bot.name, path: store.messagesTail(threadId, 160).messages, now,
+      busy: threadBusy(botId, threadId) || watchdog.watching(threadId) || directTurnDispatchClaims.has(threadId),
+      requestOpen: watchdog.snapshot(threadId)?.waitingOnHuman === true || delegatedNeedsYou(threadId),
+      helpers: helpersWorkingIn(threadId),
+      usageWait: threadId in limitHold.waiting() || batteryContinuationPending(threadId),
+      queued: hasQueuedSteeredMessages(botId, threadId) || pendingComputerResumes.has(threadId),
+      stoppedByPerson: pickupStops.stopped(threadId),
+      mayContinue: restartPickupHost.dog(threadId) !== null && restartPickupHost.owner(threadId) && !routineRunForTurn(threadId) && !routines?.runDuring(threadId, now),
+      teammates: roomHandoffs.outstandingDirect(threadId).map((node) => {
+        const mate = store.bot(node.botId);
+        const working = node.status === "running" || Boolean(mate && store.tasks(mate.id).some((task) => threadBusy(mate.id, task.threadId)));
+        return { id: node.botId, name: mate?.name ?? "A teammate", working, canRun: teammateCanRun(node.botId, node.threadId) };
+      }),
+    };
+  },
+  append: (threadId, message) => store.appendMessage(threadId, message),
+  start: startContinuation,
+  changed: announceHelpersChanged,
+}, { everyMs: Math.max(1_000, Number(process.env.LATERDOG_STALL_WATCH_MS) || 60_000), quietMs: Math.max(1_000, Number(process.env.LATERDOG_STALL_QUIET_MS) || 3 * 60_000) });
+stallFacts = (threadId) => stallWatch.facts(threadId);
+stallWatch.start();
 bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "turn.started") statusLines.begin(event.threadId);
