@@ -565,7 +565,8 @@ import {
   selectBundledSkills,
   setLibrarySkillReviewState,
 } from "./skill-library.ts";
-import type { SkillsLibrarySkillWire } from "../shared/wire.ts";
+import type { BotActivity, SkillsLibrarySkillWire } from "../shared/wire.ts";
+import type { WorkState } from "../shared/work-state.ts";
 import { runSkillsLibraryBootSweep } from "./skills-library-migration.ts";
 import { createBotPackageExport, createLibraryPackageExport, createTeamPackageExport, picture as sharedPicture, TeamExportError, type ExportablePackageSkill, type TeamExportSkip } from "./package-export.ts";
 import { importPackageDocument, importTeamManifest, PackageImportError, type PackageImportDeps, type PackageImportResult } from "./package-import.ts";
@@ -730,6 +731,8 @@ import {
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold, withWaitingRuns } from "./laterdog/limit-hold.ts";
+import { openAsk, workState } from "./laterdog/work-state.ts";
+import { WorkSignals } from "./laterdog/work-signals.ts";
 import { carryOnAfterRestart } from "./laterdog/carry-on-restart.ts";
 import { runningByAccount } from "./laterdog/account-spread.ts";
 import { latestTurnAnswer, lookedAtImage, postTurnImage } from "./laterdog/turn-images.ts";
@@ -1062,9 +1065,19 @@ const limitHold = new LimitHold({
     else pickUpAfterReset(threadId);
     drainQueuedSends();
   },
-  onChange: () => broadcast({ kind: "config", ...configStatus() }),
+  onChange: () => {
+    broadcast({ kind: "config", ...configStatus() });
+    announceHeldThreads();
+  },
   file: join(DATA_DIR, "limit-hold.json"),
 });
+
+let announcedHeld = new Set<string>();
+function announceHeldThreads(): void {
+  const held = new Set(Object.keys(limitHold.waiting()));
+  for (const threadId of new Set([...announcedHeld, ...held])) announceHelpersChanged(threadId);
+  announcedHeld = held;
+}
 
 const turnTriggers = new Map<string, UsageTrigger>();
 function messageSender(auth: RequestAuth): ResolvedSender | undefined {
@@ -2770,6 +2783,7 @@ async function stopThreadTurn(botId: string, threadId: string, by: "person" | "a
     return;
   }
   if (by === "person") handoffs.stoppedByPerson(threadId);
+  if (by === "person") workSignals.stopRequested(threadId);
   await interruptDirectThread(botId, threadId, { by });
 }
 
@@ -3538,12 +3552,24 @@ function delegatedNeedsYou(threadId: string): boolean {
   if (!delegatedWaiting.has(threadId)) delegatedWaiting.set(threadId, store.messagesFor(threadId).some(message => message.needsYou?.status === "waiting"));
   return delegatedWaiting.get(threadId)!;
 }
+const workSignals = new WorkSignals();
+let waitingOnPerson = (_threadId: string): boolean => false;
+function chatWork(threadId: string, busy: boolean, activity: BotActivity | undefined, waitingOn: WireWaitingOn[] | undefined, selection: ModelSelection): WorkState {
+  const asking = activity === "waiting-on-you" || delegatedNeedsYou(threadId) || waitingOnPerson(threadId);
+  const until = limitHold.heldUntil(threadId);
+  return workState({
+    busy, waitingOn, ...workSignals.facts(threadId),
+    ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : {}),
+    ...(until !== undefined ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, until } } : {}),
+  });
+}
 const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
   const { snoozedUntil, ...base } = toWireTask(task, botModel, store.bots);
   const statusLine = liveStatusLine(task.threadId);
   const waiting = activeCoordinationForThread(task.threadId) && !task.busy;
   const helpers = task.busy ? 0 : helpersWorkingIn(task.threadId);
   const coordinated = { ...base, ...(delegatedNeedsYou(task.threadId) ? { activity: "waiting-on-you" as const } : {}), waitingForTeammates: waiting, ...(waiting ? { waitingOn: teammatesAwaited(task.threadId) } : {}), ...(helpers ? { helpersWorking: helpers } : {}), ...(statusLine ? { statusLine } : {}) };
+  coordinated.work = chatWork(task.threadId, Boolean(task.busy), coordinated.activity, coordinated.waitingOn, base.modelSelection ?? botModel);
   const asleep = snoozedUntil === 0 || (snoozedUntil !== undefined && snoozedUntil > Date.now());
   return asleep ? { ...coordinated, snoozedUntil } : coordinated;
 };
@@ -3554,8 +3580,12 @@ const wireBot = (bot: BotRecord): WireBot => {
     ? { ...rest, approvalMode: "ask" as const, autoApprove: false }
     : rest;
   const waiting = activeCoordinationForThread(bot.threadId) && !threadBusy(bot.id, bot.threadId);
-  const helpers = threadBusy(bot.id, bot.threadId) ? 0 : helpersWorkingIn(bot.threadId);
-  return { ...visible, ...(delegatedNeedsYou(bot.threadId) ? { activity: "waiting-on-you" as const } : {}), waitingForTeammates: waiting, ...(waiting ? { waitingOn: teammatesAwaited(bot.threadId) } : {}), ...(helpers ? { helpersWorking: helpers } : {}),
+  const busy = threadBusy(bot.id, bot.threadId);
+  const helpers = busy ? 0 : helpersWorkingIn(bot.threadId);
+  const activity = delegatedNeedsYou(bot.threadId) ? "waiting-on-you" as const : visible.activity;
+  const waitingOn = waiting ? teammatesAwaited(bot.threadId) : undefined;
+  return { ...visible, ...(activity ? { activity } : {}), waitingForTeammates: waiting, ...(waitingOn ? { waitingOn } : {}), ...(helpers ? { helpersWorking: helpers } : {}),
+    work: chatWork(bot.threadId, busy, activity, waitingOn, bot.modelSelection),
     avatarUrl: visible.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
 
@@ -4639,6 +4669,7 @@ teammatesAwaited = threadId => waitingOn(roomHandoffs.outstandingDirect(threadId
   if (task?.activity === "waiting-on-you") return `${store.bot(node.botId)?.name ?? "A teammate"} has a question for you`;
   return personAsk((node as { result?: string }).result, cfg.profile?.name);
 });
+
 const groupUsageReader = new GroupUsageReader(DATA_DIR);
 try { groupUsageReader.refresh(); } catch {}
 function publicGroupState(record: GroupRecord): WireGroup {
@@ -5391,6 +5422,7 @@ const watchdog = new TurnWatchdog({
     const routineRun = routineRunForTurn(turn.threadId);
     void runningTurnInstance(bot, turn.threadId)?.adapter.interruptTurn(turn.threadId).catch(() => {});
     const detail = turnStallDetail(turn, TURN_STALL_MS, watchdog.toolOverran(turn));
+    if (workSignals.stalled(turn.threadId)) announceHelpersChanged(turn.threadId);
     if (routineRun?.target === "bot") {
       routines?.failThread(turn.threadId, detail);
     }
@@ -5441,6 +5473,8 @@ const watchdog = new TurnWatchdog({
     release.unref?.();
   },
 });
+waitingOnPerson = threadId => watchdog.snapshot(threadId)?.waitingOnHuman === true;
+
 watchdog.start();
 
 bus.subscribe((event: RuntimeEvent) => {
@@ -5460,8 +5494,8 @@ bus.subscribe((event: RuntimeEvent) => {
   }
   if (event.type === "turn.completed") helperBoard.settle(event.threadId);
   watchdog.observeTool(event);
-  if (event.type === "request.opened") watchdog.setWaitingOnHuman(event.threadId, true);
-  else if (event.type === "request.resolved") watchdog.setWaitingOnHuman(event.threadId, false);
+  if (event.type === "request.opened") { watchdog.setWaitingOnHuman(event.threadId, true); announceHelpersChanged(event.threadId); }
+  else if (event.type === "request.resolved") { watchdog.setWaitingOnHuman(event.threadId, false); announceHelpersChanged(event.threadId); }
   else if (event.type === "turn.wait_started") watchdog.setWaitingOnComputer(event.threadId, true);
   else if (event.type === "turn.wait_ended") watchdog.setWaitingOnComputer(event.threadId, false);
   else if (event.type === "turn.completed") {
@@ -6867,6 +6901,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
   }
   if (!privateImageEvent && !privateTapbackText) broadcast({ kind: "runtime", event: publicEvent });
   executionEvidence.observe(event);
+  if (workSignals.observe(event)) announceHelpersChanged(event.threadId);
   const movingOn = movingToPick(event);
   const carryingOn = automaticallyCarriesOn(event) || movingOn;
   const routineRun = privateImageEvent ? null : carryingOn ? routineRunForTurn(event.threadId) : (routines?.handleRuntimeEvent(event) ?? null);

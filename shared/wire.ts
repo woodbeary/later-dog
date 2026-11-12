@@ -19,6 +19,7 @@ import type { RoutineRunCardData } from "./routine-run.ts";
 import type { RuntimeEvent } from "./runtime-events.ts";
 import type { Notification } from "./notification.ts";
 import type { Routine, RoutineRun } from "./routines.ts";
+import type { WorkState } from "./work-state.ts";
 import type { WebhookAttempt, WebhookTrigger } from "./webhooks.ts";
 
 export const EFFORT_LEVELS = ["none", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
@@ -114,6 +115,7 @@ export interface WireTask {
   turnStartedAt?: number;
   workingStartedAt?: number;
   statusLine?: string;
+  work?: WorkState;
   surface?: Surface;
   surfaceAuto?: true;
   usage?: TaskUsage;
@@ -215,6 +217,7 @@ export interface WireBot {
   installedPackage?: InstalledPackageMetadata;
   busy?: boolean;
   activity?: BotActivity;
+  work?: WorkState;
   createdAt: number;
   visibility?: BotVisibility;
 }
