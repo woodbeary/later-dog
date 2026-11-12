@@ -731,6 +731,7 @@ import {
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold, withWaitingRuns } from "./laterdog/limit-hold.ts";
+import { createUsageWatch } from "./laterdog/usage-watch.ts";
 import { openAsk, workState } from "./laterdog/work-state.ts";
 import { exchangeIdOf, exchangeThreads, withExchange, type ExchangeLookup } from "./laterdog/room-exchange.ts";
 import { roomWorkFor } from "./laterdog/room-work.ts";
@@ -3564,10 +3565,11 @@ let waitingOnPerson = (_threadId: string): boolean => false;
 function chatWork(threadId: string, busy: boolean, activity: BotActivity | undefined, waitingOn: WireWaitingOn[] | undefined, selection: ModelSelection): WorkState {
   const asking = activity === "waiting-on-you" || delegatedNeedsYou(threadId) || waitingOnPerson(threadId);
   const until = limitHold.heldUntil(threadId);
+  const usageWait = until !== undefined || (!busy && usageStranded(threadId));
   return workState({
     busy, waitingOn, ...workSignals.facts(threadId),
     ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : {}),
-    ...(until !== undefined ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, until } } : {}),
+    ...(usageWait ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, ...(until !== undefined ? { until } : {}) } } : {}),
   });
 }
 const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
@@ -6527,6 +6529,26 @@ if (CLOUD_HOME || process.env.LATERDOG_REVIVE_DOGS === "1") {
   setTimeout(() => reviveRunnableDogs(), 30_000).unref();
   setInterval(() => reviveRunnableDogs(), 60_000).unref();
 }
+
+function usageStranded(threadId: string): boolean {
+  const owner = store.botByThread(threadId);
+  return Boolean(owner) && batteryContinuationPending(threadId) && !(threadId in limitHold.waiting()) && !threadBusy(owner!.id, threadId);
+}
+const usageWatch = createUsageWatch({
+  held: () => Object.keys(limitHold.waiting()),
+  stranded: () => accountBattery.pendingThreads().filter(usageStranded),
+  refresh: async () => {
+    if (hostedModels) return;
+    await loadPlanUsage({ accounts: planAccountsFromInstances(instanceConfigs(cfg)).filter((account) => account.driver !== "grok"), refresh: true });
+    accountBattery.noteReadings(batteryAccounts());
+  },
+  recheck: () => limitHold.recheck(),
+  wake: (threadId) => {
+    limitHold.hold(threadId);
+    if (!limitHold.holds(threadId)) pickUpAfterReset(threadId);
+  },
+}, { everyMs: Math.max(1_000, Number(process.env.LATERDOG_USAGE_WATCH_MS) || 2 * 60_000) });
+usageWatch.start();
 
 function automaticallyCarriesOn(event: RuntimeEvent): boolean {
   if (event.type !== "turn.completed" || !accountBattery.enabled || directRequestOwners.get(event.threadId)?.stopped) return false;
