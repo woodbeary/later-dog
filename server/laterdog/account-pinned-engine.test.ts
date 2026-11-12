@@ -16,8 +16,7 @@ const ON_DANIEL = { instanceId: "daniel", model: "claude-fable-5-2" };
 
 function setup() {
   const battery = new AccountBattery({
-    config: () => CONFIG, accounts: () => ACCOUNTS, now: () => NOW, running: () => ({}), defaultAccount: () => "daniel",
-    ownThread: () => true, pinnedThread: (threadId) => threadId === "atelier",
+    config: () => CONFIG, accounts: () => ACCOUNTS, now: () => NOW,
   });
   battery.markExhausted("daniel", { resetsAt: at(3 * HOUR) });
   battery.markExhausted("work", { resetsAt: at(HOUR) });
@@ -52,24 +51,25 @@ describe("a dog pinned to an account when every account of its engine is resting
 });
 
 describe("a dog that is not pinned", () => {
-  it("keeps going on another engine when its own is resting", () => {
+  it("stays on its engine too, and waits for the soonest reset there", () => {
     const battery = setup();
-    expect(battery.route(ON_DANIEL, ACCOUNTS, "other").instanceId).toBe("codex");
-    expect(battery.readyAt(ON_DANIEL, ACCOUNTS, "other")).toBeUndefined();
+    expect(battery.route(ON_DANIEL, ACCOUNTS, "other")).toEqual(ON_DANIEL);
+    expect(battery.readyAt(ON_DANIEL, ACCOUNTS, "other")).toBe(at(HOUR));
     battery.trackTurn("other", { generation: "g1", instanceId: "daniel", rerun: vi.fn(async () => undefined) });
-    expect(battery.nextAccount({ threadId: "other", generation: "g1", stopReason: "usage_limit", ranOn: "daniel", selection: ON_DANIEL, accounts: ACCOUNTS })?.to.instanceId).toBe("codex");
+    expect(battery.nextAccount({ threadId: "other", generation: "g1", stopReason: "usage_limit", ranOn: "daniel", selection: ON_DANIEL, accounts: ACCOUNTS })).toBeNull();
   });
 });
 
 describe("continuing a pinned dog on another account", () => {
-  const check = (to: string, extra: { pinned?: boolean; byHand?: boolean } = {}) => checkContinueOn({
+  const check = (to: string, extra: { byHand?: boolean } = {}) => checkContinueOn({
     accounts: ACCOUNTS, selection: ON_DANIEL, from: "daniel", to, resting: () => false, ...extra,
   });
 
   it("refuses another engine unless you picked it by hand", () => {
-    expect(check("codex", { pinned: true })).toEqual({ ok: false, status: 409, error: "This dog stays on Claude." });
-    expect(check("codex", { pinned: true, byHand: true }).ok).toBe(true);
-    expect(check("work", { pinned: true }).ok).toBe(true);
-    expect(check("codex").ok).toBe(true);
+    expect(check("codex")).toEqual({ ok: false, status: 409, error: "This dog stays on Claude." });
+    expect(check("codex", { byHand: true }).ok).toBe(true);
+    expect(check("work").ok).toBe(true);
+    expect(check("codex")).toEqual({ ok: false, status: 409, error: "This dog stays on Claude." });
+    expect(check("codex", { byHand: true }).ok).toBe(true);
   });
 });

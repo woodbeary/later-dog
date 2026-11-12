@@ -21,14 +21,13 @@ const reading = (id: string, fiveHour: number, weekly: number): PlanProviderRow 
   fiveHour: window(fiveHour, at(2 * HOUR)), weekly: window(weekly, at(72 * HOUR)), extra: [], models: [],
 });
 
-function setup(adam: PlanProviderRow, pinned = false) {
+function setup(adam: PlanProviderRow) {
   let now = NOW;
   const readings: Record<string, PlanProviderRow> = {
     home: reading("home", 70, 20), adam, beth: reading("beth", 50, 10), cara: reading("cara", 10, 5),
   };
   const battery = new AccountBattery({
     config: () => ON, accounts: () => ACCOUNTS, now: () => now, usage: (id) => readings[id],
-    running: () => ({}), defaultAccount: () => "home", ownThread: () => true, pinnedThread: (threadId) => pinned && threadId === "pinned-dog",
   });
   return { battery, advance: (ms: number) => { now += ms; } };
 }
@@ -54,9 +53,9 @@ describe("an account at 100% of a usage window", () => {
     expect(battery.route({ instanceId: "home", model: "claude-opus-5" }, ACCOUNTS).instanceId).toBe("home");
   });
 
-  it("moves a dog off a full account in order, and ranks room after a real failure", () => {
-    const { battery } = setup(reading("adam", 100, 40), true);
-    expect(battery.route(ON_ADAM, ACCOUNTS, "pinned-dog").instanceId).toBe("home");
+  it("moves a dog off a full account to the account with the most left, before and after a real failure", () => {
+    const { battery } = setup(reading("adam", 100, 40));
+    expect(battery.route(ON_ADAM, ACCOUNTS, "pinned-dog").instanceId).toBe("cara");
     battery.trackTurn("pinned-dog", { generation: "g1", instanceId: "adam", rerun: vi.fn(async () => undefined) });
     const moved = battery.nextAccount({ threadId: "pinned-dog", generation: "g1", stopReason: "usage_limit", ranOn: "adam", selection: ON_ADAM, accounts: ACCOUNTS });
     expect(moved?.to.instanceId).toBe("cara");
@@ -64,19 +63,19 @@ describe("an account at 100% of a usage window", () => {
   });
 
   it("is usable again once the reset time passes", () => {
-    const { battery, advance } = setup(reading("adam", 100, 40), true);
-    expect(battery.route(ON_ADAM, ACCOUNTS, "pinned-dog").instanceId).toBe("home");
+    const { battery, advance } = setup(reading("adam", 100, 40));
+    expect(battery.route(ON_ADAM, ACCOUNTS, "pinned-dog").instanceId).toBe("cara");
     advance(2 * HOUR + 1);
     expect(battery.restOf(claude("adam"), ACCOUNTS)).toBeUndefined();
     expect(battery.status(ACCOUNTS).resting.adam).toBeUndefined();
     expect(battery.route(ON_ADAM, ACCOUNTS, "pinned-dog")).toBe(ON_ADAM);
   });
 
-  it("chooses the most room when a fallback runs out and the pinned account has recovered", () => {
-    const { battery } = setup(reading("adam", 80, 40), true);
+  it("goes back to the chosen account when a fallback runs out and the chosen one can run again", () => {
+    const { battery } = setup(reading("adam", 80, 40));
     battery.trackTurn("pinned-dog", { generation: "g1", instanceId: "beth", rerun: vi.fn(async () => undefined) });
     const moved = battery.nextAccount({ threadId: "pinned-dog", generation: "g1", stopReason: "usage_limit", ranOn: "beth", selection: ON_ADAM, accounts: ACCOUNTS });
-    expect(moved?.to.instanceId).toBe("cara");
+    expect(moved?.to.instanceId).toBe("adam");
   });
 
   it("reports the same used-up state to the usage sheet and the account_usage tool", () => {
@@ -145,12 +144,11 @@ describe("a Codex account past its plan window that still has paid credits", () 
     expect(notices).toEqual([undefined, undefined, undefined, undefined]);
   });
 
-  it("still moves to Claude, says why, and keeps the saved choice, when the window is full and there are no credits", () => {
+  it("waits on ChatGPT instead of moving to Claude when the window is full and there are no credits", () => {
     const empty = batteryWith(() => weeklyFull());
     expect(usedUpRest(weeklyFull(), NOW)?.kind).toBe("weekly");
-    const routed = empty.route(chosen, accounts, "clover");
-    expect(routed.instanceId).toBe("anthony");
-    expect(empty.arrive("clover", chosen, routed.instanceId, accounts)).toBe("Codex is recharging. Running on Claude.");
-    expect(chosen).toEqual({ instanceId: "codex", model: "gpt-6.1-sol", effort: "medium" });
-  });
+    expect(empty.route(chosen, accounts, "clover")).toEqual(chosen);
+    expect(empty.decide(chosen, accounts, "clover")).toMatchObject({ kind: "waiting", blocked: "limit" });
+    expect(empty.readyAt(chosen, accounts, "clover")).toBe(at(96 * HOUR));
+  });;
 });

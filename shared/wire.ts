@@ -40,6 +40,13 @@ export interface ModelSelection {
   fast?: boolean;
 }
 
+export interface WireAccountRoute {
+  from: string;
+  on: string;
+  model: string;
+  next?: true;
+}
+
 export type CloudBackend = "box" | "vps";
 
 export type Surface = "cloud" | "vm" | "local" | "browser";

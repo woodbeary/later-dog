@@ -4,7 +4,8 @@ import { writeFileAtomic } from "../atomic.ts";
 import type { PlanProviderRow } from "../plan-usage.ts";
 import type { ModelSelection } from "../../shared/wire.ts";
 import { resetInstant } from "./usage-limit.ts";
-import { NEARLY_EMPTY_PERCENT, homeAccount, leastLoaded, roomTier } from "./account-spread.ts";
+import { NEARLY_EMPTY_PERCENT, roomTier } from "./account-spread.ts";
+import { choiceReadyAt, decideAccount, shownRoute, type AccountChoice, type AccountChoiceInput, type Ran, type ShownRoute } from "./account-choice.ts";
 
 export { NEARLY_EMPTY_PERCENT };
 
@@ -18,6 +19,7 @@ export const USAGE_REFRESH_WAIT_MS = 10_000;
 const MAX_AWAY = 500;
 const MAX_TURNS = 2_000;
 const MAX_PLACED = 2_000;
+const MAX_RAN = 500;
 
 export const CONTINUE_AFTER_SWITCH =
   "[later.dog note, not typed by the person: this conversation moved to another account partway through your last turn. " +
@@ -89,7 +91,7 @@ export interface BatteryStatus {
   order: Record<string, string[]>;
   sequence: string[];
   resting: Record<string, Rest & { sharedWith?: string }>;
-  routed: Record<string, { from: string; on: string }>;
+  routed: Record<string, ShownRoute>;
 }
 
 const restSchema = z.object({
@@ -106,10 +108,11 @@ const stateSchema = z.object({
     from: z.string(), at: z.string(), to: z.string().optional(), ranOut: z.string().optional(), pick: z.string().optional(), on: z.string().optional(),
   })).default({}),
   placed: z.record(z.string(), z.object({ on: z.string(), at: z.string(), from: z.string().optional() })).default({}),
+  ran: z.record(z.string(), z.object({ on: z.string(), model: z.string(), at: z.string() })).default({}),
 });
 type BatteryState = z.output<typeof stateSchema>;
 
-const emptyState = (): BatteryState => ({ version: 1, resting: {}, away: {}, placed: {} });
+const emptyState = (): BatteryState => ({ version: 1, resting: {}, away: {}, placed: {}, ran: {} });
 
 function readState(file: string | undefined): BatteryState {
   if (!file || !existsSync(file)) return emptyState();
@@ -167,8 +170,6 @@ interface PickInput {
   now: number;
   usage?: PlanReading;
   preferred?: readonly ModelSelection[];
-  roomiest?: boolean;
-  sameEngine?: boolean;
 }
 
 export function percentLeft(row: PlanProviderRow | undefined, now: number): number | undefined {
@@ -315,31 +316,16 @@ export function crossEngineNotice(
   return `${engineName(from.driverKind)} is recharging. ${verb} on ${engineName(to.driverKind)}.`;
 }
 
-function canTake(account: BatteryAccount | undefined, input: Omit<PickInput, "config">, listed: boolean): account is BatteryAccount {
-  if (!account?.eligible || !account.enabled || account.signedIn === false) return false;
-  if (account.signedIn !== true && account.instanceId !== input.selection.instanceId) return false;
-  const own = input.accounts.find((candidate) => candidate.instanceId === input.selection.instanceId);
-  if (account.driverKind === own?.driverKind && listed && !account.models.includes(input.selection.model)) return false;
-  if (account.driverKind !== own?.driverKind && !account.defaultModel && !account.models.length) return false;
-  return !activeRest(account, selectionOnAccount(input.selection, account, input.accounts, input.preferred).model, input.accounts, input.resting, input.now);
-}
-
 export function pickAccount(input: PickInput): BatteryAccount | undefined {
   const { config, selection, accounts } = input;
   if (!batteryEnabled(config, accounts)) return undefined;
   const own = accounts.find((account) => account.instanceId === selection.instanceId);
   if (!own?.eligible) return undefined;
-  const nearlyEmpty = (id: string) => roomTier(percentLeft(input.usage?.(id), input.now)) === 2;
-  const sequence = batterySequence(input).filter((id) => id !== own.instanceId);
-  const ranked = input.roomiest ? rankOrder({ all: [own.instanceId, ...sequence] }, input).all! : [own.instanceId, ...sequence.filter((id) => !nearlyEmpty(id)), ...sequence.filter(nearlyEmpty)];
-  const sameEngine = (id: string) => accounts.find((account) => account.instanceId === id)?.driverKind === own.driverKind;
-  const order = input.sameEngine ? ranked.filter(sameEngine) : [...ranked.filter(sameEngine), ...ranked.filter((id) => !sameEngine(id))];
-  const listed = own.models.includes(selection.model);
-  for (const id of order) {
-    const account = accounts.find((candidate) => candidate.instanceId === id);
-    if (canTake(account, input, listed)) return account;
-  }
-  return undefined;
+  const choice = decideAccount({
+    chosen: selection, accounts, keepGoing: true, resting: input.resting, now: input.now, order: batterySequence(input),
+    ...(input.usage ? { usage: input.usage } : {}), ...(input.preferred ? { preferred: input.preferred } : {}),
+  });
+  return choice.kind === "waiting" ? undefined : accounts.find((account) => account.instanceId === choice.run.instanceId);
 }
 
 export function routeSelection(input: Parameters<typeof pickAccount>[0]): ModelSelection {
@@ -471,10 +457,6 @@ export interface AccountBatteryOptions {
   usage?: PlanReading;
   usageAt?: (instanceId: string) => number | undefined;
   refreshUsage?: () => Promise<void>;
-  running?: () => Readonly<Record<string, number>>;
-  defaultAccount?: () => string | undefined;
-  ownThread?: (threadId: string) => boolean;
-  pinnedThread?: (threadId: string) => boolean;
   onChange?: () => void;
 }
 
@@ -510,54 +492,24 @@ export class AccountBattery {
 
   route(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): ModelSelection {
     this.dropDisprovedRests();
+    return this.decide(selection, accounts, threadId).run;
+  }
+
+  decide(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): AccountChoice {
+    return decideAccount(this.choiceInput(selection, accounts, threadId));
+  }
+
+  private choiceInput(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId: string | undefined): AccountChoiceInput {
     const preferred = this.preferredFor(threadId);
-    const chosen = threadId ? this.chosen(threadId, selection, accounts) : undefined;
-    if (chosen) return selectionOnAccount(selection, accounts.find((account) => account.instanceId === chosen)!, accounts, preferred);
-    const input = { selection, accounts, resting: this.resting(accounts), now: this.now(), usage: this.options.usage, ...(preferred ? { preferred } : {}) };
-    const own = accounts.find((account) => account.instanceId === selection.instanceId);
-    if (!own?.eligible) return selection;
-    const spread = threadId ? this.spreadTo(threadId, own, input) : undefined;
-    if (spread && spread.instanceId !== own.instanceId) return selectionOnAccount(selection, spread, accounts, preferred);
-    if (spread || canTake(own, input, false)) return selection;
-    return routeSelection({ config: this.options.config(), ...input, ...(this.keepsEngine(threadId) ? { sameEngine: true } : {}) });
-  }
-
-  keepsEngine(threadId: string | undefined): boolean {
-    return Boolean(threadId && this.options.pinnedThread?.(threadId) === true);
-  }
-
-  private pinned(own: BatteryAccount, accounts: readonly BatteryAccount[]): boolean {
-    const order = batteryOrder(this.options.config(), accounts)[own.driverKind] ?? [];
-    return own.instanceId !== homeAccount(order, this.options.defaultAccount?.());
-  }
-
-  private spreadTo(threadId: string, own: BatteryAccount, input: Omit<PickInput, "config">): BatteryAccount | undefined {
-    const running = this.options.running?.();
-    if (!running || !this.enabled || this.options.ownThread?.(threadId) === false || this.pinned(own, input.accounts) || this.options.pinnedThread?.(threadId) === true) return undefined;
-    const order = batteryOrder(this.options.config(), input.accounts)[own.driverKind] ?? [];
-    const listed = own.models.includes(input.selection.model);
-    const candidates = input.accounts.filter((account) => account.driverKind === own.driverKind && order.includes(account.instanceId) &&
-      canTake(account, input, listed));
-    const away = this.state.away[threadId];
-    const placed = this.state.placed[threadId];
-    const kept = (placed?.from === own.instanceId ? candidates.find((account) => account.instanceId === placed.on) : undefined) ??
-      (away ? candidates.find((account) => account === own) ?? candidates.find((account) => account.instanceId === away.on) : undefined);
-    if (kept) return kept;
-    const load = (account: BatteryAccount) => input.accounts
-      .filter((other) => other.instanceId === account.instanceId || sameLogin(account, other))
-      .reduce((sum, other) => sum + (running[other.instanceId] ?? 0), 0);
-    const pick = leastLoaded(candidates.map((account) => ({
-      instanceId: account.instanceId, own: account === own, running: load(account),
-      left: percentLeft(input.usage?.(account.instanceId), input.now), index: order.indexOf(account.instanceId),
-    })));
-    return candidates.find((account) => account.instanceId === pick);
-  }
-
-  private spreadMove(selection: ModelSelection, ranOn: string, accounts: readonly BatteryAccount[]): boolean {
-    const own = accounts.find((account) => account.instanceId === selection.instanceId);
-    const to = accounts.find((account) => account.instanceId === ranOn);
-    if (!own?.eligible || !to || to.driverKind !== own.driverKind || !this.options.running || this.pinned(own, accounts)) return false;
-    return canTake(own, { selection, accounts, resting: this.resting(accounts), now: this.now() }, false);
+    const handPicked = threadId ? this.chosen(threadId, selection, accounts) : undefined;
+    const resting = this.resting(accounts);
+    const current = threadId ? this.state.away[threadId]?.on ?? this.state.ran[threadId]?.on : undefined;
+    return {
+      chosen: selection, accounts, keepGoing: this.enabled, resting, now: this.now(),
+      order: batterySequence({ config: this.options.config(), accounts, resting, now: this.now() }),
+      ...(this.options.usage ? { usage: this.options.usage } : {}), ...(current ? { current } : {}),
+      ...(handPicked ? { handPicked } : {}), ...(preferred ? { preferred } : {}),
+    };
   }
 
   choose(threadId: string, ranOut: string, to: string, pick: string): void {
@@ -569,16 +521,9 @@ export class AccountBattery {
   chosen(threadId: string, selection: ModelSelection, accounts: readonly BatteryAccount[]): string | undefined {
     const away = this.state.away[threadId];
     if (!away?.to || !away.ranOut || (away.pick !== undefined && away.pick !== selection.instanceId)) return undefined;
-    const find = (instanceId: string) => accounts.find((account) => account.instanceId === instanceId);
-    const own = find(selection.instanceId);
-    const ranOut = find(away.ranOut);
-    const to = find(away.to);
-    if (!own?.eligible || !ranOut || !to?.eligible || !to.enabled || to.signedIn !== true) return undefined;
-    if (to.driverKind === own.driverKind && own.models.includes(selection.model) && !to.models.includes(selection.model)) return undefined;
-    const preferred = this.preferredFor(threadId);
-    if (!this.restOf(ranOut, accounts, selectionOnAccount(selection, ranOut, accounts, preferred).model) ||
-        this.restOf(to, accounts, selectionOnAccount(selection, to, accounts, preferred).model)) return undefined;
-    return to.instanceId;
+    const ranOut = accounts.find((account) => account.instanceId === away.ranOut);
+    if (!ranOut || !this.restOf(ranOut, accounts, selectionOnAccount(selection, ranOut, accounts, this.preferredFor(threadId)).model)) return undefined;
+    return away.to;
   }
 
   markExhausted(instanceId: string, quota: Quota = {}): Rest {
@@ -627,6 +572,11 @@ export class AccountBattery {
       delete this.state.placed[threadId];
       changed = true;
     }
+    for (const [threadId, ran] of Object.entries(this.state.ran)) {
+      if (ran.on !== instanceId) continue;
+      delete this.state.ran[threadId];
+      changed = true;
+    }
     for (const [threadId, away] of Object.entries(this.state.away)) {
       if (away.from === instanceId) delete this.state.away[threadId];
       else if (away.to === instanceId || away.ranOut === instanceId || away.on === instanceId) {
@@ -654,29 +604,10 @@ export class AccountBattery {
 
   readyAt(selection: ModelSelection, accounts: readonly BatteryAccount[], threadId?: string): string | undefined {
     this.dropDisprovedRests();
-    const find = (instanceId: string) => accounts.find((account) => account.instanceId === instanceId);
-    const own = find(selection.instanceId);
-    if (!own) return undefined;
-    const away = threadId ? this.state.away[threadId] : undefined;
-    const listed = own.models.includes(selection.model);
-    const keepsEngine = this.keepsEngine(threadId);
-    const sequence = this.enabled && own.eligible ? batterySequence({ config: this.options.config(), accounts, resting: this.resting(accounts), now: this.now() }) : [];
-    const others = [
-      ...(away?.to && (away.pick === undefined || away.pick === own.instanceId) ? [away.to] : []),
-      ...(keepsEngine ? sequence.filter((id) => find(id)?.driverKind === own.driverKind) : sequence),
-    ].map(find).filter((account): account is BatteryAccount => Boolean(account && account !== own && account.eligible && account.enabled &&
-      account.signedIn === true && (account.driverKind !== own.driverKind ? Boolean(account.defaultModel || account.models.length) : !listed || account.models.includes(selection.model))));
-    let soonest = Infinity;
-    const preferred = this.preferredFor(threadId);
-    for (const account of [own, ...others]) {
-      const rest = this.restOf(account, accounts, selectionOnAccount(selection, account, accounts, preferred).model);
-      if (!rest) return undefined;
-      soonest = Math.min(soonest, Date.parse(rest.until));
-    }
-    return new Date(soonest).toISOString();
+    return choiceReadyAt(this.choiceInput(selection, accounts, threadId));
   }
 
-  status(accounts: readonly BatteryAccount[], selectionOf?: (threadId: string) => string | undefined, runningOn: Iterable<readonly [string, string]> = []): BatteryStatus {
+  status(accounts: readonly BatteryAccount[], selectionOf?: (threadId: string) => ModelSelection | undefined, running: Iterable<readonly [string, Ran]> = []): BatteryStatus {
     const config = this.options.config();
     const resting: BatteryStatus["resting"] = {};
     for (const account of accounts) {
@@ -685,21 +616,13 @@ export class AccountBattery {
       if (rest) resting[account.instanceId] = rest;
     }
     const routed: BatteryStatus["routed"] = {};
-    for (const [threadId, away] of Object.entries(this.state.away)) {
-      const from = away.on && away.on !== away.from ? accounts.find((account) => account.instanceId === away.from) : undefined;
-      if (from && (!from.enabled || from.signedIn === false || this.restOf(from, accounts))) routed[threadId] = { from: away.from, on: away.on! };
-    }
     if (selectionOf) {
-      for (const [threadId, placed] of Object.entries(this.state.placed)) {
-        if (routed[threadId] || this.state.away[threadId]) continue;
-        const from = selectionOf(threadId);
-        if (from && from !== placed.on && placed.from === from && accounts.some((account) => account.instanceId === placed.on)) routed[threadId] = { from, on: placed.on };
-      }
-      for (const [threadId, on] of runningOn) {
-        const from = selectionOf(threadId);
-        if (!from) continue;
-        if (from === on) delete routed[threadId];
-        else routed[threadId] = { from, on };
+      const ran = new Map<string, Ran>(Object.entries(this.state.ran).map(([threadId, last]) => [threadId, { on: last.on, model: last.model }]));
+      for (const [threadId, now] of running) ran.set(threadId, now);
+      for (const [threadId, last] of ran) {
+        const chosen = selectionOf(threadId);
+        const shown = chosen ? shownRoute(this.decide(chosen, accounts, threadId), chosen, last) : undefined;
+        if (shown) routed[threadId] = shown;
       }
     }
     const order = effectiveOrder({ config, accounts, resting: this.resting(accounts), now: this.now(), usage: this.options.usage });
@@ -763,10 +686,8 @@ export class AccountBattery {
     if (from && setup) this.needsSetup(from.instanceId);
     else if (from) this.ranOut(from, input.accounts, selectionOnAccount(input.selection, from, input.accounts, preferred).model);
     if (!turn?.rerun || turn.generation !== input.generation) return null;
-    const to = pickAccount({
-      config: this.options.config(), selection: input.selection, accounts: input.accounts, resting: this.resting(input.accounts), now: this.now(), usage: this.options.usage, roomiest: true,
-      ...(preferred ? { preferred } : {}), ...(this.keepsEngine(input.threadId) ? { sameEngine: true } : {}),
-    });
+    const choice = this.decide(input.selection, input.accounts, input.threadId);
+    const to = choice.kind === "waiting" ? undefined : input.accounts.find((account) => account.instanceId === choice.run.instanceId);
     if (!from || !to || to.instanceId === from.instanceId) return null;
     return { turn, from, to, rest: this.restOf(from, input.accounts, input.selection.model), reason: setup ? SETUP_STOP : "usage_limit" };
   }
@@ -822,10 +743,7 @@ export class AccountBattery {
     const find = (instanceId: string) => accounts.find((account) => account.instanceId === instanceId);
     const name = (instanceId: string) => find(instanceId)?.displayName || instanceId;
     const away = this.state.away[threadId];
-    const spread = ranOn !== selection.instanceId && away === undefined &&
-      (this.state.placed[threadId]?.on === ranOn || this.spreadMove(selection, ranOn, accounts));
-    this.place(threadId, ranOn === selection.instanceId || spread ? ranOn : undefined, selection.instanceId);
-    if (spread) return undefined;
+    this.place(threadId, ranOn === selection.instanceId ? ranOn : undefined, selection.instanceId);
     if (ranOn === selection.instanceId) {
       if (this.takeBack(threadId, ranOn)) return backNotice(name(ranOn));
       if (away?.on !== undefined) {
@@ -860,6 +778,18 @@ export class AccountBattery {
       for (const [oldest] of all.slice(0, all.length - MAX_PLACED)) delete this.state.placed[oldest];
     }
     this.persist();
+  }
+
+  noteRan(threadId: string, on: string, model: string): void {
+    const last = this.state.ran[threadId];
+    if (last?.on === on && last.model === model) return;
+    this.state.ran[threadId] = { on, model, at: new Date(this.now()).toISOString() };
+    const all = Object.entries(this.state.ran);
+    if (all.length > MAX_RAN) {
+      all.sort((a, b) => a[1].at.localeCompare(b[1].at));
+      for (const [oldest] of all.slice(0, all.length - MAX_RAN)) delete this.state.ran[oldest];
+    }
+    this.save();
   }
 
   release(threadId: string): void {

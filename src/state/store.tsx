@@ -12,7 +12,7 @@ import {
 import { flushSync } from "react-dom";
 import { StoreChannelContext, createStoreFeed, type StoreChannel, type StoreFeed } from "./store-channel";
 import { followsTaskView, followTaskView, reduceTaskView, type TaskView, type TaskViewAction } from "./task-view";
-import type { BotVisibility, CardAnswerer, CloudBackend, ConnectorToolGrant, EffortLevel, InstalledPackageMetadata, LiveCallState, LiveSettings, ServerFrame, GroupThreadUsage, SteerQueueReason, WireWaitingOn } from "../../shared/wire";
+import type { BotVisibility, CardAnswerer, CloudBackend, ConnectorToolGrant, EffortLevel, InstalledPackageMetadata, LiveCallState, LiveSettings, ServerFrame, GroupThreadUsage, SteerQueueReason, WireAccountRoute, WireWaitingOn } from "../../shared/wire";
 import type { TurnDigest } from "../../shared/digest";
 import type { DamagedData } from "../../shared/damaged-data";
 import { mainDogId } from "../../shared/main-dog";
@@ -520,7 +520,7 @@ export interface ConfigStatus {
     order: Record<string, string[]>;
     resting?: Record<string, { until: string; since?: string; kind?: string; estimated?: boolean; sharedWith?: string }>;
     waiting?: Record<string, string>;
-    routed?: Record<string, { from: string; on: string }>;
+    routed?: Record<string, WireAccountRoute>;
   };
   localVm: { mode: "shared" | "per-bot" | "pool"; maxInstances: number; idleTimeoutMinutes?: number };
   opencodeGo?: { configured: boolean; providerKeys?: string[] };
