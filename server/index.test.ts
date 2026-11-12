@@ -7751,8 +7751,8 @@ describe("harness HTTP API", () => {
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "hello" })).status).toBe(202);
       const seen = await readJsonFileWhenReady<{ systemPrompt?: string }>(fakeClaudeDump, 15_000);
       const system: string = seen.systemPrompt ?? "";
-      expect(system.startsWith("You are Kiwi, a personal bot in later.dog. Role: Tracker.")).toBe(true);
-      const persona = "You are Kiwi, a personal bot in later.dog. Role: Tracker.";
+      expect(system.startsWith("You are Kiwi, a dog in later.dog. Role: Tracker.")).toBe(true);
+      const persona = "You are Kiwi, a dog in later.dog. Role: Tracker.";
       const afterPersona = system.slice(persona.length);
       expect(afterPersona.startsWith("\n\nYour standing instructions follow.")).toBe(true);
       expect(system).toContain("--- BEGIN STANDING INSTRUCTIONS (SOUL.md, 28 bytes) ---\nFile bugs. Never file noise.\n--- END STANDING INSTRUCTIONS ---");
@@ -7836,7 +7836,7 @@ describe("harness HTTP API", () => {
       rmSync(fakeClaudeDump, { force: true });
       expect((await api("POST", `/api/bots/${bot.id}/messages`, { text: "hello" })).status).toBe(202);
       let system = (await readJsonFileWhenReady<{ systemPrompt: string }>(fakeClaudeDump, 15_000)).systemPrompt;
-      expect(system.startsWith("You are Blank, a personal bot in later.dog.")).toBe(true);
+      expect(system.startsWith("You are Blank, a dog in later.dog.")).toBe(true);
       expect(system).not.toContain("at most four questions");
       expect(system).toContain("propose_profile");
 
@@ -7971,10 +7971,10 @@ describe("harness HTTP API", () => {
       expect((await api("PATCH", `/api/bots/${bot.id}`, {
         modelSelection: { instanceId: "claude", model: "claude-sonnet-5" },
       })).status).toBe(200);
-      expect(await updates()).toContain("Work quietly");
+      expect(await updates()).toContain("between your one-line updates do not narrate each step");
       const quiet = await turn("plan my week");
-      expect(quiet.systemPrompt).toContain("do not narrate your steps");
-      expect(quiet.systemPrompt).toContain("Never give time estimates");
+      expect(quiet.systemPrompt).toContain("say in one line what you are about to do before your first tool call");
+      expect(quiet.systemPrompt).toContain("Leave out time estimates");
       expect(quiet.env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBe("0");
 
       const saved = await api("PATCH", "/api/config", { features: { stepUpdates: true } });
@@ -7982,9 +7982,9 @@ describe("harness HTTP API", () => {
       expect(saved.body.features).not.toHaveProperty("stepUpdates");
       expect(await updates()).not.toContain("step-by-step updates");
       const still = await turn("and next week");
-      expect(still.systemPrompt).toContain("do not narrate your steps");
+      expect(still.systemPrompt).toContain("do not narrate each step");
       expect(still.systemPrompt).not.toContain("before each meaningful step");
-      expect(still.systemPrompt).toContain("each time you pass a milestone");
+      expect(still.systemPrompt).toContain("give a one-line update at natural points");
       expect(still.env.CLAUDE_CODE_SILENT_TURN_REMINDER).toBe("0");
     } finally {
       await api("PATCH", "/api/config", { features: { stepUpdates: false } });
@@ -11146,8 +11146,8 @@ describe("bot memory API", () => {
       expect(before.body.sections[0]).toEqual({
         id: "persona",
         label: "Identity",
-        text: "You are Kiwi, a personal bot in later.dog. Role: Tracker. About: Files bugs.",
-        bytes: 76,
+        text: "You are Kiwi, a dog in later.dog. Role: Tracker. About: Files bugs.",
+        bytes: 67,
       });
       expect(before.body.sections.map((s: { id: string }) => s.id)).not.toContain("soul");
       expect(before.body.sections.map((s: { id: string }) => s.id)).toContain("memory");
