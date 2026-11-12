@@ -20,7 +20,7 @@ waiting for the owner.
 | #180 | The route guard passes on `main` again (two handlers moved to `server/routes`) | unit; the tapback end-to-end test | |
 | #161 | Saved quota holds reconciled with a fresh allowance; paid credits; native context windows | unit on the rebased head (555 tests) | Its fixture checks and screenshot review not rerun |
 | #175 | Edge trust follow-ups | unit at its head (320 edge tests) | Narrowed, not closed: a request the edge answers by itself while the home is up; needs an edge deploy |
-| #178 | A native Mac app (Rust on AppKit) built beside the released one | unit (72); fixture; snapshots reviewed; measured (the note in #178) | Far from feature parity; launch time not measured cleanly |
+| #178 | A native Mac app (Rust on AppKit) built beside the released one: dogs, chats with Markdown, work state, dog-to-dog rows, sending, history | unit (112); fixture; snapshots reviewed; memory and launch measured (the note in #178) | No sign-in to a real home, cards, groups, settings or signing |
 | later-dog-phone #184 | The phone keeps the words and says the outcome for every send, as the desktop does | unit (2,130 of 2,131 on a loaded machine; the miss passes alone) | Nothing on a simulator, an iPhone or the real edge |
 
 ## Checked without a code change
@@ -31,6 +31,21 @@ waiting for the owner.
   in the chat. This is the image the test home runs today, not the branches above. Found on the
   way: the test driver's `summary` kept answering "ready" for the whole hour, so it does not show
   whether a home's container is running.
+- **A send while the home sleeps, test home and its edge.** At 11:34 UTC the home answered
+  "waking". A marked message sent then came back in 142 ms as queued, with the queue id equal to
+  its send id; the same send repeated got the same receipt. Seven seconds later the home was up
+  with one copy of the message and one reply. Found on the way: `GET /api/held-sends` answered
+  "waking" and then, once the home was up, "no route", so the edge in front of the test home does
+  not have the held-message list that is on `main`. The held-message work merged on 2026-11-11
+  (the list, Not sent after a drop, cancel and Send now while waking) is therefore not running on
+  any edge that was checked, and cannot be checked on one until an edge deploy.
+- **All recipes at the top of the stack.** On `fable/turn-results`, which contains #176, #177 and
+  #179: the chat turn, dog-to-dog coordination and native activity recipes pass in the real
+  renderer on a fixture (3 files, 5 tests).
+- **A Codex test that fails on `main`.** "ends the turn once Codex itself has exited, even when
+  its programs cannot be confirmed closed (exits before the stop gives up: false)" in
+  `server/drivers/codex.test.ts` fails at `03cd64d40` on this Mac: no end of turn within 10 s
+  after a `runtime.error`. It fails the same way on every branch above.
 - **Decision and extraction models.** The saved receipts on `atelier/decision-eval-receipts` were
   scored again offline with `scripts/decision-eval.ts score`; the counts match
   [the evaluation note](decision-eval.md). No model was called again.
@@ -43,9 +58,9 @@ waiting for the owner.
   whole process tree of the released app have not been measured on a Mac. The only Mac numbers
   are the idle comparison in the native app note in #178.
 - **iPhone.** No visual audit, no device run of the phone changes, no update published.
-- **Held messages end to end.** The matrix of slow wake, disconnect, lost receipt, retry, session
-  renewal, app restart, home restart and concurrent cancel has not been run against the test home
-  and the real edge.
+- **Held messages end to end.** Beyond the one send above, the matrix of disconnect, lost
+  receipt, session renewal, app restart, home restart and concurrent cancel has not been run
+  against a real edge, and the parts merged on 2026-11-11 are not deployed to one.
 - **Group-chat routing "nobody" outcome**, listed as open in the evaluation note.
 - **Measurement notes** in #172 and #174 are unfinished and unreviewed.
 - **Changed-file lists for other engines**, page and file links, and results on group-chat
