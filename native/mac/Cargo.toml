@@ -23,7 +23,7 @@ ureq = { version = "3.4", default-features = false, features = ["rustls"] }
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = [
   "NSString", "NSGeometry", "NSThread", "NSAttributedString", "NSRange", "NSDictionary", "NSIndexSet", "NSNotification",
-  "NSObject", "NSObjCRuntime", "NSData", "NSArray",
+  "NSObject", "NSObjCRuntime", "NSData", "NSArray", "NSURL", "NSValue", "NSEnumerator",
 ] }
 objc2-app-kit = { version = "0.3", features = [
   "NSApplication", "NSRunningApplication", "NSResponder", "NSWindow", "NSView", "NSGraphics",
@@ -31,4 +31,6 @@ objc2-app-kit = { version = "0.3", features = [
   "NSSplitView", "NSFont", "NSColor", "NSTextStorage", "NSLayoutConstraint", "NSUserInterfaceLayout",
   "NSTextContainer", "NSMenu", "NSMenuItem", "NSTableView", "NSTableColumn", "NSButton", "NSEvent", "NSCell",
   "NSAttributedString", "NSAccessibilityProtocols", "NSAppearance", "NSBitmapImageRep", "NSImageRep",
+  "NSLayoutManager", "NSParagraphStyle", "NSFontDescriptor", "NSPasteboard", "NSSavePanel", "NSPanel", "NSWorkspace",
+  "NSCursor", "NSImage", "NSScroller", "NSVisualEffectView", "NSGraphicsContext", "NSBezierPath", "NSGradient", "NSColorSpace",
 ] }

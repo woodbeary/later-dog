@@ -111,6 +111,8 @@ pub const ACCENT: Tone = tone(0x111111, 0xededed);
 pub const ACCENT_INK: Tone = tone(0xffffff, 0x0d0d0d);
 pub const UNREAD: Tone = tone(0x007aff, 0x0a84ff);
 pub const WAITING: Tone = tone(0xe0530a, 0xff9f0a);
+pub const INSET: Tone = tone(0xe6e6e6, 0x191919);
+pub const SUCCESS: Tone = tone(0x1f7a4d, 0x38d591);
 
 pub fn dynamic(tone: &Tone) -> Retained<NSColor> {
     let light = srgb(tone.light, tone.light_alpha);
@@ -141,6 +143,13 @@ pub struct Theme {
     pub unread: Retained<NSColor>,
     pub waiting: Retained<NSColor>,
     pub white: Retained<NSColor>,
+    pub inset: Retained<NSColor>,
+    pub hairline: Retained<NSColor>,
+    pub hairline_40: Retained<NSColor>,
+    pub hairline_30: Retained<NSColor>,
+    pub raised_30: Retained<NSColor>,
+    pub link_line: Retained<NSColor>,
+    pub success: Retained<NSColor>,
 }
 
 impl Theme {
@@ -164,6 +173,13 @@ impl Theme {
             unread: dynamic(&UNREAD),
             waiting: dynamic(&WAITING),
             white: srgb(0xffffff, 1.0),
+            inset: dynamic(&INSET),
+            hairline: dynamic(&HAIRLINE_TONE),
+            hairline_40: dynamic(&faded(HAIRLINE_TONE, 0.4)),
+            hairline_30: dynamic(&faded(HAIRLINE_TONE, 0.3)),
+            raised_30: dynamic(&faded(RAISED, 0.3)),
+            link_line: dynamic(&faded(ACCENT, 0.4)),
+            success: dynamic(&SUCCESS),
         }
     }
 

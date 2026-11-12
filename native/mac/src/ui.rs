@@ -1,5 +1,6 @@
 use std::cell::{Cell, OnceCell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::io::Write;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -25,6 +26,7 @@ use objc2_foundation::{
 
 use laterdog_mac::net::{Home, Inbound, Post};
 use laterdog_mac::session::Session;
+use crate::rich;
 use crate::theme::{self, font, model_name, Theme, Weight};
 use crate::widgets::{attributed, icon, icon_button, label, rect, Avatar, Fill, Flipped, ROUND};
 
@@ -64,10 +66,10 @@ enum Line {
     Work(TranscriptRow),
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct Shape {
     height: f64,
-    text: NSSize,
+    layout: Option<Rc<rich::Layout>>,
 }
 
 struct Ui {
@@ -107,7 +109,6 @@ struct Ui {
     voice: Retained<NSButton>,
     send_fill: Retained<Fill>,
     send: Retained<NSButton>,
-    measure: Retained<NSTextField>,
     days: Retained<NSDateFormatter>,
     times: Retained<NSDateFormatter>,
     theme: Theme,
@@ -131,6 +132,7 @@ pub struct Ivars {
     lines: RefCell<Vec<Line>>,
     shapes: RefCell<Vec<Shape>>,
     shape_cache: RefCell<HashMap<(String, u64), Shape>>,
+    wraps: RefCell<HashSet<String>>,
     ui: OnceCell<Ui>,
     options: Options,
     connected_home: bool,
@@ -191,7 +193,9 @@ pub struct ChatParts {
     again: Retained<NSButton>,
     day: Retained<NSTextField>,
     bubble: Retained<Fill>,
-    text: Retained<NSTextField>,
+    texts: RefCell<Vec<rich::TextPart>>,
+    codes: RefCell<Vec<Retained<rich::CodeBox>>>,
+    rules: RefCell<Vec<Retained<Fill>>>,
     status: Retained<NSTextField>,
     work: Retained<NSTextField>,
     chevron: Retained<NSImageView>,
@@ -257,6 +261,14 @@ define_class!(
         fn command(&self, _text_view: &NSTextView, command: Sel) -> bool {
             self.composer_command(command)
         }
+
+        #[unsafe(method(textView:clickedOnLink:atIndex:))]
+        fn clicked_link(&self, _text_view: &NSTextView, link: &AnyObject, _index: usize) -> bool {
+            if let Some(url) = rich::link_url(link) {
+                objc2_app_kit::NSWorkspace::sharedWorkspace().openURL(&url);
+            }
+            true
+        }
     }
 
     unsafe impl NSWindowDelegate for Controller {
@@ -307,6 +319,7 @@ impl Controller {
             lines: RefCell::new(Vec::new()),
             shapes: RefCell::new(Vec::new()),
             shape_cache: RefCell::new(HashMap::new()),
+            wraps: RefCell::new(HashSet::new()),
             ui: OnceCell::new(),
             options,
             connected_home,
@@ -470,7 +483,6 @@ impl Controller {
         input.setEditable(enabled);
         send.setEnabled(enabled);
 
-        let measure = NSTextField::wrappingLabelWithString(&NSString::from_str(""), mtm);
         let days = NSDateFormatter::new();
         days.setDateStyle(NSDateFormatterStyle::MediumStyle);
         days.setTimeStyle(NSDateFormatterStyle::NoStyle);
@@ -484,7 +496,7 @@ impl Controller {
             window, root, sidebar, side_line, side_top, side_bottom, chat, side_search, side_new, dog_scroll, dog_table, profile, profile_mark, connect,
             connect_label, head_pill, head_avatar, head_name, head_search, head_more, head_status, chat_scroll, chat_table, composer,
             plus, input_scroll, input, placeholder, model_ring, model_mark, model_label, model_chevrons, mic, voice, send_fill, send,
-            measure, days, times, theme,
+            days, times, theme,
         };
         self.ivars().ui.set(ui).ok();
         self.layout();
@@ -532,8 +544,8 @@ impl Controller {
             return theme::ROW_HEIGHT + theme::ROW_GAP;
         }
         let gap = if row > 0 { theme::TRANSCRIPT_GAP } else { 0.0 };
-        let shape = usize::try_from(row).ok().and_then(|row| self.ivars().shapes.borrow().get(row).copied()).unwrap_or_default();
-        (shape.height + gap).max(1.0)
+        let height = usize::try_from(row).ok().and_then(|row| self.ivars().shapes.borrow().get(row).map(|shape| shape.height)).unwrap_or_default();
+        (height + gap).max(1.0)
     }
 
     fn cell_for(&self, table: &NSTableView, row: NSInteger) -> Option<Retained<NSView>> {
@@ -559,10 +571,10 @@ impl Controller {
         };
         let lines = self.ivars().lines.borrow();
         let line = lines.get(index)?;
-        let shape = self.ivars().shapes.borrow().get(index).copied().unwrap_or_default();
+        let shape = self.ivars().shapes.borrow().get(index).cloned().unwrap_or_default();
         let gap = if index > 0 { theme::TRANSCRIPT_GAP } else { 0.0 };
         let color = self.ivars().view.borrow().color.clone();
-        configure_line(&cell, line, shape, gap, width, &color, ui);
+        configure_line(&cell, line, &shape, gap, width, &color, ui, self);
         Some(Retained::into_super(cell))
     }
 
@@ -674,31 +686,60 @@ impl Controller {
         let width = ui.chat_scroll.contentSize().width;
         let max_bubble = theme::BUBBLE_MAX.min(width * theme::BUBBLE_MAX_SHARE);
         let max_text = (max_bubble - theme::BUBBLE_PAD_X * 2.0).max(40.0);
-        let color = self.ivars().view.borrow().color.clone();
-        let shapes: Vec<Shape> = self.ivars().lines.borrow().iter().map(|line| self.shape(line, max_text, &color, ui)).collect();
+        let old = std::mem::take(&mut *self.ivars().shape_cache.borrow_mut());
+        let mut kept = HashMap::new();
+        let shapes: Vec<Shape> = self.ivars().lines.borrow().iter().map(|line| self.shape(line, max_text, ui, &old, &mut kept)).collect();
+        *self.ivars().shape_cache.borrow_mut() = kept;
         *self.ivars().shapes.borrow_mut() = shapes;
         if reload {
             ui.chat_table.reloadData();
         }
     }
 
-    fn shape(&self, line: &Line, max_text: f64, color: &str, ui: &Ui) -> Shape {
+    fn shape(&self, line: &Line, max_text: f64, ui: &Ui, old: &HashMap<(String, u64), Shape>, kept: &mut HashMap<(String, u64), Shape>) -> Shape {
         match line {
-            Line::Day(_) => Shape { height: theme::DAY_PAD_Y * 2.0 + theme::DAY_LINE, text: NSSize::new(0.0, 0.0) },
-            Line::Work(_) => Shape { height: theme::WORK_HEIGHT, text: NSSize::new(0.0, 0.0) },
+            Line::Day(_) => Shape { height: theme::DAY_PAD_Y * 2.0 + theme::DAY_LINE, layout: None },
+            Line::Work(_) => Shape { height: theme::WORK_HEIGHT, layout: None },
             Line::Bubble(row) => {
-                let key = (format!("{}\u{1f}{}\u{1f}{}", row.id, row.text, row.status.unwrap_or_default()), max_text.to_bits());
-                if let Some(shape) = self.ivars().shape_cache.borrow().get(&key) {
-                    return *shape;
+                let wraps = self.wraps_for(&row.id);
+                let key = (format!("{}\u{1f}{}\u{1f}{}\u{1f}{}\u{1f}{:?}", row.id, row.text, row.status.unwrap_or_default(), row.mine, wraps), max_text.to_bits());
+                if let Some(shape) = kept.get(&key).or_else(|| old.get(&key)) {
+                    let shape = shape.clone();
+                    kept.insert(key, shape.clone());
+                    return shape;
                 }
-                let text = bubble_text(&row.text, row.mine, color, &ui.theme);
-                ui.measure.setAttributedStringValue(&text);
-                let size = ui.measure.cell().map_or(NSSize::new(max_text, 21.0), |cell| cell.cellSizeForBounds(rect(0.0, 0.0, max_text + 4.0, 100_000.0)));
+                let inks = if row.mine { rich::Inks::mine(&ui.theme) } else { rich::Inks::reply(&ui.theme) };
+                let layout = rich::layout(&row.text, !row.mine, max_text, &wraps, &inks, &ui.theme);
                 let status = if matches!(row.status, Some(words) if words != SendState::Sent.words()) { 18.0 } else { 0.0 };
-                let shape = Shape { height: size.height + theme::BUBBLE_PAD_Y * 2.0 + status, text: size };
-                self.ivars().shape_cache.borrow_mut().insert(key, shape);
+                let shape = Shape { height: layout.height + theme::BUBBLE_PAD_Y * 2.0 + status, layout: Some(Rc::new(layout)) };
+                kept.insert(key, shape.clone());
                 shape
             }
+        }
+    }
+
+    fn wraps_for(&self, row_id: &str) -> Vec<usize> {
+        let prefix = format!("{row_id}#");
+        let mut found: Vec<usize> = self.ivars().wraps.borrow().iter().filter_map(|key| key.strip_prefix(&prefix)?.parse().ok()).collect();
+        found.sort_unstable();
+        found
+    }
+
+    fn toggle_wrap(&self, key: &str) {
+        {
+            let mut wraps = self.ivars().wraps.borrow_mut();
+            if !wraps.remove(key) {
+                wraps.insert(key.to_owned());
+            }
+        }
+        let Some(ui) = self.ivars().ui.get() else { return };
+        let row_id = key.rsplit_once('#').map_or(key, |(id, _)| id);
+        let index = self.ivars().lines.borrow().iter().position(|line| matches!(line, Line::Bubble(row) if row.id == row_id));
+        self.reshape(false);
+        if let Some(index) = index {
+            let set = NSIndexSet::indexSetWithIndex(index);
+            ui.chat_table.noteHeightOfRowsWithIndexesChanged(&set);
+            ui.chat_table.reloadDataForRowIndexes_columnIndexes(&set, &NSIndexSet::indexSetWithIndex(0));
         }
     }
 
@@ -1178,10 +1219,8 @@ fn place_traffic_lights(window: &NSWindow) {
     }
 }
 
-fn bubble_text(text: &str, mine: bool, color: &str, theme: &Theme) -> Retained<objc2_foundation::NSAttributedString> {
-    let ink = if mine { theme.white.clone() } else { theme.ink.clone() };
-    let _ = color;
-    attributed(text, &font(14.0, Weight::Regular), &ink, Some((theme::BUBBLE_LINE, 2.0)))
+pub fn toggle_wrap(key: &str) {
+    with_controller(|controller| controller.toggle_wrap(key));
 }
 
 fn new_dog_cell(mtm: MainThreadMarker, theme: &Theme) -> Retained<DogCell> {
@@ -1251,10 +1290,6 @@ fn new_chat_cell(mtm: MainThreadMarker, theme: &Theme, controller: Option<&AnyOb
     let day = label(mtm, "", &font(13.0, Weight::Regular), &theme.ink_secondary);
     day.setAlignment(NSTextAlignment::Center);
     let bubble = Fill::new(mtm, Some(&theme.card), theme::BUBBLE_RADIUS);
-    let text = NSTextField::wrappingLabelWithString(&NSString::from_str(""), mtm);
-    text.setSelectable(true);
-    text.setDrawsBackground(false);
-    bubble.addSubview(&text);
     let status = label(mtm, "", &font(11.0, Weight::Regular), &theme.ink_tertiary);
     status.setAlignment(NSTextAlignment::Right);
     let work = label(mtm, "View work", &font(12.0, Weight::Regular), &theme.ink_secondary);
@@ -1269,11 +1304,12 @@ fn new_chat_cell(mtm: MainThreadMarker, theme: &Theme, controller: Option<&AnyOb
         cell.addSubview(view);
     }
     cell.setIdentifier(Some(&NSString::from_str(CHAT_CELL)));
-    cell.ivars().set(ChatParts { again, day, bubble, text, status, work, chevron }).ok();
+    cell.ivars().set(ChatParts { again, day, bubble, texts: RefCell::new(Vec::new()), codes: RefCell::new(Vec::new()), rules: RefCell::new(Vec::new()), status, work, chevron }).ok();
     cell
 }
 
-fn configure_line(cell: &ChatCell, line: &Line, shape: Shape, gap: f64, width: f64, color: &str, ui: &Ui) {
+#[allow(clippy::too_many_arguments)]
+fn configure_line(cell: &ChatCell, line: &Line, shape: &Shape, gap: f64, width: f64, color: &str, ui: &Ui, controller: &Controller) {
     let Some(parts) = cell.ivars().get() else { return };
     let theme = &ui.theme;
     let (day, bubble, work) = (matches!(line, Line::Day(_)), matches!(line, Line::Bubble(_)), matches!(line, Line::Work(_)));
@@ -1297,13 +1333,13 @@ fn configure_line(cell: &ChatCell, line: &Line, shape: Shape, gap: f64, width: f
             cell.setAccessibilityLabel(Some(&NSString::from_str("View work")));
         }
         Line::Bubble(row) => {
-            let bubble_width = shape.text.width - 4.0 + theme::BUBBLE_PAD_X * 2.0;
-            let bubble_height = shape.text.height + theme::BUBBLE_PAD_Y * 2.0;
+            let Some(layout) = shape.layout.as_deref() else { return };
+            let bubble_width = layout.width + theme::BUBBLE_PAD_X * 2.0;
+            let bubble_height = layout.height + theme::BUBBLE_PAD_Y * 2.0;
             let x = if row.mine { width - bubble_width } else { 0.0 };
             parts.bubble.setFrame(rect(x, gap, bubble_width, bubble_height));
             parts.bubble.set_fill(Some(&*if row.mine { theme.tint(color) } else { theme.card.clone() }));
-            parts.text.setAttributedStringValue(&bubble_text(&row.text, row.mine, color, theme));
-            parts.text.setFrame(rect(theme::BUBBLE_PAD_X - 2.0, theme::BUBBLE_PAD_Y, shape.text.width, shape.text.height));
+            place_pieces(parts, layout, row, theme, controller);
             if let Some(words) = row.status.filter(|words| *words != SendState::Sent.words()) {
                 parts.status.setHidden(false);
                 parts.status.setStringValue(&NSString::from_str(words));
@@ -1319,6 +1355,60 @@ fn configure_line(cell: &ChatCell, line: &Line, shape: Shape, gap: f64, width: f
             let speaker = if row.mine { "You" } else { row.who.as_str() };
             cell.setAccessibilityLabel(Some(&NSString::from_str(&format!("{speaker}: {}", row.text))));
         }
+    }
+}
+
+fn place_pieces(parts: &ChatParts, layout: &rich::Layout, row: &TranscriptRow, theme: &Theme, controller: &Controller) {
+    let mtm = controller.mtm();
+    let mut texts = parts.texts.borrow_mut();
+    let mut codes = parts.codes.borrow_mut();
+    let mut rules = parts.rules.borrow_mut();
+    let (mut text_at, mut code_at, mut rule_at) = (0, 0, 0);
+    let origin = |placed: &rich::Placed, height: f64| rect(theme::BUBBLE_PAD_X + placed.x, theme::BUBBLE_PAD_Y + placed.y, placed.width, height);
+    for placed in &layout.pieces {
+        match &placed.piece {
+            rich::Piece::Text { string, .. } => {
+                if texts.len() <= text_at {
+                    let part = rich::text_part(mtm, theme, Some(ProtocolObject::from_ref(controller)));
+                    parts.bubble.addSubview(&part.view);
+                    texts.push(part);
+                }
+                texts[text_at].show(string, origin(placed, placed.height), row.mine, theme);
+                text_at += 1;
+            }
+            rich::Piece::Code { .. } | rich::Piece::Table { .. } => {
+                if codes.len() <= code_at {
+                    let code = rich::CodeBox::new(mtm, theme);
+                    parts.bubble.addSubview(&code);
+                    codes.push(code);
+                }
+                let index = if let rich::Piece::Code { index, .. } = &placed.piece { *index } else { usize::MAX };
+                let code = &codes[code_at];
+                code.show(placed, &format!("{}#{index}", row.id), theme);
+                code.setFrame(origin(placed, placed.height));
+                code.setHidden(false);
+                code_at += 1;
+            }
+            rich::Piece::Rule => {
+                if rules.len() <= rule_at {
+                    let line = rich::rule(mtm, theme);
+                    parts.bubble.addSubview(&line);
+                    rules.push(line);
+                }
+                rules[rule_at].setFrame(origin(placed, 1.0));
+                rules[rule_at].setHidden(false);
+                rule_at += 1;
+            }
+        }
+    }
+    for part in texts.iter().skip(text_at) {
+        part.view.setHidden(true);
+    }
+    for code in codes.iter().skip(code_at) {
+        code.setHidden(true);
+    }
+    for line in rules.iter().skip(rule_at) {
+        line.setHidden(true);
     }
 }
 

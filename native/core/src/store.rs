@@ -220,6 +220,15 @@ pub struct View {
     pub transcript: Vec<TranscriptRow>,
 }
 
+fn preview_of(message: &WireMessage) -> String {
+    let text = message.text.as_deref().unwrap_or_default();
+    if message.is_from_person() {
+        first_line(text)
+    } else {
+        crate::markdown::preview(text)
+    }
+}
+
 fn first_line(text: &str) -> String {
     text.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default().to_owned()
 }
@@ -530,7 +539,7 @@ impl Store {
                         selected: Some(&dog.id) == self.selected.as_ref(),
                         color: dog.color(),
                         body: crate::mascot::body(dog.body.as_deref()).to_owned(),
-                        preview: last.map(|message| first_line(message.text.as_deref().unwrap_or_default())).unwrap_or_default(),
+                        preview: last.map(preview_of).unwrap_or_default(),
                         last_at: last.map(|message| message.at),
                         working: dog.working(),
                         waiting: dog.waiting(),

@@ -1,3 +1,4 @@
+mod rich;
 mod theme;
 mod ui;
 mod widgets;
