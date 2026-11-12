@@ -82,13 +82,27 @@ What the fixtures showed, with no app or event stream connected:
 A chat that waits for usage with no account and no known reset time is proven
 by unit tests only; the fake engine always reports a reset time.
 
+## Seen on a test home, November 12
+
+This branch, combined with the other open work, was pushed to a test home
+(`scripts/dev-home.mjs push --account test-desk4`, server pid 21 to 149; the
+home then answered `/api/bots` with the `work` field, which only this code
+sends). The watch ran in its default acting mode. Receipts are kept outside the
+repository.
+
+| What happened | What the watch did |
+| --- | --- |
+| A dog on an account that was signed out failed its turn at 23:12:47 UTC ("Not logged in"). | Nothing for three quiet minutes; at 23:16:26 one line, "Scout RC stopped because its account needs you to sign in again.", state Stopped, no retry. |
+| The person wrote "thanks" and the dog answered with a single emoji. | Nothing, checked for more than three minutes afterwards. |
+| A 75-second task of fifteen commands, then two short answers, on the home's included model. | Nothing. |
+
 ## Not yet proven live
 
-- No run on a real home. First checks there: a turn ended by a real tool error
-  is carried on once and the line reads well; a chat waiting on usage with all
-  accounts out shows Waiting for usage and carries on after an account returns
-  with no app open; a teammate's work cut by pushed server code wakes the dog
-  that handed it over.
+- The carry-on path has not run on a real home: a turn ended by a real tool
+  error carried on once; a chat waiting on usage with all accounts out showing
+  Waiting for usage and carrying on after an account returns with no app open;
+  a teammate's work cut by pushed server code waking the dog that handed it
+  over.
 - Work another dog asked for is still left to its handoff: when the handoff ends
   without a reply, the dog that handed it over is the one woken.
 - A dog that only says in words that it needs the person (for example "your Mac
