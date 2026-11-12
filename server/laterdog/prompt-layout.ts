@@ -36,7 +36,8 @@ export function renderStable(sections: readonly LayoutPart[]): string {
   let open = "";
   let body: string[] = [];
   const close = () => {
-    if (open && body.length) out.push(`\n\n<${open}>\n${body.join("").trim()}\n</${open}>`);
+    const lines = body.map((text) => text.trim()).filter(Boolean);
+    if (open && lines.length) out.push(`\n\n<${open}>\n${lines.join("\n")}\n</${open}>`);
     body = [];
   };
   for (const section of ordered) {
@@ -46,7 +47,7 @@ export function renderStable(sections: readonly LayoutPart[]): string {
       open = group;
     }
     if (group) body.push(section.text);
-    else out.push(out.length ? section.text : section.text.replace(/^\s+/, ""));
+    else if (section.text.trim()) out.push(out.length ? `\n\n${section.text.trim()}` : section.text.trim());
   }
   close();
   return out.join("");

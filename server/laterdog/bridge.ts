@@ -38,12 +38,12 @@ export async function inspectRepository(root: string, roots: string[]): Promise<
 export async function runBridgeRequest(request: BridgeRequest, config: BridgeConfig, receiptFile: string, botId?: string, workspaceUrl?: string): Promise<{ result: unknown; failed: boolean }> {
   if (request.kind === "inspect_repo") return { result: await inspectRepository(request.root,config.roots), failed: false };
   permittedRoot(request.root,config.roots);
-  if (!config.allowAssistance || !botId || !workspaceUrl) throw new Error("Configure a local assistance bot and explicit workspace URL after granting this device assistance access");
+  if (!config.allowAssistance || !botId || !workspaceUrl) throw new Error("Configure a local assistance dog and explicit workspace URL after granting this device assistance access");
   const origin = validateBaseUrl(workspaceUrl);
   const fetcher = (path: string, options?: RequestInit) => harnessRequest(path,options,origin);
   let receipt: Receipt | undefined = existsSync(receiptFile) ? JSON.parse(readFileSync(receiptFile,"utf8")) as Receipt : undefined;
   if (receipt?.phase === "done") return { result: receipt.result, failed: receipt.failed ?? false };
-  if (receipt?.phase === "creating" || receipt?.phase === "sending") return { result: { error: "Previous local operation has an uncertain outcome. Inspect the bot conversation; it will not be replayed automatically.", taskId: receipt.taskId }, failed: true };
+  if (receipt?.phase === "creating" || receipt?.phase === "sending") return { result: { error: "Previous local operation has an uncertain outcome. Inspect the dog's conversation; it will not be replayed automatically.", taskId: receipt.taskId }, failed: true };
   if (!receipt) {
     privateJson(receiptFile,{ phase: "creating" });
     const created = await handleToolCall("create_task",{ target_type: "bot", target_id: botId, title: `Local help ${request.id.slice(0,8)}` },fetcher) as { task: { taskId: string } };
@@ -57,7 +57,7 @@ export async function runBridgeRequest(request: BridgeRequest, config: BridgeCon
   }
   const settled = await handleToolCall("wait_for_conversation",{ target_type: "bot", target_id: botId, task_id: receipt.taskId, timeout_seconds: 60 },fetcher) as { state?: string; status?: string };
   const state = settled.state ?? settled.status;
-  if (state === "timed-out") throw new BridgePending("Local bot is still working; poll again using its existing task receipt");
+  if (state === "timed-out") throw new BridgePending("Local dog is still working; poll again using its existing task receipt");
   const result = { taskId: receipt.taskId, conversation: settled };
   const failed = state !== "settled"; privateJson(receiptFile,{ ...receipt, phase: "done", result, failed });
   return { result, failed };

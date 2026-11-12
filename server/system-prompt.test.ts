@@ -28,7 +28,7 @@ import {
   voicePrompt,
 } from "./system-prompt.ts";
 
-const REPLIES = (name?: string) => `\n\n<replies>\n${(voicePrompt(name) + RICH_REPLIES_PROMPT).trim()}\n</replies>`;
+const REPLIES = (name?: string) => `\n\n<replies>\n${voicePrompt(name).trim()}\n${RICH_REPLIES_PROMPT.trim()}\n</replies>`;
 const tagged = (tag: string, body: string) => `\n\n<${tag}>\n${body.trim()}\n</${tag}>`;
 
 describe("resolveComputerPromptKind", () => {
@@ -153,7 +153,8 @@ describe("buildSystemPrompt", () => {
   });
 
   it("always tells the dog to talk to the person as you, not about the user, and not to itself", () => {
-    expect(VOICE_PROMPT).toContain('Talk to them as "you", and use their name when it helps');
+    expect(VOICE_PROMPT).toContain('Talk to them as "you";');
+    expect(voicePrompt("Sam").match(/use (?:their name|it) when it helps/g)).toHaveLength(1);
     expect(VOICE_PROMPT).toContain('call them "the person" only because they are written to you');
     expect(VOICE_PROMPT).toContain("rather than narrating your reasoning");
     expect(VOICE_PROMPT).toMatch(/Lead with the answer or the result, and stop when it is said: no preamble, and no closing recap/);
@@ -196,19 +197,21 @@ describe("buildSystemPrompt", () => {
       { id: "credential", label: "Credentials", text: " Use the vault." },
     ]);
     expect(built.stable).toBe("You are Kiwi.\n\nYou are a dog." + REPLIES() + tagged("the_person", "About the user: likes tea.")
-      + tagged("tools_and_places", "Use the browser tools. Use the vault.") + tagged("team", "Ask other dogs with coordinate_bots.")
+      + tagged("tools_and_places", "Use the browser tools.\nUse the vault.") + tagged("team", "Ask other dogs with coordinate_bots.")
       + tagged("progress", "Run long jobs in the background."));
     expect(buildSystemPrompt("You are Kiwi.", "", [
       { id: "credential", label: "Credentials", text: " Use the vault." },
       { id: "browser", label: "Browser", text: " Use the browser tools." },
-    ]).stable).toContain("Use the vault. Use the browser tools.");
+    ]).stable).toContain("Use the vault.\nUse the browser tools.");
+    const souled = buildSystemPrompt("You are Kiwi.", "Be brief.", [{ id: "guide", label: "How to work", text: "You are a dog." }]).stable;
+    expect(souled).toContain("--- END STANDING INSTRUCTIONS ---\n\nYou are a dog.");
   });
 
   it("tells every dog what its replies can show: diagrams and charts, math, and place, product and weather cards from real facts", () => {
     for (const shows of ["mermaid", "xychart-beta", "pie", "$$", "language is place, product or weather", "\"lat\"", "\"days\"", "Put in only what you got from a tool, a page or the person"]) {
       expect(RICH_REPLIES_PROMPT).toContain(shows);
     }
-    expect(buildSystemPrompt("You are Kiwi.", "", []).stable).toContain(RICH_REPLIES_PROMPT);
+    expect(buildSystemPrompt("You are Kiwi.", "", []).stable).toContain(RICH_REPLIES_PROMPT.trim());
   });
 });
 
