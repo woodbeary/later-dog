@@ -91,6 +91,7 @@ pub struct Decoder {
     data: String,
     has_data: bool,
     event_type: String,
+    pending_id: Option<String>,
     last_event_id: Option<String>,
 }
 
@@ -110,6 +111,7 @@ impl Decoder {
         self.data.clear();
         self.has_data = false;
         self.event_type.clear();
+        self.pending_id = None;
     }
 
     pub fn feed(&mut self, chunk: &[u8]) -> Vec<Frame> {
@@ -160,7 +162,7 @@ impl Decoder {
                 self.data.push_str(value);
                 self.has_data = true;
             }
-            "id" if !value.contains('\0') => self.last_event_id = Some(value.to_owned()),
+            "id" if !value.contains('\0') => self.pending_id = Some(value.to_owned()),
             "event" => self.event_type = value.to_owned(),
             _ => {}
         }
@@ -168,6 +170,9 @@ impl Decoder {
     }
 
     fn dispatch(&mut self) -> Option<Frame> {
+        if let Some(id) = self.pending_id.take() {
+            self.last_event_id = Some(id);
+        }
         let data = std::mem::take(&mut self.data);
         let has_data = std::mem::replace(&mut self.has_data, false);
         let event_type = std::mem::take(&mut self.event_type);

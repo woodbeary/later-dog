@@ -108,3 +108,15 @@ fn bot_frames_carry_only_what_changed() {
 fn reconnecting_waits_half_a_second_then_doubles_to_ten() {
     assert_eq!([0, 1, 2, 3, 4, 5, 6, 40].map(retry_delay), [500, 1_000, 2_000, 4_000, 8_000, RETRY_MAX_MS, RETRY_MAX_MS, RETRY_MAX_MS]);
 }
+
+#[test]
+fn an_id_counts_only_once_its_frame_is_complete() {
+    let mut decoder = Decoder::new();
+    decoder.feed(b"id: s:1\ndata: {\"kind\":\"ping\"}\n\n");
+    assert_eq!(decoder.last_event_id(), Some("s:1"));
+    assert!(decoder.feed(b"id: s:2\ndata: {\"kind\":\"mess").is_empty());
+    assert_eq!(decoder.last_event_id(), Some("s:1"));
+    decoder.reset_connection();
+    decoder.feed(b"\n\n");
+    assert_eq!(decoder.last_event_id(), Some("s:1"));
+}
