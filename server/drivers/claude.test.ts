@@ -1265,6 +1265,43 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(sent[1].message.content.endsWith("two")).toBe(true);
   });
 
+  it("sends only the volatile sections that changed to a live session", async () => {
+    await create();
+    const dump = join(scratch, "sections.json");
+    const prompts = join(scratch, "sections-prompts.jsonl");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    process.env.FAKE_CLAUDE_PROMPTS = prompts;
+    const send = async (text: string, usage: string) => {
+      const sections = [
+        { id: "account", label: "Account", text: ` Session ${usage} left.` },
+        { id: "memory", label: "Memory", text: "\nYour memory:\nlikes tea" },
+      ];
+      await instance.adapter.sendTurn({
+        threadId: "t-sections",
+        text,
+        system: "You are Testy." + sections.map((s) => s.text).join(""),
+        systemStable: "You are Testy.",
+        systemVolatile: sections.map((s) => s.text).join(""),
+        systemVolatileSections: sections,
+      });
+      await recorder.until((e) => e.type === "turn.completed");
+      recorder.events.length = 0;
+    };
+    await send("one", "80%");
+    const firstPid = JSON.parse(readFileSync(dump, "utf8")).pid;
+    await send("two", "80%");
+    await send("three", "41%");
+    expect(JSON.parse(readFileSync(dump, "utf8")).pid).toBe(firstPid);
+    const sent = readFileSync(prompts, "utf8").trim().split("\n").map((line) => JSON.parse(line).message.content);
+    expect(sent).toHaveLength(3);
+    expect(sent[0]).toContain("[Account]\nSession 80% left.");
+    expect(sent[0]).toContain("[Memory]\nYour memory:\nlikes tea");
+    expect(sent[1]).toBe("two");
+    expect(sent[2]).toContain("[Account]\nSession 41% left.");
+    expect(sent[2]).not.toContain("likes tea");
+    expect(sent[2].endsWith("three")).toBe(true);
+  });
+
   it("redelivers unchanged mention context on every tagged turn", async () => {
     await create();
     const dump = join(scratch, "mention.json");

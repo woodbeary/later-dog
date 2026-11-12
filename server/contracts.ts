@@ -6,6 +6,7 @@ import type {
   DriverKind, InstanceId, ModelVariantOption, RuntimeEventListener, ThreadId, TurnId,
 } from "../shared/runtime-events.ts";
 import type { ProviderIcon } from "../shared/provider-icon.ts";
+import type { VolatileSection } from "./laterdog/volatile-sections.ts";
 
 export type { CloudBackend, EffortLevel, ModelSelection } from "../shared/wire.ts";
 export type {
@@ -96,6 +97,7 @@ export interface SendTurnInput {
   system?: string;
   systemStable?: string;
   systemVolatile?: string;
+  systemVolatileSections?: readonly VolatileSection[];
   mentionTurn?: boolean;
   integrations?: {
     composio?: { command: string; args: string[]; env: Record<string, string> };

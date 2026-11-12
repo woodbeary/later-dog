@@ -6,6 +6,7 @@ import { TAKEOVER_PROMPT } from "./laterdog/takeover.ts";
 import { DEVICE_APPROVAL_PROMPT } from "./laterdog/device-approval.ts";
 import { isTimeZone } from "./laterdog/time-zone.ts";
 import { askFirstRules } from "../shared/ask-first.ts";
+import { volatileSectionsOf, type VolatileSection } from "./laterdog/volatile-sections.ts";
 import type { ConnectorToolGrant } from "../shared/wire.ts";
 
 export type PromptPart = { id: string; label: string; text: string };
@@ -39,7 +40,7 @@ export function buildSystemPrompt(
   soul: string,
   parts: PromptPart[],
   personName?: string,
-): { text: string; sections: PromptSection[]; stable: string; volatile: string } {
+): { text: string; sections: PromptSection[]; stable: string; volatile: string; volatileSections: VolatileSection[] } {
   const ordered: PromptPart[] = [
     { id: "persona", label: "Identity", text: persona },
     { id: "soul", label: "Standing instructions (SOUL.md)", text: soulSystemPrompt(soul) },
@@ -52,7 +53,8 @@ export function buildSystemPrompt(
     .map((part) => ({ ...part, bytes: Buffer.byteLength(part.text, "utf8") }));
   const halves = (volatile: boolean) =>
     sections.filter((section) => VOLATILE_SECTIONS.has(section.id) === volatile).map((section) => section.text).join("");
-  return { text: sections.map((section) => section.text).join(""), sections, stable: halves(false), volatile: halves(true) };
+  const volatileSections = volatileSectionsOf(sections.filter((section) => VOLATILE_SECTIONS.has(section.id)).map(({ id, label, text }) => ({ id, label, text })));
+  return { text: sections.map((section) => section.text).join(""), sections, stable: halves(false), volatile: halves(true), volatileSections };
 }
 
 export type ComputerPromptKind = "box" | "local";

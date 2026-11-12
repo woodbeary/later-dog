@@ -3,12 +3,18 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DATA_DIR } from "../config.ts";
 import { writeFileAtomic } from "../atomic.ts";
+import { volatileContextNote } from "./prompt-split.ts";
+import {
+  deliveredSections, matchingSections, parseDeliveredSections, sameDelivered, sectionNoteBody, sectionUpdate,
+  type DeliveredSections, type VolatileSection,
+} from "../laterdog/volatile-sections.ts";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 
 export interface CodexInstructionReceipt {
   instructions: string;
   volatile?: string;
+  sections?: DeliveredSections;
 }
 
 const isFingerprint = (value: string) => /^[0-9a-f]{64}$/.test(value);
@@ -20,11 +26,13 @@ function parseReceipt(raw: string | undefined): CodexInstructionReceipt | null {
   try {
     const parsed = JSON.parse(trimmed) as unknown;
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const record = parsed as { instructions?: unknown; volatile?: unknown };
+      const record = parsed as { instructions?: unknown; volatile?: unknown; sections?: unknown };
       if (typeof record.instructions === "string" && isFingerprint(record.instructions)) {
+        const sections = parseDeliveredSections(record.sections);
         return {
           instructions: record.instructions,
           ...(typeof record.volatile === "string" && isFingerprint(record.volatile) ? { volatile: record.volatile } : {}),
+          ...(sections ? { sections } : {}),
         };
       }
     }
@@ -53,7 +61,8 @@ export async function syncCodexInstructions(
   resumed: boolean,
   request: (method: string, params: Record<string, unknown>) => Promise<unknown>,
   mentionTurn = false,
-): Promise<{ deliverVolatile: boolean; hadVolatile: boolean; commitVolatile: (() => void) | null }> {
+  volatileSections?: readonly VolatileSection[],
+): Promise<{ deliverVolatile: boolean; hadVolatile: boolean; note: string; commitVolatile: (() => void) | null }> {
   const directory = join(DATA_DIR, "codex-instructions");
   const path = join(directory, `${digest(JSON.stringify([key, nativeThreadId]))}.sha256`);
   const fingerprint = digest(instructions);
@@ -86,17 +95,27 @@ export async function syncCodexInstructions(
       throw error;
     }
   }
-  const deliverVolatile = !resumed || previous?.volatile !== volatileFingerprint || mentionTurn;
   const hadVolatile = typeof previous?.volatile === "string" && previous.volatile !== digest("");
+  const sections = matchingSections(volatile, volatileSections);
+  const delivered = sections ? deliveredSections(sections) : null;
+  let deliverVolatile = !resumed || previous?.volatile !== volatileFingerprint || mentionTurn;
+  let note = deliverVolatile ? volatileContextNote(volatile, hadVolatile) : "";
+  if (sections) {
+    const known = !resumed ? null : previous?.sections ?? (previous?.volatile === volatileFingerprint ? delivered : null);
+    note = sectionNoteBody(sectionUpdate(sections, known, mentionTurn), resumed && known === null && hadVolatile);
+    deliverVolatile = note !== "";
+  }
   if (!resumed || previous?.instructions !== fingerprint) {
     mkdirSync(directory, { recursive: true });
     writeFileAtomic(path, JSON.stringify({ instructions: fingerprint }), { mode: 0o600 });
   }
-  const commitVolatile = previous?.instructions === fingerprint && previous?.volatile === volatileFingerprint
+  const upToDate = previous?.instructions === fingerprint && previous?.volatile === volatileFingerprint &&
+    (delivered ? sameDelivered(previous.sections, delivered) : previous.sections === undefined);
+  const commitVolatile = upToDate
     ? null
     : () => {
         mkdirSync(directory, { recursive: true });
-        writeFileAtomic(path, JSON.stringify({ instructions: fingerprint, volatile: volatileFingerprint }), { mode: 0o600 });
+        writeFileAtomic(path, JSON.stringify({ instructions: fingerprint, volatile: volatileFingerprint, ...(delivered ? { sections: delivered } : {}) }), { mode: 0o600 });
       };
-  return { deliverVolatile, hadVolatile, commitVolatile };
+  return { deliverVolatile, hadVolatile, note, commitVolatile };
 }

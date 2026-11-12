@@ -38,7 +38,7 @@ import { appendNative } from "./native.ts";
 import { permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
 import { commandSummary, toolDetailPreview } from "../tool-summary.ts";
 import { codexDeveloperInstructions, syncCodexInstructions } from "./codex-instructions.ts";
-import { volatileContextNote, withContextNote } from "./prompt-split.ts";
+import { withContextNote } from "./prompt-split.ts";
 import type { ApprovalMode } from "../../shared/approval-mode.ts";
 import { CodexDeviceAuthController } from "./codex-device-auth.ts";
 import { codexAccountEmail, codexHome } from "./codex-identity.ts";
@@ -1650,7 +1650,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           startedModel = started?.model ?? null;
         }
         if (!codexThreadId) throw new Error("Codex did not return a native thread id");
-        const { deliverVolatile, hadVolatile, commitVolatile } = await syncCodexInstructions(
+        const { note: volatileNote, commitVolatile } = await syncCodexInstructions(
           threadId,
           codexThreadId,
           developerInstructions,
@@ -1658,13 +1658,9 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           resumedNativeThread,
           request,
           Boolean(turn.mentionTurn),
+          promptSplit ? turn.systemVolatileSections : undefined,
         );
-        if (deliverVolatile) {
-          promptText = withContextNote(
-            volatileContextNote(promptSplit ? turn.systemVolatile ?? "" : "", hadVolatile),
-            promptText,
-          );
-        }
+        promptText = withContextNote(volatileNote, promptText);
         emit({ ...base(threadId, turnId), type: "session.started", sessionId: codexThreadId, model: startedModel ?? turn.model ?? null, ...(rebuiltFromReplay ? { rebuilt: true } : {}) });
         const turnInput = [
           ...(promptText ? [{ type: "text" as const, text: promptText }] : []),
