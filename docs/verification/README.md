@@ -106,6 +106,7 @@ Use only mapped, tested commands:
 - [Rust, measured seam by seam, November 10](rust-seams.md)
 - [Decision and extraction model evaluation, November 10](decision-eval.md)
 - [Messages held while the home wakes, November 11](queue-held-sends.md)
+- [Stall watch: no dog goes quiet without a reason, November 12](stall-watch.md)
 
 `control-laterdog ui` ([Chat UI, driven headlessly](chat-ui.md)) drives the real
 renderer in a headless Chrome by accessible name, so composer sends, transcript
