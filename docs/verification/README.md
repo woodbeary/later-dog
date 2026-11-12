@@ -76,6 +76,7 @@ Use only mapped, tested commands:
 - [Shared-workspace trust: loopback, card answerers, decision log](shared-workspace-trust.md)
 - [Shared-workspace governance: bot visibility and admin activity](shared-workspace-governance.md)
 - [Usage ledger](usage-ledger.md)
+- [Account allowance, credits and context reporting, November 10](account-usage-2026-11-10.md)
 - [Compiled supervisor bundle](supervisor-bundle.md)
 - [Supervisor rollout and dog resume, November 9](dog-resume-2026-11-09.md)
 - [Execution advice under concurrent work](execution-advisor-scale.md)

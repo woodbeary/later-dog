@@ -3,6 +3,12 @@ import { modelContextWindow } from "./model-context-window.ts";
 
 describe("model context window fallback", () => {
   it("knows the common families and stays silent otherwise", () => {
+    for (const model of ["fable", "claude-fable-5", "claude-fable-5-1", "claude-fable-5-2", "anthropic.claude-fable-5-2", "openrouter/anthropic/claude-fable-5-2"]) {
+      expect(modelContextWindow(model)).toBe(1_000_000);
+    }
+    for (const model of ["claude-fable-5-20", "claude-fable-5-2-local", "omlx::claude-fable-5-2"]) {
+      expect(modelContextWindow(model)).toBe(200_000);
+    }
     expect(modelContextWindow("claude-sonnet-5")).toBe(200_000);
     expect(modelContextWindow("claude-sonnet-5-5")).toBe(1_000_000);
     expect(modelContextWindow("claude-sonnet-5.5")).toBe(1_000_000);
