@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { WireMessage } from "../../shared/wire.ts";
-import { createStallWatch, judgeChat, owedWork, STALL_LOOKBACK_MS, STALL_QUIET_MS, stallWatchMode, type ChatNow, type StallWatchMode } from "./stall-watch.ts";
+import { createStallWatch, handoffWorking, judgeChat, owedWork, STALL_LOOKBACK_MS, STALL_QUIET_MS, stallWatchMode, type ChatNow, type StallWatchMode } from "./stall-watch.ts";
 
 const T0 = Date.parse("2026-11-08T06:25:00Z");
 const MINUTE = 60_000;
@@ -16,7 +16,7 @@ const teammate = (at: number, name: string) => row(at, { kind: "activity", comm:
 
 const chat = (path: WireMessage[], over: Partial<ChatNow> = {}): ChatNow => ({
   name: "Clover", path, busy: false, requestOpen: false, helpers: 0, usageWait: false, queued: false, stoppedByPerson: false,
-  mayContinue: true, teammates: [], now: Math.max(...path.map((message) => message.at)) + 10 * MINUTE, ...over,
+  mayContinue: true, routine: () => false, teammates: [], now: Math.max(...path.map((message) => message.at)) + 10 * MINUTE, ...over,
 });
 
 describe("work is owed only with evidence that it was cut", () => {
@@ -131,10 +131,40 @@ describe("judging a quiet chat", () => {
       .toEqual({ kind: "needs-you", what: "Patch can't run until it has a working account", dogs: ["Patch"] });
   });
 
-  it("does not keep saying waiting when an awaited teammate is idle and never started", () => {
+  it("a teammate that handed part on to a third dog is still working, so nothing is picked back up", () => {
+    const path = [ask(T0, "Have Patch build the report"), said(T0 + 1, "Patch is on it.", "t1"), digest(T0 + 2, "t1", true)];
+    const patch = { id: "patch", name: "Patch", working: handoffWorking("waiting", true, false), canRun: true };
+    expect(patch.working).toBe(true);
+    expect(judgeChat(chat(path, { teammates: [patch] }))).toEqual({ kind: "fine", why: "teammates" });
+  });
+
+  it("a queued handoff is working when its dog can run, and needs the person when it cannot", () => {
     const path = [ask(T0), said(T0 + 1, "Sent to Patch.", "t1")];
-    expect(judgeChat(chat(path, { teammates: [{ id: "p", name: "Patch", working: false, canRun: true }] })))
-      .toMatchObject({ kind: "continue", line: "Patch stopped before replying, so Clover is picking the work back up." });
+    expect(handoffWorking("queued", true, false)).toBe(true);
+    expect(judgeChat(chat(path, { teammates: [{ id: "p", name: "Patch", working: handoffWorking("queued", true, false), canRun: true }] }))).toEqual({ kind: "fine", why: "teammates" });
+    expect(handoffWorking("queued", false, false)).toBe(false);
+    expect(judgeChat(chat(path, { teammates: [{ id: "p", name: "Patch", working: handoffWorking("queued", false, false), canRun: false }] })).kind).toBe("needs-you");
+  });
+
+  it("an outstanding handoff is never treated as stopped, even with no sign of work", () => {
+    const path = [ask(T0), said(T0 + 1, "Sent to Patch.", "t1")];
+    expect(handoffWorking("needs-you", true, false)).toBe(false);
+    expect(handoffWorking("running", true, false)).toBe(true);
+    expect(handoffWorking("resume", true, false)).toBe(true);
+    expect(judgeChat(chat(path, { teammates: [{ id: "p", name: "Patch", working: false, canRun: true }] }))).toEqual({ kind: "fine", why: "teammates" });
+  });
+
+  it("a routine's failed turn is left to the routine, judged at the time of the owed message", () => {
+    const path = cut();
+    const routine = vi.fn((at: number) => at === path[0]!.at);
+    expect(judgeChat(chat(path, { routine }))).toEqual({ kind: "fine", why: "routine" });
+    expect(routine).toHaveBeenCalledWith(path[0]!.at);
+  });
+
+  it("a chat the restart pickup already explained is settled, even with the cut turn's error line", () => {
+    const giveUp = row(T0 + 3, { kind: "activity", tool: { name: "error: later.dog restarted again before Clover finished this. Send it again to try once more.", ok: false, pickup: "restart" } });
+    expect(owedWork([...cut(), giveUp])).toBeUndefined();
+    expect(judgeChat(chat([...cut(), giveUp]))).toEqual({ kind: "fine", why: "settled" });
   });
 });
 
@@ -199,6 +229,26 @@ describe("the stall watch on the home", () => {
     expect(watch.facts("main")).toEqual({});
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(/^stall watch \(observe\): main would carry on \(.+: the engine closed\)$/);
+  });
+
+  it("does not sweep until the restart pickup has finished its pass", async () => {
+    vi.useFakeTimers();
+    try {
+      let finish = () => {};
+      const ready = new Promise<void>((resolve) => { finish = resolve; });
+      const look = vi.fn(() => null);
+      const watch = createStallWatch({ chats: () => [{ botId: "clover", threadId: "main" }], look, append: vi.fn(), start: vi.fn(), log: () => {} },
+        { everyMs: 1_000, ready });
+      watch.start();
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(look).not.toHaveBeenCalled();
+      finish();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(look).toHaveBeenCalled();
+      watch.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reads its mode from one setting", () => {

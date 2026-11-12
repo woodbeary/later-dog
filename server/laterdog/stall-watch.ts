@@ -19,6 +19,12 @@ export function stallWatchMode(value: string | undefined): StallWatchMode {
   return mode === "observe" || mode === "off" ? mode : "act";
 }
 
+export function handoffWorking(status: string, canRun: boolean, dogBusy: boolean): boolean {
+  if (status === "needs-you") return false;
+  if (status === "queued") return canRun || dogBusy;
+  return true;
+}
+
 export interface Teammate {
   id: string;
   name: string;
@@ -36,12 +42,13 @@ export interface ChatNow {
   queued: boolean;
   stoppedByPerson: boolean;
   mayContinue: boolean;
+  routine: (at: number) => boolean;
   teammates: readonly Teammate[];
   now: number;
 }
 
 export type StallVerdict =
-  | { kind: "fine"; why: "busy" | "asking" | "helpers" | "usage" | "queued" | "teammates" | "stopped" | "settled" | "recent" | "old" | "explained" }
+  | { kind: "fine"; why: "busy" | "asking" | "helpers" | "usage" | "queued" | "teammates" | "stopped" | "settled" | "recent" | "old" | "explained" | "routine" }
   | { kind: "needs-you"; what: string; dogs: string[] }
   | { kind: "continue"; source: Message; cause: string; line: string; prompt: string }
   | { kind: "explain"; source: Message; cause: string; line: string; stopped: WorkStopCause };
@@ -107,6 +114,7 @@ export function owedWork(path: readonly Message[]): OwedWork | undefined {
   if (source.reactions?.length || onlyTapbackText(source.text)) return undefined;
   const after = path.slice(at + 1);
   if (dismissedCard(after.at(-1))) return undefined;
+  if (after.some((message) => message.tool?.pickup === "restart" && message.tool.ok === false)) return undefined;
   const lastTurnAt = after.findLastIndex((message) => message.role === "bot" && Boolean(message.turnId));
   const gaveUp = after.slice(lastTurnAt + 1).map(teammateEnd).findLast(Boolean);
   if (gaveUp) return { source, after, cause: gaveUp.cause, teammate: gaveUp.name, retry: true, need: "other" };
@@ -170,18 +178,18 @@ export function judgeChat(chat: ChatNow, options: { quietMs?: number; tries?: nu
   if (chat.usageWait) return { kind: "fine", why: "usage" };
   if (chat.queued) return { kind: "fine", why: "queued" };
   if (chat.stoppedByPerson) return { kind: "fine", why: "stopped" };
-  if (chat.teammates.some((teammate) => teammate.working)) return { kind: "fine", why: "teammates" };
-  const stuck = chat.teammates.filter((teammate) => !teammate.canRun);
+  const stuck = chat.teammates.filter((teammate) => !teammate.working && !teammate.canRun);
   if (stuck.length) {
     const dogs = [...new Set(stuck.map((teammate) => teammate.name))];
     return { kind: "needs-you", what: needsAccountLine(dogs), dogs };
   }
+  if (chat.teammates.length) return { kind: "fine", why: "teammates" };
   const lastAt = Math.max(0, ...chat.path.map((message) => message.at));
   if (chat.now - lastAt < (options.quietMs ?? STALL_QUIET_MS)) return { kind: "fine", why: "recent" };
   if (chat.now - lastAt > (options.lookbackMs ?? STALL_LOOKBACK_MS)) return { kind: "fine", why: "old" };
-  const idleTeammates = chat.teammates.filter((teammate) => teammate.canRun);
-  const owed = owedWork(chat.path) ?? (idleTeammates.length ? silentTeammates(chat.path, idleTeammates) : undefined);
+  const owed = owedWork(chat.path);
   if (!owed) return { kind: "fine", why: "settled" };
+  if (chat.routine(owed.source.at)) return { kind: "fine", why: "routine" };
   const rows = watchRows(owed.after);
   if (rows.some((row) => row.tool?.ok === false)) return { kind: "fine", why: "explained" };
   if (chat.mayContinue && owed.retry && rows.length < (options.tries ?? STALL_TRIES)) {
@@ -189,13 +197,6 @@ export function judgeChat(chat: ChatNow, options: { quietMs?: number; tries?: nu
     return { kind: "continue", source: owed.source, cause: owed.cause, line, prompt: stallPrompt(owed.source.text ?? "", owed.teammate) };
   }
   return { kind: "explain", source: owed.source, cause: owed.cause, line: explainLine(chat.name, owed), stopped: owed.teammate ? "engine" : "infrastructure" };
-}
-
-function silentTeammates(path: readonly Message[], idle: readonly Teammate[]): OwedWork | undefined {
-  const at = path.findLastIndex((message) => message.role === "user");
-  if (at === -1) return undefined;
-  const who = names([...new Set(idle.map((teammate) => teammate.name))]);
-  return { source: path[at]!, after: path.slice(at + 1), cause: `${who} never started the work it was given`, teammate: who, retry: true, need: "other" };
 }
 
 export interface StallFacts {
@@ -215,13 +216,14 @@ export interface StallWatchHost {
 const reasonOf = (error: unknown) => error instanceof Error ? error.message : String(error);
 const MOVING: ReadonlySet<string> = new Set(["busy", "asking", "helpers", "usage", "queued", "teammates"]);
 
-export function createStallWatch(host: StallWatchHost, options: { everyMs?: number; quietMs?: number; tries?: number; lookbackMs?: number; mode?: StallWatchMode } = {}) {
+export function createStallWatch(host: StallWatchHost, options: { everyMs?: number; quietMs?: number; tries?: number; lookbackMs?: number; mode?: StallWatchMode; ready?: Promise<unknown> } = {}) {
   const log = host.log ?? ((line: string) => console.info(line));
   const mode = options.mode ?? "act";
   const facts = new Map<string, StallFacts>();
   const observed = new Set<string>();
   const starting = new Set<string>();
   let timer: ReturnType<typeof setInterval> | undefined;
+  let started = false;
 
   const record = (threadId: string, next: StallFacts | undefined) => {
     const before = JSON.stringify(facts.get(threadId) ?? {});
@@ -296,11 +298,18 @@ export function createStallWatch(host: StallWatchHost, options: { everyMs?: numb
       facts.delete(threadId);
     },
     start(): void {
-      if (timer || mode === "off") return;
-      timer = setInterval(() => { this.sweep(); }, options.everyMs ?? STALL_CHECK_MS);
-      timer.unref?.();
+      if (started || mode === "off") return;
+      started = true;
+      const begin = () => {
+        if (!started || timer) return;
+        timer = setInterval(() => { this.sweep(); }, options.everyMs ?? STALL_CHECK_MS);
+        timer.unref?.();
+      };
+      if (options.ready) void options.ready.then(begin, begin);
+      else begin();
     },
     stop(): void {
+      started = false;
       if (timer) clearInterval(timer);
       timer = undefined;
     },
