@@ -7488,7 +7488,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
           output: tokens?.output,
           cachedInput: tokens?.cachedInput,
           costUsd: event.cost ?? null,
-          context: { tokens: lastContext?.tokens, window: lastContext?.window ?? modelContextWindow(contextModel) },
+          context: { tokens: lastContext?.tokens, window: lastContext?.window ?? modelContextWindow(contextModel), windowSource: lastContext?.window ? "provider" : "model" },
         });
         const settledTask = store.taskByThread(bot.id, event.threadId);
         const selection = settledTask?.modelSelection ?? bot.modelSelection;

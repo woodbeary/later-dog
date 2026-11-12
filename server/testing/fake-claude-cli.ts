@@ -564,9 +564,10 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     const progress = (text: string) => out({ type: "assistant", message: { content: [{ type: "text", text }] } });
     void runRoomHandoffAgent(argv, process.env.FAKE_CLAUDE_ROOM_PLAN, prompt, undefined, progress).then(text => {
       const contextTokens = Number(process.env.FAKE_CLAUDE_CONTEXT_TOKENS);
+      const contextWindow = Number(process.env.FAKE_CLAUDE_CONTEXT_WINDOW);
       const usage = Number.isSafeInteger(contextTokens) && contextTokens > 0 ? { input_tokens: contextTokens, output_tokens: 5 } : undefined;
       out({ type: "assistant", message: { content: [{ type: "text", text }], ...(usage ? { usage } : {}) } });
-      out({ type: "result", is_error: false, stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 } });
+      out({ type: "result", is_error: false, stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 }, ...(Number.isSafeInteger(contextWindow) && contextWindow > 0 ? { modelUsage: { [model]: { contextWindow } } } : {}) });
     }).catch(error => {
       out({ type: "result", is_error: true, result: String(error), stop_reason: "error" });
     }).finally(() => { turnRunning = false; finishIfDone(); });

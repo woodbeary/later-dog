@@ -1503,6 +1503,8 @@
   "planUsage.loading": "Checking usage…",
   "planUsage.fetchError": "Could not load usage.",
   "planUsage.refresh": "Refresh",
+  "planUsage.creditsRemaining": "{balance} credits remaining",
+  "planUsage.unlimitedCredits": "Unlimited credits",
   "usage.empty": "Nothing spent yet — figures appear after a dog's first turn.",
   "usage.costSoFar": "Estimated cost so far",
   "usage.costUnknown": "No price reported yet. Tokens are still counted.",

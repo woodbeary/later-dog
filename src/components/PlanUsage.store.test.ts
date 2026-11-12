@@ -3,11 +3,12 @@ import { createElement } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PlanUsageReport } from "./PlanUsage";
 
-const fixture = vi.hoisted(() => ({ api: vi.fn(async () => ({ fetchedAt: "", providers: [] })) }));
+const fixture = vi.hoisted(() => ({ api: vi.fn<(path: string) => Promise<PlanUsageReport>>(async () => ({ fetchedAt: "", providers: [] })) }));
 vi.mock("@/state/store", () => ({ api: fixture.api }));
 
-const { usePlanUsage, useRefreshAfterTurn } = await import("./PlanUsage");
+const { reloadPlanUsage, usePlanUsage, useRefreshAfterTurn } = await import("./PlanUsage");
 
 const NOW = Date.UTC(2026, 9, 9, 12);
 function Reader() {
@@ -54,5 +55,38 @@ describe("refreshing usage after a turn", () => {
     end();
     expect(fixture.api).toHaveBeenCalledTimes(2);
     flushSync(() => turn.unmount());
+  });
+
+  it("keeps the result of the latest requested refresh when an earlier request finishes late", async () => {
+    let finishOlder!: (report: PlanUsageReport) => void;
+    let finishNewer!: (report: PlanUsageReport) => void;
+    fixture.api.mockImplementationOnce(() => new Promise((resolve) => { finishOlder = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { finishNewer = resolve; }));
+    const report = (remainingPercent: number): PlanUsageReport => ({ fetchedAt: "", providers: [{
+      id: "fixture", name: "Fixture", driver: "claude", plan: null, ok: true, error: null, extra: [],
+      fiveHour: { available: true, usedPercent: 100 - remainingPercent, remainingPercent, resetsAt: null },
+      weekly: { available: true, usedPercent: 100 - remainingPercent, remainingPercent, resetsAt: null },
+    }] });
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    function ReportReader() {
+      const { report } = usePlanUsage({ enabled: false });
+      return createElement("output", null, report?.providers[0]?.weekly.remainingPercent);
+    }
+    flushSync(() => root.render(createElement(ReportReader)));
+    try {
+      const older = reloadPlanUsage(true);
+      const newer = reloadPlanUsage(true);
+      finishNewer(report(100));
+      await newer;
+      await settle();
+      expect(host.textContent).toBe("100");
+      finishOlder(report(0));
+      await older;
+      await settle();
+      expect(host.textContent).toBe("100");
+    } finally {
+      flushSync(() => root.unmount());
+    }
   });
 });

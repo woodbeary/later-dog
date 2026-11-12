@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/state/store", () => ({ api: vi.fn() }));
-import { AccountUsage, keepLastGood, resetDistance, type PlanProvider } from "./PlanUsage";
+import { AccountUsage, creditsLine, keepLastGood, resetDistance, usageLines, type PlanProvider } from "./PlanUsage";
 
 const HOUR = 60 * 60 * 1000;
 const provider = (overrides: Partial<PlanProvider> = {}): PlanProvider => ({
@@ -30,6 +30,21 @@ describe("reset distance", () => {
 });
 
 describe("Account usage presentation", () => {
+  it("shows paid credits with an exhausted included allowance and without reported plan windows", () => {
+    const funded = provider({ driver: "codex", credits: { unlimited: false, balance: "49383.7272235000" }, weekly: { available: true, usedPercent: 100, remainingPercent: 0, resetsAt: null } });
+    const html = renderToStaticMarkup(createElement(AccountUsage, { provider: funded, now: Date.now() }));
+    expect(html).toContain("49,383.73 credits remaining");
+    expect(html).toContain("Weekly · 0% left");
+    expect(usageLines(funded, Date.now())).toContain("49,383.73 credits remaining");
+    const unknown = { available: false, usedPercent: null, remainingPercent: null, resetsAt: null };
+    const creditsOnly = renderToStaticMarkup(createElement(AccountUsage, { provider: { ...funded, fiveHour: unknown, weekly: unknown }, now: Date.now() }));
+    expect(creditsOnly).toContain("49,383.73 credits remaining");
+    expect(creditsOnly).not.toContain('role="meter"');
+    expect(creditsLine(provider({ credits: { unlimited: true, balance: null } }))).toBe("Unlimited credits");
+    expect(creditsLine(provider({ credits: { unlimited: false, balance: "0" } }))).toBe("0 credits remaining");
+    expect(creditsLine(provider({ credits: { unlimited: false, balance: "unknown" } }))).toBeNull();
+  });
+
   it("shows each window as a bar that fills as it is used, warming as it runs low, with what is left and its reset", () => {
     const html = renderToStaticMarkup(createElement(AccountUsage, { provider: provider(), now: Date.now() }));
     expect(html.match(/role="meter"/g)).toHaveLength(2);

@@ -234,6 +234,61 @@ describe("most available first", () => {
     expect(routed({ ...SELECTION, model: "claude-opus-5" })).toBe("claude-b");
   });
 
+  it("accepts a fresh weekly reset and keeps an unchanged lagging reading after another quota refusal", () => {
+    let now = NOW;
+    let row = reading("claude", 0, 100);
+    let readAt = NOW - 1;
+    const file = join(scratch(), "battery.json");
+    const options = { file, config: () => ON, now: () => now, usage: () => row, usageAt: () => readAt };
+    const battery = new AccountBattery(options);
+    battery.markExhausted("claude", { resetsAt: at(72 * HOUR), kind: "weekly" });
+    row = reading("claude", 0, 0);
+    expect(battery.status(ACCOUNTS).resting).toHaveProperty("claude");
+    now += 60_000;
+    readAt = now;
+    battery.noteReadings(ACCOUNTS);
+    expect(battery.status(ACCOUNTS).resting).not.toHaveProperty("claude");
+    expect(battery.route(SELECTION, ACCOUNTS, "reset")).toBe(SELECTION);
+    expect(new AccountBattery(options).status(ACCOUNTS).resting).not.toHaveProperty("claude");
+
+    battery.markExhausted("claude", { resetsAt: at(72 * HOUR), kind: "weekly" });
+    now += 60_000;
+    readAt = now;
+    battery.noteReadings(ACCOUNTS);
+    expect(battery.status(ACCOUNTS).resting).toHaveProperty("claude");
+    expect(new AccountBattery(options).status(ACCOUNTS).resting).toHaveProperty("claude");
+  });
+
+  it("reconciles a saved legacy hold after a newer reset reading and preserves a still-exhausted account", () => {
+    const file = join(scratch(), "battery.json");
+    writeFileSync(file, JSON.stringify({ version: 1, resting: {
+      claude: rest(72 * HOUR, { kind: "weekly" }),
+      "claude-b": rest(5 * HOUR, { kind: "session" }),
+    } }));
+    const rows = { claude: reading("claude", 0, 0), "claude-b": reading("claude-b", 100, 44) };
+    const battery = new AccountBattery({ file, config: () => ON, now: () => NOW + 1, usage: (id) => rows[id as keyof typeof rows], usageAt: () => NOW + 1 });
+    battery.noteReadings(ACCOUNTS);
+    expect(battery.status(ACCOUNTS).resting).not.toHaveProperty("claude");
+    expect(battery.status(ACCOUNTS).resting["claude-b"].kind).toBe("session");
+    expect(JSON.parse(readFileSync(file, "utf8")).resting).not.toHaveProperty("claude");
+  });
+
+  it("recognizes newly available credits without clearing setup or model-specific holds", () => {
+    let now = NOW;
+    let row = reading("claude", 100, 100);
+    const battery = new AccountBattery({ config: () => ON, now: () => now, usage: () => row, usageAt: () => now });
+    battery.markExhausted("claude", { resetsAt: at(72 * HOUR), kind: "weekly" });
+    battery.markExhausted("claude-b", { resetsAt: at(72 * HOUR), kind: "opus" });
+    battery.needsSetup("claude-c");
+    now += 1;
+    row = { ...row, credits: { unlimited: false, balance: "49.5" } };
+    battery.noteReadings(ACCOUNTS);
+    const resting = battery.status(ACCOUNTS).resting;
+    expect(resting).not.toHaveProperty("claude");
+    expect(resting["claude-b"].kind).toBe("opus");
+    expect(resting["claude-c"].kind).toBe("setup");
+  });
+
   it("reports the order it will use and moves a turn that ran out to the account with the most left", () => {
     const readings: Record<string, PlanProviderRow> = {
       claude: reading("claude", 100, 40), "claude-b": reading("claude-b", 90, 20), "claude-c": reading("claude-c", 40, 10),

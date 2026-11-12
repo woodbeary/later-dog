@@ -74,7 +74,7 @@ export interface TaskUsage {
   costUsd: number | null;
   turns: number;
   lastTurn?: { input: number; output: number; cachedInput?: number; costUsd: number | null };
-  context?: { tokens: number; window?: number };
+  context?: { tokens: number; window?: number; windowSource?: "provider" | "model" };
 }
 
 export interface GroupThreadUsage extends TaskUsage {

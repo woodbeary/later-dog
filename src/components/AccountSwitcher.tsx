@@ -5,7 +5,7 @@ import { t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { InstanceProviderMark } from "./ProviderIcons";
 import { signedIn, useCarryOn } from "./AccountsPanel";
-import { USAGE_TEXT, usageLines, usageReading, usageTone, type PlanProvider, type PlanUsageReport, type UsageTone } from "./PlanUsage";
+import { creditsLine, USAGE_TEXT, usageLines, usageReading, usageTone, type PlanProvider, type PlanUsageReport, type UsageTone } from "./PlanUsage";
 import { backAt, rechargeProgress, restSummary, SleepingDog, usageLeft, type AccountRest } from "./AccountCharge";
 import { useAccountDrag } from "./account-drag";
 
@@ -30,7 +30,8 @@ export function activeRest(resting: Resting, instanceId: string, now: number): A
 }
 
 export function accountUsageLines(provider: PlanProvider | undefined, rest: AccountRest | undefined, now: number): string[] {
-  return rest ? [restSummary(rest, now)] : usageLines(provider, now);
+  const credits = creditsLine(provider);
+  return rest ? [restSummary(rest, now), ...(credits ? [credits] : [])] : usageLines(provider, now);
 }
 
 export function UsageRing({ level, tone, charging = false, children }: UsageRingLevel & { children: ReactNode }) {
@@ -84,13 +85,14 @@ export function AccountSwitcher({ accounts, currentId, report, now, resting, onP
           const provider = report?.providers.find((candidate) => candidate.id === id);
           const rest = activeRest(resting, id, now);
           const reading = rest ? null : usageReading(provider);
+          const credits = creditsLine(provider);
           const ring = usageRingFor(provider, rest, now);
           const current = id === currentId;
           const canMove = movable(account);
           const status = rest ? backAt(rest, now)
             : !signedIn(account) ? t("accounts.signedOut")
-            : reading ? t("planUsage.left", { left: usageLeft(reading.used) }) : "";
-          const low = reading ? usageTone(reading.used) : "good";
+            : credits ?? (reading ? t("planUsage.left", { left: usageLeft(reading.used) }) : "");
+          const low = reading && !credits ? usageTone(reading.used) : "good";
           return (
             <li
               key={id}
@@ -144,5 +146,6 @@ export function usageRingFor(provider: PlanProvider | undefined, rest: AccountRe
     return { level: progress === null ? null : Math.round(progress * 100), tone: "accent", charging: true };
   }
   const reading = usageReading(provider);
+  if (creditsLine(provider)) return { level: null, tone: "accent" };
   return reading ? { level: usageLeft(reading.used), tone: usageTone(reading.used), ...(reading.used >= 100 ? { sleeping: true } : {}) } : null;
 }

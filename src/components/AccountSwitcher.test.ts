@@ -63,6 +63,15 @@ afterEach(async () => {
 });
 
 describe("the account list", () => {
+  it("shows the available credit balance instead of sleeping on an exhausted included allowance", async () => {
+    await show({ accounts: [codex], currentId: "codex", report: { fetchedAt: "", providers: [{
+      ...usage("codex", 0, 100), driver: "codex", credits: { unlimited: false, balance: "49383.7272235000" },
+    }] } });
+    expect(row("codex")!.textContent).toContain("49,383.73 credits remaining");
+    expect(row("codex")!.title).toContain("Weekly · 0% left");
+    expect(row("codex")!.querySelector("[data-sleeping-dog]")).toBeNull();
+  });
+
   it("gives each account one line with a usage ring, leaves the detail to the tooltip, and checks the one in use", async () => {
     await show();
     expect(order()).toEqual(["claude", "claude-work", "codex"]);

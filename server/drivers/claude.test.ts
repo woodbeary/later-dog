@@ -24,6 +24,7 @@ import {
   permissionSocketPath,
   readClaudeAuthSettings,
   claudeCostSnapshot,
+  claudeReportedContextWindow,
   restoredCostBase,
   STEERED_CONTINUATION_GRACE_MS,
   sumNativeTurnResults,
@@ -2033,6 +2034,29 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await recorder.until(e => e.type === "turn.completed");
     const seen = JSON.parse(readFileSync(dump, "utf8"));
     expect(seen.argv.includes("--forward-subagent-text")).toBe(version === "2.1.211");
+  });
+
+  it.each([1_000_000, 200_000])("reports the parent's native context window %d independently of child models", async (contextWindow) => {
+    const cli = join(scratch, "context-window.mjs");
+    writeFileSync(cli, [
+      "#!/usr/bin/env node",
+      "if (process.argv.includes('--version')) { console.log('2.1.316 (Claude Code)'); process.exit(0); }",
+      "if (process.argv.includes('--help')) { console.log('Usage: claude --autocompact <tokens>'); process.exit(0); }",
+      "const emit = (event) => console.log(JSON.stringify({ session_id: 'context-session', ...event }));",
+      "process.stdin.setEncoding('utf8');",
+      "process.stdin.on('data', () => {",
+      "emit({ type: 'system', subtype: 'init', model: 'claude-fable-5-2' });",
+      "emit({ type: 'assistant', message: { model: 'claude-fable-5-2', content: [{ type: 'text', text: 'Done' }], usage: { input_tokens: 2, cache_read_input_tokens: 243881, cache_creation_input_tokens: 327, output_tokens: 16 } } });",
+      `emit({ type: 'result', subtype: 'success', result: 'Done', modelUsage: { 'claude-opus-5-5': { contextWindow: 200000 }, 'claude-fable-5-2': { contextWindow: ${contextWindow} } }, usage: { input_tokens: 2, cache_read_input_tokens: 243881, cache_creation_input_tokens: 327, output_tokens: 16 } });`,
+      "});",
+    ].join("\n"), { mode: 0o755 });
+    await create(undefined, {}, { cli });
+    await instance.adapter.sendTurn({ threadId: "t-reported-context", text: "Check context", model: "claude-fable-5-2" });
+    await recorder.until((event) => event.type === "turn.completed");
+    expect(recorder.events.filter((event) => event.type === "thread.token-usage.updated").at(-1))
+      .toMatchObject({ contextTokens: 244_210, contextWindow });
+    expect(claudeReportedContextWindow({ other: { contextWindow: 1_000_000 } }, "claude-fable-5-2")).toBeUndefined();
+    expect(claudeReportedContextWindow({ "claude-fable-5-2": { contextWindow: -1 } }, "claude-fable-5-2")).toBeUndefined();
   });
 
   it("keeps native child content and usage out of the parent while preserving its activity", async () => {
