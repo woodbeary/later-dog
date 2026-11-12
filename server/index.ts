@@ -759,7 +759,7 @@ import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
 import { createCompactionLive, fileCompactionLedger } from "./laterdog/compaction-live.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
-import { createStallWatch, STALL_LOOKBACK_MS, type StallFacts } from "./laterdog/stall-watch.ts";
+import { createStallWatch, STALL_LOOKBACK_MS, stallWatchMode, type StallFacts } from "./laterdog/stall-watch.ts";
 import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
 import { createPickupStops, keepsNewerTurn } from "./laterdog/pickup-stops.ts";
 import type { TakeoverRequestCardData } from "../shared/takeover.ts";
@@ -5707,7 +5707,8 @@ const stallWatch = createStallWatch({
   append: (threadId, message) => store.appendMessage(threadId, message),
   start: startContinuation,
   changed: announceHelpersChanged,
-}, { everyMs: Math.max(1_000, Number(process.env.LATERDOG_STALL_WATCH_MS) || 60_000), quietMs: Math.max(1_000, Number(process.env.LATERDOG_STALL_QUIET_MS) || 3 * 60_000) });
+}, { everyMs: Math.max(1_000, Number(process.env.LATERDOG_STALL_WATCH_MS) || 60_000), quietMs: Math.max(1_000, Number(process.env.LATERDOG_STALL_QUIET_MS) || 3 * 60_000),
+  mode: stallWatchMode(process.env.LATERDOG_STALL_WATCH) });
 stallFacts = (threadId) => stallWatch.facts(threadId);
 stallWatch.start();
 bus.subscribe((event: RuntimeEvent) => {

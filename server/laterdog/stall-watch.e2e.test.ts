@@ -32,6 +32,7 @@ child.on("exit", (code) => { clearInterval(watch); process.exit(code ?? 1); });
 
 interface Fixture {
   dataDir: string;
+  logPath: string;
   release: string;
   die: string;
   api: (method: string, path: string, body?: unknown) => Promise<any>;
@@ -40,7 +41,7 @@ interface Fixture {
   receipt: (name: string, value: unknown) => void;
 }
 
-async function withFixture(name: string, environment: Record<string, string>, check: (fixture: Fixture) => Promise<void>) {
+async function withFixture(name: string, environment: Record<string, string>, check: (fixture: Fixture) => Promise<void>, serverEnv: Record<string, string> = {}) {
   const fixture = await launchVerificationServer({});
   const { dataDir, url, logPath } = fixture.info;
   const release = join(dataDir, "release");
@@ -71,7 +72,7 @@ async function withFixture(name: string, environment: Record<string, string>, ch
       beforeStart?.();
       const log = openSync(logPath, "a", 0o600);
       server = spawn(process.execPath, ["--experimental-strip-types", SERVER], {
-        cwd: ROOT, env: { ...verificationServerEnvironment({}, dataDir, Number(new URL(url).port)), ...KNOBS }, stdio: ["ignore", log, log],
+        cwd: ROOT, env: { ...verificationServerEnvironment({}, dataDir, Number(new URL(url).port)), ...KNOBS, ...serverEnv }, stdio: ["ignore", log, log],
       });
       closeSync(log);
       await expect.poll(async () => {
@@ -79,7 +80,7 @@ async function withFixture(name: string, environment: Record<string, string>, ch
       }, { timeout: 30_000 }).toBe(true);
     };
     await restart();
-    await check({ dataDir, release, die, api, control, restart, receipt: (key, value) => { receipts[key] = value; } });
+    await check({ dataDir, logPath, release, die, api, control, restart, receipt: (key, value) => { receipts[key] = value; } });
     receipts.passed = true;
   } finally {
     receipts.endedAt = new Date().toISOString();
@@ -142,7 +143,7 @@ it("an engine that exits mid-turn is carried on by the home with one plain line"
     fixture.receipt("rows", plainRows(rows));
     fixture.receipt("states", chat.states);
     expect(rows.filter((row) => row.role === "user")).toHaveLength(1);
-    expect(watchRows(rows).map((row) => row.tool)).toEqual([expect.objectContaining({ ok: true, name: expect.stringMatching(/^recovery: Exit dog stopped partway \(it hit a problem: .+\), so Exit dog is carrying on by itself\.$/) })]);
+    expect(watchRows(rows).map((row) => row.tool)).toEqual([{ name: "recovery: Exit dog stopped before finishing, so it is carrying on by itself.", ok: true, pickup: "watch" }]);
   });
 }, 240_000);
 
@@ -158,7 +159,7 @@ it("a turn that goes quiet is stopped with a reason and then carried on by itsel
     fixture.receipt("rows", plainRows(rows));
     fixture.receipt("states", chat.states);
     expect(rows.filter((row) => row.role === "user")).toHaveLength(1);
-    expect(watchRows(rows).filter((row) => row.tool.ok === true)).toHaveLength(1);
+    expect(watchRows(rows).map((row) => row.tool)).toEqual([{ name: "recovery: Quiet dog stopped before finishing, so it is carrying on by itself.", ok: true, pickup: "watch" }]);
   });
 }, 360_000);
 
@@ -198,4 +199,25 @@ it("helpers working while the dog's own turn is over show as working, and nothin
     fixture.receipt("states", chat.states);
     expect(watchRows(rows)).toHaveLength(0);
   });
+}, 240_000);
+
+it("in observe mode the watch only logs what it would do", async () => {
+  await withFixture("observe-mode", { FAKE_CLAUDE_MODE: "hang" }, async (fixture) => {
+    const chat = await dog(fixture, "Observed dog");
+    await chat.send("Please write the release notes.");
+    await until(chat.busy, Boolean, 30_000, chat.sample);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    writeFileSync(fixture.die, "now");
+    await until(chat.busy, (busy) => !busy, 30_000, chat.sample);
+    const logged = await until(async () => readFileSync(fixture.logPath, "utf8").split("\n").filter((line) => line.includes("stall watch (observe)")),
+      (lines) => lines.length > 0, 60_000);
+    await new Promise((resolve) => setTimeout(resolve, 6_000));
+    const rows = await chat.rows();
+    fixture.receipt("observeLines", logged);
+    fixture.receipt("rows", plainRows(rows));
+    fixture.receipt("states", chat.states);
+    expect(watchRows(rows)).toHaveLength(0);
+    expect(logged).toHaveLength(1);
+    expect(replies(rows)).not.toContain("released");
+  }, { LATERDOG_STALL_WATCH: "observe" });
 }, 240_000);
