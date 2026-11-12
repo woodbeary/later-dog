@@ -1160,6 +1160,36 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(seen.mcpConfig.mcpServers.dog.alwaysLoad).toBe(true);
   });
 
+  it("asks the agents server to mark rare tools for loading on demand only when the server setting is on", async () => {
+    const previous = process.env.LATERDOG_DEFER_RARE_TOOLS;
+    await create();
+    const dump = join(scratch, "rare-tools.json");
+    process.env.FAKE_CLAUDE_DUMP = dump;
+    const launch = async (threadId: string) => {
+      await instance.adapter.sendTurn({
+        threadId,
+        text: "hi",
+        integrations: {
+          agents: { command: process.execPath, args: ["/fake/agents-proxy.js"], env: { LATERDOG_BOT_ID: "b1" } },
+        },
+      });
+      await recorder.until((e) => e.type === "turn.completed");
+      recorder.events.length = 0;
+      return JSON.parse(readFileSync(dump, "utf8")).mcpConfig.mcpServers.agents;
+    };
+    try {
+      delete process.env.LATERDOG_DEFER_RARE_TOOLS;
+      const off = await launch("t-rare-off");
+      expect(off).toEqual({ command: process.execPath, args: ["/fake/agents-proxy.js"], env: { LATERDOG_BOT_ID: "b1" }, alwaysLoad: true });
+      process.env.LATERDOG_DEFER_RARE_TOOLS = "1";
+      const on = await launch("t-rare-on");
+      expect(on).toEqual({ ...off, env: { LATERDOG_BOT_ID: "b1", LATERDOG_AGENTS_DEFER_RARE: "1" } });
+    } finally {
+      if (previous === undefined) delete process.env.LATERDOG_DEFER_RARE_TOOLS;
+      else process.env.LATERDOG_DEFER_RARE_TOOLS = previous;
+    }
+  });
+
   it.each(["ask", "auto"] as const)("pre-allows exactly a dog's three later.dog cloud tools in %s approval", async (approvalMode) => {
     await create();
     const dump = join(scratch, "dump.json");

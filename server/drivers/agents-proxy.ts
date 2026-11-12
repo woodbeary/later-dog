@@ -3,8 +3,9 @@ import readline from "node:readline";
 import { availableTools, catalogProfileFromEnv } from "./agents-catalog.ts";
 import { callTool, capResult, toolCallContextFromEnv } from "./agents-call.ts";
 import type { Json } from "./agents-client.ts";
+import { withToolLoading } from "../laterdog/tool-loading.ts";
 
-const AVAILABLE_TOOLS = availableTools(catalogProfileFromEnv(process.env));
+const AVAILABLE_TOOLS = withToolLoading(availableTools(catalogProfileFromEnv(process.env)), process.env);
 const CONTEXT = toolCallContextFromEnv(process.env);
 
 const send = (msg: Json) => process.stdout.write(JSON.stringify(msg) + "\n");

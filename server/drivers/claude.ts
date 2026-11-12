@@ -67,6 +67,7 @@ import { readEngineModels } from "../laterdog/wait-at-most.ts";
 import { readCliVersion as readCliVersionOf, unreadCli } from "../laterdog/cli-version.ts";
 import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sections.ts";
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
+import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
 
 export function claudeAuthStatus(
   cli: string,
@@ -1225,7 +1226,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (!controlsHost) allowed.push("mcp__computer");
       }
       if (turn.integrations?.agents) {
-        mcpServers.agents = { ...turn.integrations.agents, alwaysLoad: true };
+        mcpServers.agents = agentsServerLaunch(turn.integrations.agents, deferRareToolsEnabled());
         allowed.push("mcp__agents");
       }
       if (turn.integrations?.browser) {
