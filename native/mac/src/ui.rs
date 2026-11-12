@@ -94,6 +94,7 @@ struct Ui {
     head_search: Retained<NSButton>,
     head_more: Retained<NSButton>,
     head_status: Retained<NSTextField>,
+    head_work: Retained<NSTextField>,
     chat_scroll: Retained<NSScrollView>,
     chat_table: Retained<NSTableView>,
     composer: Retained<Fill>,
@@ -111,6 +112,7 @@ struct Ui {
     send: Retained<NSButton>,
     days: Retained<NSDateFormatter>,
     times: Retained<NSDateFormatter>,
+    weekday_times: Retained<NSDateFormatter>,
     theme: Theme,
 }
 
@@ -439,6 +441,9 @@ impl Controller {
         chat.addSubview(&head_search);
         chat.addSubview(&head_more);
         chat.addSubview(&head_status);
+        let head_work = label(mtm, "", &font(12.0, Weight::Regular), &theme.ink_secondary);
+        head_work.setHidden(true);
+        chat.addSubview(&head_work);
 
         let composer = Fill::new(mtm, Some(&theme.composer), theme::COMPOSER_RADIUS);
         composer.set_stroke(Some(&theme.composer_ring), theme::HAIRLINE);
@@ -490,13 +495,15 @@ impl Controller {
         let times = NSDateFormatter::new();
         times.setDateStyle(NSDateFormatterStyle::NoStyle);
         times.setTimeStyle(NSDateFormatterStyle::ShortStyle);
+        let weekday_times = NSDateFormatter::new();
+        weekday_times.setLocalizedDateFormatFromTemplate(&NSString::from_str("EEEjmm"));
 
         window.setContentView(Some(&root));
         let ui = Ui {
             window, root, sidebar, side_line, side_top, side_bottom, chat, side_search, side_new, dog_scroll, dog_table, profile, profile_mark, connect,
-            connect_label, head_pill, head_avatar, head_name, head_search, head_more, head_status, chat_scroll, chat_table, composer,
+            connect_label, head_pill, head_avatar, head_name, head_search, head_more, head_status, head_work, chat_scroll, chat_table, composer,
             plus, input_scroll, input, placeholder, model_ring, model_mark, model_label, model_chevrons, mic, voice, send_fill, send,
-            days, times, theme,
+            days, times, weekday_times, theme,
         };
         self.ivars().ui.set(ui).ok();
         self.layout();
@@ -630,7 +637,13 @@ impl Controller {
         let name_width = ui.head_name.attributedStringValue().size().width.ceil() + 4.0;
         let pill_width = theme::HEADER_PILL_PAD + theme::HEADER_AVATAR + 8.0 + name_width + theme::HEADER_PILL_PAD_RIGHT;
         let pill_height = theme::HEADER_AVATAR + theme::HEADER_PILL_PAD * 2.0;
-        ui.head_pill.setFrame(rect(((chat_width - pill_width) / 2.0).round(), theme::HEADER_PAD_Y, pill_width, pill_height));
+        let controls = theme::HEADER_PAD_X + icon * 2.0 + 8.0 + 8.0;
+        let work_room = (chat_width - controls * 2.0 - pill_width - 8.0).max(0.0);
+        let work_width = if ui.head_work.isHidden() { 0.0 } else { (ui.head_work.attributedStringValue().size().width.ceil() + 4.0).min(work_room) };
+        let group = pill_width + if work_width > 0.0 { 8.0 + work_width } else { 0.0 };
+        let pill_x = ((chat_width - group) / 2.0).round();
+        ui.head_pill.setFrame(rect(pill_x, theme::HEADER_PAD_Y, pill_width, pill_height));
+        ui.head_work.setFrame(rect(pill_x + pill_width + 8.0 - 2.0, theme::HEADER_PAD_Y + (pill_height - 16.0) / 2.0, work_width, 16.0));
         ui.head_avatar.setFrame(rect(theme::HEADER_PILL_PAD, theme::HEADER_PILL_PAD, theme::HEADER_AVATAR, theme::HEADER_AVATAR));
         ui.head_name.setFrame(rect(theme::HEADER_PILL_PAD + theme::HEADER_AVATAR + 8.0, (pill_height - 18.0) / 2.0, name_width, 18.0));
         let head_bottom = theme::HEADER_PAD_Y * 2.0 + pill_height;
@@ -1000,6 +1013,10 @@ impl Controller {
         };
         ui.head_status.setStringValue(&NSString::from_str(status));
         ui.head_status.setHidden(status.is_empty());
+        let work = laterdog_core::work::line(view.work.as_ref(), now_ms(), &|until, now| reset_time(ui, until, now));
+        ui.head_work.setStringValue(&NSString::from_str(work.as_deref().unwrap_or_default()));
+        ui.head_work.setHidden(work.is_none() || view.title.is_empty());
+        ui.head_work.setAccessibilityRole(Some(unsafe { objc2_app_kit::NSAccessibilityStaticTextRole }));
         let placeholder = if view.title.is_empty() { "Message".to_owned() } else { format!("Message {}", view.title) };
         ui.placeholder.setStringValue(&NSString::from_str(&placeholder));
         ui.input.setAccessibilityLabel(Some(&NSString::from_str(&placeholder)));
@@ -1219,6 +1236,12 @@ fn place_traffic_lights(window: &NSWindow) {
     }
 }
 
+fn reset_time(ui: &Ui, until: u64, now: u64) -> String {
+    let same_day = NSCalendar::currentCalendar().isDate_inSameDayAsDate(&date(until), &date(now));
+    let formatter = if same_day { &ui.times } else { &ui.weekday_times };
+    formatter.stringFromDate(&date(until)).to_string()
+}
+
 pub fn toggle_wrap(key: &str) {
     with_controller(|controller| controller.toggle_wrap(key));
 }
@@ -1269,12 +1292,19 @@ fn configure_dog(cell: &DogCell, dog: &SidebarRow, width: f64, ui: &Ui) {
     parts.dot.set_fill(Some(if dog.waiting { &*theme.waiting } else { &*theme.unread }));
     let preview_top = name_top + 21.0;
     parts.dot.setFrame(rect(text_right - theme::DOT, preview_top + (16.5 - theme::DOT) / 2.0, theme::DOT, theme::DOT));
-    let preview_words = if dog.working { "\u{2022}\u{2022}\u{2022}".to_owned() } else { dog.preview.clone() };
+    let work = if dog.waiting { None } else { laterdog_core::work::sidebar_line(dog.work.as_ref(), now_ms(), &|until, now| reset_time(ui, until, now)) };
+    let preview_words = match &work {
+        Some(line) => line.clone(),
+        None if dog.working => "\u{2022}\u{2022}\u{2022}".to_owned(),
+        None => dog.preview.clone(),
+    };
     parts.preview.setStringValue(&NSString::from_str(&preview_words));
     let preview_right = if dot_shown { text_right - theme::DOT - 8.0 } else { text_right };
     parts.preview.setFrame(rect(text_x - 2.0, preview_top + 1.0, (preview_right - text_x).max(10.0), 15.0));
     let mut spoken = dog.name.clone();
-    if dog.working {
+    if let Some(line) = &work {
+        spoken.push_str(&format!(" \u{b7} {line}"));
+    } else if dog.working {
         spoken.push_str(" \u{b7} Working");
     }
     if dog.waiting {

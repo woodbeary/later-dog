@@ -4,6 +4,7 @@ use serde::Serialize;
 
 use crate::events::Frame;
 use crate::outbox::{Failure, Item, Outbox, Settled, Target};
+use crate::work::Work;
 use crate::wire::{BotsPage, SendReceipt, ThreadPage, WireBot, WireMessage};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -61,6 +62,7 @@ struct Dog {
     busy: bool,
     unread: bool,
     waiting_for_teammates: bool,
+    work: Option<Work>,
 }
 
 impl Dog {
@@ -109,6 +111,9 @@ impl Dog {
         }
         if let Some(waiting) = bot.waiting_for_teammates {
             self.waiting_for_teammates = waiting;
+        }
+        if let Some(work) = &bot.work {
+            self.work = work.clone();
         }
     }
 
@@ -180,6 +185,8 @@ pub struct SidebarRow {
     pub last_at: Option<u64>,
     pub working: bool,
     pub waiting: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work: Option<Work>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -216,6 +223,8 @@ pub struct View {
     pub body: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work: Option<Work>,
     pub dogs: Vec<SidebarRow>,
     pub transcript: Vec<TranscriptRow>,
 }
@@ -526,6 +535,7 @@ impl Store {
             color: selected.map(Dog::color).unwrap_or_else(|| DEFAULT_COLOR.to_owned()),
             body: crate::mascot::body(selected.and_then(|dog| dog.body.as_deref())).to_owned(),
             model: selected.and_then(|dog| dog.model.clone()),
+            work: selected.and_then(|dog| dog.work.clone()),
             dogs: self
                 .sidebar_order()
                 .into_iter()
@@ -543,6 +553,7 @@ impl Store {
                         last_at: last.map(|message| message.at),
                         working: dog.working(),
                         waiting: dog.waiting(),
+                        work: dog.work.clone(),
                     }
                 })
                 .collect(),

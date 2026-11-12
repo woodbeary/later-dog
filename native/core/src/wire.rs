@@ -46,6 +46,11 @@ fn millis<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
     })
 }
 
+fn work<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Option<crate::work::Work>>, D::Error> {
+    let value = Value::deserialize(deserializer)?;
+    Ok(Some(crate::work::Work::from_value(&value)))
+}
+
 fn flag<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<bool>, D::Error> {
     let value = Value::deserialize(deserializer)?;
     Ok(match value {
@@ -135,6 +140,8 @@ pub struct WireBot {
     pub waiting_for_teammates: Option<bool>,
     #[serde(deserialize_with = "flag")]
     pub has_more: Option<bool>,
+    #[serde(deserialize_with = "work")]
+    pub work: Option<Option<crate::work::Work>>,
     #[serde(deserialize_with = "lenient_optional_list")]
     pub messages: Option<Vec<WireMessage>>,
 }
