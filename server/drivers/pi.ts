@@ -45,7 +45,7 @@ import { canUseMcpServer, parseToolScope } from "../../shared/tool-scope.ts";
 import { gateServer, mcpStdioServer, resultBudget } from "../mcp-gate-config.ts";
 import { remoteMcpSpec } from "../mcp-http.ts";
 import { SteerReads } from "./steer-reads.ts";
-import { unreadCli, type CliVersion } from "../laterdog/cli-version.ts";
+import { notThere, unreadCli, type CliVersion } from "../laterdog/cli-version.ts";
 
 const DRIVER_KIND = "piAgent";
 const PI_ARGS = ["--mode", "rpc", "--no-session"];
@@ -1024,14 +1024,14 @@ export const PiDriver: ProviderDriver<PiConfig> = {
           resolve({ starting: true });
         }, 8000);
         timer.unref?.();
-        child.on("error", () => {
+        child.on("error", (error) => {
           clearTimeout(timer);
-          resolve({ missing: true });
+          resolve(notThere(error) ? { missing: true } : { failed: true });
         });
         child.on("close", () => {
           clearTimeout(timer);
           const version = out.trim();
-          resolve(version ? { version } : { missing: true });
+          resolve(version ? { version } : { failed: true });
         });
       });
       if (!("version" in read)) return unreadCli(config.cli, read);
