@@ -109,6 +109,16 @@ describe("independent bot threads", () => {
     expect(currentTaskBot({ ...bot, tasks: [{ threadId: "first", title: "Legacy", createdAt: 1 }] }).modelSelection).toEqual(bot.modelSelection);
   });
 
+  it("brings the open chat's plan to the view from a bot frame, and no other chat's", () => {
+    const plan = { items: [{ text: "Fix the login", status: "in_progress" as const }], updatedAt: 9 };
+    const framed = { ...bot, plan: { items: [{ text: "Main chat work", status: "pending" as const }], updatedAt: 1 },
+      tasks: bot.tasks!.map((task) => task.threadId === "second" ? { ...task, plan } : task) };
+    const state = reducer(start(), { type: "botPatched", bot: framed });
+    const shown = state.bots.find((candidate) => candidate.id === bot.id)!;
+    expect(currentTaskBot(shown, "second").plan).toEqual(plan);
+    expect(currentTaskBot(shown, "first").plan).toBeUndefined();
+  });
+
   it("edits only the pinned thread model and approval defaults", () => {
     const modelSelection = { instanceId: "codex", model: "new-model" };
     const modeled = reducer(start(), { type: "setModel", botId: bot.id, threadId: "first", selection: modelSelection });
