@@ -65,7 +65,9 @@ next image release; the desktop app and the phone update reach them now.
 - The phone's message box was rewritten and has not been seen with an on-screen keyboard on a
   device. The update went out on the owner's word.
 - The stall watch carrying work on after a real failure has not been observed on a real home;
-  only its "stopped, sign in again" line has.
+  only its "stopped, sign in again" line has. After the release it was seen once with a real
+  engine on an isolated server
+  ([stall watch](stall-watch.md#seen-with-a-real-engine-november-13)).
 - Account choice with several real accounts (the pick holding, a same-engine cover, the return)
   has only been seen on fixtures.
 - Engines other than the first coding engine and the included model ran no live turn.

@@ -104,6 +104,20 @@ repository.
 | The person wrote "thanks" and the dog answered with a single emoji. | Nothing, checked for more than three minutes afterwards. |
 | A 75-second task of fifteen commands, then two short answers, on the home's included model. | Nothing. |
 
+## Seen with a real engine, November 13
+
+An isolated server on a Mac (a fresh data folder, a test dog, the watch acting,
+checking every 5 seconds with 30 quiet seconds) ran a dog on the first coding
+engine with a real model. Receipts are kept outside the repository.
+
+| What happened | What the watch did |
+| --- | --- |
+| The dog was asked for two commands in order, said one line and started the first, a 50-second wait. At 09:32:12 UTC the engine process was killed. The chat's state became Stopped, cause engine. | Nothing for the quiet period; at 09:32:46 one line, "Scout stopped before finishing, so it is carrying on by itself.", and a new turn. At 09:32:54 the dog reported both outputs. It read the first command's saved output and did not run it a second time. |
+
+What this does not show: a real home, a second failure in a row, a server
+restart. The failure row above the watch's line still carries the engine's own
+exit text.
+
 ## Not yet proven live
 
 - The carry-on path has not run on a real home: a turn ended by a real tool
