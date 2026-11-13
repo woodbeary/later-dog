@@ -17,6 +17,18 @@ export interface RoomCardRouteDeps {
   save(threadId: string, messageId: string, card: Card): Message | null;
 }
 
+export interface RoomThreads {
+  group(id: string): { threadId: string; dm?: boolean } | undefined;
+  groupTaskByThread(groupId: string, threadId: string): unknown;
+}
+
+export function roomOwnsThread(rooms: RoomThreads): RoomCardRouteDeps["threadBelongsToRoom"] {
+  return (id, threadId) => {
+    const room = rooms.group(id);
+    return Boolean(room && (room.dm ? room.threadId === threadId : rooms.groupTaskByThread(id, threadId)));
+  };
+}
+
 export function createRoomCardRoutes(deps: RoomCardRouteDeps): RouteHandler {
   return async ({ req, res, path, method, auth, json, readBody }) => {
     const match = ROOM_CARD_PATH.exec(path);
