@@ -28,7 +28,7 @@ describe("the work line", () => {
     [{ kind: "needs-you", what: "Allow sending?" }, "Needs you: Allow sending?"],
     [{ kind: "stopped", cause: "you" }, "Stopped by you"],
     [{ kind: "stopped", cause: "infrastructure", detail: "stalled" }, "Stopped: no progress for too long"],
-    [{ kind: "stopped", cause: "engine" }, "Stopped: the engine reported an error"],
+    [{ kind: "stopped", cause: "engine" }, "Stopped before it finished"],
   ])("%j reads %j", (work, line) => {
     expect(workLine(work, NOW)).toBe(line);
   });
