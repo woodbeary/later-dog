@@ -22,7 +22,7 @@ export function PlanChecklist({ items, working, label }: { items: readonly PlanI
   );
 }
 
-export function DogPlan({ plan, working }: { plan?: WirePlan; working: boolean }) {
+export function DogPlan({ plan, working }: { plan?: WirePlan | null; working: boolean }) {
   const [open, setOpen] = useState(false);
   if (!plan?.items.length) return null;
   const progress = t("chat.plan.progress", { done: planDoneCount(plan), total: plan.items.length });

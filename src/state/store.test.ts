@@ -119,6 +119,15 @@ describe("independent bot threads", () => {
     expect(currentTaskBot(shown, "first").plan).toBeUndefined();
   });
 
+  it("drops a chat's plan when a later frame says it has none", () => {
+    const plan = { items: [{ text: "Fix the login", status: "done" as const }], updatedAt: 9 };
+    const withPlan = reducer(start(), { type: "botPatched", bot: { ...bot, plan, tasks: bot.tasks!.map((task) => ({ ...task, plan })) } });
+    const cleared = reducer(withPlan, { type: "botPatched", bot: { ...bot, plan: null, tasks: bot.tasks!.map((task) => ({ ...task, plan: null })) } });
+    const shown = cleared.bots.find((candidate) => candidate.id === bot.id)!;
+    expect(shown.plan).toBeNull();
+    expect(currentTaskBot(shown, "second").plan).toBeNull();
+  });
+
   it("edits only the pinned thread model and approval defaults", () => {
     const modelSelection = { instanceId: "codex", model: "new-model" };
     const modeled = reducer(start(), { type: "setModel", botId: bot.id, threadId: "first", selection: modelSelection });
