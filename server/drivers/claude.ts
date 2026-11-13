@@ -1389,7 +1389,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (live) {
           const changed = Object.keys(argsParts).filter((key) => live.argsParts[key] !== argsParts[key]);
           if (live.turn || live.helpers.running()) throw new Error("The previous engine is still working.");
-          appendNative(threadId, { dir: "out", source: "claude.session", msg: { changed } });
+          appendNative(threadId, { dir: "out", source: "claude.session", msg: turn.sessionReset ? { close: "context reset" } : { changed } });
           await warmEngines.retire(ownershipKey(threadId), live);
           checkStart();
         }
