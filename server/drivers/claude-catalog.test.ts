@@ -16,9 +16,9 @@ describe("readClaudeModelCatalog", () => {
     expect(readClaudeModelCatalog({ HOME: join(tmpdir(), "laterdog-claude-missing-home") })).toEqual(STATIC_CLAUDE_MODELS);
     const effortLevels = ["low", "medium", "high", "xhigh", "max", "ultra"];
     expect(STATIC_CLAUDE_MODELS.options.slice(0, 3)).toEqual([
-      { id: "claude-fable-5-2", label: "Claude Fable 5.2", effortLevels, defaultEffort: "high" },
-      { id: "claude-fable-5-1", label: "Claude Fable 5.1", effortLevels, defaultEffort: "high" },
-      { id: "claude-fable-5", label: "Claude Fable 5", effortLevels, defaultEffort: "high" },
+      { id: "claude-fable-5-2", label: "Claude Fable 5.2", contextWindow: 1_000_000, effortLevels, defaultEffort: "high" },
+      { id: "claude-fable-5-1", label: "Claude Fable 5.1", contextWindow: 1_000_000, effortLevels, defaultEffort: "high" },
+      { id: "claude-fable-5", label: "Claude Fable 5", contextWindow: 1_000_000, effortLevels, defaultEffort: "high" },
     ]);
     const ids = STATIC_CLAUDE_MODELS.options.map((option) => option.id);
     expect(STATIC_CLAUDE_MODELS.options[ids.indexOf("claude-opus-5-5")]).toEqual({
