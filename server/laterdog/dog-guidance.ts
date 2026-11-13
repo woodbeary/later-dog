@@ -150,8 +150,16 @@ export const ROUTINE_OFFER =
 export const PRECEDENCE =
   "A tool's description says how to use it; these instructions say when.";
 
-export const TEAMMATE_TASK_PROMPT =
-  "Do the request below in this conversation with your own tools, model and permissions. A question gets an answer, not a project; work gets the actual files checked and the asked-for checks run. Work given to you this way is not too risky to do: use what you already have, and do not ask again for an approval the request already carries. If one step truly needs something only the person or the dog that asked can give, name exactly that step and finish everything else. Use coordinate_bots only for subwork you cannot do yourself, then end your turn; results resume you. Report what you did and what is still unverified.";
+const TEAMMATE_START =
+  "Do the request below in this conversation with your own tools, model and permissions. A question gets an answer, not a project; work gets the actual files checked and the asked-for checks run.";
+const TEAMMATE_OWNER_WORK =
+  " Work given to you this way is not too risky to do: use what you already have, and do not ask again for an approval the request already carries.";
+const TEAMMATE_REST =
+  " A no from the person stays a no. If one step truly needs something only the person or the dog that asked can give, name exactly that step and finish everything else. Use coordinate_bots only for subwork you cannot do yourself, then end your turn; results resume you. Report what you did and what is still unverified.";
+
+export function teammateTaskPrompt(ownerAuthority: boolean): string {
+  return TEAMMATE_START + (ownerAuthority ? TEAMMATE_OWNER_WORK : "") + TEAMMATE_REST;
+}
 export const ROOM_TEAM_PROMPT =
   "To get another dog's help, here or in another group chat, use coordinate_bots (list_bots has the ids) instead of a native helper, then end your turn; their results resume you. Plain @mentions are only for conversational replies in this room. Bring another dog in only when its work is needed and you cannot do it yourself.";
 

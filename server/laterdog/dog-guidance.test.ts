@@ -34,7 +34,7 @@ import {
   PAYMENTS_BLOCK,
   REPLY_STYLE,
   ROOM_TEAM_PROMPT,
-  TEAMMATE_TASK_PROMPT,
+  teammateTaskPrompt,
   type ModelFamily,
 } from "./dog-guidance.ts";
 
@@ -42,7 +42,7 @@ const everything = () => [
   dogGuidance({ engine: "claude", model: "claude-fable-5-2", kit: { cloudHome: true, ownComputer: true, vault: true, github: true, google: true, mac: true } }),
   dogGuidance({ engine: "codex", model: "gpt-5.6" }),
   REPLY_STYLE,
-  TEAMMATE_TASK_PROMPT,
+  teammateTaskPrompt(true),
   ROOM_TEAM_PROMPT,
 ].join("\n");
 
@@ -136,10 +136,17 @@ describe("the guidance every dog gets", () => {
     expect(kitPrompt({ ownComputer: true })).not.toMatch(/GitHub|vault/);
     expect(kitPrompt({})).toBe("");
     expect(kitPrompt(undefined)).toBe("");
-    expect(TEAMMATE_TASK_PROMPT).toMatch(/^Do the request below in this conversation/);
-    expect(TEAMMATE_TASK_PROMPT).toMatch(/not too risky to do/);
-    expect(TEAMMATE_TASK_PROMPT).toMatch(/do not ask again for an approval the request already carries/);
-    expect(TEAMMATE_TASK_PROMPT).not.toMatch(/A no from the person/);
+  });
+
+  it("keeps the person's no in work another dog hands over, and waives a second ask only with the owner's authority", () => {
+    const owned = teammateTaskPrompt(true);
+    const peer = teammateTaskPrompt(false);
+    for (const prompt of [owned, peer]) {
+      expect(prompt).toMatch(/^Do the request below in this conversation/);
+      expect(prompt).toContain("A no from the person stays a no.");
+    }
+    expect(owned).toMatch(/is not too risky to do: .*do not ask again for an approval the request already carries/);
+    expect(peer).not.toMatch(/not too risky|do not ask again for an approval/);
   });
 
   it("claims a Mac only while one is connected to the home", () => {
