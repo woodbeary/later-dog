@@ -25,14 +25,14 @@ describe("askedConnector", () => {
 describe("connectorSendDecision", () => {
   const gmail = [{ slug: "GMAIL_SEND_EMAIL" }];
 
-  it("asks with the connector to remember, and sends once Always allow is kept for it", () => {
+  it("asks for an app's send every time, even with an older whole-app or per-tool approval", () => {
     const comment = [{ slug: "GITHUB_CREATE_AN_ISSUE_COMMENT" }];
     expect(connectorSendDecision({ calls: comment, connected: [], alwaysAllow: [], ownerSends: false, skipped: never, allowedThisTurn: never }))
       .toEqual({ kind: "ask", toolkit: "github" });
     expect(connectorSendDecision({ calls: comment, connected: [], alwaysAllow: [connectorAllowKey("github")], ownerSends: false, skipped: never, allowedThisTurn: never }))
-      .toEqual({ kind: "send", rule: "always-allow" });
+      .toEqual({ kind: "ask", toolkit: "github" });
     expect(connectorSendDecision({ calls: comment, connected: [], alwaysAllow: [connectorToolAllowKey("github", "GITHUB_CREATE_AN_ISSUE_COMMENT")], ownerSends: false, skipped: never, allowedThisTurn: never }))
-      .toEqual({ kind: "send", rule: "always-allow" });
+      .toEqual({ kind: "ask", toolkit: "github" });
     expect(connectorSendDecision({ calls: [{ slug: "GITHUB_CREATE_A_PULL_REQUEST" }], connected: [], alwaysAllow: [connectorToolAllowKey("github", "GITHUB_CREATE_AN_ISSUE_COMMENT")], ownerSends: false, skipped: never, allowedThisTurn: never }))
       .toEqual({ kind: "ask", toolkit: "github" });
     expect(connectorSendDecision({ calls: comment, connected: [], alwaysAllow: [connectorAllowKey("slack")], ownerSends: false, skipped: never, allowedThisTurn: never }))
@@ -44,7 +44,10 @@ describe("connectorSendDecision", () => {
       .toEqual({ kind: "ask", toolkit: "gmail" });
     expect(connectorGrantKey(gmail, "gmail")).toBeUndefined();
     expect(connectorGrantKey([{ slug: "STRIPE_CREATE_REFUND" }], "stripe")).toBeUndefined();
-    expect(connectorGrantKey([{ slug: "GITHUB_CREATE_AN_ISSUE_COMMENT" }], "github")).toBe("connector:github:github_create_an_issue_comment");
+    expect(connectorGrantKey([{ slug: "GITHUB_CREATE_AN_ISSUE_COMMENT" }], "github")).toBeUndefined();
+    expect(connectorGrantKey([{ slug: "SLACK_CHAT_POST_MESSAGE" }], "slack")).toBeUndefined();
+    expect(connectorSendDecision({ calls: [{ slug: "SLACK_CHAT_POST_MESSAGE" }], connected: [], alwaysAllow: [connectorAllowKey("slack")], ownerSends: false, skipped: never, allowedThisTurn: never }))
+      .toEqual({ kind: "ask", toolkit: "slack" });
     expect(connectorGrantKey([{ slug: "GITHUB_CREATE_AN_ISSUE_COMMENT" }, { slug: "GITHUB_CREATE_A_PULL_REQUEST" }], "github")).toBeUndefined();
   });
 

@@ -1,5 +1,5 @@
 import type { ConnectorCall } from "../../shared/outbound.ts";
-import { asksEveryTime } from "./always-allow.ts";
+import { knownReadOnly } from "./always-allow.ts";
 
 const CONNECTOR_ALLOW_PREFIX = "connector:";
 const OPAQUE_CALL = "COMPOSIO_PROXY_EXECUTE";
@@ -33,7 +33,7 @@ export function connectorGrantKey(calls: readonly ConnectorCall[], toolkit: stri
   const slugs = new Set(calls.map((call) => call.slug));
   if (toolkit === null || slugs.size !== 1) return undefined;
   const [slug] = slugs as Set<string>;
-  return slug === OPAQUE_CALL || asksEveryTime(slug) ? undefined : connectorToolAllowKey(toolkit, slug);
+  return slug !== OPAQUE_CALL && knownReadOnly(slug) ? connectorToolAllowKey(toolkit, slug) : undefined;
 }
 
 export function connectorAlwaysAllowed(
@@ -41,10 +41,9 @@ export function connectorAlwaysAllowed(
   toolkit: string | null,
   calls: readonly ConnectorCall[] = [],
 ): boolean {
-  if (toolkit === null || calls.some((call) => asksEveryTime(call.slug))) return false;
+  if (toolkit === null || !calls.length || !calls.every((call) => knownReadOnly(call.slug))) return false;
   const keys = alwaysAllow ?? [];
-  if (keys.includes(connectorAllowKey(toolkit))) return true;
-  return calls.length > 0 && calls.every((call) => keys.includes(connectorToolAllowKey(toolkit, call.slug)));
+  return keys.includes(connectorAllowKey(toolkit)) || calls.every((call) => keys.includes(connectorToolAllowKey(toolkit, call.slug)));
 }
 
 export type ConnectorSendDecision =
