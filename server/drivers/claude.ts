@@ -9,7 +9,7 @@ import { writeFileAtomic, writeFileAtomicIfChanged } from "../atomic.ts";
 import { augmentedPath } from "../env-path.ts";
 import { brokerSocketPath, describeSpawnFailure, execCli, killCliTree, resolveCli, spawnCli } from "../procs.ts";
 import { engineOpener, notePlacement, planClaudeRemote, remoteEngineBots, spawnPlacedEngine } from "../laterdog/engine-placement.ts";
-import { classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
+import { claudeResumeRefusal, classifyResumeFailure, mayReplay, recoveryPromptFor } from "../resume-recovery.ts";
 import { ClaudeLoginController } from "./claude-login-auth.ts";
 
 import type {
@@ -1007,6 +1007,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       volatile: string | null;
       sessionId: string | null;
       sawInit: boolean;
+      resumeRefused?: string;
       nativePermissionMode: string | null;
       replaysUserMessages: boolean;
       turn: {
@@ -1855,6 +1856,12 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               }
               session.helpers.markReported();
             }
+            const refusal = sessionId && session.turn && !session.turn.settled && !session.turn.sawStreamDelta ? claudeResumeRefusal(o) : null;
+            if (refusal) {
+              session.resumeRefused = refusal;
+              appendNative(threadId, { dir: "out", source: "claude.session", msg: { hold: `result: the saved session was refused (${refusal}); rebuilding when the engine exits` } });
+              break;
+            }
             if (recoverRefreshLock(o)) break;
             noteCostState(o.total_cost_usd, o.modelUsage, {
               input: o.usage?.input_tokens || 0,
@@ -1985,7 +1992,9 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           const message = `claude exited ${code} before result${session.stderr ? `: ${session.stderr.trim().slice(-300)}` : ""}`;
           const verdict = classifyError({ exitCode: code, stderr: message });
           const endedBeforeTurn = session.turn.awaitingInit === true;
+          const refusedResume = Boolean(session.resumeRefused);
           if (
+            !refusedResume &&
             !retry.cancelled &&
             (endedBeforeTurn || (
               code !== 0 &&
@@ -2063,8 +2072,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           }
           const resumeFailure = classifyResumeFailure({
             attempted: Boolean(sessionId),
-            rejected: !session.sawInit,
-            promptSubmitted: session.sawInit,
+            rejected: refusedResume || !session.sawInit,
+            promptSubmitted: session.sawInit && !refusedResume,
             producedOutput: session.turn.sawStreamDelta,
           });
           if (mayReplay(resumeFailure) && !retry.cancelled) {

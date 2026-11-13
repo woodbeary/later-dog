@@ -447,6 +447,24 @@ const playTurn = async (prompt: JsonValue, late = false) => {
     ], { stdio: "ignore", timeout: 5_000 });
   }
 
+  if (mode === "dead-session-result" && argv.includes("--resume")) {
+    const id = argAfter("--resume");
+    const captured = process.env.FAKE_CLAUDE_RESUME_RESULT;
+    if (captured) out(JSON.parse(readFileSync(captured, "utf8")));
+    else out({ type: "result", subtype: "error_during_execution", duration_ms: 0, duration_api_ms: 0, is_error: true, num_turns: 0, stop_reason: null,
+      session_id: id, total_cost_usd: 0, usage: { input_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 },
+      modelUsage: {}, permission_denials: [], errors: [`No conversation found with session ID: ${id}`], result_index: 0 });
+    await new Promise((resolve) => process.stdout.write("", resolve));
+    process.exit(1);
+  }
+
+  if (mode === "error-result") {
+    out({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 0, stop_reason: null, session_id: "fake-session",
+      total_cost_usd: 0, errors: [process.env.FAKE_CLAUDE_ERROR_TEXT ?? "Fixture engine error"] });
+    await new Promise((resolve) => process.stdout.write("", resolve));
+    process.exit(1);
+  }
+
   if (mode === "dead-session" && argv.includes("--resume")) {
     process.stderr.write(`fake-claude: No conversation found with session ID: ${argAfter("--resume")}\n`);
     process.exit(1);

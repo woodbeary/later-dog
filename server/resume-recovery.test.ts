@@ -1,6 +1,10 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  claudeResumeRefusal,
   classifyResumeFailure,
   mayReplay,
   recoveryPromptFor,
@@ -72,5 +76,20 @@ describe("recoveryPromptFor", () => {
   it("carries the current message exactly once", () => {
     const out = recoveryPromptFor({ recoveryText: replay, currentText: "what now?", failure: "before-accept" });
     expect(out.text.match(/what now\?/g)).toHaveLength(1);
+  });
+});
+
+describe("a saved session Claude Code refuses", () => {
+  const captured = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "testing", "claude-lost-session-result.json"), "utf8"));
+
+  it("is recognised in the error result Claude Code 2.1.316 returned live", () => {
+    expect(claudeResumeRefusal(captured)).toBe("No conversation found with session ID: e96b5103-1b35-4f0d-9557-9c63a6a11557");
+    expect(claudeResumeRefusal({ is_error: true, errors: ["Failed to resume session: transcript unreadable"] })).toBe("Failed to resume session: transcript unreadable");
+  });
+
+  it("is not confused with other error results", () => {
+    expect(claudeResumeRefusal({ is_error: true, errors: ["API Error: 529 overloaded"] })).toBeNull();
+    expect(claudeResumeRefusal({ is_error: false, errors: ["No conversation found with session ID: x"] })).toBeNull();
+    expect(claudeResumeRefusal({ is_error: true, result: "No conversation found with session ID: x" })).toBeNull();
   });
 });
