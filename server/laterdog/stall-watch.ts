@@ -58,8 +58,9 @@ type Need = "sign-in" | "permission" | "account-off" | "other";
 const TEAMMATE_GAVE_UP = /\b(?:couldn't finish|never got started|was interrupted|ran out of time)$/;
 const SIGN_IN = /sign(?:ed)?[ -]?in|log(?:ged)?[ -]?in|\b401\b|unauthori[sz]ed|api key|credential/i;
 const PERMISSION = /permission|forbidden|not allowed|approval|\b403\b/i;
-const NEVER_RETRY = /safety|classifier|invalid model|spend limit|you stopped/i;
+const NEVER_RETRY = /safety|classifier|invalid model|spend limit|you stopped|\bAPI Error:? 4(?!29)\d\d\b/i;
 const TURNED_OFF = / is turned off\.?$/i;
+const TURNED_OFF_PART = /[^:—–.]+ is turned off(?=\.?$)/i;
 
 function sentence(text: string, max = 140): string {
   const flat = text.replace(/\s+/g, " ").trim();
@@ -84,10 +85,10 @@ function failureOf(message: Message): { cause: string; retry: boolean; need: Nee
   if (tool.itemId || tool.pickup || tool.quota || tool.statusLine || message.comm || message.queued) return undefined;
   const label = tool.name.trim();
   if (!/^error:/i.test(label)) return undefined;
-  const cause = sentence(label.replace(/^error:\s*/i, "")) || "an error";
-  const said = tool.detail ? `${label} ${tool.detail}` : label;
-  const need: Need = TURNED_OFF.test(label) ? "account-off" : tool.setup || SIGN_IN.test(said) ? "sign-in" : PERMISSION.test(said) ? "permission" : "other";
-  return { cause, need, retry: need === "other" && !NEVER_RETRY.test(said) };
+  const raw = (tool.detail ?? label.replace(/^error:\s*/i, "")).trim();
+  const cause = sentence(TURNED_OFF_PART.exec(raw)?.[0] ?? raw) || "an error";
+  const need: Need = TURNED_OFF.test(raw) ? "account-off" : tool.setup || SIGN_IN.test(raw) ? "sign-in" : PERMISSION.test(raw) ? "permission" : "other";
+  return { cause, need, retry: need === "other" && !NEVER_RETRY.test(raw) };
 }
 
 function watchRows(after: readonly Message[]): Message[] {
@@ -126,7 +127,8 @@ export function owedWork(path: readonly Message[]): OwedWork | undefined {
   const outcome = after[outcomeAt];
   const failAt = after.findLastIndex((message) => failureOf(message) !== undefined);
   if (failAt > lastTextAt && !(outcome?.turnSucceeded === true && outcomeAt > failAt)) {
-    return { source, after, ...failureOf(after[failAt]!)! };
+    const needsYou = after.slice(lastTextAt + 1, failAt + 1).map(failureOf).findLast((failure) => failure && failure.need !== "other");
+    return { source, after, ...(needsYou ?? failureOf(after[failAt]!)!) };
   }
   if (outcome?.turnSucceeded !== false) return undefined;
   const words = after.slice(0, outcomeAt + 1).findLast((message) => message.role === "bot" && message.kind === "text" && message.turnId === outcome.turnId);
