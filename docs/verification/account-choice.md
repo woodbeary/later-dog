@@ -25,9 +25,9 @@ run, via `choiceReadyAt`) and the picker's line (`shownRoute`).
 | Rule | What the code does |
 | --- | --- |
 | The choice is a pin | While the chosen account is on, signed in and not held for the model, the turn runs there, whatever the others have left. Load spreading across accounts is gone. |
-| Cannot run, Keep going on | The same-engine account that is on, signed in, offers the model and is not held, ranked in four groups, best first: plan room above 5% (with or without paid credits); paid credits but no plan room; no reading; 5% or under with no credits. Inside a group, the most left in the binding window (the tighter of session and week), then the person's order. The account already covering stays only while it is in the same group as the best one, and never in the last group. |
+| Cannot run, Keep going on | The same-engine account that is on, signed in, offers the model and is not held, ranked in four groups, best first: known plan room above 5% (with or without paid credits); no reading yet; paid credits but no plan room; 5% or under with no credits. Inside a group, the most left in the binding window (the tighter of session and week), then the person's order. The account already covering stays unless it is 5% or under with no credits and a better one exists, or it is on paid credits only and another account has known plan room. One with no reading is never left, so a chat does not hop while readings arrive after a restart. |
 | Cannot run, Keep going off | The chat waits for usage on the chosen account. |
-| Needs the person | When the chosen account is signed out, failed to sign in or is switched off and no same-engine account can cover, a kept turn is not rerun, also after a restart. The chat shows Needs you with "Sign in to {account} again" or "Turn {account} back on" (`server/laterdog/account-needs-you.ts`); an open question still wins. The usage watch rechecks it each tick, logs the wait once, and the turn carries on by itself once the account can run. |
+| Needs the person | When the chosen account is signed out, failed to sign in or is switched off and no same-engine account can cover, a kept turn is not rerun, and a new message to a switched-off account is held instead of run on it. The wait is saved in `limit-hold.json` and found again after a restart. The chat shows Needs you with "Sign in to {account} again" or "Turn {account} back on" (`server/laterdog/account-needs-you.ts`) only when it will carry on by itself; an open question still wins. Such a chat has no carry-on time in `accountBattery.waiting` and does not keep usage readings refreshing. Apps hear once when the wait starts and once when it ends. The usage watch rechecks the decision each tick, and right after an account setting changes; once the account can run, the work carries on by itself (`server/laterdog/person-wait.ts`). |
 | Coming back | The next message after the chosen account can run again goes to it. |
 | Engines | Never crossed by the home. With no same-engine account free the chat waits; the usage and stall watches carry it on. Only a person's own pick on the limit row (`byHand`) moves it to another engine, for that chat until the chosen account is back. |
 | A pick while the dog works | The running turn finishes where it is; the pick takes the next message. The picker says "From the next message" at once. |
@@ -74,8 +74,9 @@ unit tests named; none was confirmed against the home's own logs.
 
 ## How it was proven
 
-Unit tests (all passing): `server/laterdog/account-choice.test.ts` (32: every
-rule and every incident above), `account-needs-you.test.ts`, `carry-on.test.ts`,
+Unit tests (all passing): `server/laterdog/account-choice.test.ts` (every
+rule and every incident above), `account-needs-you.test.ts`, `person-wait.test.ts`,
+`battery-view.test.ts`, `carry-on.test.ts`,
 `carry-on-restart.test.ts`, `usage-watch.test.ts`, `account-battery.test.ts`,
 `account-battery-fallback.test.ts`, `account-pinned-engine.test.ts`,
 `account-used-up.test.ts`, `account-no-early-switch.test.ts`,
@@ -98,8 +99,9 @@ BATTERY_RECEIPTS_DIR=/path/to/receipts pnpm exec vitest run server/account-batte
 | Pick account 2 while account 1 is mid-turn | `fromNextMessage` at once `{ from: claude-two, on: claude }`, nothing in `routed`; the turn is not interrupted and finishes on account 1; the next message runs on account 2 and the line goes away |
 | Helper started while its dog is covered | The dog's line reads `{ from: claude, on: claude-two }`; the helper keeps the dog's choice (claude) and runs on claude-two while claude is out |
 | Keep going off | Stays on Claude, reports the limit (existing scenario) |
+| Both Claude accounts switched off, new message | Not run on either account; the chat reads Needs you, "Turn Claude account 1 back on"; switching it back on runs the held message on it |
 
-All 21 scenarios in the file passed in one run.
+All 22 scenarios in the file passed in one run.
 
 ## Not proven live
 
@@ -109,7 +111,9 @@ All 21 scenarios in the file passed in one run.
 - After a server restart the running-turn half of the line is empty until the
   next turn starts; the last finished turn is kept on disk.
 - The phone app still reads `routed` only and ignores `model`; see below.
-- The sign-in wait has unit tests only: the fake engine can start an account
+- A switched-off account is proven on the fixture (a new message is held, then
+  runs once the account is back on). The sign-in wait has unit tests only: the
+  fake engine can start an account
   signed out but cannot sign it out or back in during a run.
 
 ## What the phone app must change
