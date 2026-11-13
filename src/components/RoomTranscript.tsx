@@ -293,7 +293,7 @@ export const TranscriptRows = memo(function TranscriptRows({
           ) : m.kind === "compaction" ? (
             <CompactionChip message={m} />
           ) : m.kind === "digest" ? (
-            showToolCalls ? <DigestChip message={m} /> : null
+            showToolCalls && !nativeRuns.some((run) => run.turnId === m.turnId) ? <DigestChip message={m} /> : null
           ) : m.kind === "text" && (m.text || m.attachments?.length) ? (
             <div data-from={user ? "user" : "agent"} className={cn("group flex w-full flex-col", user ? "items-end" : "items-start", hasTapback(m.reactions) && "pt-3")}>
               {sentAbove && (

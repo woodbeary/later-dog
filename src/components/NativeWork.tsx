@@ -1,9 +1,11 @@
-import { memo, useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronRight, CirclePause, Loader2, Minus, Search, TriangleAlert, X } from "lucide-react";
 import type { NativeActivity, NativeActorState, NativeRun, NativeRunDetail } from "../../shared/native-runs";
 import type { MascotBodyId } from "../../shared/mascot-bodies";
 import { api } from "@/state/store";
+import { StoreChannelContext } from "@/state/store-channel";
+import { nativeStepWords, rawStepName, type StepMessage } from "@/lib/native-step-words";
 import { nativeReceiptAnchors, receiveNativeRun, useNativeHistoryIncomplete } from "@/lib/native-runs-state";
 import { NATIVE_PUPPY_LIMIT, actorAncestry, nativeActorRole, nativeExecutionComparison, nativePuppies, type NativeExecutionSelection } from "../../shared/native-run-selectors";
 import type { DogColor, DogState } from "@/lib/mascot";
@@ -17,7 +19,13 @@ const executionText = (execution: NonNullable<ReturnType<typeof nativeExecutionC
   const selected = [execution.selected.model, execution.selected.instanceId].filter(Boolean).join(" · ") || "not set";
   return execution.status === "next-message" ? `Running on ${running}. Your current selection, ${selected}, applies to the next message.` : execution.status === "same" ? `Running on ${running}, as selected.` : `Running on ${running}. Selected: ${selected}.`;
 };
-const roleText = { main: "Main agent", puppy: "Puppy", workflow: "Workflow", task: "Task" } as const;
+const helperText = (actor: Parameters<typeof nativeActorRole>[0]) => nativeActorRole(actor) === "main" ? null : t("work.details.helper");
+const noChannel = () => () => {};
+function useThreadSteps(threadId: string): readonly StepMessage[] | undefined {
+  const channel = useContext(StoreChannelContext);
+  const read = () => channel?.read().bots.find(bot => bot.threadId === threadId)?.messages;
+  return useSyncExternalStore(channel ? channel.listen : noChannel, read, read);
+}
 const stateText: Record<NativeActorState, string> = { running: "Working", waiting: "Waiting", paused: "Paused", done: "Done", failed: "Failed", stopped: "Stopped" };
 const dogState: Record<NativeActorState, DogState> = { running: "working", waiting: "thinking", paused: "sleeping", done: "happy", failed: "sad", stopped: "sleeping" };
 export { NATIVE_PUPPY_LIMIT, actorAncestry, nativePuppies };
@@ -29,13 +37,15 @@ function StateIcon({ state }: { state: NativeActorState }) {
   return <Icon size={14} aria-label={stateText[state]} className={cn("shrink-0", state === "running" && "animate-spin motion-reduce:animate-none", state === "failed" && "text-warning")} />;
 }
 
-function WorkActivity({ activity }: { activity: NativeActivity }) {
+function WorkActivity({ activity, words }: { activity: NativeActivity; words: string }) {
+  const raw = rawStepName(activity);
+  const technical = raw !== undefined && raw !== words ? raw : undefined;
   return <li className="min-w-0 border-b border-hairline/40 py-3 last:border-b-0">
-    <div className="flex items-start gap-2 text-[12px] text-ink-secondary"><StateIcon state={activity.state} />{activity.kind === "search" && <Search size={13} aria-hidden="true" />}<span className="min-w-0 break-words font-medium text-ink">{activity.label}</span><span className="ml-auto shrink-0 text-[10px]">{stateText[activity.state]}</span></div>
+    <div className="flex items-start gap-2 text-[12px] text-ink-secondary"><StateIcon state={activity.state} />{activity.kind === "search" && <Search size={13} aria-hidden="true" />}<span className="min-w-0 break-words font-medium text-ink">{words}</span><span className="ml-auto shrink-0 text-[10px]">{stateText[activity.state]}</span></div>
     {activity.text && <p className="mt-2 whitespace-pre-wrap break-words text-[12px] leading-relaxed text-ink-secondary">{activity.text}</p>}
-    {(activity.input || activity.output) && <details className="mt-2 text-[11px] text-ink-secondary"><summary className="w-fit cursor-pointer">Details</summary>{activity.input && <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset p-2">{activity.input}</pre>}{activity.output && <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset p-2">{activity.output}</pre>}</details>}
+    {(technical || activity.input || activity.output) && <details className="mt-2 text-[11px] text-ink-secondary"><summary className="w-fit cursor-pointer">Details</summary>{technical && <p className="mt-2 break-words font-mono">{technical}</p>}{activity.input && <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset p-2">{activity.input}</pre>}{activity.output && <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-inset p-2">{activity.output}</pre>}</details>}
     {!!activity.links?.length && <ul className="mt-2 space-y-1 text-[12px]">{activity.links.filter(link => /^https?:\/\//i.test(link.url)).map(link => <li key={link.url}><a className="break-words text-accent hover:underline" href={link.url} target="_blank" rel="noreferrer noopener">{link.title || link.url}</a></li>)}</ul>}
-    {activity.truncated && <p className="mt-1 text-[10px] text-ink-tertiary">This recorded preview was shortened.</p>}
+    {activity.truncated && <p className="mt-1 text-[10px] text-ink-tertiary">{t("work.details.shortened")}</p>}
   </li>;
 }
 
@@ -146,22 +156,24 @@ export function NativeWorkDetail({ run, selectedActorId, onSelect, onClose, sele
     finally { if (epoch === lifetime.current) setStopping(false); }
   };
   const shown = activities.filter(activity => activity.actorId === selected?.id);
+  const steps = useThreadSteps(run.threadId);
+  const words = useMemo(() => nativeStepWords(activities, steps, run.turnId), [activities, steps, run.turnId]);
   const ancestry = selected ? actorAncestry(run, selected) : [];
   return createPortal(<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-3" onPointerDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section ref={panel} role="dialog" aria-modal="true" aria-labelledby={title} className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-hairline/70 bg-panel text-ink shadow-xl">
       <div className="flex items-center justify-between border-b border-hairline/50 px-4 py-3"><h2 id={title} className="text-[14px] font-medium">Work details</h2>{run.observation === "live" && <WorkingTimer since={run.startedAt} className="ml-auto mr-3 text-[11px] tabular-nums text-ink-tertiary" />}<button ref={close} type="button" aria-label="Close work details" onClick={onClose} className="rounded-lg p-1.5 text-ink-secondary hover:bg-control"><X size={17} /></button></div>
       <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-        <nav aria-label="Agents and tasks" className="flex max-h-40 shrink-0 gap-1 overflow-auto border-b border-hairline/50 p-2 sm:max-h-none sm:w-52 sm:flex-col sm:border-r sm:border-b-0">{run.actors.map(actor => <button key={actor.id} type="button" aria-pressed={selected?.id === actor.id} onClick={() => onSelect(actor.id)} className={cn("flex shrink-0 items-start gap-2 rounded-lg px-2 py-2 text-left text-[12px] sm:shrink", selected?.id === actor.id ? "bg-control text-ink" : "text-ink-secondary hover:bg-control/60")}><StateIcon state={actor.state} /><span className="min-w-0"><span className="block break-words">{actor.label}</span><span className="mt-0.5 block text-[10px] text-ink-tertiary">{roleText[nativeActorRole(actor)]} · {stateText[actor.state]}</span></span></button>)}</nav>
+        <nav aria-label={t("work.details.who")} className="flex max-h-40 shrink-0 gap-1 overflow-auto border-b border-hairline/50 p-2 sm:max-h-none sm:w-52 sm:flex-col sm:border-r sm:border-b-0">{run.actors.map(actor => <button key={actor.id} type="button" aria-pressed={selected?.id === actor.id} onClick={() => onSelect(actor.id)} className={cn("flex shrink-0 items-start gap-2 rounded-lg px-2 py-2 text-left text-[12px] sm:shrink", selected?.id === actor.id ? "bg-control text-ink" : "text-ink-secondary hover:bg-control/60")}><StateIcon state={actor.state} /><span className="min-w-0"><span className="block break-words">{actor.label}</span><span className="mt-0.5 block text-[10px] text-ink-tertiary">{[helperText(actor), stateText[actor.state]].filter(Boolean).join(" · ")}</span></span></button>)}</nav>
         <div tabIndex={0} className="min-h-0 min-w-0 flex-1 overflow-auto px-4 py-3">
           {!!ancestry.length && <div className="mb-2 flex flex-wrap items-center gap-1 text-[10px] text-ink-tertiary">{ancestry.map(actor => <span key={actor.id} className="inline-flex items-center gap-1"><button type="button" onClick={() => onSelect(actor.id)} className="hover:text-ink">{actor.label}</button><ChevronRight size={11} /></span>)}</div>}
           {selected && <div className="mb-2"><div className="flex items-start justify-between gap-3"><h3 className="text-[13px] font-medium">{selected.label}</h3>{canStopActor(run, selected.id) && <button type="button" disabled={stopping || stopAttempts[selected.id]?.status === "requested"} onClick={() => void stop()} className="rounded-lg border border-hairline px-2 py-1 text-[11px] hover:bg-control disabled:opacity-50">{stopAttempts[selected.id]?.status === "requested" ? "Stop requested" : stopping ? "Stopping…" : stopAttempts[selected.id]?.status === "unconfirmed" ? "Try stop again" : "Stop helper"}</button>}</div>{stopAttempts[selected.id]?.status === "unconfirmed" && <div className="mt-2 text-[12px] text-ink-secondary"><p>The stop hasn't been confirmed. The last reported state is shown.</p><button type="button" className="mt-1 text-accent hover:underline" onClick={() => void refreshStop()}>Refresh work</button></div>}{selected.task && <p className="mt-2 whitespace-pre-wrap text-[12px] text-ink-secondary">{selected.task}</p>}{selected.activity && <p className="mt-1 text-[12px] text-ink-secondary">{selected.activity}</p>}{selected.summary && <p className="mt-2 whitespace-pre-wrap text-[12px] text-ink-secondary">{selected.summary}</p>}</div>}
           {error && <p role="alert" className="my-2 text-[12px] text-warning">{error}</p>}
-          {!shown.length && <p className="py-5 text-[12px] text-ink-tertiary">{loading ? "Loading activity…" : "No activity was reported for this agent in this page."}</p>}
-          <ul>{shown.map(activity => <WorkActivity key={activity.id} activity={activity} />)}</ul>
-          {cursor && <button type="button" onClick={() => void loadMore()} disabled={loading} className="my-3 rounded-lg border border-hairline px-3 py-1.5 text-[12px] text-ink-secondary hover:bg-control disabled:opacity-50">{loading ? "Loading…" : "Load more activity"}</button>}
+          {!shown.length && <p className="py-5 text-[12px] text-ink-tertiary">{loading ? t("work.details.loading") : t("work.details.empty")}</p>}
+          <ul>{shown.map(activity => <WorkActivity key={activity.id} activity={activity} words={words.get(activity.id) ?? activity.label} />)}</ul>
+          {cursor && <button type="button" onClick={() => void loadMore()} disabled={loading} className="my-3 rounded-lg border border-hairline px-3 py-1.5 text-[12px] text-ink-secondary hover:bg-control disabled:opacity-50">{loading ? t("work.details.loading") : t("work.details.more")}</button>}
         </div>
       </div>
-      <details className="shrink-0 border-t border-hairline/50 px-4 py-2 text-[11px] text-ink-secondary"><summary className="cursor-pointer">{run.provider === "claudeAgent" ? "Claude Code" : /codex/i.test(run.provider) ? "Codex" : run.provider}{run.providerVersion ? ` ${run.providerVersion}` : " · version not reported"} · {run.observation === "partial" ? "Partial activity" : run.observation === "interrupted" ? "Observation interrupted" : run.observation === "live" ? "Live" : "Recorded"}</summary><div className="max-h-32 overflow-auto py-2">{execution && <p className="mb-1" data-native-execution={execution.status}>{executionText(execution)}</p>}<p className="mb-1">Puppies are native helpers inside this run. A task given to another dog continues in that dog's own conversation.</p><ul className="space-y-1">{run.limitations.map((line, index) => <li key={index}>{line}</li>)}</ul>{run.truncated && <p className="mt-1">Some activity exceeded the recording limit.</p>}{!run.limitations.length && <p>No additional limitations were reported by this harness.</p>}</div></details>
+      <details className="shrink-0 border-t border-hairline/50 px-4 py-2 text-[11px] text-ink-secondary"><summary className="cursor-pointer">{t("work.details.technical")}</summary><div className="max-h-32 overflow-auto py-2"><p className="mb-1">{run.provider === "claudeAgent" ? "Claude Code" : /codex/i.test(run.provider) ? "Codex" : run.provider}{run.providerVersion ? ` ${run.providerVersion}` : " · version not reported"} · {run.observation === "partial" ? "Partial activity" : run.observation === "interrupted" ? "Observation interrupted" : run.observation === "live" ? "Live" : "Recorded"}</p>{execution && <p className="mb-1" data-native-execution={execution.status}>{executionText(execution)}</p>}<p className="mb-1">{t("work.details.helpersNote")}</p><ul className="space-y-1">{run.limitations.map((line, index) => <li key={index}>{line}</li>)}</ul>{run.truncated && <p className="mt-1">Some activity exceeded the recording limit.</p>}{!run.limitations.length && <p>No additional limitations were reported by this harness.</p>}</div></details>
     </section>
   </div>, document.body);
 }
@@ -172,10 +184,10 @@ export const NativeWork = memo(function NativeWork({ run, color = "yellow", body
   useEffect(() => setSelected(null), [run.id]);
   const reduced = typeof window !== "undefined" && (document.documentElement.dataset.reducedMotion === "true" || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
   const current = run.currentActivity;
-  const currentLabel = current?.kind === "search" ? "Searching" : current?.kind === "request" ? "Waiting for an answer" : current?.kind === "reasoning" ? "Thinking" : current?.kind === "message" ? "Writing" : current?.label;
+  const currentLabel = current?.kind === "search" ? "Searching" : current?.kind === "request" ? "Waiting for an answer" : current?.kind === "reasoning" ? "Thinking" : current?.kind === "message" ? "Writing" : undefined;
   return <div data-native-work={run.id} className="flex flex-wrap items-center gap-1.5 py-1">
     <button type="button" onClick={() => setSelected(current?.actorId ?? "parent")} aria-label={live ? t("chat.activity.peek") : undefined} aria-haspopup="dialog" aria-expanded={selected !== null} className="flex min-h-8 items-center gap-2 rounded-lg text-[12px] text-ink-secondary hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2">{avatar}{live ? currentLabel || label || "Working" : "View work"}{live && <WorkingTimer since={run.startedAt} className="text-[10px] tabular-nums text-ink-tertiary" />}{!live && <ChevronRight size={12} aria-hidden="true" />}{run.observation === "interrupted" && <span className="text-[10px] text-ink-tertiary">Interrupted</span>}{run.failureCount > 0 && <span className="text-[10px] text-warning">Issue recorded</span>}</button>
-    {!!puppies.length && <span className="flex items-center gap-0.5" aria-label={`${puppies.length} native puppies`}>{puppies.slice(0, NATIVE_PUPPY_LIMIT).map(actor => <button key={actor.id} type="button" aria-label={`View ${actor.label} · ${stateText[actor.state]}`} title={`${actor.label} · ${stateText[actor.state]}`} onClick={() => setSelected(actor.id)} className="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2"><DogAvatar color={color} bodyId={bodyId ?? undefined} size={23} state={dogState[actor.state]} label={actor.label} trackPointer={false} animated={!reduced && live} /></button>)}{puppies.length > NATIVE_PUPPY_LIMIT && <button type="button" onClick={() => setSelected(puppies[NATIVE_PUPPY_LIMIT]!.id)} aria-label={`View ${puppies.length - NATIVE_PUPPY_LIMIT} more puppies`} className="rounded-lg px-1.5 text-[11px] tabular-nums text-ink-secondary">+{puppies.length - NATIVE_PUPPY_LIMIT}</button>}</span>}
+    {!!puppies.length && <span className="flex items-center gap-0.5" aria-label={t("work.helpers", { count: puppies.length })}>{puppies.slice(0, NATIVE_PUPPY_LIMIT).map(actor => <button key={actor.id} type="button" aria-label={`View ${actor.label} · ${stateText[actor.state]}`} title={`${actor.label} · ${stateText[actor.state]}`} onClick={() => setSelected(actor.id)} className="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2"><DogAvatar color={color} bodyId={bodyId ?? undefined} size={23} state={dogState[actor.state]} label={actor.label} trackPointer={false} animated={!reduced && live} /></button>)}{puppies.length > NATIVE_PUPPY_LIMIT && <button type="button" onClick={() => setSelected(puppies[NATIVE_PUPPY_LIMIT]!.id)} aria-label={t("work.helpersMore", { count: puppies.length - NATIVE_PUPPY_LIMIT })} className="rounded-lg px-1.5 text-[11px] tabular-nums text-ink-secondary">+{puppies.length - NATIVE_PUPPY_LIMIT}</button>}</span>}
     {selected !== null && <NativeWorkDetail run={run} selectedActorId={selected} onSelect={setSelected} onClose={() => setSelected(null)} selection={selection} />}
   </div>;
 });

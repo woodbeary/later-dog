@@ -1,6 +1,7 @@
 import type { Message } from "@/state/store";
 import { formatElapsed } from "@/lib/working-time";
 import { t } from "@/lib/i18n";
+import { stepLabel } from "@/lib/live-activity";
 import { failedTurnCause } from "../../shared/failed-turn";
 import { localDay } from "@/lib/transcript-derivations";
 import { screenTouchingTool, toolSurfaceKind } from "../../shared/tool-surface";
@@ -203,12 +204,8 @@ export function groupTranscript(messages: Message[], plan: TranscriptPlan = plan
 const MAX_NAMES = 3;
 
 export function describeRun(messages: Message[]): string {
-  const counts = new Map<string, number>();
-  for (const message of messages) {
-    const name = message.tool?.name ?? "";
-    counts.set(name, (counts.get(name) ?? 0) + 1);
-  }
-  const names = [...counts].map(([name, count]) => (count > 1 ? `${name} ×${count}` : name));
+  const names = [...new Set(messages.map((message) => stepLabel(message)))]
+    .map((name, index) => (index === 0 || /^.[A-Z]/.test(name) ? name : `${name[0]!.toLowerCase()}${name.slice(1)}`));
   const shown = names.slice(0, MAX_NAMES).join(", ");
   const rest = names.length > MAX_NAMES ? ` ${t("chat.run.more", { count: names.length - MAX_NAMES })}` : "";
   return t("chat.run.steps", { count: messages.length, tools: `${shown}${rest}` });

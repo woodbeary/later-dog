@@ -52,13 +52,13 @@ describe("DigestChip", () => {
   });
   it("shows total counts rather than only the truncated sample", () => {
     const html = renderToStaticMarkup(createElement(DigestChip, { message }));
-    expect(html).toContain("Did 19 tool calls · 5 files changed");
+    expect(html).toContain("19 steps · 5 files changed");
     expect(html).toContain('title="Observed work, not a completion verdict"');
   });
 
   it("does not imply zero changed files when capture was unavailable", () => {
     const html = renderToStaticMarkup(createElement(DigestChip, { message: { ...message, digest: { ...message.digest!, files: undefined, toolCalls: undefined } } }));
-    expect(html).toContain("Did 12+ tool calls");
+    expect(html).toContain("12+ steps");
     expect(html).not.toContain("files changed");
   });
 });

@@ -64,7 +64,7 @@ export function liveActivity(message?: Message): LiveActivity {
   return { kind: match?.[1] ?? "working", spoken };
 }
 
-export function stepLabel(message: Message): string {
+export function stepLabel(message: Pick<Message, "tool">): string {
   const tool = message.tool;
   if (!tool) return t("chat.activity.working");
   if (tool.spoken?.trim()) return sentenceCase(tool.spoken);

@@ -137,17 +137,20 @@ describe("groupActivityRuns", () => {
 });
 
 describe("describeRun", () => {
-  it("counts repeats and names the tools in order of first use", () => {
-    expect(describeRun([tool("Edit"), tool("Bash"), tool("Edit"), tool("Edit")])).toBe("4 steps · Edit ×3, Bash");
+  it("says the steps in the working line's words, in order of first use", () => {
+    expect(describeRun([tool("Edit"), tool("Bash"), tool("Edit"), tool("Edit")])).toBe("4 steps · Editing a file, running a command");
   });
 
-  it("names a single repeat without a multiplier", () => {
-    expect(describeRun([tool("Edit"), tool("Bash")])).toBe("2 steps · Edit, Bash");
+  it("uses each step's own words and never a tool name", () => {
+    const said = (name: string, spoken: string): Message => ({ ...tool(name), tool: { ...tool(name).tool!, spoken } });
+    const line = describeRun([said("Bash", "running ls"), said("TodoWrite", "making a plan")]);
+    expect(line).toBe("2 steps · Running ls, making a plan");
+    expect(line).not.toMatch(/Bash|TodoWrite/);
   });
 
-  it("trims a long tail of tool names rather than running off the row", () => {
+  it("trims a long tail rather than running off the row", () => {
     expect(describeRun([tool("Edit"), tool("Bash"), tool("Write"), tool("Grep"), tool("Read")])).toBe(
-      "5 steps · Edit, Bash, Write +2 more",
+      "5 steps · Editing a file, running a command, writing a file +2 more",
     );
   });
 });

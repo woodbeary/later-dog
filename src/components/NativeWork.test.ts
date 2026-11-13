@@ -24,7 +24,7 @@ describe("native work", () => {
   it("shows at most five selectable puppies plus overflow without turning shell tasks into puppies", async () => {
     await act(async () => root.render(createElement(NativeWork, { run: { ...run(), failureCount: 3 }, live: true })));
     expect(host.querySelectorAll('button[aria-label^="View Researcher"]')).toHaveLength(5);
-    expect(host.querySelector('button[aria-label="View 2 more puppies"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label="View 2 more helpers"]')).not.toBeNull();
     expect(nativePuppies(run())).toHaveLength(7);
     expect(host.textContent).toContain("Issue recorded");
     expect(host.textContent).not.toContain("3 issues");
@@ -115,7 +115,7 @@ describe("native work", () => {
     expect(line.getAttribute("data-native-execution")).toBe("next-message");
     expect(line.textContent).toContain("Running on opus");
     expect(line.textContent).toContain("sonnet · claude-a, applies to the next message");
-    expect(dialog.textContent).toContain("A task given to another dog continues in that dog's own conversation");
+    expect(dialog.textContent).toContain("Work given to another dog carries on in that dog's own chat");
   });
 
   it("omits the execution line when no selection is supplied", async () => {
@@ -162,13 +162,33 @@ describe("native work", () => {
     expect(host.querySelector('button[aria-label="View Researcher 0 · Working"]')).toBeNull();
   });
 
+  it("says each step in plain words and keeps tool names and the engine behind closed details", async () => {
+    const data = { ...run(), state: "done" as const, observation: "complete" as const, endedAt: 300, actors: [{ id: "parent", kind: "parent" as const, label: "Pepper", state: "done" as const, startedAt: 100 }, { id: "child", parentId: "parent", kind: "subagent" as const, label: "Researcher", state: "done" as const, startedAt: 101 }] };
+    vi.mocked(api).mockResolvedValue({ run: data, activities: [
+      { id: "bash", actorId: "parent", kind: "tool", label: "Bash", state: "done", startedAt: 110, input: "{\"command\":\"ls\"}" },
+      { id: "todo", actorId: "parent", kind: "tool", label: "TodoWrite", state: "done", startedAt: 111 },
+      { id: "said", actorId: "parent", kind: "message", label: "Message", state: "done", startedAt: 112, text: "All added up" },
+    ] } satisfies NativeRunDetail);
+    await act(async () => root.render(createElement(NativeWork, { run: data })));
+    await act(async () => [...host.querySelectorAll("button")].find(button => button.textContent?.includes("View work"))!.click());
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    const shown = (node: Element): string => node.tagName === "DETAILS" ? node.querySelector("summary")?.textContent ?? "" : [...node.childNodes].map(child => child.nodeType === 1 ? shown(child as Element) : child.textContent ?? "").join(" ");
+    const visible = shown(dialog);
+    expect(visible).toContain("Running a command");
+    expect(visible).toContain("Writing");
+    expect(visible).toContain("Technical details");
+    for (const word of ["Bash", "TodoWrite", "Message", "Claude Code", "agent", "task", "reported", "Recorded", "Main"]) expect(visible).not.toContain(word);
+    expect(dialog.querySelector('nav[aria-label="Your dog and its helpers"]')!.textContent).toContain("Helper · Done");
+    expect(dialog.textContent).toContain("Bash");
+  });
+
   it("refreshes every loaded activity page when the run advances", async () => {
     vi.useFakeTimers();
     let data = run();
     vi.mocked(api).mockImplementation(async (path) => path.includes("cursor=later") ? { run: data, activities: [{ id: "late", actorId: "parent", kind: "tool", label: "Later tool", state: data.revision > 1 ? "done" : "running", startedAt: 200, output: data.revision > 1 ? "Latest result" : "Waiting" }] } : { run: data, activities: [], nextCursor: "later" });
     await act(async () => root.render(createElement(NativeWork, { run: data })));
     await act(async () => [...host.querySelectorAll("button")].find(button => button.textContent?.includes("View work"))!.click());
-    const more = [...document.querySelectorAll('[role="dialog"] button')].find(button => button.textContent === "Load more activity") as HTMLButtonElement;
+    const more = [...document.querySelectorAll('[role="dialog"] button')].find(button => button.textContent === "Show more") as HTMLButtonElement;
     await act(async () => more.click());
     expect(document.querySelector('[role="dialog"]')!.textContent).toContain("Waiting");
     data = { ...data, revision: 2 };
