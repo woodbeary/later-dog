@@ -174,8 +174,9 @@ describe("native work", () => {
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
     const shown = (node: Element): string => node.tagName === "DETAILS" ? node.querySelector("summary")?.textContent ?? "" : [...node.childNodes].map(child => child.nodeType === 1 ? shown(child as Element) : child.textContent ?? "").join(" ");
     const visible = shown(dialog);
-    expect(visible).toContain("Running a command");
-    expect(visible).toContain("Writing");
+    expect(visible).toContain("Ran a command");
+    expect(visible).toContain("Made a plan");
+    expect(visible).toContain("Wrote the reply");
     expect(visible).toContain("Technical details");
     for (const word of ["Bash", "TodoWrite", "Message", "Claude Code", "agent", "task", "reported", "Recorded", "Main"]) expect(visible).not.toContain(word);
     expect(dialog.querySelector('nav[aria-label="Your dog and its helpers"]')!.textContent).toContain("Helper · Done");

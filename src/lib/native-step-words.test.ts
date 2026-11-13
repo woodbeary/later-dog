@@ -1,32 +1,32 @@
 import { describe, expect, it } from "vitest";
-import type { NativeActivity } from "../../shared/native-runs";
-import { nativeStepWords, type StepMessage } from "./native-step-words";
+import type { NativeActivity, NativeActorState } from "../../shared/native-runs";
+import { nativeStepWord } from "./native-step-words";
 
-const step = (id: string, label: string, kind: NativeActivity["kind"] = "tool", input?: string): NativeActivity => ({ id, actorId: "parent", kind, label, state: "done", startedAt: 1, ...(input ? { input } : {}) });
-const said = (name: string, spoken: string | undefined, input?: string, turnId = "turn"): StepMessage => ({ kind: "activity", turnId, tool: { name, ...(spoken ? { spoken } : {}), ...(input ? { input } : {}) } });
+const step = (label: string, state: NativeActorState = "done", kind: NativeActivity["kind"] = "tool", input?: string): NativeActivity => ({ id: label, actorId: "parent", kind, label, state, startedAt: 1, ...(input !== undefined ? { input } : {}) });
 
 describe("native step words", () => {
-  it("uses the working line's own words for each step, matched by tool and input", () => {
-    const words = nativeStepWords(
-      [step("a", "Bash", "tool", "ls"), step("b", "Bash", "tool", "pnpm test"), step("c", "TodoWrite")],
-      [said("Bash", "running pnpm test", "pnpm test"), said("Bash", "running ls", "ls"), said("TodoWrite", "making a plan")],
-      "turn",
-    );
-    expect([...words.values()]).toEqual(["Running ls", "Running pnpm test", "Making a plan"]);
+  it("says a finished step in the past and a running one in the present, from the one shared table", () => {
+    expect(nativeStepWord(step("Bash", "done", "tool", "{\"command\":\"ls\"}"))).toBe("Ran a command");
+    expect(nativeStepWord(step("Bash", "running", "tool", "{\"command\":\"ls\",\"description\":\"List the files\"}"))).toBe("List the files");
+    expect(nativeStepWord(step("TodoWrite"))).toBe("Made a plan");
+    expect(nativeStepWord(step("TodoWrite", "running"))).toBe("Making a plan");
+    expect(nativeStepWord(step("Task"))).toBe("Asked a helper");
+    expect(nativeStepWord(step("NotebookEdit"))).toBe("Made edits");
+    expect(nativeStepWord(step("Message", "done", "message"))).toBe("Wrote the reply");
+    expect(nativeStepWord(step("Thinking", "running", "reasoning"))).toBe("Thinking");
   });
 
-  it("ignores steps from other turns and never falls back to a raw tool name", () => {
-    const tools = ["Bash", "TodoWrite", "Read", "mcp__laterdog__shared_computer", "WebSearch: weather"];
-    const words = nativeStepWords(tools.map((label, index) => step(String(index), label, label.startsWith("WebSearch") ? "search" : "tool")), [said("TodoWrite", "making a plan", undefined, "other")], "turn");
-    for (const [index, label] of tools.entries()) {
-      const word = words.get(String(index))!;
-      expect(word).not.toMatch(new RegExp(`\\b${label.split(":")[0]!}\\b`));
-      expect(word).not.toMatch(/_|mcp/);
+  it("says the second engine's commands and file changes plainly, never the command itself", () => {
+    expect(nativeStepWord(step("pnpm test", "done", "tool", "pnpm test"), "codex")).toBe("Ran a command");
+    expect(nativeStepWord(step("pnpm test", "running", "tool", "pnpm test"), "codex")).toBe("Running a command");
+    expect(nativeStepWord(step("File changes", "done", "tool"), "codex")).toBe("Changed files");
+  });
+
+  it("says Did a step for anything the table does not cover, never a tool name or Working", () => {
+    for (const label of ["mystery_tool", "Native imageGeneration", "pnpm test"]) {
+      const word = nativeStepWord(step(label));
+      expect(word).toBe("Did a step");
     }
-  });
-
-  it("names the other kinds of step plainly", () => {
-    const words = nativeStepWords([step("m", "Message", "message"), step("r", "Thinking", "reasoning"), step("i", "Subagent instructions", "message"), step("n", "Claude warning", "notice"), step("c", "Context compacted", "compaction")]);
-    expect([...words.values()]).toEqual(["Writing", "Thinking", "Getting its instructions", "A note along the way", "Making room to keep going"]);
+    expect(nativeStepWord(step("mystery_tool", "running"))).toBe("Doing a step");
   });
 });
