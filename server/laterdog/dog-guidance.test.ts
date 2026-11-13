@@ -67,7 +67,7 @@ describe("the guidance every dog gets", () => {
   });
 
   it("covers the eight things the person needs from every dog", () => {
-    const text = dogGuidance({ engine: "claude", model: "claude-opus-5-5" });
+    const text = dogGuidance({ engine: "claude", agents: true, model: "claude-opus-5-5" });
     expect(ANSWER_FIRST).toMatch(/say in one line what you are doing before your first tool call/);
     expect(ANSWER_FIRST).toMatch(/not what you do not know yet, and never fill the gap with an answer you have not checked/);
     expect(ANSWER_FIRST).toMatch(/one-line update at natural points/);
@@ -88,7 +88,18 @@ describe("the guidance every dog gets", () => {
     expect(FINISH_WORK).toMatch(/ordinary obstacles/);
     for (const line of [ANSWER_FIRST, FINISH_WORK, PLAN_PROMPT, CHECK_WORK, DECIDE_DONT_ASK, EVIDENCE_FIRST, ACTING, needsPerson("claude"), SENDING, STAY_FREE, HELPER_BRIEF, STOP_MEANS_STOP, BETWEEN_DOGS, ROUTINE_OFFER, PRECEDENCE]) expect(text).toContain(line);
     expect(text).not.toContain(CHECKLIST_IN_REPLY);
-    expect(dogGuidance({ engine: "codex", model: "gpt-5.6" })).toContain(PLAN_PROMPT);
+    expect(dogGuidance({ engine: "codex", agents: true, model: "gpt-5.6" })).toContain(PLAN_PROMPT);
+  });
+
+  it("tells a dog to keep a plan only when it has later.dog's tools", () => {
+    for (const engine of ["claude", "codex"] as const) {
+      const without = dogGuidance({ engine, model: "x" });
+      expect(without).toContain(CHECKLIST_IN_REPLY);
+      expect(without).not.toContain("set_plan");
+      expect(dogGuidance({ engine, agents: false, model: "x" })).not.toContain("set_plan");
+      expect(dogGuidance({ engine, agents: true, model: "x" })).toContain(PLAN_PROMPT);
+    }
+    expect(dogGuidance({ engine: "other", agents: true, model: "x" })).not.toContain("set_plan");
   });
 
   it("has an included model answer first, without a checklist, opener or unasked table", () => {

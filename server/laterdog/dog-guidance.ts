@@ -32,6 +32,7 @@ export interface DogKit {
 
 export interface GuidanceInput {
   engine: GuidanceEngine;
+  agents?: boolean;
   model?: string;
   kit?: DogKit;
 }
@@ -285,7 +286,7 @@ export function dogGuidance(input: GuidanceInput): string {
     PRECEDENCE,
     ANSWER_FIRST,
     FINISH_WORK,
-    input.engine === "other" ? CHECKLIST_IN_REPLY : PLAN_PROMPT,
+    input.engine !== "other" && input.agents ? PLAN_PROMPT : CHECKLIST_IN_REPLY,
     family === "opus-5" ? "" : CHECK_WORK,
     DECIDE_DONT_ASK,
     EVIDENCE_FIRST,
