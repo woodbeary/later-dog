@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ProviderRegistry } from "../harness/registry.ts";
 import { makeFakeDriver } from "../testing/fake-driver.ts";
+import { refusedWhileOff } from "./turned-off.ts";
 
 const turn = { threadId: "t", text: "hello" } as never;
 
@@ -35,5 +36,19 @@ describe("no turn starts on an account the person switched off", () => {
     } finally {
       await registry.disposeAll();
     }
+  });
+
+  it("keeps reading the engine's own model list while the account is off", async () => {
+    let options = ["one"];
+    const engine = {
+      instanceId: "a", displayName: "Work", enabled: false,
+      get models() { return { default: options[0], options: options.map((id) => ({ id })) }; },
+      adapter: { sendTurn: async () => ({ turnId: "ran" }), hasSession: () => false },
+    };
+    const guarded = refusedWhileOff(engine as never);
+    options = ["one", "two"];
+    expect(guarded.models.options.map((option) => option.id)).toEqual(["one", "two"]);
+    await expect(guarded.adapter.sendTurn(turn)).rejects.toThrow("Work is turned off");
+    expect(guarded.adapter.hasSession("t")).toBe(false);
   });
 });

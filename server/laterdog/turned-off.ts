@@ -8,7 +8,8 @@ export class AccountTurnedOff extends Error {
   }
 }
 
-const withOwn = <T extends object>(base: T, own: Partial<T>): T => Object.assign(Object.create(Object.getPrototypeOf(base)) as T, base, own);
+const withOwn = <T extends object>(base: T, own: Partial<T>): T =>
+  Object.create(Object.getPrototypeOf(base), { ...Object.getOwnPropertyDescriptors(base), ...Object.getOwnPropertyDescriptors(own) }) as T;
 
 export function refusedWhileOff(instance: ProviderInstance): ProviderInstance {
   if (instance.enabled) return instance;
