@@ -146,7 +146,7 @@ it("compacts durably, keeps corrections and starts a fresh native session withou
 }), 90_000);
 
 it("automatically folds old exchanges while keeping the two latest and the incoming request", () => fixture(async f => {
-  await f.api("/api/config", { context: { compactAt: 1 } }, "PATCH");
+  await f.api("/api/config", { context: { compactAt: 1, harnessCompaction: false } }, "PATCH");
   await f.send("FIRST_EXCHANGE historical request");
   await f.send("SECOND_EXCHANGE keep verbatim");
   await f.send("THIRD_EXCHANGE correction -5 != 5");
@@ -190,7 +190,8 @@ it.each([
   { native: "100000", version: "2.1.270", tokens: 95_000, compactions: 1, window: "100000" },
   { native: "off", version: "2.1.270", tokens: 190_000, compactions: 0, window: undefined },
   { native: "auto", version: "2.1.270", tokens: 190_000, compactions: 0, window: "auto" },
-])("respects the selected account's native compaction setting ($native on Claude $version)", ({ native, version, tokens, compactions, window }) => fixture(async f => {
+])("with harness compaction off, respects the selected account's native compaction setting ($native on Claude $version)", ({ native, version, tokens, compactions, window }) => fixture(async f => {
+  await f.api("/api/config", { context: { harnessCompaction: false } }, "PATCH");
   if (native !== undefined) {
     await f.restart(() => {
       const path = join(f.session.info.dataDir, "config.json");

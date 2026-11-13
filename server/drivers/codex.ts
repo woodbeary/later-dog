@@ -60,6 +60,7 @@ import { readEngineModels } from "../laterdog/wait-at-most.ts";
 import { SteerReads } from "./steer-reads.ts";
 import { prepareCodexShellGuard } from "../laterdog/codex-shell-guard.ts";
 import { codexToolTouch } from "../laterdog/tool-touches.ts";
+import { codexCompactionEvent } from "../laterdog/native-compaction.ts";
 
 export { decodeCodexSelection, readCodexModelCatalog, STATIC_CODEX_MODELS } from "./codex-catalog.ts";
 
@@ -1265,6 +1266,8 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             const item = p.item ?? {};
             helpers.receive(item);
             if (item.type === "userMessage") steerReads.seen(item.content);
+            const compacting = codexCompactionEvent("started", item);
+            if (compacting) emit({ ...base(threadId, turnId), ...compacting });
             const runs = item.type === "mcpToolCall" && item.tool === CALL_TOOL && typeof item.server === "string" && directoryMounts.has(item.server)
               ? directoryCallTarget(CALL_TOOL, item.arguments) : undefined;
             const title =
@@ -1295,9 +1298,11 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             const item = p.item ?? {};
             helpers.receive(item);
             if (item.type === "userMessage") steerReads.seen(item.content);
-            if (item.type === "contextCompaction") {
+            const compaction = codexCompactionEvent("completed", item);
+            if (compaction) {
               compacted = true;
               if (codexThreadId) forgetDeliveredContext(threadId, codexThreadId);
+              emit({ ...base(threadId, turnId), ...compaction });
             }
             if (item.type === "agentMessage") {
               if (item.text?.trim()) {

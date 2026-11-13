@@ -127,6 +127,16 @@ function runHooks(event: string, payload: Record<string, unknown>): string {
   return stdout;
 }
 let turnsPlayed = 0;
+let roomTurnsPlayed = 0;
+
+function playNativeCompaction(): string {
+  out({ type: "system", subtype: "status", status: "compacting" });
+  runHooks("PreCompact", { trigger: "auto" });
+  const context = runHooks("SessionStart", { source: "compact" });
+  out({ type: "system", subtype: "status", status: null, compact_result: "success" });
+  out({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "auto", pre_tokens: 182_345, post_tokens: 24_100 } });
+  return context;
+}
 let resumedErrorPlayed = false;
 const argAfter = (flag: string): string | null => {
   const i = argv.indexOf(flag);
@@ -561,6 +571,8 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   }
 
   if (process.env.FAKE_CLAUDE_ROOM_PLAN) {
+    roomTurnsPlayed += 1;
+    if (process.env.FAKE_CLAUDE_COMPACT === "1" && (roomTurnsPlayed >= 2 || argv.includes("--resume"))) playNativeCompaction();
     const progress = (text: string) => out({ type: "assistant", message: { content: [{ type: "text", text }] } });
     const announce = (call: { id: string; name: string; input: unknown; parentToolUseId?: string; agentId?: string }) =>
       out({ type: "assistant", parent_tool_use_id: call.parentToolUseId ?? null, ...(call.agentId ? { agent_id: call.agentId } : {}), message: { content: [{ type: "tool_use", id: call.id, name: call.name, input: call.input }] } });
@@ -643,11 +655,7 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   }
   turnsPlayed += 1;
   if (process.env.FAKE_CLAUDE_COMPACT === "1" && turnsPlayed >= 2) {
-    out({ type: "system", subtype: "status", status: "compacting" });
-    runHooks("PreCompact", { trigger: "auto" });
-    const context = runHooks("SessionStart", { source: "compact" });
-    out({ type: "system", subtype: "status", status: null, compact_result: "success" });
-    out({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "auto", pre_tokens: 182_345, post_tokens: 24_100 } });
+    const context = playNativeCompaction();
     if (context.trim()) replyParts = [`${context.trim()}\n\n${replyParts[0] ?? ""}`, ...replyParts.slice(1)];
   }
   const usage = { input_tokens: 10, cache_read_input_tokens: 2, output_tokens: 5 };

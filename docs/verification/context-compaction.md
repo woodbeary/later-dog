@@ -38,9 +38,23 @@ Each API fixture retains exact requests, waits and bounded transcripts in
 `<server-log>.context.json`, prints that location, and closes its exact child and
 temporary home. No live account, computer or user workspace is touched.
 
+## Claude Code and Codex compact for themselves
+
+From the second harness pass, later.dog does not fold a Claude Code or Codex
+chat on a threshold. The engine compacts at its own default and keeps its
+session; later.dog summarises the older part only when it must start a new
+session that cannot replay the whole chat (an account switch, an engine switch,
+an edit to an older message). The rules below apply to other engines, and to
+Claude and Codex when `context.harnessCompaction` is `false`.
+
+```sh
+pnpm exec vitest run server/laterdog/native-compaction.test.ts server/laterdog/native-compaction.e2e.test.ts
+```
+
 ## Bounds and limitations
 
-`context` settings in config.json are optional. `autoCompact: false` disables
+`context` settings in config.json are optional. `harnessCompaction: false`
+puts Claude and Codex back on later.dog's fold, `autoCompact: false` disables
 automatic folding, `compactAt` is a fraction below 1 or a token count, and
 `rebuildBytes` controls replay size (default 24,000 bytes). Context-only settings
 do not reload provider processes. The default threshold is 80% of the known
@@ -93,5 +107,6 @@ in, in either order. A compaction skipped before it started adds no row. A row
 still open when the server stops is closed as stopped on the next start, from
 `compactions-open.json` in the data folder (mode 0600). Rows carry the request
 they belong to and stay out of restart pickups, status lines, digests and the
-memory log. The stream shapes match Claude CLI 2.1.301; other engines report
-nothing new.
+memory log. The stream shapes match Claude CLI 2.1.301. Codex reports a `contextCompaction`
+item, which opens and closes the same row without token counts; other engines
+report nothing new.
