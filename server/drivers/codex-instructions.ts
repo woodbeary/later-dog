@@ -53,6 +53,26 @@ export function codexDeveloperInstructions(config: unknown, botInstructions: str
     : botInstructions;
 }
 
+function receiptPath(key: string, nativeThreadId: string): string {
+  return join(DATA_DIR, "codex-instructions", `${digest(JSON.stringify([key, nativeThreadId]))}.sha256`);
+}
+
+function readReceipt(path: string): CodexInstructionReceipt | null {
+  try {
+    return parseReceipt(readFileSync(path, "utf8"));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return null;
+  }
+}
+
+export function forgetDeliveredContext(key: string, nativeThreadId: string): void {
+  const path = receiptPath(key, nativeThreadId);
+  const previous = readReceipt(path);
+  if (!previous || (previous.volatile === undefined && previous.sections === undefined)) return;
+  writeFileAtomic(path, JSON.stringify({ instructions: previous.instructions }), { mode: 0o600 });
+}
+
 export async function syncCodexInstructions(
   key: string,
   nativeThreadId: string,
@@ -64,16 +84,10 @@ export async function syncCodexInstructions(
   volatileSections?: readonly VolatileSection[],
 ): Promise<{ deliverVolatile: boolean; hadVolatile: boolean; note: string; commitVolatile: (() => void) | null }> {
   const directory = join(DATA_DIR, "codex-instructions");
-  const path = join(directory, `${digest(JSON.stringify([key, nativeThreadId]))}.sha256`);
+  const path = receiptPath(key, nativeThreadId);
   const fingerprint = digest(instructions);
   const volatileFingerprint = digest(volatile);
-  let previous: CodexInstructionReceipt | null;
-  try {
-    previous = parseReceipt(readFileSync(path, "utf8"));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    previous = null;
-  }
+  const previous = readReceipt(path);
   if (resumed && previous?.instructions !== fingerprint) {
     try {
       await request("thread/inject_items", {
