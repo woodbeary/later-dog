@@ -1032,8 +1032,7 @@ const accountBattery = new AccountBattery({
   onChange: () => broadcast({ kind: "config", ...configStatus() }),
 });
 function threadChoice(threadId: string): ModelSelection | undefined {
-  const bot = store.botByThread(threadId);
-  return bot ? store.projectBotForTask(bot.id, threadId)?.modelSelection : undefined;
+  return store.botByThread(threadId) ? chatSelection(threadId) : undefined;
 }
 
 function batteryAccounts(): BatteryAccount[] {
@@ -1061,8 +1060,7 @@ const groupBatteryTurns = new Map<string, { botId: string; generation: string; s
 const groupBatteryWakes = new Map<string, () => void>();
 const limitHold = new LimitHold({
   readyAt: (threadId) => {
-    const owner = store.botByThread(threadId);
-    const selection = owner ? store.projectBotForTask(owner.id, threadId)?.modelSelection : groupBatteryTurns.get(threadId)?.selection;
+    const selection = chatSelection(threadId);
     return selection ? accountBattery.readyAt(selection, batteryAccounts(), threadId) : undefined;
   },
   wake: (threadId) => {
@@ -3578,7 +3576,7 @@ function chatWork(threadId: string, busy: boolean, activity: BotActivity | undef
   const usageWait = until !== undefined || (!busy && usageStranded(threadId));
   const stall = stallFacts(threadId);
   const kept = !busy && (threadId in limitHold.waiting() || limitHold.waitsOnPerson(threadId) || batteryContinuationPending(threadId));
-  const account = kept ? accountNeedsYou({ carriesOn: carriesOnByItself(threadId), choice: accountBattery.decide(selection, batteryAccounts(), threadId), name: (id) => registry.get(id)?.displayName }) : undefined;
+  const account = kept ? accountNeedsYou({ carriesOn: carriesOnByItself(threadId), choice: accountBattery.decide(chatSelection(threadId) ?? selection, batteryAccounts(), threadId), name: (id) => registry.get(id)?.displayName }) : undefined;
   return workState({
     busy, helpers: busy ? 0 : helpersWorkingIn(threadId), waitingOn, ...workSignals.facts(threadId), ...(stall.stopped ? { stopped: stall.stopped } : {}),
     ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : account ? { needsYou: { what: account } } : {}),
@@ -6557,8 +6555,7 @@ function continueComputerSelection(threadId: string, generation: string | undefi
 }
 
 function setupFallbackFor(threadId: string, ranOn: string | undefined): boolean {
-  const owner = store.botByThread(threadId);
-  const selection = owner ? store.projectBotForTask(owner.id, threadId)?.modelSelection : undefined;
+  const selection = store.botByThread(threadId) ? chatSelection(threadId) : undefined;
   const accounts = batteryAccounts();
   if (!selection || !ranOn || !accounts.some((account) => account.instanceId === ranOn && account.eligible)) return false;
   accountBattery.needsSetup(ranOn);
@@ -6689,7 +6686,7 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
       limitHold.retry(threadId);
       return;
     }
-    const selection = store.projectBotForTask(owner.id, threadId)?.modelSelection;
+    const selection = chatSelection(threadId);
     const refreshed = accountBattery.nextAccount({ threadId, generation, stopReason: next.reason ?? "usage_limit", ranOn: next.from.instanceId,
       selection, accounts: batteryAccounts() });
     if (!refreshed) {
@@ -6723,7 +6720,7 @@ function continueOnNextAccount(threadId: string, turnId: string | undefined, gen
 
 function carryOnInput(threadId: string): (CarryOnInput & { botId: string }) | undefined {
   const owner = store.botByThread(threadId);
-  const selection = owner ? store.projectBotForTask(owner.id, threadId)?.modelSelection : undefined;
+  const selection = owner ? chatSelection(threadId) : undefined;
   if (!owner || !selection || directRequestOwners.get(threadId)?.stopped) return undefined;
   return {
     botId: owner.id, battery: accountBattery, accounts: batteryAccounts(), threadId, selection,
@@ -6756,7 +6753,7 @@ function pickUpAfterReset(threadId: string): void {
 
 function pickUpAfterRestart(threadId: string): void {
   const owner = store.botByThread(threadId);
-  const selection = owner ? store.projectBotForTask(owner.id, threadId)?.modelSelection : undefined;
+  const selection = owner ? chatSelection(threadId) : undefined;
   const outcome = !owner || !selection ? "skipped" : carryOnAfterRestart({
     battery: accountBattery, accounts: batteryAccounts(), threadId, selection, path: store.activePath(threadId),
     full: threadBusy(owner.id, threadId) || botAtThreadCapacity(owner.id) || Boolean(activeGroupTurnForBot(owner.id)),
@@ -7437,7 +7434,7 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
       const batteryStop = event.stopReason === "usage_limit" ? "usage_limit" : setupFailed && !event.ok && event.stopReason !== "interrupted" ? SETUP_STOP : undefined;
       const nextAccount = bot && batteryStop ? accountBattery.nextAccount({
         threadId: event.threadId, generation: directTurnGenerationByThread.get(event.threadId), stopReason: batteryStop,
-        ranOn: event.providerInstanceId ?? setupRanOn, selection: store.projectBotForTask(bot.id, event.threadId)?.modelSelection, accounts: batteryAccounts(),
+        ranOn: event.providerInstanceId ?? setupRanOn, selection: chatSelection(event.threadId), accounts: batteryAccounts(),
       }) : null;
       if (carryingOn) {
         const room = groupBatteryTurns.get(event.threadId);
