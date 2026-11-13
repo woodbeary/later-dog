@@ -1,23 +1,24 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, renameSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
-import { MAX_RUN_MS, type RunBox } from "./computer-runs.ts";
+import type { RunBox } from "./computer-runs.ts";
 
 const endSchema = z.object({ how: z.enum(["finished", "failed", "stopped"]), exitCode: z.number().int().optional(), at: z.number() });
 const jobSchema = z.object({
   id: z.string(), botId: z.string(), threadId: z.string(), command: z.string(), startedAt: z.number(),
   end: endSchema.optional(),
+  quiet: z.boolean().optional(),
 });
 export type ComputerJob = z.infer<typeof jobSchema>;
 export type ComputerJobEnd = z.infer<typeof endSchema>;
 export type EndedComputerJob = ComputerJob & { end: ComputerJobEnd };
 
 export const JOB_CHECK_MS = 30_000;
-export const JOB_GRACE_MS = 10 * 60_000;
+export type JobComputer = { state: "running"; box: RunBox } | { state: "asleep" | "gone" | "unsure" };
 
 export interface ComputerJobProbe {
-  box(botId: string): Promise<RunBox | null>;
-  outcome(box: RunBox, job: ComputerJob): Promise<{ exitCode: number | null } | null>;
+  computer(botId: string): Promise<JobComputer>;
+  exit(box: RunBox, job: ComputerJob): Promise<{ exitCode: number; at?: number } | null>;
 }
 
 export interface ComputerJobLedger {
@@ -31,6 +32,12 @@ export function jobEnd(exitCode: number | null, at: number): ComputerJobEnd {
   return { how: exitCode === 0 ? "finished" : "failed", exitCode, at };
 }
 
+export interface ComputerJobsOptions {
+  now?: () => number;
+  changed?: (threadId: string) => void;
+  log?: (line: string) => void;
+}
+
 export class ComputerJobs implements ComputerJobLedger {
   readonly #file: string | null;
   readonly #now: () => number;
@@ -38,15 +45,22 @@ export class ComputerJobs implements ComputerJobLedger {
   readonly #jobs = new Map<string, ComputerJob>();
   readonly #held = new Map<string, number>();
   #checking = false;
+  readonly #goneOnce = new Set<string>();
 
-  constructor(file: string | null, options: { now?: () => number; changed?: (threadId: string) => void } = {}) {
+  constructor(file: string | null, options: ComputerJobsOptions = {}) {
     this.#file = file;
     this.#now = options.now ?? Date.now;
     this.#changed = options.changed ?? (() => {});
     if (!file) return;
+    let raw: string;
+    try { raw = readFileSync(file, "utf8"); } catch { return; }
     try {
-      for (const job of z.array(jobSchema).parse(JSON.parse(readFileSync(file, "utf8")))) this.#jobs.set(job.id, job);
-    } catch {}
+      for (const job of z.array(jobSchema).parse(JSON.parse(raw))) this.#jobs.set(job.id, job);
+    } catch (error) {
+      const aside = `${file}.corrupt-${this.#now()}`;
+      try { renameSync(file, aside); } catch {}
+      (options.log ?? console.warn)(`computer jobs: ${file} was unreadable (${error instanceof Error ? error.message.slice(0, 200) : String(error)}); moved it to ${aside} and started empty`);
+    }
   }
 
   started(job: ComputerJob): void {
@@ -78,7 +92,8 @@ export class ComputerJobs implements ComputerJobLedger {
   finished(id: string, end: ComputerJobEnd): void {
     const job = this.#jobs.get(id);
     if (!job || job.end) return;
-    this.#jobs.set(id, { ...job, end });
+    if (job.quiet) this.#jobs.delete(id);
+    else this.#jobs.set(id, { ...job, end });
     this.#save();
     this.#changed(job.threadId);
   }
@@ -86,7 +101,10 @@ export class ComputerJobs implements ComputerJobLedger {
   quiet(threadId: string): ComputerJob[] {
     const all = [...this.#jobs.values()].filter((job) => job.threadId === threadId);
     if (!all.length) return [];
-    for (const job of all) this.#jobs.delete(job.id);
+    for (const job of all) {
+      if (job.end) this.#jobs.delete(job.id);
+      else this.#jobs.set(job.id, { ...job, quiet: true });
+    }
     this.#save();
     this.#changed(threadId);
     return all.filter((job) => !job.end);
@@ -121,11 +139,6 @@ export class ComputerJobs implements ComputerJobLedger {
     for (const threadId of threads) this.#changed(threadId);
   }
 
-  restore(jobs: readonly EndedComputerJob[]): void {
-    for (const job of jobs) if (!this.#jobs.has(job.id)) this.#jobs.set(job.id, job);
-    this.#save();
-  }
-
   async check(probe: ComputerJobProbe): Promise<string[]> {
     if (this.#checking) return [];
     this.#checking = true;
@@ -136,14 +149,15 @@ export class ComputerJobs implements ComputerJobLedger {
     const ends = new Map<string, ComputerJobEnd>();
     for (const job of this.#jobs.values()) {
       if (job.end || this.#held.has(job.id)) continue;
-      if (this.#now() - job.startedAt >= MAX_RUN_MS + JOB_GRACE_MS) {
-        ends.set(job.id, jobEnd(null, this.#now()));
-        continue;
-      }
       try {
-        const box = await probe.box(job.botId);
-        const outcome = box ? await probe.outcome(box, job) : { exitCode: null };
-        if (outcome) ends.set(job.id, jobEnd(outcome.exitCode, this.#now()));
+        const computer = await probe.computer(job.botId);
+        const goneBefore = this.#goneOnce.has(job.id);
+        if (computer.state === "gone") this.#goneOnce.add(job.id);
+        else this.#goneOnce.delete(job.id);
+        if (computer.state === "asleep" || (computer.state === "gone" && goneBefore)) ends.set(job.id, jobEnd(null, this.#now()));
+        if (computer.state !== "running") continue;
+        const exit = await probe.exit(computer.box, job);
+        if (exit && Number.isInteger(exit.exitCode)) ends.set(job.id, jobEnd(exit.exitCode, exit.at !== undefined && Number.isFinite(exit.at) ? Math.min(exit.at, this.#now()) : this.#now()));
       } catch {}
     }
     for (const [id, end] of ends) if (!this.#held.has(id)) this.finished(id, end);

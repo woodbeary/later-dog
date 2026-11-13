@@ -14,6 +14,14 @@ function home() {
   return root;
 }
 
+const probeWith = (runs: ComputerRuns, box: RunBox) => ({
+  computer: async () => ({ state: "running" as const, box }),
+  exit: async (inner: RunBox, job: { botId: string; id: string }) => {
+    const state = await runs.poll(inner, runs.record(job.botId, job.id)!);
+    return state.done && state.exitCode !== null ? { exitCode: state.exitCode } : null;
+  },
+});
+
 const outcome = (state: RunOutcome["state"], exitCode: number | null = 0): RunOutcome => ({ id: "abcd1234", state, exitCode, output: "ok", broughtBack: ["report.txt"], skipped: [], sentFiles: 2, sentBytes: 2048 });
 
 function fakeRuns(result: RunOutcome, record: Partial<RunRecord> | null = null) {
@@ -226,7 +234,7 @@ describe("one run_on_computer call with the real run store", () => {
     expect(first.text).toContain("Still running");
     const runId = /run_id ([0-9a-f]{8})/.exec(first.text!)![1];
     expect(jobs.live("t1").map((job) => [job.id, job.botId, job.command])).toEqual([[runId, "dog", "pnpm test"]]);
-    expect(await jobs.check({ box: async () => going.box, outcome: async (box, job) => { const state = await runs.poll(box, runs.record(job.botId, job.id)!); return state.done ? { exitCode: state.exitCode } : null; } })).toEqual([]);
+    expect(await jobs.check(probeWith(runs, going.box))).toEqual([]);
     expect(jobs.count("t1")).toBe(1);
     const finished = fakeBox({ exitCode: 0 });
     const second = await handleComputerRun({ ...ask(), body: { run_id: runId }, threadId: "t1" }, { runs, jobs, computer: async () => ({ box: finished.box }), now: () => clock.at });
@@ -240,7 +248,7 @@ describe("one run_on_computer call with the real run store", () => {
     const first = await handleComputerRun({ ...ask(), threadId: "t1" }, { runs, jobs, computer: async () => ({ box: fakeBox().box }), now: () => clock.at });
     const runId = /run_id ([0-9a-f]{8})/.exec(first.text!)![1];
     const finished = fakeBox({ exitCode: 0 });
-    expect(await jobs.check({ box: async () => finished.box, outcome: async (box, job) => { const state = await runs.poll(box, runs.record(job.botId, job.id)!); return state.done ? { exitCode: state.exitCode } : null; } })).toEqual([runId]);
+    expect(await jobs.check(probeWith(runs, finished.box))).toEqual([runId]);
     expect(jobs.count("t1")).toBe(0);
     expect(jobs.unannounced().map((job) => [job.id, job.end.how])).toEqual([[runId, "finished"]]);
     const read = await handleComputerRun({ ...ask(), body: { run_id: runId }, threadId: "t1" }, { runs, jobs, computer: async () => ({ box: finished.box }), now: () => clock.at });
