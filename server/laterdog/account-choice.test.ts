@@ -97,6 +97,42 @@ describe("when the chosen account cannot run", () => {
     expect(decide({ resting, usage: (id) => id === "adam" ? credited : id === "jacob" ? reading(id, 50) : reading(id, 99) }).run.instanceId).toBe("jacob");
   });
 
+  describe("plan room comes before paid credits", () => {
+    const resting = { daniel: hold(HOUR) };
+    const creditsOnly = (id: string) => reading(id, 100, 100, { unlimited: false, balance: "40" });
+    const rows = (byId: Record<string, PlanProviderRow>) => (id: string) => byId[id];
+    const accounts = [claude("daniel"), claude("adam"), claude("anthony"), claude("jacob")];
+
+    it("leaves an account that only has paid credits for one with 90% of its plan left", () => {
+      const usage = rows({ adam: creditsOnly("adam"), anthony: reading("anthony", 5, 10) });
+      expect(decide({ accounts: accounts.slice(0, 3), resting, usage }).run.instanceId).toBe("anthony");
+      expect(decide({ accounts: accounts.slice(0, 3), resting, usage, current: "adam" }).run.instanceId).toBe("anthony");
+    });
+
+    it("uses paid credits when no account has plan room", () => {
+      const usage = rows({ adam: reading("adam", 98), anthony: creditsOnly("anthony"), jacob: reading("jacob", 99) });
+      expect(decide({ accounts, resting, usage }).run.instanceId).toBe("anthony");
+      expect(decide({ accounts, resting, usage, current: "adam" }).run.instanceId).toBe("anthony");
+    });
+
+    it("keeps a credits-only account already covering while the best is also credits-only", () => {
+      const usage = rows({ adam: creditsOnly("adam"), anthony: creditsOnly("anthony"), jacob: reading("jacob", 99) });
+      expect(decide({ accounts, resting, usage, current: "anthony" }).run.instanceId).toBe("anthony");
+      expect(decide({ accounts, resting, usage, current: "jacob" }).run.instanceId).toBe("adam");
+    });
+
+    it("puts a credits-only account before an account with no reading", () => {
+      const usage = rows({ anthony: creditsOnly("anthony") });
+      expect(decide({ accounts, resting, usage }).run.instanceId).toBe("anthony");
+      expect(decide({ accounts, resting, usage, current: "adam" }).run.instanceId).toBe("anthony");
+    });
+
+    it("never leaves the chosen account that can run because another has more room", () => {
+      const usage = rows({ daniel: creditsOnly("daniel"), adam: reading("adam", 5) });
+      expect(decide({ accounts, usage, current: "adam" })).toEqual({ kind: "chosen", run: ON_DANIEL });
+    });
+  });
+
   it("never picks a disabled, signed-out, not-yet-checked, held or model-less account", () => {
     const accounts = [
       claude("daniel"), claude("adam", { enabled: false }), claude("anthony", { signedIn: false }), claude("jacob", { signedIn: undefined }),
