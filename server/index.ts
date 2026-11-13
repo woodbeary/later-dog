@@ -768,6 +768,7 @@ import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
 import { createCompactionLive, fileCompactionLedger } from "./laterdog/compaction-live.ts";
 import { harnessCompacts, rebuildNeedsSummary } from "./laterdog/native-compaction.ts";
+import { recallsThisTurn } from "./laterdog/session-start-recall.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
 import { createStallWatch, handoffWorking, STALL_LOOKBACK_MS, stallWatchMode, type StallFacts } from "./laterdog/stall-watch.ts";
 import { createInflightTurns, fileInflightLedger, pickUpAfterRestart as pickUpTurnsAfterRestart, type RestartPickupHost } from "./laterdog/restart-pickup.ts";
@@ -9150,14 +9151,14 @@ async function startTurn(
       turnPromptBytes.set(threadId, { stable: Buffer.byteLength(prompt.stable), volatile: Buffer.byteLength(prompt.volatile) });
       if (deskPrompts && threadId === bot.threadId && INCLUDED_AI_INSTANCES.includes(instanceId)) deskPrompts.remember(threadId, { instanceId, model, system: prompt.stable || prompt.text });
       const fromPerson = commsDepth === 0 && !coordinationNode && !opts?.automationSource && !opts?.unattended;
-      const recalled = autoRecallPrompt(bot, threadId, resolvedImages.text, {
-        conversations: fromPerson,
-        userName: cfg.profile?.name?.trim() || "User",
-      });
       executionEvidence.dispatch(threadId, (store.projectBotForTask(bot.id, threadId) ?? bot).modelSelection, { instanceId, model, effort });
       runningTurnEngines.set(threadId, instance);
       const dispatchedConfig = sessionConfig(liveBot?.soul ?? bot.soul);
       if (strictResume && !(opts?.cardContinuation && continuingRoutine) && dispatchedConfig !== plannedConfig) dispatchContext = decideContext(dispatchedConfig);
+      const recalled = recallsThisTurn(dispatchContext, instance.driverKind) ? autoRecallPrompt(bot, threadId, resolvedImages.text, {
+        conversations: fromPerson,
+        userName: cfg.profile?.name?.trim() || "User",
+      }) : "";
       handoffs.dispatching(threadId, dispatchClaimId, dispatchContext.handoff);
       const dispatch = await guardTurnDispatch(instance.adapter.sendTurn({
         threadId,

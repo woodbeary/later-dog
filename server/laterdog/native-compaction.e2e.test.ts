@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
@@ -178,3 +178,16 @@ it("moves a long chat from Claude to Codex with one summary, then lets Codex com
   expect(rows.at(-1).tool.name).toMatch(/^context compaction/);
 }), 150_000);
 
+it("recalls notes automatically when a session starts and leaves later turns to the search tool", () => fixture(async f => {
+  const memory = join(f.session.info.dataDir, "workspaces", f.bot.id, "memory");
+  mkdirSync(memory, { recursive: true });
+  writeFileSync(join(memory, "garden.md"), "---\ntitle: garden\ndescription: what Sam decided about the garden plan\n---\nGARDEN_NOTE water the tomatoes at six every morning.\n");
+  await f.use("claude", "claude-sonnet-4-6");
+  const ask = "What did we decide about the garden plan and the watering?";
+  await f.send(ask);
+  await f.send(`${ask} Again, please.`);
+  await f.use("claudeWork", "claude-sonnet-4-6");
+  await f.send(`${ask} On the other account.`);
+  const prompts = f.turns().map((turn: any) => String(turn.prompt.message.content));
+  expect(prompts.map(prompt => prompt.includes("Recalled for this message") && prompt.includes("GARDEN_NOTE"))).toEqual([true, false, true]);
+}), 120_000);
