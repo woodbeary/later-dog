@@ -50,6 +50,7 @@ import { BotAvatar } from "./Avatar";
 import { ExchangeLine, ExchangeThreadContext, PlainNoteLine } from "./QuietLines";
 import { ExchangeViewHost } from "./ExchangeViewHost";
 import { foldExchanges, expandedExchange, quietTranscriptItemShown, shownToPerson } from "@/lib/quiet-lines";
+import { RecoveredLine } from "./RecoveredLine";
 import { freshenDogName } from "@/lib/dog-refs";
 import { TurnPresence } from "./TurnPresence";
 import { DogPlan } from "./PlanChecklist";
@@ -776,6 +777,15 @@ const MessagesList = memo(function MessagesList({
               {newDay && <DaySeparator at={first.at} today={today} />}
               {unreadDivider(item.messages)}
               <ExchangeLine item={item} forceOpen={item.messages.some(message => message.id === focusedId)} />
+            </div>
+          );
+        }
+        if (item.kind === "recovered") {
+          return (
+            <div key={item.id} className="contents" data-mid={item.recovery.id} data-arriving={arriving(item.recovery.id) ? "" : undefined}>
+              {newDay && <DaySeparator at={first.at} today={today} />}
+              {unreadDivider(item.messages)}
+              <RecoveredLine item={item} engine={engine} botId={botId} threadId={threadId} forceOpen={item.folded.some((message) => message.id === focusedId)} />
             </div>
           );
         }
