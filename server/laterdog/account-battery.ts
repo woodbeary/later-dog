@@ -5,6 +5,8 @@ import type { PlanProviderRow } from "../plan-usage.ts";
 import type { ModelSelection, WireAccountRoute } from "../../shared/wire.ts";
 import { creditsSpendable } from "../../shared/spendable-credits.ts";
 import { resetInstant } from "./usage-limit.ts";
+import type { ProviderSnapshot } from "../contracts.ts";
+import { checkUnknown } from "./cli-version.ts";
 import { NEARLY_EMPTY_PERCENT, roomTier } from "./account-spread.ts";
 import { choiceReadyAt, decideAccount, shownRoute, type AccountChoice, type AccountChoiceInput, type Ran } from "./account-choice.ts";
 
@@ -55,6 +57,11 @@ export interface BatteryAccount {
   email?: string;
   models: readonly string[];
   defaultModel?: string;
+}
+
+export function signedInReading(snapshot: ProviderSnapshot): { signedIn?: boolean } {
+  if (checkUnknown(snapshot)) return {};
+  return { signedIn: snapshot.state !== "unavailable" && snapshot.authenticated !== false };
 }
 
 export interface Rest {
