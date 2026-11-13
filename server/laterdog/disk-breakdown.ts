@@ -12,6 +12,7 @@ export interface BreakdownEntry {
   label: string;
   bytes: number;
   atLeast?: true;
+  overEstimate?: true;
   within?: string;
   dogId?: string;
   dogName?: string;
@@ -118,7 +119,11 @@ async function deviceOf(path: string): Promise<number | null> {
 class PlanBuilder {
   readonly roots = new Map<string, WalkRoot>();
   readonly labels = new Map<string, Area>();
-  constructor(private readonly device: number | null) {}
+  private readonly device: number | null;
+
+  constructor(device: number | null) {
+    this.device = device;
+  }
 
   async add([area, label]: Area, path: string, extra: Partial<WalkRoot> = {}): Promise<void> {
     if (this.device !== null && await deviceOf(path) !== this.device) return;
@@ -183,8 +188,12 @@ function walkerScript(): string {
   return candidates.find((path) => existsSync(path)) ?? candidates[1]!;
 }
 
+export function walkerEnvironment(): Record<string, string> {
+  return { PATH: process.env.PATH ?? "/usr/bin:/bin", ELECTRON_RUN_AS_NODE: "1" };
+}
+
 export function spawnWalker(job: WalkJob): ChildProcess {
-  const child = spawn(process.execPath, [walkerScript()], { stdio: ["pipe", "pipe", "ignore"], env: { PATH: process.env.PATH ?? "/usr/bin:/bin" } });
+  const child = spawn(process.execPath, [walkerScript()], { stdio: ["pipe", "pipe", "ignore"], env: walkerEnvironment() });
   child.stdin?.end(JSON.stringify(job));
   return child;
 }
@@ -216,46 +225,48 @@ const byBytes = (a: { bytes: number }, b: { bytes: number }) => b.bytes - a.byte
 
 export function assemble(plan: Plan, results: readonly WalkResult[], dogName: (id: string) => string | null): { entries: BreakdownEntry[]; complete: boolean } {
   const found = new Map(results.map((result) => [result.key, result]));
-  const flag = (atLeast: boolean | undefined) => (atLeast ? { atLeast: true as const } : {});
+  const flag = (...from: WalkResult[]) => ({
+    ...(from.some((result) => result.atLeast) ? { atLeast: true as const } : {}),
+    ...(from.some((result) => result.overEstimate) ? { overEstimate: true as const } : {}),
+  });
   const entries: BreakdownEntry[] = [];
   for (const root of plan.roots) {
     const area = plan.labels.get(root.key);
     const result = found.get(root.key);
     if (!area || !result || root.split) continue;
-    entries.push({ area: area[0], label: area[1], bytes: result.bytes, ...flag(result.atLeast) });
+    entries.push({ area: area[0], label: area[1], bytes: result.bytes, ...flag(result) });
   }
   const dogResults = plan.roots.filter((root) => root.split).map((root) => found.get(root.key)).filter((result): result is WalkResult => Boolean(result));
   const parts: BreakdownEntry[] = [];
   if (dogResults.length) {
     const sum = (pick: (result: WalkResult) => number) => dogResults.reduce((total, result) => total + pick(result), 0);
-    const partial = dogResults.some((result) => result.atLeast);
     const total = sum((result) => result.bytes);
     const generated = sum((result) => result.generated ?? 0);
     const history = sum((result) => result.history ?? 0);
-    entries.push({ area: "workspaces", label: "Dogs' work folders", bytes: total, ...flag(partial) });
+    entries.push({ area: "workspaces", label: "Dogs' work folders", bytes: total, ...flag(...dogResults) });
     parts.push(
-      { area: "workspaces-generated", label: "Rebuildable output", bytes: generated, within: "workspaces", ...flag(partial) },
-      { area: "workspaces-history", label: "Version history", bytes: history, within: "workspaces", ...flag(partial) },
-      { area: "workspaces-files", label: "Everything else", bytes: total - generated - history, within: "workspaces", ...flag(partial) },
+      { area: "workspaces-generated", label: "Rebuildable output", bytes: generated, within: "workspaces", ...flag(...dogResults) },
+      { area: "workspaces-history", label: "Version history", bytes: history, within: "workspaces", ...flag(...dogResults) },
+      { area: "workspaces-files", label: "Everything else", bytes: total - generated - history, within: "workspaces", ...flag(...dogResults) },
     );
     const perDog = dogResults.filter((result) => result.key.startsWith("dog:")).sort(byBytes);
     for (const result of perDog.slice(0, TOP_DOGS)) {
       const dogId = result.key.slice(4);
       const name = dogName(dogId);
-      parts.push({ area: result.key, label: name ?? "A removed dog", bytes: result.bytes, within: "workspaces", dogId, ...(name ? { dogName: name } : {}), ...flag(result.atLeast) });
+      parts.push({ area: result.key, label: name ?? "A removed dog", bytes: result.bytes, within: "workspaces", dogId, ...(name ? { dogName: name } : {}), ...flag(result) });
     }
     const rest = [...perDog.slice(TOP_DOGS), ...dogResults.filter((result) => !result.key.startsWith("dog:"))];
     if (rest.length) {
-      parts.push({ area: "dogs-other", label: "Other dogs", bytes: rest.reduce((total, result) => total + result.bytes, 0), within: "workspaces", ...flag(rest.some((result) => result.atLeast)) });
+      parts.push({ area: "dogs-other", label: "Other dogs", bytes: rest.reduce((total, result) => total + result.bytes, 0), within: "workspaces", ...flag(...rest) });
     }
   }
-  const complete = plan.roots.every((root) => found.has(root.key) && !found.get(root.key)!.atLeast);
+  const complete = plan.roots.every((root) => found.has(root.key) && !found.get(root.key)!.atLeast && !found.get(root.key)!.overEstimate);
   return { entries: [...entries.sort(byBytes), ...parts], complete };
 }
 
 export function breakdownLine(breakdown: DiskBreakdown): string {
   const top = breakdown.entries.filter((entry) => !entry.within).slice(0, 5)
-    .map((entry) => `${entry.label} ${entry.atLeast ? "at least " : ""}${Math.round(entry.bytes / 1024 / 1024)} MB`);
+    .map((entry) => `${entry.label} ${entry.atLeast ? "at least " : entry.overEstimate ? "at most " : ""}${Math.round(entry.bytes / 1024 / 1024)} MB`);
   return `[storage] measured in ${Math.round(breakdown.tookMs / 1000)} s${breakdown.complete ? "" : " (incomplete)"}: ${top.join(", ") || "nothing found"}`;
 }
 
@@ -275,6 +286,20 @@ export function loadBreakdown(file: string): DiskBreakdown | null {
   }
 }
 
+export const MEANINGFUL_BYTES = 10 * 1024 * 1024;
+export const MEANINGFUL_SHARE = 0.01;
+
+export function movedMeaningfully(before: DiskBreakdown | null, after: DiskBreakdown): boolean {
+  if (!before || before.complete !== after.complete || before.entries.length !== after.entries.length) return true;
+  const earlier = new Map(before.entries.map((entry) => [entry.area, entry]));
+  return after.entries.some((entry) => {
+    const was = earlier.get(entry.area);
+    if (!was || was.label !== entry.label || Boolean(was.atLeast) !== Boolean(entry.atLeast) || Boolean(was.overEstimate) !== Boolean(entry.overEstimate)) return true;
+    const moved = Math.abs(entry.bytes - was.bytes);
+    return moved > MEANINGFUL_BYTES && moved > was.bytes * MEANINGFUL_SHARE;
+  });
+}
+
 export interface DiskBreakdownRunner {
   last(): DiskBreakdown | null;
   running(): boolean;
@@ -288,6 +313,7 @@ export function createDiskBreakdown(deps: BreakdownDeps): DiskBreakdownRunner {
   const now = deps.now ?? Date.now;
   const log = deps.log ?? ((line: string) => console.log(line));
   let last = loadBreakdown(file);
+  let saved = last;
   let current: Promise<DiskBreakdown | null> | null = null;
 
   const run = async (): Promise<DiskBreakdown | null> => {
@@ -305,7 +331,12 @@ export function createDiskBreakdown(deps: BreakdownDeps): DiskBreakdownRunner {
     const { entries, complete } = assemble(plan, walk.results, deps.dogName);
     const breakdown: DiskBreakdown = { at: started, tookMs: Math.max(0, now() - started), complete: complete && walk.ok, entries };
     last = breakdown;
-    try { writeFileAtomic(file, `${JSON.stringify(breakdown)}\n`, { mode: 0o600 }); } catch {}
+    if (movedMeaningfully(saved, breakdown)) {
+      try {
+        writeFileAtomic(file, `${JSON.stringify(breakdown)}\n`, { mode: 0o600 });
+        saved = breakdown;
+      } catch {}
+    }
     log(breakdownLine(breakdown));
     return breakdown;
   };
