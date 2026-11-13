@@ -75,9 +75,16 @@ the third review's three Should fix items; this note describes that head.
   again at every refresh, so it cannot be answered a second time. Any send that ends in a
   final failure without a composer to recover it records the Not sent row itself.
   In a group room the answer is posted to the room's own messages route the same
-  way. The server has no route that saves a room card as answered (the card
-  route only knows a dog's own chats), so a room card shows answered on this
-  device only; after a refresh it can show answerable again.
+  way. Once delivered, the device saves the answer on the home with
+  `PATCH /api/groups/:id/cards/:messageId` and the card's `threadId`
+  (`server/routes/room-card.ts`), so a refresh shows the room card answered.
+  The route accepts a thread only when it belongs to that room: the room's own
+  thread for a direct room, one of the room's tasks otherwise. A room saved
+  before rooms had a task list is given one task on that thread when the home
+  loads, so its cards are saved too (`server/routes/room-card-store.test.ts`
+  runs the home's own check). The device does not read the route's answer: a
+  save the home refuses leaves the card answered on this device only until the
+  next refresh.
 - The edge's own rows and lines in a refresh do not count as landed, so a
   refresh answered by the edge keeps the copy.
 - While a copy exists the device asks the edge's held list (`GET` on `HELD_SENDS_PATH` from
