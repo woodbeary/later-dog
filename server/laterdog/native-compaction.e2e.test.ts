@@ -199,13 +199,13 @@ it("recalls notes automatically when a session starts and leaves later turns to 
   expect(prompts.map(prompt => prompt.includes("Recalled for this message") && prompt.includes("GARDEN_NOTE"))).toEqual([true, false, true]);
 }), 120_000);
 
-it("rebuilds a Claude chat whose saved session is refused with the engine's own summary in front", () => fixture(async f => {
+it.each(["dead-session", "dead-session-result"])("rebuilds a Claude chat whose saved session is refused (%s) with the engine's own summary in front", (mode) => fixture(async f => {
   await f.api("/api/config", { context: { rebuildBytes: 1_024 } }, "PATCH");
   await f.use("claude", "claude-sonnet-4-6");
   for (const label of ["OLDEST_DECISION use port 9001", "SECOND request", "THIRD request", "FOURTH request", "FIFTH request"]) await f.send(padded(label));
   expect(await f.folds()).toHaveLength(0);
   const lost = f.task().resumeCursors.claude;
-  await f.reconfigure(config => { config.instances.claude.environment = { ...config.instances.claude.environment, FAKE_CLAUDE_MODE: "dead-session" }; });
+  await f.reconfigure(config => { config.instances.claude.environment = { ...config.instances.claude.environment, FAKE_CLAUDE_MODE: mode }; });
   await f.send("AFTER_LOSS which port?");
   const prompt = String(f.turns().at(-1).prompt.message.content);
   expect(prompt).toContain("could not be resumed");
@@ -214,6 +214,7 @@ it("rebuilds a Claude chat whose saved session is refused with the engine's own 
   expect(prompt).toContain("AFTER_LOSS which port?");
   expect(f.task().resumeCursors.claude).not.toBe(lost);
   expect(await f.folds()).toHaveLength(0);
+  expect((await f.messages()).filter(m => m.kind === "activity" && m.tool?.ok === false)).toEqual([]);
 }, { ...LONG_CHAT, FAKE_CLAUDE_HOOKS: "1", FAKE_CLAUDE_COMPACT_SUMMARY: "ENGINE_SUMMARY the person chose port 9001." }), 150_000);
 
 it("rebuilds a Codex chat whose thread is lost with the person's oldest decision still in front", () => fixture(async f => {
@@ -246,4 +247,14 @@ it("keeps later.dog's fold when Claude Code's own compaction is switched off", (
   await f.use("claude", "claude-sonnet-4-6");
   for (const label of ["FIRST request", "SECOND request", "THIRD request", "FOURTH request"]) await f.send(label);
   expect((await f.folds()).length).toBeGreaterThan(0);
+}), 150_000);
+
+it("shows an engine error result nobody handled as a failed message with the engine's words", () => fixture(async f => {
+  await f.use("claude", "claude-sonnet-4-6");
+  await f.reconfigure(config => { config.instances.claude.environment = { ...config.instances.claude.environment, FAKE_CLAUDE_MODE: "error-result",
+    FAKE_CLAUDE_ERROR_TEXT: "Fixture engine refused: model unavailable" }; });
+  await f.cli("send", "--bot", f.bot.id, "--task", f.thread, "--text", "hello?");
+  expect((await f.cli("wait", "--bot", f.bot.id, "--task", f.thread, "--timeout", "40")).status).toBe("failed");
+  const failed = (await f.messages()).filter(m => m.kind === "activity" && m.tool?.ok === false);
+  expect(failed.map(m => m.tool.name)).toEqual([expect.stringContaining("Fixture engine refused: model unavailable")]);
 }), 150_000);

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -141,7 +141,7 @@ posixOnly("engine hooks e2e (fake Claude honouring the settings hooks)", () => {
 });
 
 posixOnly("engine hooks e2e: compaction", () => {
-  const h = harness("compact", {}, { FAKE_CLAUDE_COMPACT: "1" });
+  const h = harness("compact", {}, { FAKE_CLAUDE_COMPACT: "1", FAKE_CLAUDE_VERSION: "2.1.316" });
 
   it("records the compaction in the transcript and hands the latest digests back to the engine as plain-text context", async () => {
     const bot = await h.runTurn();
@@ -178,7 +178,8 @@ posixOnly("engine hooks e2e: compaction", () => {
         { authorization: `Bearer ${token}` });
       expect(forged.status === 401 || forged.body?.ignored === "not-compacting").toBe(true);
     }
-    expect(readFileSync(join(h.home(), ".laterdog", "engine-summaries.json"), "utf8")).not.toContain(forgedText);
+    const stored = join(h.home(), ".laterdog", "engine-summaries.json");
+    expect(existsSync(stored) ? readFileSync(stored, "utf8") : "").not.toContain(forgedText);
   });
 });
 
