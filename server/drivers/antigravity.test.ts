@@ -118,7 +118,7 @@ describe("Antigravity sign-in lifecycle", () => {
     });
     try {
       await expect(instance.installRuntime!()).rejects.toThrow("fixture failure");
-      expect(await instance.snapshot()).toEqual({ state: "unavailable", reason: "Antigravity initialization timed out: fixture failure" });
+      expect(await instance.snapshot()).toEqual({ state: "unavailable", reason: "Antigravity initialization timed out: fixture failure", missing: true });
       expect((await instance.snapshot()).reason).toContain("fixture failure");
       copyFileSync(fake.executable, custom);
       if (process.platform !== "win32") chmodSync(custom, 0o755);
@@ -126,6 +126,7 @@ describe("Antigravity sign-in lifecycle", () => {
       unlinkSync(custom);
       const unavailable = await instance.snapshot();
       expect(unavailable.state).toBe("unavailable");
+      expect(unavailable.missing).toBe(true);
       expect(unavailable.reason).not.toContain("fixture failure");
       install.mockRejectedValueOnce(new Error("Antigravity initialization timed out: fixture failure"));
       await expect(instance.installRuntime!()).rejects.toThrow("fixture failure");

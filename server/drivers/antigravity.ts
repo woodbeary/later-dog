@@ -15,6 +15,7 @@ import {
   validateAntigravityRuntime,
 } from "./antigravity-acp.ts";
 import {
+  AntigravitySetupError,
   antigravityManagedInstallAvailable,
   installAntigravityRuntime,
   resolveAntigravityRuntime,
@@ -109,7 +110,8 @@ const support: AcpSupport = {
         authenticated: await antigravityProfileAuthenticated(profile),
       };
     } catch (error) {
-      return { state: "unavailable", reason: error instanceof Error ? error.message : String(error) };
+      const reason = error instanceof Error ? error.message : String(error);
+      return error instanceof AntigravitySetupError ? { state: "unavailable", reason, missing: true } : { state: "unavailable", reason, checkFailed: true };
     }
   },
 
