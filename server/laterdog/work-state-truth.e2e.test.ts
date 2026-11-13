@@ -148,49 +148,85 @@ afterAll(async () => {
 });
 
 const botNow = async (id: string) => ((await api("GET", "/api/bots")).body.bots as any[]).find((bot) => bot.id === id);
+const messages = async (threadId: string) => (await api("GET", `/api/threads/${threadId}/messages?limit=200`)).body.messages as any[];
+const wakeLines = async (threadId: string) => (await messages(threadId)).filter((row) => row.tool?.pickup === "computer");
+const remoteFile = (marker: string) => join(remote, "runs", runKey(join(home, "site")), `${marker}.txt`);
+const ledger = () => JSON.parse(readFileSync(join(dataDir, "computer-jobs.json"), "utf8")) as Array<{ id: string; end?: unknown }>;
+const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function jobThatOutlivesItsTurn(bot: { id: string; threadId: string }, seconds: number, marker: string) {
   writeFileSync(runFile(), JSON.stringify({ command: `sleep ${seconds}; echo ${marker} > ${marker}.txt`, folder: join(home, "site") }));
-  const before = ((await api("GET", `/api/threads/${bot.threadId}/messages?limit=80`)).body.messages as any[]).length;
+  const before = (await messages(bot.threadId)).length;
   const sent = await api("POST", `/api/bots/${bot.id}/messages`, { text: `Run the ${marker} build on your computer`, threadId: bot.threadId });
   expect(sent.status, JSON.stringify(sent.body)).toBeLessThan(400);
-  await until(async () => ((await api("GET", `/api/threads/${bot.threadId}/messages?limit=80`)).body.messages as any[]).slice(before),
+  await until(async () => (await messages(bot.threadId)).slice(before),
     (rows) => rows.some((row) => row.role === "bot" && row.kind === "text"), "the dog's reply");
   writeFileSync(runFile(), "");
   return until(() => botNow(bot.id), (now) => now && !now.busy, "the turn to end");
 }
 
-it("a job on the dog's computer that outlives its turn keeps the chat running, then the chat goes idle when the job ends", async () => {
-  const created = await api("POST", "/api/bots", { name: "Scout", modelSelection: { instanceId: "own", model: "claude-sonnet-5" } });
+async function newDog(name: string) {
+  const created = await api("POST", "/api/bots", { name, modelSelection: { instanceId: "own", model: "claude-sonnet-5" } });
   expect(created.status, JSON.stringify(created.body)).toBeLessThan(400);
-  const bot = created.body.bot as { id: string; threadId: string };
+  return created.body.bot as { id: string; threadId: string };
+}
 
+async function wokenOnceAndRead(bot: { id: string; threadId: string }, marker: string, name: string) {
+  await until(() => wakeLines(bot.threadId), (rows) => rows.length > 0, "the wake line", 45_000);
+  await until(() => existsSync(join(home, "site", `${marker}.txt`)), Boolean, "the result brought back by the woken dog", 45_000);
+  await until(() => botNow(bot.id), (now) => now.work?.kind === "idle" && !now.busy, "the chat to settle", 45_000);
+  await settle(3_000);
+  const lines = await wakeLines(bot.threadId);
+  expect(lines.map((row) => row.tool.name)).toEqual([`recovery: ${name}'s command finished, so it is carrying on.`]);
+  expect(ledger()).toEqual([]);
+}
+
+it("a job that outlives its turn keeps the chat running, then wakes the dog once, which reads the result", async () => {
+  const bot = await newDog("Scout");
   const after = await jobThatOutlivesItsTurn(bot, 8, "first");
-  expect(after.work, log.slice(-3000)).toEqual({ kind: "running", computerJobs: 1 });
+  expect(after.work, log.slice(-3000)).toMatchObject({ kind: "running", computerJobs: 1 });
+  expect(after.work.computerSince).toEqual(expect.any(Number));
   expect(after.helpersWorking).toBe(1);
   expect(after.waitingForTeammates).toBe(false);
-  expect(JSON.parse(readFileSync(join(dataDir, "computer-jobs.json"), "utf8"))).toHaveLength(1);
+  expect(ledger()).toHaveLength(1);
+  await wokenOnceAndRead(bot, "first", "Scout");
+  expect(existsSync(remoteFile("first"))).toBe(true);
+}, 150_000);
 
-  const ended = await until(() => botNow(bot.id), (now) => now.work?.kind === "idle", "the chat to go idle once the job ended", 30_000);
-  expect(existsSync(join(remote, "runs", runKey(join(home, "site")), "first.txt"))).toBe(true);
-  expect(ended.helpersWorking).toBeUndefined();
-  expect(JSON.parse(readFileSync(join(dataDir, "computer-jobs.json"), "utf8"))).toEqual([]);
-}, 120_000);
-
-it("a job still alive across a home restart shows running after the restart, and idle once it really ends", async () => {
-  const created = await api("POST", "/api/bots", { name: "Patch", modelSelection: { instanceId: "own", model: "claude-sonnet-5" } });
-  const bot = created.body.bot as { id: string; threadId: string };
+it("a job alive across a restart shows running after it, and the dog is woken once when it ends", async () => {
+  const bot = await newDog("Patch");
   const after = await jobThatOutlivesItsTurn(bot, 25, "second");
-  expect(after.work).toEqual({ kind: "running", computerJobs: 1 });
-
+  expect(after.work).toMatchObject({ kind: "running", computerJobs: 1 });
   await waitForExit(child, { signal: "SIGTERM" });
   log += "\n--- restart ---\n";
   await startHome();
   const back = await until(() => botNow(bot.id), (now) => Boolean(now), "the dog after the restart");
-  expect(back.work, log.slice(-3000)).toEqual({ kind: "running", computerJobs: 1 });
-  expect(back.helpersWorking).toBe(1);
+  expect(back.work, log.slice(-3000)).toMatchObject({ kind: "running", computerJobs: 1 });
+  expect(existsSync(remoteFile("second"))).toBe(false);
+  await wokenOnceAndRead(bot, "second", "Patch");
+}, 180_000);
 
-  expect(existsSync(join(remote, "runs", runKey(join(home, "site")), "second.txt"))).toBe(false);
-  await until(() => botNow(bot.id), (now) => now.work?.kind === "idle", "the chat to go idle once the job ended", 45_000);
-  expect(existsSync(join(remote, "runs", runKey(join(home, "site")), "second.txt"))).toBe(true);
-}, 150_000);
+it("a job that ends while the home is down wakes the dog once after the restart", async () => {
+  const bot = await newDog("Biscuit");
+  await jobThatOutlivesItsTurn(bot, 6, "third");
+  await waitForExit(child, { signal: "SIGTERM" });
+  log += "\n--- restart ---\n";
+  await until(() => existsSync(remoteFile("third")), Boolean, "the job to end while the home is down", 30_000);
+  await settle(1_000);
+  await startHome();
+  await wokenOnceAndRead(bot, "third", "Biscuit");
+}, 180_000);
+
+it("the person's Stop ends the job and nobody is woken", async () => {
+  const bot = await newDog("Rex");
+  const after = await jobThatOutlivesItsTurn(bot, 10, "fourth");
+  expect(after.work).toMatchObject({ kind: "running", computerJobs: 1 });
+  const stopped = await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
+  expect(stopped.status, JSON.stringify(stopped.body)).toBe(200);
+  const now = await until(() => botNow(bot.id), (state) => state.work?.kind !== "running", "the chat to stop running");
+  expect(now.work.kind).not.toBe("running");
+  await settle(14_000);
+  expect(existsSync(remoteFile("fourth"))).toBe(false);
+  expect(await wakeLines(bot.threadId)).toEqual([]);
+  expect(ledger()).toEqual([]);
+}, 120_000);

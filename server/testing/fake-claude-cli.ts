@@ -397,9 +397,11 @@ const useCloudComputer = () => {
     is_error: Boolean(reply.error || reply.result?.isError), content: reply.result?.content ?? reply.error?.message ?? "" }] } });
 };
 
-const runOnComputer = async (file: string) => {
+const runOnComputer = async (file: string, said: string) => {
+  const told = /run_id "([0-9a-f]{8})"/.exec(said)?.[1];
   let args: Record<string, unknown>;
-  try { args = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>; } catch { return; }
+  if (told) args = { run_id: told };
+  else try { args = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>; } catch { return; }
   launchFiles ??= readLaunchFiles();
   const agents = (launchFiles.mcpConfig as { mcpServers?: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> } | null)?.mcpServers?.agents;
   if (!agents?.command) return;
@@ -644,7 +646,7 @@ const playTurn = async (prompt: JsonValue, late = false) => {
   }
 
   if (process.env.FAKE_CLAUDE_USES_CLOUD_COMPUTER === "1" && ASKS_FOR_SCREEN.test(steerText(prompt))) useCloudComputer();
-  if (process.env.FAKE_CLAUDE_RUN_ON_COMPUTER) await runOnComputer(process.env.FAKE_CLAUDE_RUN_ON_COMPUTER);
+  if (process.env.FAKE_CLAUDE_RUN_ON_COMPUTER) await runOnComputer(process.env.FAKE_CLAUDE_RUN_ON_COMPUTER, steerText(prompt));
 
   let replyParts = nextScriptedReply();
   const defaultToolId = `tu-${process.pid}-${++toolUseCount}`;
