@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { BACKGROUND_WORK_PROMPT, KEEP_GOING_PROMPT, KEEP_GOING_WITH_BACKGROUND_PROMPT, MILESTONE_PROMPT, ON_IT_NOTE, QUIET_WORK_PROMPT, quietWorkEnvironment, STEER_NOTE, withOnItNote, withSteerNote, workUpdatesPrompt } from "./work-updates.ts";
+import { BACKGROUND_WORK_PROMPT, KEEP_GOING_PROMPT, KEEP_GOING_WITH_BACKGROUND_PROMPT, MILESTONE_PROMPT, ON_IT_NOTE, QUIET_WORK_PROMPT, quietWorkEnvironment, SHORT_ON_IT_NOTE, STEER_NOTE, withOnItNote, withSteerNote, workUpdatesPrompt } from "./work-updates.ts";
 
 describe("how a dog keeps the person posted", () => {
   it("asks for updates instead of silence, without step-by-step narration", () => {
@@ -33,6 +33,13 @@ describe("how a dog keeps the person posted", () => {
   it("puts the on-it note after the person's message, where the engine reads it last", () => {
     expect(withOnItNote("Which branch is ~/code/dog on?")).toBe(`Which branch is ~/code/dog on?\n\n${ON_IT_NOTE}`);
     expect(ON_IT_NOTE).toMatch(/^\[later\.dog note, not typed by the person: if this needs a tool, send your one short on-it line first, before the first tool call/);
+  });
+
+  it("asks an included model for an opening line only when it will use a tool", () => {
+    for (const engine of ["claude", "codex", undefined] as const) expect(withOnItNote("Hi", engine)).toBe(`Hi\n\n${ON_IT_NOTE}`);
+    expect(withOnItNote("Hi", "other")).toBe(`Hi\n\n${SHORT_ON_IT_NOTE}`);
+    expect(SHORT_ON_IT_NOTE).toContain("If you will use a tool, say in one line what you are doing first; otherwise just answer.");
+    expect(SHORT_ON_IT_NOTE).not.toContain("on-it line");
   });
 
   it("has a dog answer a message sent while it works straight away, not when the work is done", () => {

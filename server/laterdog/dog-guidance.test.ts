@@ -30,7 +30,8 @@ import {
   SENDING,
   STAY_FREE,
   STOP_MEANS_STOP,
-  TASK_LIST,
+  ANSWER_IN_FIRST_SENTENCE,
+  taskList,
   PAYMENTS_BLOCK,
   REPLY_STYLE,
   ROOM_TEAM_PROMPT,
@@ -68,12 +69,12 @@ describe("the guidance every dog gets", () => {
     expect(ANSWER_FIRST).toMatch(/not what you do not know yet, and never fill the gap with an answer you have not checked/);
     expect(ANSWER_FIRST).toMatch(/one-line update at natural points/);
     expect(ANSWER_FIRST).toMatch(/If you stop before the work is done, say why in plain words/);
-    expect(TASK_LIST).toMatch(/^Your task list is your queue, and the person sees it in the app/);
-    expect(TASK_LIST).toMatch(/Add each thing they ask for before you start it, mark it in progress when work begins, and done only after it was checked and they were told/);
-    expect(TASK_LIST).toMatch(/on every new message and whenever a helper or a background command finishes; make checking the last item/);
-    expect(TASK_LIST).toMatch(/"not live yet"/);
-    expect(TASK_LIST).toMatch(/When they ask where things stand \(a status, a checkpoint, "where are we"\), answer from the list: done, in progress, not started/);
-    expect(CHECKLIST_IN_REPLY).toMatch(/running checklist of everything the person asked for in this chat/);
+    expect(taskList("claude")).toMatch(/^Your task list \(TodoWrite\) is your queue, and the app shows the person your progress from it\. Add each thing they ask for when they ask it; something they want later goes on the list as not started\. Mark an item in progress when work begins, and done only after it was checked and they were told\./);
+    expect(taskList("codex")).toMatch(/^Your task list \(update_plan\) is your queue/);
+    expect(taskList("other")).toMatch(/^Your task list is your queue/);
+    expect(taskList("claude")).toMatch(/on every new message and whenever a helper or a background command finishes; make checking the last item/);
+    expect(taskList("claude")).toMatch(/"not live yet"/);
+    expect(taskList("claude")).toMatch(/When they ask where things stand \(a status, a checkpoint, "where are we"\), answer from the list: done, in progress, not started/);
     expect(DECIDE_DONT_ASK).toMatch(/Make engineering choices yourself with current best practice/);
     expect(DECIDE_DONT_ASK).toMatch(/a secret, a tap on their device, money, or a preference/);
     expect(EVIDENCE_FIRST).toMatch(/this chat and its files, your memory and past chats .*, connected apps, the web, the signed-in browser, your computer/);
@@ -82,11 +83,19 @@ describe("the guidance every dog gets", () => {
     expect(CHECK_WORK).toMatch(/say plainly what you verified and what you assumed/);
     expect(CHECK_WORK).toMatch(/^Check your work before calling it done/);
     expect(FINISH_WORK).toMatch(/ordinary obstacles/);
-    for (const line of [ANSWER_FIRST, FINISH_WORK, TASK_LIST, CHECK_WORK, DECIDE_DONT_ASK, EVIDENCE_FIRST, ACTING, needsPerson("claude"), SENDING, STAY_FREE, HELPER_BRIEF, STOP_MEANS_STOP, BETWEEN_DOGS, ROUTINE_OFFER, PRECEDENCE]) expect(text).toContain(line);
+    for (const line of [ANSWER_FIRST, FINISH_WORK, taskList("claude"), CHECK_WORK, DECIDE_DONT_ASK, EVIDENCE_FIRST, ACTING, needsPerson("claude"), SENDING, STAY_FREE, HELPER_BRIEF, STOP_MEANS_STOP, BETWEEN_DOGS, ROUTINE_OFFER, PRECEDENCE]) expect(text).toContain(line);
     expect(text).not.toContain(CHECKLIST_IN_REPLY);
-    expect(dogGuidance({ engine: "codex", model: "gpt-5.6" })).toContain(TASK_LIST);
-    expect(dogGuidance({ engine: "other", model: "kimi-k2.6" })).toContain(CHECKLIST_IN_REPLY);
-    expect(dogGuidance({ engine: "other", model: "kimi-k2.6" })).not.toContain(TASK_LIST);
+    expect(dogGuidance({ engine: "codex", model: "gpt-5.6" })).toContain(taskList("codex"));
+  });
+
+  it("has an included model answer first, without a checklist, opener or unasked table", () => {
+    const included = dogGuidance({ engine: "other", model: "kimi-k2.6" });
+    expect(CHECKLIST_IN_REPLY).toBe("Keep track of everything the person asked for in this chat. When they ask where things stand, say what is done, what is in progress and what is not started.");
+    expect(included).toContain(CHECKLIST_IN_REPLY);
+    expect(included).not.toMatch(/Your task list|show it in your reply/);
+    expect(included).toContain(`<model_notes>\n${ANSWER_IN_FIRST_SENTENCE}\n</model_notes>`);
+    expect(ANSWER_IN_FIRST_SENTENCE).toBe("Answer in your first sentence. Do not open by restating the request or saying what you are about to do, and do not use a table or a list unless the content needs one or the person asked.");
+    expect(dogGuidance({ engine: "claude", model: "kimi-k2.6" })).not.toContain(ANSWER_IN_FIRST_SENTENCE);
   });
 
   it("keeps the dog free to answer, briefs helpers well and stops everything on stop", () => {

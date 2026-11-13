@@ -17,6 +17,11 @@ describe("what the working line says", () => {
     expect(dogActivityWords("mcp__agents__coordinate_bots", "not json", nameOf)).toBe("checking with a teammate");
   });
 
+  it("says a dog is checking routines while it lists them, and setting one up only when it proposes one", () => {
+    expect(dogActivityWords("mcp__agents__list_routines", {}, nameOf)).toBe("checking routines");
+    expect(dogActivityWords("mcp__agents__propose_routine", {}, nameOf)).toBe("setting up a routine");
+  });
+
   it("says what a dog is doing on the person's iPhone", () => {
     expect(dogActivityWords("mcp__agents__read_phone", { what: "calendar" }, nameOf)).toBe("checking your calendar");
     expect(dogActivityWords("mcp__agents__start_tasks", { tasks: [{}, {}, {}] }, nameOf)).toBe("starting 3 tasks");
