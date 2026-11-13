@@ -61,6 +61,18 @@ message that no longer fits: Claude Code's own summary from its last compaction
 and newest dropped messages made without a model call. Codex hands back no
 summary text, so its rebuilds get the excerpts alone.
 
+The `PostCompact` hook is named only in the per-run settings file later.dog
+passes with `--settings` from a private temporary folder; the person's own
+settings files are not written. The hook runs later.dog's own helper
+(`server/hooks/laterdog-hook.ts`) with the home's address and token file on its
+command line, posts only to 127.0.0.1, gives up within 4 seconds and always
+exits 0 with no output. The stored summary is capped at 6,000 bytes per chat
+and 500 chats, has secrets redacted, and is forgotten when its chat or dog is
+deleted. The home logs `[compaction] engine summary received chat=<id>
+bytes=<n>` when one arrives. Not yet proven on a real engine: that Claude Code
+runs these hooks alongside the person's own, and that a slow or failing hook
+never holds up its compaction. The fake engine cannot show either.
+
 ```sh
 pnpm exec vitest run server/laterdog/native-compaction.test.ts server/laterdog/native-compaction.e2e.test.ts
 pnpm exec vitest run server/laterdog/rebuild-summary.test.ts server/laterdog/engine-summaries.test.ts server/laterdog/cache-lifetime.test.ts
