@@ -16,7 +16,7 @@ import { workspaceDir } from "./workspace.ts";
 import type { Destination } from "./surface.ts";
 import { retirePlaces } from "./laterdog/places.ts";
 import { newId, type ModelSelection } from "./contracts.ts";
-import { modelContextWindow } from "./model-context-window.ts";
+import { chatContext } from "./laterdog/chat-context-window.ts";
 import { pickBotName } from "./names.ts";
 import { redactSecretsInText } from "./redact.ts";
 import { AVATAR_FOCUS_CENTER, AVATAR_ZOOM_MIN, botAvatarProfile, clampAvatarFocus, clampAvatarZoom } from "../shared/bot-avatar.ts";
@@ -97,12 +97,8 @@ export function toWireTask(task: TaskRecord, botModel: ModelSelection, bots: rea
   const title = stored.openedBy?.kind === "work" && stored.title === `@${stored.openedBy.name} · work`
     ? `@${openedBy!.name} · work` : stored.title;
   const wire: WireTask = { ...stored, title, ...(openedBy ? { openedBy } : {}), ...(closedBy ? { closedBy } : {}), modelSelection: structuredClone(task.modelSelection ?? botModel), followsBotModel: task.modelSelection === undefined };
-  const context = wire.usage?.context;
-  const contextModel = task.lastContextModel ?? (task.modelSelection ?? botModel).model;
-  const legacyModel = contextModel?.match(/(?:^|:)(claude-fable-5(?:[-.][12])?)$/)?.[1];
-  if (wire.usage && context?.window === 200_000 && context.windowSource === undefined && legacyModel) {
-    wire.usage = { ...wire.usage, context: { ...context, window: modelContextWindow(legacyModel), windowSource: "model" } };
-  }
+  const context = chatContext(task, (task.modelSelection ?? botModel).model);
+  if (wire.usage && context) wire.usage = { ...wire.usage, context };
   return surfaceSource === "auto" && wire.surface !== undefined ? { ...wire, surfaceAuto: true } : wire;
 }
 

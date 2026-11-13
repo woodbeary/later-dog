@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlanProviderRow } from "../plan-usage.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import {
-  AccountBattery, DEFAULT_REST_MS, USAGE_REFRESH_WAIT_MS, backNotice, batteryEnabled, chosenModelOn, crossEngineNotice, engineName, selectionOnAccount, batterySequence, batteryOrder, checkBatteryConfig, effectiveOrder, limitRowToReplace, percentLeft, planResetAt, resetLabel, routeSelection,
+  AccountBattery, DEFAULT_REST_MS, USAGE_REFRESH_WAIT_MS, backNotice, batteryEnabled, chosenModelOn, crossEngineNotice, engineName, selectionOnAccount, batterySequence, batteryOrder, checkBatteryConfig, effectiveOrder, limitRowToReplace, percentLeft, planResetAt, resetLabel, routeSelection, usedUpRest,
   routedNotice, switchNotice, withoutAccount,
   type AccountBatteryConfig, type BatteryAccount, type Rest,
 } from "./account-battery.ts";
@@ -288,6 +288,25 @@ describe("most available first", () => {
     expect(resting["claude-c"].kind).toBe("setup");
   });
 
+  it.each([
+    ["zero", { unlimited: false, balance: "0" }, false],
+    ["negative", { unlimited: false, balance: "-3" }, false],
+    ["no", undefined, false],
+    ["unknown", { unlimited: false, balance: null }, true],
+    ["positive", { unlimited: false, balance: "12.5" }, true],
+    ["unlimited", { unlimited: true, balance: null }, true],
+  ] as const)("keeps a weekly hold unless the %s credits on a used-up account are spendable", (_, credits, spendable) => {
+    let now = NOW;
+    let row = reading("claude", 100, 100);
+    const battery = new AccountBattery({ config: () => ON, now: () => now, usage: () => row, usageAt: () => now });
+    battery.markExhausted("claude", { resetsAt: at(72 * HOUR), kind: "weekly" });
+    now += 1;
+    row = { ...row, ...(credits ? { credits: { ...credits } } : {}) };
+    battery.noteReadings(ACCOUNTS);
+    expect(battery.status(ACCOUNTS).resting.claude?.kind).toBe(spendable ? undefined : "weekly");
+    expect(usedUpRest(row, now)?.kind).toBe(spendable ? undefined : "weekly");
+  });
+
   it("reports the order it will use and moves a turn that ran out to the account with the most left", () => {
     const readings: Record<string, PlanProviderRow> = {
       claude: reading("claude", 100, 40), "claude-b": reading("claude-b", 90, 20), "claude-c": reading("claude-c", 40, 10),
@@ -455,6 +474,7 @@ describe("AccountBattery", () => {
       order: { claudeAgent: ["claude-b", "claude", "claude-c"], codex: [] },
       resting: { claude: { until: at(HOUR), since: at(0) }, "claude-c": { until: at(HOUR), since: at(0), sharedWith: "claude" } },
       routed: {},
+      fromNextMessage: {},
     });
   });
 
@@ -612,20 +632,25 @@ describe("AccountBattery", () => {
     instance.noteRan("finished", "claude-b", "claude-sonnet-5");
     const running: Array<[string, { on: string; model: string }]> = [["working", { on: "claude-c", model: "claude-sonnet-5" }], ["unknown", { on: "claude-b", model: "x" }]];
     instance.arrive("working", SELECTION, "claude-c", ACCOUNTS);
-    expect(instance.status(ACCOUNTS, choice, running).routed).toEqual({
+    const covering = instance.status(ACCOUNTS, choice, running);
+    expect(covering.routed).toEqual({
       finished: { from: "claude", on: "claude-b", model: "claude-sonnet-5" },
       working: { from: "claude", on: "claude-c", model: "claude-sonnet-5" },
     });
+    expect(covering.fromNextMessage).toEqual({});
     expect(new AccountBattery({ config: () => ON, file, now: () => now }).status(ACCOUNTS, choice).routed).toEqual({
       finished: { from: "claude", on: "claude-b", model: "claude-sonnet-5" },
     });
     now += HOUR + 1;
-    expect(instance.status(ACCOUNTS, choice, running).routed).toEqual({
-      finished: { from: "claude", on: "claude-b", model: "claude-sonnet-5", next: true },
-      working: { from: "claude", on: "claude-c", model: "claude-sonnet-5", next: true },
+    const back = instance.status(ACCOUNTS, choice, running);
+    expect(back.routed).toEqual({});
+    expect(back.fromNextMessage).toEqual({
+      finished: { from: "claude", on: "claude-b", model: "claude-sonnet-5" },
+      working: { from: "claude", on: "claude-c", model: "claude-sonnet-5" },
     });
     instance.noteRan("finished", "claude", "claude-sonnet-5");
     expect(instance.status(ACCOUNTS, choice).routed).toEqual({});
+    expect(instance.status(ACCOUNTS, choice).fromNextMessage).toEqual({});
     instance.forget("claude");
     expect(JSON.parse(readFileSync(file, "utf8")).ran).toEqual({});
   });
@@ -633,9 +658,9 @@ describe("AccountBattery", () => {
   it("says From the next message at once when the person picks another account while the dog works", () => {
     const instance = new AccountBattery({ config: () => ON, now: () => NOW });
     const picked = { ...SELECTION, instanceId: "claude-b" };
-    expect(instance.status(ACCOUNTS, () => picked, [["working", { on: "claude", model: "claude-sonnet-5" }]]).routed).toEqual({
-      working: { from: "claude-b", on: "claude", model: "claude-sonnet-5", next: true },
-    });
+    const status = instance.status(ACCOUNTS, () => picked, [["working", { on: "claude", model: "claude-sonnet-5" }]]);
+    expect(status.routed).toEqual({});
+    expect(status.fromNextMessage).toEqual({ working: { from: "claude-b", on: "claude", model: "claude-sonnet-5" } });
   });
 
   it("says once that a turn runs on another account while the picked one rests, then that it is back", () => {

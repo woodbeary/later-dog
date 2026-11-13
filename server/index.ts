@@ -585,6 +585,7 @@ import { autoLocalVmAttachable, type ContainerComputerStatus } from "./container
 import { lazyClaimWaitMs, startAutoVmClaim, type AutoVmClaimSlot, type AutoVmClaimTable } from "./auto-vm-claims.ts";
 import { computerFreeAfterText, computerParkedText, computerStoppedWaitingText, computerWaitingText, type ComputerHolder } from "./computer-wait.ts";
 import { modelContextWindow } from "./model-context-window.ts";
+import { chatContext } from "./laterdog/chat-context-window.ts";
 import { cloudPlaceRefusal, computerToolsRefusal, parseSurface, PlaceUnavailableError, placeUnavailable, resolveSurface, surfaceLabel, surfaceOfComputerKind, surfacePrompt, type PlaceSource, type Surface } from "./surface.ts";
 import { cloudRefusal, type PlaceRow } from "../shared/place-view.ts";
 import { cloudComputerStartBudgetMs, passingCloudFailure, remainingStartMs, startRetryingPassingFailures, stillStarting } from "./laterdog/cloud-start.ts";
@@ -732,6 +733,9 @@ import {
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
+import { accountNeedsYou, switchedOff, waitsOnPerson } from "./laterdog/account-needs-you.ts";
+import { personWaitStays, settlePickup, shownWaiting, usageHeld, type PickupOutcome } from "./laterdog/person-wait.ts";
+import { guestBattery } from "./laterdog/battery-view.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold, withWaitingRuns } from "./laterdog/limit-hold.ts";
 import { createUsageWatch } from "./laterdog/usage-watch.ts";
@@ -769,7 +773,7 @@ import { firstEngine, hasNoModel } from "./laterdog/first-engine.ts";
 import { SEND_DELIVERIES, waitsForTurn, type SendDelivery } from "../shared/send-delivery.ts";
 import { createHostedSlackRoutes } from "./routes/hosted-slack.ts";
 import { createBotPresetRoutes } from "./routes/bot-presets.ts";
-import { createRoomCardRoutes } from "./routes/room-card.ts";
+import { createRoomCardRoutes, roomOwnsThread } from "./routes/room-card.ts";
 import { createSidebarSectionOrderRoutes } from "./routes/sidebar-section-order.ts";
 import { createBotMemoryRoutes } from "./routes/bot-memory.ts";
 import { createDeciderRoutes } from "./routes/decider.ts";
@@ -1079,7 +1083,7 @@ const limitHold = new LimitHold({
 
 let announcedHeld = new Set<string>();
 function announceHeldThreads(): void {
-  const held = new Set(Object.keys(limitHold.waiting()));
+  const held = new Set([...Object.keys(limitHold.waiting()), ...limitHold.personWaits()]);
   for (const threadId of new Set([...announcedHeld, ...held])) announceHelpersChanged(threadId);
   announcedHeld = held;
 }
@@ -3566,9 +3570,11 @@ function chatWork(threadId: string, busy: boolean, activity: BotActivity | undef
   const until = limitHold.heldUntil(threadId);
   const usageWait = until !== undefined || (!busy && usageStranded(threadId));
   const stall = stallFacts(threadId);
+  const kept = !busy && (threadId in limitHold.waiting() || limitHold.waitsOnPerson(threadId) || batteryContinuationPending(threadId));
+  const account = kept ? accountNeedsYou({ carriesOn: carriesOnByItself(threadId), choice: accountBattery.decide(selection, batteryAccounts(), threadId), name: (id) => registry.get(id)?.displayName }) : undefined;
   return workState({
     busy, helpers: busy ? 0 : helpersWorkingIn(threadId), waitingOn, ...workSignals.facts(threadId), ...(stall.stopped ? { stopped: stall.stopped } : {}),
-    ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : {}),
+    ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : account ? { needsYou: { what: account } } : {}),
     ...(usageWait ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, ...(until !== undefined ? { until } : {}) } } : {}),
   });
 }
@@ -5620,7 +5626,11 @@ store.onChange((change) => {
     if (node) syncDelegatedNeedsYou(node);
   }
   if (change.type === "message") statusLines.observe(change.threadId, change.message);
-  else if (change.type === "bot") inflightTurns.sync(change.botId, store.tasks(change.botId));
+  else if (change.type === "bot") {
+    inflightTurns.sync(change.botId, store.tasks(change.botId));
+    const held = limitHold.personWaits().filter((threadId) => store.botByThread(threadId)?.id === change.botId);
+    if (held.length) queueMicrotask(() => { for (const threadId of held) recheckPersonWait(threadId); });
+  }
   else if (change.type === "bot.deleted") inflightTurns.forget(change.botId);
 });
 const startContinuation = (botId: string, threadId: string, prompt: string, requestMessageId: string) =>
@@ -5696,7 +5706,7 @@ const stallWatch = createStallWatch({
       busy: threadBusy(botId, threadId) || watchdog.watching(threadId) || directTurnDispatchClaims.has(threadId),
       requestOpen: watchdog.snapshot(threadId)?.waitingOnHuman === true || delegatedNeedsYou(threadId),
       helpers: helpersWorkingIn(threadId),
-      usageWait: threadId in limitHold.waiting() || batteryContinuationPending(threadId),
+      usageWait: threadId in limitHold.waiting() || limitHold.waitsOnPerson(threadId) || batteryContinuationPending(threadId),
       queued: hasQueuedSteeredMessages(botId, threadId) || pendingComputerResumes.has(threadId),
       stoppedByPerson: pickupStops.stopped(threadId),
       mayContinue: restartPickupHost.dog(threadId) !== null && restartPickupHost.owner(threadId) && !routineRunForTurn(threadId),
@@ -6579,11 +6589,43 @@ if (CLOUD_HOME || process.env.LATERDOG_REVIVE_DOGS === "1") {
 
 function usageStranded(threadId: string): boolean {
   const owner = store.botByThread(threadId);
-  return Boolean(owner) && batteryContinuationPending(threadId) && !(threadId in limitHold.waiting()) && !threadBusy(owner!.id, threadId);
+  return Boolean(owner) && batteryContinuationPending(threadId) && !(threadId in limitHold.waiting()) && !limitHold.waitsOnPerson(threadId) && !threadBusy(owner!.id, threadId);
+}
+function chatSelection(threadId: string): ModelSelection | undefined {
+  const owner = store.botByThread(threadId);
+  return owner ? store.projectBotForTask(owner.id, threadId)?.modelSelection : groupBatteryTurns.get(threadId)?.selection;
+}
+function chatWaitsOnPerson(threadId: string): boolean {
+  const selection = chatSelection(threadId);
+  return Boolean(selection && waitsOnPerson(accountBattery.decide(selection, batteryAccounts(), threadId)));
+}
+function recheckPersonWait(threadId: string): void {
+  if (!limitHold.waitsOnPerson(threadId)) return;
+  const owner = store.botByThread(threadId);
+  const stays = personWaitStays({
+    switchedOff: switchedOffNow(threadId), queued: Boolean(owner && hasQueuedSteeredMessages(owner.id, threadId)),
+    waitsOnPerson: chatWaitsOnPerson(threadId), keptTurn: batteryContinuationPending(threadId),
+  });
+  if (!stays) limitHold.recheckPerson(threadId);
+}
+function switchedOffNow(threadId: string): boolean {
+  const selection = chatSelection(threadId);
+  return Boolean(selection && switchedOff(accountBattery.decide(selection, batteryAccounts(), threadId)));
+}
+function heldForSwitchedOff(threadId: string): boolean {
+  if (!switchedOffNow(threadId)) return false;
+  settle(threadId, "needs-you", "reset");
+  return true;
+}
+function carriesOnByItself(threadId: string): boolean {
+  const input = carryOnInput(threadId);
+  return (input !== undefined && carriesOn(input)) || limitHold.waitsOnPerson(threadId) || (accountBattery.enabled && limitHold.restored(threadId));
 }
 const usageWatch = createUsageWatch({
-  held: () => Object.keys(limitHold.waiting()),
+  held: () => usageHeld(limitHold.waiting(), chatWaitsOnPerson),
   stranded: () => accountBattery.pendingThreads().filter(usageStranded),
+  people: () => limitHold.personWaits(),
+  recheckPerson: recheckPersonWait,
   refresh: async () => {
     if (hostedModels) return;
     await loadPlanUsage({ accounts: planAccountsFromInstances(instanceConfigs(cfg)).filter((account) => account.driver !== "grok"), refresh: true });
@@ -6686,10 +6728,15 @@ function carryOnInput(threadId: string): (CarryOnInput & { botId: string }) | un
   };
 }
 
+function settle(threadId: string, outcome: PickupOutcome | undefined, after: "reset" | "restart"): void {
+  if (outcome !== "needs-you") console.info(`token battery: ${threadId} pickup${after === "restart" ? " after restart" : ""} ${outcome ?? "cancelled or superseded"}`);
+  if (settlePickup(limitHold, threadId, outcome, after)) console.info(`token battery: ${threadId} waits for the person to sign in or turn its account back on`);
+}
+
 function pickUpAfterReset(threadId: string): void {
   const input = carryOnInput(threadId);
   if (!input) {
-    console.info(`token battery: ${threadId} pickup cancelled or superseded`);
+    settle(threadId, undefined, "reset");
     return;
   }
   const outcome = carryOnAfterReset({
@@ -6701,8 +6748,7 @@ function pickUpAfterReset(threadId: string): void {
       else store.appendMessage(threadId, { role: "bot", kind: "activity", tool });
     },
   });
-  console.info(`token battery: ${threadId} pickup ${outcome}`);
-  if (outcome === "full") limitHold.retry(threadId);
+  settle(threadId, outcome, "reset");
 }
 
 function pickUpAfterRestart(threadId: string): void {
@@ -6718,18 +6764,18 @@ function pickUpAfterRestart(threadId: string): void {
     },
     start: (text, requestMessageId) => startTurn(owner.id, text, { threadId, cardContinuation: true, requestMessageId }),
   });
-  console.info(`token battery: ${threadId} pickup after restart ${outcome}`);
-  if (outcome === "full") limitHold.retry(threadId);
-  else if (outcome === "waiting") limitHold.hold(threadId);
-  else if (outcome === "skipped") limitHold.release(threadId);
+  settle(threadId, outcome, "restart");
 }
 
 function carryOnWaiting(): Record<string, string> {
-  return Object.fromEntries(Object.entries(limitHold.waiting()).filter(([threadId]) => {
-    const input = carryOnInput(threadId);
-    return (input !== undefined && (carriesOn(input) || limitHold.restored(threadId))) ||
-      (accountBattery.enabled && groupBatteryTurns.get(threadId)?.pending === true);
-  }));
+  return shownWaiting(limitHold.waiting(), {
+    carriesOn: (threadId) => {
+      const input = carryOnInput(threadId);
+      return (input !== undefined && (carriesOn(input) || limitHold.restored(threadId))) ||
+        (accountBattery.enabled && groupBatteryTurns.get(threadId)?.pending === true);
+    },
+    waitsOnPerson: chatWaitsOnPerson,
+  });
 }
 
 const runningTurnEngines = new Map<string, NonNullable<ReturnType<typeof registry.get>>>();
@@ -7729,7 +7775,7 @@ async function compactConversation(input: {
   });
   const history = selected.transcript.filter(entry => entry.id);
   if (!history.length) return;
-  const measurement = task.lastContextModel === `${instance.instanceId}:${model}` && !task.rewound ? task.usage?.context : undefined;
+  const measurement = task.lastContextModel === `${instance.instanceId}:${model}` && !task.rewound ? chatContext(task, model) : undefined;
   const window = contextWindowFor(model, instance.models, measurement?.window);
   const bytes = history.reduce((n, entry) => n + Buffer.byteLength(entry.text), 0);
   let floor = task.contextFloor;
@@ -7816,15 +7862,16 @@ function drainQueuedSends() {
       }).catch(reject);
     }),
     (botId, threadId) => threadBusy(botId, threadId) || botAtThreadCapacity(botId) || Boolean(activeGroupTurnForBot(botId))
-      || parksBehindCoordination(botId, threadId) || limitHold.holds(threadId) || batteryContinuationPending(threadId),
+      || parksBehindCoordination(botId, threadId) || limitHold.holds(threadId) || batteryContinuationPending(threadId) || heldForSwitchedOff(threadId),
   );
 }
 
 async function startOrQueueDirectMessage(botId: string, threadId: string, text: string, replyTo?: Message, sendId?: string, sender?: ResolvedSender, trigger?: UsageTrigger, via?: "api" | "call") {
   const behindHeld = batteryContinuationPending(threadId) || (limitHold.holds(threadId) && hasQueuedSteeredMessages(botId, threadId));
+  const off = switchedOffNow(threadId);
   const decision = admit("direct", {}, {
     atCapacity: botAtThreadCapacity(botId),
-    threadBusy: threadBusy(botId, threadId) || behindHeld,
+    threadBusy: threadBusy(botId, threadId) || behindHeld || off,
     groupTurn: Boolean(activeGroupTurnForBot(botId)),
     parksBehindCoordination: parksBehindCoordination(botId, threadId),
   });
@@ -7838,7 +7885,8 @@ async function startOrQueueDirectMessage(botId: string, threadId: string, text: 
       trigger,
       via,
     });
-    if (behindHeld && !batteryContinuationPending(threadId)) {
+    if (off) settle(threadId, "needs-you", "reset");
+    else if (behindHeld && !batteryContinuationPending(threadId)) {
       limitHold.release(threadId);
       queueMicrotask(drainQueuedSends);
     }
@@ -12722,7 +12770,7 @@ function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean
     vps: { configured: status.vps.configured, sshAlias: "" },
     opencodeGo: { configured: status.opencodeGo.configured, providerKeys: [] },
     profile: { name: status.profile.name, email: "" },
-    accountBattery: { ...status.accountBattery, waiting: {}, routed: {} },
+    accountBattery: guestBattery(status.accountBattery),
     browserProfiles: status.browserProfiles.map((profile) => Object.fromEntries(Object.entries(profile).filter(([key]) => key !== "partitionId"))),
   };
 }
@@ -13056,7 +13104,7 @@ ROUTES.push(createBotPresetRoutes({ presets: presetStore, orgStatuses: orgInstal
 ROUTES.push(createSidebarSectionOrderRoutes({ order: (sections) => store.orderSections(sections) }));
 ROUTES.push(createRoomCardRoutes({
   room: (id) => store.group(id),
-  threadBelongsToRoom: (id, threadId) => { const room = store.group(id); return Boolean(room && (room.dm ? room.threadId === threadId : store.groupTaskByThread(id, threadId))); },
+  threadBelongsToRoom: roomOwnsThread(store),
   messages: (threadId) => store.messagesFor(threadId),
   refusal: (auth) => (CLOUD_HOME && auth.kind === "session" ? cloudCardRefusal(auth) : null),
   answeredBy: (auth) => (CLOUD_HOME ? cardAnswererFor(auth) : undefined),
@@ -18306,6 +18354,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!cancelSteeredMessage(bot.id, queueId, bot.threadId)) {
         return json(res, 404, { error: "no such queued message" });
       }
+      recheckPersonWait(bot.threadId);
       return json(res, 200, { ok: true });
     }
 
@@ -19783,6 +19832,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       } finally {
         providerInstancesChanging.delete(instanceId);
         providerConfigBusy = false;
+        void usageWatch.tick();
       }
     }
 
@@ -21168,6 +21218,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   void connectedRepositories.refresh();
   console.log(`later.dog server on http://127.0.0.1:${PORT}`);
   followupsReady = true;
+  limitHold.restorePeople();
   drainQueuedSends();
   drainQueuedChannelSends();
   if (enginesRead) {

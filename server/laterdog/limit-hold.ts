@@ -16,14 +16,19 @@ const MAX_SAVED = 1_000;
 
 const savedSchema = z.object({
   version: z.literal(1),
-  waiting: z.record(z.string().min(1).max(200), z.object({ since: z.string().max(64) })).default({}),
+  waiting: z.record(z.string().min(1).max(200), z.object({ since: z.string().max(64), person: z.literal(true).optional() })).default({}),
 });
 
-function readSaved(file: string | undefined): Map<string, string> {
+interface SavedWait {
+  since: string;
+  person?: true;
+}
+
+function readSaved(file: string | undefined): Map<string, SavedWait> {
   if (!file || !existsSync(file)) return new Map();
   try {
     const parsed = savedSchema.safeParse(JSON.parse(readFileSync(file, "utf8")));
-    return parsed.success ? new Map(Object.entries(parsed.data.waiting).map(([threadId, { since }]) => [threadId, since])) : new Map();
+    return parsed.success ? new Map(Object.entries(parsed.data.waiting)) : new Map();
   } catch {
     return new Map();
   }
@@ -39,8 +44,9 @@ export class LimitHold {
   private readonly retries = new Map<string, { due: number; timer: ReturnType<typeof setTimeout> }>();
   private readonly options: LimitHoldOptions;
   private readonly now: () => number;
-  private readonly saved: Map<string, string>;
+  private readonly saved: Map<string, SavedWait>;
   private readonly fromBefore = new Set<string>();
+  private readonly people = new Set<string>();
 
   constructor(options: LimitHoldOptions) {
     this.options = options;
@@ -50,15 +56,37 @@ export class LimitHold {
 
   hold(threadId: string): void {
     const before = this.held.get(threadId)?.until;
-    this.clear(threadId);
+    const person = this.clear(threadId);
     const until = this.until(threadId);
     if (until !== undefined) this.arm(threadId, until);
     this.keep(threadId, until !== undefined);
-    if (until !== before) this.options.onChange?.();
+    if (until !== before || person) this.options.onChange?.();
+  }
+
+  awaitPerson(threadId: string): boolean {
+    const known = this.people.has(threadId);
+    const timed = this.held.has(threadId);
+    this.clear(threadId);
+    this.people.add(threadId);
+    this.keep(threadId, true, true);
+    if (!known || timed) this.options.onChange?.();
+    return !known;
+  }
+
+  waitsOnPerson(threadId: string): boolean {
+    return this.people.has(threadId);
+  }
+
+  personWaits(): string[] {
+    return [...this.people];
+  }
+
+  recheckPerson(threadId: string): void {
+    if (this.people.has(threadId)) this.wakeUp(threadId);
   }
 
   retry(threadId: string): void {
-    const held = this.held.has(threadId);
+    const held = this.held.has(threadId) || this.people.has(threadId);
     this.clear(threadId);
     const timer = setTimeout(() => {
       this.retries.delete(threadId);
@@ -71,7 +99,7 @@ export class LimitHold {
   }
 
   release(threadId: string): void {
-    const held = this.held.has(threadId);
+    const held = this.held.has(threadId) || this.people.has(threadId);
     this.clear(threadId);
     this.fromBefore.delete(threadId);
     this.keep(threadId, false);
@@ -86,11 +114,25 @@ export class LimitHold {
     }
   }
 
+  restorePeople(): string[] {
+    const people = [...this.saved].filter(([threadId, wait]) => wait.person && !this.people.has(threadId)).map(([threadId]) => threadId);
+    for (const threadId of people) {
+      this.fromBefore.add(threadId);
+      this.people.add(threadId);
+    }
+    if (people.length) this.options.onChange?.();
+    return people;
+  }
+
   resume(): string[] {
-    const waiting = [...this.saved.keys()].filter((threadId) => !this.held.has(threadId) && !this.retries.has(threadId));
+    const waiting = [...this.saved.keys()].filter((threadId) => !this.held.has(threadId) && !this.retries.has(threadId) && !this.people.has(threadId));
     const due: string[] = [];
     for (const threadId of waiting) {
       this.fromBefore.add(threadId);
+      if (this.saved.get(threadId)?.person) {
+        this.people.add(threadId);
+        continue;
+      }
       const until = this.until(threadId);
       if (until === undefined) due.push(threadId);
       else this.arm(threadId, until);
@@ -151,26 +193,28 @@ export class LimitHold {
 
   private wakeUp(threadId: string): void {
     this.options.wake(threadId);
-    if (!this.held.has(threadId) && !this.retries.has(threadId)) {
+    if (!this.held.has(threadId) && !this.retries.has(threadId) && !this.people.has(threadId)) {
       this.fromBefore.delete(threadId);
       this.keep(threadId, false);
     }
   }
 
-  private clear(threadId: string): void {
+  private clear(threadId: string): boolean {
     clearTimeout(this.held.get(threadId)?.timer);
     this.held.delete(threadId);
     clearTimeout(this.retries.get(threadId)?.timer);
     this.retries.delete(threadId);
+    return this.people.delete(threadId);
   }
 
-  private keep(threadId: string, waiting: boolean): void {
-    if (!this.options.file || waiting === this.saved.has(threadId)) return;
-    if (waiting) this.saved.set(threadId, new Date(this.now()).toISOString());
+  private keep(threadId: string, waiting: boolean, person = false): void {
+    const saved = this.saved.get(threadId);
+    if (!this.options.file || (waiting === Boolean(saved) && person === Boolean(saved?.person))) return;
+    if (waiting) this.saved.set(threadId, { since: saved?.since ?? new Date(this.now()).toISOString(), ...(person ? { person: true as const } : {}) });
     else this.saved.delete(threadId);
     while (this.saved.size > MAX_SAVED) this.saved.delete(this.saved.keys().next().value!);
     try {
-      writeFileAtomic(this.options.file, JSON.stringify({ version: 1, waiting: Object.fromEntries([...this.saved].map(([id, since]) => [id, { since }])) }),
+      writeFileAtomic(this.options.file, JSON.stringify({ version: 1, waiting: Object.fromEntries(this.saved) }),
         { mode: 0o600, durable: false });
     } catch (error) {
       console.warn(`limit hold: could not save ${this.options.file}: ${error instanceof Error ? error.message : String(error)}`);

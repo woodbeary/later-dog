@@ -31,6 +31,17 @@ describe("compact account batteries", () => {
     expect(host.querySelector("[data-battery]")).toBeNull();
   });
 
+  it.each(["0", "-3"])("sleeps on a used-up account whose credit balance is %s", (balance) => {
+    const host = document.createElement("div");
+    host.innerHTML = renderToStaticMarkup(createElement(AccountMenu, { now, onPick: vi.fn(), rows: [{
+      instance: { ...instance("codex"), driverKind: "codex" }, label: "Coding account", selected: true,
+      provider: { ...provider, driver: "codex", weekly: { ...provider.weekly, usedPercent: 100, remainingPercent: 0 }, credits: { unlimited: false, balance } },
+    }] }));
+    expect(host.textContent).not.toContain("credits remaining");
+    expect(host.querySelector("[data-sleeping-dog]")).not.toBeNull();
+    expect(host.querySelector("[data-battery]")).not.toBeNull();
+  });
+
   it("replaces the resting provider mark with a dog and a filling battery", () => {
     const row = render().querySelector('[data-account-row="a"]')!;
     expect(row.firstElementChild?.firstElementChild?.hasAttribute("data-sleeping-dog")).toBe(true);

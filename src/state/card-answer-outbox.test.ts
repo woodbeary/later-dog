@@ -36,6 +36,7 @@ const peripherals: Record<string, unknown> = {
 const { StoreProvider, useStore } = await import("./store");
 const { failedComposerSends } = await import("@/lib/drafts");
 const { HELD_SENDS_KEY } = await import("@/lib/held-sends");
+const { OUTBOX_KEY } = await import("@/lib/outbox");
 
 const DRAFT = "bot:bot:thread";
 let seen!: AppState;
@@ -187,6 +188,27 @@ describe("answering a card goes through the device outbox", () => {
     expect(failedComposerSends(DRAFT).slice(before)).toEqual([expect.objectContaining({ sendId: posts()[0]!.sendId, text: "Red", requestText: "Red", threadId: "thread" })]);
     expect(seen.paneErrors["chat:thread"]).toBeDefined();
     expect(saved()).toEqual([]);
+  });
+
+  describe("after a reload while the answer is still on its way", () => {
+    it("keeps the card waiting, not answerable, while the restored outbox still sends the answer", async () => {
+      const sendId = "card-answer-reload-0001";
+      localStorage.setItem(OUTBOX_KEY, JSON.stringify({ version: 1, items: [{ sendId, threadId: "thread", target: { kind: "bot", botId: "bot" }, text: "Blue", queuedAt: 1, card: { botId: "bot", messageId: "card-1" } }] }));
+      const home: Home = { chats: chats([question]), held: { held: [], dropped: [] }, receipt: () => new Promise<Response>(() => {}) };
+      const { posts } = await mount(home);
+      expect(posts()).toEqual([expect.objectContaining({ text: "Blue", sendId })]);
+      expect(card().answered).toBeUndefined();
+      expect(card().pendingAnswer).toBe("Blue");
+    });
+
+    it("keeps the card waiting while the edge still holds the answer kept on this device", async () => {
+      const sendId = "card-answer-reload-0002";
+      localStorage.setItem(HELD_SENDS_KEY, JSON.stringify([{ sendId, threadId: "thread", draftId: DRAFT, text: "Blue", requestText: "Blue", at: Date.now(), card: { botId: "bot", messageId: "card-1" } }]));
+      const home: Home = { chats: chats([question]), held: { held: [sendId], dropped: [] }, receipt: () => new Promise<Response>(() => {}) };
+      await mount(home);
+      expect(card().answered).toBeUndefined();
+      expect(card().pendingAnswer).toBe("Blue");
+    });
   });
 
   describe("in a group room", () => {

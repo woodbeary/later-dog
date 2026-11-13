@@ -2,6 +2,7 @@ import { findCliCandidates } from "../env-path.ts";
 import { installNpmEngine, npmAvailable, serverInstallFor } from "../engine-install.ts";
 import { installNative, nativeInstallFor } from "../laterdog/native-install.ts";
 import { createSnapshotCache } from "../laterdog/snapshot-cache.ts";
+import { refusedWhileOff } from "../laterdog/turned-off.ts";
 import type {
   AnyProviderDriver,
   EngineAccess,
@@ -126,7 +127,8 @@ export class ProviderRegistry {
         enabled: entry.enabled ?? true,
         config,
       });
-      return { instanceId, live: decorate ? decorate(live) : live };
+      const guarded = refusedWhileOff(live);
+      return { instanceId, live: decorate ? decorate(guarded) : guarded };
     } catch (e) {
       return {
         instanceId,

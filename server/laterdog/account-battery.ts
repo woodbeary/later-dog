@@ -2,10 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
 import type { PlanProviderRow } from "../plan-usage.ts";
-import type { ModelSelection } from "../../shared/wire.ts";
+import type { ModelSelection, WireAccountRoute } from "../../shared/wire.ts";
+import { creditsSpendable } from "../../shared/spendable-credits.ts";
 import { resetInstant } from "./usage-limit.ts";
 import { NEARLY_EMPTY_PERCENT, roomTier } from "./account-spread.ts";
-import { choiceReadyAt, decideAccount, shownRoute, type AccountChoice, type AccountChoiceInput, type Ran, type ShownRoute } from "./account-choice.ts";
+import { choiceReadyAt, decideAccount, shownRoute, type AccountChoice, type AccountChoiceInput, type Ran } from "./account-choice.ts";
 
 export { NEARLY_EMPTY_PERCENT };
 
@@ -91,7 +92,8 @@ export interface BatteryStatus {
   order: Record<string, string[]>;
   sequence: string[];
   resting: Record<string, Rest & { sharedWith?: string }>;
-  routed: Record<string, ShownRoute>;
+  routed: Record<string, WireAccountRoute>;
+  fromNextMessage: Record<string, WireAccountRoute>;
 }
 
 const restSchema = z.object({
@@ -184,7 +186,7 @@ export function percentLeft(row: PlanProviderRow | undefined, now: number): numb
 export const USED_UP_PERCENT = 99.5;
 
 export function usedUpRest(row: PlanProviderRow | undefined, now: number): Rest | undefined {
-  if (!row?.ok || row.credits) return undefined;
+  if (!row?.ok || creditsSpendable(row.credits)) return undefined;
   const full = [{ kind: "session", window: row.fiveHour }, { kind: "weekly", window: row.weekly }]
     .map(({ kind, window }) => ({ kind, used: window.available ? window.usedPercent : null, reset: window.resetsAt ? Date.parse(window.resetsAt) : Number.NaN }))
     .filter(({ used, reset }) => used !== null && used >= USED_UP_PERCENT && reset > now)
@@ -219,8 +221,8 @@ function quotaReading(row: PlanProviderRow | undefined, kind: string | undefined
   if (!window?.available || window.usedPercent === null) return undefined;
   const balance = row.credits?.balance == null ? NaN : Number(row.credits.balance);
   return {
-    key: JSON.stringify([window.usedPercent, window.resetsAt, Boolean(row.credits), row.credits?.unlimited, Number.isFinite(balance) ? balance : null]),
-    hasRoom: Boolean(row.credits) || window.usedPercent < USED_UP_PERCENT,
+    key: JSON.stringify([window.usedPercent, window.resetsAt, creditsSpendable(row.credits), row.credits?.unlimited, Number.isFinite(balance) ? balance : null]),
+    hasRoom: creditsSpendable(row.credits) || window.usedPercent < USED_UP_PERCENT,
   };
 }
 
@@ -616,13 +618,16 @@ export class AccountBattery {
       if (rest) resting[account.instanceId] = rest;
     }
     const routed: BatteryStatus["routed"] = {};
+    const fromNextMessage: BatteryStatus["fromNextMessage"] = {};
     if (selectionOf) {
       const ran = new Map<string, Ran>(Object.entries(this.state.ran).map(([threadId, last]) => [threadId, { on: last.on, model: last.model }]));
       for (const [threadId, now] of running) ran.set(threadId, now);
       for (const [threadId, last] of ran) {
         const chosen = selectionOf(threadId);
         const shown = chosen ? shownRoute(this.decide(chosen, accounts, threadId), chosen, last) : undefined;
-        if (shown) routed[threadId] = shown;
+        if (!shown) continue;
+        const { next, ...route } = shown;
+        (next ? fromNextMessage : routed)[threadId] = route;
       }
     }
     const order = effectiveOrder({ config, accounts, resting: this.resting(accounts), now: this.now(), usage: this.options.usage });
@@ -630,7 +635,7 @@ export class AccountBattery {
     this.shownOrder = JSON.stringify({ order, sequence });
     this.shownResting = restingKey(resting);
     return { enabled: batteryEnabled(config, accounts), auto: config?.auto === true, order,
-      sequence, resting, routed };
+      sequence, resting, routed, fromNextMessage };
   }
 
   noteReadings(accounts: readonly BatteryAccount[]): void {
