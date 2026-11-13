@@ -214,7 +214,7 @@ it("rebuilds a Claude chat whose saved session is refused with the engine's own 
   expect(prompt).toContain("AFTER_LOSS which port?");
   expect(f.task().resumeCursors.claude).not.toBe(lost);
   expect(await f.folds()).toHaveLength(0);
-}, { ...LONG_CHAT, FAKE_CLAUDE_COMPACT_SUMMARY: "ENGINE_SUMMARY the person chose port 9001." }), 150_000);
+}, { ...LONG_CHAT, FAKE_CLAUDE_HOOKS: "1", FAKE_CLAUDE_COMPACT_SUMMARY: "ENGINE_SUMMARY the person chose port 9001." }), 150_000);
 
 it("rebuilds a Codex chat whose thread is lost with the person's oldest decision still in front", () => fixture(async f => {
   await f.api("/api/config", { context: { rebuildBytes: 1_024 } }, "PATCH");
