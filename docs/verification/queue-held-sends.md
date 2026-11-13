@@ -62,7 +62,12 @@ the third review's three Should fix items; this note describes that head.
   before it: the device reads the home's queues (`/api/bots?messages=0`, whose
   `botQueuedMessages` lists every message a dog's chat holds with its send id)
   and then the message's own thread (`/api/threads/:id/messages`, once per
-  thread per round). These reads run at most four at a time, and a round stops
+  thread per round). A page that lacks the line but says there is more is not
+  evidence: the device reads back with `before=` until it finds the line or
+  reaches a row older than the send's own time (less ten minutes for clock
+  drift), at most ten pages; reaching that cap or failing a page keeps the
+  copy. A queue that lists messages for that chat without a send id (homes
+  older than 2026-10-18) keeps the copy too. These reads run at most four at a time, and a round stops
   reading after 20 seconds; a message whose chat was not read by then stays
   held for the next round. The message is delivered when either shows it. It is Not
   sent when both reads succeed and neither shows it, or when the home answers

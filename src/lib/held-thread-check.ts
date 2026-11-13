@@ -5,6 +5,8 @@ export const HELD_THREAD_READ_TIMEOUT_MS = 10_000;
 export const EDGE_SAVED_COPY_HEADER = "x-laterdog-saved-at";
 export const HOME_NO_SUCH_THREAD = "no such conversation";
 export const HOME_QUEUES_PATH = "/api/bots?messages=0";
+export const HELD_PAGES_PER_SEND = 10;
+export const HELD_PAGE_BACK_SLACK_MS = 10 * 60_000;
 
 type Line = { id?: unknown; sendId?: unknown };
 
@@ -14,26 +16,57 @@ export function isHomeLine(line: Line): boolean {
   return typeof line.id === "string" && !line.id.startsWith("optimistic-") && !line.id.startsWith("desk-");
 }
 
-export type ThreadRead = ReadonlySet<string> | "missing" | "unreadable";
+export type ThreadRead = { lines: ReadonlySet<string>; complete: boolean } | "missing";
 
-export function heldThreadPath(threadId: string): string {
-  return `/api/threads/${encodeURIComponent(threadId)}/messages?limit=${HELD_THREAD_READ_LIMIT}`;
+export type ThreadPage = { lines: ReadonlySet<string>; hasMore: boolean; oldestId?: string; oldestAt?: number } | "missing" | "unreadable";
+
+export function heldThreadPath(threadId: string, before?: string): string {
+  const page = `/api/threads/${encodeURIComponent(threadId)}/messages?limit=${HELD_THREAD_READ_LIMIT}`;
+  return before ? `${page}&before=${encodeURIComponent(before)}` : page;
 }
 
-export async function threadAnswer(response: Response): Promise<ThreadRead> {
+export async function threadPageAnswer(response: Response): Promise<ThreadPage> {
   const body: unknown = await response.json().catch(() => null);
   if (response.status === 404) {
     const said = (body as { error?: unknown } | null)?.error;
     return said === HOME_NO_SUCH_THREAD ? "missing" : "unreadable";
   }
   if (response.status !== 200 || response.headers.has(EDGE_SAVED_COPY_HEADER)) return "unreadable";
-  const messages = (body as { messages?: unknown } | null)?.messages;
+  const { messages, hasMore } = (body ?? {}) as { messages?: unknown; hasMore?: unknown };
   if (!Array.isArray(messages)) return "unreadable";
-  return new Set(messages.flatMap((line: Line) => (line && typeof line.sendId === "string" && isHomeLine(line) ? [line.sendId] : [])));
+  const oldest = messages[0] as (Line & { at?: unknown }) | undefined;
+  return {
+    lines: new Set(messages.flatMap((line: Line) => (line && typeof line.sendId === "string" && isHomeLine(line) ? [line.sendId] : []))),
+    hasMore: hasMore === true,
+    ...(typeof oldest?.id === "string" ? { oldestId: oldest.id } : {}),
+    ...(typeof oldest?.at === "number" ? { oldestAt: oldest.at } : {}),
+  };
+}
+
+export async function readThreadBack(
+  readPage: (path: string) => Promise<ThreadPage>,
+  threadId: string,
+  since: number,
+  wanted: ReadonlySet<string>,
+): Promise<ThreadRead> {
+  const lines = new Set<string>();
+  let before: string | undefined;
+  for (let read = 0; read < HELD_PAGES_PER_SEND; read++) {
+    const page = await readPage(heldThreadPath(threadId, before));
+    if (page === "missing" && read === 0) return "missing";
+    if (page === "missing" || page === "unreadable") return { lines, complete: false };
+    for (const sendId of page.lines) lines.add(sendId);
+    if ([...wanted].every((sendId) => lines.has(sendId))) return { lines, complete: true };
+    if (!page.hasMore || (page.oldestAt !== undefined && page.oldestAt < since - HELD_PAGE_BACK_SLACK_MS)) return { lines, complete: true };
+    if (!page.oldestId) return { lines, complete: false };
+    before = page.oldestId;
+  }
+  return { lines, complete: false };
 }
 
 export interface HomeQueues {
   queued: ReadonlySet<string>;
+  unnamed: ReadonlySet<string>;
   busyRoomThreads: ReadonlySet<string>;
 }
 
@@ -51,6 +84,13 @@ function queuedAtHome(queues: unknown): string[] {
   );
 }
 
+function threadsQueuingUnnamed(queues: unknown): string[] {
+  if (typeof queues !== "object" || queues === null) return [];
+  return Object.entries(queues as Record<string, unknown>).flatMap(([threadId, rows]) =>
+    Array.isArray(rows) && rows.some((row) => typeof (row as { sendId?: unknown } | null)?.sendId !== "string") ? [threadId] : [],
+  );
+}
+
 function busyRoomThreads(rooms: unknown): string[] {
   if (!Array.isArray(rooms)) return [];
   return rooms.flatMap((room: Room) => {
@@ -65,28 +105,35 @@ export async function homeQueuesAnswer(response: Response): Promise<HomeQueues |
   if (response.status !== 200 || response.headers.has(EDGE_SAVED_COPY_HEADER) || typeof body !== "object" || body === null) return "unreadable";
   const { bots, groups, botQueuedMessages } = body as { bots?: unknown; groups?: unknown; botQueuedMessages?: unknown };
   if (!Array.isArray(bots) || !Array.isArray(groups)) return "unreadable";
-  return { queued: new Set(queuedAtHome(botQueuedMessages)), busyRoomThreads: new Set(busyRoomThreads(groups)) };
+  return { queued: new Set(queuedAtHome(botQueuedMessages)), unnamed: new Set(threadsQueuingUnnamed(botQueuedMessages)), busyRoomThreads: new Set(busyRoomThreads(groups)) };
 }
 
 export async function judgeAtHome(
   sends: readonly HeldSend[],
   queues: HomeQueues | "unreadable",
-  read: (threadId: string) => Promise<ThreadRead>,
+  read: (threadId: string, since: number, wanted: ReadonlySet<string>) => Promise<ThreadRead>,
 ): Promise<{ delivered: HeldSend[]; notSent: HeldSend[]; unread: HeldSend[] }> {
   const delivered: HeldSend[] = [];
   const notSent: HeldSend[] = [];
   const unread: HeldSend[] = [];
   const unqueued = sends.filter((send) => queues === "unreadable" || !queues.queued.has(send.sendId));
-  const reads = new Map(unqueued.map((send) => [send.threadId, read(send.threadId)]));
+  const byThread = new Map<string, HeldSend[]>();
+  for (const send of unqueued) byThread.set(send.threadId, [...(byThread.get(send.threadId) ?? []), send]);
+  const reads = new Map(
+    [...byThread].map(([threadId, waiting]) => [
+      threadId,
+      read(threadId, Math.min(...waiting.map((send) => send.at)), new Set(waiting.map((send) => send.sendId))),
+    ]),
+  );
   for (const send of sends) {
     if (!unqueued.includes(send)) {
       delivered.push(send);
       continue;
     }
-    const lines = await reads.get(send.threadId)!;
-    if (lines === "missing") notSent.push(send);
-    else if (lines !== "unreadable" && lines.has(send.sendId)) delivered.push(send);
-    else if (lines === "unreadable" || queues === "unreadable" || queues.busyRoomThreads.has(send.threadId)) unread.push(send);
+    const thread = await reads.get(send.threadId)!;
+    if (thread === "missing") notSent.push(send);
+    else if (thread.lines.has(send.sendId)) delivered.push(send);
+    else if (!thread.complete || queues === "unreadable" || queues.unnamed.has(send.threadId) || queues.busyRoomThreads.has(send.threadId)) unread.push(send);
     else notSent.push(send);
   }
   return { delivered, notSent, unread };

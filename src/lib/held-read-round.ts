@@ -1,9 +1,9 @@
 import {
   HELD_THREAD_READ_TIMEOUT_MS,
   HOME_QUEUES_PATH,
-  heldThreadPath,
   homeQueuesAnswer,
-  threadAnswer,
+  readThreadBack,
+  threadPageAnswer,
   type FetchThread,
   type HomeQueues,
   type ThreadRead,
@@ -14,7 +14,7 @@ export const HELD_READ_ROUND_MS = 20_000;
 
 export interface HeldReadRound {
   queues(): Promise<HomeQueues | "unreadable">;
-  thread(threadId: string): Promise<ThreadRead>;
+  thread(threadId: string, since: number, wanted: ReadonlySet<string>): Promise<ThreadRead>;
   close(): void;
 }
 
@@ -59,10 +59,10 @@ export function heldReadRound(fetchThread: FetchThread, after: (ms: number, run:
   const threads = new Map<string, Promise<ThreadRead>>();
   return {
     queues: () => (queues ??= limited(HOME_QUEUES_PATH, homeQueuesAnswer)),
-    thread(threadId) {
+    thread(threadId, since, wanted) {
       let read = threads.get(threadId);
       if (!read) {
-        read = limited(heldThreadPath(threadId), threadAnswer);
+        read = readThreadBack((path) => limited(path, threadPageAnswer), threadId, since, wanted);
         threads.set(threadId, read);
       }
       return read;

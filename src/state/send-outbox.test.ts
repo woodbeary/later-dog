@@ -10,7 +10,7 @@ import { HELD_READ_ROUND_MS, HELD_READS_AT_ONCE } from "@/lib/held-read-round";
 import { HELD_GIVE_UP_MS, HELD_NOT_SENT, HELD_SENDS_KEY } from "@/lib/held-sends";
 import { SendingTrack } from "@/components/SendingTrack";
 import { SAVED_HEADER, withDeskQueue } from "../../deploy/laterdog/home/src/desk.ts";
-import { EDGE_SAVED_COPY_HEADER, HOME_NO_SUCH_THREAD, HOME_QUEUES_PATH } from "@/lib/held-thread-check";
+import { EDGE_SAVED_COPY_HEADER, HELD_PAGE_BACK_SLACK_MS, HELD_PAGES_PER_SEND, HOME_NO_SUCH_THREAD, HOME_QUEUES_PATH } from "@/lib/held-thread-check";
 import { deskUserLine } from "../../deploy/laterdog/home/src/desk-stream.ts";
 
 function mount(request: typeof fetch) {
@@ -690,6 +690,78 @@ describe("a message the edge held for a sleeping home", () => {
         const fetchThread = reading(() => homeLines(), () => jsonAnswer(200, { bots: [], groups: [], botQueuedMessages: {} }, { [EDGE_SAVED_COPY_HEADER]: new Date(1).toISOString() }));
         const { store, showError, outbox } = await waiting(goneAnswer, { fetchThread });
         await outbox.settleHeld([{ threadId: "thread", messages: [] } as never], [], {});
+        expect(kept(store)).toHaveLength(1);
+        expect(showError).not.toHaveBeenCalled();
+      });
+
+      describe("when the turn it started wrote more than a page", () => {
+        const rows = (from: number, count: number, at: number) => Array.from({ length: count }, (_, step) => ({ id: `row-${from + step}`, role: "bot", kind: "activity", at }));
+        const page = (lines: unknown[], hasMore: boolean) => jsonAnswer(200, { messages: lines, hasMore, activeLeafId: null });
+        const paging = (pages: Record<string, () => Response>) =>
+          vi.fn(async (path: string) => {
+            if (path === HOME_QUEUES_PATH) return homeQueues();
+            const before = new URL(path, "https://home.test").searchParams.get("before") ?? "";
+            const answer = pages[before];
+            if (!answer) throw new Error(`unexpected ${path}`);
+            return answer();
+          });
+        const pageReads = (fetchThread: ReturnType<typeof paging>) => fetchThread.mock.calls.map(([path]) => path).filter((path) => path.startsWith("/api/threads/"));
+        const sentAt = 1_000;
+        const after = sentAt + 60_000;
+        const longBefore = sentAt - HELD_PAGE_BACK_SLACK_MS - 1;
+
+        it("reads back a page and lets it go as delivered when the line is there", async () => {
+          const fetchThread = paging({
+            "": () => page(rows(200, 200, after), true),
+            "row-200": () => page([...rows(1, 10, longBefore), { id: "home-line-1", role: "user", at: after, sendId: sent.sendId }, ...rows(11, 189, after)], true),
+          });
+          const { store, showError, outbox, cardAnswered } = await waiting(goneAnswer, { fetchThread });
+          await outbox.settleHeld([], [], {});
+          expect(pageReads(fetchThread)).toEqual(["/api/threads/thread/messages?limit=200", "/api/threads/thread/messages?limit=200&before=row-200"]);
+          expect(kept(store)).toEqual([]);
+          expect(cardAnswered).toHaveBeenCalledOnce();
+          expect(showError).not.toHaveBeenCalled();
+        });
+
+        it("says Not sent once it has read back past the time the message was sent without finding it", async () => {
+          const fetchThread = paging({
+            "": () => page(rows(200, 200, after), true),
+            "row-200": () => page([...rows(0, 20, longBefore), ...rows(20, 180, after)], true),
+          });
+          const { store, showError, outbox } = await waiting(goneAnswer, { fetchThread });
+          await outbox.settleHeld([], [], {});
+          expect(pageReads(fetchThread)).toHaveLength(2);
+          expect(kept(store)).toEqual([]);
+          expect(showError).toHaveBeenCalledWith(expect.objectContaining({ message: HELD_NOT_SENT }), "thread");
+        });
+
+        it("keeps the copy when a page further back cannot be read", async () => {
+          const fetchThread = paging({
+            "": () => page(rows(200, 200, after), true),
+            "row-200": () => jsonAnswer(503, { error: "waking" }, { "x-laterdog-home": "waking" }),
+          });
+          const { store, showError, outbox } = await waiting(goneAnswer, { fetchThread });
+          await outbox.settleHeld([], [], {});
+          expect(kept(store)).toHaveLength(1);
+          expect(showError).not.toHaveBeenCalled();
+        });
+
+        it("keeps the copy when ten pages still do not reach back to the time it was sent", async () => {
+          const pages: Record<string, () => Response> = {};
+          for (let at = 0; at <= 12; at++) pages[at === 0 ? "" : `row-${at * 1000}`] = () => page(rows((at + 1) * 1000, 200, after), true);
+          const fetchThread = paging(pages);
+          const { store, showError, outbox } = await waiting(goneAnswer, { fetchThread });
+          await outbox.settleHeld([], [], {});
+          expect(pageReads(fetchThread)).toHaveLength(HELD_PAGES_PER_SEND);
+          expect(kept(store)).toHaveLength(1);
+          expect(showError).not.toHaveBeenCalled();
+        });
+      });
+
+      it("keeps the copy when the home's queue for that chat lists messages without a send id", async () => {
+        const fetchThread = reading(() => homeLines(), () => homeQueues({ thread: [{ queueId: "home-queue-1", text: "something" }] }));
+        const { store, showError, outbox } = await waiting(goneAnswer, { fetchThread });
+        await outbox.settleHeld([], [], {});
         expect(kept(store)).toHaveLength(1);
         expect(showError).not.toHaveBeenCalled();
       });
