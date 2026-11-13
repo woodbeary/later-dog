@@ -1,5 +1,5 @@
 import type { WireWaitingOn } from "../../shared/wire.ts";
-import type { WorkStopCause, WorkStopDetail, WorkState } from "../../shared/work-state.ts";
+import type { AccountHold, WorkStopCause, WorkStopDetail, WorkState } from "../../shared/work-state.ts";
 
 export interface WorkFacts {
   busy: boolean;
@@ -8,7 +8,7 @@ export interface WorkFacts {
   computerSince?: number;
   computerBackground?: number;
   handoffRunning?: boolean;
-  needsYou?: { what?: string };
+  needsYou?: { what?: string; hold?: AccountHold };
   usageHold?: { account?: string; until?: number };
   waitingOn?: readonly WireWaitingOn[];
   computerWait?: { holder?: string };
@@ -24,7 +24,8 @@ const said = (value: string | undefined): string | undefined => {
 export function workState(facts: WorkFacts): WorkState {
   if (facts.needsYou) {
     const what = said(facts.needsYou.what);
-    return { kind: "needs-you", ...(what ? { what } : {}) };
+    const hold = facts.needsYou.hold;
+    return { kind: "needs-you", ...(what ? { what } : {}), ...(hold ? { hold } : {}) };
   }
   if (facts.usageHold) {
     const account = said(facts.usageHold.account);

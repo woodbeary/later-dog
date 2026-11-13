@@ -49,6 +49,7 @@ it("keeps a dog's plan per chat, on the wire, across a restart, and out of a hel
     }));
 
     const tools = evidence;
+    expect(await wirePlan(dog)).toBeNull();
     await turn(dog, "Fix the login, and later write the release note");
     expect(tools().find((entry: any) => entry.botId === dog.id).evidence[0].result.tools.map((tool: any) => tool.name)).toContain("set_plan");
     const loaded = tools().find((entry: any) => entry.botId === dog.id).evidence[0].result.tools.find((tool: any) => tool.name === "set_plan");

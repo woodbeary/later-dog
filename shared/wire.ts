@@ -126,7 +126,7 @@ export interface WireTask {
   workingStartedAt?: number;
   statusLine?: string;
   work?: WorkState;
-  plan?: WirePlan;
+  plan?: WirePlan | null;
   surface?: Surface;
   surfaceAuto?: true;
   usage?: TaskUsage;
@@ -230,7 +230,7 @@ export interface WireBot {
   busy?: boolean;
   activity?: BotActivity;
   work?: WorkState;
-  plan?: WirePlan;
+  plan?: WirePlan | null;
   createdAt: number;
   visibility?: BotVisibility;
 }

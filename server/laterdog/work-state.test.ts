@@ -34,6 +34,8 @@ describe("one work state per chat", () => {
     ["a handoff it is doing for another dog", { busy: false, handoffRunning: true }, { kind: "running" }],
     ["a question for the person", { busy: true, needsYou: { what: " Allow sending? " } }, { kind: "needs-you", what: "Allow sending?" }],
     ["a question with no label", { busy: false, needsYou: {} }, { kind: "needs-you" }],
+    ["an account hold", { busy: false, needsYou: { what: "Turn Daniel back on", hold: { account: "Daniel", accountId: "daniel", why: "off" } } },
+      { kind: "needs-you", what: "Turn Daniel back on", hold: { account: "Daniel", accountId: "daniel", why: "off" } }],
     ["a usage hold", { busy: false, usageHold: { account: "Work", until: 5 } }, { kind: "waiting-for-usage", account: "Work", until: 5 }],
     ["a usage hold with no reset time", { busy: false, usageHold: {} }, { kind: "waiting-for-usage" }],
     ["another dog", { busy: false, waitingOn: [scout, { ...scout, ask: undefined }] }, { kind: "waiting-on-dog", dogs: [{ id: "scout", name: "Scout", ask: "Check the invoice totals" }] }],

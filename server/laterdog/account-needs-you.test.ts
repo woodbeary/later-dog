@@ -5,7 +5,8 @@ import { accountNeedsYou, switchedOff, waitsOnPerson } from "./account-needs-you
 const run = { instanceId: "daniel", model: "claude-fable-5-2" };
 const waiting = (blocked: "limit" | "signIn" | "signedOut" | "off"): AccountChoice => ({ kind: "waiting", run, chosen: "daniel", blocked });
 const names: Record<string, string> = { daniel: "Daniel" };
-const line = (choice: AccountChoice, carriesOn = true, name = (id: string): string | undefined => names[id]) => accountNeedsYou({ carriesOn, choice, name });
+const needs = (choice: AccountChoice, carriesOn = true, name = (id: string): string | undefined => names[id]) => accountNeedsYou({ carriesOn, choice, name });
+const line = (...args: Parameters<typeof needs>) => needs(...args)?.what;
 
 describe("a chat whose chosen account needs the person", () => {
   it("asks to sign in again when the account is signed out or failed to sign in", () => {
@@ -15,6 +16,14 @@ describe("a chat whose chosen account needs the person", () => {
 
   it("asks to turn the account back on when it is off", () => {
     expect(line(waiting("off"))).toBe("Turn Daniel back on");
+  });
+
+  it("says which account holds the chat and why in a field beside the words", () => {
+    expect(needs(waiting("off"))?.hold).toEqual({ account: "Daniel", accountId: "daniel", why: "off" });
+    expect(needs(waiting("signedOut"))?.hold).toEqual({ account: "Daniel", accountId: "daniel", why: "signed-out" });
+    expect(needs(waiting("signIn"))?.hold).toEqual({ account: "Daniel", accountId: "daniel", why: "signed-out" });
+    expect(needs(waiting("off"), true, () => undefined)?.hold).toEqual({ account: "daniel", accountId: "daniel", why: "off" });
+    expect(needs(waiting("limit"))).toBeUndefined();
   });
 
   it("names the account by its id when it has no name", () => {

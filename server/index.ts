@@ -7,7 +7,7 @@ import { BOOT_CLOUD_SECRETS } from "./cloud-secrets-boot.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, mkdirSync } from "node:fs";
-import { homedir, totalmem } from "node:os";
+import { homedir, tmpdir, totalmem } from "node:os";
 import { writeFileAtomic } from "./atomic.ts";
 import { rm as removeDirectory } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -134,6 +134,7 @@ import { HOME_HEALTH_FILE, startHomeHealthLog } from "./laterdog/home-health-log
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
+import { createDiskBreakdown } from "./laterdog/disk-breakdown.ts";
 import { ComputerRuns, MAX_RUN_MS } from "./laterdog/computer-runs.ts";
 import { ComputerJobs, JOB_CHECK_MS } from "./laterdog/computer-jobs.ts";
 import { directHandoffFacts, handoffWorkDone, olderWorkFields } from "./laterdog/chat-work.ts";
@@ -367,6 +368,8 @@ import type { ProviderInstance } from "./contracts.ts";
 import { readyToRun, selectDefaultModelSelection, withNewBotEffort } from "./default-model-selection.ts";
 import type { ThreadEngine } from "./thread-model.ts";
 import { threadGivesWay, turnSelectionFor, type TurnSelectionInput } from "./laterdog/turn-selection.ts";
+import { accountRunsNow, teammateAccountRuns, type ChatAccountFacts } from "./laterdog/chat-account-runs.ts";
+import { answeredReady, readingReady } from "./laterdog/cli-version.ts";
 import { computerEngineMoveText, removedComputerInstanceIds, writeComputerEngineMoveLines, type ComputerEngineMove } from "./computer-engine-removal.ts";
 import { namesRetiredInstance, retiredEngineMoveText, retiredInstanceIds } from "./laterdog/engine-trim.ts";
 import { cancelPeerApprovalsFor, cancelPeerApprovalsForThread, dismissStalePeerCards, peerApprovalFailure, requestPeerApproval, resolvePeerComms, type ApprovalBus } from "./peer-approval.ts";
@@ -736,7 +739,7 @@ import { removalCandidateOf, replacementAccount, selectionMovedTo, type RemovalC
 import { forgetAccountFolder } from "./laterdog/account-folder.ts";
 import { newChatGptAccount } from "./laterdog/chatgpt-accounts.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, selectionOnAccount, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
@@ -1055,7 +1058,7 @@ function batteryAccounts(): BatteryAccount[] {
       enabled: instance.enabled,
       eligible: instance.instanceId !== CLAUDE_API_INSTANCE && !managedDesktop.owns(instance.instanceId) && !policyModelRefusal(instance) &&
         (configs[instance.instanceId]?.access ?? registry.access(instance.instanceId)) === "subscription" && snapshot?.account?.method !== "api-key",
-      ...(snapshot ? { signedIn: snapshot.state !== "unavailable" && snapshot.authenticated !== false } : {}),
+      ...(snapshot ? signedInReading(snapshot) : {}),
       ...(snapshot?.account?.email ? { email: snapshot.account.email } : {}),
       models: instance.models.options.map((option) => option.id), defaultModel: instance.models.default,
     };
@@ -3607,14 +3610,13 @@ function chatWork(threadId: string, busy: boolean, activity: BotActivity | undef
   const account = kept ? accountNeedsYou({ carriesOn: carriesOnByItself(threadId), choice: accountBattery.decide(chatSelection(threadId) ?? selection, batteryAccounts(), threadId), name: (id) => registry.get(id)?.displayName }) : undefined;
   return workState({
     busy, helpers: busy ? 0 : helpersWorkingIn(threadId), ...computerJobFacts(threadId, busy), handoffRunning: doingHandoff(threadId), waitingOn, ...workSignals.facts(threadId), ...(stall.stopped ? { stopped: stall.stopped } : {}),
-    ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : account ? { needsYou: { what: account } } : {}),
+    ...(asking ? { needsYou: { what: openAsk(store.messagesTail(threadId, 60).messages) } } : stall.needsYou ? { needsYou: stall.needsYou } : account ? { needsYou: account } : {}),
     ...(usageWait ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, ...(until !== undefined ? { until } : {}) } } : {}),
   });
 }
 const dogPlans = new PlanStore(join(DATA_DIR, "dog-plans.json"));
 const planOf = (threadId: string) => {
-  const plan = dogPlans.get(threadId);
-  return plan ? { plan } : {};
+  return { plan: dogPlans.get(threadId) ?? null };
 };
 const planChanged = (threadId: string) => {
   const bot = store.botByThread(threadId);
@@ -5774,9 +5776,7 @@ function teammateCanRun(botId: string, threadId: string): boolean {
   const bot = store.bot(botId);
   if (!bot) return true;
   if (store.taskByThread(botId, threadId)?.activity === "dead") return false;
-  const on = onBatteryAccount(store.projectBotForTask(botId, threadId) ?? bot, threadId).modelSelection.instanceId;
-  const account = batteryAccounts().find((candidate) => candidate.instanceId === on);
-  return !account || (account.enabled && account.signedIn !== false);
+  return teammateAccountRuns(chatAccountFacts(bot, threadId));
 }
 const stallWatch = createStallWatch({
   chats: () => store.bots.flatMap((bot) => store.tasks(bot.id)
@@ -6646,12 +6646,16 @@ function setupFallbackFor(threadId: string, ranOn: string | undefined): boolean 
   return accountBattery.route({ ...selection, instanceId: ranOn }, accounts, threadId).instanceId !== ranOn;
 }
 
+function chatAccountFacts(bot: BotRecord, threadId: string): ChatAccountFacts {
+  return {
+    turn: turnSelectionInput(bot.id, threadId), dog: bot.modelSelection, accounts: batteryAccounts(),
+    route: (modelSelection) => onBatteryAccount({ ...bot, modelSelection }, threadId).modelSelection,
+  };
+}
+
 function runnableNow(bot: BotRecord, threadId: string): boolean {
-  const accounts = batteryAccounts();
-  const chat = store.projectBotForTask(bot.id, threadId) ?? bot;
-  const on = onBatteryAccount(chat, threadId).modelSelection.instanceId;
-  const account = accounts.find((candidate) => candidate.instanceId === on);
-  return Boolean(account?.eligible && account.enabled && account.signedIn === true && !accountBattery.restOf(account, accounts));
+  const facts = chatAccountFacts(bot, threadId);
+  return accountRunsNow({ ...facts, resting: (account) => Boolean(accountBattery.restOf(account, facts.accounts)) });
 }
 
 function reviveRunnableDogs(): number {
@@ -13211,7 +13215,7 @@ ROUTES.push(createEnginePlacementRoutes({
   save: (id, computer) => setRemoteEngineBot(DATA_DIR, id, computer),
 }));
 ROUTES.push(createStreamWatchRoutes({ clients: () => sseClients }));
-ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk") }));
+ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk"), measure: () => diskBreakdown.measure() }));
 ROUTES.push(createLinkPreviewRoutes());
 ROUTES.push(createBotMemoryRoutes({
   bot: (id) => store.bot(id),
@@ -13255,7 +13259,7 @@ const firstHelloDeps: FirstHelloDeps = {
   patchMessage: (threadId, messageId, patch) => { store.patchMessage(threadId, messageId, patch); },
   personName: () => cfg.profile?.name,
   canRun: async (instanceId) => (await describeInstances()).some((instance) =>
-    instance.instanceId === instanceId && instance.snapshot.state === "available" && instance.snapshot.authenticated !== false),
+    instance.instanceId === instanceId && readingReady(instance.snapshot)),
   start: (botId, threadId, prompt, introducedBy) => startTurn(botId, prompt, { threadId, cardContinuation: true, ...(introducedBy ? { lentBy: introducedBy } : {}) }),
 };
 ROUTES.push(createDogHelloRoutes(firstHelloDeps, (auth) => sessionLendingPrincipal(auth) ?? undefined));
@@ -13780,7 +13784,7 @@ ROUTES.push(createIncludedUsageRoutes());
 if (!process.env.VITEST) setTimeout(() => {
   void (async () => {
     const own = (await describeInstances()).some((instance) => !INCLUDED_AI_INSTANCES.includes(instance.instanceId)
-      && instance.snapshot.state === "available" && instance.snapshot.authenticated !== false);
+      && answeredReady(instance.snapshot));
     if (own) return;
     if (await autoStartTrial({ otherComputers: () => boat.otherComputersConfigured(cfg), cloudHome: Boolean(CLOUD_HOME) })) {
       broadcast({ kind: "config", ...configStatus() });
@@ -21187,6 +21191,7 @@ function janitorWorkspaces(): WorkspaceTask[] {
 }
 
 let lastJanitorRun: JanitorRun | null = null;
+const diskBreakdown = createDiskBreakdown({ dataDir: DATA_DIR, home: CLOUD_HOME ? homedir() : null, scratch: CLOUD_HOME ? [tmpdir()] : [], dogName: (id) => store.bot(id)?.name ?? null });
 let janitorRunning = false;
 
 function runJanitorNow(reason: JanitorRun["reason"]): JanitorRun | null {
@@ -21218,8 +21223,8 @@ if (logArchive) {
 }
 
 if (CLOUD_HOME) {
-  setTimeout(() => runJanitorNow("startup"), 2 * 60_000).unref();
-  setInterval(() => runJanitorNow("scheduled"), JANITOR_EVERY_MS).unref();
+  setTimeout(() => { runJanitorNow("startup"); if (!diskBreakdown.last()) diskBreakdown.measure(); }, 2 * 60_000).unref();
+  setInterval(() => { runJanitorNow("scheduled"); diskBreakdown.measure(); }, JANITOR_EVERY_MS).unref();
   setInterval(() => { if (isLowDisk(diskUse(DATA_DIR))) runJanitorNow("low-disk"); }, DISK_CHECK_MS).unref();
   setInterval(() => {
     const pressure = readMemoryPressure();
@@ -21275,6 +21280,7 @@ function cloudStorage() {
     warning: null,
     archive: logArchive?.status() ?? { enabled: false },
     janitor: lastJanitorRun ? { at: lastJanitorRun.at, freedBytes: lastJanitorRun.freedBytes, stopped: lastJanitorRun.reaped } : null,
+    breakdown: diskBreakdown.last(),
   };
 }
 

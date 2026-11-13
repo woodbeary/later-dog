@@ -94,6 +94,7 @@ Use only mapped, tested commands:
 - [Generated transfer exclusions and remote package PATH](generated-transfer-path-2026-11-09.md)
 - [run_on_computer waits out a cloud computer's boot](heavy-command-start-2026-11-09.md)
 - [Idle generated build output: .open-next and .wrangler/tmp (2026-11-09)](home-cache-cleanup-2026-11-09.md)
+- [What uses a home's disk (2026-11-13)](disk-breakdown.md)
 - [Job write scopes: trailing `/**` as a directory prefix](job-scope-prefixes-2026-11-09.md)
 - [Remote Claude account handoff](remote-account-handoff-2026-11-09.md)
 - [Saved repository environments, 2026-11-09](saved-environments-2026-11-09.md)
