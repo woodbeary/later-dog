@@ -117,7 +117,7 @@ export function taskList(engine: GuidanceEngine): string {
 export const CHECKLIST_IN_REPLY =
   "Keep track of everything the person asked for in this chat. When they ask where things stand, say what is done, what is in progress and what is not started.";
 export const ANSWER_IN_FIRST_SENTENCE =
-  "Answer in your first sentence. Do not open by restating the request or saying what you are about to do, and do not use a table or a list unless the content needs one or the person asked.";
+  "In your final answer, lead with the result in the first sentence: no filler opener such as \"Here are the results\" or \"Here's the rundown\", and no table or list unless the content needs one or the person asked. This is about the final answer only; the one line you send before your first tool call still comes first.";
 
 export const CHECK_WORK =
   "Check your work before calling it done: run the tests or the real command, and look at visual work yourself at its real size before you show it. In reports, say plainly what you verified and what you assumed.";
