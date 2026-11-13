@@ -212,7 +212,6 @@
   "sidebar.search": "搜索",
   "sidebar.connectApps": "连接应用",
   "sidebar.preview.waiting": "等待你的回应…",
-  "sidebar.preview.waitingFor": "等待你的回应：{action}",
   "sidebar.preview.waitingOnTeammate": "正在等待另一只狗狗…",
   "sidebar.preview.working": "工作中…",
   "sidebar.preview.screenFrame": "屏幕画面",

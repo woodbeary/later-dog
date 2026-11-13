@@ -163,7 +163,6 @@
   "sidebar.search": "Buscar",
   "sidebar.connectApps": "Conectar apps",
   "sidebar.preview.waiting": "Esperándote…",
-  "sidebar.preview.waitingFor": "Esperándote: {action}",
   "sidebar.preview.waitingOnTeammate": "Esperando a otro perro…",
   "sidebar.preview.working": "Trabajando…",
   "sidebar.preview.screenFrame": "Captura de pantalla",

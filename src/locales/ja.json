@@ -165,7 +165,6 @@
   "sidebar.search": "検索",
   "sidebar.connectApps": "アプリを接続",
   "sidebar.preview.waiting": "あなたの返答待ち…",
-  "sidebar.preview.waitingFor": "あなたの返答待ち: {action}",
   "sidebar.preview.waitingOnTeammate": "ほかの犬を待っています…",
   "sidebar.preview.working": "作業中…",
   "sidebar.preview.screenFrame": "画面フレーム",
