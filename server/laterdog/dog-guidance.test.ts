@@ -13,8 +13,11 @@ import {
   EVIDENCE_FIRST,
   FINISH_WORK,
   guidanceEngine,
+  connectedNowPrompt,
   guidancePart,
+  guidanceParts,
   homeGitHubSignedIn,
+  homeKit,
   kitPrompt,
   medicationBlock,
   modelFamily,
@@ -29,11 +32,12 @@ import {
   SENDING,
   STAY_FREE,
   STOP_MEANS_STOP,
-  TASK_LIST,
+  ANSWER_IN_FIRST_SENTENCE,
+  taskList,
   PAYMENTS_BLOCK,
   REPLY_STYLE,
   ROOM_TEAM_PROMPT,
-  TEAMMATE_TASK_PROMPT,
+  teammateTaskPrompt,
   type ModelFamily,
 } from "./dog-guidance.ts";
 
@@ -41,7 +45,7 @@ const everything = () => [
   dogGuidance({ engine: "claude", model: "claude-fable-5-2", kit: { cloudHome: true, ownComputer: true, vault: true, github: true, google: true, mac: true } }),
   dogGuidance({ engine: "codex", model: "gpt-5.6" }),
   REPLY_STYLE,
-  TEAMMATE_TASK_PROMPT,
+  teammateTaskPrompt(true),
   ROOM_TEAM_PROMPT,
 ].join("\n");
 
@@ -67,12 +71,12 @@ describe("the guidance every dog gets", () => {
     expect(ANSWER_FIRST).toMatch(/not what you do not know yet, and never fill the gap with an answer you have not checked/);
     expect(ANSWER_FIRST).toMatch(/one-line update at natural points/);
     expect(ANSWER_FIRST).toMatch(/If you stop before the work is done, say why in plain words/);
-    expect(TASK_LIST).toMatch(/^Your task list is your queue, and the person sees it in the app/);
-    expect(TASK_LIST).toMatch(/Add each thing they ask for before you start it, mark it in progress when work begins, and done only after it was checked and they were told/);
-    expect(TASK_LIST).toMatch(/on every new message and whenever a helper or a background command finishes; make checking the last item/);
-    expect(TASK_LIST).toMatch(/"not live yet"/);
-    expect(TASK_LIST).toMatch(/When they ask where things stand \(a status, a checkpoint, "where are we"\), answer from the list: done, in progress, not started/);
-    expect(CHECKLIST_IN_REPLY).toMatch(/running checklist of everything the person asked for in this chat/);
+    expect(taskList("claude")).toMatch(/^Your task list \(TodoWrite\) is your queue, and the app shows the person your progress from it\. Add each thing they ask for when they ask it; something they want later goes on the list as not started\. Mark an item in progress when work begins, and done only after it was checked and they were told\./);
+    expect(taskList("codex")).toMatch(/^Your task list \(update_plan\) is your queue/);
+    expect(taskList("other")).toMatch(/^Your task list is your queue/);
+    expect(taskList("claude")).toMatch(/on every new message and whenever a helper or a background command finishes; make checking the last item/);
+    expect(taskList("claude")).toMatch(/"not live yet"/);
+    expect(taskList("claude")).toMatch(/When they ask where things stand \(a status, a checkpoint, "where are we"\), answer from the list: done, in progress, not started/);
     expect(DECIDE_DONT_ASK).toMatch(/Make engineering choices yourself with current best practice/);
     expect(DECIDE_DONT_ASK).toMatch(/a secret, a tap on their device, money, or a preference/);
     expect(EVIDENCE_FIRST).toMatch(/this chat and its files, your memory and past chats .*, connected apps, the web, the signed-in browser, your computer/);
@@ -81,11 +85,19 @@ describe("the guidance every dog gets", () => {
     expect(CHECK_WORK).toMatch(/say plainly what you verified and what you assumed/);
     expect(CHECK_WORK).toMatch(/^Check your work before calling it done/);
     expect(FINISH_WORK).toMatch(/ordinary obstacles/);
-    for (const line of [ANSWER_FIRST, FINISH_WORK, TASK_LIST, CHECK_WORK, DECIDE_DONT_ASK, EVIDENCE_FIRST, ACTING, needsPerson("claude"), SENDING, STAY_FREE, HELPER_BRIEF, STOP_MEANS_STOP, BETWEEN_DOGS, ROUTINE_OFFER, PRECEDENCE]) expect(text).toContain(line);
+    for (const line of [ANSWER_FIRST, FINISH_WORK, taskList("claude"), CHECK_WORK, DECIDE_DONT_ASK, EVIDENCE_FIRST, ACTING, needsPerson("claude"), SENDING, STAY_FREE, HELPER_BRIEF, STOP_MEANS_STOP, BETWEEN_DOGS, ROUTINE_OFFER, PRECEDENCE]) expect(text).toContain(line);
     expect(text).not.toContain(CHECKLIST_IN_REPLY);
-    expect(dogGuidance({ engine: "codex", model: "gpt-5.6" })).toContain(TASK_LIST);
-    expect(dogGuidance({ engine: "other", model: "kimi-k2.6" })).toContain(CHECKLIST_IN_REPLY);
-    expect(dogGuidance({ engine: "other", model: "kimi-k2.6" })).not.toContain(TASK_LIST);
+    expect(dogGuidance({ engine: "codex", model: "gpt-5.6" })).toContain(taskList("codex"));
+  });
+
+  it("has an included model answer first, without a checklist, opener or unasked table", () => {
+    const included = dogGuidance({ engine: "other", model: "kimi-k2.6" });
+    expect(CHECKLIST_IN_REPLY).toBe("Keep track of everything the person asked for in this chat. When they ask where things stand, say what is done, what is in progress and what is not started.");
+    expect(included).toContain(CHECKLIST_IN_REPLY);
+    expect(included).not.toMatch(/Your task list|show it in your reply/);
+    expect(included).toContain(`<model_notes>\n${ANSWER_IN_FIRST_SENTENCE}\n</model_notes>`);
+    expect(ANSWER_IN_FIRST_SENTENCE).toBe("Answer in your first sentence. Do not open by restating the request or saying what you are about to do, and do not use a table or a list unless the content needs one or the person asked.");
+    expect(dogGuidance({ engine: "claude", model: "kimi-k2.6" })).not.toContain(ANSWER_IN_FIRST_SENTENCE);
   });
 
   it("keeps the dog free to answer, briefs helpers well and stops everything on stop", () => {
@@ -129,24 +141,50 @@ describe("the guidance every dog gets", () => {
     const kit = kitPrompt({ cloudHome: true, ownComputer: true, vault: true, github: true, google: true, mac: true });
     expect(kit).toMatch(/your own cloud computer .*run_on_computer/);
     expect(kit).toMatch(/the vault \(vault_secret\)/);
-    expect(kit).toMatch(/GitHub, signed in on this home/);
-    expect(kit).toMatch(/You do not need the person's Mac, a new sign-in or a fresh approval for work you were given/);
+    expect(kit).not.toMatch(/GitHub|lent Mac/);
+    expect(connectedNowPrompt({ github: true, mac: true })).toBe(" Connected now: GitHub, signed in on this home; a lent Mac through shared_computer. Use these before asking the person for a sign-in or for their Mac.");
+    expect(connectedNowPrompt({ ownComputer: true, vault: true })).toBe("");
+    expect(kit.endsWith("Use these before asking the person for a sign-in or for their Mac.")).toBe(true);
+    expect(kit).not.toMatch(/approval/);
     expect(kitPrompt({ ownComputer: true })).not.toMatch(/GitHub|vault/);
     expect(kitPrompt({})).toBe("");
     expect(kitPrompt(undefined)).toBe("");
-    expect(TEAMMATE_TASK_PROMPT).toMatch(/^Do the request below in this conversation/);
-    expect(TEAMMATE_TASK_PROMPT).toMatch(/not too risky to do/);
-    expect(TEAMMATE_TASK_PROMPT).toMatch(/do not ask again for an approval the request already carries/);
-    expect(TEAMMATE_TASK_PROMPT).not.toMatch(/A no from the person/);
   });
 
-  it("reads the home's GitHub sign-in from the token or the gh login file", () => {
+  it("keeps the person's no in work another dog hands over, and waives a second ask only with the owner's authority", () => {
+    const owned = teammateTaskPrompt(true);
+    const peer = teammateTaskPrompt(false);
+    for (const prompt of [owned, peer]) {
+      expect(prompt).toMatch(/^Do the request below in this conversation/);
+      expect(prompt).toContain("A no from the person stays a no.");
+    }
+    expect(owned).toMatch(/is not too risky to do: .*do not ask again for an approval the request already carries/);
+    expect(peer).not.toMatch(/not too risky|do not ask again for an approval/);
+  });
+
+  it("claims a Mac only while one is connected to the home", () => {
+    const home = { cloudHome: true, agents: true, vault: true };
+    const signedOut = () => false;
+    expect(homeKit({ ...home, macsOnline: 0 }, signedOut).mac).toBe(false);
+    expect(connectedNowPrompt(homeKit({ ...home, macsOnline: 0 }, signedOut))).toBe("");
+    expect(connectedNowPrompt(homeKit({ ...home, macsOnline: 1 }, signedOut))).toMatch(/a lent Mac through shared_computer/);
+    expect(homeKit({ ...home, cloudHome: false, macsOnline: 1 }, () => true)).toMatchObject({ mac: false, github: false, ownComputer: false });
+  });
+
+  it("reads the home's GitHub sign-in from the token or a gh login file that names a user or token", () => {
     const home = mkdtempSync(join(tmpdir(), "guidance-gh-"));
+    const hosts = (text: string) => writeFileSync(join(home, ".config", "gh", "hosts.yml"), text);
     try {
       expect(homeGitHubSignedIn({}, home)).toBe(false);
       expect(homeGitHubSignedIn({ GH_TOKEN: "x" }, home)).toBe(true);
       mkdirSync(join(home, ".config", "gh"), { recursive: true });
-      writeFileSync(join(home, ".config", "gh", "hosts.yml"), "github.com: {}\n");
+      for (const loggedOut of ["{}\n", "", "github.com: {}\n", "github.com:\n    git_protocol: https\n"]) {
+        hosts(loggedOut);
+        expect([loggedOut, homeGitHubSignedIn({}, home)]).toEqual([loggedOut, false]);
+      }
+      hosts("github.com:\n    user: sam\n    git_protocol: https\n");
+      expect(homeGitHubSignedIn({}, home)).toBe(true);
+      hosts("github.com:\n    users:\n        sam:\n            oauth_token: x\n");
       expect(homeGitHubSignedIn({}, home)).toBe(true);
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -156,6 +194,7 @@ describe("the guidance every dog gets", () => {
   it("leaves approvals to the person's setting and keeps a yes for hard-to-undo, visible or paid actions", () => {
     expect(ACTING).toMatch(/Your approval setting decides which actions wait for the person's yes/);
     expect(ACTING).toMatch(/hard to undo, visible to other people \(sending, posting, publishing\) or that spends money/);
+    expect(ACTING.endsWith("Once the person has said yes to a piece of work, do not ask again for the same thing.")).toBe(true);
     expect(PAYMENTS_BLOCK).toContain("Say a check was done only if a tool result in this session showed it before you acted.");
   });
 
@@ -227,5 +266,22 @@ describe("the guidance every dog gets", () => {
     expect(first.stable.indexOf("You are Scout")).toBe(0);
     expect(first.stable.indexOf("You are one of the person's dogs")).toBeGreaterThan(first.stable.indexOf("--- END STANDING INSTRUCTIONS ---"));
     expect(first.stable).not.toContain("today is");
+  });
+
+  it("keeps the cached half byte-identical when a Mac connects or GitHub signs in, and changes only the connected section", () => {
+    const build = (macsOnline: number, github: boolean) => buildSystemPrompt("You are Scout, a dog in later.dog.", "Be brief.", [
+      ...guidanceParts({ engine: "claude", model: "claude-fable-5-2", kit: homeKit({ cloudHome: true, agents: true, vault: true, macsOnline }, () => github) }),
+      { id: "today", label: "Today", text: todayPrompt("America/Los_Angeles", new Date("2026-11-12T10:00:00Z")) },
+    ], "Sam");
+    const alone = build(0, false);
+    const connected = build(1, true);
+    expect(connected.stable).toBe(alone.stable);
+    expect(alone.stable).toContain("your own cloud computer");
+    expect(alone.stable).not.toMatch(/lent Mac|GitHub, signed in/);
+    expect(alone.volatileSections.map((section) => section.id)).toEqual(["today"]);
+    expect(connected.volatileSections.map((section) => section.id)).toEqual(["connected", "today"]);
+    expect(connected.volatileSections[0]).toMatchObject({ label: "Connected now", text: expect.stringContaining("a lent Mac through shared_computer") });
+    expect(connected.volatileSections[1]).toEqual(alone.volatileSections[0]);
+    expect(build(1, false).stable).toBe(alone.stable);
   });
 });

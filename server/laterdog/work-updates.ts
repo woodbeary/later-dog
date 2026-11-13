@@ -1,3 +1,4 @@
+import type { GuidanceEngine } from "./dog-guidance.ts";
 import { TAPBACK_NOTE, TAPBACK_PROMPT } from "./tapback.ts";
 
 export const QUIET_WORK_PROMPT =
@@ -15,8 +16,10 @@ export const KEEP_GOING_WITH_BACKGROUND_PROMPT =
   " Apart from background work, nothing happens after your turn ends, so do not end it on a line about what you will do next; do the work now, or say in one line what is stopping you.";
 export const ON_IT_NOTE = `[later.dog note, not typed by the person: if this needs a tool, send your one short on-it line first, before the first tool call. A react tapback needs no on-it line.${TAPBACK_NOTE}]`;
 
-export function withOnItNote(text: string): string {
-  return `${text}\n\n${ON_IT_NOTE}`;
+export const SHORT_ON_IT_NOTE = `[later.dog note, not typed by the person: If you will use a tool, say in one line what you are doing first; otherwise just answer.${TAPBACK_NOTE}]`;
+
+export function withOnItNote(text: string, engine?: GuidanceEngine): string {
+  return `${text}\n\n${engine === "other" ? SHORT_ON_IT_NOTE : ON_IT_NOTE}`;
 }
 
 export const STEER_NOTE = `[later.dog note, not typed by the person: the person sent this while you were working. Reply to it now in a short line, before your next tool call, then carry on with any change it asks for.${TAPBACK_NOTE}]`;

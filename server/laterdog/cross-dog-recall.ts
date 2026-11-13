@@ -3,7 +3,8 @@ import type { SecretRequestCardData } from "../../shared/wire.ts";
 import type { SecureFormCardData } from "../../shared/secure-form.ts";
 
 export const CROSS_DOG_RECALL_PROMPT =
-  " When you work for the owner, session_search with bot (another dog's name or id, or \"all\") also searches the owner's other dogs' chats, group chats and memory files, and session_read reads any message or memory file a hit names.";
+  " When you work for the owner, session_search with bot (another dog's name or id, or \"all\") also searches the owner's other dogs' chats, group chats and memory files, and session_read reads any message or memory file a hit names." +
+  " To learn what another dog did, said or decided, search its chats there instead of asking it.";
 
 export const ALL_DOGS = "all";
 

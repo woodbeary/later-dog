@@ -8309,7 +8309,7 @@ describe("harness HTTP API", () => {
         boatPromptBodies.length = 0;
         expect((await computerSection(boatBot.id)).text).toBe(computerPrompt("box"));
         const boatTurn = await turnPrompt(`/api/bots/${boatBot.id}/messages`);
-        expect(boatTurn).toContain(computerPrompt("box"));
+        expect(boatTurn).toContain(computerPrompt("box").trim());
         for (const paragraph of ["isolated Cua sandbox", "This is a VPS", "user's computer"]) {
           expect(boatTurn).not.toContain(paragraph);
         }

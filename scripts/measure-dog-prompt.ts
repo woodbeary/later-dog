@@ -71,10 +71,10 @@ async function measure(dumpDir?: string): Promise<Measurement> {
     const timeZone = "America/Los_Angeles";
     const today = sp.todayPrompt(timeZone, new Date(now));
     const guideParts = (engine: Engine, main: boolean) => guide
-      ? [guide.guidancePart({ engine, model: ENGINE_MODELS[engine], kit: { cloudHome: true, ownComputer: true, vault: true, github: true, google: main, mac: true } })]
+      ? (guide.guidanceParts ?? ((input: Parameters<typeof guide.guidancePart>[0]) => [guide.guidancePart(input)]))({ engine, model: ENGINE_MODELS[engine], kit: { cloudHome: true, ownComputer: true, vault: true, github: true, google: main, mac: true } })
       : [];
     const teammate = "\nDo the request below in this conversation with your own tools, model and permissions. For a question, answer it; do not turn it into a project. For work, check the actual files and run the checks asked for. Do not give up at the first refusal or error from a tool or system: check what is actually true and try another way. A no from the person stays a no. If one step truly needs something only the person or the dog that asked can give, name exactly that step and finish everything else. Use coordinate_bots only for subwork you truly need, then end your turn; results resume you. Report what you did and what is still unverified. " + owner.ownerCoordinationAuthority(owned);
-    const teammateText = guide?.TEAMMATE_TASK_PROMPT ? `\n${guide.TEAMMATE_TASK_PROMPT} ${owner.ownerCoordinationAuthority(owned)}` : teammate;
+    const teammateText = guide ? `\n${guide.teammateTaskPrompt(true)} ${owner.ownerCoordinationAuthority(owned)}` : teammate;
 
     const direct = (engine: Engine, kind: Exclude<DogKind, "group">, left = 80, lines = recentLines) => {
       const main = kind === "main";

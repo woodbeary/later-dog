@@ -58,7 +58,7 @@ it("advertises ordinary bots in different packs bidirectionally through list_bot
     const turn = f.evidence().find((entry: any) => entry.botId === from.id);
     expect(toolResult(turn, "list_bots")).toContain(`[id: ${to.id},`);
     expect(toolResult(turn, "list_bots")).toContain(`team: ${to.section}`);
-    expect(turn.system).toContain("ask your other dogs for advice or work with coordinate_bots");
+    expect(turn.system).toContain("Ask with coordinate_bots (list_bots shows who they are)");
   }
 }), 60_000);
 

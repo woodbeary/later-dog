@@ -1,6 +1,8 @@
-import { existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+
+import { parse as parseYaml } from "yaml";
 
 export type GuidanceEngine = "claude" | "codex" | "other";
 
@@ -60,8 +62,41 @@ export function modelFamily(model: string | undefined): ModelFamily {
   return FAMILY_PATTERNS.find(([pattern]) => pattern.test(id))?.[1] ?? "other";
 }
 
+function hostSignedIn(host: unknown): boolean {
+  if (!host || typeof host !== "object") return false;
+  const { user, oauth_token: token, users } = host as Record<string, unknown>;
+  const named = (value: unknown) => typeof value === "string" && value.trim() !== "";
+  return named(user) || named(token) || Boolean(users && typeof users === "object" && Object.keys(users).length);
+}
+
 export function homeGitHubSignedIn(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): boolean {
-  return Boolean(env.GH_TOKEN || env.GITHUB_TOKEN) || existsSync(join(home, ".config", "gh", "hosts.yml"));
+  if (env.GH_TOKEN || env.GITHUB_TOKEN) return true;
+  try {
+    const hosts: unknown = parseYaml(readFileSync(join(home, ".config", "gh", "hosts.yml"), "utf8"));
+    return Boolean(hosts && typeof hosts === "object" && Object.values(hosts).some(hostSignedIn));
+  } catch {
+    return false;
+  }
+}
+
+export interface HomeKitInput {
+  cloudHome: boolean;
+  agents: boolean;
+  vault: boolean;
+  macsOnline: number;
+  google?: boolean;
+}
+
+export function homeKit(input: HomeKitInput, githubSignedIn: () => boolean = homeGitHubSignedIn): DogKit {
+  const onHome = input.cloudHome && input.agents;
+  return {
+    cloudHome: input.cloudHome,
+    ownComputer: onHome,
+    vault: onHome && input.vault,
+    github: input.cloudHome && githubSignedIn(),
+    google: input.google,
+    mac: onHome && input.macsOnline > 0,
+  };
 }
 
 export const DOG_CONTEXT =
@@ -72,9 +107,17 @@ export const ANSWER_FIRST =
   "Answer first: when a message needs work, say in one line what you are doing before your first tool call, not what you do not know yet, and never fill the gap with an answer you have not checked. Give a one-line update at natural points. If you stop before the work is done, say why in plain words and what would let it continue.";
 export const FINISH_WORK =
   "Carry the work to the end: errors, timeouts, empty results and failing tools are ordinary obstacles to work through. Stop only when nothing can move without the person, or a blocker was put there on purpose.";
-export const TASK_LIST =
-  "Your task list is your queue, and the person sees it in the app. Add each thing they ask for before you start it, mark it in progress when work begins, and done only after it was checked and they were told. Update it on every new message and whenever a helper or a background command finishes; make checking the last item. When they ask where things stand (a status, a checkpoint, \"where are we\"), answer from the list: done, in progress, not started. Say \"not live yet\" for what is built but not shipped or on their device.";export const CHECKLIST_IN_REPLY =
-  "Keep a running checklist of everything the person asked for in this chat and show it in your reply when it changes: what is done, in progress or missing. Mark an item done only after you checked it, and say \"not live yet\" when it is built but not shipped or on their device.";
+export const TASK_TOOLS: Readonly<Partial<Record<GuidanceEngine, string>>> = { claude: "TodoWrite", codex: "update_plan" };
+
+export function taskList(engine: GuidanceEngine): string {
+  const tool = TASK_TOOLS[engine];
+  return `Your task list${tool ? ` (${tool})` : ""} is your queue, and the app shows the person your progress from it. Add each thing they ask for when they ask it; something they want later goes on the list as not started. Mark an item in progress when work begins, and done only after it was checked and they were told. Update it on every new message and whenever a helper or a background command finishes; make checking the last item. When they ask where things stand (a status, a checkpoint, "where are we"), answer from the list: done, in progress, not started. Say "not live yet" for what is built but not shipped or on their device.`;
+}
+
+export const CHECKLIST_IN_REPLY =
+  "Keep track of everything the person asked for in this chat. When they ask where things stand, say what is done, what is in progress and what is not started.";
+export const ANSWER_IN_FIRST_SENTENCE =
+  "Answer in your first sentence. Do not open by restating the request or saying what you are about to do, and do not use a table or a list unless the content needs one or the person asked.";
 
 export const CHECK_WORK =
   "Check your work before calling it done: run the tests or the real command, and look at visual work yourself at its real size before you show it. In reports, say plainly what you verified and what you assumed.";
@@ -91,7 +134,7 @@ export const HELPER_BRIEF =
   "When tool calls do not depend on each other, make them in parallel.";
 
 export const ACTING =
-  "Do the task rather than describe it. Your approval setting decides which actions wait for the person's yes; when it asks, ask once and name the exact action. Where no setting or rule covers it, ask first before anything that is hard to undo, visible to other people (sending, posting, publishing) or that spends money.";
+  "Do the task rather than describe it. Your approval setting decides which actions wait for the person's yes; when it asks, ask once and name the exact action. Where no setting or rule covers it, ask first before anything that is hard to undo, visible to other people (sending, posting, publishing) or that spends money. Once the person has said yes to a piece of work, do not ask again for the same thing.";
 
 export const NEEDS_PERSON =
   "When you need an answer or a step only the person can give, raise it with a card tool that fits (a secure form, take-over, device approval, credential request or proposal), so the app shows that you are waiting. Ask one question at a time, with real options. A dismissed or declined card is a no: do not ask again or reach the same end another way.";export const QUESTION_TOOLS: Readonly<Partial<Record<GuidanceEngine, string>>> = { claude: "AskUserQuestion", codex: "request_user_input" };
@@ -115,8 +158,16 @@ export const ROUTINE_OFFER =
 export const PRECEDENCE =
   "A tool's description says how to use it; these instructions say when.";
 
-export const TEAMMATE_TASK_PROMPT =
-  "Do the request below in this conversation with your own tools, model and permissions. A question gets an answer, not a project; work gets the actual files checked and the asked-for checks run. Work given to you this way is not too risky to do: use what you already have, and do not ask again for an approval the request already carries. If one step truly needs something only the person or the dog that asked can give, name exactly that step and finish everything else. Use coordinate_bots only for subwork you cannot do yourself, then end your turn; results resume you. Report what you did and what is still unverified.";
+const TEAMMATE_START =
+  "Do the request below in this conversation with your own tools, model and permissions. A question gets an answer, not a project; work gets the actual files checked and the asked-for checks run.";
+const TEAMMATE_OWNER_WORK =
+  " Work given to you this way is not too risky to do: use what you already have, and do not ask again for an approval the request already carries.";
+const TEAMMATE_REST =
+  " A no from the person stays a no. If one step truly needs something only the person or the dog that asked can give, name exactly that step and finish everything else. Use coordinate_bots only for subwork you cannot do yourself, then end your turn; results resume you. Report what you did and what is still unverified.";
+
+export function teammateTaskPrompt(ownerAuthority: boolean): string {
+  return TEAMMATE_START + (ownerAuthority ? TEAMMATE_OWNER_WORK : "") + TEAMMATE_REST;
+}
 export const ROOM_TEAM_PROMPT =
   "To get another dog's help, here or in another group chat, use coordinate_bots (list_bots has the ids) instead of a native helper, then end your turn; their results resume you. Plain @mentions are only for conversational replies in this room. Bring another dog in only when its work is needed and you cannot do it yourself.";
 
@@ -217,12 +268,19 @@ export function kitPrompt(kit: DogKit | undefined): string {
   const have = [
     kit.ownComputer && "your own cloud computer for heavy commands, builds and tests (run_on_computer)",
     kit.vault && "the vault (vault_secret) with saved logins and keys",
-    kit.github && "GitHub, signed in on this home",
     kit.google && "Google through connect_google and the gmail tools",
-    kit.mac && "a lent Mac through shared_computer",
   ].filter((item): item is string => Boolean(item));
   if (!have.length) return "";
-  return `Already set up for you: ${have.join("; ")}. You do not need the person's Mac, a new sign-in or a fresh approval for work you were given.`;
+  return `Already set up for you: ${have.join("; ")}. Use these before asking the person for a sign-in or for their Mac.`;
+}
+
+export function connectedNowPrompt(kit: DogKit | undefined): string {
+  const connected = [
+    kit?.github && "GitHub, signed in on this home",
+    kit?.mac && "a lent Mac through shared_computer",
+  ].filter((item): item is string => Boolean(item));
+  if (!connected.length) return "";
+  return ` Connected now: ${connected.join("; ")}. Use these before asking the person for a sign-in or for their Mac.`;
 }
 
 export function dogGuidance(input: GuidanceInput): string {
@@ -231,7 +289,7 @@ export function dogGuidance(input: GuidanceInput): string {
     PRECEDENCE,
     ANSWER_FIRST,
     FINISH_WORK,
-    input.engine === "other" ? CHECKLIST_IN_REPLY : TASK_LIST,
+    input.engine === "other" ? CHECKLIST_IN_REPLY : taskList(input.engine),
     family === "opus-5" ? "" : CHECK_WORK,
     DECIDE_DONT_ASK,
     EVIDENCE_FIRST,
@@ -243,7 +301,7 @@ export function dogGuidance(input: GuidanceInput): string {
     BETWEEN_DOGS,
     ROUTINE_OFFER,
   ].filter(Boolean);
-  const notes = modelNotes(family);
+  const notes = [...modelNotes(family), ...(input.engine === "other" ? [ANSWER_IN_FIRST_SENTENCE] : [])];
   const medication = medicationBlock(family);
   const kit = kitPrompt(input.kit);
   return [
@@ -257,4 +315,8 @@ export function dogGuidance(input: GuidanceInput): string {
 
 export function guidancePart(input: GuidanceInput): { id: string; label: string; text: string } {
   return { id: "guide", label: "How to work", text: dogGuidance(input) };
+}
+
+export function guidanceParts(input: GuidanceInput): Array<{ id: string; label: string; text: string }> {
+  return [guidancePart(input), { id: "connected", label: "Connected now", text: connectedNowPrompt(input.kit) }];
 }

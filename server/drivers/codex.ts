@@ -37,7 +37,7 @@ import { classifyError, computeBackoff, interruptibleDelay, RETRY_MAX_ATTEMPTS }
 import { appendNative } from "./native.ts";
 import { permissionCommand, permissionLaunchCwd } from "./permission-command.ts";
 import { commandSummary, toolDetailPreview } from "../tool-summary.ts";
-import { codexDeveloperInstructions, syncCodexInstructions } from "./codex-instructions.ts";
+import { codexDeveloperInstructions, forgetDeliveredContext, syncCodexInstructions } from "./codex-instructions.ts";
 import { withContextNote } from "./prompt-split.ts";
 import type { ApprovalMode } from "../../shared/approval-mode.ts";
 import { CodexDeviceAuthController } from "./codex-device-auth.ts";
@@ -844,6 +844,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       let codexTurnId: string | null = null;
       const steerReads = new SteerReads();
       let startingNativeTurn = false;
+      let compacted = false;
       const earlyNotifications: any[] = [];
       const helpers = new CodexHelpers(helper => emit({ ...base(threadId, turnId), type: "helper.updated", helper }));
       const nativeActivity = new CodexNativeActivity(observation => emit({ ...base(threadId, turnId), type: "native.observed", observation }));
@@ -1293,6 +1294,10 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
             const item = p.item ?? {};
             helpers.receive(item);
             if (item.type === "userMessage") steerReads.seen(item.content);
+            if (item.type === "contextCompaction") {
+              compacted = true;
+              if (codexThreadId) forgetDeliveredContext(threadId, codexThreadId);
+            }
             if (item.type === "agentMessage") {
               if (item.text?.trim()) {
                 state.lastText = item.text;
@@ -1686,7 +1691,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
           approvalParams = approvalParams.fallback;
           await startTurn();
         }
-        if (commitVolatile) commitVolatile();
+        if (commitVolatile && !compacted) commitVolatile();
       } catch (e) {
         const failure = e instanceof Error ? e : { text: String(e) };
         const raw = e instanceof Error ? e.message : String(e);

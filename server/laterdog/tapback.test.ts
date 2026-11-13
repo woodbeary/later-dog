@@ -54,7 +54,7 @@ describe("a dog's tapback", () => {
   });
 
   it("tells the dog the tapback is the reply and to end the turn", () => {
-    expect(reactedText("👍", { text: "ok" })).toBe("Reacted 👍 to “ok”. End your turn now without writing anything unless there is more to say; the reaction is the reply.");
+    expect(reactedText("👍", { text: "ok" })).toBe("Reacted 👍 to “ok”. End your turn now without writing anything; the reaction is the reply.");
     expect(reactedText("👍", { text: "x".repeat(80) })).toContain(`“${"x".repeat(57)}…”`);
   });
 
@@ -68,6 +68,7 @@ describe("what dogs are told about tapbacks", () => {
     expect(workUpdatesPrompt({ react: true })).toContain(TAPBACK_PROMPT);
     expect(TAPBACK_PROMPT).toMatch(/"ok", "thanks", "👍" or "got it", react to it with the react tool and end your turn without writing anything/);
     expect(TAPBACK_PROMPT).toMatch(/for a plain acknowledgment sent mid-task, the reaction is the short reply/);
+    expect(TAPBACK_PROMPT.endsWith(" The tapback is the whole reply.")).toBe(true);
     expect(workUpdatesPrompt()).not.toContain("react tool");
   });
 
