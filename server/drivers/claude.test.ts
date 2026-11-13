@@ -683,7 +683,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     expect(() => process.kill(-pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
   });
 
-  it("reads a limit from the words of an unstructured api-error frame, and leaves other API errors as replies", async () => {
+  it("reads a limit from the words of an unstructured api-error frame, and says other API errors as a failure, not a reply", async () => {
     const weekly = "You've hit your weekly limit · resets Oct 9, 5pm (America/Los_Angeles)";
     await create("api-error", { FAKE_CLAUDE_API_ERROR: weekly });
     await instance.adapter.sendTurn({ threadId: "t-usage-words", text: "hi" });
@@ -696,9 +696,8 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await create("api-error");
     await instance.adapter.sendTurn({ threadId: "t-overloaded", text: "hi" });
     await recorder.until((event) => event.type === "turn.completed");
-    expect(recorder.events.some((event) => event.type === "runtime.error")).toBe(false);
-    expect(recorder.events.find((event) => event.type === "item.completed" && event.itemType === "assistant_text"))
-      .toMatchObject({ synthetic: true, text: expect.stringContaining("Overloaded") });
+    expect(recorder.events.filter((event) => event.type === "runtime.error")).toEqual([expect.objectContaining({ message: expect.stringContaining("529 Overloaded") })]);
+    expect(recorder.events.some((event) => event.type === "item.completed" && event.itemType === "assistant_text")).toBe(false);
     expect(recorder.events.at(-1)).toMatchObject({ ok: false, stopReason: "stop_sequence" });
   });
 
@@ -2235,7 +2234,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     if (reason === "stop") await instance.adapter.interruptTurn("t-stop-puppies");
     await recorder.until(e => e.type === "turn.completed");
     expect(recorder.events.filter(e => e.type === "helper.updated" && e.helper.state === "stopped")).toHaveLength(2);
-    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "runtime.error", message: "The helpers stopped with this turn." }));
+    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "runtime.error", message: "2 helpers stopped when this turn ended." }));
   });
 
   it("does not end the current turn or its approvals on a background-task result", async () => {

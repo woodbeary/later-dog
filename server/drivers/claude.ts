@@ -70,6 +70,8 @@ import { claudeToolTouch } from "../laterdog/tool-touches.ts";
 import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sections.ts";
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
 import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
+import { helpersStoppedLine } from "../laterdog/helpers-stopped.ts";
+import { claudeApiErrorFrame } from "../laterdog/claude-api-error.ts";
 
 export function claudeAuthStatus(
   cli: string,
@@ -1758,6 +1760,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
               session.turn.usageLimited = false;
               delete session.turn.rateLimit;
             }
+            if (!o.parent_tool_use_id && text.trim() && claudeApiErrorFrame(o)) {
+              emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: text.trim() });
+              break;
+            }
             if (text.trim()) {
               if (!o.parent_tool_use_id) session.repliedSinceResult = true;
               const synthetic = o.is_api_error_message === true || typeof o.error === "string" ? { synthetic: true } : {};
@@ -1946,7 +1952,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (!confirmed) emit({ ...base(threadId, currentTurnId()), type: "runtime.notice", message: leftoverProgramsNotice("Claude Code") });
         if (session.helperTimer) clearTimeout(session.helperTimer);
         session.helperTimer = null;
-        if (session.helpers.stop()) emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: "The helpers stopped with this turn." });
+        const stoppedLine = helpersStoppedLine(session.helpers.stopAll());
+        if (stoppedLine) emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: stoppedLine });
         if (session.turn?.stopRequested && !session.turn.settled) {
           settle(false, "interrupted");
         } else if (session.turn?.deferred && !session.turn.settled) {
