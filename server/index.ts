@@ -299,7 +299,7 @@ import { probeMcpServer } from "./mcp-probe.ts";
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { openCodeProviderKeysAllowed, setOpenCodeProviderKeyPolicy } from "./drivers/acp/opencode-go.ts";
 import { confirmRememberedCommand, recordAnswerScope, type GrantLookup } from "./laterdog/answer-scope.ts";
-import { dogAllows, dogGrantKeys, forgetInChats, grantToDog, revokeFromDog } from "./laterdog/always-allow.ts";
+import { dogAllows, dogGrantKeys, forgetInChats, grantToDog, liftGrantPause, pauseGrantsInChat, revokeFromDog } from "./laterdog/always-allow.ts";
 import { answerFromGrant, cardGrantKey, cardOnBehalfOf, lastingGrantTarget, lastingRefusal } from "./laterdog/always-allow-answer.ts";
 import { getOrCreateChannel } from "./comms-visibility.ts";
 import { readMessageText, recallMessages, recentMessages, searchMessagesAsync, closeMessageSearch, closeMessageDb, chatFollowups, cancelledChatFollowup, settleChatFollowups, threadsReferencing, openPermissionCards, latestMessageAts, reclaimFreePages } from "./message-db.ts";
@@ -4172,6 +4172,8 @@ function handleDesktopTrustedApprovalMessage(raw: unknown): boolean {
       store.patchBot(botId, { approvalGrant: { requestId, mode, phase: "prepared", threadId: target.threadId, threadOnly: true } });
     } else {
       if (clearsOwnGrant) clearGrant(existing);
+      if (mode === "ask") pauseGrantsInChat(store, botId, target.threadId);
+      else liftGrantPause(store, botId, target.threadId);
       store.patchTask(botId, target.threadId, { approvalMode: mode, autoApprove: mode === "auto", alwaysAllow: [] });
     }
     respond({ ok: true, bot: wireTrustedApprovalBot(store.bot(botId)!) });
@@ -7237,8 +7239,8 @@ bus.subscribe(guardTurnEnd((event: RuntimeEvent) => {
               ? { version: 1, questions, ...(event.origin === "output" ? { origin: "output" as const } : {}) }
               : undefined,
             commandAllowlist: cardCommand ?? undefined,
-            held: approvalHeldReason(heldContext),
-            heldCode: approvalHeldNote(heldContext),
+            held: cardKey ? undefined : approvalHeldReason(heldContext),
+            heldCode: cardKey ? undefined : approvalHeldNote(heldContext),
             approvalScope: event.approvalScope,
             ...(cardKey ? { allowKey: cardKey } : {}),
             ...(onBehalf ? { forDog: onBehalf } : {}),
@@ -9553,6 +9555,7 @@ async function stopBotForEmergencyApprovalDowngrade(botId: string): Promise<void
   if (!bot) return;
   for (const task of store.tasks(botId)) {
     if (task.approvalMode === "full" || task.approvalMode === "custom") {
+      pauseGrantsInChat(store, botId, task.threadId);
       store.patchTask(botId, task.threadId, { approvalMode: "ask", autoApprove: false, alwaysAllow: [] });
     }
   }
@@ -11690,7 +11693,9 @@ function grantFromAnswer(auth: RequestAuth, threadId: string, requestId: string,
   const target = lastingGrantTarget(store, threadId, requestId, behavior, body);
   if (!target || target.key === MAC_ALLOW_KEY || lastingGrantRefusal(auth, threadId)) return;
   const bot = store.bot(target.botId);
-  if (bot) addAlwaysAllow(bot, target.key);
+  if (!bot) return;
+  addAlwaysAllow(bot, target.key);
+  liftGrantPause(store, bot.id, threadId, target.key);
 }
 
 function connectorThread(botId: string, threadId: string) {
@@ -17551,7 +17556,9 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (!macApprovals.choose(pending.card!.requestId!, "always")) return json(res, 409, { error: "that grant is not on a pending approval for this bot" });
         return json(res, 200, { bot: wireBot(store.bot(bot.id)!), mac: macAccessView() });
       }
-      return json(res, 200, { bot: addAlwaysAllow(bot, allowKey) });
+      const granted = addAlwaysAllow(bot, allowKey);
+      liftGrantPause(store, bot.id, bot.threadId, allowKey);
+      return json(res, 200, { bot: granted });
     }
     m = path.match(/^\/api\/bots\/([\w-]+)$/);
     if (m && method === "PATCH") {

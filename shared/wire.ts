@@ -117,6 +117,7 @@ export interface WireTask {
   approvalMode?: ApprovalMode;
   autoApprove?: boolean;
   alwaysAllow?: string[];
+  pausedGrants?: string[];
   unread?: boolean;
   rewound?: boolean;
   pinnedMessageId?: string;
