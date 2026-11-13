@@ -41,8 +41,28 @@ describe("Account usage presentation", () => {
     expect(creditsOnly).toContain("49,383.73 credits remaining");
     expect(creditsOnly).not.toContain('role="meter"');
     expect(creditsLine(provider({ credits: { unlimited: true, balance: null } }))).toBe("Unlimited credits");
-    expect(creditsLine(provider({ credits: { unlimited: false, balance: "0" } }))).toBe("0 credits remaining");
+    expect(creditsLine(provider({ credits: { unlimited: false, balance: "0" } }))).toBeNull();
     expect(creditsLine(provider({ credits: { unlimited: false, balance: "unknown" } }))).toBeNull();
+  });
+
+  it.each([
+    ["zero", { unlimited: false, balance: "0" }, null],
+    ["negative", { unlimited: false, balance: "-3" }, null],
+    ["no", undefined, null],
+    ["unknown", { unlimited: false, balance: null }, null],
+    ["positive", { unlimited: false, balance: "12.5" }, "12.5 credits remaining"],
+    ["unlimited", { unlimited: true, balance: null }, "Unlimited credits"],
+  ] as const)("shows the bar and the resting state unless %s credits are spendable", (_, credits, line) => {
+    const now = Date.now();
+    const usedUp = provider({ driver: "codex", weekly: { available: true, usedPercent: 100, remainingPercent: 0, resetsAt: new Date(now + 72 * HOUR).toISOString() }, ...(credits ? { credits: { ...credits } } : {}) });
+    expect(creditsLine(usedUp)).toBe(line);
+    const html = renderToStaticMarkup(createElement(AccountUsage, { provider: usedUp, now }));
+    expect(html.includes("data-credit-balance")).toBe(line !== null);
+    expect(html).not.toContain("0 credits remaining");
+    expect(html).toContain('role="meter"');
+    const resting = renderToStaticMarkup(createElement(AccountUsage, { provider: usedUp, now, resting: { since: new Date(now - HOUR).toISOString(), until: new Date(now + HOUR).toISOString() } }));
+    expect(resting).toContain("data-rest-charge");
+    expect(resting.includes("data-credit-balance")).toBe(line !== null);
   });
 
   it("shows each window as a bar that fills as it is used, warming as it runs low, with what is left and its reset", () => {
