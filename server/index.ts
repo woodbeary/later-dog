@@ -7,7 +7,7 @@ import { BOOT_CLOUD_SECRETS } from "./cloud-secrets-boot.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, mkdirSync } from "node:fs";
-import { homedir, totalmem } from "node:os";
+import { homedir, tmpdir, totalmem } from "node:os";
 import { writeFileAtomic } from "./atomic.ts";
 import { rm as removeDirectory } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -134,6 +134,7 @@ import { HOME_HEALTH_FILE, startHomeHealthLog } from "./laterdog/home-health-log
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
+import { createDiskBreakdown } from "./laterdog/disk-breakdown.ts";
 import { ComputerRuns } from "./laterdog/computer-runs.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
@@ -13162,7 +13163,7 @@ ROUTES.push(createEnginePlacementRoutes({
   save: (id, computer) => setRemoteEngineBot(DATA_DIR, id, computer),
 }));
 ROUTES.push(createStreamWatchRoutes({ clients: () => sseClients }));
-ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk") }));
+ROUTES.push(createStorageRoutes({ storage: () => cloudStorage(), clean: () => runJanitorNow("low-disk"), measure: () => diskBreakdown.measure() }));
 ROUTES.push(createLinkPreviewRoutes());
 ROUTES.push(createBotMemoryRoutes({
   bot: (id) => store.bot(id),
@@ -21121,6 +21122,7 @@ function janitorWorkspaces(): WorkspaceTask[] {
 }
 
 let lastJanitorRun: JanitorRun | null = null;
+const diskBreakdown = createDiskBreakdown({ dataDir: DATA_DIR, home: CLOUD_HOME ? homedir() : null, scratch: CLOUD_HOME ? [tmpdir()] : [], dogName: (id) => store.bot(id)?.name ?? null });
 let janitorRunning = false;
 
 function runJanitorNow(reason: JanitorRun["reason"]): JanitorRun | null {
@@ -21152,8 +21154,8 @@ if (logArchive) {
 }
 
 if (CLOUD_HOME) {
-  setTimeout(() => runJanitorNow("startup"), 2 * 60_000).unref();
-  setInterval(() => runJanitorNow("scheduled"), JANITOR_EVERY_MS).unref();
+  setTimeout(() => { runJanitorNow("startup"); if (!diskBreakdown.last()) diskBreakdown.measure(); }, 2 * 60_000).unref();
+  setInterval(() => { runJanitorNow("scheduled"); diskBreakdown.measure(); }, JANITOR_EVERY_MS).unref();
   setInterval(() => { if (isLowDisk(diskUse(DATA_DIR))) runJanitorNow("low-disk"); }, DISK_CHECK_MS).unref();
   setInterval(() => {
     const pressure = readMemoryPressure();
@@ -21209,6 +21211,7 @@ function cloudStorage() {
     warning: null,
     archive: logArchive?.status() ?? { enabled: false },
     janitor: lastJanitorRun ? { at: lastJanitorRun.at, freedBytes: lastJanitorRun.freedBytes, stopped: lastJanitorRun.reaped } : null,
+    breakdown: diskBreakdown.last(),
   };
 }
 
