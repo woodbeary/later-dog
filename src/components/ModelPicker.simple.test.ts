@@ -58,7 +58,7 @@ vi.mock("./PlanUsage", async (importOriginal) => ({
 }));
 
 const NOW = Date.UTC(2026, 9, 9, 12);
-const { ModelEngineRail, ModelPicker, ModelVariantRow, SIMPLE_POPOVER_WIDTH } = await import("./ModelPicker");
+const { ModelEngineRail, ModelPicker, ModelVariantRow, SIMPLE_POPOVER_WIDTH, menuMaxHeight } = await import("./ModelPicker");
 const { AccountSwitcher, UsageRing } = await import("./AccountSwitcher");
 const { SimpleModelPane } = await import("./SimpleModelPane");
 const { InstanceProviderMark } = await import("./ProviderIcons");
@@ -1102,6 +1102,44 @@ describe("the message field's one AI menu", () => {
     expect(openPart(withTask).html).not.toContain("data-chat-context");
     fixture.bots = [];
     expect(usageButton(renderPart(bot()))).toBeUndefined();
+  });
+
+  it("never makes the menu taller than the window it opens in, above the composer or below a control", () => {
+    for (const height of [400, 577, 800, 1200]) {
+      const composer = { top: height - 57, bottom: height - 12 };
+      const above = menuMaxHeight(composer, height, true, 54);
+      expect(above).toBeLessThanOrEqual(composer.top - 54 - 12);
+      expect(composer.top - 8 - above).toBeGreaterThanOrEqual(54);
+      const control = { top: 40, bottom: 72 };
+      expect(control.bottom + 8 + menuMaxHeight(control, height, false)).toBeLessThanOrEqual(height);
+    }
+    expect(menuMaxHeight({ top: 20, bottom: 40 }, 300, true, 54)).toBe(0);
+  });
+
+  it("keeps the account section out of the scrolling part, so it is never half shown", () => {
+    fixture.instances = [claude()];
+    const html = openPart(bot()).html;
+    const scroll = html.indexOf("data-chat-ai-menu");
+    const accounts = html.indexOf("data-chat-ai-accounts");
+    expect(scroll).toBeGreaterThan(-1);
+    expect(accounts).toBeGreaterThan(scroll);
+    const section = /<section data-chat-ai-accounts="true"[^>]*class="([^"]*)"/.exec(html)![1]!.split(" ");
+    expect(section).toEqual(expect.arrayContaining(["shrink-0", "overflow-y-auto"]));
+    const between = html.slice(scroll, accounts);
+    expect(between.match(/<div/g)?.length ?? 0).toBeGreaterThan(0);
+    expect(between).toMatch(/<\/div><section $/);
+  });
+
+  it("keeps the model's mark in the usage button's place before the first turn, so nothing moves when the ring arrives", () => {
+    fixture.instances = [claude()];
+    fixture.bots = [];
+    const before = renderPart(bot());
+    expect(before.html).not.toContain("data-usage-ring");
+    const mark = /<span data-model-mark="true" class="([^"]*)"/.exec(before.html)![1]!.split(" ");
+    expect(mark).toEqual(expect.arrayContaining(["size-8", "mr-1"]));
+    const trigger = /<button data-tour="model"[^>]*class="([^"]*)"/.exec(before.html)![1]!.split(" ");
+    expect(trigger).toContain("pl-0");
+    expect(trigger).toContain("gap-1.5");
   });
 
   it("shows every account as a compact row with what is left, and adds an account from the same menu", () => {

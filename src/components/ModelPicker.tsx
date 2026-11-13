@@ -425,6 +425,11 @@ const POPOVER_WIDTH = 420;
 export const SIMPLE_POPOVER_WIDTH = 380;
 const SIMPLE_SEARCH_AFTER = 12;
 const CONTEXT_RING_TONE: Record<ChatContextLevel, "good" | "warning" | "danger"> = { ok: "good", near: "warning", over: "danger" };
+export function menuMaxHeight(trigger: Pick<DOMRect, "top" | "bottom">, windowHeight: number, above: boolean, ceiling = 0): number {
+  const room = above ? trigger.top - Math.max(0, ceiling) - 12 : windowHeight - trigger.bottom - 24;
+  return Math.max(0, Math.min(600, room, windowHeight - 16));
+}
+
 const CHAT_MENU_HEADING = "px-3.5 pb-1 pt-2 text-[11.5px] font-medium text-ink-tertiary";
 
 export function ModelPicker({
@@ -479,8 +484,7 @@ export function ModelPicker({
       const width = Math.min(popoverWidth, window.innerWidth - 32);
       const left = above ? Math.max(16, Math.min(rect.left, window.innerWidth - width - 16)) : Math.max(16, Math.min(rect.right - width, window.innerWidth - width - 16));
       const ceiling = above ? Math.max(0, rootRef.current?.closest("main")?.querySelector("[data-glass-bar=top]")?.getBoundingClientRect().bottom ?? 0) : 0;
-      setPlacement({ left: left - rect.left,
-        maxHeight: Math.max(0, Math.min(600, above ? rect.top - ceiling - 12 : window.innerHeight - rect.bottom - 24)) });
+      setPlacement({ left: left - rect.left, maxHeight: menuMaxHeight(rect, window.innerHeight, above, ceiling) });
     };
     place();
     window.addEventListener("resize", place);
@@ -841,10 +845,10 @@ export function ModelPicker({
       aria-expanded={open}
       aria-haspopup="dialog"
       aria-label={[shownModel, chatAccountName, chatEffortName, chatFast ? t("model.fast") : null, otherEngine ? routedWords : null].filter(Boolean).join(", ")}
-      className={cn("flex h-8 min-w-0 max-w-[360px] items-center gap-1.5 rounded-full pr-2 text-[13px] text-ink hover:bg-control", usageMark ? "pl-2" : "pl-1.5", open && "bg-control")}
+      className={cn("flex h-8 min-w-0 max-w-[360px] items-center gap-1.5 rounded-full pr-2 text-[13px] text-ink hover:bg-control", usageMark ? "pl-2" : triggerMark ? "pl-0" : "pl-1.5", open && "bg-control")}
       title={triggerTitle}
     >
-      {!usageMark && triggerMark && <span className="flex size-5 shrink-0 items-center justify-center">{triggerMark}</span>}
+      {!usageMark && triggerMark && <span data-model-mark className="mr-1 flex size-8 shrink-0 items-center justify-center">{triggerMark}</span>}
       <span className="flex min-w-0 items-baseline">
         <span className="min-w-[4ch] shrink truncate font-medium">{shownModel}</span>
         {chatAccountName && (
@@ -964,7 +968,8 @@ export function ModelPicker({
             <p data-model-next-reply className="shrink-0 border-b border-hairline/40 px-3 py-2 text-[12px] text-ink-secondary">{t("model.nextReply")}</p>
           )}
           {part === "chat" ? (
-            <FadingScroll data-chat-ai-menu className="min-h-0">
+            <div data-chat-ai-menu className="flex min-h-0 flex-col">
+            <FadingScroll className="min-h-0 flex-1">
               {modelGroups.length > 0 && (
                 <section data-chat-ai-models aria-label={t("model.simple.model")} className="shrink-0 pt-1">
                   <p className={CHAT_MENU_HEADING}>{t("model.simple.model")}</p>
@@ -981,7 +986,8 @@ export function ModelPicker({
                   className="shrink-0 border-t border-hairline/40 px-3.5 py-3"
                   label={<span className="shrink-0 text-[13px] font-medium text-ink">{t("model.simple.reasoning")}</span>} />
               ) : <EffortPanel bot={bot} threadId={threadId} className="shrink-0 border-t border-hairline/40" />}
-              <section data-chat-ai-accounts aria-label={t("model.account")} className="shrink-0 border-t border-hairline/40 pt-1">
+            </FadingScroll>
+              <section data-chat-ai-accounts aria-label={t("model.account")} className="max-h-48 shrink-0 overflow-y-auto border-t border-hairline/40 pt-1">
                 <p className={CHAT_MENU_HEADING}>{t("model.account")}</p>
                 {routedWords && <p data-model-routed className="px-3.5 pb-1 text-[12px] text-ink-secondary">{routedWords}</p>}
                 <AccountMenu rows={accountRows} auto={carryOn.auto} now={usage.now} onPick={chooseAccount} onReorder={(ids) => void carryOn.reorder(ids)} onAdd={() => {
@@ -989,7 +995,7 @@ export function ModelPicker({
                   requestAddAccount();
                 }} />
               </section>
-            </FadingScroll>
+            </div>
           ) : showSwitcher && page === "accounts" ? (
             <div data-model-accounts className="flex min-h-0 flex-col overflow-y-auto">
               <AccountSwitcher accounts={switcherAccounts} currentId={selection.instanceId} report={usage.report}
