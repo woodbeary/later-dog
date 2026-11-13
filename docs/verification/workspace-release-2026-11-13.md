@@ -72,5 +72,8 @@ next image release; the desktop app and the phone update reach them now.
   has only been seen on fixtures.
 - Engines other than the first coding engine and the included model ran no live turn.
 - The coding engine offers no task list when later.dog runs it, so the instruction to keep one
-  has nothing behind it yet, and the phone's plan checklist stays empty for those dogs.
-- After a thank-you the first coding engine still writes a short reply after its reaction.
+  had nothing behind it at release, and the phone's plan checklist stayed empty for those dogs.
+  Fixed after the release by later.dog's own plan tool ([a dog's plan](dog-plan.md)).
+- After a thank-you the first coding engine still wrote a short reply after its reaction at
+  release. Fixed after the release: every engine is told to answer a bare acknowledgment with
+  one emoji, which the app shows as a tapback ([tapbacks](tapbacks-2026-11-10.md)).

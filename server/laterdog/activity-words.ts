@@ -117,7 +117,7 @@ const PHRASES: Array<[RegExp, string]> = [
   [/^(click|double_click|type_text|press_key|key|scroll|drag|computer|computer_batch|computer_use)$/, "clicking around"],
   [/^(open_url|navigate|browser_navigate)$/, "opening a page"],
   [/^browser_/, "clicking around"],
-  [/^(todowrite|todo_write|update_plan)$/, "making a plan"],
+  [/^(todowrite|todo_write|update_plan|set_plan)$/, "making a plan"],
   [/^(task|agent|spawn_agent)$/, "getting some help"],
 ];
 

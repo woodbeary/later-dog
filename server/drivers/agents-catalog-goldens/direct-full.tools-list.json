@@ -754,7 +754,7 @@
     },
     {
       "name": "react",
-      "description": "Tap back on message_id or the person's latest message, then end with no text.",
+      "description": "Tap back on message_id or the person's latest message while you work.",
       "inputSchema": {
         "type": "object",
         "additionalProperties": false,
@@ -770,6 +770,46 @@
         },
         "required": [
           "emoji"
+        ]
+      }
+    },
+    {
+      "name": "set_plan",
+      "description": "Record your plan for this chat; the person sees it in the app. Send the whole list each time; it replaces the last one.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 20,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pending",
+                    "in_progress",
+                    "done"
+                  ]
+                }
+              },
+              "required": [
+                "text",
+                "status"
+              ]
+            }
+          }
+        },
+        "required": [
+          "items"
         ]
       }
     },

@@ -20,6 +20,7 @@ import type { RuntimeEvent } from "./runtime-events.ts";
 import type { Notification } from "./notification.ts";
 import type { Routine, RoutineRun } from "./routines.ts";
 import type { WorkState } from "./work-state.ts";
+import type { WirePlan } from "./dog-plan.ts";
 import type { WireExchange } from "./room-exchange.ts";
 import type { TurnReceipt } from "./turn-receipt.ts";
 import type { TurnResults } from "./turn-results.ts";
@@ -125,6 +126,7 @@ export interface WireTask {
   workingStartedAt?: number;
   statusLine?: string;
   work?: WorkState;
+  plan?: WirePlan;
   surface?: Surface;
   surfaceAuto?: true;
   usage?: TaskUsage;
@@ -228,6 +230,7 @@ export interface WireBot {
   busy?: boolean;
   activity?: BotActivity;
   work?: WorkState;
+  plan?: WirePlan;
   createdAt: number;
   visibility?: BotVisibility;
 }

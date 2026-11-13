@@ -66,6 +66,7 @@ Use only mapped, tested commands:
 - [Claude coordination and turn-scoped tools](claude-tool-lifecycle.md)
 - [Codex bot instructions](codex-instructions.md)
 - [Harness tuning and what dogs are told](harness-and-instructions.md)
+- [A dog's plan, kept per chat](dog-plan.md)
 - [Codex browser routing and native search](codex-browser-routing.md)
 - [Codex helper event isolation](codex-helpers.md)
 - [Team backups](team-backups.md)

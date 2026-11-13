@@ -34,7 +34,7 @@ import {
   STAY_FREE,
   STOP_MEANS_STOP,
   ANSWER_IN_FIRST_SENTENCE,
-  taskList,
+  PLAN_PROMPT,
   PAYMENTS_BLOCK,
   REPLY_STYLE,
   ROOM_TEAM_PROMPT,
@@ -67,17 +67,17 @@ describe("the guidance every dog gets", () => {
   });
 
   it("covers the eight things the person needs from every dog", () => {
-    const text = dogGuidance({ engine: "claude", model: "claude-opus-5-5" });
+    const text = dogGuidance({ engine: "claude", agents: true, model: "claude-opus-5-5" });
     expect(ANSWER_FIRST).toMatch(/say in one line what you are doing before your first tool call/);
     expect(ANSWER_FIRST).toMatch(/not what you do not know yet, and never fill the gap with an answer you have not checked/);
     expect(ANSWER_FIRST).toMatch(/one-line update at natural points/);
     expect(ANSWER_FIRST).toMatch(/If you stop before the work is done, say why in plain words/);
-    expect(taskList("claude")).toMatch(/^Your task list \(TodoWrite\) is your queue, and the app shows the person your progress from it\. Add each thing they ask for when they ask it; something they want later goes on the list as not started\. Mark an item in progress when work begins, and done only after it was checked and they were told\./);
-    expect(taskList("codex")).toMatch(/^Your task list \(update_plan\) is your queue/);
-    expect(taskList("other")).toMatch(/^Your task list is your queue/);
-    expect(taskList("claude")).toMatch(/on every new message and whenever a helper or a background command finishes; make checking the last item/);
-    expect(taskList("claude")).toMatch(/"not live yet"/);
-    expect(taskList("claude")).toMatch(/When they ask where things stand \(a status, a checkpoint, "where are we"\), answer from the list: done, in progress, not started/);
+    expect(PLAN_PROMPT).toMatch(/^Keep your plan with set_plan; the person sees it in the app\. Add each thing they ask for before you start it, including what they want later \(as pending\)\. Mark an item in progress when work begins, and done only after it was checked and they were told\./);
+    expect(PLAN_PROMPT).toMatch(/whenever a helper or a background command finishes, and make checking the last item/);
+    expect(PLAN_PROMPT).toMatch(/"not live yet"/);
+    expect(PLAN_PROMPT).toMatch(/When they ask where things stand \(a status, a checkpoint, "where are we"\), answer from it: done, in progress, not started/);
+    expect(PLAN_PROMPT).toMatch(/a single quick question needs no plan\.$/);
+    expect(PLAN_PROMPT).not.toMatch(/TodoWrite|update_plan/);
     expect(DECIDE_DONT_ASK).toMatch(/Make engineering choices yourself with current best practice/);
     expect(DECIDE_DONT_ASK).toMatch(/a secret, a tap on their device, money, or a preference/);
     expect(EVIDENCE_FIRST).toMatch(/this chat and its files, your memory and past chats .*, connected apps, the web, the signed-in browser, your computer/);
@@ -86,9 +86,20 @@ describe("the guidance every dog gets", () => {
     expect(CHECK_WORK).toMatch(/say plainly what you verified and what you assumed/);
     expect(CHECK_WORK).toMatch(/^Check your work before calling it done/);
     expect(FINISH_WORK).toMatch(/ordinary obstacles/);
-    for (const line of [ANSWER_FIRST, FINISH_WORK, taskList("claude"), CHECK_WORK, DECIDE_DONT_ASK, EVIDENCE_FIRST, ACTING, needsPerson("claude"), SENDING, STAY_FREE, HELPER_BRIEF, STOP_MEANS_STOP, BETWEEN_DOGS, ROUTINE_OFFER, PRECEDENCE]) expect(text).toContain(line);
+    for (const line of [ANSWER_FIRST, FINISH_WORK, PLAN_PROMPT, CHECK_WORK, DECIDE_DONT_ASK, EVIDENCE_FIRST, ACTING, needsPerson("claude"), SENDING, STAY_FREE, HELPER_BRIEF, STOP_MEANS_STOP, BETWEEN_DOGS, ROUTINE_OFFER, PRECEDENCE]) expect(text).toContain(line);
     expect(text).not.toContain(CHECKLIST_IN_REPLY);
-    expect(dogGuidance({ engine: "codex", model: "gpt-5.6" })).toContain(taskList("codex"));
+    expect(dogGuidance({ engine: "codex", agents: true, model: "gpt-5.6" })).toContain(PLAN_PROMPT);
+  });
+
+  it("tells a dog to keep a plan only when it has later.dog's tools", () => {
+    for (const engine of ["claude", "codex"] as const) {
+      const without = dogGuidance({ engine, model: "x" });
+      expect(without).toContain(CHECKLIST_IN_REPLY);
+      expect(without).not.toContain("set_plan");
+      expect(dogGuidance({ engine, agents: false, model: "x" })).not.toContain("set_plan");
+      expect(dogGuidance({ engine, agents: true, model: "x" })).toContain(PLAN_PROMPT);
+    }
+    expect(dogGuidance({ engine: "other", agents: true, model: "x" })).not.toContain("set_plan");
   });
 
   it("has an included model answer first, without a checklist, opener or unasked table", () => {

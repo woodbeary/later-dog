@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { MEMORY_MAX_LINES, readMemoryFile, readMemoryTopic, updateMemory, writeMemoryFile } from "../workspace.ts";
-import { callTool, type ToolCallContext } from "./agents-call.ts";
+import { callTool, TOOL_USE_ID_META, withToolUseId, type ToolCallContext } from "./agents-call.ts";
 
 function context(overrides: Partial<ToolCallContext> = {}): ToolCallContext {
   return {
@@ -59,6 +59,31 @@ describe("send_voice_note", () => {
     }));
     expect(result.isError).toBe(true);
     expect(result.text).toContain("Pick a voice in the agent profile.");
+  });
+});
+
+describe("set_plan", () => {
+  it("posts the whole list with the engine's tool-use id and passes the home's line back", async () => {
+    const calls: Array<{ path: string; body: any }> = [];
+    const items = [{ text: "Fix the login", status: "in_progress" }];
+    const result = await callTool("set_plan", { items }, withToolUseId(context({
+      client: {
+        api: async () => ({}),
+        apiResponse: async (path, init) => {
+          calls.push({ path, body: JSON.parse(String(init?.body)) });
+          return { ok: true, status: 200, body: { text: "Plan recorded." } };
+        },
+      },
+    }), { [TOOL_USE_ID_META]: "toolu_1" }));
+    expect(result).toEqual({ text: "Plan recorded." });
+    expect(calls).toEqual([{ path: "/api/internal/plan", body: { fromBotId: "bot-voice", fromThreadId: "thread-voice", items, toolUseId: "toolu_1" } }]);
+  });
+
+  it("reports a refused list as a tool error and ignores missing metadata", async () => {
+    const refused = await callTool("set_plan", { items: "x" }, withToolUseId(context({
+      client: { api: async () => ({}), apiResponse: async () => ({ ok: false, status: 400, body: { error: "set_plan needs items." } }) },
+    }), undefined));
+    expect(refused).toEqual({ text: "set_plan needs items.", isError: true });
   });
 });
 

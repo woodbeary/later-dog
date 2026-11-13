@@ -1,7 +1,7 @@
 import readline from "node:readline";
 
 import { availableTools, catalogProfileFromEnv } from "./agents-catalog.ts";
-import { callTool, capResult, toolCallContextFromEnv } from "./agents-call.ts";
+import { callTool, capResult, toolCallContextFromEnv, withToolUseId } from "./agents-call.ts";
 import type { Json } from "./agents-client.ts";
 import { withToolLoading } from "../laterdog/tool-loading.ts";
 
@@ -40,7 +40,7 @@ async function handle(msg: Json) {
       const name = params.name as string;
       if (!AVAILABLE_TOOLS.some((t) => t.name === name)) return rpcErr(id, -32602, `Unknown tool: ${name}`);
       try {
-        const { text, isError, passthrough } = await callTool(name, (params.arguments ?? {}) as Json, CONTEXT);
+        const { text, isError, passthrough } = await callTool(name, (params.arguments ?? {}) as Json, withToolUseId(CONTEXT, params._meta));
         if (passthrough) ok(id, passthrough);
         else textResult(id, name === "tool_result_read" ? text : await capResult(text, CONTEXT), isError);
       } catch (e) {

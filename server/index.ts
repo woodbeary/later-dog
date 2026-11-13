@@ -672,6 +672,8 @@ import { deliverSseFrame, keepSseAlive } from "./sse-fanout.ts";
 import { openStreamWatch, streamWatchSkips } from "./stream-watch.ts";
 import { createStreamWatchRoutes } from "./routes/stream-watch.ts";
 import { createReactRoute } from "./routes/react.ts";
+import { createPlanRoute, PLAN_CALLER_WAIT_MS } from "./routes/dog-plan.ts";
+import { enginePlans, forgetDeletedChats, PlanStore } from "./laterdog/dog-plan.ts";
 import {
   PHONE_SECRET_PROTOCOL_VERSION,
   PhoneSecretBridge,
@@ -3595,12 +3597,26 @@ function chatWork(threadId: string, busy: boolean, activity: BotActivity | undef
     ...(usageWait ? { usageHold: { account: registry.get(selection.instanceId)?.displayName, ...(until !== undefined ? { until } : {}) } } : {}),
   });
 }
+const dogPlans = new PlanStore(join(DATA_DIR, "dog-plans.json"));
+const planOf = (threadId: string) => {
+  const plan = dogPlans.get(threadId);
+  return plan ? { plan } : {};
+};
+const planChanged = (threadId: string) => {
+  const bot = store.botByThread(threadId);
+  if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
+};
+forgetDeletedChats(store, dogPlans);
+enginePlans.listen((threadId, items) => {
+  dogPlans.set(threadId, items, store.botByThread(threadId)?.id);
+  planChanged(threadId);
+});
 const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
   const { snoozedUntil, ...base } = toWireTask(task, botModel, store.bots);
   const statusLine = liveStatusLine(task.threadId);
   const waiting = activeCoordinationForThread(task.threadId) && !task.busy;
   const helpers = task.busy ? 0 : helpersWorkingIn(task.threadId);
-  const coordinated = { ...base, ...(delegatedNeedsYou(task.threadId) ? { activity: "waiting-on-you" as const } : {}), waitingForTeammates: waiting, ...(waiting ? { waitingOn: teammatesAwaited(task.threadId) } : {}), ...(helpers ? { helpersWorking: helpers } : {}), ...(statusLine ? { statusLine } : {}) };
+  const coordinated = { ...base, ...(delegatedNeedsYou(task.threadId) ? { activity: "waiting-on-you" as const } : {}), waitingForTeammates: waiting, ...(waiting ? { waitingOn: teammatesAwaited(task.threadId) } : {}), ...(helpers ? { helpersWorking: helpers } : {}), ...(statusLine ? { statusLine } : {}), ...planOf(task.threadId) };
   coordinated.work = chatWork(task.threadId, Boolean(task.busy), coordinated.activity, coordinated.waitingOn, base.modelSelection ?? botModel);
   const asleep = snoozedUntil === 0 || (snoozedUntil !== undefined && snoozedUntil > Date.now());
   return asleep ? { ...coordinated, snoozedUntil } : coordinated;
@@ -3617,7 +3633,7 @@ const wireBot = (bot: BotRecord): WireBot => {
   const activity = delegatedNeedsYou(bot.threadId) ? "waiting-on-you" as const : visible.activity;
   const waitingOn = waiting ? teammatesAwaited(bot.threadId) : undefined;
   return { ...visible, ...(activity ? { activity } : {}), waitingForTeammates: waiting, ...(waitingOn ? { waitingOn } : {}), ...(helpers ? { helpersWorking: helpers } : {}),
-    work: chatWork(bot.threadId, busy, activity, waitingOn, bot.modelSelection),
+    work: chatWork(bot.threadId, busy, activity, waitingOn, bot.modelSelection), ...planOf(bot.threadId),
     avatarUrl: visible.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
 
@@ -3656,7 +3672,7 @@ function previewSystemPrompt(bot: BotRecord) {
   });
   const privateWorkspace = instance && supportsWorkspaceFiles(instance.driverKind);
   const built = buildSystemPrompt(persona, bot.soul ?? "", [
-    ...guidanceParts({ engine: guidanceEngine(instance?.driverKind), model: bot.modelSelection.model, kit: homeKit({
+    ...guidanceParts({ engine: guidanceEngine(instance?.driverKind), agents: agentsMounted, model: bot.modelSelection.model, kit: homeKit({
       cloudHome: Boolean(CLOUD_HOME), agents: agentsMounted, vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
     }) }),
     { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
@@ -9093,7 +9109,7 @@ async function startTurn(
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const ownerAnswers = ownerAnswersFor(bot.id, approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const prompt = buildSystemPrompt(persona, liveBot?.soul ?? bot.soul ?? "", [
-        ...guidanceParts({ engine: guidanceEngine(instance.driverKind), model, kit: homeKit({
+        ...guidanceParts({ engine: guidanceEngine(instance.driverKind), agents: Boolean(integrations.agents), model, kit: homeKit({
           cloudHome: Boolean(CLOUD_HOME), agents: Boolean(integrations.agents), vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
           google: credentialPrompt.includes("gmail_search"),
         }) }),
@@ -10856,7 +10872,7 @@ async function runGroupMemberTurn(
   const roomOwnerGrant = ownerGrantFor(roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomOwnerAnswers = ownerAnswersFor(readyBot.id, roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomSystem = buildSystemPrompt(system, store.bot(bot.id)?.soul ?? bot.soul ?? "", [
-    ...guidanceParts({ engine: guidanceEngine(instance.driverKind), model: instance.instanceId === readyBot.modelSelection.instanceId ? readyBot.modelSelection.model : instance.models.default, kit: homeKit({
+    ...guidanceParts({ engine: guidanceEngine(instance.driverKind), agents: Boolean(integrations.agents), model: instance.instanceId === readyBot.modelSelection.instanceId ? readyBot.modelSelection.model : instance.models.default, kit: homeKit({
       cloudHome: Boolean(CLOUD_HOME), agents: Boolean(integrations.agents), vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
     }) }),
     { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
@@ -13547,6 +13563,13 @@ INTERNAL_ROUTES.push(createReactRoute({
   liveTurn: (threadId) => liveTurnByThread.get(threadId),
   reactedTurns,
   pendingTapbackText,
+  active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
+}));
+INTERNAL_ROUTES.push(createPlanRoute({
+  set: (threadId, items, botId) => dogPlans.set(threadId, items, botId),
+  caller: (toolUseId) => enginePlans.callers.of(toolUseId, PLAN_CALLER_WAIT_MS),
+  changed: planChanged,
+  shown: (threadId) => !store.groupByThread(threadId),
   active: (capability) => internalCapabilityIsActive(capability as InternalCapability),
 }));
 INTERNAL_ROUTES.push(createEmailMeRoute({

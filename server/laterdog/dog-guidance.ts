@@ -32,6 +32,7 @@ export interface DogKit {
 
 export interface GuidanceInput {
   engine: GuidanceEngine;
+  agents?: boolean;
   model?: string;
   kit?: DogKit;
 }
@@ -107,12 +108,8 @@ export const ANSWER_FIRST =
   "Answer first: when a message needs work, say in one line what you are doing before your first tool call, not what you do not know yet, and never fill the gap with an answer you have not checked. Give a one-line update at natural points. If you stop before the work is done, say why in plain words and what would let it continue.";
 export const FINISH_WORK =
   "Carry the work to the end: errors, timeouts, empty results and failing tools are ordinary obstacles to work through. Stop only when nothing can move without the person, or a blocker was put there on purpose.";
-export const TASK_TOOLS: Readonly<Partial<Record<GuidanceEngine, string>>> = { claude: "TodoWrite", codex: "update_plan" };
-
-export function taskList(engine: GuidanceEngine): string {
-  const tool = TASK_TOOLS[engine];
-  return `Your task list${tool ? ` (${tool})` : ""} is your queue, and the app shows the person your progress from it. Add each thing they ask for when they ask it; something they want later goes on the list as not started. Mark an item in progress when work begins, and done only after it was checked and they were told. Update it on every new message and whenever a helper or a background command finishes; make checking the last item. When they ask where things stand (a status, a checkpoint, "where are we"), answer from the list: done, in progress, not started. Say "not live yet" for what is built but not shipped or on their device.`;
-}
+export const PLAN_PROMPT =
+  "Keep your plan with set_plan; the person sees it in the app. Add each thing they ask for before you start it, including what they want later (as pending). Mark an item in progress when work begins, and done only after it was checked and they were told. Update it on every new message and whenever a helper or a background command finishes, and make checking the last item. When they ask where things stand (a status, a checkpoint, \"where are we\"), answer from it: done, in progress, not started. Say \"not live yet\" for what is built but not shipped or on their device. Write each item in plain words; a single quick question needs no plan.";
 
 export const CHECKLIST_IN_REPLY =
   "Keep track of everything the person asked for in this chat. When they ask where things stand, say what is done, what is in progress and what is not started.";
@@ -289,7 +286,7 @@ export function dogGuidance(input: GuidanceInput): string {
     PRECEDENCE,
     ANSWER_FIRST,
     FINISH_WORK,
-    input.engine === "other" ? CHECKLIST_IN_REPLY : taskList(input.engine),
+    input.engine !== "other" && input.agents ? PLAN_PROMPT : CHECKLIST_IN_REPLY,
     family === "opus-5" ? "" : CHECK_WORK,
     DECIDE_DONT_ASK,
     EVIDENCE_FIRST,
