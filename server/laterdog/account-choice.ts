@@ -36,12 +36,20 @@ export function roomOf(row: PlanProviderRow | undefined, now: number): Room {
 
 export type RoomRank = 0 | 1 | 2 | 3;
 
-const NEARLY_EMPTY_RANK: RoomRank = 3;
+const PLAN_ROOM: RoomRank = 0;
+const CREDITS_ONLY: RoomRank = 2;
+const NEARLY_EMPTY: RoomRank = 3;
 
 export function roomRank(room: Room): RoomRank {
-  if (room.left !== undefined && room.left > NEARLY_EMPTY_PERCENT) return 0;
-  if (room.credits) return 1;
-  return room.left === undefined ? 2 : NEARLY_EMPTY_RANK;
+  if (room.left === undefined) return 1;
+  if (room.left > NEARLY_EMPTY_PERCENT) return PLAN_ROOM;
+  return room.credits ? CREDITS_ONLY : NEARLY_EMPTY;
+}
+
+export function keepsCover(current: RoomRank, best: RoomRank): boolean {
+  if (current === NEARLY_EMPTY) return best === NEARLY_EMPTY;
+  if (current === CREDITS_ONLY) return best !== PLAN_ROOM;
+  return true;
 }
 
 function blockedBy(account: BatteryAccount, rest: Rest | undefined): Blocked | undefined {
@@ -104,7 +112,7 @@ export function decideAccount(input: AccountChoiceInput): AccountChoice {
   if (!best) return waiting;
   const current = ranked.find((account) => account.instanceId === input.current);
   const usage = (account: BatteryAccount) => roomRank(roomOf(input.usage?.(account.instanceId), now));
-  const on = current && usage(current) === usage(best) && usage(current) !== NEARLY_EMPTY_RANK ? current : best;
+  const on = current && keepsCover(usage(current), usage(best)) ? current : best;
   return { kind: "covering", run: { ...chosen, instanceId: on.instanceId }, chosen: own.instanceId, blocked, ...until };
 }
 
