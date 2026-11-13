@@ -1,10 +1,10 @@
-import { spawn } from "node:child_process";
-import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { BREAKDOWN_FILE, breakdownLine, createDiskBreakdown, planBreakdown, type DiskBreakdown } from "./disk-breakdown.ts";
-import { walkState, walkTree } from "./disk-walk.ts";
+import { BREAKDOWN_FILE, breakdownLine, createDiskBreakdown, movedMeaningfully, planBreakdown, walkerEnvironment, type DiskBreakdown } from "./disk-breakdown.ts";
+import { InodeSet, stopWhenOrphaned, walkState, walkTree } from "./disk-walk.ts";
 import { BUILD_OUTPUT_DIRS } from "./janitor.ts";
 
 const MB = 1024 * 1024;
@@ -75,6 +75,55 @@ describe("walking one folder", () => {
     const result = walkTree({ key: "dog:ada", paths: [ada], split: true }, Infinity, walkState(job));
     expect(result.atLeast).toBe(true);
     expect(result.bytes).toBeGreaterThanOrEqual(6 * MB);
+  });
+
+  it("says at least when an entry cannot be looked at, and not when it vanished", () => {
+    if (process.getuid?.() === 0) return;
+    const { ada } = tree();
+    const blind = join(ada, "blind");
+    file(join(blind, "seen-not-sized.bin"), 1 * MB);
+    chmodSync(blind, 0o444);
+    locked.push(blind);
+    expect(walkTree({ key: "dog:ada", paths: [ada], split: true }, Infinity, walkState(job)).atLeast).toBe(true);
+    expect(walkTree({ key: "gone", paths: [join(ada, "never-was")] }, Infinity, walkState(job))).toEqual({ key: "gone", bytes: 0 });
+  });
+
+  it("keeps a folder whose name is not valid text", () => {
+    const { ada } = tree();
+    const odd = Buffer.concat([Buffer.from(`${ada}/`), Buffer.from([0x66, 0xff, 0xfe])]);
+    try { mkdirSync(odd); } catch { return; }
+    writeFileSync(Buffer.concat([odd, Buffer.from("/inside.bin")]), Buffer.alloc(2 * MB, 1));
+    const result = walkTree({ key: "dog:ada", paths: [ada], split: true }, Infinity, walkState(job));
+    expect(result.bytes - result.generated! - result.history!).toBeGreaterThanOrEqual(3 * MB);
+    expect(result.atLeast).toBeUndefined();
+  });
+
+  it("marks an over-estimate once it can remember no more hard links", () => {
+    const { ada } = tree();
+    linkSync(join(ada, "secret-plan.txt"), join(ada, "same-plan.txt"));
+    const capped = walkTree({ key: "dog:ada", paths: [ada], split: true }, Infinity, walkState({ ...job, sharedLimit: 0 }));
+    expect(capped.overEstimate).toBe(true);
+    expect(capped.bytes).toBeGreaterThanOrEqual(7 * MB);
+    const set = new InodeSet(3);
+    expect([1, 2, 3, 4].map((ino) => set.add(ino))).toEqual([true, true, true, false]);
+    expect([set.has(3), set.has(4), set.size]).toEqual([true, false, 3]);
+    const big = new InodeSet(200_000);
+    for (let ino = 1; ino <= 200_000; ino++) big.add(ino * 4_294_967_311);
+    expect(big.size).toBe(200_000);
+    expect(big.has(77 * 4_294_967_311)).toBe(true);
+    expect(big.has(5)).toBe(false);
+    expect(big.bytes).toBe(524_288 * 8);
+  });
+
+  it("leaves as soon as its parent is gone", () => {
+    let parent = 10;
+    let left = 0;
+    const state = stopWhenOrphaned(walkState({ ...job, pauseEvery: 1 }), 10, () => parent, () => { left++; });
+    state.pause();
+    expect(left).toBe(0);
+    parent = 1;
+    state.pause();
+    expect(left).toBe(1);
   });
 
   it("stops at its time limit and reports what it counted so far as at least", () => {
@@ -154,6 +203,47 @@ describe("the measured breakdown", () => {
     expect(result.entries).toEqual([]);
     expect(runner.measure()).toBe(true);
     await runner.settled();
+  });
+
+  it("runs the walker as plain node inside the desktop app", () => {
+    expect(walkerEnvironment()).toMatchObject({ ELECTRON_RUN_AS_NODE: "1" });
+    expect(Object.keys(walkerEnvironment()).sort()).toEqual(["ELECTRON_RUN_AS_NODE", "PATH"]);
+  });
+
+  it("a walker whose server dies exits instead of walking on", async () => {
+    const { root } = tree();
+    for (let at = 0; at < 300; at++) file(join(root, "many", `f${at}`), 10);
+    const walker = join(import.meta.dirname, "disk-walk.ts");
+    const jobText = JSON.stringify({ roots: [{ key: "a", paths: [join(root, "many")] }], rootLimitMs: 60_000, totalLimitMs: 60_000, generatedNames: [], pauseEvery: 1, pauseMs: 50 });
+    const middle = `const { spawn } = require("node:child_process"); const c = spawn(process.execPath, [${JSON.stringify(walker)}], { stdio: ["pipe", "ignore", "ignore"] }); c.stdin.end(${JSON.stringify(jobText)}); console.log(c.pid); setTimeout(() => process.exit(0), 300);`;
+    const out = spawnSync(process.execPath, ["-e", middle], { encoding: "utf8" });
+    const pid = Number(out.stdout.trim());
+    expect(pid).toBeGreaterThan(0);
+    const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    const until = Date.now() + 3000;
+    while (alive() && Date.now() < until) await new Promise((done) => setTimeout(done, 50));
+    expect(alive()).toBe(false);
+  });
+
+  it("keeps the saved file when nothing moved meaningfully", async () => {
+    const { home, data } = tree();
+    const runner = createDiskBreakdown({ dataDir: data, home, scratch: [], dogName: () => null, log: () => {} });
+    runner.measure();
+    const first = (await runner.settled())!;
+    const savedAt = statSync(join(data, BREAKDOWN_FILE)).mtimeMs;
+    await new Promise((done) => setTimeout(done, 20));
+    runner.measure();
+    const second = (await runner.settled())!;
+    expect(second.at).toBeGreaterThan(first.at);
+    expect(runner.last()).toBe(second);
+    expect(statSync(join(data, BREAKDOWN_FILE)).mtimeMs).toBe(savedAt);
+    expect((JSON.parse(readFileSync(join(data, BREAKDOWN_FILE), "utf8")) as DiskBreakdown).at).toBe(first.at);
+    const area = (bytes: number) => ({ at: 1, tookMs: 1, complete: true, entries: [{ area: "a", label: "A", bytes }] });
+    expect(movedMeaningfully(area(1000 * MB), area(1000 * MB + 9 * MB))).toBe(false);
+    expect(movedMeaningfully(area(1000 * MB), area(1000 * MB + 11 * MB))).toBe(true);
+    expect(movedMeaningfully(area(5000 * MB), area(5000 * MB + 40 * MB))).toBe(false);
+    expect(movedMeaningfully(area(5 * MB), area(14 * MB))).toBe(false);
+    expect(movedMeaningfully(null, area(1))).toBe(true);
   });
 
   it("ignores a saved result that is not a breakdown", () => {
