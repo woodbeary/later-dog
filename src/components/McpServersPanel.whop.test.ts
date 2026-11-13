@@ -92,11 +92,20 @@ describe("Connecting Whop from its server row", () => {
     expect(failure()).toEqual(["Signed in, but Whop’s tools could not be loaded: Two MCP connection tests are already running. Please connect again to retry."]);
   });
 
-  it("ends a reason that has no period of its own, like a proxy's 504", async () => {
+  it("ends a reason that has no period of its own", async () => {
+    await connect();
+    await act(async () => { testRequest!.resolve(Promise.reject(new Error("Whop closed the connection"))); });
+    await settle();
+    expect(failure()).toEqual(["Signed in, but Whop’s tools could not be loaded: Whop closed the connection. Please connect again to retry."]);
+  });
+
+  it("says a proxy's 504 in plain words", async () => {
     await connect();
     await act(async () => { testRequest!.resolve(Promise.reject(new Error("504 Gateway Timeout"))); });
     await settle();
-    expect(failure()).toEqual(["Signed in, but Whop’s tools could not be loaded: 504 Gateway Timeout. Please connect again to retry."]);
+    expect(failure()).toEqual([
+      "Signed in, but Whop’s tools could not be loaded: later.dog isn't answering right now. Check that it's running, then try again. Please connect again to retry.",
+    ]);
   });
 
   it("closes the test request when the person cancels", async () => {

@@ -361,7 +361,8 @@ import { RESTART_EXIT_CODE } from "./restart.ts";
 import { holdIncludedServices, voiceCredential } from "./included-services.ts";
 import type { ProviderInstance } from "./contracts.ts";
 import { readyToRun, selectDefaultModelSelection, withNewBotEffort } from "./default-model-selection.ts";
-import { threadModelFallback, type ThreadEngine } from "./thread-model.ts";
+import type { ThreadEngine } from "./thread-model.ts";
+import { threadGivesWay, turnSelectionFor, type TurnSelectionInput } from "./laterdog/turn-selection.ts";
 import { computerEngineMoveText, removedComputerInstanceIds, writeComputerEngineMoveLines, type ComputerEngineMove } from "./computer-engine-removal.ts";
 import { namesRetiredInstance, retiredEngineMoveText, retiredInstanceIds } from "./laterdog/engine-trim.ts";
 import { cancelPeerApprovalsFor, cancelPeerApprovalsForThread, dismissStalePeerCards, peerApprovalFailure, requestPeerApproval, resolvePeerComms, type ApprovalBus } from "./peer-approval.ts";
@@ -3295,20 +3296,30 @@ function threadEngine(instanceId: string): ThreadEngine | undefined {
   };
 }
 
-function threadModelGivingWay(botId: string, threadId: string): ModelSelection | null {
+function turnSelectionInput(botId: string, threadId: string): TurnSelectionInput | undefined {
   const bot = store.bot(botId);
-  const own = store.taskByThread(botId, threadId)?.modelSelection;
-  if (!bot || !own) return null;
-  return threadModelFallback(own, bot.modelSelection, threadEngine, {
-    pinned: bot.accountPinned === true,
-    ownerSelection: store.taskByThread(botId, threadId)?.ownerModelSelection,
-    refusal: policyModelRefusal,
-    ...(hostedModels ? { allows: (selection: ModelSelection) => hostedModels!.allows(selection) } : {}),
-  }) ? own : null;
+  const projected = store.projectBotForTask(botId, threadId)?.modelSelection;
+  if (!bot || !projected) return undefined;
+  const task = store.taskByThread(botId, threadId);
+  return {
+    own: task?.modelSelection, dog: bot.modelSelection, projected, engine: threadEngine,
+    context: {
+      pinned: bot.accountPinned === true,
+      ownerSelection: task?.ownerModelSelection,
+      refusal: policyModelRefusal,
+      ...(hostedModels ? { allows: (selection: ModelSelection) => hostedModels!.allows(selection) } : {}),
+    },
+  };
+}
+
+function threadModelGivingWay(botId: string, threadId: string): ModelSelection | null {
+  const input = turnSelectionInput(botId, threadId);
+  return input?.own && threadGivesWay(input) ? input.own : null;
 }
 
 function turnSelection(botId: string, threadId: string): ModelSelection | undefined {
-  return threadModelGivingWay(botId, threadId) ? store.bot(botId)?.modelSelection : store.projectBotForTask(botId, threadId)?.modelSelection;
+  const input = turnSelectionInput(botId, threadId);
+  return input && turnSelectionFor(input);
 }
 
 function modelName(selection: ModelSelection): string {
@@ -6592,7 +6603,7 @@ function usageStranded(threadId: string): boolean {
 }
 function chatSelection(threadId: string): ModelSelection | undefined {
   const owner = store.botByThread(threadId);
-  return owner ? store.projectBotForTask(owner.id, threadId)?.modelSelection : groupBatteryTurns.get(threadId)?.selection;
+  return owner ? turnSelection(owner.id, threadId) : groupBatteryTurns.get(threadId)?.selection;
 }
 function chatWaitsOnPerson(threadId: string): boolean {
   const selection = chatSelection(threadId);
