@@ -495,6 +495,7 @@ describe("agents-proxy MCP surface", () => {
       "request_takeover",
       "request_device_approval",
       "react",
+      "set_plan",
       "memory_update",
       "memory_log",
       "session_search",
