@@ -53,6 +53,7 @@ describe("stopping a command on the dog's computer", () => {
   ])("stops %s itself, not only its wrapper", async (_name, command, pattern) => {
     const { box, runs, record } = await launch(command);
     expect(await until(() => alive(pattern))).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
     expect(await runs.liveness(box, record)).toBe("alive");
     expect(await runs.stop(box, record)).toBe("gone");
     expect(await until(() => !alive(pattern))).toBe(true);

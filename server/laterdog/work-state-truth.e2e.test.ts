@@ -231,6 +231,7 @@ for (const [shape, seconds, command, pattern] of [
     const after = await jobThatOutlivesItsTurn(bot, seconds, "fourth", command);
     expect(after.work).toMatchObject({ kind: "running", computerJobs: 1 });
     expect(await until(async () => alive(pattern), Boolean, "the command to start", 10_000)).toBe(true);
+    await settle(1_000);
     const stopped = await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
     expect(stopped.status, JSON.stringify(stopped.body)).toBe(200);
     await until(() => botNow(bot.id), (state) => state.work?.kind !== "running", "the chat to stop running", 30_000);

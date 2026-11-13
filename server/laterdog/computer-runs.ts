@@ -278,7 +278,7 @@ export class ComputerRuns {
     const script = `${groupOf(record.id)} S() { ${survivorsOf(record.id)}; }; `
       + `if [ -n "$pg" ]; then kill -TERM -- -$pg 2>/dev/null; for i in 1 2 3 4 5; do kill -0 -- -$pg 2>/dev/null || break; sleep 1; done; kill -KILL -- -$pg 2>/dev/null; sleep 0.5; fi; `
       + `left=$(S); if [ "$left" = "unsure" ]; then if [ -n "$pg" ] && ! kill -0 -- -$pg 2>/dev/null; then echo partial; else echo alive; fi; exit 0; fi; `
-      + `if [ -n "$left" ]; then kill -TERM $left 2>/dev/null; sleep 2; left=$(S); [ -n "$left" ] && kill -KILL $left 2>/dev/null; sleep 0.5; left=$(S); fi; `
+      + `for round in 1 2 3; do [ -z "$left" ] && break; kill -TERM $left 2>/dev/null; sleep 1; left=$(S); [ -n "$left" ] && kill -KILL $left 2>/dev/null; sleep 0.5; left=$(S); done; `
       + `if [ -n "$pg" ] && kill -0 -- -$pg 2>/dev/null; then echo alive; elif [ -n "$left" ]; then echo alive; else echo gone; fi`;
     const said = (await box.exec(script, 30_000)).stdout.trim();
     return said === "gone" || said === "partial" ? said : "alive";
