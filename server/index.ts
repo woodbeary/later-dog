@@ -134,9 +134,10 @@ import { HOME_HEALTH_FILE, startHomeHealthLog } from "./laterdog/home-health-log
 import { startMemoryGuard } from "./laterdog/memory-guard.ts";
 import { parseHelperModelChoice } from "./laterdog/helper-model.ts";
 import { makeSpace } from "./laterdog/space-maker.ts";
-import { ComputerRuns } from "./laterdog/computer-runs.ts";
+import { ComputerRuns, MAX_RUN_MS } from "./laterdog/computer-runs.ts";
 import { ComputerJobs, JOB_CHECK_MS } from "./laterdog/computer-jobs.ts";
-import { directHandoffFacts, olderWorkFields } from "./laterdog/chat-work.ts";
+import { directHandoffFacts, handoffWorkDone, olderWorkFields } from "./laterdog/chat-work.ts";
+import { couldNotStopLine, stopComputerJobs } from "./laterdog/stop-computer-jobs.ts";
 import { createJobWake } from "./laterdog/job-wake.ts";
 import { HeavyCommandGuard, preToolUseDecision } from "./laterdog/heavy-commands.ts";
 import { computersSelected } from "./laterdog/cloud-computers.ts";
@@ -2797,7 +2798,6 @@ async function stopThreadTurn(botId: string, threadId: string, by: "person" | "a
   }
   if (by === "person") handoffs.stoppedByPerson(threadId);
   if (by === "person") workSignals.stopRequested(threadId);
-  if (by === "person") stopComputerJobs(threadId);
   await interruptDirectThread(botId, threadId, { by });
 }
 
@@ -3580,9 +3580,14 @@ let teammatesAwaited = (_threadId: string): WireWaitingOn[] => [];
 let liveStatusLine = (_threadId: string): string | undefined => undefined;
 let helpersWorkingIn = (_threadId: string): number => 0;
 const computerJobs = new ComputerJobs(join(DATA_DIR, "computer-jobs.json"), { changed: (threadId) => announceHelpersChanged(threadId) });
-function computerJobFacts(threadId: string, busy: boolean): { computerJobs: number; computerSince?: number } {
+function aliveBehind(threadId: string, busy: boolean): { helpers: number; computerJobs: number } {
+  return busy ? { helpers: 0, computerJobs: 0 } : { helpers: helpersWorkingIn(threadId), computerJobs: computerJobs.count(threadId) };
+}
+function computerJobFacts(threadId: string, busy: boolean): { computerJobs: number; computerSince?: number; computerBackground?: number } {
   const live = busy ? [] : computerJobs.live(threadId);
-  return live.length ? { computerJobs: live.length, computerSince: Math.min(...live.map((job) => job.startedAt)) } : { computerJobs: 0 };
+  if (!live.length) return { computerJobs: 0 };
+  const background = live.filter((job) => Date.now() - job.startedAt > MAX_RUN_MS).length;
+  return { computerJobs: live.length, computerSince: Math.min(...live.map((job) => job.startedAt)), ...(background ? { computerBackground: background } : {}) };
 }
 const delegatedWaiting = new Map<string, boolean>();
 function delegatedNeedsYou(threadId: string): boolean {
@@ -3627,7 +3632,7 @@ const wireTask = (task: TaskRecord, botModel: ModelSelection): WireTask => {
   const activity = delegatedNeedsYou(task.threadId) ? "waiting-on-you" as const : base.activity;
   const waitingOn = busy ? undefined : teammatesAwaited(task.threadId);
   const work = chatWork(task.threadId, busy, activity, waitingOn, base.modelSelection ?? botModel);
-  const coordinated = { ...base, ...olderWorkFields(work, busy, activity, waitingOn), ...(statusLine ? { statusLine } : {}), ...planOf(task.threadId), work };
+  const coordinated = { ...base, ...olderWorkFields(work, busy, activity, waitingOn, aliveBehind(task.threadId, busy)), ...(statusLine ? { statusLine } : {}), ...planOf(task.threadId), work };
   const asleep = snoozedUntil === 0 || (snoozedUntil !== undefined && snoozedUntil > Date.now());
   return asleep ? { ...coordinated, snoozedUntil } : coordinated;
 };
@@ -3641,7 +3646,7 @@ const wireBot = (bot: BotRecord): WireBot => {
   const activity = delegatedNeedsYou(bot.threadId) ? "waiting-on-you" as const : visible.activity;
   const waitingOn = busy ? undefined : teammatesAwaited(bot.threadId);
   const work = chatWork(bot.threadId, busy, activity, waitingOn, bot.modelSelection);
-  return { ...visible, ...olderWorkFields(work, busy, activity, waitingOn),
+  return { ...visible, ...olderWorkFields(work, busy, activity, waitingOn, aliveBehind(bot.threadId, busy)),
     work, ...planOf(bot.threadId),
     avatarUrl: visible.avatarUrl ?? null, ...(tasks ? { tasks: tasks.map((task) => wireTask(task, bot.modelSelection)) } : {}) };
 };
@@ -5726,12 +5731,20 @@ bus.subscribe((event: RuntimeEvent) => {
   if (shouldIgnoreProviderEvent(event)) return;
   if (event.type === "turn.completed") pickupStops.settled(event.threadId);
 });
+function mayCarryOnByItself(threadId: string): boolean {
+  return restartPickupHost.dog(threadId) !== null && restartPickupHost.owner(threadId) && !routineRunForTurn(threadId);
+}
 const jobWake = createJobWake(computerJobs, {
   dog: (threadId) => restartPickupHost.dog(threadId),
-  free: (botId, threadId) => !threadBusy(botId, threadId) && !directTurnDispatchClaims.has(threadId) && !hasQueuedSteeredMessages(botId, threadId) &&
+  free: (botId, threadId) => mayCarryOnByItself(threadId) && !roomHandoffs.activeDirect(threadId) && !threadBusy(botId, threadId) && !directTurnDispatchClaims.has(threadId) && !hasQueuedSteeredMessages(botId, threadId) &&
     !botAtThreadCapacity(botId) && !activeGroupTurnForBot(botId) && !limitHold.holds(threadId) && !limitHold.waitsOnPerson(threadId) &&
     !usageStranded(threadId) && teammateCanRun(botId, threadId) && !store.hasPendingRequest(threadId) && !delegatedNeedsYou(threadId) &&
     !waitingOnPerson(threadId) && store.taskByThread(botId, threadId)?.activity !== "waiting-on-you",
+  path: (threadId) => store.activePath(threadId),
+  handoffDone: (threadId) => {
+    const at = store.activePath(threadId).findLast((message) => message.role === "user")?.at;
+    return handoffWorkDone(threadId, roomHandoffs.nodes.values(), at);
+  },
   request: (threadId) => store.activePath(threadId).findLast((message) => message.role === "user")?.id,
   append: (threadId, message) => store.appendMessage(threadId, message),
   start: startContinuation,
@@ -5743,11 +5756,14 @@ bus.subscribe((event: RuntimeEvent) => {
     setTimeout(() => { void restartPickupDone.then(() => jobWake.deliver()); }, 500).unref();
   }
 });
-function stopComputerJobs(threadId: string): void {
-  for (const job of computerJobs.quiet(threadId)) {
-    if (!/^[0-9a-f]{8}$/.test(job.id)) continue;
-    void boat.runningRunBox(job.botId).then((box) => box?.exec(`pkill -f 'runs/.logs/${job.id}.log'`, 30_000)).catch(() => null);
-  }
+function stopJobsForPerson(threadId: string): void {
+  void stopComputerJobs(computerJobs, threadId, {
+    computer: (botId) => boat.jobComputer(botId),
+    stop: (box, job) => computerRuns.stop(box, job),
+    couldNotStop: (id) => {
+      store.appendMessage(id, { role: "bot", kind: "activity", tool: { name: couldNotStopLine(restartPickupHost.dog(id)?.name ?? "The dog"), ok: false, pickup: "computer" } });
+    },
+  }).then((result) => { if (result.stopped.length || result.left.length) console.log(`[computer jobs] stop ${threadId}: stopped ${result.stopped.join(", ") || "none"}, left ${result.left.join(", ") || "none"}`); });
 }
 let finishRestartPickup = () => {};
 const restartPickupDone = new Promise<void>((resolve) => { finishRestartPickup = resolve; });
@@ -5775,7 +5791,7 @@ const stallWatch = createStallWatch({
       usageWait: threadId in limitHold.waiting() || limitHold.waitsOnPerson(threadId) || batteryContinuationPending(threadId),
       queued: hasQueuedSteeredMessages(botId, threadId) || pendingComputerResumes.has(threadId),
       stoppedByPerson: pickupStops.stopped(threadId),
-      mayContinue: restartPickupHost.dog(threadId) !== null && restartPickupHost.owner(threadId) && !routineRunForTurn(threadId),
+      mayContinue: mayCarryOnByItself(threadId),
       routine: (at) => Boolean(routines?.runDuring(threadId, at)),
       teammates: roomHandoffs.outstandingDirect(threadId).map((node) => {
         const mate = store.bot(node.botId);
@@ -13585,12 +13601,14 @@ INTERNAL_ROUTES.push(createSwitchAccountRoute({
 }));
 const computerRuns = new ComputerRuns(join(DATA_DIR, "computer-runs"));
 const checkComputerJobs = () => void computerJobs.check({
-  box: (botId) => boat.runningRunBox(botId),
-  outcome: async (box, job) => {
+  computer: (botId) => boat.jobComputer(botId),
+  exit: async (box, job) => {
     const record = computerRuns.record(job.botId, job.id);
-    if (!record) return { exitCode: null };
+    if (!record) return null;
     const state = await computerRuns.poll(box, record);
-    return state.done ? { exitCode: state.exitCode } : null;
+    if (!state.done || state.exitCode === null || !Number.isInteger(state.exitCode)) return null;
+    const stamp = Number((await box.exec(`date -r runs/.logs/${record.id}.exit +%s`, 10_000).catch(() => ({ stdout: "" }))).stdout.trim());
+    return { exitCode: state.exitCode, ...(Number.isFinite(stamp) && stamp > 0 ? { at: stamp * 1000 } : {}) };
   },
 }).then(() => { void restartPickupDone.then(() => jobWake.deliver()); });
 setTimeout(checkComputerJobs, 0).unref();
@@ -18830,6 +18848,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
         if (keepsNewerTurn({ seen: body.turnStartedAt, running, resumed: pickupStops.resumed(askedTask.threadId) })) {
           return json(res, 200, { ok: true, kept: "newer" });
         }
+        if (!fromLocalTools(auth)) stopJobsForPerson(askedTask.threadId);
         await stopThreadTurn(bot.id, askedTask.threadId, fromLocalTools(auth) ? "api" : "person");
         return json(res, 200, { ok: true });
       }

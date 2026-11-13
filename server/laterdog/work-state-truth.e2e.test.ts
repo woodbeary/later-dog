@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
@@ -154,8 +154,8 @@ const remoteFile = (marker: string) => join(remote, "runs", runKey(join(home, "s
 const ledger = () => JSON.parse(readFileSync(join(dataDir, "computer-jobs.json"), "utf8")) as Array<{ id: string; end?: unknown }>;
 const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function jobThatOutlivesItsTurn(bot: { id: string; threadId: string }, seconds: number, marker: string) {
-  writeFileSync(runFile(), JSON.stringify({ command: `sleep ${seconds}; echo ${marker} > ${marker}.txt`, folder: join(home, "site") }));
+async function jobThatOutlivesItsTurn(bot: { id: string; threadId: string }, seconds: number, marker: string, command = `sleep ${seconds}; echo ${marker} > ${marker}.txt`) {
+  writeFileSync(runFile(), JSON.stringify({ command, folder: join(home, "site") }));
   const before = (await messages(bot.threadId)).length;
   const sent = await api("POST", `/api/bots/${bot.id}/messages`, { text: `Run the ${marker} build on your computer`, threadId: bot.threadId });
   expect(sent.status, JSON.stringify(sent.body)).toBeLessThan(400);
@@ -217,16 +217,24 @@ it("a job that ends while the home is down wakes the dog once after the restart"
   await wokenOnceAndRead(bot, "third", "Biscuit");
 }, 180_000);
 
-it("the person's Stop ends the job and nobody is woken", async () => {
-  const bot = await newDog("Rex");
-  const after = await jobThatOutlivesItsTurn(bot, 10, "fourth");
-  expect(after.work).toMatchObject({ kind: "running", computerJobs: 1 });
-  const stopped = await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
-  expect(stopped.status, JSON.stringify(stopped.body)).toBe(200);
-  const now = await until(() => botNow(bot.id), (state) => state.work?.kind !== "running", "the chat to stop running");
-  expect(now.work.kind).not.toBe("running");
-  await settle(14_000);
-  expect(existsSync(remoteFile("fourth"))).toBe(false);
-  expect(await wakeLines(bot.threadId)).toEqual([]);
-  expect(ledger()).toEqual([]);
-}, 120_000);
+const alive = (pattern: string) => spawnSync("pgrep", ["-f", pattern]).status === 0;
+
+for (const [shape, seconds, command] of [
+  ["a plain command", 3271, "sleep 3271"],
+  ["a command followed by more", 3272, "sleep 3272; echo fourth > fourth.txt"],
+  ["a command inside another shell", 3273, "bash -c 'sleep 3273; true'"],
+] as const) {
+  it(`the person's Stop ends ${shape} itself, and nobody is woken`, async () => {
+    const bot = await newDog(`Rex${seconds}`);
+    const after = await jobThatOutlivesItsTurn(bot, seconds, "fourth", command);
+    expect(after.work).toMatchObject({ kind: "running", computerJobs: 1 });
+    expect(alive(`sleep ${seconds}`)).toBe(true);
+    const stopped = await api("POST", `/api/bots/${bot.id}/interrupt`, { threadId: bot.threadId });
+    expect(stopped.status, JSON.stringify(stopped.body)).toBe(200);
+    await until(() => botNow(bot.id), (state) => state.work?.kind !== "running", "the chat to stop running", 30_000);
+    expect(alive(`sleep ${seconds}`)).toBe(false);
+    await settle(3_000);
+    expect(await wakeLines(bot.threadId)).toEqual([]);
+    expect(ledger()).toEqual([]);
+  }, 120_000);
+}

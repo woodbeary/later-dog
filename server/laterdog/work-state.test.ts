@@ -11,6 +11,7 @@ const every: Required<WorkFacts> = {
   helpers: 0,
   computerJobs: 0,
   computerSince: 0,
+  computerBackground: 0,
   handoffRunning: false,
   needsYou: { what: "Allow sending the email?" },
   usageHold: { account: "Work account", until: 1_800_000_000_000 },

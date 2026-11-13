@@ -2,9 +2,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { RoomHandoffs, type RoomHandoffHooks } from "../room-handoffs.ts";
+import { RoomHandoffs, type RoomHandoff, type RoomHandoffHooks } from "../room-handoffs.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
-import { directHandoffFacts, olderWorkFields } from "./chat-work.ts";
+import { directHandoffFacts, handoffWorkDone, olderWorkFields } from "./chat-work.ts";
 import { workState } from "./work-state.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "chat-work-"));
@@ -53,12 +53,24 @@ describe("the older fields say what the work state says", () => {
     const waiting = workState({ busy: false, waitingOn: scoutWaiting });
     expect(olderWorkFields(waiting, false, "idle", scoutWaiting)).toEqual({ activity: "idle", waitingForTeammates: true, waitingOn: scoutWaiting });
     const asking = workState({ busy: false, waitingOn: scoutWaiting, needsYou: {} });
-    expect(olderWorkFields(asking, false, "idle", scoutWaiting)).toEqual({ activity: "waiting-on-you", waitingForTeammates: false });
+    expect(olderWorkFields(asking, false, "idle", scoutWaiting)).toEqual({ activity: "waiting-on-you", waitingForTeammates: false, waitingOn: scoutWaiting });
   });
 
-  it("counts helpers and computer jobs as helpers working once the turn has ended", () => {
-    const work = workState({ busy: false, helpers: 1, computerJobs: 2 });
-    expect(olderWorkFields(work, false, "idle", undefined)).toEqual({ activity: "idle", waitingForTeammates: false, helpersWorking: 3 });
+  it("counts helpers and computer jobs as helpers working once the turn has ended, whatever outranks them", () => {
+    const alive = { helpers: 1, computerJobs: 2 };
+    expect(olderWorkFields(workState({ busy: false, ...alive }), false, "idle", undefined, alive)).toEqual({ activity: "idle", waitingForTeammates: false, helpersWorking: 3 });
+    for (const facts of [{ needsYou: {} }, { usageHold: {} }, { waitingOn: scoutWaiting }]) {
+      expect(olderWorkFields(workState({ busy: false, ...alive, ...facts }), false, "idle", undefined, alive).helpersWorking).toBe(3);
+    }
+    expect(olderWorkFields(workState({ busy: true }), true, "working", undefined, alive).helpersWorking).toBeUndefined();
+  });
+
+  it("says a handoff's work is done only when the chat's latest received handoff ended after the person last wrote", () => {
+    const node = (over: Partial<RoomHandoff>): RoomHandoff => ({ id: "n", rootId: "r", parentId: "r", threadId: "scout-chat", botId: "scout", key: "k", text: "t", createdAt: 100, status: "completed", result: "", reported: true, executions: 1, approvalGranted: false, kind: "work", ...over });
+    expect(handoffWorkDone("scout-chat", [node({})], 50)).toBe(true);
+    expect(handoffWorkDone("scout-chat", [node({})], 150)).toBe(false);
+    expect(handoffWorkDone("scout-chat", [node({ status: "running" })], 50)).toBe(false);
+    expect(handoffWorkDone("scout-chat", [], 50)).toBe(false);
   });
 
   it("never says working when nothing runs", () => {
