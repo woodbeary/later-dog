@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { failedTurnCause, failedTurnTool } from "./failed-turn";
-import { plainFailure } from "./plain-failure";
+import { plainFailure, retryCannotFix } from "./plain-failure";
 
 const LIVE = `claude exited null before result: [claude-code:unrecognized_model] {"model":"claude-fable-5-2","query_source":"sdk"}`;
 
@@ -136,5 +136,24 @@ describe("the failure row on the wire", () => {
     expect(failedTurnTool(safety, { who: "Scout" }).name).toBe(`error: ${safety}`);
     const mac = "CUA Driver is not ready for this computer — check permissions and restart later.dog";
     expect(failedTurnTool(mac).name).toBe(`error: ${mac}`);
+  });
+});
+
+describe("an error that retrying cannot fix never reads as a busy service", () => {
+  it.each([
+    ['API Error: 529 {"error":{"message":"Your credit balance is too low"}}', "Scout stopped because its account is out of credit. Add credit or pick another account."],
+    ["API Error: 500 The model claude-x does not exist", "Scout stopped because its account cannot use the model it is set to. Pick another model."],
+    ["There's an issue with the selected model (claude-x). It may not exist or you may not have access to it.", "Scout stopped because its account cannot use the model it is set to. Pick another model."],
+    ["Prompt is too long", "Scout stopped because the conversation is too long for its model. Start a new chat or pick a model with more room."],
+    ["claude exited 1 before result: API Error: 503 credit balance is too low", "Scout stopped because its account is out of credit. Add credit or pick another account."],
+  ])("%s", (raw, line) => {
+    expect(retryCannotFix(raw)).toBe(true);
+    expect(plainFailure(raw, "Scout")).toEqual({ line, detail: raw });
+  });
+
+  it("still says busy for an overloaded service, which the watch retries", () => {
+    const raw = "API Error: 529 Overloaded. This is a server-side issue, usually temporary.";
+    expect(retryCannotFix(raw)).toBe(false);
+    expect(plainFailure(raw, "Scout").line).toBe("The service behind Scout's account is busy or briefly unavailable. Try again in a moment.");
   });
 });

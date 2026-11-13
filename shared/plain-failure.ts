@@ -13,7 +13,10 @@ type Reason =
   | { kind: "limit"; until?: string }
   | { kind: "off" }
   | { kind: "space" }
-  | { kind: "busy" };
+  | { kind: "busy" }
+  | { kind: "credit" }
+  | { kind: "model" }
+  | { kind: "too-long" };
 
 const DOG = "Your dog";
 
@@ -24,6 +27,18 @@ const OFF = /\bis turned off\b/i;
 const SPACE = /no space left|not enough (?:space|disk)|insufficient disk space|disk (?:is )?full|winerror\s*112|\bENOSPC\b/i;
 const BUSY = /(?:HTTP|status|API Error:?|error)\s*\(?(?:5\d\d|429)\b|^\(?(?:5\d\d|429)\b|overloaded|temporarily unavailable|service unavailable|internal server error|bad gateway|rate[ _-]?limit/i;
 const RATE_LIMIT = /rate[ _-]?limit/i;
+const CREDIT = /credit balance is too low/i;
+const MODEL = /issue with the selected model|invalid model|model .{0,60}(?:does not exist|not found|is not available)/i;
+const TOO_LONG = /prompt is too long|input is too long|context (?:window|length) exceeded|exceeds? (?:the )?(?:model's )?(?:maximum )?context/i;
+const CANNOT_RETRY = new RegExp([
+  /safety|classifier|spend limit|you stopped|\bAPI Error:? 4(?!29)\d\d\b|request too large/.source,
+  CREDIT.source, MODEL.source, TOO_LONG.source,
+  /invalid_request_error|not_found_error|request_too_large|permission_error/.source,
+].join("|"), "i");
+
+export function retryCannotFix(raw: string): boolean {
+  return CANNOT_RETRY.test(raw);
+}
 const UNTIL = /\b(?:until|at|resets?(?: at)?)\s+(\d{1,2}(?::\d{2})?\s*(?:[ap]\.?m\.?)?)(?![\d:])/i;
 
 function failureReason(text: string): Reason | null {
@@ -34,6 +49,10 @@ function failureReason(text: string): Reason | null {
   }
   if (OFF.test(text)) return { kind: "off" };
   if (SPACE.test(text)) return { kind: "space" };
+  if (CREDIT.test(text)) return { kind: "credit" };
+  if (MODEL.test(text)) return { kind: "model" };
+  if (TOO_LONG.test(text)) return { kind: "too-long" };
+  if (retryCannotFix(text)) return null;
   if (BUSY.test(text)) return { kind: "busy" };
   return null;
 }
@@ -45,6 +64,9 @@ function clause(reason: Reason, holder: string): string {
     case "off": return `${holder} is turned off. Turn it back on or pick another account`;
     case "space": return "this computer is almost out of space. Free up some space and try again";
     case "busy": return `the service behind ${holder} is busy or briefly unavailable. Try again in a moment`;
+    case "credit": return `${holder} is out of credit. Add credit or pick another account`;
+    case "model": return `${holder} cannot use the model it is set to. Pick another model`;
+    case "too-long": return "the conversation is too long for its model. Start a new chat or pick a model with more room";
   }
 }
 
@@ -119,8 +141,12 @@ export function plainFailure(cause: string, who?: string): PlainFailure {
     const found = rule.reasoned?.(name, match, raw);
     return found ? said(found, raw) : withDetail(rule.line(name, match), raw);
   }
-  if (failureReason(raw)?.kind === "busy" && !RATE_LIMIT.test(raw)) {
+  const reason = failureReason(raw);
+  if (reason?.kind === "busy" && !RATE_LIMIT.test(raw)) {
     return withDetail(`The service behind ${name}'s account is busy or briefly unavailable. Try again in a moment.`, raw);
+  }
+  if (reason?.kind === "credit" || reason?.kind === "model" || reason?.kind === "too-long") {
+    return withDetail(`${name} stopped because ${clause(reason, "its account")}.`, raw);
   }
   const words = sentenceInBody(raw);
   return words === raw ? { line: raw } : withDetail(words, raw);

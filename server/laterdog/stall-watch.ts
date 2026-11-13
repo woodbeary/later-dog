@@ -1,4 +1,5 @@
 import { failedTurnTool } from "../../shared/failed-turn.ts";
+import { retryCannotFix } from "../../shared/plain-failure.ts";
 import type { WireMessage } from "../../shared/wire.ts";
 import type { WorkStopCause } from "../../shared/work-state.ts";
 import { endsOnPromise } from "./promise-nudge.ts";
@@ -58,12 +59,6 @@ type Need = "sign-in" | "permission" | "account-off" | "other";
 const TEAMMATE_GAVE_UP = /\b(?:couldn't finish|never got started|was interrupted|ran out of time)$/;
 const SIGN_IN = /sign(?:ed)?[ -]?in|log(?:ged)?[ -]?in|\b401\b|unauthori[sz]ed|api key|credential/i;
 const PERMISSION = /permission|forbidden|not allowed|approval|\b403\b/i;
-const NEVER_RETRY = new RegExp([
-  /safety|classifier|invalid model|spend limit|you stopped|\bAPI Error:? 4(?!29)\d\d\b/.source,
-  /prompt is too long|input is too long|request too large|context (?:window|length) exceeded|exceeds? (?:the )?(?:model's )?(?:maximum )?context/.source,
-  /issue with the selected model|model .{0,60}(?:does not exist|not found|is not available)|credit balance is too low/.source,
-  /invalid_request_error|not_found_error|request_too_large|permission_error/.source,
-].join("|"), "i");
 const TURNED_OFF = / is turned off\.?$/i;
 const TURNED_OFF_PART = /[^:—–.]+ is turned off(?=\.?$)/i;
 
@@ -93,7 +88,7 @@ function failureOf(message: Message): { cause: string; retry: boolean; need: Nee
   const raw = (tool.detail ?? label.replace(/^error:\s*/i, "")).trim();
   const cause = sentence(TURNED_OFF_PART.exec(raw)?.[0] ?? raw) || "an error";
   const need: Need = TURNED_OFF.test(raw) ? "account-off" : tool.setup || SIGN_IN.test(raw) ? "sign-in" : PERMISSION.test(raw) ? "permission" : "other";
-  return { cause, need, retry: need === "other" && !NEVER_RETRY.test(raw) };
+  return { cause, need, retry: need === "other" && !retryCannotFix(raw) };
 }
 
 function watchRows(after: readonly Message[]): Message[] {
