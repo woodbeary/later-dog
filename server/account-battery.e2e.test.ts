@@ -322,6 +322,82 @@ it("does not run a new message on an account the person switched off when nothin
   });
 }, 150_000);
 
+async function switchOff(fixture: BatteryFixture, ids: string[]) {
+  for (const id of ids) await fixture.api("PATCH", `/api/instances/${id}`, { enabled: false });
+  await expect.poll(async () => (await fixture.api("GET", "/api/instances")).instances.filter((instance: any) => ids.includes(instance.instanceId) && instance.enabled === false).length, { timeout: 20_000 }).toBe(ids.length);
+}
+
+async function holdOnOff(fixture: BatteryFixture, name: string, text: string) {
+  const chat = await batteryBot(fixture, name);
+  await switchOff(fixture, ["claude", "claude-two"]);
+  const sent = await fixture.api("POST", `/api/bots/${chat.bot.id}/messages`, { threadId: chat.threadId, text });
+  expect(sent.queued).toBe(true);
+  await expect.poll(async () => (await chat.task()).work, { timeout: 10_000 }).toEqual({ kind: "needs-you", what: "Turn Claude account 1 back on" });
+  return { chat, queueId: sent.queueId as string };
+}
+
+it("keeps a held message held across a restart, and runs it once the account is back on", async () => {
+  await withBatteryFixture({}, async (fixture) => {
+    const { api, firstPrompts, secondPrompts, dataDir, evidence } = fixture;
+    const { chat } = await holdOnOff(fixture, "Held over restart", "HELD_OVER_RESTART");
+    expect(JSON.parse(readFileSync(join(dataDir, "limit-hold.json"), "utf8")).waiting[chat.threadId]).toMatchObject({ person: true });
+    await fixture.restart();
+    await new Promise((resolve) => setTimeout(resolve, 4_000));
+    const rows = await chat.messages();
+    evidence.push({ afterRestart: rows });
+    expect(firstPrompts()).toHaveLength(0);
+    expect(secondPrompts()).toHaveLength(0);
+    expect(rows.some((row: any) => row.role === "user" && row.text === "HELD_OVER_RESTART")).toBe(false);
+    expect((await chat.task()).work).toEqual({ kind: "needs-you", what: "Turn Claude account 1 back on" });
+    expect((await api("GET", "/api/config")).accountBattery.waiting).toEqual({});
+    await api("PATCH", "/api/instances/claude", { enabled: true });
+    await expect.poll(async () => lastReply(await chat.messages())?.text, { timeout: 30_000, interval: 500 }).toBe("hello from fake claude");
+    expect(firstPrompts()).toHaveLength(1);
+    expect(promptText(firstPrompts()[0])).toContain("HELD_OVER_RESTART");
+  });
+}, 150_000);
+
+it("lets go of the wait when the held message is cancelled", async () => {
+  await withBatteryFixture({}, async (fixture) => {
+    const { api, dataDir } = fixture;
+    const { chat, queueId } = await holdOnOff(fixture, "Cancel held", "CANCEL_HELD");
+    await api("DELETE", `/api/bots/${chat.bot.id}/queue/${queueId}`, { threadId: chat.threadId });
+    await expect.poll(async () => (await chat.task()).work, { timeout: 10_000 }).toEqual({ kind: "idle" });
+    expect(JSON.parse(readFileSync(join(dataDir, "limit-hold.json"), "utf8")).waiting[chat.threadId]).toBeUndefined();
+    expect(fixture.firstPrompts()).toHaveLength(0);
+  });
+}, 90_000);
+
+it("runs a held message at once when the person picks an account that can run", async () => {
+  await withBatteryFixture({ crossProvider: true }, async (fixture) => {
+    const { api } = fixture;
+    const { chat } = await holdOnOff(fixture, "Pick while held", "PICK_WHILE_HELD");
+    const codex = (await api("GET", "/api/instances")).instances.find((instance: any) => instance.instanceId === "codex-last");
+    const started = Date.now();
+    await api("PATCH", `/api/bots/${chat.bot.id}/tasks/${chat.threadId}`, { modelSelection: { instanceId: "codex-last", model: codex.models.default } });
+    await expect.poll(async () => lastReply(await chat.messages())?.text, { timeout: 20_000, interval: 250 }).toBe("Finished on Codex");
+    expect(Date.now() - started).toBeLessThan(20_000);
+    expect(fixture.firstPrompts()).toHaveLength(0);
+    expect(fixture.secondPrompts()).toHaveLength(0);
+    expect((await chat.task()).work.kind).not.toBe("needs-you");
+  });
+}, 90_000);
+
+it("runs on another account of the same engine when the chosen one is switched off, and says where", async () => {
+  await withBatteryFixture({}, async (fixture) => {
+    const { api } = fixture;
+    const chat = await batteryBot(fixture, "Off with cover");
+    await switchOff(fixture, ["claude"]);
+    await chat.send("OFF_WITH_COVER");
+    await chat.settled((rows) => lastReply(rows)?.text === "hello from account 2");
+    expect(fixture.firstPrompts()).toHaveLength(0);
+    expect(fixture.secondPrompts()).toHaveLength(1);
+    expect(promptText(fixture.secondPrompts()[0])).toContain("OFF_WITH_COVER");
+    expect((await api("GET", "/api/config")).accountBattery.routed?.[chat.threadId]).toEqual({ from: "claude", on: "claude-two", model: MODEL });
+    await expect.poll(() => fixture.bookedTo(chat.threadId), { timeout: 10_000 }).toEqual(["claude-two"]);
+  });
+}, 90_000);
+
 it("changes nothing while the battery is off, beyond reporting the limit as a failed turn", async () => {
   await withBatteryFixture({ enabled: false }, async (fixture) => {
     const { firstPrompts, secondPrompts, gate, api, evidence } = fixture;

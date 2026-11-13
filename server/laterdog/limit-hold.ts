@@ -114,6 +114,16 @@ export class LimitHold {
     }
   }
 
+  restorePeople(): string[] {
+    const people = [...this.saved].filter(([threadId, wait]) => wait.person && !this.people.has(threadId)).map(([threadId]) => threadId);
+    for (const threadId of people) {
+      this.fromBefore.add(threadId);
+      this.people.add(threadId);
+    }
+    if (people.length) this.options.onChange?.();
+    return people;
+  }
+
   resume(): string[] {
     const waiting = [...this.saved.keys()].filter((threadId) => !this.held.has(threadId) && !this.retries.has(threadId) && !this.people.has(threadId));
     const due: string[] = [];

@@ -19,3 +19,14 @@ export function shownWaiting(waiting: Readonly<Record<string, string>>, keep: { 
 export function usageHeld(waiting: Readonly<Record<string, string>>, waitsOnPerson: (threadId: string) => boolean): string[] {
   return Object.keys(waiting).filter((threadId) => !waitsOnPerson(threadId));
 }
+
+export interface HeldChat {
+  switchedOff: boolean;
+  queued: boolean;
+  waitsOnPerson: boolean;
+  keptTurn: boolean;
+}
+
+export function personWaitStays(chat: HeldChat): boolean {
+  return (chat.switchedOff && chat.queued) || (chat.waitsOnPerson && chat.keptTurn);
+}

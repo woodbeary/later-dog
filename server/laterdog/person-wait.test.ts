@@ -9,7 +9,7 @@ import { carryOnAfterReset } from "./carry-on.ts";
 import { carryOnAfterRestart } from "./carry-on-restart.ts";
 import type { PathMessage } from "./continue-on-account.ts";
 import { LimitHold, RECHECK_MS } from "./limit-hold.ts";
-import { settlePickup, shownWaiting, usageHeld, type PickupHold } from "./person-wait.ts";
+import { personWaitStays, settlePickup, shownWaiting, usageHeld, type PickupHold } from "./person-wait.ts";
 
 const NOW = Date.parse("2026-11-12T18:00:00Z");
 const HOUR = 3600_000;
@@ -60,6 +60,21 @@ describe("a wait on the person in the hold", () => {
     restarted.recheckPerson("t");
     expect(wake).toHaveBeenCalledExactlyOnceWith("t");
     expect(Object.keys(saved())).toEqual(["t"]);
+  });
+
+  it("brings saved waits on the person back on their own, before anything is woken", () => {
+    const first = new LimitHold({ readyAt: () => undefined, wake: vi.fn(), file });
+    first.awaitPerson("person");
+    first.retry("limit");
+    const wake = vi.fn();
+    const restarted = new LimitHold({ readyAt: () => undefined, wake, file });
+    expect(restarted.restorePeople()).toEqual(["person"]);
+    expect(restarted.waitsOnPerson("person")).toBe(true);
+    expect(restarted.restored("person")).toBe(true);
+    expect(wake).not.toHaveBeenCalled();
+    expect(restarted.resume()).toEqual(["limit"]);
+    expect(wake.mock.calls).toEqual([["limit"]]);
+    expect(restarted.waitsOnPerson("person")).toBe(true);
   });
 
   it("turns into a timed wait or a retry, saved as such, when the pickup says so", () => {
@@ -156,5 +171,24 @@ describe("a chat waiting on a signed-out account across a restart", () => {
     expect(start).toHaveBeenCalledExactlyOnceWith(CONTINUE_AFTER_RESET, "ask");
     expect(hold.waitsOnPerson("dog")).toBe(false);
     expect(saved()).toEqual({});
+  });
+});
+
+describe("whether a wait on the person stays at a recheck", () => {
+  const chat = (over: Partial<Parameters<typeof personWaitStays>[0]>) => personWaitStays({ switchedOff: false, queued: false, waitsOnPerson: false, keptTurn: false, ...over });
+
+  it("keeps a message held only for a switched-off account", () => {
+    expect(chat({ switchedOff: true, waitsOnPerson: true, queued: true })).toBe(true);
+    expect(chat({ waitsOnPerson: true, queued: true })).toBe(false);
+  });
+
+  it("keeps a kept turn waiting while its account needs the person, and lets it carry on once it can run", () => {
+    expect(chat({ waitsOnPerson: true, keptTurn: true })).toBe(true);
+    expect(chat({ switchedOff: true, waitsOnPerson: true, keptTurn: true })).toBe(true);
+    expect(chat({ keptTurn: true })).toBe(false);
+  });
+
+  it("lets go of a wait whose held message was cancelled", () => {
+    expect(chat({ switchedOff: true, waitsOnPerson: true })).toBe(false);
   });
 });

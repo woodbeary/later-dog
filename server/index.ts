@@ -729,7 +729,7 @@ import {
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
 import { accountNeedsYou, switchedOff, waitsOnPerson } from "./laterdog/account-needs-you.ts";
-import { settlePickup, shownWaiting, usageHeld, type PickupOutcome } from "./laterdog/person-wait.ts";
+import { personWaitStays, settlePickup, shownWaiting, usageHeld, type PickupOutcome } from "./laterdog/person-wait.ts";
 import { guestBattery } from "./laterdog/battery-view.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold, withWaitingRuns } from "./laterdog/limit-hold.ts";
@@ -5617,7 +5617,11 @@ store.onChange((change) => {
     if (node) syncDelegatedNeedsYou(node);
   }
   if (change.type === "message") statusLines.observe(change.threadId, change.message);
-  else if (change.type === "bot") inflightTurns.sync(change.botId, store.tasks(change.botId));
+  else if (change.type === "bot") {
+    inflightTurns.sync(change.botId, store.tasks(change.botId));
+    const held = limitHold.personWaits().filter((threadId) => store.botByThread(threadId)?.id === change.botId);
+    if (held.length) queueMicrotask(() => { for (const threadId of held) recheckPersonWait(threadId); });
+  }
   else if (change.type === "bot.deleted") inflightTurns.forget(change.botId);
 });
 const startContinuation = (botId: string, threadId: string, prompt: string, requestMessageId: string) =>
@@ -6586,6 +6590,24 @@ function chatWaitsOnPerson(threadId: string): boolean {
   const selection = chatSelection(threadId);
   return Boolean(selection && waitsOnPerson(accountBattery.decide(selection, batteryAccounts(), threadId)));
 }
+function recheckPersonWait(threadId: string): void {
+  if (!limitHold.waitsOnPerson(threadId)) return;
+  const owner = store.botByThread(threadId);
+  const stays = personWaitStays({
+    switchedOff: switchedOffNow(threadId), queued: Boolean(owner && hasQueuedSteeredMessages(owner.id, threadId)),
+    waitsOnPerson: chatWaitsOnPerson(threadId), keptTurn: batteryContinuationPending(threadId),
+  });
+  if (!stays) limitHold.recheckPerson(threadId);
+}
+function switchedOffNow(threadId: string): boolean {
+  const selection = chatSelection(threadId);
+  return Boolean(selection && switchedOff(accountBattery.decide(selection, batteryAccounts(), threadId)));
+}
+function heldForSwitchedOff(threadId: string): boolean {
+  if (!switchedOffNow(threadId)) return false;
+  settle(threadId, "needs-you", "reset");
+  return true;
+}
 function carriesOnByItself(threadId: string): boolean {
   const input = carryOnInput(threadId);
   return (input !== undefined && carriesOn(input)) || limitHold.waitsOnPerson(threadId) || (accountBattery.enabled && limitHold.restored(threadId));
@@ -6594,9 +6616,7 @@ const usageWatch = createUsageWatch({
   held: () => usageHeld(limitHold.waiting(), chatWaitsOnPerson),
   stranded: () => accountBattery.pendingThreads().filter(usageStranded),
   people: () => limitHold.personWaits(),
-  recheckPerson: (threadId) => {
-    if (!chatWaitsOnPerson(threadId)) limitHold.recheckPerson(threadId);
-  },
+  recheckPerson: recheckPersonWait,
   refresh: async () => {
     if (hostedModels) return;
     await loadPlanUsage({ accounts: planAccountsFromInstances(instanceConfigs(cfg)).filter((account) => account.driver !== "grok"), refresh: true });
@@ -7833,14 +7853,13 @@ function drainQueuedSends() {
       }).catch(reject);
     }),
     (botId, threadId) => threadBusy(botId, threadId) || botAtThreadCapacity(botId) || Boolean(activeGroupTurnForBot(botId))
-      || parksBehindCoordination(botId, threadId) || limitHold.holds(threadId) || limitHold.waitsOnPerson(threadId) || batteryContinuationPending(threadId),
+      || parksBehindCoordination(botId, threadId) || limitHold.holds(threadId) || batteryContinuationPending(threadId) || heldForSwitchedOff(threadId),
   );
 }
 
 async function startOrQueueDirectMessage(botId: string, threadId: string, text: string, replyTo?: Message, sendId?: string, sender?: ResolvedSender, trigger?: UsageTrigger, via?: "api" | "call") {
   const behindHeld = batteryContinuationPending(threadId) || (limitHold.holds(threadId) && hasQueuedSteeredMessages(botId, threadId));
-  const selection = store.projectBotForTask(botId, threadId)?.modelSelection;
-  const off = limitHold.waitsOnPerson(threadId) || Boolean(selection && switchedOff(accountBattery.decide(selection, batteryAccounts(), threadId)));
+  const off = switchedOffNow(threadId);
   const decision = admit("direct", {}, {
     atCapacity: botAtThreadCapacity(botId),
     threadBusy: threadBusy(botId, threadId) || behindHeld || off,
@@ -18332,6 +18351,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       if (!cancelSteeredMessage(bot.id, queueId, bot.threadId)) {
         return json(res, 404, { error: "no such queued message" });
       }
+      recheckPersonWait(bot.threadId);
       return json(res, 200, { ok: true });
     }
 
@@ -21195,6 +21215,7 @@ server.listen(PORT, "127.0.0.1", async () => {
   void connectedRepositories.refresh();
   console.log(`later.dog server on http://127.0.0.1:${PORT}`);
   followupsReady = true;
+  limitHold.restorePeople();
   drainQueuedSends();
   drainQueuedChannelSends();
   if (enginesRead) {
