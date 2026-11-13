@@ -3602,8 +3602,7 @@ function chatWork(threadId: string, busy: boolean, activity: BotActivity | undef
 }
 const dogPlans = new PlanStore(join(DATA_DIR, "dog-plans.json"));
 const planOf = (threadId: string) => {
-  const plan = dogPlans.get(threadId);
-  return plan ? { plan } : {};
+  return { plan: dogPlans.get(threadId) ?? null };
 };
 const planChanged = (threadId: string) => {
   const bot = store.botByThread(threadId);
