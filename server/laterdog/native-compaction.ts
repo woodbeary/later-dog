@@ -17,6 +17,7 @@ export function harnessCompacts(driverKind: string, setting: HarnessCompactionSe
 
 export interface CompactionSigns {
   switchedOff?: boolean;
+  customEndpoint?: boolean;
   managed?: boolean;
 }
 
@@ -25,11 +26,17 @@ export interface ChatCompactionFacts {
   setting?: HarnessCompactionSetting;
   signs?: CompactionSigns;
   modelKnown: boolean;
+  injectedModel?: boolean;
+  window?: number;
 }
+
+export const SMALLEST_ENGINE_COMPACTED_WINDOW = 100_000;
 
 export function engineWillCompact(facts: ChatCompactionFacts): boolean {
   if (!harnessCompacts(facts.driverKind, facts.setting)) return false;
   if (facts.signs?.switchedOff) return false;
+  if (facts.injectedModel || facts.signs?.customEndpoint) return false;
+  if (facts.window !== undefined && facts.window < SMALLEST_ENGINE_COMPACTED_WINDOW) return false;
   if (facts.driverKind === "codex" && (facts.signs?.managed || !facts.modelKnown)) return false;
   return true;
 }

@@ -508,6 +508,16 @@ export function claudeHookEnvironment(platform: NodeJS.Platform, target: ClaudeH
   return { LATERDOG_HOOK_URL: target.url, LATERDOG_HOOK_TOKEN_FILE: target.tokenFile, LATERDOG_HOOK_NODE: process.execPath, LATERDOG_HOOK_HELPER: helperPath };
 }
 
+export function localModelEndpoint(baseUrl: string | undefined): boolean {
+  if (!baseUrl?.trim()) return false;
+  try {
+    const host = new URL(baseUrl).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    return host === "localhost" || host === "::1" || host.startsWith("127.") || host.endsWith(".local") || host.endsWith(".localhost");
+  } catch {
+    return false;
+  }
+}
+
 export function claudeUnansweredError(frame: { is_error?: unknown; errors?: unknown; result?: unknown }): string | null {
   if (frame.is_error !== true || !Array.isArray(frame.errors)) return null;
   if (typeof frame.result === "string" && frame.result.trim()) return null;
@@ -1010,6 +1020,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
     };
     const listeners = new Set<RuntimeEventListener>();
     const active = new Map<string, { stop: () => void; turnId: string; broker?: Awaited<ReturnType<typeof createPermissionBroker>> }>();
+    const workFolders = new Map<string, string>();
 
     interface Session {
       child: ReturnType<typeof spawnCli>;
@@ -1338,6 +1349,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       Object.assign(env, quietWorkEnvironment(turn.quietWork));
       Object.assign(env, claudeHelperEnvironment(turnModel, turn.helperModel, { custom: Boolean(config.managed) || injected.injected }));
       const cwd = turn.cwd ?? homedir();
+      workFolders.set(threadId, cwd);
       const commandCwd = permissionLaunchCwd(cwd);
       const unkeyedFlags = new Set<string>(["--mcp-config", "--settings", ...FLAGS_LEARNED_AFTER_LAUNCH]);
       const keyArgs = args.filter((a, i) => a !== "--forward-subagent-text" && !unkeyedFlags.has(a) && !unkeyedFlags.has(args[i - 1] ?? ""));
@@ -2362,13 +2374,16 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           return behavior === "allow" ? "allowed-once" : behavior === "answer" ? "answered" : "rejected";
         },
         hasSession: (threadId) => active.has(threadId),
-        compactionSigns: async () => {
+        compactionSigns: async (threadId) => {
           const env = environment();
-          let inherited: unknown;
-          if (inheritsUserConfig(env)) {
-            try { inherited = JSON.parse(readFileSync(join(resolveClaudeConfigDir(undefined, env), "settings.json"), "utf8")); } catch {}
-          }
-          return { switchedOff: claudeCompactionSwitchedOff(env, inherited) };
+          const read = (path: string): unknown => { try { return JSON.parse(readFileSync(path, "utf8")); } catch { return undefined; } };
+          const inherited = inheritsUserConfig(env) ? read(join(resolveClaudeConfigDir(undefined, env), "settings.json")) : undefined;
+          const folder = threadId ? workFolders.get(threadId) : undefined;
+          const project = folder ? read(join(folder, ".claude", "settings.json")) : undefined;
+          return {
+            switchedOff: claudeCompactionSwitchedOff(env, inherited) || claudeCompactionSwitchedOff({}, project),
+            customEndpoint: !config.managed && localModelEndpoint(env.ANTHROPIC_BASE_URL),
+          };
         },
         nativeCompactAt: async () => {
           const env = environment();

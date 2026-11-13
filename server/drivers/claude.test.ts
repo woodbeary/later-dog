@@ -2135,11 +2135,29 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, "settings.json"), JSON.stringify({ autoCompactEnabled: false }));
     await create(undefined, { CLAUDE_CONFIG_DIR: configDir });
-    await expect(instance.adapter.compactionSigns!()).resolves.toEqual({ switchedOff: false });
+    await expect(instance.adapter.compactionSigns!()).resolves.toMatchObject({ switchedOff: false });
     await create(undefined, { CLAUDE_CONFIG_DIR: configDir, LATERDOG_CLAUDE_INHERIT_USER_CONFIG: "1" });
-    await expect(instance.adapter.compactionSigns!()).resolves.toEqual({ switchedOff: true });
+    await expect(instance.adapter.compactionSigns!()).resolves.toMatchObject({ switchedOff: true });
     await create(undefined, { DISABLE_AUTO_COMPACT: "1" });
-    await expect(instance.adapter.compactionSigns!()).resolves.toEqual({ switchedOff: true });
+    await expect(instance.adapter.compactionSigns!()).resolves.toMatchObject({ switchedOff: true });
+  });
+
+  it("tells later.dog when the chat's work folder switches Claude Code's compaction off", async () => {
+    const folder = join(scratch, "project-off");
+    mkdirSync(join(folder, ".claude"), { recursive: true });
+    writeFileSync(join(folder, ".claude", "settings.json"), JSON.stringify({ autoCompactEnabled: false }));
+    await create();
+    await instance.adapter.sendTurn({ threadId: "t-project-off", text: "hi", cwd: folder } as any);
+    await recorder.until((e) => e.type === "turn.completed");
+    await expect(instance.adapter.compactionSigns!("t-project-off")).resolves.toMatchObject({ switchedOff: true });
+    await expect(instance.adapter.compactionSigns!("t-elsewhere")).resolves.toMatchObject({ switchedOff: false });
+  });
+
+  it("tells later.dog when Claude Code talks to a model on this machine", async () => {
+    await create(undefined, { ANTHROPIC_BASE_URL: "http://127.0.0.1:11434" });
+    await expect(instance.adapter.compactionSigns!()).resolves.toMatchObject({ customEndpoint: true });
+    await create(undefined, { ANTHROPIC_BASE_URL: "https://gateway.example.test" });
+    await expect(instance.adapter.compactionSigns!()).resolves.toMatchObject({ customEndpoint: false });
   });
 
   it("registers the hook that hands back Claude Code's own compaction summary from 2.1.316", async () => {

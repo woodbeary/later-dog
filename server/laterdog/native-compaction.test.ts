@@ -37,6 +37,15 @@ describe("harness compaction", () => {
     expect(engineWillCompact({ driverKind: "pi", modelKnown: true })).toBe(false);
   });
 
+  it("keeps later.dog's fold for a model on this machine, an injected model, or a window under 100K", () => {
+    expect(engineWillCompact({ driverKind: "claudeAgent", modelKnown: true, injectedModel: true })).toBe(false);
+    expect(engineWillCompact({ driverKind: "claudeAgent", modelKnown: true, signs: { customEndpoint: true } })).toBe(false);
+    expect(engineWillCompact({ driverKind: "claudeAgent", modelKnown: true, window: 32_000 })).toBe(false);
+    expect(engineWillCompact({ driverKind: "claudeAgent", modelKnown: true, window: 99_999 })).toBe(false);
+    expect(engineWillCompact({ driverKind: "claudeAgent", modelKnown: true, window: 100_000 })).toBe(true);
+    expect(engineWillCompact({ driverKind: "codex", modelKnown: true, window: 32_000 })).toBe(false);
+  });
+
   it("sees Claude Code's compaction switched off by its environment or by inherited settings", () => {
     expect(claudeCompactionSwitchedOff({})).toBe(false);
     expect(claudeCompactionSwitchedOff({ DISABLE_AUTO_COMPACT: "1" })).toBe(true);

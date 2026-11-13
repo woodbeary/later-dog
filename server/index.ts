@@ -768,6 +768,7 @@ import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
 import { createCompactionLive, fileCompactionLedger } from "./laterdog/compaction-live.ts";
 import { engineWillCompact, rebuildNeedsSummary } from "./laterdog/native-compaction.ts";
+import { decodeInjectId } from "./drivers/local-inject.ts";
 import { withDroppedSummary } from "./laterdog/rebuild-summary.ts";
 import { fileEngineSummaries } from "./laterdog/engine-summaries.ts";
 import { createEngineSummaryWindows } from "./laterdog/engine-summary-window.ts";
@@ -7842,15 +7843,15 @@ async function compactConversation(input: {
   const history = selected.transcript.filter(entry => entry.id);
   if (!history.length) return;
   const reported = task.lastContextModel === `${instance.instanceId}:${model}` && !task.rewound ? chatContext(task, model) : undefined;
-  const harness = !manual && engineWillCompact({ driverKind: instance.driverKind, setting: cfg.context, signs: await instance.adapter.compactionSigns?.(),
-    modelKnown: instance.models.options.some(option => option.id === model) });
+  const window = contextWindowFor(model, instance.models, reported?.window);
+  const harness = !manual && engineWillCompact({ driverKind: instance.driverKind, setting: cfg.context, signs: await instance.adapter.compactionSigns?.(threadId),
+    modelKnown: instance.models.options.some(option => option.id === model), injectedModel: decodeInjectId(model) !== null, window });
   if (harness && !rebuildNeedsSummary({
     startsFresh: Boolean(task.rewound) || isExternalContextMarker(task.lastInstanceId) || engineIsFresh({ instanceId: instance.instanceId,
       lastInstanceId: task.lastInstanceId, resumeCursors: task.resumeCursors, transcript: context.filter(entry => !excludedIds.has(entry.id)) }),
     droppedFromReplay: selectReplay(context, { budgetBytes: cfg.context?.rebuildBytes ?? DEFAULT_REBUILD_BYTES, excludedIds, compaction: record }).dropped,
   })) return;
   const measurement = reported;
-  const window = contextWindowFor(model, instance.models, measurement?.window);
   const bytes = history.reduce((n, entry) => n + Buffer.byteLength(entry.text), 0);
   let floor = task.contextFloor;
   if (record && record.id === task.appliedCompactionId && floor === undefined && measurement?.tokens) {
