@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
-import { codexPlanSteps, corruptPlansPath, EnginePlans, forgetDeletedChats, parsePlanItems, PLAN_CALLERS_KEPT, PlanCallers, planRecorded, PlanStore, todoWriteSteps, visibleText } from "./dog-plan.ts";
+import { codexPlanSteps, corruptPlansPath, cutToFit, EnginePlans, forgetDeletedChats, parsePlanItems, PLAN_CALLERS_KEPT, PlanCallers, planRecorded, PlanStore, todoWriteSteps, visibleText } from "./dog-plan.ts";
 
 const dirs: string[] = [];
 const scratch = () => {
@@ -57,6 +57,18 @@ describe("engine plans", () => {
     expect(codexPlanSteps([{ explanation: "x" }])).toBeNull();
     expect(todoWriteSteps({ todos: [] })).toEqual([]);
     expect(codexPlanSteps([])).toEqual([]);
+  });
+
+  it("cuts a long engine item between whole characters", () => {
+    const coder = "\u{1F469}\u200D\u{1F4BB}";
+    expect(cutToFit(`${"a".repeat(198)}${coder}`)).toBe("a".repeat(198));
+    expect(cutToFit(`${"a".repeat(195)}${coder}`)).toBe(`${"a".repeat(195)}${coder}`);
+    const paws = cutToFit("\u{1F43E}".repeat(150));
+    expect(paws).toBe("\u{1F43E}".repeat(100));
+    const [step] = todoWriteSteps({ todos: [{ content: `${"word ".repeat(38)}ends ${coder}${coder}`, status: "pending" }] })!;
+    expect(step!.text.length).toBeLessThanOrEqual(200);
+    expect(step!.text.endsWith(coder)).toBe(true);
+    expect(/[\uD800-\uDBFF]$/.test(step!.text)).toBe(false);
   });
 
   it("hands engine plans to every listener", () => {

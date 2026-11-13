@@ -16,6 +16,18 @@ export function visibleText(value: unknown): string {
   return VISIBLE.test(text) ? text : "";
 }
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+export function cutToFit(text: string, max = PLAN_MAX_TEXT): string {
+  if (text.length <= max) return text;
+  let kept = "";
+  for (const { segment } of graphemes.segment(text)) {
+    if (kept.length + segment.length > max) break;
+    kept += segment;
+  }
+  return kept.trimEnd();
+}
+
 const isStatus = (value: unknown): value is PlanStatus => typeof value === "string" && (PLAN_STATUSES as readonly string[]).includes(value);
 
 export function parsePlanItems(value: unknown): ParsedPlan {
@@ -43,7 +55,7 @@ export function engineSteps(rows: unknown, textKeys: readonly string[]): PlanIte
   if (!Array.isArray(rows)) return null;
   const items = rows.flatMap((value) => {
     const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
-    const text = textKeys.map((key) => visibleText(row[key])).find(Boolean)?.slice(0, PLAN_MAX_TEXT) ?? "";
+    const text = cutToFit(textKeys.map((key) => visibleText(row[key])).find(Boolean) ?? "");
     return text ? [{ text, status: engineStatus(row.status) }] : [];
   }).slice(0, PLAN_MAX_ITEMS);
   return items.length || !rows.length ? items : null;
