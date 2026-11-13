@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { buildSystemPrompt, todayPrompt } from "../system-prompt.ts";
+import { SHORT_ON_IT_NOTE } from "./work-updates.ts";
 import {
   ACTING,
   ANSWER_FIRST,
@@ -96,7 +97,7 @@ describe("the guidance every dog gets", () => {
     expect(included).toContain(CHECKLIST_IN_REPLY);
     expect(included).not.toMatch(/Your task list|show it in your reply/);
     expect(included).toContain(`<model_notes>\n${ANSWER_IN_FIRST_SENTENCE}\n</model_notes>`);
-    expect(ANSWER_IN_FIRST_SENTENCE).toBe("Answer in your first sentence. Do not open by restating the request or saying what you are about to do, and do not use a table or a list unless the content needs one or the person asked.");
+    expect(ANSWER_IN_FIRST_SENTENCE).toMatch(/^In your final answer, lead with the result in the first sentence/);
     expect(dogGuidance({ engine: "claude", model: "kimi-k2.6" })).not.toContain(ANSWER_IN_FIRST_SENTENCE);
   });
 
@@ -246,6 +247,16 @@ describe("the guidance every dog gets", () => {
   it("calls the product's helpers dogs and writes calmly, without shouting", () => {
     expect(everything()).not.toMatch(/\bbots?\b/i);
     expect(everything()).not.toMatch(/\b(CRITICAL|MUST|IMPORTANT|NEVER)\b/);
+  });
+
+  it("gives an included model one opening-line rule and a filler rule that covers the final answer only", () => {
+    const included = dogGuidance({ engine: "other", model: "kimi-k2.6" });
+    expect(included).toContain(ANSWER_FIRST);
+    expect(included).toContain(ANSWER_IN_FIRST_SENTENCE);
+    expect(ANSWER_IN_FIRST_SENTENCE).toMatch(/^In your final answer,/);
+    expect(ANSWER_IN_FIRST_SENTENCE).toMatch(/the one line you send before your first tool call still comes first/);
+    expect(ANSWER_IN_FIRST_SENTENCE).not.toMatch(/what you are about to do|restating the request|Do not open/);
+    expect(SHORT_ON_IT_NOTE).toMatch(/say in one line what you are doing first/);
   });
 
   it("stays small", () => {
