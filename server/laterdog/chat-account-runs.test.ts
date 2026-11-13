@@ -55,4 +55,11 @@ describe("whether a chat's account can run, seen by the stall watch and dog revi
   it("revives only a dog whose account is not resting, while a teammate on a resting account still counts as able to run", () => {
     expect(verdicts(facts({ spare: "on", claude: "on" }, CLAUDE_DOG), true)).toEqual({ teammate: true, revive: false });
   });
+
+  it("revives a dog whose account is on with no reading yet, as the selection would run it", () => {
+    const chat = facts({ spare: "on", claude: "on" }, CLAUDE_DOG);
+    const unread = chat.accounts.map((account) => ({ ...account, signedIn: undefined }));
+    expect(verdicts({ ...chat, accounts: unread })).toEqual({ teammate: true, revive: true });
+    expect(verdicts({ ...chat, accounts: chat.accounts.map((account) => ({ ...account, signedIn: false })) })).toEqual({ teammate: false, revive: false });
+  });
 });

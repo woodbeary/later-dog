@@ -21,5 +21,5 @@ export function teammateAccountRuns(facts: ChatAccountFacts): boolean {
 
 export function accountRunsNow(facts: ChatAccountFacts & { resting: (account: BatteryAccount) => boolean }): boolean {
   const account = accountThatRuns(facts);
-  return Boolean(account?.eligible && account.enabled && account.signedIn === true && !facts.resting(account));
+  return Boolean(account?.eligible && account.enabled && account.signedIn !== false && !facts.resting(account));
 }

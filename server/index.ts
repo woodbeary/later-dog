@@ -364,6 +364,7 @@ import { readyToRun, selectDefaultModelSelection, withNewBotEffort } from "./def
 import type { ThreadEngine } from "./thread-model.ts";
 import { threadGivesWay, turnSelectionFor, type TurnSelectionInput } from "./laterdog/turn-selection.ts";
 import { accountRunsNow, teammateAccountRuns, type ChatAccountFacts } from "./laterdog/chat-account-runs.ts";
+import { readingReady } from "./laterdog/cli-version.ts";
 import { computerEngineMoveText, removedComputerInstanceIds, writeComputerEngineMoveLines, type ComputerEngineMove } from "./computer-engine-removal.ts";
 import { namesRetiredInstance, retiredEngineMoveText, retiredInstanceIds } from "./laterdog/engine-trim.ts";
 import { cancelPeerApprovalsFor, cancelPeerApprovalsForThread, dismissStalePeerCards, peerApprovalFailure, requestPeerApproval, resolvePeerComms, type ApprovalBus } from "./peer-approval.ts";
@@ -13205,7 +13206,7 @@ const firstHelloDeps: FirstHelloDeps = {
   patchMessage: (threadId, messageId, patch) => { store.patchMessage(threadId, messageId, patch); },
   personName: () => cfg.profile?.name,
   canRun: async (instanceId) => (await describeInstances()).some((instance) =>
-    instance.instanceId === instanceId && instance.snapshot.state === "available" && instance.snapshot.authenticated !== false),
+    instance.instanceId === instanceId && readingReady(instance.snapshot)),
   start: (botId, threadId, prompt, introducedBy) => startTurn(botId, prompt, { threadId, cardContinuation: true, ...(introducedBy ? { lentBy: introducedBy } : {}) }),
 };
 ROUTES.push(createDogHelloRoutes(firstHelloDeps, (auth) => sessionLendingPrincipal(auth) ?? undefined));
@@ -13714,7 +13715,7 @@ ROUTES.push(createIncludedUsageRoutes());
 if (!process.env.VITEST) setTimeout(() => {
   void (async () => {
     const own = (await describeInstances()).some((instance) => !INCLUDED_AI_INSTANCES.includes(instance.instanceId)
-      && instance.snapshot.state === "available" && instance.snapshot.authenticated !== false);
+      && readingReady(instance.snapshot));
     if (own) return;
     if (await autoStartTrial({ otherComputers: () => boat.otherComputersConfigured(cfg), cloudHome: Boolean(CLOUD_HOME) })) {
       broadcast({ kind: "config", ...configStatus() });

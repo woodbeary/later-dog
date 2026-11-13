@@ -203,7 +203,7 @@ describe("ProviderRegistry", () => {
     await registry.load({ a: { driver: "fake" } });
 
     const [described] = await registry.describe();
-    expect(described.snapshot).toMatchObject({ state: "unavailable", reason: "provider probe exploded" });
+    expect(described.snapshot).toMatchObject({ state: "unavailable", reason: "Fake fake is still being checked", checkFailed: true });
   });
 
   it("keeps an account's last reading through failed checks and takes the next real answer", async () => {
@@ -231,12 +231,13 @@ describe("ProviderRegistry", () => {
     }
   });
 
-  it("marks a failed check with no earlier reading as failed, not as a missing program", async () => {
+  it("shows a failed check with no earlier reading as being checked, without the raw error, and not as a missing program", async () => {
     const fake = makeFakeDriver({ failSnapshot: "provider probe exploded" });
     const registry = new ProviderRegistry([fake.driver]);
     await registry.load({ a: { driver: "fake" } });
     const [described] = await registry.describe();
-    expect(described!.snapshot).toEqual({ state: "unavailable", reason: "provider probe exploded", checkFailed: true });
+    expect(described!.snapshot).toEqual({ state: "unavailable", reason: "Fake fake is still being checked", checkFailed: true });
+    expect(JSON.stringify(described)).not.toContain("provider probe exploded");
   });
 
   it("forwards a live instance's declared effort levels in describe()", async () => {

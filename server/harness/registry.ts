@@ -1,7 +1,7 @@
 import { findCliCandidates } from "../env-path.ts";
 import { installNpmEngine, npmAvailable, serverInstallFor } from "../engine-install.ts";
 import { installNative, nativeInstallFor } from "../laterdog/native-install.ts";
-import { checkUnknown } from "../laterdog/cli-version.ts";
+import { beingChecked, checkUnknown } from "../laterdog/cli-version.ts";
 import { createSnapshotCache } from "../laterdog/snapshot-cache.ts";
 import { refusedWhileOff } from "../laterdog/turned-off.ts";
 import type {
@@ -269,7 +269,7 @@ export class ProviderRegistry {
           } catch (e) {
             return { state: "unavailable", reason: e instanceof Error ? e.message : String(e), checkFailed: true };
           }
-        });
+        }).then((read) => read.checkFailed ? { ...read, reason: beingChecked(inst.displayName ?? inst.driverKind) } : read);
         if (this.byId.get(inst.instanceId)?.live === inst) this.lastSnapshots.set(inst.instanceId, snapshot);
         return {
           instanceId: inst.instanceId,
