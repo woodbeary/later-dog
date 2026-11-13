@@ -62,7 +62,9 @@ the third review's three Should fix items; this note describes that head.
   before it: the device reads the home's queues (`/api/bots?messages=0`, whose
   `botQueuedMessages` lists every message a dog's chat holds with its send id)
   and then the message's own thread (`/api/threads/:id/messages`, once per
-  thread per round). The message is delivered when either shows it. It is Not
+  thread per round). These reads run at most four at a time, and a round stops
+  reading after 20 seconds; a message whose chat was not read by then stays
+  held for the next round. The message is delivered when either shows it. It is Not
   sent when both reads succeed and neither shows it, or when the home answers
   its own 404 for a chat that does not exist (JSON `{"error":"no such
   conversation"}`). The home shows no list of what a room has queued, so a room

@@ -12,7 +12,8 @@ import {
   writeHeldSends,
   type HeldSend,
 } from "@/lib/held-sends";
-import { judgeAtHome, readHomeQueues, threadReader, type FetchThread, type HomeQueues } from "@/lib/held-thread-check";
+import { heldReadRound, type HeldReadRound } from "@/lib/held-read-round";
+import { judgeAtHome, type FetchThread } from "@/lib/held-thread-check";
 import {
   SEND_ATTEMPT_TIMEOUT_MS,
   browserStore,
@@ -192,10 +193,16 @@ function createHeldSendKeeper(deps: {
       const waitingIds = new Set(waiting.map((send) => send.sendId));
       for (const send of held) if (!waitingIds.has(send.sendId)) deps.onReleased(send);
     }
+    const round = heldReadRound(deps.fetchThread, deps.after);
+    try {
+      return await askAndJudge(waiting, refresh, round);
+    } finally {
+      round.close();
+    }
+  };
+
+  const askAndJudge = async (waiting: HeldSend[], refresh: Refresh | null, round: HeldReadRound): Promise<{ signedIn: boolean }> => {
     let undecided = false;
-    const readThread = threadReader(deps.fetchThread);
-    let queues: Promise<HomeQueues | "unreadable"> | null = null;
-    const readQueues = () => (queues ??= readHomeQueues(deps.fetchThread));
     for (const group of heldAskGroups(waiting)) {
       const ids = group.map((send) => send.sendId);
       const reply = await deps
@@ -207,7 +214,7 @@ function createHeldSendKeeper(deps: {
       const { keep, lost, gone } = sortHeldSends(stillWanted, reply, deps.now());
       const onThread = gone.filter((send) => deps.onThread(send));
       const unconfirmed = gone.filter((send) => !onThread.includes(send));
-      const judged = unconfirmed.length > 0 ? await judgeAtHome(unconfirmed, await readQueues(), readThread) : { delivered: [], notSent: [], unread: [] };
+      const judged = unconfirmed.length > 0 ? await judgeAtHome(unconfirmed, await round.queues(), round.thread) : { delivered: [], notSent: [], unread: [] };
       const wanted = (sends: readonly HeldSend[]) => sends.filter((send) => !forgottenWhileAsking.has(send.sendId));
       const delivered = wanted([...onThread, ...judged.delivered]);
       const notSent = wanted(judged.notSent);

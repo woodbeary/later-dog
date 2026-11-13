@@ -32,21 +32,6 @@ export async function threadAnswer(response: Response): Promise<ThreadRead> {
   return new Set(messages.flatMap((line: Line) => (line && typeof line.sendId === "string" && isHomeLine(line) ? [line.sendId] : [])));
 }
 
-export function threadReader(fetchThread: FetchThread): (threadId: string) => Promise<ThreadRead> {
-  const reads = new Map<string, Promise<ThreadRead>>();
-  return (threadId) => {
-    let read = reads.get(threadId);
-    if (!read) {
-      read = fetchThread(heldThreadPath(threadId), { headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(HELD_THREAD_READ_TIMEOUT_MS) }).then(
-        threadAnswer,
-        (): ThreadRead => "unreadable",
-      );
-      reads.set(threadId, read);
-    }
-    return read;
-  };
-}
-
 export interface HomeQueues {
   queued: ReadonlySet<string>;
   busyRoomThreads: ReadonlySet<string>;
@@ -83,13 +68,6 @@ export async function homeQueuesAnswer(response: Response): Promise<HomeQueues |
   return { queued: new Set(queuedAtHome(botQueuedMessages)), busyRoomThreads: new Set(busyRoomThreads(groups)) };
 }
 
-export function readHomeQueues(fetchThread: FetchThread): Promise<HomeQueues | "unreadable"> {
-  return fetchThread(HOME_QUEUES_PATH, { headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(HELD_THREAD_READ_TIMEOUT_MS) }).then(
-    homeQueuesAnswer,
-    () => "unreadable" as const,
-  );
-}
-
 export async function judgeAtHome(
   sends: readonly HeldSend[],
   queues: HomeQueues | "unreadable",
@@ -98,12 +76,14 @@ export async function judgeAtHome(
   const delivered: HeldSend[] = [];
   const notSent: HeldSend[] = [];
   const unread: HeldSend[] = [];
+  const unqueued = sends.filter((send) => queues === "unreadable" || !queues.queued.has(send.sendId));
+  const reads = new Map(unqueued.map((send) => [send.threadId, read(send.threadId)]));
   for (const send of sends) {
-    if (queues !== "unreadable" && queues.queued.has(send.sendId)) {
+    if (!unqueued.includes(send)) {
       delivered.push(send);
       continue;
     }
-    const lines = await read(send.threadId);
+    const lines = await reads.get(send.threadId)!;
     if (lines === "missing") notSent.push(send);
     else if (lines !== "unreadable" && lines.has(send.sendId)) delivered.push(send);
     else if (lines === "unreadable" || queues === "unreadable" || queues.busyRoomThreads.has(send.threadId)) unread.push(send);

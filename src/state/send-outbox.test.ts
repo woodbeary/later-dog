@@ -6,6 +6,7 @@ import { OUTBOX_KEY, type OutboxItem } from "@/lib/outbox";
 import { failedComposerSends } from "@/lib/drafts";
 import { api, initialState, reducer, StoreProvider, useStore, type Action, type AppState, type Bot } from "./store";
 import { createSendOutbox, type SendOutbox } from "./send-outbox";
+import { HELD_READ_ROUND_MS, HELD_READS_AT_ONCE } from "@/lib/held-read-round";
 import { HELD_GIVE_UP_MS, HELD_NOT_SENT, HELD_SENDS_KEY } from "@/lib/held-sends";
 import { SendingTrack } from "@/components/SendingTrack";
 import { SAVED_HEADER, withDeskQueue } from "../../deploy/laterdog/home/src/desk.ts";
@@ -794,6 +795,52 @@ describe("a message the edge held for a sleeping home", () => {
           expect(reads(fetchThread)).toEqual(["/api/threads/task-A/messages?limit=200"]);
           expect(showError).toHaveBeenCalledOnce();
           expect(kept(store)).toEqual([]);
+        });
+
+        describe("with held messages in many chats", () => {
+          const manyHeld = () => memoryStore({ [HELD_SENDS_KEY]: JSON.stringify(Array.from({ length: 60 }, (_, at) => ({ sendId: `many-${at}`, threadId: `chat-${at}`, draftId: "d", text: "x", requestText: "x", at: 1 }))) });
+
+          it("reads at most four chats at a time and still decides every one", async () => {
+            const store = manyHeld();
+            let active = 0;
+            let most = 0;
+            const fetchThread = vi.fn(async (path: string) => {
+              if (path === HOME_QUEUES_PATH) return homeQueues();
+              active += 1;
+              most = Math.max(most, active);
+              await answered();
+              active -= 1;
+              const at = /chat-(\d+)/.exec(path)![1];
+              return homeLines({ id: `home-${at}`, sendId: `many-${at}` });
+            });
+            const showError = vi.fn();
+            const outbox = createSendOutbox({ request: vi.fn(async () => ({ held: [], dropped: [] })), fetchThread, dispatch: vi.fn(), showError, store, now: () => 2_000, after: manualTimers().after, lineOnThread: () => false });
+            await outbox.settleHeld([], [], {});
+            expect(most).toBe(HELD_READS_AT_ONCE);
+            expect(fetchThread.mock.calls.filter(([path]) => path.startsWith("/api/threads/"))).toHaveLength(60);
+            expect(kept(store)).toEqual([]);
+            expect(showError).not.toHaveBeenCalled();
+          });
+
+          it("stops at the round's deadline and leaves what it could not read held for the next refresh", async () => {
+            const store = manyHeld();
+            const timers = manualTimers();
+            const fetchThread = vi.fn((path: string, init: RequestInit) => {
+              if (path === HOME_QUEUES_PATH) return Promise.resolve(homeQueues());
+              return new Promise<Response>((_answer, fail) => init.signal?.addEventListener("abort", () => fail(new Error("aborted"))));
+            });
+            const showError = vi.fn();
+            const outbox = createSendOutbox({ request: vi.fn(async () => ({ held: [], dropped: [] })), fetchThread, dispatch: vi.fn(), showError, store, now: () => 2_000, after: timers.after, lineOnThread: () => false });
+            const settling = outbox.settleHeld([], [], {});
+            await answered();
+            expect(timers.waiting.map((timer) => timer.ms)).toEqual([HELD_READ_ROUND_MS]);
+            await timers.fire();
+            await settling;
+            expect(fetchThread.mock.calls.filter(([path]) => path.startsWith("/api/threads/"))).toHaveLength(HELD_READS_AT_ONCE);
+            expect(kept(store)).toHaveLength(60);
+            expect(showError).not.toHaveBeenCalled();
+            expect(timers.waiting.map((timer) => timer.ms)).toEqual([30_000]);
+          });
         });
 
         const HOME_THREAD_ROUTE = (() => {
