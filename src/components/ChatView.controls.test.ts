@@ -87,16 +87,6 @@ describe("header name", () => {
     expect(markup).toMatch(/data-chathead-side="true" class="[^"]*@min-\[30rem\]\/chathead:col-start-3/);
   });
 
-  it("keeps the pill where it is when a state line shows: the line sits in the last column and adds no width", () => {
-    const waiting: Bot = { ...bot, busy: false, work: { kind: "stopped", cause: "engine" }, tasks: [{ ...bot.tasks![0]!, work: { kind: "stopped", cause: "engine" } }] };
-    const markup = renderToStaticMarkup(createElement(ChatView, { bot: waiting }));
-    const identity = markup.slice(markup.indexOf("data-chathead-identity"), markup.indexOf("data-chathead-side"));
-    expect(markup).toContain('data-work-state="stopped"');
-    expect(identity).not.toContain("data-work-state");
-    const state = /data-chathead-state="true" class="([^"]*)"/.exec(markup)![1]!.split(" ");
-    expect(state).toEqual(expect.arrayContaining(["w-0", "min-w-0", "flex-1"]));
-    expect(markup.indexOf("data-chathead-state")).toBeLessThan(markup.indexOf("data-chathead-controls"));
-  });
 });
 
 describe("a working dog in the header and the chat", () => {

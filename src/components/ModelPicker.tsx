@@ -425,7 +425,7 @@ const POPOVER_WIDTH = 420;
 export const SIMPLE_POPOVER_WIDTH = 380;
 const SIMPLE_SEARCH_AFTER = 12;
 const CONTEXT_RING_TONE: Record<ChatContextLevel, "good" | "warning" | "danger"> = { ok: "good", near: "warning", over: "danger" };
-export function menuMaxHeight(trigger: Pick<DOMRect, "top" | "bottom">, windowHeight: number, above: boolean, ceiling = 0): number {
+function menuMaxHeight(trigger: Pick<DOMRect, "top" | "bottom">, windowHeight: number, above: boolean, ceiling = 0): number {
   const room = above ? trigger.top - Math.max(0, ceiling) - 12 : windowHeight - trigger.bottom - 24;
   return Math.max(0, Math.min(600, room, windowHeight - 16));
 }
