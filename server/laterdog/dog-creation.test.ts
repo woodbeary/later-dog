@@ -136,16 +136,17 @@ describe("create_bot's result", () => {
 describe("dogMadeDogAccess", () => {
   const everywhere = () => true;
 
-  it("gives a dog made by an Off-leash dog the same level, apps, tools and allowances, as copies", () => {
+  it("gives a dog made by an Off-leash dog the same level, apps and tools as copies, and only its maker's dog-to-dog approvals", () => {
     const creator = {
       approvalMode: "auto" as const, composio: true, connectorTools: { gmail: { tools: "*" as const } },
-      mcpServers: ["cloudflare"], toolScope: { deny: ["native:Bash"] }, alwaysAllow: ["WebFetch"], browser: true,
+      mcpServers: ["cloudflare"], toolScope: { deny: ["native:Bash"] }, browser: true,
+      alwaysAllow: ["files:edit", "run:git push", "exact:/w :: rm -rf .", "tool:x", "connector:gmail", "ask_bot:d2", "delegate_bot:d3"],
     };
     const access = dogMadeDogAccess(creator, "auto", "auto", everywhere);
     expect(access).toEqual({
       approvalMode: "auto", autoApprove: true, approvePeerComms: false, composio: true,
       connectorTools: { gmail: { tools: "*" } }, mcpServers: ["cloudflare"], toolScope: { deny: ["native:Bash"] },
-      alwaysAllow: ["WebFetch"], browser: true,
+      alwaysAllow: ["ask_bot:d2", "delegate_bot:d3"], browser: true,
     });
     expect(access.connectorTools).not.toBe(creator.connectorTools);
     expect(access.toolScope).not.toBe(creator.toolScope);

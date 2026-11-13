@@ -1,5 +1,6 @@
 import { approvalModeFor, type ApprovalMode } from "../../shared/approval-mode.ts";
 import { clip } from "../peer-roster.ts";
+import { peerKeysOnly } from "./always-allow.ts";
 import type { BotRecord, Store } from "../store.ts";
 
 export const DOG_CREATION_PROMPT =
@@ -71,7 +72,7 @@ export function dogMadeDogAccess(
     connectorTools: copy(creator.connectorTools),
     mcpServers: copy(creator.mcpServers),
     toolScope: copy(creator.toolScope),
-    alwaysAllow: copy(creator.alwaysAllow),
+    alwaysAllow: peerKeysOnly(creator.alwaysAllow),
     browser: creator.browser,
   };
 }
