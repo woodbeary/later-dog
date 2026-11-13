@@ -58,7 +58,12 @@ type Need = "sign-in" | "permission" | "account-off" | "other";
 const TEAMMATE_GAVE_UP = /\b(?:couldn't finish|never got started|was interrupted|ran out of time)$/;
 const SIGN_IN = /sign(?:ed)?[ -]?in|log(?:ged)?[ -]?in|\b401\b|unauthori[sz]ed|api key|credential/i;
 const PERMISSION = /permission|forbidden|not allowed|approval|\b403\b/i;
-const NEVER_RETRY = /safety|classifier|invalid model|spend limit|you stopped|\bAPI Error:? 4(?!29)\d\d\b/i;
+const NEVER_RETRY = new RegExp([
+  /safety|classifier|invalid model|spend limit|you stopped|\bAPI Error:? 4(?!29)\d\d\b/.source,
+  /prompt is too long|input is too long|request too large|context (?:window|length) exceeded|exceeds? (?:the )?(?:model's )?(?:maximum )?context/.source,
+  /issue with the selected model|model .{0,60}(?:does not exist|not found|is not available)|credit balance is too low/.source,
+  /invalid_request_error|not_found_error|request_too_large|permission_error/.source,
+].join("|"), "i");
 const TURNED_OFF = / is turned off\.?$/i;
 const TURNED_OFF_PART = /[^:—–.]+ is turned off(?=\.?$)/i;
 

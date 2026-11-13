@@ -52,4 +52,28 @@ describe("the stall watch decides from the raw cause, never from the sentence or
     const refused = verdict("Pepper", failed(T0 + 2, "API Error: 400 prompt is too long", "Pepper"));
     expect(refused).toMatchObject({ kind: "explain", line: "Pepper stopped before finishing and has not picked it up again. Send a message to carry on." });
   });
+
+  it.each([
+    "API Error: 400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages: text content blocks must be non-empty\"}}",
+    "API Error: 404 {\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"model: claude-nope\"}}",
+    "API Error: 413 Request too large",
+    "Prompt is too long",
+    "input length and max_tokens exceed context limit: 198000 + 21333 > 200000",
+    "There's an issue with the selected model (claude-nope). It may not exist or you may not have access to it. Run /model to pick a different model.",
+    "Credit balance is too low",
+    "Request too large (max 32MB). Double press esc to go back and try with a smaller file.",
+  ])("never carries on after an error that retrying cannot fix: %s", (cause) => {
+    expect(verdict("Pepper", failed(T0 + 2, cause, "Pepper"))).toMatchObject({ kind: "explain" });
+  });
+
+  it.each([
+    "API Error: 529 Overloaded. This is a server-side issue, usually temporary.",
+    "API Error: 500 {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"Internal server error\"}}",
+    "API Error: 503 Service Unavailable",
+    "API Error: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Number of request tokens has exceeded your per-minute rate limit\"}}",
+    "API Error: Request timed out.",
+    "API Error: Connection error.",
+  ])("carries on after an error that is likely to pass: %s", (cause) => {
+    expect(verdict("Pepper", failed(T0 + 2, cause, "Pepper"))).toMatchObject({ kind: "continue" });
+  });
 });
