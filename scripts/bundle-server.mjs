@@ -38,6 +38,7 @@ const ENTRY_POINTS = [
   "laterdog.ts",
   "pair-cli.ts",
   "workspace-backup.worker.ts",
+  "laterdog/disk-walk.ts",
   "cloud-home-start.ts",
   "server-launcher.ts",
   "proxy-paths.ts",
