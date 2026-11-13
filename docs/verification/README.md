@@ -112,6 +112,7 @@ Use only mapped, tested commands:
 - [Messages held while the home wakes, November 11](queue-held-sends.md)
 - [Which devices the edge trusts for a sleeping home, November 11](edge-trust.md)
 - [Stall watch: no dog goes quiet without a reason, November 12](stall-watch.md)
+- [Workspace release, November 13: what went live, how it was checked, how to undo it](workspace-release-2026-11-13.md)
 
 `control-laterdog ui` ([Chat UI, driven headlessly](chat-ui.md)) drives the real
 renderer in a headless Chrome by accessible name, so composer sends, transcript
