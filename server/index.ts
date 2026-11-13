@@ -730,6 +730,7 @@ import {
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
 import { accountNeedsYou, waitsOnPerson } from "./laterdog/account-needs-you.ts";
 import { settlePickup, shownWaiting, usageHeld, type PickupOutcome } from "./laterdog/person-wait.ts";
+import { guestBattery } from "./laterdog/battery-view.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
 import { LimitHold, withWaitingRuns } from "./laterdog/limit-hold.ts";
 import { createUsageWatch } from "./laterdog/usage-watch.ts";
@@ -12730,7 +12731,7 @@ function configForAccess(status: ReturnType<typeof configStatus>, admin: boolean
     vps: { configured: status.vps.configured, sshAlias: "" },
     opencodeGo: { configured: status.opencodeGo.configured, providerKeys: [] },
     profile: { name: status.profile.name, email: "" },
-    accountBattery: { ...status.accountBattery, waiting: {}, routed: {} },
+    accountBattery: guestBattery(status.accountBattery),
     browserProfiles: status.browserProfiles.map((profile) => Object.fromEntries(Object.entries(profile).filter(([key]) => key !== "partitionId"))),
   };
 }
