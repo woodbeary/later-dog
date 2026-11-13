@@ -34,3 +34,7 @@ export function unreadCli(cli: string, read: Exclude<CliVersion, { version: stri
 export function programMissing(snapshot: ProviderSnapshot): boolean {
   return snapshot.state === "unavailable" && snapshot.missing === true;
 }
+
+export function checkUnknown(snapshot: ProviderSnapshot): boolean {
+  return snapshot.state === "unavailable" && (snapshot.starting === true || snapshot.checkFailed === true);
+}

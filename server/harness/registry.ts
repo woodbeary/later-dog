@@ -1,6 +1,7 @@
 import { findCliCandidates } from "../env-path.ts";
 import { installNpmEngine, npmAvailable, serverInstallFor } from "../engine-install.ts";
 import { installNative, nativeInstallFor } from "../laterdog/native-install.ts";
+import { checkUnknown } from "../laterdog/cli-version.ts";
 import { createSnapshotCache } from "../laterdog/snapshot-cache.ts";
 import { refusedWhileOff } from "../laterdog/turned-off.ts";
 import type {
@@ -66,7 +67,7 @@ export class ProviderRegistry {
         const instance = owner as ProviderInstance;
         return `${instance.instanceId}:${instance.driverKind}`;
       },
-      settled: (snapshot) => snapshot.starting !== true,
+      settled: (snapshot) => !checkUnknown(snapshot),
     });
     this.enginesBaseDir = options.enginesBaseDir;
     this.npmPresent = options.npmAvailable ?? npmAvailable;
@@ -266,7 +267,7 @@ export class ProviderRegistry {
           try {
             return await inst.snapshot();
           } catch (e) {
-            return { state: "unavailable", reason: e instanceof Error ? e.message : String(e) };
+            return { state: "unavailable", reason: e instanceof Error ? e.message : String(e), checkFailed: true };
           }
         });
         if (this.byId.get(inst.instanceId)?.live === inst) this.lastSnapshots.set(inst.instanceId, snapshot);

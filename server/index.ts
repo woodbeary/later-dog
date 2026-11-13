@@ -733,7 +733,7 @@ import { removalCandidateOf, replacementAccount, selectionMovedTo, type RemovalC
 import { forgetAccountFolder } from "./laterdog/account-folder.ts";
 import { newChatGptAccount } from "./laterdog/chatgpt-accounts.ts";
 import {
-  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, selectionOnAccount, switchNotice, withoutAccount,
+  AccountBattery, BATTERY_DRIVERS, SETUP_STOP, CONTINUE_AFTER_SWITCH, CONTINUE_AFTER_RESET, carryOnNotice, checkBatteryConfig, crossEngineNotice, limitRowToReplace, planResetAt, selectionOnAccount, signedInReading, switchNotice, withoutAccount,
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
@@ -1052,7 +1052,7 @@ function batteryAccounts(): BatteryAccount[] {
       enabled: instance.enabled,
       eligible: instance.instanceId !== CLAUDE_API_INSTANCE && !managedDesktop.owns(instance.instanceId) && !policyModelRefusal(instance) &&
         (configs[instance.instanceId]?.access ?? registry.access(instance.instanceId)) === "subscription" && snapshot?.account?.method !== "api-key",
-      ...(snapshot ? { signedIn: snapshot.state !== "unavailable" && snapshot.authenticated !== false } : {}),
+      ...(snapshot ? signedInReading(snapshot) : {}),
       ...(snapshot?.account?.email ? { email: snapshot.account.email } : {}),
       models: instance.models.options.map((option) => option.id), defaultModel: instance.models.default,
     };

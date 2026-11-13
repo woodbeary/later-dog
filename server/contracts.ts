@@ -189,6 +189,7 @@ export interface ProviderSnapshot {
   reason?: string;
   starting?: boolean;
   missing?: true;
+  checkFailed?: true;
   authenticated?: boolean;
   account?: { email?: string; organization?: string; method?: "login" | "api-key" };
   version?: string | null;

@@ -206,6 +206,39 @@ describe("ProviderRegistry", () => {
     expect(described.snapshot).toMatchObject({ state: "unavailable", reason: "provider probe exploded" });
   });
 
+  it("keeps an account's last reading through failed checks and takes the next real answer", async () => {
+    const fake = makeFakeDriver();
+    const registry = new ProviderRegistry([fake.driver]);
+    await registry.load({ a: { driver: "fake" } });
+    const live = registry.get("a")!;
+    try {
+      live.snapshot = async () => ({ state: "available", authenticated: true });
+      expect((await registry.describe())[0]!.snapshot).toMatchObject({ state: "available", authenticated: true });
+      live.snapshot = async () => { throw new Error("probe exploded"); };
+      for (let failure = 0; failure < 2; failure += 1) {
+        expect((await registry.describe())[0]!.snapshot).toMatchObject({ state: "available", authenticated: true });
+        expect(registry.lastSnapshot("a")).toMatchObject({ state: "available", authenticated: true });
+      }
+      live.snapshot = async () => ({ state: "unavailable", reason: "`fake` is still starting", starting: true });
+      expect(registry.lastSnapshot("a")).toMatchObject({ state: "available" });
+      expect((await registry.describe())[0]!.snapshot).toMatchObject({ state: "available", authenticated: true });
+      live.snapshot = async () => ({ state: "available", authenticated: true, version: "2" });
+      expect((await registry.describe())[0]!.snapshot).toMatchObject({ state: "available", authenticated: true, version: "2" });
+      live.snapshot = async () => ({ state: "available", authenticated: false });
+      expect((await registry.describe())[0]!.snapshot).toMatchObject({ state: "available", authenticated: false });
+    } finally {
+      await registry.disposeAll();
+    }
+  });
+
+  it("marks a failed check with no earlier reading as failed, not as a missing program", async () => {
+    const fake = makeFakeDriver({ failSnapshot: "provider probe exploded" });
+    const registry = new ProviderRegistry([fake.driver]);
+    await registry.load({ a: { driver: "fake" } });
+    const [described] = await registry.describe();
+    expect(described!.snapshot).toEqual({ state: "unavailable", reason: "provider probe exploded", checkFailed: true });
+  });
+
   it("forwards a live instance's declared effort levels in describe()", async () => {
     const fake = makeFakeDriver({ effortLevels: ["low", "high"] });
     const registry = new ProviderRegistry([fake.driver]);
