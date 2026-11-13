@@ -1,4 +1,6 @@
 import type { NativeActor, NativeActorState, NativeActivity, NativeActivityKind, NativeObservation } from "../../shared/native-runs.ts";
+import type { PlanItem } from "../../shared/dog-plan.ts";
+import { codexPlanSteps } from "./dog-plan.ts";
 
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): RecordValue => value && typeof value === "object" && !Array.isArray(value) ? value as RecordValue : {};
@@ -26,9 +28,11 @@ export class CodexNativeActivity {
   private ended = false;
   private readonly emit: (event: NativeObservation) => void;
   private readonly now: () => number;
-  constructor(emit: (event: NativeObservation) => void, now: () => number = Date.now) {
+  private readonly onPlan?: (items: PlanItem[]) => void;
+  constructor(emit: (event: NativeObservation) => void, now: () => number = Date.now, onPlan?: (items: PlanItem[]) => void) {
     this.emit = emit;
     this.now = now;
+    this.onPlan = onPlan;
   }
 
   capabilities(version?: string): void {
@@ -173,6 +177,7 @@ export class CodexNativeActivity {
       return;
     }
     if (method === "turn/plan/updated") {
+      if (actor.kind === "parent") this.onPlan?.(codexPlanSteps(p.plan));
       const steps = Array.isArray(p.plan) ? p.plan.map(value => { const step = record(value); return `${string(step.status) ?? "pending"}: ${text(step.step) ?? ""}`; }).join("\n") : "";
       const done = Array.isArray(p.plan) && p.plan.length > 0 && p.plan.every(value => record(value).status === "completed");
       this.activity(actor, "turn-plan", "plan", "Plan", done ? "done" : "running", { text: [text(p.explanation), steps].filter(Boolean).join("\n") });

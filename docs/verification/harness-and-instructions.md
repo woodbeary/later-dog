@@ -43,10 +43,10 @@ TMPDIR=<scratch> node --experimental-strip-types scripts/measure-dog-prompt.ts
   100 turns.
 - `measure-dog-prompt.ts`, against `scripts/dog-prompt-baseline.json` (the
   instructions before they were rewritten): the standing instructions grew from
-  20,051 to 22,609 bytes for a main Claude dog (+12.8%) and to 21,941 bytes for
-  a main Codex dog (+9.4%); across main, helper, group and handed-over dogs the
-  growth is 9.2% to 17.6%. Counting the first context note too, a fresh dog's
-  first request is 5.9% to 12.6% larger.
+  20,051 to 22,634 bytes for a main Claude dog (+12.9%) and to 21,964 bytes for
+  a main Codex dog (+9.5%); across main, helper, group and handed-over dogs the
+  growth is 9.4% to 17.8%. Counting the first context note too, a fresh dog's
+  first request is 6.0% to 12.7% larger.
 
 ## Live numbers, 2026-11-12, on a real Claude model
 

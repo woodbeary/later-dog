@@ -16,6 +16,7 @@ export interface ToolCallContext {
   depth: number;
   sharedComputers: boolean;
   client: HarnessClient;
+  toolUseId?: string;
 }
 
 export interface ToolCallResult {
@@ -33,6 +34,13 @@ export function toolCallContextFromEnv(env: NodeJS.ProcessEnv): ToolCallContext 
     sharedComputers: profile.sharedComputers,
     client: harnessClientFromEnv(env),
   };
+}
+
+export const TOOL_USE_ID_META = "claudecode/toolUseId";
+
+export function withToolUseId(context: ToolCallContext, meta: unknown): ToolCallContext {
+  const id = meta && typeof meta === "object" ? (meta as Record<string, unknown>)[TOOL_USE_ID_META] : undefined;
+  return typeof id === "string" && id ? { ...context, toolUseId: id } : context;
 }
 
 const MOVED_ENTRIES_SHOWN = 5;
@@ -649,6 +657,14 @@ export async function callTool(name: string, args: Json, context: ToolCallContex
       body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, emoji, ...(messageId ? { messageId } : {}) }),
     });
     if (!ok || typeof body.text !== "string") return { text: String(body.error ?? "The tapback could not be added."), isError: true };
+    return { text: body.text };
+  }
+  if (name === "set_plan") {
+    const { ok, body } = await apiResponse("/api/internal/plan", {
+      method: "POST",
+      body: JSON.stringify({ fromBotId: BOT_ID, fromThreadId: THREAD_ID, items: args.items, ...(context.toolUseId ? { toolUseId: context.toolUseId } : {}) }),
+    });
+    if (!ok || typeof body.text !== "string") return { text: String(body.error ?? "The plan could not be recorded."), isError: true };
     return { text: body.text };
   }
   if (name === "list_routines") {

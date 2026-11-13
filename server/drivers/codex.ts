@@ -1,5 +1,6 @@
 import { CodexHelpers } from "./codex-helpers.ts";
 import { CodexNativeActivity, type CodexActorTarget } from "../laterdog/codex-native-activity.ts";
+import { enginePlans } from "../laterdog/dog-plan.ts";
 import { codexToolSurfaceArgs } from "./codex-tool-surface.ts";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -847,7 +848,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
       let compacted = false;
       const earlyNotifications: any[] = [];
       const helpers = new CodexHelpers(helper => emit({ ...base(threadId, turnId), type: "helper.updated", helper }));
-      const nativeActivity = new CodexNativeActivity(observation => emit({ ...base(threadId, turnId), type: "native.observed", observation }));
+      const nativeActivity = new CodexNativeActivity(observation => emit({ ...base(threadId, turnId), type: "native.observed", observation }), Date.now, items => enginePlans.report(threadId, items));
       const state = {
         settled: false,
         lastError: "",

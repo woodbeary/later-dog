@@ -9,6 +9,7 @@ export const CORE_AGENT_TOOLS: readonly string[] = [
   "memory_update",
   "memory_log",
   "react",
+  "set_plan",
   "tool_result_read",
   "run_on_computer",
   "select_computer",
