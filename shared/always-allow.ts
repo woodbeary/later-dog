@@ -23,7 +23,6 @@ export interface ListedCommand {
   reason: string;
 }
 
-const PUSH_DENIED = ["--push-option", "--recurse-submodules", "--atomic", "--force", "-f", "--force-with-lease", "--force-if-includes", "--mirror", "--all", "--delete", "-d", "--prune", "--tags", "--follow-tags", "--set-upstream", "-u", "--repo"];
 
 export const LISTED_COMMANDS: readonly ListedCommand[] = [
   { program: "git", sub: "status", args: "checked", covers: "show which files changed in this repository", reason: "reads only" },
@@ -39,7 +38,6 @@ export const LISTED_COMMANDS: readonly ListedCommand[] = [
   { program: "git", sub: "stash", args: "checked", hooks: true, covers: "set aside and bring back uncommitted changes in this repository", reason: "local only" },
   { program: "git", sub: "fetch", args: "remote", hooks: true, denied: ["--all", "--multiple", "--upload-pack", "--prune", "--tags", "--recurse-submodules", "--refmap"], covers: "download branches, named plainly, from a remote this repository already has", reason: "no URLs, refspecs or upload programs" },
   { program: "git", sub: "pull", args: "remote", hooks: true, denied: ["--all", "--upload-pack", "--rebase", "-r", "--strategy", "-s", "--strategy-option", "-X", "--recurse-submodules", "--allow-unrelated-histories"], covers: "download and merge a branch, named plainly, from a remote this repository already has", reason: "no URLs, refspecs or merge programs" },
-  { program: "git", sub: "push", args: "remote", hooks: true, denied: PUSH_DENIED, covers: "push branches, named plainly, to a remote this repository already has, without force or deleting anything", reason: "no URLs, refspecs, force, deletes or mirror; force-pushing the main branch is also held by the owner guard" },
   { program: "gh", sub: "pr view", args: "checked", denied: ["--web", "-w"], covers: "read a pull request on GitHub", reason: "reads only" },
   { program: "gh", sub: "pr list", args: "checked", denied: ["--web", "-w"], covers: "list pull requests on GitHub", reason: "reads only" },
   { program: "gh", sub: "pr status", args: "checked", covers: "see the status of your pull requests on GitHub", reason: "reads only" },
@@ -107,4 +105,9 @@ const PURE_PROGRAMS = new Set(["ls", "pwd", "cat", "head", "tail", "wc", "grep",
 export function readsFolderFiles(command: string): boolean {
   const program = command.trim().split(/\s+/)[0]?.replace(/^["']|["']$/g, "").toLowerCase() ?? "";
   return !PURE_PROGRAMS.has(program) || /[|&;]/.test(command);
+}
+
+export function publishesCommits(command: string): boolean {
+  const words = command.trim().split(/\s+/).map((word) => word.replace(/^["']|["']$/g, ""));
+  return words[0]?.toLowerCase() === "git" && words.slice(1).find((word) => !word.startsWith("-")) === "push";
 }

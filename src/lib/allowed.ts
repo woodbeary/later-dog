@@ -1,4 +1,4 @@
-import { readGrantKey, readsFolderFiles } from "../../shared/always-allow";
+import { publishesCommits, readGrantKey, readsFolderFiles } from "../../shared/always-allow";
 import { t } from "./i18n";
 import type { CommandAllowlistRule } from "../../shared/command-allowlist";
 import { vaultAllowSite } from "../../shared/vault";
@@ -57,7 +57,8 @@ export function lastingWords(item: AllowedItem): { label: string; detail?: strin
     case "run": return { label: t("allowed.run", { command: item.command, covers: item.covers }) };
     case "exact": {
       const place = t("allowed.commandIn", { cwd: item.cwd });
-      return { label: t("allowed.exact", { command: item.command }), detail: readsFolderFiles(item.command) ? `${place}. ${t("allowed.runsFolderCode")}` : place };
+      const notes = [place, publishesCommits(item.command) ? t("allowed.publishes") : null, readsFolderFiles(item.command) ? t("allowed.runsFolderCode") : null];
+      return { label: t("allowed.exact", { command: item.command }), detail: notes.filter(Boolean).join(". ") };
     }
     case "files": return { label: t(item.access === "edit" ? "allowed.files" : "allowed.filesRead") };
     case "tool": return { label: t("allowed.tool", { tool: item.tool }) };

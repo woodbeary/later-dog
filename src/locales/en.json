@@ -1650,6 +1650,7 @@
   "allowed.run": "Run {command}, which lets it {covers}",
   "allowed.exact": "Run this exact command, in this folder: {command}",
   "allowed.files": "Edit files in its own folders, except git settings and hooks, build, test and CI files, start-up files, package settings, installed packages, editor or engine settings, and files holding keys or passwords",
+  "allowed.publishes": "It publishes this folder's commits to the remote and branch named in the command, where others may see them",
   "allowed.runsFolderCode": "It runs code from files in this folder, which the dog can change, so edited files change what it does",
   "allowed.filesRead": "Read and search files in its own folders, except files holding keys or passwords",
   "allowed.tool": "Use {tool}",

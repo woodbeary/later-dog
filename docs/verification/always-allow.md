@@ -12,7 +12,7 @@ is already allowed, the home answers "allow" itself and no card is raised.
 | Request | Key | Covers |
 |---|---|---|
 | Any shell command not on the list below | `exact:<resolved folder> :: <command>` | this exact command text, run from this folder |
-| A command on the list, with every argument fitting its rule | `run:git push`, `run:ls` | what the list says |
+| A command on the list, with every argument fitting its rule | `run:git status`, `run:ls` | what the list says |
 | A file edit whose every path (renames included) resolves inside the dog's folders and touches nothing that runs code later | `files:edit` | editing files in its own folders |
 | Claude Read, Grep, Glob or LS on a path inside the dog's folders | `files:read` | reading and searching files in its own folders |
 | Any of the above on the person's own computer | `computer:` + key | the same, on that computer only |
@@ -29,15 +29,24 @@ program, change configuration or write elsewhere (`-c`, `--exec`, `--config`,
 `--prefix`, `--registry`, `--output`, `-o`, `-e`, `-x` and each entry's own
 refusals) send the command back to its exact key. Every argument is searched for
 paths, also glued to an option (`-o/x`), after `@` and after `name=`; each is
-resolved through links and must be inside the dog's folders. `git push`, `pull`
+resolved through links and must be inside the dog's folders, and never under
+`.git`. `git pull`
 and `fetch` take only a remote already named in the repository's own config and
 plain branch names (letters, digits, `.`, `_`, `-`; no `/`, `:`, `refs/` or
 `*HEAD`); `checkout` and `switch` take one plain branch name and nothing else.
-Every git entry that can run a hook (commit, push, pull, fetch, checkout, switch,
-stash) drops to its exact key while the repository has hooks configured anywhere:
-`core.hooksPath` in the repository's or the person's git config, a non-sample
-file under `.git/hooks`, `.husky`, `.githooks`, a lefthook, pre-commit or
-simple-git-hooks file, or a hook manager named in `package.json`. `grep` and
+Every git entry that can run a hook (commit, pull, fetch, checkout, switch,
+stash) drops to its exact key unless git itself says no hook can run. On each
+request the home runs `git rev-parse --show-toplevel`, `git config --get
+core.hooksPath` and `git rev-parse --git-path hooks` from the request's folder
+(fixed arguments, no shell, three-second timeout, an environment of a fixed
+PATH, the person's HOME, `C` locale and no prompts), so worktrees, `include` and
+`includeIf` files, `config.worktree`, the person's and the system config all
+count. A hooks path set anywhere, a non-sample file in the hooks folder, a
+husky, `.githooks`, lefthook, pre-commit or simple-git-hooks file, or a hook
+manager named in `package.json` means hooks; any failure, timeout, unexpected
+answer or a folder that is not a repository is doubt, and doubt is exact.
+`git push` is never wide: it is exact in its folder, and its card says it
+publishes this folder's commits to the remote and branch named in the command. `grep` and
 `ls` refuse options that follow links (`-R`, `--dereference-recursive`, `-L`,
 `-H`); `grep -r` is checked one level down for links that leave the folders.
 Paths that look like keys or passwords keep a read on its exact key.
@@ -63,7 +72,6 @@ so edited files change what it does.
 | `git stash` | set aside and bring back uncommitted changes in this repository | local only |
 | `git fetch` | download branches, named plainly, from a remote this repository already has | no URLs, refspecs or upload programs |
 | `git pull` | download and merge a branch, named plainly, from a remote this repository already has | no URLs, refspecs or merge programs |
-| `git push` | push branches, named plainly, to a remote this repository already has, without force or deleting anything | no URLs, refspecs, force, deletes or mirror; force-pushing the main branch is also held by the owner guard |
 | `gh pr view` | read a pull request on GitHub | reads only |
 | `gh pr list` | list pull requests on GitHub | reads only |
 | `gh pr status` | see the status of your pull requests on GitHub | reads only |
@@ -106,7 +114,7 @@ other scripts, `Dockerfile*`, `docker-compose*`, `compose.y*ml`, `setup.py`,
 files), CI definitions, test-runner and bundler configs (`vitest`, `vite`,
 `jest`, `webpack`, `rollup`, `tsup`, `babel`, `eslint`, `playwright`, `prettier`
 and similar `*.config.*`, `.babelrc`, `.eslintrc*`), hook managers' files, version
-managers' files, git settings files and shell start-up files. No `files:read` or
+managers' files, git settings files and shell start-up files. No `files:read` or `files:edit` for anything under `.git`, and no `files:read` or
 `files:edit` for `.env*`, `*.pem`, `*.key`, `id_*`, `*.p12`, `*.pfx`, `.netrc`,
 `.npmrc`, `.pypirc`, `.git-credentials`, credentials and token files, or anything
 under `.ssh`, `.gnupg`, `.aws`, `.kube` or `.docker`. Sandbox
@@ -145,7 +153,7 @@ and the second round's probe (about 300 commands and 45 tool names: wrapped, quo
 and look-alike programs, glued and `@` paths, links out of the folder, unknown
 remotes, refspecs, force, secrets, mail and payment tools, `.git` hooks, renames
 out of the folder, read tools without paths), a generated test of 400 variants of
-a granted `git push` (options, refs, folders, quoting, case) that may only
+a granted `git fetch` (options, refs, folders, quoting, case) that may only
 answer inside the listed breadth, the hook checks on three hooked repositories, and 300 variants of a granted exact command
 that may only answer the same text in the same folder. The end-to-end test runs
 the real server with the fake engine: a listed command (`git status`) answered by the home in
