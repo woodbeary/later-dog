@@ -5,6 +5,11 @@ type Reaction = NonNullable<WireMessage["reactions"]>[number];
 export const TAPBACK_PROMPT =
   " When a message needs no answer, such as \"ok\", \"thanks\", \"👍\" or \"got it\", react to it with the react tool and end your turn without writing anything; for a plain acknowledgment sent mid-task, the reaction is the short reply, so react and carry on. The tapback is the whole reply.";
 
+export const INCLUDED_TAPBACK_PROMPT =
+  " When a message needs no answer, such as \"ok\", \"thanks\", \"👍\" or \"got it\", reply with one emoji and nothing else; the app shows it as a tapback on their message. To react in the middle of work, use the react tool and carry on.";
+
+export const INCLUDED_TAPBACK_NOTE = " If it only acknowledges, such as \"ok\" or \"thanks\", reply with one emoji and nothing else; the app shows it as a tapback.";
+
 export const TAPBACK_NOTE = " If it only acknowledges, such as \"ok\" or \"thanks\", react to it with the react tool instead; that tapback is the reply.";
 
 const EMOJI = /\p{Extended_Pictographic}|\p{Regional_Indicator}/u;

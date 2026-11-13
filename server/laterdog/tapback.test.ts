@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { WireMessage } from "../../shared/wire.ts";
 import { buildNotification } from "../notify.ts";
-import { onlyTapbackText, reactedText, replyTapback, replyTapbackStreamChunk, TAPBACK_PROMPT, tapbackEmoji, tapbackTarget, tapbackStreamChunk, withTapback } from "./tapback.ts";
-import { ON_IT_NOTE, STEER_NOTE, workUpdatesPrompt } from "./work-updates.ts";
+import { INCLUDED_TAPBACK_NOTE, INCLUDED_TAPBACK_PROMPT, onlyTapbackText, reactedText, replyTapback, replyTapbackStreamChunk, TAPBACK_PROMPT, tapbackEmoji, tapbackTarget, tapbackStreamChunk, withTapback } from "./tapback.ts";
+import { ON_IT_NOTE, SHORT_ON_IT_NOTE, STEER_NOTE, withOnItNote, workUpdatesPrompt } from "./work-updates.ts";
 
 const text = (id: string, role: "user" | "bot", body: string): WireMessage => ({ id, role, kind: "text", text: body, at: 1 });
 
@@ -132,6 +132,20 @@ describe("what dogs are told about tapbacks", () => {
     expect(TAPBACK_PROMPT).toMatch(/for a plain acknowledgment sent mid-task, the reaction is the short reply/);
     expect(TAPBACK_PROMPT.endsWith(" The tapback is the whole reply.")).toBe(true);
     expect(workUpdatesPrompt()).not.toContain("react tool");
+  });
+
+  it("has an included model answer an acknowledgment with one emoji and keep the react tool for mid-work", () => {
+    const included = workUpdatesPrompt({ react: true, engine: "other" });
+    expect(included).toContain(INCLUDED_TAPBACK_PROMPT);
+    expect(included).not.toContain(TAPBACK_PROMPT);
+    expect(INCLUDED_TAPBACK_PROMPT).toMatch(/"ok", "thanks", "👍" or "got it", reply with one emoji and nothing else; the app shows it as a tapback on their message\./);
+    expect(INCLUDED_TAPBACK_PROMPT).toMatch(/To react in the middle of work, use the react tool and carry on\.$/);
+    expect(SHORT_ON_IT_NOTE).toContain(INCLUDED_TAPBACK_NOTE);
+    expect(withOnItNote("thanks", "other")).not.toContain("react tool");
+    for (const engine of ["claude", "codex"] as const) {
+      expect(workUpdatesPrompt({ react: true, engine })).toBe(workUpdatesPrompt({ react: true }));
+      expect(withOnItNote("thanks", engine)).toContain("react to it with the react tool instead");
+    }
   });
 
   it("makes the steer and on-it notes allow a tapback as the reply", () => {
