@@ -33,7 +33,7 @@ describe("reading an engine's version", () => {
 
   it("tells the two apart in the account's answer", () => {
     expect(unreadCli("claude", { starting: true })).toEqual({ state: "unavailable", reason: "`claude` is still starting", starting: true });
-    expect(unreadCli("claude", { missing: true })).toEqual({ state: "unavailable", reason: "`claude` CLI not found" });
+    expect(unreadCli("claude", { missing: true })).toEqual({ state: "unavailable", reason: "`claude` CLI not found", missing: true });
     expect(ranOutOfTime({ killed: true, signal: "SIGTERM" })).toBe(true);
     expect(ranOutOfTime({ code: "ENOENT" })).toBe(false);
   });

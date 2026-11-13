@@ -188,6 +188,7 @@ export interface ProviderSnapshot {
   state: "available" | "unavailable";
   reason?: string;
   starting?: boolean;
+  missing?: true;
   authenticated?: boolean;
   account?: { email?: string; organization?: string; method?: "login" | "api-key" };
   version?: string | null;

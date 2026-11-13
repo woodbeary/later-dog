@@ -28,5 +28,9 @@ export function readCliVersion(
 export function unreadCli(cli: string, read: Exclude<CliVersion, { version: string }>): ProviderSnapshot {
   return "starting" in read
     ? { state: "unavailable", reason: `\`${cli}\` is still starting`, starting: true }
-    : { state: "unavailable", reason: `\`${cli}\` CLI not found` };
+    : { state: "unavailable", reason: `\`${cli}\` CLI not found`, missing: true };
+}
+
+export function programMissing(snapshot: ProviderSnapshot): boolean {
+  return snapshot.state === "unavailable" && snapshot.missing === true;
 }
