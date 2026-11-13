@@ -26,18 +26,36 @@ const CASES: ReadonlyArray<readonly [string, string]> = [
   ["could not deliver approval to the provider; retry the task after reconnecting.", "Your answer did not reach Scout. Try the task again."],
   ["queued message could not start — it did not say why", "Your waiting message could not start. Send it again."],
   ["queued channel message could not start — the dog was removed", "Your waiting message could not start. Send it again."],
-  ["Could not carry on with Work Claude: the account is still resting", "Could not carry on with Work Claude. Try again."],
+  ["Could not carry on with Personal: spawn failed", "Could not carry on with Personal. Try again."],
   ["Could not continue on Personal: Error: no session", "Could not continue on Personal. Try again."],
   ["MCP server could not start; check its command and installation", "A connected tool could not start. Check its settings."],
   ["MCP server exited before the session closed", "A connected tool stopped before the turn ended."],
   ["MCP startup timed out", "A connected tool did not start in time. Try again."],
   ["MCP request timed out; execution outcome may be uncertain", "A connected tool did not answer in time, so it is not clear whether it finished."],
   ["Codex did not shut down after it was asked to stop.", "Scout did not stop when asked, so some of its work may still be running."],
-  ["The helpers stopped with this turn.", "Work running in the background stopped when this turn ended."],
-  ["The remaining helpers stopped with this turn.", "Work running in the background stopped when this turn ended."],
-  ["xAI HTTP 503: upstream connect error", "The service behind Scout's account had a problem. Try again."],
-  ["HTTP 502", "The service behind Scout's account had a problem. Try again."],
-  ["503 Service Unavailable", "The service behind Scout's account had a problem. Try again."],
+  ["xAI HTTP 503: upstream connect error", "The service behind Scout's account is busy or briefly unavailable. Try again in a moment."],
+  ["HTTP 502", "The service behind Scout's account is busy or briefly unavailable. Try again in a moment."],
+  ["503 Service Unavailable", "The service behind Scout's account is busy or briefly unavailable. Try again in a moment."],
+  ["API Error: 529 Overloaded. This is a server-side issue, usually temporary.", "The service behind Scout's account is busy or briefly unavailable. Try again in a moment."],
+  ["stream disconnected before completion: HTTP 503 Service Unavailable", "The service behind Scout's account is busy or briefly unavailable. Try again in a moment."],
+  ["claude exited 5 before result: claude: API error (503): service temporarily unavailable", "Scout stopped because the service behind its account is busy or briefly unavailable. Try again in a moment."],
+];
+
+const REASONS: ReadonlyArray<readonly [string, string, boolean]> = [
+  ["claude exited 1 before result: Not logged in · Please run /login", "Scout stopped because its account needs you to sign in again.", true],
+  ["claude exited 1 before result: Invalid API key · Please run /login", "Scout stopped because its account needs you to sign in again.", true],
+  [`claude exited 1 before result: API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired."}}`, "Scout stopped because its account needs you to sign in again.", true],
+  ["Antigravity ACP exited 1. Sign in with Google first.", "Scout stopped because its account needs you to sign in again.", true],
+  ["claude exited 1 before result: Claude AI usage limit reached|1731500000", "Scout stopped because its account is out of usage for now.", false],
+  ["codex exited 1 before turn/completed: Error: You've hit your usage limit. Try again at 3:00 PM.", "Scout stopped because its account is out of usage until 3:00 PM.", false],
+  ["queued message could not start — Claude is not signed in", "Your waiting message could not start: Scout's account needs you to sign in again.", true],
+  ["queued channel message could not start — usage limit reached until 5pm", "Your waiting message could not start: Scout's account is out of usage until 5pm.", false],
+  ["queued message could not start — Work is turned off", "Your waiting message could not start: Scout's account is turned off. Turn it back on or pick another account.", false],
+  ["Could not carry on with Opus: Claude needs you to sign in again", "Could not carry on with Opus: it needs you to sign in again.", true],
+  ["Could not carry on with Work Claude: the account is still resting", "Could not carry on with Work Claude: it is out of usage for now.", false],
+  ["Could not continue on Work account: this account is turned off.", "Could not continue on Work account: it is turned off. Turn it back on or pick another account.", false],
+  ["Antigravity initialization timed out after 30 seconds (darwin-arm64). The runtime reported insufficient disk space while starting.", "Scout could not start because this computer is almost out of space. Free up some space and try again.", false],
+  ["git status timed out after 30 s: no space left on device", "Scout stopped because this computer is almost out of space. Free up some space and try again.", false],
 ];
 
 const UNCHANGED = [
@@ -48,6 +66,9 @@ const UNCHANGED = [
   "2 helpers stopped when this turn ended.",
   "Scout's model is unavailable",
   "Codex exited {unexpectedly}",
+  "The helpers stopped with this turn.",
+  "claude exited 1 before result: please sign in to Claude to continue",
+  "Not logged in · Please run /login",
 ];
 
 describe("what a person reads when a turn fails", () => {
@@ -55,6 +76,14 @@ describe("what a person reads when a turn fails", () => {
     const plain = plainFailure(raw, "Scout");
     expect(plain.line).toBe(line);
     expect(plain.detail).toBe(raw);
+  });
+
+  it.each(REASONS)("keeps the reason: %s", (raw, line, signIn) => {
+    const plain = plainFailure(raw, "Scout");
+    expect(plain.line).toBe(line);
+    expect(plain.detail).toBe(raw);
+    expect(Boolean(plain.setup)).toBe(signIn);
+    expect(Boolean(failedTurnTool(raw, { who: "Scout" }).setup)).toBe(signIn);
   });
 
   it("names the dog when it is known and says your dog when it is not", () => {

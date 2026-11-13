@@ -111,7 +111,7 @@ describe("continuing on another account", () => {
     const { writes } = setup({ rerun: vi.fn(async () => { throw new Error("spawn failed"); }) });
     await vi.waitFor(() => expect(writes).toHaveLength(2));
     expect(writes[1]).toMatchObject({ ok: false });
-    expect(failedTurnCause(writes[1]!.name)).toBe("Could not continue on Work: spawn failed");
+    expect(failedTurnCause(writes[1]!.name)).toBe("Could not continue on Work. Try again.");
   });
 
   it("leaves the run to Retry when the turn can't run again, keeping the pick", () => {

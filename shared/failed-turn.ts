@@ -1,5 +1,5 @@
 import type { PlaceRow } from "./place-view.ts";
-import { plainFailure } from "./plain-failure.ts";
+import { plainFailure, type PlainFailure } from "./plain-failure.ts";
 import { isProviderSafetyBlock } from "./provider-safety.ts";
 
 const MARKER = "error:";
@@ -41,14 +41,14 @@ function keepsItsWords(cause: string, flags: FailedTurnFlags): boolean {
 }
 
 export function failedTurnTool(cause: string, flags: FailedTurnFlags = {}): FailedTurnTool {
-  const plain = keepsItsWords(cause, flags) ? { line: cause } : plainFailure(cause, flags.who);
+  const plain: PlainFailure = keepsItsWords(cause, flags) ? { line: cause } : plainFailure(cause, flags.who);
   const readable = plain.line;
   const words = readable.length > FAILED_TURN_MAX_CHARS ? `${readable.slice(0, FAILED_TURN_MAX_CHARS - 1)}…` : readable;
   return {
     name: `${MARKER} ${words}`,
     ok: false,
     ...(plain.detail ? { detail: plain.detail } : {}),
-    ...(flags.setup ? { setup: true } : {}),
+    ...(flags.setup || plain.setup ? { setup: true } : {}),
     ...(flags.terminal ? { terminal: true } : {}),
     ...(flags.claudeUpdate ? { claudeUpdate: true } : {}),
     ...(flags.place ? { place: flags.place } : {}),
