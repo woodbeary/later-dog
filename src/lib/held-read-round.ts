@@ -14,7 +14,7 @@ export const HELD_READ_ROUND_MS = 20_000;
 
 export interface HeldReadRound {
   queues(): Promise<HomeQueues | "unreadable">;
-  thread(threadId: string, since: number, wanted: ReadonlySet<string>): Promise<ThreadRead>;
+  thread(threadId: string, since: number | undefined, wanted: ReadonlySet<string>): Promise<ThreadRead>;
   close(): void;
 }
 

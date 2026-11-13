@@ -51,7 +51,7 @@ export interface SendHooks {
 export interface SendOutbox {
   send(item: OutboxItem, hooks?: SendHooks): void;
   pending(bots: readonly Pick<Bot, "messages">[], groups: GroupChats, queues?: unknown): OutboxItem[];
-  echoed(sendId: string, line?: { messageId: string; threadId: string }): void;
+  echoed(sendId: string, line?: { messageId: string; threadId: string; at?: unknown }): void;
   queued(queues: unknown): void;
   settleHeld(bots: readonly Pick<Bot, "messages">[], groups: readonly Pick<Group, "messages">[], queues?: unknown): Promise<void>;
   cancelled(queueId: string): void;
@@ -116,6 +116,21 @@ function landedSendIds(bots: Chats, groups: Chats, queues: unknown): Set<string>
 
 function sendIdsAtHome(bots: Chats, groups: Chats, queues: unknown): Set<string> {
   return new Set([...sendIdsQueuedAtHome(queues), ...sendIdsOnLines([...bots, ...groups], (id) => !OPTIMISTIC_LINE_ID.test(id) && !EDGE_LINE_ID.test(id))]);
+}
+
+function stampedTime(at: unknown): number | undefined {
+  return typeof at === "number" && Number.isFinite(at) && at > 0 ? at : undefined;
+}
+
+function edgeTimesOnLines(bots: Chats, groups: Chats): Map<string, number> {
+  const times = new Map<string, number>();
+  for (const chat of [...bots, ...groups]) {
+    for (const message of chat.messages ?? []) {
+      const at = stampedTime(message.at);
+      if (message.sendId && EDGE_LINE_ID.test(message.id) && at !== undefined) times.set(message.sendId, at);
+    }
+  }
+  return times;
 }
 
 function threadsOfSendsAtEdge(bots: Chats, groups: Chats, queues: unknown): Map<string, string> {
@@ -295,15 +310,19 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     draftId: item.recovery?.draftId ?? composerDraftId(item.target.kind === "bot" ? { botId: item.target.botId } : { groupId: item.target.groupId }, threadId),
     text: item.recovery?.text ?? item.text,
   });
-  const heldCopy = (item: OutboxItem, threadId: string): HeldSend => ({
-    sendId: item.sendId,
-    threadId,
-    ...recoveryOf(item, threadId),
-    requestText: item.text,
-    replyToId: item.replyToId,
-    ...(item.card ? { card: item.card } : {}),
-    at: now(),
-  });
+  const heldCopy = (item: OutboxItem, threadId: string, edgeAt: unknown): HeldSend => {
+    const stamped = stampedTime(edgeAt);
+    return {
+      sendId: item.sendId,
+      threadId,
+      ...recoveryOf(item, threadId),
+      requestText: item.text,
+      replyToId: item.replyToId,
+      ...(item.card ? { card: item.card } : {}),
+      at: now(),
+      ...(stamped !== undefined ? { edgeAt: stamped } : {}),
+    };
+  };
   const delivered = (item: { card?: OutboxCard; text?: string; requestText?: string; threadId: string }) => {
     if (item.card) deps.cardAnswered?.(item.card, item.requestText ?? item.text ?? "", item.threadId);
   };
@@ -325,7 +344,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
         reason: item.target.kind === "bot" && QUEUE_REASONS.has(body.reason) ? body.reason : undefined,
       });
       if (body.queueId === item.sendId) {
-        heldSends.keep(heldCopy(item, queuedIn));
+        heldSends.keep(heldCopy(item, queuedIn, body.at));
         return true;
       }
     }
@@ -395,13 +414,13 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     onCancelled: undelivered,
   });
 
-  const keepIfAtEdge = (item: OutboxItem, atEdge: ReadonlyMap<string, string>) => {
+  const keepIfAtEdge = (item: OutboxItem, atEdge: ReadonlyMap<string, string>, edgeTimes: ReadonlyMap<string, number> = new Map()) => {
     const threadId = atEdge.get(item.sendId);
     if (threadId === undefined) {
       delivered(item);
       return;
     }
-    heldSends.keep(heldCopy(item, threadId || item.threadId));
+    heldSends.keep(heldCopy(item, threadId || item.threadId, edgeTimes.get(item.sendId)));
   };
 
   let heldGroupRowsShown = false;
@@ -439,9 +458,10 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
       showHeldCards(bots, groups, queues);
       const landed = landedSendIds(bots, groups, queues);
       const atEdge = threadsOfSendsAtEdge(bots, groups, queues);
+      const edgeTimes = edgeTimesOnLines(bots, groups);
       for (const item of outbox.items()) {
         if (!landed.has(item.sendId)) continue;
-        keepIfAtEdge(item, atEdge);
+        keepIfAtEdge(item, atEdge, edgeTimes);
         forget(item.sendId);
       }
       return outbox.items();
@@ -449,7 +469,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     echoed(sendId, line) {
       if (line && EDGE_LINE_ID.test(line.messageId)) {
         const item = outbox.items().find((waiting) => waiting.sendId === sendId);
-        if (item) heldSends.keep(heldCopy(item, line.threadId || item.threadId));
+        if (item) heldSends.keep(heldCopy(item, line.threadId || item.threadId, line.at));
       } else {
         const item = outbox.items().find((waiting) => waiting.sendId === sendId);
         if (item) delivered(item);

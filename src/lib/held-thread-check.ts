@@ -46,7 +46,7 @@ export async function threadPageAnswer(response: Response): Promise<ThreadPage> 
 export async function readThreadBack(
   readPage: (path: string) => Promise<ThreadPage>,
   threadId: string,
-  since: number,
+  since: number | undefined,
   wanted: ReadonlySet<string>,
 ): Promise<ThreadRead> {
   const lines = new Set<string>();
@@ -57,7 +57,7 @@ export async function readThreadBack(
     if (page === "missing" || page === "unreadable") return { lines, complete: false };
     for (const sendId of page.lines) lines.add(sendId);
     if ([...wanted].every((sendId) => lines.has(sendId))) return { lines, complete: true };
-    if (!page.hasMore || (page.oldestAt !== undefined && page.oldestAt < since - HELD_PAGE_BACK_SLACK_MS)) return { lines, complete: true };
+    if (!page.hasMore || (since !== undefined && page.oldestAt !== undefined && page.oldestAt < since - HELD_PAGE_BACK_SLACK_MS)) return { lines, complete: true };
     if (!page.oldestId) return { lines, complete: false };
     before = page.oldestId;
   }
@@ -108,10 +108,15 @@ export async function homeQueuesAnswer(response: Response): Promise<HomeQueues |
   return { queued: new Set(queuedAtHome(botQueuedMessages)), unnamed: new Set(threadsQueuingUnnamed(botQueuedMessages)), busyRoomThreads: new Set(busyRoomThreads(groups)) };
 }
 
+function edgeCutoff(sends: readonly HeldSend[]): number | undefined {
+  const stamped = sends.flatMap((send) => (send.edgeAt === undefined ? [] : [send.edgeAt]));
+  return stamped.length === sends.length ? Math.min(...stamped) : undefined;
+}
+
 export async function judgeAtHome(
   sends: readonly HeldSend[],
   queues: HomeQueues | "unreadable",
-  read: (threadId: string, since: number, wanted: ReadonlySet<string>) => Promise<ThreadRead>,
+  read: (threadId: string, since: number | undefined, wanted: ReadonlySet<string>) => Promise<ThreadRead>,
 ): Promise<{ delivered: HeldSend[]; notSent: HeldSend[]; unread: HeldSend[] }> {
   const delivered: HeldSend[] = [];
   const notSent: HeldSend[] = [];
@@ -122,7 +127,7 @@ export async function judgeAtHome(
   const reads = new Map(
     [...byThread].map(([threadId, waiting]) => [
       threadId,
-      read(threadId, Math.min(...waiting.map((send) => send.at)), new Set(waiting.map((send) => send.sendId))),
+      read(threadId, edgeCutoff(waiting), new Set(waiting.map((send) => send.sendId))),
     ]),
   );
   for (const send of sends) {

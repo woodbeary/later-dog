@@ -293,7 +293,7 @@ describe("the saved desktop outbox", () => {
 describe("a message the edge held for a sleeping home", () => {
   const draft = "bot:bot:thread";
   const sent: OutboxItem = { sendId: "edge-held-send-0001", threadId: "thread", target: { kind: "bot", botId: "bot" }, text: "wake up and ship it", queuedAt: 1, recovery: { draftId: draft, text: "wake up and ship it" } };
-  const heldReceipt = { ok: true, queued: true, queueId: sent.sendId, threadId: "thread" };
+  const heldReceipt = { ok: true, queued: true, queueId: sent.sendId, threadId: "thread", at: 1_000 };
   const kept = (store: ReturnType<typeof memoryStore>) => JSON.parse(store.values.get(HELD_SENDS_KEY) ?? "[]") as Array<{ sendId: string; text: string }>;
   const holding = async (answer: (path: string) => Promise<unknown>, clock = { now: 1_000 }, extra: Partial<Parameters<typeof createSendOutbox>[0]> = {}, item: OutboxItem = sent) => {
     const store = memoryStore();
@@ -709,6 +709,52 @@ describe("a message the edge held for a sleeping home", () => {
         const sentAt = 1_000;
         const after = sentAt + 60_000;
         const longBefore = sentAt - HELD_PAGE_BACK_SLACK_MS - 1;
+
+        it("takes the cutoff from the edge's time, not this device's clock, so a device clock half an hour ahead still finds the line", async () => {
+          const fetchThread = paging({
+            "": () => page(rows(300, 200, sentAt + 3 * 60_000), true),
+            "row-300": () => page([{ id: "home-line-1", role: "user", at: sentAt + 1_000, sendId: sent.sendId }, ...rows(201, 99, sentAt + 2 * 60_000)], true),
+          });
+          const showError = vi.fn();
+          const cardAnswered = vi.fn();
+          const { store, outbox } = await holding(goneAnswer, { now: sentAt + 30 * 60_000 }, { lineOnThread: () => false, fetchThread, showError, cardAnswered }, { ...sent, card: { botId: "bot", messageId: "card-1" } });
+          await outbox.settleHeld([], [], {});
+          expect(pageReads(fetchThread)).toHaveLength(2);
+          expect(kept(store)).toEqual([]);
+          expect(cardAnswered).toHaveBeenCalledOnce();
+          expect(showError).not.toHaveBeenCalled();
+        });
+
+        describe("for a copy with no time from the edge or the home", () => {
+          const unstamped = () => memoryStore({ [HELD_SENDS_KEY]: JSON.stringify([{ sendId: "unstamped-1", threadId: "thread", draftId: "d", text: "x", requestText: "x", at: 9_000_000_000 }]) });
+          const settleUnstamped = async (pages: Record<string, () => Response>) => {
+            const store = unstamped();
+            const showError = vi.fn();
+            const fetchThread = paging(pages);
+            const outbox = createSendOutbox({ request: vi.fn(async () => ({ held: [], dropped: [] })), fetchThread, dispatch: vi.fn(), showError, store, now: () => 9_000_000_000, after: manualTimers().after, lineOnThread: () => false });
+            await outbox.settleHeld([], [], {});
+            return { store, showError, fetchThread };
+          };
+
+          it("ignores this device's clock and reads back until it finds the line", async () => {
+            const { store, showError, fetchThread } = await settleUnstamped({
+              "": () => page(rows(200, 200, 0), true),
+              "row-200": () => page([{ id: "home-line-1", role: "user", at: 0, sendId: "unstamped-1" }, ...rows(1, 199, 0)], false),
+            });
+            expect(pageReads(fetchThread)).toHaveLength(2);
+            expect(kept(store)).toEqual([]);
+            expect(showError).not.toHaveBeenCalled();
+          });
+
+          it("says Not sent only once it reaches the chat's beginning without the line", async () => {
+            const { store, showError } = await settleUnstamped({
+              "": () => page(rows(200, 200, 0), true),
+              "row-200": () => page(rows(0, 200, 0), false),
+            });
+            expect(kept(store)).toEqual([]);
+            expect(showError).toHaveBeenCalledWith(expect.objectContaining({ message: HELD_NOT_SENT }), "thread");
+          });
+        });
 
         it("reads back a page and lets it go as delivered when the line is there", async () => {
           const fetchThread = paging({

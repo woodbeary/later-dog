@@ -64,8 +64,10 @@ the third review's three Should fix items; this note describes that head.
   and then the message's own thread (`/api/threads/:id/messages`, once per
   thread per round). A page that lacks the line but says there is more is not
   evidence: the device reads back with `before=` until it finds the line or
-  reaches a row older than the send's own time (less ten minutes for clock
-  drift), at most ten pages; reaching that cap or failing a page keeps the
+  reaches a row older than the time the edge stamped on the message (its
+  receipt's `at`, or the `at` of its own `desk-` line), less ten minutes. This
+  device's clock is never used: a copy with no stamped time is read back until
+  the line or the chat's beginning, at most ten pages; reaching that cap or failing a page keeps the
   copy. A queue that lists messages for that chat without a send id (homes
   older than 2026-10-18) keeps the copy too. These reads run at most four at a time, and a round stops
   reading after 20 seconds; a message whose chat was not read by then stays
