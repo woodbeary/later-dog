@@ -249,6 +249,8 @@ export function PendingApprovalActions({
       ? t("approval.reach.connector", { name: bot.name, app: outbound.app ?? t("approval.reach.connectorApp") })
       : pending.allowKey === MAC_ALLOW_KEY
       ? t("approval.reach.mac")
+      : pending.allowKey.replace(/^computer:/, "").startsWith("exact:")
+      ? t("approval.reach.exactFolder", { name: bot.name })
       : t("approval.reach.everywhere", { name: bot.name })
     : canRememberCommand && pending.commandAllowlist
       ? t("approval.reach.command", { name: bot?.name ?? t("approval.someone"), cwd: shortFolder(pending.commandAllowlist.cwd) })

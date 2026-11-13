@@ -154,9 +154,13 @@ describe("remembering exact command approvals", () => {
     expect(line(view({ allowKey: "ask_bot:kiwi" }).html)).toBe(everywhere);
     const program = view({ allowKey: "run:git push", commandAllowlist: undefined }).html;
     expect(line(program)).toBe(everywhere);
-    expect(program).toContain("Always covers: Run git push, which lets it push branches to a remote this repository already has, without force or deleting anything");
+    expect(program).toContain("Always covers: Run git push, which lets it push branches, named plainly, to a remote this repository already has, without force or deleting anything");
     const once = view({ allowKey: "exact:/work/app :: make build", commandAllowlist: undefined }).html;
-    expect(once).toContain("Always covers: Run this exact command, in this folder: make build. In /work/app");
+    expect(line(once)).toBe("Always allow lets Scout run this exact command again without asking, only in this folder. You can undo it in Scout&#x27;s settings.");
+    expect(once).toContain("Always covers: Run this exact command, in this folder: make build. In /work/app. It runs code from files in this folder, which the dog can change, so edited files change what it does");
+    const read = view({ allowKey: "exact:/work/app :: cat /etc/hosts", commandAllowlist: undefined }).html;
+    expect(read).toContain("Always covers: Run this exact command, in this folder: cat /etc/hosts. In /work/app");
+    expect(read).not.toContain("runs code from files");
     expect(view({ allowKey: "run:git push" }).buttons.map((button) => button.props.children)).toEqual(["Allow once", "Don't allow", "Always allow"]);
     expect(line(view({ allowKey: "mac" }).html)).toBe("Always allow lets every dog use this Mac without asking. Never stops them using it.");
     for (const button of command.buttons) expect((button.props as { title?: string }).title).toBeUndefined();

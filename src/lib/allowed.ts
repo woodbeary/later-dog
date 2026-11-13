@@ -1,4 +1,4 @@
-import { readGrantKey } from "../../shared/always-allow";
+import { readGrantKey, readsFolderFiles } from "../../shared/always-allow";
 import { t } from "./i18n";
 import type { CommandAllowlistRule } from "../../shared/command-allowlist";
 import { vaultAllowSite } from "../../shared/vault";
@@ -55,7 +55,10 @@ export function grantItem(key: string): AllowedItem {
 export function lastingWords(item: AllowedItem): { label: string; detail?: string } | null {
   switch (item.kind) {
     case "run": return { label: t("allowed.run", { command: item.command, covers: item.covers }) };
-    case "exact": return { label: t("allowed.exact", { command: item.command }), detail: t("allowed.commandIn", { cwd: item.cwd }) };
+    case "exact": {
+      const place = t("allowed.commandIn", { cwd: item.cwd });
+      return { label: t("allowed.exact", { command: item.command }), detail: readsFolderFiles(item.command) ? `${place}. ${t("allowed.runsFolderCode")}` : place };
+    }
     case "files": return { label: t(item.access === "edit" ? "allowed.files" : "allowed.filesRead") };
     case "tool": return { label: t("allowed.tool", { tool: item.tool }) };
     default: return null;

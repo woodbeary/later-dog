@@ -12,7 +12,7 @@ is already allowed, the home answers "allow" itself and no card is raised.
 | Request | Key | Covers |
 |---|---|---|
 | Any shell command not on the list below | `exact:<resolved folder> :: <command>` | this exact command text, run from this folder |
-| A command on the list, with every argument fitting its rule | `run:git push`, `run:pnpm run build` | what the list says |
+| A command on the list, with every argument fitting its rule | `run:git push`, `run:ls` | what the list says |
 | A file edit whose every path (renames included) resolves inside the dog's folders and touches nothing that runs code later | `files:edit` | editing files in its own folders |
 | Claude Read, Grep, Glob or LS on a path inside the dog's folders | `files:read` | reading and searching files in its own folders |
 | Any of the above on the person's own computer | `computer:` + key | the same, on that computer only |
@@ -31,8 +31,22 @@ refusals) send the command back to its exact key. Every argument is searched for
 paths, also glued to an option (`-o/x`), after `@` and after `name=`; each is
 resolved through links and must be inside the dog's folders. `git push`, `pull`
 and `fetch` take only a remote already named in the repository's own config and
-plain branch names (no URL, refspec, `+` or `:`). Package-manager entries take
-no extra arguments; a package script is keyed by its name.
+plain branch names (letters, digits, `.`, `_`, `-`; no `/`, `:`, `refs/` or
+`*HEAD`); `checkout` and `switch` take one plain branch name and nothing else.
+Every git entry that can run a hook (commit, push, pull, fetch, checkout, switch,
+stash) drops to its exact key while the repository has hooks configured anywhere:
+`core.hooksPath` in the repository's or the person's git config, a non-sample
+file under `.git/hooks`, `.husky`, `.githooks`, a lefthook, pre-commit or
+simple-git-hooks file, or a hook manager named in `package.json`. `grep` and
+`ls` refuse options that follow links (`-R`, `--dereference-recursive`, `-L`,
+`-H`); `grep -r` is checked one level down for links that leave the folders.
+Paths that look like keys or passwords keep a read on its exact key.
+
+Every command that runs code from files in the folder (package managers' test,
+run and install, `make`, scripts, interpreters) is exact-in-folder only: one
+command, one resolved folder, never another project, clone or subfolder. Its
+card says that it runs code from files in this folder, which the dog can change,
+so edited files change what it does.
 
 | Command | Covers | Why it is safe to widen |
 |---|---|---|
@@ -43,24 +57,13 @@ no extra arguments; a package script is keyed by its name.
 | `git rev-parse` | look up commit names in this repository | reads only |
 | `git ls-files` | list the files this repository tracks | reads only |
 | `git add` | stage files inside its own folders | changes only the repository's index; paths are checked |
-| `git commit` | record staged changes as a commit in this repository | local only; hooks live under .git, which it can never edit without asking |
-| `git switch` | switch branches in this repository | local only |
-| `git checkout` | switch branches or restore files inside its own folders | local only; paths are checked |
+| `git commit` | record staged changes as a commit in this repository | local only, and only while the repository has no hooks configured anywhere; with hooks it is exact |
+| `git switch` | switch to a branch by its plain name in this repository | a plain branch name only; exact while hooks are configured |
+| `git checkout` | switch to a branch by its plain name in this repository | a plain branch name only, no paths; exact while hooks are configured |
 | `git stash` | set aside and bring back uncommitted changes in this repository | local only |
-| `git fetch` | download from a remote this repository already has | no URLs, refspecs or upload programs |
-| `git pull` | download and merge from a remote this repository already has | no URLs, refspecs or merge programs |
-| `git push` | push branches to a remote this repository already has, without force or deleting anything | no URLs, refspecs, force, deletes or mirror; force-pushing the main branch is also held by the owner guard |
-| `pnpm install` | install the packages this folder's lock file already lists | no new package names |
-| `pnpm i` | install the packages this folder's lock file already lists | no new package names |
-| `npm install` | install the packages this folder's lock file already lists | no new package names |
-| `npm ci` | install the packages this folder's lock file already lists | no new package names |
-| `yarn install` | install the packages this folder's lock file already lists | no new package names |
-| `pnpm test` | run this folder's test script | the script lives in package.json, which it can never edit without asking |
-| `npm test` | run this folder's test script | the script lives in package.json, which it can never edit without asking |
-| `yarn test` | run this folder's test script | the script lives in package.json, which it can never edit without asking |
-| `pnpm run <script>` | run the package script named here, as this folder's package.json defines it | one named script; package.json edits always ask |
-| `npm run <script>` | run the package script named here, as this folder's package.json defines it | one named script; package.json edits always ask |
-| `yarn run <script>` | run the package script named here, as this folder's package.json defines it | one named script; package.json edits always ask |
+| `git fetch` | download branches, named plainly, from a remote this repository already has | no URLs, refspecs or upload programs |
+| `git pull` | download and merge a branch, named plainly, from a remote this repository already has | no URLs, refspecs or merge programs |
+| `git push` | push branches, named plainly, to a remote this repository already has, without force or deleting anything | no URLs, refspecs, force, deletes or mirror; force-pushing the main branch is also held by the owner guard |
 | `gh pr view` | read a pull request on GitHub | reads only |
 | `gh pr list` | list pull requests on GitHub | reads only |
 | `gh pr status` | see the status of your pull requests on GitHub | reads only |
@@ -81,7 +84,7 @@ no extra arguments; a package script is keyed by its name.
 Left off on purpose, after the review: `git config`, `git branch` (it sets
 upstream config), `gh api`, `gh auth`, `gh pr merge` and every other `gh`
 command that changes something, `curl`, `wget`, `dd`, `tar`, `zip`, `unzip`,
-`scp`, `rsync`, `ssh`, `make`, `npx`, `pnpm dlx`, `npm exec`, `node`, `python`,
+`scp`, `rsync`, `ssh`, `make`, every package manager command (they run code from the folder), `node`, `python`,
 `tsx`, `ts-node`, `bun`, `deno`, `java` and every program that runs a file or
 inline code, and `rm`, `mv`, `cp`, `ln`, `chmod`.
 
@@ -92,10 +95,21 @@ tools, web fetch and search, browser and computer clicks), so sending, posting,
 paying and trading always ask whatever the tool is called; older whole-app
 connector grants no longer cover anything. Commands carrying anything shaped
 like a secret, or naming `mail`, `sendmail`, `osascript` or `stripe`. Deleting
-outside the dog's folders. Edits under any `.git`, `.husky`, `node_modules`,
-`.claude`, `.codex`, `.cursor`, `.gemini`, `.vscode` or `.idea` folder and to
-`package.json`, `.npmrc`, `.yarnrc*`, `.pnpmfile.cjs`, `Makefile`, `.gitconfig`,
-`.gitattributes`, `.gitmodules`, `.envrc` and shell start-up files. Sandbox
+outside the dog's folders. Edits (compared case-insensitively) under any `.git`, `.husky`, `.githooks`,
+`.github`, `.gitlab`, `.circleci`, `.buildkite`, `.devcontainer`, `node_modules`,
+`.claude`, `.codex`, `.cursor`, `.gemini`, `.vscode` or `.idea` folder, inside the
+configured hooks path, and to `package.json`, package-manager settings
+(`.npmrc`, `.yarnrc*`, `.pnpmfile.cjs`, `pnpm-workspace.yaml`), build and task
+files (`Makefile`, `GNUmakefile`, `*.mk`, `justfile`, `Taskfile.yml`, `*.sh` and
+other scripts, `Dockerfile*`, `docker-compose*`, `compose.y*ml`, `setup.py`,
+`pyproject.toml`, `conftest.py`, `build.rs`, `Cargo.toml`, Gradle and Maven
+files), CI definitions, test-runner and bundler configs (`vitest`, `vite`,
+`jest`, `webpack`, `rollup`, `tsup`, `babel`, `eslint`, `playwright`, `prettier`
+and similar `*.config.*`, `.babelrc`, `.eslintrc*`), hook managers' files, version
+managers' files, git settings files and shell start-up files. No `files:read` or
+`files:edit` for `.env*`, `*.pem`, `*.key`, `id_*`, `*.p12`, `*.pfx`, `.netrc`,
+`.npmrc`, `.pypirc`, `.git-credentials`, credentials and token files, or anything
+under `.ssh`, `.gnupg`, `.aws`, `.kube` or `.docker`. Sandbox
 escapes and anything policy marks for explicit approval. Requests the engine
 cannot name (ACP other/read/delete/move, Pi, Codex whole-app access). Every
 request in a guest's turn; a guest, and a member who is not an admin, cannot
@@ -127,14 +141,14 @@ pnpm exec vitest run server/laterdog/always-allow.e2e.test.ts
 ```
 
 The unit tests hold every case from the adversarial review's three probes
-(about 250 commands and 45 tool names: wrapped, quoted, case-changed, zero-width
+and the second round's probe (about 300 commands and 45 tool names: wrapped, quoted, case-changed, zero-width
 and look-alike programs, glued and `@` paths, links out of the folder, unknown
 remotes, refspecs, force, secrets, mail and payment tools, `.git` hooks, renames
 out of the folder, read tools without paths), a generated test of 400 variants of
-a granted `git push` (options, arguments, folders, quoting, case) that may only
-answer inside the listed breadth, and 300 variants of a granted exact command
+a granted `git push` (options, refs, folders, quoting, case) that may only
+answer inside the listed breadth, the hook checks on three hooked repositories, and 300 variants of a granted exact command
 that may only answer the same text in the same folder. The end-to-end test runs
-the real server with the fake engine: a listed command answered by the home in
+the real server with the fake engine: a listed command (`git status`) answered by the home in
 the same chat, another chat and after a restart; a wider variant and an exact
 command in another folder still asking; removal asking again.
 
