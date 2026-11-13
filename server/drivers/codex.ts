@@ -107,7 +107,7 @@ export class CodexRpcError extends Error {
 }
 
 export function missingNativeCodexThread(error: unknown, cursor: string): boolean {
-  if (!(error instanceof CodexRpcError)) return false;
+  if (!(error instanceof CodexRpcError) || error.code !== -32600) return false;
   const message = error.message.trim();
   return [`no rollout found for thread id ${cursor}`, `no rollout found for conversation id ${cursor}`, `thread not found: ${cursor}`]
     .includes(message);
