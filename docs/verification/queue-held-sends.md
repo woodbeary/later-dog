@@ -56,26 +56,60 @@ the third review's three Should fix items; this note describes that head.
   an absent chat line is not proof it was lost (the event stream may lag). When
   the edge says so on its own timer and the chat lacks the message, the device
   keeps the copy and asks the home once for its chats (the same read as a
-  refresh); if that read fails it asks again on the next round. Only a settle
-  that carries a real refresh may turn such a message into Not sent, and only if
-  the refresh lacks it too. A refresh that has it releases the copy as delivered.
+  refresh); if that read fails it asks again on the next round. A refresh or
+  a chat on screen that shows the line releases the copy as delivered. Not sent
+  needs evidence the home gives after the edge's answer, never data fetched
+  before it: the device reads the home's queues (`/api/bots?messages=0`, whose
+  `botQueuedMessages` lists every message a dog's chat holds with its send id)
+  and then the message's own thread (`/api/threads/:id/messages`, once per
+  thread per round). A page that lacks the line but says there is more is not
+  evidence: the device reads back with `before=` until it finds the line or
+  reaches a row older than the time the edge stamped on the message (its
+  receipt's `at`, or the `at` of its own `desk-` line), less ten minutes. This
+  device's clock is never used: a copy with no stamped time is read back until
+  the line or the chat's beginning, at most ten pages; reaching that cap or failing a page keeps the
+  copy. A queue that lists messages for that chat without a send id (homes
+  older than 2026-10-18) keeps the copy too. These reads run at most four at a time, and a round stops
+  reading after 20 seconds; a message whose chat was not read by then stays
+  held for the next round. The message is delivered when either shows it. It is Not
+  sent when both reads succeed and neither shows it, or when the home answers
+  its own 404 for a chat that does not exist (JSON `{"error":"no such
+  conversation"}`). The home shows no list of what a room has queued, so a room
+  that is working (`working` or `busyBotId`) keeps the copy until it is idle.
+  Every other answer keeps the copy: a network error, a timeout, any other
+  status, the edge's own `Not found`, a 404 without that body, and the edge's
+  saved copy (`x-laterdog-saved-at`) served while the home sleeps, which can be
+  older than the message.
 - A card answer travels the same way (`card` on the outbox item and the copy).
   The card shows the answer as waiting until the home's receipt, or until a held
   answer is delivered, and only then is marked answered; a refused, dropped or
-  cancelled answer makes the card answerable again. Any send that ends in a
+  cancelled answer makes the card answerable again. After a reload, a card
+  whose answer is still in the outbox or kept as a held copy shows as waiting
+  again at every refresh, so it cannot be answered a second time. Any send that ends in a
   final failure without a composer to recover it records the Not sent row itself.
   In a group room the answer is posted to the room's own messages route the same
-  way. The server has no route that saves a room card as answered (the card
-  route only knows a dog's own chats), so a room card shows answered on this
-  device only; after a refresh it can show answerable again.
+  way. Once delivered, the device saves the answer on the home with
+  `PATCH /api/groups/:id/cards/:messageId` and the card's `threadId`
+  (`server/routes/room-card.ts`), so a refresh shows the room card answered.
+  The route accepts a thread only when it belongs to that room: the room's own
+  thread for a direct room, one of the room's tasks otherwise. A room saved
+  before rooms had a task list is given one task on that thread when the home
+  loads, so its cards are saved too (`server/routes/room-card-store.test.ts`
+  runs the home's own check). The device does not read the route's answer: a
+  save the home refuses leaves the card answered on this device only until the
+  next refresh.
 - The edge's own rows and lines in a refresh do not count as landed, so a
   refresh answered by the edge keeps the copy.
 - While a copy exists the device asks the edge's held list (`GET` on `HELD_SENDS_PATH` from
   `deploy/laterdog/home/src/desk.ts`, with `?ids=…`) on a
   timer: 30 seconds, doubling to a five minute cap. Every refresh starts the
-  wait over. The timer stops when nothing is held, when the edge says to sign
-  in again, and when the store goes away; it is never started from the send
-  path's request. At most 50 ids go in one request, and only the ids asked are
+  wait over, except the refresh the held check itself asked for. The timer
+  stops when nothing is held, when the edge says to sign in again, when the
+  store goes away, and when every copy left is one the edge let go whose home
+  could not be read for longer than the hour the edge would hold it: such a
+  copy is neither delivered nor Not sent, and is decided at the next refresh
+  that comes for any other reason. It is never started from the send path's
+  request. At most 50 ids go in one request, and only the ids asked are
   settled.
 - `held` wins over `dropped` for the same id. A failed ask (network error,
   timeout, 5xx) is not an answer: the copy stays and the device asks again.

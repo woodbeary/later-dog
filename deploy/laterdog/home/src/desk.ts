@@ -251,7 +251,7 @@ export function refusedSend(): Response {
 
 export function queuedReceipt(queued: QueuedSend): Response {
   return Response.json(
-    { ok: true, queued: true, queueId: queued.id, ...(queued.threadId ? { threadId: queued.threadId } : {}) },
+    { ok: true, queued: true, queueId: queued.id, at: queued.at, ...(queued.threadId ? { threadId: queued.threadId } : {}) },
     { status: 202, headers: { "cache-control": "no-store" } },
   );
 }

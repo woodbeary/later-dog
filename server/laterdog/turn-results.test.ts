@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { terminalTurnPatch, turnResults } from "./turn-results.ts";
 import { claudeToolTouch, codexToolTouch, writtenChange } from "./tool-touches.ts";
-import { TurnTouches } from "./turn-touches.ts";
+import { pullRequestLink, TurnTouches } from "./turn-touches.ts";
 
 const PR = "https://github.com/example/repo/pull/7";
 
@@ -115,6 +115,21 @@ describe("recording what tools touched", () => {
     });
     touches.begin("t");
     expect(touches.observed("t")).toBeUndefined();
+  });
+
+  it("takes a pull request only from tools that open or publish it in this turn, never from one that looks up or reviews an older job", () => {
+    const job = (title: string) => JSON.stringify({ id: "0b6a4a52-6f1f-4b8e-9d55-3f7f8f0e1a2b", title, prUrl: PR });
+    for (const tool of ["inspect_cloud_job", "review_cloud_job", "correct_cloud_job", "verify_cloud_job", "merge_cloud_job"]) {
+      expect(pullRequestLink(`mcp__laterdog__${tool}`, job("Old job from last week"))).toBeUndefined();
+      const touches = new TurnTouches();
+      touches.begin("t");
+      touches.finish("t", "1", { ok: true, toolName: `mcp__laterdog__${tool}`, output: job("Old job from last week") });
+      expect(touches.observed("t")).toBeUndefined();
+    }
+    for (const tool of ["delegate_cloud_job", "publish_cloud_job"]) {
+      expect(pullRequestLink(`mcp__laterdog__${tool}`, job("Fix login"))).toEqual({ kind: "pull-request", label: "Fix login", url: PR });
+      expect(pullRequestLink(`laterdog.${tool}`, job("Fix login"))?.url).toBe(PR);
+    }
   });
 });
 

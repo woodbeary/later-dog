@@ -67,7 +67,7 @@ import {
 } from "./pane-errors";
 import { ApiError, api, type ApiInit } from "@/lib/api";
 import { queuedSteerResult, StillWaitingError } from "@/lib/queued-steer";
-import type { OutboxItem, OutboxRecovery } from "@/lib/outbox";
+import type { OutboxCard, OutboxItem, OutboxRecovery } from "@/lib/outbox";
 import { createSendOutbox, type SendOutbox } from "./send-outbox";
 import { receiveHelperEvent, receiveHelpersSnapshot, forgetHelpers } from "@/lib/helpers-state";
 import { receiveNativeRun, forgetNativeRuns, refreshNativeRuns } from "@/lib/native-runs-state";
@@ -971,6 +971,7 @@ export type Action =
   | { type: "optimisticMessageRemoved"; threadId: string; sendId: string; restoreLeafId?: string | null }
   | { type: "sendHeld"; threadId: string; sendId: string }
   | { type: "outboxShown"; items: OutboxItem[] }
+  | { type: "cardSending"; card: OutboxCard; answer: string }
   | { type: "computerStart"; botId: string; start: ComputerStart | null }
   | { type: "computerControl"; botId: string; held: boolean; helpReason: string | null }
   | { type: "takeoverIntent"; intent: { botId: string; at: number } | null }
@@ -1172,7 +1173,12 @@ function optimisticUserMessage(
   };
 }
 
-function showHeldSend(state: AppState, item: OutboxItem): AppState {
+function markCardSending(state: AppState, card: OutboxCard, answer: string): AppState {
+  return card.groupId ? patchGroupCard(state, card.groupId, card.messageId, { pendingAnswer: answer }) : patchCard(state, card.botId, card.messageId, { pendingAnswer: answer });
+}
+
+function showHeldSend(shown: AppState, item: OutboxItem): AppState {
+  const state = item.card ? markCardSending(shown, item.card, item.text) : shown;
   if (!item.threadId) return state;
   const bot = state.bots.find((candidate) => candidate.threadId === item.threadId);
   if (bot) {
@@ -1631,6 +1637,8 @@ function baseReducer(state: AppState, action: Action): AppState {
     }
     case "outboxShown":
       return action.items.reduce(showHeldSend, state);
+    case "cardSending":
+      return markCardSending(state, action.card, action.answer);
     case "sendHeld":
       return markSendHeld(state, action.threadId, action.sendId);
     case "optimisticMessageRemoved": {
@@ -3302,7 +3310,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           rawDispatch({ type: "messageAdded", threadId: frame.threadId, message: frame.message as Message });
           if (frame.message?.role === "user" && typeof frame.message.sendId === "string") {
             const landedSendId = frame.message.sendId;
-            sendOutbox().echoed(landedSendId, { messageId: frame.message.id, threadId: frame.threadId });
+            sendOutbox().echoed(landedSendId, { messageId: frame.message.id, threadId: frame.threadId, at: frame.message.at });
             if (stateRef.current.pendingQueued[frame.threadId]?.some((entry) => entry.queueId === landedSendId)) {
               rawDispatch({ type: "consumePendingQueued", threadId: frame.threadId, queueId: landedSendId });
             }

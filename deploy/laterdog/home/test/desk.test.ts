@@ -343,7 +343,7 @@ describe("sending while the home sleeps", () => {
     const send = (text: string, sendId: string) => h.visit("/api/bots/rex/messages", asOwner({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text, sendId }) }));
     const first = await send("first", "send-0000000000001");
     expect(first.status).toBe(202);
-    expect(await first.json()).toEqual({ ok: true, queued: true, queueId: "send-0000000000001" });
+    expect(await first.json()).toEqual({ ok: true, queued: true, queueId: "send-0000000000001", at: expect.any(Number) });
     expect((await send("second", "send-0000000000002")).status).toBe(202);
     expect((await send("first", "send-0000000000001")).status).toBe(202);
     expect((await send("bad id", "s3")).status).toBe(400);
@@ -464,7 +464,7 @@ describe("sending while the home sleeps", () => {
     await h.sleep();
     const response = await h.visit("/api/bots/rex/messages", asOwner({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "hi", sendId: "send-0000000000001", threadId: "t-rex" }) }));
     expect(response.status).toBe(202);
-    expect(await response.json()).toEqual({ ok: true, queued: true, queueId: "send-0000000000001", threadId: "t-rex" });
+    expect(await response.json()).toEqual({ ok: true, queued: true, queueId: "send-0000000000001", at: expect.any(Number), threadId: "t-rex" });
   });
 
   it("keeps a waiting message in the saved chat list, so a refresh while the home sleeps does not drop it", async () => {

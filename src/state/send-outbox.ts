@@ -1,6 +1,7 @@
 import { composerDraftId, rememberFailedComposerSend } from "@/lib/drafts";
 import {
   HELD_ASK_FIRST_MS,
+  HELD_GIVE_UP_MS,
   HELD_NOT_SENT,
   heldAskGroups,
   heldReply,
@@ -11,6 +12,8 @@ import {
   writeHeldSends,
   type HeldSend,
 } from "@/lib/held-sends";
+import { heldReadRound, type HeldReadRound } from "@/lib/held-read-round";
+import { judgeAtHome, type FetchThread } from "@/lib/held-thread-check";
 import {
   SEND_ATTEMPT_TIMEOUT_MS,
   browserStore,
@@ -37,6 +40,7 @@ export interface SendOutboxDeps {
   cardAnswerFailed?: (card: OutboxCard) => void;
   lineOnThread?: (threadId: string, sendId: string) => boolean;
   confirmAtHome?: () => void;
+  fetchThread?: FetchThread;
 }
 
 export interface SendHooks {
@@ -47,7 +51,7 @@ export interface SendHooks {
 export interface SendOutbox {
   send(item: OutboxItem, hooks?: SendHooks): void;
   pending(bots: readonly Pick<Bot, "messages">[], groups: GroupChats, queues?: unknown): OutboxItem[];
-  echoed(sendId: string, line?: { messageId: string; threadId: string }): void;
+  echoed(sendId: string, line?: { messageId: string; threadId: string; at?: unknown }): void;
   queued(queues: unknown): void;
   settleHeld(bots: readonly Pick<Bot, "messages">[], groups: readonly Pick<Group, "messages">[], queues?: unknown): Promise<void>;
   cancelled(queueId: string): void;
@@ -114,6 +118,21 @@ function sendIdsAtHome(bots: Chats, groups: Chats, queues: unknown): Set<string>
   return new Set([...sendIdsQueuedAtHome(queues), ...sendIdsOnLines([...bots, ...groups], (id) => !OPTIMISTIC_LINE_ID.test(id) && !EDGE_LINE_ID.test(id))]);
 }
 
+function stampedTime(at: unknown): number | undefined {
+  return typeof at === "number" && Number.isFinite(at) && at > 0 ? at : undefined;
+}
+
+function edgeTimesOnLines(bots: Chats, groups: Chats): Map<string, number> {
+  const times = new Map<string, number>();
+  for (const chat of [...bots, ...groups]) {
+    for (const message of chat.messages ?? []) {
+      const at = stampedTime(message.at);
+      if (message.sendId && EDGE_LINE_ID.test(message.id) && at !== undefined) times.set(message.sendId, at);
+    }
+  }
+  return times;
+}
+
 function threadsOfSendsAtEdge(bots: Chats, groups: Chats, queues: unknown): Map<string, string> {
   const atHome = sendIdsAtHome(bots, groups, queues);
   const threads = new Map<string, string>();
@@ -143,6 +162,7 @@ interface HeldSendKeeper {
 
 function createHeldSendKeeper(deps: {
   request: SendOutboxDeps["request"];
+  fetchThread: FetchThread;
   store: Store;
   after: (ms: number, run: () => void) => () => void;
   now: () => number;
@@ -159,7 +179,9 @@ function createHeldSendKeeper(deps: {
   let askAgainIn = HELD_ASK_FIRST_MS;
   let stopAskTimer: (() => void) | null = null;
   let disposed = false;
+  let refreshAsked = false;
   const forgottenWhileAsking = new Set<string>();
+  const pastGiveUp = new Set<string>();
 
   const stopAsking = () => {
     stopAskTimer?.();
@@ -168,7 +190,8 @@ function createHeldSendKeeper(deps: {
 
   const askLater = (ms: number) => {
     stopAsking();
-    if (disposed || readHeldSends(store).length === 0) return;
+    const held = readHeldSends(store);
+    if (disposed || held.every((send) => pastGiveUp.has(send.sendId))) return;
     stopAskTimer = deps.after(ms, () => {
       stopAskTimer = null;
       askAgainIn = nextHeldAskDelay(ms);
@@ -185,6 +208,15 @@ function createHeldSendKeeper(deps: {
       const waitingIds = new Set(waiting.map((send) => send.sendId));
       for (const send of held) if (!waitingIds.has(send.sendId)) deps.onReleased(send);
     }
+    const round = heldReadRound(deps.fetchThread, deps.after);
+    try {
+      return await askAndJudge(waiting, refresh, round);
+    } finally {
+      round.close();
+    }
+  };
+
+  const askAndJudge = async (waiting: HeldSend[], refresh: Refresh | null, round: HeldReadRound): Promise<{ signedIn: boolean }> => {
     let undecided = false;
     for (const group of heldAskGroups(waiting)) {
       const ids = group.map((send) => send.sendId);
@@ -195,22 +227,31 @@ function createHeldSendKeeper(deps: {
       const asked = new Set(ids);
       const stillWanted = group.filter((send) => !forgottenWhileAsking.has(send.sendId));
       const { keep, lost, gone } = sortHeldSends(stillWanted, reply, deps.now());
-      const delivered = gone.filter((send) => deps.onThread(send));
-      const unconfirmed = gone.filter((send) => !delivered.includes(send));
-      const notSent = refresh ? unconfirmed : [];
-      const wait = refresh ? [] : unconfirmed;
-      if (wait.length > 0) undecided = true;
-      writeHeldSends(store, [...readHeldSends(store).filter((send) => !asked.has(send.sendId)), ...keep, ...wait]);
-      for (const send of lost) deps.onLost(send);
+      const onThread = gone.filter((send) => deps.onThread(send));
+      const unconfirmed = gone.filter((send) => !onThread.includes(send));
+      const judged = unconfirmed.length > 0 ? await judgeAtHome(unconfirmed, await round.queues(), round.thread) : { delivered: [], notSent: [], unread: [] };
+      const wanted = (sends: readonly HeldSend[]) => sends.filter((send) => !forgottenWhileAsking.has(send.sendId));
+      const delivered = wanted([...onThread, ...judged.delivered]);
+      const notSent = wanted(judged.notSent);
+      const wait = wanted(judged.unread);
+      for (const send of stillWanted) pastGiveUp.delete(send.sendId);
+      for (const send of wait) if (deps.now() - send.at >= HELD_GIVE_UP_MS) pastGiveUp.add(send.sendId);
+      if (!refresh && wait.some((send) => !pastGiveUp.has(send.sendId))) undecided = true;
+      writeHeldSends(store, [...readHeldSends(store).filter((send) => !asked.has(send.sendId)), ...wanted(keep), ...wait]);
+      for (const send of wanted(lost)) deps.onLost(send);
       for (const send of delivered) deps.onGone(send);
       for (const send of notSent) deps.onLost(send);
     }
-    if (undecided) deps.confirmAtHome();
+    if (undecided) {
+      refreshAsked = true;
+      deps.confirmAtHome();
+    }
     return { signedIn: true };
   };
 
   const settle = (refresh: Refresh | null): Promise<void> => {
-    if (refresh) askAgainIn = HELD_ASK_FIRST_MS;
+    if (refresh && refreshAsked) refreshAsked = false;
+    else if (refresh) askAgainIn = HELD_ASK_FIRST_MS;
     if (settling) {
       if (refresh) followUp = refresh;
       return settling;
@@ -245,6 +286,7 @@ function createHeldSendKeeper(deps: {
     forget(sendId) {
       const held = readHeldSends(store);
       const rest = held.filter((send) => send.sendId !== sendId);
+      pastGiveUp.delete(sendId);
       if (rest.length !== held.length) {
         writeHeldSends(store, rest);
         for (const send of held) if (send.sendId === sendId) deps.onCancelled(send);
@@ -268,15 +310,19 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     draftId: item.recovery?.draftId ?? composerDraftId(item.target.kind === "bot" ? { botId: item.target.botId } : { groupId: item.target.groupId }, threadId),
     text: item.recovery?.text ?? item.text,
   });
-  const heldCopy = (item: OutboxItem, threadId: string): HeldSend => ({
-    sendId: item.sendId,
-    threadId,
-    ...recoveryOf(item, threadId),
-    requestText: item.text,
-    replyToId: item.replyToId,
-    ...(item.card ? { card: item.card } : {}),
-    at: now(),
-  });
+  const heldCopy = (item: OutboxItem, threadId: string, edgeAt: unknown): HeldSend => {
+    const stamped = stampedTime(edgeAt);
+    return {
+      sendId: item.sendId,
+      threadId,
+      ...recoveryOf(item, threadId),
+      requestText: item.text,
+      replyToId: item.replyToId,
+      ...(item.card ? { card: item.card } : {}),
+      at: now(),
+      ...(stamped !== undefined ? { edgeAt: stamped } : {}),
+    };
+  };
   const delivered = (item: { card?: OutboxCard; text?: string; requestText?: string; threadId: string }) => {
     if (item.card) deps.cardAnswered?.(item.card, item.requestText ?? item.text ?? "", item.threadId);
   };
@@ -298,7 +344,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
         reason: item.target.kind === "bot" && QUEUE_REASONS.has(body.reason) ? body.reason : undefined,
       });
       if (body.queueId === item.sendId) {
-        heldSends.keep(heldCopy(item, queuedIn));
+        heldSends.keep(heldCopy(item, queuedIn, body.at));
         return true;
       }
     }
@@ -353,6 +399,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
 
   const heldSends = createHeldSendKeeper({
     request: deps.request,
+    fetchThread: deps.fetchThread ?? ((path, init) => fetch(path, init)),
     store,
     after: deps.after ?? defaultAfter,
     now,
@@ -367,13 +414,13 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     onCancelled: undelivered,
   });
 
-  const keepIfAtEdge = (item: OutboxItem, atEdge: ReadonlyMap<string, string>) => {
+  const keepIfAtEdge = (item: OutboxItem, atEdge: ReadonlyMap<string, string>, edgeTimes: ReadonlyMap<string, number> = new Map()) => {
     const threadId = atEdge.get(item.sendId);
     if (threadId === undefined) {
       delivered(item);
       return;
     }
-    heldSends.keep(heldCopy(item, threadId || item.threadId));
+    heldSends.keep(heldCopy(item, threadId || item.threadId, edgeTimes.get(item.sendId)));
   };
 
   let heldGroupRowsShown = false;
@@ -385,6 +432,13 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     for (const send of readHeldSends(store)) {
       if (!groupThreads.has(send.threadId) || atHome.has(send.sendId)) continue;
       deps.dispatch({ type: "pendingQueued", threadId: send.threadId, queueId: send.sendId, text: send.requestText });
+    }
+  };
+
+  const showHeldCards = (bots: Chats, groups: Chats, queues: unknown) => {
+    const atHome = sendIdsAtHome(bots, groups, queues);
+    for (const send of readHeldSends(store)) {
+      if (send.card && !atHome.has(send.sendId)) deps.dispatch({ type: "cardSending", card: send.card, answer: send.requestText });
     }
   };
 
@@ -401,11 +455,13 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     },
     pending(bots, groups, queues) {
       showHeldGroupRows(bots, groups, queues);
+      showHeldCards(bots, groups, queues);
       const landed = landedSendIds(bots, groups, queues);
       const atEdge = threadsOfSendsAtEdge(bots, groups, queues);
+      const edgeTimes = edgeTimesOnLines(bots, groups);
       for (const item of outbox.items()) {
         if (!landed.has(item.sendId)) continue;
-        keepIfAtEdge(item, atEdge);
+        keepIfAtEdge(item, atEdge, edgeTimes);
         forget(item.sendId);
       }
       return outbox.items();
@@ -413,7 +469,7 @@ export function createSendOutbox(deps: SendOutboxDeps): SendOutbox {
     echoed(sendId, line) {
       if (line && EDGE_LINE_ID.test(line.messageId)) {
         const item = outbox.items().find((waiting) => waiting.sendId === sendId);
-        if (item) heldSends.keep(heldCopy(item, line.threadId || item.threadId));
+        if (item) heldSends.keep(heldCopy(item, line.threadId || item.threadId, line.at));
       } else {
         const item = outbox.items().find((waiting) => waiting.sendId === sendId);
         if (item) delivered(item);
