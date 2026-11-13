@@ -7,7 +7,7 @@ export const TOOL_KEY = "tool:";
 export const COMPUTER_KEY = "computer:";
 export const MAX_GRANT_KEY_BYTES = 480;
 
-export type ArgumentRule = "none" | "checked" | "remote";
+export type ArgumentRule = "none" | "checked" | "remote" | "branch";
 
 export interface ListedCommand {
   program: string;
@@ -16,12 +16,14 @@ export interface ListedCommand {
   args: ArgumentRule;
   flags?: readonly string[];
   denied?: readonly string[];
+  deniedLetters?: string;
+  hooks?: true;
+  recursive?: string;
   covers: string;
   reason: string;
 }
 
-const PUSH_DENIED = ["--force", "-f", "--force-with-lease", "--force-if-includes", "--mirror", "--all", "--delete", "-d", "--prune", "--tags", "--follow-tags", "--set-upstream", "-u", "--repo"];
-const LOCK_INSTALL = ["--frozen-lockfile", "--prefer-offline", "--offline", "--immutable"];
+const PUSH_DENIED = ["--push-option", "--recurse-submodules", "--atomic", "--force", "-f", "--force-with-lease", "--force-if-includes", "--mirror", "--all", "--delete", "-d", "--prune", "--tags", "--follow-tags", "--set-upstream", "-u", "--repo"];
 
 export const LISTED_COMMANDS: readonly ListedCommand[] = [
   { program: "git", sub: "status", args: "checked", covers: "show which files changed in this repository", reason: "reads only" },
@@ -31,24 +33,13 @@ export const LISTED_COMMANDS: readonly ListedCommand[] = [
   { program: "git", sub: "rev-parse", args: "checked", covers: "look up commit names in this repository", reason: "reads only" },
   { program: "git", sub: "ls-files", args: "checked", covers: "list the files this repository tracks", reason: "reads only" },
   { program: "git", sub: "add", args: "checked", covers: "stage files inside its own folders", reason: "changes only the repository's index; paths are checked" },
-  { program: "git", sub: "commit", args: "checked", denied: ["--template", "-t", "--edit", "--reuse-message", "-C", "--reedit-message", "--fixup", "--squash"], covers: "record staged changes as a commit in this repository", reason: "local only; hooks live under .git, which it can never edit without asking" },
-  { program: "git", sub: "switch", args: "checked", denied: ["--track", "-t", "--set-upstream-to"], covers: "switch branches in this repository", reason: "local only" },
-  { program: "git", sub: "checkout", args: "checked", denied: ["--track", "-t", "--set-upstream-to", "--patch", "-p"], covers: "switch branches or restore files inside its own folders", reason: "local only; paths are checked" },
-  { program: "git", sub: "stash", args: "checked", covers: "set aside and bring back uncommitted changes in this repository", reason: "local only" },
-  { program: "git", sub: "fetch", args: "remote", denied: ["--all", "--multiple", "--upload-pack", "--prune", "--tags"], covers: "download from a remote this repository already has", reason: "no URLs, refspecs or upload programs" },
-  { program: "git", sub: "pull", args: "remote", denied: ["--all", "--upload-pack", "--rebase", "-r", "--strategy", "-s", "--strategy-option", "-X"], covers: "download and merge from a remote this repository already has", reason: "no URLs, refspecs or merge programs" },
-  { program: "git", sub: "push", args: "remote", denied: PUSH_DENIED, covers: "push branches to a remote this repository already has, without force or deleting anything", reason: "no URLs, refspecs, force, deletes or mirror; force-pushing the main branch is also held by the owner guard" },
-  { program: "pnpm", sub: "install", args: "none", flags: LOCK_INSTALL, covers: "install the packages this folder's lock file already lists", reason: "no new package names" },
-  { program: "pnpm", sub: "i", args: "none", flags: LOCK_INSTALL, covers: "install the packages this folder's lock file already lists", reason: "no new package names" },
-  { program: "npm", sub: "install", args: "none", covers: "install the packages this folder's lock file already lists", reason: "no new package names" },
-  { program: "npm", sub: "ci", args: "none", covers: "install the packages this folder's lock file already lists", reason: "no new package names" },
-  { program: "yarn", sub: "install", args: "none", flags: LOCK_INSTALL, covers: "install the packages this folder's lock file already lists", reason: "no new package names" },
-  { program: "pnpm", sub: "test", args: "none", covers: "run this folder's test script", reason: "the script lives in package.json, which it can never edit without asking" },
-  { program: "npm", sub: "test", args: "none", covers: "run this folder's test script", reason: "the script lives in package.json, which it can never edit without asking" },
-  { program: "yarn", sub: "test", args: "none", covers: "run this folder's test script", reason: "the script lives in package.json, which it can never edit without asking" },
-  { program: "pnpm", sub: "run", script: true, args: "none", covers: "run the package script named here, as this folder's package.json defines it", reason: "one named script; package.json edits always ask" },
-  { program: "npm", sub: "run", script: true, args: "none", covers: "run the package script named here, as this folder's package.json defines it", reason: "one named script; package.json edits always ask" },
-  { program: "yarn", sub: "run", script: true, args: "none", covers: "run the package script named here, as this folder's package.json defines it", reason: "one named script; package.json edits always ask" },
+  { program: "git", sub: "commit", args: "checked", hooks: true, denied: ["-F", "--file", "--template", "-t", "--edit", "--reuse-message", "-C", "--reedit-message", "--fixup", "--squash"], covers: "record staged changes as a commit in this repository", reason: "local only, and only while the repository has no hooks configured anywhere; with hooks it is exact" },
+  { program: "git", sub: "switch", args: "branch", hooks: true, covers: "switch to a branch by its plain name in this repository", reason: "a plain branch name only; exact while hooks are configured" },
+  { program: "git", sub: "checkout", args: "branch", hooks: true, covers: "switch to a branch by its plain name in this repository", reason: "a plain branch name only, no paths; exact while hooks are configured" },
+  { program: "git", sub: "stash", args: "checked", hooks: true, covers: "set aside and bring back uncommitted changes in this repository", reason: "local only" },
+  { program: "git", sub: "fetch", args: "remote", hooks: true, denied: ["--all", "--multiple", "--upload-pack", "--prune", "--tags", "--recurse-submodules", "--refmap"], covers: "download branches, named plainly, from a remote this repository already has", reason: "no URLs, refspecs or upload programs" },
+  { program: "git", sub: "pull", args: "remote", hooks: true, denied: ["--all", "--upload-pack", "--rebase", "-r", "--strategy", "-s", "--strategy-option", "-X", "--recurse-submodules", "--allow-unrelated-histories"], covers: "download and merge a branch, named plainly, from a remote this repository already has", reason: "no URLs, refspecs or merge programs" },
+  { program: "git", sub: "push", args: "remote", hooks: true, denied: PUSH_DENIED, covers: "push branches, named plainly, to a remote this repository already has, without force or deleting anything", reason: "no URLs, refspecs, force, deletes or mirror; force-pushing the main branch is also held by the owner guard" },
   { program: "gh", sub: "pr view", args: "checked", denied: ["--web", "-w"], covers: "read a pull request on GitHub", reason: "reads only" },
   { program: "gh", sub: "pr list", args: "checked", denied: ["--web", "-w"], covers: "list pull requests on GitHub", reason: "reads only" },
   { program: "gh", sub: "pr status", args: "checked", covers: "see the status of your pull requests on GitHub", reason: "reads only" },
@@ -58,13 +49,13 @@ export const LISTED_COMMANDS: readonly ListedCommand[] = [
   { program: "gh", sub: "issue list", args: "checked", denied: ["--web", "-w"], covers: "list issues on GitHub", reason: "reads only" },
   { program: "gh", sub: "run view", args: "checked", denied: ["--web", "-w"], covers: "read a workflow run on GitHub", reason: "reads only" },
   { program: "gh", sub: "run list", args: "checked", covers: "list workflow runs on GitHub", reason: "reads only" },
-  { program: "ls", args: "checked", covers: "list files inside its own folders", reason: "reads only; paths are checked" },
+  { program: "ls", args: "checked", denied: ["--dereference", "--dereference-command-line"], deniedLetters: "LH", covers: "list files inside its own folders", reason: "reads only; paths are checked" },
   { program: "pwd", args: "none", covers: "print its working folder", reason: "reads only" },
   { program: "cat", args: "checked", covers: "read files inside its own folders", reason: "reads only; paths are checked" },
   { program: "head", args: "checked", covers: "read the start of files inside its own folders", reason: "reads only; paths are checked" },
   { program: "tail", args: "checked", covers: "read the end of files inside its own folders", reason: "reads only; paths are checked" },
-  { program: "wc", args: "checked", covers: "count lines in files inside its own folders", reason: "reads only; paths are checked" },
-  { program: "grep", args: "checked", covers: "search files inside its own folders", reason: "reads only; paths are checked" },
+  { program: "wc", args: "checked", denied: ["--files0-from"], covers: "count lines in files inside its own folders", reason: "reads only; paths are checked" },
+  { program: "grep", args: "checked", denied: ["--dereference-recursive", "--directories", "-d"], deniedLetters: "R", recursive: "r", covers: "search files inside its own folders", reason: "reads only; paths are checked" },
 ];
 
 export function listedName(entry: ListedCommand, script?: string): string {
@@ -109,4 +100,11 @@ export function readGrantKey(key: string): ReadGrant | null {
   if (rest === FILES_READ_KEY) return { onComputer, shape: { kind: "files", access: "read" } };
   if (rest.startsWith(TOOL_KEY)) return { onComputer, shape: { kind: "tool", tool: rest.slice(TOOL_KEY.length) } };
   return null;
+}
+
+const PURE_PROGRAMS = new Set(["ls", "pwd", "cat", "head", "tail", "wc", "grep", "echo", "printf", "date", "whoami", "which", "true", "false", "sleep", "cd", "mkdir", "rm", "rmdir", "mv", "cp", "touch", "kill"]);
+
+export function readsFolderFiles(command: string): boolean {
+  const program = command.trim().split(/\s+/)[0]?.replace(/^["']|["']$/g, "").toLowerCase() ?? "";
+  return !PURE_PROGRAMS.has(program) || /[|&;]/.test(command);
 }

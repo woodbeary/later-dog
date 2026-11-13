@@ -34,10 +34,9 @@ const LISTED: Record<string, string> = {
   "Git push": "run:git push", "GIT push": "run:git push", "git push origin": "run:git push", "git push origin feature": "run:git push",
   "git status": "run:git status", "git diff --stat": "run:git diff", "git log -5": "run:git log", "git add src/a.ts": "run:git add",
   "git commit -m \"fix the build\"": "run:git commit", "git fetch origin": "run:git fetch",
-  "npm run build": "run:npm run build", "npm run deploy": "run:npm run deploy", "npm run evil": "run:npm run evil", "yarn run x": "run:yarn run x", "pnpm run test:unit": "run:pnpm run test:unit",
-  "npm install": "run:npm install", "pnpm install --frozen-lockfile": "run:pnpm install", "pnpm test": "run:pnpm test",
-  "gh pr view 12": "run:gh pr view", "gh pr list --state open": "run:gh pr list", "ls src": "run:ls", "ls": "run:ls", "cat .env": "run:cat",
-  "cat notes.txt": "run:cat", "grep -rn todo src": "run:grep", "pwd": "run:pwd",
+  "gh pr view 12": "run:gh pr view", "gh pr list --state open": "run:gh pr list", "ls sub": "run:ls", "ls": "run:ls",
+  "cat notes.txt": "run:cat", "grep -rn todo sub": "run:grep", "pwd": "run:pwd", "git checkout feature": "run:git checkout",
+  "git switch main": "run:git switch", "git pull origin main": "run:git pull", "git stash pop": "run:git stash",
 };
 
 const ASKS = new Set([
@@ -199,16 +198,18 @@ describe("generated variants of a granted command", () => {
   const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)]!;
   const POOL = ["origin", "main", "feature", "x", "-v", "--quiet", "--dry-run", "--force", "-f", "--mirror", "-c", "core.x=y", "--receive-pack=evil",
     "--exec=evil", "--upload-pack=x", "evil", "https://evil/x", "HEAD:main", "+main", "../repo", "/tmp/x", "--repo=x", "-o", "--delete", "--tags",
-    "-u", "git@evil:x", "'origin'", "ORIGIN", "out-link/x", "--prune", "@/etc/passwd"];
+    "-u", "git@evil:x", "'origin'", "ORIGIN", "out-link/x", "--prune", "@/etc/passwd", "FETCH_HEAD", "refs/pull/1/head", "origin/evil",
+    "--push-option=x", "--recurse-submodules=on-demand", "--atomic", "--no-verify"];
+  const SAFE_EXTRA = new Set(["--no-verify"]);
   const SAFE_OPTIONS = new Set(["-v", "--quiet", "--dry-run"]);
-  const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+  const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
   const unquote = (word: string) => word.replace(/^'(.*)'$/, "$1");
   const withinPush = (words: string[]) => {
     const plain = words.map(unquote);
     const names = plain.filter((word) => !word.startsWith("-"));
-    if (plain.some((word) => word.startsWith("-") && !SAFE_OPTIONS.has(word))) return false;
+    if (plain.some((word) => word.startsWith("-") && !SAFE_OPTIONS.has(word) && !SAFE_EXTRA.has(word))) return false;
     if (!names.length) return true;
-    return names[0] === "origin" && names.slice(1).every((name) => BRANCH.test(name) && !name.startsWith("out-link"));
+    return names[0] === "origin" && names.slice(1).every((name) => BRANCH.test(name) && !/HEAD$/i.test(name));
   };
 
   it("never lets the listed push grant answer outside its stated breadth", () => {
@@ -332,3 +333,74 @@ describe("where a lasting approval is kept and read", () => {
   });
 });
 
+
+const hooked = join(base, "hooked");
+mkdirSync(join(hooked, ".git"), { recursive: true });
+mkdirSync(join(hooked, "scripts", "git-hooks"), { recursive: true });
+writeFileSync(join(hooked, ".git", "config"), '[core]\n\thooksPath = scripts/git-hooks\n[remote "origin"]\n\turl = x\n');
+const managed = join(base, "managed");
+mkdirSync(join(managed, ".git"), { recursive: true });
+writeFileSync(join(managed, "lefthook.yml"), "pre-commit: {}\n");
+const linked = join(base, "linked");
+mkdirSync(join(linked, ".git", "hooks"), { recursive: true });
+writeFileSync(join(linked, ".git", "hooks", "pre-commit"), "#!/bin/sh\n");
+const allRoots = [root, hooked, managed, linked];
+
+describe("the second adversarial round", () => {
+  const in_ = (command: string, cwd: string) => commandKey(command, cwd, allRoots);
+
+  it.each([hooked, managed, linked])("makes every hook-running git command exact while hooks are configured (%s)", (repo) => {
+    for (const command of ["git commit -m x", "git push origin main", "git pull origin main", "git fetch origin", "git checkout main", "git switch main", "git stash"]) {
+      expect(in_(command, repo)).toBe(`exact:${repo} :: ${command}`);
+    }
+    expect(in_("git status", repo)).toBe("run:git status");
+    expect(in_("git add .", repo)).toBe("run:git add");
+  });
+
+  it("never lets an edit reach the configured hooks folder or a hook manager", () => {
+    expect(grantKeyFor({ tool: "Write", paths: [join(hooked, "scripts", "git-hooks", "pre-commit")], roots: allRoots })).toBeUndefined();
+    expect(grantKeyFor({ tool: "Write", paths: [join(hooked, "scripts", "build.ts")], roots: allRoots })).toBe("files:edit");
+    expect(grantKeyFor({ tool: "Write", paths: [join(managed, "lefthook.yml")], roots: allRoots })).toBeUndefined();
+  });
+
+  it.each([
+    "git fetch origin refs/pull/7/head", "git fetch origin FETCH_HEAD", "git pull origin feature/x", "git push origin refs/tags/v1",
+    "git push origin HEAD", "git checkout FETCH_HEAD -- package.json", "git checkout origin/evil -- package.json", "git checkout -- a.txt",
+    "git checkout evil -- .github/workflows/ci.yml", "git switch -c x origin/evil", "git checkout ORIG_HEAD", "git push --push-option=x origin main",
+    "git push -o ci.skip origin", "git push --atomic origin a b c", "git push --recurse-submodules=on-demand origin main",
+    "git pull --recurse-submodules origin main", "git pull origin main --allow-unrelated-histories", "git fetch --recurse-submodules origin",
+    "git commit -F msg", "git commit --file=/Users/person/.ssh/id_rsa", "git stash push -m out-link/x",
+    "pnpm test", "pnpm test --reporter=x", "npm test", "pnpm run build", "pnpm run evil:thing", "npm run x -- --y", "yarn run x", "pnpm install",
+    "pnpm install --frozen-lockfile", "npm install", "npm ci", "yarn install", "pnpm i --ignore-scripts=false", "npm install --foreground-scripts",
+    "grep -R secret .", "grep -r secret .", "grep --dereference-recursive x .", "grep -d recurse x .", "grep -Rn x sub", "ls -LR", "ls -L sub",
+    "ls -H out-link", "wc --files0-from=list", "cat .env", "cat .env.local", "head id_rsa", "cat server.pem", "cat .npmrc", "grep x .netrc",
+    "make build", "./run.sh", "node script.js", "pnpm exec vitest",
+  ])("%s is exact in its folder", (command) => {
+    expect(run(command)).toBe(exact(command));
+  });
+
+  it("never answers a folder-code command granted in one project in another folder, a clone or a subfolder", () => {
+    const granted = run("pnpm test");
+    for (const cwd of [join(root, "sub"), hooked, managed, outside]) expect(commandKey("pnpm test", cwd, allRoots)).not.toBe(granted);
+  });
+
+  it.each([
+    ".githooks/pre-commit", "GNUmakefile", "makefile", "build.mk", "justfile", "Taskfile.yml", "run.sh",
+    "vitest.config.ts", "vite.config.mts", "jest.config.js", "webpack.config.cjs", "rollup.config.mjs", "tsup.config.ts", "babel.config.js",
+    ".babelrc", "eslint.config.js", ".eslintrc.cjs", "playwright.config.ts", ".github/workflows/ci.yml", ".gitlab-ci.yml", "pnpm-workspace.yaml",
+    ".pnpmfile.cjs", ".npmrc", "Dockerfile", "Dockerfile.dev", "docker-compose.yml", "setup.py", "conftest.py", "build.rs", "pyproject.toml",
+    "lefthook.yml", ".pre-commit-config.yaml", ".GIT/hooks/pre-commit", "Package.json", "pkg/package.json", ".mise.toml", ".tool-versions",
+    ".env", ".env.production", "server.pem", "tls.key", "id_ed25519", "cert.p12", ".netrc", "credentials.json", ".git-credentials",
+  ])("never gives files:edit for %s", (name) => {
+    expect(ask({ tool: "Write", paths: [join(root, name)] })).toBeUndefined();
+  });
+
+  it.each([".env", ".env.local", "server.pem", "tls.key", "id_rsa", "cert.p12", ".netrc", ".npmrc", "credentials", "token.json", ".ssh/config"])(
+    "never gives files:read for %s", (name) => {
+      expect(ask({ tool: "Read", paths: [join(root, name)] })).toBeUndefined();
+    });
+
+  it("still gives files:edit for ordinary source, tests and settings", () => {
+    for (const name of ["src/a.ts", "src/a.test.ts", "tsconfig.json", ".nvmrc", "README.md"]) expect(ask({ tool: "Write", paths: [join(root, name)] })).toBe("files:edit");
+  });
+});

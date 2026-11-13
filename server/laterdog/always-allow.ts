@@ -1,4 +1,5 @@
-import { lstatSync, readFileSync, readlinkSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
@@ -25,16 +26,36 @@ const DELETES = new Set(["rm", "rmdir", "unlink", "shred", "srm", "trash"]);
 const DENIED_EVERYWHERE = /^--?(?:c|exec[\w-]*|receive-pack|upload-pack|config[\w-]*|git-dir|work-tree|namespace|super-prefix|global|system|prefix|registry|userconfig|globalconfig|script-shell|node-options|output|o|e|x)(?:=|$)/i;
 const SCRIPT_NAME = /^[A-Za-z0-9][A-Za-z0-9:_.-]{0,60}$/;
 const REMOTE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,60}$/;
-const BRANCH_NAME = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,120}$/;
+const PLAIN_REF = /^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$/;
 
 const EDIT_TOOLS = new Set(["edit", "write", "multiedit", "notebookedit", "apply_patch", "create_file", "write_file", "edit_file", "str_replace_editor"]);
 const READ_TOOLS = new Set(["read", "grep", "glob", "ls"]);
 const READ_ONLY_TOOLS: ReadonlySet<string> = new Set();
-const RUNS_LATER_SEGMENTS = new Set([".git", ".husky", "node_modules", ".claude", ".codex", ".cursor", ".gemini", ".vscode", ".idea"]);
-const RUNS_LATER_FILES = new Set([
-  "package.json", ".npmrc", ".yarnrc", ".yarnrc.yml", ".pnpmfile.cjs", ".bashrc", ".bash_profile", ".bash_login", ".profile",
-  ".zshrc", ".zshenv", ".zprofile", ".zlogin", ".zlogout", ".envrc", ".gitconfig", ".gitattributes", ".gitmodules", "makefile",
+const RUNS_LATER_SEGMENTS = new Set([
+  ".git", ".husky", ".githooks", "node_modules", ".claude", ".codex", ".cursor", ".gemini", ".vscode", ".idea", ".github", ".gitlab",
+  ".circleci", ".buildkite", ".devcontainer",
 ]);
+const RUNS_LATER_FILES = new Set([
+  "package.json", ".npmrc", ".yarnrc", ".yarnrc.yml", ".pnpmfile.cjs", "pnpmfile.cjs", "pnpm-workspace.yaml", ".bashrc", ".bash_profile",
+  ".bash_login", ".profile", ".zshrc", ".zshenv", ".zprofile", ".zlogin", ".zlogout", ".envrc", ".gitconfig", ".gitattributes", ".gitmodules",
+  "makefile", "gnumakefile", "justfile", ".justfile", "taskfile.yml", "taskfile.yaml", "taskfile.dist.yml", "lefthook.yml", "lefthook.yaml",
+  ".lefthook.yml", ".lefthook.yaml", "lefthook-local.yml", ".pre-commit-config.yaml", ".pre-commit-config.yml", ".simple-git-hooks.json",
+  ".simple-git-hooks.js", ".gitlab-ci.yml", ".travis.yml", "azure-pipelines.yml", "jenkinsfile", "bitbucket-pipelines.yml", "setup.py",
+  "setup.cfg", "pyproject.toml", "conftest.py", "noxfile.py", "tox.ini", "build.rs", "cargo.toml", "build.gradle", "build.gradle.kts",
+  "settings.gradle", "pom.xml", "rakefile", "gemfile", ".babelrc", ".babelrc.json", ".mise.toml", "mise.toml", ".tool-versions",
+  "compose.yaml", "compose.yml", "procfile", "deno.json", "deno.jsonc", "bunfig.toml",
+]);
+const RUNS_LATER_PATTERNS = [
+  /\.(?:sh|bash|zsh|fish|mk|command|ps1|bat|cmd)$/, /^dockerfile/, /^docker-compose/, /^containerfile/,
+  /^(?:vitest|vite|jest|webpack|rollup|tsup|babel|eslint|playwright|prettier|postcss|tailwind|next|nuxt|svelte|astro|esbuild|karma|cypress|vue|metro|remix|turbo)\.(?:config|workspace)\./,
+  /^\.eslintrc/, /^\.prettierrc/, /^\.mocharc/, /^\.swcrc/,
+];
+const SECRET_SEGMENTS = new Set([".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".config"]);
+const SECRET_FILES = new Set([
+  ".netrc", ".npmrc", ".pypirc", ".git-credentials", "credentials", "credentials.json", "credentials.yml", "token", "token.json",
+  "tokens.json", "auth.json", "secrets.json", "secrets.yml", "secrets.yaml", ".htpasswd", "service-account.json", "known_hosts",
+]);
+const SECRET_PATTERNS = [/^\.env/, /\.(?:pem|key|p12|pfx|jks|keystore|ppk|asc|gpg|kdbx)$/, /^id_[a-z0-9]+/, /secret/, /credential/, /token/];
 
 function shellWords(command: string): string[] | null {
   if (SHELL_META.test(command)) return null;
@@ -148,21 +169,98 @@ export function configuredRemotes(cwd: string): Set<string> {
   }
 }
 
+const shortCluster = (word: string) => /^-[A-Za-z0-9]+$/.test(word) ? word.slice(1) : "";
+
 function deniedOption(entry: ListedCommand, word: string): boolean {
   if (!word.startsWith("-")) return false;
   const name = word.includes("=") ? word.slice(0, word.indexOf("=")) : word;
-  return DENIED_EVERYWHERE.test(word) || (entry.denied ?? []).includes(name);
+  const letters = entry.deniedLetters ?? "";
+  return DENIED_EVERYWHERE.test(word) || (entry.denied ?? []).includes(name) || [...shortCluster(word)].some((letter) => letters.includes(letter));
+}
+
+const plainRef = (name: string) => PLAIN_REF.test(name) && !/HEAD$/i.test(name) && !name.endsWith(".lock") && !name.includes("..");
+
+export function secretPath(path: string): boolean {
+  const parts = path.split(sep).filter(Boolean).map((part) => part.toLowerCase());
+  const name = parts.at(-1) ?? "";
+  return parts.some((part) => SECRET_SEGMENTS.has(part)) || SECRET_FILES.has(name) || SECRET_PATTERNS.some((pattern) => pattern.test(name));
+}
+
+function linkLeavesBelow(dir: string, roots: readonly string[]): boolean {
+  let names: string[];
+  try {
+    if (!statSync(dir).isDirectory()) return false;
+    names = readdirSync(dir);
+  } catch {
+    return false;
+  }
+  return names.some((name) => {
+    try {
+      return lstatSync(join(dir, name)).isSymbolicLink() && !insideRoots(join(dir, name), roots);
+    } catch {
+      return true;
+    }
+  });
+}
+
+function walksOut(entry: ListedCommand, args: readonly string[], cwd: string, roots: readonly string[]): boolean {
+  const letter = entry.recursive;
+  if (!letter || !args.some((arg) => arg === "--recursive" || shortCluster(arg).includes(letter))) return false;
+  const names = args.filter((arg) => !arg.startsWith("-"));
+  const dirs = names.length > 1 ? names.slice(1) : ["."];
+  return dirs.some((dir) => linkLeavesBelow(realOrNearest(joinPath(cwd, dir)), roots));
 }
 
 function argumentsFit(entry: ListedCommand, args: readonly string[], cwd: string, roots: readonly string[]): boolean {
   if (args.some((arg) => deniedOption(entry, arg))) return false;
   if (entry.args === "none") return args.every((arg) => (entry.flags ?? []).includes(arg));
+  if (entry.args === "branch") return args.every((arg) => plainRef(arg));
   if (!everyPathInside(args, cwd, roots)) return false;
-  if (entry.args === "checked") return true;
+  if (walksOut(entry, args, cwd, roots)) return false;
+  if (entry.args === "checked") return !args.some((arg) => pathsIn(arg).some((path) => secretPath(path) || secretPath(realOrNearest(joinPath(cwd, path)))));
   const names = args.filter((arg) => !arg.startsWith("-"));
   if (!names.length) return true;
   const [remote, ...refs] = names as [string, ...string[]];
-  return REMOTE_NAME.test(remote) && configuredRemotes(cwd).has(remote) && refs.every((ref) => BRANCH_NAME.test(ref));
+  return REMOTE_NAME.test(remote) && configuredRemotes(cwd).has(remote) && refs.every(plainRef);
+}
+
+function workTree(dir: string): string {
+  return basename(dir) === ".git" ? dirname(dir) : dir;
+}
+
+function gitConfigText(dir: string): string {
+  try { return readFileSync(join(dir, "config"), "utf8"); } catch { return ""; }
+}
+
+function configuredHooksPath(cwd: string): string | null {
+  const dir = gitDir(cwd);
+  if (!dir) return null;
+  const value = /^\s*hookspath\s*=\s*(.+?)\s*$/im.exec(gitConfigText(dir))?.[1]?.replace(/^"|"$/g, "");
+  return value ? (isAbsolute(value) ? value : join(workTree(dir), value)) : null;
+}
+
+const HOOK_MANAGERS = [".husky", ".githooks", "lefthook.yml", "lefthook.yaml", ".lefthook.yml", ".lefthook.yaml", "lefthook-local.yml",
+  ".pre-commit-config.yaml", ".pre-commit-config.yml", ".simple-git-hooks.json", ".simple-git-hooks.js", ".simple-git-hooks.cjs"];
+
+export function hooksConfigured(cwd: string, home = homedir()): boolean {
+  const dir = gitDir(cwd);
+  if (!dir) return false;
+  if (configuredHooksPath(cwd)) return true;
+  for (const file of [join(home, ".gitconfig"), join(home, ".config", "git", "config")]) {
+    try {
+      if (/^\s*hookspath\s*=/im.test(readFileSync(file, "utf8"))) return true;
+    } catch {}
+  }
+  try {
+    if (readdirSync(join(dir, "hooks")).some((name) => !name.endsWith(".sample"))) return true;
+  } catch {}
+  const tree = workTree(dir);
+  if (HOOK_MANAGERS.some((name) => existsSync(join(tree, name)))) return true;
+  try {
+    return /"(?:husky|simple-git-hooks|pre-commit|lint-staged|lefthook)"/.test(readFileSync(join(tree, "package.json"), "utf8"));
+  } catch {
+    return false;
+  }
 }
 
 export function listedKey(words: readonly string[], cwd: string, roots: readonly string[]): string | undefined {
@@ -174,6 +272,7 @@ export function listedKey(words: readonly string[], cwd: string, roots: readonly
     const listed = listedCommand(name);
     if (!listed) continue;
     if (listed.script !== undefined && !SCRIPT_NAME.test(listed.script)) return undefined;
+    if (listed.entry.hooks && hooksConfigured(cwd)) return undefined;
     return argumentsFit(listed.entry, rest.slice(take), cwd, roots) ? RUN_KEY + listedName(listed.entry, listed.script) : undefined;
   }
   return undefined;
@@ -204,12 +303,18 @@ function bareTool(tool: string): string {
 }
 
 export function runsLater(path: string): boolean {
-  const parts = resolve(path).split(sep).filter(Boolean);
-  return parts.some((part) => RUNS_LATER_SEGMENTS.has(part.toLowerCase())) || RUNS_LATER_FILES.has(basename(path).toLowerCase());
+  const parts = resolve(path).split(sep).filter(Boolean).map((part) => part.toLowerCase());
+  const name = parts.at(-1) ?? "";
+  if (parts.some((part) => RUNS_LATER_SEGMENTS.has(part)) || RUNS_LATER_FILES.has(name) || RUNS_LATER_PATTERNS.some((pattern) => pattern.test(name))) return true;
+  const hooks = configuredHooksPath(dirname(resolve(path)));
+  if (!hooks) return false;
+  const rel = relative(realOrNearest(hooks), realOrNearest(path));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 function filesKey(paths: readonly string[] | undefined, roots: readonly string[], key: string, edits: boolean): string | undefined {
   if (!paths?.length || !paths.every((path) => insideRoots(path, roots))) return undefined;
+  if (paths.some((path) => secretPath(path) || secretPath(realOrNearest(path)))) return undefined;
   if (edits && paths.some((path) => runsLater(path) || runsLater(realOrNearest(path)))) return undefined;
   return key;
 }
