@@ -5,7 +5,7 @@ Run the fixtures in isolated homes; nothing here touches a person's app, home or
 ```sh
 pnpm exec vitest run server/laterdog/work-state-table.test.ts server/laterdog/work-state.test.ts server/laterdog/chat-work.test.ts
 pnpm exec vitest run server/laterdog/computer-jobs.test.ts server/laterdog/computer-run-route.test.ts server/laterdog/room-work.test.ts server/laterdog/job-wake.test.ts
-pnpm exec vitest run src/lib/work-state.test.ts
+pnpm exec vitest run src/lib/work-state.test.ts server/laterdog/stop-computer-jobs.test.ts
 pnpm exec vitest run server/laterdog/work-state-truth.e2e.test.ts
 ```
 
@@ -65,8 +65,11 @@ no reply wanted; and the older fields below agree with `work` in every row.
   (`server/laterdog/computer-run-route.ts`) records the job with its chat when the command starts, ends it
   when the call sees it finish, and keeps it when the call returns while it still runs. A watch in
   `server/index.ts` checks kept jobs every 30 seconds (`LATERDOG_COMPUTER_JOB_CHECK_MS`) on the dog's
-  computer without waking it: a finished job, a computer that is not running, or a job older than the
-  longest a run may take ends the job. A job a call is waiting on is never checked twice. When a later
+  computer without waking it. A job ends only on evidence: its exit record (with the time it was written),
+  its computer asleep, or its computer missing on two checks in a row. Any other state, an error or an
+  empty answer changes nothing, and a job that runs past two hours is not ended: it stays running, marked
+  `computerBackground`. A job a call is waiting on is never checked twice. Each job runs in its own
+  process group, whose id is kept on the computer next to its log and exit record. When a later
   turn picks the result up by `run_id`, the call holds the job, so the chat stays running through the
   hand-over and goes idle only when the call has brought the result back.
 - Handoffs: `directHandoffFacts` in `server/laterdog/chat-work.ts`, read from the handoff record
@@ -83,42 +86,69 @@ no reply wanted; and the older fields below agree with `work` in every row.
 ## Waking the dog when its job ends
 
 When the watch sees a kept job end, the ledger keeps how it ended (finished, failed with its exit code,
-or stopped) until the dog is told. `server/laterdog/job-wake.ts` then starts one continuation turn through
-`startContinuation`, the path the stall watch and restart pickup use, with a note that is not from the
-person: the command, how it ended, and the `run_id` to read it with. The chat shows one line tagged
-`pickup: "computer"`, for example "Scout's command finished, so it is carrying on.". Bounds:
+or stopped because its computer slept or went away) until the dog is told. `server/laterdog/job-wake.ts`
+starts one continuation turn through `startContinuation`, the path the stall watch and restart pickup use,
+with a note that is not from the person: the command, how it ended, and the `run_id` to read it with.
+Only once the turn has started is the ending marked told and the line written ("Scout's command finished,
+so it is carrying on.", tagged `pickup: "computer"`). A home that dies between the two wakes the dog
+again after the restart, inside the same bounds; it never shows a "carrying on" line without a turn.
 
-- Once per job: the ending is removed from the ledger, which is saved, before the turn starts
-  (`ComputerJobs.announced`). It survives a restart until then.
-- Never if the dog read the result itself: a `run_on_computer` call that brings the result back removes
-  the job (`ComputerJobs.ended`).
-- Never after the person's Stop: Stop removes the chat's jobs and stops the ones still running on the
-  computer (`stopComputerJobs` in `server/index.ts`, called from `stopThreadTurn`).
-- Only when the chat is otherwise idle: no turn or dispatch, nothing queued, no open question, not held
-  for usage or waiting on the person for an account, an account that can run (the `free` check where
-  `createJobWake` is wired in `server/index.ts`). Otherwise the ending waits; it is tried again after every
-  turn ends and at every check. A turn refused for a free slot puts the ending back without a second line.
-- Several jobs of one chat that ended before the dog was free make one turn and one line.
-- Group chats are not woken; their job endings are dropped with a log line.
+Bounds, each in `server/laterdog/job-wake.ts` unless named:
 
-The desktop says "Running a command on its computer" (or "Running {count} commands on its computer")
-with a running timer from `computerSince` while a chat runs only because of computer jobs
-(`src/lib/work-state.ts`, `src/components/WorkStatusLine.tsx`); the sidebar row shows the same words.
-Keys `work.computerJob` and `work.computerJobs` are in English only; other languages fall back until
-their packs are drafted with `node scripts/generate-locale.mjs <locale>`.
+- Once per job: the ending is removed from the saved ledger when its turn has started
+  (`ComputerJobs.announced`).
+- At most two wake-ups per message from the person: lines tagged `pickup: "computer"` that start with
+  `recovery:` since the person's last message are counted (`wakesSincePerson`).
+- Only fresh endings: an ending older than 30 minutes is not announced by a turn (`WAKE_FRESH_MS`), so one
+  kept through a usage hold or an account switched off does not fire days later.
+- Never for a job that ran longer than two hours (`whyNotWoken`).
+- Never for a chat whose latest work was a handoff for another dog that is already complete
+  (`handoffWorkDone` in `server/laterdog/chat-work.ts`); the result went back with that work.
+- Never if the dog read the result itself (`ComputerJobs.ended`, from `run_on_computer`).
+- Never after the person's own Stop on that chat (`ComputerJobs.quiet`).
+- Only when the chat may carry on by itself, the same check the stall watch uses
+  (`mayCarryOnByItself` in `server/index.ts`: the owner's own dog chat, not a guest's, no routine run owning
+  it), is not waiting on teammates, and is otherwise idle: no turn or dispatch, nothing queued, no open
+  question, not held for usage or waiting on the person for an account, an account that can run. Otherwise
+  the ending waits and is tried after every turn ends and at every check.
+- Several jobs of one chat make one turn and one line. Group chats are not woken.
+
+Whenever a bound stops a wake-up, the chat gets one plain line ("Scout's command finished. Scout was not
+woken for it.") so nothing is silent.
+
+## Stopping a job
+
+Only the person's own Stop on that chat (`POST /api/bots/<id>/interrupt` from the app) stops its jobs; Stop
+and send, a dog stopping a teammate, and local tools do not. `server/laterdog/stop-computer-jobs.ts` stops
+each job's whole process group on its computer (`ComputerRuns.stop`) and removes it from the ledger only
+once it is confirmed gone or its computer is asleep. If it cannot be confirmed, the chat keeps showing the
+job and says "Scout's command on its computer could not be stopped, so it is still running.". The desktop
+shows Stop whenever something of the chat runs: a turn, helpers, a job, or teammates it awaits, even when a
+usage hold or a question outranks them in `work`.
+
+## Words on the desktop
+
+"Running a command on its computer" (or "Running {count} commands on its computer") with a running
+timer from `computerSince`, while a chat runs only because of computer jobs. A job past two hours reads
+"A command is running in the background on its computer" with the same timer, which counts in minutes
+and seconds (for example "134m 05s"). Keys `work.computerJob`, `work.computerJobs`,
+`work.computerBackground` and `work.computerBackgroundMany` are English only; other languages fall back
+until their packs are drafted with `node scripts/generate-locale.mjs <locale>`.
 
 ## Older fields, for the phone
 
 `olderWorkFields` in `server/laterdog/chat-work.ts` now derives these from `work` for every bot and task:
 
 - `waitingForTeammates` is true exactly when `work.kind` is `waiting-on-dog`.
-- `waitingOn` is present exactly then, with the same dogs.
+- `waitingOn` is present while teammates it awaits are open and no turn runs, so a usage hold or a
+  question that outranks waiting-on-dog does not hide them.
 - `activity` is `waiting-on-you` exactly when `work.kind` is `needs-you`, and `working` is shown only
   while `work` is running, retrying or waiting for a computer.
-- `helpersWorking` counts helpers plus computer jobs while `work` is running after the turn, and is absent
-  otherwise.
+- `helpersWorking` counts helpers plus computer jobs whenever they are alive and no turn runs, whatever
+  `work` says.
 - For words, the phone reads `work.kind === "running"` with `work.computerJobs` (a count, present only
-  when no turn runs) and `work.computerSince` (milliseconds since the epoch), and says "Running a command
+  when no turn runs) and `work.computerSince` (milliseconds since the epoch), and `work.computerBackground` (how many of them
+  have run past two hours, to show quietly), and says "Running a command
   on its computer" or "Running {count} commands on its computer" with a timer from `computerSince`. Lines
   with `tool.pickup === "computer"` are pickup lines like `"restart"` and `"watch"`.
 
@@ -137,7 +167,10 @@ With these agreeing, the phone can read `work` alone and drop its rebuild from t
   back to the home) and the chat settles idle with exactly one wake line. A home restart with a job alive:
   after the restart the chat shows `running` from the ledger, and the dog is woken once when it ends. A
   job that ends while the home is down wakes the dog once after the restart. The person's Stop ends the
-  job: its output file never appears, nobody is woken and the ledger is empty.
+  command itself for three shapes (a plain command, one followed by more, one inside another shell): the
+  process is gone, nobody is woken and the ledger is empty.
+- `server/laterdog/stop-computer-jobs.test.ts`: the same three shapes stopped by their process group on
+  this machine, and a job kept with a line when its stop cannot be confirmed.
 - `server/laterdog/job-wake.test.ts`: once per job, one turn for several jobs, waiting while the chat is
   busy, an ending kept when the turn is refused for a free slot with one line, nothing after the dog read
   the result or after Stop, no wake for group chats.
