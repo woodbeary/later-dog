@@ -3,6 +3,7 @@ import { z } from "zod";
 import { writeFileAtomic } from "../atomic.ts";
 import type { PlanProviderRow } from "../plan-usage.ts";
 import type { ModelSelection, WireAccountRoute } from "../../shared/wire.ts";
+import { creditsSpendable } from "../../shared/spendable-credits.ts";
 import { resetInstant } from "./usage-limit.ts";
 import { NEARLY_EMPTY_PERCENT, roomTier } from "./account-spread.ts";
 import { choiceReadyAt, decideAccount, shownRoute, type AccountChoice, type AccountChoiceInput, type Ran } from "./account-choice.ts";
@@ -185,7 +186,7 @@ export function percentLeft(row: PlanProviderRow | undefined, now: number): numb
 export const USED_UP_PERCENT = 99.5;
 
 export function usedUpRest(row: PlanProviderRow | undefined, now: number): Rest | undefined {
-  if (!row?.ok || row.credits) return undefined;
+  if (!row?.ok || creditsSpendable(row.credits)) return undefined;
   const full = [{ kind: "session", window: row.fiveHour }, { kind: "weekly", window: row.weekly }]
     .map(({ kind, window }) => ({ kind, used: window.available ? window.usedPercent : null, reset: window.resetsAt ? Date.parse(window.resetsAt) : Number.NaN }))
     .filter(({ used, reset }) => used !== null && used >= USED_UP_PERCENT && reset > now)
@@ -220,8 +221,8 @@ function quotaReading(row: PlanProviderRow | undefined, kind: string | undefined
   if (!window?.available || window.usedPercent === null) return undefined;
   const balance = row.credits?.balance == null ? NaN : Number(row.credits.balance);
   return {
-    key: JSON.stringify([window.usedPercent, window.resetsAt, Boolean(row.credits), row.credits?.unlimited, Number.isFinite(balance) ? balance : null]),
-    hasRoom: Boolean(row.credits) || window.usedPercent < USED_UP_PERCENT,
+    key: JSON.stringify([window.usedPercent, window.resetsAt, creditsSpendable(row.credits), row.credits?.unlimited, Number.isFinite(balance) ? balance : null]),
+    hasRoom: creditsSpendable(row.credits) || window.usedPercent < USED_UP_PERCENT,
   };
 }
 

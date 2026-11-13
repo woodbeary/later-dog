@@ -82,6 +82,25 @@ it.each([1_000_000, 200_000])("persists and serves the native Fable context wind
     .toMatchObject({ tokens: 244_210, window, windowSource: "provider" });
 }, false, { FAKE_CLAUDE_CONTEXT_TOKENS: "244210", FAKE_CLAUDE_CONTEXT_WINDOW: String(window), FAKE_CLAUDE_VERSION: "2.1.316" }), 90_000);
 
+it("does not fold an older chat at a saved 200K window when its model holds more", () => fixture(async f => {
+  await f.api(`/api/bots/${f.bot.id}/tasks/${f.thread}`, { modelSelection: { instanceId: "claude", model: "claude-fable-5-2" } }, "PATCH");
+  await f.send("FIRST_EXCHANGE historical request");
+  await f.send("SECOND_EXCHANGE keep verbatim");
+  await f.send("THIRD_EXCHANGE keep verbatim");
+  expect(f.task().lastContextModel).toBe("claude:claude-fable-5-2");
+  await f.restart(() => {
+    const file = join(f.session.info.dataDir, "bots.json");
+    const bots = JSON.parse(readFileSync(file, "utf8"));
+    const task = bots.find((b: any) => b.id === f.bot.id).tasks.find((t: any) => t.threadId === f.thread);
+    task.usage.context = { tokens: 202_712, window: 200_000 };
+    writeFileSync(file, JSON.stringify(bots));
+  });
+  const shown = (await f.api("/api/bots?messages=0")).bots.find((b: any) => b.id === f.bot.id).tasks.find((t: any) => t.threadId === f.thread);
+  expect(shown.usage.context).toMatchObject({ tokens: 202_712, window: 1_000_000 });
+  await f.send("INCOMING next request");
+  expect((await f.messages()).filter(m => m.kind === "compaction")).toHaveLength(0);
+}, false, { FAKE_CLAUDE_CONTEXT_TOKENS: "202712", FAKE_CLAUDE_VERSION: "2.1.316" }), 90_000);
+
 it("compacts durably, keeps corrections and starts a fresh native session without deleting any chats", () => fixture(async f => {
   await f.send("OLDER_REQUEST use port 9000");
   await f.send("CORRECTION use port 9001 instead; cancel the earlier request");

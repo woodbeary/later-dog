@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PlanProviderRow } from "../plan-usage.ts";
 import { removeTempDir } from "../testing/cleanup.ts";
 import {
-  AccountBattery, DEFAULT_REST_MS, USAGE_REFRESH_WAIT_MS, backNotice, batteryEnabled, chosenModelOn, crossEngineNotice, engineName, selectionOnAccount, batterySequence, batteryOrder, checkBatteryConfig, effectiveOrder, limitRowToReplace, percentLeft, planResetAt, resetLabel, routeSelection,
+  AccountBattery, DEFAULT_REST_MS, USAGE_REFRESH_WAIT_MS, backNotice, batteryEnabled, chosenModelOn, crossEngineNotice, engineName, selectionOnAccount, batterySequence, batteryOrder, checkBatteryConfig, effectiveOrder, limitRowToReplace, percentLeft, planResetAt, resetLabel, routeSelection, usedUpRest,
   routedNotice, switchNotice, withoutAccount,
   type AccountBatteryConfig, type BatteryAccount, type Rest,
 } from "./account-battery.ts";
@@ -286,6 +286,25 @@ describe("most available first", () => {
     expect(resting).not.toHaveProperty("claude");
     expect(resting["claude-b"].kind).toBe("opus");
     expect(resting["claude-c"].kind).toBe("setup");
+  });
+
+  it.each([
+    ["zero", { unlimited: false, balance: "0" }, false],
+    ["negative", { unlimited: false, balance: "-3" }, false],
+    ["no", undefined, false],
+    ["unknown", { unlimited: false, balance: null }, true],
+    ["positive", { unlimited: false, balance: "12.5" }, true],
+    ["unlimited", { unlimited: true, balance: null }, true],
+  ] as const)("keeps a weekly hold unless the %s credits on a used-up account are spendable", (_, credits, spendable) => {
+    let now = NOW;
+    let row = reading("claude", 100, 100);
+    const battery = new AccountBattery({ config: () => ON, now: () => now, usage: () => row, usageAt: () => now });
+    battery.markExhausted("claude", { resetsAt: at(72 * HOUR), kind: "weekly" });
+    now += 1;
+    row = { ...row, ...(credits ? { credits: { ...credits } } : {}) };
+    battery.noteReadings(ACCOUNTS);
+    expect(battery.status(ACCOUNTS).resting.claude?.kind).toBe(spendable ? undefined : "weekly");
+    expect(usedUpRest(row, now)?.kind).toBe(spendable ? undefined : "weekly");
   });
 
   it("reports the order it will use and moves a turn that ran out to the account with the most left", () => {

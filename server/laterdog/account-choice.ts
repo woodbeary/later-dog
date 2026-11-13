@@ -1,5 +1,6 @@
 import type { ModelSelection, WireAccountRoute } from "../../shared/wire.ts";
 import type { PlanProviderRow } from "../plan-usage.ts";
+import { creditsSpendable } from "../../shared/spendable-credits.ts";
 import { activeRest, percentLeft, selectionOnAccount, type BatteryAccount, type Rest } from "./account-battery.ts";
 import { NEARLY_EMPTY_PERCENT } from "./account-spread.ts";
 
@@ -29,7 +30,7 @@ export interface Room {
 }
 
 export function roomOf(row: PlanProviderRow | undefined, now: number): Room {
-  const credits = Boolean(row?.ok && row.credits && (row.credits.unlimited || row.credits.balance === null || Number(row.credits.balance) > 0));
+  const credits = Boolean(row?.ok && creditsSpendable(row.credits));
   const left = percentLeft(row, now);
   return left === undefined ? { credits } : { left, credits };
 }

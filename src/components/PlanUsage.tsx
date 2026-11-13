@@ -4,6 +4,7 @@ import { activeLocale, t } from "@/lib/i18n";
 import { cn } from "@/lib/cn";
 import { resetDistance } from "@/lib/reset-time";
 import { RestCharge, usageLeft, type AccountRest } from "./AccountCharge";
+import { creditsSpendable } from "../../shared/spendable-credits";
 
 export { resetClock, resetDistance } from "@/lib/reset-time";
 
@@ -248,11 +249,10 @@ export function usageLines(provider: PlanProvider | undefined, now: number): str
 }
 
 export function creditsLine(provider: PlanProvider | undefined): string | null {
-  if (!provider?.ok || !provider.credits) return null;
+  if (!provider?.ok || !provider.credits || !creditsSpendable(provider.credits)) return null;
   if (provider.credits.unlimited) return t("planUsage.unlimitedCredits");
-  if (provider.credits.balance === null || !provider.credits.balance.trim()) return null;
-  const balance = Number(provider.credits.balance);
-  if (!Number.isFinite(balance) || balance < 0) return null;
+  const balance = Number(provider.credits.balance?.trim() || Number.NaN);
+  if (!Number.isFinite(balance)) return null;
   return t("planUsage.creditsRemaining", { balance: new Intl.NumberFormat(activeLocale(), { maximumFractionDigits: 2 }).format(balance) });
 }
 
