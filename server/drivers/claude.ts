@@ -70,6 +70,7 @@ import { claudeToolTouch } from "../laterdog/tool-touches.ts";
 import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sections.ts";
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
 import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
+import { helpersStoppedLine } from "../laterdog/helpers-stopped.ts";
 
 export function claudeAuthStatus(
   cli: string,
@@ -1946,7 +1947,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
         if (!confirmed) emit({ ...base(threadId, currentTurnId()), type: "runtime.notice", message: leftoverProgramsNotice("Claude Code") });
         if (session.helperTimer) clearTimeout(session.helperTimer);
         session.helperTimer = null;
-        if (session.helpers.stop()) emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: "The helpers stopped with this turn." });
+        const stoppedLine = helpersStoppedLine(session.helpers.stopAll());
+        if (stoppedLine) emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: stoppedLine });
         if (session.turn?.stopRequested && !session.turn.settled) {
           settle(false, "interrupted");
         } else if (session.turn?.deferred && !session.turn.settled) {

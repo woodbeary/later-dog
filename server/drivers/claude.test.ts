@@ -2235,7 +2235,7 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     if (reason === "stop") await instance.adapter.interruptTurn("t-stop-puppies");
     await recorder.until(e => e.type === "turn.completed");
     expect(recorder.events.filter(e => e.type === "helper.updated" && e.helper.state === "stopped")).toHaveLength(2);
-    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "runtime.error", message: "The helpers stopped with this turn." }));
+    expect(recorder.events).toContainEqual(expect.objectContaining({ type: "runtime.error", message: "2 helpers stopped when this turn ended." }));
   });
 
   it("does not end the current turn or its approvals on a background-task result", async () => {
