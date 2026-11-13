@@ -123,9 +123,9 @@ denial (`server/laterdog/person-denied.ts`), whatever text the client sent. Only
 the Claude, Codex and ACP drivers pass that text on; the OpenAI-compatible chat
 drivers (`server/drivers/chat-tool-approval.ts`, used by the Grok API and
 OpenAI-compatible key connections) drop it, so those engines see a bare
-refusal. Always allow on a dog's own chat counts for that chat only; from a group
-chat it is saved on the dog, so it counts in group chats and in new chats. A card
-is labelled Always allowed only once the grant is really on the dog.
+refusal. Always allow is saved on the dog, so it counts in every chat of that dog
+([Always allow](always-allow.md)). A card is labelled Always allowed only once the
+grant is really on the dog.
 
 Names are read by dog id, and the server keeps a dog's earlier names
 (`formerNames`), so a rename shows everywhere (sidebar, lines, mentions, the

@@ -120,6 +120,7 @@ export interface OptionCardData extends Pick<import("../../shared/wire").OptionC
   expired?: boolean;
   heldCode?: string;
   allowKey?: string;
+  forDog?: { botId: string; name: string };
   allowSession?: boolean;
   answerScope?: "once" | "always" | "chat";
   commandAllowlist?: { command: string; cwd: string; providerInstanceId: string };

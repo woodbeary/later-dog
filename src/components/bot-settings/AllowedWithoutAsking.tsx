@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { allowedItems, withoutGrant, type AllowedItem } from "@/lib/allowed";
+import { allowedItems, chatOnlyKeys, type AllowedItem } from "@/lib/allowed";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
 import { api, useStore, type Bot, type BotAnnouncement } from "@/state/store";
@@ -10,9 +10,24 @@ const groupLabelCls = "mb-1.5 block px-1 text-[12px] font-medium text-ink-second
 const rowCls = "px-4 py-3";
 const dividedRowCls = "border-t border-hairline/40 px-4 py-3";
 
+function placeWords(item: AllowedItem): string | undefined {
+  const places = [item.kind !== "command" && item.onComputer ? t("allowed.onComputer") : null, item.chatOnly ? t("allowed.oneChat") : null];
+  return places.filter(Boolean).join(" · ") || undefined;
+}
+
 function itemWords(item: AllowedItem, dogName: (id: string) => string): { label: string; detail?: string } {
+  const detail = placeWords(item);
+  const words = kindWords(item, dogName);
+  return detail && !words.detail ? { ...words, detail } : words;
+}
+
+function kindWords(item: AllowedItem, dogName: (id: string) => string): { label: string; detail?: string } {
   switch (item.kind) {
-    case "connector": return { label: t("allowed.connector", { app: item.app }) };
+    case "connector": return { label: item.tool ? t("allowed.connectorTool", { app: item.app, tool: item.tool }) : t("allowed.connector", { app: item.app }) };
+    case "run": return { label: t("allowed.run", { program: item.program }) };
+    case "exact": return { label: t("allowed.exact", { command: item.command }) };
+    case "files": return { label: t("allowed.files") };
+    case "tool": return { label: t("allowed.tool", { tool: item.tool }) };
     case "askDog": return { label: t("allowed.askDog", { name: dogName(item.dogId) }) };
     case "delegateDog": return { label: t("allowed.delegateDog", { name: dogName(item.dogId) }) };
     case "vault": return { label: t("allowed.vault", { site: item.site }) };
@@ -35,7 +50,7 @@ export function AllowedWithoutAsking({ bot }: { bot: Bot }) {
     return () => { cancelled = true; };
   }, [bot.id]);
 
-  const items = allowedItems(bot.alwaysAllow, rules);
+  const items = allowedItems(bot.alwaysAllow, rules, chatOnlyKeys(bot.alwaysAllow, bot.tasks));
   if (!items.length) return null;
   const dogName = (id: string) => state.bots.find((candidate) => candidate.id === id)?.name ?? t("allowed.otherDog");
 
@@ -48,7 +63,7 @@ export function AllowedWithoutAsking({ bot }: { bot: Bot }) {
         const answer = await api<CommandAllowlistResponse>(`/api/bots/${bot.id}/command-allowlist/${item.id}`, { method: "DELETE" });
         setRules(answer.rules);
       } else {
-        const answer = await api<{ bot: BotAnnouncement }>(`/api/bots/${bot.id}`, { method: "PATCH", body: JSON.stringify({ alwaysAllow: withoutGrant(bot.alwaysAllow, item.key) }) });
+        const answer = await api<{ bot: BotAnnouncement }>(`/api/bots/${bot.id}/always-allow?key=${encodeURIComponent(item.key)}`, { method: "DELETE" });
         dispatch({ type: "botPatched", bot: answer.bot });
       }
     } catch {
@@ -68,7 +83,7 @@ export function AllowedWithoutAsking({ bot }: { bot: Bot }) {
           return (
             <div key={id} data-allowed={id} className={cn(index === 0 ? rowCls : dividedRowCls, "flex items-center gap-3")}>
               <span className="min-w-0 flex-1">
-                <span className={cn("block text-[13.5px] text-ink", item.kind === "command" ? "truncate font-mono text-[12.5px]" : "break-words")}>{words.label}</span>
+                <span className={cn("block text-[13.5px] text-ink", item.kind === "command" || item.kind === "exact" ? "truncate font-mono text-[12.5px]" : "break-words")}>{words.label}</span>
                 {words.detail && <span className="block truncate text-[12px] text-ink-secondary">{words.detail}</span>}
               </span>
               <button type="button" disabled={busy !== null} onClick={() => void remove(item)}

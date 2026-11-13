@@ -8,14 +8,16 @@ import { SkillRequestPreview } from "@/components/SkillRequestPreview";
 import { toolLabel } from "./ApprovalCard";
 import { outboundSummary } from "@/lib/approval-summary";
 import { reviewedSkillSha256 } from "../../shared/skill-request";
-import { DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY, MAC_ALLOW_KEY } from "../../shared/cloud-home";
+import { MAC_ALLOW_KEY } from "../../shared/cloud-home";
 import { useOwnerOrAdmin } from "@/lib/use-owner-or-admin";
+import { grantItem } from "@/lib/allowed";
 
 export interface Pending {
   message: Message;
   requestId: string;
   tool: string;
   allowKey?: string;
+  forDog?: { botId: string; name: string };
   allowSession?: boolean;
   commandAllowlist?: { command: string; cwd: string; providerInstanceId: string };
   detail: string;
@@ -43,6 +45,7 @@ export function pendingApprovals(messages: Message[]): Pending[] {
       requestId: m.card!.requestId!,
       tool: m.card!.tool!,
       allowKey: m.card!.allowKey,
+      forDog: m.card!.forDog,
       allowSession: m.card!.allowSession,
       commandAllowlist: m.card!.commandAllowlist,
       detail: m.card!.subtitle,
@@ -95,7 +98,21 @@ function label(pending: Pending, botName?: string): string {
       : t("approval.label.confirmRoutineChange");
   }
   const action = toolLabel(pending.tool, pending.message.card?.approvalScope);
+  if (botName && pending.forDog) return t("approval.ask.forDog", { name: botName, action, other: pending.forDog.name });
   return botName ? t("approval.ask.named", { name: botName, action }) : t("approval.ask.unnamed", { action });
+}
+
+export function grantCovers(key: string): string | null {
+  const item = grantItem(key);
+  const where = item.kind !== "command" && item.onComputer ? ` (${t("allowed.onComputer").toLowerCase()})` : "";
+  switch (item.kind) {
+    case "run": return t("allowed.run", { program: item.program }) + where;
+    case "exact": return t("allowed.exact", { command: item.command }) + where;
+    case "files": return t("allowed.files") + where;
+    case "tool": return t("allowed.tool", { tool: item.tool }) + where;
+    case "connector": return item.tool ? t("allowed.connectorTool", { app: item.app, tool: item.tool }) : null;
+    default: return null;
+  }
 }
 
 export const PendingApprovalPanel = memo(function PendingApprovalPanel({
@@ -232,12 +249,11 @@ export function PendingApprovalActions({
       ? t("approval.reach.connector", { name: bot.name, app: outbound.app ?? t("approval.reach.connectorApp") })
       : pending.allowKey === MAC_ALLOW_KEY
       ? t("approval.reach.mac")
-      : pending.allowKey === DELETE_OUTSIDE_WORKSPACE_ALLOW_KEY
-      ? t("approval.reach.everywhere", { name: bot.name })
-      : t(bot.tasks?.some((task) => task.threadId === threadId) ? "approval.reach.chat" : "approval.reach.dog", { name: bot.name })
+      : t("approval.reach.everywhere", { name: bot.name })
     : canRememberCommand && pending.commandAllowlist
       ? t("approval.reach.command", { name: bot?.name ?? t("approval.someone"), cwd: shortFolder(pending.commandAllowlist.cwd) })
       : !durableRequest && !pending.allowKey && pending.allowSession ? t("approval.reach.session") : null;
+  const covers = !durableRequest && bot && pending.allowKey ? grantCovers(pending.allowKey) : null;
   return (
     <div className="rounded-b-[18px] bg-card px-3 pb-3 pt-1">
       <div className="flex flex-wrap items-center gap-2">
@@ -307,6 +323,7 @@ export function PendingApprovalActions({
             <ChevronRight size={12} className="transition-transform group-open:rotate-90" aria-hidden="true" />
           </summary>
           <p className="mt-1 px-1 leading-snug text-ink-tertiary">{reach}</p>
+          {covers && <p className="mt-1 break-words px-1 leading-snug text-ink-tertiary">{t("approval.reach.covers", { what: covers })}</p>}
         </details>
       )}
     </div>

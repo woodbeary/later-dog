@@ -149,8 +149,13 @@ describe("remembering exact command approvals", () => {
     expect(line(command.html)).toBe("Always allow lets Scout run this exact command in /work/project without asking, in any chat using that folder with this engine.");
     expect(line(view({ commandAllowlist: undefined }).html)).toBe("Allow for this chat stops asking about this action until this chat&#x27;s session ends.");
     const ownChat = { ...bot, tasks: [{ threadId: "thread-1" }] } as Bot;
-    expect(line(view({ allowKey: "ask_bot:kiwi" }, ownChat).html)).toBe("Always allow lets Scout do this again without asking in this chat.");
-    expect(line(view({ allowKey: "ask_bot:kiwi" }).html)).toBe("Always allow lets Scout do this again without asking in group chats and in new chats.");
+    const everywhere = "Always allow lets Scout do this again without asking, in every chat. You can undo it in Scout&#x27;s settings.";
+    expect(line(view({ allowKey: "ask_bot:kiwi" }, ownChat).html)).toBe(everywhere);
+    expect(line(view({ allowKey: "ask_bot:kiwi" }).html)).toBe(everywhere);
+    const program = view({ allowKey: "run:git push", commandAllowlist: undefined }).html;
+    expect(line(program)).toBe(everywhere);
+    expect(program).toContain("Always covers: Run git push, with any options");
+    expect(view({ allowKey: "run:git push" }).buttons.map((button) => button.props.children)).toEqual(["Allow once", "Don't allow", "Always allow"]);
     expect(line(view({ allowKey: "mac" }).html)).toBe("Always allow lets every dog use this Mac without asking. Never stops them using it.");
     for (const button of command.buttons) expect((button.props as { title?: string }).title).toBeUndefined();
     expect(line(view({ commandAllowlist: undefined, allowSession: false }).html)).toBeUndefined();
