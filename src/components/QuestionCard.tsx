@@ -13,6 +13,7 @@ import {
 import { ExpandableText } from "./ExpandableText";
 import { FoldedCard } from "./FoldedCard";
 import { answerSummary, settledAnswer } from "@/lib/settled-answer";
+import { helperWhoAsked } from "@/lib/requested-by";
 
 interface Draft {
   picked: string[];
@@ -145,7 +146,7 @@ export function QuestionCard({
       <div className="flex items-center justify-between gap-3">
         <div className="text-[14px] font-medium text-ink">
           {bot ? t("question.card.named", { name: bot.name }) : t("question.card.title")}
-          {card.nativeActorLabel && card.nativeActorLabel !== bot?.name && <p className="mt-1 text-[11px] font-normal text-ink-secondary">Requested by {card.nativeActorLabel}</p>}
+          {helperWhoAsked(card) && <p className="mt-1 text-[11px] font-normal text-ink-secondary">Requested by {helperWhoAsked(card)}</p>}
         </div>
         {!settled && (
           <div className="-my-1 -mr-1 flex shrink-0 items-center gap-2">
@@ -324,7 +325,7 @@ export function QuestionCard({
   return (
     <FoldedCard
       icon={external ? <Minus size={14} className="shrink-0" /> : <Check size={14} className="shrink-0 text-success" />}
-      summary={<span className="min-w-0 truncate">{line}{external && card.nativeActorLabel && <span className="text-ink-tertiary"> · Requested by {card.nativeActorLabel}</span>}</span>}
+      summary={<span className="min-w-0 truncate">{line}{external && helperWhoAsked(card) && <span className="text-ink-tertiary"> · Requested by {helperWhoAsked(card)}</span>}</span>}
       title={line}
       label={external ? line : t("question.answered.label", { answer: line })}
       arriving={!answeredAtMount}

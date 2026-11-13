@@ -13,6 +13,7 @@ import { cronScheduleLabel } from "../../shared/cron-label";
 import { PROFILE_REQUEST_FIELDS, type ProfileRequestField } from "../../shared/profile-request";
 import type { RoutineRequestSchedule } from "../../shared/routine-request";
 import { plainClientError } from "@/lib/plain-client-error";
+import { helperWhoAsked } from "@/lib/requested-by";
 
 interface ToolLabels {
   [tool: string]: LocaleKey;
@@ -405,7 +406,7 @@ export function ApprovalCard({
         </div>
       </div>
       {outbound?.summary && <div className="mt-0.5 text-[13px] text-ink-secondary">{outbound.summary}</div>}
-      {card.nativeActorLabel && card.nativeActorLabel !== bot?.name && <p className="mt-1 text-[11px] text-ink-secondary">Requested by {card.nativeActorLabel}</p>}
+      {helperWhoAsked(card) && <p className="mt-1 text-[11px] text-ink-secondary">Requested by {helperWhoAsked(card)}</p>}
 
       {isProposal ? (
         <details className="group mt-1.5 text-[13px] text-ink-secondary">
@@ -456,7 +457,7 @@ export function ApprovalCard({
   return (
     <FoldedCard
       icon={external ? <Minus size={14} className="shrink-0" /> : settled === "allow" && !expired ? <Check size={14} className="shrink-0 text-success" /> : <X size={14} className="shrink-0" />}
-      summary={<><span className="min-w-0 truncate">{outcome}{foldedAction && <span className="text-ink-tertiary"> · {foldedAction}</span>}{external && card.nativeActorLabel && <span className="text-ink-tertiary"> · Requested by {card.nativeActorLabel}</span>}</span>{byVoice}</>}
+      summary={<><span className="min-w-0 truncate">{outcome}{foldedAction && <span className="text-ink-tertiary"> · {foldedAction}</span>}{external && helperWhoAsked(card) && <span className="text-ink-tertiary"> · Requested by {helperWhoAsked(card)}</span>}</span>{byVoice}</>}
       title={foldedAction ? `${outcome} · ${foldedAction}` : outcome}
       arriving={false}
       centered={Boolean(foldedAction)}

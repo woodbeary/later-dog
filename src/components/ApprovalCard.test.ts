@@ -53,9 +53,15 @@ describe("ApprovalCard decided by voice", () => {
     expect(renderToStaticMarkup(createElement(ApprovalCard, { message: bash("allow") }))).not.toContain("by voice");
   });
 
+  it("names who asked only when a helper asked, not the dog itself, whatever the dog is called now", () => {
+    const own = bash("resolved");
+    own.card = { ...own.card!, answeredText: "Resolved by Codex", nativeActorId: "parent", nativeActorLabel: "An old name" };
+    expect(renderToStaticMarkup(createElement(ApprovalCard, { message: own, bot: { name: "Pepper" } }))).not.toContain("Requested by");
+  });
+
   it("records an externally resolved native request neutrally and retains its requesting helper", () => {
     const message = bash("resolved");
-    message.card = { ...message.card!, answeredText: "Resolved by Codex", nativeActorLabel: "Reviewer" };
+    message.card = { ...message.card!, answeredText: "Resolved by Codex", nativeActorId: "reviewer", nativeActorLabel: "Reviewer" };
     const markup = renderToStaticMarkup(createElement(ApprovalCard, { message }));
     expect(markup).toContain("Resolved by Codex");
     expect(markup).toContain("Requested by");

@@ -94,7 +94,7 @@ describe("closing a dog's question", () => {
 
   it("settles a provider-resolved native question neutrally without leaving answer actions open", () => {
     mount(question());
-    mount(question({ answered: "resolved", answeredText: "Resolved by Codex", nativeActorLabel: "Researcher", dismissed: false }));
+    mount(question({ answered: "resolved", answeredText: "Resolved by Codex", nativeActorId: "researcher", nativeActorLabel: "Researcher", dismissed: false }));
     expect(host.textContent).toContain("Resolved by Codex");
     expect(host.textContent).toContain("Requested by Researcher");
     expect(host.querySelector('[data-folded-line]')?.getAttribute("aria-label")).toBe("Resolved by Codex");

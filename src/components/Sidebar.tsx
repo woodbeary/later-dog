@@ -1,7 +1,6 @@
 import { cloudWakeupOf, wakeupLine } from "@/lib/cloud-tasks";
 import { OrganizationIdentity } from "./OrganizationIdentity";
-import { approvalAction, approvalCardOutcome } from "./ApprovalCard";
-import { pendingApprovals } from "./PendingApproval";
+import { approvalCardOutcome } from "./ApprovalCard";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -102,7 +101,7 @@ import { LiveCallPill, liveBadgeFor } from "./LiveCallPill";
 import { citationPreviewText } from "@/lib/citations";
 import { markdownPreview } from "../../shared/markdown-preview";
 import { StatusDot } from "./StatusDot";
-import { openQuestion } from "@/lib/open-question";
+import { newestAsk } from "./WorkStatusLine";
 import { Collapsible } from "./Collapsible";
 import { copyConversationId } from "@/lib/copy-conversation-id";
 import { attentionKind } from "@/lib/dog-status";
@@ -115,11 +114,10 @@ function sectionLabel(id: string): string {
 }
 
 export function waitingLine(visible: Message[]): string {
-  const proxy = visible.findLast((message) => message.needsYou?.status === "waiting")?.needsYou;
-  if (proxy) return t("chat.needsYou.proxy", { name: proxy.botName, label: proxy.label });
-  if (openQuestion(visible)) return t("sidebar.preview.question");
-  const open = pendingApprovals(visible).at(-1)?.message.card;
-  return open ? t("sidebar.preview.waitingFor", { action: approvalAction(open) }) : t("sidebar.preview.waiting");
+  const ask = newestAsk(visible);
+  if (!ask) return t("sidebar.preview.waiting");
+  if (ask.kind === "proxy") return t("chat.needsYou.proxy", { name: ask.name, label: ask.label });
+  return ask.kind === "question" ? t("sidebar.preview.question") : t("sidebar.preview.waitingFor", { action: ask.action });
 }
 
 function preview(bot: Bot, visible: Message[], instances: InstanceInfo[], showToolCalls: boolean): string {

@@ -56,3 +56,16 @@ it("names the dog and what it waits for in the header and the sidebar, for a que
   act(() => root.render(createElement(WorkStatusLine, { bot: { busy: false, work: { kind: "needs-you", what: "Your dog has a question" } }, what: needsYouWords("Pepper", [question]) })));
   expect(host.querySelector("[role=status]")?.textContent).toBe("Needs you: Pepper has a question");
 });
+
+it("says the newest open ask in both places, including one passed on from another dog", async () => {
+  const { needsYouWords } = await import("./WorkStatusLine");
+  const { waitingLine } = await import("./Sidebar");
+  const question = { id: "q", role: "bot", kind: "options", at: 1, card: { title: "", options: [], requestId: "r1", requestType: "question" } } as unknown as Message;
+  const approval = { id: "a", role: "bot", kind: "options", at: 2, card: { title: "", options: [], requestId: "r2", tool: "Bash" } } as unknown as Message;
+  const proxy = { id: "p", role: "bot", kind: "text", at: 3, needsYou: { status: "waiting", botId: "z", botName: "Ziggy", threadId: "t", messageId: "m", label: "Allow a deploy" } } as unknown as Message;
+  expect(needsYouWords("Pepper", [question, approval])).toBe("Pepper wants to run a command");
+  expect(waitingLine([question, approval])).toBe("Asks to run a command");
+  expect(needsYouWords("Pepper", [approval, question])).toBe("Pepper has a question");
+  expect(needsYouWords("Pepper", [question, proxy])).toBe(waitingLine([question, proxy]));
+  expect(waitingLine([question, proxy])).toContain("Ziggy");
+});

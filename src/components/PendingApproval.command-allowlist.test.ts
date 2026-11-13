@@ -81,7 +81,7 @@ describe("remembering exact command approvals", () => {
     }
   });
 
-  it("puts Allow once first and primary, and a durable grant last as a quiet text button", () => {
+  it("puts Allow once first and primary, and a durable grant last with the same secondary look as Don't allow", () => {
     for (const extra of [{}, { commandAllowlist: undefined }, { allowKey: "peer:teammate" }] as const) {
       const { buttons } = view(extra);
       const labels = buttons.map((button) => String(button.props.children));
@@ -91,8 +91,8 @@ describe("remembering exact command approvals", () => {
       const classes = (button: (typeof buttons)[number]) => String((button.props as unknown as { className?: string }).className);
       expect(classes(buttons[0]!)).toContain("bg-accent");
       expect(classes(buttons.at(-1)!)).not.toContain("bg-accent");
-      expect(classes(buttons.at(-1)!).split(" ")).not.toContain("bg-control");
-      expect(classes(buttons.at(-1)!)).toContain("text-ink-secondary");
+      expect(classes(buttons.at(-1)!).split(" ")).toContain("bg-control");
+      expect(classes(buttons[1]!).split(" ")).toContain("bg-control");
     }
   });
 
