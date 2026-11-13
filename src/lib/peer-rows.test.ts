@@ -51,7 +51,7 @@ describe("dog-to-dog traffic in a dog's chat", () => {
     expect(chat).toContain("thread.filter(shownToPerson)");
     expect(chat).toContain("<ExchangeThreadContext.Provider value={exchangeThread}>");
     const line = readFileSync(new URL("../components/QuietLines.tsx", import.meta.url), "utf8");
-    expect(line).toContain("exchangeGist(item, exchangeThread.thread, exchangeThread.working)");
+    expect(line).toContain("exchangeSummary(item, exchangeThread?.thread ?? null, exchangeThread?.working ?? false)");
     expect(line).toContain("openExchange(target.groupId)");
   });
 });
