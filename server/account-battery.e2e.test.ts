@@ -222,7 +222,7 @@ it("tells account 2 to continue, not redo, when a tool already ran on account 1"
     expect(firstPrompts()).toHaveLength(1);
     expect(secondPrompts()).toHaveLength(1);
     const sent = promptText(secondPrompts()[0]);
-    expect(sent).toContain("Do not redo what was already done.");
+    expect(sent).toContain("without redoing finished work.");
     expect(sent.split(text)).toHaveLength(2);
     const rows = await chat.messages();
     evidence.push({ rows });
@@ -370,7 +370,7 @@ it("carries on after a mid-turn message, keeping both the original request and n
     const prompt = promptText(fixture.secondPrompts()[0]);
     expect(prompt).toContain("ORIGINAL_CARRY_REQUEST");
     expect(prompt).toContain("MIDTURN_CARRY_WORDS");
-    expect(prompt).toContain("Do not redo what was already done.");
+    expect(prompt).toContain("without redoing finished work.");
     expect(switches(await chat.messages())[0].tool.carry).toEqual({ from: "claude", to: "claude-two" });
     expect((await chat.messages()).find((row) => row.text === "ORIGINAL_CARRY_REQUEST").requestPending).toBe(false);
   });
@@ -387,7 +387,7 @@ it("tries the full account list through Codex after every Claude account runs ou
     expect(fixture.thirdPrompts()).toHaveLength(1);
     const prompt = JSON.stringify(fixture.thirdPrompts()[0]);
     expect(prompt).toContain("CONTINUE_ALL_THE_WAY_TO_CODEX");
-    expect(prompt).toContain("Do not redo what was already done.");
+    expect(prompt).toContain("without redoing finished work.");
     const rows = await chat.messages();
     expect(carried(rows).map((row) => row.tool.carry)).toEqual([
       { from: "claude", to: "claude-two" }, { from: "claude-two", to: "codex-last" },
@@ -505,7 +505,7 @@ it.each([false, true])("continues a room member automatically, including an all-
     await expect.poll(() => readUsage(fixture.dataDir, { from: new Date(Date.now() - 86_400_000), to: new Date() })
       .findLast((row) => row.threadId === group.threadId && row.instanceId === "claude-two")?.execution, { timeout: 10_000 })
       .toMatchObject({ selected: FIRST, dispatched: { instanceId: "claude-two", model: FIRST.model }, verification: "unverified" });
-    expect(promptText(fixture.secondPrompts()[0])).toContain("Do not redo what was already done.");
+    expect(promptText(fixture.secondPrompts()[0])).toContain("without redoing finished work.");
   });
 }, 90_000);
 
