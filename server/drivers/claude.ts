@@ -71,6 +71,7 @@ import { claudeContextNote, claudeSeenVolatile } from "../laterdog/volatile-sect
 import { claudeHelperEnvironment } from "../laterdog/helper-model.ts";
 import { agentsServerLaunch, deferRareToolsEnabled } from "../laterdog/tool-loading.ts";
 import { helpersStoppedLine } from "../laterdog/helpers-stopped.ts";
+import { claudeApiErrorFrame } from "../laterdog/claude-api-error.ts";
 
 export function claudeAuthStatus(
   cli: string,
@@ -1758,6 +1759,10 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             if (session.turn && !o.parent_tool_use_id && claudeModelAnswered(o)) {
               session.turn.usageLimited = false;
               delete session.turn.rateLimit;
+            }
+            if (!o.parent_tool_use_id && text.trim() && claudeApiErrorFrame(o)) {
+              emit({ ...base(threadId, currentTurnId()), type: "runtime.error", message: text.trim() });
+              break;
             }
             if (text.trim()) {
               if (!o.parent_tool_use_id) session.repliedSinceResult = true;
