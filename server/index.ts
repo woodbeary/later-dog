@@ -768,6 +768,8 @@ import { createMacPromptGate, macPromptOf, macPromptWords } from "./laterdog/mac
 import { createStatusLines, fileStatusLineLedger, statusLineTimingFromEnv, threadWork } from "./laterdog/status-lines.ts";
 import { createCompactionLive, fileCompactionLedger } from "./laterdog/compaction-live.ts";
 import { engineWillCompact, rebuildNeedsSummary } from "./laterdog/native-compaction.ts";
+import { withDroppedSummary } from "./laterdog/rebuild-summary.ts";
+import { fileEngineSummaries } from "./laterdog/engine-summaries.ts";
 import { recallsThisTurn } from "./laterdog/session-start-recall.ts";
 import { createPromiseNudges } from "./laterdog/promise-nudge.ts";
 import { createStallWatch, handoffWorking, STALL_LOOKBACK_MS, stallWatchMode, type StallFacts } from "./laterdog/stall-watch.ts";
@@ -5643,6 +5645,7 @@ const compactionLive = createCompactionLive({
     if (bot) broadcast({ kind: "bot", bot: wireBot(bot) });
   },
 });
+const engineSummaries = fileEngineSummaries(join(DATA_DIR, "engine-summaries.json"));
 liveStatusLine = (threadId) => compactionLive.current(threadId) ?? statusLines.current(threadId);
 statusLines.foldLeftovers();
 compactionLive.foldLeftovers();
@@ -5944,6 +5947,11 @@ function ingestEngineHook(capability: InternalCapability, body: unknown): { ok: 
   const name = typeof event.event === "string" ? event.event : "";
   const payload = event.payload && typeof event.payload === "object" ? (event.payload as Record<string, unknown>) : {};
   const threadId = capability.threadId;
+  if (name === "PostCompact") {
+    const through = store.activePath(threadId).filter(isContextMessage).at(-1)?.id;
+    if (typeof payload.compact_summary === "string" && through) engineSummaries.remember(threadId, { text: payload.compact_summary, throughId: through });
+    return { ok: true };
+  }
   if (name === "PreCompact") {
     compactionLive.started(threadId, { turnId: liveTurnByThread.get(threadId), trigger: payload.trigger === "manual" ? "manual" : "auto" });
     return { ok: true };
@@ -8629,7 +8637,8 @@ async function startTurn(
       const replayable = context.filter(m => !skipTranscript.has(m.id));
       const record = latestCompaction(activeMessages);
       const selection = selectReplay(context, { budgetBytes: cfg.context?.rebuildBytes ?? DEFAULT_REBUILD_BYTES, excludedIds: skipTranscript, compaction: record });
-      const transcript = selection.transcript.map(({ role, text }) => ({ role, text }));
+      const transcript = withDroppedSummary({ context, transcript: selection.transcript, representedIds: selection.representedIds,
+        excludedIds: skipTranscript, recordId: record?.id, engine: engineSummaries.read(threadId) }).map(({ role, text }) => ({ role, text }));
       const contextReset = selection.compacted > 0 && record?.id !== task.appliedCompactionId;
       if (contextReset) store.patchTask(bot.id, threadId, { resumeCursors: {} });
 

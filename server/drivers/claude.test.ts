@@ -2135,6 +2135,18 @@ describe("ClaudeDriver turns (fake CLI)", () => {
     await expect(instance.adapter.compactionSigns!()).resolves.toEqual({ switchedOff: true });
   });
 
+  it("registers the hook that hands back Claude Code's own compaction summary from 2.1.316", async () => {
+    for (const [version, expected] of [["2.1.315", false], ["2.1.316", true]] as const) {
+      const dump = join(scratch, `post-compact-${version}.json`);
+      await create(undefined, { FAKE_CLAUDE_DUMP: dump, FAKE_CLAUDE_VERSION: version });
+      await instance.adapter.sendTurn({ threadId: `t-post-compact-${version}`, text: "hi", integrations: { hooks: { url: "http://127.0.0.1:9", token: "fixture" } } } as any);
+      await recorder.until((e) => e.type === "turn.completed");
+      const { settings } = JSON.parse(readFileSync(dump, "utf8"));
+      expect(Boolean(settings?.hooks?.PostCompact)).toBe(expected);
+      expect(Boolean(settings?.hooks?.PreCompact)).toBe(true);
+    }
+  });
+
   it("leaves the hour-long cache off for an account that turned it off", async () => {
     const dump = join(scratch, "cache-hour-off.json");
     await create(undefined, { FAKE_CLAUDE_DUMP: dump, ENABLE_PROMPT_CACHING_1H: "0" });

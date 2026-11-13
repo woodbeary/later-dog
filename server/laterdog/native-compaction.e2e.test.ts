@@ -49,7 +49,7 @@ async function setup(fakeEnv: NodeJS.ProcessEnv) {
         environment: { FAKE_CLAUDE_ROOM_PLAN: plan },
       };
       config.instances.codex.environment = {
-        FAKE_CODEX_MODE: "resume", FAKE_CODEX_PROMPTS: codexPrompts, FAKE_CODEX_COMPACT: "1", FAKE_CODEX_CONTEXT_TOKENS: "250000",
+        FAKE_CODEX_MODE: "resume-then-missing", FAKE_CODEX_STATE: join(dataDir, "codex-thread-lost"), FAKE_CODEX_PROMPTS: codexPrompts, FAKE_CODEX_COMPACT: "1", FAKE_CODEX_CONTEXT_TOKENS: "250000",
       };
       writeFileSync(path, JSON.stringify(config));
     });
@@ -78,6 +78,7 @@ async function setup(fakeEnv: NodeJS.ProcessEnv) {
     });
     return {
       session, api, cli, bot, thread, messages, task, send, use, folds, nativeRows, restart, reconfigure,
+      loseCodexThread: () => writeFileSync(join(dataDir, "codex-thread-lost"), "lost"),
       turns: () => jsonl(`${plan}.evidence.jsonl`),
       codexPrompts: () => jsonl(codexPrompts).map((entry: any) => String(entry.text)),
       launchArgs: () => JSON.parse(readFileSync(session.fixtureDumpPath, "utf8")).argv as string[],
@@ -197,6 +198,40 @@ it("recalls notes automatically when a session starts and leaves later turns to 
   const prompts = f.turns().map((turn: any) => String(turn.prompt.message.content));
   expect(prompts.map(prompt => prompt.includes("Recalled for this message") && prompt.includes("GARDEN_NOTE"))).toEqual([true, false, true]);
 }), 120_000);
+
+it("rebuilds a Claude chat whose saved session is refused with the engine's own summary in front", () => fixture(async f => {
+  await f.api("/api/config", { context: { rebuildBytes: 1_024 } }, "PATCH");
+  await f.use("claude", "claude-sonnet-4-6");
+  for (const label of ["OLDEST_DECISION use port 9001", "SECOND request", "THIRD request", "FOURTH request", "FIFTH request"]) await f.send(padded(label));
+  expect(await f.folds()).toHaveLength(0);
+  const lost = f.task().resumeCursors.claude;
+  await f.reconfigure(config => { config.instances.claude.environment = { ...config.instances.claude.environment, FAKE_CLAUDE_MODE: "dead-session" }; });
+  await f.send("AFTER_LOSS which port?");
+  const prompt = String(f.turns().at(-1).prompt.message.content);
+  expect(prompt).toContain("could not be resumed");
+  expect(prompt).toContain("Earlier conversation summary");
+  expect(prompt).toContain("ENGINE_SUMMARY the person chose port 9001");
+  expect(prompt).toContain("AFTER_LOSS which port?");
+  expect(f.task().resumeCursors.claude).not.toBe(lost);
+  expect(await f.folds()).toHaveLength(0);
+}, { ...LONG_CHAT, FAKE_CLAUDE_COMPACT_SUMMARY: "ENGINE_SUMMARY the person chose port 9001." }), 150_000);
+
+it("rebuilds a Codex chat whose thread is lost with the person's oldest decision still in front", () => fixture(async f => {
+  await f.api("/api/config", { context: { rebuildBytes: 1_024 } }, "PATCH");
+  await f.use("codex");
+  for (const label of ["OLDEST_DECISION use port 9001", "SECOND request", "THIRD request", "FOURTH request", "FIFTH request"]) await f.send(padded(label));
+  const lost = f.task().resumeCursors.codex;
+  expect(lost).toBeTruthy();
+  f.loseCodexThread();
+  await f.restart();
+  await f.send("AFTER_LOSS which port?");
+  const prompt = f.codexPrompts().at(-1)!;
+  expect(prompt).toContain("could not be resumed");
+  expect(prompt).toContain("Earlier conversation summary");
+  expect(prompt).toContain("OLDEST_DECISION use port 9001");
+  expect(prompt).toContain("AFTER_LOSS which port?");
+  expect(await f.folds()).toHaveLength(0);
+}), 150_000);
 
 it("keeps later.dog's fold for a model Codex does not list", () => fixture(async f => {
   await f.api("/api/config", { context: { compactAt: 1 } }, "PATCH");

@@ -135,6 +135,7 @@ function playNativeCompaction(): string {
   const context = runHooks("SessionStart", { source: "compact" });
   out({ type: "system", subtype: "status", status: null, compact_result: "success" });
   out({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "auto", pre_tokens: 182_345, post_tokens: 24_100 } });
+  runHooks("PostCompact", { trigger: "auto", compact_summary: process.env.FAKE_CLAUDE_COMPACT_SUMMARY ?? "Fixture compaction summary." });
   return context;
 }
 let resumedErrorPlayed = false;

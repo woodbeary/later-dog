@@ -501,12 +501,15 @@ export function hookTokenFile(threadId: string, botId?: string): string {
   return join(DATA_DIR, "hook-tokens", `${digest}.token`);
 }
 
-export function claudeHookSettings(helperPath: string, options: { guardShell?: boolean } = {}): Record<string, unknown> {
+export const CLAUDE_POST_COMPACT_HOOK: ClaudeCliVersion = [2, 1, 316];
+
+export function claudeHookSettings(helperPath: string, options: { guardShell?: boolean; postCompact?: boolean } = {}): Record<string, unknown> {
   const command = process.platform === "win32"
     ? '"%LATERDOG_HOOK_NODE%" "%LATERDOG_HOOK_HELPER%"'
     : [process.execPath, helperPath].map(path => `'${path.replace(/'/g, "'\\''")}'`).join(" ");
   const entry = [{ matcher: "", hooks: [{ type: "command", command, timeout: 5 }] }];
   const settings: Record<string, unknown> = { PostToolUse: entry, PreCompact: entry, SessionStart: entry, Stop: entry };
+  if (options.postCompact) settings.PostCompact = entry;
   if (options.guardShell) settings.PreToolUse = [{ matcher: "Bash", hooks: [{ type: "command", command, timeout: 5 }] }];
   return settings;
 }
@@ -1301,7 +1304,8 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       }
       const settings: Record<string, unknown> = { ...authSettings };
       if (isolated) settings.claudeMdExcludes = machineClaudeMemoryExcludes(env);
-      if (hooks) settings.hooks = claudeHookSettings(HOOK_HELPER_PATH, { guardShell: hooks.guardShell === true });
+      if (hooks) settings.hooks = claudeHookSettings(HOOK_HELPER_PATH, { guardShell: hooks.guardShell === true,
+        postCompact: Boolean(cliVersion && versionAtLeast(cliVersion, CLAUDE_POST_COMPACT_HOOK)) });
       if (turn.guestConfined) settings.permissions = GUEST_CLAUDE_PERMISSIONS;
       if (turn.fast) settings.fastMode = true;
       if (turn.reviewerGrant && permissionMode === "auto") settings.autoMode = turn.reviewerGrant;
