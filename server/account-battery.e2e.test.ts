@@ -230,7 +230,7 @@ it("tells account 2 to continue, not redo, when a tool already ran on account 1"
     expect(firstPrompts()).toHaveLength(1);
     expect(secondPrompts()).toHaveLength(1);
     const sent = promptText(secondPrompts()[0]);
-    expect(sent).toContain("Do not redo what was already done.");
+    expect(sent).toContain("without redoing finished work");
     expect(sent.split(text)).toHaveLength(2);
     const rows = await chat.messages();
     evidence.push({ rows });
@@ -477,7 +477,7 @@ it("carries on after a mid-turn message, keeping both the original request and n
     const prompt = promptText(fixture.secondPrompts()[0]);
     expect(prompt).toContain("ORIGINAL_CARRY_REQUEST");
     expect(prompt).toContain("MIDTURN_CARRY_WORDS");
-    expect(prompt).toContain("Do not redo what was already done.");
+    expect(prompt).toContain("without redoing finished work");
     expect(switches(await chat.messages())[0].tool.carry).toEqual({ from: "claude", to: "claude-two" });
     expect((await chat.messages()).find((row) => row.text === "ORIGINAL_CARRY_REQUEST").requestPending).toBe(false);
   });
@@ -639,7 +639,7 @@ it.each([false, true])("continues a room member automatically, including an all-
     await expect.poll(() => readUsage(fixture.dataDir, { from: new Date(Date.now() - 86_400_000), to: new Date() })
       .findLast((row) => row.threadId === group.threadId && row.instanceId === "claude-two")?.execution, { timeout: 10_000 })
       .toMatchObject({ selected: FIRST, dispatched: { instanceId: "claude-two", model: FIRST.model }, verification: "unverified" });
-    expect(promptText(fixture.secondPrompts()[0])).toContain("Do not redo what was already done.");
+    expect(promptText(fixture.secondPrompts()[0])).toContain("without redoing finished work");
   });
 }, 90_000);
 
