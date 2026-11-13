@@ -13,7 +13,9 @@ import {
   EVIDENCE_FIRST,
   FINISH_WORK,
   guidanceEngine,
+  connectedNowPrompt,
   guidancePart,
+  guidanceParts,
   homeGitHubSignedIn,
   homeKit,
   kitPrompt,
@@ -139,7 +141,9 @@ describe("the guidance every dog gets", () => {
     const kit = kitPrompt({ cloudHome: true, ownComputer: true, vault: true, github: true, google: true, mac: true });
     expect(kit).toMatch(/your own cloud computer .*run_on_computer/);
     expect(kit).toMatch(/the vault \(vault_secret\)/);
-    expect(kit).toMatch(/GitHub, signed in on this home/);
+    expect(kit).not.toMatch(/GitHub|lent Mac/);
+    expect(connectedNowPrompt({ github: true, mac: true })).toBe(" Connected now: GitHub, signed in on this home; a lent Mac through shared_computer. Use these before asking the person for a sign-in or for their Mac.");
+    expect(connectedNowPrompt({ ownComputer: true, vault: true })).toBe("");
     expect(kit.endsWith("Use these before asking the person for a sign-in or for their Mac.")).toBe(true);
     expect(kit).not.toMatch(/approval/);
     expect(kitPrompt({ ownComputer: true })).not.toMatch(/GitHub|vault/);
@@ -162,8 +166,8 @@ describe("the guidance every dog gets", () => {
     const home = { cloudHome: true, agents: true, vault: true };
     const signedOut = () => false;
     expect(homeKit({ ...home, macsOnline: 0 }, signedOut).mac).toBe(false);
-    expect(kitPrompt(homeKit({ ...home, macsOnline: 0 }, signedOut))).not.toMatch(/Mac through/);
-    expect(kitPrompt(homeKit({ ...home, macsOnline: 1 }, signedOut))).toMatch(/a lent Mac through shared_computer/);
+    expect(connectedNowPrompt(homeKit({ ...home, macsOnline: 0 }, signedOut))).toBe("");
+    expect(connectedNowPrompt(homeKit({ ...home, macsOnline: 1 }, signedOut))).toMatch(/a lent Mac through shared_computer/);
     expect(homeKit({ ...home, cloudHome: false, macsOnline: 1 }, () => true)).toMatchObject({ mac: false, github: false, ownComputer: false });
   });
 
@@ -262,5 +266,22 @@ describe("the guidance every dog gets", () => {
     expect(first.stable.indexOf("You are Scout")).toBe(0);
     expect(first.stable.indexOf("You are one of the person's dogs")).toBeGreaterThan(first.stable.indexOf("--- END STANDING INSTRUCTIONS ---"));
     expect(first.stable).not.toContain("today is");
+  });
+
+  it("keeps the cached half byte-identical when a Mac connects or GitHub signs in, and changes only the connected section", () => {
+    const build = (macsOnline: number, github: boolean) => buildSystemPrompt("You are Scout, a dog in later.dog.", "Be brief.", [
+      ...guidanceParts({ engine: "claude", model: "claude-fable-5-2", kit: homeKit({ cloudHome: true, agents: true, vault: true, macsOnline }, () => github) }),
+      { id: "today", label: "Today", text: todayPrompt("America/Los_Angeles", new Date("2026-11-12T10:00:00Z")) },
+    ], "Sam");
+    const alone = build(0, false);
+    const connected = build(1, true);
+    expect(connected.stable).toBe(alone.stable);
+    expect(alone.stable).toContain("your own cloud computer");
+    expect(alone.stable).not.toMatch(/lent Mac|GitHub, signed in/);
+    expect(alone.volatileSections.map((section) => section.id)).toEqual(["today"]);
+    expect(connected.volatileSections.map((section) => section.id)).toEqual(["connected", "today"]);
+    expect(connected.volatileSections[0]).toMatchObject({ label: "Connected now", text: expect.stringContaining("a lent Mac through shared_computer") });
+    expect(connected.volatileSections[1]).toEqual(alone.volatileSections[0]);
+    expect(build(1, false).stable).toBe(alone.stable);
   });
 });

@@ -268,12 +268,19 @@ export function kitPrompt(kit: DogKit | undefined): string {
   const have = [
     kit.ownComputer && "your own cloud computer for heavy commands, builds and tests (run_on_computer)",
     kit.vault && "the vault (vault_secret) with saved logins and keys",
-    kit.github && "GitHub, signed in on this home",
     kit.google && "Google through connect_google and the gmail tools",
-    kit.mac && "a lent Mac through shared_computer",
   ].filter((item): item is string => Boolean(item));
   if (!have.length) return "";
   return `Already set up for you: ${have.join("; ")}. Use these before asking the person for a sign-in or for their Mac.`;
+}
+
+export function connectedNowPrompt(kit: DogKit | undefined): string {
+  const connected = [
+    kit?.github && "GitHub, signed in on this home",
+    kit?.mac && "a lent Mac through shared_computer",
+  ].filter((item): item is string => Boolean(item));
+  if (!connected.length) return "";
+  return ` Connected now: ${connected.join("; ")}. Use these before asking the person for a sign-in or for their Mac.`;
 }
 
 export function dogGuidance(input: GuidanceInput): string {
@@ -308,4 +315,8 @@ export function dogGuidance(input: GuidanceInput): string {
 
 export function guidancePart(input: GuidanceInput): { id: string; label: string; text: string } {
   return { id: "guide", label: "How to work", text: dogGuidance(input) };
+}
+
+export function guidanceParts(input: GuidanceInput): Array<{ id: string; label: string; text: string }> {
+  return [guidancePart(input), { id: "connected", label: "Connected now", text: connectedNowPrompt(input.kit) }];
 }

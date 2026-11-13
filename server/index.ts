@@ -254,7 +254,7 @@ import { CommandSecrets } from "./laterdog/vault-refs.ts";
 import { createDogQueueRoute, type QueuedMessageRow } from "./routes/dog-queue.ts";
 import { SAFE_STOP_GRACE_MS, safeStopWords, stoppedByLine } from "./laterdog/safe-stop.ts";
 import { withRestingUntil, type AccountUsageInput } from "./laterdog/account-usage.ts";
-import { guidanceEngine, guidancePart, homeKit, ROOM_TEAM_PROMPT, teammateTaskPrompt } from "./laterdog/dog-guidance.ts";
+import { guidanceEngine, guidanceParts, homeKit, ROOM_TEAM_PROMPT, teammateTaskPrompt } from "./laterdog/dog-guidance.ts";
 import { CONTINUE_AFTER_PICK, pickMovesTurn, pickNotice } from "./laterdog/account-pick.ts";
 import { codexHome } from "./drivers/codex-identity.ts";
 import { resolveClaudeConfigDir } from "./drivers/claude.ts";
@@ -3596,7 +3596,7 @@ function previewSystemPrompt(bot: BotRecord) {
   });
   const privateWorkspace = instance && supportsWorkspaceFiles(instance.driverKind);
   const built = buildSystemPrompt(persona, bot.soul ?? "", [
-    guidancePart({ engine: guidanceEngine(instance?.driverKind), model: bot.modelSelection.model, kit: homeKit({
+    ...guidanceParts({ engine: guidanceEngine(instance?.driverKind), model: bot.modelSelection.model, kit: homeKit({
       cloudHome: Boolean(CLOUD_HOME), agents: agentsMounted, vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
     }) }),
     { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },
@@ -8903,7 +8903,7 @@ async function startTurn(
       const ownerGrant = ownerGrantFor(approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const ownerAnswers = ownerAnswersFor(bot.id, approvalModeForTurn(bot, commsDepth > 0, threadId), threadId);
       const prompt = buildSystemPrompt(persona, liveBot?.soul ?? bot.soul ?? "", [
-        guidancePart({ engine: guidanceEngine(instance.driverKind), model, kit: homeKit({
+        ...guidanceParts({ engine: guidanceEngine(instance.driverKind), model, kit: homeKit({
           cloudHome: Boolean(CLOUD_HOME), agents: Boolean(integrations.agents), vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
           google: credentialPrompt.includes("gmail_search"),
         }) }),
@@ -10666,7 +10666,7 @@ async function runGroupMemberTurn(
   const roomOwnerGrant = ownerGrantFor(roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomOwnerAnswers = ownerAnswersFor(readyBot.id, roomTurnApprovalMode(readyBot, threadId, orchestration), threadId);
   const roomSystem = buildSystemPrompt(system, store.bot(bot.id)?.soul ?? bot.soul ?? "", [
-    guidancePart({ engine: guidanceEngine(instance.driverKind), model: instance.instanceId === readyBot.modelSelection.instanceId ? readyBot.modelSelection.model : instance.models.default, kit: homeKit({
+    ...guidanceParts({ engine: guidanceEngine(instance.driverKind), model: instance.instanceId === readyBot.modelSelection.instanceId ? readyBot.modelSelection.model : instance.models.default, kit: homeKit({
       cloudHome: Boolean(CLOUD_HOME), agents: Boolean(integrations.agents), vault: vaultStore.available, macsOnline: sharedComputers.list(CLOUD_HOME_LENDER).length,
     }) }),
     { id: "user-profile", label: "About the user", text: userProfileSystemPrompt(cfg.profile) },

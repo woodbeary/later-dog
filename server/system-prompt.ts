@@ -27,7 +27,7 @@ export function askFirstSystemPrompt(rules: unknown): string {
     : "";
 }
 
-const VOLATILE_SECTIONS = new Set(["memory", "mentions", "outstanding", "recent", "availability", "today"]);
+const VOLATILE_SECTIONS = new Set(["memory", "mentions", "outstanding", "recent", "availability", "today", "connected"]);
 
 export const VOICE_PROMPT = `\n\n${REPLY_STYLE}`;
 

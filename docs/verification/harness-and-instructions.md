@@ -6,8 +6,11 @@ proven about them.
 ## The changes
 
 1. **Only changed context is re-sent.** A dog's changing context (the
-   `today`, `recent`, `memory`, `mentions`, `outstanding` and `availability`
-   sections in `server/system-prompt.ts`) is split into sections. The home
+   `today`, `recent`, `memory`, `mentions`, `outstanding`, `availability` and
+   `connected` sections in `server/system-prompt.ts`) is split into sections.
+   `connected` says whether GitHub is signed in on the home and whether a Mac
+   is lent right now, so the standing instructions stay byte-identical when a
+   Mac connects or disconnects. The home
    sends every section on a new or rebuilt session and afterwards only the
    sections that changed. A Claude session sends everything again after a
    compaction; a Codex dog does the same once Codex reports a
@@ -34,16 +37,16 @@ TMPDIR=<scratch> node --experimental-strip-types scripts/measure-dog-prompt.ts
 
 - `measure-volatile-notes.ts` (a 100-turn main-dog chat; recent work changes
   every 10 turns, memory every 25, the date never): re-sending the whole
-  changing context would send 104,004 bytes (about 26,001 tokens) over 100
-  turns; sending only changed sections sends 35,372 bytes (about 8,843
+  changing context would send 104,124 bytes (about 26,031 tokens) over 100
+  turns; sending only changed sections sends 35,382 bytes (about 8,846
   tokens), **66.0% less**. The standing part stayed byte-identical across all
   100 turns.
 - `measure-dog-prompt.ts`, against `scripts/dog-prompt-baseline.json` (the
   instructions before they were rewritten): the standing instructions grew from
-  20,051 to 22,628 bytes for a main Claude dog (+12.9%) and to 21,960 bytes for
-  a main Codex dog (+9.5%); across main, helper, group and handed-over dogs the
-  growth is 9.3% to 17.7%. Counting the first context note too, a fresh dog's
-  first request is 5.4% to 12.0% larger.
+  20,051 to 22,570 bytes for a main Claude dog (+12.6%) and to 21,902 bytes for
+  a main Codex dog (+9.2%); across main, helper, group and handed-over dogs the
+  growth is 9.0% to 17.4%. Counting the first context note too, a fresh dog's
+  first request is 5.8% to 12.4% larger.
 
 ## Live numbers, 2026-11-12, on a real Claude model
 
