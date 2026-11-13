@@ -1,7 +1,7 @@
 import { findCliCandidates } from "../env-path.ts";
 import { installNpmEngine, npmAvailable, serverInstallFor } from "../engine-install.ts";
 import { installNative, nativeInstallFor } from "../laterdog/native-install.ts";
-import { beingChecked, checkUnknown } from "../laterdog/cli-version.ts";
+import { checkUnknown, shownReading } from "../laterdog/cli-version.ts";
 import { createSnapshotCache } from "../laterdog/snapshot-cache.ts";
 import { refusedWhileOff } from "../laterdog/turned-off.ts";
 import type {
@@ -54,6 +54,7 @@ export class ProviderRegistry {
   private byId = new Map<InstanceId, RegistryEntry>();
   private cliByInstance = new Map<InstanceId, string>();
   private lastSnapshots = new Map<InstanceId, ProviderSnapshot>();
+  private unknownSince = new Map<InstanceId, number>();
   private snapshots: ReturnType<typeof createSnapshotCache<ProviderSnapshot>>;
   private driversByKind: Map<string, AnyProviderDriver>;
   private readonly enginesBaseDir: string | undefined;
@@ -151,6 +152,16 @@ export class ProviderRegistry {
 
   forgetSnapshot(instanceId: InstanceId): void {
     this.snapshots.forget(instanceId);
+  }
+
+  private unknownFor(instanceId: InstanceId, read: ProviderSnapshot): number {
+    if (!checkUnknown(read)) {
+      this.unknownSince.delete(instanceId);
+      return 0;
+    }
+    const since = this.unknownSince.get(instanceId) ?? Date.now();
+    this.unknownSince.set(instanceId, since);
+    return Date.now() - since;
   }
 
   lastSnapshot(instanceId: InstanceId): ProviderSnapshot | undefined {
@@ -269,7 +280,7 @@ export class ProviderRegistry {
           } catch (e) {
             return { state: "unavailable", reason: e instanceof Error ? e.message : String(e), checkFailed: true };
           }
-        }).then((read) => read.checkFailed ? { ...read, reason: beingChecked(inst.displayName ?? inst.driverKind) } : read);
+        }).then((read) => shownReading(read, inst.displayName ?? inst.driverKind, this.unknownFor(inst.instanceId, read)));
         if (this.byId.get(inst.instanceId)?.live === inst) this.lastSnapshots.set(inst.instanceId, snapshot);
         return {
           instanceId: inst.instanceId,
@@ -316,6 +327,7 @@ export class ProviderRegistry {
     this.byId.clear();
     this.cliByInstance.clear();
     this.lastSnapshots.clear();
+    this.unknownSince.clear();
     this.snapshots.clear();
   }
 
@@ -324,6 +336,7 @@ export class ProviderRegistry {
     this.byId.delete(instanceId);
     this.cliByInstance.delete(instanceId);
     this.lastSnapshots.delete(instanceId);
+    this.unknownSince.delete(instanceId);
     this.snapshots.forget(instanceId);
     await entry?.live?.dispose();
   }

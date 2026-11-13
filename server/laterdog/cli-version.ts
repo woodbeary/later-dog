@@ -62,3 +62,19 @@ export function readingRuns(snapshot: ProviderSnapshot): boolean {
 export function readingReady(snapshot: ProviderSnapshot): boolean {
   return readingRuns(snapshot) && snapshot.authenticated !== false;
 }
+
+export function answeredReady(snapshot: ProviderSnapshot): boolean {
+  return snapshot.state === "available" && snapshot.authenticated !== false;
+}
+
+export const CHECK_GIVE_UP_MS = 10 * 60_000;
+
+export function couldNotCheck(name: string): string {
+  return `${name} could not be checked. Choose Check again, or sign in to it again.`;
+}
+
+export function shownReading(snapshot: ProviderSnapshot, name: string, unknownForMs: number): ProviderSnapshot {
+  if (!checkUnknown(snapshot)) return snapshot;
+  if (unknownForMs >= CHECK_GIVE_UP_MS) return { ...snapshot, reason: couldNotCheck(name) };
+  return snapshot.checkFailed ? { ...snapshot, reason: beingChecked(name) } : snapshot;
+}
