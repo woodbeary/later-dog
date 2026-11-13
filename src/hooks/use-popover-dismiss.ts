@@ -24,10 +24,10 @@ export function usePopoverDismiss(open: boolean, rootRef: RefObject<Containing |
     const onDown = (event: PointerEvent) => {
       if (popoverClosesOnPointer(event.target, rootRef.current)) closeRef.current();
     };
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, { capture: true });
     window.addEventListener("pointerdown", onDown);
     return () => {
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, { capture: true });
       window.removeEventListener("pointerdown", onDown);
     };
   }, [open, rootRef]);

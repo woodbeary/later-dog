@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, Download, Loader2 } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { api } from "@/state/store";
 import { cn } from "@/lib/cn";
 import { t } from "@/lib/i18n";
@@ -7,7 +7,7 @@ import { formatMoney } from "@/lib/included-usage";
 import { formatTokens, formatUsd, hasFiniteCost, headlineTokens, tokensColumnLabel } from "@/lib/usage";
 import { BarList, ChartEmpty, ColumnChart, ViewToggle, type ChartView } from "./UsageCharts";
 import { plainClientError } from "@/lib/plain-client-error";
-import { SidebarPopoverMenu } from "./SidebarPopoverMenu";
+import { ChoiceMenu } from "./ChoiceMenu";
 
 export type UsageGroupBy = "bot" | "model" | "day";
 export const USAGE_GROUPINGS: readonly UsageGroupBy[] = ["bot", "model", "day"];
@@ -246,24 +246,11 @@ export function UsageHistory({ load = fetchUsage }: { load?: typeof fetchUsage }
       <h3 className="px-4 text-[12px] font-medium text-ink-secondary">{t("usage.history.title")}</h3>
       <div className="rounded-xl bg-card px-4 py-3">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <SidebarPopoverMenu
-            ariaLabel={t("usage.history.period")}
-            placement="auto"
-            align="start"
-            menuWidth="w-48"
-            items={USAGE_PERIODS.map((option) => ({
-              key: option,
-              label: t(PERIOD_LABEL_KEYS[option]),
-              active: option === period,
-              trailing: option === period ? <Check size={14} aria-hidden="true" className="shrink-0 text-accent" /> : undefined,
-              onSelect: () => setPeriod(option),
-            }))}
-            renderTrigger={({ open }) => (
-              <span data-usage-period={period} className={cn("flex items-center gap-1 rounded-lg px-2.5 py-1 text-[12px] text-ink hover:bg-raised/50", open && "bg-raised/50")}>
-                {t(PERIOD_LABEL_KEYS[period])}
-                <ChevronDown size={12} aria-hidden="true" className="text-ink-tertiary" />
-              </span>
-            )}
+          <ChoiceMenu
+            label={t("usage.history.period")}
+            value={period}
+            choices={USAGE_PERIODS.map((option) => ({ value: option, label: t(PERIOD_LABEL_KEYS[option]) }))}
+            onChange={setPeriod}
           />
           <div role="tablist" aria-label={t("usage.history.groupBy")} className="flex flex-wrap gap-1">
             {USAGE_GROUPINGS.map((option) => (
