@@ -1,6 +1,5 @@
-import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { existsSync, lstatSync, readdirSync, readlinkSync, statSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
   COMPUTER_KEY, EXACT_KEY, EXACT_SPLIT, FILES_EDIT_KEY, FILES_READ_KEY, listedCommand, listedName, MAX_GRANT_KEY_BYTES, RUN_KEY,
@@ -8,6 +7,7 @@ import {
 } from "../../shared/always-allow.ts";
 import { redactSecretsInText } from "../redact.ts";
 import type { BotRecord } from "../store.ts";
+import { DEFAULT_GIT, gitRemotes, hookFacts, type GitSources } from "./git-ask.ts";
 import { isShellTool } from "./owner-guard.ts";
 
 export interface GrantRequest {
@@ -18,6 +18,7 @@ export interface GrantRequest {
   approvalScope?: "local-computer";
   requiresExplicitApproval?: boolean;
   grantable?: false;
+  git?: GitSources;
 }
 
 const SHELL_META = /[|&;<>()$`\\*?[\]{}~!#\n\r\t\0]/;
@@ -55,7 +56,8 @@ const SECRET_FILES = new Set([
   ".netrc", ".npmrc", ".pypirc", ".git-credentials", "credentials", "credentials.json", "credentials.yml", "token", "token.json",
   "tokens.json", "auth.json", "secrets.json", "secrets.yml", "secrets.yaml", ".htpasswd", "service-account.json", "known_hosts",
 ]);
-const SECRET_PATTERNS = [/^\.env/, /\.(?:pem|key|p12|pfx|jks|keystore|ppk|asc|gpg|kdbx)$/, /^id_[a-z0-9]+/, /secret/, /credential/, /token/];
+const SECRET_PATTERNS = [/^\.env/, /\.(?:pem|key|p12|pfx|jks|keystore|ppk|asc|gpg|kdbx)$/, /^id_[a-z0-9]+/,
+  /^(?:secrets?|credentials?|tokens?|auth|apikeys?|api[_-]keys?|passwords?|passwd)(?:\.[a-z0-9]+)*$/, /[_-](?:secrets?|credentials?|tokens?|password)(?:\.[a-z0-9]+)*$/];
 
 function shellWords(command: string): string[] | null {
   if (SHELL_META.test(command)) return null;
@@ -141,34 +143,6 @@ function everyPathInside(words: readonly string[], cwd: string, roots: readonly 
   return words.every((word) => pathsIn(word).every((path) => insideRoots(joinPath(cwd, path), roots)));
 }
 
-function gitDir(cwd: string): string | null {
-  let probe = cwd;
-  for (let steps = 0; steps < 64; steps++) {
-    const candidate = join(probe, ".git");
-    try {
-      if (statSync(candidate).isDirectory()) return candidate;
-      const pointer = /^gitdir: (.+)$/m.exec(readFileSync(candidate, "utf8"))?.[1]?.trim();
-      return pointer ? resolve(probe, pointer) : null;
-    } catch {
-      const parent = dirname(probe);
-      if (parent === probe) return null;
-      probe = parent;
-    }
-  }
-  return null;
-}
-
-export function configuredRemotes(cwd: string): Set<string> {
-  const dir = gitDir(cwd);
-  if (!dir) return new Set();
-  try {
-    const text = readFileSync(join(dir, "config"), "utf8");
-    return new Set([...text.matchAll(/^\s*\[remote "([^"\n]+)"\]/gm)].map((match) => match[1]!));
-  } catch {
-    return new Set();
-  }
-}
-
 const shortCluster = (word: string) => /^-[A-Za-z0-9]+$/.test(word) ? word.slice(1) : "";
 
 function deniedOption(entry: ListedCommand, word: string): boolean {
@@ -179,6 +153,10 @@ function deniedOption(entry: ListedCommand, word: string): boolean {
 }
 
 const plainRef = (name: string) => PLAIN_REF.test(name) && !/HEAD$/i.test(name) && !name.endsWith(".lock") && !name.includes("..");
+
+export function privatePath(path: string): boolean {
+  return secretPath(path) || path.split(sep).some((part) => part.toLowerCase() === ".git");
+}
 
 export function secretPath(path: string): boolean {
   const parts = path.split(sep).filter(Boolean).map((part) => part.toLowerCase());
@@ -211,59 +189,20 @@ function walksOut(entry: ListedCommand, args: readonly string[], cwd: string, ro
   return dirs.some((dir) => linkLeavesBelow(realOrNearest(joinPath(cwd, dir)), roots));
 }
 
-function argumentsFit(entry: ListedCommand, args: readonly string[], cwd: string, roots: readonly string[]): boolean {
+function argumentsFit(entry: ListedCommand, args: readonly string[], cwd: string, roots: readonly string[], git: GitSources): boolean {
   if (args.some((arg) => deniedOption(entry, arg))) return false;
   if (entry.args === "none") return args.every((arg) => (entry.flags ?? []).includes(arg));
   if (entry.args === "branch") return args.every((arg) => plainRef(arg));
   if (!everyPathInside(args, cwd, roots)) return false;
   if (walksOut(entry, args, cwd, roots)) return false;
-  if (entry.args === "checked") return !args.some((arg) => pathsIn(arg).some((path) => secretPath(path) || secretPath(realOrNearest(joinPath(cwd, path)))));
+  if (entry.args === "checked") return !args.some((arg) => pathsIn(arg).some((path) => privatePath(path) || privatePath(realOrNearest(joinPath(cwd, path)))));
   const names = args.filter((arg) => !arg.startsWith("-"));
   if (!names.length) return true;
   const [remote, ...refs] = names as [string, ...string[]];
-  return REMOTE_NAME.test(remote) && configuredRemotes(cwd).has(remote) && refs.every(plainRef);
+  return REMOTE_NAME.test(remote) && gitRemotes(cwd, git).has(remote) && refs.every(plainRef);
 }
 
-function workTree(dir: string): string {
-  return basename(dir) === ".git" ? dirname(dir) : dir;
-}
-
-function gitConfigText(dir: string): string {
-  try { return readFileSync(join(dir, "config"), "utf8"); } catch { return ""; }
-}
-
-function configuredHooksPath(cwd: string): string | null {
-  const dir = gitDir(cwd);
-  if (!dir) return null;
-  const value = /^\s*hookspath\s*=\s*(.+?)\s*$/im.exec(gitConfigText(dir))?.[1]?.replace(/^"|"$/g, "");
-  return value ? (isAbsolute(value) ? value : join(workTree(dir), value)) : null;
-}
-
-const HOOK_MANAGERS = [".husky", ".githooks", "lefthook.yml", "lefthook.yaml", ".lefthook.yml", ".lefthook.yaml", "lefthook-local.yml",
-  ".pre-commit-config.yaml", ".pre-commit-config.yml", ".simple-git-hooks.json", ".simple-git-hooks.js", ".simple-git-hooks.cjs"];
-
-export function hooksConfigured(cwd: string, home = homedir()): boolean {
-  const dir = gitDir(cwd);
-  if (!dir) return false;
-  if (configuredHooksPath(cwd)) return true;
-  for (const file of [join(home, ".gitconfig"), join(home, ".config", "git", "config")]) {
-    try {
-      if (/^\s*hookspath\s*=/im.test(readFileSync(file, "utf8"))) return true;
-    } catch {}
-  }
-  try {
-    if (readdirSync(join(dir, "hooks")).some((name) => !name.endsWith(".sample"))) return true;
-  } catch {}
-  const tree = workTree(dir);
-  if (HOOK_MANAGERS.some((name) => existsSync(join(tree, name)))) return true;
-  try {
-    return /"(?:husky|simple-git-hooks|pre-commit|lint-staged|lefthook)"/.test(readFileSync(join(tree, "package.json"), "utf8"));
-  } catch {
-    return false;
-  }
-}
-
-export function listedKey(words: readonly string[], cwd: string, roots: readonly string[]): string | undefined {
+export function listedKey(words: readonly string[], cwd: string, roots: readonly string[], git: GitSources = DEFAULT_GIT): string | undefined {
   const [first, ...rest] = words as [string, ...string[]];
   const program = first.toLowerCase();
   for (const take of [3, 2, 1, 0]) {
@@ -272,8 +211,8 @@ export function listedKey(words: readonly string[], cwd: string, roots: readonly
     const listed = listedCommand(name);
     if (!listed) continue;
     if (listed.script !== undefined && !SCRIPT_NAME.test(listed.script)) return undefined;
-    if (listed.entry.hooks && hooksConfigured(cwd)) return undefined;
-    return argumentsFit(listed.entry, rest.slice(take), cwd, roots) ? RUN_KEY + listedName(listed.entry, listed.script) : undefined;
+    if (listed.entry.hooks && hookFacts(cwd, git).state !== "none") return undefined;
+    return argumentsFit(listed.entry, rest.slice(take), cwd, roots, git) ? RUN_KEY + listedName(listed.entry, listed.script) : undefined;
   }
   return undefined;
 }
@@ -288,12 +227,12 @@ function exactKey(command: string, cwd: string): string | undefined {
   return Buffer.byteLength(key) <= MAX_GRANT_KEY_BYTES - COMPUTER_KEY.length ? key : undefined;
 }
 
-export function commandKey(command: string, cwd: string, roots: readonly string[]): string | undefined {
+export function commandKey(command: string, cwd: string, roots: readonly string[], git: GitSources = DEFAULT_GIT): string | undefined {
   const text = command.trim();
   if (!text || !isAbsolute(cwd) || hasSecret(text) || NEVER_KEYED.test(text)) return undefined;
   const words = shellWords(text);
   if (words && DELETES.has(words[0]!.toLowerCase()) && !everyPathInside(words.slice(1), cwd, roots)) return undefined;
-  const listed = words && insideRoots(cwd, roots) ? listedKey(words, cwd, roots) : undefined;
+  const listed = words && insideRoots(cwd, roots) ? listedKey(words, cwd, roots, git) : undefined;
   return listed ?? exactKey(text, cwd);
 }
 
@@ -302,29 +241,32 @@ function bareTool(tool: string): string {
   return (mcp ? `${mcp[1]}/${mcp[2]}` : tool).toLowerCase();
 }
 
-export function runsLater(path: string): boolean {
+export function runsLater(path: string, git: GitSources = DEFAULT_GIT): boolean {
   const parts = resolve(path).split(sep).filter(Boolean).map((part) => part.toLowerCase());
   const name = parts.at(-1) ?? "";
   if (parts.some((part) => RUNS_LATER_SEGMENTS.has(part)) || RUNS_LATER_FILES.has(name) || RUNS_LATER_PATTERNS.some((pattern) => pattern.test(name))) return true;
-  const hooks = configuredHooksPath(dirname(resolve(path)));
+  let probe = dirname(resolve(path));
+  while (!existsSync(probe) && dirname(probe) !== probe) probe = dirname(probe);
+  const hooks = hookFacts(probe, git).hooksPath;
   if (!hooks) return false;
   const rel = relative(realOrNearest(hooks), realOrNearest(path));
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-function filesKey(paths: readonly string[] | undefined, roots: readonly string[], key: string, edits: boolean): string | undefined {
+function filesKey(paths: readonly string[] | undefined, roots: readonly string[], key: string, edits: boolean, git: GitSources): string | undefined {
   if (!paths?.length || !paths.every((path) => insideRoots(path, roots))) return undefined;
-  if (paths.some((path) => secretPath(path) || secretPath(realOrNearest(path)))) return undefined;
-  if (edits && paths.some((path) => runsLater(path) || runsLater(realOrNearest(path)))) return undefined;
+  if (paths.some((path) => privatePath(path) || privatePath(realOrNearest(path)))) return undefined;
+  if (edits && paths.some((path) => runsLater(path, git) || runsLater(realOrNearest(path), git))) return undefined;
   return key;
 }
 
 function innerKey(request: GrantRequest): string | undefined {
   const name = bareTool(request.tool);
-  if (request.command) return commandKey(request.command.command, request.command.cwd, request.roots);
+  const git = request.git ?? DEFAULT_GIT;
+  if (request.command) return commandKey(request.command.command, request.command.cwd, request.roots, git);
   if (isShellTool(request.tool)) return undefined;
-  if (EDIT_TOOLS.has(name)) return filesKey(request.paths, request.roots, FILES_EDIT_KEY, true);
-  if (READ_TOOLS.has(name)) return filesKey(request.paths, request.roots, FILES_READ_KEY, false);
+  if (EDIT_TOOLS.has(name)) return filesKey(request.paths, request.roots, FILES_EDIT_KEY, true, git);
+  if (READ_TOOLS.has(name)) return filesKey(request.paths, request.roots, FILES_READ_KEY, false, git);
   return READ_ONLY_TOOLS.has(name) ? TOOL_KEY + name : undefined;
 }
 

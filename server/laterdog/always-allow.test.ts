@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,27 +12,43 @@ import {
   chatOnlyGrants, commandKey, dogAllows, dogGrantKeys, grantKeyFor, grantToDog, liftGrantPause, pathsIn, pauseGrantsInChat,
   peerKeysOnly, revokeFromDog, runsLater, type GrantRequest,
 } from "./always-allow.ts";
+import { hookFacts, type GitSources } from "./git-ask.ts";
 
 const HOME_DIR = "/Users/person";
 const base = mkdtempSync(join(tmpdir(), "always-"));
 const root = join(base, "ws");
 const outside = join(base, "outside");
+const home = join(base, "home");
+mkdirSync(home, { recursive: true });
+writeFileSync(join(base, "system.cfg"), "");
+const GIT: GitSources = { binary: "git", home, systemConfig: join(base, "system.cfg") };
+const git = (cwd: string, ...args: string[]) => {
+  const result = spawnSync("git", ["-c", "init.defaultBranch=main", "-c", "user.name=t", "-c", "user.email=t@example.com", ...args], {
+    cwd, env: { PATH: "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", HOME: home, GIT_CONFIG_SYSTEM: GIT.systemConfig }, encoding: "utf8",
+  });
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr}`);
+};
+const repo = (path: string) => {
+  mkdirSync(path, { recursive: true });
+  git(path, "init", "-q");
+  git(path, "remote", "add", "origin", "https://example.com/r.git");
+  return path;
+};
 mkdirSync(join(root, "sub"), { recursive: true });
-mkdirSync(join(root, ".git"), { recursive: true });
+repo(root);
 mkdirSync(outside, { recursive: true });
-writeFileSync(join(root, ".git", "config"), '[remote "origin"]\n\turl = https://example.com/r.git\n');
 symlinkSync(outside, join(root, "out-link"));
 symlinkSync(join(base, "docs"), join(root, "docs-link"));
 const roots = [root];
-const run = (command: string, cwd = root) => commandKey(command, cwd, roots);
+const run = (command: string, cwd = root) => commandKey(command, cwd, roots, GIT);
 const exact = (command: string, cwd = root) => `exact:${cwd} :: ${command.trim()}`;
-const ask = (request: Omit<GrantRequest, "roots">) => grantKeyFor({ ...request, roots });
+const ask = (request: Omit<GrantRequest, "roots">) => grantKeyFor({ ...request, roots, git: GIT });
 
 afterAll(() => rmSync(base, { recursive: true, force: true }));
 
 const LISTED: Record<string, string> = {
-  "git push": "run:git push", "git 'push'": "run:git push", '"git" push': "run:git push", " git  push": "run:git push",
-  "Git push": "run:git push", "GIT push": "run:git push", "git push origin": "run:git push", "git push origin feature": "run:git push",
+  "git 'status'": "run:git status", '"git" status': "run:git status", " git  status": "run:git status", "Git status": "run:git status",
+  "GIT status": "run:git status",
   "git status": "run:git status", "git diff --stat": "run:git diff", "git log -5": "run:git log", "git add src/a.ts": "run:git add",
   "git commit -m \"fix the build\"": "run:git commit", "git fetch origin": "run:git fetch",
   "gh pr view 12": "run:gh pr view", "gh pr list --state open": "run:gh pr list", "ls sub": "run:ls", "ls": "run:ls",
@@ -196,11 +213,11 @@ describe("generated variants of a granted command", () => {
     return seed / 2147483648;
   };
   const pick = <T>(items: readonly T[]): T => items[Math.floor(random() * items.length)]!;
-  const POOL = ["origin", "main", "feature", "x", "-v", "--quiet", "--dry-run", "--force", "-f", "--mirror", "-c", "core.x=y", "--receive-pack=evil",
-    "--exec=evil", "--upload-pack=x", "evil", "https://evil/x", "HEAD:main", "+main", "../repo", "/tmp/x", "--repo=x", "-o", "--delete", "--tags",
-    "-u", "git@evil:x", "'origin'", "ORIGIN", "out-link/x", "--prune", "@/etc/passwd", "FETCH_HEAD", "refs/pull/1/head", "origin/evil",
-    "--push-option=x", "--recurse-submodules=on-demand", "--atomic", "--no-verify"];
-  const SAFE_EXTRA = new Set(["--no-verify"]);
+  const POOL = ["origin", "main", "feature", "x", "-v", "--quiet", "--dry-run", "-c", "core.x=y", "--receive-pack=evil", "--exec=evil",
+    "--upload-pack=x", "evil", "https://evil/x", "HEAD:main", "+main", "../repo", "/tmp/x", "-o", "--tags", "--all", "--multiple",
+    "git@evil:x", "'origin'", "ORIGIN", "out-link/x", "--prune", "@/etc/passwd", "FETCH_HEAD", "refs/pull/1/head", "origin/evil",
+    "--recurse-submodules=on-demand", "--refmap=x"];
+  const SAFE_EXTRA = new Set<string>();
   const SAFE_OPTIONS = new Set(["-v", "--quiet", "--dry-run"]);
   const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
   const unquote = (word: string) => word.replace(/^'(.*)'$/, "$1");
@@ -212,18 +229,18 @@ describe("generated variants of a granted command", () => {
     return names[0] === "origin" && names.slice(1).every((name) => BRANCH.test(name) && !/HEAD$/i.test(name));
   };
 
-  it("never lets the listed push grant answer outside its stated breadth", () => {
+  it("never lets the listed fetch grant answer outside its stated breadth", () => {
     let listed = 0;
     for (let index = 0; index < 400; index++) {
       const words = Array.from({ length: Math.floor(random() * 4) }, () => pick(POOL));
       const program = pick(["git", "Git", "GIT"]);
       const cwd = pick([root, root, join(root, "sub"), outside, join(root, "out-link")]);
-      const command = [program, "push", ...words].join(pick([" ", "  "]));
+      const command = [program, "fetch", ...words].join(pick([" ", "  "]));
       const key = run(command, cwd);
       const inside = cwd === root || cwd === join(root, "sub");
       const expected = inside && withinPush(words);
-      if (key === "run:git push") listed++;
-      expect(key === "run:git push", `${command} in ${cwd}`).toBe(expected);
+      if (key === "run:git fetch") listed++;
+      expect(key === "run:git fetch", `${command} in ${cwd}`).toBe(expected);
     }
     expect(listed).toBeGreaterThan(20);
   });
@@ -334,20 +351,80 @@ describe("where a lasting approval is kept and read", () => {
 });
 
 
-const hooked = join(base, "hooked");
-mkdirSync(join(hooked, ".git"), { recursive: true });
+const hooked = repo(join(base, "hooked"));
 mkdirSync(join(hooked, "scripts", "git-hooks"), { recursive: true });
-writeFileSync(join(hooked, ".git", "config"), '[core]\n\thooksPath = scripts/git-hooks\n[remote "origin"]\n\turl = x\n');
-const managed = join(base, "managed");
-mkdirSync(join(managed, ".git"), { recursive: true });
+git(hooked, "config", "core.hooksPath", "scripts/git-hooks");
+const managed = repo(join(base, "managed"));
 writeFileSync(join(managed, "lefthook.yml"), "pre-commit: {}\n");
-const linked = join(base, "linked");
-mkdirSync(join(linked, ".git", "hooks"), { recursive: true });
+const linked = repo(join(base, "linked"));
 writeFileSync(join(linked, ".git", "hooks", "pre-commit"), "#!/bin/sh\n");
-const allRoots = [root, hooked, managed, linked];
+const shared = repo(join(base, "shared"));
+git(shared, "commit", "-q", "--allow-empty", "-m", "start");
+git(shared, "config", "core.hooksPath", "scripts/git-hooks");
+const tree = join(base, "tree");
+git(shared, "worktree", "add", "-q", "-b", "work", tree);
+mkdirSync(join(tree, "scripts", "git-hooks"), { recursive: true });
+const included = repo(join(base, "included"));
+writeFileSync(join(base, "include.cfg"), "[core]\n\thooksPath = elsewhere\n");
+git(included, "config", "include.path", join(base, "include.cfg"));
+const plain = repo(join(base, "plain"));
+const allRoots = [root, hooked, managed, linked, shared, tree, included, plain];
+
+describe("asking git whether hooks may run", () => {
+  it("finds none in a plain repository", () => {
+    expect(hookFacts(plain, GIT).state).toBe("none");
+    expect(commandKey("git commit -m x", plain, allRoots, GIT)).toBe("run:git commit");
+  });
+
+  it.each([["a hooks path", hooked], ["a hook manager", managed], ["a hook file", linked], ["a worktree with the hooks path in the shared config", tree],
+    ["an included config", included]])("finds hooks through %s", (_name, repoPath) => {
+    expect(hookFacts(repoPath, GIT).state).toBe("hooks");
+    expect(commandKey("git commit -m x", repoPath, allRoots, GIT)).toBe(`exact:${repoPath} :: git commit -m x`);
+  });
+
+  it("finds hooks set in the system and the person's own config", () => {
+    const system = join(base, "system-hooks.cfg");
+    writeFileSync(system, "[core]\n\thooksPath = /etc/hooks\n");
+    expect(hookFacts(plain, { ...GIT, systemConfig: system }).state).toBe("hooks");
+    const own = join(base, "own-home");
+    mkdirSync(own, { recursive: true });
+    writeFileSync(join(own, ".gitconfig"), "[core]\n\thooksPath = ~/hooks\n");
+    expect(hookFacts(plain, { ...GIT, home: own }).state).toBe("hooks");
+  });
+
+  it("treats git missing, or a folder that is not a repository, as hooks that may run", () => {
+    expect(hookFacts(plain, { ...GIT, binary: "/nonexistent/git" }).state).toBe("doubt");
+    expect(commandKey("git commit -m x", plain, allRoots, { ...GIT, binary: "/nonexistent/git" })).toBe(`exact:${plain} :: git commit -m x`);
+    expect(hookFacts(outside, GIT).state).toBe("doubt");
+  });
+
+  it("keeps edits out of the hooks folder a worktree inherits", () => {
+    expect(grantKeyFor({ tool: "Write", paths: [join(tree, "scripts", "git-hooks", "pre-commit")], roots: allRoots, git: GIT })).toBeUndefined();
+    expect(grantKeyFor({ tool: "Write", paths: [join(tree, "scripts", "build.ts")], roots: allRoots, git: GIT })).toBe("files:edit");
+  });
+});
+
+describe("the third adversarial round", () => {
+  it("never makes git push wide", () => {
+    for (const command of ["git push", "git push origin main", "Git push origin feature"]) expect(run(command)).toBe(exact(command));
+  });
+
+  it("keeps reads under .git exact", () => {
+    for (const command of ["cat .git/config", "head .git/HEAD", "grep url .git/config", "ls .git"]) expect(run(command)).toBe(exact(command));
+    expect(ask({ tool: "Read", paths: [join(root, ".git", "config")] })).toBeUndefined();
+    expect(ask({ tool: "Grep", paths: [join(root, ".git")] })).toBeUndefined();
+  });
+
+  it("matches secret names whole, not inside ordinary names, and still asks for real ones", () => {
+    for (const name of ["tokenizer.ts", "secret-santa.md", "credentialing.md", "authority.ts"]) expect(ask({ tool: "Read", paths: [join(root, name)] })).toBe("files:read");
+    for (const name of ["token", "token.json", "secrets.yaml", "api_token.txt", "db-password", "credentials.json", "auth.json"]) {
+      expect(ask({ tool: "Read", paths: [join(root, name)] })).toBeUndefined();
+    }
+  });
+});
 
 describe("the second adversarial round", () => {
-  const in_ = (command: string, cwd: string) => commandKey(command, cwd, allRoots);
+  const in_ = (command: string, cwd: string) => commandKey(command, cwd, allRoots, GIT);
 
   it.each([hooked, managed, linked])("makes every hook-running git command exact while hooks are configured (%s)", (repo) => {
     for (const command of ["git commit -m x", "git push origin main", "git pull origin main", "git fetch origin", "git checkout main", "git switch main", "git stash"]) {
@@ -358,9 +435,9 @@ describe("the second adversarial round", () => {
   });
 
   it("never lets an edit reach the configured hooks folder or a hook manager", () => {
-    expect(grantKeyFor({ tool: "Write", paths: [join(hooked, "scripts", "git-hooks", "pre-commit")], roots: allRoots })).toBeUndefined();
-    expect(grantKeyFor({ tool: "Write", paths: [join(hooked, "scripts", "build.ts")], roots: allRoots })).toBe("files:edit");
-    expect(grantKeyFor({ tool: "Write", paths: [join(managed, "lefthook.yml")], roots: allRoots })).toBeUndefined();
+    expect(grantKeyFor({ tool: "Write", paths: [join(hooked, "scripts", "git-hooks", "pre-commit")], roots: allRoots, git: GIT })).toBeUndefined();
+    expect(grantKeyFor({ tool: "Write", paths: [join(hooked, "scripts", "build.ts")], roots: allRoots, git: GIT })).toBe("files:edit");
+    expect(grantKeyFor({ tool: "Write", paths: [join(managed, "lefthook.yml")], roots: allRoots, git: GIT })).toBeUndefined();
   });
 
   it.each([
@@ -381,7 +458,7 @@ describe("the second adversarial round", () => {
 
   it("never answers a folder-code command granted in one project in another folder, a clone or a subfolder", () => {
     const granted = run("pnpm test");
-    for (const cwd of [join(root, "sub"), hooked, managed, outside]) expect(commandKey("pnpm test", cwd, allRoots)).not.toBe(granted);
+    for (const cwd of [join(root, "sub"), hooked, managed, outside]) expect(commandKey("pnpm test", cwd, allRoots, GIT)).not.toBe(granted);
   });
 
   it.each([
