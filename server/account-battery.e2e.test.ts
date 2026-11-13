@@ -299,6 +299,29 @@ it("waits when every account is out of usage, then picks up where it stopped onc
   });
 }, 150_000);
 
+it("does not run a new message on an account the person switched off when nothing can cover", async () => {
+  await withBatteryFixture({}, async (fixture) => {
+    const { api, firstPrompts, secondPrompts, evidence } = fixture;
+    const chat = await batteryBot(fixture, "Switched off");
+    for (const id of ["claude", "claude-two"]) await api("PATCH", `/api/instances/${id}`, { enabled: false });
+    await expect.poll(async () => (await api("GET", "/api/instances")).instances.filter((instance: any) => instance.enabled === false).length, { timeout: 20_000 }).toBe(2);
+    const text = "OFF_ACCOUNT_7K";
+    await chat.send(text).catch((error: unknown) => evidence.push({ sendError: String(error) }));
+    await new Promise((resolve) => setTimeout(resolve, 4_000));
+    const rows = await chat.messages();
+    const task = await chat.task();
+    evidence.push({ offRows: rows, offTask: task, firstPrompts: firstPrompts().length, secondPrompts: secondPrompts().length });
+    console.info(JSON.stringify({ offAccount: { rows: rows.map((row: any) => ({ role: row.role, kind: row.kind, text: row.text, tool: row.tool?.name, requestPending: row.requestPending })), work: task.work, busy: task.busy, firstPrompts: firstPrompts().length, secondPrompts: secondPrompts().length } }));
+    expect(firstPrompts()).toHaveLength(0);
+    expect(secondPrompts()).toHaveLength(0);
+    expect(task.work).toEqual({ kind: "needs-you", what: "Turn Claude account 1 back on" });
+    await api("PATCH", "/api/instances/claude", { enabled: true });
+    await expect.poll(async () => lastReply(await chat.messages())?.text, { timeout: 60_000, interval: 500 }).toBe("hello from fake claude");
+    expect(firstPrompts()).toHaveLength(1);
+    expect(promptText(firstPrompts()[0])).toContain(text);
+  });
+}, 150_000);
+
 it("changes nothing while the battery is off, beyond reporting the limit as a failed turn", async () => {
   await withBatteryFixture({ enabled: false }, async (fixture) => {
     const { firstPrompts, secondPrompts, gate, api, evidence } = fixture;

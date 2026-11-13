@@ -728,7 +728,7 @@ import {
   type BatteryAccount, type BatteryRerun,
 } from "./laterdog/account-battery.ts";
 import { carriesOn, carryOnAfterReset, type CarryOnInput } from "./laterdog/carry-on.ts";
-import { accountNeedsYou, waitsOnPerson } from "./laterdog/account-needs-you.ts";
+import { accountNeedsYou, switchedOff, waitsOnPerson } from "./laterdog/account-needs-you.ts";
 import { settlePickup, shownWaiting, usageHeld, type PickupOutcome } from "./laterdog/person-wait.ts";
 import { guestBattery } from "./laterdog/battery-view.ts";
 import { continueOnAccount } from "./laterdog/continue-on-account.ts";
@@ -7839,7 +7839,8 @@ function drainQueuedSends() {
 
 async function startOrQueueDirectMessage(botId: string, threadId: string, text: string, replyTo?: Message, sendId?: string, sender?: ResolvedSender, trigger?: UsageTrigger, via?: "api" | "call") {
   const behindHeld = batteryContinuationPending(threadId) || (limitHold.holds(threadId) && hasQueuedSteeredMessages(botId, threadId));
-  const off = limitHold.waitsOnPerson(threadId);
+  const selection = store.projectBotForTask(botId, threadId)?.modelSelection;
+  const off = limitHold.waitsOnPerson(threadId) || Boolean(selection && switchedOff(accountBattery.decide(selection, batteryAccounts(), threadId)));
   const decision = admit("direct", {}, {
     atCapacity: botAtThreadCapacity(botId),
     threadBusy: threadBusy(botId, threadId) || behindHeld || off,
@@ -19808,6 +19809,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse) => {
       } finally {
         providerInstancesChanging.delete(instanceId);
         providerConfigBusy = false;
+        void usageWatch.tick();
       }
     }
 

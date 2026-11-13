@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AccountChoice } from "./account-choice.ts";
-import { accountNeedsYou, waitsOnPerson } from "./account-needs-you.ts";
+import { accountNeedsYou, switchedOff, waitsOnPerson } from "./account-needs-you.ts";
 
 const run = { instanceId: "daniel", model: "claude-fable-5-2" };
 const waiting = (blocked: "limit" | "signIn" | "signedOut" | "off"): AccountChoice => ({ kind: "waiting", run, chosen: "daniel", blocked });
@@ -32,5 +32,12 @@ describe("a chat whose chosen account needs the person", () => {
   it("waits on the person only for a waiting decision that is not a limit", () => {
     expect(["limit", "signIn", "signedOut", "off"].map((blocked) => waitsOnPerson(waiting(blocked as "limit")))).toEqual([false, true, true, true]);
     expect(waitsOnPerson({ kind: "chosen", run })).toBe(false);
+  });
+});
+
+describe("a new message to a switched-off account", () => {
+  it("waits only when the chosen account is off and nothing covers", () => {
+    expect(["limit", "signIn", "signedOut", "off"].map((blocked) => switchedOff(waiting(blocked as "limit")))).toEqual([false, false, false, true]);
+    expect(switchedOff({ kind: "covering", run: { ...run, instanceId: "adam" }, chosen: "daniel", blocked: "off" })).toBe(false);
   });
 });
